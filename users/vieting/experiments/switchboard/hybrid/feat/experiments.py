@@ -24,9 +24,9 @@ def run_gmm_system_from_common():
 
 
 def get_hybrid_nn_system(
-        context_window: int,
-        train_seq_ordering: Optional[str] = None,
-        audio_opts: Optional[Dict[str, Any]] = None,
+    context_window: int,
+    train_seq_ordering: Optional[str] = None,
+    audio_opts: Optional[Dict[str, Any]] = None,
 ):
     gmm_system = run_gmm_system_from_common()
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
@@ -98,13 +98,16 @@ def run_baseline_gt():
             "gt40_pe": dict(
                 returnn_args=dict(batch_size=14000),
                 feature_args={
-                    "class": "GammatoneNetwork", "sample_rate": 8000, "freq_max": 3800., "output_dim": 40,
+                    "class": "GammatoneNetwork",
+                    "sample_rate": 8000,
+                    "freq_max": 3800.0,
+                    "output_dim": 40,
                     "preemphasis": 1.0,
                 },
             ),
         },
         num_epochs=260,
-        prefix="conformer_bs14k_"
+        prefix="conformer_bs14k_",
     )
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
@@ -118,13 +121,17 @@ def run_baseline_gt():
             "gt40_pe_wavenorm": dict(
                 returnn_args=dict(batch_size=14000),
                 feature_args={
-                    "class": "GammatoneNetwork", "sample_rate": 8000, "freq_max": 3800., "output_dim": 40,
-                    "preemphasis": 1.0, "wave_norm": True,
+                    "class": "GammatoneNetwork",
+                    "sample_rate": 8000,
+                    "freq_max": 3800.0,
+                    "output_dim": 40,
+                    "preemphasis": 1.0,
+                    "wave_norm": True,
                 },
             ),
         },
         num_epochs=260,
-        prefix="conformer_bs14k_"
+        prefix="conformer_bs14k_",
     )
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
@@ -140,7 +147,11 @@ def run_baseline_mel():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
 
     log_mel_args_8khz = {
-        "class": "LogMelNetwork", "wavenorm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256
+        "class": "LogMelNetwork",
+        "wavenorm": True,
+        "frame_size": 200,
+        "frame_shift": 80,
+        "fft_size": 256,
     }
     nn_args = get_nn_args_baseline(
         nn_base_args={
@@ -169,7 +180,7 @@ def run_baseline_mel():
             ),
         },
         num_epochs=260,
-        prefix="conformer_bs14k_"
+        prefix="conformer_bs14k_",
     )
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
@@ -185,7 +196,11 @@ def run_specaug_mel():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
 
     log_mel_args_8khz = {
-        "class": "LogMelNetwork", "wavenorm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256
+        "class": "LogMelNetwork",
+        "wavenorm": True,
+        "frame_size": 200,
+        "frame_shift": 80,
+        "fft_size": 256,
     }
     nn_args = get_nn_args_baseline(
         nn_base_args={
@@ -193,13 +208,13 @@ def run_specaug_mel():
                 returnn_args=dict(
                     batch_size=14000,
                     specaug_shuffled=True,
-                    ),
+                ),
                 feature_args=log_mel_args_8khz,
                 peak_lr=8e-4,
             ),
         },
         num_epochs=260,
-        prefix="conformer_bs14k_specaug_shuffled_"
+        prefix="conformer_bs14k_specaug_shuffled_",
     )
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
@@ -270,7 +285,8 @@ def run_baseline_scf():
                     "class": "ScfNetwork",
                     "size_tf": 256 // 2,
                     "stride_tf": 10 // 2,
-                    "normalization_env": "batch"},
+                    "normalization_env": "batch",
+                },
             ),
         },
         prefix="conformer_bs14k_",
@@ -327,7 +343,7 @@ def run_specaug_scf():
                     batch_size=7000,
                     specaug_mask_sorting=True,
                     specaug_after_first_layer=True,
-                    extra_args=dict(accum_grad_multiple_step=2)
+                    extra_args=dict(accum_grad_multiple_step=2),
                 ),
                 feature_args=scf_args_8khz,
             ),
@@ -349,11 +365,11 @@ def run_specaug_scf():
             ),
             "scf_divisor-4": dict(
                 returnn_args=dict(
-                    batch_size=3500, 
+                    batch_size=3500,
                     specaug_mask_sorting=True,
                     specaug_after_first_layer=True,
                     mask_divisor=4,
-                    extra_args=dict(accum_grad_multiple_step=4)
+                    extra_args=dict(accum_grad_multiple_step=4),
                 ),
                 feature_args=scf_args_8khz,
             ),
@@ -363,7 +379,7 @@ def run_specaug_scf():
                     specaug_mask_sorting=True,
                     specaug_after_first_layer=True,
                     mask_divisor=6,
-                    extra_args=dict(accum_grad_multiple_step=4)
+                    extra_args=dict(accum_grad_multiple_step=4),
                 ),
                 feature_args=scf_args_8khz,
             ),

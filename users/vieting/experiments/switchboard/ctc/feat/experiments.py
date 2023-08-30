@@ -11,7 +11,8 @@ from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00
 from i6_experiments.common.setups.rasr.util import RasrDataInput
 from i6_experiments.users.berger.recipe.lexicon.modification import DeleteEmptyOrthJob, MakeBlankLexiconJob
 from i6_experiments.users.vieting.tools.report import Report
-from i6_experiments.users.vieting.experiments.switchboard.hybrid.feat.experiments import run_gmm_system_from_common  # TODO: might be copied here for stability
+# TODO: run_gmm_system_from_common might be copied here for stability
+from i6_experiments.users.vieting.experiments.switchboard.hybrid.feat.experiments import run_gmm_system_from_common
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_system_v2 import (
     TransducerSystem,
     ReturnnConfigs,
@@ -42,7 +43,7 @@ def get_datasets(**kwargs):
         partition_epoch={"train": 6, "dev": 1},
         returnn_root=RETURNN_ROOT,
         returnn_python_exe=RETURNN_EXE,
-        **kwargs
+        **kwargs,
     )
 
     returnn_datasets = {
@@ -67,18 +68,20 @@ def get_datasets(**kwargs):
     corpus_object.corpus_file = hub5e00.bliss_corpus
     corpus_object.audio_format = nn_dev_data_inputs["hub5e00"].crp.audio_format
     corpus_object.duration = nn_dev_data_inputs["hub5e00"].crp.corpus_duration
-    dev_corpora = {"hub5e00": RasrDataInput(
-        corpus_object=corpus_object,
-        lexicon={
-            "filename": recog_lexicon,
-            "normalize_pronunciation": False,
-            "add_all": True,
-            "add_from_lexicon": False,
-        },
-        lm={"filename": nn_dev_data_inputs["hub5e00"].crp.language_model_config.file, "type": "ARPA"},
-        stm=hub5e00.stm,
-        glm=hub5e00.glm,
-    )}
+    dev_corpora = {
+        "hub5e00": RasrDataInput(
+            corpus_object=corpus_object,
+            lexicon={
+                "filename": recog_lexicon,
+                "normalize_pronunciation": False,
+                "add_all": True,
+                "add_from_lexicon": False,
+            },
+            lm={"filename": nn_dev_data_inputs["hub5e00"].crp.language_model_config.file, "type": "ARPA"},
+            stm=hub5e00.stm,
+            glm=hub5e00.glm,
+        )
+    }
 
     return returnn_datasets, rasr_loss_corpus, rasr_loss_segments, rasr_loss_lexicon, dev_corpora
 
@@ -87,7 +90,11 @@ def run_test_mel():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
 
     (
-        returnn_datasets, rasr_loss_corpus_path, rasr_loss_corpus_segments, rasr_loss_lexicon_path, dev_corpora
+        returnn_datasets,
+        rasr_loss_corpus_path,
+        rasr_loss_corpus_segments,
+        rasr_loss_lexicon_path,
+        dev_corpora,
     ) = get_datasets()
     returnn_args = {
         "batch_size": 10000,
@@ -97,13 +104,7 @@ def run_test_mel():
         "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
         "datasets": returnn_datasets,
     }
-    feature_args = {
-        "class": "LogMelNetwork",
-        "wavenorm": True,
-        "frame_size": 200,
-        "frame_shift": 80,
-        "fft_size": 256
-    }
+    feature_args = {"class": "LogMelNetwork", "wavenorm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
     returnn_datasets_laplace25 = copy.deepcopy(returnn_datasets)
     returnn_datasets_laplace25["train"]["seq_ordering"] = "laplace:.25"
 
@@ -128,8 +129,13 @@ def run_test_mel():
                 returnn_args={"conformer_type": "wei", **returnn_args},
                 feature_args=feature_args,
                 lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 119, "peak_epochs": 1, "decrease_epochs": 120, "final_epochs": 0,
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 119,
+                    "peak_epochs": 1,
+                    "decrease_epochs": 120,
+                    "final_epochs": 0,
                 },
                 report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4"},
             ),
@@ -137,8 +143,13 @@ def run_test_mel():
                 returnn_args={"conformer_type": "wei", **returnn_args},
                 feature_args=feature_args,
                 lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 119,
+                    "peak_epochs": 2,
+                    "decrease_epochs": 119,
+                    "final_epochs": 0,
                 },
                 report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4"},
             ),
@@ -146,8 +157,13 @@ def run_test_mel():
                 returnn_args={"conformer_type": "wei", "specaug_old": {}, **returnn_args},
                 feature_args=feature_args,
                 lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 119,
+                    "peak_epochs": 2,
+                    "decrease_epochs": 119,
+                    "final_epochs": 0,
                 },
                 report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei"},
             ),
@@ -155,19 +171,32 @@ def run_test_mel():
                 returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
                 feature_args=feature_args,
                 lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 119,
+                    "peak_epochs": 2,
+                    "decrease_epochs": 119,
+                    "final_epochs": 0,
                 },
                 report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei_adapt_80dim"},
             ),
             "lgm80_conf-wei-oldspecaug-bs3200step": dict(
                 returnn_args={
-                    "conformer_type": "wei", "specaug_old": {}, **returnn_args, "batch_size": {"data": 514635},
+                    "conformer_type": "wei",
+                    "specaug_old": {},
+                    **returnn_args,
+                    "batch_size": {"data": 514635},
                 },
                 feature_args=feature_args,
                 lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 119,
+                    "peak_epochs": 2,
+                    "decrease_epochs": 119,
+                    "final_epochs": 0,
                 },
                 report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei"},
             ),
@@ -180,19 +209,32 @@ def run_test_mel():
                 },
                 feature_args=feature_args,
                 lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 119,
+                    "peak_epochs": 2,
+                    "decrease_epochs": 119,
+                    "final_epochs": 0,
                 },
                 report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei_adapt_80dim"},
             ),
             "lgm80_conf-wei-oldspecaug-laplace25": dict(
                 returnn_args={
-                    "conformer_type": "wei", "specaug_old": {}, **returnn_args, "datasets": returnn_datasets_laplace25,
+                    "conformer_type": "wei",
+                    "specaug_old": {},
+                    **returnn_args,
+                    "datasets": returnn_datasets_laplace25,
                 },
                 feature_args=feature_args,
                 lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 119,
+                    "peak_epochs": 2,
+                    "decrease_epochs": 119,
+                    "final_epochs": 0,
                 },
                 report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei"},
             ),
@@ -200,8 +242,13 @@ def run_test_mel():
                 returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
                 feature_args=feature_args,
                 lr_args={
-                    "peak_lr": 2 * 4e-4, "start_lr": 2 * 1.325e-05, "end_lr": 2 * 1e-5,
-                    "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
+                    "peak_lr": 2 * 4e-4,
+                    "start_lr": 2 * 1.325e-05,
+                    "end_lr": 2 * 1e-5,
+                    "increase_epochs": 119,
+                    "peak_epochs": 2,
+                    "decrease_epochs": 119,
+                    "final_epochs": 0,
                 },
                 report_args={"architecture": "conf-wei", "lr": "wei_peak_8e-4", "specaug": "wei_adapt_80dim"},
             ),
@@ -235,7 +282,7 @@ def run_test_mel():
             # ),
         },
         num_epochs=300,
-        prefix="conformer_bs10k_"
+        prefix="conformer_bs10k_",
     )
 
     returnn_configs = {}
@@ -305,7 +352,7 @@ def run_test_mel():
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_file = tk.Path(
         "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
         hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
-        cached=True
+        cached=True,
     )
     ctc_nn_system.run_train_step(nn_args.training_args)
     ctc_nn_system.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
@@ -337,10 +384,11 @@ def run_test_mel():
             "from": "output",
             "is_output_layer": True,
             "eval": f"source(0) - tf.expand_dims("
-                    f"tf.one_hot([{blank_index}], {num_outputs}, on_value={blank_penalty}, dtype=tf.float32), axis=0)",
+            f"tf.one_hot([{blank_index}], {num_outputs}, on_value={blank_penalty}, dtype=tf.float32), axis=0)",
         }
         ctc_nn_system_blank_penalty.returnn_configs[exp_name].recog_configs[
-            f"recog_blank-penalty-{blank_penalty}"] = config
+            f"recog_blank-penalty-{blank_penalty}"
+        ] = config
     ctc_nn_system_blank_penalty.run_recogs_for_corpora(
         ["hub5e00"],
         exp_name,
@@ -385,7 +433,8 @@ def run_test_mel():
     )
     ctc_nn_system_wei_lex.corpus_data["hub5e00"].lexicon["filename"] = wei_lex
     ctc_nn_system_wei_lex.run_dev_recog_step(
-        recog_args=recog_args, extra_name="_lex-wei", report_args=report_args_wei_lex)
+        recog_args=recog_args, extra_name="_lex-wei", report_args=report_args_wei_lex
+    )
 
     # longer training to compensate for fewer steps per epoch
     feature_args_wave_norm = {
@@ -393,7 +442,7 @@ def run_test_mel():
         "wave_norm": True,
         "frame_size": 200,
         "frame_shift": 80,
-        "fft_size": 256
+        "fft_size": 256,
     }
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
@@ -401,8 +450,12 @@ def run_test_mel():
                 returnn_args={"conformer_type": "wei", "specaug_old": {}, **returnn_args},
                 feature_args=feature_args,
                 lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 180, "decrease_epochs": 180, "final_epochs": 0,
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 180,
+                    "decrease_epochs": 180,
+                    "final_epochs": 0,
                 },
                 report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4_e450_cycle360", "specaug": "wei"},
             ),
@@ -410,44 +463,74 @@ def run_test_mel():
                 returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
                 feature_args=feature_args,
                 lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 180, "decrease_epochs": 180, "final_epochs": 0,
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 180,
+                    "decrease_epochs": 180,
+                    "final_epochs": 0,
                 },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4_e450_cycle360", "specaug": "wei_adapt_80dim"},
+                report_args={
+                    "architecture": "conf-wei",
+                    "lr": "wei_peak_4e-4_e450_cycle360",
+                    "specaug": "wei_adapt_80dim",
+                },
             ),
             "lgm80_conf-wei-oldspecaug2-e450v2": dict(
                 returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
                 feature_args=feature_args,
                 lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 160, "decrease_epochs": 160, "final_epochs": 0,
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 160,
+                    "decrease_epochs": 160,
+                    "final_epochs": 0,
                 },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4_e450_320cycle", "specaug": "wei_adapt_80dim"},
+                report_args={
+                    "architecture": "conf-wei",
+                    "lr": "wei_peak_4e-4_e450_320cycle",
+                    "specaug": "wei_adapt_80dim",
+                },
             ),
             "lgm80_conf-wei-oldspecaug2-e450v3": dict(
                 returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
                 feature_args=feature_args,
                 lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 200, "decrease_epochs": 200, "final_epochs": 0,
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 200,
+                    "decrease_epochs": 200,
+                    "final_epochs": 0,
                 },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4_e450_400_cycle", "specaug": "wei_adapt_80dim"},
+                report_args={
+                    "architecture": "conf-wei",
+                    "lr": "wei_peak_4e-4_e450_400_cycle",
+                    "specaug": "wei_adapt_80dim",
+                },
             ),
             "lgm80_conf-wei-oldspecaug2-e450v1-wavenorm": dict(
                 returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
                 feature_args=feature_args_wave_norm,
                 lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 180, "decrease_epochs": 180, "final_epochs": 0,
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 180,
+                    "decrease_epochs": 180,
+                    "final_epochs": 0,
                 },
                 report_args={
-                    "architecture": "conf-wei", "lr": "wei_peak_4e-4_e450_cycle360", "specaug": "wei_adapt_80dim",
+                    "architecture": "conf-wei",
+                    "lr": "wei_peak_4e-4_e450_cycle360",
+                    "specaug": "wei_adapt_80dim",
                     "wave_norm": "True",
                 },
             ),
         },
         num_epochs=450,
-        prefix="conformer_bs10k_"
+        prefix="conformer_bs10k_",
     )
 
     returnn_configs = {}
@@ -468,19 +551,22 @@ def run_test_mel():
     ctc_nn_system_e450.run_train_step(nn_args.training_args)
     ctc_nn_system_e450.run_dev_recog_step(recog_args=recog_args_e450, report_args=report_args_collection)
 
-    report = Report.merge_reports([
-        ctc_nn_system.report,
-        ctc_nn_system_e450.report,
-        ctc_nn_system_blank_penalty.report,
-        ctc_nn_system_wei_lm.report,
-        ctc_nn_system_wei_lex.report,
-    ])
+    report = Report.merge_reports(
+        [
+            ctc_nn_system.report,
+            ctc_nn_system_e450.report,
+            ctc_nn_system_blank_penalty.report,
+            ctc_nn_system_wei_lm.report,
+            ctc_nn_system_wei_lex.report,
+        ]
+    )
     report.delete_redundant_columns()
     report.delete_redundant_rows()
     tk.register_report(
         os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report.csv"),
         values=report.get_values(),
-        template=report.get_template())
+        template=report.get_template(),
+    )
 
 
 def run_mel_nn_args(nn_args, report_args_collection, report_name, dev_corpora):
@@ -551,27 +637,31 @@ def run_mel_nn_args(nn_args, report_args_collection, report_name, dev_corpora):
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_file = tk.Path(
         "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
         hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
-        cached=True
+        cached=True,
     )
     ctc_nn_system.run_train_step(nn_args.training_args)
     ctc_nn_system.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
 
-    report = Report.merge_reports([
-        ctc_nn_system.report,
-    ])
+    assert ctc_nn_system.report is not None
+    report = ctc_nn_system.report
     report.delete_redundant_columns()
     report.delete_redundant_rows()
     tk.register_report(
         os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, report_name),
         values=report.get_values(),
-        template=report.get_template())
+        template=report.get_template(),
+    )
 
 
 def run_mel_baseline():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
 
     (
-        returnn_datasets, rasr_loss_corpus_path, rasr_loss_corpus_segments, rasr_loss_lexicon_path, dev_corpora
+        returnn_datasets,
+        rasr_loss_corpus_path,
+        rasr_loss_corpus_segments,
+        rasr_loss_lexicon_path,
+        dev_corpora,
     ) = get_datasets()
     returnn_args = {
         "batch_size": 10000,
@@ -581,13 +671,7 @@ def run_mel_baseline():
         "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
         "datasets": returnn_datasets,
     }
-    feature_args = {
-        "class": "LogMelNetwork",
-        "wave_norm": True,
-        "frame_size": 200,
-        "frame_shift": 80,
-        "fft_size": 256
-    }
+    feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
@@ -595,17 +679,23 @@ def run_mel_baseline():
                 returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
                 feature_args=feature_args,
                 lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 180, "decrease_epochs": 180, "final_epochs": 0,
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 180,
+                    "decrease_epochs": 180,
+                    "final_epochs": 0,
                 },
                 report_args={
-                    "architecture": "conf-wei", "lr": "wei_peak_4e-4_e450_cycle360", "specaug": "wei_adapt_80dim",
+                    "architecture": "conf-wei",
+                    "lr": "wei_peak_4e-4_e450_cycle360",
+                    "specaug": "wei_adapt_80dim",
                     "wave_norm": "True",
                 },
             ),
         },
         num_epochs=450,
-        prefix="conformer_bs10k_"
+        prefix="conformer_bs10k_",
     )
     run_mel_nn_args(nn_args, report_args_collection, "report_mel_baseline.csv", dev_corpora)
 
@@ -614,7 +704,11 @@ def run_mel_audio_perturbation():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
 
     (
-        returnn_datasets, rasr_loss_corpus_path, rasr_loss_corpus_segments, rasr_loss_lexicon_path, dev_corpora
+        returnn_datasets,
+        rasr_loss_corpus_path,
+        rasr_loss_corpus_segments,
+        rasr_loss_lexicon_path,
+        dev_corpora,
     ) = get_datasets(pre_process=CodeWrapper("audio_perturb_runner.run"))
     returnn_args = {
         "batch_size": 10000,
@@ -624,13 +718,7 @@ def run_mel_audio_perturbation():
         "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
         "datasets": returnn_datasets,
     }
-    feature_args = {
-        "class": "LogMelNetwork",
-        "wave_norm": True,
-        "frame_size": 200,
-        "frame_shift": 80,
-        "fft_size": 256
-    }
+    feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
@@ -644,18 +732,26 @@ def run_mel_audio_perturbation():
                             "speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12},
                             "tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17},
                         },
-                        "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)")
+                        "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
                     },
-                    **returnn_args
+                    **returnn_args,
                 },
                 feature_args=feature_args,
                 lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 180, "decrease_epochs": 180, "final_epochs": 0,
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 180,
+                    "decrease_epochs": 180,
+                    "final_epochs": 0,
                 },
                 report_args={
-                    "architecture": "conf-wei", "lr": "wei_peak_4e-4_e450_cycle360", "speed": "0.6_0.88_1.12",
-                    "tempo": "0.6_0.83_1.17",  "specaug": "wei_adapt_80dim", "wave_norm": "True",
+                    "architecture": "conf-wei",
+                    "lr": "wei_peak_4e-4_e450_cycle360",
+                    "speed": "0.6_0.88_1.12",
+                    "tempo": "0.6_0.83_1.17",
+                    "specaug": "wei_adapt_80dim",
+                    "wave_norm": "True",
                 },
             ),
             "lgm80_conf-wei-oldspecaug-audio_perturbation_v1": dict(
@@ -664,23 +760,31 @@ def run_mel_audio_perturbation():
                     "specaug_old": {"max_feature": 8},
                     "audio_perturbation": True,
                     "extra_args": {
-                        "audio_perturb_args": { # v1
+                        "audio_perturb_args": {  # v1
                             "speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12},
                             "tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17},
                             "preemphasis": {"prob": 0.9, "minimum": 0.9, "maximum": 1.0},
                         },
-                        "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)")
+                        "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
                     },
-                    **returnn_args
+                    **returnn_args,
                 },
                 feature_args=feature_args,
                 lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 180, "decrease_epochs": 180, "final_epochs": 0,
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 180,
+                    "decrease_epochs": 180,
+                    "final_epochs": 0,
                 },
                 report_args={
-                    "architecture": "conf-wei", "lr": "wei_peak_4e-4_e450_cycle360", "speed": "0.6_0.88_1.12",
-                    "tempo": "0.6_0.83_1.17", "specaug": "wei_adapt_80dim", "wave_norm": "True",
+                    "architecture": "conf-wei",
+                    "lr": "wei_peak_4e-4_e450_cycle360",
+                    "speed": "0.6_0.88_1.12",
+                    "tempo": "0.6_0.83_1.17",
+                    "specaug": "wei_adapt_80dim",
+                    "wave_norm": "True",
                     "preemphasis": "0.9_0.9_1.0",
                 },
             ),
@@ -696,24 +800,33 @@ def run_mel_audio_perturbation():
                             "preemphasis": {"prob": 0.9, "minimum": 0.9, "maximum": 1.0},
                             "codecs": [{"encoding": "ULAW", "prob": 0.4}],
                         },
-                        "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)")
+                        "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
                     },
-                    **returnn_args
+                    **returnn_args,
                 },
                 feature_args=feature_args,
                 lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 180, "decrease_epochs": 180, "final_epochs": 0,
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 180,
+                    "decrease_epochs": 180,
+                    "final_epochs": 0,
                 },
                 report_args={
-                    "architecture": "conf-wei", "lr": "wei_peak_4e-4_e450_cycle360", "speed": "0.6_0.88_1.12",
-                    "tempo": "0.6_0.83_1.17", "specaug": "wei_adapt_80dim", "wave_norm": "True",
-                    "preemphasis": "0.9_0.9_1.0", "codec": "wav_ulaw_0.4",
+                    "architecture": "conf-wei",
+                    "lr": "wei_peak_4e-4_e450_cycle360",
+                    "speed": "0.6_0.88_1.12",
+                    "tempo": "0.6_0.83_1.17",
+                    "specaug": "wei_adapt_80dim",
+                    "wave_norm": "True",
+                    "preemphasis": "0.9_0.9_1.0",
+                    "codec": "wav_ulaw_0.4",
                 },
             ),
         },
         num_epochs=450,
-        prefix="conformer_bs10k_"
+        prefix="conformer_bs10k_",
     )
     run_mel_nn_args(nn_args, report_args_collection, "report_mel_audio_perturbation.csv", dev_corpora)
 
