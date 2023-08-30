@@ -111,7 +111,7 @@ def run(
             multitask=True,
             num_states_per_phone=3,
             run_performance_study=True,
-            tune_decoding=False,
+            tune_decoding=True,
         ),
         Experiment(
             alignment=scratch_align,
