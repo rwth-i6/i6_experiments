@@ -455,7 +455,7 @@ def run_single(
                     jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30", "--nice=500"]})
 
             if run_performance_study:
-                for altas, beam in itertools.product([2, 4, 6, 8, 12], [10, 12, 14, 16]):
+                for altas, beam in itertools.product([2, 4, 6], [12, 14, 16]):
                     jobs = recognizer.recognize_count_lm(
                         calculate_stats=True,
                         gpu=False,
