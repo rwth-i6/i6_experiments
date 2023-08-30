@@ -420,7 +420,7 @@ def run_single(
         )
         for cfg in [
             dataclasses.replace(best_config, altas=a, beam=b, lm_scale=best_config.lm_scale + 0.01)
-            for a, b in itertools.product([None, 2, 4], [14, 16, 18])
+            for a, b in itertools.product([None, 2, 4], [12, 14, 16])
         ]:
             jobs = recognizer.recognize_count_lm(
                 label_info=s.label_info,
