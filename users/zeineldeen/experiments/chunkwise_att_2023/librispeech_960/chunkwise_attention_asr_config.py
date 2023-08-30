@@ -757,7 +757,7 @@ def create_config(
                 use_cached_prev_kv=conf_mem_opts.get("use_cached_prev_kv", False),
                 mem_slice_size=conf_mem_opts.get("mem_slice_size", None),
                 mem_slice_start=conf_mem_opts.get("mem_slice_start", None),
-                emformer_like_mem_size=conf_mem_opts.get("emformer_like_mem_size", None),
+                use_emformer_mem=conf_mem_opts.get("use_emformer_mem", False),
             )
 
         conformer_encoder = encoder_type(**encoder_args)

@@ -234,7 +234,7 @@ class ConformerEncoder:
             self.enc_per_head_dim = FeatureDim("enc-dim-per-head", self.enc_key_per_head_dim)
             if self.memory_variant_opts.conv_cache_size:
                 self.conv_cache_concat_dim = SpatialDim("conv-cache-concat")
-            if self.memory_variant_opts.emformer_like_mem_size:
+            if self.memory_variant_opts.use_emformer_mem:
                 self.emformer_mem_bank_concat_dim = SpatialDim("emformer-mem-bank-concat")
 
     def _create_ff_module(self, prefix_name, i, source, layer_index):
@@ -374,19 +374,9 @@ class ConformerEncoder:
             L2=self.self_att_l2,
         )  # [B*C, W*N, D] or [B*C, W, D]
 
-        if self.memory_variant_opts.emformer_like_mem_size:
-            mem_bank_chunks = self._get_mem_chunks(
-                f"{prefix_name}_ln_mem_bank",
-                f"{prefix_name}_emformer_mem",
-                self.memory_variant_opts.emformer_like_mem_size,
-            )
-            # concat mem banks and project
-            mem_bank_concat = self.network.add_generic_layer(
-                f"{prefix_name}_ln_mem_bank_concat",
-                cls="concat",
-                source=[*mem_bank_chunks],
-                out_dim=self.emformer_mem_bank_concat_dim,
-            )  # [B*C, emf_mem_size, D]
+        if self.memory_variant_opts.use_emformer_mem:
+            # f"{prefix_name}_emformer_mem" has shape [B*C, D]
+            raise NotImplementedError("Emformer memory not implemented yet.")
         else:
             mem_bank_concat = None
 
@@ -476,7 +466,7 @@ class ConformerEncoder:
             L2=self.self_att_l2,
         )  # second half of shape [B*C, W, D]
 
-        if self.memory_variant_opts.emformer_like_mem_size:
+        if self.memory_variant_opts.use_emformer_mem:
             assert (
                 self.memory_variant_opts.mem_slice_start is not None
                 and self.memory_variant_opts.mem_slice_size is not None
@@ -612,7 +602,7 @@ class ConformerEncoder:
             set_axes={"T": f"dim:{self.memory_variant_opts.chunk_size}"},
         )  # [B*C, W, D]
 
-        if self.memory_variant_opts.emformer_like_mem_size:
+        if self.memory_variant_opts.use_emformer_mem:
             # used later by shift layer to collect a memory bank
             self.network.add_generic_layer(
                 f"{prefix_name}_emformer_mem",
@@ -1159,4 +1149,4 @@ class ConformerMemoryVariantOpts:
     mem_slice_size: int
     conv_cache_size: int
     use_cached_prev_kv: bool
-    emformer_like_mem_size: int
+    use_emformer_mem: bool
