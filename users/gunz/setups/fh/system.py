@@ -1505,6 +1505,9 @@ class FactoredHybridSystem(NnSystem):
         if params.altas is not None:
             if adv_search_extra_config is None:
                 adv_search_extra_config = rasr.RasrConfig()
+            else:
+                adv_search_extra_config = copy.deepcopy(adv_search_extra_config)
+
             adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.acoustic_lookahead_temporal_approximation_scale = (
                 params.altas
             )
