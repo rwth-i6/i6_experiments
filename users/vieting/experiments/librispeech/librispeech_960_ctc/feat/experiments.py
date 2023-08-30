@@ -63,6 +63,23 @@ def run_baseline():
         "rasr_loss_lexicon_path": rasr_loss_lexicon_path_new,
         "datasets": returnn_datasets_new,
     })
+    returnn_datasets_old = copy.deepcopy(returnn_datasets)
+    returnn_datasets_old["train"]["path"] = tk.Path(
+        "/work/asr4/vieting/setups/librispeech/work/crnn/oggzip/BlissToOggZipJob.PMoMRrqXpZWl/output/out.ogg.zip",
+        hash_overwrite="librispeech_960_train_old.ogg.zip",
+    )
+    returnn_datasets_old["dev"]["path"] = tk.Path(
+        "/work/asr4/vieting/setups/librispeech/work/crnn/oggzip/BlissToOggZipJob.eyYjJHZFdOwV/output/out.ogg.zip",
+        hash_overwrite="librispeech_960_dev_old.ogg.zip",
+    )
+    returnn_args_old = copy.deepcopy(returnn_args)
+    returnn_args_old.update({
+        "rasr_loss_corpus_path": tk.Path(
+            "/work/asr4/zhou/data/librispeech/am-data/corpus/train-dev.corpus.xml",
+            hash_overwrite="librispeech_960_train_dev_corpus.xml",
+        ),
+        "datasets": returnn_datasets_old,
+    })
     feature_args = {
         "log_mel": {
             "class": "LogMelNetwork",
@@ -117,6 +134,13 @@ def run_baseline():
             ),
             "scf": dict(
                 returnn_args=returnn_args,
+                feature_args=feature_args["scf"],
+                lr_args=lr_args,
+                num_outputs=79,
+                report_args={},
+            ),
+            "old_data_scf": dict(
+                returnn_args=returnn_args_old,
                 feature_args=feature_args["scf"],
                 lr_args=lr_args,
                 num_outputs=79,
