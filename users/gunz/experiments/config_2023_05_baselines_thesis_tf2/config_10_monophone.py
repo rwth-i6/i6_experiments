@@ -407,6 +407,7 @@ def run_single(
             **nn_precomputed_returnn_config.config["network"]["center-output"],
             "class": "linear",
             "activation": "log_softmax",
+            "register_as_extern_data": "center-output",
         }
 
         monophone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
