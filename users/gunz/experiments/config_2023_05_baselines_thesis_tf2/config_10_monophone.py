@@ -29,7 +29,7 @@ from ...setups.common.nn.specaugment import (
 )
 from ...setups.fh import system as fh_system
 from ...setups.fh.network import conformer
-from ...setups.fh.factored import PhoneticContext
+from ...setups.fh.factored import PhoneticContext, RasrStateTying
 from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
     augment_net_with_monophone_outputs,
@@ -333,10 +333,6 @@ def run_single(
     )
 
     s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
-
-    exp_config = copy.deepcopy(returnn_config)
-    if not multitask:
-        exp_config.config["network"]["center-output"]["n_out"] = s.label_info.get_n_state_classes()
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
     train_args = {
@@ -406,30 +402,37 @@ def run_single(
             )
 
     if run_performance_study:
-        recognizer, recog_args = s.get_recognizer_and_args(
-            key="fh",
-            context_type=PhoneticContext.monophone,
-            crp_corpus="dev-other",
-            epoch=max(keep_epochs),
-            gpu=False,
-            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-            set_batch_major_for_feature_scorer=True,
-            lm_gc_simple_hash=True,
-        )
-        recog_args = dataclasses.replace(recog_args.with_prior_scale(0.4, 0.4), altas=2, beam=22)
-        for create_lattice in [True, False]:
-            jobs = recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=recog_args,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=False,
-                calculate_stats=True,
-                pre_path="decoding-perf-eval" + ("-l" if create_lattice else ""),
+        nn_precomputed_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+        nn_precomputed_returnn_config.config["network"]["center-output"] = {
+            **nn_precomputed_returnn_config.config["network"]["center-output"],
+            "class": "linear",
+            "activation": "log_softmax",
+        }
+
+        monophone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
+
+        tying_cfg = rasr.RasrConfig()
+        tying_cfg.type = "monophone-dense"
+
+        for cfg in [
+            dataclasses.replace(
+                s.get_cart_params("fh").with_prior_scale(pC), altas=a, beam=b, beam_limit=100_000, lm_scale=4.0
+            )
+            for a, pC, b in itertools.product([None, 2, 4], [0.4, 0.6], [18, 20, 22])
+        ]:
+            job = s.recognize_cart(
+                key="fh",
+                epoch=max(keep_epochs),
+                crp_corpus="dev-other",
+                n_cart_out=monophone_li.get_n_of_dense_classes(),
+                cart_tree_or_tying_config=tying_cfg,
+                params=cfg,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                calculate_statistics=True,
                 cpu_rqmt=2,
                 mem_rqmt=4,
-                create_lattice=create_lattice,
             )
-            jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+            job.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if decode_all_corpora:
         for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-clean", "dev-other", "test-clean", "test-other"]):

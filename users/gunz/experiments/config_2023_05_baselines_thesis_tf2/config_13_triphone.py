@@ -454,45 +454,22 @@ def run_single(
                     )
                     jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30", "--nice=500"]})
 
-        if False and run_performance_study:
-            for altas, beam in itertools.product([2, 4, 6, 8, 12], [10, 12, 14, 16]):
-                recognizer.recognize_count_lm(
-                    calculate_stats=True,
-                    gpu=True,
-                    label_info=s.label_info,
-                    name_override=f"altas{altas}-beam{beam}",
-                    num_encoder_output=conf_model_dim,
-                    opt_lm_am=False,
-                    pre_path="decoding-perf",
-                    search_parameters=dataclasses.replace(recog_args, altas=altas, beam=beam),
-                    rtf_gpu=4,
-                )
-
-    if run_performance_study:
-        recognizer, recog_args = s.get_recognizer_and_args(
-            key="fh",
-            context_type=PhoneticContext.triphone_forward,
-            crp_corpus="dev-other",
-            epoch=max(keep_epochs),
-            gpu=False,
-            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-            set_batch_major_for_feature_scorer=True,
-            lm_gc_simple_hash=True,
-        )
-        recog_args = dataclasses.replace(recog_args.with_prior_scale(0.4, 0.4, 0.2), altas=4, beam=14)
-        for create_lattice in [True, False]:
-            jobs = recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=recog_args,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=False,
-                calculate_stats=True,
-                pre_path="decoding-perf-eval" + ("-l" if create_lattice else ""),
-                cpu_rqmt=2,
-                mem_rqmt=4,
-                create_lattice=create_lattice,
-            )
-            jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+            if run_performance_study:
+                for altas, beam in itertools.product([2, 4, 6, 8, 12], [10, 12, 14, 16]):
+                    jobs = recognizer.recognize_count_lm(
+                        calculate_stats=True,
+                        gpu=False,
+                        label_info=s.label_info,
+                        name_override=f"altas{altas}-beam{beam}",
+                        num_encoder_output=conf_model_dim,
+                        opt_lm_am=False,
+                        pre_path="decoding-perf",
+                        search_parameters=dataclasses.replace(best_config, altas=altas, beam=beam, beam_limit=100_000),
+                        cpu_rqmt=2,
+                        mem_rqmt=4,
+                        rtf_cpu=40,
+                    )
+                    jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30", "--nice=500"]})
 
     if decode_all_corpora:
         for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-clean", "dev-other", "test-clean", "test-other"]):
