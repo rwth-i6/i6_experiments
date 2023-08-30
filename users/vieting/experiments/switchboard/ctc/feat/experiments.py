@@ -483,6 +483,90 @@ def run_test_mel():
         template=report.get_template())
 
 
+def run_mel_nn_args(nn_args, report_args_collection, report_name, dev_corpora):
+    returnn_configs = {}
+    for exp in nn_args.returnn_training_configs:
+        prior_config = copy.deepcopy(nn_args.returnn_training_configs[exp])
+        prior_config.config["batch_size"] = prior_config.config["batch_size"]["data"]
+        assert isinstance(prior_config.config["batch_size"], int)
+        returnn_configs[exp] = ReturnnConfigs(
+            train_config=nn_args.returnn_training_configs[exp],
+            prior_config=prior_config,
+            recog_configs={"recog": nn_args.returnn_recognition_configs[exp]},
+        )
+
+    recog_args = {
+        "lm_scales": [0.7],
+        "prior_scales": [0.3, 0.5],
+        "epochs": [300, 400, 450, "best"],
+        "lookahead_options": {"lm_lookahead_scale": 0.7},
+        "label_scorer_args": {
+            "use_prior": True,
+            "extra_args": {"blank_label_index": 0},
+        },
+        "label_tree_args": {"skip_silence": True},
+        "search_parameters": {
+            "allow-blank-label": True,
+            "allow-label-loop": True,
+            "allow-label-recombination": True,
+            "allow-word-end-recombination": True,
+            "create-lattice": True,
+            "label-pruning": 11.2,
+            "label-pruning-limit": 100000,
+            "word-end-pruning": 0.5,
+            "word-end-pruning-limit": 10000,
+        },
+    }
+    score_info = ScorerInfo()
+    score_info.ref_file = dev_corpora["hub5e00"].stm
+    score_info.job_type = Hub5ScoreJob
+    score_info.score_kwargs = {"glm": dev_corpora["hub5e00"].glm, "sctk_binary_path": SCTK_BINARY_PATH}
+
+    ctc_nn_system = TransducerSystem(
+        returnn_root=RETURNN_ROOT,
+        returnn_python_exe=RETURNN_EXE,
+        rasr_binary_path=RASR_BINARY_PATH,
+        require_native_lstm=False,
+    )
+    ctc_nn_system.init_system(
+        returnn_configs=returnn_configs,
+        dev_keys=["hub5e00"],
+        corpus_data=dev_corpora,
+        am_args={
+            "state_tying": "monophone",
+            "states_per_phone": 1,
+            "tdp_transition": (0, 0, 0, 0),
+            "tdp_silence": (0, 0, 0, 0),
+            "phon_history_length": 0,
+            "phon_future_length": 0,
+        },
+        scorer_info=score_info,
+        report=Report(
+            columns_start=["train_name"],
+            columns_end=["lm_scale", "prior_scale", "sub", "del", "ins", "wer"],
+        ),
+    )
+    ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_lexicon = False
+    ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_all = True
+    ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_file = tk.Path(
+        "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
+        hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
+        cached=True
+    )
+    ctc_nn_system.run_train_step(nn_args.training_args)
+    ctc_nn_system.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
+
+    report = Report.merge_reports([
+        ctc_nn_system.report,
+    ])
+    report.delete_redundant_columns()
+    report.delete_redundant_rows()
+    tk.register_report(
+        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, report_name),
+        values=report.get_values(),
+        template=report.get_template())
+
+
 def run_mel_baseline():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
 
@@ -524,6 +608,7 @@ def run_mel_baseline():
         prefix="conformer_bs10k_"
     )
     run_mel_nn_args(nn_args, report_args_collection, "report_mel_baseline.csv", dev_corpora)
+
 
 def run_mel_audio_perturbation():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
@@ -632,85 +717,10 @@ def run_mel_audio_perturbation():
     )
     run_mel_nn_args(nn_args, report_args_collection, "report_mel_audio_perturbation.csv", dev_corpora)
 
-def run_mel_nn_args(nn_args, report_args_collection, report_name, dev_corpora):
-    returnn_configs = {}
-    for exp in nn_args.returnn_training_configs:
-        prior_config = copy.deepcopy(nn_args.returnn_training_configs[exp])
-        prior_config.config["batch_size"] = prior_config.config["batch_size"]["data"]
-        assert isinstance(prior_config.config["batch_size"], int)
-        returnn_configs[exp] = ReturnnConfigs(
-            train_config=nn_args.returnn_training_configs[exp],
-            prior_config=prior_config,
-            recog_configs={"recog": nn_args.returnn_recognition_configs[exp]},
-        )
 
-    recog_args = {
-        "lm_scales": [0.7],
-        "prior_scales": [0.3, 0.5],
-        "epochs": [300, 400, 450, "best"],
-        "lookahead_options": {"lm_lookahead_scale": 0.7},
-        "label_scorer_args": {
-            "use_prior": True,
-            "extra_args": {"blank_label_index": 0},
-        },
-        "label_tree_args": {"skip_silence": True},
-        "search_parameters": {
-            "allow-blank-label": True,
-            "allow-label-loop": True,
-            "allow-label-recombination": True,
-            "allow-word-end-recombination": True,
-            "create-lattice": True,
-            "label-pruning": 11.2,
-            "label-pruning-limit": 100000,
-            "word-end-pruning": 0.5,
-            "word-end-pruning-limit": 10000,
-        },
-    }
-    score_info = ScorerInfo()
-    score_info.ref_file = dev_corpora["hub5e00"].stm
-    score_info.job_type = Hub5ScoreJob
-    score_info.score_kwargs = {"glm": dev_corpora["hub5e00"].glm, "sctk_binary_path": SCTK_BINARY_PATH}
-
-    ctc_nn_system = TransducerSystem(
-        returnn_root=RETURNN_ROOT,
-        returnn_python_exe=RETURNN_EXE,
-        rasr_binary_path=RASR_BINARY_PATH,
-        require_native_lstm=False,
-    )
-    ctc_nn_system.init_system(
-        returnn_configs=returnn_configs,
-        dev_keys=["hub5e00"],
-        corpus_data=dev_corpora,
-        am_args={
-            "state_tying": "monophone",
-            "states_per_phone": 1,
-            "tdp_transition": (0, 0, 0, 0),
-            "tdp_silence": (0, 0, 0, 0),
-            "phon_history_length": 0,
-            "phon_future_length": 0,
-        },
-        scorer_info=score_info,
-        report=Report(
-            columns_start=["train_name"],
-            columns_end=["lm_scale", "prior_scale", "sub", "del", "ins", "wer"],
-        ),
-    )
-    ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_lexicon = False
-    ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_all = True
-    ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_file = tk.Path(
-        "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
-        hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
-        cached=True
-    )
-    ctc_nn_system.run_train_step(nn_args.training_args)
-    ctc_nn_system.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
-
-    report = Report.merge_reports([
-        ctc_nn_system.report,
-    ])
-    report.delete_redundant_columns()
-    report.delete_redundant_rows()
-    tk.register_report(
-        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, report_name),
-        values=report.get_values(),
-        template=report.get_template())
+def py():
+    """
+    called if the file is passed to sis manager, used to run all experiments (replacement for main)
+    """
+    run_mel_baseline()
+    run_mel_audio_perturbation()

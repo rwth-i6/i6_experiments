@@ -381,8 +381,12 @@ def run_specaug_scf():
         train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
 
 
-def run_all():
+def py():
+    """
+    called if the file is passed to sis manager, used to run all experiments (replacement for main)
+    """
     run_baseline_gt()
     run_baseline_mel()
+    run_specaug_mel()
     run_baseline_scf()
     run_specaug_scf()
