@@ -1466,6 +1466,7 @@ class FactoredHybridSystem(NnSystem):
                 kwargs["lmgc_scorer"] = rasr.DiagonalMaximumScorer(p_mixtures)
             if parallel is not None:
                 kwargs["parallel"] = parallel
+            kwargs["separate_lmi_gc_generation"] = True
 
             adv_tree_search_job = recognition.AdvancedTreeSearchJob(*args, **kwargs)
             if search_rqmt_update is not None:

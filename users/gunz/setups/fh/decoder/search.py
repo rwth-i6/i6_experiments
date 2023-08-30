@@ -1118,6 +1118,7 @@ class FHDecoder:
             extra_post_config=None,
             lmgc_scorer=rasr.DiagonalMaximumScorer(self.mixtures) if self.lm_gc_simple_hash else None,
             create_lattice=create_lattice,
+            separate_lmi_gc_generation=True,
             **ts_args,
         )
 
