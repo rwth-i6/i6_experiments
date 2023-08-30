@@ -49,7 +49,7 @@ SCTK_BINARY_PATH.hash_overwrite = "SWITCHBOARD_DEFAULT_SCTK_BINARY_PATH"
 # conda_env_job.add_alias("tools/conda_envs/returnn_training")
 # RETURNN_EXE = conda_env_job.out_env_exe
 RETURNN_EXE = tk.Path(
-    "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh",
+    "/usr/bin/python3",
     hash_overwrite="GENERIC_RETURNN_LAUNCHER",
 )
 RETURNN_CPU_EXE = tk.Path(
