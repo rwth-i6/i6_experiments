@@ -58,6 +58,7 @@ from .priors import (
 )
 from .util.pipeline_helpers import get_lexicon_args, get_tdp_values
 from .util.rasr import SystemInput
+from ..common.tdp import TDP
 
 # -------------------- Init --------------------
 
@@ -1605,11 +1606,27 @@ class FactoredHybridSystem(NnSystem):
         )
 
         if calculate_statistics:
+
+            def to_tdp(tdp_tuple: typing.Tuple[TDP, TDP, TDP, TDP]) -> Tdp:
+                return Tdp(loop=tdp_tuple[0], forward=tdp_tuple[1], skip=tdp_tuple[2], exit=tdp_tuple[3])
+
             assert adv_tree_search_job is not None
             stats_job = ExtractSearchStatisticsJob(
                 search_logs=list(adv_tree_search_job.out_log_file.values()), corpus_duration_hours=durations[crp_corpus]
             )
-            stats_alias = f"statistics-nn-pch/{self.experiments[key]['name']}/Pron{params.pron_scale}Lm{params.lm_scale}Pr{params.prior_info.center_state_prior.scale}Tdp{params.tdp_scale}TdpSp{params.tdp_speech}TdpSil{params.tdp_silence}Altas{params.altas or 0}"
+            exp_str = decoder._get_scales_string(
+                am_scale=params.pron_scale,
+                lm_scale=params.lm_scale,
+                prior_scale=params.prior_info.center_state_prior.scale,
+                tdp_scale=params.tdp_scale,
+                tdp_speech=to_tdp(params.tdp_speech),
+                tdp_silence=to_tdp(params.tdp_silence),
+                tdp_nonspeech=to_tdp(params.tdp_non_word),
+                altas=params.altas,
+            )
+            stats_alias = (
+                f"statistics-nn-pch/{self.experiments[key]['name']}/{exp_str}_beam{params.beam}_bl{params.beam_limit}"
+            )
 
             stats_job.add_alias(stats_alias)
             tk.register_output(f"{stats_alias}/avg_states", stats_job.avg_states)
