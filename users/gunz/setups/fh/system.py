@@ -45,6 +45,7 @@ from ..common.decoder.rtf import ExtractSearchStatisticsJob
 from ..common.hdf import RasrAlignmentToHDF, RasrFeaturesToHdf
 from ..common.nn.cache_epilog import hdf_dataset_cache_epilog, hdf_dataset_cache_epilog_v0
 from ..common.nn.compile_graph import compile_tf_graph_from_returnn_config
+from ..common.tdp import TDP
 from .decoder.config import PriorConfig, PriorInfo, SearchParameters
 from .decoder.search import FHDecoder
 from .factored import PhoneticContext, LabelInfo
@@ -58,7 +59,6 @@ from .priors import (
 )
 from .util.pipeline_helpers import get_lexicon_args, get_tdp_values
 from .util.rasr import SystemInput
-from ..common.tdp import TDP
 
 # -------------------- Init --------------------
 
