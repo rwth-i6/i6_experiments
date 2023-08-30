@@ -289,6 +289,6 @@ def run_single(
                 mem_rqmt=4,
                 rtf=2,
             )
-            job.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+            job.rqmt.update({"sbatch_args": ["-w", "cn-30", "--nice=600"]})
 
     return s
