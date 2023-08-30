@@ -368,7 +368,7 @@ def run_single(
             log_softmax_returnn_config=decoding_config,
             params=s.get_cart_params(key="fh"),
             native_ops=["NativeLstm2"],
-            opt_lm_am_scale=False,
+            opt_lm_am_scale=True,
         )
 
     return s
