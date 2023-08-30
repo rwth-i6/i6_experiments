@@ -89,7 +89,7 @@ def run(returnn_root: tk.Path, alignments: typing.List[typing.Tuple[tk.Path, str
             decode_all_corpora=False,
             lr="v13",
             multitask=True,
-            run_performance_study=True,
+            run_performance_study=a_name == "30ms-FF-v8",
             tune_decoding=True,
             run_tdp_study=False,
         )
@@ -399,40 +399,53 @@ def run_single(
     s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
 
     if run_performance_study:
-        assert tune_decoding
+        nn_precomputed_returnn_config = copy.deepcopy(returnn_config)
+        nn_precomputed_returnn_config.config["network"]["center-output"] = {
+            **nn_precomputed_returnn_config.config["network"]["center-output"],
+            "class": "linear",
+            "activation": "log_softmax",
+        }
 
-        ep = 600
         s.set_mono_priors_returnn_rasr(
             key="fh",
-            epoch=ep,
+            epoch=keep_epochs[-2],
             train_corpus_key=s.crp_names["train"],
             dev_corpus_key=s.crp_names["cvtrain"],
             smoothen=True,
-            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+            returnn_config=returnn_config,
+            output_layer_name="output",
         )
-        recognizer, recog_args = s.get_recognizer_and_args(
-            key="fh",
-            context_type=PhoneticContext.monophone,
-            crp_corpus="dev-other",
-            epoch=ep,
-            gpu=False,
-            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-            set_batch_major_for_feature_scorer=True,
-            lm_gc_simple_hash=True,
-        )
-        recog_args = dataclasses.replace(best_config, altas=2, beam=22, lm_scale=best_config.lm_scale + 0.01)
-        jobs = recognizer.recognize_count_lm(
-            label_info=s.label_info,
-            search_parameters=recog_args,
-            num_encoder_output=conf_model_dim,
-            rerun_after_opt_lm=True,
-            calculate_stats=True,
-            pre_path="decoding-perf-eval",
-            name_override="best/4gram",
-            cpu_rqmt=2,
-            mem_rqmt=4,
-        )
-        jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+
+        monophone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
+        tying_cfg = rasr.RasrConfig()
+        tying_cfg.type = "monophone-dense"
+
+        configs = [
+            dataclasses.replace(
+                s.get_cart_params("fh"), altas=a, beam=beam, beam_limit=100000, lm_scale=1.5, tdp_scale=0.4
+            ).with_prior_scale(pC)
+            for beam, pC, a in itertools.product(
+                [16, 18, 20],
+                [0.4, 0.6],
+                [None, 2, 4],
+            )
+        ]
+        for cfg in configs:
+            j = s.recognize_cart(
+                key="fh",
+                epoch=max(keep_epochs),
+                calculate_statistics=True,
+                cart_tree_or_tying_config=tying_cfg,
+                cpu_rqmt=2,
+                crp_corpus="dev-other",
+                lm_gc_simple_hash=True,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                mem_rqmt=4,
+                n_cart_out=monophone_li.get_n_of_dense_classes(),
+                params=cfg,
+                rtf=1.5,
+            )
+            j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if run_tdp_study:
         base_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)

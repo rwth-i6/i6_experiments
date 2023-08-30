@@ -467,7 +467,12 @@ def run_single(
 
         for cfg in [
             dataclasses.replace(
-                s.get_cart_params("fh").with_prior_scale(pC), altas=a, beam=b, beam_limit=100_000, lm_scale=9
+                s.get_cart_params("fh").with_prior_scale(pC),
+                altas=a,
+                beam=b,
+                beam_limit=100_000,
+                lm_scale=9,
+                tdp_scale=0.4,
             )
             for a, pC, b in itertools.product([None, 2, 4], [0.4, 0.6], [16, 18, 20])
         ]:
@@ -482,6 +487,7 @@ def run_single(
                 calculate_statistics=True,
                 cpu_rqmt=2,
                 mem_rqmt=4,
+                rtf=3,
             )
             job.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 

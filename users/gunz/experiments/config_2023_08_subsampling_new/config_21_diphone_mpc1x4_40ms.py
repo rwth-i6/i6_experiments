@@ -389,41 +389,6 @@ def run_single(
             )
 
     if run_performance_study:
-        assert tune_decoding
-
-        ep = 600
-        s.set_diphone_priors_returnn_rasr(
-            key="fh",
-            epoch=ep,
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            smoothen=True,
-            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-        )
-        recognizer, recog_args = s.get_recognizer_and_args(
-            key="fh",
-            context_type=PhoneticContext.diphone,
-            crp_corpus="dev-other",
-            epoch=ep,
-            gpu=False,
-            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-            set_batch_major_for_feature_scorer=True,
-            lm_gc_simple_hash=True,
-        )
-        recog_args = dataclasses.replace(best_config, altas=2, beam=20, lm_scale=best_config.lm_scale + 0.01)
-        jobs = recognizer.recognize_count_lm(
-            label_info=s.label_info,
-            search_parameters=recog_args,
-            num_encoder_output=conf_model_dim,
-            rerun_after_opt_lm=True,
-            calculate_stats=True,
-            pre_path="decoding-perf-eval",
-            name_override="best/4gram",
-            cpu_rqmt=2,
-            mem_rqmt=4,
-        )
-        jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
-
         clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
         nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
             returnn_config=clean_returnn_config,
@@ -439,7 +404,7 @@ def run_single(
         )
         s.set_mono_priors_returnn_rasr(
             key="fh",
-            epoch=ep,
+            epoch=keep_epochs[-2],
             train_corpus_key=s.crp_names["train"],
             dev_corpus_key=s.crp_names["cvtrain"],
             smoothen=True,
@@ -451,32 +416,21 @@ def run_single(
         tying_cfg = rasr.RasrConfig()
         tying_cfg.type = "diphone-dense"
 
-        base_cfg = s.get_cart_params(key="fh")
         configs = [
             dataclasses.replace(
-                base_cfg,
-                altas=a,
-                beam=beam,
-                beam_limit=15_000,
-                lm_scale=round(base_cfg.lm_scale / ss_factor, 2),
-                tdp_scale=tdpScale,
-                tdp_speech=tdpSp,
-                tdp_silence=tdpSil,
+                s.get_cart_params("fh"), altas=a, beam=beam, beam_limit=100000, lm_scale=2, tdp_scale=0.4
             ).with_prior_scale(pC)
-            for beam, pC, a, tdpScale, tdpSp, tdpSil in itertools.product(
-                [14],
-                [round(v, 2) for v in np.linspace(0.1, 0.7, 7)],
-                [12],
-                [round(v, 2) for v in np.linspace(0.2, 0.8, 4)],
-                [(10, 0, "infinity", 0), (10, 0, "infinity", 10)],
-                [(0, 3, "infinity", 20), (3, 10, "infinity", 10), (10, 10, "infinity", 10)],
+            for beam, pC, a in itertools.product(
+                [16, 18, 20],
+                [0.4, 0.6],
+                [None, 2, 4],
             )
         ]
         for cfg in configs:
-            s.recognize_cart(
+            j = s.recognize_cart(
                 key="fh",
-                epoch=ep,
-                calculate_statistics=False,
+                epoch=max(keep_epochs),
+                calculate_statistics=True,
                 cart_tree_or_tying_config=tying_cfg,
                 cpu_rqmt=2,
                 crp_corpus="dev-other",
@@ -485,8 +439,9 @@ def run_single(
                 mem_rqmt=4,
                 n_cart_out=diphone_li.get_n_of_dense_classes(),
                 params=cfg,
-                rtf=4,
+                rtf=1.5,
             )
+            j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     # ###########
     # FINE TUNING

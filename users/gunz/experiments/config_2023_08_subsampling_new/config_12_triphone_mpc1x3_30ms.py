@@ -426,19 +426,23 @@ def run_single(
             set_batch_major_for_feature_scorer=True,
             lm_gc_simple_hash=True,
         )
-        recog_args = dataclasses.replace(best_config, altas=4, beam=14, lm_scale=best_config.lm_scale + 0.01)
-        jobs = recognizer.recognize_count_lm(
-            label_info=s.label_info,
-            search_parameters=recog_args,
-            num_encoder_output=conf_model_dim,
-            rerun_after_opt_lm=True,
-            calculate_stats=True,
-            pre_path="decoding-perf-eval",
-            name_override="best/4gram",
-            cpu_rqmt=2,
-            mem_rqmt=4,
-        )
-        jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+        for cfg in [
+            dataclasses.replace(best_config, altas=a, beam=b, lm_scale=best_config.lm_scale + 0.01)
+            for a, b in itertools.product([None, 2, 4], [14, 16, 18])
+        ]:
+            jobs = recognizer.recognize_count_lm(
+                label_info=s.label_info,
+                search_parameters=cfg,
+                num_encoder_output=conf_model_dim,
+                rerun_after_opt_lm=False,
+                calculate_stats=True,
+                pre_path="decoding-perf-eval",
+                name_override=f"best/altas{cfg.altas}-beam{cfg.beam}",
+                cpu_rqmt=2,
+                mem_rqmt=4,
+                rtf_cpu=40,
+            )
+            jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30", "--nice=500"]})
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
