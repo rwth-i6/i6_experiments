@@ -71,6 +71,7 @@ class Experiment:
     lr: str
     dc_detection: bool
     decode_all_corpora: bool
+    n_states_per_phone: int
     own_priors: bool
     run_performance_study: bool
     tune_decoding: bool
@@ -95,6 +96,7 @@ def run(returnn_root: tk.Path):
             dc_detection=False,
             decode_all_corpora=False,
             lr="v13",
+            n_states_per_phone=3,
             own_priors=False,
             run_performance_study=False,
             tune_decoding=False,
@@ -105,6 +107,18 @@ def run(returnn_root: tk.Path):
             dc_detection=False,
             decode_all_corpora=False,
             lr="v13",
+            n_states_per_phone=3,
+            own_priors=True,
+            run_performance_study=True,
+            tune_decoding=True,
+        ),
+        Experiment(
+            alignment=scratch_align,
+            alignment_name="scratch",
+            dc_detection=False,
+            decode_all_corpora=False,
+            lr="v13",
+            n_states_per_phone=1,
             own_priors=True,
             run_performance_study=True,
             tune_decoding=True,
@@ -128,6 +142,7 @@ def run(returnn_root: tk.Path):
             decode_all_corpora=exp.decode_all_corpora,
             focal_loss=exp.focal_loss,
             lr=exp.lr,
+            n_states_per_phone=exp.n_states_per_phone,
             own_priors=exp.own_priors,
             returnn_root=returnn_root,
             run_performance_study=exp.run_performance_study,
@@ -143,6 +158,7 @@ def run_single(
     decode_all_corpora: bool,
     focal_loss: float,
     lr: str,
+    n_states_per_phone: int,
     own_priors: bool,
     returnn_root: tk.Path,
     run_performance_study: bool,
@@ -152,7 +168,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-3-a:{alignment_name}-lr:{lr}-fl:{focal_loss}"
+    name = f"conf-3-a:{alignment_name}-lr:{lr}-fl:{focal_loss}-n:{n_states_per_phone}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -175,10 +191,13 @@ def run_single(
         dev_data=dev_data_inputs,
         test_data=test_data_inputs,
     )
+
     s.train_key = train_key
     if alignment_name == "scratch_daniel":
         s.cv_info = FROM_SCRATCH_CV_INFO
     s.lm_gc_simple_hash = True
+    s.label_info = dataclasses.replace(s.label_info, n_states_per_phone=n_states_per_phone)
+
     s.run(steps)
 
     # *********** Preparation of data input for rasr-returnn training *****************
