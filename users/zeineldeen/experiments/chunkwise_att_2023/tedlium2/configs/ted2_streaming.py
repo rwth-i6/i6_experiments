@@ -202,6 +202,7 @@ def run_single_search(
     checkpoint,
     feature_extraction_net,
     recog_dataset,
+    recog_bliss_corpus,
     recog_ref,
     mem_rqmt=8,
     time_rqmt=4,
@@ -220,6 +221,43 @@ def run_single_search(
         checkpoint,
         recognition_dataset=recog_dataset,
         recognition_reference=recog_ref,
+        recognition_bliss_corpus=recog_bliss_corpus,
+        returnn_exe=RETURNN_CPU_EXE,
+        returnn_root=RETURNN_ROOT,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=time_rqmt,
+    )
+
+
+def run_concat_seq_recog(exp_name, corpus_name, num, train_data, search_args, checkpoint, mem_rqmt, time_rqmt):
+    exp_prefix = os.path.join(prefix_name, exp_name)
+
+    from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.concat_seqs import ConcatDatasetSeqs
+    from i6_core.corpus.convert import CorpusToStmJob
+
+    test_datasets = get_test_dataset_tuples(bpe_size=BPE_1K)
+    stm = CorpusToStmJob(bliss_corpus=test_datasets[corpus_name][2]).out_stm_path
+    concat_dataset_seqs = ConcatDatasetSeqs(corpus_name, stm=stm, num=num, overlap_dur=None)
+    tk.register_output(f"concat_seqs/{num}/stm", concat_dataset_seqs.out_stm)
+    tk.register_output(f"concat_seqs/{num}/tags", concat_dataset_seqs.out_concat_seq_tags)
+    tk.register_output(f"concat_seqs/{num}/lens", concat_dataset_seqs.out_concat_seq_lens_py)
+
+    returnn_search_config = create_config(
+        training_datasets=train_data,
+        **search_args,
+        feature_extraction_net=log10_net_10ms,
+        is_recog=True,
+    )
+
+    # TODO: create ConcatDataset
+
+    search_single(
+        exp_prefix,
+        returnn_search_config,
+        checkpoint,
+        recognition_dataset=None,  # TODO: create
+        recognition_reference=test_datasets[corpus_name][1],
+        recognition_bliss_corpus=test_datasets[corpus_name][2],
         returnn_exe=RETURNN_CPU_EXE,
         returnn_root=RETURNN_ROOT,
         mem_rqmt=mem_rqmt,
@@ -373,6 +411,7 @@ def run_lm_fusion(
                 checkpoint=search_checkpoint,
                 feature_extraction_net=feature_net,
                 recog_dataset=test_dataset_tuples[test_set][0],
+                recog_bliss_corpus=test_dataset_tuples[test_set][2],
                 recog_ref=test_dataset_tuples[test_set][1],
                 time_rqmt=kwargs.get("time_rqmt", time_rqmt),
             )
@@ -1739,6 +1778,9 @@ def baseline():
             suffix=f"_L{left_context}_C{center_context}_R{right_context}",
         )
 
+    # TODO: recog on concat seqs
+    run_concat_seq_recog("dev", num=2)
+
     # TODO: emformer memory
     # for left_context, center_context, right_context, conv_cache_size, mem_size, emformer_mem_size in [
     #     (0, 20, 5, 1, 2),
@@ -1780,50 +1822,6 @@ def baseline():
     # - average align + freeze
     # - average align + average train
     # - concat align + average train
-
-    # ---------------------- Chunked Encoder + Global Decoder ------------------------- #
-
-    # TODO: chunked encoder (imported)
-    # run_chunkwise_train(
-    #     enc_stream_type="chunked",
-    #     run_all_for_best_last_avg=True,
-    #     enable_check_align=False,
-    #     chunk_sizes=[50],
-    #     chunk_step_factors=[1],
-    #     start_lrs=[2e-4, 4e-4],
-    #     decay_pt_factors=[1 / 3, 0.1],
-    #     gpu_mem=11,
-    #     total_epochs=[120],
-    #     batch_size=10_000,
-    #     accum_grad=3,
-    #     time_rqmt=120,
-    #     chunked_decoder=False,
-    #     with_ctc=True,
-    #     speed_pert=True,
-    # )
-
-    # TODO: from scratch
-    # for chunk_size in [20]:
-    #     for chunk_step in [1]:
-    #         run_chunkwise_train(
-    #             enc_stream_type="chunked",
-    #             run_all_for_best_last_avg=True,
-    #             enable_check_align=False,
-    #             chunk_sizes=[chunk_size],
-    #             chunk_step_factors=[chunk_step],
-    #             start_lrs=[None],
-    #             decay_pt_factors=[None],
-    #             epoch_oclr_lr=8e-4,  # use epoch-based oclr
-    #             gpu_mem=11,
-    #             total_epochs=[120, 200],
-    #             batch_size=15_000,
-    #             accum_grad=2,
-    #             time_rqmt=120,
-    #             chunked_decoder=False,
-    #             with_ctc=True,
-    #             speed_pert=True,
-    #             from_scratch_train=True,
-    #         )
 
     # ---------------------- Chunk-size 1 AED Transducer ------------------------- #
 
