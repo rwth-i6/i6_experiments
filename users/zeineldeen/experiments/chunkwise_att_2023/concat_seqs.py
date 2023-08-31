@@ -38,7 +38,7 @@ class ConcatDatasetSeqs(Job):
         :param str corpus_name: e.g. "hub5_00"
         :param Path stm: path to stm file
         :param int num: Concatenate `num` consecutive seqs within a recording
-        :param str overlap_dur: allow overlap between consecutive seqs, in seconds
+        :param str|None overlap_dur: allow overlap between consecutive seqs, in seconds
         """
         self.corpus_name = corpus_name
         self.stm = stm
@@ -168,7 +168,8 @@ class ConcatDatasetSeqs(Job):
                     seq_idx_in_tag = 1
                     last_tag = tag
                 else:
-                    assert start >= last_end - Decimal(self.overlap_dur), "line: %r" % line  # allow minimal overlap
+                    if self.overlap_dur:
+                        assert start >= last_end - Decimal(self.overlap_dur), "line: %r" % line  # allow minimal overlap
                     assert end > last_end, "line: %r" % line
                     seq_idx_in_tag += 1
                 last_end = end
