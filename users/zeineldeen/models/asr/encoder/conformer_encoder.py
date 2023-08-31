@@ -531,15 +531,15 @@ class ConformerEncoder:
 
         if self.memory_variant_opts.use_cached_prev_kv:
             # input does not matter for rel pos enc, so we need to make sure the shape is correct
-            concat_inputs = K  # [B*C, W*N, D]
+            rel_pos_inputs = K  # [B*C, W*N, D]
         else:
             # just to not break hashes...
-            concat_inputs = concat_prev_chunks_inputs  # [B*C, W*N, D]
+            rel_pos_inputs = concat_prev_chunks_inputs  # [B*C, W*N, D]
 
         ln_rel_pos_enc = self.network.add_generic_layer(
             f"{prefix_name}_ln_rel_pos_enc",
             cls="relative_positional_encoding",
-            source=concat_inputs,
+            source=rel_pos_inputs,
             out_dim=self.enc_per_head_dim,  # D/H
             forward_weights_init=self.ff_init,
             clipping=self.rel_pos_clipping,
