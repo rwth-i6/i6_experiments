@@ -3,7 +3,7 @@ Conformer encoder
 """
 
 from __future__ import annotations
-from typing import Optional, List, Tuple
+from typing import Optional, Union, List, Tuple
 from dataclasses import dataclass
 from returnn.tensor import Dim
 from returnn.tf.util.data import SpatialDim, FeatureDim
@@ -297,7 +297,7 @@ class ConformerEncoder:
 
         return ff_module_res
 
-    def _get_mem_chunks(self, prefix_name: str, input_layer: str, mem_size: int) -> List[Tuple[str, str]]:
+    def _get_mem_chunks(self, prefix_name: str, input_layer: str, mem_size: int) -> List[Tuple[str, Union[str, Dim]]]:
         """
         :param name: layer prefix name
         :param input_layer: name of input layer to shift of shape [B*C, W, D]
@@ -382,7 +382,8 @@ class ConformerEncoder:
 
         if self.memory_variant_opts.use_cached_prev_kv:
             # concat previous cached keys and values
-            cached_keys = self._get_mem_chunks(f"{prefix_name}_ln_K_", K, self.memory_variant_opts.mem_size)
+            concat_keys = self._get_mem_chunks(f"{prefix_name}_ln_K_", K, self.memory_variant_opts.mem_size)
+            concat_keys.append((K, "T"))
 
             if mem_bank_concat:
                 mem_bank = self.network.add_generic_layer(
@@ -394,16 +395,13 @@ class ConformerEncoder:
                     with_bias=False,
                     L2=self.self_att_l2,
                 )
-            else:
-                mem_bank = None
+                concat_keys.insert(0, (mem_bank, self.emformer_mem_bank_concat_dim))
 
             # add memory bank to keys if available
             K = self.network.add_generic_layer(
                 f"{prefix_name}_ln_K_concat",
                 cls="concat",
-                source=[(mem_bank, self.emformer_mem_bank_concat_dim), *cached_keys, (K, "T")]
-                if mem_bank
-                else [*cached_keys, (K, "T")],
+                source=concat_keys,
                 out_dim=self.concat_window_dim,
             )  # [B*C, W*N, D]
 
@@ -425,7 +423,8 @@ class ConformerEncoder:
         )  # [B*C, W*N, D]
 
         if self.memory_variant_opts.use_cached_prev_kv:
-            cached_values = self._get_mem_chunks(f"{prefix_name}_ln_V_", V, self.memory_variant_opts.mem_size)
+            concat_values = self._get_mem_chunks(f"{prefix_name}_ln_V_", V, self.memory_variant_opts.mem_size)
+            concat_values.append((V, "T"))
 
             if mem_bank_concat:
                 mem_bank = self.network.add_generic_layer(
@@ -437,15 +436,12 @@ class ConformerEncoder:
                     with_bias=False,
                     L2=self.self_att_l2,
                 )
-            else:
-                mem_bank = None
+                concat_values.insert(0, (mem_bank, self.emformer_mem_bank_concat_dim))
 
             V = self.network.add_generic_layer(
                 f"{prefix_name}_ln_V_concat",
                 cls="concat",
-                source=[(mem_bank, self.emformer_mem_bank_concat_dim), *cached_values, (V, "T")]
-                if mem_bank
-                else [*cached_values, (V, "T")],
+                source=concat_values,
                 out_dim=self.concat_window_dim,
             )  # [B*C, W*N, D]
 
