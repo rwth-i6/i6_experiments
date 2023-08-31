@@ -614,7 +614,7 @@ def run_single(
 
                 base_params = s.get_cart_params(key="fh-fs")
                 decoding_cfgs = [
-                    dataclasses.replace(base_params, tdp_scale=sc).with_prior_scale(pC)
+                    dataclasses.replace(base_params, lm_scale=5, tdp_scale=sc).with_prior_scale(pC)
                     for sc, pC in [(0.4, 0.3), (0.2, 0.4), (0.4, 0.4), (0.2, 0.5)]
                 ]
                 for cfg in decoding_cfgs:
