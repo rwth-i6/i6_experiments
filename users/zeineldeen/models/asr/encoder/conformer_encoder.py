@@ -3,7 +3,7 @@ Conformer encoder
 """
 
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, List, Tuple
 from dataclasses import dataclass
 from returnn.tensor import Dim
 from returnn.tf.util.data import SpatialDim, FeatureDim
@@ -297,11 +297,11 @@ class ConformerEncoder:
 
         return ff_module_res
 
-    def _get_mem_chunks(self, prefix_name: str, input_layer: str, mem_size: int):
+    def _get_mem_chunks(self, prefix_name: str, input_layer: str, mem_size: int) -> List[Tuple[str, str]]:
         """
         :param name: layer prefix name
         :param input_layer: name of input layer to shift of shape [B*C, W, D]
-        :return:
+        :return: arg for the ConcatLayer, i.e. list of tuple (layer_name, axis)
         """
         input_layer_splitted = self.network.add_generic_layer(
             f"{prefix_name}_split_chunk",
@@ -1149,4 +1149,4 @@ class ConformerMemoryVariantOpts:
     mem_slice_size: int
     conv_cache_size: int
     use_cached_prev_kv: bool
-    use_emformer_mem: bool
+    use_emformer_mem: bool  # https://arxiv.org/abs/2010.10759
