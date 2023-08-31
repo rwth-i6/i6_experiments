@@ -59,13 +59,13 @@ class LSTMILMDecoder(ILMDecoder):
 
         # for the first frame in decoding, don't use average but zero always
         if prior_type == "train_avg_ctx" or prior_type == "train_avg_enc":
-          is_first_frame = subnet_unit.add_compare_layer("is_first_frame", source=":i", kind="equal", value=0)
-          zero_att = subnet_unit.add_eval_layer("zero_att", "att", eval="tf.zeros_like(source(0))")
-          prev_att = subnet_unit.add_switch_layer(
-              "prev_att", condition=is_first_frame, true_from=zero_att, false_from=prior_att_input
-          )
+            is_first_frame = subnet_unit.add_compare_layer("is_first_frame", source=":i", kind="equal", value=0)
+            zero_att = subnet_unit.add_eval_layer("zero_att", "att", eval="tf.zeros_like(source(0))")
+            prev_att = subnet_unit.add_switch_layer(
+                "prev_att", condition=is_first_frame, true_from=zero_att, false_from=prior_att_input
+            )
         else:
-          prev_att = None
+            prev_att = None
 
         key_names = ["s", "readout_in", "readout", "output_prob"]
         for key_name in key_names:
