@@ -376,4 +376,25 @@ def run_single(
             opt_lm_am_scale=False,
         )
 
+    if n_cart_phones == 3:
+        for cfg in [
+            dataclasses.replace(s.get_cart_params(key="fh"), altas=a, beam=b)
+            for a, b in itertools.product([None, 2, 4, 6], [14, 16])
+        ]:
+            job = s.recognize_cart(
+                key="fh",
+                epoch=max(keep_epochs),
+                crp_corpus="dev-other",
+                n_cart_out=n_cart_out,
+                cart_tree_or_tying_config=cart_tree,
+                log_softmax_returnn_config=decoding_config,
+                params=cfg,
+                opt_lm_am_scale=False,
+                cpu_rqmt=2,
+                mem_rqmt=4,
+                rtf=4,
+                native_ops=["NativeLstm2"],
+            )
+            job.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+
     return s
