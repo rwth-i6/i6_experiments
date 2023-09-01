@@ -398,10 +398,11 @@ class ConformerEncoder:
             # which would be difficult otherwise.
             # C is approx 15-20.
             # Then we can concat it to K and V.
+            mem_bank = self._block_prefix_name(layer_index - 1) + "_emformer_mem"  # [B*C, D]
             mem_bank = self.network.add_generic_layer(
                 f"{prefix_name}_emformer_mem_split_batch_time",
                 cls="split_batch_time",
-                source=self._block_prefix_name(layer_index - 1) + "_emformer_mem",
+                source=mem_bank,
                 base=self.memory_variant_opts.split_batch_time_base,
             )  # [B, C, D]
             mem_bank = self.network.add_generic_layer(
@@ -410,39 +411,61 @@ class ConformerEncoder:
                 source=mem_bank,
                 set_dim_tags={self.memory_variant_opts.chunked_time_dim: self.emformer_mem_bank_dim},
             )  # [B, M, D]
-            mem_bank = self.network.add_generic_layer(
-                f"{prefix_name}_emformer_mem_expand_chunks",
-                cls="expand_dims",
+
+            mem_bank_K = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_K",
+                cls="linear",
                 source=mem_bank,
+                n_out=self.enc_key_dim,
+                with_bias=False,
+                reuse_params=K,
+            )  # [B, M, D]
+            mem_bank_V = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_V",
+                cls="linear",
+                source=mem_bank,
+                n_out=self.enc_value_dim,
+                with_bias=False,
+                reuse_params=V,
+            )  # [B, M, D]
+
+            mem_bank_K = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_K_expand_chunks",
+                cls="expand_dims",
+                source=mem_bank_K,
                 axis="T",
                 dim=self.memory_variant_opts.chunked_time_dim,
             )  # [B, M, C, D]
-            mem_bank = self.network.add_generic_layer(
-                f"{prefix_name}_emformer_mem_expanded_merged",
+            mem_bank_K = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_K_expanded_merged",
                 cls="merge_dims",
-                source=mem_bank,
+                source=mem_bank_K,
+                axes=("B", self.memory_variant_opts.chunked_time_dim),
+            )  # [B*C, M, D]
+
+            mem_bank_V = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_V_expand_chunks",
+                cls="expand_dims",
+                source=mem_bank_V,
+                axis="T",
+                dim=self.memory_variant_opts.chunked_time_dim,
+            )  # [B, M, C, D]
+            mem_bank_V = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_V_expanded_merged",
+                cls="merge_dims",
+                source=mem_bank_V,
                 axes=("B", self.memory_variant_opts.chunked_time_dim),
             )  # [B*C, M, D]
         else:
-            mem_bank = None
+            mem_bank_K, mem_bank_V = None, None
 
-        if self.memory_variant_opts.use_cached_prev_kv:
+        if self.memory_variant_opts.use_cached_prev_kv or mem_bank_K:
             # concat previous cached keys and values
             concat_keys = self._get_mem_chunks(f"{prefix_name}_ln_K_", K, self.memory_variant_opts.mem_size)
             concat_keys.append((K, "T"))
-
-            if mem_bank:
-                mem_bank_K = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_mem_bank_K_proj",
-                    cls="linear",
-                    source=mem_bank,
-                    n_out=self.enc_key_dim,
-                    with_bias=False,
-                    # TODO fix share params with ..._ln_K
-                )  # [B*C, M, D]
+            if mem_bank_K:
                 concat_keys.append((mem_bank_K, self.emformer_mem_bank_dim))
 
-            # add memory bank to keys if available
             K = self.network.add_generic_layer(
                 f"{prefix_name}_ln_K_concat",
                 cls="concat",
@@ -458,19 +481,10 @@ class ConformerEncoder:
             dims=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
         )  # [B*C, W*N, H, D/H]
 
-        if self.memory_variant_opts.use_cached_prev_kv:
+        if self.memory_variant_opts.use_cached_prev_kv or mem_bank_V:
             concat_values = self._get_mem_chunks(f"{prefix_name}_ln_V_", V, self.memory_variant_opts.mem_size)
             concat_values.append((V, "T"))
-
-            if mem_bank:
-                mem_bank_V = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_mem_bank_V_proj",
-                    cls="linear",
-                    source=mem_bank,
-                    n_out=self.enc_value_dim,
-                    with_bias=False,
-                    # TODO share params
-                )  # [B*C, M, D]
+            if mem_bank_V:
                 concat_values.append((mem_bank_V, self.emformer_mem_bank_dim))
 
             V = self.network.add_generic_layer(
@@ -667,12 +681,11 @@ class ConformerEncoder:
             # used later by shift layer to collect a memory bank
             self.network.add_generic_layer(
                 f"{prefix_name}_emformer_mem",
-                cls="slice",
+                cls="gather",
                 source=mhsa,
                 axis="T",
-                slice_start=self.memory_variant_opts.chunk_size,
-            )  # [B*C, 1, D]
-            # TODO squeeze the 1. use maybe gather instead. -> [B*C, D]
+                position=self.memory_variant_opts.chunk_size,
+            )  # [B*C, D]
             mhsa = self.network.add_generic_layer(
                 f"{prefix_name}_ln_att_slice",
                 cls="slice",
