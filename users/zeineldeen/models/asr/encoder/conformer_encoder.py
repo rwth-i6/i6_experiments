@@ -658,7 +658,21 @@ class ConformerEncoder:
             allow_broadcast_all_sources=False,
         )  # [B*C, H, W*N [+M], W [+1]]
 
-        # TODO mask energy for Emformer memory
+        if mem_bank_K:
+            energy = self.network.add_eval_layer(
+                f"{prefix_name}_ln_energy_emformer_mem_masked",
+                energy,
+                eval=_energy_mask_emformer_mem,
+                eval_locals=dict(
+                    chunked_time_dim=self.memory_variant_opts.chunked_time_dim,  # C
+                    chunk_size_dim=self.memory_variant_opts.chunk_size_dim,  # W
+                    att_num_heads_dim=self.enc_att_num_heads_dim,  # H
+                    query_dim=self.emformer_ext_query_dim,  # W+1
+                    kv_dim=self.concat_window_dim,  # W*N+M
+                    mem_bank_dim=self.emformer_mem_bank_dim,  # M
+                    neg_inf=float("-inf"),
+                ),
+            )
 
         weights = self.network.add_generic_layer(
             f"{prefix_name}_ln_weights",
@@ -1244,3 +1258,65 @@ class ConformerMemoryVariantOpts:
     conv_cache_size: int
     use_cached_prev_kv: bool
     use_emformer_mem: bool  # https://arxiv.org/abs/2010.10759
+
+
+def _energy_mask_emformer_mem(
+    *,
+    source,
+    chunked_time_dim: Dim,  # C
+    chunk_size_dim: Dim,  # W
+    att_num_heads_dim: Dim,  # H
+    query_dim: Dim,  # W+1
+    kv_dim: Dim,  # W*N+M, M=C
+    mem_bank_dim: Dim,  # M, M=C
+    neg_inf: float,
+    **_kwargs,
+):
+    import tensorflow as tf
+    from returnn.tensor import Tensor, Dim, batch_dim
+    from returnn.tf.util.data import BatchInfo
+
+    chunk_size_dim  # unused  # noqa
+
+    energy_data: Tensor = source(0, as_data=True)  # [B*C, H, W*N+M, W+1], M=C, dims not necessarily that order
+
+    assert len(energy_data.batch.virtual_dims) == 2
+    batch_virtual_dim0, batch_virtual_dim1 = energy_data.batch.virtual_dims
+    assert isinstance(batch_virtual_dim0, BatchInfo.GlobalBatchDim)
+    assert isinstance(batch_virtual_dim1, BatchInfo.FixedDim)
+    assert batch_virtual_dim1.dim_tag == chunked_time_dim
+
+    energy_shape = []
+    energy_dims = []
+    for d in energy_data.dims:
+        if d.is_batch_dim():
+            energy_dims += [batch_dim, chunked_time_dim]
+            energy_shape += [batch_virtual_dim0.size, chunked_time_dim.get_dim_value()]
+            continue
+        energy_dims.append(d)
+        energy_shape.append(d.get_dim_value())
+    energy: tf.Tensor = tf.reshape(energy_data.raw_tensor, energy_shape)  # [B, C, H, W*N [+M], W+1]
+    assert set(energy_dims) == {batch_dim, chunked_time_dim, att_num_heads_dim, query_dim, kv_dim}
+    assert len(energy_dims) == len(energy_shape) == energy.shape.rank == 5
+
+    def _bc_shape(d_: Dim):
+        a = energy_dims.index(d_)
+        return [1] * a + [d.get_dim_value()] + [1] * (len(energy_dims) - a - 1)
+
+    # In chunk c, we only allow to attend to the previous chunk memories m <= c.
+    # In summary, we do not attend to any memories.
+    c_range: tf.Tensor = tf.range(chunked_time_dim.get_dim_value())  # [C]
+    c_range: tf.Tensor = tf.reshape(c_range, _bc_shape(chunked_time_dim))  # [..C..]
+    q_range: tf.Tensor = tf.range(query_dim.get_dim_value())  # [W+1]
+    q_range: tf.Tensor = tf.reshape(q_range, _bc_shape(query_dim))  # [..W+1..]
+    q_s_idx = query_dim.get_dim_value() - 1  # W
+    kv_range: tf.Tensor = tf.range(kv_dim.get_dim_value())  # [W*N+M]
+    kv_range: tf.Tensor = tf.reshape(kv_range, _bc_shape(kv_dim))  # [..W*N+M..]
+    kv_m_start_idx = kv_dim.get_dim_value() - mem_bank_dim.get_dim_value()  # W*N
+    mask0 = kv_range <= kv_m_start_idx + c_range  # [..C.., ..W*N+M..]
+    mask1 = (q_range < q_s_idx) | ((q_range == q_s_idx) & (kv_range < kv_m_start_idx))  # [..W+1.., ..W*N+M..]
+    mask = mask0 & mask1  # [..C.., ..W+1.., ..W*N+M..]
+    energy = tf.where(mask, energy, neg_inf)
+
+    energy = tf.reshape(energy, [d.get_dim_value() for d in energy_data.dims])  # [B*C, H, W*N+M, W+1]
+    return energy
