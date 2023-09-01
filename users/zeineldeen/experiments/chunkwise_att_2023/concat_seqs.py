@@ -55,6 +55,7 @@ class ConcatDatasetSeqsJob(Job):
         self.out_concat_seq_lens = self.output_path("concat_seq_lens.txt")  # in secs
         self.out_concat_seq_lens_py = self.output_path("concat_seq_lens.py.txt")  # in secs
         self.out_stm = self.output_path("concat_ref.stm")
+        self.out_stm_py = self.output_path("concat_ref.py.stm")
 
     def run(self):
         # Example CTM:
@@ -75,6 +76,8 @@ class ConcatDatasetSeqsJob(Job):
         print("Corpus:", self.corpus_name)
         print("Input ref STM:", self.stm)
         print("Concatenate up to %i seqs." % self.num)
+
+        stm_py = {}
 
         class ConcatenatedSeq:
             def __init__(self):
@@ -122,6 +125,9 @@ class ConcatDatasetSeqsJob(Job):
                     "%s 1 %s %s %s <%s>  %s\n"
                     % (self.rec_tag, self.rec_tag2, self.start, self.end, self.flags, self.txt)
                 )
+
+                assert self.seq_tag not in stm_py
+                stm_py[self.seq_tag] = self.txt
 
         # Read (ref) STM file, and write out concatenated STM file.
         with generic_open(self.out_stm.get_path(), "w") as out_stm_file:
@@ -263,6 +269,12 @@ class ConcatDatasetSeqsJob(Job):
         write_seq_lens(concatenated_seqs, self.out_concat_seq_lens.get_path())
         write_seq_lens_py(concatenated_seqs, self.out_concat_seq_lens_py.get_path())
 
+        with uopen(self.out_stm_py.get_path(), "wt") as f:
+            f.write("{\n")
+            for k, v in stm_py.items():
+                f.write("%r: %r,\n" % (k, v))
+            f.write("}\n")
+
     def tasks(self):
         yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 0.1}, mini_task=True)
 
@@ -290,23 +302,23 @@ class ConcatSeqsDataset(Dataset):
         }
 
 
-class CreateConcatSeqsCTMJob(Job):
+class CreateConcatSeqsCTMAndSTMJob(Job):
     """
     Create CTM from concat seqs recognition words py file
     """
 
-    def __init__(self, recog_words_file: tk.Path, stm_file: tk.Path, filter_tags: bool = True):
+    def __init__(self, recog_words_file: tk.Path, stm_py_file: tk.Path, stm_file: tk.Path):
         self.recog_words_file = recog_words_file
-        self.stm_file = stm_file  # used to get seqs
-        self.filter_tags = filter_tags
+        self.stm_py_file = stm_py_file
+        self.stm_file = stm_file  # only used for getting the sorted seq tags
 
+        self.out_stm_file = self.output_path("search.stm")
         self.out_ctm_file = self.output_path("search.ctm")
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 0.1}, mini_task=True)
 
-    def run(self):
-        # collect seq tags from the STM
+    def _get_seg_tags_from_stm(self):
         seg_tags = []
         with uopen(self.stm_file.get_path(), "rt") as f:
             for line in f:
@@ -318,26 +330,59 @@ class CreateConcatSeqsCTMJob(Job):
                     if splits[1] == "_full_seq_tag":
                         assert len(splits) == 3
                         seg_tags.append(splits[2][1:-1])  # remove "
+        return seg_tags
 
-        d = eval(uopen(self.recog_words_file.get_path(), "rt").read())
+    @staticmethod
+    def create_ctm(seg_tags, source_filename, target_filename):
+        d = eval(uopen(source_filename, "rt").read())
         assert isinstance(d, dict), "only search output file with dict format is supported"
         assert len(d) > 0
         assert len(d) == len(seg_tags)
-        with uopen(self.out_ctm_file.get_path(), "wt") as out:
+        with uopen(target_filename, "wt") as out:
             out.write(";; <name> <track> <start> <duration> <word> <confidence> [<n-best>]\n")
             start = 0.0
             for seg_tag in seg_tags:
                 raw_text = d[seg_tag]
                 out.write(";; %s (%f-%f)\n" % (seg_tag, start + 0.01, start + 0.99))
                 assert isinstance(raw_text, str)
-                words = raw_text.split()
-                assert len(words) > 0
-                word_duration = 0.9 / len(words)
-                for i in range(len(words)):
-                    if self.filter_tags and words[i].startswith("[") and words[i].endswith("]"):
-                        continue
-                    rec_tag = seg_tag.split("/")[1]  # consistent with STM
-                    out.write(
-                        "%s 1 %f %f %s 0.99\n" % (rec_tag, start + 0.01 + i * word_duration, word_duration, words[i])
-                    )
+                if raw_text:
+                    words = raw_text.split()
+                    assert len(words) > 0
+                    word_duration = 0.9 / len(words)
+                    for i in range(len(words)):
+                        rec_tag = seg_tag.split("/")[1]  # consistent with STM
+                        out.write(
+                            "%s 1 %f %f %s 0.99\n"
+                            % (rec_tag, start + 0.01 + i * word_duration, word_duration, words[i])
+                        )
                 start += 1.0
+
+    @staticmethod
+    def create_stm(seg_tags, source_filename, target_filename):
+        d = eval(uopen(source_filename, "rt").read())
+        assert isinstance(d, dict), "only search output file with dict format is supported"
+        assert len(d) > 0
+        assert len(d) == len(seg_tags)
+        with uopen(target_filename, "wt") as out:
+            out.write(';; LABEL "d0" "default0" "all other segments of category 0\n')  # TODO: specific for Ted2
+            start = 0.0
+            for seg_tag in seg_tags:
+                raw_text = d[seg_tag]
+                assert isinstance(raw_text, str)
+                rec_tag = seg_tag.split("/")[1]  # consistent with STM
+                out.write(';; _full_seq_tag "%s"' % seg_tag)
+                out.write("%s 1 rec %f %f <d0>  %s\n" % (rec_tag, start + 0.01, start + 0.99, raw_text))
+            start += 1
+
+    def run(self):
+        seg_tags = self._get_seg_tags_from_stm()
+        self.create_ctm(
+            seg_tags=seg_tags,
+            source_filename=self.recog_words_file.get_path(),
+            target_filename=self.out_ctm_file.get_path(),
+        )
+        self.create_stm(
+            seg_tags=seg_tags,
+            source_filename=self.stm_py_file.get_path(),
+            target_filename=self.out_stm_file.get_path(),
+        )

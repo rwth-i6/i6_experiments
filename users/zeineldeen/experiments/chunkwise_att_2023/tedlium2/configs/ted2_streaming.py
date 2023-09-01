@@ -236,7 +236,7 @@ def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, c
     from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.concat_seqs import (
         ConcatDatasetSeqsJob,
         ConcatSeqsDataset,
-        CreateConcatSeqsCTMJob,
+        CreateConcatSeqsCTMAndSTMJob,
     )
     from i6_core.corpus.convert import CorpusToStmJob
 
@@ -288,7 +288,9 @@ def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, c
         stm_file = concat_dataset_seqs.out_stm
         tk.register_output(exp_prefix + f"/{corpus_name}/sclite/stm", stm_file)
 
-        search_ctm = CreateConcatSeqsCTMJob(recog_words_file=search_words, stm_file=stm_file).out_ctm_file
+        search_ctm = CreateConcatSeqsCTMAndSTMJob(
+            recog_words_file=search_words, stm_py_file=concat_dataset_seqs.out_stm_py, stm_file=stm_file
+        ).out_ctm_file
         tk.register_output(exp_prefix + f"/{corpus_name}/sclite/ctm", search_ctm)
 
         sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH)
