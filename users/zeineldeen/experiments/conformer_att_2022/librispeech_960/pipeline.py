@@ -216,7 +216,7 @@ def search(
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
     wers = {}
     for key, (test_dataset, test_dataset_reference, test_bliss_corpus) in test_dataset_tuples.items():
-        wers[key] = search_single(
+        wers[key], _ = search_single(
             prefix_name + "/%s" % key,
             returnn_config,
             checkpoint,
@@ -239,9 +239,15 @@ def search(
     values = {}
     values_report = {}
     for key in test_dataset_tuples.keys():
+        wer_ = wers[key]
+        if wer_ is None:
+            continue
         values[key] = key
         values["%s_val" % key] = wers[key]
         values_report["%s_val" % key] = wers[key]
+
+    if not values:
+        return None
 
     report = GenerateReportStringJob(report_values=values, report_template=format_string, compress=False).out_report
     if enable_mail:
