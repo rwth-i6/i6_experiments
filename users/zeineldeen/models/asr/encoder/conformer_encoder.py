@@ -594,36 +594,52 @@ class ConformerEncoder:
             clipping=self.rel_pos_clipping,
             query_spatial_dim=self.emformer_ext_query_dim
             if self.memory_variant_opts.use_emformer_mem
-            else self.memory_variant_opts.chunk_size_dim,
+            else self.memory_variant_opts.chunk_size_dim,  # W+1 or W
             key_value_spatial_dim=self.concat_window_dim,  # W*N [+M]
             query_offset=self.memory_variant_opts.chunk_size * self.memory_variant_opts.mem_size,
         )  # [queries (W [+1]), kvs (W*N [+M]), D/H]
 
-        # TODO mask ln_rel_pos_enc to 0.0 for parts where it does not make sense (memory, summary)
         if self.memory_variant_opts.use_emformer_mem:  # -> have summary, i.e. [W+1]
-            if layer_index == 1:
+            mask_query = "emformer_mask_query_dim"
+            if mask_query not in self.network:
                 range_in_query_dim = self.network.add_generic_layer(
                     "emformer_range_query_dim", cls="range_in_axis", source=Q, axis=self.emformer_ext_query_dim
                 )  # [W+1]
                 mask_query = self.network.add_eval_layer(
-                    "emformer_mask_query_dim",
+                    mask_query,
                     range_in_query_dim,
                     eval=f"source(0) < {self.memory_variant_opts.chunk_size}",
                     out_type={"dtype": "bool"},
                 )  # [W+1]
+            ln_rel_pos_enc = self.network.add_eval_layer(
+                f"{prefix_name}_ln_rel_pos_enc_masked_query",
+                [ln_rel_pos_enc, mask_query],
+                eval="tf.where(source(1), source(0), 0.)",
+            )
+
+        if mem_bank_K:
+            mask_kv = "emformer_mask_kv_dim"
+            if mask_kv not in self.network:
                 range_in_kv_dim = self.network.add_generic_layer(
                     "emformer_range_kv_dim", cls="range_in_axis", source=K, axis=self.concat_window_dim
                 )  # [W*N + M]
                 kv_dim_len = self.network.add_generic_layer(
-                    "length", cls="length", source=K, axis=self.concat_window_dim
+                    "kv_dim_len", cls="length", source=K, axis=self.concat_window_dim
+                )
+                mem_len = self.network.add_generic_layer(
+                    "mem_len", cls="length", source=mem_bank_K, axis=self.emformer_mem_bank_dim
                 )
                 mask_kv = self.network.add_eval_layer(
-                    "emformer_mask_kv_dim",
-                    range_in_kv_dim,
-                    eval=f"source(0) < {self.memory_variant_opts.chunk_size}",
+                    mask_kv,
+                    [range_in_kv_dim, kv_dim_len, mem_len],
+                    eval=f"source(0) < (source(1) - source(2))",
+                    out_type={"dtype": "bool"},
                 )
-                # TODO ...
-            pass
+            ln_rel_pos_enc = self.network.add_eval_layer(
+                f"{prefix_name}_ln_rel_pos_enc_masked_kv",
+                [ln_rel_pos_enc, mask_kv],
+                eval="tf.where(source(1), source(0), 0.)",
+            )
 
         energy_rel_pos = self.network.add_generic_layer(
             f"{prefix_name}_ln_energy_rel_pos",

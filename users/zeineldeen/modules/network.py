@@ -581,6 +581,9 @@ class ReturnnNetwork:
     def __getitem__(self, item):
         return self._net[item]
 
+    def __contains__(self, item):
+        return item in self._net
+
     def update(self, d: dict):
         self._net.update(d)
 
