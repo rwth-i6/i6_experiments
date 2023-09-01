@@ -364,7 +364,7 @@ class CreateConcatSeqsCTMAndSTMJob(Job):
         assert len(d) > 0
         assert len(d) == len(seg_tags)
         with uopen(target_filename, "wt") as out:
-            out.write(';; LABEL "d0" "default0" "all other segments of category 0\n')  # TODO: specific for Ted2
+            out.write(';; LABEL "d0" "default0" "all other segments of category 0"\n')  # TODO: specific for Ted2
             start = 0.0
             for seg_tag in seg_tags:
                 raw_text = d[seg_tag]
