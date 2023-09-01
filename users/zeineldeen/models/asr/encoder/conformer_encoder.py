@@ -352,7 +352,9 @@ class ConformerEncoder:
         mem_chunks.reverse()
         return mem_chunks
 
-    def _self_att_v2(self, prefix_name: str, input_layer: str, concat_prev_chunks_inputs: str) -> str:
+    def _self_att_v2(
+        self, prefix_name: str, *, input_layer: str, concat_prev_chunks_inputs: str, layer_index: int
+    ) -> str:
         """
         Self-Attention implementation via RETURNN layers instead of using RETURNN SelfAttentionLayer
 
@@ -374,8 +376,16 @@ class ConformerEncoder:
             L2=self.self_att_l2,
         )  # [B*C, W*N, D] or [B*C, W, D]
 
-        if self.memory_variant_opts.use_emformer_mem:
+        if self.memory_variant_opts.use_emformer_mem and layer_index > 1:
             # f"{prefix_name}_emformer_mem" has shape [B*C, D]
+            # I.e. one vector per batch and chunk.
+            mem_bank = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_split_batch_time",
+                cls="split_batch_time",
+                source=f"{self._block_prefix_name(layer_index - 1)}_emformer_mem",
+                base=self.memory_variant_opts.split_batch_time_base,
+            )  # [B, C, W, D], C = chunked_time_dim
+            # TODO make [B*C, C, D]. C approx 15-20.
             raise NotImplementedError("Emformer memory not implemented yet.")
         else:
             mem_bank_concat = None
@@ -391,10 +401,10 @@ class ConformerEncoder:
                     cls="linear",
                     source=mem_bank_concat,
                     n_out=self.enc_key_dim,
-                    forward_weights_init=self.mhsa_init,
                     with_bias=False,
                     L2=self.self_att_l2,
-                )
+                    # TODO fix share params with ..._ln_K
+                )  # TODO [B*C, C, D] ??
                 concat_keys.insert(0, (mem_bank, self.emformer_mem_bank_concat_dim))
 
             # add memory bank to keys if available
@@ -543,7 +553,7 @@ class ConformerEncoder:
             out_dim=self.enc_per_head_dim,  # D/H
             forward_weights_init=self.ff_init,
             clipping=self.rel_pos_clipping,
-            query_spatial_dim=self.memory_variant_opts.chunk_size_dim,
+            query_spatial_dim=self.memory_variant_opts.chunk_size_dim,  # Just W, excluding Emformer summary or so
             key_value_spatial_dim=self.concat_window_dim,
             query_offset=self.memory_variant_opts.chunk_size * self.memory_variant_opts.mem_size,
         )  # [W, W*N, D/H]
@@ -564,6 +574,8 @@ class ConformerEncoder:
             kind="add",
             allow_broadcast_all_sources=False,
         )  # [B*C, H, W*N, W]
+
+        # TODO mask energy for Emformer memory
 
         weights = self.network.add_generic_layer(
             f"{prefix_name}_ln_weights",
@@ -607,6 +619,7 @@ class ConformerEncoder:
                 axis="T",
                 slice_start=self.memory_variant_opts.chunk_size,
             )  # [B*C, 1, D]
+            # TODO squeeze the 1. use maybe gather instead. -> [B*C, D]
             mhsa = self.network.add_generic_layer(
                 f"{prefix_name}_ln_att_slice",
                 cls="slice",
@@ -707,7 +720,9 @@ class ConformerEncoder:
                 # in case use_cached_prev_kv is enabled:
                 #   - ln_ contains the cached keys and values only
                 #   - project only current chunk
-                mhsa = self._self_att_v2(prefix_name, input_layer=ln, concat_prev_chunks_inputs=ln_)
+                mhsa = self._self_att_v2(
+                    prefix_name, input_layer=ln, concat_prev_chunks_inputs=ln_, layer_index=layer_index
+                )
         else:
             mhsa = self.network.add_self_att_layer(
                 name=prefix_name,
@@ -869,7 +884,8 @@ class ConformerEncoder:
         )
         return res
 
-    def _block_prefix_name(self, layer_index):
+    def _block_prefix_name(self, layer_index: int) -> str:
+        assert layer_index >= 1
         if self.add_to_prefix_name:
             prefix_name = "conformer_block_%s_%02i" % (self.add_to_prefix_name, layer_index)
         else:
