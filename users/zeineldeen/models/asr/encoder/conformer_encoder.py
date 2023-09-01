@@ -235,7 +235,8 @@ class ConformerEncoder:
             if self.memory_variant_opts.conv_cache_size:
                 self.conv_cache_concat_dim = SpatialDim("conv-cache-concat")
             if self.memory_variant_opts.use_emformer_mem:
-                self.emformer_mem_bank_concat_dim = SpatialDim("emformer-mem-bank-concat")
+                # M, which is the same as C, but different tag
+                self.emformer_mem_bank_dim = SpatialDim("emformer-mem-bank")  # M
 
     def _create_ff_module(self, prefix_name, i, source, layer_index):
         """
@@ -377,35 +378,58 @@ class ConformerEncoder:
         )  # [B*C, W*N, D] or [B*C, W, D]
 
         if self.memory_variant_opts.use_emformer_mem and layer_index > 1:
+            # Take memory from the previous layer.
             # f"{prefix_name}_emformer_mem" has shape [B*C, D]
             # I.e. one vector per batch and chunk.
+            # We effectively convert it to [B,M,D] with M=C but being a separate tag,
+            # and then expand it to [B*C,M,D].
+            # This expansion is maybe not optimal, however, the attention still is only per chunk,
+            # which would be difficult otherwise.
+            # C is approx 15-20.
+            # Then we can concat it to K and V.
             mem_bank = self.network.add_generic_layer(
                 f"{prefix_name}_emformer_mem_split_batch_time",
                 cls="split_batch_time",
-                source=f"{self._block_prefix_name(layer_index - 1)}_emformer_mem",
+                source=self._block_prefix_name(layer_index - 1) + "_emformer_mem",
                 base=self.memory_variant_opts.split_batch_time_base,
-            )  # [B, C, W, D], C = chunked_time_dim
-            # TODO make [B*C, C, D]. C approx 15-20.
-            raise NotImplementedError("Emformer memory not implemented yet.")
+            )  # [B, C, D]
+            mem_bank = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_set_new_dim",
+                cls="reinterpret_data",
+                source=mem_bank,
+                set_dim_tags={self.memory_variant_opts.chunked_time_dim: self.emformer_mem_bank_dim},
+            )  # [B, M, D]
+            mem_bank = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_expand_chunks",
+                cls="expand_dims",
+                source=mem_bank,
+                axis="T",
+                dim=self.memory_variant_opts.chunked_time_dim,
+            )  # [B, M, C, D]
+            mem_bank = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_expanded_merged",
+                cls="merge_dims",
+                source=mem_bank,
+                axes=("B", self.memory_variant_opts.chunked_time_dim),
+            )  # [B*C, M, D]
         else:
-            mem_bank_concat = None
+            mem_bank = None
 
         if self.memory_variant_opts.use_cached_prev_kv:
             # concat previous cached keys and values
             concat_keys = self._get_mem_chunks(f"{prefix_name}_ln_K_", K, self.memory_variant_opts.mem_size)
             concat_keys.append((K, "T"))
 
-            if mem_bank_concat:
-                mem_bank = self.network.add_generic_layer(
+            if mem_bank:
+                mem_bank_K = self.network.add_generic_layer(
                     f"{prefix_name}_ln_mem_bank_K_proj",
                     cls="linear",
-                    source=mem_bank_concat,
+                    source=mem_bank,
                     n_out=self.enc_key_dim,
                     with_bias=False,
-                    L2=self.self_att_l2,
                     # TODO fix share params with ..._ln_K
-                )  # TODO [B*C, C, D] ??
-                concat_keys.insert(0, (mem_bank, self.emformer_mem_bank_concat_dim))
+                )  # [B*C, M, D]
+                concat_keys.insert(0, (mem_bank_K, self.emformer_mem_bank_dim))
 
             # add memory bank to keys if available
             K = self.network.add_generic_layer(
@@ -413,7 +437,7 @@ class ConformerEncoder:
                 cls="concat",
                 source=concat_keys,
                 out_dim=self.concat_window_dim,
-            )  # [B*C, W*N, D]
+            )  # [B*C, W*N [+M], D]
 
         K_H = self.network.add_generic_layer(
             f"{prefix_name}_ln_K_H",
@@ -436,17 +460,16 @@ class ConformerEncoder:
             concat_values = self._get_mem_chunks(f"{prefix_name}_ln_V_", V, self.memory_variant_opts.mem_size)
             concat_values.append((V, "T"))
 
-            if mem_bank_concat:
-                mem_bank = self.network.add_generic_layer(
+            if mem_bank:
+                mem_bank_V = self.network.add_generic_layer(
                     f"{prefix_name}_ln_mem_bank_V_proj",
                     cls="linear",
-                    source=mem_bank_concat,
+                    source=mem_bank,
                     n_out=self.enc_value_dim,
-                    forward_weights_init=self.mhsa_init,
                     with_bias=False,
-                    L2=self.self_att_l2,
-                )
-                concat_values.insert(0, (mem_bank, self.emformer_mem_bank_concat_dim))
+                    # TODO share params
+                )  # [B*C, M, D]
+                concat_values.insert(0, (mem_bank_V, self.emformer_mem_bank_dim))
 
             V = self.network.add_generic_layer(
                 f"{prefix_name}_ln_V_concat",
@@ -553,7 +576,7 @@ class ConformerEncoder:
             out_dim=self.enc_per_head_dim,  # D/H
             forward_weights_init=self.ff_init,
             clipping=self.rel_pos_clipping,
-            query_spatial_dim=self.memory_variant_opts.chunk_size_dim,  # Just W, excluding Emformer summary or so
+            query_spatial_dim=self.memory_variant_opts.chunk_size_dim,
             key_value_spatial_dim=self.concat_window_dim,
             query_offset=self.memory_variant_opts.chunk_size * self.memory_variant_opts.mem_size,
         )  # [W, W*N, D/H]
@@ -1152,8 +1175,8 @@ class ConformerEncoder:
 @dataclass
 class ConformerMemoryVariantOpts:
     split_batch_time_base: str
-    chunked_time_dim: Dim
-    chunk_size_dim: Dim
+    chunked_time_dim: Dim  # C, number of chunks
+    chunk_size_dim: Dim  # W, including extended left/right, excluding Emformer summary or so
     chunk_size: int
     self_att_version: int  # TODO: just for testing
     mem_size: int
