@@ -183,8 +183,7 @@ def search_single(
         tk.register_output(prefix_name + "/wer", wer.out_wer)
         wer_ = wer.out_wer
 
-    assert wer_, "Either returnn_compute_wer or use_sclite must be True to return WER"
-    return wer_
+    return wer_, search_words
 
 
 def search(

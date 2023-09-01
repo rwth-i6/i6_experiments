@@ -29,6 +29,7 @@ from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.tedlium2.dat
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.librispeech_960.default_tools import (
     RETURNN_ROOT,
     RETURNN_CPU_EXE,
+    SCTK_BINARY_PATH,
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.feature_extraction_net import (
     log10_net_10ms,
@@ -235,6 +236,7 @@ def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, c
     from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.concat_seqs import (
         ConcatDatasetSeqsJob,
         ConcatSeqsDataset,
+        CreateConcatSeqsCTMJob,
     )
     from i6_core.corpus.convert import CorpusToStmJob
 
@@ -263,7 +265,7 @@ def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, c
             seq_lens_py=concat_dataset_seqs.out_orig_seq_lens_py,
         )
 
-        search_single(
+        _, search_words = search_single(
             exp_prefix,
             returnn_search_config,
             checkpoint,
@@ -274,9 +276,18 @@ def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, c
             returnn_root=RETURNN_ROOT,
             mem_rqmt=mem_rqmt,
             time_rqmt=time_rqmt,
-            use_sclite=True,
+            # no scoring
+            use_sclite=False,
             use_returnn_compute_wer=False,
         )
+
+        from i6_core.corpus.convert import CorpusToStmJob
+        from i6_core.recognition.scoring import ScliteJob
+
+        search_ctm = CreateConcatSeqsCTMJob(recog_words_file=search_words).out_ctm_file
+        sclite_job = ScliteJob(ref=concat_dataset_seqs.out_stm, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH)
+        tk.register_output(exp_prefix + "/sclite/wer", sclite_job.out_wer)
+        tk.register_output(exp_prefix + "/sclite/report", sclite_job.out_report_dir)
 
 
 def run_lm_fusion(

@@ -6,10 +6,12 @@ Some utilities on datasets to concatenate sequences,
 """
 
 from sisyphus import Job, Task
+import sisyphus.toolkit as tk
 import numpy
 from typing import Optional, Dict, Any, Union
 
 from returnn_common.datasets import Dataset
+from i6_core.util import uopen
 
 
 def generic_open(filename, mode="r"):
@@ -286,3 +288,39 @@ class ConcatSeqsDataset(Dataset):
             "seq_list_file": self.seq_tags,
             "seq_len_file": self.seq_len_py,
         }
+
+
+class CreateConcatSeqsCTMJob(Job):
+    """
+    Create CTM from concat seqs recognition words py file
+    """
+
+    def __init__(self, recog_words_file: tk.Path, filter_tags: bool = True):
+        self.recog_words_file = recog_words_file
+        self.filter_tags = filter_tags
+
+        self.out_ctm_file = self.output_path("search.ctm")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 0.1}, mini_task=True)
+
+    def run(self):
+        d = eval(uopen(self.recog_words_file.get_path(), "rt").read())
+        assert isinstance(d, dict), "only search output file with dict format is supported"
+        assert len(d) > 0
+        with uopen(self.out_ctm_file.get_path(), "wt") as out:
+            out.write(";; <name> <track> <start> <duration> <word> <confidence> [<n-best>]\n")
+            start = 0.0
+            for seg_tag, raw_text in d.items():
+                out.write(";; %s (%f-%f)\n" % (seg_tag, start + 0.01, start + 0.99))
+                assert isinstance(raw_text, str)
+                words = raw_text.split()
+                assert len(words) > 0
+                word_duration = 0.9 / len(words)
+                for i in range(len(words)):
+                    if self.filter_tags and words[i].startswith("[") and words[i].endswith("]"):
+                        continue
+                    out.write(
+                        "%s 1 %f %f %s 0.99\n" % (seg_tag, start + 0.01 + i * word_duration, word_duration, words[i])
+                    )
+                start += 1.0
