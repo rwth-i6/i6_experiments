@@ -1839,7 +1839,7 @@ def baseline():
 
     # TODO: recog on concat seqs
     # baseline: 7.7/7.3
-    for num in [2, 3, 4, 5]:
+    for num in [2, 3, 4, 5, 6, 7, 8, 9, 10]:
         for left_context, center_context, right_context, conv_cache_size, mem_size in [(0, 20, 5, 1, 2)]:
             run_chunkwise_train(
                 enc_stream_type="chunked",
