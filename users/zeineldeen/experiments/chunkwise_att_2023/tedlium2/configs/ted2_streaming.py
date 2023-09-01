@@ -285,7 +285,9 @@ def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, c
         from i6_core.recognition.scoring import ScliteJob
 
         search_ctm = CreateConcatSeqsCTMJob(recog_words_file=search_words).out_ctm_file
-        sclite_job = ScliteJob(ref=concat_dataset_seqs.out_stm, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH)
+        sclite_job = ScliteJob(
+            ref=concat_dataset_seqs.out_stm, hyp=search_ctm, sort_files=True, sctk_binary_path=SCTK_BINARY_PATH
+        )
         tk.register_output(exp_prefix + "/sclite/wer", sclite_job.out_wer)
         tk.register_output(exp_prefix + "/sclite/report", sclite_job.out_report_dir)
 
