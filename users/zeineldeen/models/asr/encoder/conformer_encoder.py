@@ -648,7 +648,7 @@ class ConformerEncoder:
             reduce=self.enc_per_head_dim,  # D/H
             var1="auto",
             var2="auto",
-        )  # [B*C, H, W, W*N]
+        )  # [B*C, H, W[+1], W*N [+M]]
 
         energy = self.network.add_generic_layer(
             f"{prefix_name}_ln_energy_",
@@ -656,7 +656,7 @@ class ConformerEncoder:
             source=[energy, energy_rel_pos],
             kind="add",
             allow_broadcast_all_sources=False,
-        )  # [B*C, H, W*N, W]
+        )  # [B*C, H, W*N [+M], W [+1]]
 
         # TODO mask energy for Emformer memory
 
