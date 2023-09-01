@@ -247,6 +247,7 @@ def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, c
     for corpus_name in corpus_names:
         test_datasets = get_test_dataset_tuples(bpe_size=BPE_1K)
         stm = CorpusToStmJob(bliss_corpus=test_datasets[corpus_name][2]).out_stm_path
+        tk.register_output(f"concat_seqs/{num}/orig_{corpus_name}_stm", stm)
         concat_dataset_seqs = ConcatDatasetSeqsJob(corpus_name="TED-LIUM-realease2", stm=stm, num=num, overlap_dur=None)
         tk.register_output(f"concat_seqs/{num}/{corpus_name}_stm", concat_dataset_seqs.out_stm)
         tk.register_output(f"concat_seqs/{num}/{corpus_name}_tags", concat_dataset_seqs.out_concat_seq_tags)
@@ -284,12 +285,15 @@ def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, c
         from i6_core.corpus.convert import CorpusToStmJob
         from i6_core.recognition.scoring import ScliteJob
 
-        search_ctm = CreateConcatSeqsCTMJob(recog_words_file=search_words).out_ctm_file
-        sclite_job = ScliteJob(
-            ref=concat_dataset_seqs.out_stm, hyp=search_ctm, sort_files=True, sctk_binary_path=SCTK_BINARY_PATH
-        )
-        tk.register_output(exp_prefix + "/sclite/wer", sclite_job.out_wer)
-        tk.register_output(exp_prefix + "/sclite/report", sclite_job.out_report_dir)
+        stm_file = concat_dataset_seqs.out_stm
+        tk.register_output(exp_prefix + f"/{corpus_name}/sclite/stm", stm_file)
+
+        search_ctm = CreateConcatSeqsCTMJob(recog_words_file=search_words, stm_file=stm_file).out_ctm_file
+        tk.register_output(exp_prefix + f"/{corpus_name}/sclite/ctm", search_ctm)
+
+        sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH)
+        tk.register_output(exp_prefix + f"/{corpus_name}/sclite/wer", sclite_job.out_wer)
+        tk.register_output(exp_prefix + f"/{corpus_name}/sclite/report", sclite_job.out_report_dir)
 
 
 def run_lm_fusion(
@@ -1828,7 +1832,7 @@ def baseline():
         )
 
     # TODO: recog on concat seqs
-    for num in [2, 4, 8, 10]:
+    for num in [2]:
         for left_context, center_context, right_context, conv_cache_size, mem_size in [(0, 20, 5, 1, 2)]:
             run_chunkwise_train(
                 enc_stream_type="chunked",
