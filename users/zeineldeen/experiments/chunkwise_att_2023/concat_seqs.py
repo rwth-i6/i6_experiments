@@ -37,7 +37,7 @@ class ConcatDatasetSeqsJob(Job):
 
     def __init__(self, corpus_name, stm, num, overlap_dur="0.01"):
         """
-        :param str corpus_name: e.g. "hub5_00"
+        :param str corpus_name: used for tag corpus name e.g. "hub5_00"
         :param Path stm: path to stm file
         :param int num: Concatenate `num` consecutive seqs within a recording
         :param str|None overlap_dur: allow overlap between consecutive seqs, in seconds
@@ -180,7 +180,7 @@ class ConcatDatasetSeqsJob(Job):
                     full_seq_tag = extended_seq_tag
                     extended_seq_tag = None
                 else:
-                    full_seq_tag = "%s/%s/%i" % ("TED-LIUM-realease", tag, seq_idx_in_tag)
+                    full_seq_tag = "%s/%s/%i" % (self.corpus_name, tag, seq_idx_in_tag)
 
                 orig_seqs.append(ConcatenatedSeq())
                 if not concatenated_seqs or not concatenated_seqs[-1].can_add():
