@@ -96,6 +96,7 @@ def search_single(
     mem_rqmt,
     time_rqmt,
     use_sclite=False,
+    use_returnn_compute_wer=True,
     recog_ext_pipeline=False,
     remove_label: Optional[Union[str, Set[str]]] = None,
 ):
@@ -156,6 +157,8 @@ def search_single(
 
     search_words = SearchBPEtoWordsJob(search_bpe, output_gzip=recog_ext_pipeline).out_word_search_results
 
+    wer_ = None
+
     if use_sclite:
         from i6_core.returnn.search import SearchWordsToCTMJob
         from i6_core.corpus.convert import CorpusToStmJob
@@ -171,12 +174,17 @@ def search_single(
         sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH)
         tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
         tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
+        wer_ = sclite_job.out_wer
 
-    wer = ReturnnComputeWERJob(search_words, recognition_reference)
+    if use_returnn_compute_wer:
+        wer = ReturnnComputeWERJob(search_words, recognition_reference)
 
-    tk.register_output(prefix_name + "/search_out_words.py", search_words)
-    tk.register_output(prefix_name + "/wer", wer.out_wer)
-    return wer.out_wer
+        tk.register_output(prefix_name + "/search_out_words.py", search_words)
+        tk.register_output(prefix_name + "/wer", wer.out_wer)
+        wer_ = wer.out_wer
+
+    assert wer_, "Either returnn_compute_wer or use_sclite must be True to return WER"
+    return wer_
 
 
 def search(
@@ -191,7 +199,7 @@ def search(
     use_sclite=False,
     recog_ext_pipeline=False,
     remove_label: Optional[Union[str, Set[str]]] = None,
-    enable_mail: bool=False,
+    enable_mail: bool = False,
 ):
     """
 
@@ -228,9 +236,7 @@ def search(
     from i6_core.report import GenerateReportStringJob, MailJob
 
     format_string_report = ",".join(["{%s_val}" % key for key in test_dataset_tuples.keys()])
-    format_string = " - ".join(
-        ["{%s}: {%s_val}" % (key, key) for key in test_dataset_tuples.keys()]
-    )
+    format_string = " - ".join(["{%s}: {%s_val}" % (key, key) for key in test_dataset_tuples.keys()])
     values = {}
     values_report = {}
     for key in test_dataset_tuples.keys():
