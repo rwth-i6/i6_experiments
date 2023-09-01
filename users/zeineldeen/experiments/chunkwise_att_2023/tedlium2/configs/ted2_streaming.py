@@ -245,7 +245,7 @@ def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, c
     for corpus_name in corpus_names:
         test_datasets = get_test_dataset_tuples(bpe_size=BPE_1K)
         stm = CorpusToStmJob(bliss_corpus=test_datasets[corpus_name][2]).out_stm_path
-        concat_dataset_seqs = ConcatDatasetSeqsJob(corpus_name, stm=stm, num=num, overlap_dur=None)
+        concat_dataset_seqs = ConcatDatasetSeqsJob(corpus_name="TED-LIUM-realease2", stm=stm, num=num, overlap_dur=None)
         tk.register_output(f"concat_seqs/{num}/{corpus_name}_stm", concat_dataset_seqs.out_stm)
         tk.register_output(f"concat_seqs/{num}/{corpus_name}_tags", concat_dataset_seqs.out_concat_seq_tags)
         tk.register_output(f"concat_seqs/{num}/{corpus_name}_lens", concat_dataset_seqs.out_concat_seq_lens_py)
@@ -274,6 +274,8 @@ def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, c
             returnn_root=RETURNN_ROOT,
             mem_rqmt=mem_rqmt,
             time_rqmt=time_rqmt,
+            use_sclite=True,
+            use_returnn_compute_wer=False,
         )
 
 
@@ -1606,31 +1608,31 @@ def baseline():
     # ?
     # chunked_att_chunk-20_step-10_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2_memVariant1                         8.13    7.54  avg
 
-    for use_cached_prev_kv in [True, False]:
-        for conv_cache in [0, 2]:
-            for mem_size in [1, 2, 3]:
-                run_chunkwise_train(
-                    enc_stream_type="chunked",
-                    run_all_for_best_last_avg=True,
-                    enable_check_align=False,
-                    chunk_sizes=[10],
-                    chunk_step_factors=[0.5],
-                    start_lrs=[2e-4],
-                    decay_pt_factors=[1 / 3],
-                    gpu_mem=11,
-                    total_epochs=[120],
-                    batch_size=10_000 if mem_size != 1 else 15_000,
-                    accum_grad=3 if mem_size != 1 else 2,
-                    time_rqmt=120,
-                    conf_mem_opts={
-                        "self_att_version": 1,
-                        "mem_size": mem_size,
-                        "use_cached_prev_kv": use_cached_prev_kv,
-                        "conv_cache_size": conv_cache,
-                        "mem_slice_size": 10,
-                        "mem_slice_start": 0,
-                    },
-                )
+    # for use_cached_prev_kv in [True, False]:
+    #     for conv_cache in [0, 2]:
+    #         for mem_size in [1, 2, 3]:
+    #             run_chunkwise_train(
+    #                 enc_stream_type="chunked",
+    #                 run_all_for_best_last_avg=True,
+    #                 enable_check_align=False,
+    #                 chunk_sizes=[10],
+    #                 chunk_step_factors=[0.5],
+    #                 start_lrs=[2e-4],
+    #                 decay_pt_factors=[1 / 3],
+    #                 gpu_mem=11,
+    #                 total_epochs=[120],
+    #                 batch_size=10_000 if mem_size != 1 else 15_000,
+    #                 accum_grad=3 if mem_size != 1 else 2,
+    #                 time_rqmt=120,
+    #                 conf_mem_opts={
+    #                     "self_att_version": 1,
+    #                     "mem_size": mem_size,
+    #                     "use_cached_prev_kv": use_cached_prev_kv,
+    #                     "conv_cache_size": conv_cache,
+    #                     "mem_slice_size": 10,
+    #                     "mem_slice_start": 0,
+    #                 },
+    #             )
 
     # TODO: 2 sec chunk
     # run_chunkwise_train(
