@@ -6,8 +6,10 @@ Some utilities on datasets to concatenate sequences,
 """
 
 from sisyphus import Job, Task
-import sisyphus.toolkit as tk
 import numpy
+from typing import Optional, Dict, Any, Union
+
+from returnn_common.datasets import Dataset
 
 
 def generic_open(filename, mode="r"):
@@ -28,7 +30,7 @@ def generic_open(filename, mode="r"):
     return open(filename, mode)
 
 
-class ConcatDatasetSeqs(Job):
+class ConcatDatasetSeqsJob(Job):
     """
     Based on a STM file, create concatenated dataset.
     """
@@ -178,7 +180,7 @@ class ConcatDatasetSeqs(Job):
                     full_seq_tag = extended_seq_tag
                     extended_seq_tag = None
                 else:
-                    full_seq_tag = "%s/%s/%i" % (self.corpus_name, tag, seq_idx_in_tag)
+                    full_seq_tag = "%s/%s/%i" % ("TED-LIUM-realease", tag, seq_idx_in_tag)
 
                 orig_seqs.append(ConcatenatedSeq())
                 if not concatenated_seqs or not concatenated_seqs[-1].can_add():
@@ -261,3 +263,26 @@ class ConcatDatasetSeqs(Job):
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 0.1}, mini_task=True)
+
+
+class ConcatSeqsDataset(Dataset):
+    def __init__(
+        self,
+        dataset: Union[str, Dict[str, Any]],
+        seq_tags: str,
+        seq_lens_py: str,
+        additional_options: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(additional_options=additional_options)
+        self.dataset = dataset
+        self.seq_tags = seq_tags
+        self.seq_len_py = seq_lens_py
+
+    def as_returnn_opts(self):
+        return {
+            "class": "ConcatSeqsDataset",
+            "dataset": self.dataset,
+            "seq_ordering": "sorted_reverse",
+            "seq_list_file": self.seq_tags,
+            "seq_len_file": self.seq_len_py,
+        }

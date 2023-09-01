@@ -172,7 +172,7 @@ def run_train(
     feature_extraction_net,
     num_epochs,
     recog_epochs,
-    time_rqmt=168,
+    time_rqmt: float = 168,
     **kwargs,
 ):
     exp_prefix = os.path.join(prefix_name, exp_name)
@@ -229,40 +229,52 @@ def run_single_search(
     )
 
 
-def run_concat_seq_recog(exp_name, corpus_name, num, train_data, search_args, checkpoint, mem_rqmt, time_rqmt):
+def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, checkpoint, mem_rqmt=8, time_rqmt=1):
     exp_prefix = os.path.join(prefix_name, exp_name)
 
-    from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.concat_seqs import ConcatDatasetSeqs
+    from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.concat_seqs import (
+        ConcatDatasetSeqsJob,
+        ConcatSeqsDataset,
+    )
     from i6_core.corpus.convert import CorpusToStmJob
 
-    test_datasets = get_test_dataset_tuples(bpe_size=BPE_1K)
-    stm = CorpusToStmJob(bliss_corpus=test_datasets[corpus_name][2]).out_stm_path
-    concat_dataset_seqs = ConcatDatasetSeqs(corpus_name, stm=stm, num=num, overlap_dur=None)
-    tk.register_output(f"concat_seqs/{num}/stm", concat_dataset_seqs.out_stm)
-    tk.register_output(f"concat_seqs/{num}/tags", concat_dataset_seqs.out_concat_seq_tags)
-    tk.register_output(f"concat_seqs/{num}/lens", concat_dataset_seqs.out_concat_seq_lens_py)
+    if isinstance(corpus_names, str):
+        corpus_names = [corpus_names]
+    assert isinstance(corpus_names, list)
 
-    returnn_search_config = create_config(
-        training_datasets=train_data,
-        **search_args,
-        feature_extraction_net=log10_net_10ms,
-        is_recog=True,
-    )
+    for corpus_name in corpus_names:
+        test_datasets = get_test_dataset_tuples(bpe_size=BPE_1K)
+        stm = CorpusToStmJob(bliss_corpus=test_datasets[corpus_name][2]).out_stm_path
+        concat_dataset_seqs = ConcatDatasetSeqsJob(corpus_name, stm=stm, num=num, overlap_dur=None)
+        tk.register_output(f"concat_seqs/{num}/{corpus_name}_stm", concat_dataset_seqs.out_stm)
+        tk.register_output(f"concat_seqs/{num}/{corpus_name}_tags", concat_dataset_seqs.out_concat_seq_tags)
+        tk.register_output(f"concat_seqs/{num}/{corpus_name}_lens", concat_dataset_seqs.out_concat_seq_lens_py)
 
-    # TODO: create ConcatDataset
+        returnn_search_config = create_config(
+            training_datasets=train_data,
+            **search_args,
+            feature_extraction_net=log10_net_10ms,
+            is_recog=True,
+        )
 
-    search_single(
-        exp_prefix,
-        returnn_search_config,
-        checkpoint,
-        recognition_dataset=None,  # TODO: create
-        recognition_reference=test_datasets[corpus_name][1],
-        recognition_bliss_corpus=test_datasets[corpus_name][2],
-        returnn_exe=RETURNN_CPU_EXE,
-        returnn_root=RETURNN_ROOT,
-        mem_rqmt=mem_rqmt,
-        time_rqmt=time_rqmt,
-    )
+        returnn_concat_dataset = ConcatSeqsDataset(
+            dataset=test_datasets[corpus_name][0].as_returnn_opts(),
+            seq_tags=concat_dataset_seqs.out_concat_seq_tags,
+            seq_lens_py=concat_dataset_seqs.out_orig_seq_lens_py,
+        )
+
+        search_single(
+            exp_prefix,
+            returnn_search_config,
+            checkpoint,
+            recognition_dataset=returnn_concat_dataset,
+            recognition_reference=test_datasets[corpus_name][1],
+            recognition_bliss_corpus=test_datasets[corpus_name][2],
+            returnn_exe=RETURNN_CPU_EXE,
+            returnn_root=RETURNN_ROOT,
+            mem_rqmt=mem_rqmt,
+            time_rqmt=time_rqmt,
+        )
 
 
 def run_lm_fusion(
@@ -535,7 +547,7 @@ def run_exp(
     recog_epochs=None,
     bpe_size=1000,
     partition_epoch=4,
-    time_rqmt=168,
+    time_rqmt: float = 168,
     train_fixed_alignment=None,
     cv_fixed_alignment=None,
     recog_ext_pipeline=False,
@@ -591,6 +603,28 @@ def run_exp(
         recog_ext_pipeline=recog_ext_pipeline,
         **kwargs,
     )
+
+    if kwargs.get("concat_recog_opts", None):
+        ckpt_ = kwargs["concat_recog_opts"]["checkpoint"]
+        if isinstance(ckpt_, str):
+            assert ckpt_ in ["best", "avg"]
+            if ckpt_ == "best":
+                concat_recog_ckpt = train_job_best_epoch[exp_name]
+            else:
+                concat_recog_ckpt = train_job_avg_ckpt[exp_name]
+        elif isinstance(ckpt_, int):
+            concat_recog_ckpt = train_job.out_checkpoints[ckpt_]
+        else:
+            raise TypeError(f"concat_recog_opts['checkpoint'] must be str or int, got {type(ckpt_)}")
+        run_concat_seq_recog(
+            exp_name=exp_name + f"_concat{kwargs['concat_recog_opts']['num']}",
+            corpus_names=kwargs["concat_recog_opts"]["corpus_names"],
+            num=kwargs["concat_recog_opts"]["num"],
+            train_data=train_data,
+            search_args=search_args if search_args else train_args,
+            checkpoint=concat_recog_ckpt,
+        )
+
     return train_job, train_data
 
 
@@ -1779,7 +1813,35 @@ def baseline():
         )
 
     # TODO: recog on concat seqs
-    run_concat_seq_recog("dev", num=2)
+    for num in [2, 4, 8, 10]:
+        for left_context, center_context, right_context, conv_cache_size, mem_size in [(0, 20, 5, 1, 2)]:
+            run_chunkwise_train(
+                enc_stream_type="chunked",
+                run_all_for_best_last_avg=True,
+                enable_check_align=False,
+                chunk_sizes=[left_context + center_context + right_context],
+                chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+                start_lrs=[2e-4],
+                decay_pt_factors=[1 / 3],
+                gpu_mem=24,
+                total_epochs=[120],
+                batch_size=15_000,
+                accum_grad=2,
+                time_rqmt=120,
+                end_slice_start=left_context,
+                end_slice_size=center_context,
+                window_left_padding=left_context * 6,
+                conf_mem_opts={
+                    "self_att_version": 1,
+                    "mem_size": mem_size,
+                    "use_cached_prev_kv": True,
+                    "conv_cache_size": conv_cache_size,
+                    "mem_slice_start": left_context,
+                    "mem_slice_size": center_context,
+                },
+                suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+                concat_recog_opts={"corpus_names": ["dev"], "num": num, "checkpoint": "avg"},
+            )
 
     # TODO: emformer memory
     # for left_context, center_context, right_context, conv_cache_size, mem_size, emformer_mem_size in [
