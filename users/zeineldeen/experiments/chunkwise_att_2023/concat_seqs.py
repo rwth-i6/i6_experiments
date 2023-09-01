@@ -372,7 +372,7 @@ class CreateConcatSeqsCTMAndSTMJob(Job):
                 rec_tag = seg_tag.split("/")[1]  # consistent with STM
                 out.write(';; _full_seq_tag "%s"\n' % seg_tag)
                 out.write("%s 1 rec %f %f <d0>  %s\n" % (rec_tag, start + 0.01, start + 0.99, raw_text))
-            start += 1
+                start += 1
 
     def run(self):
         seg_tags = self._get_seg_tags_from_stm()
