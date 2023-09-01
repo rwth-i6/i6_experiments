@@ -274,7 +274,7 @@ def run_single(
     if n_cart_phones == 3:
         for cfg in [
             dataclasses.replace(s.get_cart_params(key="fh"), altas=a, beam=b)
-            for a, b in itertools.product([None, 2, 4, 6], [14, 16])
+            for a, b in itertools.product([None, 2, 4, 6, 8, 10], [12, 14, 16])
         ]:
             job = s.recognize_cart(
                 key="fh",
