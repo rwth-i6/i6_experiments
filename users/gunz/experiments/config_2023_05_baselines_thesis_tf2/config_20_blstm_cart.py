@@ -58,6 +58,8 @@ def run(returnn_root: tk.Path):
     tri_gmm_align = tk.Path(GMM_TRI_ALIGNMENT, cached=True)
 
     for (n_phones, cart_tree, cart_num_labels, lr) in [
+        (3, CART_TREE_TRI, CART_TREE_TRI_NUM_LABELS, "v6"),
+        (2, CART_TREE_DI, CART_TREE_DI_NUM_LABELS, "v6"),
         (3, CART_TREE_TRI, CART_TREE_TRI_NUM_LABELS, "v13"),
         (2, CART_TREE_DI, CART_TREE_DI_NUM_LABELS, "v13"),
     ]:
