@@ -419,7 +419,7 @@ def run_single(
             dataclasses.replace(
                 s.get_cart_params("fh").with_prior_scale(pC), altas=a, beam=b, beam_limit=100_000, lm_scale=4.0
             )
-            for a, pC, b in itertools.product([None, 2, 4], [0.4, 0.6], [18, 20, 22])
+            for a, pC, b in itertools.product([None, 2, 4, 6, 8], [0.4, 0.6], [14, 16, 18])
         ]:
             job = s.recognize_cart(
                 key="fh",

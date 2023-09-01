@@ -474,7 +474,7 @@ def run_single(
                 lm_scale=9,
                 tdp_scale=0.4,
             )
-            for a, pC, b in itertools.product([None, 2, 4], [0.4, 0.6], [16, 18, 20])
+            for a, pC, b in itertools.product([None, 2, 4, 6, 8], [0.4, 0.6], [14, 16])
         ]:
             job = s.recognize_cart(
                 key="fh",

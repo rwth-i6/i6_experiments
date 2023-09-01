@@ -413,12 +413,18 @@ def run_single(
 
         configs = [
             dataclasses.replace(
-                s.get_cart_params("fh"), altas=a, beam=beam, beam_limit=100000, lm_scale=1.5, tdp_scale=0.4
+                s.get_cart_params("fh"),
+                altas=a,
+                beam=beam,
+                beam_limit=50000,
+                lm_scale=1.5,
+                tdp_scale=0.4,
+                tdp_silence=(3, 10, "infinity", 10),
             ).with_prior_scale(pC)
-            for beam, pC, a in itertools.product(
-                [16, 18, 20],
-                [0.4, 0.6],
-                [None, 2, 4],
+            for beam, a, pC in itertools.product(
+                [18, 20, 22],
+                [None, 2, 4, 6],
+                [0.2, 0.4, 0.6],
             )
         ]
         for cfg in configs:

@@ -419,8 +419,8 @@ def run_single(
             lm_gc_simple_hash=True,
         )
         for cfg in [
-            dataclasses.replace(best_config, altas=a, beam=b, lm_scale=best_config.lm_scale + 0.01)
-            for a, b in itertools.product([None, 2, 4], [12, 14, 16, 18])
+            dataclasses.replace(best_config, altas=a, beam=b, lm_scale=2.1)
+            for a, b in itertools.product([None, 2, 4, 6, 8, 12], [12, 14, 20])
         ]:
             jobs = recognizer.recognize_count_lm(
                 label_info=s.label_info,
