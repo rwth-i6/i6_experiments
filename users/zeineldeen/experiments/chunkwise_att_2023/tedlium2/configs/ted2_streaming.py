@@ -1838,7 +1838,8 @@ def baseline():
         )
 
     # TODO: recog on concat seqs
-    for num in [2]:
+    # baseline: 7.7/7.3
+    for num in [2, 3, 4, 5]:
         for left_context, center_context, right_context, conv_cache_size, mem_size in [(0, 20, 5, 1, 2)]:
             run_chunkwise_train(
                 enc_stream_type="chunked",
@@ -1865,7 +1866,7 @@ def baseline():
                     "mem_slice_size": center_context,
                 },
                 suffix=f"_L{left_context}_C{center_context}_R{right_context}",
-                concat_recog_opts={"corpus_names": ["dev"], "num": num, "checkpoint": "avg"},
+                concat_recog_opts={"corpus_names": ["dev", "test"], "num": num, "checkpoint": "avg"},
             )
 
     # TODO: emformer memory
