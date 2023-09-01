@@ -286,14 +286,18 @@ def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, c
         from i6_core.recognition.scoring import ScliteJob
 
         stm_file = concat_dataset_seqs.out_stm
-        tk.register_output(exp_prefix + f"/{corpus_name}/sclite/stm", stm_file)
 
-        search_ctm = CreateConcatSeqsCTMAndSTMJob(
+        concat_ctm_and_stm_job = CreateConcatSeqsCTMAndSTMJob(
             recog_words_file=search_words, stm_py_file=concat_dataset_seqs.out_stm_py, stm_file=stm_file
-        ).out_ctm_file
-        tk.register_output(exp_prefix + f"/{corpus_name}/sclite/ctm", search_ctm)
+        )
+        tk.register_output(exp_prefix + f"/{corpus_name}/sclite/stm", concat_ctm_and_stm_job.out_stm_file)
+        tk.register_output(exp_prefix + f"/{corpus_name}/sclite/ctm", concat_ctm_and_stm_job.out_ctm_file)
 
-        sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH)
+        sclite_job = ScliteJob(
+            ref=concat_ctm_and_stm_job.out_stm_file,
+            hyp=concat_ctm_and_stm_job.out_ctm_file,
+            sctk_binary_path=SCTK_BINARY_PATH,
+        )
         tk.register_output(exp_prefix + f"/{corpus_name}/sclite/wer", sclite_job.out_wer)
         tk.register_output(exp_prefix + f"/{corpus_name}/sclite/report", sclite_job.out_report_dir)
 

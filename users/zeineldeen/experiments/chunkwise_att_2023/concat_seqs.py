@@ -370,7 +370,7 @@ class CreateConcatSeqsCTMAndSTMJob(Job):
                 raw_text = d[seg_tag]
                 assert isinstance(raw_text, str)
                 rec_tag = seg_tag.split("/")[1]  # consistent with STM
-                out.write(';; _full_seq_tag "%s"' % seg_tag)
+                out.write(';; _full_seq_tag "%s"\n' % seg_tag)
                 out.write("%s 1 rec %f %f <d0>  %s\n" % (rec_tag, start + 0.01, start + 0.99, raw_text))
             start += 1
 
