@@ -421,7 +421,7 @@ def run_single(
                 s.get_cart_params("fh"), altas=a, beam=beam, beam_limit=100000, lm_scale=2, tdp_scale=0.4
             ).with_prior_scale(pC)
             for beam, pC, a in itertools.product(
-                [16, 18, 20],
+                [14, 16, 18, 20],
                 [0.4, 0.6],
                 [None, 2, 4],
             )
@@ -436,6 +436,7 @@ def run_single(
                 crp_corpus="dev-other",
                 lm_gc_simple_hash=True,
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
+                opt_lm_am_scale=cfg.altas is None or cfg.altas == 0,
                 mem_rqmt=4,
                 n_cart_out=diphone_li.get_n_of_dense_classes(),
                 params=cfg,
