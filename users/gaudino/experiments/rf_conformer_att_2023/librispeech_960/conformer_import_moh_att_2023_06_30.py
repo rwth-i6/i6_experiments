@@ -220,6 +220,8 @@ class Model(rf.Module):
         self.search_args = search_args
         self.ctc = rf.Linear(self.encoder.out_dim, self.target_dim_w_b)
 
+        # TODO: add lstm
+
         self.inv_fertility = rf.Linear(self.encoder.out_dim, att_num_heads, with_bias=False)
 
         self.target_embed = rf.Embedding(target_dim, Dim(name="target_embed", dimension=640))
@@ -504,7 +506,6 @@ def model_recog(
             enc_args["ctc"].copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_b)).raw_tensor
         )  # [B,T,V+1]
 
-        # breakpoint()
         if model.search_args["mask_eos"]:
             ctc_eos = ctc_out[:, :, model.eos_idx].unsqueeze(2)
             ctc_blank = ctc_out[:, :, model.blank_idx].unsqueeze(2)
@@ -602,7 +603,7 @@ def model_recog(
     # Backtrack via backrefs, resolve beams.
     seq_targets_ = []
     indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
-    for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
+    for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]): # [::-1] reverse
         # indices: FinalBeam -> Beam
         # backrefs: Beam -> PrevBeam
         seq_targets_.insert(0, rf.gather(target, indices=indices))
@@ -650,52 +651,103 @@ def model_recog_ctc(
 
     # Eager-mode implementation of beam search.
     # Initial state.
-    # beam_dim = Dim(1, name="initial-beam")
+    beam_dim = Dim(1, name="initial-beam")
     # batch_dims_ = [beam_dim] + batch_dims
     # decoder_state = model.decoder_default_initial_state(batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
     # target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
     # ended = rf.constant(False, dims=batch_dims_)
-    # out_seq_len = rf.constant(0, dims=batch_dims_)
-    # seq_log_prob = rf.constant(0.0, dims=batch_dims_)
+    # out_seq_len = rf.constant(0, dims=batch_dims)
+    # seq_log_prob = rf.constant(0.0, dims=batch_di#ms_)
 
     assert len(batch_dims) == 1
     batch_size_dim = batch_dims[0]
     batch_size = batch_dims[0].get_dim_value()
     target_ctc = [model.bos_idx for _ in range(batch_size * beam_size)]
 
-    breakpoint()
     print("ctc decoding")
-    # hlens = max_seq_len.raw_tensor.repeat(beam_size).view(beam_size, data.raw_tensor.shape[0]).transpose(0, 1)
-    hlens = max_seq_len.raw_tensor
     ctc_out = enc_args["ctc"].copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_b))  # [B,T,V+1]
 
     enc_args.pop("ctc")
 
-    from torchaudio.models.decoder import ctc_decoder
-
-    # TODO: get tokens from vocabulary
-    beam_search_decoder = ctc_decoder(
-        lexicon=None,  # lexicon free decoding
-        tokens=model.target_dim.vocab.labels,  # files.tokens,
-        lm=None,
-        nbest=3,
-        beam_size=12,
-        word_score=0,
+    seq_targets_ = None
+    hyps = rf.reduce_argmax(ctc_out, axis=ctc_out.feature_dim).raw_tensor
+    scores = rf.reduce_max(ctc_out, axis=ctc_out.feature_dim).raw_tensor
+    scores.sum = torch.sum(scores, 1).unsqueeze(1)
+    seq_log_prob = rf.Tensor(
+        name="seq_log_prob",
+        dims=[batch_size_dim, beam_dim],
+        dtype="float32",
+        raw_tensor=scores.sum,
     )
 
-    hypos = beam_search_decoder(ctc_out, hlens)
+    max_out_len = max_seq_len.raw_tensor[0]
+    out_spatial_dim = Dim(int(max_out_len), name=f"out-spatial")
+    out_seq_lens = []
 
-    seq_targets = hypos.words
-    seq_log_prob = hypos.scores
-    beam_dim = Dim(beam_size, name="beam")
+    # scores = rf.reduce_max(ctc_out, axis=ctc_out.feature_dim)
+    # scores_sum = rf.reduce_sum(scores, axis=scores.dims[1])
 
-    # if i > 0 and length_normalization_exponent != 0:
-    #     seq_log_prob *= (1 / i) ** length_normalization_exponent
+    # remove blank and eos
+    # blank_eos_mask = rf.combine(hyps != 10025, "logical_and", hyps != 0)
+    for i in range(batch_size):
+        mask = torch.logical_and(hyps[i] != 10025, hyps[i] != 0)
+        hyp = torch.masked_select(hyps[i], mask)
+        out_seq_lens.append(hyp.shape[0])
+        hyp_pad = torch.nn.functional.pad(hyp, (0, max_out_len - hyp.shape[0]), mode='constant', value=0)
+        hyp_pad = hyp_pad.unsqueeze(0)
+        hyp_tensor = rf.Tensor(
+            name=f"hyp_{i}",
+            dims=[beam_dim, out_spatial_dim],
+            dtype="int64",
+            raw_tensor=hyp_pad,
+            sparse_dim=model.target_dim,
+        )
+        if not seq_targets_:
+            seq_targets_ = TensorArray(hyp_tensor)
+            seq_targets_.push_back(hyp_tensor)
+        else:
+            seq_targets_.push_back(hyp_tensor)
 
-    # out_spatial_dim = Dim(out_seq_len, name="out-spatial")
-    # seq_targets = seq_targets__.stack(axis=out_spatial_dim)
+    out_seq_lens_tensor = rf.Tensor(
+        name="out_seq_lens",
+        dims=[beam_dim, batch_size_dim],
+        dtype="int32",
+        raw_tensor=torch.tensor(out_seq_lens, dtype=torch.int32).unsqueeze(0),
+    )
 
-    return seq_targets, seq_log_prob#, out_spatial_dim, beam_dim
+    seq_targets = seq_targets_.stack(axis=batch_dims[0])
+    seq_targets.dims[2].dyn_size_ext = out_seq_lens_tensor
+
+    seq_targets = seq_targets.copy_transpose([out_spatial_dim] + batch_dims + [beam_dim])
+
+    # from torchaudio.models.decoder import ctc_decoder
+    # # torchaudio ctc decoder
+    # # only runs on cpu -> slow
+    # # maybe dump ctc_out and load it in on cpu fast
+    # from returnn.datasets.util.vocabulary import Vocabulary
+    # vocab_1 = Vocabulary("/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab", eos_label=0)
+    #
+    # beam_search_decoder = ctc_decoder(
+    #     lexicon=None,  # lexicon free decoding
+    #     tokens=vocab_1.labels + ['<b>', '|'],  # files.tokens,
+    #     lm=None,
+    #     nbest=3,
+    #     beam_size=12,
+    #     word_score=0,
+    #     blank_token='<b>',
+    # )
+    #
+    # hypos = beam_search_decoder(ctc_out.raw_tensor.to('cpu'), hlens)
+    #
+    # # TODO: handle hypos
+
+
+    return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
+
+
+# TODO: add LSTM LM
+# TODO: add prior correction
+
 
 
 # RecogDef API

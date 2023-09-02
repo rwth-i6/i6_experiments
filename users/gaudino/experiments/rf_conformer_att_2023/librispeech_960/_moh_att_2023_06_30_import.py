@@ -690,7 +690,6 @@ def test_import_search():
                 )
     print(seq_targets, seq_targets.raw_tensor) # seq_targets [T,Batch,Beam]
     print("Out spatial dim:", out_spatial_dim)
-    # breakpoint()
     vocab_1 = Vocabulary("/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab", eos_label=0)
     for batch_idx in range(batch_dim.get_dim_value()):
         # process seq
