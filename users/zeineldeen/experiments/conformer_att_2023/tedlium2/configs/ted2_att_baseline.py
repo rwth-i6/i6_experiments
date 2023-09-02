@@ -23,6 +23,7 @@ from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.dat
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.default_tools import (
     RETURNN_ROOT,
     RETURNN_CPU_EXE,
+    SCTK_BINARY_PATH,
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.feature_extraction_net import (
     log10_net_10ms,
@@ -548,7 +549,7 @@ def conformer_baseline():
             )
 
             _, search_words = search_single(
-                exp_prefix,
+                os.path.join(exp_prefix, corpus_name),
                 returnn_search_config,
                 checkpoint,
                 recognition_dataset=returnn_concat_dataset,
@@ -640,12 +641,16 @@ def conformer_baseline():
                 concat_recog_ckpt = train_job.out_checkpoints[ckpt_]
             else:
                 raise TypeError(f"concat_recog_opts['checkpoint'] must be str or int, got {type(ckpt_)}")
+            concat_recog_search_args = kwargs["concat_recog_opts"].get("search_args", None)
+            search_args_ = copy.deepcopy(train_args)
+            if concat_recog_search_args:
+                search_args_.update(concat_recog_search_args)
             run_concat_seq_recog(
                 exp_name=exp_name + f"_concat{kwargs['concat_recog_opts']['num']}",
                 corpus_names=kwargs["concat_recog_opts"]["corpus_names"],
                 num=kwargs["concat_recog_opts"]["num"],
                 train_data=train_data,
-                search_args=search_args if search_args else train_args,
+                search_args=search_args_,
                 checkpoint=concat_recog_ckpt,
             )
 
@@ -915,24 +920,24 @@ def conformer_baseline():
 
     # step-based: 8.5/8.2
     # epoch-based: 8.6/8.2
-    for bpe_size in [BPE_1K]:
-        for ep in [50 * 4]:
-            for lr in [8e-4]:
-                args = copy.deepcopy(oclr_args)
-                args["oclr_opts"]["total_ep"] = ep
-                args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
-                args["oclr_opts"]["n_step"] = 1480
-                args["oclr_opts"]["peak_lr"] = lr
-                exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}"
-                run_exp(
-                    exp_name,
-                    args,
-                    num_epochs=ep,
-                    epoch_wise_filter=None,
-                    bpe_size=bpe_size,
-                    partition_epoch=4,
-                    devtrain_subset=3000,
-                )
+    # for bpe_size in [BPE_1K]:
+    #     for ep in [50 * 4]:
+    #         for lr in [8e-4]:
+    #             args = copy.deepcopy(oclr_args)
+    #             args["oclr_opts"]["total_ep"] = ep
+    #             args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
+    #             args["oclr_opts"]["n_step"] = 1480
+    #             args["oclr_opts"]["peak_lr"] = lr
+    #             exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}"
+    #             run_exp(
+    #                 exp_name,
+    #                 args,
+    #                 num_epochs=ep,
+    #                 epoch_wise_filter=None,
+    #                 bpe_size=bpe_size,
+    #                 partition_epoch=4,
+    #                 devtrain_subset=3000,
+    #             )
 
     # --------------------- V1 ---------------------
     def get_base_v1_args(lr, ep, enc_drop=0.1, pretrain_reps=3):
@@ -1060,6 +1065,9 @@ def conformer_baseline():
                                 if target_embed_dim == 256 and att_drop == 0.0:
                                     # long-form speech recognition
                                     for num in [2, 3, 4, 5, 6, 7, 8, 9, 10]:
+                                        search_args = {}
+                                        if num >= 5:
+                                            search_args["max_seqs"] = 1  # o.w OOM
                                         run_exp(
                                             name,
                                             args,
@@ -1071,6 +1079,7 @@ def conformer_baseline():
                                                 "num": num,
                                                 "corpus_names": ["dev", "test"],
                                                 "checkpoint": "avg",
+                                                "search_args": search_args,
                                             },
                                         )
 
