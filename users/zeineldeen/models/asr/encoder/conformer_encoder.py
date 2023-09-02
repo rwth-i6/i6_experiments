@@ -398,7 +398,7 @@ class ConformerEncoder:
             # which would be difficult otherwise.
             # C is approx 15-20.
             # Then we can concat it to K and V.
-            mem_bank = self._block_prefix_name(layer_index - 1) + "_emformer_mem"  # [B*C, D]
+            mem_bank = self._block_prefix_name(layer_index - 1) + "_self_att_emformer_mem"  # [B*C, D]
             mem_bank = self.network.add_generic_layer(
                 f"{prefix_name}_emformer_mem_split_batch_time",
                 cls="split_batch_time",
@@ -699,13 +699,16 @@ class ConformerEncoder:
             cls="merge_dims",
             source=att0,
             axes=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
-        )  # [B*C, W, D]
+        )  # [B*C, W [+1], D]
         mhsa = self.network.add_generic_layer(
             f"{prefix_name}_ln_att",
             cls="reinterpret_data",
             source=mhsa_,
-            set_axes={"T": f"dim:{self.memory_variant_opts.chunk_size}"},
-        )  # [B*C, W, D]
+            # TODO: is this safe? find a better way
+            set_axes={
+                "T": f"dim:{self.memory_variant_opts.chunk_size + (1 if self.memory_variant_opts.use_emformer_mem else 0)}"
+            },
+        )  # [B*C, W [+1], D]
 
         if self.memory_variant_opts.use_emformer_mem:
             # used later by shift layer to collect a memory bank
