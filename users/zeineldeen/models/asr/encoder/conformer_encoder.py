@@ -9,6 +9,8 @@ from returnn.tensor import Dim
 from returnn.tf.util.data import SpatialDim, FeatureDim
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 
+from i6_core.returnn.config import CodeWrapper
+
 
 class ConformerEncoder:
     """
@@ -671,7 +673,7 @@ class ConformerEncoder:
                     query_dim=query_dim,  # W+1
                     kv_dim=kv_dim,  # W*N+M
                     mem_bank_dim=self.emformer_mem_bank_dim,  # M
-                    neg_inf=float("-inf"),
+                    neg_inf=CodeWrapper("float('-inf')"),
                 ),
             )
 
