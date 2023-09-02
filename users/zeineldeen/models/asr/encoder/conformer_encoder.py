@@ -1269,6 +1269,7 @@ class ConformerMemoryVariantOpts:
 
 def _energy_mask_emformer_mem(
     *,
+    self,
     source,
     chunked_time_dim: Dim,  # C
     chunk_size_dim: Dim,  # W
@@ -1279,6 +1280,7 @@ def _energy_mask_emformer_mem(
     neg_inf: float,
     **_kwargs,
 ):
+    import numpy
     import tensorflow as tf
     from returnn.tensor import Tensor, Dim, batch_dim
     from returnn.tf.util.data import BatchInfo
@@ -1326,4 +1328,6 @@ def _energy_mask_emformer_mem(
     energy = tf.where(mask, energy, neg_inf)
 
     energy = tf.reshape(energy, [d.get_dim_value() for d in energy_data.dims])  # [B*C, H, W*N+M, W+1]
+    if numpy.isinf(neg_inf):
+        self.allow_inf_in_output = True
     return energy
