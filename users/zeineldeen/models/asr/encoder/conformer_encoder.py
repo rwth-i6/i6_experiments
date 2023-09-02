@@ -398,7 +398,7 @@ class ConformerEncoder:
             # which would be difficult otherwise.
             # C is approx 15-20.
             # Then we can concat it to K and V.
-            mem_bank = self._block_prefix_name(layer_index - 1) + "_emformer_mem"  # [B*C, D]
+            mem_bank = self._block_prefix_name(layer_index - 1) + "_self_att_emformer_mem"  # [B*C, D]
             mem_bank = self.network.add_generic_layer(
                 f"{prefix_name}_emformer_mem_split_batch_time",
                 cls="split_batch_time",
