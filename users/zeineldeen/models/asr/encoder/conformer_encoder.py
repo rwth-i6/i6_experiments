@@ -1308,7 +1308,7 @@ def _energy_mask_emformer_mem(
 
     def _bc_shape(d_: Dim):
         a = energy_dims.index(d_)
-        return [1] * a + [d.get_dim_value()] + [1] * (len(energy_dims) - a - 1)
+        return [1] * a + [d_.get_dim_value()] + [1] * (len(energy_dims) - a - 1)
 
     # In chunk c, we only allow to attend to the previous chunk memories m <= c.
     # In summary, we do not attend to any memories.
