@@ -414,7 +414,7 @@ class ConformerEncoder:
                 source=mem_bank,
                 set_dim_tags={
                     "T": self.emformer_mem_bank_dim
-                },  # using dim tag as key lead to a runtime error in returnn. T=C in this case.
+                },  # Note: using dim tag as key lead to a runtime error in returnn. T=C in this case.
             )  # [B, M, D]
 
             mem_bank_K = self.network.add_generic_layer(
