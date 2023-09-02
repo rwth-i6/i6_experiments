@@ -1404,6 +1404,42 @@ def baseline():
             selected_datasets=["dev-other"],
         )
 
+    for lr in [2e-4, 4e-4]:
+        for left_context, center_context, right_context, conv_cache_size, mem_size in [
+            (0, 20, 5, 2, 2),
+            (0, 20, 5, 2, 3),
+            (0, 25, 5, 1, 2),
+            (0, 30, 5, 1, 2),
+            (0, 33, 5, 1, 2),
+        ]:
+            run_chunkwise_train(
+                enc_stream_type="chunked",
+                run_all_for_best_last_avg=True,
+                enable_check_align=False,
+                chunk_sizes=[left_context + center_context + right_context],
+                chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+                start_lrs=[lr],
+                decay_pt_factors=[1 / 3],
+                gpu_mem=24,
+                total_epochs=[300],
+                batch_size=15_000,
+                accum_grad=2,
+                time_rqmt=168,
+                end_slice_start=left_context,
+                end_slice_size=center_context,
+                window_left_padding=left_context * 6,
+                conf_mem_opts={
+                    "self_att_version": 1,
+                    "mem_size": mem_size,
+                    "use_cached_prev_kv": True,
+                    "conv_cache_size": conv_cache_size,
+                    "mem_slice_start": left_context,
+                    "mem_slice_size": center_context,
+                },
+                suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+                selected_datasets=["dev-other"],
+            )
+
     # ------------------- Chunk size 1 ------------------- #
 
     for mask_eoc in [True, False]:

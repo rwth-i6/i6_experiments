@@ -267,7 +267,7 @@ def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, c
         )
 
         _, search_words = search_single(
-            exp_prefix,
+            os.path.join(exp_prefix, corpus_name),
             returnn_search_config,
             checkpoint,
             recognition_dataset=returnn_concat_dataset,
@@ -641,12 +641,16 @@ def run_exp(
             concat_recog_ckpt = train_job.out_checkpoints[ckpt_]
         else:
             raise TypeError(f"concat_recog_opts['checkpoint'] must be str or int, got {type(ckpt_)}")
+        concat_recog_search_args = kwargs["concat_recog_opts"].get("search_args", None)
+        search_args_ = copy.deepcopy(train_args)
+        if concat_recog_search_args:
+            search_args_.update(concat_recog_search_args)
         run_concat_seq_recog(
             exp_name=exp_name + f"_concat{kwargs['concat_recog_opts']['num']}",
             corpus_names=kwargs["concat_recog_opts"]["corpus_names"],
             num=kwargs["concat_recog_opts"]["num"],
             train_data=train_data,
-            search_args=search_args if search_args else train_args,
+            search_args=search_args_,
             checkpoint=concat_recog_ckpt,
         )
 
@@ -1530,6 +1534,32 @@ def baseline():
         time_rqmt=120,
     )
 
+    # TODO: concat recog
+    for num in [2, 3, 4, 5, 6, 7, 8, 9, 10, 20]:
+        search_args = {}
+        if num >= 8:
+            search_args = {"batch_size": 5_000 * 160}
+        run_chunkwise_train(
+            enc_stream_type="global",
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            chunk_sizes=[10],
+            chunk_step_factors=[1],
+            start_lrs=[1e-4],
+            decay_pt_factors=[0.25],
+            gpu_mem=11,
+            total_epochs=[120],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=120,
+            concat_recog_opts={
+                "num": num,
+                "checkpoint": "avg",
+                "corpus_names": ["dev", "test"],
+                "search_args": search_args,
+            },
+        )
+
     run_chunkwise_train(
         enc_stream_type="global",
         run_all_for_best_last_avg=True,
@@ -1839,7 +1869,7 @@ def baseline():
 
     # TODO: recog on concat seqs
     # baseline: 7.7/7.3
-    for num in [2, 3, 4, 5, 6, 7, 8, 9, 10]:
+    for num in [2, 3, 4, 5, 6, 7, 8, 9, 10, 20]:
         for left_context, center_context, right_context, conv_cache_size, mem_size in [(0, 20, 5, 1, 2)]:
             run_chunkwise_train(
                 enc_stream_type="chunked",
@@ -1870,36 +1900,37 @@ def baseline():
             )
 
     # TODO: emformer memory
-    # for left_context, center_context, right_context, conv_cache_size, mem_size, emformer_mem_size in [
-    #     (0, 20, 5, 1, 2),
-    # ]:
-    #     run_chunkwise_train(
-    #         enc_stream_type="chunked",
-    #         run_all_for_best_last_avg=True,
-    #         enable_check_align=False,
-    #         chunk_sizes=[left_context + center_context + right_context],
-    #         chunk_step_factors=[center_context / (left_context + center_context + right_context)],
-    #         start_lrs=[2e-4],
-    #         decay_pt_factors=[1 / 3],
-    #         gpu_mem=24,
-    #         total_epochs=[120],
-    #         batch_size=15_000,
-    #         accum_grad=2,
-    #         time_rqmt=120,
-    #         end_slice_start=left_context,
-    #         end_slice_size=center_context,
-    #         window_left_padding=left_context * 6,
-    #         conf_mem_opts={
-    #             "self_att_version": 1,
-    #             "mem_size": mem_size,
-    #             "use_cached_prev_kv": True,
-    #             "conv_cache_size": conv_cache_size,
-    #             "mem_slice_start": left_context,
-    #             "mem_slice_size": center_context,
-    #             "emformer_like_mem_size": emformer_mem_size,
-    #         },
-    #         suffix=f"_L{left_context}_C{center_context}_R{right_context}",
-    #     )
+    for left_context, center_context, right_context, conv_cache_size, mem_size in [
+        (0, 20, 5, 1, 2),
+        (0, 20, 5, 1, 1),
+    ]:
+        run_chunkwise_train(
+            enc_stream_type="chunked",
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            chunk_sizes=[left_context + center_context + right_context],
+            chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+            start_lrs=[2e-4],
+            decay_pt_factors=[1 / 3],
+            gpu_mem=24,
+            total_epochs=[120],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=120,
+            end_slice_start=left_context,
+            end_slice_size=center_context,
+            window_left_padding=left_context * 6,
+            conf_mem_opts={
+                "self_att_version": 1,
+                "mem_size": mem_size,
+                "use_cached_prev_kv": True,
+                "conv_cache_size": conv_cache_size,
+                "mem_slice_start": left_context,
+                "mem_slice_size": center_context,
+                "use_emformer_mem": True,
+            },
+            suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+        )
 
     # TODO: use smaller chunk size only in decoding
 
