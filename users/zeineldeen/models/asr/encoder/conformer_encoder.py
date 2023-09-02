@@ -706,7 +706,8 @@ class ConformerEncoder:
             source=mhsa_,
             # TODO: is this safe? find a better way
             set_axes={
-                "T": f"dim:{self.memory_variant_opts.chunk_size + (1 if self.memory_variant_opts.use_emformer_mem else 0)}"
+                "T": f"dim:"
+                + str(self.memory_variant_opts.chunk_size + (1 if self.memory_variant_opts.use_emformer_mem else 0))
             },
         )  # [B*C, W [+1], D]
 
