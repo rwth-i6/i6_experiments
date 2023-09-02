@@ -235,7 +235,6 @@ class ConformerEncoder:
             if self.memory_variant_opts.conv_cache_size:
                 self.conv_cache_concat_dim = SpatialDim("conv-cache-concat")
             if self.memory_variant_opts.use_emformer_mem:
-                # M, which is the same as C, but different tag
                 self.emformer_mem_bank_dim = SpatialDim("emformer-mem-bank")  # M, the same as C but different tag
                 self.emformer_ext_query_dim = SpatialDim("emformer-ext-query")  # W+1
                 self.concat_window_with_mem_dim = SpatialDim("concat-window-with-mem")  # W*N+M
