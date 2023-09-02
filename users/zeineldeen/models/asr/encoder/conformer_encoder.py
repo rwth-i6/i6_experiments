@@ -401,7 +401,13 @@ class ConformerEncoder:
             # C is approx 15-20.
             # Then we can concat it to K and V.
             # Note on prefix_name: The outer _create_mhsa_module adds the additional "_self_att" prefix.
-            mem_bank = self._block_prefix_name(layer_index - 1) + "_self_att_emformer_mem"  # [B*C, D]
+
+            if self.memory_variant_opts.apply_tanh_on_emformer_mem:
+                emf_mem_layer_name = "_self_att_emformer_mem_tanh"
+            else:
+                emf_mem_layer_name = "_self_att_emformer_mem_clipped"
+
+            mem_bank = self._block_prefix_name(layer_index - 1) + emf_mem_layer_name  # [B*C, D]
             # Same projection which is usually applied to get back to the residual stream.
             mem_bank = self.network.add_generic_layer(
                 f"{prefix_name}_emformer_mem_proj",
@@ -725,13 +731,25 @@ class ConformerEncoder:
 
         if self.memory_variant_opts.use_emformer_mem:
             # used later by shift layer to collect a memory bank
-            self.network.add_generic_layer(
+            emf_mem = self.network.add_generic_layer(
                 f"{prefix_name}_emformer_mem",
                 cls="gather",
                 source=mhsa,
                 axis="T",
                 position=self.memory_variant_opts.chunk_size,
             )  # [B*C, D]
+            if self.memory_variant_opts.apply_tanh_on_emformer_mem:
+                self.network.add_generic_layer(
+                    f"{prefix_name}_emformer_mem_tanh", cls="activation", source=emf_mem, activation="tanh"
+                )
+            else:
+                self.network.add_generic_layer(
+                    f"{prefix_name}_emformer_mem_clipped",
+                    cls="eval",
+                    source=emf_mem,
+                    eval="tf.clip_by_value(source(0), -10, 10)",
+                )
+
             mhsa = self.network.add_generic_layer(
                 f"{prefix_name}_ln_att_slice",
                 cls="slice",
@@ -1274,6 +1292,7 @@ class ConformerMemoryVariantOpts:
     conv_cache_size: int
     use_cached_prev_kv: bool
     use_emformer_mem: bool  # https://arxiv.org/abs/2010.10759
+    apply_tanh_on_emformer_mem: bool
 
 
 def _energy_mask_emformer_mem(
