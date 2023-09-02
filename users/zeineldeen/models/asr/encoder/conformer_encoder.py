@@ -412,9 +412,7 @@ class ConformerEncoder:
                 f"{prefix_name}_emformer_mem_set_new_dim",
                 cls="reinterpret_data",
                 source=mem_bank,
-                set_dim_tags={
-                    "T": self.emformer_mem_bank_dim
-                },  # Note: using dim tag as key lead to a runtime error in returnn. T=C in this case.
+                set_dim_tags=[(self.memory_variant_opts.chunked_time_dim, self.emformer_mem_bank_dim)],
             )  # [B, M, D]
 
             mem_bank_K = self.network.add_generic_layer(
