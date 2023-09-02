@@ -229,15 +229,16 @@ class ConformerEncoder:
 
         self.memory_variant_opts = memory_variant_opts
         if self.memory_variant_opts:
-            self.concat_window_dim = SpatialDim("concat-window")
+            self.concat_window_dim = SpatialDim("concat-window")  # W*N
             self.enc_att_num_heads_dim = SpatialDim("enc-att-num-heads", att_num_heads)
             self.enc_per_head_dim = FeatureDim("enc-dim-per-head", self.enc_key_per_head_dim)
             if self.memory_variant_opts.conv_cache_size:
                 self.conv_cache_concat_dim = SpatialDim("conv-cache-concat")
             if self.memory_variant_opts.use_emformer_mem:
                 # M, which is the same as C, but different tag
-                self.emformer_mem_bank_dim = SpatialDim("emformer-mem-bank")  # M
+                self.emformer_mem_bank_dim = SpatialDim("emformer-mem-bank")  # M, the same as C but different tag
                 self.emformer_ext_query_dim = SpatialDim("emformer-ext-query")  # W+1
+                self.concat_window_with_mem_dim = SpatialDim("concat-window-with-mem")  # W*N+M
 
     def _create_ff_module(self, prefix_name, i, source, layer_index):
         """
@@ -460,6 +461,8 @@ class ConformerEncoder:
         else:
             mem_bank_K, mem_bank_V = None, None
 
+        kv_dim = self.concat_window_with_mem_dim if mem_bank_K else self.concat_window_dim  # W*N [+M]
+
         if self.memory_variant_opts.use_cached_prev_kv or mem_bank_K:
             # concat previous cached keys and values
             concat_keys = self._get_mem_chunks(f"{prefix_name}_ln_K_", K, self.memory_variant_opts.mem_size)
@@ -471,7 +474,7 @@ class ConformerEncoder:
                 f"{prefix_name}_ln_K_concat",
                 cls="concat",
                 source=concat_keys,
-                out_dim=self.concat_window_dim,
+                out_dim=kv_dim,
             )  # [B*C, W*N [+M], D]
 
         K_H = self.network.add_generic_layer(
@@ -492,7 +495,7 @@ class ConformerEncoder:
                 f"{prefix_name}_ln_V_concat",
                 cls="concat",
                 source=concat_values,
-                out_dim=self.concat_window_dim,
+                out_dim=kv_dim,
             )  # [B*C, W*N, D]
 
         V_H = self.network.add_generic_layer(
@@ -511,6 +514,7 @@ class ConformerEncoder:
             with_bias=False,
             L2=self.self_att_l2,
         )  # second half of shape [B*C, W, D]
+        query_dim = self.memory_variant_opts.chunk_size_dim  # W
 
         if self.memory_variant_opts.use_emformer_mem:
             assert (
@@ -543,6 +547,7 @@ class ConformerEncoder:
                 source=[(Q, "T"), (Q_summary_mean, "T")],
                 out_dim=self.emformer_ext_query_dim,
             )  # [B*C, W+1, D]
+            query_dim = self.emformer_ext_query_dim  # W+1
 
         Q_H_ = self.network.add_generic_layer(
             f"{prefix_name}_ln_Q_H_",
@@ -593,10 +598,8 @@ class ConformerEncoder:
             out_dim=self.enc_per_head_dim,  # D/H
             forward_weights_init=self.ff_init,
             clipping=self.rel_pos_clipping,
-            query_spatial_dim=self.emformer_ext_query_dim
-            if self.memory_variant_opts.use_emformer_mem
-            else self.memory_variant_opts.chunk_size_dim,  # W+1 or W
-            key_value_spatial_dim=self.concat_window_dim,  # W*N [+M]
+            query_spatial_dim=query_dim,  # W+1 or W
+            key_value_spatial_dim=kv_dim,  # W*N [+M]
             query_offset=self.memory_variant_opts.chunk_size * self.memory_variant_opts.mem_size,
         )  # [queries (W [+1]), kvs (W*N [+M]), D/H]
 
@@ -622,11 +625,9 @@ class ConformerEncoder:
             mask_kv = "emformer_mask_kv_dim"
             if mask_kv not in self.network:
                 range_in_kv_dim = self.network.add_generic_layer(
-                    "emformer_range_kv_dim", cls="range_in_axis", source=K, axis=self.concat_window_dim
+                    "emformer_range_kv_dim", cls="range_in_axis", source=K, axis=kv_dim
                 )  # [W*N + M]
-                kv_dim_len = self.network.add_generic_layer(
-                    "kv_dim_len", cls="length", source=K, axis=self.concat_window_dim
-                )
+                kv_dim_len = self.network.add_generic_layer("kv_dim_len", cls="length", source=K, axis=kv_dim)
                 mem_len = self.network.add_generic_layer(
                     "mem_len", cls="length", source=mem_bank_K, axis=self.emformer_mem_bank_dim
                 )
@@ -668,8 +669,8 @@ class ConformerEncoder:
                     chunked_time_dim=self.memory_variant_opts.chunked_time_dim,  # C
                     chunk_size_dim=self.memory_variant_opts.chunk_size_dim,  # W
                     att_num_heads_dim=self.enc_att_num_heads_dim,  # H
-                    query_dim=self.emformer_ext_query_dim,  # W+1
-                    kv_dim=self.concat_window_dim,  # W*N+M
+                    query_dim=query_dim,  # W+1
+                    kv_dim=kv_dim,  # W*N+M
                     mem_bank_dim=self.emformer_mem_bank_dim,  # M
                     neg_inf=float("-inf"),
                 ),
@@ -691,7 +692,7 @@ class ConformerEncoder:
             f"{prefix_name}_ln_att0",
             cls="dot",
             source=[weights_drop, V_H],
-            reduce=self.concat_window_dim,  # W*N
+            reduce=kv_dim,  # W*N
             var1="auto",
             var2="auto",
         )  # [B*C, H, W [+1], D/H]
