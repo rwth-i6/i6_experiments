@@ -408,15 +408,18 @@ class ConformerEncoder:
                 emf_mem_layer_name = "_self_att_emformer_mem_clipped"
 
             mem_bank = self._block_prefix_name(layer_index - 1) + emf_mem_layer_name  # [B*C, D]
-            # Same projection which is usually applied to get back to the residual stream.
-            mem_bank = self.network.add_generic_layer(
-                f"{prefix_name}_emformer_mem_proj",
-                cls="linear",
-                source=mem_bank,
-                n_out=self.enc_key_dim,
-                with_bias=False,
-                reuse_params=self._block_prefix_name(layer_index - 1) + "_self_att_linear",
-            )  # [B*C, D]
+
+            if self.memory_variant_opts.proj_emformer_mem:
+                # Same projection which is usually applied to get back to the residual stream.
+                mem_bank = self.network.add_generic_layer(
+                    f"{prefix_name}_emformer_mem_proj",
+                    cls="linear",
+                    source=mem_bank,
+                    n_out=self.enc_key_dim,
+                    with_bias=False,
+                    reuse_params=self._block_prefix_name(layer_index - 1) + "_self_att_linear",
+                )  # [B*C, D]
+
             mem_bank = self.network.add_generic_layer(
                 f"{prefix_name}_emformer_mem_split_batch_time",
                 cls="split_batch_time",
@@ -1293,6 +1296,7 @@ class ConformerMemoryVariantOpts:
     use_cached_prev_kv: bool
     use_emformer_mem: bool  # https://arxiv.org/abs/2010.10759
     apply_tanh_on_emformer_mem: bool
+    proj_emformer_mem: bool
 
 
 def _energy_mask_emformer_mem(
