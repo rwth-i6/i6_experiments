@@ -509,6 +509,79 @@ def conformer_baseline():
             use_sclite=True,
         )
 
+    def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, checkpoint, mem_rqmt=8, time_rqmt=1):
+        exp_prefix = os.path.join(prefix_name, exp_name)
+
+        from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.concat_seqs import (
+            ConcatDatasetSeqsJob,
+            ConcatSeqsDataset,
+            CreateConcatSeqsCTMAndSTMJob,
+        )
+        from i6_core.corpus.convert import CorpusToStmJob
+
+        if isinstance(corpus_names, str):
+            corpus_names = [corpus_names]
+        assert isinstance(corpus_names, list)
+
+        for corpus_name in corpus_names:
+            test_datasets = get_test_dataset_tuples(bpe_size=BPE_1K)
+            stm = CorpusToStmJob(bliss_corpus=test_datasets[corpus_name][2]).out_stm_path
+            tk.register_output(f"concat_seqs/{num}/orig_{corpus_name}_stm", stm)
+            concat_dataset_seqs = ConcatDatasetSeqsJob(
+                corpus_name="TED-LIUM-realease2", stm=stm, num=num, overlap_dur=None
+            )
+            tk.register_output(f"concat_seqs/{num}/{corpus_name}_stm", concat_dataset_seqs.out_stm)
+            tk.register_output(f"concat_seqs/{num}/{corpus_name}_tags", concat_dataset_seqs.out_concat_seq_tags)
+            tk.register_output(f"concat_seqs/{num}/{corpus_name}_lens", concat_dataset_seqs.out_concat_seq_lens_py)
+
+            returnn_search_config = create_config(
+                training_datasets=train_data,
+                **search_args,
+                feature_extraction_net=log10_net_10ms,
+                is_recog=True,
+            )
+
+            returnn_concat_dataset = ConcatSeqsDataset(
+                dataset=test_datasets[corpus_name][0].as_returnn_opts(),
+                seq_tags=concat_dataset_seqs.out_concat_seq_tags,
+                seq_lens_py=concat_dataset_seqs.out_orig_seq_lens_py,
+            )
+
+            _, search_words = search_single(
+                exp_prefix,
+                returnn_search_config,
+                checkpoint,
+                recognition_dataset=returnn_concat_dataset,
+                recognition_reference=test_datasets[corpus_name][1],
+                recognition_bliss_corpus=test_datasets[corpus_name][2],
+                returnn_exe=RETURNN_CPU_EXE,
+                returnn_root=RETURNN_ROOT,
+                mem_rqmt=mem_rqmt,
+                time_rqmt=time_rqmt,
+                # no scoring
+                use_sclite=False,
+                use_returnn_compute_wer=False,
+            )
+
+            from i6_core.corpus.convert import CorpusToStmJob
+            from i6_core.recognition.scoring import ScliteJob
+
+            stm_file = concat_dataset_seqs.out_stm
+
+            concat_ctm_and_stm_job = CreateConcatSeqsCTMAndSTMJob(
+                recog_words_file=search_words, stm_py_file=concat_dataset_seqs.out_stm_py, stm_file=stm_file
+            )
+            tk.register_output(exp_prefix + f"/{corpus_name}/sclite/stm", concat_ctm_and_stm_job.out_stm_file)
+            tk.register_output(exp_prefix + f"/{corpus_name}/sclite/ctm", concat_ctm_and_stm_job.out_ctm_file)
+
+            sclite_job = ScliteJob(
+                ref=concat_ctm_and_stm_job.out_stm_file,
+                hyp=concat_ctm_and_stm_job.out_ctm_file,
+                sctk_binary_path=SCTK_BINARY_PATH,
+            )
+            tk.register_output(exp_prefix + f"/{corpus_name}/sclite/wer", sclite_job.out_wer)
+            tk.register_output(exp_prefix + f"/{corpus_name}/sclite/report", sclite_job.out_report_dir)
+
     def run_exp(
         exp_name,
         train_args,
@@ -554,6 +627,28 @@ def conformer_baseline():
             bpe_size=bpe_size,
             **kwargs,
         )
+
+        if kwargs.get("concat_recog_opts", None):
+            ckpt_ = kwargs["concat_recog_opts"]["checkpoint"]
+            if isinstance(ckpt_, str):
+                assert ckpt_ in ["best", "avg"]
+                if ckpt_ == "best":
+                    concat_recog_ckpt = train_job_best_epoch[exp_name]
+                else:
+                    concat_recog_ckpt = train_job_avg_ckpt[exp_name]
+            elif isinstance(ckpt_, int):
+                concat_recog_ckpt = train_job.out_checkpoints[ckpt_]
+            else:
+                raise TypeError(f"concat_recog_opts['checkpoint'] must be str or int, got {type(ckpt_)}")
+            run_concat_seq_recog(
+                exp_name=exp_name + f"_concat{kwargs['concat_recog_opts']['num']}",
+                corpus_names=kwargs["concat_recog_opts"]["corpus_names"],
+                num=kwargs["concat_recog_opts"]["num"],
+                train_data=train_data,
+                search_args=search_args if search_args else train_args,
+                checkpoint=concat_recog_ckpt,
+            )
+
         return train_job, train_data
 
     def train_mini_lstm(
@@ -870,19 +965,44 @@ def conformer_baseline():
     # baseline v1
     # WERs: 8.2/7.6
     base_v1_args, exp_name = get_base_v1_args(8e-4, 50 * 4)
-    run_exp(
-        exp_name,
-        base_v1_args,
-        num_epochs=50 * 4,
-        epoch_wise_filter=None,
-        bpe_size=BPE_1K,
-        partition_epoch=4,
-        devtrain_subset=3000,
-    )
+    # run_exp(
+    #     exp_name,
+    #     base_v1_args,
+    #     num_epochs=50 * 4,
+    #     epoch_wise_filter=None,
+    #     bpe_size=BPE_1K,
+    #     partition_epoch=4,
+    #     devtrain_subset=3000,
+    # )
+
+    # monotonic att weights loss
+    # for scale in [1e-3, 5e-3, 1e-2]:
+    #     args, exp_name = get_base_v1_args(8e-4, 50 * 4)
+    #     args["decoder_args"].monotonic_att_weights_loss_scale = scale
+    #     run_exp(
+    #         exp_name + f"_monotonicAttLoss{scale}",
+    #         args,
+    #         num_epochs=50 * 4,
+    #         epoch_wise_filter=None,
+    #         bpe_size=BPE_1K,
+    #         partition_epoch=4,
+    #     )
+
+    # for scale in [1e-1, 1e-2]:
+    #     args, exp_name = get_base_v1_args(8e-4, 50 * 4)
+    #     args["decoder_args"].att_weights_variance_loss_scale = scale
+    #     run_exp(
+    #         exp_name + f"_attWeightsVarLoss{scale}",
+    #         args,
+    #         num_epochs=50 * 4,
+    #         epoch_wise_filter=None,
+    #         bpe_size=BPE_1K,
+    #         partition_epoch=4,
+    #     )
 
     # TODO: longer training with more regularization
     # TODO: embed dropout?
-    for num_blocks in [8, 12]:
+    for num_blocks in [12]:
         for ep in [100 * 4]:
             for lr in [8e-4]:
                 for weight_drop in [0.1]:
@@ -938,6 +1058,22 @@ def conformer_baseline():
                                 # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12
                                 # 7.4     6.85  avg
                                 if target_embed_dim == 256 and att_drop == 0.0:
+                                    # long-form speech recognition
+                                    for num in [2, 3, 4, 5, 6, 7, 8, 9, 10]:
+                                        run_exp(
+                                            name,
+                                            args,
+                                            num_epochs=ep,
+                                            epoch_wise_filter=None,
+                                            bpe_size=BPE_1K,
+                                            partition_epoch=4,
+                                            concat_recog_opts={
+                                                "num": num,
+                                                "corpus_names": ["dev", "test"],
+                                                "checkpoint": "avg",
+                                            },
+                                        )
+
                                     for dec_att_drop in [0.1]:
                                         for weight_drop in [0.15]:
                                             for lr in [8e-4]:

@@ -329,6 +329,7 @@ class ConformerEncoderArgs(EncoderArgs):
     input: str = "data"
     input_layer: str = "lstm-6"
     input_layer_conv_act: str = "relu"
+    add_abs_pos_enc_to_input: bool = False
     pos_enc: str = "rel"
 
     sandwich_conv: bool = False
@@ -500,6 +501,9 @@ class RNNDecoderArgs(DecoderArgs):
     label_smoothing: float = 0.1
 
     use_zoneout_output: bool = False
+
+    monotonic_att_weights_loss_scale: Optional[float] = None
+    att_weights_variance_loss_scale: Optional[float] = None
 
 
 def create_config(

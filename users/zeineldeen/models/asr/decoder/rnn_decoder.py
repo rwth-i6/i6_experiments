@@ -42,6 +42,8 @@ class RNNDecoder:
         coverage_scale=None,
         ce_loss_scale=1.0,
         use_zoneout_output: bool = False,
+        monotonic_att_weights_loss_scale=None,
+        att_weights_variance_loss_scale=None,
     ):
         """
         :param base_model: base/encoder model instance
@@ -126,6 +128,9 @@ class RNNDecoder:
 
         self.use_zoneout_output = use_zoneout_output
 
+        self.monotonic_att_weights_loss_scale = monotonic_att_weights_loss_scale
+        self.att_weights_variance_loss_scale = att_weights_variance_loss_scale
+
         self.network = ReturnnNetwork()
         self.subnet_unit = ReturnnNetwork()
         self.dec_output = None
@@ -159,6 +164,66 @@ class RNNDecoder:
             loc_num_channels=self.enc_key_dim,
         )
         subnet_unit.update(att.create())
+
+        if self.monotonic_att_weights_loss_scale or self.att_weights_variance_loss_scale:
+            enc_len_range = self.network.add_range_in_axis_layer(
+                "enc_len_range", "encoder", axis="T", dtype="float32"
+            )  # [B]
+            expected_att_weights_pos = self.subnet_unit.add_combine_layer(
+                "expected_att_weights_pos",
+                ["att_weights", "base:" + enc_len_range],
+                kind="mul",
+                allow_broadcast_all_sources=True,
+            )  # [B,1,T]
+            expected_att_weights_pos_reduce = self.subnet_unit.add_reduce_layer(
+                "expected_att_weights_pos_reduce",
+                expected_att_weights_pos,
+                mode="sum",
+                axes=["T"],
+                keep_dims=False,
+                initial_output=0,
+            )  # [B,1]
+            if self.monotonic_att_weights_loss_scale:
+                # L = |delta_i - 1| - (delta_i - 1)
+                #   where delta_i = E_i - E_{i-1} and E_i = sum_{t=0}^{t-1} alpha(t|i) * t
+                expected_att_weights_pos_delta = self.subnet_unit.add_combine_layer(
+                    "expected_att_weights_pos_delta",
+                    [expected_att_weights_pos_reduce, "prev:" + expected_att_weights_pos_reduce],  # E_j - E_{j-1}
+                    kind="sub",
+                )  # [B,1]
+                # TODO: maybe it is bad idea to force weights for first frame at step 0 so:
+                # TODO: better way is to enable the loss only after step 0 so the model can attend to any frame at step 0
+                self.subnet_unit.add_eval_layer(
+                    "monotonic_att_weights_loss",
+                    source=expected_att_weights_pos_delta,
+                    eval=f"tf.math.abs(source(0) - 1) - (source(0) - 1)",
+                    loss="as_is",  # register as loss
+                    loss_scale=self.monotonic_att_weights_loss_scale,
+                )  # [B,1]
+            if self.att_weights_variance_loss_scale:
+                # L = sum_{t=0}^{T-1} alpha(t|i) * (t - E_i)^2
+                att_weights_variance_ = self.subnet_unit.add_combine_layer(
+                    "att_weighst_variance_",
+                    [expected_att_weights_pos_reduce, "base:" + enc_len_range],
+                    kind="sub",
+                )  # [B,1,T]
+                att_weights_variance = self.subnet_unit.add_eval_layer(
+                    "att_weights_variance", att_weights_variance_, eval="source(0) ** 2"
+                )  # [B,1,T]
+                att_weights_variance_loss_input = self.subnet_unit.add_combine_layer(
+                    "att_weights_variance_loss_",
+                    ["att_weights", att_weights_variance],
+                    kind="mul",
+                )  # [B,1,T]
+                self.subnet_unit.add_reduce_layer(
+                    "att_weights_variance_loss",
+                    att_weights_variance_loss_input,
+                    mode="sum",
+                    axes=["T"],
+                    keep_dims=False,
+                    loss="as_is",
+                    loss_scale=self.att_weights_variance_loss_scale,
+                )  # [B,1]
 
         # LM-like component same as here https://arxiv.org/pdf/2001.07263.pdf
         lstm_lm_component_proj = None

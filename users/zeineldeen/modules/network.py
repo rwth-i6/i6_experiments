@@ -157,8 +157,10 @@ class ReturnnNetwork:
         self._net[name] = {"class": "cast", "from": source, "dtype": dtype}
         return name
 
-    def add_combine_layer(self, name, source, kind, n_out, **kwargs):
-        self._net[name] = {"class": "combine", "kind": kind, "from": source, "n_out": n_out}
+    def add_combine_layer(self, name, source, kind, n_out=None, **kwargs):
+        self._net[name] = {"class": "combine", "kind": kind, "from": source}
+        if n_out is not None:
+            self._net[name]["n_out"] = n_out
         self._net[name].update(kwargs)
         return name
 
@@ -383,6 +385,14 @@ class ReturnnNetwork:
 
     def add_window_layer(self, name, source, window_size, **kwargs):
         self._net[name] = {"class": "window", "from": source, "window_size": window_size, **kwargs}
+        return name
+
+    def add_range_layer(self, name, limit, **kwargs):
+        self._net[name] = {"class": "range", "limit": limit, **kwargs}
+        return name
+
+    def add_range_in_axis_layer(self, name, source, axis, **kwargs):
+        self._net[name] = {"class": "range_in_axis", "from": source, "axis": axis, **kwargs}
         return name
 
     def add_conv_block(
