@@ -401,7 +401,6 @@ class ConformerEncoder:
             # C is approx 15-20.
             # Then we can concat it to K and V.
             # Note on prefix_name: The outer _create_mhsa_module adds the additional "_self_att" prefix.
-
             mem_bank = self._block_prefix_name(layer_index - 1) + "_self_att_emformer_mem"  # [B*C, D]
 
             # Same projection which is usually applied to get back to the residual stream.
