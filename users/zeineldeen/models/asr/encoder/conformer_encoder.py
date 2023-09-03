@@ -413,6 +413,9 @@ class ConformerEncoder:
                 reuse_params=self._block_prefix_name(layer_index - 1) + "_self_att_linear",
                 param_dropout=self.mhsa_weight_drop,
             )  # [B*C, D]
+            mem_bank = self.network.add_dropout_layer(
+                f"{prefix_name}_emformer_mem_proj_drop", mem_bank, dropout=self.dropout
+            )
 
             if self.memory_variant_opts.apply_tanh_on_emformer_mem:
                 mem_bank = self.network.add_generic_layer(
