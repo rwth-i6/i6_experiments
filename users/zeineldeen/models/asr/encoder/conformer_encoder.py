@@ -696,7 +696,7 @@ class ConformerEncoder:
                     query_dim=query_dim,  # W+1
                     kv_dim=kv_dim,  # W*N+M
                     mem_bank_dim=self.emformer_mem_bank_dim,  # M
-                    neg_inf=CodeWrapper("float('-inf')"),
+                    neg_inf=-1e8,
                 ),
             )
 
