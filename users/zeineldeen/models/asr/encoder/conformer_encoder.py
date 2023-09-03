@@ -402,12 +402,7 @@ class ConformerEncoder:
             # Then we can concat it to K and V.
             # Note on prefix_name: The outer _create_mhsa_module adds the additional "_self_att" prefix.
 
-            if self.memory_variant_opts.apply_tanh_on_emformer_mem:
-                emf_mem_layer_name = "_self_att_emformer_mem_tanh"
-            else:
-                emf_mem_layer_name = "_self_att_emformer_mem_clipped"
-
-            mem_bank = self._block_prefix_name(layer_index - 1) + emf_mem_layer_name  # [B*C, D]
+            mem_bank = self._block_prefix_name(layer_index - 1) + "_self_att_emformer_mem"  # [B*C, D]
 
             # Same projection which is usually applied to get back to the residual stream.
             mem_bank = self.network.add_generic_layer(
