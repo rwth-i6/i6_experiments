@@ -1204,6 +1204,7 @@ def run_chunkwise_train(
     from_scratch_train: bool = False,
     lrs_list: Optional[List[float]] = None,
     lr_list_desc: Optional[str] = None,
+    return_args: bool = False,
     **kwargs,
 ):
     if isinstance(start_lrs, float):
@@ -1219,7 +1220,7 @@ def run_chunkwise_train(
         model_ckpt=retrain_ckpt,
     )
 
-    for total_epochs in total_epochs:
+    for total_epoch in total_epochs:
         for chunk_size in chunk_sizes:
             for chunk_step_factor in chunk_step_factors:
                 for start_lr in start_lrs:
@@ -1271,16 +1272,16 @@ def run_chunkwise_train(
                             train_args["learning_rates_list"] = lrs_list
                         elif epoch_oclr_lr:
                             assert start_lr is None
-                            cyc_ep = int(0.45 * total_epochs)
+                            cyc_ep = int(0.45 * total_epoch)
                             train_args["learning_rates_list"] = (
                                 list(numpy.linspace(epoch_oclr_lr / 10, epoch_oclr_lr, cyc_ep))
                                 + list(numpy.linspace(epoch_oclr_lr, epoch_oclr_lr / 10, cyc_ep))
-                                + list(numpy.linspace(epoch_oclr_lr / 10, 1e-6, total_epochs - 2 * cyc_ep))
+                                + list(numpy.linspace(epoch_oclr_lr / 10, 1e-6, total_epoch - 2 * cyc_ep))
                             )
                         else:
-                            decay_pt = int(total_epochs * decay_pt_factor)
+                            decay_pt = int(total_epoch * decay_pt_factor)
                             train_args["learning_rates_list"] = [start_lr] * decay_pt + list(
-                                numpy.linspace(start_lr, 1e-6, total_epochs - decay_pt)
+                                numpy.linspace(start_lr, 1e-6, total_epoch - decay_pt)
                             )
 
                         chunk_level = "input" if enc_stream_type == "chunked" else "encoder"
@@ -1295,9 +1296,9 @@ def run_chunkwise_train(
                             exp_name += "-globalAtt"  # no chunking
 
                         if start_lr:
-                            exp_name += f"_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}"
+                            exp_name += f"_linDecay{total_epoch}_{start_lr}_decayPt{decay_pt_factor}"
                         elif epoch_oclr_lr:
-                            exp_name += f"_epochOCLR-{epoch_oclr_lr}_ep{total_epochs}"
+                            exp_name += f"_epochOCLR-{epoch_oclr_lr}_ep{total_epoch}"
                         elif lrs_list:
                             assert lr_list_desc
                             exp_name += f"_{lr_list_desc}"
@@ -1363,7 +1364,7 @@ def run_chunkwise_train(
                             exp_name += "_noChunkedDec"
 
                         if from_scratch_train:
-                            train_args.update(get_base_v1_args(train_args, lr=epoch_oclr_lr, ep=total_epochs))
+                            train_args.update(get_base_v1_args(train_args, lr=epoch_oclr_lr, ep=total_epoch))
                             train_args["with_pretrain"] = True
                             train_args["retrain_checkpoint"] = None
                             exp_name += "_fromScratch"
@@ -1386,7 +1387,7 @@ def run_chunkwise_train(
                                 prefix_name=prefix_name,
                                 exp_name=exp_name,
                                 train_args=train_args,
-                                num_epochs=total_epochs,
+                                num_epochs=total_epoch,
                                 epoch_wise_filter=None,
                                 time_rqmt=time_rqmt,
                                 key=search_score_key,
@@ -1400,7 +1401,7 @@ def run_chunkwise_train(
                                 prefix_name=prefix_name,
                                 exp_name=exp_name,
                                 train_args=train_args,
-                                num_epochs=total_epochs,
+                                num_epochs=total_epoch,
                                 epoch_wise_filter=None,
                                 time_rqmt=time_rqmt,
                                 key=search_score_key,
@@ -1416,11 +1417,11 @@ def run_chunkwise_train(
                                 assert ctc_chunksync_align, "Need CTC chunk-sync alignments"
                                 train_fixed_alignment = ctc_chunksync_align["train"][f"{chunk_size}_{chunk_step}"]
                                 cv_fixed_alignment = ctc_chunksync_align["dev"][f"{chunk_size}_{chunk_step}"]
-                            run_exp(
+                            _, train_data = run_exp(
                                 prefix_name=prefix_name,
                                 exp_name=exp_name,
                                 train_args=train_args,
-                                num_epochs=total_epochs,
+                                num_epochs=total_epoch,
                                 train_fixed_alignment=train_fixed_alignment,
                                 cv_fixed_alignment=cv_fixed_alignment,
                                 epoch_wise_filter=None,
@@ -1430,6 +1431,15 @@ def run_chunkwise_train(
                                 seq_postfix=None if full_sum_approx else 0,
                                 **kwargs,
                             )
+
+                            if return_args:
+                                assert len(total_epochs) == 1
+                                assert len(chunk_sizes) == 1
+                                assert len(chunk_step_factors) == 1
+                                assert len(start_lrs) == 1
+                                assert len(decay_pt_factors) == 1
+
+                                return train_args, exp_name, train_data
 
 
 def _run_exp_full_sum_simple_approx(
@@ -1687,23 +1697,6 @@ def baseline():
     #                 },
     #             )
 
-    # TODO: 2 sec chunk
-    # run_chunkwise_train(
-    #     enc_stream_type="chunked",
-    #     run_all_for_best_last_avg=True,
-    #     enable_check_align=False,
-    #     chunk_sizes=[33],
-    #     chunk_step_factors=[0.5],
-    #     start_lrs=[2e-4],
-    #     decay_pt_factors=[1 / 3],
-    #     gpu_mem=24,
-    #     total_epochs=[120],
-    #     batch_size=15_000,
-    #     accum_grad=2,
-    #     time_rqmt=120,
-    #     conf_mem_opts={"self_att_version": 1, "mem_size": 1, "use_conv_cache": False},
-    # )
-
     # # TODO: extended chunk
     # chunked_att_chunk-40_step-10_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3_winLeft180_endSlice10            12.85   12.88       40
     # chunked_att_chunk-30_step-10_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2_winLeft120_endSlice10            12.93   12.7        80
@@ -1899,6 +1892,95 @@ def baseline():
                 concat_recog_opts={"corpus_names": ["dev", "test"], "num": num, "checkpoint": "avg"},
             )
 
+    # TODO: best streaming model + EOC masking
+    # chunked_att_chunk-25_step-20_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2_winLeft0_endSliceStart0_endSlice20_memVariant1_memSize2_convCache1_useCachedKV_memSlice0-20_L0_C20_R5    7.7     7.25  avg
+    for left_context, center_context, right_context, mem_size in [
+        (0, 20, 5, 2),
+    ]:
+        run_chunkwise_train(
+            enc_stream_type="chunked",
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            chunk_sizes=[left_context + center_context + right_context],
+            chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+            start_lrs=[2e-4],
+            decay_pt_factors=[1 / 3],
+            gpu_mem=24,
+            total_epochs=[200],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=120,
+            end_slice_start=left_context,
+            end_slice_size=center_context,
+            window_left_padding=left_context * 6,
+            conf_mem_opts={
+                "self_att_version": 1,
+                "mem_size": mem_size,
+                "use_cached_prev_kv": True,
+                "conv_cache_size": 1,
+                "mem_slice_start": left_context,
+                "mem_slice_size": center_context,
+            },
+            suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+            decoder_mask_eoc=True,
+        )
+
+    # TODO: decoder wo length norm
+    for beam in [1, 4, 8, 12, 16, 20, 24, 32, 64, 128]:
+        for length_norm in [True, False]:
+            # chunked_att_chunk-25_step-20_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2_winLeft0_endSliceStart0_endSlice20_memVariant1_memSize2_convCache1_useCachedKV_memSlice0-20_L0_C20_R5    7.7     7.25  avg
+            for left_context, center_context, right_context, mem_size in [
+                (0, 20, 5, 2),
+            ]:
+                train_args_, exp_name_, train_data = run_chunkwise_train(
+                    enc_stream_type="chunked",
+                    run_all_for_best_last_avg=True,
+                    enable_check_align=False,
+                    chunk_sizes=[left_context + center_context + right_context],
+                    chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+                    start_lrs=[2e-4],
+                    decay_pt_factors=[1 / 3],
+                    gpu_mem=24,
+                    total_epochs=[120],
+                    batch_size=15_000,
+                    accum_grad=2,
+                    time_rqmt=120,
+                    end_slice_start=left_context,
+                    end_slice_size=center_context,
+                    window_left_padding=left_context * 6,
+                    conf_mem_opts={
+                        "self_att_version": 1,
+                        "mem_size": mem_size,
+                        "use_cached_prev_kv": True,
+                        "conv_cache_size": conv_cache_size,
+                        "mem_slice_start": left_context,
+                        "mem_slice_size": center_context,
+                    },
+                    suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+                    return_args=True,
+                )
+
+                search_exp_name = exp_name_
+                search_args = copy.deepcopy(train_args_)
+                search_args["beam_size"] = beam
+                search_exp_name += f"_beam{beam}"
+                search_args["decoder_args"].length_normalization = length_norm
+                if length_norm is False:
+                    search_exp_name += "_noLenNorm"
+                test_datasets = get_test_dataset_tuples(bpe_size=BPE_1K)
+                for test_dataset in ["dev", "test"]:
+                    run_single_search(
+                        prefix_name=prefix_name,
+                        exp_name=search_exp_name + f"/{test_dataset}",
+                        train_data=train_data,
+                        search_args=search_args,
+                        checkpoint=train_job_avg_ckpt[exp_name_],
+                        feature_extraction_net=log10_net_10ms,
+                        recog_dataset=test_datasets[test_dataset][0],
+                        recog_ref=test_datasets[test_dataset][1],
+                        recog_bliss_corpus=test_datasets[test_dataset][2],
+                    )
+
     # TODO: use smaller chunk size only in decoding
 
     # TODO: adaptive chucking
@@ -1910,40 +1992,6 @@ def baseline():
     # - concat align + average train
 
     # ---------------------- Chunk-size 1 AED Transducer ------------------------- #
-
-    # run_chunkwise_train(
-    #     enc_stream_type="global",
-    #     run_all_for_best_last_avg=True,
-    #     enable_check_align=False,
-    #     chunk_sizes=[1],
-    #     chunk_step_factors=[1],
-    #     start_lrs=[2e-4],
-    #     decay_pt_factors=[1 / 3],
-    #     gpu_mem=24,
-    #     total_epochs=[120],
-    #     batch_size=5_000,
-    #     accum_grad=6,
-    #     time_rqmt=120,
-    #     full_sum_approx=True,
-    #     decoder_mask_eoc=True,
-    # )
-    #
-    # run_chunkwise_train(
-    #     enc_stream_type="global",
-    #     run_all_for_best_last_avg=True,
-    #     enable_check_align=False,
-    #     chunk_sizes=[1],
-    #     chunk_step_factors=[1],
-    #     start_lrs=[2e-4],
-    #     decay_pt_factors=[1 / 3],
-    #     gpu_mem=24,
-    #     total_epochs=[80],
-    #     batch_size=6000,
-    #     accum_grad=5,
-    #     time_rqmt=120,
-    #     full_sum_approx=True,
-    #     decoder_mask_eoc=True,
-    # )
 
     for mask_eoc in [True, False]:
         run_chunkwise_train(
@@ -1962,4 +2010,10 @@ def baseline():
             decoder_mask_eoc=mask_eoc,
         )
 
-    # TODO: remove dependency on context vector
+    # TODO: with prev:att, just as-is, no change (done above)
+
+    # TODO: change it to h_t, with att out linear transformation (should then be same kind of embedding, also same dim)
+
+    # TODO: h_t without linear trafo (might be different dim)
+
+    # TODO: no h_t at all (also different dim)
