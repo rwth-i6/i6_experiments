@@ -1333,7 +1333,12 @@ def _energy_mask_emformer_mem(
     assert len(energy_dims) == len(energy_shape) == energy.shape.rank == 5
 
     def _bc_shape(d_: Dim):
-        a = energy_dims.index(d_)
+        ls = [(a_, d__) for a_, d__ in enumerate(energy_dims) if d__ == d_]
+        if not ls:
+            raise Exception(f"dim {d_} not found in {energy_dims}")
+        if len(ls) > 1:
+            raise Exception(f"dim {d_} found multiple times in {energy_dims}: {ls}")
+        a = ls[0][0]
         return [1] * a + [d_.get_dim_value()] + [1] * (len(energy_dims) - a - 1)
 
     # In chunk c, we only allow to attend to the previous chunk memories m <= c.
