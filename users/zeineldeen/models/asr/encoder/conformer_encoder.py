@@ -636,7 +636,7 @@ class ConformerEncoder:
                 mask_query = self.network.add_eval_layer(
                     mask_query,
                     range_in_query_dim,
-                    eval=f"source(0) < {self.memory_variant_opts.chunk_size}",
+                    eval=f"tf.less(source(0), {self.memory_variant_opts.chunk_size})",
                     out_type={"dtype": "bool"},
                 )  # [W+1]
             ln_rel_pos_enc = self.network.add_eval_layer(
@@ -658,7 +658,7 @@ class ConformerEncoder:
                 mask_kv = self.network.add_eval_layer(
                     mask_kv,
                     [range_in_kv_dim, kv_dim_len, mem_len],
-                    eval=f"source(0) < (source(1) - source(2))",
+                    eval=f"tf.less(source(0), source(1) - source(2))",
                     out_type={"dtype": "bool"},
                 )
             ln_rel_pos_enc = self.network.add_eval_layer(
@@ -1346,8 +1346,10 @@ def _energy_mask_emformer_mem(
     kv_range: tf.Tensor = tf.range(kv_dim.get_dim_value())  # [W*N+M]
     kv_range: tf.Tensor = tf.reshape(kv_range, _bc_shape(kv_dim))  # [..W*N+M..]
     kv_m_start_idx = kv_dim.get_dim_value() - mem_bank_dim.get_dim_value()  # W*N
-    mask0 = kv_range <= kv_m_start_idx + c_range  # [..C.., ..W*N+M..]
-    mask1 = (q_range < q_s_idx) | ((q_range == q_s_idx) & (kv_range < kv_m_start_idx))  # [..W+1.., ..W*N+M..]
+    mask0 = tf.less_equal(kv_range, kv_m_start_idx + c_range)  # [..C.., ..W*N+M..]
+    mask1 = tf.less(q_range, q_s_idx) | (
+        tf.equal(q_range, q_s_idx) & tf.less(kv_range, kv_m_start_idx)
+    )  # [..W+1.., ..W*N+M..]
     mask = mask0 & mask1  # [..C.., ..W+1.., ..W*N+M..]
     energy = tf.where(mask, energy, neg_inf)
 
