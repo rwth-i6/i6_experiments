@@ -1022,6 +1022,7 @@ def run_chunkwise_train(
     time_rqmt: float = 72,
     start_lrs: Union[float, List[Optional[float]]] = 1e-4,
     decay_pt_factors: Union[float, List[Optional[float]]] = 1 / 3,
+    min_lr: float = 1e-6,
     window_left_padding: Optional[int] = None,
     end_slice_size: Optional[int] = None,
     end_slice_start: Optional[int] = None,
@@ -1112,7 +1113,7 @@ def run_chunkwise_train(
                         else:
                             decay_pt = int(total_epochs * decay_pt_factor)
                             train_args["learning_rates_list"] = [start_lr] * decay_pt + list(
-                                numpy.linspace(start_lr, 1e-6, total_epochs - decay_pt)
+                                numpy.linspace(start_lr, min_lr, total_epochs - decay_pt)
                             )
 
                         chunk_level = "input" if enc_stream_type == "chunked" else "encoder"
@@ -1128,6 +1129,8 @@ def run_chunkwise_train(
 
                         if start_lr:
                             exp_name += f"_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}"
+                            if min_lr != 1e-6:
+                                exp_name += f"_minLR{min_lr}"
                         elif epoch_oclr_lr:
                             exp_name += f"_epochOCLR-{epoch_oclr_lr}_ep{total_epochs}"
                         elif lrs_list:
@@ -1343,7 +1346,7 @@ def _run_exp_full_sum_simple_approx(
 
 
 def baseline():
-    for left_context, center_context, right_context, eps in [(0, 20, 5, 300), (0, 20, 5, 600), (0, 10, 15, 300)]:
+    for left_context, center_context, right_context, eps in [(0, 20, 5, 300), (0, 10, 15, 300)]:
         run_chunkwise_train(
             enc_stream_type="chunked",
             run_all_for_best_last_avg=True,
@@ -1404,7 +1407,7 @@ def baseline():
             selected_datasets=["dev-other"],
         )
 
-    for lr in [2e-4, 4e-4]:
+    for lr in [2e-4]:
         for left_context, center_context, right_context, conv_cache_size, mem_size in [
             (0, 20, 5, 2, 2),
             (0, 20, 5, 2, 3),
@@ -1439,6 +1442,39 @@ def baseline():
                 suffix=f"_L{left_context}_C{center_context}_R{right_context}",
                 selected_datasets=["dev-other"],
             )
+
+        for min_lr in [1e-5, 1e-6]:
+            for left_context, center_context, right_context, conv_cache_size, mem_size in [
+                (0, 20, 5, 2, 2),
+            ]:
+                run_chunkwise_train(
+                    enc_stream_type="chunked",
+                    run_all_for_best_last_avg=True,
+                    enable_check_align=False,
+                    chunk_sizes=[left_context + center_context + right_context],
+                    chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+                    start_lrs=[2e-4],
+                    decay_pt_factors=[0.2, 1 / 3],
+                    min_lr=min_lr,
+                    gpu_mem=24,
+                    total_epochs=[300],
+                    batch_size=15_000,
+                    accum_grad=2,
+                    time_rqmt=168,
+                    end_slice_start=left_context,
+                    end_slice_size=center_context,
+                    window_left_padding=left_context * 6,
+                    conf_mem_opts={
+                        "self_att_version": 1,
+                        "mem_size": mem_size,
+                        "use_cached_prev_kv": True,
+                        "conv_cache_size": conv_cache_size,
+                        "mem_slice_start": left_context,
+                        "mem_slice_size": center_context,
+                    },
+                    suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+                    selected_datasets=["dev-other"],
+                )
 
     # ------------------- Chunk size 1 ------------------- #
 

@@ -545,6 +545,7 @@ def create_config(
     accum_grad=2,
     pretrain_reps=5,
     max_seq_length=75,
+    max_seqs=200,
     noam_opts=None,
     warmup_lr_opts=None,
     with_pretrain=True,
@@ -634,7 +635,7 @@ def create_config(
         "accum_grad_multiple_step": accum_grad,
         "gradient_noise": gradient_noise,
         "batch_size": batch_size,
-        "max_seqs": 200,
+        "max_seqs": max_seqs,
         "truncation": -1,
     }
     # default: Adam optimizer
@@ -758,6 +759,7 @@ def create_config(
                 mem_slice_size=conf_mem_opts.get("mem_slice_size", None),
                 mem_slice_start=conf_mem_opts.get("mem_slice_start", None),
                 use_emformer_mem=conf_mem_opts.get("use_emformer_mem", False),
+                apply_tanh_on_emformer_mem=conf_mem_opts.get("apply_tanh_on_emformer_mem", False),
             )
 
         conformer_encoder = encoder_type(**encoder_args)

@@ -13,3 +13,9 @@ RETURNN_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
 
 SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
 SCTK_BINARY_PATH.hash_overwrite = "SWITCHBOARD_DEFAULT_SCTK_BINARY_PATH"
+
+# updated version
+RETURNN_ROOT_V2 = CloneGitRepositoryJob(
+    "https://github.com/rwth-i6/returnn", commit="de395581691b783d2a2770cc48c8deca6ede8cca"
+).out_repository
+RETURNN_ROOT_V2.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT_V2"
