@@ -1341,6 +1341,8 @@ def run_chunkwise_train(
                                 )
                             if conf_mem_opts.get("use_emformer_mem", False):
                                 exp_name += f"_emfMem"
+                                if conf_mem_opts.get("apply_tanh_on_emformer_mem", False):
+                                    exp_name += "Tanh"
                             train_args["recursion_limit"] = 4000
 
                         if with_ctc:
@@ -1544,6 +1546,7 @@ def baseline():
                 "mem_slice_start": left_context,
                 "mem_slice_size": center_context,
                 "use_emformer_mem": True,
+                "apply_tanh_on_emformer_mem": True,
             },
             suffix=f"_L{left_context}_C{center_context}_R{right_context}",
         )
