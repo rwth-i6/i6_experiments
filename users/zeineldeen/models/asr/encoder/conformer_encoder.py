@@ -411,6 +411,7 @@ class ConformerEncoder:
                 n_out=self.enc_key_dim,
                 with_bias=False,
                 reuse_params=self._block_prefix_name(layer_index - 1) + "_self_att_linear",
+                param_dropout=self.mhsa_weight_drop,
             )  # [B*C, D]
 
             if self.memory_variant_opts.apply_tanh_on_emformer_mem:
