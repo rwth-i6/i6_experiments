@@ -1531,6 +1531,7 @@ def baseline():
     for left_context, center_context, right_context, conv_cache_size, mem_size in [
         (0, 20, 5, 1, 2),
         (0, 10, 5, 4, 4),
+        (0, 20, 5, 1, 1),
     ]:
         run_chunkwise_train(
             enc_stream_type="chunked",

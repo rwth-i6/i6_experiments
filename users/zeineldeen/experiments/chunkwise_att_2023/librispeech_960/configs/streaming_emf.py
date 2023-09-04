@@ -1369,6 +1369,7 @@ def _run_exp_full_sum_simple_approx(
 def baseline():
     for left_context, center_context, right_context, conv_cache_size, mem_size in [
         (0, 20, 5, 2, 2),
+        (0, 20, 5, 2, 1),
     ]:
         run_chunkwise_train(
             enc_stream_type="chunked",
