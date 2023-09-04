@@ -1048,20 +1048,7 @@ def create_config(
         assert retrain_checkpoint_opts is None
         retrain_checkpoint_opts = {}
         retrain_checkpoint_opts["custom_missing_load_func"] = load_params_v2
-        s_input_ = exp_config["network"]["output"]["unit"]["s"]["from"]
-        if isinstance(s_input_, list):
-            assert len(s_input_) == 2 and s_input_[0] == "prev:target_embed" and s_input_[1] == "prev:att"
-            exp_config["network"]["output"]["unit"]["s"]["from"] = s_input_[0]  # only take target embed
-        else:
-            assert isinstance(s_input_, str) and s_input_ == "_s_input"
-            s_input_ = exp_config["network"]["output"]["unit"]["_s_input"]
-            assert (
-                isinstance(s_input_, list)
-                and len(s_input_) == 2
-                and s_input_[0] == "prev:target_embed"
-                and s_input_[1] == "prev_att_masked"
-            )
-            exp_config["network"]["output"]["unit"]["s"]["from"] = s_input_[0]  # only take target embed
+        exp_config["network"]["output"]["unit"]["s"]["from"] = "prev:target_embed"  # remove prev:att
 
     if retrain_checkpoint is not None:
         if retrain_checkpoint_opts:
