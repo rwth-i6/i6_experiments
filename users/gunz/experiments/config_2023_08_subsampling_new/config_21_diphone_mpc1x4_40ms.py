@@ -127,6 +127,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             decode_all_corpora=exp.decode_all_corpora,
             fine_tune=exp.fine_tune,
             focal_loss=exp.focal_loss,
+            label_smoothing=exp.label_smoothing,
             returnn_root=returnn_root,
             run_performance_study=exp.run_performance_study,
             tune_decoding=exp.tune_decoding,
