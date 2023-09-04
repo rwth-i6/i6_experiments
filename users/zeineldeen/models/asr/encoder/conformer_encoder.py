@@ -415,8 +415,8 @@ class ConformerEncoder:
                 source=mem_bank,
                 n_out=self.enc_key_dim,
                 with_bias=False,
-                name_scope=self._block_prefix_name(layer_index - 1) + "_self_att_linear",
-                param_dropout=self.mhsa_weight_drop,
+                # TODO: fix to use param_dropout with that
+                reuse_params=self._block_prefix_name(layer_index - 1) + "_self_att_linear",
             )  # [B*C, D]
             mem_bank = self.network.add_dropout_layer(
                 f"{prefix_name}_emformer_mem_proj_drop", mem_bank, dropout=self.dropout
