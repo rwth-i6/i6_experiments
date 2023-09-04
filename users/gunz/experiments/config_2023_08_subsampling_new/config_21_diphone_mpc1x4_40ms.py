@@ -620,7 +620,7 @@ def run_single(
                     for cfg in configs:
                         j = s.recognize_cart(
                             key="fh-fs",
-                            epoch=max(keep_epochs),
+                            epoch=23,
                             calculate_statistics=True,
                             cart_tree_or_tying_config=tying_cfg,
                             cpu_rqmt=2,
