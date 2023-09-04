@@ -1,5 +1,10 @@
 """
 Conformer encoder
+
+Other implementations:
+
+https://github.com/facebookresearch/fairseq/blob/main/fairseq/models/speech_to_text/modules/emformer.py
+https://pytorch.org/audio/main/_modules/torchaudio/models/emformer.html#Emformer
 """
 
 from __future__ import annotations
