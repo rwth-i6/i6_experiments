@@ -1520,7 +1520,7 @@ def baseline():
     # TODO: emformer memory
     for left_context, center_context, right_context, conv_cache_size, mem_size in [
         (0, 20, 5, 1, 2),
-        # (0, 20, 5, 1, 1),
+        (0, 10, 5, 4, 4),
     ]:
         run_chunkwise_train(
             enc_stream_type="chunked",
@@ -1546,7 +1546,6 @@ def baseline():
                 "mem_slice_start": left_context,
                 "mem_slice_size": center_context,
                 "use_emformer_mem": True,
-                "apply_tanh_on_emformer_mem": True,
             },
             suffix=f"_L{left_context}_C{center_context}_R{right_context}",
         )
