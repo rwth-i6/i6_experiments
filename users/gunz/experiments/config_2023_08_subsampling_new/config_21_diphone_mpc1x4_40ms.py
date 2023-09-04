@@ -69,6 +69,7 @@ class Experiment:
     batch_size: int
     decode_all_corpora: bool
     fine_tune: bool
+    label_smoothing: float
     lr: str
     dc_detection: bool
     run_performance_study: bool
@@ -93,12 +94,30 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             dc_detection=False,
             decode_all_corpora=False,
             fine_tune=a_name == "40ms-FF-v8",
+            label_smoothing=CONF_LABEL_SMOOTHING,
             lr="v13",
             run_performance_study=a_name == "40ms-FF-v8",
             tune_decoding=a_name == "40ms-FF-v8",
             run_tdp_study=False,
         )
     ]
+    if a_name == "40ms-FF-v8":
+        configs = [
+            *configs,
+            Experiment(
+                alignment=alignment,
+                alignment_name=a_name,
+                batch_size=12500,
+                dc_detection=False,
+                decode_all_corpora=False,
+                fine_tune=a_name == "40ms-FF-v8",
+                label_smoothing=0.1,
+                lr="v13",
+                run_performance_study=a_name == "40ms-FF-v8",
+                tune_decoding=a_name == "40ms-FF-v8",
+                run_tdp_study=False,
+            ),
+        ]
     for exp in configs:
         run_single(
             alignment=exp.alignment,
@@ -131,13 +150,14 @@ def run_single(
     run_performance_study: bool,
     tune_decoding: bool,
     run_tdp_study: bool,
+    label_smoothing: float = CONF_LABEL_SMOOTHING,
     filter_segments: typing.Optional[typing.List[str]],
     conf_model_dim: int = 512,
     num_epochs: int = 600,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-2-a:{alignment_name}-lr:{lr}-fl:{focal_loss}"
+    name = f"conf-2-a:{alignment_name}-lr:{lr}-fl:{focal_loss}-ls:{label_smoothing}"
     print(f"fh {name}")
 
     ss_factor = 4
@@ -195,7 +215,7 @@ def run_single(
         conf_model_dim,
         chunking=CONF_CHUNKING_10MS,
         focal_loss_factor=CONF_FOCAL_LOSS,
-        label_smoothing=CONF_LABEL_SMOOTHING,
+        label_smoothing=label_smoothing,
         num_classes=s.label_info.get_n_of_dense_classes(),
         time_tag_name=time_tag_name,
         upsample_by_transposed_conv=False,
@@ -218,13 +238,13 @@ def run_single(
         focal_loss_factor=focal_loss,
         l2=L2,
         label_info=s.label_info,
-        label_smoothing=CONF_LABEL_SMOOTHING,
+        label_smoothing=label_smoothing,
         use_multi_task=True,
     )
     network = augment_net_with_diphone_outputs(
         network,
         encoder_output_len=conf_model_dim,
-        label_smoothing=CONF_LABEL_SMOOTHING,
+        label_smoothing=label_smoothing,
         l2=L2,
         ph_emb_size=s.label_info.ph_emb_size,
         st_emb_size=s.label_info.st_emb_size,
@@ -238,7 +258,7 @@ def run_single(
         focal_loss_factor=focal_loss,
         l2=L2,
         label_info=s.label_info,
-        label_smoothing=CONF_LABEL_SMOOTHING,
+        label_smoothing=label_smoothing,
         time_tag_name=time_tag_name,
         upsampling=False,
     )
