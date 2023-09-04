@@ -1045,7 +1045,7 @@ def create_config(
         retrain_checkpoint_opts["custom_missing_load_func"] = load_qkv_mats
 
     if remove_att_ctx_from_dec_state:
-        retrain_checkpoint["custom_missing_load_func"] = load_params_v2
+        retrain_checkpoint_opts["custom_missing_load_func"] = load_params_v2
         exp_config["network"]["output"]["rec"]["unit"]["s"]["from"] = ["prev:target_embed"]  # remove prev:att
 
     if retrain_checkpoint is not None:
