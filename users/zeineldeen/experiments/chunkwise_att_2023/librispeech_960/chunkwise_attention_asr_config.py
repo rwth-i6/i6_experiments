@@ -159,6 +159,37 @@ def load_qkv_mats(name, shape, reader):
     return None
 
 
+def load_params_v2(name, shape, reader):
+    idx = name.split("_")[2]
+    qkv_tensor = reader.get_tensor("conformer_block_%s_self_att/QKV" % idx)
+    num_heads = enc_att_num_heads_dim.dimension
+    model_dim_per_head = enc_dim_per_head_dim.dimension
+    model_dim = num_heads * model_dim_per_head
+    assert qkv_tensor.shape == (model_dim, 3 * model_dim)
+    import numpy
+
+    qkv_tensor_ = qkv_tensor.reshape((model_dim, num_heads, 3, model_dim_per_head))
+    q = qkv_tensor_[:, :, 0, :].reshape((model_dim, model_dim))
+    k = qkv_tensor_[:, :, 1, :].reshape((model_dim, model_dim))
+    v = qkv_tensor_[:, :, 2, :].reshape((model_dim, model_dim))
+
+    # input is [y_{i-1}, c_{i-1}, h_{i-1}]
+    s_kernel = reader.get_tensor(
+        "output/rec/s/rec/lstm_cell/kernel"
+    )  # [input_dim, 2 * 4 * d] (h_{t-1} is at the last pos)
+    # TODO: slice out c_{i-1}
+
+    if name == "conformer_block_%s_self_att_ln_K/W" % idx:
+        return k
+    elif name == "conformer_block_%s_self_att_ln_Q/W" % idx:
+        return q
+    elif name == "conformer_block_%s_self_att_ln_V/W" % idx:
+        return v
+    elif name == "output/rec/s/rec/lstm_cell/kernel":
+        return s_kernel
+    return None
+
+
 # -------------------------- Pretraining -------------------------- #
 
 
