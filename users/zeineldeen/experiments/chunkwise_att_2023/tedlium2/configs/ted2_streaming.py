@@ -227,6 +227,7 @@ def run_single_search(
         returnn_root=RETURNN_ROOT,
         mem_rqmt=mem_rqmt,
         time_rqmt=time_rqmt,
+        use_sclite=True,
     )
 
 
@@ -729,6 +730,9 @@ def run_forward(
         eval_mode=kwargs.get("do_eval", True),
         device=kwargs.get("device", "gpu"),
     )
+    if kwargs.get("cpu_type", None):
+        assert "sbatch_args" not in forward_j.rqmt
+        forward_j.rqmt["cpu_type"] = kwargs["cpu_type"]
 
     forward_j.add_alias(exp_prefix + "/forward_hdf/" + dump_dataset)
 
@@ -1165,6 +1169,8 @@ def get_ctc_rna_based_chunk_alignments(
                         ignore_eoc_in_input=ignore_eoc_in_input,
                     ),
                     device="cpu",
+                    time_rqmt=1.0,
+                    cpu_type="cpu_short",
                 )
 
                 ctc_align_wo_speed_pert[dataset][f"{chunk_size}_{chunk_step}"] = ctc_chunk_sync_align[
@@ -1906,7 +1912,7 @@ def baseline():
             start_lrs=[2e-4],
             decay_pt_factors=[1 / 3],
             gpu_mem=24,
-            total_epochs=[200],
+            total_epochs=[120, 200],
             batch_size=15_000,
             accum_grad=2,
             time_rqmt=120,
@@ -1981,6 +1987,32 @@ def baseline():
                         recog_bliss_corpus=test_datasets[test_dataset][2],
                     )
 
+                # TODO: use smaller slice (wrong implementation - fix later)
+                # if beam == 12 and length_norm == True:
+                #     for slice_size in [5, 10, 15]:
+                #         search_exp_name = exp_name_
+                #         search_args = copy.deepcopy(train_args_)
+                #         search_args["end_slice_size"] = slice_size
+                #         search_exp_name += f"_decSlice{slice_size}"
+                #         search_args["beam_size"] = beam
+                #         search_exp_name += f"_beam{beam}"
+                #         search_args["decoder_args"].length_normalization = length_norm
+                #         if length_norm is False:
+                #             search_exp_name += "_noLenNorm"
+                #         test_datasets = get_test_dataset_tuples(bpe_size=BPE_1K)
+                #         for test_dataset in ["dev", "test"]:
+                #             run_single_search(
+                #                 prefix_name=prefix_name,
+                #                 exp_name=search_exp_name + f"/{test_dataset}",
+                #                 train_data=train_data,
+                #                 search_args=search_args,
+                #                 checkpoint=train_job_avg_ckpt[exp_name_],
+                #                 feature_extraction_net=log10_net_10ms,
+                #                 recog_dataset=test_datasets[test_dataset][0],
+                #                 recog_ref=test_datasets[test_dataset][1],
+                #                 recog_bliss_corpus=test_datasets[test_dataset][2],
+                #             )
+
     # TODO: use smaller chunk size only in decoding
 
     # TODO: adaptive chucking
@@ -2015,5 +2047,20 @@ def baseline():
     # TODO: change it to h_t, with att out linear transformation (should then be same kind of embedding, also same dim)
 
     # TODO: h_t without linear trafo (might be different dim)
+    run_chunkwise_train(
+        enc_stream_type="global",
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        chunk_sizes=[1],
+        chunk_step_factors=[1],
+        start_lrs=[2e-4],
+        decay_pt_factors=[0.25],
+        gpu_mem=11,
+        total_epochs=[80, 120],
+        batch_size=15_000,
+        accum_grad=2,
+        time_rqmt=120,
+        decoder_mask_eoc=mask_eoc,
+    )
 
     # TODO: no h_t at all (also different dim)
