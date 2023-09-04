@@ -2019,8 +2019,6 @@ def baseline():
 
     # TODO: use smaller chunk size only in decoding
 
-    # TODO: adaptive chucking
-
     # TODO: CTC alignments
     # - concat align + freeze
     # - average align + freeze
@@ -2061,10 +2059,10 @@ def baseline():
         start_lrs=[2e-4],
         decay_pt_factors=[0.25],
         gpu_mem=11,
-        total_epochs=[80, 120],
+        total_epochs=[60, 80, 120],
         batch_size=15_000,
         accum_grad=2,
         time_rqmt=120,
-        decoder_mask_eoc=mask_eoc,
+        decoder_mask_eoc=True,
         remove_att_ctx_from_dec_state=True,
     )
