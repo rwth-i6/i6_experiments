@@ -611,9 +611,9 @@ def run_single(
                             s.get_cart_params("fh"), altas=a, beam=beam, beam_limit=100000, lm_scale=2, tdp_scale=0.4
                         ).with_prior_scale(pC)
                         for beam, pC, a in itertools.product(
-                            [14, 16, 18, 20],
+                            [14, 16, 18],
                             [0.4, 0.6],
-                            [None, 2, 4],
+                            [None, 2, 4, 6],
                         )
                     ]
                     for cfg in configs:
