@@ -1345,8 +1345,6 @@ def _energy_mask_emformer_mem(
         a = ls[0][0]
         return [1] * a + [d_.get_dim_value()] + [1] * (len(energy_dims) - a - 1)
 
-    # In chunk c, we only allow to attend to the previous chunk memories m <= c.
-    # In summary, we do not attend to any memories.
     c_range: tf.Tensor = tf.range(chunked_time_dim.get_dim_value())  # [C]
     c_range: tf.Tensor = tf.reshape(c_range, _bc_shape(chunked_time_dim))  # [..C..]
     q_range: tf.Tensor = tf.range(query_dim.get_dim_value())  # [W+1]
@@ -1355,7 +1353,9 @@ def _energy_mask_emformer_mem(
     kv_range: tf.Tensor = tf.range(kv_dim.get_dim_value())  # [W*N+M]
     kv_range: tf.Tensor = tf.reshape(kv_range, _bc_shape(kv_dim))  # [..W*N+M..]
     kv_m_start_idx = kv_dim.get_dim_value() - mem_bank_dim.get_dim_value()  # W*N
-    mask0 = tf.less_equal(kv_range, kv_m_start_idx + c_range)  # [..C.., ..W*N+M..]
+    # In chunk c, we only allow to attend to the previous chunk memories m < c.
+    mask0 = tf.less(kv_range, kv_m_start_idx + c_range)  # [..C.., ..W*N+M..]
+    # In summary, we do not attend to any memories.
     mask1 = tf.less(q_range, q_s_idx) | (
         tf.equal(q_range, q_s_idx) & tf.less(kv_range, kv_m_start_idx)
     )  # [..W+1.., ..W*N+M..]
