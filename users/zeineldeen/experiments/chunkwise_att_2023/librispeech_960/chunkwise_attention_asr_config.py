@@ -1048,7 +1048,7 @@ def create_config(
         assert retrain_checkpoint_opts is None
         retrain_checkpoint_opts = {}
         retrain_checkpoint_opts["custom_missing_load_func"] = load_params_v2
-        exp_config["network"]["output"]["rec"]["unit"]["s"]["from"] = ["prev:target_embed"]  # remove prev:att
+        exp_config["network"]["output"]["unit"]["s"]["from"] = ["prev:target_embed"]  # remove prev:att
 
     if retrain_checkpoint is not None:
         if retrain_checkpoint_opts:
