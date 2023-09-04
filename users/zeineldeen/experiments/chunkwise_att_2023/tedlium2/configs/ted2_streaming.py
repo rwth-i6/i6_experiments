@@ -1379,6 +1379,10 @@ def run_chunkwise_train(
                             train_args["encoder_args"].rel_pos_clipping = kwargs["rel_pos_clipping"]
                             exp_name += f"_relPosClip{kwargs['rel_pos_clipping']}"
 
+                        if kwargs.get("remove_att_ctx_from_dec_state", False):
+                            train_args["remove_att_ctx_from_dec_state"] = True
+                            exp_name += "_woDecAtt"
+
                         if suffix:
                             exp_name += suffix
 
@@ -2025,6 +2029,7 @@ def baseline():
 
     # ---------------------- Chunk-size 1 AED Transducer ------------------------- #
 
+    # TODO: with prev:att, just as-is, no change (done above)
     for mask_eoc in [True, False]:
         run_chunkwise_train(
             enc_stream_type="global",
@@ -2042,11 +2047,11 @@ def baseline():
             decoder_mask_eoc=mask_eoc,
         )
 
-    # TODO: with prev:att, just as-is, no change (done above)
-
     # TODO: change it to h_t, with att out linear transformation (should then be same kind of embedding, also same dim)
 
     # TODO: h_t without linear trafo (might be different dim)
+
+    # TODO: no h_t at all (also different dim)
     run_chunkwise_train(
         enc_stream_type="global",
         run_all_for_best_last_avg=True,
@@ -2061,6 +2066,5 @@ def baseline():
         accum_grad=2,
         time_rqmt=120,
         decoder_mask_eoc=mask_eoc,
+        remove_att_ctx_from_dec_state=True,
     )
-
-    # TODO: no h_t at all (also different dim)

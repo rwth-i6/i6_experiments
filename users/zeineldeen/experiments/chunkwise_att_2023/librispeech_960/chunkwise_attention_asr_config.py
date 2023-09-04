@@ -174,10 +174,14 @@ def load_params_v2(name, shape, reader):
     v = qkv_tensor_[:, :, 2, :].reshape((model_dim, model_dim))
 
     # input is [y_{i-1}, c_{i-1}, h_{i-1}]
-    s_kernel = reader.get_tensor(
-        "output/rec/s/rec/lstm_cell/kernel"
-    )  # [input_dim, 2 * 4 * d] (h_{t-1} is at the last pos)
-    # TODO: slice out c_{i-1}
+    s_kernel = reader.get_tensor("output/rec/s/rec/lstm_cell/kernel")  # (input_dim, 4 * lstm_dim)
+    target_embed = reader.get_tensor("output/rec/target_embed0/W")  # (V, embed_dim)
+    embed_dim = target_embed.shape[1]
+    emb_ = s_kernel[:embed_dim]
+    h_ = s_kernel[embed_dim + model_dim :]
+    s_kernel_ = numpy.concatenate([emb_, h_], axis=0)
+    assert s_kernel_.shape[0] == s_kernel.shape[0] - model_dim
+    assert s_kernel_.shape[1] == s_kernel.shape[1]
 
     if name == "conformer_block_%s_self_att_ln_K/W" % idx:
         return k
@@ -186,7 +190,7 @@ def load_params_v2(name, shape, reader):
     elif name == "conformer_block_%s_self_att_ln_V/W" % idx:
         return v
     elif name == "output/rec/s/rec/lstm_cell/kernel":
-        return s_kernel
+        return s_kernel_
     return None
 
 
@@ -624,6 +628,7 @@ def create_config(
     end_slice_size=None,
     conf_mem_opts=None,
     gpu_mem=11,
+    remove_att_ctx_from_dec_state=False,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -1038,6 +1043,10 @@ def create_config(
         assert retrain_checkpoint_opts is None
         retrain_checkpoint_opts = {}
         retrain_checkpoint_opts["custom_missing_load_func"] = load_qkv_mats
+
+    if remove_att_ctx_from_dec_state:
+        retrain_checkpoint["custom_missing_load_func"] = load_params_v2
+        exp_config["network"]["output"]["rec"]["unit"]["s"]["from"] = ["prev:target_embed"]  # remove prev:att
 
     if retrain_checkpoint is not None:
         if retrain_checkpoint_opts:
