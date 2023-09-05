@@ -3,23 +3,22 @@ from i6_experiments.common.setups.rasr.gmm_system import GmmSystem
 from i6_experiments.users.berger.args.returnn.dataset import MetaDatasetBuilder
 from sisyphus import tk
 from typing import List
-import i6_experiments.common.datasets.librispeech as lbs_dataset
 from i6_experiments.users.berger.corpus.general.experiment_data import (
-    PytorchHybridSetupData,
+    HybridSetupData,
 )
 
 from .data import get_data_inputs, get_hdf_files
 
 
 def get_hybrid_data(
+    train_key: str,
     gmm_system: GmmSystem,
     returnn_root: tk.Path,
     returnn_python_exe: tk.Path,
     rasr_binary_path: tk.Path,
     rasr_arch: str = "linux-x86_64-standard",
-    train_key: str = "enhanced_tfgridnet_v0",
-    cv_split: float = 0.01,
-    dev_keys: List[str] = ["libri_css_enhanced_tfgridnet_v0"],
+    cv_split: float = 0.002,
+    dev_keys: List[str] = [],
     test_keys: List[str] = [],
     lm_name: str = "4gram",
     use_stress: bool = False,
@@ -27,8 +26,10 @@ def get_hybrid_data(
     ctc_lexicon: bool = False,
     use_augmented_lexicon: bool = True,
     add_all_allophones: bool = False,
-) -> PytorchHybridSetupData:
-    _, data_inputs, _ = get_data_inputs(
+) -> HybridSetupData:
+    _, dev_data_inputs, test_data_inputs = get_data_inputs(
+        dev_keys=dev_keys,
+        test_keys=test_keys,
         add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
         use_stress=use_stress,
         ctc_lexicon=ctc_lexicon,
@@ -52,15 +53,16 @@ def get_hybrid_data(
     data_config = {}
 
     partition = {
-        "enhanced_tfgridnet_v0": 1,
-        "enhanced_blstm_v0": 20,
+        "enhanced_tfgridnet_v1": 40,
+        "enhanced_blstm_v1": 40,
     }
 
     for key in ["train", "cv"]:
         dataset_builder = MetaDatasetBuilder()
         for name, file in [
-            ("primary", hdf_files.primary_features_file),
-            ("secondary", hdf_files.secondary_features_file),
+            ("primary", hdf_files.primary_features_files),
+            ("secondary", hdf_files.secondary_features_files),
+            ("mix", hdf_files.mix_features_files),
         ]:
             dataset_builder.add_hdf_dataset(
                 file,
@@ -81,12 +83,12 @@ def get_hybrid_data(
 
         data_config[key] = dataset_builder.get_dict()
 
-    return PytorchHybridSetupData(
+    return HybridSetupData(
         train_key=train_key,
         dev_keys=dev_keys,
         test_keys=test_keys,
         align_keys=[],
         train_data_config=data_config["train"],
         cv_data_config=data_config["cv"],
-        data_inputs=data_inputs,
+        data_inputs={**dev_data_inputs, **test_data_inputs},
     )

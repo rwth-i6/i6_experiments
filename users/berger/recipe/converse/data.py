@@ -1,7 +1,6 @@
-import copy
 import numpy as np
 import os.path
-from typing import Callable, Optional
+from typing import Callable, Optional, List
 
 from sisyphus import Job, Task, Path
 
@@ -21,26 +20,21 @@ class EnhancedMeetingDataToBlissCorpusJob(Job):
     Convert Paderborn"s json-based lazy dataset to a bliss corpus
     """
 
-    __sis_hash_exclude__ = {"hash_audio_path_mapping": True}
-
     def __init__(
         self,
         json_database: Path,
         audio_path_mapping: Callable,
-        hash_audio_path_mapping: bool = True,
         dataset_name: str = "corpus",
         sample_rate: int = 16000,
     ):
         """
         :param json_database: json database for Paderborn"s enhanced meeting data
         :param audio_path_mapping: callable to map audio paths, e.g. from /paderborn/path/example.wav to /rwth/path/...
-        :param hash_audio_path_mapping: if False, audio_path_mapping will not be hashed
         :param dataset_name: name of dataset in database
         :param sample_rate: sample rate of audio data
         """
         self.json_database = json_database
         self.audio_path_mapping = audio_path_mapping
-        self.hash_audio_path_mapping = hash_audio_path_mapping
         self.dataset_name = dataset_name
         self.sample_rate = sample_rate
 
@@ -65,8 +59,7 @@ class EnhancedMeetingDataToBlissCorpusJob(Job):
                 r.audio = self.audio_path_mapping(file)
 
                 assert (
-                    int(os.path.basename(r.audio).split("_")[-1].strip(".wav"))
-                    == channel
+                    int(os.path.basename(r.audio).split("_")[-1].strip(".wav")) == channel
                 ), f"wav files should end on '_<channel>.wav'. For channel {channel}, got {r.audio}"
 
                 for (
@@ -101,13 +94,6 @@ class EnhancedMeetingDataToBlissCorpusJob(Job):
 
         c.dump(self.out_bliss_corpus.get())
 
-    @classmethod
-    def hash(cls, kwargs):
-        d = copy.copy(kwargs)
-        if not kwargs["hash_audio_path_mapping"]:
-            d.pop("audio_path_mapping")
-        return super().hash(d)
-
 
 class EnhancedMeetingDataToSplitBlissCorporaJob(Job):
     """
@@ -115,28 +101,23 @@ class EnhancedMeetingDataToSplitBlissCorporaJob(Job):
     and two containing the separated audios
     """
 
-    __sis_hash_exclude__ = {"hash_audio_path_mapping": True}
-
     def __init__(
         self,
         json_database: Path,
         enhanced_audio_path_mapping: Callable,
         mix_audio_path_mapping: Callable,
-        hash_audio_path_mapping: bool = True,
         dataset_name: str = "corpus",
         sample_rate: int = 16000,
     ):
         """
         :param json_database: json database for Paderborn"s enhanced meeting data
         :param audio_path_mapping: callable to map audio paths, e.g. from /paderborn/path/example.wav to /rwth/path/...
-        :param hash_audio_path_mapping: if False, audio_path_mapping will not be hashed
         :param dataset_name: name of dataset in database
         :param sample_rate: sample rate of audio data
         """
         self.json_database = json_database
         self.enhanced_audio_path_mapping = enhanced_audio_path_mapping
         self.mix_audio_path_mapping = mix_audio_path_mapping
-        self.hash_audio_path_mapping = hash_audio_path_mapping
         self.dataset_name = dataset_name
         self.sample_rate = sample_rate
 
@@ -164,7 +145,9 @@ class EnhancedMeetingDataToSplitBlissCorporaJob(Job):
 
         for ex in ds:
             files = list(ex["audio_path"]["enhanced"])
-            mix_file = ex["audio_path"]["observation"]
+            for channel, file in enumerate(files):
+                files[channel] = self.enhanced_audio_path_mapping(file)
+            mix_file = self.mix_audio_path_mapping(ex["audio_path"]["observation"])
             assert len(files) == 2
 
             r_prim = []
@@ -173,9 +156,9 @@ class EnhancedMeetingDataToSplitBlissCorporaJob(Job):
 
             for channel in range(len(files)):
                 for rec, audio in [
-                    (r_prim, self.enhanced_audio_path_mapping(files[channel])),
-                    (r_sec, self.enhanced_audio_path_mapping(files[1-channel])),
-                    (r_mix, self.mix_audio_path_mapping(mix_file))
+                    (r_prim, files[channel]),
+                    (r_sec, files[1 - channel]),
+                    (r_mix, mix_file),
                 ]:
                     r = corpus.Recording()
                     r.name = f"{ex['example_id']}_{channel}"
@@ -224,14 +207,6 @@ class EnhancedMeetingDataToSplitBlissCorporaJob(Job):
         c_sec.dump(self.out_bliss_corpus_secondary.get())
         c_mix.dump(self.out_bliss_corpus_mix.get())
 
-    @classmethod
-    def hash(cls, kwargs):
-        d = copy.copy(kwargs)
-        if not kwargs["hash_audio_path_mapping"]:
-            d.pop("enhanced_audio_path_mapping")
-            d.pop("mix_audio_path_mapping")
-        return super().hash(d)
-
 
 class EnhancedEvalDataToBlissCorpusJob(EnhancedMeetingDataToSplitBlissCorporaJob):
     """
@@ -257,13 +232,15 @@ class EnhancedEvalDataToBlissCorpusJob(EnhancedMeetingDataToSplitBlissCorporaJob
         for ex in ds:
             files = list(ex["audio_path"]["enhanced"])
             assert len(files) == 2
-            mix_file = ex["audio_path"]["observation"]
+            for channel, file in enumerate(files):
+                files[channel] = self.enhanced_audio_path_mapping(file)
+            mix_file = self.mix_audio_path_mapping(ex["audio_path"]["observation"])
 
             for channel in range(len(files)):
-                for c, file in [
-                    (c_prim, self.enhanced_audio_path_mapping(files[channel])),
-                    (c_sec, self.enhanced_audio_path_mapping(files[1 - channel])),
-                    (c_mix, self.mix_audio_path_mapping(mix_file))
+                for c, file, start in [
+                    (c_prim, files[channel], 0.0),
+                    (c_sec, files[1 - channel], 0.0),
+                    (c_mix, mix_file, ex["start"] / self.sample_rate),
                 ]:
                     r = corpus.Recording()
                     r.name = f"{ex['example_id']}_{channel}"
@@ -271,12 +248,9 @@ class EnhancedEvalDataToBlissCorpusJob(EnhancedMeetingDataToSplitBlissCorporaJob
 
                     s = corpus.Segment()
                     s.name = "0001"
-                    s.orth = " /// ".join(
-                        " /// ".join(t for t in ts)
-                        for ts in ex["transcription"].values()
-                    )
-                    s.start = 0.0
-                    s.end = np.inf
+                    s.orth = " /// ".join(" /// ".join(t for t in ts) for ts in ex["transcription"].values())
+                    s.start = start
+                    s.end = start + ex["num_samples"] / self.sample_rate
                     r.add_segment(s)
                     c.add_recording(r)
 
@@ -285,7 +259,7 @@ class EnhancedEvalDataToBlissCorpusJob(EnhancedMeetingDataToSplitBlissCorporaJob
         c_mix.dump(self.out_bliss_corpus_mix.get())
 
 
-class EnhancedSegmentedEvalDataToBlissCorpusJob(EnhancedMeetingDataToBlissCorpusJob):
+class EnhancedSegmentedEvalDataToBlissCorpusJob(EnhancedMeetingDataToSplitBlissCorporaJob):
     """
     Similar to EnhancedMeetingDataToBlissCorpusJob, but here we do not use meta information about channel assignment,
     segment start and end times, etc.
@@ -293,39 +267,72 @@ class EnhancedSegmentedEvalDataToBlissCorpusJob(EnhancedMeetingDataToBlissCorpus
     The output corpus will just have the full separated audio as recording and on segment per recording.
     """
 
+    def __init__(self, unsegmented_json_database: Path, segment_audio_path_mapping: Callable, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.unsegmented_json_database = unsegmented_json_database
+        self.segment_audio_path_mapping = segment_audio_path_mapping
+
     def run(self):
         db = JsonDatabase(self.json_database.get())
         ds = db.get_dataset(self.dataset_name)
 
-        c = corpus.Corpus()
-        c.name = self.dataset_name
+        unseg_db = JsonDatabase(self.unsegmented_json_database.get())
+        unseg_ds = unseg_db.get_dataset(self.dataset_name)
+
+        c_prim = corpus.Corpus()
+        c_prim.name = self.dataset_name
+
+        c_sec = corpus.Corpus()
+        c_sec.name = self.dataset_name
+
+        c_mix = corpus.Corpus()
+        c_mix.name = self.dataset_name
 
         for ex in ds:
-            for channel, file_full in enumerate(ex["audio_path"]["enhanced"]):
-                # TODO: this is very specific about the existing v0 libricss tfgridnet data.
-                # It should be handled via the json itself.
-                folder = (
-                    self.audio_path_mapping(file_full)
-                    .replace("/audio/", "/audio_segmented_vad/")
-                    .replace(".wav", "/")
-                )
-                for idx, file in enumerate(sorted(os.listdir(folder))):
-                    r = corpus.Recording()
-                    r.name = f"{ex['example_id']}_{channel}_{idx}"
-                    r.audio = self.audio_path_mapping(os.path.join(folder, file))
+            unseg_ex = unseg_ds[ex["example_id"]]
 
-                    s = corpus.Segment()
-                    s.name = "0001"
-                    s.orth = " /// ".join(
-                        " /// ".join(t for t in ts)
-                        for ts in ex["transcription"].values()
-                    )
-                    s.start = 0.0
-                    s.end = np.inf
-                    r.add_segment(s)
-                    c.add_recording(r)
+            channel_vad_files = ex["audio_path"]["segmented_vad"]  # List of VAD segments for each of the two channels
+            assert len(channel_vad_files) == 2
+            for channel, vad_files in enumerate(channel_vad_files):
+                channel_vad_files[channel] = [self.segment_audio_path_mapping(file) for file in vad_files]
 
-        c.dump(self.out_bliss_corpus.get())
+            full_files = unseg_ex["audio_path"]["enhanced"]  # One file for each of the two channels
+            for channel, file in enumerate(full_files):
+                full_files[channel] = self.enhanced_audio_path_mapping(file)
+            assert len(full_files) == 2
+
+            mix_file = self.mix_audio_path_mapping(unseg_ex["audio_path"]["observation"])
+
+            for channel, vad_files in enumerate(channel_vad_files):
+                for idx, vad_file in enumerate(vad_files):
+                    for c, audio_file, start in [
+                        (c_prim, vad_file, 0.0),
+                        (
+                            c_sec,
+                            full_files[1 - channel],
+                            ex["offset"]["segmented_vad"][channel][idx] / self.sample_rate,
+                        ),
+                        (
+                            c_mix,
+                            mix_file,
+                            (ex["offset"]["segmented_vad"][channel][idx] + unseg_ex["start"]) / self.sample_rate,
+                        ),
+                    ]:
+                        r = corpus.Recording()
+                        r.name = f"{ex['example_id']}_{channel}_{idx}"
+                        r.audio = audio_file
+
+                        s = corpus.Segment()
+                        s.name = "0001"
+                        s.orth = " /// ".join(" /// ".join(t for t in ts) for ts in unseg_ex["transcription"].values())
+                        s.start = start
+                        s.end = start + ex["num_samples"]["segmented_vad"][channel][idx] / self.sample_rate
+                        r.add_segment(s)
+                        c.add_recording(r)
+
+        c_prim.dump(self.out_bliss_corpus_primary.get())
+        c_sec.dump(self.out_bliss_corpus_secondary.get())
+        c_mix.dump(self.out_bliss_corpus_mix.get())
 
 
 class EnhancedMeetingDataRasrAlignmentPadAndDumpHDFJob(Job):
@@ -339,7 +346,7 @@ class EnhancedMeetingDataRasrAlignmentPadAndDumpHDFJob(Job):
         self,
         json_database: Path,
         dataset_name: str,
-        feature_hdf: Path,
+        feature_hdfs: List[Path],
         alignment_cache: Path,
         allophone_file: Path,
         state_tying_file: Path,
@@ -358,11 +365,11 @@ class EnhancedMeetingDataRasrAlignmentPadAndDumpHDFJob(Job):
         """
         self.json_database = json_database
         self.dataset_name = dataset_name
-        self.feature_hdf = feature_hdf
+        self.feature_hdf = feature_hdfs
         self.alignment_cache = alignment_cache
         self.allophone_file = allophone_file
         self.state_tying_file = state_tying_file
-        self.out_hdf_file = self.output_path(f"alignment.hdf")
+        self.out_hdf_file = self.output_path("alignment.hdf")
         self.returnn_root = returnn_root
         self.data_type = data_type
         self.rqmt = {"cpu": 1, "mem": 8, "time": 0.5}
@@ -372,9 +379,7 @@ class EnhancedMeetingDataRasrAlignmentPadAndDumpHDFJob(Job):
 
     def run(self):
         state_tying = dict(
-            (k, int(v))
-            for l in open(self.state_tying_file.get_path())
-            for k, v in [l.strip().split()[0:2]]
+            (k, int(v)) for l in open(self.state_tying_file.get_path()) for k, v in [l.strip().split()[0:2]]
         )
         silence_keys = [key for key in state_tying if "silence" in key.lower()]
         assert len(silence_keys) == 1, "could not automatically infer silence key"
@@ -384,14 +389,12 @@ class EnhancedMeetingDataRasrAlignmentPadAndDumpHDFJob(Job):
         alignment_cache.setAllophones(self.allophone_file.get_path())
         allophones = list(alignment_cache.archives.values())[0].allophones
 
-        returnn_root = (
-            None if self.returnn_root is None else self.returnn_root.get_path()
-        )
+        returnn_root = None if self.returnn_root is None else self.returnn_root.get_path()
         SimpleHDFWriter = get_returnn_simple_hdf_writer(returnn_root)
         out_hdf = SimpleHDFWriter(filename=self.out_hdf_file, dim=1)
         from returnn.datasets.hdf import HDFDataset
 
-        feature_hdf = HDFDataset([self.feature_hdf.get()])
+        feature_hdf = HDFDataset([path.get() for path in self.feature_hdf])
 
         db = JsonDatabase(self.json_database.get())
         ds = db.get_dataset(self.dataset_name)
@@ -418,9 +421,7 @@ class EnhancedMeetingDataRasrAlignmentPadAndDumpHDFJob(Job):
                         # alignment
                         targets = []
                         alignment = alignment_cache.read(source_id, "align")
-                        alignment_states = [
-                            "%s.%d" % (allophones[t[1]], t[2]) for t in alignment
-                        ]
+                        alignment_states = ["%s.%d" % (allophones[t[1]], t[2]) for t in alignment]
                         for allophone in alignment_states:
                             targets.append(state_tying[allophone])
 

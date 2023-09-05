@@ -2,7 +2,7 @@ import torch
 
 
 def export(*, model: torch.nn.Module, model_filename: str):
-    dummy_data = torch.randn(1, 30, 100, device="cpu")
+    dummy_data = torch.randn(1, 30, 150, device="cpu")
     dummy_data_len = torch.tensor([30], dtype=torch.int32)
     torch.onnx.export(
         model=model.eval(),

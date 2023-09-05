@@ -174,11 +174,12 @@ def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerCTCConf
         target_size=num_outputs,
     )
 
+
 def get_default_config_v2(num_inputs: int, num_outputs: int) -> ConformerCTCConfig:
     specaugment_cfg = specaugment.SpecaugmentConfigV1(
-        max_time_mask_num=1,
-        max_time_mask_size=15,
-        max_feature_mask_num=num_inputs // 10,
+        max_time_mask_num=20,
+        max_time_mask_size=10,
+        max_feature_mask_num=7,
         max_feature_mask_size=5,
         increase_steps=[2000],
     )
@@ -186,12 +187,12 @@ def get_default_config_v2(num_inputs: int, num_outputs: int) -> ConformerCTCConf
     frontend_cfg = VGG4LayerActFrontendV1Config(
         in_features=num_inputs,
         conv1_channels=32,
-        conv2_channels=64,
-        conv3_channels=64,
-        conv4_channels=32,
+        conv2_channels=32,
+        conv3_channels=32,
+        conv4_channels=64,
         conv_kernel_size=3,
         conv_padding=None,
-        pool1_kernel_size=(2, 2),
+        pool1_kernel_size=(2, 1),
         pool1_stride=None,
         pool1_padding=None,
         pool2_kernel_size=(2, 2),

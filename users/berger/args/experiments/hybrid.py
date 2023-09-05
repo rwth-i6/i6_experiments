@@ -46,6 +46,7 @@ def get_hybrid_recog_step_args(num_classes: int, **kwargs) -> Dict:
         },
         "prior_args": {
             "mem_rqmt": 16,
+            "time_rqmt": 24,
         },
         "use_gpu": False,
         "rtf": 10,

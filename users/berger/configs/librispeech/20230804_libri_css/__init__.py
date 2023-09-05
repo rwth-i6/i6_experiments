@@ -1,69 +1,15 @@
-from sisyphus import tk, gs
+from sisyphus import tk
 
 from i6_experiments.users.berger.recipe.summary import SummaryReport
-from .config_01_conformer_hybrid import py as py_01
+from .config_01_conformer_hybrid_tfgridnet_v2 import py as py_01
+from .config_02_conformer_hybrid_blstm_v2 import py as py_02
 
 
 def main() -> SummaryReport:
-    def worker_wrapper(job, task_name, call):
-        wrapped_jobs = {
-            "MakeJob",
-            "ReturnnTrainingJob",
-            "ReturnnRasrTrainingJob",
-            "OptunaReturnnTrainingJob",
-            "CompileTFGraphJob",
-            "OptunaCompileTFGraphJob",
-            "ReturnnRasrComputePriorJob",
-            "ReturnnComputePriorJob",
-            "ReturnnComputePriorJobV2",
-            "OptunaReturnnComputePriorJob",
-            "CompileNativeOpJob",
-            "AdvancedTreeSearchJob",
-            "AdvancedTreeSearchLmImageAndGlobalCacheJob",
-            "GenericSeq2SeqSearchJob",
-            "GenericSeq2SeqLmImageAndGlobalCacheJob",
-            "LatticeToCtmJob",
-            "OptimizeAMandLMScaleJob",
-            "AlignmentJob",
-            "Seq2SeqAlignmentJob",
-            "EstimateMixturesJob",
-            "EstimateCMLLRJob",
-            "ExportPyTorchModelToOnnxJob",
-            "OptunaExportPyTorchModelToOnnxJob",
-            "ReturnnForwardJob",
-            "ReturnnForwardComputePriorJob",
-            "OptunaReturnnForwardComputePriorJob",
-        }
-        if type(job).__name__ not in wrapped_jobs:
-            return call
-        binds = ["/work/asr4", "/work/common", "/work/tools/"]
-        ts = {t.name(): t for t in job.tasks()}
-        t = ts[task_name]
-
-        app_call = [
-            "apptainer",
-            "exec",
-        ]
-        if t._rqmt.get("gpu", 0) > 0:
-            app_call += ["--nv"]
-
-        for path in binds:
-            app_call += ["-B", path]
-
-        app_call += [
-            "/work/asr4/berger/apptainer/images/i6_u22_pytorch1.13_onnx.sif",
-            "python3",
-        ]
-
-        app_call += call[1:]
-
-        return app_call
-
-    gs.worker_wrapper = worker_wrapper
-
     summary_report = SummaryReport()
 
-    summary_report.merge_report(py_01(), update_structure=True, collapse_rows=True)
+    summary_report.merge_report(py_01(), update_structure=True, collapse_rows=False)
+    summary_report.merge_report(py_02(), collapse_rows=False)
 
     tk.register_report("summary.report", summary_report)
 

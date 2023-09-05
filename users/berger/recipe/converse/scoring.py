@@ -101,7 +101,7 @@ class MultiChannelCtmToStmJob(Job):
         """
         self.ctm_file = ctm_file
 
-        self.out_stm_file = self.output_path(f"hyp.stm")
+        self.out_stm_file = self.output_path("hyp.stm")
 
     def tasks(self):
         yield Task("run", mini_task=True)
@@ -141,7 +141,7 @@ class MultiChannelMultiSegmentCtmToStmJob(Job):
         """
         self.ctm_file = ctm_file
 
-        self.out_stm_file = self.output_path(f"hyp.stm")
+        self.out_stm_file = self.output_path("hyp.stm")
 
     def tasks(self):
         yield Task("run", mini_task=True)
@@ -194,11 +194,17 @@ class MeetEvalJob(Job):
         self.out_report_dir = self.output_path("reports")
         self.out_average = self.output_path("reports/orcwer_average.json")
         self.out_per_reco = self.output_path("reports/orcwer_per_reco.json")
-        self.out_wer = self.output_var("reports/wer")
-        self.out_percent_substitution = 0.0
-        self.out_percent_deletions = 0.0
-        self.out_percent_insertions = 0.0
-        self.out_num_errors = 0
+
+        self.out_wer = self.output_var("wer")
+        self.out_num_errors = self.output_var("num_errors")
+        self.out_percent_substitution = self.output_var("percent_substitution")
+        self.out_num_substitution = self.output_var("num_substitution")
+        self.out_percent_deletions = self.output_var("percent_deletions")
+        self.out_num_deletions = self.output_var("num_deletions")
+        self.out_percent_insertions = self.output_var("percent_insertions")
+        self.out_num_insertions = self.output_var("num_insertions")
+        self.out_ref_words = self.output_var("ref_words")
+        self.out_hyp_words = self.output_var("hyp_words")
 
     def tasks(self):
         yield Task("run", mini_task=True)
@@ -228,3 +234,13 @@ class MeetEvalJob(Job):
         with open(self.out_average.get()) as f:
             result = json.load(f)
         self.out_wer.set(result["error_rate"] * 100)
+
+        self.out_num_errors.set(result["errors"])
+        self.out_percent_substitution.set(result["substitutions"] / result["length"] * 100)
+        self.out_num_substitution.set(result["substitutions"])
+        self.out_percent_deletions.set(result["deletions"] / result["length"] * 100)
+        self.out_num_deletions.set(result["deletions"])
+        self.out_percent_insertions.set(result["insertions"] / result["length"] * 100)
+        self.out_num_insertions.set(result["insertions"])
+        self.out_ref_words.set(result["length"])
+        self.out_hyp_words.set(result["length"] + result["insertions"] - result["deletions"])

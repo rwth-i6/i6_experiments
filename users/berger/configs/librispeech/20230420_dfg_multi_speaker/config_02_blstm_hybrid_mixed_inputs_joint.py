@@ -27,7 +27,7 @@ from i6_experiments.users.berger.systems.dual_speaker_returnn_legacy_system impo
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from returnn.tf.util.data import batch_dim
-from .config_01_blstm_hybrid_mixed_inputs_cleanup import py as py_pretrain
+from .config_01_blstm_hybrid_mixed_inputs import py as py_pretrain
 
 # ********** Settings **********
 

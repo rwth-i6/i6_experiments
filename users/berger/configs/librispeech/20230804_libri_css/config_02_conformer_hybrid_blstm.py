@@ -28,51 +28,64 @@ from i6_experiments.users.berger.systems.returnn_legacy_system import (
     ReturnnLegacySystem,
 )
 from i6_experiments.users.berger.util import default_tools_v2
+from .name_mapping import get_preload_config
 
 # ********** Settings **********
 
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 num_outputs = 12001
-num_subepochs = 50
+num_subepochs = 600
 
 tools = copy.deepcopy(default_tools_v2)
 
 # ********** Return Config generators **********
 
 
-def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, dev_data_config: dict) -> ReturnnConfig:
+def returnn_config_generator(
+    variant: ConfigVariant, train_data_config: dict, dev_data_config: dict, **kwargs
+) -> ReturnnConfig:
     extra_config: dict = {
         "train": train_data_config,
         "dev": dev_data_config,
     }
-    # if variant == ConfigVariant.RECOG:
-    #     extra_config["model_outputs"] = {"classes": {"dim": num_outputs}}
     if variant != ConfigVariant.RECOG:
         extra_config["chunking"] = "400:200"
 
     if variant == ConfigVariant.RECOG:
         extra_config["extern_data"] = {
-            "data": {"dim": 2 * 50},
+            "data": {"dim": 3 * 50},
             "classes": {"dim": num_outputs, "sparse": True},
         }
     else:
-        extra_config["__time_tag__"] = CodeWrapper("Dim(dimension=None, kind=Dim.Types.Spatial, description=\"time\")")
+        extra_config["__time_tag__"] = CodeWrapper('Dim(dimension=None, kind=Dim.Types.Spatial, description="time")')
         extra_config["extern_data"] = {
             "features_primary": {"dim": 50, "same_dim_tags_as": {"T": CodeWrapper("__time_tag__")}},
             "features_secondary": {"dim": 50, "same_dim_tags_as": {"T": CodeWrapper("__time_tag__")}},
+            "features_mix": {"dim": 50, "same_dim_tags_as": {"T": CodeWrapper("__time_tag__")}},
             "classes": {"dim": 1, "dtype": "int32", "same_dim_tags_as": {"T": CodeWrapper("__time_tag__")}},
         }
+
+    if kwargs.get("model_init", False):
+        extra_config["preload_from_files"] = get_preload_config(
+            kwargs.get("prim_blocks", 8), kwargs.get("sec_blocks", 6), kwargs.get("mas_blocks", 4)
+        )
 
     if variant == ConfigVariant.TRAIN or variant == ConfigVariant.PRIOR:
         net_dict, extra_python = conformer_hybrid_dualchannel.make_conformer_hybrid_dualchannel_model(
             num_inputs=50,
             num_outputs=num_outputs,
             specaug_args={
-                "max_time_num": 20,
-                "max_time": 20,
-                "max_feature_num": 1,
-                "max_feature": 15,
+                # "max_time_num": 20,
+                # "max_time": 20,
+                # "max_feature_num": 1,
+                # "max_feature": 15,
+                "max_len_feature": 15,
+                "max_len_time": 20,
+                "max_reps_feature": 1,
+                "max_reps_time": 20,
+                "min_reps_feature": 0,
+                "min_reps_time": 0,
             },
             vgg_args={
                 "conv_outputs": [32, 32, 64, 64],
@@ -87,6 +100,7 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
                 "conv_filter_size": 32,
                 "num_att_heads": 8,
                 "clipping": 400,
+                "use_biases": kwargs.get("use_biases", True),
             },
             ff_args_aux={
                 "num_layers": 2,
@@ -97,9 +111,12 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
             ff_args_out={
                 "num_layers": 0,
             },
-            prim_blocks=8,
-            sec_blocks=4,
-            mas_blocks=4,
+            prim_blocks=kwargs.get("prim_blocks", 8),
+            sec_blocks=kwargs.get("sec_blocks", 6),
+            mas_blocks=kwargs.get("mas_blocks", 4),
+            use_secondary_audio=kwargs.get("sec_audio", False),
+            use_prim_identity_init=kwargs.get("use_prim_identity_init", False),
+            with_init=not kwargs.get("model_init", False),
             output_args={
                 "focal_loss_factor": 2.0,
             },
@@ -121,15 +138,16 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
                 "conv_filter_size": 32,
                 "num_att_heads": 8,
                 "clipping": 400,
+                "use_biases": kwargs.get("use_biases", True),
             },
             ff_args_out={
                 "num_layers": 0,
             },
-            prim_blocks=8,
-            sec_blocks=4,
-            mas_blocks=4,
+            prim_blocks=kwargs.get("prim_blocks", 8),
+            sec_blocks=kwargs.get("sec_blocks", 6),
+            mas_blocks=kwargs.get("mas_blocks", 4),
+            use_secondary_audio=kwargs.get("sec_audio", False),
         )
-
 
     return get_returnn_config(
         network=net_dict,
@@ -141,7 +159,8 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
             "import sys",
             "sys.setrecursionlimit(10 ** 6)",
             "from returnn.tf.util.data import Dim",
-        ],
+        ]
+        + (["import numpy as np"] if kwargs.get("use_prim_identity_init", False) else []),
         extra_python=extra_python,
         extern_data_config=False,
         backend=Backend.TENSORFLOW,
@@ -151,21 +170,16 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
         initial_lr=1e-05,
         peak_lr=3e-04,
         final_lr=1e-06,
-        # batch_size=6144,
-        batch_size=4000 if variant == ConfigVariant.TRAIN else 1000,
-        use_chunking=True,
+        batch_size=12000 if variant == ConfigVariant.TRAIN else 1000,
+        use_chunking=False,
         extra_config=extra_config,
     )
 
 
 def get_returnn_config_collection(
-    train_data_config: dict,
-    dev_data_config: dict,
+    train_data_config: dict, dev_data_config: dict, **kwargs
 ) -> ReturnnConfigs[ReturnnConfig]:
-    generator_kwargs = {
-        "train_data_config": train_data_config,
-        "dev_data_config": dev_data_config,
-    }
+    generator_kwargs = {"train_data_config": train_data_config, "dev_data_config": dev_data_config, **kwargs}
     return ReturnnConfigs(
         train_config=returnn_config_generator(variant=ConfigVariant.TRAIN, **generator_kwargs),
         prior_config=returnn_config_generator(variant=ConfigVariant.PRIOR, **generator_kwargs),
@@ -179,35 +193,61 @@ def run_exp() -> SummaryReport:
     assert tools.returnn_root
     assert tools.returnn_python_exe
     assert tools.rasr_binary_path
-    data = get_hybrid_data(
-        gmm_system=gmm_system,
-        returnn_root=tools.returnn_root,
-        returnn_python_exe=tools.returnn_python_exe,
-        rasr_binary_path=tools.rasr_binary_path,
-        lm_name="kazuki_transformer",
-        # lm_name="4gram",
-    )
+
+    data_per_lm = {}
+
+    for lm_name in ["4gram"]:  # , "kazuki_transformer"]:
+        data_per_lm[lm_name] = get_hybrid_data(
+            train_key="enhanced_blstm_v1",
+            dev_keys=["segmented_libri_css_blstm_v1"],
+            test_keys=["libri_css_blstm_v1"],
+            gmm_system=gmm_system,
+            returnn_root=tools.returnn_root,
+            returnn_python_exe=tools.returnn_python_exe,
+            rasr_binary_path=tools.rasr_binary_path,
+            lm_name=lm_name,
+        )
+
+    data = copy.deepcopy(next(iter(data_per_lm.values())))
+    data.dev_keys = []
+    data.test_keys = []
+    data.data_inputs = {}
+
+    for lm_name in data_per_lm:
+        data.dev_keys += [f"{key}_{lm_name}" for key in data_per_lm[lm_name].dev_keys]
+        data.test_keys += [f"{key}_{lm_name}" for key in data_per_lm[lm_name].test_keys]
+        data.data_inputs.update(
+            {f"{key}_{lm_name}": data_input for key, data_input in data_per_lm[lm_name].data_inputs.items()}
+        )
+
+    for data_input in data.data_inputs.values():
+        data_input.lexicon.filename = tk.Path(
+            "/work/asr4/raissi/setups/librispeech/960-ls/work/i6_core/g2p/convert/G2POutputToBlissLexiconJob.JOqKFQpjp04H/output/oov.lexicon.gz"
+        )
 
     # ********** Step args **********
 
-    train_args = exp_args.get_hybrid_train_step_args(num_epochs=num_subepochs)
-    extra_config = rasr.RasrConfig()
-    extra_config.flf_lattice_tool.network.recognizer.recognizer.separate_lookahead_lm = True
-    recog_args = exp_args.get_hybrid_recog_step_args(
+    train_args = exp_args.get_hybrid_train_step_args(num_epochs=num_subepochs, gpu_mem_rqmt=24)
+    dev_recog_args = exp_args.get_hybrid_recog_step_args(
         num_classes=num_outputs,
-        epochs=[20, num_subepochs],
+        epochs=[20, 40, 80, 160, 240, 320, 400, 480, 560, 600],
+        feature_type=FeatureType.CONCAT_GAMMATONE,
+        lattice_processing_type=LatticeProcessingType.MultiChannelMultiSegment,
+        mem=16,
+        rtf=50,
+    )
+
+    test_recog_args = exp_args.get_hybrid_recog_step_args(
+        num_classes=num_outputs,
+        epochs=[80, 160, 240, 320, 400, 480, 560, 600],
         feature_type=FeatureType.CONCAT_GAMMATONE,
         lattice_processing_type=LatticeProcessingType.MultiChannel,
-        mem=48,
+        mem=64,
         rtf=50,
-        extra_config=extra_config,
     )
 
     # ********** System **********
 
-    # tools.rasr_binary_path = tk.Path(
-    #     "/u/berger/repositories/rasr_versions/gen_seq2seq_onnx_apptainer/arch/linux-x86_64-standard"
-    # )
     system = ReturnnLegacySystem(tools)
 
     system.init_corpora(
@@ -215,7 +255,8 @@ def run_exp() -> SummaryReport:
         test_keys=data.test_keys,
         corpus_data=data.data_inputs,
         am_args=exp_args.get_hybrid_am_args(
-            cart_file=gmm_system.outputs["train-other-960"]["final"].crp.acoustic_model_config.state_tying.file
+            # cart_file=gmm_system.outputs["train-other-960"]["final"].crp.acoustic_model_config.state_tying.file
+            cart_file=tk.Path("/work/asr3/raissi/shared_workspaces/gunz/dependencies/cart-trees/ls960/tri.tree.xml.gz"),
         ),
     )
     system.setup_scoring(
@@ -234,13 +275,69 @@ def run_exp() -> SummaryReport:
 
     # ********** Returnn Configs **********
 
+    # system.add_experiment_configs(
+    #     "blstm_conformer_6prim_6mix_6mas_init",
+    #     get_returnn_config_collection(
+    #         data.train_data_config,
+    #         data.cv_data_config,
+    #         prim_blocks=6,
+    #         sec_blocks=6,
+    #         mas_blocks=6,
+    #         sec_audio=False,
+    #         model_init=True,
+    #         use_prim_identity_init=True,
+    #         use_biases=False,
+    #     ),
+    # )
+
+    # system.add_experiment_configs(
+    #     "blstm_conformer_6prim_6sec_6mas_init",
+    #     get_returnn_config_collection(
+    #         data.train_data_config,
+    #         data.cv_data_config,
+    #         prim_blocks=6,
+    #         sec_blocks=6,
+    #         mas_blocks=6,
+    #         sec_audio=True,
+    #         model_init=True,
+    #         use_prim_identity_init=True,
+    #         use_biases=False,
+    #     ),
+    # )
+
     system.add_experiment_configs(
-        "Conformer_Hybrid",
-        get_returnn_config_collection(data.train_data_config, data.cv_data_config),
+        "blstm_conformer_6prim_6mix_6mas_scratch",
+        get_returnn_config_collection(
+            data.train_data_config,
+            data.cv_data_config,
+            prim_blocks=6,
+            sec_blocks=6,
+            mas_blocks=6,
+            sec_audio=False,
+            model_init=False,
+            use_prim_identity_init=False,
+            use_biases=False,
+        ),
+    )
+
+    system.add_experiment_configs(
+        "blstm_conformer_6prim_6sec_6mas_scratch",
+        get_returnn_config_collection(
+            data.train_data_config,
+            data.cv_data_config,
+            prim_blocks=6,
+            sec_blocks=6,
+            mas_blocks=6,
+            sec_audio=True,
+            model_init=False,
+            use_prim_identity_init=False,
+            use_biases=False,
+        ),
     )
 
     system.run_train_step(**train_args)
-    system.run_dev_recog_step(**recog_args)
+    system.run_dev_recog_step(**dev_recog_args)
+    system.run_test_recog_step(**test_recog_args)
 
     assert system.summary_report
     return system.summary_report

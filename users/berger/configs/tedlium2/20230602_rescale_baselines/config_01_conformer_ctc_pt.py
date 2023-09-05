@@ -56,8 +56,8 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
         grad_noise=0.0,
         grad_clip=100.0,
         schedule=LearningRateSchedules.OCLR,
-        initial_lr=7e-05,
-        peak_lr=7e-04,
+        initial_lr=1e-04,
+        peak_lr=1e-03,
         final_lr=1e-05,
         batch_size=10000,
         use_chunking=False,
@@ -118,7 +118,7 @@ def run_exp() -> SummaryReport:
     # ********** Returnn Configs **********
 
     system.add_experiment_configs(
-        f"Conformer_CTC", get_returnn_config_collection(data.train_data_config, data.cv_data_config)
+        "Conformer_CTC", get_returnn_config_collection(data.train_data_config, data.cv_data_config)
     )
 
     system.run_train_step(**train_args)

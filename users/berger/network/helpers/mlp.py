@@ -7,21 +7,24 @@ def add_feed_forward_stack(
     name: str = "ff",
     num_layers: int = 2,
     size: int = 1024,
-    activation: str = "tanh",
+    activation: Union[str, List[str]] = "tanh",
     dropout: Optional[float] = 0.1,
     l2: Optional[float] = 0.01,
     reuse_from_name: Optional[str] = None,
     trainable: bool = True,
     initializer: Optional[str] = None,
 ) -> List[str]:
-
+    if isinstance(activation, str):
+        activation = [activation] * num_layers
+    else:
+        assert len(activation) >= num_layers
     for layer_idx in range(num_layers):
         layer_name = f"{name}_{layer_idx + 1}"
         network[layer_name] = {
             "class": "linear",
             "from": from_list,
             "n_out": size,
-            "activation": activation,
+            "activation": activation[layer_idx],
         }
         if dropout is not None:
             network[layer_name]["dropout"] = dropout

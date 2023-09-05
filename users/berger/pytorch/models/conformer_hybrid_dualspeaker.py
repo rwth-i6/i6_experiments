@@ -40,6 +40,8 @@ class ConformerHybridDualSpeakerConfig(ModelConfiguration):
     num_secondary_layers: int
     num_mixture_aware_speaker_layers: int
 
+    use_secondary_audio: bool
+
     target_size: int
 
 
@@ -49,9 +51,9 @@ class ConformerHybridDualSpeakerModel(torch.nn.Module):
 
         base_dim = cfg.conformer_block_cfg.ff_cfg.input_dim
 
-        self.specaugment = specaugment.SpecaugmentModuleV1(
-            step=step, cfg=cfg.specaugment_cfg
-        )
+        self.use_secondary_audio = cfg.use_secondary_audio
+
+        self.specaugment = specaugment.SpecaugmentModuleV1(step=step, cfg=cfg.specaugment_cfg)
 
         self.primary_frontend = cfg.primary_frontend()
         if cfg.secondary_frontend is None:
@@ -60,26 +62,17 @@ class ConformerHybridDualSpeakerModel(torch.nn.Module):
             self.secondary_frontend = cfg.secondary_frontend()
 
         self.primary_encoder = torch.nn.ModuleList(
-            [
-                ConformerBlockV1(cfg.conformer_block_cfg)
-                for _ in range(cfg.num_primary_layers)
-            ]
+            [ConformerBlockV1(cfg.conformer_block_cfg) for _ in range(cfg.num_primary_layers)]
         )
 
         self.secondary_encoder = torch.nn.ModuleList(
-            [
-                ConformerBlockV1(cfg.conformer_block_cfg)
-                for _ in range(cfg.num_secondary_layers)
-            ]
+            [ConformerBlockV1(cfg.conformer_block_cfg) for _ in range(cfg.num_secondary_layers)]
         )
 
         self.prim_sec_linear = torch.nn.Linear(2 * base_dim, base_dim)
 
         self.mas_encoder = torch.nn.ModuleList(
-            [
-                ConformerBlockV1(cfg.conformer_block_cfg)
-                for _ in range(cfg.num_mixture_aware_speaker_layers)
-            ]
+            [ConformerBlockV1(cfg.conformer_block_cfg) for _ in range(cfg.num_mixture_aware_speaker_layers)]
         )
 
         self.final_linear = torch.nn.Linear(base_dim, cfg.target_size)
@@ -89,23 +82,28 @@ class ConformerHybridDualSpeakerModel(torch.nn.Module):
         primary_audio_features: torch.Tensor,
         audio_features_len: torch.Tensor,
         secondary_audio_features: Optional[torch.Tensor] = None,
+        mix_audio_features: Optional[torch.Tensor] = None,
     ):
         sequence_mask = lengths_to_padding_mask(audio_features_len)
 
-        if secondary_audio_features is None:  # primary_audio_featues shape = [B, T, 2*F]
-            primary_audio_features, secondary_audio_features = torch.split(
-                primary_audio_features, primary_audio_features.shape[2] // 2, dim=2
-            )  # [B, T, F], [B, T, F]
+        x_prim = primary_audio_features
 
-        x = self.specaugment(
-            torch.concat((primary_audio_features, secondary_audio_features), dim=0)
-        )  # [2*B, T, F]
+        if secondary_audio_features is None and mix_audio_features is None:  # primary_audio_featues shape = [B, T, 3*F]
+            primary_audio_features, secondary_audio_features, mix_audio_features = torch.split(
+                primary_audio_features, primary_audio_features.shape[2] // 3, dim=2
+            )  # [B, T, F], [B, T, F], [B, T, F]
+
+        if self.use_secondary_audio:
+            x_sec = secondary_audio_features
+        else:
+            x_sec = mix_audio_features
+        assert x_sec is not None
+
+        x = self.specaugment(torch.concat((x_prim, x_sec), dim=0))  # [2*B, T, F]
         x_prim, x_sec = torch.split(x, x.shape[0] // 2, dim=0)  # [B, T, F], [B, T, F]
 
         x_prim, _ = self.primary_frontend(x_prim, sequence_mask)  # [B, T, F], [B, T, F]
-        x_sec, sequence_mask = self.secondary_frontend(
-            x_sec, sequence_mask
-        )  # [B, T, F], [B, T, F]
+        x_sec, sequence_mask = self.secondary_frontend(x_sec, sequence_mask)  # [B, T, F], [B, T, F]
 
         for module in self.primary_encoder:
             x_prim = module(x_prim, sequence_mask)  # [B, T, F]
@@ -134,9 +132,7 @@ def get_train_serializer(
         module_import_path=f"{__name__}.{ConformerHybridDualSpeakerModel.__name__}",
         model_config=model_config,
         additional_serializer_objects=[
-            Import(
-                f"{pytorch_package}.train_steps.hybrid_dualspeaker_viterbi.train_step"
-            ),
+            Import(f"{pytorch_package}.train_steps.hybrid_dualspeaker_viterbi.train_step"),
         ],
     )
 
@@ -171,9 +167,7 @@ def get_recog_serializer(
     )
 
 
-def get_serializer(
-    model_config: ConformerHybridDualSpeakerConfig, variant: ConfigVariant
-) -> Collection:
+def get_serializer(model_config: ConformerHybridDualSpeakerConfig, variant: ConfigVariant) -> Collection:
     if variant == ConfigVariant.TRAIN:
         return get_train_serializer(model_config)
     if variant == ConfigVariant.PRIOR:
@@ -185,9 +179,7 @@ def get_serializer(
     raise NotImplementedError
 
 
-def get_default_config_v1(
-    num_inputs: int, num_outputs: int
-) -> ConformerHybridDualSpeakerConfig:
+def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerHybridDualSpeakerConfig:
     specaugment_cfg = specaugment.SpecaugmentConfigV1(
         max_time_mask_num=20,
         max_time_mask_size=20,
@@ -252,5 +244,6 @@ def get_default_config_v1(
         num_primary_layers=8,
         num_secondary_layers=4,
         num_mixture_aware_speaker_layers=4,
+        use_secondary_audio=False,
         target_size=num_outputs,
     )

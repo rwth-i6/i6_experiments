@@ -11,13 +11,11 @@ from i6_core.returnn import ReturnnDumpHDFJob
 
 from i6_experiments.common.setups.rasr import (
     GmmSystem,
-    RasrDataInput,
     ReturnnRasrDataInput,
 )
 from i6_experiments.common.datasets import librispeech
 from i6_experiments.users.vieting.jobs.converse import (
     EnhancedMeetingDataToBlissCorpusJob,
-    EnhancedEvalDataToBlissCorpusJob,
     EnhancedSegmentedEvalDataToBlissCorpusJob,
     EnhancedMeetingDataRasrAlignmentPadAndDumpHDFJob,
 )
@@ -148,9 +146,7 @@ def get_hdf_datasets(
 
     rasr.crp_set_corpus(base_crp, train_corpus)
     base_crp.concurrent = concurrent
-    base_crp.segment_path = corpus.SegmentCorpusJob(
-        train_corpus.corpus_file, base_crp.concurrent
-    ).out_segment_path
+    base_crp.segment_path = corpus.SegmentCorpusJob(train_corpus.corpus_file, base_crp.concurrent).out_segment_path
 
     feature_job = GammatoneJob(crp=base_crp, **feature_extraction_args)
 
@@ -164,24 +160,18 @@ def get_hdf_datasets(
         },
     }
 
-    feat_hdf = ReturnnDumpHDFJob(
-        dataset_config, returnn_python_exe=RETURNN_EXE, returnn_root=RETURNN_ROOT
-    ).out_hdf
+    feat_hdf = ReturnnDumpHDFJob(dataset_config, returnn_python_exe=RETURNN_EXE, returnn_root=RETURNN_ROOT).out_hdf
     tk.register_output(f"data/{name}_gammatone_v0.hdf", feat_hdf)
 
-    alignments = gmm_system.outputs["train-other-960"]["final"].alignments.alternatives[
-        "bundle"
-    ]
+    alignments = gmm_system.outputs["train-other-960"]["final"].alignments.alternatives["bundle"]
     allophone_file = gmm_system.outputs["train-other-960"][
         "final"
     ].crp.acoustic_model_post_config.allophones.add_from_file
-    state_tying_job = DumpStateTyingJob(
-        gmm_system.outputs["train-other-960"]["final"].crp
-    )
+    state_tying_job = DumpStateTyingJob(gmm_system.outputs["train-other-960"]["final"].crp)
     align_hdf_job = EnhancedMeetingDataRasrAlignmentPadAndDumpHDFJob(
         json_database=database,
         dataset_name="train_960",
-        feature_hdf=feat_hdf,
+        feature_hdfs=[feat_hdf],
         alignment_cache=alignments,
         allophone_file=allophone_file,
         state_tying_file=state_tying_job.out_state_tying,
@@ -191,9 +181,7 @@ def get_hdf_datasets(
     align_hdf = align_hdf_job.out_hdf_file
     tk.register_output(f"data/{name}_align.hdf", align_hdf)
 
-    all_segments = corpus.SegmentCorpusJob(
-        train_corpus.corpus_file, 1
-    ).out_single_segment_files[1]
+    all_segments = corpus.SegmentCorpusJob(train_corpus.corpus_file, 1).out_single_segment_files[1]
     shuffled_segments = corpus.ShuffleAndSplitSegmentsJob(
         all_segments, {"train": 1 - dev_split, "dev": dev_split}
     ).out_segments
@@ -208,9 +196,7 @@ def get_hdf_datasets(
             },
             meta_args={"seq_order_control_dataset": "align"},
             data_keys={"feat": "data", "align": "data"},
-            acoustic_mixtures=gmm_system.outputs["train-other-960"][
-                "final"
-            ].acoustic_mixtures,
+            acoustic_mixtures=gmm_system.outputs["train-other-960"]["final"].acoustic_mixtures,
         )
         for key in shuffled_segments
     }
@@ -224,9 +210,7 @@ def _map_audio_paths_libricss_tfgridnet_json_database_v0(audio_path: str) -> str
     )
 
 
-def get_eval_data_input(
-    gmm_system, concurrent: int = 40
-) -> Dict[str, ReturnnRasrDataInput]:
+def get_eval_data_input(gmm_system, concurrent: int = 40) -> Dict[str, ReturnnRasrDataInput]:
     """
     Prepare data for recognition.
     """
@@ -271,9 +255,7 @@ def get_eval_data_input(
 
     data = ReturnnRasrDataInput(
         name="libricss",
-        feature_flow={
-            "gt": gammatone_flow(**feature_extraction_args["gt_options"])
-        },  # TODO: add cached flow
+        feature_flow={"gt": gammatone_flow(**feature_extraction_args["gt_options"])},  # TODO: add cached flow
     )
     data.build_crp(
         am_args={},
@@ -281,9 +263,7 @@ def get_eval_data_input(
         concurrent=concurrent,
         segment_path=segment_job.out_segment_path,
         lexicon_args=lexicon,
-        cart_tree_path=gmm_system.outputs["train-other-960"][
-            "final"
-        ].crp.acoustic_model_config.state_tying.file,
+        cart_tree_path=gmm_system.outputs["train-other-960"]["final"].crp.acoustic_model_config.state_tying.file,
         allophone_file=None,
         lm_args=lm,
     )

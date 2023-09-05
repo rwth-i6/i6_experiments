@@ -35,7 +35,7 @@ from i6_experiments.users.berger.util import default_tools_v2
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 num_outputs = 12001
-num_subepochs = 50
+num_subepochs = 600
 
 tools = copy.deepcopy(default_tools_v2)
 
@@ -43,11 +43,75 @@ tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/onnx/arch
 # tools.returnn_root = tk.Path("/u/berger/repositories/MiniReturnn")
 
 
+def worker_wrapper(job, task_name, call):
+    wrapped_jobs = {
+        "MakeJob",
+        "ReturnnTrainingJob",
+        "ReturnnRasrTrainingJob",
+        "OptunaReturnnTrainingJob",
+        "CompileTFGraphJob",
+        "OptunaCompileTFGraphJob",
+        "ReturnnRasrComputePriorJob",
+        "ReturnnComputePriorJob",
+        "ReturnnComputePriorJobV2",
+        "OptunaReturnnComputePriorJob",
+        "CompileNativeOpJob",
+        "AdvancedTreeSearchJob",
+        "AdvancedTreeSearchLmImageAndGlobalCacheJob",
+        "GenericSeq2SeqSearchJob",
+        "GenericSeq2SeqLmImageAndGlobalCacheJob",
+        "LatticeToCtmJob",
+        "OptimizeAMandLMScaleJob",
+        "AlignmentJob",
+        "Seq2SeqAlignmentJob",
+        "EstimateMixturesJob",
+        "EstimateCMLLRJob",
+        "ExportPyTorchModelToOnnxJob",
+        "OptunaExportPyTorchModelToOnnxJob",
+        "ReturnnForwardJob",
+        "ReturnnForwardComputePriorJob",
+        "OptunaReturnnForwardComputePriorJob",
+    }
+    if type(job).__name__ not in wrapped_jobs:
+        return call
+    binds = ["/work/asr4", "/work/common", "/work/tools/"]
+    ts = {t.name(): t for t in job.tasks()}
+    t = ts[task_name]
+
+    app_call = [
+        "apptainer",
+        "exec",
+    ]
+    if t._rqmt.get("gpu", 0) > 0:
+        app_call += ["--nv"]
+
+    for path in binds:
+        app_call += ["-B", path]
+
+    app_call += [
+        "/work/asr4/berger/apptainer/images/i6_u22_pytorch1.13_onnx.sif",
+        "python3",
+    ]
+
+    app_call += call[1:]
+
+    return app_call
+
+
+gs.worker_wrapper = worker_wrapper
+
 # ********** Return Config generators **********
 
 
-def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, dev_data_config: dict) -> ReturnnConfig:
+def returnn_config_generator(
+    variant: ConfigVariant, train_data_config: dict, dev_data_config: dict, **kwargs
+) -> ReturnnConfig:
     model_config = conformer_hybrid_dualspeaker.get_default_config_v1(num_inputs=50, num_outputs=num_outputs)
+
+    model_config.num_primary_layers = kwargs.get("prim_blocks", 8)
+    model_config.num_secondary_layers = kwargs.get("sec_blocks", 6)
+    model_config.num_mixture_aware_speaker_layers = kwargs.get("mas_blocks", 4)
+    model_config.use_secondary_audio = kwargs.get("sec_audio", False)
 
     extra_config: dict = {
         "train": train_data_config,
@@ -61,6 +125,7 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
     extra_config["extern_data"] = {
         "features_primary": {"dim": 50},
         "features_secondary": {"dim": 50},
+        "features_mix": {"dim": 50},
         "classes": {"dim": num_outputs, "sparse": True},
     }
 
@@ -79,20 +144,16 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
         peak_lr=3e-04,
         final_lr=1e-06,
         # batch_size=6144,
-        batch_size=4000 if variant == ConfigVariant.TRAIN else 1000,
+        batch_size=12000 if variant == ConfigVariant.TRAIN else 1000,
         use_chunking=True,
         extra_config=extra_config,
     )
 
 
 def get_returnn_config_collection(
-    train_data_config: dict,
-    dev_data_config: dict,
+    train_data_config: dict, dev_data_config: dict, **kwargs
 ) -> ReturnnConfigs[ReturnnConfig]:
-    generator_kwargs = {
-        "train_data_config": train_data_config,
-        "dev_data_config": dev_data_config,
-    }
+    generator_kwargs = {"train_data_config": train_data_config, "dev_data_config": dev_data_config, **kwargs}
     return ReturnnConfigs(
         train_config=returnn_config_generator(variant=ConfigVariant.TRAIN, **generator_kwargs),
         prior_config=returnn_config_generator(variant=ConfigVariant.PRIOR, **generator_kwargs),
@@ -106,27 +167,43 @@ def run_exp() -> SummaryReport:
     assert tools.returnn_root
     assert tools.returnn_python_exe
     assert tools.rasr_binary_path
-    data = get_hybrid_data(
-        gmm_system=gmm_system,
-        returnn_root=tools.returnn_root,
-        returnn_python_exe=tools.returnn_python_exe,
-        rasr_binary_path=tools.rasr_binary_path,
-        lm_name="4gram",
-    )
+
+    data_per_lm = {}
+
+    for lm_name in ["4gram"]:  # , "kazuki_transformer"]:
+        data_per_lm[lm_name] = get_hybrid_data(
+            train_key="enhanced_tfgridnet_v1",
+            dev_keys=["segmented_libri_css_tfgridnet_v1"],
+            test_keys=["libri_css_tfgridnet_v1"],
+            gmm_system=gmm_system,
+            returnn_root=tools.returnn_root,
+            returnn_python_exe=tools.returnn_python_exe,
+            rasr_binary_path=tools.rasr_binary_path,
+            lm_name=lm_name,
+        )
+
+    data = copy.deepcopy(next(iter(data_per_lm.values())))
+    data.dev_keys = []
+    data.test_keys = []
+    data.data_inputs = {}
+
+    for lm_name in data_per_lm:
+        data.dev_keys += [f"{key}_{lm_name}" for key in data_per_lm[lm_name].dev_keys]
+        data.test_keys += [f"{key}_{lm_name}" for key in data_per_lm[lm_name].test_keys]
+        data.data_inputs.update(
+            {f"{key}_{lm_name}": data_input for key, data_input in data_per_lm[lm_name].data_inputs.items()}
+        )
 
     # ********** Step args **********
 
     train_args = exp_args.get_hybrid_train_step_args(num_epochs=num_subepochs)
-    extra_config = rasr.RasrConfig()
-    extra_config.flf_lattice_tool.network.recognizer.separate_lookahead_lm = True
     recog_args = exp_args.get_hybrid_recog_step_args(
         num_classes=num_outputs,
-        epochs=[15, num_subepochs],
+        epochs=[20, 40, 80, 160, 240, 320, 400, 480, 560, 600],
         feature_type=FeatureType.CONCAT_GAMMATONE,
-        lattice_processing_type=LatticeProcessingType.MultiChannel,
-        mem=24,
+        lattice_processing_type=LatticeProcessingType.MultiChannelMultiSegment,
+        mem=16,
         rtf=50,
-        # extra_config=extra_config,
     )
 
     # ********** System **********
@@ -161,8 +238,17 @@ def run_exp() -> SummaryReport:
     # ********** Returnn Configs **********
 
     system.add_experiment_configs(
-        "Conformer_Hybrid",
-        get_returnn_config_collection(data.train_data_config, data.cv_data_config),
+        "pt_tfgridnet_conformer_8prim_4mix_4mas",
+        get_returnn_config_collection(
+            data.train_data_config, data.cv_data_config, prim_blocks=8, sec_blocks=4, mas_blocks=4, sec_audio=False
+        ),
+    )
+
+    system.add_experiment_configs(
+        "pt_tfgridnet_conformer_8prim_4sec_4mas",
+        get_returnn_config_collection(
+            data.train_data_config, data.cv_data_config, prim_blocks=8, sec_blocks=4, mas_blocks=4, sec_audio=True
+        ),
     )
 
     system.run_train_step(**train_args)

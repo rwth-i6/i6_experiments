@@ -35,15 +35,11 @@ def add_ff_module(
                 "activation": "swish",
                 "L2": l2,
             },
-            f"{name}_dropout_1": {
-                "class": "dropout",
-                "from": f"{name}_ff_1",
-                "dropout": dropout,
-            },
             f"{name}_ff_2": {
                 "class": "linear",
-                "from": f"{name}_dropout_1",
+                "from": f"{name}_ff_1",
                 "n_out": size,
+                "activation": None,
                 "L2": l2,
                 "dropout": dropout,
             },
@@ -112,6 +108,7 @@ def add_mhsa_module(
                 "class": "relative_positional_encoding",
                 "from": f"{name}_input",
                 "n_out": 64,
+                "fixed": False,
                 "clipping": clipping,
             },
             f"{name}_self_attention": {
@@ -127,6 +124,7 @@ def add_mhsa_module(
                 "class": "linear",
                 "from": f"{name}_self_attention",
                 "n_out": size,
+                "activation": None,
                 "L2": l2,
                 "with_bias": False,
             },
@@ -181,7 +179,7 @@ def add_conv_module(
     dropout: float = 0.1,
     l2: float = 5e-06,
     reuse_from_name: Optional[str] = None,
-    conv_half_res_add: bool = True,
+    conv_half_res_add: bool = False,
     use_batch_norm: bool = False,
     use_biases: bool = True,
     with_init: bool = True,
@@ -197,13 +195,13 @@ def add_conv_module(
                 "class": "linear",
                 "from": f"{name}_input",
                 "n_out": size * 2,
+                "activation": None,
                 "L2": l2,
             },
             f"{name}_glu": {
                 "class": "gating",
                 "from": f"{name}_pointwise_conv_1",
                 "activation": "identity",
-                "gate_activation": "sigmoid",
             },
             f"{name}_depthwise_conv": {
                 "class": "conv",
@@ -246,6 +244,7 @@ def add_conv_module(
                 "class": "linear",
                 "from": f"{name}_swish",
                 "n_out": size,
+                "activation": None,
                 "L2": l2,
             },
             f"{name}_dropout": {
@@ -265,7 +264,6 @@ def add_conv_module(
 
     if with_init:
         network[f"{name}_pointwise_conv_1"]["forward_weights_init"] = get_variance_scaling_init()
-        network[f"{name}_depthwise_conv"]["forward_weights_init"] = get_variance_scaling_init()
         network[f"{name}_pointwise_conv_2"]["forward_weights_init"] = get_variance_scaling_init()
 
     if not use_biases:
@@ -410,29 +408,23 @@ def add_initial_conv(
             "from": from_name,
             "n_out": n_out,
             "filter_size": (filter, filter),
-            "strides": (stride, 1),
             "with_bias": True,
             "padding": "same",
-            "forward_weights_init": get_variance_scaling_init(),
         }
-        if with_init:
-            network[f"{name}_conv_{idx}"]["forward_weights_init"] = get_variance_scaling_init()
-
         from_name = f"{name}_conv_{idx}"
+        if stride != 1:
+            network[from_name]["strides"] = (stride, 1)
 
-        network[f"{name}_swish_{idx}"] = {
-            "class": "activation",
-            "from": from_name,
-            "activation": "swish",
-        }
-        from_name = f"{name}_swish_{idx}"
+        if idx % 2 == 0:
+            network[from_name]["activation"] = "relu"
 
-        if len(max_pool) >= idx:
+        if len(max_pool) >= idx and max_pool[idx - 1] != 1:
             network[f"{name}_pool_{idx}"] = {
                 "class": "pool",
                 "from": from_name,
                 "mode": "max",
                 "pool_size": (1, max_pool[idx - 1]),
+                "strides": (1, max_pool[idx - 1]),
                 "padding": "same",
             }
             from_name = f"{name}_pool_{idx}"
@@ -466,7 +458,7 @@ def add_initial_conv(
         "class": "linear",
         "from": from_name,
         "n_out": linear_size,
-        # "with_bias": False,
+        "activation": None,
         "with_bias": True,
     }
 
@@ -499,25 +491,20 @@ def add_transposed_conv(
     n_out: int = 512,
     filter_size: int = 3,
     stride: int = 3,
-    dropout: float = 0.1,
     l2: float = 5e-06,
     reuse_from_name: Optional[str] = None,
-    with_init: bool = True,
 ) -> str:
     layer_name = f"{name}_transposed_conv"
     network[layer_name] = {
         "class": "transposed_conv",
         "from": from_list,
         "n_out": n_out,
-        "activation": "swish",
+        "activation": "relu",
         "filter_size": [filter_size],
         "strides": [stride],
-        "dropout": dropout,
+        "with_bias": True,
         "L2": l2,
     }
-
-    if with_init:
-        network[layer_name]["forward_weights_init"] = get_variance_scaling_init()
 
     if size_base is not None:
         network[f"{layer_name}_reinterpret"] = {

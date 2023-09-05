@@ -1,7 +1,7 @@
 from sisyphus import tk
 
 from i6_experiments.users.berger.recipe.summary import SummaryReport
-from .config_01_blstm_hybrid_mixed_inputs_cleanup import py as py_01
+from .config_01_blstm_hybrid_mixed_inputs import py as py_01
 from .config_02_blstm_hybrid_mixed_inputs_joint import py as py_02
 
 

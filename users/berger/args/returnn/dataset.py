@@ -43,7 +43,7 @@ class MetaDatasetBuilder:
             hdf_files = [hdf_files]
         if dataset_config is None:
             dataset_config = {}
-        dataset_config.update({"class": "HDFDataset", "files": hdf_files})
+        dataset_config.update({"class": "HDFDataset", "use_cache_manager": True, "files": hdf_files})
         self.add_dataset(dataset_config=dataset_config, **kwargs)
 
     def add_dataset(

@@ -116,8 +116,8 @@ SHOW_JOB_TARGETS = False
 SHOW_VIS_NAME_IN_MANAGER = False
 PRINT_ERROR = False
 
-G2P_PATH = "/u/beck/dev/g2p/release/lib/python/g2p.py"
-G2P_PYTHON = "/u/beck/programs/python/2.7.10/bin/python2"
+# G2P_PATH = "/u/beck/dev/g2p/release/lib/python/g2p.py"
+# G2P_PYTHON = "/u/beck/programs/python/2.7.10/bin/python2"
 SCTK_PATH = "/u/beck/programs/sctk-2.4.0/bin/"
 
 # BLAS_LIB = "/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so"

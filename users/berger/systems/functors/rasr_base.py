@@ -125,12 +125,17 @@ class RasrFunctor(ABC):
         # TODO: why does this assert fail?
         # assert isinstance(corpus_info.data.corpus_object, SeparatedCorpusObject)
         crp_prim = corpus_info.crp
+
         crp_sec = copy.deepcopy(corpus_info.crp)
         assert crp_sec.corpus_config is not None
         crp_sec.corpus_config.file = corpus_info.data.corpus_object.secondary_corpus_file
 
+        crp_mix = copy.deepcopy(corpus_info.crp)
+        assert crp_mix.corpus_config is not None
+        crp_mix.corpus_config.file = corpus_info.data.corpus_object.mix_corpus_file
+
         cache_files = []
-        for crp in [crp_prim, crp_sec]:
+        for crp in [crp_prim, crp_sec, crp_mix]:
             gt_job = features.GammatoneJob(crp=crp, **get_feature_extraction_args_16kHz()["gt"])
             feature_path = rasr.FlagDependentFlowAttribute(
                 "cache_mode",

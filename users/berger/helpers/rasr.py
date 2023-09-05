@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, List
 from i6_core.meta.system import CorpusObject
 
 import i6_core.rasr as rasr
@@ -52,8 +52,9 @@ class SeparatedCorpusObject:
 
 @dataclass
 class SeparatedCorpusHDFFiles:
-    primary_features_file: tk.Path
-    secondary_features_file: tk.Path
+    primary_features_files: List[tk.Path]
+    secondary_features_files: List[tk.Path]
+    mix_features_files: List[tk.Path]
     alignments_file: tk.Path
     segments: tk.Path
 
@@ -94,8 +95,6 @@ def get_crp_for_data_input(
 
     crp.acoustic_model_config = am.acoustic_model_config(**am_args)  # type: ignore
     crp.acoustic_model_config.allophones.add_all = data.lexicon.add_all_allophones  # type: ignore
-    crp.acoustic_model_config.allophones.add_from_lexicon = data.lexicon.add_allophones_from_lexicon   # type: ignore
-
-    print("Created crp ", crp)
+    crp.acoustic_model_config.allophones.add_from_lexicon = data.lexicon.add_allophones_from_lexicon  # type: ignore
 
     return crp

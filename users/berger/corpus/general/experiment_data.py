@@ -27,7 +27,7 @@ class PytorchCTCSetupData(BasicSetupData):
 
 
 @dataclass
-class PytorchHybridSetupData(BasicSetupData):
+class HybridSetupData(BasicSetupData):
     pass
 
 
