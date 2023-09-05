@@ -628,7 +628,7 @@ def run_scf_baseline():
         dev_corpora,
     ) = get_datasets()
     returnn_args = {
-        "batch_size": 5000,
+        "batch_size": 7000,
         "rasr_binary_path": RASR_BINARY_PATH,
         "rasr_loss_corpus_path": rasr_loss_corpus_path,
         "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
@@ -659,8 +659,8 @@ def run_scf_baseline():
                 },
             ),
         },
-        num_epochs=450,
-        prefix="conformer_bs10k_",
+        num_epochs=260,
+        prefix="conformer_bs2x7k_",
     )
     run_nn_args(nn_args, report_args_collection, "report_scf_baseline.csv", dev_corpora)
 
