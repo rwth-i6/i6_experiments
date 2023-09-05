@@ -559,7 +559,7 @@ def run_scf_baseline():
         num_epochs=450,
         prefix="conformer_bs10k_"
     )
-    run_nn_args(nn_args, report_args_collection, "report_mel_baseline.csv", dev_corpora)
+    run_nn_args(nn_args, report_args_collection, "report_scf_baseline.csv", dev_corpora)
 
 def run_mel_audio_perturbation():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
