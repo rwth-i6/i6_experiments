@@ -179,7 +179,7 @@ def get_default_config_v2(num_inputs: int, num_outputs: int) -> ConformerCTCConf
     specaugment_cfg = specaugment.SpecaugmentConfigV1(
         max_time_mask_num=20,
         max_time_mask_size=10,
-        max_feature_mask_num=7,
+        max_feature_mask_num=5,
         max_feature_mask_size=5,
         increase_steps=[2000],
     )

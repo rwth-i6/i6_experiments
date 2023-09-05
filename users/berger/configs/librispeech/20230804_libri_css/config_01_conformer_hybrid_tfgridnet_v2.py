@@ -312,6 +312,22 @@ def run_exp() -> SummaryReport:
         custom_step_kwargs=CustomStepKwargs(train_step_kwargs={"gpu_mem_rqmt": 11}),
     )
 
+    system.add_experiment_configs(
+        "tfgridnet_conformer_12prim_init_short",
+        get_returnn_config_collection(
+            data.train_data_config,
+            data.cv_data_config,
+            sec_audio=False,
+            model_init=True,
+            emulate_single_speaker=True,
+            num_subepochs=300,
+        ),
+        custom_step_kwargs=CustomStepKwargs(
+            train_step_kwargs=exp_args.get_hybrid_train_step_args(num_epochs=300, gpu_mem_rqmt=11),
+            recog_step_kwargs={"epochs": [20, 40, 80, 160, 240, 300]},
+        ),
+    )
+
     # system.add_experiment_configs(
     #     "tfgridnet_conformer_12prim_scratch",
     #     get_returnn_config_collection(
