@@ -11,6 +11,7 @@ from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00
 from i6_experiments.common.setups.rasr.util import RasrDataInput
 from i6_experiments.users.berger.recipe.lexicon.modification import DeleteEmptyOrthJob, MakeBlankLexiconJob
 from i6_experiments.users.vieting.tools.report import Report
+
 # TODO: run_gmm_system_from_common might be copied here for stability
 from i6_experiments.users.vieting.experiments.switchboard.hybrid.feat.experiments import run_gmm_system_from_common
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_system_v2 import (
@@ -569,7 +570,7 @@ def run_test_mel():
     )
 
 
-def run_mel_nn_args(nn_args, report_args_collection, report_name, dev_corpora):
+def run_nn_args(nn_args, report_args_collection, report_name, dev_corpora):
     returnn_configs = {}
     for exp in nn_args.returnn_training_configs:
         prior_config = copy.deepcopy(nn_args.returnn_training_configs[exp])
@@ -697,7 +698,55 @@ def run_mel_baseline():
         num_epochs=450,
         prefix="conformer_bs10k_",
     )
-    run_mel_nn_args(nn_args, report_args_collection, "report_mel_baseline.csv", dev_corpora)
+    run_nn_args(nn_args, report_args_collection, "report_mel_baseline.csv", dev_corpora)
+
+
+def run_scf_baseline():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
+
+    (
+        returnn_datasets,
+        rasr_loss_corpus_path,
+        rasr_loss_corpus_segments,
+        rasr_loss_lexicon_path,
+        dev_corpora,
+    ) = get_datasets()
+    returnn_args = {
+        "batch_size": 5000,
+        "rasr_binary_path": RASR_BINARY_PATH,
+        "rasr_loss_corpus_path": rasr_loss_corpus_path,
+        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
+        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
+        "datasets": returnn_datasets,
+        "extra_args": {"accum_grad_multiple_step": 2},
+    }
+    feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args={
+            "scf_baseline": dict(
+                returnn_args=returnn_args,
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 180,
+                    "decrease_epochs": 180,
+                    "final_epochs": 0,
+                },
+                report_args={
+                    "architecture": "conf-wei",
+                    "lr": "wei_peak_4e-4_e450_cycle360",
+                    "specaug": "wei_adapt_80dim",
+                    "wave_norm": "True",
+                },
+            ),
+        },
+        num_epochs=450,
+        prefix="conformer_bs2x5k_",
+    )
+    run_nn_args(nn_args, report_args_collection, "report_scf_baseline.csv", dev_corpora)
 
 
 def run_mel_audio_perturbation():
@@ -828,7 +877,7 @@ def run_mel_audio_perturbation():
         num_epochs=450,
         prefix="conformer_bs10k_",
     )
-    run_mel_nn_args(nn_args, report_args_collection, "report_mel_audio_perturbation.csv", dev_corpora)
+    run_nn_args(nn_args, report_args_collection, "report_mel_audio_perturbation.csv", dev_corpora)
 
 
 def py():
@@ -836,4 +885,5 @@ def py():
     called if the file is passed to sis manager, used to run all experiments (replacement for main)
     """
     run_mel_baseline()
+    run_scf_baseline()
     run_mel_audio_perturbation()
