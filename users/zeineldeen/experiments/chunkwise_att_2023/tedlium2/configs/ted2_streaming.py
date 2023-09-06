@@ -927,6 +927,92 @@ def train_mini_self_att(
     return train_job
 
 
+def compute_search_errors(exp_name, corpus_name, train_data, forward_args, model_checkpoint):
+    returnn_forward_config = create_config(
+        training_datasets=train_data,
+        **forward_args,
+        feature_extraction_net=log10_net_10ms,
+        is_recog=True,
+    )
+    returnn_forward_config.config["forward_batch_size"] = 15_000 * 160
+
+    # add test dataset
+    test_dataset = get_test_dataset_tuples(bpe_size=BPE_1K, selected_datasets=[corpus_name])
+    returnn_forward_config.config["eval"] = test_dataset[corpus_name][0].as_returnn_opts()
+    # remove all others if exist
+    returnn_forward_config.config.pop("train", None)
+    returnn_forward_config.config.pop("dev", None)
+    returnn_forward_config.config.pop("devtrain", None)
+
+    # 1. forward with ground truth and dump scores + target
+    config_ = copy.deepcopy(returnn_forward_config.config)
+    config_["network"]["dump_targets"] = {
+        "class": "hdf_dump",
+        "from": "data:bpe_labels",
+        "filename": "ground_truth_targets.hdf",
+        "is_output_layer": True,
+    }
+    assert "output_log_prob" not in config_["network"], "output_log_prob already exists?"
+    config_["network"]["output_log_prob"] = {
+        "class": "activation",
+        "from": "output_prob",
+        "activation": "safe_log",
+    }
+    config_["network"]["dump_output"] = {
+        "class": "hdf_dump",
+        "from": "output_log_prob",
+        "filename": "ground_truth_scores.hdf",
+        "is_output_layer": True,
+    }
+    j = ReturnnForwardJob(
+        model_checkpoint=model_checkpoint,
+        returnn_config=config_,
+        returnn_python_exe=RETURNN_CPU_EXE,
+        returnn_root=RETURNN_ROOT,
+        hdf_outputs=["ground_truth_targets.hdf", "ground_truth_scores.hdf"],
+        eval_mode=True,
+    )
+    ground_truth_targets = j.out_hdf_files["ground_truth_targets.hdf"]
+    ground_truth_scores = j.out_hdf_files["ground_truth_scores.hdf"]
+    tk.register_output(
+        os.path.join(exp_name, f"{corpus_name}_search_errors/ground_truth_targets"), ground_truth_targets
+    )
+    tk.register_output(os.path.join(exp_name, f"{corpus_name}_search_errors/ground_truth_scores"), ground_truth_scores)
+
+    # 2. forward with beam search and dump scores of 1-best
+    config_ = copy.deepcopy(returnn_forward_config.config)
+    config_["network"]["dump_decision"] = {
+        "class": "hdf_dump",
+        "from": "decision",
+        "filename": "search_output.hdf",
+        "is_output_layer": True,
+    }
+    returnn_forward_config.post_config["forward_use_search"] = True  # allow search
+    j = ReturnnForwardJob(
+        model_checkpoint=model_checkpoint,
+        returnn_config=config_,
+        returnn_python_exe=RETURNN_CPU_EXE,
+        returnn_root=RETURNN_ROOT,
+        hdf_outputs=["search_output.hdf"],
+        eval_mode=False,
+    )
+    search_scores = j.out_hdf_files["search_output.hdf"]  # targets included here?
+    tk.register_output(os.path.join(exp_name, f"{corpus_name}_search_errors/search_scores"), search_scores)
+
+    from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.search_errors import ComputeSearchErrorsJob
+
+    # search_errors = ComputeSearchErrorsJob(
+    #     ground_truth_scores_hdf=ground_truth_scores,
+    #     search_scores_hdf=search_scores,
+    #     ground_truth_targets_hdf=ground_truth_targets,
+    #     search_targets_hdf=None,  #
+    #     blank_idx=0,  # EOC
+    # )
+    # tk.register_output(
+    #     os.path.join(exp_name, f"{corpus_name}_search_errors/search_errors"), search_errors.out_search_errors
+    # )
+
+
 # --------------------------- General Settings --------------------------- #
 
 conformer_enc_args = ConformerEncoderArgs(
@@ -1581,7 +1667,7 @@ def baseline():
     #         },
     #     )
 
-    run_chunkwise_train(
+    train_args, exp_name, train_data = run_chunkwise_train(
         enc_stream_type="global",
         run_all_for_best_last_avg=True,
         enable_check_align=False,
@@ -1594,6 +1680,14 @@ def baseline():
         batch_size=30_000,
         accum_grad=1,
         time_rqmt=48,
+        return_args=True,
+    )
+    compute_search_errors(
+        exp_name,
+        corpus_name="dev",
+        train_data=train_data,
+        forward_args=train_args,
+        model_checkpoint=train_job_avg_ckpt[exp_name],
     )
 
     # TODO: LR schedule tuning
