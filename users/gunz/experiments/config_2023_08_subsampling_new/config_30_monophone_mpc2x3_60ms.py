@@ -402,7 +402,7 @@ def run_single(
             cpu_rqmt=2,
             mem_rqmt=4,
         )
-        jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+        jobs.search.rqmt.update({"sbatch_args": ["-p", "rescale_amd"]})
 
     if run_tdp_study:
         base_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)

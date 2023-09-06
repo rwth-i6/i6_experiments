@@ -443,7 +443,7 @@ def run_single(
                 mem_rqmt=4,
                 rtf_cpu=40,
             )
-            jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30", "--nice=500"]})
+            jobs.search.rqmt.update({"sbatch_args": ["-p", "rescale_amd", "--nice=500"]})
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
