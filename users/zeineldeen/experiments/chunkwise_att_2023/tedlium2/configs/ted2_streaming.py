@@ -938,7 +938,7 @@ def compute_search_errors(exp_name, corpus_name, train_data, forward_args, model
 
     # add test dataset
     test_dataset = get_test_dataset_tuples(bpe_size=BPE_1K, selected_datasets=[corpus_name])
-    returnn_forward_config.config["eval"] = test_dataset[corpus_name][0].as_returnn_opts()
+    returnn_forward_config.config["eval_datasets"] = {corpus_name: test_dataset[corpus_name][0].as_returnn_opts()}
     # remove all others if exist
     returnn_forward_config.config.pop("train", None)
     returnn_forward_config.config.pop("dev", None)
