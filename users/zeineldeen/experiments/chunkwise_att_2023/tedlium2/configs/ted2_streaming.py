@@ -928,6 +928,11 @@ def train_mini_self_att(
 
 
 def compute_search_errors(exp_name, corpus_name, train_data, forward_args, model_checkpoint):
+    returnn_root_fix = tk.Path(
+        "/u/zeineldeen/setups/ubuntu_22_setups/2023-06-14--streaming-conf/returnn",
+        hash_overwrite="returnn_root_fix_forward",
+    )
+
     returnn_forward_config = create_config(
         training_datasets=train_data,
         **forward_args,
@@ -938,7 +943,7 @@ def compute_search_errors(exp_name, corpus_name, train_data, forward_args, model
 
     # add test dataset
     test_dataset = get_test_dataset_tuples(bpe_size=BPE_1K, selected_datasets=[corpus_name])
-    returnn_forward_config.config["eval_datasets"] = {corpus_name: test_dataset[corpus_name][0].as_returnn_opts()}
+    returnn_forward_config.config["forward_data"] = test_dataset[corpus_name][0].as_returnn_opts()
     # remove all others if exist
     returnn_forward_config.config.pop("train", None)
     returnn_forward_config.config.pop("dev", None)
@@ -968,7 +973,7 @@ def compute_search_errors(exp_name, corpus_name, train_data, forward_args, model
         model_checkpoint=model_checkpoint,
         returnn_config=config_,
         returnn_python_exe=RETURNN_CPU_EXE,
-        returnn_root=RETURNN_ROOT,
+        returnn_root=returnn_root_fix,
         hdf_outputs=["ground_truth_targets.hdf", "ground_truth_scores.hdf"],
         eval_mode=True,
     )
@@ -992,7 +997,7 @@ def compute_search_errors(exp_name, corpus_name, train_data, forward_args, model
         model_checkpoint=model_checkpoint,
         returnn_config=config_,
         returnn_python_exe=RETURNN_CPU_EXE,
-        returnn_root=RETURNN_ROOT,
+        returnn_root=returnn_root_fix,
         hdf_outputs=["search_output.hdf"],
         eval_mode=False,
     )
