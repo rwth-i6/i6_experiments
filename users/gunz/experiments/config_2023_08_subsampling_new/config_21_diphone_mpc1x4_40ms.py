@@ -462,7 +462,7 @@ def run_single(
                 params=cfg,
                 rtf=1.5,
             )
-            j.rqmt.update({"sbatch_args": ["-p", "rescale_amd"]})
+            j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     # ###########
     # FINE TUNING
@@ -632,7 +632,7 @@ def run_single(
                             params=cfg,
                             rtf=1.5,
                         )
-                        j.rqmt.update({"sbatch_args": ["-p", "rescale_amd"]})
+                        j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if run_tdp_study:
         s.feature_flows["dev-other"].flags["cache_mode"] = "bundle"
