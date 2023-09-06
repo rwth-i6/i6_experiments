@@ -388,7 +388,7 @@ def run_single(
                 beam=beam,
                 beam_limit=100000,
                 lm_scale=1.5,
-                tdp_scale=tdpSp,
+                tdp_scale=tdpSc,
                 tdp_silence=tdpSil,
                 tdp_speech=tdpSp,
             ).with_prior_scale(pC)
