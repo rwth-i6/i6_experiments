@@ -945,20 +945,20 @@ def compute_search_errors(exp_name, corpus_name, train_data, forward_args, model
     returnn_forward_config.config.pop("devtrain", None)
 
     # 1. forward with ground truth and dump scores + target
-    config_ = copy.deepcopy(returnn_forward_config.config)
-    config_["network"]["dump_targets"] = {
+    config_ = copy.deepcopy(returnn_forward_config)
+    config_.config["network"]["dump_targets"] = {
         "class": "hdf_dump",
         "from": "data:bpe_labels",
         "filename": "ground_truth_targets.hdf",
         "is_output_layer": True,
     }
-    assert "output_log_prob" not in config_["network"], "output_log_prob already exists?"
-    config_["network"]["output_log_prob"] = {
+    assert "output_log_prob" not in config_.config["network"], "output_log_prob already exists?"
+    config_.config["network"]["output_log_prob"] = {
         "class": "activation",
         "from": "output_prob",
         "activation": "safe_log",
     }
-    config_["network"]["dump_output"] = {
+    config_.config["network"]["dump_output"] = {
         "class": "hdf_dump",
         "from": "output_log_prob",
         "filename": "ground_truth_scores.hdf",
@@ -980,8 +980,8 @@ def compute_search_errors(exp_name, corpus_name, train_data, forward_args, model
     tk.register_output(os.path.join(exp_name, f"{corpus_name}_search_errors/ground_truth_scores"), ground_truth_scores)
 
     # 2. forward with beam search and dump scores of 1-best
-    config_ = copy.deepcopy(returnn_forward_config.config)
-    config_["network"]["dump_decision"] = {
+    config_ = copy.deepcopy(returnn_forward_config)
+    config_.config["network"]["dump_decision"] = {
         "class": "hdf_dump",
         "from": "decision",
         "filename": "search_output.hdf",
