@@ -8,16 +8,16 @@ from typing import Optional
 class ComputeSearchErrorsJob(Job):
     def __init__(
         self,
-        label_model_scores_ground_truth_hdf: Optional[Path],
-        label_model_scores_search_hdf: Optional[Path],
-        targets_ground_truth_hdf: Path,
-        targets_search_hdf: Path,
+        ground_truth_scores_hdf: Optional[Path],
+        search_scores_hdf: Optional[Path],
+        ground_truth_targets_hdf: Path,
+        search_targets_hdf: Path,
         blank_idx: int,
     ):
-        self.targets_search_hdf = targets_search_hdf
-        self.label_model_scores_search_hdf = label_model_scores_search_hdf
-        self.targets_ground_truth_hdf = targets_ground_truth_hdf
-        self.label_model_scores_ground_truth_hdf = label_model_scores_ground_truth_hdf
+        self.ground_truth_scores_hdf = ground_truth_scores_hdf
+        self.search_scores_hdf = search_scores_hdf
+        self.ground_truth_targets_hdf = ground_truth_targets_hdf
+        self.search_targets_hdf = search_targets_hdf
         self.blank_idx = blank_idx
 
         self.out_search_errors = self.output_path("search_errors")
@@ -33,10 +33,10 @@ class ComputeSearchErrorsJob(Job):
 
         # first, we load all the necessary data (targets, model scores) from the hdf files
         for data_name, data_hdf in (
-            ("label_model_scores_ground_truth", self.label_model_scores_ground_truth_hdf.get_path()),
-            ("label_model_scores_search", self.label_model_scores_search_hdf.get_path()),
-            ("targets_ground_truth", self.targets_ground_truth_hdf.get_path()),
-            ("targets_search", self.targets_search_hdf.get_path()),
+            ("ground_truth_scores", self.ground_truth_scores_hdf.get_path()),
+            ("search_scores", self.search_scores_hdf.get_path()),
+            ("ground_truth_targets", self.ground_truth_targets_hdf.get_path()),
+            ("search_targets", self.search_targets_hdf.get_path()),
         ):
             with h5py.File(data_hdf, "r") as f:
                 seq_tags = f["seqTags"][()]
@@ -62,10 +62,10 @@ class ComputeSearchErrorsJob(Job):
         for seq_tag in data_dict:
             num_seqs += 1
 
-            label_model_scores_ground_truth = data_dict[seq_tag]["label_model_scores_ground_truth"]
-            targets_ground_truth = data_dict[seq_tag]["targets_ground_truth"]
-            label_model_scores_search = data_dict[seq_tag]["label_model_scores_search"]
-            targets_search = data_dict[seq_tag]["targets_search"]
+            label_model_scores_ground_truth = data_dict[seq_tag]["ground_truth_scores"]
+            targets_ground_truth = data_dict[seq_tag]["ground_truth_targets"]
+            label_model_scores_search = data_dict[seq_tag]["search_scores"]
+            targets_search = data_dict[seq_tag]["search_targets"]
 
             non_blank_targets_ground_truth = targets_ground_truth[targets_ground_truth != blank_idx]
             non_blank_targets_search = targets_search[targets_search != blank_idx]
