@@ -983,7 +983,7 @@ def compute_search_errors(exp_name, corpus_name, train_data, forward_args, model
     config_ = copy.deepcopy(returnn_forward_config)
     config_.config["network"]["dump_decision"] = {
         "class": "hdf_dump",
-        "from": "decision",
+        "from": "out_best_wo_blank",
         "filename": "search_output.hdf",
         "is_output_layer": True,
     }
