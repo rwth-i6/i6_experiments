@@ -387,10 +387,7 @@ def run_single(
                 tdp_silence=tdpSil,
             ).with_prior_scale(pC)
             for beam, a, pC, tdpSil in itertools.product(
-                [18, 20, 22],
-                [None, 2, 4, 6],
-                [0.2, 0.4, 0.6],
-                [(3, 10, "infinity", 10), (0, 3, "infinity", 20)]
+                [18, 20, 22], [None, 2, 4, 6], [0.2, 0.4, 0.6], [(3, 10, "infinity", 10), (0, 3, "infinity", 20)]
             )
         ]
         for cfg in configs:
