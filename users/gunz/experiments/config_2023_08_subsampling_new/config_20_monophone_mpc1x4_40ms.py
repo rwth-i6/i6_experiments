@@ -376,18 +376,24 @@ def run_single(
         tying_cfg = rasr.RasrConfig()
         tying_cfg.type = "monophone-dense"
 
+        good_values = [
+            (0.4, (3, 0, "infinity", 0), (3, 10, "infinity", 10)),  # 8,9%
+            (0.6, (3, 0, "infinity", 3), (3, 10, "infinity", 10)),  # 8,9%
+            (0.2, (3, 0, "infinity", 0), (10, 10, "infinity", 10)),  # 9,0%
+        ]
         configs = [
             dataclasses.replace(
                 s.get_cart_params("fh"),
                 altas=a,
                 beam=beam,
-                beam_limit=50000,
+                beam_limit=100000,
                 lm_scale=1.5,
-                tdp_scale=0.4,
+                tdp_scale=tdpSp,
                 tdp_silence=tdpSil,
+                tdp_speech=tdpSp,
             ).with_prior_scale(pC)
-            for beam, a, pC, tdpSil in itertools.product(
-                [18, 20, 22], [None, 2, 4, 6], [0.2, 0.4, 0.6], [(3, 10, "infinity", 10), (0, 3, "infinity", 20)]
+            for beam, a, pC, (tdpSc, tdpSp, tdpSil) in itertools.product(
+                [18, 20, 22], [None, 2, 4, 6], [0.2, 0.4, 0.6], good_values
             )
         ]
         for cfg in configs:
