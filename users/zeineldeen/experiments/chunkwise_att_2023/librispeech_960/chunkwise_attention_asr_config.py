@@ -160,37 +160,43 @@ def load_qkv_mats(name, shape, reader):
 
 
 def load_params_v2(name, shape, reader):
-    idx = name.split("_")[2]
-    qkv_tensor = reader.get_tensor("conformer_block_%s_self_att/QKV" % idx)
-    num_heads = enc_att_num_heads_dim.dimension
-    model_dim_per_head = enc_dim_per_head_dim.dimension
-    model_dim = num_heads * model_dim_per_head
-    assert qkv_tensor.shape == (model_dim, 3 * model_dim)
     import numpy
 
-    qkv_tensor_ = qkv_tensor.reshape((model_dim, num_heads, 3, model_dim_per_head))
-    q = qkv_tensor_[:, :, 0, :].reshape((model_dim, model_dim))
-    k = qkv_tensor_[:, :, 1, :].reshape((model_dim, model_dim))
-    v = qkv_tensor_[:, :, 2, :].reshape((model_dim, model_dim))
+    model_dim = val_dim.dimension
 
-    # input is [y_{i-1}, c_{i-1}, h_{i-1}]
-    s_kernel = reader.get_tensor("output/rec/s/rec/lstm_cell/kernel")  # (input_dim, 4 * lstm_dim)
-    target_embed = reader.get_tensor("output/rec/target_embed0/W")  # (V, embed_dim)
-    embed_dim = target_embed.shape[1]
-    emb_ = s_kernel[:embed_dim]
-    h_ = s_kernel[embed_dim + model_dim :]
-    s_kernel_ = numpy.concatenate([emb_, h_], axis=0)
-    assert s_kernel_.shape[0] == s_kernel.shape[0] - model_dim
-    assert s_kernel_.shape[1] == s_kernel.shape[1]
+    if name.startswith("conformer_block_"):
+        idx = name.split("_")[2]
+        qkv_tensor = reader.get_tensor("conformer_block_%s_self_att/QKV" % idx)
+        assert qkv_tensor.shape == (model_dim, 3 * model_dim)
 
-    if name == "conformer_block_%s_self_att_ln_K/W" % idx:
-        return k
-    elif name == "conformer_block_%s_self_att_ln_Q/W" % idx:
-        return q
-    elif name == "conformer_block_%s_self_att_ln_V/W" % idx:
-        return v
-    elif name == "output/rec/s/rec/lstm_cell/kernel":
-        return s_kernel_
+        qkv_tensor_ = qkv_tensor.reshape((model_dim, num_heads, 3, model_dim_per_head))
+        q = qkv_tensor_[:, :, 0, :].reshape((model_dim, model_dim))
+        k = qkv_tensor_[:, :, 1, :].reshape((model_dim, model_dim))
+        v = qkv_tensor_[:, :, 2, :].reshape((model_dim, model_dim))
+
+        if name == "conformer_block_%s_self_att_ln_K/W" % idx:
+            return k
+        elif name == "conformer_block_%s_self_att_ln_Q/W" % idx:
+            return q
+        elif name == "conformer_block_%s_self_att_ln_V/W" % idx:
+            return v
+    else:
+        # input is [y_{i-1}, c_{i-1}, h_{i-1}]
+        s_kernel = reader.get_tensor("output/rec/s/rec/lstm_cell/kernel")  # (input_dim, 4 * lstm_dim)
+        s_bias = reader.get_tensor("output/rec/s/rec/lstm_cell/bias")  # (4 * lstm_dim,)
+        target_embed = reader.get_tensor("output/rec/target_embed0/W")  # (V, embed_dim)
+        embed_dim = target_embed.shape[1]
+        emb_ = s_kernel[:embed_dim]
+        h_ = s_kernel[embed_dim + model_dim :]
+        s_kernel_ = numpy.concatenate([emb_, h_], axis=0)
+        assert s_kernel_.shape[0] == s_kernel.shape[0] - model_dim
+        assert s_kernel_.shape[1] == s_kernel.shape[1]
+
+        if name == "output/rec/s_wo_att/rec/lstm_cell/kernel":
+            return s_kernel_  # modified
+        elif name == "output/rec/s_wo_att/rec/lstm_cell/bias":
+            return s_bias
+
     return None
 
 
@@ -1048,7 +1054,14 @@ def create_config(
         assert retrain_checkpoint_opts is None
         retrain_checkpoint_opts = {}
         retrain_checkpoint_opts["custom_missing_load_func"] = load_params_v2
-        exp_config["network"]["output"]["unit"]["s"]["from"] = "prev:target_embed"  # remove prev:att
+        # TODO: hacky way for now
+        exp_config["network"]["output"]["unit"]["s_wo_att"] = copy.deepcopy(exp_config["network"]["output"]["unit"]["s"])
+        exp_config["network"]["output"]["unit"].pop("s", None)
+
+        # change inputs
+        exp_config["network"]["output"]["unit"]["s_wo_att"]["from"] = "prev:target_embed"  # remove prev:att
+        exp_config["network"]["output"]["unit"]["s_transformed"]["from"] = "s_wo_att"
+        exp_config["network"]["output"]["unit"]["readout_in"]["from"][0] = "s_wo_att"
 
     if retrain_checkpoint is not None:
         if retrain_checkpoint_opts:

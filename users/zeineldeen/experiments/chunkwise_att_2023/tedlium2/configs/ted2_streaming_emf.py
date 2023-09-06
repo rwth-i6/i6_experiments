@@ -1530,7 +1530,6 @@ def baseline():
     # TODO: emformer memory
     for left_context, center_context, right_context, conv_cache_size, mem_size in [
         (0, 20, 5, 1, 2),
-        (0, 10, 5, 4, 4),
         (0, 20, 5, 1, 1),
     ]:
         run_chunkwise_train(
@@ -1545,37 +1544,6 @@ def baseline():
             total_epochs=[120],
             batch_size=15_000,
             accum_grad=2,
-            time_rqmt=120,
-            end_slice_start=left_context,
-            end_slice_size=center_context,
-            window_left_padding=left_context * 6,
-            conf_mem_opts={
-                "self_att_version": 1,
-                "mem_size": mem_size,
-                "use_cached_prev_kv": True,
-                "conv_cache_size": conv_cache_size,
-                "mem_slice_start": left_context,
-                "mem_slice_size": center_context,
-                "use_emformer_mem": True,
-            },
-            suffix=f"_L{left_context}_C{center_context}_R{right_context}",
-        )
-
-    for left_context, center_context, right_context, conv_cache_size, mem_size in [
-        (0, 10, 15, 4, 1),
-    ]:
-        run_chunkwise_train(
-            enc_stream_type="chunked",
-            run_all_for_best_last_avg=True,
-            enable_check_align=False,
-            chunk_sizes=[left_context + center_context + right_context],
-            chunk_step_factors=[center_context / (left_context + center_context + right_context)],
-            start_lrs=[2e-4],
-            decay_pt_factors=[1 / 3],
-            gpu_mem=11,
-            total_epochs=[120],
-            batch_size=10_000,
-            accum_grad=3,
             time_rqmt=120,
             end_slice_start=left_context,
             end_slice_size=center_context,

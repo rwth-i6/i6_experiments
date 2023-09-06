@@ -31,6 +31,7 @@ from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.librispeech_
     RETURNN_CPU_EXE,
     SCTK_BINARY_PATH,
 )
+from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.default_tools import RETURNN_ROOT_V2
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.feature_extraction_net import (
     log10_net_10ms,
 )
@@ -187,7 +188,7 @@ def run_train(
         exp_prefix,
         returnn_config,
         RETURNN_CPU_EXE,
-        RETURNN_ROOT,
+        kwargs.get("returnn_root", RETURNN_ROOT),
         num_epochs=num_epochs,
         time_rqmt=time_rqmt,
         gpu_mem=kwargs.get("gpu_mem", 11),
@@ -487,7 +488,7 @@ def run_search(
     averaged_checkpoint = get_average_checkpoint(
         train_job,
         returnn_exe=RETURNN_CPU_EXE,
-        returnn_root=RETURNN_ROOT,
+        returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
         num_average=num_avg,
         key=kwargs.get("key", "dev_score_output/output_prob"),
     )
@@ -519,7 +520,7 @@ def run_search(
             train_job.out_checkpoints[ep],
             test_dataset_tuples,
             RETURNN_CPU_EXE,
-            RETURNN_ROOT,
+            kwargs.get("returnn_root", RETURNN_ROOT),
             use_sclite=kwargs.get("use_sclite", False),
             recog_ext_pipeline=recog_ext_pipeline,
             remove_label=remove_label,
@@ -531,7 +532,7 @@ def run_search(
         train_job.out_checkpoints[num_epochs],
         all_test_dataset_tuples if run_all_for_best_last_avg else test_dataset_tuples,
         RETURNN_CPU_EXE,
-        RETURNN_ROOT,
+        kwargs.get("returnn_root", RETURNN_ROOT),
         use_sclite=kwargs.get("use_sclite", False),
         recog_ext_pipeline=recog_ext_pipeline,
         remove_label=remove_label,
@@ -543,7 +544,7 @@ def run_search(
         best_checkpoint,
         all_test_dataset_tuples if run_all_for_best_last_avg else test_dataset_tuples,
         RETURNN_CPU_EXE,
-        RETURNN_ROOT,
+        kwargs.get("returnn_root", RETURNN_ROOT),
         use_sclite=kwargs.get("use_sclite", False),
         recog_ext_pipeline=recog_ext_pipeline,
         remove_label=remove_label,
@@ -555,7 +556,7 @@ def run_search(
         averaged_checkpoint,
         all_test_dataset_tuples if run_all_for_best_last_avg else test_dataset_tuples,
         RETURNN_CPU_EXE,
-        RETURNN_ROOT,
+        kwargs.get("returnn_root", RETURNN_ROOT),
         use_sclite=kwargs.get("use_sclite", False),
         recog_ext_pipeline=recog_ext_pipeline,
         remove_label=remove_label,
@@ -2058,11 +2059,12 @@ def baseline():
         chunk_step_factors=[1],
         start_lrs=[2e-4],
         decay_pt_factors=[0.25],
-        gpu_mem=11,
+        gpu_mem=24,
         total_epochs=[60, 80, 120],
-        batch_size=15_000,
-        accum_grad=2,
+        batch_size=30_000,
+        accum_grad=1,
         time_rqmt=120,
         decoder_mask_eoc=True,
         remove_att_ctx_from_dec_state=True,
+        returnn_root=RETURNN_ROOT_V2,
     )

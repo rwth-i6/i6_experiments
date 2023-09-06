@@ -30,6 +30,7 @@ from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.librispeech_
     RETURNN_ROOT,
     RETURNN_CPU_EXE,
 )
+from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.default_tools import RETURNN_ROOT_V2
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.feature_extraction_net import (
     log10_net_10ms,
 )
@@ -175,7 +176,7 @@ def run_train(
         exp_prefix,
         returnn_config,
         RETURNN_CPU_EXE,
-        RETURNN_ROOT,
+        kwargs.get("returnn_root", RETURNN_ROOT),
         num_epochs=num_epochs,
         time_rqmt=time_rqmt,
         gpu_mem=kwargs.get("gpu_mem", 11),
@@ -402,7 +403,7 @@ def run_search(
     averaged_checkpoint = get_average_checkpoint(
         train_job,
         returnn_exe=RETURNN_CPU_EXE,
-        returnn_root=RETURNN_ROOT,
+        returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
         num_average=num_avg,
         key=kwargs.get("key", "dev_score_output/output_prob"),
     )
@@ -434,7 +435,7 @@ def run_search(
             train_job.out_checkpoints[ep],
             test_dataset_tuples,
             RETURNN_CPU_EXE,
-            RETURNN_ROOT,
+            kwargs.get("returnn_root", RETURNN_ROOT),
             use_sclite=kwargs.get("use_sclite", False),
             recog_ext_pipeline=recog_ext_pipeline,
             remove_label=remove_label,
@@ -446,7 +447,7 @@ def run_search(
         train_job.out_checkpoints[num_epochs],
         all_test_dataset_tuples if run_all_for_best_last_avg else test_dataset_tuples,
         RETURNN_CPU_EXE,
-        RETURNN_ROOT,
+        kwargs.get("returnn_root", RETURNN_ROOT),
         use_sclite=kwargs.get("use_sclite", False),
         recog_ext_pipeline=recog_ext_pipeline,
         remove_label=remove_label,
@@ -458,7 +459,7 @@ def run_search(
         best_checkpoint,
         all_test_dataset_tuples if run_all_for_best_last_avg else test_dataset_tuples,
         RETURNN_CPU_EXE,
-        RETURNN_ROOT,
+        kwargs.get("returnn_root", RETURNN_ROOT),
         use_sclite=kwargs.get("use_sclite", False),
         recog_ext_pipeline=recog_ext_pipeline,
         remove_label=remove_label,
@@ -470,7 +471,7 @@ def run_search(
         averaged_checkpoint,
         all_test_dataset_tuples if run_all_for_best_last_avg else test_dataset_tuples,
         RETURNN_CPU_EXE,
-        RETURNN_ROOT,
+        kwargs.get("returnn_root", RETURNN_ROOT),
         use_sclite=kwargs.get("use_sclite", False),
         recog_ext_pipeline=recog_ext_pipeline,
         remove_label=remove_label,
@@ -1215,6 +1216,10 @@ def run_chunkwise_train(
                             train_args["encoder_args"].rel_pos_clipping = kwargs["rel_pos_clipping"]
                             exp_name += f"_relPosClip{kwargs['rel_pos_clipping']}"
 
+                        if kwargs.get("freeze_bn", False):
+                            train_args["freeze_bn"] = True
+                            exp_name += "_freezeBN"
+
                         if suffix:
                             exp_name += suffix
 
@@ -1428,28 +1433,33 @@ def baseline():
         )
 
         if conv_cache_size == 2 and mem_size == 2:
+            # chunked_att_chunk-25_step-20_linDecay300_0.0002_decayPt0.3333333333333333_bs15000_accum2_winLeft0_endSliceStart0_endSlice20_memVariant1_memSize2_convCache2_useCachedKV_memSlice0-20_L0_C20_R5
+            # 2.57         6.83          2.83          6.73  avg
             for beam in [8, 12, 24, 32, 64]:
-                for length_norm in [True, False]:
-                    search_exp_name = exp_name_
-                    search_args = copy.deepcopy(train_args_)
-                    search_args["beam_size"] = beam
-                    search_exp_name += f"_beam{beam}"
-                    search_args["decoder_args"].length_normalization = length_norm
-                    if length_norm is False:
-                        search_exp_name += "_noLenNorm"
-                    test_datasets = get_test_dataset_tuples(bpe_size=BPE_10K)
-                    for test_dataset in ["dev-other"]:
-                        run_single_search(
-                            prefix_name=prefix_name,
-                            exp_name=search_exp_name + f"/{test_dataset}",
-                            train_data=train_data,
-                            search_args=search_args,
-                            checkpoint=train_job_avg_ckpt[exp_name_],
-                            feature_extraction_net=log10_net_10ms,
-                            recog_dataset=test_datasets[test_dataset][0],
-                            recog_ref=test_datasets[test_dataset][1],
-                            recog_bliss_corpus=test_datasets[test_dataset][2],
-                        )
+                for eoc_pen in [0.1, 0.15, 0.2, 0.3]:
+                    for length_norm in [True, False]:
+                        search_exp_name = exp_name_
+                        search_args = copy.deepcopy(train_args_)
+                        search_args["beam_size"] = beam
+                        search_exp_name += f"_beam{beam}"
+                        search_args["decoder_args"].length_normalization = length_norm
+                        if length_norm is False:
+                            search_exp_name += "_noLenNorm"
+                        search_args["decoder_args"].eoc_penalty = eoc_pen
+                        search_exp_name += f"_eocPen{eoc_pen}"
+                        test_datasets = get_test_dataset_tuples(bpe_size=BPE_10K)
+                        for test_dataset in ["dev-other"]:
+                            run_single_search(
+                                prefix_name=prefix_name,
+                                exp_name=search_exp_name + f"/{test_dataset}",
+                                train_data=train_data,
+                                search_args=search_args,
+                                checkpoint=train_job_avg_ckpt[exp_name_],
+                                feature_extraction_net=log10_net_10ms,
+                                recog_dataset=test_datasets[test_dataset][0],
+                                recog_ref=test_datasets[test_dataset][1],
+                                recog_bliss_corpus=test_datasets[test_dataset][2],
+                            )
 
     for lr in [2e-4]:
         for left_context, center_context, right_context, conv_cache_size, mem_size in [
@@ -1553,6 +1563,39 @@ def baseline():
             retrain_ckpt=global_att_v2,
         )
 
+    # TODO: freeze BN
+    # for left_context, center_context, right_context, conv_cache_size, mem_size in [
+    #     (0, 20, 5, 1, 2),
+    # ]:
+    #     run_chunkwise_train(
+    #         enc_stream_type="chunked",
+    #         run_all_for_best_last_avg=True,
+    #         enable_check_align=False,
+    #         chunk_sizes=[left_context + center_context + right_context],
+    #         chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+    #         start_lrs=[lr],
+    #         decay_pt_factors=[1 / 3],
+    #         gpu_mem=24,
+    #         total_epochs=[300],
+    #         batch_size=15_000,
+    #         accum_grad=2,
+    #         time_rqmt=168,
+    #         end_slice_start=left_context,
+    #         end_slice_size=center_context,
+    #         window_left_padding=left_context * 6,
+    #         conf_mem_opts={
+    #             "self_att_version": 1,
+    #             "mem_size": mem_size,
+    #             "use_cached_prev_kv": True,
+    #             "conv_cache_size": conv_cache_size,
+    #             "mem_slice_start": left_context,
+    #             "mem_slice_size": center_context,
+    #         },
+    #         suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+    #         selected_datasets=["dev-other"],
+    #         freeze_bn=True,
+    #     )
+
     # ------------------- Chunk size 1 ------------------- #
 
     for mask_eoc in [True, False]:
@@ -1598,3 +1641,20 @@ def baseline():
     # TODO: h_t without linear trafo (might be different dim)
 
     # TODO: no h_t at all (also different dim)
+    run_chunkwise_train(
+        enc_stream_type="global",
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        chunk_sizes=[1],
+        chunk_step_factors=[1],
+        start_lrs=[2e-4],
+        decay_pt_factors=[0.25],
+        gpu_mem=24,
+        total_epochs=[200],
+        batch_size=30_000,
+        accum_grad=1,
+        time_rqmt=120,
+        decoder_mask_eoc=True,
+        remove_att_ctx_from_dec_state=True,
+        returnn_root=RETURNN_ROOT_V2,
+    )
