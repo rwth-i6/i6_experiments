@@ -348,7 +348,8 @@ def run_single(
         s.experiments["fh"]["priors"] = smoothen_priors(prior_info)
 
     best_config = None
-    for ep, crp_k in itertools.product([300, 500, max(keep_epochs)], ["dev-other"]):
+    eps = [500, max(keep_epochs)] if n_states_per_phone else [max(keep_epochs)]
+    for ep, crp_k in itertools.product(eps, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
         if own_priors or n_states_per_phone != 3:
