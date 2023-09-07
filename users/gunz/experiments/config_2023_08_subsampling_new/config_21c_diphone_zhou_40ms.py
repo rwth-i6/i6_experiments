@@ -81,7 +81,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             decode_all_corpora=False,
             lr="zhou",
             own_priors=False,
-            run_performance_study=False,
+            run_performance_study=True,
             tune_decoding=a_name == "40ms-FF-v8",
         )
     ]
@@ -2237,6 +2237,34 @@ def run_single(
                         opt_lm_am_scale=True,
                         rtf=12,
                     )
+
+                if run_performance_study:
+                    configs = [
+                        dataclasses.replace(
+                            s.get_cart_params("fh"), altas=a, beam=beam, beam_limit=100000, lm_scale=2, tdp_scale=0.4
+                        ).with_prior_scale(pC)
+                        for beam, pC, a in itertools.product(
+                            [14, 16, 18],
+                            [0.4, 0.6],
+                            [None, 2, 4, 6],
+                        )
+                    ]
+                    for cfg in configs:
+                        j = s.recognize_cart(
+                            key="fh-fs",
+                            epoch=max(keep_epochs),
+                            calculate_statistics=True,
+                            cart_tree_or_tying_config=tying_cfg,
+                            cpu_rqmt=2,
+                            crp_corpus="dev-other",
+                            lm_gc_simple_hash=True,
+                            log_softmax_returnn_config=nn_precomputed_returnn_config,
+                            mem_rqmt=4,
+                            n_cart_out=diphone_li.get_n_of_dense_classes(),
+                            params=cfg,
+                            rtf=1.5,
+                        )
+                        j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
