@@ -86,6 +86,8 @@ class Import(SerializerObject):
             Recommended is to use the root folder of an experiment module. E.g.:
             `i6_experiments.users.username.some_experiment`
             which could be retrieved via `__package__` from a module in the root of the `some_experiment` folder.
+            In case one wants to avoid hash conflicts this might cause, passing an `ExplicitHash` object to the
+            same collection as the import is possible.
         :param import_as: if given, the code object will be imported as this name
         :param use_for_hash: if False, this import is not hashed when passed to a Collection/Serializer
         :param ignore_import_as_for_hash: do not hash `import_as` if set
@@ -102,6 +104,7 @@ class Import(SerializerObject):
 
         self.object_name = self.code_object.split(".")[-1]
         self.module = ".".join(self.code_object.split(".")[:-1])
+        self.package = ".".join(self.code_object.split(".")[:-2])
 
         if unhashed_package_root:
             if not self.code_object.startswith(unhashed_package_root):
@@ -158,6 +161,8 @@ class PartialImport(Import):
             Recommended is to use the root folder of an experiment module. E.g.:
             `i6_experiments.users.username.some_experiment`
             which could be retrieved via `__package__` from a module in the root of the `some_experiment` folder.
+            In case one wants to avoid hash conflicts this might cause, passing an `ExplicitHash` object to the
+            same collection as the import is possible.
         :param hashed_arguments: argument dictionary for addition partial arguments to set to the callable.
             Will be serialized as dict into the config, so make sure to use only serializable/parseable content
         :param unhashed_arguments: same as above, but does not influence the hash
