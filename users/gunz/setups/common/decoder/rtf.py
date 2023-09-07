@@ -43,7 +43,7 @@ class ExtractSearchStatisticsJob(Job):
         self.rqmt = {"cpu": 1, "mem": 2.0, "time": 0.5}
 
     def tasks(self):
-        yield Task("run", resume="run", rqmt=self.rqmt)
+        yield Task("run", resume="run", mini_task=True)
 
     def run(self):
         queue_stats = collections.defaultdict(list)
