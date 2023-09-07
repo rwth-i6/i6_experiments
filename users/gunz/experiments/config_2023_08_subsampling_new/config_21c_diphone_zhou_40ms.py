@@ -2241,7 +2241,14 @@ def run_single(
                 if run_performance_study:
                     configs = [
                         dataclasses.replace(
-                            s.get_cart_params("fh"), altas=a, beam=beam, beam_limit=100000, lm_scale=2, tdp_scale=0.4
+                            base_params,
+                            altas=a,
+                            beam=beam,
+                            beam_limit=100000,
+                            lm_scale=2,
+                            tdp_scale=0.2,
+                            tdp_speech=(10, 0, "infinity", 0),
+                            tdp_silence=(10, 10, "infinity", 10),
                         ).with_prior_scale(pC)
                         for beam, pC, a in itertools.product(
                             [14, 16, 18],
