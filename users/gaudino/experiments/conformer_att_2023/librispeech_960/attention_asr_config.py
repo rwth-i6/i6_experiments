@@ -516,6 +516,8 @@ class CTCDecoderArgs(DecoderArgs):
     ctc_beam_search_tf: bool = False
     att_masking_fix: bool = False
     one_minus_term_mul_scale: float = 1.0
+    one_minus_term_sub_scale: float = 0.0
+    length_normalization: bool = False
 
 
 def create_config(

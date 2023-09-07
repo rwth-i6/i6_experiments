@@ -253,12 +253,18 @@ attention_decoder_dict_with_fix = {
                 "from": "prev:accum_att_weights",
                 "n_out": 1024,
             },
+            "weight_feedback_masked": {
+                "class": "switch",
+                "condition": "base:prev_mask",
+                "true_from": "weight_feedback",
+                "false_from": "prev:weight_feedback_masked",
+            },
             "energy_in": {
                 "class": "combine",
                 "kind": "add",
                 "from": [
                     "base:base:enc_ctx",
-                    "weight_feedback",
+                    "weight_feedback_masked",
                     "s_transformed",
                 ],
                 "n_out": 1024,
@@ -282,17 +288,17 @@ attention_decoder_dict_with_fix = {
                 "weights": "att_weights",
                 "base": "base:base:enc_value",
             },
-            "_att": {
+            "att": {
                 "class": "merge_dims",
                 "from": "att0",
                 "axes": "except_batch",
             },
-            "att": {
-                "class": "switch",
-                "condition": "base:prev_mask",
-                "true_from": "_att",
-                "false_from": "prev:att",
-            },
+            # "att": {
+            #     "class": "switch",
+            #     "condition": "base:prev_mask",
+            #     "true_from": "_att",
+            #     "false_from": "prev:att", # this also fixes the bug
+            # },
             "_s": {
                 "class": "rnn_cell",
                 "unit": "zoneoutlstm",
@@ -421,8 +427,8 @@ class CTCDecoder:
         att_scale=0.3,
         ts_reward=0.0,
         ctc_scale=1.0,
-        blank_prob_scale=0.0,  # in log space
-        repeat_prob_scale=0.0,  # in log space
+        blank_prob_scale=0.0,  # minus this in log space
+        repeat_prob_scale=0.0,  # minus this in log space
         ctc_prior_correction=False,
         prior_scale=1.0,
         # loc_conv_att_filter_size=None,
@@ -443,6 +449,7 @@ class CTCDecoder:
         ctc_beam_search_tf=False,
         att_masking_fix=False,
         one_minus_term_mul_scale=1.0,
+        one_minus_term_sub_scale=0.0,
     ):
         """
         :param base_model: base/encoder model instance
@@ -550,6 +557,7 @@ class CTCDecoder:
         self.att_masking_fix = att_masking_fix
 
         self.one_minus_term_mul_scale = one_minus_term_mul_scale
+        self.one_minus_term_sub_scale = one_minus_term_sub_scale
 
         self.network = ReturnnNetwork()
         self.subnet_unit = ReturnnNetwork()
@@ -616,6 +624,16 @@ class CTCDecoder:
                     "class": "copy",
                     "from": "prev:curr_mask",
                 },
+                # "curr_mask_v2": {
+                #     "class": "combine",
+                #     "kind": "logical_and",
+                #     "from": ["is_curr_out_not_blank_mask", "not_repeat_mask"],
+                #     "initial_output": False,
+                # },
+                # "prev_mask_v2": {
+                #     "class": "copy",
+                #     "from": "prev:curr_mask",
+                # },
             }
         )
 
@@ -781,11 +799,6 @@ class CTCDecoder:
                 },
                 # ----------------------------- #
                 # p_ctc_sigma' (blank | ...)
-                "scaled_blank_prob": {
-                    "class": "eval",
-                    "from": "blank_prob",
-                    "eval": f"source(0) ** {one_minus_term_scale_old}",
-                },
                 "scaled_blank_log_prob": {
                     "class": "eval",
                     "from": "blank_log_prob",
@@ -803,26 +816,21 @@ class CTCDecoder:
                     "position": "prev:output",
                     "axis": "f",
                 },
-                "scaled_prev_ctc_log_scores": {
-                    "class": "eval",
-                    "from": "prev_ctc_log_scores",
-                    "eval": f"{one_minus_term_scale_old} * source(0)",
-                },
-                "scaled_prev_ctc_scores": {
+                "prev_ctc_scores": {
                     "class": "activation",
                     "activation": "safe_exp",
-                    "from": "scaled_prev_ctc_log_scores",
+                    "from": "prev_ctc_log_scores",
                 },
                 "repeat_prob_term": {
                     "class": "switch",
                     "condition": "is_prev_out_not_blank_mask",
-                    "true_from": "scaled_prev_ctc_scores",  # p(label:=prev:label|...)
+                    "true_from": "prev_ctc_scores",  # p(label:=prev:label|...)
                     "false_from": 0.0,
                 },
                 "1_minus_term_": {
                     "class": "combine",
                     "kind": "sub",
-                    "from": ["one", "scaled_blank_prob"],
+                    "from": ["one", "blank_prob"],
                 },
                 "1_minus_term": {
                     "class": "combine",
@@ -869,13 +877,13 @@ class CTCDecoder:
             }
         )
 
-        if self.one_minus_term_mul_scale != 1.0:
+        if self.one_minus_term_mul_scale != 1.0 or self.one_minus_term_sub_scale != 0.0:
             subnet_unit.update(
                 {
                     "mul_scaled_1_minus_term_log": {
                         "class": "eval",
                         "from": "1_minus_term_log",
-                        "eval": f"source(0) * {self.one_minus_term_mul_scale}",
+                        "eval": f"source(0) * {self.one_minus_term_mul_scale} - {self.one_minus_term_sub_scale}",
                     },
                     # [1 - P_ctc(blank|...) - P_ctc(label:=prev:label|...)] * P_att(label|...)  # prev:label != blank
                     "p_comb_sigma_prime_label": {
