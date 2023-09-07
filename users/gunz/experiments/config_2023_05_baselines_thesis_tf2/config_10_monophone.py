@@ -132,7 +132,7 @@ def run(
             lr="v13",
             multitask=True,
             num_states_per_phone=1,
-            run_performance_study=False,
+            run_performance_study=True,
             tune_decoding=False,
         ),
         *(
