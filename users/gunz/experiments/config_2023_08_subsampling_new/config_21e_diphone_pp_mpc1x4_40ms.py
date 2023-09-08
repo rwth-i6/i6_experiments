@@ -218,14 +218,15 @@ def run_single(
     network = augment_net_with_label_pops(
         network,
         label_info=s.label_info,
-        classes_subsampling_info=SubsamplingInfo(factor=1, time_tag_name=time_tag_name),
+        classes_subsampling_info=SubsamplingInfo(factor=ss_factor, time_tag_name=time_tag_name),
     )
-    network["classes_"] = {
+    network["slice_classes"] = {
         "class": "slice",
         "from": network["classes_"]["from"],
         "axis": "T",
         "slice_step": ss_factor,
     }
+    network["classes_"]["from"] = "slice_classes"
     network = augment_net_with_monophone_outputs(
         network,
         add_mlps=True,
