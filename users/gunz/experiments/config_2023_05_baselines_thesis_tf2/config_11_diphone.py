@@ -353,6 +353,11 @@ def run_single(
             set_batch_major_for_feature_scorer=True,
             lm_gc_simple_hash=True,
         )
+
+        if n_states_per_phone == 1:
+            tdp_sp = recog_args.with_tdp_speech()
+            recog_args = recog_args.with_tdp_speech((0, *tdp_sp[1:]))
+
         for cfg in [
             recog_args.with_prior_scale(0.4, 0.4).with_tdp_scale(0.4),
             recog_args.with_prior_scale(0.2, 0.1).with_tdp_scale(0.4),
@@ -401,6 +406,10 @@ def run_single(
                 set_batch_major_for_feature_scorer=True,
                 lm_gc_simple_hash=True,
             )
+
+            if n_states_per_phone == 1:
+                tdp_sp = recog_args.with_tdp_speech()
+                recog_args = recog_args.with_tdp_speech((0, *tdp_sp[1:]))
 
             cfgs = [recog_args.with_prior_scale(0.4, 0.4).with_tdp_scale(0.4)]
 

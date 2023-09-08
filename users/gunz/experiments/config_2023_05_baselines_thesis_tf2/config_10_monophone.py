@@ -375,6 +375,10 @@ def run_single(
             set_batch_major_for_feature_scorer=True,
         )
 
+        if num_states_per_phone == 1:
+            tdp_sp = recog_args.with_tdp_speech()
+            recog_args = recog_args.with_tdp_speech((0, *tdp_sp[1:]))
+
         for cfg in [recog_args.with_prior_scale(0.6).with_tdp_scale(0.5)]:
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
@@ -449,6 +453,10 @@ def run_single(
                 tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
                 set_batch_major_for_feature_scorer=True,
             )
+
+            if num_states_per_phone == 1:
+                tdp_sp = recog_args.with_tdp_speech()
+                recog_args = recog_args.with_tdp_speech((0, *tdp_sp[1:]))
 
             cfgs = [recog_args.with_prior_scale(0.6).with_tdp_scale(0.5)]
 
