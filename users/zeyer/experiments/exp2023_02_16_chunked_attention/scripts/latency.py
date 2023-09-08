@@ -3,10 +3,12 @@ Calc latency
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Optional, Union, List, Dict
 import argparse
 import gzip
+import re
 from decimal import Decimal
 from xml.etree import ElementTree
 from collections import OrderedDict
@@ -22,8 +24,8 @@ ET = ElementTree
 class Deps:
     """deps"""
 
-    sprint_phone_alignments: Union[FileArchiveBundle, FileArchive]
-    sprint_lexicon: Lexicon
+    phone_alignments: Union[FileArchiveBundle, FileArchive]
+    lexicon: Lexicon
     labels_with_eoc_hdf: HDFDataset
     corpus: Dict[str, BlissItem]
 
@@ -132,6 +134,8 @@ class Lexicon:
     def __init__(self, file: Optional[str] = None):
         self.phonemes = OrderedDict()  # type: OrderedDict[str, str] # symbol => variation
         self.lemmata = []  # type: List[Lemma]
+        self.orth_to_lemma = {}  # type: Dict[str, Lemma]
+        self.special_phones = {}  # type: Dict[str, Lemma]
         if file:
             self.load(file)
 
@@ -155,6 +159,11 @@ class Lexicon:
         """
         assert isinstance(lemma, Lemma)
         self.lemmata.append(lemma)
+        for orth in lemma.orth:
+            self.orth_to_lemma[orth] = lemma
+        if lemma.special:
+            for phon in lemma.phon:
+                self.special_phones[phon] = lemma
 
     def load(self, path):
         """
@@ -233,6 +242,15 @@ class Lemma:
                 "and can be safely changed into a single list"
             )
 
+    def __repr__(self):
+        return "Lemma(orth=%r, phon=%r, synt=%r, eval=%r, special=%r)" % (
+            self.orth,
+            self.phon,
+            self.synt,
+            self.eval,
+            self.special,
+        )
+
     def to_xml(self):
         """
         :return: xml representation
@@ -295,13 +313,26 @@ def get_sprint_word_ends(deps: Deps, segment_name: str) -> List[int]:
 
 def handle_segment(deps: Deps, segment_name: str):
     """handle segment"""
-    f = deps.sprint_phone_alignments.read(segment_name, "align")
-    allophones = deps.sprint_phone_alignments.get_allophones_list()
-    for time, index, state, weight in f:
+    phone_alignment = deps.phone_alignments.read(segment_name, "align")
+    corpus_entry = deps.corpus[segment_name]
+    words = corpus_entry.orth.split()
+    for word in words:
+        lemma = deps.lexicon.orth_to_lemma[word]
+        print(lemma)
+    allophones = deps.phone_alignments.get_allophones_list()
+    for time, index, state, weight in phone_alignment:
+        allophone = allophones[index]  # like: "[SILENCE]{#+#}@i@f" or "W{HH+AH}"
+        m = re.match(r"([a-zA-Z\[\]#]+){([a-zA-Z\[\]#]+)\+([a-zA-Z\[\]#]+)}(@i)?(@f)?", allophone)
+        assert m
+        center, left, right, is_initial, is_final = m.groups()
+        if center in deps.lexicon.special_phones:
+            lemma = deps.lexicon.special_phones[center]
+            if "" in lemma.orth:  # e.g. silence
+                continue  # skip silence or similar
         # Keep similar format as Sprint archiver.
         items = [
             f"time={time}",
-            f"allophone={allophones[index]}",
+            f"allophone={allophone}",
             f"index={index}",
             f"state={state}",
         ]
@@ -334,9 +365,7 @@ def main():
     for item in iter_bliss(args.corpus):
         corpus[item.segment_name] = item
 
-    deps = Deps(
-        sprint_phone_alignments=phone_alignments, sprint_lexicon=lexicon, labels_with_eoc_hdf=dataset, corpus=corpus
-    )
+    deps = Deps(phone_alignments=phone_alignments, lexicon=lexicon, labels_with_eoc_hdf=dataset, corpus=corpus)
 
     for segment_name in args.segment or corpus:
         print(corpus[segment_name])
