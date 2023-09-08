@@ -68,6 +68,7 @@ class Experiment:
     fine_tune: bool
     lr: str
     dc_detection: bool
+    num_epochs: int
     run_performance_study: bool
     tune_decoding: bool
     run_tdp_study: bool
@@ -91,10 +92,25 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             decode_all_corpora=False,
             fine_tune=a_name == "40ms-FF-v8",
             lr="v13",
+            num_epochs=600,
             run_performance_study=a_name == "40ms-FF-v8",
             tune_decoding=a_name == "40ms-FF-v8",
             run_tdp_study=False,
-        )
+        ),
+        Experiment(
+            alignment=alignment,
+            alignment_name=a_name,
+            batch_size=10000,
+            dc_detection=False,
+            decode_all_corpora=False,
+            fine_tune=a_name == "40ms-FF-v8",
+            lr="v13",
+            # 200 is the equivalent number of epochs in training time of training a FF-NN for alignment
+            num_epochs=600 + 200,
+            run_performance_study=a_name == "40ms-FF-v8",
+            tune_decoding=a_name == "40ms-FF-v8",
+            run_tdp_study=False,
+        ),
     ]
     for exp in configs:
         run_single(
@@ -105,6 +121,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             decode_all_corpora=exp.decode_all_corpora,
             fine_tune=exp.fine_tune,
             focal_loss=exp.focal_loss,
+            num_epochs=exp.num_epochs,
             returnn_root=returnn_root,
             run_performance_study=exp.run_performance_study,
             tune_decoding=exp.tune_decoding,
@@ -117,7 +134,6 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
 def run_single(
     *,
     alignment: tk.Path,
-    alignment_name: str,
     batch_size: int,
     dc_detection: bool,
     decode_all_corpora: bool,
@@ -137,7 +153,7 @@ def run_single(
     bw_scale = baum_welch.BwScales(label_posterior_scale=0.3, label_prior_scale=None, transition_scale=0.3)
     ss_factor = 4
 
-    name = f"conf-2-a:{alignment_name}-lr:{lr}-fl:{focal_loss}-fs-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
+    name = f"conf-2-ep:{num_epochs}-lr:{lr}-fl:{focal_loss}-fs-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -299,7 +315,7 @@ def run_single(
         log_linear_scales=bw_scale,
     )
 
-    s.set_experiment_dict("fh", alignment_name, "di", postfix_name=name)
+    s.set_experiment_dict("fh", "fs", "di", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
     train_args = {
