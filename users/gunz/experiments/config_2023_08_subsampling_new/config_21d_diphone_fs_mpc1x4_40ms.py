@@ -105,7 +105,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             decode_all_corpora=False,
             fine_tune=a_name == "40ms-FF-v8",
             lr="v13",
-            # 200 is the equivalent number of epochs in training time of training a FF-NN for alignment
+            # 200 is the equivalent number of epochs in training time of training an FF-NN for alignment
             num_epochs=600 + 200,
             run_performance_study=a_name == "40ms-FF-v8",
             tune_decoding=a_name == "40ms-FF-v8",
