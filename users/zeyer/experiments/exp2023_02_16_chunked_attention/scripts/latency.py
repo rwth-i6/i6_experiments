@@ -25,6 +25,7 @@ class Deps:
     """deps"""
 
     phone_alignments: Union[FileArchiveBundle, FileArchive]
+    phone_alignment_ms_per_frame: float
     lexicon: Lexicon
     labels_with_eoc_hdf: HDFDataset
     corpus: Dict[str, BlissItem]
@@ -316,12 +317,14 @@ def handle_segment(deps: Deps, segment_name: str):
     phone_alignment = deps.phone_alignments.read(segment_name, "align")
     corpus_entry = deps.corpus[segment_name]
     words = corpus_entry.orth.split()
-    for word in words:
-        lemma = deps.lexicon.orth_to_lemma[word]
-        print(lemma)
     allophones = deps.phone_alignments.get_allophones_list()
-    for time, index, state, weight in phone_alignment:
-        allophone = allophones[index]  # like: "[SILENCE]{#+#}@i@f" or "W{HH+AH}"
+    next_time_idx = 0
+    word_idx = 0
+    cur_word_phones = []
+    for time_idx, allophone_idx, state, weight in phone_alignment:
+        assert next_time_idx == time_idx
+        next_time_idx += 1
+        allophone = allophones[allophone_idx]  # like: "[SILENCE]{#+#}@i@f" or "W{HH+AH}"
         m = re.match(r"([a-zA-Z\[\]#]+){([a-zA-Z\[\]#]+)\+([a-zA-Z\[\]#]+)}(@i)?(@f)?", allophone)
         assert m
         center, left, right, is_initial, is_final = m.groups()
@@ -329,22 +332,27 @@ def handle_segment(deps: Deps, segment_name: str):
             lemma = deps.lexicon.special_phones[center]
             if "" in lemma.orth:  # e.g. silence
                 continue  # skip silence or similar
-        # Keep similar format as Sprint archiver.
-        items = [
-            f"time={time}",
-            f"allophone={allophone}",
-            f"index={index}",
-            f"state={state}",
-        ]
-        if weight != 1:
-            items.append(f"weight={weight}")
-        print("\t".join(items))
+        if time_idx + 1 >= len(phone_alignment) or phone_alignment[time_idx + 1][1] == allophone_idx:
+            continue  # skip to the last frame for this phoneme
+        cur_word_phones.append(center)
+
+        if is_final:
+            lemma = deps.lexicon.orth_to_lemma[words[word_idx]]
+            phones_s = " ".join(cur_word_phones)
+            print(f"end time {time_idx * deps.phone_alignment_ms_per_frame / 1000.}sec:", lemma.orth[0], "/", phones_s)
+            if phones_s not in lemma.phon:
+                print(f"WARNING: phones {phones_s} not in lemma {lemma}?")
+
+            cur_word_phones.clear()
+            word_idx += 1
+    assert word_idx == len(words)
 
 
 def main():
     """main"""
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--phone-alignments", required=True)
+    arg_parser.add_argument("--phone-alignment-ms-per-frame", type=float, default=10.0)
     arg_parser.add_argument("--allophone-file", required=True)
     arg_parser.add_argument("--lexicon", required=True)
     arg_parser.add_argument("--corpus", required=True)
@@ -365,7 +373,13 @@ def main():
     for item in iter_bliss(args.corpus):
         corpus[item.segment_name] = item
 
-    deps = Deps(phone_alignments=phone_alignments, lexicon=lexicon, labels_with_eoc_hdf=dataset, corpus=corpus)
+    deps = Deps(
+        phone_alignments=phone_alignments,
+        phone_alignment_ms_per_frame=args.phone_alignment_ms_per_frame,
+        lexicon=lexicon,
+        labels_with_eoc_hdf=dataset,
+        corpus=corpus,
+    )
 
     for segment_name in args.segment or corpus:
         print(corpus[segment_name])
