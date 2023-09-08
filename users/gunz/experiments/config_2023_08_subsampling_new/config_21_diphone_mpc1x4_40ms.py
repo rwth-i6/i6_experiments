@@ -622,6 +622,7 @@ def run_single(
                         log_softmax_returnn_config=nn_precomputed_returnn_config,
                         calculate_statistics=True,
                         opt_lm_am_scale=True,
+                        prior_epoch=min(ep, keep_epochs[-2]),
                         rtf=12,
                     )
 
@@ -649,6 +650,7 @@ def run_single(
                             mem_rqmt=4,
                             n_cart_out=diphone_li.get_n_of_dense_classes(),
                             params=cfg,
+                            prior_epoch=min(ep, keep_epochs[-2]),
                             rtf=1.5,
                         )
                         j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
@@ -718,6 +720,7 @@ def run_single(
                 calculate_statistics=False,
                 lm_gc_simple_hash=True,
                 opt_lm_am_scale=False,
+                prior_epoch=max(keep_epochs),
                 mem_rqmt=2,
                 cpu_rqmt=2,
                 rtf=4,

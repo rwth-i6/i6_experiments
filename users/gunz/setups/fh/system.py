@@ -1441,6 +1441,7 @@ class FactoredHybridSystem(NnSystem):
         create_lattice: bool = True,
         search_rqmt_update: Optional[dict] = None,
         crp_update: Optional[typing.Callable] = None,
+        prior_epoch: typing.Union[int, str] = "",
     ) -> recognition.AdvancedTreeSearchJob:
         p_info: PriorInfo = self.experiments[key].get("priors", None)
         assert p_info is not None, "set priors first"
@@ -1523,7 +1524,7 @@ class FactoredHybridSystem(NnSystem):
             epochs=[epoch],
             forward_output_layer=encoder_output_layer,
             prior_paths={
-                "rp": PriorPath(
+                f"rp{prior_epoch}": PriorPath(
                     acoustic_mixture_path=p_mixtures,
                     prior_xml_path=p_info.center_state_prior.file,
                 )
@@ -1624,7 +1625,7 @@ class FactoredHybridSystem(NnSystem):
                 tdp_nonspeech=to_tdp(params.tdp_non_word),
                 altas=params.altas,
             )
-            stats_alias = f"statistics-nn-pch/{self.experiments[key]['name']}/ep{epoch}/{exp_str}_beam{params.beam}_bl{params.beam_limit}"
+            stats_alias = f"statistics-nn-pch/{self.experiments[key]['name']}/ep{epoch}/rp{prior_epoch}/{exp_str}_beam{params.beam}_bl{params.beam_limit}"
 
             stats_job.add_alias(stats_alias)
             tk.register_output(f"{stats_alias}/avg_states", stats_job.avg_states)

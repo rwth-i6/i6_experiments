@@ -365,6 +365,7 @@ def run_single(
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
                 calculate_statistics=True,
                 opt_lm_am_scale=True,
+                prior_epoch=min(ep, keep_epochs[-2]),
                 rtf=12,
             )
 
