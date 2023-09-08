@@ -223,7 +223,7 @@ def run_single(
     network["classes_"] = {
         "class": "slice",
         "from": network["classes_"]["from"],
-        "axis_kind": "T",
+        "axis": "T",
         "slice_step": ss_factor,
     }
     network = augment_net_with_monophone_outputs(
