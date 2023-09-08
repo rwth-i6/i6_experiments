@@ -62,7 +62,6 @@ train_key = "train-other-960"
 @dataclass(frozen=True)
 class Experiment:
     alignment: tk.Path
-    alignment_name: str
     batch_size: int
     decode_all_corpora: bool
     fine_tune: bool
@@ -86,7 +85,6 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
     configs = [
         Experiment(
             alignment=alignment,
-            alignment_name=a_name,
             batch_size=10000,
             dc_detection=False,
             decode_all_corpora=False,
@@ -99,7 +97,6 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
         ),
         Experiment(
             alignment=alignment,
-            alignment_name=a_name,
             batch_size=10000,
             dc_detection=False,
             decode_all_corpora=False,
@@ -115,7 +112,6 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
     for exp in configs:
         run_single(
             alignment=exp.alignment,
-            alignment_name=exp.alignment_name,
             batch_size=exp.batch_size,
             dc_detection=exp.dc_detection,
             decode_all_corpora=exp.decode_all_corpora,
