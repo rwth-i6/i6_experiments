@@ -4,16 +4,15 @@ Calc latency
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional, Union, List, Dict
 import argparse
-import subprocess
-import re
 import gzip
 from decimal import Decimal
 from xml.etree import ElementTree
 from collections import OrderedDict
 from returnn.datasets.hdf import HDFDataset
-from returnn.sprint.cache import WordBoundaries
+from returnn.sprint.cache import open_file_archive, FileArchiveBundle, FileArchive
+from returnn.util import better_exchook
 
 
 ET = ElementTree
@@ -23,12 +22,10 @@ ET = ElementTree
 class Deps:
     """deps"""
 
-    sprint_archiver_bin: str
-    sprint_phone_alignment: str
-    sprint_allophone_file: str
-
+    sprint_phone_alignments: Union[FileArchiveBundle, FileArchive]
     sprint_lexicon: Lexicon
     labels_with_eoc_hdf: HDFDataset
+    corpus: Dict[str, BlissItem]
 
 
 def uopen(path: str, *args, **kwargs):
@@ -292,93 +289,60 @@ class Lemma:
         return Lemma(orth, phon, synt, eval, special)
 
 
-def get_sprint_allophone_seq(deps: Deps, segment_name: str) -> List[str]:
-    """sprint"""
-    cmd = [
-        deps.sprint_archiver_bin,
-        deps.sprint_phone_alignment,
-        segment_name,
-        "--mode",
-        "show",
-        "--type",
-        "align",
-        "--allophone-file",
-        deps.sprint_allophone_file,
-    ]
-    # output looks like:
-    """
-    <?xml version="1.0" encoding="ISO-8859-1"?>                                                                             
-    <sprint>
-      time= 0       emission=       115     allophone=      [SILENCE]{#+#}@i@f      index=  115     state=  0               
-      time= 1       emission=       115     allophone=      [SILENCE]{#+#}@i@f      index=  115     state=  0               
-      time= 2       emission=       115     allophone=      [SILENCE]{#+#}@i@f      index=  115     state=  0               
-      time= 3       emission=       115     allophone=      [SILENCE]{#+#}@i@f      index=  115     state=  0               
-      time= 4       emission=       115     allophone=      [SILENCE]{#+#}@i@f      index=  115     state=  0               
-      time= 5       emission=       18025   allophone=      HH{#+W}@i       index=  18025   state=  0        
-      time= 6       emission=       18025   allophone=      HH{#+W}@i       index=  18025   state=  0                       
-      time= 7       emission=       67126889        allophone=      HH{#+W}@i       index=  18025   state=  1               
-      time= 8       emission=       67126889        allophone=      HH{#+W}@i       index=  18025   state=  1               
-      time= 9       emission=       67126889        allophone=      HH{#+W}@i       index=  18025   state=  1               
-      time= 10      emission=       134235753       allophone=      HH{#+W}@i       index=  18025   state=  2               
-      time= 11      emission=       134235753       allophone=      HH{#+W}@i       index=  18025   state=  2
-    ...
-    """
-    out = subprocess.check_output(cmd)
-    time_idx = 0
-    res = []
-    for line in out.splitlines():
-        line = line.strip()
-        if not line.startswith(b"time="):
-            continue
-        line = line.decode("utf8")
-        m = re.match(
-            r"time=\s*([0-9]+)\s+"
-            r"emission=\s*([0-9]+)\s+"
-            r"allophone=\s*(\S+)\s+"
-            r"index=\s*([0-9]+)\s+"
-            r"state=\s*([0-9]*)",
-            line,
-        )
-        assert m, f"failed to parse line: {line}"
-        t, emission, allophone, index, state = m.groups()
-        assert int(t) == time_idx
-        res += [allophone]
-        time_idx += 1
-    return res
-
-
 def get_sprint_word_ends(deps: Deps, segment_name: str) -> List[int]:
     pass
 
 
 def handle_segment(deps: Deps, segment_name: str):
     """handle segment"""
-    pass
+    f = deps.sprint_phone_alignments.read(segment_name, "align")
+    allophones = deps.sprint_phone_alignments.get_allophones_list()
+    for time, index, state, weight in f:
+        # Keep similar format as Sprint archiver.
+        items = [
+            f"time={time}",
+            f"allophone={allophones[index]}",
+            f"index={index}",
+            f"state={state}",
+        ]
+        if weight != 1:
+            items.append(f"weight={weight}")
+        print("\t".join(items))
 
 
 def main():
     """main"""
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("--archiver-bin", required=True)
-    arg_parser.add_argument("--phone-alignment", required=True)
+    arg_parser.add_argument("--phone-alignments", required=True)
     arg_parser.add_argument("--allophone-file", required=True)
     arg_parser.add_argument("--lexicon", required=True)
     arg_parser.add_argument("--corpus", required=True)
+    arg_parser.add_argument("--labels-with-eoc", required=True)
+    arg_parser.add_argument("--segment", nargs="*")
     args = arg_parser.parse_args()
 
+    phone_alignments = open_file_archive(args.phone_alignments)
+    phone_alignments.set_allophones(args.allophone_file)
+
+    lexicon = Lexicon(args.lexicon)
+
+    dataset = HDFDataset([args.labels_with_eoc])
+    dataset.initialize()
+    dataset.init_seq_order(epoch=1)
+
+    corpus = {}
+    for item in iter_bliss(args.corpus):
+        corpus[item.segment_name] = item
+
     deps = Deps(
-        sprint_archiver_bin=args.archiver_bin,
-        sprint_phone_alignment=args.phone_alignment,
-        sprint_allophone_file=args.allophone_file,
-        sprint_lexicon=Lexicon(args.lexicon),
-        labels_with_eoc_hdf=HDFDataset([args.corpus]),
+        sprint_phone_alignments=phone_alignments, sprint_lexicon=lexicon, labels_with_eoc_hdf=dataset, corpus=corpus
     )
 
-    for item in iter_bliss(args.corpus):
-        print(item)
-        print(get_sprint_allophone_seq(deps, item.segment_name))
-        break
+    for segment_name in args.segment or corpus:
+        print(corpus[segment_name])
+        handle_segment(deps, segment_name)
 
 
 if __name__ == "__main__":
+    better_exchook.install()
     main()
