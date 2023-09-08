@@ -376,7 +376,7 @@ def run_single(
         )
 
         if num_states_per_phone == 1:
-            tdp_sp = recog_args.with_tdp_speech()
+            tdp_sp = recog_args.tdp_speech
             recog_args = recog_args.with_tdp_speech((0, *tdp_sp[1:]))
 
         for cfg in [recog_args.with_prior_scale(0.6).with_tdp_scale(0.5)]:
@@ -455,7 +455,7 @@ def run_single(
             )
 
             if num_states_per_phone == 1:
-                tdp_sp = recog_args.with_tdp_speech()
+                tdp_sp = recog_args.tdp_speech
                 recog_args = recog_args.with_tdp_speech((0, *tdp_sp[1:]))
 
             cfgs = [recog_args.with_prior_scale(0.6).with_tdp_scale(0.5)]
