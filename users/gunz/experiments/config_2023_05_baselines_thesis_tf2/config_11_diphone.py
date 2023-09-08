@@ -500,12 +500,12 @@ def run_single(
     fine_tune = alignment_name == "scratch"
     if fine_tune:
         fine_tune_epochs = 450
-        fine_tune_keep_epochs = [15, 23, 225, 400, 450]
+        fine_tune_keep_epochs = [15, 25, 225, 400, 450]
         orig_name = name
 
         bw_scales = [
             baum_welch.BwScales(label_posterior_scale=p, label_prior_scale=None, transition_scale=t)
-            for p, t in itertools.product([1.0], [0.3])
+            for p, t in itertools.product([0.3, 1.0], [0.0, 0.3])
         ]
 
         for bw_scale in bw_scales:
@@ -548,7 +548,7 @@ def run_single(
                 log_linear_scales=bw_scale,
             )
             lrates = oclr.get_learning_rates(
-                lrate=2e-5,
+                lrate=5e-5,
                 increase=0,
                 constLR=math.floor(fine_tune_epochs * 0.45),
                 decay=math.floor(fine_tune_epochs * 0.45),
