@@ -21,7 +21,6 @@ import i6_core.returnn as returnn
 import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
-from ...setups.common.nn.chunking import subsample_chunking
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
@@ -93,7 +92,7 @@ def run(returnn_root: tk.Path):
     configs = [
         Experiment(
             alignment=alignment,
-            alignment_name="10ms-scratch",
+            alignment_name="10ms-B",
             batch_size=12500,
             chunking=CONF_CHUNKING_10MS,
             dc_detection=False,
