@@ -67,6 +67,7 @@ class Experiment:
     alignment: tk.Path
     alignment_name: str
     batch_size: int
+    chunking: str
     decode_all_corpora: bool
     fine_tune: bool
     label_smoothing: float
@@ -91,6 +92,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             alignment=alignment,
             alignment_name=a_name,
             batch_size=12500,
+            chunking=CONF_CHUNKING_10MS,
             dc_detection=False,
             decode_all_corpora=False,
             fine_tune=a_name == "40ms-FF-v8",
@@ -108,10 +110,25 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
                 alignment=alignment,
                 alignment_name=a_name,
                 batch_size=12500,
+                chunking=CONF_CHUNKING_10MS,
                 dc_detection=False,
                 decode_all_corpora=False,
                 fine_tune=a_name == "40ms-FF-v8",
                 label_smoothing=0.1,
+                lr="v13",
+                run_performance_study=a_name == "40ms-FF-v8",
+                tune_decoding=a_name == "40ms-FF-v8",
+                run_tdp_study=False,
+            ),
+            Experiment(
+                alignment=alignment,
+                alignment_name=a_name,
+                batch_size=12500,
+                chunking="256:128",
+                dc_detection=False,
+                decode_all_corpora=False,
+                fine_tune=a_name == "40ms-FF-v8",
+                label_smoothing=0.0,
                 lr="v13",
                 run_performance_study=a_name == "40ms-FF-v8",
                 tune_decoding=a_name == "40ms-FF-v8",
@@ -123,6 +140,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             alignment=exp.alignment,
             alignment_name=exp.alignment_name,
             batch_size=exp.batch_size,
+            chunking=exp.chunking,
             dc_detection=exp.dc_detection,
             decode_all_corpora=exp.decode_all_corpora,
             fine_tune=exp.fine_tune,
@@ -142,6 +160,7 @@ def run_single(
     alignment: tk.Path,
     alignment_name: str,
     batch_size: int,
+    chunking: str,
     dc_detection: bool,
     decode_all_corpora: bool,
     fine_tune: bool,
@@ -158,7 +177,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-2-a:{alignment_name}-lr:{lr}-fl:{focal_loss}-ls:{label_smoothing}"
+    name = f"conf-2-a:{alignment_name}-lr:{lr}-fl:{focal_loss}-ls:{label_smoothing}-ch:{chunking}"
     print(f"fh {name}")
 
     ss_factor = 4
@@ -201,7 +220,7 @@ def run_single(
     s.set_rasr_returnn_input_datas(
         is_cv_separate_from_train=False,
         input_key="data_preparation",
-        chunk_size=CONF_CHUNKING_10MS,
+        chunk_size=chunking,
     )
     s._update_am_setting_for_all_crps(
         train_tdp_type="default",
@@ -214,7 +233,7 @@ def run_single(
     time_prolog, time_tag_name = returnn_time_tag.get_shared_time_tag()
     network_builder = conformer.get_best_model_config(
         conf_model_dim,
-        chunking=CONF_CHUNKING_10MS,
+        chunking=chunking,
         focal_loss_factor=CONF_FOCAL_LOSS,
         label_smoothing=label_smoothing,
         num_classes=s.label_info.get_n_of_dense_classes(),
@@ -276,7 +295,7 @@ def run_single(
         "cache_size": "0",
         "window": 1,
         "update_on_device": True,
-        "chunking": subsample_chunking(CONF_CHUNKING_10MS, ss_factor),
+        "chunking": subsample_chunking(chunking, ss_factor),
         "optimizer": {"class": "nadam"},
         "optimizer_epsilon": 1e-8,
         "gradient_noise": 0.0,
