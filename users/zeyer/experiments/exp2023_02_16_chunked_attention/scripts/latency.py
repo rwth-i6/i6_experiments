@@ -475,12 +475,21 @@ def main():
         chunk_size=args.chunk_size,
     )
 
+    outliers = []
     res = []
     for segment_name in args.segment or corpus:
         print(corpus[segment_name])
-        res += handle_segment(deps, segment_name)
+        seg_latencies = handle_segment(deps, segment_name)
+        if max(seg_latencies) > args.chunk_left_padding + args.chunk_size:
+            outliers.append((segment_name, max(seg_latencies)))
+        res += seg_latencies
     print(f"avg latency: {sum(res) / len(res)}sec")
     print(f"max latency: {max(res)}sec")
+    print("outliers:")
+    for segment_name, latency in outliers:
+        print(f"  {segment_name}: {latency}sec")
+    if not outliers:
+        print("  (no outliers)")
 
 
 if __name__ == "__main__":
