@@ -349,7 +349,11 @@ def get_phone_alignment_word_ends(deps: Deps, segment_name: str) -> List[Decimal
             lemma = deps.lexicon.special_phones[center]
             if "" in lemma.orth:  # e.g. silence
                 continue  # skip silence or similar
-        if time_idx + 1 >= len(phone_alignment) or phone_alignment[time_idx + 1][1] == allophone_idx:
+        if (
+            time_idx + 1 < len(phone_alignment)
+            and phone_alignment[time_idx + 1][1] == allophone_idx
+            and phone_alignment[time_idx + 1][2] >= state
+        ):
             continue  # skip to the last frame for this phoneme
         cur_word_phones.append(center)
 
