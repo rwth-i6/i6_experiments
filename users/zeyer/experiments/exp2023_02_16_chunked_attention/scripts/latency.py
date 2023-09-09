@@ -12,6 +12,7 @@ import re
 from decimal import Decimal
 from xml.etree import ElementTree
 from collections import OrderedDict
+from returnn.datasets.generating import Vocabulary
 from returnn.datasets.hdf import HDFDataset
 from returnn.sprint.cache import open_file_archive, FileArchiveBundle, FileArchive
 from returnn.util import better_exchook
@@ -29,6 +30,7 @@ class Deps:
     lexicon: Lexicon
     labels_with_eoc_hdf: HDFDataset
     corpus: Dict[str, BlissItem]
+    bpe_vocab: Vocabulary
 
 
 def uopen(path: str, *args, **kwargs):
@@ -341,7 +343,7 @@ def handle_segment(deps: Deps, segment_name: str):
             phones_s = " ".join(cur_word_phones)
             print(f"end time {time_idx * deps.phone_alignment_ms_per_frame / 1000.}sec:", lemma.orth[0], "/", phones_s)
             if phones_s not in lemma.phon:
-                print(f"WARNING: phones {phones_s} not in lemma {lemma}?")
+                raise Exception(f"Phones {phones_s} not in lemma {lemma}?")
 
             cur_word_phones.clear()
             word_idx += 1
@@ -351,13 +353,14 @@ def handle_segment(deps: Deps, segment_name: str):
 def main():
     """main"""
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("--phone-alignments", required=True)
+    arg_parser.add_argument("--phone-alignments", required=True, help="From RASR")
     arg_parser.add_argument("--phone-alignment-ms-per-frame", type=float, default=10.0)
-    arg_parser.add_argument("--allophone-file", required=True)
-    arg_parser.add_argument("--lexicon", required=True)
-    arg_parser.add_argument("--corpus", required=True)
-    arg_parser.add_argument("--labels-with-eoc", required=True)
+    arg_parser.add_argument("--allophone-file", required=True, help="From RASR")
+    arg_parser.add_argument("--lexicon", required=True, help="XML")
+    arg_parser.add_argument("--corpus", required=True, help="Bliss XML")
+    arg_parser.add_argument("--labels-with-eoc", required=True, help="HDF dataset")
     arg_parser.add_argument("--segment", nargs="*")
+    arg_parser.add_argument("--bpe-vocab", required=True, help="BPE vocab dict")
     args = arg_parser.parse_args()
 
     phone_alignments = open_file_archive(args.phone_alignments)
@@ -373,12 +376,15 @@ def main():
     for item in iter_bliss(args.corpus):
         corpus[item.segment_name] = item
 
+    bpe_vocab = Vocabulary(args.bpe_vocab, unknown_label=None)
+
     deps = Deps(
         phone_alignments=phone_alignments,
         phone_alignment_ms_per_frame=args.phone_alignment_ms_per_frame,
         lexicon=lexicon,
         labels_with_eoc_hdf=dataset,
         corpus=corpus,
+        bpe_vocab=bpe_vocab,
     )
 
     for segment_name in args.segment or corpus:
