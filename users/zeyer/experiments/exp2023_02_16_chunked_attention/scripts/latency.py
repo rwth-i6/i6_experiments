@@ -475,9 +475,12 @@ def main():
         chunk_size=args.chunk_size,
     )
 
+    res = []
     for segment_name in args.segment or corpus:
         print(corpus[segment_name])
-        handle_segment(deps, segment_name)
+        res += handle_segment(deps, segment_name)
+    print(f"avg latency: {sum(res) / len(res)}sec")
+    print(f"max latency: {max(res)}sec")
 
 
 if __name__ == "__main__":
