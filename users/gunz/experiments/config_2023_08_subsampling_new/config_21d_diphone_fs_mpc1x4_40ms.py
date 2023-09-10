@@ -260,9 +260,9 @@ def run_single(
         "dev": {"reduce_target_factor": ss_factor},
         "train": {"reduce_target_factor": ss_factor},
     }
-    keep_epochs = [100, 300, 400, 500, 550, num_epochs]
+    keep_epochs = [100, 300, 400, 500, 550, 600]
     if num_epochs > 600:
-        factor = num_epochs / 600
+        factor = num_epochs // 600
         multiplied = np.array(keep_epochs) * factor
         keep_epochs = [int(v) for v in multiplied]
     base_post_config = {
