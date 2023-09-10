@@ -118,7 +118,7 @@ def run(returnn_root: tk.Path):
             decode_all_corpora=False,
             lr="v13",
             n_states_per_phone=1,
-            run_performance_study=False,
+            run_performance_study=True,
             tune_decoding=False,
         ),
         # Experiment(
