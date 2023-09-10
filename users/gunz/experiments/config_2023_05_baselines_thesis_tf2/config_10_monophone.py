@@ -419,11 +419,19 @@ def run_single(
         tying_cfg = rasr.RasrConfig()
         tying_cfg.type = "monophone-dense"
 
+        base_config = s.get_cart_params("fh")
         for cfg in [
             dataclasses.replace(
-                s.get_cart_params("fh").with_prior_scale(pC), altas=a, beam=b, beam_limit=100_000, lm_scale=4.0
+                base_config.with_prior_scale(pC),
+                altas=a,
+                beam=b,
+                beam_limit=100_000,
+                lm_scale=4.0,
+                tdp_speech=(speech_loop, *base_config.tdp_speech[1:]),
             )
-            for a, pC, b in itertools.product([None, 2, 4, 6, 8], [0.4, 0.6], [14, 16, 18])
+            for a, pC, b, speech_loop in itertools.product(
+                [None, 2, 4, 6, 8], [0.4, 0.6], [14, 16, 18], [0.0, 3.0] if num_states_per_phone == 1 else [3.0]
+            )
         ]:
             job = s.recognize_cart(
                 key="fh",
