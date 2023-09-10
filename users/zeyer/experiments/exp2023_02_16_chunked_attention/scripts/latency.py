@@ -402,7 +402,7 @@ def get_chunk_ends(deps: Deps, segment_name: str) -> List[Decimal]:
     print(bpe_labels)
     print(bpe_labels_s)
     chunk_idx = 0
-    cur_chunk_end_pos = deps.chunk_left_padding + deps.chunk_size
+    cur_chunk_end_pos = -deps.chunk_left_padding + deps.chunk_size
     cur_word = ""
     word_idx = 0
     res = []
