@@ -483,13 +483,17 @@ def main():
         if max(seg_latencies) > args.chunk_left_padding + args.chunk_size:
             outliers.append((segment_name, max(seg_latencies)))
         res += seg_latencies
-    print(f"avg latency: {sum(res) / len(res)}sec")
-    print(f"max latency: {max(res)}sec")
     print("outliers:")
     for segment_name, latency in outliers:
         print(f"  {segment_name}: {latency}sec")
     if not outliers:
         print("  (no outliers)")
+    print(f"avg latency: {sum(res) / len(res)}sec")
+    print(f"max latency: {max(res)}sec")
+    res = sorted(res)
+    print(f"median latency: {res[len(res) // 2]}sec")
+    print(f"p90 latency: {res[int(len(res) * 0.9)]}sec")
+    print(f"p95 latency: {res[int(len(res) * 0.95)]}sec")
 
 
 if __name__ == "__main__":
