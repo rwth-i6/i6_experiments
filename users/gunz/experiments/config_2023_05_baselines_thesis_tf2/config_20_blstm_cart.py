@@ -390,6 +390,7 @@ def run_single(
                 n_cart_out=n_cart_out,
                 cart_tree_or_tying_config=cart_tree,
                 log_softmax_returnn_config=decoding_config,
+                calculate_statistics=True,
                 params=cfg,
                 opt_lm_am_scale=False,
                 cpu_rqmt=2,
