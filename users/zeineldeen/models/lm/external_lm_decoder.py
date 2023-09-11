@@ -404,10 +404,10 @@ class ExternalLMDecoder:
         )  # [B,1]
         if self.renorm_wo_eos:
             lm_output_prob_eos_renorm = lm_net_out.add_activation_layer(
-                "lm_output_prob_eos_renorm", lm_output_prob_eos, activation="softmax"
+                "lm_output_prob_eos_renorm", lm_output_prob_wo_eos_, activation="softmax"
             )  # [B,V-1]
         else:
-            lm_output_prob_eos_renorm = lm_output_prob_eos  # [B,V-1]
+            lm_output_prob_eos_renorm = lm_output_prob_wo_eos_  # [B,V-1]
         prob_1_const = lm_net_out.add_eval_layer(
             f"{prefix}prob_1_const", lm_output_prob_eos, eval="tf.ones_like(source(0))"
         )  # convert to ones
