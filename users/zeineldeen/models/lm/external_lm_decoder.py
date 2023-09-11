@@ -366,7 +366,18 @@ class ExternalLMDecoder:
     Integrates an external LM decoder into an ASR decoder
     """
 
-    def __init__(self, asr_decoder, ext_lm_opts, beam_size, dec_type, prior_lm_opts=None, length_normalization=True):
+    def __init__(
+        self,
+        asr_decoder,
+        ext_lm_opts,
+        beam_size,
+        dec_type,
+        prior_lm_opts=None,
+        length_normalization=True,
+        mask_layer_name=None,
+        eos_cond_layer_name=None,
+        renorm_wo_eos=False,
+    ):
         self.asr_decoder = copy.deepcopy(asr_decoder)
         self.am_output_prob = self.asr_decoder.output_prob
         self.target = self.asr_decoder.target
@@ -375,6 +386,9 @@ class ExternalLMDecoder:
         self.prior_lm_opts = prior_lm_opts
         self.dec_type = dec_type
         self.length_normalization = length_normalization
+        self.mask_layer_name = mask_layer_name
+        self.eos_cond_layer_name = eos_cond_layer_name
+        self.renorm_wo_eos = renorm_wo_eos
 
         self.network = None
 
@@ -402,11 +416,48 @@ class ExternalLMDecoder:
                 ), "load_on_init opts or lm_model are missing for loading subnet."
                 assert "filename" in self.ext_lm_opts["load_on_init_opts"], "Checkpoint missing for loading subnet."
                 load_on_init = self.ext_lm_opts["load_on_init_opts"]
-            lm_net_out.add_subnetwork(
-                "lm_output", "prev:output", subnetwork_net=ext_lm_subnet, load_on_init=load_on_init
-            )
+
+            if self.mask_layer_name:
+                lm_output = lm_net_out.add_masked_computation_layer(
+                    "lm_output_masked",
+                    "prev:output",
+                    mask=self.mask_layer_name,
+                    unit={
+                        "class": "subnetwork",
+                        "from": "data",
+                        "subnetwork": ext_lm_subnet,
+                        "load_on_init": load_on_init,
+                    },
+                )
+            else:
+                lm_output = lm_net_out.add_subnetwork(
+                    "lm_output", "prev:output", subnetwork_net=ext_lm_subnet, load_on_init=load_on_init
+                )
             lm_output_prob = lm_net_out.add_activation_layer(
-                "lm_output_prob", "lm_output", activation="softmax", target=self.target
+                "lm_output_prob", lm_output, activation="softmax", target=self.target
+            )
+
+        if self.eos_cond_layer_name:
+            # so this means that eos prob is only used when the condition is true
+            lm_output_prob_wo_eos_ = lm_net_out.add_slice_layer(
+                "lm_output_prob_wo_eos_", lm_output_prob, axis="F", slice_start=1
+            )  # [B,V-1]
+            lm_output_prob_eos = lm_net_out.add_slice_layer(
+                "lm_output_prob_eos", lm_output_prob, axis="F", slice_start=0, slice_end=1
+            )  # [B,1]
+            prob_1_const = lm_net_out.add_eval_layer(
+                "prob_1_const", lm_output_prob_eos, eval="tf.ones_like(source(0))"
+            )  # convert to ones
+            lm_output_prob_wo_eos = lm_net_out.add_generic_layer(
+                "lm_output_prob_wo_eos",
+                cls="concat",
+                source=[(prob_1_const, "F"), (lm_output_prob_wo_eos_, "F")],
+            )
+            lm_output_prob = lm_net_out.add_switch_layer(
+                "lm_output_prob_cond",
+                condition=self.eos_cond_layer_name,
+                true_from=lm_output_prob,
+                false_from=lm_output_prob_wo_eos,
             )
 
         fusion_str = "safe_log(source(0)) + {} * safe_log(source(1))".format(ext_lm_scale)  # shallow fusion
@@ -416,7 +467,6 @@ class ExternalLMDecoder:
             fusion_str = "{} * ".format(self.ext_lm_opts["am_scale"]) + fusion_str  # add am_scale for local fusion
 
         if self.prior_lm_opts:
-
             if self.dec_type == "lstm":
                 ilm_decoder = LSTMILMDecoder(self.asr_decoder, self.prior_lm_opts)
             elif self.dec_type == "transformer":
