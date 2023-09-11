@@ -506,7 +506,7 @@ def run_single(
     # FINE TUNING
     # ###########
 
-    fine_tune = alignment_name == "scratch"
+    fine_tune = alignment_name == "scratch" or n_states_per_phone == 3
     if fine_tune:
         fine_tune_epochs = 450
         fine_tune_keep_epochs = [15, 25, 225, 400, 450]
