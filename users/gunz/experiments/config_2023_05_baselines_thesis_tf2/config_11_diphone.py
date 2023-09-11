@@ -593,7 +593,7 @@ def run_single(
             train_args = {
                 **s.initial_train_args,
                 "num_epochs": fine_tune_epochs,
-                "mem_rqmt": 12,
+                "mem_rqmt": 20,
                 "partition_epochs": partition_epochs,
                 "returnn_config": copy.deepcopy(returnn_config_ft),
             }
