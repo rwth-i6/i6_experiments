@@ -403,8 +403,11 @@ class ExternalLMDecoder:
             f"{prefix}lm_output_prob_eos", lm_output_prob, axis="F", slice_start=0, slice_end=1
         )  # [B,1]
         if self.renorm_wo_eos:
-            lm_output_prob_eos_renorm = lm_net_out.add_activation_layer(
-                "lm_output_prob_eos_renorm", lm_output_prob_wo_eos_, activation="softmax"
+            lm_output_prob_wo_eos_den = lm_net_out.add_reduce_layer(
+                f"{prefix}lm_output_prob_wo_eos_den", lm_output_prob_wo_eos_, axes=["F"], mode="sum", keep_dims=True
+            )  # [B,1]
+            lm_output_prob_eos_renorm = lm_net_out.add_combine_layer(
+                "lm_output_prob_eos_renorm", [lm_output_prob_wo_eos_, lm_output_prob_wo_eos_den], kind="truediv"
             )  # [B,V-1]
         else:
             lm_output_prob_eos_renorm = lm_output_prob_wo_eos_  # [B,V-1]
