@@ -113,7 +113,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
                 chunking=CONF_CHUNKING_10MS,
                 dc_detection=False,
                 decode_all_corpora=False,
-                fine_tune=a_name == "40ms-FF-v8",
+                fine_tune=False,
                 label_smoothing=0.1,
                 lr="v13",
                 run_performance_study=a_name == "40ms-FF-v8",
