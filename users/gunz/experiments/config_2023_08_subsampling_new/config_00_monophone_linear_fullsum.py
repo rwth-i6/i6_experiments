@@ -155,6 +155,7 @@ def run(returnn_root: tk.Path):
             feature_time_shift=exp.feature_time_shift,
             lr=exp.lr,
             model_dim=exp.model_dim,
+            n_states_per_phone=exp.n_states_per_phone,
             returnn_root=returnn_root,
             output_time_step=exp.output_time_step,
             subsampling_approach=exp.subsampling_approach,
