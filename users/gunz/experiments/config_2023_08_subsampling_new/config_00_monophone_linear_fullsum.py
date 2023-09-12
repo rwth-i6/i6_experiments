@@ -60,6 +60,7 @@ class Experiment:
     feature_time_shift: float
     lr: str
     model_dim: int
+    n_states_per_phone: int
     output_time_step: float
     subsampling_approach: str
 
@@ -80,6 +81,7 @@ def run(returnn_root: tk.Path):
             feature_time_shift=7.5 / 1000,
             lr="v8",
             model_dim=model_dim,
+            n_states_per_phone=1,
             output_time_step=30 / 1000,
             subsampling_approach="mp:2@2+mp:2@4",
             bw_transition_scale=0.3,
@@ -91,6 +93,7 @@ def run(returnn_root: tk.Path):
             feature_time_shift=10 / 1000,
             lr="v8",
             model_dim=model_dim,
+            n_states_per_phone=1,
             output_time_step=40 / 1000,
             subsampling_approach="mp:2@2+mp:2@4",
             bw_transition_scale=0.3,
@@ -102,6 +105,7 @@ def run(returnn_root: tk.Path):
             feature_time_shift=10 / 1000,
             lr="v8",
             model_dim=model_dim,
+            n_states_per_phone=2,
             output_time_step=20 / 1000,
             subsampling_approach="mp:2@4",
             bw_transition_scale=0.3,
@@ -113,6 +117,7 @@ def run(returnn_root: tk.Path):
             feature_time_shift=7.5 / 1000,
             lr="v8",
             model_dim=model_dim,
+            n_states_per_phone=1,
             output_time_step=60 / 1000,
             subsampling_approach="mp:2@2+mp:2@4+mp:2@6",
             bw_transition_scale=0.3,
@@ -124,6 +129,7 @@ def run(returnn_root: tk.Path):
         #     feature_time_shift=10 / 1000,
         #     lr="v8",
         #     model_dim=model_dim,
+        #     n_states_per_phone=1,
         #     output_time_step=80 / 1000,
         #     subsampling_approach="mp:2@2+mp:2@4+mp:2@6",
         #     bw_transition_scale=0.3,
@@ -135,6 +141,7 @@ def run(returnn_root: tk.Path):
             feature_time_shift=10 / 1000,
             lr="v8",
             model_dim=model_dim,
+            n_states_per_phone=1,
             output_time_step=40 / 1000,
             subsampling_approach="mp:2@2+mp:2@4",
             bw_transition_scale=0.0,
@@ -167,6 +174,7 @@ def run_single(
     context_window_size: int,
     feature_time_shift: float,
     lr: str,
+    n_states_per_phone: int,
     returnn_root: tk.Path,
     subsampling_approach: str,
     output_time_step: float,
@@ -175,7 +183,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"mlp-1-lr:{lr}-ss:{subsampling_approach}-dx:{output_time_step/(10/1000)}-d:{model_dim}-bwl:{bw_label_scale}-bwt:{bw_transition_scale}"
+    name = f"mlp-1-lr:{lr}-n:{n_states_per_phone}-ss:{subsampling_approach}-dx:{output_time_step/(10/1000)}-d:{model_dim}-bwl:{bw_label_scale}-bwt:{bw_transition_scale}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -204,7 +212,9 @@ def run_single(
         test_data=test_data_inputs,
     )
 
-    s.label_info = dataclasses.replace(s.label_info, n_states_per_phone=1, state_tying=RasrStateTying.monophone)
+    s.label_info = dataclasses.replace(
+        s.label_info, n_states_per_phone=n_states_per_phone, state_tying=RasrStateTying.monophone
+    )
     s.lexicon_args["norm_pronunciation"] = False
     s.lm_gc_simple_hash = True
     s.train_key = train_key
