@@ -116,8 +116,8 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
                 fine_tune=False,
                 label_smoothing=0.1,
                 lr="v13",
-                run_performance_study=a_name == "40ms-FF-v8",
-                tune_decoding=a_name == "40ms-FF-v8",
+                run_performance_study=False,
+                tune_decoding=False,
                 run_tdp_study=False,
             ),
             Experiment(
@@ -127,10 +127,10 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
                 chunking="256:128",
                 dc_detection=False,
                 decode_all_corpora=False,
-                fine_tune=a_name == "40ms-FF-v8",
+                fine_tune=False,
                 label_smoothing=0.0,
                 lr="v13",
-                run_performance_study=a_name == "40ms-FF-v8",
+                run_performance_study=False,
                 tune_decoding=a_name == "40ms-FF-v8",
                 run_tdp_study=False,
             ),
@@ -482,6 +482,31 @@ def run_single(
                 rtf=1.5,
             )
             j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+
+        configs = [
+            dataclasses.replace(
+                s.get_cart_params("fh"), beam=16, beam_limit=100000, lm_scale=2, tdp_scale=tdpS
+            ).with_prior_scale(pC)
+            for pC, tdpS in itertools.product(
+                [round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
+                [round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
+            )
+        ]
+        for cfg in configs:
+            s.recognize_cart(
+                key="fh",
+                epoch=max(keep_epochs),
+                calculate_statistics=True,
+                cart_tree_or_tying_config=tying_cfg,
+                cpu_rqmt=2,
+                crp_corpus="dev-other",
+                lm_gc_simple_hash=True,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                mem_rqmt=4,
+                n_cart_out=diphone_li.get_n_of_dense_classes(),
+                params=cfg,
+                rtf=4,
+            )
 
     # ###########
     # FINE TUNING
