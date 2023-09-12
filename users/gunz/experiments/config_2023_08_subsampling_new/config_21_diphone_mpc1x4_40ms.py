@@ -492,21 +492,31 @@ def run_single(
                 [round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
             )
         ]
+
+        sys2 = copy.deepcopy(s)
+        sys2.lexicon_args["norm_pronunciation"] = False
+        sys2._update_am_setting_for_all_crps(
+            train_tdp_type="default",
+            eval_tdp_type="default",
+        )
+
         for cfg in configs:
-            s.recognize_cart(
-                key="fh",
-                epoch=max(keep_epochs),
-                calculate_statistics=True,
-                cart_tree_or_tying_config=tying_cfg,
-                cpu_rqmt=2,
-                crp_corpus="dev-other",
-                lm_gc_simple_hash=True,
-                log_softmax_returnn_config=nn_precomputed_returnn_config,
-                mem_rqmt=4,
-                n_cart_out=diphone_li.get_n_of_dense_classes(),
-                params=cfg,
-                rtf=4,
-            )
+            for sys in [s, sys2]:
+                sys.recognize_cart(
+                    key="fh",
+                    epoch=max(keep_epochs),
+                    calculate_statistics=True,
+                    cart_tree_or_tying_config=tying_cfg,
+                    cpu_rqmt=2,
+                    crp_corpus="dev-other",
+                    lm_gc_simple_hash=True,
+                    alias_output_prefix="no-norm-pron" if not sys2.lexicon_args["norm_pronunciation"] else "",
+                    log_softmax_returnn_config=nn_precomputed_returnn_config,
+                    mem_rqmt=4,
+                    n_cart_out=diphone_li.get_n_of_dense_classes(),
+                    params=cfg,
+                    rtf=4,
+                )
 
     # ###########
     # FINE TUNING
