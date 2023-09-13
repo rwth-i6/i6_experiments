@@ -464,12 +464,8 @@ def run_single(
 
         configs = [
             dataclasses.replace(
-                s.get_cart_params("fh"), beam=16, beam_limit=100000, lm_scale=1.3, tdp_scale=tdpS
-            ).with_prior_scale(pC)
-            for pC, tdpS in itertools.product(
-                [round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
-                [round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
-            )
+                s.get_cart_params("fh"), beam=16, beam_limit=100000, lm_scale=1.5, tdp_scale=0.4
+            ).with_prior_scale(0.6)
         ]
         for cfg in configs:
             s.recognize_cart(
@@ -488,7 +484,6 @@ def run_single(
                 params=cfg,
                 rtf=4,
             )
-
 
     if run_tdp_study:
         base_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
