@@ -48,4 +48,5 @@ class ReturnnRasrTrainingArgs(TypedDict):
     time_rqmt: Optional[int]
     use_python_control: Optional[bool]
 
+
 NnTrainingArgs = ReturnnRasrTrainingArgs  # Legacy compatibility
