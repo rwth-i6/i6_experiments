@@ -457,6 +457,7 @@ def run_single(
             dev_corpus_key=s.crp_names["cvtrain"],
             smoothen=True,
             returnn_config=prior_config,
+            output_layer_name="output",
         )
 
         diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
