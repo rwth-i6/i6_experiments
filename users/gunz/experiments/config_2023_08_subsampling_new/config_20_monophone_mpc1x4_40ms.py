@@ -466,8 +466,14 @@ def run_single(
 
         configs = [
             dataclasses.replace(
-                s.get_cart_params("fh"), beam=16, beam_limit=100000, lm_scale=1.5, tdp_scale=0.4
-            ).with_prior_scale(0.6)
+                s.get_cart_params("fh"),
+                altas=a,
+                beam=beam,
+                beam_limit=100000,
+                lm_scale=1.5,
+                tdp_scale=tdpSc,
+            ).with_prior_scale(pC)
+            for beam, a, pC, tdpSc in itertools.product([18, 20, 22], [None, 2, 4, 6], [0.2, 0.4, 0.6], [0.4, 0.6])
         ]
         for cfg in configs:
             s.recognize_cart(
