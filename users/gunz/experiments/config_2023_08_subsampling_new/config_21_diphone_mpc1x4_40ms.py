@@ -524,7 +524,7 @@ def run_single(
 
     if fine_tune:
         fine_tune_epochs = 450
-        keep_epochs = [23, 225, 400, 450]
+        keep_epochs = [23, 100, 225, 400, 450]
         orig_name = name
 
         bw_scales = [
@@ -664,7 +664,9 @@ def run_single(
                         calculate_statistics=True,
                         opt_lm_am_scale=True,
                         prior_epoch=min(ep, keep_epochs[-2]),
-                        rtf=12,
+                        rtf=8,
+                        cpu_rqmt=2,
+                        mem_rqmt=4,
                     )
 
                 if run_performance_study:
