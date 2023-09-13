@@ -502,6 +502,31 @@ def run_single(
             )
             job.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
+        additional_cfg = dataclasses.replace(
+            s.get_cart_params("fh").with_prior_scale(0.6),
+            altas=6,
+            beam=14,
+            beam_limit=100_000,
+            lm_scale=9,
+            tdp_speech=(0, 0, "infinity", 0),
+            tdp_scale=0.4,
+        )
+        for cfg in [additional_cfg]:
+            job = s.recognize_cart(
+                key="fh",
+                epoch=max(keep_epochs),
+                crp_corpus="dev-other",
+                n_cart_out=diphone_li.get_n_of_dense_classes(),
+                cart_tree_or_tying_config=tying_cfg,
+                params=cfg,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                calculate_statistics=True,
+                cpu_rqmt=2,
+                mem_rqmt=4,
+                rtf=3,
+            )
+            job.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+
     # ###########
     # FINE TUNING
     # ###########
