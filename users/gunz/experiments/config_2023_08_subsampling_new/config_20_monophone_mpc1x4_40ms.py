@@ -428,7 +428,7 @@ def run_single(
             "center-output-merged": {
                 "class": "merge_dims",
                 "from": "center-output-expanded",
-                "axes": ["F", "dim:42"],
+                "axes": ["dim:84", "dim:42"],
                 "keep_order": True,
             },
             "center-output-normalized": {
