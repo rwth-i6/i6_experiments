@@ -1625,7 +1625,7 @@ class FactoredHybridSystem(NnSystem):
                 tdp_nonspeech=to_tdp(params.tdp_non_word),
                 altas=params.altas,
             )
-            stats_alias = f"statistics-nn-pch/{self.experiments[key]['name']}/ep{epoch}/rp{prior_epoch}/{exp_str}_beam{params.beam}_bl{params.beam_limit}"
+            stats_alias = f"{alias_output_prefix}statistics-nn-pch/{self.experiments[key]['name']}/ep{epoch}/rp{prior_epoch}/{exp_str}_beam{params.beam}_bl{params.beam_limit}"
 
             stats_job.add_alias(stats_alias)
             tk.register_output(f"{stats_alias}/avg_states", stats_job.avg_states)
