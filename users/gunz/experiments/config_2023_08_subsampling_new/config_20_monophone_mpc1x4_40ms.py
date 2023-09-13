@@ -422,13 +422,13 @@ def run_single(
             "center-output-expanded": {
                 "class": "expand_dims",
                 "from": "center-output",
-                "axis": "spatial",
+                "axis": "F",
                 "dim": 42,
             },
             "center-output-merged": {
                 "class": "merge_dims",
                 "from": "center-output-expanded",
-                "axes": ["dim:42", "F"],
+                "axes": ["F", "dim:42"],
                 "keep_order": True,
             },
             "center-output-normalized": {
