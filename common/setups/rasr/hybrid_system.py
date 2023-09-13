@@ -354,7 +354,9 @@ class HybridSystem(NnSystem):
         name: str,
         returnn_config: returnn.ReturnnConfig,
         checkpoints: Dict[int, returnn.Checkpoint],
-        acoustic_mixture_path: Optional[tk.Path],  # TODO maybe Optional if prior file provided -> automatically construct dummy file
+        acoustic_mixture_path: Optional[
+            tk.Path
+        ],  # TODO maybe Optional if prior file provided -> automatically construct dummy file
         prior_scales: List[float],
         pronunciation_scales: List[float],
         lm_scales: List[float],
