@@ -28,16 +28,9 @@ def get_bliss_corpus_dict(audio_format: str = "wav", output_prefix: str = "datas
     bliss_corpus_dict = download_data_dict(output_prefix=output_prefix).bliss_nist
 
     audio_format_options = {
-        "wav": {
-            "output_format": "wav",
-            "codec": "pcm_s16le",
-        },
-        "ogg": {"output_format": "ogg", "codec": "libvorbis", "recover_duration": False},
-        "flac": {
-            "output_format": "flac",
-            "codec": "flac",
-            "recover_duration": False,
-        },
+        "wav": {"output_format": "wav", "codec": "pcm_s16le"},
+        "ogg": {"output_format": "ogg", "codec": "libvorbis"},
+        "flac": {"output_format": "flac", "codec": "flac"},
     }
 
     converted_bliss_corpus_dict = {}
