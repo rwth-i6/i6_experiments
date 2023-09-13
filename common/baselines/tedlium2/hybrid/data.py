@@ -204,7 +204,7 @@ def get_corpus_data_inputs(
         allophone_labeling=allophone_labeling,
         alias_prefix=alias_prefix + "/nn_train_data",
         partition_epoch=5,
-        acoustic_mixtures=gmm_system.outputs["train"]["final"].acoustic_mixtures,
+        acoustic_mixtures=None,
         seq_ordering="laplace:.1000",
     )
     tk.register_output(f"{alias_prefix}/nn_train_data/features", nn_train_data.features)

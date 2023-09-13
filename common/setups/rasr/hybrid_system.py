@@ -354,7 +354,7 @@ class HybridSystem(NnSystem):
         name: str,
         returnn_config: returnn.ReturnnConfig,
         checkpoints: Dict[int, returnn.Checkpoint],
-        train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob],
+        acoustic_mixture_path: Optional[tk.Path],  # TODO maybe Optional if prior file provided -> automatically construct dummy file
         prior_scales: List[float],
         pronunciation_scales: List[float],
         lm_scales: List[float],
@@ -370,6 +370,7 @@ class HybridSystem(NnSystem):
         use_epoch_for_compile=False,
         forward_output_layer="output",
         native_ops: Optional[List[str]] = None,
+        train_job: Optional[Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob]] = None,
         **kwargs,
     ):
         with tk.block(f"{name}_recognition"):
@@ -393,24 +394,28 @@ class HybridSystem(NnSystem):
             for pron, lm, prior, epoch in itertools.product(pronunciation_scales, lm_scales, prior_scales, epochs):
 
                 assert epoch in checkpoints.keys()
-                acoustic_mixture_path = CreateDummyMixturesJob(
-                    num_mixtures=returnn_config.config["extern_data"]["classes"]["dim"],
-                    num_features=returnn_config.config["extern_data"]["data"]["dim"],
-                ).out_mixtures
-                lmgc_scorer = rasr.GMMFeatureScorer(acoustic_mixture_path)
-                prior_job = ReturnnComputePriorJobV2(
-                    model_checkpoint=checkpoints[epoch],
-                    returnn_config=train_job.returnn_config,
-                    returnn_python_exe=train_job.returnn_python_exe,
-                    returnn_root=train_job.returnn_root,
-                    log_verbosity=train_job.returnn_config.post_config["log_verbosity"],
-                )
-                prior_job.add_alias("extract_nn_prior/" + name)
-                prior_file = prior_job.out_prior_xml_file
-                assert prior_file is not None
-
+                prior_file = None
+                lmgc_scorer = None
+                if acoustic_mixture_path is None:
+                    assert train_job is not None, "Need ReturnnTrainingJob for computation of priors"
+                    tmp_acoustic_mixture_path = CreateDummyMixturesJob(
+                        num_mixtures=returnn_config.config["extern_data"]["classes"]["dim"],
+                        num_features=returnn_config.config["extern_data"]["data"]["dim"],
+                    ).out_mixtures
+                    lmgc_scorer = rasr.GMMFeatureScorer(tmp_acoustic_mixture_path)
+                    prior_job = ReturnnComputePriorJobV2(
+                        model_checkpoint=checkpoints[epoch],
+                        returnn_config=train_job.returnn_config,
+                        returnn_python_exe=train_job.returnn_python_exe,
+                        returnn_root=train_job.returnn_root,
+                        log_verbosity=train_job.returnn_config.post_config["log_verbosity"],
+                    )
+                    prior_job.add_alias("extract_nn_prior/" + name)
+                    prior_file = prior_job.out_prior_xml_file
+                else:
+                    tmp_acoustic_mixture_path = acoustic_mixture_path
                 scorer = rasr.PrecomputedHybridFeatureScorer(
-                    prior_mixtures=acoustic_mixture_path,
+                    prior_mixtures=tmp_acoustic_mixture_path,  # This needs to be a new variable otherwise nesting causes undesired behavior
                     priori_scale=prior,
                     prior_file=prior_file,
                 )
@@ -468,6 +473,7 @@ class HybridSystem(NnSystem):
                     name=f"{train_corpus_key}-{train_name}-{recog_name}",
                     returnn_config=returnn_config,
                     checkpoints=checkpoints,
+                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
                     train_job=train_job,
                     recognition_corpus_key=dev_c,
                     **recog_args,
@@ -483,6 +489,7 @@ class HybridSystem(NnSystem):
                     name=f"{train_name}-{recog_name}",
                     returnn_config=returnn_config,
                     checkpoints=checkpoints,
+                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
                     train_job=train_job,
                     recognition_corpus_key=tst_c,
                     **r_args,
