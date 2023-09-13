@@ -510,7 +510,7 @@ def run_single(
                     cpu_rqmt=2,
                     crp_corpus="dev-other",
                     lm_gc_simple_hash=True,
-                    alias_output_prefix="no-norm-pron/" if not sys2.lexicon_args["norm_pronunciation"] else "",
+                    alias_output_prefix="no-norm-pron/" if not sys.lexicon_args["norm_pronunciation"] else "",
                     log_softmax_returnn_config=nn_precomputed_returnn_config,
                     mem_rqmt=4,
                     n_cart_out=diphone_li.get_n_of_dense_classes(),
