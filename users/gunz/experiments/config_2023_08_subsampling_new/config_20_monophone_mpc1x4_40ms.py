@@ -415,7 +415,7 @@ def run_single(
             j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if alignment_name == "40ms-FF-v8":
-        nn_precomputed_returnn_config = copy.deepcopy(returnn_config)
+        nn_precomputed_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
         nn_precomputed_returnn_config.config["network"] = {
             **nn_precomputed_returnn_config.config["network"],
             "center-output-expanded": {
