@@ -531,9 +531,17 @@ def run_single(
             baum_welch.BwScales(label_posterior_scale=p, label_prior_scale=None, transition_scale=t)
             for p, t in itertools.product([0.3, 1.0], [0.0, 0.3])
         ]
+        configs = [(5e-5, scales) for scales in bw_scales]
+        configs = [
+            *configs,
+            *(
+                (lr, baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3))
+                for lr in [1e-5, 2e-5, 3e-5, 8e-5]
+            ),
+        ]
 
-        for bw_scale in bw_scales:
-            name = f"{orig_name}-fs-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
+        for peak_lr, bw_scale in configs:
+            name = f"{orig_name}-fs:{peak_lr}-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
             s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=name)
 
             s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
@@ -572,7 +580,7 @@ def run_single(
                 log_linear_scales=bw_scale,
             )
             lrates = oclr.get_learning_rates(
-                lrate=5e-5,
+                lrate=peak_lr,
                 increase=0,
                 constLR=math.floor(fine_tune_epochs * 0.45),
                 decay=math.floor(fine_tune_epochs * 0.45),
@@ -639,12 +647,10 @@ def run_single(
                 decoding_cfgs = [
                     dataclasses.replace(
                         base_params,
-                        lm_scale=base_params.lm_scale / ss_factor,
-                        tdp_speech=(10, 0, "infinity", 0),
-                        tdp_silence=(10, 10, "infinity", 10),
+                        lm_scale=round(base_params.lm_scale / ss_factor, 2),
                         tdp_scale=sc,
-                    ).with_prior_scale(pC)
-                    for sc, pC in [(0.4, 0.3), (0.2, 0.4), (0.4, 0.4), (0.2, 0.5)]
+                    ).with_prior_scale(0.6)
+                    for sc in [0.4, 0.6]
                 ]
                 for cfg in decoding_cfgs:
                     s.recognize_cart(
