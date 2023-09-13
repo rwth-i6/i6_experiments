@@ -414,6 +414,82 @@ def run_single(
             )
             j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
+    if alignment_name == "40ms-FF-v8":
+        nn_precomputed_returnn_config = copy.deepcopy(returnn_config)
+        nn_precomputed_returnn_config.config["network"] = {
+            **nn_precomputed_returnn_config.config["network"],
+            "center-output-expanded": {
+                "class": "expand_dims",
+                "from": "center-output",
+                "axis": "spatial",
+                "dim": 42,
+            },
+            "center-output-merged": {
+                "class": "merge_dims",
+                "from": "center-output-expanded",
+                "axes": ["dim:42", "F"],
+                "keep_order": True,
+            },
+            "center-output-normalized": {
+                "class": "eval",
+                "eval": f"tf.math.divide(source(0), 42)",
+                "from": "center-output-merged",
+            },
+            "output": {
+                "class": "eval",
+                "eval": "tf.math.log(source(0))",
+                "from": "center-output-normalized",
+                "register_as_extern_data": "output",
+            },
+        }
+
+        prior_config = copy.deepcopy(nn_precomputed_returnn_config)
+        prior_config.config["network"]["output"] = {
+            "class": "copy",
+            "from": "center-output-normalized",
+            "register_as_extern_data": "output",
+        }
+        s.set_mono_priors_returnn_rasr(
+            key="fh",
+            epoch=keep_epochs[-2],
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=prior_config,
+        )
+
+        diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+        tying_cfg = rasr.RasrConfig()
+        tying_cfg.type = "diphone-dense"
+
+        configs = [
+            dataclasses.replace(
+                s.get_cart_params("fh"), beam=16, beam_limit=100000, lm_scale=1.3, tdp_scale=tdpS
+            ).with_prior_scale(pC)
+            for pC, tdpS in itertools.product(
+                [round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
+                [round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
+            )
+        ]
+        for cfg in configs:
+            s.recognize_cart(
+                key="fh",
+                epoch=max(keep_epochs),
+                calculate_statistics=True,
+                cart_tree_or_tying_config=tying_cfg,
+                cpu_rqmt=2,
+                crp_corpus="dev-other",
+                lm_gc_simple_hash=True,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                encoder_output_layer="output",
+                alias_output_prefix="recog-fake-diphone/",
+                mem_rqmt=4,
+                n_cart_out=diphone_li.get_n_of_dense_classes(),
+                params=cfg,
+                rtf=4,
+            )
+
+
     if run_tdp_study:
         base_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
 
