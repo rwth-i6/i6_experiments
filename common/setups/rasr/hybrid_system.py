@@ -224,10 +224,11 @@ class HybridSystem(NnSystem):
         cv_corpus_key,
         devtrain_corpus_key=None,
     ) -> returnn.ReturnnTrainingJob:
-        if nn_train_args.returnn_root is None:
-            nn_train_args.returnn_root = self.returnn_root
-        if nn_train_args.returnn_python_exe is None:
-            nn_train_args.returnn_python_exe = self.returnn_python_exe
+        if isinstance(nn_train_args, ReturnnTrainingJobArgs):
+            if nn_train_args.returnn_root is None:
+                nn_train_args.returnn_root = self.returnn_root
+            if nn_train_args.returnn_python_exe is None:
+                nn_train_args.returnn_python_exe = self.returnn_python_exe
 
         train_job = returnn_training(
             name=name,
