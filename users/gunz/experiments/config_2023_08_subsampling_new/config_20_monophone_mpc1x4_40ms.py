@@ -377,6 +377,7 @@ def run_single(
         tying_cfg.type = "monophone-dense"
 
         good_values = [
+            (0.4, (3, 0, "infinity", 0), (3, 0, "infinity", 20)),  # default
             (0.4, (3, 0, "infinity", 0), (3, 10, "infinity", 10)),  # 8,9%
             (0.6, (3, 0, "infinity", 3), (3, 10, "infinity", 10)),  # 8,9%
             (0.2, (3, 0, "infinity", 0), (10, 10, "infinity", 10)),  # 9,0%
