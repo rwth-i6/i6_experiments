@@ -313,7 +313,9 @@ def run_single(
             epoch=min(ep, keep_epochs[-2]),
             output_layer_name="output",
             smoothen=True,
-            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config, except_layers=["pastLabel"]),
+            returnn_config=remove_label_pops_and_losses_from_returnn_config(
+                returnn_config, except_layers=["pastLabel"]
+            ),
         )
 
         recognizer, recog_args = s.get_recognizer_and_args(
