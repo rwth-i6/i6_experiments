@@ -295,16 +295,6 @@ def run_single(
     # Joint softmax is memory hungry
     train_job.rqmt["mem"] = 12
 
-    s.set_mono_priors_returnn_rasr(
-        "fh",
-        train_corpus_key=s.crp_names["train"],
-        dev_corpus_key=s.crp_names["cvtrain"],
-        epoch=keep_epochs[-2],
-        output_layer_name="output",
-        smoothen=True,
-        returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config, except_layers=["pastLabel"]),
-    )
-
     nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
         returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=True
     )
@@ -313,8 +303,18 @@ def run_single(
     tying_cfg = rasr.RasrConfig()
     tying_cfg.type = "diphone-dense"
 
-    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+    for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+        s.set_mono_priors_returnn_rasr(
+            "fh",
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            epoch=min(ep, keep_epochs[-2]),
+            output_layer_name="output",
+            smoothen=True,
+            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config, except_layers=["pastLabel"]),
+        )
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
