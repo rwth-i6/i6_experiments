@@ -513,6 +513,7 @@ class CTCDecoderArgs(DecoderArgs):
     remove_eos: bool = False
     eos_postfix: bool = False
     add_eos_to_blank: bool = False
+    rescore_last_eos: bool = False
     ctc_beam_search_tf: bool = False
     att_masking_fix: bool = False
     one_minus_term_mul_scale: float = 1.0

@@ -446,6 +446,7 @@ class CTCDecoder:
         remove_eos=False,
         eos_postfix=False,
         add_eos_to_blank=False,
+        rescore_last_eos=False,
         ctc_beam_search_tf=False,
         att_masking_fix=False,
         one_minus_term_mul_scale=1.0,
@@ -552,6 +553,7 @@ class CTCDecoder:
         self.remove_eos = remove_eos
         self.eos_postfix = eos_postfix
         self.add_eos_to_blank = add_eos_to_blank
+        self.rescore_last_eos = rescore_last_eos
 
         self.ctc_beam_search_tf = ctc_beam_search_tf
         self.att_masking_fix = att_masking_fix
@@ -846,7 +848,10 @@ class CTCDecoder:
                 "p_comb_sigma_prime_label": {
                     "class": "combine",
                     "kind": "add",
-                    "from": ["1_minus_term_log", "combined_att_ctc_scores"],
+                    "from": [
+                        "1_minus_term_log",
+                        "combined_att_ctc_scores",
+                    ],
                 },
                 # ----------------------------- #
                 "scaled_ctc_log_scores_slice": {
@@ -869,7 +874,7 @@ class CTCDecoder:
                     "class": "choice",
                     "target": "bpe_labels_w_blank",
                     "beam_size": self.beam_size,
-                    "from": "p_comb_sigma_prime" if not self.eos_postfix else "p_comb_sigma_prime_w_eos",
+                    "from": "p_comb_sigma_prime" if not self.rescore_last_eos else "p_comb_sigma_prime_w_eos",
                     "input_type": "logits" if self.logits else "log_prob",
                     "initial_output": 0,
                     "length_normalization": self.length_normalization,
@@ -889,12 +894,43 @@ class CTCDecoder:
                     "p_comb_sigma_prime_label": {
                         "class": "combine",
                         "kind": "add",
-                        "from": ["mul_scaled_1_minus_term_log", "combined_att_ctc_scores"],
+                        "from": [
+                            "mul_scaled_1_minus_term_log",
+                            "combined_att_ctc_scores",
+                        ],
                     },
                 }
             )
 
-        if self.eos_postfix:
+        if self.remove_eos:
+            # remove EOS from ts scores
+            subnet_unit.update(
+                {
+                    "log_zeros": {"class": "constant", "value": -1e30, "shape": (1,), "with_batch_dim": True},
+                    "combined_att_ctc_scores_w_eos": {
+                        "class": "combine",
+                        "kind": "add",
+                        "from": combine_list,
+                    },  # [B,V]
+                    "combined_att_ctc_scores_no_eos": {
+                        "class": "slice",
+                        "from": "combined_att_ctc_scores_w_eos",
+                        "axis": "f",
+                        "slice_start": 1,
+                        "slice_end": 10025,
+                    },
+                    "combined_att_ctc_scores": {
+                        "class": "concat",
+                        "from": [
+                            ("log_zeros", "f"),
+                            ("combined_att_ctc_scores_no_eos", "f"),
+                        ],
+                    }
+                }
+            )
+
+        if self.rescore_last_eos:
+            # rescores with EOS of ts at last frame
             subnet_unit.update(
                 {
                     "combined_ts_log_scores": {
@@ -922,7 +958,7 @@ class CTCDecoder:
                     "last_frame": {
                         "class": "eval",
                         "from": ["t", "base:enc_seq_len"],
-                        "eval": "tf.equal(source(0), source(1))",  # [B] (bool)
+                        "eval": "tf.equal(source(0), source(1)-1)",  # [B] (bool)
                         "out_type": {"dtype": "bool"},
                     },
                     "ts_eos_prob": {
