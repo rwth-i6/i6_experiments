@@ -19,6 +19,15 @@ def run():
     tk.register_output(f"alignments/40ms-zhou-blstm/statistics/means", zhou_data.out_means)
     tk.register_output(f"alignments/40ms-zhou-blstm/statistics/variances", zhou_data.out_vars)
 
+    plots = PlotViterbiAlignmentsJob(
+        alignment_bundle_path=Path(ZHOU_SUBSAMPLED_ALIGNMENT, cached=True),
+        allophones_path=Path(ZHOU_ALLOPHONES),
+        segments=["librispeech/2920-156224/0013"],
+        show_labels=False,
+        monophone=True,
+    )
+    tk.register_output(f"alignments/40ms-zhou-blstm/alignment-plots", plots.out_plot_folder)
+
     scratch_data = PlotPhonemeDurationsJob(
         alignment_bundle_path=Path(SCRATCH_ALIGNMENT, cached=True),
         allophones_path=Path(
@@ -29,12 +38,3 @@ def run():
     tk.register_output(f"alignments/10ms-scratch-blstm/statistics/plots", scratch_data.out_plot_folder)
     tk.register_output(f"alignments/10ms-scratch-blstm/statistics/means", scratch_data.out_means)
     tk.register_output(f"alignments/10ms-scratch-blstm/statistics/variances", scratch_data.out_vars)
-
-    plots = PlotViterbiAlignmentsJob(
-        alignment_bundle_path=Path(ZHOU_SUBSAMPLED_ALIGNMENT, cached=True),
-        allophones_path=Path(ZHOU_ALLOPHONES),
-        segments=["librispeech/2920-156224/0013"],
-        show_labels=False,
-        monophone=True,
-    )
-    tk.register_output(f"alignments/40ms-zhou-blstm/alignment-plots", plots.out_plot_folder)
