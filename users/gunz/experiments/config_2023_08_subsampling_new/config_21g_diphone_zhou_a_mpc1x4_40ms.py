@@ -336,6 +336,10 @@ def run_single(
         },
         "partition_epochs": partition_epochs["dev"],
     }
+
+    s.set_experiment_dict("fh", alignment_name, "tri", postfix_name=name)
+    s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
+
     train_args = {
         **s.initial_train_args,
         "num_epochs": num_epochs,
