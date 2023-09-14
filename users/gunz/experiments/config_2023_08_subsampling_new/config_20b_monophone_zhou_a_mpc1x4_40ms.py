@@ -300,7 +300,7 @@ def run_single(
             "audio": datasets["train"],
             "alignment": alignment_dataset_config,
         },
-        "partition_epochs": partition_epochs["train"],
+        "partition_epoch": partition_epochs["train"],
     }
     returnn_config.config["dev"] = {
         **base_dataset_cfg,
@@ -308,7 +308,7 @@ def run_single(
             "audio": datasets["dev"],
             "alignment": alignment_dataset_config,
         },
-        "partition_epochs": partition_epochs["dev"],
+        "partition_epoch": partition_epochs["dev"],
     }
 
     s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
