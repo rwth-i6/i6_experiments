@@ -340,10 +340,12 @@ def run_single(
         **s.initial_train_args,
         "num_epochs": num_epochs,
         "partition_epochs": partition_epochs,
+        "returnn_config": copy.deepcopy(returnn_config),
     }
-    viterbi_train_j = s.returnn_training(
+    viterbi_train_j = s.returnn_rasr_training(
         experiment_key="fh",
-        returnn_config=copy.deepcopy(returnn_config),
+        train_corpus_key=s.crp_names["train"],
+        dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
     )
 
