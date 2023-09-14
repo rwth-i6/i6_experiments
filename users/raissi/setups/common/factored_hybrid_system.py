@@ -8,6 +8,7 @@ from dataclasses import asdict
 from enum import Enum
 from typing import Dict, List, Optional, Tuple, TypedDict, Union
 
+from IPython import embed
 # -------------------- Sisyphus --------------------
 
 import sisyphus.toolkit as tk
@@ -22,6 +23,8 @@ import i6_core.rasr as rasr
 import i6_core.recognition as recog
 import i6_core.returnn as returnn
 import i6_core.text as text
+
+from i6_core.am.config import get_align_config_and_crp_for_corrected_applicator
 
 from i6_core.util import MultiPath, MultiOutputPath
 from i6_core.lexicon.allophones import DumpStateTyingJob, StoreAllophonesJob
@@ -38,13 +41,22 @@ from i6_experiments.common.setups.rasr.util import (
     RasrDataInput,
     RasrSteps,
     ReturnnRasrDataInput,
+    ReturnnRasrTrainingArgs,
+
 )
 
 import i6_experiments.users.raissi.setups.common.encoder.blstm as blstm_setup
 import i6_experiments.users.raissi.setups.common.encoder.conformer as conformer_setup
 import i6_experiments.users.raissi.setups.common.helpers.network.augment as fh_augmenter
-import i6_experiments.users.raissi.common.helpers.train as train_helpers
+import i6_experiments.users.raissi.setups.common.helpers.train as train_helpers
 
+from i6_experiments.users.raissi.setups.common.data.factored_label import (
+    LabelInfo,
+    PhonemeStateClasses,
+    PhoneticContext
+)
+
+from i6_experiments.users.raissi.setups.common.util.rasr import SystemInput
 
 from i6_experiments.users.raissi.setups.common.helpers.train.specaugment import (
     mask as sa_mask,
@@ -226,7 +238,8 @@ class FactoredHybridBaseSystem(NnSystem):
                                 'mem_rqmt': 40,
                                 'log_verbosity': 3,}
 
-        self.initial_nn_args.update(**initial_nn_args)
+        if initial_nn_args is not None:
+            self.initial_nn_args.update(**initial_nn_args)
 
         self.partition_epochs = {'train': 6, 'cv': 1}
         self.shuffling_params = {
@@ -270,16 +283,16 @@ class FactoredHybridBaseSystem(NnSystem):
 
 
 
-    def set_experiment_dict(self, key, alignment, context, postfix_name=""):
-        name = self.stage.get_name(alignment, context)
+    def set_experiment_dict(self, key: str, alignment: str, context: str, postfix_name=""):
+        name = f"{context}-from-{alignment}"
         self.experiments[key] = {
-            "name": ('-').join([name, postfix_name]),
+            "name": ("-").join([name, postfix_name]),
             "train_job": None,
             "graph": {"train": None, "inference": None},
             "returnn_config": None,
             "align_job": None,
             "decode_job": {"runner": None, "args": None},
-            "extra_returnn_code": {"epilog": "", "prolog": ""}
+            "extra_returnn_code": {"epilog": "", "prolog": ""},
         }
 
     # -------------------- Internal helpers --------------------
@@ -331,8 +344,8 @@ class FactoredHybridBaseSystem(NnSystem):
     def _set_native_lstm_path(self):
         compile_native_op_job = returnn.CompileNativeOpJob(
             "NativeLstm2",
-            returnn_root=returnn_root,
-            returnn_python_exe=returnn_python_exe,
+            returnn_root=self.returnn_root,
+            returnn_python_exe=self.returnn_python_exe,
             blas_lib=None,
         )
         self.native_lstm2_path = compile_native_op_job.out_op
@@ -423,9 +436,13 @@ class FactoredHybridBaseSystem(NnSystem):
             assert self.label_info.state_tying_file is not None, 'for cart state tying you need to set state tying file for label_info'
             crp.acoustic_model_config.state_tying.file = self.label_info.state_tying_file
         else:
-            if self.label_info.use_word_end_classes:
-                crp.acoustic_model_config.state_tying.use_word_end_classes = self.label_info.use_word_end_classes
-            crp.acoustic_model_config.state_tying.use_boundary_classes = self.label_info.use_boundary_classes
+            if self.label_info.phoneme_state_classes.use_word_end():
+                crp.acoustic_model_config.state_tying.use_word_end_classes = (
+                    self.label_info.phoneme_state_classes.use_word_end()
+                )
+            crp.acoustic_model_config.state_tying.use_boundary_classes = (
+                self.label_info.phoneme_state_classes.use_boundary()
+            )
             crp.acoustic_model_config.hmm.states_per_phone = self.label_info.n_states_per_phone
             if 'train' in crp_key:
                 crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
@@ -497,7 +514,8 @@ class FactoredHybridBaseSystem(NnSystem):
             if 'linear' in config.config['network'][f'{o}-output']['from']:
                 for i in range(n_mlps):
                     for k in ['leftContext', 'triphone']:
-                        del config.config['network'][f'linear{i+1}-{k}']
+                        if f'linear{i+1}-{k}' in  config.config['network']:
+                            del config.config['network'][f'linear{i+1}-{k}']
             del config.config['network'][f'{o}-output']
 
         return config
@@ -696,43 +714,9 @@ class FactoredHybridBaseSystem(NnSystem):
 
         return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
 
-    # -------------------------------------------- Training --------------------------------------------------------
-    def set_standard_prolog_and_epilog_to_config(self, config: Dict, prolog_additional_str: str=None, epilog_additional_str: str=None):
-        #this is not a returnn config, but the dict params
-        assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
-        time_prolog, time_tag_name = train_helpers.returnn_time_tag.get_shared_time_tag()
-
-        config["extern_data"] = {
-            "data": {
-                "dim": self.initial_nn_args["num_input"],
-                "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)},
-            },
-            **extern_data.get_extern_data_config(label_info=self.label_info, time_tag_name=time_tag_name),
-        }
-        #these two are gonna get popped and stored during returnn config object creation
-        config["python_prolog"] = {"numpy": "import numpy as np",
-                                   "time": time_prolog}
-        config["python_epilog"] = {
-            "functions": [
-                sa_mask,
-                sa_random_mask,
-                sa_summary,
-                sa_transform,
-            ],
-        }
-
-        if prolog_additional_str is not None:
-            config["python_prolog"]["str"] = prolog_additional_str
-
-        if epilog_additional_str is not None:
-            config["python_epilog"]["str"] = epilog_additional_str
-
-
-        return config
-
-    #-------------encoder architectures -------------------------------
+    # -------------encoder architectures -------------------------------
     def get_blstm_network(self, **kwargs):
-        #this is without any loss and output layers
+        # this is without any loss and output layers
         network = blstm_setup.blstm_network(**kwargs)
         if self.training_criterion != TrainingCriterion.fullsum:
             network = augment_net_with_label_pops(network, label_info=self.label_info)
@@ -753,10 +737,48 @@ class FactoredHybridBaseSystem(NnSystem):
             network = augment_net_with_label_pops(network, label_info=s.label_info)
         return network
 
-    #-------------------------------------------------------------------------
+    # -------------------------------------------- Training --------------------------------------------------------
+    def set_standard_prolog_and_epilog_to_config(self, config: Dict, prolog_additional_str: str=None, epilog_additional_str: str=None):
+        #this is not a returnn config, but the dict params
+        assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
+        time_prolog, time_tag_name = train_helpers.returnn_time_tag.get_shared_time_tag()
+
+        if self.training_criterion != TrainingCriterion.fullsum:
+            config["extern_data"] = {
+                "data": {
+                    "dim": self.initial_nn_args["num_input"],
+                    "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)},
+                },
+                **extern_data.get_extern_data_config(label_info=self.label_info, time_tag_name=time_tag_name),
+            }
+
+        #these two are gonna get popped and stored during returnn config object creation
+        config["python_prolog"] = {"numpy": "import numpy as np",
+                                   "time": time_prolog}
+
+        if prolog_additional_str is not None:
+            config["python_prolog"]["str"] = prolog_additional_str
+
+        if epilog_additional_str is not None:
+            config["python_epilog"]["str"] = epilog_additional_str
+        else:
+            config["python_epilog"] = {
+                "functions": [
+                    sa_mask,
+                    sa_random_mask,
+                    sa_summary,
+                    sa_transform,
+                ],
+            }
+
+
+        return config
+
     def set_returnn_config_for_experiment(self, key: str, config_dict: Dict):
         assert key in self.experiments.keys()
-        assert num_epochs in self.initial_nn_args, "set the number of epochs in the nn args"
+        assert "num_epochs" in self.initial_nn_args, "set the number of epochs in the nn args"
+        assert "keep_epochs" in self.initial_nn_args, "set which epochs you want to keep in the nn args"
+
         python_prolog = config_dict.pop('python_prolog') if 'python_prolog' in config_dict else None
         python_epilog = config_dict.pop('python_epilog') if 'python_epilog' in config_dict else None
 
@@ -937,6 +959,13 @@ class FactoredHybridBaseSystem(NnSystem):
 
         self.experiments[experiment_key]["train_job"] = train_job
         self.set_graph_for_experiment(experiment_key)
+
+    # ---------------------Viterbi Alignment--------------
+    def set_crp_for_viterbi_alignment(self):
+        crp_train_name = s.crp_names['train']
+        align_crp = copy.deepcopy(s.crp[crp_train_name])
+
+
 
     # ---------------------Prior Estimation--------------
     def get_hdf_path(self, hdf_key: Optional[str]):
@@ -1388,7 +1417,7 @@ class FactoredHybridBaseSystem(NnSystem):
                 if not len(step_args.extract_features):
                     add_feature_to_extract(self.nn_feature_type)
 
-                self.run_input_step(step_args)
+                self._run_input_step(step_args)
 
 
 

@@ -1,7 +1,7 @@
 __all__ = ["SystemInput"]
 
 import copy
-from typing import Dict
+from typing import Dict, Optional
 
 from i6_experiments.common.setups.rasr.util import (
     ReturnnRasrDataInput,
