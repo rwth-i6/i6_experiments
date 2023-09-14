@@ -14,6 +14,7 @@ def run():
         ),
         num_tied_classes=296434,  # in ^
     )
+    a_job.add_alias("alignments/zhou-forced-triphone")
 
     tk.register_output("alignments/zhou-forced-triphone/alignment.hdf", a_job.out_hdf_file)
     tk.register_output("alignments/zhou-forced-triphone/segments.lit", a_job.out_segments)
