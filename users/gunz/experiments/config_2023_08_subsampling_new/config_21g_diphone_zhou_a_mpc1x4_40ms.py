@@ -316,7 +316,6 @@ def run_single(
         "class": "NextGenHDFDataset",
         "input_stream_name": "classes",
         "files": [alignment],
-        "use_lazy_data_integrity_checks": True,
     }
     returnn_config.config["train"] = {
         **base_dataset_cfg,
