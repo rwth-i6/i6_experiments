@@ -115,8 +115,6 @@ class PipelineStages:
     def get_name(self, alignment_key, context_type):
         return self.names[alignment_key][context_type]
 
-
-
 class RasrFeatureToHDF(Job):
 
   def __init__(self, feature_caches):
@@ -182,12 +180,12 @@ class RasrFeatureAndAlignmentToHDF(Job):
 
         string_dt = h5py.special_dtype(vlen=str)
         state_tying = dict(
-            (k, int(v)) for l in open(self.state_tying.get_path()) for k, v in [l.strip().split()[0:2]])
+            (k, int(v)) for l in open(tk.uncached_path(self.state_tying)) for k, v in [l.strip().split()[0:2]])
 
-        feature_cache = FileArchive(self.feature_caches[task_id - 1].get_path())
+        feature_cache = FileArchive(tk.uncached_path(self.feature_caches[task_id - 1]))
         alignment_cache = FileArchive(
-            self.alignment_caches[min(task_id - 1, len(self.alignment_caches) - 1)].get_path())
-        alignment_cache.setAllophones(self.allophones.get_path())
+            tk.uncached_path(self.alignment_caches[min(task_id - 1, len(self.alignment_caches) - 1)]))
+        alignment_cache.setAllophones(tk.uncached_path(self.allophones))
 
         seq_names = []
         out = h5py.File(self.hdf_files[task_id - 1].get_path(), 'w')
@@ -223,7 +221,7 @@ class RasrFeatureAndAlignmentToHDF(Job):
             alignment = alignment_cache.read(file, 'align')
 
             targets = []
-
+            alignmentNoState = []
             alignmentStates = ['%s.%d' % (alignment_cache.allophones[t[1]], t[2]) for t in alignment]
 
             for allophone in alignmentStates:
