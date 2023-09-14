@@ -275,38 +275,23 @@ def run_single(
             ],
         },
     )
-    datasets = returnn.ReturnnRasrTrainingJob.create_dataset_config(
-        train_crp=s.crp[s.crp_names["train"]],
-        returnn_config=copy.deepcopy(returnn_config),
+    returnn_config = s.get_hdf_config_from_returnn_rasr_data(
+        train_corpus_key=s.crp_names["train"],
+        dev_corpus_key=s.crp_names["cvtrain"],
+        returnn_config=returnn_config,
         partition_epochs=partition_epochs,
+        include_alignment=False,
     )
-    base_dataset_cfg = {
-        "class": "MetaDataset",
-        "data_map": {
+    for crp_k in ["dev", "train"]:
+        returnn_config.config[crp_k]["data_map"] = {
             "data": ("audio", "data"),
             "classes": ("alignment", "classes"),
-        },
-        "seq_order_control_dataset": "audio",
-    }
-    alignment_dataset_config = {
-        "class": "NextGenHDFDataset",
-        "input_stream_name": "classes",
-        "files": [alignment],
-    }
-    returnn_config.config["train"] = {
-        **base_dataset_cfg,
-        "datasets": {
-            "audio": datasets["train"],
-            "alignment": alignment_dataset_config,
-        },
-    }
-    returnn_config.config["dev"] = {
-        **base_dataset_cfg,
-        "datasets": {
-            "audio": datasets["dev"],
-            "alignment": alignment_dataset_config,
-        },
-    }
+        }
+        returnn_config.config[crp_k]["datasets"]["alignment"] = {
+            "class": "NextGenHDFDataset",
+            "input_stream_name": "classes",
+            "files": [alignment],
+        }
 
     s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
@@ -315,19 +300,12 @@ def run_single(
         **s.initial_train_args,
         "num_epochs": num_epochs,
         "partition_epochs": partition_epochs,
-        "returnn_config": copy.deepcopy(returnn_config),
     }
-    viterbi_train_j = s.returnn_rasr_training(
+    viterbi_train_j = s.returnn_training(
         experiment_key="fh",
-        train_corpus_key=s.crp_names["train"],
-        dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
-        include_alignment=False,
+        returnn_config=copy.deepcopy(returnn_config),
     )
-    for cfg in ["train", "dev"]:
-        for attr in ["partitionEpoch", "sprintConfigStr", "sprintTrainerExecPath"]:
-            viterbi_train_j.returnn_config.config[cfg].pop(attr, None)
-        viterbi_train_j.returnn_config.config[cfg]["partition_epoch"] = partition_epochs[cfg]
 
     for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
