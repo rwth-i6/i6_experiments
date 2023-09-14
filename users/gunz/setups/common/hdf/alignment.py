@@ -110,7 +110,7 @@ class RasrAlignmentToHDF(Job):
 
 
 class RasrForcedTriphoneAlignmentToHDF(RasrAlignmentToHDF):
-    first = False
+    first = True
 
     def compute_targets(
         self, alignment_states: typing.List[str], state_tying: typing.Dict[str, int]
