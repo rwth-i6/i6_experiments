@@ -291,10 +291,7 @@ def run_single(
         include_alignment=False,
     )
     for crp_k in ["dev", "train"]:
-        returnn_config.config[crp_k]["data_map"] = {
-            "data": ("audio", "data"),
-            "classes": ("alignment", "classes"),
-        }
+        returnn_config.config[crp_k]["data_map"]["classes"] = ("alignment", "classes")
         returnn_config.config[crp_k]["datasets"]["alignment"] = {
             "class": "NextGenHDFDataset",
             "input_stream_name": "classes",
