@@ -14,8 +14,7 @@ from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
 
-import i6_core.rasr as rasr
-import i6_core.returnn as returnn
+from i6_core import lexicon, mm, rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
@@ -29,15 +28,15 @@ from ...setups.common.nn.specaugment import (
 )
 from ...setups.fh import system as fh_system
 from ...setups.fh.network import conformer
-from ...setups.fh.factored import PhoneticContext
+from ...setups.fh.factored import PhoneticContext, RasrStateTying
 from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
     SubsamplingInfo,
     augment_net_with_monophone_outputs,
     augment_net_with_label_pops,
-    augment_net_with_triphone_outputs,
     remove_label_pops_and_losses_from_returnn_config,
 )
+from ...setups.fh.priors import get_mono_transcription_priors
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
@@ -64,74 +63,74 @@ train_key = "train-other-960"
 class Experiment:
     alignment: tk.Path
     alignment_name: str
-    batch_size: int
-    lr: str
-    dc_detection: bool
     decode_all_corpora: bool
-    own_priors: bool
+    lr: str
+    multitask: bool
+    dc_detection: bool
     run_performance_study: bool
     tune_decoding: bool
+    run_tdp_study: bool
 
     filter_segments: typing.Optional[typing.List[str]] = None
     focal_loss: float = CONF_FOCAL_LOSS
 
 
-def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
+def run(
+    returnn_root: tk.Path, alignment: tk.Path, a_name: str
+) -> typing.Tuple[Experiment, fh_system.FactoredHybridSystem]:
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    configs = [
-        Experiment(
-            alignment=alignment,
-            alignment_name=a_name,
-            batch_size=12500,
-            dc_detection=False,
-            decode_all_corpora=False,
-            lr="v13",
-            own_priors=True,
-            run_performance_study=False,
-            tune_decoding=True,
-        ),
-    ]
-    for exp in configs:
-        run_single(
-            alignment=exp.alignment,
-            alignment_name=exp.alignment_name,
-            batch_size=exp.batch_size,
-            dc_detection=exp.dc_detection,
-            decode_all_corpora=exp.decode_all_corpora,
-            focal_loss=exp.focal_loss,
-            lr=exp.lr,
-            own_priors=exp.own_priors,
-            returnn_root=returnn_root,
-            run_performance_study=exp.run_performance_study,
-            filter_segments=exp.filter_segments,
-            tune_decoding=exp.tune_decoding,
-        )
+    exp = Experiment(
+        alignment=alignment,
+        alignment_name=a_name,
+        dc_detection=False,
+        decode_all_corpora=False,
+        lr="v13",
+        multitask=True,
+        run_performance_study=a_name == "40ms-FF-v8",
+        tune_decoding=True,
+        run_tdp_study=False,
+    )
+    sys = run_single(
+        alignment=exp.alignment,
+        alignment_name=exp.alignment_name,
+        dc_detection=exp.dc_detection,
+        decode_all_corpora=exp.decode_all_corpora,
+        focal_loss=exp.focal_loss,
+        lr=exp.lr,
+        multitask=exp.multitask,
+        returnn_root=returnn_root,
+        run_performance_study=exp.run_performance_study,
+        tune_decoding=exp.tune_decoding,
+        filter_segments=exp.filter_segments,
+        run_tdp_study=exp.run_tdp_study,
+    )
+    return exp, sys
 
 
 def run_single(
     *,
     alignment: tk.Path,
     alignment_name: str,
-    batch_size: int,
     dc_detection: bool,
     decode_all_corpora: bool,
     focal_loss: float,
     lr: str,
-    own_priors: bool,
+    multitask: bool,
     returnn_root: tk.Path,
     run_performance_study: bool,
     tune_decoding: bool,
     filter_segments: typing.Optional[typing.List[str]],
+    run_tdp_study: bool,
     conf_model_dim: int = 512,
     num_epochs: int = 600,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-3-a:{alignment_name}-lr:{lr}-bs:{batch_size}-fl:{focal_loss}"
+    name = f"conf-1-a:{alignment_name}-lr:{lr}-fl:{focal_loss}-mt:{int(multitask)}"
     print(f"fh {name}")
 
     ss_factor = 4
@@ -213,14 +212,7 @@ def run_single(
         l2=L2,
         label_info=s.label_info,
         label_smoothing=CONF_LABEL_SMOOTHING,
-        use_multi_task=True,
-    )
-    network = augment_net_with_triphone_outputs(
-        network,
-        l2=L2,
-        ph_emb_size=s.label_info.ph_emb_size,
-        st_emb_size=s.label_info.st_emb_size,
-        variant=PhoneticContext.triphone_forward,
+        use_multi_task=multitask,
     )
     network = aux_loss.add_intermediate_loss(
         network,
@@ -239,7 +231,7 @@ def run_single(
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
-        "batch_size": batch_size,
+        "batch_size": 12500,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
         "log_batch_size": True,
@@ -259,7 +251,7 @@ def run_single(
         "dev": {"reduce_target_factor": ss_factor},
         "train": {"reduce_target_factor": ss_factor},
     }
-    keep_epochs = [300, 550, num_epochs]
+    keep_epochs = [100, 300, 400, 500, 550, num_epochs]
     base_post_config = {
         "cleanup_old_models": {
             "keep_best_n": 3,
@@ -319,7 +311,7 @@ def run_single(
         "partition_epochs": partition_epochs["dev"],
     }
 
-    s.set_experiment_dict("fh", alignment_name, "tri", postfix_name=name)
+    s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
     train_args = {
@@ -335,50 +327,48 @@ def run_single(
         nn_train_args=train_args,
     )
 
-    best_config = None
     for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
-        s.set_triphone_priors_returnn_rasr(
-            key="fh",
-            epoch=min(ep, keep_epochs[-2]),
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            smoothen=True,
-            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-            data_share=0.1,
-        )
+        if ep <= 300:
+            s.experiments["fh"]["priors"] = get_mono_transcription_priors(1, True)
+            s.set_graph_for_experiment("fh")
+        elif ep <= keep_epochs[-2]:
+            s.set_mono_priors_returnn_rasr(
+                key="fh",
+                epoch=ep,
+                train_corpus_key=s.crp_names["train"],
+                dev_corpus_key=s.crp_names["cvtrain"],
+                smoothen=True,
+                returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+            )
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
-            context_type=PhoneticContext.triphone_forward,
+            context_type=PhoneticContext.monophone,
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,
             tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
             set_batch_major_for_feature_scorer=True,
+            lm_gc_simple_hash=True,
         )
-        recog_args = recog_args.with_lm_scale(round(recog_args.lm_scale / float(ss_factor), 2)).with_tdp_scale(0.1)
+        recog_args = recog_args.with_lm_scale(round(recog_args.lm_scale / float(ss_factor), 2)).with_prior_scale(0.6)
 
         # Top 3 from monophone TDP study
         good_values = [
-            ((3, 0, "infinity", 0), (3, 10, "infinity", 10)),  # 8,8%
-            ((3, 0, "infinity", 3), (3, 10, "infinity", 10)),  # 8,9%
-            ((3, 0, "infinity", 0), (10, 10, "infinity", 10)),  # 9,0%
+            (0.4, (3, 0, "infinity", 0), (3, 10, "infinity", 10)),  # 8,9%
+            (0.6, (3, 0, "infinity", 3), (3, 10, "infinity", 10)),  # 8,9%
+            (0.2, (3, 0, "infinity", 0), (10, 10, "infinity", 10)),  # 9,0%
         ]
 
         for cfg in [
-            recog_args.with_prior_scale(0.4, 0.4, 0.2),
-            recog_args.with_tdp_scale(0.4)
-            .with_prior_scale(0.3, 0.2, 0.2)
-            .with_tdp_speech((3, 0, "infinity", 0))
-            .with_tdp_silence((10, 10, "infinity", 10)),
+            recog_args.with_tdp_scale(0.1),
+            recog_args.with_tdp_scale(0.2),
+            recog_args.with_tdp_scale(0.4),
             *(
-                recog_args.with_prior_scale(0.4, 0.4, 0.2)
-                .with_tdp_scale(0.4)
-                .with_tdp_speech(tdp_sp)
-                .with_tdp_silence(tdp_sil)
-                for tdp_sp, tdp_sil in good_values
+                recog_args.with_tdp_scale(sc).with_tdp_speech(tdp_sp).with_tdp_silence(tdp_sil)
+                for sc, tdp_sp, tdp_sil in good_values
             ),
         ]:
             recognizer.recognize_count_lm(
@@ -387,23 +377,16 @@ def run_single(
                 num_encoder_output=conf_model_dim,
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
-                rtf_cpu=35,
             )
 
-        if tune_decoding and ep == keep_epochs[-1]:
+        if tune_decoding and ep == max(keep_epochs):
             best_config = recognizer.recognize_optimize_scales(
                 label_info=s.label_info,
                 search_parameters=recog_args,
                 num_encoder_output=conf_model_dim,
                 tdp_speech=[(3, 0, "infinity", 0)],
-                tdp_sil=[(10, 10, "infinity", 10)],
-                prior_scales=list(
-                    itertools.product(
-                        np.linspace(0.1, 0.5, 5),
-                        np.linspace(0.0, 0.4, 3),
-                        np.linspace(0.0, 0.4, 3),
-                    )
-                ),
+                tdp_sil=[(3, 10, "infinity", 10)],
+                prior_scales=np.linspace(0.0, 0.8, 9),
                 tdp_scales=[0.4],
             )
             recognizer.recognize_count_lm(
@@ -413,41 +396,209 @@ def run_single(
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
                 name_override="best/4gram",
-                rtf_cpu=35,
             )
 
     if run_performance_study:
-        assert tune_decoding
+        nn_precomputed_returnn_config = copy.deepcopy(returnn_config)
+        nn_precomputed_returnn_config.config["network"]["center-output"] = {
+            **nn_precomputed_returnn_config.config["network"]["center-output"],
+            "class": "linear",
+            "activation": "log_softmax",
+            "register_as_extern_data": "center-output",
+        }
 
-        ep = 600
+        monophone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
+        tying_cfg = rasr.RasrConfig()
+        tying_cfg.type = "monophone-dense"
+
+        good_values = [
+            (0.4, (3, 0, "infinity", 0), (3, 0, "infinity", 20)),  # default
+            (0.4, (3, 0, "infinity", 0), (3, 10, "infinity", 10)),  # 8,9%
+            (0.6, (3, 0, "infinity", 3), (3, 10, "infinity", 10)),  # 8,9%
+            (0.2, (3, 0, "infinity", 0), (10, 10, "infinity", 10)),  # 9,0%
+        ]
+        configs = [
+            dataclasses.replace(
+                s.get_cart_params("fh"),
+                altas=a,
+                beam=beam,
+                beam_limit=100000,
+                lm_scale=1.5,
+                tdp_scale=tdpSc,
+                tdp_silence=tdpSil,
+                tdp_speech=tdpSp,
+            ).with_prior_scale(pC)
+            for beam, a, pC, (tdpSc, tdpSp, tdpSil) in itertools.product(
+                [18, 20, 22], [None, 2, 4, 6], [0.2, 0.4, 0.6], good_values
+            )
+        ]
+        for cfg in configs:
+            j = s.recognize_cart(
+                key="fh",
+                epoch=max(keep_epochs),
+                calculate_statistics=True,
+                cart_tree_or_tying_config=tying_cfg,
+                cpu_rqmt=2,
+                crp_corpus="dev-other",
+                lm_gc_simple_hash=True,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                encoder_output_layer="center__output",
+                mem_rqmt=4,
+                n_cart_out=monophone_li.get_n_of_dense_classes(),
+                params=cfg,
+                rtf=1.5,
+            )
+            j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+
+    if alignment_name == "40ms-FF-v8":
+        nn_precomputed_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+        nn_precomputed_returnn_config.config["network"] = {
+            **nn_precomputed_returnn_config.config["network"],
+            "center-output-expanded": {
+                "class": "expand_dims",
+                "from": "center-output",
+                "axis": "F",
+                "dim": 42,
+            },
+            "center-output-merged": {
+                "class": "merge_dims",
+                "from": "center-output-expanded",
+                "axes": ["dim:84", "dim:42"],
+                "keep_order": True,
+            },
+            "center-output-normalized": {
+                "class": "eval",
+                "eval": f"tf.math.divide(source(0), 42)",
+                "from": "center-output-merged",
+            },
+            "output": {
+                "class": "eval",
+                "eval": "tf.math.log(source(0))",
+                "from": "center-output-normalized",
+                "register_as_extern_data": "output",
+            },
+        }
+
+        prior_config = copy.deepcopy(nn_precomputed_returnn_config)
+        prior_config.config["network"]["output"] = {
+            "class": "copy",
+            "from": "center-output-normalized",
+            "register_as_extern_data": "output",
+        }
+        s.set_mono_priors_returnn_rasr(
+            key="fh",
+            epoch=keep_epochs[-2],
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=prior_config,
+            output_layer_name="output",
+        )
+
+        diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+        tying_cfg = rasr.RasrConfig()
+        tying_cfg.type = "diphone-dense"
+
+        configs = [
+            dataclasses.replace(
+                s.get_cart_params("fh"),
+                altas=a,
+                beam=beam,
+                beam_limit=100000,
+                lm_scale=1.5,
+                tdp_scale=tdpSc,
+            ).with_prior_scale(pC)
+            for beam, a, pC, tdpSc in itertools.product([18, 20, 22], [None, 2, 4, 6], [0.2, 0.4, 0.6], [0.4, 0.6])
+        ]
+        for cfg in configs:
+            s.recognize_cart(
+                key="fh",
+                epoch=max(keep_epochs),
+                calculate_statistics=True,
+                cart_tree_or_tying_config=tying_cfg,
+                cpu_rqmt=2,
+                crp_corpus="dev-other",
+                lm_gc_simple_hash=True,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                encoder_output_layer="output",
+                alias_output_prefix="recog-fake-diphone/",
+                mem_rqmt=4,
+                n_cart_out=diphone_li.get_n_of_dense_classes(),
+                params=cfg,
+                rtf=4,
+            )
+
+    if run_tdp_study:
+        base_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+
+        s.set_mono_priors_returnn_rasr(
+            key="fh",
+            epoch=max(keep_epochs),
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=base_config,
+        )
+
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
-            context_type=PhoneticContext.triphone_forward,
+            context_type=PhoneticContext.monophone,
             crp_corpus="dev-other",
-            epoch=ep,
+            epoch=max(keep_epochs),
             gpu=False,
             tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
             set_batch_major_for_feature_scorer=True,
             lm_gc_simple_hash=True,
         )
-        for cfg in [
-            dataclasses.replace(best_config, altas=a, beam=b, lm_scale=2.1)
-            for a, b in itertools.product([None, 2, 4, 6, 8, 12], [12, 14, 20])
-        ]:
+
+        search_cfg = recog_args.with_prior_scale(0.6)
+        tdps = itertools.product(
+            [0, 3, 10],
+            [0],
+            [0, 3, 10],
+            [0, 3, 10],
+            [10],
+            [1, 3, 10],
+            (0.1, *((round(v, 1) for v in np.linspace(0.2, 0.6, 3)))),
+        )
+        run_jobs = {}
+        for cfg in tdps:
+            sp_loop, sp_fwd, sp_exit, sil_loop, sil_fwd, sil_exit, tdp_scale = cfg
+            sp_tdp = (sp_loop, sp_fwd, "infinity", sp_exit)
+            sil_tdp = (sil_loop, sil_fwd, "infinity", sil_exit)
+            params = dataclasses.replace(
+                search_cfg,
+                altas=2,
+                lm_scale=1.33,
+                tdp_speech=sp_tdp,
+                tdp_silence=sil_tdp,
+                tdp_non_word=sil_tdp,
+                tdp_scale=tdp_scale,
+            )
+
             jobs = recognizer.recognize_count_lm(
                 label_info=s.label_info,
-                search_parameters=cfg,
+                search_parameters=params,
                 num_encoder_output=conf_model_dim,
                 rerun_after_opt_lm=False,
-                opt_lm_am=False,
                 calculate_stats=True,
-                pre_path="decoding-perf-eval",
-                name_override=f"best/altas{cfg.altas}-beam{cfg.beam}",
                 cpu_rqmt=2,
                 mem_rqmt=4,
-                rtf_cpu=40,
+                rtf_cpu=4,
             )
-            jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30", "--nice=500"]})
+            run_jobs[tdp_scale, sp_tdp, sil_tdp] = (jobs, params)
+
+        best_sp = (3, 0, "infinity", 0)
+        best_sil = (3, 10, "infinity", 10)
+        best, params = run_jobs[0.4, best_sp, best_sil]
+        tune_tdp_job = mm.ViterbiTdpTuningJob(
+            crp=best.search_crp,
+            feature_flow=s.feature_flows["dev-other"],
+            feature_scorer=best.search_feature_scorer,
+            allophone_files=lexicon.StoreAllophonesJob(best.search_crp).out_allophone_file,
+            am_args={"tdp_transition": best_sp, "tdp_silence": best_sil},
+        )
+        tk.register_output(f"tdp-tuning/{name}/opt", tune_tdp_job.am_args_opt)
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
@@ -457,7 +608,7 @@ def run_single(
 
             recognizer, recog_args = s.get_recognizer_and_args(
                 key="fh",
-                context_type=PhoneticContext.triphone_forward,
+                context_type=PhoneticContext.monophone,
                 crp_corpus=crp_k,
                 epoch=ep,
                 gpu=False,
@@ -465,15 +616,7 @@ def run_single(
                 set_batch_major_for_feature_scorer=True,
             )
 
-            cfgs = [
-                cfg
-                for cfg in [
-                    recog_args,
-                    recog_args.with_prior_scale(0.4, 0.4, 0.2).with_tdp_scale(0.6),
-                    # best_config,
-                ]
-                if cfg is not None
-            ]
+            cfgs = [recog_args.with_prior_scale(0.6).with_tdp_scale(0.5)]
 
             for cfg in cfgs:
                 recognizer.recognize_count_lm(
@@ -492,7 +635,7 @@ def run_single(
             generic_lstm_base_op.rqmt = {"cpu": 1, "mem": 4, "time": 0.5}
             recognizer, recog_args = s.get_recognizer_and_args(
                 key="fh",
-                context_type=PhoneticContext.triphone_forward,
+                context_type=PhoneticContext.monophone,
                 crp_corpus=crp_k,
                 epoch=ep,
                 gpu=True,
@@ -508,7 +651,7 @@ def run_single(
                     num_encoder_output=conf_model_dim,
                     rerun_after_opt_lm=False,
                     calculate_stats=True,
-                    rtf_gpu=24,
+                    rtf_gpu=18,
                     gpu=True,
                 )
 

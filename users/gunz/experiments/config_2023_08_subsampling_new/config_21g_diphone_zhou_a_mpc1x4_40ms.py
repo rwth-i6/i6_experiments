@@ -10,8 +10,6 @@ import itertools
 import numpy as np
 import os
 
-from i6_core.returnn import ReturnnRasrTrainingJob
-
 # -------------------- Sisyphus --------------------
 from sisyphus import gs, tk
 
@@ -301,8 +299,8 @@ def run_single(
             ],
         },
     )
-    datasets = ReturnnRasrTrainingJob.create_dataset_config(
-        train_crp=s.crp_names["train"],
+    datasets = returnn.ReturnnRasrTrainingJob.create_dataset_config(
+        train_crp=s.crp[s.crp_names["train"]],
         returnn_config=copy.deepcopy(returnn_config),
         partition_epochs=partition_epochs,
     )
