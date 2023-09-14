@@ -33,7 +33,7 @@ def run():
     plots = PlotViterbiAlignmentsJob(
         alignment_bundle_path=Path(ZHOU_SUBSAMPLED_ALIGNMENT, cached=True),
         allophones_path=Path(ZHOU_ALLOPHONES),
-        segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
+        segments=["librispeech/2920-156224/0013"],
         show_labels=False,
         monophone=True,
     )
