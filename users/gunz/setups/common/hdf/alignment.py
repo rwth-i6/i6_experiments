@@ -110,6 +110,8 @@ class RasrAlignmentToHDF(Job):
 
 
 class RasrForcedTriphoneAlignmentToHDF(RasrAlignmentToHDF):
+    first = False
+
     def compute_targets(
         self, alignment_states: typing.List[str], state_tying: typing.Dict[str, int]
     ) -> typing.List[int]:
@@ -127,5 +129,9 @@ class RasrForcedTriphoneAlignmentToHDF(RasrAlignmentToHDF):
             in_ctx = dataclasses.replace(a_st, ctx_l=next(next_left, "#"), ctx_r=next(next_right, "#"))
 
             forced_triphone_alignment.append(str(in_ctx))
+
+        if self.first:
+            self.first = False
+            print(f"Example alignment: {forced_triphone_alignment}")
 
         return super().compute_targets(forced_triphone_alignment, state_tying)
