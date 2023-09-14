@@ -350,6 +350,9 @@ def run_single(
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
     )
+    for cfg in ["train", "dev"]:
+        for attr in ["partitionEpoch", "sprintConfigStr", "sprintTrainerExecPath"]:
+            viterbi_train_j.returnn_config.config[cfg].pop(attr, None)
 
     clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
     nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(

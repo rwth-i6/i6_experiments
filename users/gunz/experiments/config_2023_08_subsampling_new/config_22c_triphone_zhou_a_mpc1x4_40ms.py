@@ -328,12 +328,15 @@ def run_single(
         "partition_epochs": partition_epochs,
         "returnn_config": copy.deepcopy(returnn_config),
     }
-    s.returnn_rasr_training(
+    viterbi_train_j = s.returnn_rasr_training(
         experiment_key="fh",
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
     )
+    for cfg in ["train", "dev"]:
+        for attr in ["partitionEpoch", "sprintConfigStr", "sprintTrainerExecPath"]:
+            viterbi_train_j.returnn_config.config[cfg].pop(attr, None)
 
     best_config = None
     for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
