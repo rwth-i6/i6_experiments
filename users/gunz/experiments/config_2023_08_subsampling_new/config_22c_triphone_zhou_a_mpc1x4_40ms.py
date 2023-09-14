@@ -333,6 +333,7 @@ def run_single(
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
+        include_alignment=False,
     )
     for cfg in ["train", "dev"]:
         for attr in ["partitionEpoch", "sprintConfigStr", "sprintTrainerExecPath"]:
