@@ -1,4 +1,6 @@
-from sisyphus import tk, Path
+import os
+
+from sisyphus import gs, tk, Path
 
 from ...setups.common.hdf import RasrForcedTriphoneAlignmentToHDF
 
@@ -6,6 +8,8 @@ from .config import ZHOU_ALLOPHONES, ZHOU_SUBSAMPLED_ALIGNMENT
 
 
 def run():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
+
     tying = Path(
         "/work/asr3/raissi/shared_workspaces/gunz/dependencies/state-tying/no-tying-dense-with-zhou-contextless-allophones/state-tying"
     )
