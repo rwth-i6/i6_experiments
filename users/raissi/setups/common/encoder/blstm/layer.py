@@ -1,8 +1,7 @@
-from typing import Array
-
+from typing import Dict
 
 def blstm_network(
-    layers: Array = 6 * [512], dropout: float = 0.1, l2: float = 0.1, specaugment: bool = True, as_data: bool = False,
+    layers = 6 * [512], dropout: float = 0.1, l2: float = 0.1, specaugment: bool = True, as_data: bool = False,
     transform_func_name: str = 'transform',
 ):
     num_layers = len(layers)

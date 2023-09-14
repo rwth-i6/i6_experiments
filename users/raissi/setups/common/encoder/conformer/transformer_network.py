@@ -6,7 +6,7 @@ import copy
 
 import i6_core.returnn as returnn
 
-from i6_experiments.users.raissi.setups.encoder.conformer import layers
+from i6_experiments.users.raissi.setups.common.encoder.conformer import layers
 
 # encs_args: relative_pe=False, fixed=False, clipping=None, left_attention_only=False
 # emb_dropout

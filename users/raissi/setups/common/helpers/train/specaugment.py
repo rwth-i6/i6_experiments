@@ -321,11 +321,10 @@ def get_funcs_jingjing():
 
 
 #---------------------------- tina Legacy BLSTM -------------------------------------------------
-def returnn_blstm_code(max_time=3):
-    mask_code_blstm = f"""
-
+def get_legacy_specaugment_epilog_blstm(t_num=3, t=10, f_num=5, f=4):
+    code = f"""
 def _mask(x, batch_axis, axis, pos, max_amount):
-  from returnn.tf.compat import v1 as tf
+  import tensorflow as tf
   ndim = x.get_shape().ndims
   n_batch = tf.shape(x)[batch_axis]
   dim = tf.shape(x)[axis]
@@ -344,14 +343,14 @@ def _mask(x, batch_axis, axis, pos, max_amount):
 
 
 def random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
-
-  from returnn.tf.compat import v1 as tf
+  import tensorflow as tf
   n_batch = tf.shape(x)[batch_axis]
   if isinstance(min_num, int) and isinstance(max_num, int) and min_num == max_num:
     num = min_num
   else:
     num = tf.random_uniform(shape=(n_batch,), minval=min_num, maxval=max_num + 1, dtype=tf.int32)
-
+  # https://github.com/tensorflow/tensorflow/issues/9260
+  # https://timvieira.github.io/blog/post/2014/08/01/gumbel-max-trick-and-weighted-reservoir-sampling/
   z = -tf.log(-tf.log(tf.random_uniform((n_batch, tf.shape(x)[axis]), 0, 1)))
   _, indices = tf.nn.top_k(z, num if isinstance(num, int) else tf.reduce_max(num))
   # indices should be sorted, and of shape (batch,num), entries (int32) in [0,dim)
@@ -367,23 +366,22 @@ def random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
                         )
   return x
 
-
 def transform(data, network):
   # to be adjusted (20-50%)
-  max_time_num = {max_time}
-  max_time = 10
+  max_time_num = {t_num}
+  max_time = {t}
 
-  max_feature_num = 5
-  max_feature = 4
+  max_feature_num = {f_num}
+  max_feature = {f}
 
   # halved before this step
-  conservative_step = 2000
+  conservatvie_step = 2000
 
   x = data.placeholder
   from returnn.tf.compat import v1 as tf
   # summary("features", x)
   step = network.global_train_step
-  increase_flag = tf.where(tf.greater_equal(step, conservative_step), 0, 1)
+  increase_flag = tf.where(tf.greater_equal(step, conservatvie_step), 0, 1)
 
   def get_masked():
     x_masked = x
@@ -398,7 +396,6 @@ def transform(data, network):
     #summary("features_mask", x_masked)
     return x_masked
   x = network.cond_on_train(get_masked, lambda: x)
-  return x
-"""
-    return mask_code_blstm
+  return x """
+    return code
 
