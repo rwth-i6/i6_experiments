@@ -6,13 +6,18 @@ from .config import ZHOU_ALLOPHONES, ZHOU_SUBSAMPLED_ALIGNMENT
 
 
 def run():
+    tying = Path(
+        "/work/asr3/raissi/shared_workspaces/gunz/dependencies/state-tying/no-tying-dense-with-zhou-contextless-allophones/state-tying"
+    )
+    with open(tying, "rt") as f:
+        lines = [l for l in f if not l.startswith("#") and len(l.strip()) > 0]
+        num_tied_classes = len(lines)
+
     a_job = RasrForcedTriphoneAlignmentToHDF(
         alignment_bundle=Path(ZHOU_SUBSAMPLED_ALIGNMENT, cached=True),
         allophones=Path(ZHOU_ALLOPHONES),
-        state_tying=Path(
-            "/work/asr3/raissi/shared_workspaces/gunz/dependencies/state-tying/no-tying-dense-with-zhou-contextless-allophones/state-tying"
-        ),
-        num_tied_classes=296434,  # in ^
+        state_tying=tying,
+        num_tied_classes=num_tied_classes,  # in ^
     )
     a_job.add_alias("alignments/zhou-forced-triphone")
 
