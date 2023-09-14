@@ -117,6 +117,10 @@ class RasrForcedTriphoneAlignmentToHDF(RasrAlignmentToHDF):
         forced_triphone_alignment = []
 
         for i, a_st in enumerate(decomposed_alignment):
+            if a_st.ph == "[SILENCE]":
+                forced_triphone_alignment.append(str(a_st))
+                continue
+
             next_left = (st.as_context() for st in decomposed_alignment[i::-1] if st.ph != a_st.ph)
             next_right = (st.as_context() for st in decomposed_alignment[i:] if st.ph != a_st.ph)
 
