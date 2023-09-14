@@ -14,21 +14,14 @@ class AllophoneState:
     ph: str
     rest: str
 
-    def in_context(self, left: Optional["AllophoneState"], right: Optional["AllophoneState"]) -> "AllophoneState":
-        if self.ph == "[SILENCE]":
-            # Silence does not have context.
-
-            return self
-
-        new_left = left.ph if left is not None and left.ph != "[SILENCE]" else "#"
-        new_right = right.ph if right is not None and right.ph != "[SILENCE]" else "#"
-        return dataclasses.replace(self, ctx_l=new_left, ctx_r=new_right)
-
     def to_mono(self) -> str:
         return f"{self.ph}{self.rest}"
 
     def __str__(self):
         return f"{self.ph}{{{self.ctx_l}+{self.ctx_r}}}{self.rest}"
+
+    def as_context(self):
+        return "#" if self.ph == "[SILENCE]" else self.ph
 
     @classmethod
     def from_alignment_state(cls, state: str) -> "AllophoneState":

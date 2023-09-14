@@ -1,5 +1,7 @@
 __all__ = ["RasrAlignmentToHDF", "RasrForcedTriphoneAlignmentToHDF"]
 
+import dataclasses
+
 import h5py
 import logging
 import numpy as np
@@ -112,7 +114,14 @@ class RasrForcedTriphoneAlignmentToHDF(RasrAlignmentToHDF):
         self, alignment_states: typing.List[str], state_tying: typing.Dict[str, int]
     ) -> typing.List[int]:
         decomposed_alignment = [AllophoneState.from_alignment_state(s) for s in alignment_states]
-        in_context = zip((None, *decomposed_alignment[:-1]), decomposed_alignment, (*decomposed_alignment[1:], None))
-        forced_triphone_alignment = [str(cur.in_context(prv, nxt)) for prv, cur, nxt in in_context]
+        forced_triphone_alignment = []
+
+        for i, a_st in enumerate(decomposed_alignment):
+            next_left = (st.as_context() for st in decomposed_alignment[i::-1] if st.ph != a_st.ph)
+            next_right = (st.as_context() for st in decomposed_alignment[i:] if st.ph != a_st.ph)
+
+            in_ctx = dataclasses.replace(a_st, ctx_l=next(next_left, "#"), ctx_r=next(next_right, "#"))
+
+            forced_triphone_alignment.append(str(in_ctx))
 
         return super().compute_targets(forced_triphone_alignment, state_tying)
