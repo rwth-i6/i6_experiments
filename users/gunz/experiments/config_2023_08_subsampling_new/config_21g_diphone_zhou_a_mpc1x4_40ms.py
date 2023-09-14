@@ -312,7 +312,7 @@ def run_single(
             "data": ("audio", "data"),
             "classes": ("alignment", "classes"),
         },
-        "seq_order_control_dataset": "rasr",
+        "seq_order_control_dataset": "audio",
     }
     alignment_dataset_config = {
         "class": "NextGenHDFDataset",
