@@ -281,6 +281,7 @@ def run_single(
         returnn_config=returnn_config,
         partition_epochs=partition_epochs,
         include_alignment=False,
+        laplace_ordering=False,
     )
     for crp_k in ["dev", "train"]:
         returnn_config.config[crp_k]["data_map"]["classes"] = ("alignment", "classes")
