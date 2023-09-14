@@ -135,6 +135,6 @@ class RasrForcedTriphoneAlignmentToHDF(RasrAlignmentToHDF):
 
         if self.first:
             self.first = False
-            print(f"Example alignment: {forced_triphone_alignment}")
+            logging.info(f"Example alignment: {forced_triphone_alignment}")
 
         return super().compute_targets(forced_triphone_alignment, state_tying)
