@@ -563,7 +563,7 @@ class FactoredHybridSystem(NnSystem):
     def _update_am_setting_for_all_crps(self, train_tdp_type, eval_tdp_type, add_base_allophones=False):
         types = {"train": train_tdp_type, "eval": eval_tdp_type}
         for t in types.keys():
-            if types[t] == "heuristic":
+            if types[t].startswith("heuristic"):
                 if self.label_info.n_states_per_phone > 1:
                     types[t] = (types[t], "threepartite")
                 else:
