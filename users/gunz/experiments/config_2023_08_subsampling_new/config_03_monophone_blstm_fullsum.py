@@ -144,6 +144,8 @@ def run_single(
     # ******************** HY Init ********************
 
     name = f"blstm-1-lr:{lr}-n:{n_states_per_phone}-ss:{subsampling_approach}-dx:{output_time_step/(10/1000)}-d:{model_dim}-bwl:{bw_label_scale}-bwt:{bw_transition_scale}"
+    if bw_transition_scale > 0:
+        name += f"-tdp:adapted"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
