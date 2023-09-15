@@ -29,7 +29,8 @@ from ...setups.common.nn.specaugment import (
 from ...setups.fh import system as fh_system
 from ...setups.fh.factored import PhoneticContext, RasrStateTying
 from ...setups.fh.network.augment import (
-    augment_net_with_monophone_outputs, remove_label_pops_and_losses_from_returnn_config,
+    augment_net_with_monophone_outputs,
+    remove_label_pops_and_losses_from_returnn_config,
 )
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
@@ -37,7 +38,8 @@ from .config import (
     CONF_CHUNKING_10MS,
     CONF_SA_CONFIG,
     BLSTM_FH_DECODING_TENSOR_CONFIG,
-    L2, RASR_ARCH,
+    L2,
+    RASR_ARCH,
     RASR_ROOT_NO_TF,
     RASR_ROOT_TF2,
     RETURNN_PYTHON,
@@ -192,8 +194,8 @@ def run_single(
         chunk_size=CONF_CHUNKING_10MS,
     )
     s._update_am_setting_for_all_crps(
-        train_tdp_type="heuristic",
-        eval_tdp_type="heuristic",
+        train_tdp_type=f"heuristic-{int(output_time_step * 1000)}ms",
+        eval_tdp_type=f"heuristic-{int(output_time_step * 1000)}ms",
         add_base_allophones=False,
     )
 
