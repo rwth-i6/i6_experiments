@@ -2,6 +2,7 @@ __all__ = ["run", "run_single"]
 
 import copy
 import dataclasses
+import math
 import typing
 from dataclasses import dataclass
 import itertools
@@ -19,7 +20,7 @@ import i6_core.returnn as returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.nn import oclr, returnn_time_tag
+from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
 from ...setups.common.nn.chunking import subsample_chunking
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
@@ -42,7 +43,7 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
-    CONF_CHUNKING_30MS,
+    CONF_CHUNKING_10MS,
     CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
@@ -66,7 +67,10 @@ class Experiment:
     alignment: tk.Path
     alignment_name: str
     batch_size: int
+    chunking: str
     decode_all_corpora: bool
+    fine_tune: bool
+    label_smoothing: float
     lr: str
     dc_detection: bool
     run_performance_study: bool
@@ -77,7 +81,7 @@ class Experiment:
     focal_loss: float = CONF_FOCAL_LOSS
 
 
-def run(returnn_root: tk.Path, alignments: typing.List[typing.Tuple[tk.Path, str]]):
+def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
@@ -85,26 +89,31 @@ def run(returnn_root: tk.Path, alignments: typing.List[typing.Tuple[tk.Path, str
 
     configs = [
         Experiment(
-            alignment=a,
+            alignment=alignment,
             alignment_name=a_name,
             batch_size=12500,
+            chunking=CONF_CHUNKING_10MS,
             dc_detection=False,
             decode_all_corpora=False,
+            fine_tune=a_name == "40ms-FF-v8",
+            label_smoothing=CONF_LABEL_SMOOTHING,
             lr="v13",
-            run_performance_study=a_name == "30ms-FF-v8",
-            tune_decoding=True,
+            run_performance_study=a_name == "40ms-FF-v8",
+            tune_decoding=a_name == "40ms-FF-v8",
             run_tdp_study=False,
         )
-        for a, a_name in alignments
     ]
     for exp in configs:
         run_single(
             alignment=exp.alignment,
             alignment_name=exp.alignment_name,
             batch_size=exp.batch_size,
+            chunking=exp.chunking,
             dc_detection=exp.dc_detection,
             decode_all_corpora=exp.decode_all_corpora,
+            fine_tune=exp.fine_tune,
             focal_loss=exp.focal_loss,
+            label_smoothing=exp.label_smoothing,
             returnn_root=returnn_root,
             run_performance_study=exp.run_performance_study,
             tune_decoding=exp.tune_decoding,
@@ -119,24 +128,27 @@ def run_single(
     alignment: tk.Path,
     alignment_name: str,
     batch_size: int,
+    chunking: str,
     dc_detection: bool,
     decode_all_corpora: bool,
+    fine_tune: bool,
     focal_loss: float,
     lr: str,
     returnn_root: tk.Path,
     run_performance_study: bool,
     tune_decoding: bool,
     run_tdp_study: bool,
+    label_smoothing: float = CONF_LABEL_SMOOTHING,
     filter_segments: typing.Optional[typing.List[str]],
     conf_model_dim: int = 512,
     num_epochs: int = 600,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-2-mp:1x3-a:{alignment_name}-lr:{lr}-fl:{focal_loss}"
+    name = f"conf-2-fs:1x4-a:{alignment_name}-lr:{lr}-fl:{focal_loss}-ls:{label_smoothing}-ch:{chunking}"
     print(f"fh {name}")
 
-    ss_factor = 3
+    ss_factor = 4
 
     # ***********Initial arguments and init step ********************
     (
@@ -176,7 +188,7 @@ def run_single(
     s.set_rasr_returnn_input_datas(
         is_cv_separate_from_train=False,
         input_key="data_preparation",
-        chunk_size=CONF_CHUNKING_30MS,
+        chunk_size=chunking,
     )
     s._update_am_setting_for_all_crps(
         train_tdp_type="default",
@@ -189,16 +201,13 @@ def run_single(
     time_prolog, time_tag_name = returnn_time_tag.get_shared_time_tag()
     network_builder = conformer.get_best_model_config(
         conf_model_dim,
-        chunking=CONF_CHUNKING_30MS,
+        chunking=chunking,
         focal_loss_factor=CONF_FOCAL_LOSS,
-        label_smoothing=CONF_LABEL_SMOOTHING,
+        label_smoothing=label_smoothing,
         num_classes=s.label_info.get_n_of_dense_classes(),
         time_tag_name=time_tag_name,
         upsample_by_transposed_conv=False,
-        conf_args={
-            "feature_stacking": False,
-            "reduction_factor": (1, ss_factor),
-        },
+        feature_stacking_size=ss_factor,
     )
     network = network_builder.network
     network = augment_net_with_label_pops(
@@ -214,13 +223,13 @@ def run_single(
         focal_loss_factor=focal_loss,
         l2=L2,
         label_info=s.label_info,
-        label_smoothing=CONF_LABEL_SMOOTHING,
+        label_smoothing=label_smoothing,
         use_multi_task=True,
     )
     network = augment_net_with_diphone_outputs(
         network,
         encoder_output_len=conf_model_dim,
-        label_smoothing=CONF_LABEL_SMOOTHING,
+        label_smoothing=label_smoothing,
         l2=L2,
         ph_emb_size=s.label_info.ph_emb_size,
         st_emb_size=s.label_info.st_emb_size,
@@ -234,7 +243,7 @@ def run_single(
         focal_loss_factor=focal_loss,
         l2=L2,
         label_info=s.label_info,
-        label_smoothing=CONF_LABEL_SMOOTHING,
+        label_smoothing=label_smoothing,
         time_tag_name=time_tag_name,
         upsampling=False,
     )
@@ -251,7 +260,7 @@ def run_single(
         "cache_size": "0",
         "window": 1,
         "update_on_device": True,
-        "chunking": subsample_chunking(CONF_CHUNKING_30MS, ss_factor),
+        "chunking": subsample_chunking(chunking, ss_factor),
         "optimizer": {"class": "nadam"},
         "optimizer_epsilon": 1e-8,
         "gradient_noise": 0.0,
@@ -297,111 +306,31 @@ def run_single(
         "partition_epochs": partition_epochs,
         "returnn_config": copy.deepcopy(returnn_config),
     }
-    s.returnn_rasr_training(
+    viterbi_train_j = s.returnn_rasr_training(
         experiment_key="fh",
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
     )
 
+    clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+    nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+        returnn_config=clean_returnn_config,
+        label_info=s.label_info,
+        out_joint_score_layer="output",
+        log_softmax=True,
+    )
+    prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+        returnn_config=clean_returnn_config,
+        label_info=s.label_info,
+        out_joint_score_layer="output",
+        log_softmax=False,
+    )
+
     for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
-        s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
-
-        s.set_diphone_priors_returnn_rasr(
-            key="fh",
-            epoch=ep,
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            smoothen=True,
-            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-        )
-
-        recognizer, recog_args = s.get_recognizer_and_args(
-            key="fh",
-            context_type=PhoneticContext.diphone,
-            crp_corpus=crp_k,
-            epoch=ep,
-            gpu=False,
-            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-            set_batch_major_for_feature_scorer=True,
-            lm_gc_simple_hash=True,
-        )
-        recog_args = recog_args.with_lm_scale(round(recog_args.lm_scale / float(ss_factor), 2)).with_tdp_scale(0.1)
-
-        # Top 3 from monophone TDP study
-        good_values = [
-            ((3, 0, "infinity", 0), (3, 10, "infinity", 10)),  # 8,9%
-            ((3, 0, "infinity", 3), (3, 10, "infinity", 10)),  # 8,9%
-            ((3, 0, "infinity", 0), (10, 10, "infinity", 10)),  # 9,0%
-        ]
-
-        for cfg in [
-            recog_args.with_prior_scale(0.4, 0.4),
-            recog_args.with_prior_scale(0.4, 0.2),
-            recog_args.with_prior_scale(0.4, 0.6)
-            .with_tdp_scale(0.4)
-            .with_tdp_speech((3, 0, "infinity", 0))
-            .with_tdp_silence((3, 10, "infinity", 10)),
-            *(
-                recog_args.with_prior_scale(0.4, 0.4)
-                .with_tdp_scale(0.4)
-                .with_tdp_speech(tdp_sp)
-                .with_tdp_silence(tdp_sil)
-                for tdp_sp, tdp_sil in good_values
-                if ep == 600
-            ),
-        ]:
-            recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=cfg,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=True,
-                calculate_stats=True,
-                rtf_cpu=20,
-            )
-
-        if tune_decoding and ep == max(keep_epochs):
-            best_config = recognizer.recognize_optimize_scales(
-                label_info=s.label_info,
-                search_parameters=recog_args,
-                num_encoder_output=conf_model_dim,
-                tdp_speech=[(3, 0, "infinity", 0)],
-                tdp_sil=[(3, 10, "infinity", 10)],
-                prior_scales=list(
-                    itertools.product(
-                        np.linspace(0.1, 0.7, 7),
-                        np.linspace(0.0, 0.8, 9),
-                    )
-                ),
-                tdp_scales=[0.4],
-            )
-            recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=best_config,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=True,
-                calculate_stats=True,
-                name_override="best/4gram",
-                rtf_cpu=32,
-            )
-
-    if run_performance_study:
-        clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
-        nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
-            returnn_config=clean_returnn_config,
-            label_info=s.label_info,
-            out_joint_score_layer="output",
-            log_softmax=True,
-        )
-        prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
-            returnn_config=clean_returnn_config,
-            label_info=s.label_info,
-            out_joint_score_layer="output",
-            log_softmax=False,
-        )
         s.set_mono_priors_returnn_rasr(
             key="fh",
-            epoch=keep_epochs[-2],
+            epoch=min(ep, keep_epochs[-2]),
             train_corpus_key=s.crp_names["train"],
             dev_corpus_key=s.crp_names["cvtrain"],
             smoothen=True,
@@ -415,31 +344,208 @@ def run_single(
 
         configs = [
             dataclasses.replace(
-                s.get_cart_params("fh"), altas=a, beam=beam, beam_limit=100000, lm_scale=2, tdp_scale=0.4
+                s.get_cart_params("fh"), beam=18, beam_limit=100000, lm_scale=2, tdp_scale=tdpS
             ).with_prior_scale(pC)
-            for beam, pC, a in itertools.product(
-                [16, 18, 20],
+            for pC, tdpS in itertools.product(
                 [0.4, 0.6],
-                [None, 2, 4],
+                [0.4, 0.6],
             )
         ]
         for cfg in configs:
-            j = s.recognize_cart(
+            s.recognize_cart(
                 key="fh",
-                epoch=max(keep_epochs),
+                epoch=ep,
                 calculate_statistics=True,
                 cart_tree_or_tying_config=tying_cfg,
                 cpu_rqmt=2,
-                crp_corpus="dev-other",
+                crp_corpus=crp_k,
                 lm_gc_simple_hash=True,
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
                 mem_rqmt=4,
                 n_cart_out=diphone_li.get_n_of_dense_classes(),
                 params=cfg,
-                prior_epoch=keep_epochs[-2],
-                rtf=1.5,
+                rtf=4,
             )
-            j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+
+    # ###########
+    # FINE TUNING
+    # ###########
+
+    if fine_tune:
+        fine_tune_epochs = 450
+        keep_epochs = [23, 100, 225, 400, 450]
+        orig_name = name
+
+        bw_scales = [
+            baum_welch.BwScales(label_posterior_scale=p, label_prior_scale=None, transition_scale=t)
+            for p, t in itertools.product([0.3, 1.0], [0.0, 0.3])
+        ]
+        configs = [(5e-5, scales) for scales in bw_scales]
+        configs = [
+            *configs,
+            *(
+                (lr, baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3))
+                for lr in [1e-5, 2e-5, 3e-5, 8e-5]
+            ),
+        ]
+
+        for peak_lr, bw_scale in configs:
+            name = f"{orig_name}-fs:{peak_lr}-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
+            s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=name)
+
+            s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+            s.lexicon_args["norm_pronunciation"] = False
+
+            s._update_am_setting_for_all_crps(
+                train_tdp_type="heuristic",
+                eval_tdp_type="heuristic",
+                add_base_allophones=False,
+            )
+
+            returnn_config_ft = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+            nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+                returnn_config=returnn_config_ft,
+                label_info=s.label_info,
+                out_joint_score_layer="output",
+                log_softmax=True,
+            )
+            prior_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+                returnn_config=returnn_config_ft,
+                label_info=s.label_info,
+                out_joint_score_layer="output",
+                log_softmax=False,
+            )
+            returnn_config_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
+                returnn_config=returnn_config_ft,
+                label_info=s.label_info,
+                out_joint_score_layer="output",
+                log_softmax=True,
+                prepare_for_train=True,
+            )
+            returnn_config_ft = baum_welch.augment_for_fast_bw(
+                crp=s.crp[s.crp_names["train"]],
+                from_output_layer="output",
+                returnn_config=returnn_config_ft,
+                log_linear_scales=bw_scale,
+            )
+            lrates = oclr.get_learning_rates(
+                lrate=peak_lr,
+                increase=0,
+                constLR=math.floor(fine_tune_epochs * 0.45),
+                decay=math.floor(fine_tune_epochs * 0.45),
+                decMinRatio=0.1,
+                decMaxRatio=1,
+            )
+            update_config = returnn.ReturnnConfig(
+                config={
+                    "batch_size": 10000,
+                    "learning_rates": list(
+                        np.concatenate([lrates, np.linspace(min(lrates), 1e-6, fine_tune_epochs - len(lrates))])
+                    ),
+                    "preload_from_files": {
+                        "existing-model": {
+                            "init_for_train": True,
+                            "ignore_missing": True,
+                            "filename": viterbi_train_j.out_checkpoints[600],
+                        }
+                    },
+                    "extern_data": {"data": {"dim": 50}},
+                },
+                post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": keep_epochs}},
+                python_epilog={
+                    "dynamic_lr_reset": "dynamic_learning_rate = None",
+                },
+            )
+            returnn_config_ft.update(update_config)
+
+            s.set_returnn_config_for_experiment("fh-fs", copy.deepcopy(returnn_config_ft))
+
+            train_args = {
+                **s.initial_train_args,
+                "num_epochs": fine_tune_epochs,
+                "partition_epochs": partition_epochs,
+                "returnn_config": copy.deepcopy(returnn_config_ft),
+            }
+            s.returnn_rasr_training(
+                experiment_key="fh-fs",
+                train_corpus_key=s.crp_names["train"],
+                dev_corpus_key=s.crp_names["cvtrain"],
+                nn_train_args=train_args,
+            )
+
+            for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
+                s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+                s.set_mono_priors_returnn_rasr(
+                    key="fh-fs",
+                    epoch=min(ep, keep_epochs[-2]),
+                    train_corpus_key=s.crp_names["train"],
+                    dev_corpus_key=s.crp_names["cvtrain"],
+                    smoothen=True,
+                    returnn_config=remove_label_pops_and_losses_from_returnn_config(
+                        prior_config, except_layers=["pastLabel"]
+                    ),
+                    output_layer_name="output",
+                )
+
+                diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+                tying_cfg = rasr.RasrConfig()
+                tying_cfg.type = "diphone-dense"
+
+                base_params = s.get_cart_params(key="fh-fs")
+                decoding_cfgs = [
+                    dataclasses.replace(
+                        base_params,
+                        lm_scale=round(base_params.lm_scale / ss_factor, 2),
+                        tdp_scale=sc,
+                    ).with_prior_scale(0.6)
+                    for sc in [0.4, 0.6]
+                ]
+                for cfg in decoding_cfgs:
+                    s.recognize_cart(
+                        key="fh-fs",
+                        epoch=ep,
+                        crp_corpus=crp_k,
+                        n_cart_out=diphone_li.get_n_of_dense_classes(),
+                        cart_tree_or_tying_config=tying_cfg,
+                        params=cfg,
+                        log_softmax_returnn_config=nn_precomputed_returnn_config,
+                        calculate_statistics=True,
+                        opt_lm_am_scale=True,
+                        prior_epoch=min(ep, keep_epochs[-2]),
+                        rtf=8,
+                        cpu_rqmt=2,
+                        mem_rqmt=4,
+                    )
+
+                if run_performance_study:
+                    configs = [
+                        dataclasses.replace(
+                            s.get_cart_params("fh"), altas=a, beam=beam, beam_limit=100000, lm_scale=2, tdp_scale=0.4
+                        ).with_prior_scale(pC)
+                        for beam, pC, a in itertools.product(
+                            [14, 16, 18],
+                            [0.4, 0.6],
+                            [None, 2, 4, 6],
+                        )
+                    ]
+                    for cfg in configs:
+                        j = s.recognize_cart(
+                            key="fh-fs",
+                            epoch=23,
+                            calculate_statistics=True,
+                            cart_tree_or_tying_config=tying_cfg,
+                            cpu_rqmt=2,
+                            crp_corpus="dev-other",
+                            lm_gc_simple_hash=True,
+                            log_softmax_returnn_config=nn_precomputed_returnn_config,
+                            mem_rqmt=4,
+                            n_cart_out=diphone_li.get_n_of_dense_classes(),
+                            params=cfg,
+                            prior_epoch=min(ep, keep_epochs[-2]),
+                            rtf=1.5,
+                        )
+                        j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if run_tdp_study:
         s.feature_flows["dev-other"].flags["cache_mode"] = "bundle"

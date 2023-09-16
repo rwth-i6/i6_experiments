@@ -1,5 +1,6 @@
 from functools import cache
 from sisyphus import tk
+from typing import Any, Dict, Optional
 
 
 def _clone_returnn_safe() -> tk.Path:
@@ -79,6 +80,41 @@ def get_40ms_wei_a():
     )
 
     return config_02_wei_align_40ms.run()
+
+
+@cache
+def run_blstm_a():
+    from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new import (
+        config_03_monophone_blstm_fullsum,
+    )
+
+    returnn_root = _clone_returnn_safe()
+    exps = config_03_monophone_blstm_fullsum.run(returnn_root=returnn_root)
+    return exps
+
+
+def get_n_blstm_a(
+    feature_stacking: bool,
+    t_step: float,
+    transition_scale: float,
+    adapted_tdps: Optional[bool],
+):
+    from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new.config_03_monophone_blstm_fullsum import (
+        Experiment,
+    )
+
+    exps: Dict[Experiment, Any] = run_blstm_a()
+    target_s = next(
+        (
+            s
+            for e, s in exps.items()
+            if e.output_time_step == t_step
+            and e.bw_transition_scale == transition_scale
+            and (adapted_tdps is None or e.adapt_transition_model_to_ss == adapted_tdps)
+            and (not feature_stacking or "fs:" in e.subsampling_approach)
+        )
+    )
+    return target_s.experiments["fh"]["alignment_job"].out_alignment_bundle
 
 
 @tk.block("viterbi_30ms")
@@ -215,10 +251,33 @@ def alignment_eval():
 
 
 def the_plan():
-    from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new import config_03_monophone_blstm_fullsum
+    from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new import (
+        config_03_monophone_blstm_fullsum,
+        config_11_diphone_mpc1x3_30ms,
+        config_11b_diphone_fs1x3_30ms,
+        config_21_diphone_mpc1x4_40ms,
+        config_21h_diphone_fs1x4_40ms,
+    )
 
     returnn_root = _clone_returnn_safe()
-    config_03_monophone_blstm_fullsum.run(returnn_root=returnn_root)
+
+    phmm_30ms_mp_a = get_n_blstm_a(feature_stacking=False, transition_scale=0.3, adapted_tdps=False, t_step=30 / 1000)
+    phmm_30ms_fs_a = get_n_blstm_a(feature_stacking=True, transition_scale=0.3, adapted_tdps=False, t_step=30 / 1000)
+
+    config_11_diphone_mpc1x3_30ms.run(
+        returnn_root=returnn_root, alignments=[(phmm_30ms_mp_a, "30ms-Bmp-v8"), (phmm_30ms_fs_a, "30ms-Bfs-v8")]
+    )
+    config_11b_diphone_fs1x3_30ms.run(
+        returnn_root=returnn_root, alignments=[(phmm_30ms_mp_a, "30ms-Bmp-v8"), (phmm_30ms_fs_a, "30ms-Bfs-v8")]
+    )
+
+    phmm_40ms_mp_a = get_n_blstm_a(feature_stacking=False, transition_scale=0.3, adapted_tdps=False, t_step=40 / 1000)
+    phmm_40ms_fs_a = get_n_blstm_a(feature_stacking=True, transition_scale=0.3, adapted_tdps=False, t_step=40 / 1000)
+
+    config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_mp_a, a_name="40ms-Bmp-v8")
+    config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_fs_a, a_name="40ms-Bfs-v8")
+    config_21h_diphone_fs1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_mp_a, a_name="40ms-Bmp-v8")
+    config_21h_diphone_fs1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_fs_a, a_name="40ms-Bfs-v8")
 
 
 def main():
