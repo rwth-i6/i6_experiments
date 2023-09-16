@@ -54,6 +54,7 @@ train_key = "train-other-960"
 
 @dataclass(frozen=True, eq=True)
 class Experiment:
+    adapt_transition_model_to_ss: bool
     alignment_name: str
     bw_label_scale: float
     bw_transition_scale: float
@@ -75,6 +76,31 @@ def run(returnn_root: tk.Path):
 
     configs = [
         Experiment(
+            adapt_transition_model_to_ss=False,
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            feature_time_shift=10 / 1000,
+            lr="v8",
+            model_dim=model_dim,
+            n_states_per_phone=1,
+            output_time_step=40 / 1000,
+            subsampling_approach="fs:4",
+            bw_transition_scale=0.3,
+        ),
+        Experiment(
+            adapt_transition_model_to_ss=False,
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            feature_time_shift=10 / 1000,
+            lr="v8",
+            model_dim=model_dim,
+            n_states_per_phone=1,
+            output_time_step=30 / 1000,
+            subsampling_approach="fs:3",
+            bw_transition_scale=0.3,
+        ),
+        Experiment(
+            adapt_transition_model_to_ss=True,
             alignment_name="scratch",
             bw_label_scale=0.3,
             feature_time_shift=10 / 1000,
@@ -86,6 +112,7 @@ def run(returnn_root: tk.Path):
             bw_transition_scale=0.3,
         ),
         Experiment(
+            adapt_transition_model_to_ss=True,  # doesn't matter here, but set for hash compat
             alignment_name="scratch",
             bw_label_scale=0.3,
             feature_time_shift=7.5 / 1000,
@@ -97,6 +124,7 @@ def run(returnn_root: tk.Path):
             bw_transition_scale=0.0,
         ),
         Experiment(
+            adapt_transition_model_to_ss=True,  # doesn't matter here, but set for hash compat
             alignment_name="scratch",
             bw_label_scale=0.3,
             feature_time_shift=10 / 1000,
@@ -110,6 +138,7 @@ def run(returnn_root: tk.Path):
     ]
     experiments = {
         exp: run_single(
+            adapt_transition_model_to_ss=exp.adapt_transition_model_to_ss,
             alignment_name=exp.alignment_name,
             bw_label_scale=exp.bw_label_scale,
             feature_time_shift=exp.feature_time_shift,
@@ -129,6 +158,7 @@ def run(returnn_root: tk.Path):
 
 def run_single(
     *,
+    adapt_transition_model_to_ss: bool,
     alignment_name: str,
     bw_label_scale: float,
     bw_transition_scale: float,
@@ -144,7 +174,7 @@ def run_single(
     # ******************** HY Init ********************
 
     name = f"blstm-1-lr:{lr}-n:{n_states_per_phone}-ss:{subsampling_approach}-dx:{output_time_step/(10/1000)}-d:{model_dim}-bwl:{bw_label_scale}-bwt:{bw_transition_scale}"
-    if bw_transition_scale > 0:
+    if adapt_transition_model_to_ss > 0:
         name += f"-tdp:adapted"
     print(f"fh {name}")
 
@@ -196,8 +226,8 @@ def run_single(
         chunk_size=CONF_CHUNKING_10MS,
     )
     s._update_am_setting_for_all_crps(
-        train_tdp_type=f"heuristic-{int(output_time_step * 1000)}ms",
-        eval_tdp_type=f"heuristic-{int(output_time_step * 1000)}ms",
+        train_tdp_type=f"heuristic-{int(output_time_step * 1000)}ms" if adapt_transition_model_to_ss else "heuristic",
+        eval_tdp_type=f"heuristic-{int(output_time_step * 1000)}ms" if adapt_transition_model_to_ss else "heuristic",
         add_base_allophones=False,
     )
 
