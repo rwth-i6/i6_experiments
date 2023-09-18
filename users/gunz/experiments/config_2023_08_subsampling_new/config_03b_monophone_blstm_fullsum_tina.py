@@ -240,4 +240,6 @@ def run_single(
     tk.register_output(f"alignments/{name}/statistics/means", phoneme_durs.out_means)
     tk.register_output(f"alignments/{name}/statistics/variances", phoneme_durs.out_vars)
 
+    s.experiments["fh"]["alignment_job"] = a_job
+
     return s
