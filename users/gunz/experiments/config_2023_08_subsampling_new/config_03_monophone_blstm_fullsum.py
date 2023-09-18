@@ -75,6 +75,7 @@ def run(returnn_root: tk.Path):
     model_dim = 512
 
     configs = [
+        # Feature Stacking
         Experiment(
             adapt_transition_model_to_ss=False,
             alignment_name="scratch",
@@ -99,6 +100,7 @@ def run(returnn_root: tk.Path):
             subsampling_approach="fs:3",
             bw_transition_scale=0.3,
         ),
+        # Adapted TDPs
         Experiment(
             adapt_transition_model_to_ss=True,
             alignment_name="scratch",
@@ -111,6 +113,7 @@ def run(returnn_root: tk.Path):
             subsampling_approach="mp:2@2+mp:2@4",
             bw_transition_scale=0.3,
         ),
+        # P-HMM-S
         Experiment(
             adapt_transition_model_to_ss=True,  # doesn't matter here, but set for hash compat
             alignment_name="scratch",

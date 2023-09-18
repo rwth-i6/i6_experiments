@@ -99,9 +99,24 @@ def get_n_blstm_a(
     transition_scale: float,
     adapted_tdps: Optional[bool],
 ):
+    from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new.config import (
+        ALIGN_30MS_BLSTM_MP,
+        ALIGN_40MS_BLSTM_MP,
+    )
     from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new.config_03_monophone_blstm_fullsum import (
         Experiment,
     )
+
+    via_dict = {
+        (False, 30 / 1000, 0.3, False): tk.Path(ALIGN_30MS_BLSTM_MP, cached=True),
+        (False, 30 / 1000, 0.3, None): tk.Path(ALIGN_30MS_BLSTM_MP, cached=True),
+        (False, 40 / 1000, 0.3, False): tk.Path(ALIGN_40MS_BLSTM_MP, cached=True),
+        (False, 40 / 1000, 0.3, None): tk.Path(ALIGN_40MS_BLSTM_MP, cached=True),
+    }
+
+    result = via_dict.get((feature_stacking, t_step, transition_scale, adapted_tdps), None)
+    if result is not None:
+        return result
 
     exps: Dict[Experiment, Any] = run_blstm_a()
     target_s = next(
