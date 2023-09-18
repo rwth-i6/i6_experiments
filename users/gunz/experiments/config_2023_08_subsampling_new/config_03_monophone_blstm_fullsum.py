@@ -88,18 +88,9 @@ def run(returnn_root: tk.Path):
             subsampling_approach="fs:4",
             bw_transition_scale=0.3,
         ),
-        Experiment(
-            adapt_transition_model_to_ss=False,
-            alignment_name="scratch",
-            bw_label_scale=0.3,
-            feature_time_shift=10 / 1000,
-            lr="v8",
-            model_dim=model_dim,
-            n_states_per_phone=1,
-            output_time_step=30 / 1000,
-            subsampling_approach="fs:3",
-            bw_transition_scale=0.3,
-        ),
+        # 30ms feature stacking model provided by Tina
+        # Max Pooling
+        # 30ms and 40ms max pooling models already trained in previous pipelines
         # Adapted TDPs
         Experiment(
             adapt_transition_model_to_ss=True,
