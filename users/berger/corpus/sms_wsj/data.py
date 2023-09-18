@@ -326,7 +326,7 @@ def get_data_inputs(
         "64k_3gram": "lm-64k.lm.gz",
     }[lm_name]
 
-    lm = helpers.ArpaLMData(scale=10, filename=tk.Path(f"/work/speech/wsj/lm/recognition/{filename}"))
+    lm = helpers.ArpaLMData(scale=10, filename=tk.Path(f"/u/corpora/language/wsj/results/{filename}"))
 
     train_lexicon_path = tk.Path(f"{dep_dir}/lexicon/wsj01-train.lexicon.gz")
     if preprocessing:

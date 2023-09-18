@@ -13,12 +13,11 @@ import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
-from i6_core.returnn.training import Checkpoint
+from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
 
-from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef, ModelWithCheckpoint
-from i6_experiments.users.zeyer.recog import recog_model
-from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
+import torch
+
+# from functools import partial
 
 
 # From Mohammad, 2023-06-29
@@ -29,53 +28,106 @@ from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpoi
 # _returnn_tf_config_filename = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config"
 # E.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
 _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
+_torch_ckpt_filename_w_ctc = "i6_experiments/users/zeyer/returnn/convert_ckpt_rf/ConvertTfCheckpointToRfPtJob.VRGbjneg5cU9/output/model/average.pt"
+
+# The model gets raw features (16khz) and does feature extraction internally.
+_log_mel_feature_dim = 80
 
 
-def sis_run_with_prefix(prefix_name: str):
+def sis_run_with_prefix(prefix_name: str = None):
     """run the exp"""
-    from i6_experiments.users.zeyer.experiments.exp2023_04_25_rf._moh_att_2023_06_30_import import map_param_func_v2
+    from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
+    from ._moh_att_2023_06_30_import import map_param_func_v3
+    from .sis_setup import get_prefix_for_config
+    from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
+    from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
+    from i6_experiments.users.gaudino.recog import recog_model
+    from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_bpe10k_raw
 
-    task = get_switchboard_task_bpe1k()
+    if not prefix_name:
+        prefix_name = get_prefix_for_config(__file__)
 
-    epoch = 300
-    new_chkpt = ConvertTfCheckpointToRfPtJob(
-        checkpoint=Checkpoint(
-            # TODO wrong path here... not used so far, only testing other code here...
-            index_path=tk.Path(
-                f"/u/zeyer/setups/combined/2021-05-31"
-                f"/alias/exp_fs_base/old_nick_att_conformer_lrs2/train/output/models/epoch.{epoch:03}.index"
-            )
-        ),
+    task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
+
+    extern_data_dict = task.train_dataset.get_extern_data()
+    default_target_key = task.train_dataset.get_default_target()
+    targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+    target_dim = targets.feature_dim_or_sparse_dim
+
+    new_chkpt_path = ConvertTfCheckpointToRfPtJob(
+        checkpoint=TfCheckpoint(index_path=generic_job_output(_returnn_tf_ckpt_filename)),
         make_model_func=MakeModel(
-            extern_data_dict=task.train_dataset.get_extern_data(),
-            default_input_key=task.train_dataset.get_default_input(),
-            default_target_key=task.train_dataset.get_default_target(),
+            in_dim=_log_mel_feature_dim,
+            target_dim=target_dim.dimension,
+            eos_label=_get_eos_idx(target_dim),
         ),
-        map_func=map_param_func_v2,
+        map_func=map_param_func_v3,
     ).out_checkpoint
+
+    #
+
+    search_args = {
+        "att_scale": 0.7,
+        "ctc_scale": 0.3,
+        "beam_size": 12,
+        "use_ctc": False,
+        "mask_eos": True,
+    }
+
+    # new_chkpt_path = tk.Path(_torch_ckpt_filename_w_ctc, hash_overwrite="torch_ckpt_w_ctc")
+    new_chkpt = PtCheckpoint(new_chkpt_path)
     model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
 
-    res = recog_model(task, model_with_checkpoint, model_recog)
-    tk.register_output(prefix_name + f"/recog_results_per_epoch/{epoch:03}", res.output)
+    # dev_sets = ["dev-other"]  # only dev-other for testing
+    dev_sets = None  # all
+    res = recog_model(task, model_with_checkpoint, model_recog, dev_sets=dev_sets, search_args=search_args)
+    tk.register_output(
+        prefix_name
+        # + f"/espnet_att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_beam{search_args['beam_size']}_maskEos"
+        + f"/att{search_args['att_scale']}_beam{search_args['beam_size']}"
+        + f"/recog_results",
+        res.output,
+    )
+
+    # search_args["beam_size"] = 20
+    #
+    # res = recog_model(task, model_with_checkpoint, model_recog, dev_sets=dev_sets, search_args=search_args)
+    # tk.register_output(
+    #     prefix_name
+    #     + f"/espnet_ctc_att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_beam{search_args['beam_size']}"
+    #     + f"/recog_results",
+    #     res.output,
+    # )
+
+
+py = sis_run_with_prefix  # if run directly via `sis m ...`
 
 
 class MakeModel:
     """for import"""
 
-    def __init__(self, *, extern_data_dict, default_input_key, default_target_key):
-        self.extern_data_dict = extern_data_dict
-        self.default_input_key = default_input_key
-        self.default_target_key = default_target_key
+    def __init__(self, in_dim: int, target_dim: int, *, eos_label: int = 0, num_enc_layers: int = 12):
+        self.in_dim = in_dim
+        self.target_dim = target_dim
+        self.eos_label = eos_label
+        self.num_enc_layers = num_enc_layers
 
     def __call__(self) -> Model:
-        data = Tensor(name=self.default_input_key, **self.extern_data_dict[self.default_input_key])
-        targets = Tensor(name=self.default_target_key, **self.extern_data_dict[self.default_target_key])
-        in_dim = data.feature_dim_or_sparse_dim
-        target_dim = targets.feature_dim_or_sparse_dim
-        return self.make_model(in_dim, target_dim)
+        from returnn.datasets.util.vocabulary import Vocabulary
+
+        in_dim = Dim(name="in", dimension=self.in_dim, kind=Dim.Types.Feature)
+        target_dim = Dim(name="target", dimension=self.target_dim, kind=Dim.Types.Feature)
+        target_dim.vocab = Vocabulary.create_vocab_from_labels(
+            [str(i) for i in range(target_dim.dimension)], eos_label=self.eos_label
+        )
+
+        return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers)
 
     @classmethod
-    def make_model(cls, in_dim: Dim, target_dim: Dim, *, num_enc_layers: int = 12) -> Model:
+    def make_model(
+        cls, in_dim: Dim, target_dim: Dim, *, search_args: Optional[Dict[str, Any]], num_enc_layers: int = 12
+    ) -> Model:
         """make"""
         return Model(
             in_dim,
@@ -99,6 +151,7 @@ class MakeModel:
             blank_idx=target_dim.dimension,
             bos_idx=_get_bos_idx(target_dim),
             eos_idx=_get_eos_idx(target_dim),
+            search_args=search_args,
         )
 
 
@@ -124,6 +177,7 @@ class Model(rf.Module):
         enc_dropout: float = 0.1,
         enc_att_dropout: float = 0.1,
         l2: float = 0.0001,
+        search_args: Optional[Dict[str, Any]] = None,
     ):
         super(Model, self).__init__()
         self.in_dim = in_dim
@@ -160,6 +214,13 @@ class Model(rf.Module):
         self.enc_ctx = rf.Linear(self.encoder.out_dim, enc_key_total_dim)
         self.enc_ctx_dropout = 0.2
         self.enc_win_dim = Dim(name="enc_win_dim", dimension=5)
+
+        self.target_dim_w_b = Dim(name="target_w_b", dimension=self.target_dim.dimension + 1, kind=Dim.Types.Feature)
+
+        self.search_args = search_args
+        self.ctc = rf.Linear(self.encoder.out_dim, self.target_dim_w_b)
+
+        # TODO: add lstm
 
         self.inv_fertility = rf.Linear(self.encoder.out_dim, att_num_heads, with_bias=False)
 
@@ -212,7 +273,8 @@ class Model(rf.Module):
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         enc_ctx = self.enc_ctx(enc)
         inv_fertility = rf.sigmoid(self.inv_fertility(enc))
-        return dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility), enc_spatial_dim
+        ctc = rf.log_softmax(self.ctc(enc), axis=self.target_dim_w_b)
+        return dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility, ctc=ctc), enc_spatial_dim
 
     @staticmethod
     def encoder_unstack(ext: Dict[str, rf.Tensor]) -> Dict[str, rf.Tensor]:
@@ -318,14 +380,18 @@ def _get_eos_idx(target_dim: Dim) -> int:
     return eos_idx
 
 
-def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
+def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim, search_args: Optional[Dict[str, Any]]) -> Model:
     """Function is run within RETURNN."""
-    epoch  # noqa
-    return MakeModel.make_model(in_dim, target_dim)
+    in_dim, epoch  # noqa
+    # real input is raw audio, internally it does logmel
+    in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
+    return MakeModel.make_model(in_dim, target_dim, search_args=search_args)
 
 
 from_scratch_model_def: ModelDef[Model]
 from_scratch_model_def.behavior_version = 14
+from_scratch_model_def.backend = "torch"
+from_scratch_model_def.batch_size_factor = 40  # 160 # change batch size here
 
 
 def from_scratch_training(
@@ -376,7 +442,8 @@ def model_recog(
     model: Model,
     data: Tensor,
     data_spatial_dim: Dim,
-    targets_dim: Dim,  # noqa
+    max_seq_len: Optional[int] = None,
+    # search_args: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -393,9 +460,12 @@ def model_recog(
     """
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    beam_size = 12
+    beam_size = model.search_args["beam_size"]
     length_normalization_exponent = 1.0
-    max_seq_len = enc_spatial_dim.get_size_tensor()
+    if max_seq_len is None:
+        max_seq_len = enc_spatial_dim.get_size_tensor()
+    else:
+        max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
     print("** max seq len:", max_seq_len.raw_tensor)
 
     # Eager-mode implementation of beam search.
@@ -408,11 +478,48 @@ def model_recog(
     out_seq_len = rf.constant(0, dims=batch_dims_)
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)
 
+    assert len(batch_dims) == 1
+    batch_size_dim = batch_dims[0]
+    batch_size = batch_dims[0].get_dim_value()
+    target_ctc = [model.bos_idx for _ in range(batch_size * beam_size)]
+
+    # ctc prefix scorer speechbrain
+    # from .ctc import CTCPrefixScorer
+    # ctc_scorer = CTCPrefixScorer(
+    #     enc_args['ctc'].raw_tensor,
+    #     max_seq_len.raw_tensor.to('cuda'),
+    #     10, # batch_size -> number of sequences in the batch, 10 for debugging
+    #     beam_size,
+    #     10025, #blank index
+    #     model.bos_idx,
+    #     # self.ctc_window_size,
+    # )
+    # ctc_memory = None
+
+    if model.search_args["use_ctc"]:
+        # ctc prefix scorer espnet
+        from .espnet_ctc.ctc_prefix_score_espnet import CTCPrefixScoreTH
+
+        # hlens = max_seq_len.raw_tensor.repeat(beam_size).view(beam_size, data.raw_tensor.shape[0]).transpose(0, 1)
+        hlens = max_seq_len.raw_tensor
+        ctc_out = (
+            enc_args["ctc"].copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_b)).raw_tensor
+        )  # [B,T,V+1]
+
+        if model.search_args["mask_eos"]:
+            ctc_eos = ctc_out[:, :, model.eos_idx].unsqueeze(2)
+            ctc_blank = ctc_out[:, :, model.blank_idx].unsqueeze(2)
+            ctc_out[:, :, model.blank_idx] = torch.logsumexp(torch.cat([ctc_eos, ctc_blank], dim=2), dim=2)
+            ctc_out[:, :, model.eos_idx] = -1e30
+
+        ctc_prefix_scorer = CTCPrefixScoreTH(ctc_out, hlens, 10025, 0, 0)
+        ctc_state = None
+    enc_args.pop("ctc")
+
     i = 0
     seq_targets = []
     seq_backrefs = []
     while True:
-        print("** step", i)
         input_embed = model.target_embed(target)
         step_out, decoder_state = model.loop_step(
             **enc_args,
@@ -421,7 +528,37 @@ def model_recog(
             state=decoder_state,
         )
         logits = model.decode_logits(input_embed=input_embed, **step_out)
-        label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
+        label_log_prob = rf.log_softmax(
+            logits, axis=model.target_dim
+        )  # (Dim{'initial-beam'(1)}, Dim{B}, Dim{F'target'(10025)})
+
+        # add ctc speechbrain
+        # ctc_candidates = None
+        # attn = None
+        # ctc_log_probs, ctc_memory = ctc_scorer.forward_step(
+        #     i, target.raw_tensor, ctc_memory, ctc_candidates, attn
+        # )
+        # label_log_prob = label_log_prob + 0.3 * ctc_log_probs # ctc weight: 0.3
+
+        if model.search_args["use_ctc"]:
+            # add ctc espnet
+            ctc_prefix_scores, ctc_state = ctc_prefix_scorer(output_length=i, last_ids=target_ctc, state=ctc_state)
+
+            if i == 0:
+                ctc_prefix_scores = ctc_prefix_scores.view(batch_size, beam_size, -1)[:, 0, :].unsqueeze(1)
+            else:
+                ctc_prefix_scores = ctc_prefix_scores.view(batch_size, beam_size, -1)
+            ctc_prefix_scores = rf.Tensor(
+                name="ctc_prefix_scores",
+                # dims=batch_dims_ + [model.target_dim],
+                dims=[batch_size_dim, beam_dim, model.target_dim],
+                dtype="float32",
+                raw_tensor=ctc_prefix_scores[:, :, :10025],
+            )
+            label_log_prob = (
+                model.search_args["att_scale"] * label_log_prob + model.search_args["ctc_scale"] * ctc_prefix_scores
+            )
+
         # Filter out finished beams
         label_log_prob = rf.where(
             ended,
@@ -439,8 +576,13 @@ def model_recog(
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         i += 1
 
+        if model.search_args["use_ctc"]:
+            # ctc state selection
+            ctc_state = ctc_prefix_scorer.index_select_state(ctc_state, target.raw_tensor)
+            target_ctc = torch.flatten(target.raw_tensor)
+
         ended = rf.logical_or(ended, target == model.eos_idx)
-        ended = rf.logical_or(ended, i >= max_seq_len)
+        ended = rf.logical_or(ended, rf.copy_to_device(i >= max_seq_len))
         if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
             break
         out_seq_len = out_seq_len + rf.where(ended, 0, 1)
@@ -461,7 +603,7 @@ def model_recog(
     # Backtrack via backrefs, resolve beams.
     seq_targets_ = []
     indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
-    for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
+    for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]): # [::-1] reverse
         # indices: FinalBeam -> Beam
         # backrefs: Beam -> PrevBeam
         seq_targets_.insert(0, rf.gather(target, indices=indices))
@@ -474,6 +616,138 @@ def model_recog(
     seq_targets = seq_targets__.stack(axis=out_spatial_dim)
 
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
+
+
+# TODO: implement ctc only decoding
+def model_recog_ctc(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    max_seq_len: Optional[int] = None,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Function is run within RETURNN.
+
+    Earlier we used the generic beam_search function,
+    but now we just directly perform the search here,
+    as this is overall simpler and shorter.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    beam_size = model.search_args["beam_size"]
+    length_normalization_exponent = 1.0
+    if max_seq_len is None:
+        max_seq_len = enc_spatial_dim.get_size_tensor()
+    else:
+        max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
+    print("** max seq len:", max_seq_len.raw_tensor)
+
+    # Eager-mode implementation of beam search.
+    # Initial state.
+    beam_dim = Dim(1, name="initial-beam")
+    # batch_dims_ = [beam_dim] + batch_dims
+    # decoder_state = model.decoder_default_initial_state(batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+    # target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
+    # ended = rf.constant(False, dims=batch_dims_)
+    # out_seq_len = rf.constant(0, dims=batch_dims)
+    # seq_log_prob = rf.constant(0.0, dims=batch_di#ms_)
+
+    assert len(batch_dims) == 1
+    batch_size_dim = batch_dims[0]
+    batch_size = batch_dims[0].get_dim_value()
+    target_ctc = [model.bos_idx for _ in range(batch_size * beam_size)]
+
+    print("ctc decoding")
+    ctc_out = enc_args["ctc"].copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_b))  # [B,T,V+1]
+
+    enc_args.pop("ctc")
+
+    seq_targets_ = None
+    hyps = rf.reduce_argmax(ctc_out, axis=ctc_out.feature_dim).raw_tensor
+    scores = rf.reduce_max(ctc_out, axis=ctc_out.feature_dim).raw_tensor
+    scores.sum = torch.sum(scores, 1).unsqueeze(1)
+    seq_log_prob = rf.Tensor(
+        name="seq_log_prob",
+        dims=[batch_size_dim, beam_dim],
+        dtype="float32",
+        raw_tensor=scores.sum,
+    )
+
+    max_out_len = max_seq_len.raw_tensor[0]
+    out_spatial_dim = Dim(int(max_out_len), name=f"out-spatial")
+    out_seq_lens = []
+
+    # scores = rf.reduce_max(ctc_out, axis=ctc_out.feature_dim)
+    # scores_sum = rf.reduce_sum(scores, axis=scores.dims[1])
+
+    # remove blank and eos
+    # blank_eos_mask = rf.combine(hyps != 10025, "logical_and", hyps != 0)
+    for i in range(batch_size):
+        mask = torch.logical_and(hyps[i] != 10025, hyps[i] != 0)
+        hyp = torch.masked_select(hyps[i], mask)
+        out_seq_lens.append(hyp.shape[0])
+        hyp_pad = torch.nn.functional.pad(hyp, (0, max_out_len - hyp.shape[0]), mode='constant', value=0)
+        hyp_pad = hyp_pad.unsqueeze(0)
+        hyp_tensor = rf.Tensor(
+            name=f"hyp_{i}",
+            dims=[beam_dim, out_spatial_dim],
+            dtype="int64",
+            raw_tensor=hyp_pad,
+            sparse_dim=model.target_dim,
+        )
+        if not seq_targets_:
+            seq_targets_ = TensorArray(hyp_tensor)
+            seq_targets_.push_back(hyp_tensor)
+        else:
+            seq_targets_.push_back(hyp_tensor)
+
+    out_seq_lens_tensor = rf.Tensor(
+        name="out_seq_lens",
+        dims=[beam_dim, batch_size_dim],
+        dtype="int32",
+        raw_tensor=torch.tensor(out_seq_lens, dtype=torch.int32).unsqueeze(0),
+    )
+
+    seq_targets = seq_targets_.stack(axis=batch_dims[0])
+    seq_targets.dims[2].dyn_size_ext = out_seq_lens_tensor
+
+    seq_targets = seq_targets.copy_transpose([out_spatial_dim] + batch_dims + [beam_dim])
+
+    # from torchaudio.models.decoder import ctc_decoder
+    # # torchaudio ctc decoder
+    # # only runs on cpu -> slow
+    # # maybe dump ctc_out and load it in on cpu fast
+    # from returnn.datasets.util.vocabulary import Vocabulary
+    # vocab_1 = Vocabulary("/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab", eos_label=0)
+    #
+    # beam_search_decoder = ctc_decoder(
+    #     lexicon=None,  # lexicon free decoding
+    #     tokens=vocab_1.labels + ['<b>', '|'],  # files.tokens,
+    #     lm=None,
+    #     nbest=3,
+    #     beam_size=12,
+    #     word_score=0,
+    #     blank_token='<b>',
+    # )
+    #
+    # hypos = beam_search_decoder(ctc_out.raw_tensor.to('cpu'), hlens)
+    #
+    # # TODO: handle hypos
+
+
+    return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
+
+
+# TODO: add LSTM LM
+# TODO: add prior correction
+
 
 
 # RecogDef API

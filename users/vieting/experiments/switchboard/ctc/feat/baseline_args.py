@@ -29,7 +29,7 @@ sys.setrecursionlimit(3000)
 """
 
 
-def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
+def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix="", training_args=None):
     evaluation_epochs = evaluation_epochs or [num_epochs]
 
     returnn_configs = {}
@@ -43,7 +43,7 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
         returnn_recog_configs[prefix + name] = returnn_recog_config
         report_args_collection[prefix + name] = report_args
 
-    training_args = {
+    training_args = training_args or {
         "log_verbosity": 4,
         "num_epochs": num_epochs,
         "save_interval": 1,
@@ -52,37 +52,7 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
         "mem_rqmt": 16,
         "cpu_rqmt": 3,
     }
-    recognition_args = {
-        "hub5e00": {
-            "epochs": evaluation_epochs,
-            "feature_flow_key": "samples",
-            "prior_scales": [0.7, 0.8, 0.9, 1.0],
-            "pronunciation_scales": [6.0],
-            "lm_scales": [10.0],
-            "lm_lookahead": True,
-            "lookahead_options": None,
-            "create_lattice": True,
-            "eval_single_best": True,
-            "eval_best_in_lattice": True,
-            "search_parameters": {
-                "beam-pruning": 12.0,
-                "beam-pruning-limit": 100000,
-                "word-end-pruning": 0.5,
-                "word-end-pruning-limit": 10000,
-            },
-            "lattice_to_ctm_kwargs": {
-                "fill_empty_segments": True,
-                "best_path_algo": "bellman-ford",
-            },
-            "optimize_am_lm_scale": True,
-            "rtf": 50,
-            "mem": 8,
-            "lmgc_mem": 16,
-            "cpu": 4,
-            "parallelize_conversion": True,
-            "forward_output_layer": "output",
-        },
-    }
+    recognition_args = None
     test_recognition_args = None
 
     nn_args = HybridArgs(
@@ -97,7 +67,7 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
 
 
 def get_nn_args_single(
-    num_outputs: int = 9001, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None,
+    num_outputs: int = 88, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None,
     lr_args=None, feature_args=None, returnn_args=None, report_args=None,
 ):
     feature_args = feature_args or {"class": "GammatoneNetwork", "sample_rate": 8000}
@@ -116,7 +86,7 @@ def get_nn_args_single(
         feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork()
     if wave_norm:
         for layer in feature_net["subnetwork"]:
-            if feature_net["subnetwork"][layer].get("from", "data") == "data":
+            if feature_net["subnetwork"][layer].get("from") == "data":
                 feature_net["subnetwork"][layer]["from"] = "wave_norm"
         feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": "data"}
 
@@ -157,13 +127,15 @@ def get_returnn_config(
     num_epochs: int,
     rasr_binary_path: tk.Path,
     rasr_loss_corpus_path: tk.Path,
-    rasr_loss_corpus_segments: tk.Path,
     rasr_loss_lexicon_path: tk.Path,
     datasets: Dict[str, Dict],
     feature_net: Dict[str, Any],
+    rasr_loss_corpus_segments: Optional[tk.Path] = None,
+    rasr_loss_corpus_prefix: Optional[tk.Path] = None,
     lr_args: Optional[Dict[str, Any]] = None,
     conformer_type: str = "wei",
     specaug_old: Optional[Dict[str, Any]] = None,
+    am_args: Optional[Dict[str, Any]] = None,
     batch_size: Union[int, Dict[str, int]] = 10000,
     sample_rate: int = 8000,
     recognition: bool = False,
@@ -190,30 +162,32 @@ def get_returnn_config(
             "keep_best_n": 5,
             "keep": evaluation_epochs,
         }
+    am_args = am_args or {
+        "state_tying": "monophone-eow",
+        "states_per_phone": 1,
+        "tdp_transition": (0.0, 0.0, "infinity", 0.0),
+        "tdp_silence": (0.0, 0.0, "infinity", 0.0),
+        "phon_history_length": 0,
+        "phon_future_length": 0,
+        "allophone_file": tk.Path(
+            "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
+            hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK"
+        ),
+        "state_tying_file": tk.Path(
+            "/u/vieting/setups/swb/20230406_feat/dependencies/state-tying_blank",
+            hash_overwrite="SWB_STATE_TYING_FILE_WEI_BLANK"
+        ),
+    }
 
     network, prolog = make_conformer_fullsum_ctc_model(
-        num_outputs=88,
+        num_outputs=num_outputs,
         output_args={
             "rasr_binary_path": rasr_binary_path,
             "loss_corpus_path": rasr_loss_corpus_path,
             "loss_corpus_segments": rasr_loss_corpus_segments,
+            "loss_corpus_prefix": rasr_loss_corpus_prefix,
             "loss_lexicon_path": rasr_loss_lexicon_path,
-            "am_args": {
-                "state_tying": "monophone-eow",
-                "states_per_phone": 1,
-                "tdp_transition": (0.0, 0.0, "infinity", 0.0),
-                "tdp_silence": (0.0, 0.0, "infinity", 0.0),
-                "phon_history_length": 0,
-                "phon_future_length": 0,
-                "allophone_file": tk.Path(
-                    "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
-                    hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK"
-                ),
-                "state_tying_file": tk.Path(
-                    "/u/vieting/setups/swb/20230406_feat/dependencies/state-tying_blank",
-                    hash_overwrite="SWB_STATE_TYING_FILE_WEI_BLANK"
-                ),
-            },
+            "am_args": am_args,
         },
         conformer_type=conformer_type,
         specaug_old=specaug_old,
@@ -255,7 +229,7 @@ def get_returnn_config(
             "learning_rate_control_relative_error_relative_lr": True,
             "min_learning_rate": 1e-5,
             "newbob_learning_rate_decay": 0.9,
-            "newbob_multi_num_epochs": 6,
+            "newbob_multi_num_epochs": datasets["train"]["partition_epoch"],
             "newbob_multi_update_interval": 1,
         }
     )

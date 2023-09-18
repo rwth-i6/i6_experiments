@@ -2,13 +2,16 @@ __all__ = ['mlp_network', 'blstm_network', 'tdnn_network']
 
 import copy
 
-def mlp_network(layers=None, activation='sigmoid', dropout=0.1, l2=0.0, feature_window=1):
+def mlp_network(layers=None, activation='sigmoid', dropout=0.1, l2=0.0, feature_window=1, focal_loss_factor=2.0, loss='ce'):
   if layers is None:
     layers = [1000]
   num_layers = len(layers)
   assert num_layers > 0
 
-  result = { 'output' : { 'class' : 'softmax', 'from' : ['hidden%d' % num_layers] } }
+  loss_opts = {
+    "focal_loss_factor": focal_loss_factor,
+  }
+  result = { 'output' : { 'class' : 'softmax', 'from' : ['hidden%d' % num_layers], "loss": loss, "loss_opts": loss_opts } }
 
   input_layer = 'data'
   if feature_window > 1:
@@ -28,13 +31,16 @@ def mlp_network(layers=None, activation='sigmoid', dropout=0.1, l2=0.0, feature_
 
   return result
 
-def blstm_network(layers=None, dropout=0.1, l2=0.0):
+def blstm_network(layers=None, dropout=0.1, l2=0.0, focal_loss_factor=2.0, loss='ce'):
   if layers is None:
     layers = [1000]
   num_layers = len(layers)
   assert num_layers > 0
 
-  result = { 'output' : { 'class' : 'softmax', 'from' : ['fwd_%d' % num_layers, 'bwd_%d' % num_layers] } }
+  loss_opts = {
+    "focal_loss_factor": focal_loss_factor,
+  }
+  result = { 'output' : { 'class' : 'softmax', 'from' : ['fwd_%d' % num_layers, 'bwd_%d' % num_layers], "loss": "ce", "loss_opts": loss_opts } }
 
   for l, size in enumerate(layers):
     l += 1  # start counting from 1
@@ -99,4 +105,6 @@ def tdnn_network(layers, filters, dilation=None, padding="same", activation='rel
             'from'      : [('tdnn_%d' % (l - 1)) if l > 1 else input_layer]}
     return result
 
+def tdnn_network(layers, filters, dilation=None, padding="same", activation='relu', dropout=0.1, l2=0.01, batch_norm=True):
+  pass  
 

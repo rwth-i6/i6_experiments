@@ -443,6 +443,8 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
 
     tags = [data["seq_tag"][i] for i in list(indices.cpu().numpy())]
 
+    assert torch.equal(phonemes_len, durations_len)
+
     squeezed_features = torch.squeeze(audio_features)
     with torch.no_grad():
         audio_features, audio_features_len = model.feature_extracton(squeezed_features, audio_features_len)

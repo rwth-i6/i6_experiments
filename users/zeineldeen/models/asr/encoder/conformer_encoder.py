@@ -1,13 +1,20 @@
 """
 Conformer encoder
+
+Other implementations:
+
+https://github.com/facebookresearch/fairseq/blob/main/fairseq/models/speech_to_text/modules/emformer.py
+https://pytorch.org/audio/main/_modules/torchaudio/models/emformer.html#Emformer
 """
 
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Union, List, Tuple
 from dataclasses import dataclass
 from returnn.tensor import Dim
 from returnn.tf.util.data import SpatialDim, FeatureDim
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
+
+from i6_core.returnn.config import CodeWrapper
 
 
 class ConformerEncoder:
@@ -23,6 +30,7 @@ class ConformerEncoder:
         input="data",
         input_layer="lstm-6",
         input_layer_conv_act="relu",
+        add_abs_pos_enc_to_input=False,
         frontend_conv_l2=0.0,
         num_blocks=16,
         conv_kernel_size=32,
@@ -110,6 +118,7 @@ class ConformerEncoder:
         self.input = input
         self.input_layer = input_layer
         self.input_layer_conv_act = input_layer_conv_act
+        self.add_abs_pos_enc_to_input = add_abs_pos_enc_to_input
         self.frontend_conv_l2 = frontend_conv_l2
 
         self.num_blocks = num_blocks
@@ -227,9 +236,15 @@ class ConformerEncoder:
 
         self.memory_variant_opts = memory_variant_opts
         if self.memory_variant_opts:
-            self.concat_window_dim = SpatialDim("concat-window")
+            self.concat_window_dim = SpatialDim("concat-window")  # W*N
             self.enc_att_num_heads_dim = SpatialDim("enc-att-num-heads", att_num_heads)
             self.enc_per_head_dim = FeatureDim("enc-dim-per-head", self.enc_key_per_head_dim)
+            if self.memory_variant_opts.conv_cache_size:
+                self.conv_cache_concat_dim = SpatialDim("conv-cache-concat")
+            if self.memory_variant_opts.use_emformer_mem:
+                self.emformer_mem_bank_dim = SpatialDim("emformer-mem-bank")  # M, the same as C but different tag
+                self.emformer_ext_query_dim = SpatialDim("emformer-ext-query")  # W+1
+                self.concat_window_with_mem_dim = SpatialDim("concat-window-with-mem")  # W*N+M
 
     def _create_ff_module(self, prefix_name, i, source, layer_index):
         """
@@ -291,6 +306,466 @@ class ConformerEncoder:
 
         return ff_module_res
 
+    def _get_mem_chunks(self, prefix_name: str, input_layer: str, mem_size: int) -> List[Tuple[str, Union[str, Dim]]]:
+        """
+        :param name: layer prefix name
+        :param input_layer: name of input layer to shift of shape [B*C, W, D]
+        :return: arg for the ConcatLayer, i.e. list of tuple (layer_name, axis)
+        """
+        input_layer_splitted = self.network.add_generic_layer(
+            f"{prefix_name}_split_chunk",
+            cls="split_batch_time",
+            source=input_layer,
+            base=self.memory_variant_opts.split_batch_time_base,
+        )  # [B, C, W, D], C = chunked_time_dim
+        mem_chunks = []
+        for mem_idx in range(mem_size):
+            chunk_shifted = self.network.add_generic_layer(
+                f"{prefix_name}_chunk_shifted" + (f"_{mem_idx}" if mem_idx > 0 else ""),
+                cls="shift_axis",
+                source=input_layer_splitted,
+                axis=self.memory_variant_opts.chunked_time_dim,  # C
+                amount=mem_idx + 1,
+                pad=True,
+                adjust_size_info=False,  # no change in dim tag, C stays the same
+            )  # [B, C, W, D]
+            # Merge batch and chunk dim again.
+            chunk_shifted = self.network.add_generic_layer(
+                f"{prefix_name}_chunk_shifted_" + (f"_{mem_idx}" if mem_idx > 0 else ""),
+                cls="merge_dims",
+                source=chunk_shifted,
+                axes=("B", self.memory_variant_opts.chunked_time_dim),
+            )  # [B*C, W, D]
+            # Make sure the time_dim_axis (T) is set to the correct dim (W).
+            chunk_shifted = self.network.add_generic_layer(
+                f"{prefix_name}_chunk_shifted__" + (f"_{mem_idx}" if mem_idx > 0 else ""),
+                cls="reinterpret_data",
+                source=chunk_shifted,
+                set_axes={"T": "spatial"},
+            )  # [B*C, W, D] but not time_dim_axis is set to W
+
+            if self.memory_variant_opts.mem_slice_start is not None:
+                assert self.memory_variant_opts.mem_slice_size is not None
+                chunk_shifted = self.network.add_generic_layer(
+                    f"{prefix_name}_chunk_shifted__" + (f"_{mem_idx}" if mem_idx > 0 else "") + "_sliced",
+                    cls="slice",
+                    source=chunk_shifted,
+                    axis="T",
+                    slice_start=self.memory_variant_opts.mem_slice_start,
+                    slice_end=self.memory_variant_opts.mem_slice_start + self.memory_variant_opts.mem_slice_size,
+                )
+
+            mem_chunks.append((chunk_shifted, "T"))
+
+        # reverse to concat left-most first
+        mem_chunks.reverse()
+        return mem_chunks
+
+    def _self_att_v2(
+        self, prefix_name: str, *, input_layer: str, concat_prev_chunks_inputs: str, layer_index: int
+    ) -> str:
+        """
+        Self-Attention implementation via RETURNN layers instead of using RETURNN SelfAttentionLayer
+
+        :param prefix_name: layer prefix name
+        :param input_layer: name of input layer
+        :param concat_prev_chunks_inputs:
+        """
+
+        if self.memory_variant_opts.use_cached_prev_kv:
+            assert concat_prev_chunks_inputs is None, "Should use cached keys and values instead."
+
+        K = self.network.add_generic_layer(
+            f"{prefix_name}_ln_K",
+            cls="linear",
+            source=input_layer if self.memory_variant_opts.use_cached_prev_kv else concat_prev_chunks_inputs,
+            n_out=self.enc_key_dim,
+            forward_weights_init=self.mhsa_init,
+            with_bias=False,
+            L2=self.self_att_l2,
+        )  # [B*C, W*N, D] or [B*C, W, D] (use_cached_prev_kv)
+
+        V = self.network.add_generic_layer(
+            f"{prefix_name}_ln_V",
+            cls="linear",
+            source=input_layer if self.memory_variant_opts.use_cached_prev_kv else concat_prev_chunks_inputs,
+            n_out=self.enc_value_dim,
+            forward_weights_init=self.mhsa_init,
+            with_bias=False,
+            L2=self.self_att_l2,
+        )  # [B*C, W*N, D] or [B*C, W, D] (use_cached_prev_kv)
+
+        if self.memory_variant_opts.use_emformer_mem and layer_index > 1:
+            # Take memory from the previous layer.
+            # f"{prefix_name}_emformer_mem" has shape [B*C, D]
+            # I.e. one vector per batch and chunk.
+            # We effectively convert it to [B,M,D] with M=C but being a separate tag,
+            # and then expand it to [B*C,M,D].
+            # This expansion is maybe not optimal, however, the attention still is only per chunk,
+            # which would be difficult otherwise.
+            # C is approx 15-20.
+            # Then we can concat it to K and V.
+            # Note on prefix_name: The outer _create_mhsa_module adds the additional "_self_att" prefix.
+            mem_bank = self._block_prefix_name(layer_index - 1) + "_self_att_emformer_mem"  # [B*C, D]
+
+            # Same projection which is usually applied to get back to the residual stream.
+            mem_bank = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_proj",
+                cls="linear",
+                source=mem_bank,
+                n_out=self.enc_key_dim,
+                with_bias=False,
+                reuse_params=self._block_prefix_name(layer_index - 1) + "_self_att_linear",
+                param_dropout=self.mhsa_weight_drop,
+            )  # [B*C, D]
+            mem_bank = self.network.add_dropout_layer(
+                f"{prefix_name}_emformer_mem_proj_drop", mem_bank, dropout=self.dropout
+            )
+
+            if self.memory_variant_opts.apply_tanh_on_emformer_mem:
+                mem_bank = self.network.add_generic_layer(
+                    f"{prefix_name}_emformer_mem_tanh", cls="activation", source=mem_bank, activation="tanh"
+                )
+            else:
+                mem_bank = self.network.add_generic_layer(
+                    f"{prefix_name}_emformer_mem_clipped",
+                    cls="eval",
+                    source=mem_bank,
+                    eval="tf.clip_by_value(source(0), -10, 10)",
+                )
+
+            mem_bank = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_split_batch_time",
+                cls="split_batch_time",
+                source=mem_bank,
+                base=self.memory_variant_opts.split_batch_time_base,
+            )  # [B, C, D]
+            mem_bank = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_set_new_dim",
+                cls="reinterpret_data",
+                source=mem_bank,
+                set_dim_tags=[(self.memory_variant_opts.chunked_time_dim, self.emformer_mem_bank_dim)],
+            )  # [B, M, D]
+
+            mem_bank_K = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_K",
+                cls="linear",
+                source=mem_bank,
+                n_out=self.enc_key_dim,
+                with_bias=False,
+                reuse_params=K,
+            )  # [B, M, D]
+            mem_bank_V = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_V",
+                cls="linear",
+                source=mem_bank,
+                n_out=self.enc_value_dim,
+                with_bias=False,
+                reuse_params=V,
+            )  # [B, M, D]
+
+            mem_bank_K = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_K_expand_chunks",
+                cls="expand_dims",
+                source=mem_bank_K,
+                axis="T",
+                dim=self.memory_variant_opts.chunked_time_dim,
+            )  # [B, M, C, D]
+            mem_bank_K = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_K_expanded_merged",
+                cls="merge_dims",
+                source=mem_bank_K,
+                axes=("B", self.memory_variant_opts.chunked_time_dim),
+            )  # [B*C, M, D]
+
+            mem_bank_V = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_V_expand_chunks",
+                cls="expand_dims",
+                source=mem_bank_V,
+                axis="T",
+                dim=self.memory_variant_opts.chunked_time_dim,
+            )  # [B, M, C, D]
+            mem_bank_V = self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem_V_expanded_merged",
+                cls="merge_dims",
+                source=mem_bank_V,
+                axes=("B", self.memory_variant_opts.chunked_time_dim),
+            )  # [B*C, M, D]
+        else:
+            mem_bank_K, mem_bank_V = None, None
+
+        kv_dim = self.concat_window_with_mem_dim if mem_bank_K else self.concat_window_dim  # W*N [+M]
+
+        if self.memory_variant_opts.use_cached_prev_kv or mem_bank_K:
+            # concat previous cached keys and values
+            concat_keys = self._get_mem_chunks(f"{prefix_name}_ln_K_", K, self.memory_variant_opts.mem_size)
+            concat_keys.append((K, "T"))
+            if mem_bank_K:
+                concat_keys.append((mem_bank_K, self.emformer_mem_bank_dim))
+
+            K = self.network.add_generic_layer(
+                f"{prefix_name}_ln_K_concat",
+                cls="concat",
+                source=concat_keys,
+                out_dim=kv_dim,
+            )  # [B*C, W*N [+M], D]
+
+        K_H = self.network.add_generic_layer(
+            f"{prefix_name}_ln_K_H",
+            cls="split_dims",
+            source=K,
+            axis="f",
+            dims=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
+        )  # [B*C, W*N, H, D/H]
+
+        if self.memory_variant_opts.use_cached_prev_kv or mem_bank_V:
+            concat_values = self._get_mem_chunks(f"{prefix_name}_ln_V_", V, self.memory_variant_opts.mem_size)
+            concat_values.append((V, "T"))
+            if mem_bank_V:
+                concat_values.append((mem_bank_V, self.emformer_mem_bank_dim))
+
+            V = self.network.add_generic_layer(
+                f"{prefix_name}_ln_V_concat",
+                cls="concat",
+                source=concat_values,
+                out_dim=kv_dim,
+            )  # [B*C, W*N, D]
+
+        V_H = self.network.add_generic_layer(
+            f"{prefix_name}_ln_V_H",
+            cls="split_dims",
+            source=V,
+            axis="f",
+            dims=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
+        )  # [B*C, W*N, H, D/H]
+        Q = self.network.add_generic_layer(
+            f"{prefix_name}_ln_Q",
+            cls="linear",
+            source=input_layer,
+            n_out=self.enc_key_dim,
+            forward_weights_init=self.mhsa_init,
+            with_bias=False,
+            L2=self.self_att_l2,
+        )  # second half of shape [B*C, W, D]
+        query_dim = self.memory_variant_opts.chunk_size_dim  # W
+
+        if self.memory_variant_opts.use_emformer_mem:
+            assert (
+                self.memory_variant_opts.mem_slice_start is not None
+                and self.memory_variant_opts.mem_slice_size is not None
+            )
+            # Q = Wq * [C,R] of shape [B*C, W, D]
+
+            # s_mean = mean(Q[:C]) = mean(Wq * C) <=> Wq * mean(C)
+            Q_summary_slice = self.network.add_generic_layer(
+                f"{prefix_name}_ln_Q_summary_slice",
+                cls="slice",
+                source=Q,
+                axis="T",  # W
+                slice_start=self.memory_variant_opts.mem_slice_start,  # skip L context if it exists
+                slice_end=self.memory_variant_opts.mem_slice_size,  # this should be always equal to C
+            )
+            Q_summary_mean = self.network.add_generic_layer(
+                f"{prefix_name}_ln_Q_summary_mean",
+                cls="reduce",
+                source=Q_summary_slice,
+                mode="mean",
+                axis="T",
+                keep_dims=True,
+            )  # [B*C, 1, D]
+
+            Q = self.network.add_generic_layer(
+                f"{prefix_name}_ln_Q_concat_summary_mean",
+                cls="concat",
+                source=[(Q, "T"), (Q_summary_mean, "T")],
+                out_dim=self.emformer_ext_query_dim,
+            )  # [B*C, W+1, D]
+            query_dim = self.emformer_ext_query_dim  # W+1
+
+        Q_H_ = self.network.add_generic_layer(
+            f"{prefix_name}_ln_Q_H_",
+            cls="split_dims",
+            source=Q,
+            axis="f",
+            dims=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
+        )  # [B*C, W [+1], H, D/H]
+
+        # this scaling is actually a bug in self_attention layer. so to be comparable, we do same here.
+        dim_per_head_const = self.network.add_generic_layer(
+            f"{prefix_name}_dim_per_head_const",
+            cls="constant",
+            value=self.enc_key_per_head_dim,
+            source=None,
+            dtype="float32",
+        )  # [1]
+        Q_energy_factor = self.network.add_generic_layer(
+            f"{prefix_name}_Q_energy_factor", cls="eval", source=dim_per_head_const, eval="source(0) ** -0.5"
+        )  # [1]
+        Q_H = self.network.add_generic_layer(
+            f"{prefix_name}_ln_Q_H",
+            cls="combine",
+            kind="mul",
+            source=[Q_H_, Q_energy_factor],
+        )  # [B*C, W [+1], H, D/H]
+
+        energy = self.network.add_generic_layer(
+            f"{prefix_name}_ln_energy",
+            cls="dot",
+            source=[K_H, Q_H],
+            reduce=self.enc_per_head_dim,  # D/H
+            var1="auto",
+            var2="auto",
+        )  # [B*C, H, W*N [+M], W [+1]]
+
+        if self.memory_variant_opts.use_cached_prev_kv:
+            # input does not matter for rel pos enc, so we need to make sure the shape is correct
+            rel_pos_inputs = K  # [B*C, W*N [+M], D]
+        else:
+            # just to not break hashes...
+            rel_pos_inputs = concat_prev_chunks_inputs  # [B*C, W*N, D]
+
+        ln_rel_pos_enc = self.network.add_generic_layer(
+            f"{prefix_name}_ln_rel_pos_enc",
+            cls="relative_positional_encoding",
+            source=rel_pos_inputs,
+            out_dim=self.enc_per_head_dim,  # D/H
+            forward_weights_init=self.ff_init,
+            clipping=self.rel_pos_clipping,
+            query_spatial_dim=query_dim,  # W+1 or W
+            key_value_spatial_dim=kv_dim,  # W*N [+M]
+            query_offset=self.memory_variant_opts.chunk_size * self.memory_variant_opts.mem_size,
+        )  # [queries (W [+1]), kvs (W*N [+M]), D/H]
+
+        if self.memory_variant_opts.use_emformer_mem:  # -> have summary, i.e. [W+1]
+            mask_query = "emformer_mask_query_dim"
+            if mask_query not in self.network:
+                range_in_query_dim = self.network.add_generic_layer(
+                    "emformer_range_query_dim", cls="range_in_axis", source=Q, axis=self.emformer_ext_query_dim
+                )  # [W+1]
+                mask_query = self.network.add_eval_layer(
+                    mask_query,
+                    range_in_query_dim,
+                    eval=f"tf.less(source(0), {self.memory_variant_opts.chunk_size})",
+                    out_type={"dtype": "bool"},
+                )  # [W+1]
+            ln_rel_pos_enc = self.network.add_eval_layer(
+                f"{prefix_name}_ln_rel_pos_enc_masked_query",
+                [ln_rel_pos_enc, mask_query],
+                eval="tf.where(source(1), source(0), 0.)",
+            )
+
+        if mem_bank_K:
+            mask_kv = "emformer_mask_kv_dim"
+            if mask_kv not in self.network:
+                range_in_kv_dim = self.network.add_generic_layer(
+                    "emformer_range_kv_dim", cls="range_in_axis", source=K, axis=kv_dim
+                )  # [W*N + M]
+                kv_dim_len = self.network.add_generic_layer("kv_dim_len", cls="length", source=K, axis=kv_dim)
+                mem_len = self.network.add_generic_layer(
+                    "mem_len", cls="length", source=mem_bank_K, axis=self.emformer_mem_bank_dim
+                )
+                mask_kv = self.network.add_eval_layer(
+                    mask_kv,
+                    [range_in_kv_dim, kv_dim_len, mem_len],
+                    eval=f"tf.less(source(0), source(1) - source(2))",
+                    out_type={"dtype": "bool"},
+                )
+            ln_rel_pos_enc = self.network.add_eval_layer(
+                f"{prefix_name}_ln_rel_pos_enc_masked_kv",
+                [ln_rel_pos_enc, mask_kv],
+                eval="tf.where(source(1), source(0), 0.)",
+            )
+
+        energy_rel_pos = self.network.add_generic_layer(
+            f"{prefix_name}_ln_energy_rel_pos",
+            cls="dot",
+            source=[Q_H, ln_rel_pos_enc],
+            reduce=self.enc_per_head_dim,  # D/H
+            var1="auto",
+            var2="auto",
+        )  # [B*C, H, W[+1], W*N [+M]]
+
+        energy = self.network.add_generic_layer(
+            f"{prefix_name}_ln_energy_",
+            cls="combine",
+            source=[energy, energy_rel_pos],
+            kind="add",
+            allow_broadcast_all_sources=False,
+        )  # [B*C, H, W*N [+M], W [+1]]
+
+        if mem_bank_K:
+            energy = self.network.add_eval_layer(
+                f"{prefix_name}_ln_energy_emformer_mem_masked",
+                energy,
+                eval=_energy_mask_emformer_mem,
+                eval_locals=dict(
+                    chunked_time_dim=self.memory_variant_opts.chunked_time_dim,  # C
+                    chunk_size_dim=self.memory_variant_opts.chunk_size_dim,  # W
+                    att_num_heads_dim=self.enc_att_num_heads_dim,  # H
+                    query_dim=query_dim,  # W+1
+                    kv_dim=kv_dim,  # W*N+M
+                    mem_bank_dim=self.emformer_mem_bank_dim,  # M
+                    neg_inf=-1e8,
+                ),
+            )
+
+        weights = self.network.add_generic_layer(
+            f"{prefix_name}_ln_weights",
+            cls="softmax_over_spatial",
+            source=energy,
+        )  # [B*C, H, W, W*N]
+        weights_drop = self.network.add_generic_layer(
+            f"{prefix_name}_ln_weights_drop",
+            cls="dropout",
+            source=weights,
+            dropout=self.att_dropout,
+            dropout_noise_shape={"*": None},
+        )  # [B*C, H, W, W*N]
+        att0 = self.network.add_generic_layer(
+            f"{prefix_name}_ln_att0",
+            cls="dot",
+            source=[weights_drop, V_H],
+            reduce=kv_dim,  # W*N
+            var1="auto",
+            var2="auto",
+        )  # [B*C, H, W [+1], D/H]
+        mhsa_ = self.network.add_generic_layer(
+            f"{prefix_name}_ln_att_",
+            cls="merge_dims",
+            source=att0,
+            axes=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
+        )  # [B*C, W [+1], D]
+        mhsa = self.network.add_generic_layer(
+            f"{prefix_name}_ln_att",
+            cls="reinterpret_data",
+            source=mhsa_,
+            # TODO: is this safe? find a better way
+            set_axes={
+                "T": f"dim:"
+                + str(self.memory_variant_opts.chunk_size + (1 if self.memory_variant_opts.use_emformer_mem else 0))
+            },
+        )  # [B*C, W [+1], D]
+
+        if self.memory_variant_opts.use_emformer_mem:
+            # used later by shift layer to collect a memory bank
+            self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem",
+                cls="gather",
+                source=mhsa,
+                axis="T",
+                position=self.memory_variant_opts.chunk_size,
+            )  # [B*C, D]
+            mhsa = self.network.add_generic_layer(
+                f"{prefix_name}_ln_att_slice",
+                cls="slice",
+                source=mhsa,
+                axis="T",
+                slice_start=0,
+                slice_end=self.memory_variant_opts.chunk_size,
+            )  # [B*C, W, D]
+
+        return mhsa
+
     def _create_mhsa_module(self, prefix_name, source, layer_index):
         """
         Add Multi-Headed Selft-Attention Module:
@@ -317,85 +792,24 @@ class ConformerEncoder:
 
         if self.memory_variant_opts is not None:
             # ln: [B*C, W, D]
-            # We want now to have [B, C, W, D]
-            ln_split_chunk = self.network.add_generic_layer(
-                f"{prefix_name}_ln_split_chunk",
-                cls="split_batch_time",
-                source=ln,
-                base=self.memory_variant_opts.split_batch_time_base,
-            )  # [B, C, W, D], C = chunked_time_dim
-            mem_chunks = []
-            mem_paddings = []
-            for mem_idx in range(self.memory_variant_opts.mem_size):
-                ln_chunk_shifted = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_chunk_shifted" + (f"_{mem_idx}" if mem_idx > 0 else ""),
-                    cls="shift_axis",
-                    source=ln_split_chunk,
-                    axis=self.memory_variant_opts.chunked_time_dim,  # C
-                    amount=mem_idx + 1,
-                    pad=True,
-                    adjust_size_info=False,  # no change in dim tag, C stays the same
-                )  # [B, C, W, D]
-                # Merge batch and chunk dim again.
-                ln_chunk_shifted = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_chunk_shifted_" + (f"_{mem_idx}" if mem_idx > 0 else ""),
-                    cls="merge_dims",
-                    source=ln_chunk_shifted,
-                    axes=("B", self.memory_variant_opts.chunked_time_dim),
-                )  # [B*C, W, D]
-                # Make sure the time_dim_axis (T) is set to the correct dim (W).
-                ln_chunk_shifted = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_chunk_shifted__" + (f"_{mem_idx}" if mem_idx > 0 else ""),
-                    cls="reinterpret_data",
-                    source=ln_chunk_shifted,
-                    set_axes={"T": "spatial"},
-                )  # [B*C, W, D] but not time_dim_axis is set to W
-                mem_chunks.append((ln_chunk_shifted, "T"))
 
-                # mask paddings
-                if layer_index == 1 and self.memory_variant_opts.mask_paddings:
-                    # mask padded frames when computing att vector. this mask is shared for all layers.
-                    energy_mask_ = self.network.add_generic_layer(
-                        f"energy_mask_",  # shared for all layers
-                        cls="constant",
-                        value=True,
-                        shape=(self.memory_variant_opts.chunked_time_dim, self.memory_variant_opts.chunk_size_dim),
-                        shape_deps=[ln_split_chunk],  # [B,C,W,D], only used to define dim tag C
-                        dtype="bool",
-                        source=None,
-                    )  # [C,W]
-                    energy_mask = self.network.add_generic_layer(
-                        f"energy_mask_shift_{mem_idx + 1}",
-                        cls="shift_axis",
-                        source=energy_mask_,
-                        axis=self.memory_variant_opts.chunked_time_dim,
-                        amount=mem_idx + 1,
-                        pad=True,  # pad by False
-                        adjust_size_info=False,  # no change in dim tag, C stays the same
-                    )
-                    mem_paddings.append((energy_mask, self.memory_variant_opts.chunk_size_dim))
-
-            # reverse to concat left-most first
-            mem_chunks.reverse()
-            # Concatenate the shifted and the original tensor.
-            ln_ = self.network.add_generic_layer(
-                f"{prefix_name}_ln_concat",
-                cls="concat",
-                source=[*mem_chunks, (ln, "T")],
-                out_dim=self.concat_window_dim,
-            )  # [B*C, W*N, D]
-
-            concat_mask_paddings = None
-            if mem_paddings:
-                mem_paddings.reverse()
-                concat_mask_paddings = self.network.add_generic_layer(
-                    f"concat_mask_paddings",
+            if self.memory_variant_opts.use_cached_prev_kv is False:
+                # shifted inputs + current chunk
+                ln_concat_chunks = self._get_mem_chunks(
+                    prefix_name=f"{prefix_name}_ln", input_layer=ln, mem_size=self.memory_variant_opts.mem_size
+                )
+                ln_concat_chunks += [(ln, "T")]
+                ln_ = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_concat",
                     cls="concat",
-                    source=[*mem_paddings, ("energy_mask_", self.memory_variant_opts.chunk_size_dim)],
+                    source=ln_concat_chunks,
                     out_dim=self.concat_window_dim,
-                )  # [C, W*N]
+                )  # [B*C, W*N, D]
+            else:
+                ln_ = None
 
             if self.memory_variant_opts.self_att_version == 0:
+                assert self.memory_variant_opts.use_cached_prev_kv is False, "Not implemented."
                 # this implementation is not efficient.
                 ln_rel_pos_enc = self.network.add_relative_pos_encoding_layer(
                     f"{prefix_name}_ln_rel_pos_enc",
@@ -437,178 +851,13 @@ class ConformerEncoder:
                 # because it would waste compute time for the frames of the last chunk.
                 # So reimplement the SelfAttentionLayer here explicitly.
                 # key, value: via concatenated, [B*C, W*N, D]
-                K = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_K",
-                    cls="linear",
-                    source=ln_,
-                    n_out=self.enc_key_dim,
-                    forward_weights_init=self.mhsa_init,
-                    with_bias=False,
-                    L2=self.self_att_l2,
-                )  # [B*C, W*N, D]
-                K_H = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_K_H",
-                    cls="split_dims",
-                    source=K,
-                    axis="f",
-                    dims=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
-                )  # [B*C, W*N, H, D/H]
-                V = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_V",
-                    cls="linear",
-                    source=ln_,
-                    n_out=self.enc_value_dim,
-                    forward_weights_init=self.mhsa_init,
-                    with_bias=False,
-                    L2=self.self_att_l2,
-                )  # [B*C, W*N, D]
-                V_H = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_V_H",
-                    cls="split_dims",
-                    source=V,
-                    axis="f",
-                    dims=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
-                )  # [B*C, W*N, H, D/H]
-                Q = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_Q",
-                    cls="linear",
-                    source=ln,
-                    n_out=self.enc_key_dim,
-                    forward_weights_init=self.mhsa_init,
-                    with_bias=False,
-                    L2=self.self_att_l2,
-                )  # second half of shape [B*C, W, D]
-                Q_H_ = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_Q_H_",
-                    cls="split_dims",
-                    source=Q,
-                    axis="f",
-                    dims=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
-                )  # [B*C, W, H, D/H]
-
-                # this scaling is actually a bug in self_attention layer. so to be comparable, we do same here.
-                dim_per_head_const = self.network.add_generic_layer(
-                    f"{prefix_name}_dim_per_head_const",
-                    cls="constant",
-                    value=self.enc_key_per_head_dim,
-                    source=None,
-                    dtype="float32",
-                )  # [1]
-                Q_energy_factor = self.network.add_generic_layer(
-                    f"{prefix_name}_Q_energy_factor", cls="eval", source=dim_per_head_const, eval="source(0) ** -0.5"
-                )  # [1]
-                Q_H = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_Q_H",
-                    cls="combine",
-                    kind="mul",
-                    source=[Q_H_, Q_energy_factor],
-                )  # [B*C, W, H, D/H]
-
-                energy = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_energy",
-                    cls="dot",
-                    source=[K_H, Q_H],
-                    reduce=self.enc_per_head_dim,  # D/H
-                    var1="auto",
-                    var2="auto",
-                )  # [B*C, H, W*N, W]
-
-                ln_rel_pos_enc = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_rel_pos_enc",
-                    cls="relative_positional_encoding",
-                    source=ln_,
-                    out_dim=self.enc_per_head_dim,  # D/H
-                    forward_weights_init=self.ff_init,
-                    clipping=self.rel_pos_clipping,
-                    query_spatial_dim=self.memory_variant_opts.chunk_size_dim,
-                    key_value_spatial_dim=self.concat_window_dim,
-                    query_offset=self.memory_variant_opts.chunk_size,
-                )  # [W, W*N, D/H]
-
-                energy_rel_pos = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_energy_rel_pos",
-                    cls="dot",
-                    source=[Q_H, ln_rel_pos_enc],
-                    reduce=self.enc_per_head_dim,  # D/H
-                    var1="auto",
-                    var2="auto",
-                )  # [B*C, H, W, W*N]
-
-                energy = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_energy_",
-                    cls="combine",
-                    source=[energy, energy_rel_pos],
-                    kind="add",
-                    allow_broadcast_all_sources=False,
-                )  # [B*C, H, W*N, W]
-
-                if mem_paddings:
-                    assert concat_mask_paddings
-                    from i6_core.returnn.config import CodeWrapper
-
-                    inf_const = self.network.add_generic_layer(
-                        "inf_const",
-                        cls="constant",
-                        value=CodeWrapper("-float('inf')"),
-                        source=None,
-                        dtype="float32",
-                    )
-                    # for broadcasting, we need to split B and C first
-                    energy_split = self.network.add_generic_layer(
-                        f"{prefix_name}_ln_energy_split",
-                        cls="split_batch_time",
-                        source=energy,
-                        base=self.memory_variant_opts.split_batch_time_base,
-                    )  # [B, C, H, W*N, W]
-
-                    energy = self.network.add_generic_layer(
-                        f"{prefix_name}_ln_energy_masked_",
-                        cls="switch",
-                        condition=concat_mask_paddings,  # [C,W*N]
-                        true_from=energy_split,
-                        false_from=inf_const,
-                        source=None,
-                    )  # [B, C, H, W*N, W]
-
-                    energy = self.network.add_generic_layer(
-                        f"{prefix_name}_ln_energy_masked_merged",
-                        cls="merge_dims",
-                        source=energy,
-                        axes=("B", self.memory_variant_opts.chunked_time_dim),
-                    )  # [B*C, H, W*N, W]
-
-                weights = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_weights",
-                    cls="softmax_over_spatial",
-                    source=energy,
-                )  # [B*C, H, W, W*N]
-                weights_drop = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_weights_drop",
-                    cls="dropout",
-                    source=weights,
-                    dropout=self.att_dropout,
-                    dropout_noise_shape={"*": None},
-                )  # [B*C, H, W, W*N]
-                att0 = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_att0",
-                    cls="dot",
-                    source=[weights_drop, V_H],
-                    reduce=self.concat_window_dim,  # W*N
-                    var1="auto",
-                    var2="auto",
-                )  # [B*C, H, W, D/H]
-                mhsa_ = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_att_",
-                    cls="merge_dims",
-                    source=att0,
-                    axes=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
-                )  # [B*C, W, D]
-                mhsa = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_att",
-                    cls="reinterpret_data",
-                    source=mhsa_,
-                    set_axes={"T": f"dim:{self.memory_variant_opts.chunk_size}"},
-                )  # [B*C, W, D]
+                #
+                # in case use_cached_prev_kv is enabled:
+                #   - ln_ contains the cached keys and values only
+                #   - project only current chunk
+                mhsa = self._self_att_v2(
+                    prefix_name, input_layer=ln, concat_prev_chunks_inputs=ln_, layer_index=layer_index
+                )
         else:
             mhsa = self.network.add_self_att_layer(
                 name=prefix_name,
@@ -672,11 +921,26 @@ class ConformerEncoder:
 
         glu_act = self.network.add_gating_layer("{}_glu".format(prefix_name), pointwise_conv1)
 
+        if self.memory_variant_opts is not None and self.memory_variant_opts.conv_cache_size:
+            mem_chunks = self._get_mem_chunks(
+                prefix_name=f"{prefix_name}_glu_act",
+                input_layer=glu_act,
+                mem_size=self.memory_variant_opts.conv_cache_size,
+            )
+            glu_act_ = self.network.add_generic_layer(
+                f"{prefix_name}_glu_act_concat",
+                cls="concat",
+                source=[*mem_chunks, (glu_act, "T")],
+                out_dim=self.conv_cache_concat_dim,
+            )  # [B*C, W*N, D]
+        else:
+            glu_act_ = glu_act
+
         if self.use_causal_conv:
             # pad to the left to make it causal
             depthwise_conv_input_padded = self.network.add_pad_layer(
                 "{}_depthwise_conv_input_padded".format(prefix_name),
-                glu_act,
+                glu_act_,
                 axes="T",
                 padding=(self.conv_kernel_size - 1, 0),
             )
@@ -702,13 +966,25 @@ class ConformerEncoder:
         else:
             depthwise_conv = self.network.add_conv_layer(
                 prefix_name + "_" + (self.conv_alternative_name or "depthwise_conv2"),
-                glu_act,
+                glu_act_,
                 n_out=self.enc_key_dim,
                 filter_size=(self.conv_kernel_size,),
                 groups=self.enc_key_dim,
                 l2=self.l2,
                 forward_weights_init=self.conv_module_init,
                 param_dropout=self.conv_weight_drop,
+            )
+
+        if self.memory_variant_opts is not None and self.memory_variant_opts.conv_cache_size:
+            # we apply convolution over the concatenated chunks but we only need the output of the current
+            # chunk, thus, we need to slice from [B*C, W*N, D] to [B*C, W, D]
+            assert self.memory_variant_opts.mem_slice_size, "mem_slice_size must be set."
+            depthwise_conv = self.network.add_generic_layer(
+                f"{prefix_name}_depthwise_conv_slice",
+                cls="slice",
+                source=depthwise_conv,
+                axis="T",
+                slice_start=self.memory_variant_opts.mem_slice_size * self.memory_variant_opts.conv_cache_size,
             )
 
         if self.use_ln:
@@ -743,7 +1019,8 @@ class ConformerEncoder:
         )
         return res
 
-    def _block_prefix_name(self, layer_index):
+    def _block_prefix_name(self, layer_index: int) -> str:
+        assert layer_index >= 1
         if self.add_to_prefix_name:
             prefix_name = "conformer_block_%s_%02i" % (self.add_to_prefix_name, layer_index)
         else:
@@ -812,6 +1089,17 @@ class ConformerEncoder:
         subsampled_input = None
         if self.input_layer is None:
             subsampled_input = data
+        elif self.input_layer.startswith("stack"):
+            stack_size = int(self.input_layer.split("-")[1])
+            stack_window = self.network.add_window_layer(
+                "stack_window", data, window_size=stack_size, stride=stack_size
+            )  # [B,C,W,F]
+            subsampled_input = self.network.add_merge_dims_layer(
+                "stack_window_merge_dim",
+                stack_window,
+                axes=["static:0", "f"],
+                keep_order=True,
+            )  # [B,C,W*F]
         elif "lstm" in self.input_layer:
             sample_factor = int(self.input_layer.split("-")[1])
             pool_sizes = None
@@ -899,6 +1187,9 @@ class ConformerEncoder:
             forward_weights_init=self.ff_init,
             with_bias=False,
         )
+
+        if self.add_abs_pos_enc_to_input:
+            source_linear = self.network.add_pos_encoding_layer("input_abs_pos_enc", source_linear, add_to_input=True)
 
         if self.dropout_in:
             source_linear = self.network.add_dropout_layer("source_dropout", source_linear, dropout=self.dropout_in)
@@ -996,9 +1287,87 @@ class ConformerEncoder:
 @dataclass
 class ConformerMemoryVariantOpts:
     split_batch_time_base: str
-    chunked_time_dim: Dim
-    chunk_size_dim: Dim
+    chunked_time_dim: Dim  # C, number of chunks
+    chunk_size_dim: Dim  # W, including extended left/right, excluding Emformer summary or so
     chunk_size: int
     self_att_version: int  # TODO: just for testing
     mem_size: int
-    mask_paddings: bool
+    mem_slice_start: int
+    mem_slice_size: int
+    conv_cache_size: int
+    use_cached_prev_kv: bool
+    use_emformer_mem: bool  # https://arxiv.org/abs/2010.10759
+    apply_tanh_on_emformer_mem: bool
+
+
+def _energy_mask_emformer_mem(
+    *,
+    self,
+    source,
+    chunked_time_dim: Dim,  # C
+    chunk_size_dim: Dim,  # W
+    att_num_heads_dim: Dim,  # H
+    query_dim: Dim,  # W+1
+    kv_dim: Dim,  # W*N+M, M=C
+    mem_bank_dim: Dim,  # M, M=C
+    neg_inf: float,
+    **_kwargs,
+):
+    import numpy
+    import tensorflow as tf
+    from returnn.tensor import Tensor, Dim, batch_dim
+    from returnn.tf.util.data import BatchInfo
+
+    chunk_size_dim  # unused  # noqa
+
+    energy_data: Tensor = source(0, as_data=True)  # [B*C, H, W*N+M, W+1], M=C, dims not necessarily that order
+
+    assert len(energy_data.batch.virtual_dims) == 2
+    batch_virtual_dim0, batch_virtual_dim1 = energy_data.batch.virtual_dims
+    assert isinstance(batch_virtual_dim0, BatchInfo.GlobalBatchDim)
+    assert isinstance(batch_virtual_dim1, BatchInfo.FixedDim)
+    assert batch_virtual_dim1.dim_tag == chunked_time_dim
+
+    energy_shape = []
+    energy_dims = []
+    for d in energy_data.dims:
+        if d.is_batch_dim():
+            energy_dims += [batch_dim, chunked_time_dim]
+            energy_shape += [batch_virtual_dim0.size, chunked_time_dim.get_dim_value()]
+            continue
+        energy_dims.append(d)
+        energy_shape.append(d.get_dim_value())
+    energy: tf.Tensor = tf.reshape(energy_data.raw_tensor, energy_shape)  # [B, C, H, W*N [+M], W+1]
+    assert set(energy_dims) == {batch_dim, chunked_time_dim, att_num_heads_dim, query_dim, kv_dim}
+    assert len(energy_dims) == len(energy_shape) == energy.shape.rank == 5
+
+    def _bc_shape(d_: Dim):
+        ls = [(a_, d__) for a_, d__ in enumerate(energy_dims) if d__ == d_]
+        if not ls:
+            raise Exception(f"dim {d_} not found in {energy_dims}")
+        if len(ls) > 1:
+            raise Exception(f"dim {d_} found multiple times in {energy_dims}: {ls}")
+        a = ls[0][0]
+        return [1] * a + [d_.get_dim_value()] + [1] * (len(energy_dims) - a - 1)
+
+    c_range: tf.Tensor = tf.range(chunked_time_dim.get_dim_value())  # [C]
+    c_range: tf.Tensor = tf.reshape(c_range, _bc_shape(chunked_time_dim))  # [..C..]
+    q_range: tf.Tensor = tf.range(query_dim.get_dim_value())  # [W+1]
+    q_range: tf.Tensor = tf.reshape(q_range, _bc_shape(query_dim))  # [..W+1..]
+    q_s_idx = query_dim.get_dim_value() - 1  # W
+    kv_range: tf.Tensor = tf.range(kv_dim.get_dim_value())  # [W*N+M]
+    kv_range: tf.Tensor = tf.reshape(kv_range, _bc_shape(kv_dim))  # [..W*N+M..]
+    kv_m_start_idx = kv_dim.get_dim_value() - mem_bank_dim.get_dim_value()  # W*N
+    # In chunk c, we only allow to attend to the previous chunk memories m < c.
+    mask0 = tf.less(kv_range, kv_m_start_idx + c_range)  # [..C.., ..W*N+M..]
+    # In summary, we do not attend to any memories.
+    mask1 = tf.less(q_range, q_s_idx) | (
+        tf.equal(q_range, q_s_idx) & tf.less(kv_range, kv_m_start_idx)
+    )  # [..W+1.., ..W*N+M..]
+    mask = mask0 & mask1  # [..C.., ..W+1.., ..W*N+M..]
+    energy = tf.where(mask, energy, neg_inf)
+
+    energy = tf.reshape(energy, [d.get_dim_value() for d in energy_data.dims])  # [B*C, H, W*N+M, W+1]
+    if numpy.isinf(neg_inf):
+        self.allow_inf_in_output = True
+    return energy

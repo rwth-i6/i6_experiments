@@ -3,36 +3,55 @@ Generic interfaces to define models, training and recognition.
 """
 
 from __future__ import annotations
-from typing import Protocol, TypeVar, Optional, List, Dict, Set
+from typing import Protocol, TypeVar, Optional, Union, List, Dict, Set
 import dataclasses
 from sisyphus import tk
-from i6_core.returnn.training import ReturnnTrainingJob, Checkpoint
+from i6_core.returnn.training import ReturnnTrainingJob, Checkpoint as TfCheckpoint, PtCheckpoint
 from returnn_common import nn
 from i6_experiments.users.zeyer.returnn.training import default_returnn_keep_epochs
 
 
 ModelT = TypeVar("ModelT", bound=nn.Module)
+Checkpoint = Union[TfCheckpoint, PtCheckpoint]
 
 
 class ModelDef(Protocol[ModelT]):
     """
     Creates the model, per epoch
     """
+
     def __call__(self, *, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim, training: bool = False) -> ModelT:
         raise NotImplementedError
 
     behavior_version: int
+    # Version 2 (i.e. attrib might not be available in all cases):
+    backend: Optional[str] = None
+    batch_size_factor: int  # according to some arbitrary reference point
+
+
+def model_def_is_torch(model_def: ModelDef) -> bool:
+    """
+    Is this a torch model?
+    """
+    if getattr(model_def, "backend", None) == "torch":
+        return True
+    return False
 
 
 class TrainDef(Protocol[ModelT]):
     """
     Defines the losses (mark_as_loss).
     """
-    def __call__(self, *,
-                 model: ModelT,
-                 data: nn.Tensor, data_spatial_dim: nn.Dim,
-                 targets: nn.Tensor, targets_spatial_dim: nn.Dim
-                 ):
+
+    def __call__(
+        self,
+        *,
+        model: ModelT,
+        data: nn.Tensor,
+        data_spatial_dim: nn.Dim,
+        targets: nn.Tensor,
+        targets_spatial_dim: nn.Dim,
+    ):
         raise NotImplementedError
 
     learning_rate_control_error_measure: Optional[str] = None
@@ -42,11 +61,16 @@ class FramewiseTrainDef(Protocol[ModelT]):
     """
     Defines the losses (mark_as_loss).
     """
-    def __call__(self, *,
-                 model: ModelT,
-                 data: nn.Tensor, data_spatial_dim: nn.Dim,
-                 align_targets: nn.Tensor, align_targets_spatial_dim: nn.Dim
-                 ):
+
+    def __call__(
+        self,
+        *,
+        model: ModelT,
+        data: nn.Tensor,
+        data_spatial_dim: nn.Dim,
+        align_targets: nn.Tensor,
+        align_targets_spatial_dim: nn.Dim,
+    ):
         raise NotImplementedError
 
     learning_rate_control_error_measure: Optional[str] = None
@@ -57,6 +81,7 @@ class ModelWithCheckpoint:
     """
     Model
     """
+
     definition: ModelDef
     checkpoint: Checkpoint
 
@@ -70,6 +95,7 @@ class ModelWithCheckpoints:
     """
     What comes out of training
     """
+
     definition: ModelDef
     # They will always be available and kept once the training reaches the epoch,
     # and are recommended to perform recognition on.
@@ -91,9 +117,13 @@ class ModelWithCheckpoints:
     # following the logic of the default sis_hash_helper.
 
     @classmethod
-    def from_training_job(cls, definition: ModelDef, training_job: ReturnnTrainingJob, *,
-                          num_pretrain_epochs: int = 0,
-                          ) -> ModelWithCheckpoints:
+    def from_training_job(
+        cls,
+        definition: ModelDef,
+        training_job: ReturnnTrainingJob,
+        *,
+        num_pretrain_epochs: int = 0,
+    ) -> ModelWithCheckpoints:
         """
         Model from training job
 
@@ -146,8 +176,16 @@ class ModelWithCheckpoints:
         is_pretrain = epoch <= self.num_pretrain_epochs
         return ModelWithCheckpoint(
             self.definition,
-            Checkpoint(index_path=self.model_dir.join_right(
-                self.model_name + (".pretrain" if is_pretrain else "") + ".%03d.index" % epoch)))
+            PtCheckpoint(
+                self.model_dir.join_right(self.model_name + (".pretrain" if is_pretrain else "") + ".%03d.pt" % epoch)
+            )
+            if model_def_is_torch(self.definition)
+            else TfCheckpoint(
+                index_path=self.model_dir.join_right(
+                    self.model_name + (".pretrain" if is_pretrain else "") + ".%03d.index" % epoch
+                )
+            ),
+        )
 
     def get_last_fixed_epoch(self) -> ModelWithCheckpoint:
         """for the last fixed epoch"""
@@ -157,12 +195,14 @@ class ModelWithCheckpoints:
 @dataclasses.dataclass(frozen=True)
 class Alignment:
     """Alignment, for one specific dataset"""
+
     hdf_files: List[tk.Path]
 
 
 @dataclasses.dataclass(frozen=True)
 class AlignmentCollection:
     """Alignment for multiple datasets"""
+
     alignments: Dict[str, Alignment]
 
 
@@ -172,10 +212,13 @@ class RecogDef(Protocol[ModelT]):
     Thus, this includes all the recog details, such as beam size, etc.
     """
 
-    def __call__(self, *,
-                 model: ModelT,
-                 data: nn.Tensor, data_spatial_dim: nn.Dim,
-                 ) -> nn.Tensor:
+    def __call__(
+        self,
+        *,
+        model: ModelT,
+        data: nn.Tensor,
+        data_spatial_dim: nn.Dim,
+    ) -> nn.Tensor:
         """
         :return: recog output, including beam or not, depending on output_with_beam
         """
@@ -200,4 +243,5 @@ class RecogDef(Protocol[ModelT]):
 @dataclasses.dataclass(frozen=True)
 class ModelWithCheckpointAndRecog(ModelWithCheckpoint):
     """Model with recog"""
+
     recog: RecogDef

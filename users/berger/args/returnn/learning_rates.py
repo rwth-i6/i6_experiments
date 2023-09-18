@@ -8,7 +8,9 @@ class LearningRateSchedules(Enum):
     Newbob = auto()
     NewbobAbs = auto()
     OCLR = auto()
+    OCLR_STEP = auto()
     CONST_DECAY = auto()
+    CONST_DECAY_STEP = auto()
 
 
 class Optimizers(Enum):
@@ -30,8 +32,12 @@ def get_learning_rate_config(
         config.update(get_newbob_abs_config(**kwargs))
     elif schedule == LearningRateSchedules.OCLR:
         config.update(get_oclr_config(**kwargs))
+    elif schedule == LearningRateSchedules.OCLR_STEP:
+        extra_python.append(get_oclr_function(**kwargs))
     elif schedule == LearningRateSchedules.CONST_DECAY:
         config.update(get_const_decay_config(**kwargs))
+    elif schedule == LearningRateSchedules.CONST_DECAY_STEP:
+        extra_python.append(get_const_decay_function(**kwargs))
     else:
         raise NotImplementedError
 

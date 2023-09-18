@@ -15,7 +15,7 @@ import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, batch_dim, TensorDict
 
 from .conformer_import_moh_att_2023_06_30 import Model, MakeModel, from_scratch_training, model_recog
-from .generic_job_output import generic_job_output
+from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 
 # From Mohammad, 2023-06-29
 # dev-clean  2.27
@@ -41,6 +41,9 @@ def _get_pt_checkpoint_path() -> tk.Path:
     old_tf_ckpt_path = _get_tf_checkpoint_path()
     old_tf_ckpt = Checkpoint(index_path=old_tf_ckpt_path)
     make_model_func = MakeModel(80, 10_025, eos_label=0, num_enc_layers=12)
+    # TODO: problems with hash:
+    #  make_model_func, map_func: uses full module name (including "zeyer"), should use sth like unhashed_package_root
+    #  https://github.com/rwth-i6/sisyphus/issues/144
     converter = ConvertTfCheckpointToRfPtJob(
         checkpoint=old_tf_ckpt,
         make_model_func=make_model_func,
@@ -172,8 +175,10 @@ def map_param_func_v2(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
         assert isinstance(value, numpy.ndarray)
         if name.endswith(".filter"):
             value = convert_params_np.convert_tf_conv_to_pt_conv_filter(value)
-        assert value.shape == var.batch_shape, f"new param {name} vs old param {var_name}"
-        assert value.dtype.name == var.dtype, f"new param {name} vs old param {var_name}"
+        assert (
+            value.shape == var.batch_shape
+        ), f"new param {name} {var.batch_shape} vs ckpt param {var_name} {value.shape}"
+        assert value.dtype.name == var.dtype, f"new param {name} {var.dtype} vs ckpt param {var_name} {value.dtype}"
         return value
 
     if name == "s.ff_weight":
@@ -664,7 +669,6 @@ def test_import_search():
                 model=new_model,
                 data=extern_data["audio_features"],
                 data_spatial_dim=time_dim,
-                targets_dim=target_dim,
             )
     print(seq_targets, seq_targets.raw_tensor)
 
@@ -673,6 +677,7 @@ def test_import_search():
 # So you can just run:
 # `sis m recipe/i6_experiments/users/zeyer/experiments/....py`
 py = test_import_search
+# py = test_import_forward
 
 
 if __name__ == "__main__":

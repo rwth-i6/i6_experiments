@@ -1,3 +1,4 @@
+import copy
 from typing import List
 
 from i6_core import returnn, corpus
@@ -100,6 +101,9 @@ def get_wsj_data(
     loss_lexicon = train_data_input.lexicon.filename
 
     # ********** Recog lexicon **********
+
+    dev_data_inputs = copy.deepcopy(dev_data_inputs)
+    test_data_inputs = copy.deepcopy(test_data_inputs)
 
     for rasr_input in {**dev_data_inputs, **test_data_inputs}.values():
         rasr_input.lexicon.filename = AddEowPhonemesToLexiconJob(

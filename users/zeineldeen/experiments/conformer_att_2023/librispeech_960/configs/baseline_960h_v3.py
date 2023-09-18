@@ -725,6 +725,15 @@ def conformer_baseline():
     name = "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009"
     train_j, train_data = run_exp(name, train_args=oclr_args, num_epochs=2035)
 
+    for ep in [150 * 100]:
+        args = copy.deepcopy(oclr_args)
+        args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
+        args["oclr_opts"]["total_ep"] = ep
+        del args["oclr_opts"]["learning_rates"]
+        args["decoder_args"].use_zoneout_output = True
+        args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+        run_exp(name, train_args=args, num_epochs=ep)
+
     # Att baseline with avg checkpoint: 2.27/5.39/2.41/5.51
     retrain_args = copy.deepcopy(oclr_args)
     retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[name]

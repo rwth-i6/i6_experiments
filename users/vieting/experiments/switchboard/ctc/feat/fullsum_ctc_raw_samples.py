@@ -13,9 +13,10 @@ from .network_helpers.conformer_wei import add_vgg_stack as add_vgg_stack_wei
 
 def make_ctc_rasr_loss_config_v2(
     loss_corpus_path: str,
-    loss_corpus_segments: str,
     loss_lexicon_path: str,
     am_args: Dict,
+    loss_corpus_segments: Optional[str] = None,
+    loss_corpus_prefix: Optional[str] = None,
     allow_label_loop: bool = True,
     min_duration: int = 1,
     extra_config: Optional[rasr.RasrConfig] = None,
@@ -28,7 +29,10 @@ def make_ctc_rasr_loss_config_v2(
 
     loss_crp.corpus_config = rasr.RasrConfig()
     loss_crp.corpus_config.file = loss_corpus_path
-    loss_crp.corpus_config.segments.file = loss_corpus_segments
+    if loss_corpus_segments is not None:
+        loss_crp.corpus_config.segments.file = loss_corpus_segments
+    if loss_corpus_prefix is not None:
+        loss_crp.corpus_config.remove_corpus_name_prefix = loss_corpus_prefix
 
     loss_crp.lexicon_config = rasr.RasrConfig()
     loss_crp.lexicon_config.file = loss_lexicon_path

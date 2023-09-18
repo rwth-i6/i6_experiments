@@ -19,9 +19,9 @@ def add_ff_module(
     l2: float = 5e-06,
     reuse_from_name: Optional[str] = None,
     ff_half_res_add: bool = True,
+    with_init: bool = True,
     **kwargs,
 ) -> str:
-
     network.update(
         {
             f"{name}_input": {
@@ -33,7 +33,6 @@ def add_ff_module(
                 "from": f"{name}_input",
                 "n_out": size * 4,
                 "activation": "swish",
-                "forward_weights_init": get_variance_scaling_init(),
                 "L2": l2,
             },
             f"{name}_dropout_1": {
@@ -46,7 +45,6 @@ def add_ff_module(
                 "from": f"{name}_dropout_1",
                 "n_out": size,
                 "L2": l2,
-                "forward_weights_init": get_variance_scaling_init(),
                 "dropout": dropout,
             },
             f"{name}_dropout_2": {
@@ -63,6 +61,10 @@ def add_ff_module(
             },
         }
     )
+
+    if with_init:
+        network[f"{name}_ff_1"]["forward_weights_init"] = get_variance_scaling_init()
+        network[f"{name}_ff_2"]["forward_weights_init"] = get_variance_scaling_init()
 
     if ff_half_res_add:
         network[f"{name}_res_add"].update(
@@ -97,6 +99,7 @@ def add_mhsa_module(
     l2: float = 5e-06,
     reuse_from_name: Optional[str] = None,
     mhsa_half_res_add: bool = False,
+    with_init: bool = True,
     **kwargs,
 ) -> str:
     network.update(
@@ -110,7 +113,6 @@ def add_mhsa_module(
                 "from": f"{name}_input",
                 "n_out": 64,
                 "clipping": clipping,
-                "forward_weights_init": get_variance_scaling_init(),
             },
             f"{name}_self_attention": {
                 "class": "self_attention",
@@ -120,7 +122,6 @@ def add_mhsa_module(
                 "total_key_dim": size,
                 "key_shift": f"{name}_rel_pos_enc",
                 "attention_dropout": dropout,
-                "forward_weights_init": get_variance_scaling_init(),
             },
             f"{name}_att_linear": {
                 "class": "linear",
@@ -128,7 +129,6 @@ def add_mhsa_module(
                 "n_out": size,
                 "L2": l2,
                 "with_bias": False,
-                "forward_weights_init": get_variance_scaling_init(),
             },
             f"{name}_dropout": {
                 "class": "copy",
@@ -144,6 +144,11 @@ def add_mhsa_module(
             },
         }
     )
+
+    if with_init:
+        network[f"{name}_rel_pos_enc"]["forward_weights_init"] = get_variance_scaling_init()
+        network[f"{name}_self_attention"]["forward_weights_init"] = get_variance_scaling_init()
+        network[f"{name}_att_linear"]["forward_weights_init"] = get_variance_scaling_init()
 
     if mhsa_half_res_add:
         network[f"{name}_res_add"].update(
@@ -178,9 +183,10 @@ def add_conv_module(
     reuse_from_name: Optional[str] = None,
     conv_half_res_add: bool = True,
     use_batch_norm: bool = False,
+    use_biases: bool = True,
+    with_init: bool = True,
     **kwargs,
 ) -> str:
-
     network.update(
         {
             f"{name}_input": {
@@ -192,7 +198,6 @@ def add_conv_module(
                 "from": f"{name}_input",
                 "n_out": size * 2,
                 "L2": l2,
-                "forward_weights_init": get_variance_scaling_init(),
             },
             f"{name}_glu": {
                 "class": "gating",
@@ -209,7 +214,6 @@ def add_conv_module(
                 "groups": size,
                 "with_bias": True,
                 "L2": l2,
-                "forward_weights_init": get_variance_scaling_init(),
             },
         }
     )
@@ -243,7 +247,6 @@ def add_conv_module(
                 "from": f"{name}_swish",
                 "n_out": size,
                 "L2": l2,
-                "forward_weights_init": get_variance_scaling_init(),
             },
             f"{name}_dropout": {
                 "class": "copy",
@@ -259,6 +262,15 @@ def add_conv_module(
             },
         }
     )
+
+    if with_init:
+        network[f"{name}_pointwise_conv_1"]["forward_weights_init"] = get_variance_scaling_init()
+        network[f"{name}_depthwise_conv"]["forward_weights_init"] = get_variance_scaling_init()
+        network[f"{name}_pointwise_conv_2"]["forward_weights_init"] = get_variance_scaling_init()
+
+    if not use_biases:
+        network[f"{name}_pointwise_conv_1"]["with_bias"] = False
+        network[f"{name}_pointwise_conv_2"]["with_bias"] = False
 
     if conv_half_res_add:
         network[f"{name}_res_add"].update(
@@ -378,8 +390,10 @@ def add_initial_conv(
     conv_filters: List[int] = [3, 3, 3, 3],
     conv_strides: List[int] = [1, 1, 1, 3],
     max_pool: List[int] = [2],
+    stack_frames: int = 1,
     reuse_from_name: Optional[str] = None,
     dropout: float = 0.1,
+    with_init: bool = True,
     **kwargs,
 ) -> str:
     from_name = f"{name}_split_dims"
@@ -390,9 +404,7 @@ def add_initial_conv(
         "axis": "F",
     }
 
-    for idx, (n_out, filter, stride) in enumerate(
-        zip(conv_outputs, conv_filters, conv_strides), start=1
-    ):
+    for idx, (n_out, filter, stride) in enumerate(zip(conv_outputs, conv_filters, conv_strides), start=1):
         network[f"{name}_conv_{idx}"] = {
             "class": "conv",
             "from": from_name,
@@ -403,6 +415,9 @@ def add_initial_conv(
             "padding": "same",
             "forward_weights_init": get_variance_scaling_init(),
         }
+        if with_init:
+            network[f"{name}_conv_{idx}"]["forward_weights_init"] = get_variance_scaling_init()
+
         from_name = f"{name}_conv_{idx}"
 
         network[f"{name}_swish_{idx}"] = {
@@ -427,14 +442,36 @@ def add_initial_conv(
         "from": from_name,
         "axes": "static",
     }
+    from_name = f"{name}_merge_dims"
+
+    if stack_frames > 1:
+        network[f"{name}_stack_features"] = {
+            "class": "window",
+            "from": from_name,
+            "stride": stack_frames,
+            "window_left": stack_frames - 1,
+            "window_right": 0,
+            "window_size": stack_frames,
+        }
+        from_name = f"{name}_stack_features"
+
+        network[f"{name}_stack_features_merged"] = {
+            "class": "merge_dims",
+            "from": from_name,
+            "axes": (2, 3),
+        }
+        from_name = f"{name}_stack_features_merged"
 
     network[f"{name}_linear"] = {
         "class": "linear",
-        "from": f"{name}_merge_dims",
+        "from": from_name,
         "n_out": linear_size,
-        "with_bias": False,
-        "forward_weights_init": get_variance_scaling_init(),
+        # "with_bias": False,
+        "with_bias": True,
     }
+
+    if with_init:
+        network[f"{name}_linear"]["forward_weights_init"] = get_variance_scaling_init()
 
     network[f"{name}_dropout"] = {
         "class": "copy",
@@ -448,9 +485,7 @@ def add_initial_conv(
     }
 
     if reuse_from_name:
-        for suffix in [f"_conv_{idx}" for idx in range(1, len(conv_outputs) + 1)] + [
-            "_linear"
-        ]:
+        for suffix in [f"_conv_{idx}" for idx in range(1, len(conv_outputs) + 1)] + ["_linear"]:
             network[name + suffix]["reuse_params"] = reuse_from_name + suffix
 
     return f"{name}_ln"
@@ -467,6 +502,7 @@ def add_transposed_conv(
     dropout: float = 0.1,
     l2: float = 5e-06,
     reuse_from_name: Optional[str] = None,
+    with_init: bool = True,
 ) -> str:
     layer_name = f"{name}_transposed_conv"
     network[layer_name] = {
@@ -478,8 +514,10 @@ def add_transposed_conv(
         "strides": [stride],
         "dropout": dropout,
         "L2": l2,
-        "forward_weights_init": get_variance_scaling_init(),
     }
+
+    if with_init:
+        network[layer_name]["forward_weights_init"] = get_variance_scaling_init()
 
     if size_base is not None:
         network[f"{layer_name}_reinterpret"] = {

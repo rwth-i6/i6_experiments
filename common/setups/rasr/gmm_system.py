@@ -1183,6 +1183,7 @@ class GmmSystem(RasrSystem):
 
                 self.sat_recognition(
                     name=f"{trn_c}-{name}",
+                    train_corpus_key=trn_c,
                     corpus_key=tst_c,
                     train_corpus_key=trn_c,
                     feature_scorer_key=feature_scorer,
@@ -1224,6 +1225,7 @@ class GmmSystem(RasrSystem):
 
                 self.sat_recognition(
                     name=f"{trn_c}-{name}",
+                    train_corpus_key=trn_c,
                     corpus_key=tst_c,
                     train_corpus_key=trn_c,
                     feature_scorer_key=feature_scorer,
@@ -1361,6 +1363,7 @@ class GmmSystem(RasrSystem):
 
             # ---------- CaRT ----------
             if step_name.startswith("cart"):
+
                 self.cart_questions = step_args.cart_questions
                 for trn_c in self.train_corpora:
                     self.cart_and_lda(

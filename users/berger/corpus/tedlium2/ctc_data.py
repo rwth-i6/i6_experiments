@@ -10,7 +10,7 @@ from i6_experiments.users.berger.corpus.general.experiment_data import (
     CTCSetupData,
     PytorchCTCSetupData,
 )
-from i6_experiments.users.berger.helpers.hdf import build_rasr_feature_hdf
+from i6_experiments.users.berger.helpers.hdf import build_rasr_feature_hdfs
 from i6_experiments.users.berger.recipe.returnn.hdf import BlissCorpusToTargetHdfJob
 from i6_experiments.users.berger.systems.dataclasses import FeatureType
 from sisyphus import tk
@@ -52,7 +52,7 @@ def get_tedlium2_pytorch_data(
     train_dataset_builder = MetaDatasetBuilder()
     if feature_type == FeatureType.GAMMATONE:
         gt_args = get_feature_extraction_args_16kHz()["gt"]
-        train_feature_hdf = build_rasr_feature_hdf(
+        train_feature_hdf = build_rasr_feature_hdfs(
             train_corpus_object,
             split=train_data_inputs["train"].concurrent,
             feature_type="gt",
@@ -61,6 +61,7 @@ def get_tedlium2_pytorch_data(
             returnn_root=returnn_root,
             rasr_binary_path=rasr_binary_path,
             rasr_arch=rasr_arch,
+            single_hdf=True,
         )
     elif feature_type == FeatureType.SAMPLES:
         train_feature_hdf = BlissToPcmHDFJob(train_corpus_object.corpus_file, returnn_root=returnn_root).out_hdf
@@ -80,10 +81,12 @@ def get_tedlium2_pytorch_data(
     ).out_hdf
     train_dataset_builder.add_hdf_dataset(
         train_targets_hdf,
-        seq_ordering="random",
         name="targets",
         key_mapping={"data": "targets"},
-        dataset_config={"partition_epoch": 5},
+        dataset_config={
+            "partition_epoch": 5,
+            "seq_ordering": "random",
+        },
         control=True,
     )
 
@@ -103,7 +106,7 @@ def get_tedlium2_pytorch_data(
 
     if feature_type == FeatureType.GAMMATONE:
         gt_args = get_feature_extraction_args_16kHz()["gt"]
-        cv_feature_hdf = build_rasr_feature_hdf(
+        cv_feature_hdf = build_rasr_feature_hdfs(
             cv_corpus_object,
             split=1,
             feature_type="gt",
@@ -112,6 +115,7 @@ def get_tedlium2_pytorch_data(
             returnn_root=returnn_root,
             rasr_binary_path=rasr_binary_path,
             rasr_arch=rasr_arch,
+            single_hdf=True,
         )
     elif feature_type == FeatureType.SAMPLES:
         cv_feature_hdf = BlissToPcmHDFJob(cv_corpus_object.corpus_file, returnn_root=returnn_root).out_hdf
@@ -131,10 +135,12 @@ def get_tedlium2_pytorch_data(
     ).out_hdf
     cv_dataset_builder.add_hdf_dataset(
         cv_targets_hdf,
-        seq_ordering="sorted",
         name="targets",
         key_mapping={"data": "targets"},
-        dataset_config={"partition_epoch": 1},
+        dataset_config={
+            "partition_epoch": 1,
+            "seq_ordering": "sorted",
+        },
         control=True,
     )
 
@@ -194,7 +200,7 @@ def get_tedlium2_tf_data(
 
     if feature_type == FeatureType.GAMMATONE:
         gt_args = get_feature_extraction_args_16kHz()["gt"]
-        train_feature_hdf = build_rasr_feature_hdf(
+        train_feature_hdf = build_rasr_feature_hdfs(
             train_corpus_object,
             split=train_data_inputs["train"].concurrent,
             feature_type="gt",
@@ -203,6 +209,7 @@ def get_tedlium2_tf_data(
             returnn_root=returnn_root,
             rasr_binary_path=rasr_binary_path,
             rasr_arch=rasr_arch,
+            single_hdf=True,
         )
     elif feature_type == FeatureType.SAMPLES:
         train_feature_hdf = BlissToPcmHDFJob(train_corpus_object.corpus_file, returnn_root=returnn_root).out_hdf
@@ -229,7 +236,7 @@ def get_tedlium2_tf_data(
 
     if feature_type == FeatureType.GAMMATONE:
         gt_args = get_feature_extraction_args_16kHz()["gt"]
-        cv_feature_hdf = build_rasr_feature_hdf(
+        cv_feature_hdf = build_rasr_feature_hdfs(
             cv_corpus_object,
             split=1,
             feature_type="gt",
@@ -238,6 +245,7 @@ def get_tedlium2_tf_data(
             returnn_root=returnn_root,
             rasr_binary_path=rasr_binary_path,
             rasr_arch=rasr_arch,
+            single_hdf=True,
         )
     elif feature_type == FeatureType.SAMPLES:
         cv_feature_hdf = BlissToPcmHDFJob(cv_corpus_object.corpus_file, returnn_root=returnn_root).out_hdf
@@ -246,7 +254,7 @@ def get_tedlium2_tf_data(
 
     cv_data_config = {
         "class": "HDFDataset",
-        "files": [cv_feature_hdf],
+        "files": cv_feature_hdf,
         "partition_epoch": 1,
         "seq_ordering": "sorted",
         "use_cache_manager": True,
@@ -279,13 +287,11 @@ def get_tedlium2_tf_data(
 
         if not add_unknown:
             assert data_input.corpus_object.corpus_file is not None
-            data_input.corpus_object.corpus_file = (
-                corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
-                    data_input.corpus_object.corpus_file,
-                    align_lexicon,
-                    all_unknown=False,
-                ).out_corpus
-            )
+            data_input.corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
+                data_input.corpus_object.corpus_file,
+                align_lexicon,
+                all_unknown=False,
+            ).out_corpus
 
     return CTCSetupData(
         train_key="train",

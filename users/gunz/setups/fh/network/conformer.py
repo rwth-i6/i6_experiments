@@ -2,10 +2,8 @@ __all__ = ["get_best_model_config"]
 
 import typing
 
-from i6_core import returnn
-
-from ...common.conformer import attention_for_hybrid
 from ...common.conformer.best_conformer import get_best_model_config as get_cfg, Size
+from .augment import Network
 
 
 def get_best_model_config(
@@ -20,9 +18,7 @@ def get_best_model_config(
     label_smoothing: float = 0.2,
     leave_cart_output: bool = False,
     target: str = "classes",
-    upsample_by_transposed_conv: bool = True,
-    feature_stacking_size: int = 3,
-) -> attention_for_hybrid:
+) -> Network:
     conformer_net = get_cfg(
         num_classes=num_classes,
         size=size,
@@ -33,14 +29,13 @@ def get_best_model_config(
         label_smoothing=label_smoothing,
         target=target,
         time_tag_name=time_tag_name,
-        upsample_by_transposed_conv=upsample_by_transposed_conv,
-        feature_stacking_size=feature_stacking_size,
     )
 
     if not leave_cart_output:
-        cart_out = conformer_net.network.pop("output")
-        last_layer = cart_out["from"][0]
-
-        conformer_net.network["encoder-output"] = {"class": "copy", "from": last_layer}
+        conformer_net.network.pop("output", None)
+        conformer_net.network["encoder-output"] = {
+            "class": "copy",
+            "from": "length_masked",
+        }
 
     return conformer_net

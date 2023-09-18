@@ -61,7 +61,7 @@ class OptunaSeq2SeqSearchFunctor(
         recog_results = []
 
         for lm_scale, prior_scale, epoch, trial_num in itertools.product(lm_scales, prior_scales, epochs, trial_nums):
-            checkpoint = self._get_checkpoint(train_job.job, epoch, trial_num=trial_num)
+            checkpoint = self._get_checkpoint(train_job.job, epoch, trial_num=trial_num, backend=backend)
 
             crp.language_model_config.scale = lm_scale  # type: ignore
 

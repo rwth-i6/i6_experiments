@@ -19,7 +19,7 @@ transducer_recog_am_args = {
 }
 
 
-def get_transducer_train_args(**kwargs) -> Dict:
+def get_transducer_train_step_args(**kwargs) -> Dict:
     default_args = {
         "time_rqmt": 168,
         "mem_rqmt": 16,
@@ -28,7 +28,7 @@ def get_transducer_train_args(**kwargs) -> Dict:
     return recursive_update(default_args, kwargs)
 
 
-def get_transducer_recog_args(
+def get_transducer_recog_step_args(
     num_classes: int, reduction_subtrahend: int = 1039, reduction_factor: int = 640, **kwargs
 ) -> Dict:
     default_args = {
@@ -74,7 +74,7 @@ def get_transducer_recog_args(
     return recursive_update(default_args, kwargs)
 
 
-def get_transducer_align_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
+def get_transducer_align_step_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
     default_args = {
         "epochs": ["best"],
         "prior_scales": [0.3],

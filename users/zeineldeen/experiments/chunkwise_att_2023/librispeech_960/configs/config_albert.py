@@ -15,7 +15,7 @@ def _run_exp_baseline_v1(
     enc_stream_type: Optional[str],
     total_epochs: int,
     with_ctc: bool = True,
-):
+) -> Checkpoint:
     start_lr = 1e-4
     decay_pt_factor = 1 / 3
     train_args = _get_baseline_train_args(

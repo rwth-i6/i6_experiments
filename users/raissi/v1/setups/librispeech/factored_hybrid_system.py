@@ -758,7 +758,9 @@ class FactoredHybridSystem(NnSystem):
     def create_hdf(self):
         gammaton_features_paths = self.feature_caches[self.train_key]['gt'].hidden_paths
         feature_caches = [gammaton_features_paths[i].get_path() for i in range(1, len(gammaton_features_paths.keys())+1)]
+
         hdfJob = RasrFeatureToHDF(feature_caches)
+
         self.hdfs[self.train_key] = hdfJob.hdf_files
 
         hdfJob.add_alias(f"hdf/{self.train_key}")

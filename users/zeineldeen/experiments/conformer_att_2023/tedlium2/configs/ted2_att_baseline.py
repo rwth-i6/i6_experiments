@@ -13,6 +13,7 @@ from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.additional_config import (
     apply_fairseq_init_to_conformer,
+    reset_params_init,
     apply_fairseq_init_to_transformer_decoder,
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.data import (
@@ -22,6 +23,7 @@ from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.dat
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.default_tools import (
     RETURNN_ROOT,
     RETURNN_CPU_EXE,
+    SCTK_BINARY_PATH,
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.feature_extraction_net import (
     log10_net_10ms,
@@ -60,6 +62,11 @@ BPE_1K = 1000
 #   Min/max: 26 / 2049
 
 # --------------------------- LM --------------------------- #
+
+# LM data (runnnig words)
+# trans 2250417 ~ 2.25M
+# external: 12688261 ~ 12.7M
+# Total: 14.9M
 
 lstm_10k_lm_opts = {
     "lm_subnet": generic_lm.libri_lstm_bpe10k_net,
@@ -100,6 +107,92 @@ trafo_lm_opts_map = {
 }
 
 # ----------------------------------------------------------- #
+
+
+def compute_features_stats(
+    output_dirname, feat_dim, bpe_size=10000, feature_extraction_net=log10_net_10ms, model_checkpoint=None, **kwargs
+):
+    train_data = build_training_datasets(
+        bpe_size=bpe_size,
+        use_raw_features=True,
+        epoch_wise_filter=None,
+        link_speed_perturbation=False,
+        seq_ordering="laplace:.1000",
+        partition_epoch=1,
+    )
+    # Dump log-mel features into HDFDataset
+    dump_features_config = {}
+    dump_features_config["extern_data"] = train_data.extern_data
+    dump_features_config["network"] = copy.deepcopy(feature_extraction_net)
+    if model_checkpoint:
+        dump_features_config["network"]["output"] = {
+            "class": "hdf_dump",
+            "from": "log_mel_features",
+            "filename": "log_mel_features.hdf",
+        }
+    else:
+        dump_features_config["network"]["output"] = {
+            "class": "copy",
+            "from": "log_mel_features",
+        }
+    dump_features_config["forward_batch_size"] = 20_000 * 80
+    dump_features_config["use_tensorflow"] = True
+    dump_features_config["eval"] = train_data.train.as_returnn_opts()
+    from i6_core.returnn import ReturnnForwardJob, ReturnnConfig
+
+    hdf_filename = "log_mel_features.hdf" if model_checkpoint else "output.hdf"
+
+    dump_features_job = ReturnnForwardJob(
+        returnn_config=ReturnnConfig(config=dump_features_config),
+        returnn_python_exe=RETURNN_CPU_EXE,
+        returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
+        model_checkpoint=model_checkpoint,
+        hdf_outputs=[hdf_filename] if model_checkpoint else [],
+        device="cpu",
+        mem_rqmt=15,
+        time_rqmt=72,
+        eval_mode=True if model_checkpoint else False,
+    )
+    dump_features_job.add_alias(f"ted2_stats/{output_dirname}/dump_train_log_mel_features")
+    tk.register_output(
+        f"ted2_stats/{output_dirname}/log_mel_features.hdf", dump_features_job.out_hdf_files[hdf_filename]
+    )
+
+    # Extract features stats from HDFDataset
+    extract_stats_returnn_config = ReturnnConfig(
+        {
+            "extern_data": {
+                "data": {"dim": feat_dim},
+            },
+            "train": {
+                "class": "HDFDataset",
+                "files": [dump_features_job.out_hdf_files[hdf_filename]],
+                "use_cache_manager": True,
+            },
+            "batch_size": 20_000 * 80,
+            "use_tensorflow": True,
+        }
+    )
+    from i6_core.returnn.dataset import ExtractDatasetMeanStddevJob
+
+    extract_mean_stddev_job = ExtractDatasetMeanStddevJob(
+        returnn_config=extract_stats_returnn_config,
+        returnn_python_exe=RETURNN_CPU_EXE,
+        returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
+    )
+    extract_mean_stddev_job.add_alias(f"ted2_stats/{output_dirname}/extract_mean_stddev")
+
+    tk.register_output(f"ted2_stats/{output_dirname}/mean_var", extract_mean_stddev_job.out_mean)
+    tk.register_output(f"ted2_stats/{output_dirname}/std_dev_var", extract_mean_stddev_job.out_std_dev)
+    tk.register_output(f"ted2_stats/{output_dirname}/mean_file", extract_mean_stddev_job.out_mean_file)
+    tk.register_output(f"ted2_stats/{output_dirname}/std_dev_file", extract_mean_stddev_job.out_std_dev_file)
+
+    return (
+        extract_mean_stddev_job.out_mean,
+        extract_mean_stddev_job.out_std_dev,
+        extract_mean_stddev_job.out_mean_file,
+        extract_mean_stddev_job.out_std_dev_file,
+    )
 
 
 def conformer_baseline():
@@ -370,35 +463,43 @@ def conformer_baseline():
 
         test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
 
-        for ep in default_recog_epochs:
+        run_only_avg = kwargs.get("run_only_avg", False)
+
+        if not run_only_avg:
+            for ep in default_recog_epochs:
+                search(
+                    exp_prefix + f"/recogs/ep-{ep}",
+                    returnn_search_config,
+                    train_job.out_checkpoints[ep],
+                    test_dataset_tuples,
+                    RETURNN_CPU_EXE,
+                    RETURNN_ROOT,
+                )
+
             search(
-                exp_prefix + f"/recogs/ep-{ep}",
+                exp_prefix + "/default_last",
                 returnn_search_config,
-                train_job.out_checkpoints[ep],
+                train_job.out_checkpoints[num_epochs],
                 test_dataset_tuples,
                 RETURNN_CPU_EXE,
                 RETURNN_ROOT,
             )
 
-        search(
-            exp_prefix + "/default_last",
-            returnn_search_config,
-            train_job.out_checkpoints[num_epochs],
-            test_dataset_tuples,
-            RETURNN_CPU_EXE,
-            RETURNN_ROOT,
-        )
+            search(
+                exp_prefix + "/default_best",
+                returnn_search_config,
+                best_checkpoint,
+                test_dataset_tuples,
+                RETURNN_CPU_EXE,
+                RETURNN_ROOT,
+                use_sclite=True,
+            )
 
-        search(
-            exp_prefix + "/default_best",
-            returnn_search_config,
-            best_checkpoint,
-            test_dataset_tuples,
-            RETURNN_CPU_EXE,
-            RETURNN_ROOT,
-            use_sclite=True,
-        )
-
+        beam_size = search_args.get("beam_size", 12)
+        if beam_size != 12:
+            exp_prefix += f"_beam-{beam_size}"
+        if search_args["decoder_args"].coverage_scale:
+            exp_prefix += f"_coverage-thre{search_args['decoder_args'].coverage_threshold}-scale{search_args['decoder_args'].coverage_scale}"
         search(
             exp_prefix + f"/average_{num_avg}",
             returnn_search_config,
@@ -409,6 +510,79 @@ def conformer_baseline():
             use_sclite=True,
         )
 
+    def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, checkpoint, mem_rqmt=8, time_rqmt=1):
+        exp_prefix = os.path.join(prefix_name, exp_name)
+
+        from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.concat_seqs import (
+            ConcatDatasetSeqsJob,
+            ConcatSeqsDataset,
+            CreateConcatSeqsCTMAndSTMJob,
+        )
+        from i6_core.corpus.convert import CorpusToStmJob
+
+        if isinstance(corpus_names, str):
+            corpus_names = [corpus_names]
+        assert isinstance(corpus_names, list)
+
+        for corpus_name in corpus_names:
+            test_datasets = get_test_dataset_tuples(bpe_size=BPE_1K)
+            stm = CorpusToStmJob(bliss_corpus=test_datasets[corpus_name][2]).out_stm_path
+            tk.register_output(f"concat_seqs/{num}/orig_{corpus_name}_stm", stm)
+            concat_dataset_seqs = ConcatDatasetSeqsJob(
+                corpus_name="TED-LIUM-realease2", stm=stm, num=num, overlap_dur=None
+            )
+            tk.register_output(f"concat_seqs/{num}/{corpus_name}_stm", concat_dataset_seqs.out_stm)
+            tk.register_output(f"concat_seqs/{num}/{corpus_name}_tags", concat_dataset_seqs.out_concat_seq_tags)
+            tk.register_output(f"concat_seqs/{num}/{corpus_name}_lens", concat_dataset_seqs.out_concat_seq_lens_py)
+
+            returnn_search_config = create_config(
+                training_datasets=train_data,
+                **search_args,
+                feature_extraction_net=log10_net_10ms,
+                is_recog=True,
+            )
+
+            returnn_concat_dataset = ConcatSeqsDataset(
+                dataset=test_datasets[corpus_name][0].as_returnn_opts(),
+                seq_tags=concat_dataset_seqs.out_concat_seq_tags,
+                seq_lens_py=concat_dataset_seqs.out_orig_seq_lens_py,
+            )
+
+            _, search_words = search_single(
+                os.path.join(exp_prefix, corpus_name),
+                returnn_search_config,
+                checkpoint,
+                recognition_dataset=returnn_concat_dataset,
+                recognition_reference=test_datasets[corpus_name][1],
+                recognition_bliss_corpus=test_datasets[corpus_name][2],
+                returnn_exe=RETURNN_CPU_EXE,
+                returnn_root=RETURNN_ROOT,
+                mem_rqmt=mem_rqmt,
+                time_rqmt=time_rqmt,
+                # no scoring
+                use_sclite=False,
+                use_returnn_compute_wer=False,
+            )
+
+            from i6_core.corpus.convert import CorpusToStmJob
+            from i6_core.recognition.scoring import ScliteJob
+
+            stm_file = concat_dataset_seqs.out_stm
+
+            concat_ctm_and_stm_job = CreateConcatSeqsCTMAndSTMJob(
+                recog_words_file=search_words, stm_py_file=concat_dataset_seqs.out_stm_py, stm_file=stm_file
+            )
+            tk.register_output(exp_prefix + f"/{corpus_name}/sclite/stm", concat_ctm_and_stm_job.out_stm_file)
+            tk.register_output(exp_prefix + f"/{corpus_name}/sclite/ctm", concat_ctm_and_stm_job.out_ctm_file)
+
+            sclite_job = ScliteJob(
+                ref=concat_ctm_and_stm_job.out_stm_file,
+                hyp=concat_ctm_and_stm_job.out_ctm_file,
+                sctk_binary_path=SCTK_BINARY_PATH,
+            )
+            tk.register_output(exp_prefix + f"/{corpus_name}/sclite/wer", sclite_job.out_wer)
+            tk.register_output(exp_prefix + f"/{corpus_name}/sclite/report", sclite_job.out_report_dir)
+
     def run_exp(
         exp_name,
         train_args,
@@ -416,7 +590,7 @@ def conformer_baseline():
         num_epochs=300,
         search_args=None,
         recog_epochs=None,
-        bpe_size=10000,
+        bpe_size=1000,
         partition_epoch=4,
         **kwargs,
     ):
@@ -429,6 +603,7 @@ def conformer_baseline():
             link_speed_perturbation=train_args.get("speed_pert", True),
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
             partition_epoch=partition_epoch,
+            devtrain_subset=kwargs.get("devtrain_subset", 507),  # same as num of dev segments
         )
         train_job = run_train(
             exp_name,
@@ -453,92 +628,33 @@ def conformer_baseline():
             bpe_size=bpe_size,
             **kwargs,
         )
+
+        if kwargs.get("concat_recog_opts", None):
+            ckpt_ = kwargs["concat_recog_opts"]["checkpoint"]
+            if isinstance(ckpt_, str):
+                assert ckpt_ in ["best", "avg"]
+                if ckpt_ == "best":
+                    concat_recog_ckpt = train_job_best_epoch[exp_name]
+                else:
+                    concat_recog_ckpt = train_job_avg_ckpt[exp_name]
+            elif isinstance(ckpt_, int):
+                concat_recog_ckpt = train_job.out_checkpoints[ckpt_]
+            else:
+                raise TypeError(f"concat_recog_opts['checkpoint'] must be str or int, got {type(ckpt_)}")
+            concat_recog_search_args = kwargs["concat_recog_opts"].get("search_args", None)
+            search_args_ = copy.deepcopy(train_args)
+            if concat_recog_search_args:
+                search_args_.update(concat_recog_search_args)
+            run_concat_seq_recog(
+                exp_name=exp_name + f"_concat{kwargs['concat_recog_opts']['num']}",
+                corpus_names=kwargs["concat_recog_opts"]["corpus_names"],
+                num=kwargs["concat_recog_opts"]["num"],
+                train_data=train_data,
+                search_args=search_args_,
+                checkpoint=concat_recog_ckpt,
+            )
+
         return train_job, train_data
-
-    def compute_features_stats(
-        output_dirname, feat_dim, bpe_size=10000, feature_extraction_net=log10_net_10ms, model_checkpoint=None, **kwargs
-    ):
-        train_data = build_training_datasets(
-            bpe_size=bpe_size,
-            use_raw_features=True,
-            epoch_wise_filter=None,
-            link_speed_perturbation=False,
-            seq_ordering="laplace:.1000",
-            partition_epoch=1,
-        )
-        # Dump log-mel features into HDFDataset
-        dump_features_config = {}
-        dump_features_config["extern_data"] = train_data.extern_data
-        dump_features_config["network"] = copy.deepcopy(feature_extraction_net)
-        if model_checkpoint:
-            dump_features_config["network"]["output"] = {
-                "class": "hdf_dump",
-                "from": "log_mel_features",
-                "filename": "log_mel_features.hdf",
-            }
-        else:
-            dump_features_config["network"]["output"] = {
-                "class": "copy",
-                "from": "log_mel_features",
-            }
-        dump_features_config["forward_batch_size"] = 20_000 * 80
-        dump_features_config["use_tensorflow"] = True
-        dump_features_config["eval"] = train_data.train.as_returnn_opts()
-        from i6_core.returnn import ReturnnForwardJob, ReturnnConfig
-
-        hdf_filename = "log_mel_features.hdf" if model_checkpoint else "output.hdf"
-
-        dump_features_job = ReturnnForwardJob(
-            returnn_config=ReturnnConfig(config=dump_features_config),
-            returnn_python_exe=RETURNN_CPU_EXE,
-            returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
-            model_checkpoint=model_checkpoint,
-            hdf_outputs=[hdf_filename] if model_checkpoint else [],
-            device="cpu",
-            mem_rqmt=15,
-            time_rqmt=72,
-            eval_mode=True if model_checkpoint else False,
-        )
-        dump_features_job.add_alias(f"ted2_stats/{output_dirname}/dump_train_log_mel_features")
-        tk.register_output(
-            f"ted2_stats/{output_dirname}/log_mel_features.hdf", dump_features_job.out_hdf_files[hdf_filename]
-        )
-
-        # Extract features stats from HDFDataset
-        extract_stats_returnn_config = ReturnnConfig(
-            {
-                "extern_data": {
-                    "data": {"dim": feat_dim},
-                },
-                "train": {
-                    "class": "HDFDataset",
-                    "files": [dump_features_job.out_hdf_files[hdf_filename]],
-                    "use_cache_manager": True,
-                },
-                "batch_size": 20_000 * 80,
-                "use_tensorflow": True,
-            }
-        )
-        from i6_core.returnn.dataset import ExtractDatasetMeanStddevJob
-
-        extract_mean_stddev_job = ExtractDatasetMeanStddevJob(
-            returnn_config=extract_stats_returnn_config,
-            returnn_python_exe=RETURNN_CPU_EXE,
-            returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
-        )
-        extract_mean_stddev_job.add_alias(f"ted2_stats/{output_dirname}/extract_mean_stddev")
-
-        tk.register_output(f"ted2_stats/{output_dirname}/mean_var", extract_mean_stddev_job.out_mean)
-        tk.register_output(f"ted2_stats/{output_dirname}/std_dev_var", extract_mean_stddev_job.out_std_dev)
-        tk.register_output(f"ted2_stats/{output_dirname}/mean_file", extract_mean_stddev_job.out_mean_file)
-        tk.register_output(f"ted2_stats/{output_dirname}/std_dev_file", extract_mean_stddev_job.out_std_dev_file)
-
-        return (
-            extract_mean_stddev_job.out_mean,
-            extract_mean_stddev_job.out_std_dev,
-            extract_mean_stddev_job.out_mean_file,
-            extract_mean_stddev_job.out_std_dev_file,
-        )
 
     def train_mini_lstm(
         exp_name,
@@ -802,174 +918,197 @@ def conformer_baseline():
 
     _, _, global_mean, global_std = compute_features_stats(output_dirname="logmel_80", feat_dim=80)
 
-    for bpe_size in [BPE_1K]:
-        for ep in [50 * 4]:
+    # step-based: 8.5/8.2
+    # epoch-based: 8.6/8.2
+    # for bpe_size in [BPE_1K]:
+    #     for ep in [50 * 4]:
+    #         for lr in [8e-4]:
+    #             args = copy.deepcopy(oclr_args)
+    #             args["oclr_opts"]["total_ep"] = ep
+    #             args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
+    #             args["oclr_opts"]["n_step"] = 1480
+    #             args["oclr_opts"]["peak_lr"] = lr
+    #             exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}"
+    #             run_exp(
+    #                 exp_name,
+    #                 args,
+    #                 num_epochs=ep,
+    #                 epoch_wise_filter=None,
+    #                 bpe_size=bpe_size,
+    #                 partition_epoch=4,
+    #                 devtrain_subset=3000,
+    #             )
+
+    # --------------------- V1 ---------------------
+    def get_base_v1_args(lr, ep, enc_drop=0.1, pretrain_reps=3):
+        #  base_bpe1000_peakLR0.0008_ep200_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.1_woDepthConvPre
+        # Average ckpt: 8.19/7.64 (50 epochs)
+        # - Epoch-based OCLR with peak LR 8e-4
+        # - EncDrop 0.1, fixed zoneout
+        # - Pretrain 3, no depthwise conv pretrain
+        # - Feature global normalization
+
+        base_v1_args = copy.deepcopy(oclr_args)
+        base_v1_args.pop("oclr_opts")
+        cyc_ep = int(0.45 * ep)
+        # Epoch-based OCLR
+        base_v1_args["learning_rates_list"] = (
+            list(numpy.linspace(lr / 10, lr, cyc_ep))
+            + list(numpy.linspace(lr, lr / 10, cyc_ep))
+            + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
+        )
+        base_v1_args["global_stats"] = {"mean": global_mean, "stddev": global_std}
+        base_v1_args["pretrain_reps"] = pretrain_reps
+        base_v1_args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+        base_v1_args["encoder_args"].dropout = enc_drop
+        base_v1_args["encoder_args"].dropout_in = enc_drop
+        base_v1_args["encoder_args"].att_dropout = enc_drop
+        base_v1_args["decoder_args"].use_zoneout_output = True
+        exp_name = f"base_bpe1000_peakLR{lr}_ep{ep}_globalNorm_epochOCLR_pre{pretrain_reps}_fixZoneout_encDrop{enc_drop}_woDepthConvPre"
+        return base_v1_args, exp_name
+
+    # baseline v1
+    # WERs: 8.2/7.6
+    base_v1_args, exp_name = get_base_v1_args(8e-4, 50 * 4)
+    # run_exp(
+    #     exp_name,
+    #     base_v1_args,
+    #     num_epochs=50 * 4,
+    #     epoch_wise_filter=None,
+    #     bpe_size=BPE_1K,
+    #     partition_epoch=4,
+    #     devtrain_subset=3000,
+    # )
+
+    # monotonic att weights loss
+    # for scale in [1e-3, 5e-3, 1e-2]:
+    #     args, exp_name = get_base_v1_args(8e-4, 50 * 4)
+    #     args["decoder_args"].monotonic_att_weights_loss_scale = scale
+    #     run_exp(
+    #         exp_name + f"_monotonicAttLoss{scale}",
+    #         args,
+    #         num_epochs=50 * 4,
+    #         epoch_wise_filter=None,
+    #         bpe_size=BPE_1K,
+    #         partition_epoch=4,
+    #     )
+
+    # for scale in [1e-1, 1e-2]:
+    #     args, exp_name = get_base_v1_args(8e-4, 50 * 4)
+    #     args["decoder_args"].att_weights_variance_loss_scale = scale
+    #     run_exp(
+    #         exp_name + f"_attWeightsVarLoss{scale}",
+    #         args,
+    #         num_epochs=50 * 4,
+    #         epoch_wise_filter=None,
+    #         bpe_size=BPE_1K,
+    #         partition_epoch=4,
+    #     )
+
+    # TODO: longer training with more regularization
+    # TODO: embed dropout?
+    for num_blocks in [12]:
+        for ep in [100 * 4]:
             for lr in [8e-4]:
-                args = copy.deepcopy(oclr_args)
-                args["oclr_opts"]["total_ep"] = ep
-                args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
-                args["oclr_opts"]["n_step"] = 1480
-                args["oclr_opts"]["peak_lr"] = lr
-                exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}"
-                run_exp(exp_name, args, num_epochs=ep, epoch_wise_filter=None, bpe_size=bpe_size, partition_epoch=4)
+                for weight_drop in [0.1]:
+                    for enc_drop in [0.1, 0.15, 0.2]:
+                        base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
+                        args = copy.deepcopy(base_v1_args)
 
-    # best: 8.53/8.25
-    for bpe_size in [BPE_1K]:
-        for ep in [50 * 4]:
-            for lr in [8e-4]:
-                args = copy.deepcopy(oclr_args)
-                args.pop("oclr_opts")
-                cyc_ep = int(0.45 * ep)
-                args["learning_rates_list"] = (
-                    list(numpy.linspace(lr / 10, lr, cyc_ep))
-                    + list(numpy.linspace(lr, lr / 10, cyc_ep))
-                    + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-                )
-                exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}"
-                exp_name += "_epochOCLR"
-                run_exp(exp_name, args, num_epochs=ep, epoch_wise_filter=None, bpe_size=bpe_size, partition_epoch=4)
+                        args["encoder_args"].num_blocks = num_blocks
+                        args["encoder_args"].mhsa_weight_dropout = weight_drop
+                        args["encoder_args"].ff_weight_dropout = weight_drop
+                        args["encoder_args"].conv_weight_dropout = weight_drop
 
-                # retrain
-                for retrain_lr in [8e-4, 5e-4]:
-                    retrain_args = copy.deepcopy(args)
-                    retrain_args["retrain_checkpoint"] = train_job_best_epoch[exp_name]
-                    retrain_args["learning_rates_list"] = [retrain_lr] * 8 + list(
-                        numpy.linspace(retrain_lr, 1e-6, ep - 8)
-                    )
-                    run_exp(
-                        exp_name + f"_const8_lr{retrain_lr}_retrain1",
-                        retrain_args,
-                        num_epochs=ep,
-                        epoch_wise_filter=None,
-                        bpe_size=bpe_size,
-                        partition_epoch=4,
-                    )
-
-    # TODO: normalize features
-    for pretrain_reps in [3, 4, 5]:
-        for bpe_size in [BPE_1K]:
-            for ep in [50 * 4]:
-                for lr in [8e-4]:
-                    args = copy.deepcopy(oclr_args)
-                    args["pretrain_reps"] = pretrain_reps
-                    args.pop("oclr_opts")
-                    cyc_ep = int(0.45 * ep)
-                    args["learning_rates_list"] = (
-                        list(numpy.linspace(lr / 10, lr, cyc_ep))
-                        + list(numpy.linspace(lr, lr / 10, cyc_ep))
-                        + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-                    )
-                    args["global_stats"] = {"mean": global_mean, "stddev": global_std}
-                    exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_pre{pretrain_reps}_epochOCLR"
-                    run_exp(
-                        exp_name,
-                        args,
-                        num_epochs=ep,
-                        epoch_wise_filter=None,
-                        bpe_size=bpe_size,
-                        partition_epoch=4,
-                    )
-
-    # TODO: without depthwise pretraining
-    for bpe_size in [BPE_1K]:
-        for ep in [50 * 4]:
-            for lr in [8e-4]:
-                args = copy.deepcopy(oclr_args)
-                args.pop("oclr_opts")
-                cyc_ep = int(0.45 * ep)
-                args["learning_rates_list"] = (
-                    list(numpy.linspace(lr / 10, lr, cyc_ep))
-                    + list(numpy.linspace(lr, lr / 10, cyc_ep))
-                    + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-                )
-                args["global_stats"] = {"mean": global_mean, "stddev": global_std}
-                args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-                exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_epochOCLR_woDepthConvPre"
-                run_exp(
-                    exp_name,
-                    args,
-                    num_epochs=ep,
-                    epoch_wise_filter=None,
-                    bpe_size=bpe_size,
-                    partition_epoch=4,
-                )
-
-    # TODO: more dropout + fixed zoneout
-    for wo_depthconv_pre in [True, False]:
-        for bpe_size in [BPE_1K]:
-            for drop in [0.1, 0.2]:
-                for ep in [50 * 4]:
-                    for lr in [8e-4]:
-                        args = copy.deepcopy(oclr_args)
-                        args.pop("oclr_opts")
-                        cyc_ep = int(0.45 * ep)
-                        args["learning_rates_list"] = (
-                            list(numpy.linspace(lr / 10, lr, cyc_ep))
-                            + list(numpy.linspace(lr, lr / 10, cyc_ep))
-                            + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-                        )
-                        args["decoder_args"].use_zoneout_output = True
-                        args["global_stats"] = {"mean": global_mean, "stddev": global_std}
-                        args["pretrain_reps"] = 3
-
-                        # encoder dropouts
-                        args["encoder_args"].dropout = drop
-                        args["encoder_args"].dropout_in = drop
-                        args["encoder_args"].att_dropout = drop
-
-                        exp_name = (
-                            f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_epochOCLR_pre3_fixZoneout_encDrop{drop}"
-                        )
-                        if wo_depthconv_pre:
-                            exp_name += "_woDepthConvPre"
-                            args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+                        name = exp_name + f"_weightDrop{weight_drop}_numBlocks{num_blocks}"
                         run_exp(
-                            exp_name,
+                            name,
                             args,
                             num_epochs=ep,
                             epoch_wise_filter=None,
-                            bpe_size=bpe_size,
+                            bpe_size=BPE_1K,
                             partition_epoch=4,
                         )
 
-    # TODO: reduce dims
+    for num_blocks in [12]:
+        for ep in [100 * 4]:
+            for lr in [8e-4]:
+                for target_embed_dim in [256, 640]:  # 640 is used by default
+                    for att_drop in [0.0]:
+                        for weight_drop in [0.1]:
+                            for enc_drop in [0.15]:
+                                base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
+                                args = copy.deepcopy(base_v1_args)
+                                args["encoder_args"].num_blocks = num_blocks
+                                args["encoder_args"].mhsa_weight_dropout = weight_drop
+                                args["encoder_args"].ff_weight_dropout = weight_drop
+                                args["encoder_args"].conv_weight_dropout = weight_drop
 
-    # TODO: weight dropout
+                                args["decoder_args"].embed_dim = target_embed_dim
+                                args["decoder_args"].att_dropout = att_drop
 
-    # # TODO: conv first
-    # for bpe_size in [BPE_1K]:
-    #     for ep in [50 * 4]:
-    #         for lr in [8e-4]:
-    #             args = copy.deepcopy(oclr_args)
-    #             args.pop("oclr_opts")
-    #             cyc_ep = int(0.45 * ep)
-    #             args["learning_rates_list"] = (
-    #                 list(numpy.linspace(lr / 10, lr, cyc_ep))
-    #                 + list(numpy.linspace(lr, lr / 10, cyc_ep))
-    #                 + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-    #             )
-    #             args["encoder_args"].convolution_first = True
-    #             exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_convFirst"
-    #             exp_name += "_epochOCLR"
-    #             run_exp(exp_name, args, num_epochs=ep, epoch_wise_filter=None, bpe_size=bpe_size, partition_epoch=4)
-    #
-    # # TODO: large pos rel clipping
-    # for bpe_size in [BPE_1K]:
-    #     for ep in [50 * 4]:
-    #         for lr in [8e-4]:
-    #             args = copy.deepcopy(oclr_args)
-    #             args.pop("oclr_opts")
-    #             cyc_ep = int(0.45 * ep)
-    #             args["learning_rates_list"] = (
-    #                 list(numpy.linspace(lr / 10, lr, cyc_ep))
-    #                 + list(numpy.linspace(lr, lr / 10, cyc_ep))
-    #                 + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-    #             )
-    #             args["encoder_args"].rel_pos_clipping = 32
-    #             exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_relPosClip32"
-    #             exp_name += "_epochOCLR"
-    #             run_exp(exp_name, args, num_epochs=ep, epoch_wise_filter=None, bpe_size=bpe_size, partition_epoch=4)
+                                name = (
+                                    exp_name
+                                    + f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
+                                )
+                                run_exp(
+                                    name,
+                                    args,
+                                    num_epochs=ep,
+                                    epoch_wise_filter=None,
+                                    bpe_size=BPE_1K,
+                                    partition_epoch=4,
+                                )
+                                # TODO: retrain
+                                # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12
+                                # 7.4     6.85  avg
+                                if target_embed_dim == 256 and att_drop == 0.0:
+                                    # long-form speech recognition
+                                    for num in [2, 3, 4, 5, 6, 7, 8, 9, 10]:
+                                        search_args = {}
+                                        if num >= 5:
+                                            search_args["max_seqs"] = 1  # o.w OOM
+                                        run_exp(
+                                            name,
+                                            args,
+                                            num_epochs=ep,
+                                            epoch_wise_filter=None,
+                                            bpe_size=BPE_1K,
+                                            partition_epoch=4,
+                                            concat_recog_opts={
+                                                "num": num,
+                                                "corpus_names": ["dev", "test"],
+                                                "checkpoint": "avg",
+                                                "search_args": search_args,
+                                            },
+                                        )
 
-    # TODO: mixup?
+                                    for dec_att_drop in [0.1]:
+                                        for weight_drop in [0.15]:
+                                            for lr in [8e-4]:
+                                                retrain_args = copy.deepcopy(args)
+                                                retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[name]
+                                                retrain_args["learning_rates_list"] = [lr] * 8 + list(
+                                                    numpy.linspace(lr, 1e-6, 200 - 8)
+                                                )
+                                                retrain_args["decoder_args"].att_dropout = dec_att_drop
+                                                retrain_args["encoder_args"].dropout = 0.2
+                                                retrain_args["encoder_args"].dropout_in = 0.2
+                                                retrain_args["encoder_args"].att_dropout = 0.2
 
-    # TODO: longer training
+                                                retrain_args["encoder_args"].mhsa_weight_dropout = weight_drop
+                                                retrain_args["encoder_args"].ff_weight_dropout = weight_drop
+                                                retrain_args["encoder_args"].conv_weight_dropout = weight_drop
+
+                                                retrain_name = (
+                                                    exp_name
+                                                    + f"_weightDrop{weight_drop}_decAttDrop{dec_att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
+                                                )
+                                                run_exp(
+                                                    retrain_name + f"_retrain1_lr{lr}_ep200",
+                                                    retrain_args,
+                                                    num_epochs=200,
+                                                    epoch_wise_filter=None,
+                                                    bpe_size=BPE_1K,
+                                                    partition_epoch=4,
+                                                )

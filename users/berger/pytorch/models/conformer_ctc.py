@@ -48,7 +48,9 @@ class ConformerCTCModel(torch.nn.Module):
         logits = self.final_linear(x)  # [B, T, F]
         log_probs = torch.log_softmax(logits, dim=2)
 
-        return log_probs, sequence_mask
+        if self.training:
+            return log_probs, sequence_mask
+        return log_probs
 
 
 def get_train_serializer(
@@ -152,6 +154,76 @@ def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerCTCConf
         dropout=0.1,
         activation=torch.nn.SiLU(),
         norm=torch.nn.BatchNorm1d(num_features=512, affine=False),
+    )
+
+    block_cfg = ConformerBlockV1Config(
+        ff_cfg=ff_cfg,
+        mhsa_cfg=mhsa_cfg,
+        conv_cfg=conv_cfg,
+    )
+
+    conformer_cfg = ConformerEncoderV1Config(
+        num_layers=12,
+        frontend=frontend,
+        block_cfg=block_cfg,
+    )
+
+    return ConformerCTCConfig(
+        specaugment_cfg=specaugment_cfg,
+        conformer_cfg=conformer_cfg,
+        target_size=num_outputs,
+    )
+
+
+def get_default_config_v2(num_inputs: int, num_outputs: int) -> ConformerCTCConfig:
+    specaugment_cfg = specaugment.SpecaugmentConfigV1(
+        max_time_mask_num=20,
+        max_time_mask_size=10,
+        max_feature_mask_num=5,
+        max_feature_mask_size=5,
+        increase_steps=[2000],
+    )
+
+    frontend_cfg = VGG4LayerActFrontendV1Config(
+        in_features=num_inputs,
+        conv1_channels=32,
+        conv2_channels=32,
+        conv3_channels=32,
+        conv4_channels=64,
+        conv_kernel_size=3,
+        conv_padding=None,
+        pool1_kernel_size=(2, 1),
+        pool1_stride=None,
+        pool1_padding=None,
+        pool2_kernel_size=(2, 2),
+        pool2_stride=None,
+        pool2_padding=None,
+        activation=torch.nn.SiLU(),
+        out_features=384,
+    )
+
+    frontend = ModuleFactoryV1(VGG4LayerActFrontendV1, frontend_cfg)
+
+    ff_cfg = ConformerPositionwiseFeedForwardV1Config(
+        input_dim=384,
+        hidden_dim=1536,
+        dropout=0.2,
+        activation=torch.nn.SiLU(),
+    )
+
+    mhsa_cfg = ConformerMHSAV1Config(
+        input_dim=384,
+        num_att_heads=6,
+        att_weights_dropout=0.2,
+        dropout=0.2,
+    )
+
+    conv_cfg = ConformerConvolutionV1Config(
+        channels=384,
+        kernel_size=9,
+        dropout=0.2,
+        activation=torch.nn.SiLU(),
+        norm=torch.nn.BatchNorm1d(num_features=384, affine=False),
     )
 
     block_cfg = ConformerBlockV1Config(

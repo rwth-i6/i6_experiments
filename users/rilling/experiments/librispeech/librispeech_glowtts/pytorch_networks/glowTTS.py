@@ -3,6 +3,8 @@ import torch
 from torch import nn
 import multiprocessing
 import math
+import os
+import soundfile
 
 from IPython import embed
 
@@ -125,7 +127,7 @@ class TextEncoder(nn.Module):
 
         if g is not None:
             g_exp = g.expand(-1, -1, x.size(-1))
-            print(f"Dimension of input in Text Encoder: x.shape: {x.shape}; g: {g.shape}, g_exp: {g_exp.shape}")
+            # print(f"Dimension of input in Text Encoder: x.shape: {x.shape}; g: {g.shape}, g_exp: {g_exp.shape}")
             x_dp = torch.cat([torch.detach(x), g_exp], 1)
         else:
             x_dp = torch.detach(x)
@@ -136,7 +138,7 @@ class TextEncoder(nn.Module):
         else:
             x_logs = torch.zeros_like(x_m)
 
-        print(f"Dimension of input in Text Encoder before DP: {x_dp.shape}")
+        # print(f"Dimension of input in Text Encoder before DP: {x_dp.shape}")
 
         logw = self.proj_w(x_dp, x_mask)
         return x_m, x_logs, logw, x_mask
@@ -348,7 +350,6 @@ class Model(nn.Module):
             nn.init.uniform_(self.emb_g.weight, -0.1, 0.1)
             
     def forward(self, x, x_lengths, y=None, y_lengths=None, g=None, gen=False, noise_scale=1., length_scale=1.):
-        print(f"Model input: {x.shape}, {y}, {g}")
         if g is not None:
             g = nn.functional.normalize(self.emb_g(g.squeeze(-1))).unsqueeze(-1)
         x_m, x_logs, logw, x_mask = self.encoder(x, x_lengths, g=g) # mean, std logs, duration logs, mask
@@ -424,7 +425,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     # print(f"audio_feature shape: {audio_features.shape}")
     # print(f"audio_feature length: {audio_features_len}")
     (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(phonemes, phonemes_len, audio_features, audio_features_len, speaker_labels)
-    embed()
+    # embed()
 
     l_mle = commons.mle_loss(z, z_m, z_logs, logdet, z_mask)
     l_dp = commons.duration_loss(logw, logw_, phonemes_len)
@@ -438,45 +439,66 @@ import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import dijkstra
 
+# def forward_init_hook(run_ctx, **kwargs):
+#     run_ctx.hdf_writer = SimpleHDFWriter("output.hdf", dim=80, ndim=2)
+#     run_ctx.pool = multiprocessing.Pool(8)
+#
+# def forward_finish_hook(run_ctx, **kwargs):
+#     run_ctx.hdf_writer.close()
+
 def forward_init_hook(run_ctx, **kwargs):
-    run_ctx.hdf_writer = SimpleHDFWriter("output.hdf", dim=80, ndim=2)
-    run_ctx.pool = multiprocessing.Pool(8)
+    import json
+    import utils
+    from utils import AttrDict
+    from inference import load_checkpoint
+    from generator import UnivNet as Generator
+    import numpy as np
+    with open("config_univ.json") as f:
+        data = f.read()
+
+    json_config = json.loads(data)
+    h = AttrDict(json_config)
+
+    generator = Generator(h).to(run_ctx.device)
+
+    state_dict_g = load_checkpoint("g_02310000", run_ctx.device)
+    generator.load_state_dict(state_dict_g['generator'])
+
+    run_ctx.generator = generator
+
 
 
 def forward_finish_hook(run_ctx, **kwargs):
-    run_ctx.hdf_writer.close()
+    pass
 
 
-def forward_step_durations(*, model: Model, data, run_ctx, **kwargs):
-    model.train()
+MAX_WAV_VALUE = 32768.0
+
+def forward_step_waveform(*, model: Model, data, run_ctx, **kwargs):
+    phonemes = data["phonemes"] # [B, N] (sparse)
+    phonemes_len = data["phonemes:size1"]  # [B]
+    speaker_labels = data["speaker_labels"]  # [B, 1] (sparse)
+    audio_features = data["audio_features"]
+
     tags = data["seq_tag"]
-    audio_features = data["audio_features"]  # [B, T, F]
-    audio_features = audio_features.transpose(1, 2) # [B, F, T] necessary because glowTTS expects the channels to be in the 2nd dimension
-    audio_features_len = data["audio_features:size1"]  # [B]
-
-    # perform local length sorting for more efficient packing
-    audio_features_len, indices = torch.sort(audio_features_len, descending=True)
-
-    audio_features = audio_features[indices, :, :]
-    phonemes = data["phonemes"][indices, :]  # [B, T] (sparse)
-    phonemes_len = data["phonemes:size1"][indices]  # [B, T]
-    speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
-    tags = list(np.array(tags)[indices.detach().cpu().numpy()])
     
-    # embed()
-    (z, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(phonemes, phonemes_len, audio_features, audio_features_len, speaker_labels, gen=False)
-    embed()
-    numpy_logprobs = logw_.detach().cpu().numpy()
+    (log_mels, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(phonemes, phonemes_len, g=speaker_labels, gen=True, noise_scale=0.66, length_scale=1) #TODO: Use noise scale and length scale
 
-    durations_with_pad = np.round(np.exp(numpy_logprobs) * x_mask.detach().cpu().numpy())
-    durations = durations_with_pad.squeeze(1)
+    noise = torch.randn([1, 64, log_mels.shape[-1]]).to(device=log_mels.device)
+    audios = run_ctx.generator.forward(noise, log_mels)
+    audios = audios * MAX_WAV_VALUE
+    audios = audios.cpu().numpy().astype('int16')
 
-    for tag, duration, feat_len, phon_len in zip(tags, durations, audio_features_len, phonemes_len):
-        d = duration[duration > 0]
-        # total_sum = np.sum(duration)
-        # assert total_sum == feat_len
-        assert len(d) == phon_len
-        run_ctx.hdf_writer.insert_batch(np.asarray([d]), [len(d)], [tag])
+    mels_gt = audio_features.transpose(1, 2)
+    noise = torch.randn([1, 64, mels_gt.shape[-1]]).to(device=mels_gt.device)
+    audios_gt = run_ctx.generator.forward(noise, mels_gt)
+    audios_gt = audios_gt * MAX_WAV_VALUE
+    audios_gt = audios_gt.cpu().numpy().astype('int16')
+
+    os.makedirs("/var/tmp/out", exist_ok=True)
+    for audio, audio_gt, tag in zip (audios, audios_gt, tags):
+        soundfile.write(f"/var/tmp/out" + tag.replace("/", "_") + ".wav", audio[0], 16000)
+        soundfile.write(f"/var/tmp/out" + tag.replace("/", "_") + "_gt.wav", audio_gt[0], 16000)
 
 def forward_step(*, model: Model, data, run_ctx, **kwargs):
     tags = data["seq_tag"]
@@ -516,3 +538,43 @@ def forward_step(*, model: Model, data, run_ctx, **kwargs):
     #     # total_sum = np.sum(duration)
     #     # assert total_sum == feat_len
     #     run_ctx.hdf_writer.insert_batch(np.asarray([spec]), [len(spec)], [tag])
+
+def forward_step_durations(*, model: Model, data, run_ctx, **kwargs):
+    """Forward Step to output durations in HDF file
+    Currently unused due to the name. Only "forward_step" is used in ReturnnForwardJob.
+    Rename to use it as the forward step function.
+
+    :param Model model: _description_
+    :param _type_ data: _description_
+    :param _type_ run_ctx: _description_
+    """
+    model.train()
+    tags = data["seq_tag"]
+    audio_features = data["audio_features"]  # [B, T, F]
+    audio_features = audio_features.transpose(1, 2) # [B, F, T] necessary because glowTTS expects the channels to be in the 2nd dimension
+    audio_features_len = data["audio_features:size1"]  # [B]
+
+    # perform local length sorting for more efficient packing
+    audio_features_len, indices = torch.sort(audio_features_len, descending=True)
+
+    audio_features = audio_features[indices, :, :]
+    phonemes = data["phonemes"][indices, :]  # [B, T] (sparse)
+    phonemes_len = data["phonemes:size1"][indices]  # [B, T]
+    speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
+    tags = list(np.array(tags)[indices.detach().cpu().numpy()])
+    
+    # embed()
+    (z, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(phonemes, phonemes_len, audio_features, audio_features_len, speaker_labels, gen=False)
+    # embed()
+    numpy_logprobs = logw_.detach().cpu().numpy()
+
+    durations_with_pad = np.round(np.exp(numpy_logprobs) * x_mask.detach().cpu().numpy())
+    durations = durations_with_pad.squeeze(1)
+
+    for tag, duration, feat_len, phon_len in zip(tags, durations, audio_features_len, phonemes_len):
+        d = duration[duration > 0]
+        # total_sum = np.sum(duration)
+        # assert total_sum == feat_len
+        assert len(d) == phon_len
+        run_ctx.hdf_writer.insert_batch(np.asarray([d]), [len(d)], [tag])
+

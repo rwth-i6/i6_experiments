@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 from typing import Dict
 
+import os
 import sys
 import numpy
 
@@ -12,8 +14,8 @@ from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpoi
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, batch_dim, TensorDict
 
-from .conformer_import_moh_att_2023_06_30 import Model, MakeModel, from_scratch_training, model_recog
-from i6_experiments.users.zeyer.experiments.exp2023_04_25_rf.generic_job_output import generic_job_output
+from .conformer_import_moh_att_2023_06_30 import Model, MakeModel, from_scratch_training, model_recog, model_recog_ctc
+from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 
 # From Mohammad, 2023-06-29
 # dev-clean  2.27
@@ -35,6 +37,24 @@ def _get_tf_checkpoint_path() -> tk.Path:
     return generic_job_output(_returnn_tf_ckpt_filename)
 
 
+def _get_pt_checkpoint_path() -> tk.Path:
+    old_tf_ckpt_path = _get_tf_checkpoint_path()
+    old_tf_ckpt = Checkpoint(index_path=old_tf_ckpt_path)
+    make_model_func = MakeModel(80, 10_025, eos_label=0, num_enc_layers=12)
+    # TODO: problems with hash:
+    #  make_model_func, map_func: uses full module name (including "zeyer"), should use sth like unhashed_package_root
+    #  https://github.com/rwth-i6/sisyphus/issues/144
+    converter = ConvertTfCheckpointToRfPtJob(
+        checkpoint=old_tf_ckpt,
+        make_model_func=make_model_func,
+        map_func=map_param_func_v3,
+        epoch=1,
+        step=0,
+    )
+    # converter.run()
+    return converter.out_checkpoint
+
+
 def _add_params():
     # frontend
     for layer_idx in [0, 1, 2]:
@@ -50,6 +70,8 @@ def _add_params():
             "encoder.input_projection.weight": "source_linear/W",
             "enc_ctx.weight": "enc_ctx/W",
             "enc_ctx.bias": "enc_ctx/b",
+            "ctc.weight": "ctc/W",
+            "ctc.bias": "ctc/b",
             "inv_fertility.weight": "inv_fertility/W",
             "target_embed.weight": "output/rec/target_embed0/W",
             "weight_feedback.weight": "output/rec/weight_feedback/W",
@@ -136,7 +158,7 @@ def _add_params():
 _add_params()
 
 
-def map_param_func_v2(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
+def map_param_func_v3(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
     """map params, TF to RF"""
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
     from i6_experiments.users.zeyer.returnn.convert.params import numpy as convert_params_np
@@ -156,8 +178,10 @@ def map_param_func_v2(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
         assert isinstance(value, numpy.ndarray)
         if name.endswith(".filter"):
             value = convert_params_np.convert_tf_conv_to_pt_conv_filter(value)
-        assert value.shape == var.batch_shape, f"new param {name} vs old param {var_name}"
-        assert value.dtype.name == var.dtype, f"new param {name} vs old param {var_name}"
+        assert (
+            value.shape == var.batch_shape
+        ), f"new param {name} {var.batch_shape} vs ckpt param {var_name} {value.shape}"
+        assert value.dtype.name == var.dtype, f"new param {name} {var.dtype} vs ckpt param {var_name} {value.dtype}"
         return value
 
     if name == "s.ff_weight":
@@ -340,7 +364,7 @@ def test_import_forward():
     converter = ConvertTfCheckpointToRfPtJob(
         checkpoint=Checkpoint(index_path=old_tf_ckpt_path),
         make_model_func=_make_new_model,
-        map_func=map_param_func_v2,
+        map_func=map_param_func_v3,
         epoch=1,
         step=0,
     )
@@ -498,9 +522,11 @@ def test_import_forward():
 
 
 def test_import_search():
-    from i6_experiments.common.setups.returnn_common import serialization
+    from returnn.util import debug
 
-    exec(serialization.PythonEnlargeStackWorkaroundNonhashedCode.code)
+    debug.install_lib_sig_segfault()
+    debug.install_native_signal_handler()
+    debug.init_faulthandler()
 
     from returnn.datasets.util.vocabulary import Vocabulary
 
@@ -522,8 +548,6 @@ def test_import_search():
     )
     target = Tensor("target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim)
 
-    from ._moh_att_2023_04_24_BxqgICRSGkgb_net_dict import net_dict
-
     num_layers = 12
 
     from returnn.config import Config
@@ -531,7 +555,6 @@ def test_import_search():
     config = Config(
         dict(
             log_verbositiy=5,
-            network=net_dict,
             extern_data={
                 "audio_features": {"dim_tags": data.dims, "feature_dim_axis": -1},
                 "bpe_labels": {"dim_tags": target.dims, "sparse_dim": target.sparse_dim},
@@ -577,17 +600,7 @@ def test_import_search():
         "seq_order_control_dataset": "zip_dataset",
     }
 
-    from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
-    from returnn.tf.network import TFNetwork
-    import tensorflow as tf
-    import tempfile
-    import atexit
-    import shutil
-
-    ckpt_dir = tempfile.mkdtemp("returnn-import-test")
-    atexit.register(lambda: shutil.rmtree(ckpt_dir))
-
-    print("*** Construct TF graph for old model")
+    print("*** Construct input minibatch")
     extern_data = TensorDict()
     extern_data.update(config.typed_dict["extern_data"], auto_convert=True)
 
@@ -603,7 +616,7 @@ def test_import_search():
     dataset.load_seqs(0, batch_num_seqs)
     batch = Batch()
     for seq_idx in range(batch_num_seqs):
-        batch.add_frames(seq_idx=seq_idx, seq_start_frame=0, length=dataset.get_seq_length(seq_idx))
+        batch.add_sequence_as_slice(seq_idx=seq_idx, seq_start_frame=0, length=dataset.get_seq_length(seq_idx))
     batches = BatchSetGenerator(dataset, generator=iter([batch]))
     data_provider = FeedDictDataProvider(
         extern_data=extern_data, data_keys=list(extern_data.data.keys()), dataset=dataset, batches=batches
@@ -623,62 +636,23 @@ def test_import_search():
     extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
     extern_data.reset_content()
 
-    tf1 = tf.compat.v1
-    with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
-        net = TFNetwork(config=config, search_flag=True)
-        net.construct_from_dict(config.typed_dict["network"])
-        if _load_existing_ckpt_in_test:
-            ckpt_path = _get_tf_checkpoint_path()
-            print(f"*** Load model params from {ckpt_path.get_path()}")
-            net.load_params_from_file(ckpt_path.get_path(), session=session)
-            old_tf_ckpt_path = ckpt_path
-        else:
-            print("*** Random init old model")
-            net.initialize_params(session)
-            print("*** Save old model to disk")
-            net.save_params_to_file(ckpt_dir + "/old_model/model", session=session)
-            old_tf_ckpt_path = tk.Path(ckpt_dir + "/old_model/model.index")
-
-        print("*** Search ...")
-
-        extern_data_tf_raw_dict = net.extern_data.as_raw_tensor_dict()
-        assert set(extern_data_tf_raw_dict.keys()) == set(extern_data_numpy_raw_dict.keys())
-        feed_dict = {extern_data_tf_raw_dict[k]: extern_data_numpy_raw_dict[k] for k in extern_data_numpy_raw_dict}
-        fetches = net.get_fetches_dict()
-        old_model_outputs_data = {}
-        for old_layer_name in ["output"]:
-            layer = net.get_layer(old_layer_name)
-            out = layer.output.copy_as_batch_major()
-            old_model_outputs_data[old_layer_name] = out
-            fetches["layer:" + old_layer_name] = out.placeholder
-            for i, tag in enumerate(out.dim_tags):
-                if tag.is_batch_dim():
-                    fetches[f"layer:{old_layer_name}:size{i}"] = tag.get_dim_value()
-                elif tag.dyn_size_ext:
-                    old_model_outputs_data[f"{old_layer_name}:size{i}"] = tag.dyn_size_ext
-                    fetches[f"layer:{old_layer_name}:size{i}"] = tag.dyn_size_ext.placeholder
-        old_model_outputs_fetch = session.run(fetches, feed_dict=feed_dict)
-        print(old_model_outputs_fetch)
-
-    def _make_new_model():
-        return MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
-
     rf.select_backend_torch()
 
     print("*** Convert old model to new model")
-    converter = ConvertTfCheckpointToRfPtJob(
-        checkpoint=Checkpoint(index_path=old_tf_ckpt_path),
-        make_model_func=_make_new_model,
-        map_func=map_param_func_v2,
-        epoch=1,
-        step=0,
-    )
-    converter._out_model_dir = tk.Path(ckpt_dir + "/new_model")
-    converter.out_checkpoint = tk.Path(ckpt_dir + "/new_model/checkpoint.pt")
-    converter.run()
+    pt_checkpoint_path = _get_pt_checkpoint_path()
+    print(pt_checkpoint_path)
 
     print("*** Create new model")
-    new_model = _make_new_model()
+    search_args = {
+        "att_scale": 0.7,
+        "ctc_scale": 0.3,
+        "beam_size": 12,
+        "use_ctc": True,
+        "mask_eos": True,
+    }
+    new_model = MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers, search_args=search_args)
+
+    from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
 
     rf.init_train_step_run_ctx(train_flag=False)
     extern_data.reset_content()
@@ -690,23 +664,65 @@ def test_import_search():
 
     print("*** Load new model params from disk")
     pt_module = rf_module_to_pt_module(new_model)
-    checkpoint_state = torch.load(ckpt_dir + "/new_model/checkpoint.pt")
-    # checkpoint_state = torch.load(ckpt_dir + "/new_model/checkpoint.pt", map_location="cuda:0")
+    checkpoint_state = torch.load(pt_checkpoint_path.get_path())
     pt_module.load_state_dict(checkpoint_state["model"])
 
+    cuda = torch.device("cuda")
+    pt_module.to(cuda)
+    extern_data["audio_features"].raw_tensor = extern_data["audio_features"].raw_tensor.to(cuda)
+
     print("*** Search ...")
-    # new_model.to("cuda:0")
+
     with torch.no_grad():
-        seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
-            model=new_model,
-            data=extern_data["audio_features"],
-            data_spatial_dim=time_dim,
-            targets_dim=target_dim,
-        )
-    print(seq_targets, seq_targets.raw_tensor)
+        with rf.set_default_device_ctx("cuda"):
+            ctc_only = True
+            if ctc_only:
+                seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog_ctc(
+                    model=new_model,
+                    data=extern_data["audio_features"],
+                    data_spatial_dim=time_dim,
+                )
+            else:
+                seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
+                    model=new_model,
+                    data=extern_data["audio_features"],
+                    data_spatial_dim=time_dim,
+                )
+    print(seq_targets, seq_targets.raw_tensor) # seq_targets [T,Batch,Beam]
+    print("Out spatial dim:", out_spatial_dim)
+    vocab_1 = Vocabulary("/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab", eos_label=0)
+    for batch_idx in range(batch_dim.get_dim_value()):
+        # process seq
+        hyps = seq_targets.raw_tensor[:, batch_idx, :]
+        scores = seq_log_prob.raw_tensor[batch_idx, :]
+        hyps_len = seq_targets.dims[0].dyn_size_ext.raw_tensor[:, batch_idx]
+        num_beam = hyps.shape[1]
+        only_max = True
+        if only_max:
+            max_score_idx = torch.argmax(scores)
+            score = float(scores[max_score_idx])
+            hyp_ids = hyps[: hyps_len[max_score_idx], max_score_idx]
+            hyp_serialized = vocab_1.get_seq_labels(hyp_ids)
+            print(f"  ({score!r}, {hyp_serialized!r}),\n")
+            continue
+        for i in range(num_beam):
+            score = float(scores[i])
+            hyp_ids = hyps[: hyps_len[i], i]
+            hyp_serialized = vocab_1.get_seq_labels(hyp_ids)
+            print(f"  ({score!r}, {hyp_serialized!r}),\n")
+
 
 
 # `py` is the default sis config function name. so when running this directly, run the import test.
 # So you can just run:
 # `sis m recipe/i6_experiments/users/zeyer/experiments/....py`
 py = test_import_search
+
+
+if __name__ == "__main__":
+    mod_name = __package__
+    if mod_name.startswith("recipe."):
+        mod_name = mod_name[len("recipe.") :]
+    mod_name += "." + os.path.basename(__file__)[: -len(".py")]
+    map_param_func_v2.__module__ = mod_name
+    test_import_search()

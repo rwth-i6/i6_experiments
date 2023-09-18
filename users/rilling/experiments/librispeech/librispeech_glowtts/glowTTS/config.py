@@ -33,6 +33,7 @@ def get_training_config(
     post_config = {
         "cleanup_old_models": True,
         "stop_on_nonfinite_train_score": True,  # this might break now with True
+        "allow_missing_optimizer_checkpoint": True,
     }
 
     base_config = {
@@ -116,7 +117,7 @@ def get_forward_config(
         "forward_use_search": True,
         "target": "generate_spectograms_noise_0.66_and_length_1",
         #############
-        "eval": forward_dataset.train.as_returnn_opts()
+        "forward": forward_dataset.cv.as_returnn_opts()
     }
     get_serializer = get_pytorch_serializer if pytorch_mode else get_network_serializer
 

@@ -92,6 +92,7 @@ class ConfigVariant(Enum):
 class FeatureType(Enum):
     SAMPLES = auto()
     GAMMATONE = auto()
+    CONCAT_GAMMATONE = auto()
 
 
 @dataclass

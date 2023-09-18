@@ -142,6 +142,7 @@ def pretrain_layers_and_dims(
     repeat_first=True,
     ignored_keys_for_reduce_dim=None,
     extra_net_dict_override=None,
+    initial_disabled_regularization_patterns=None,
 ):
     """
     Pretraining implementation that works for multiple encoder/decoder combinations
@@ -264,30 +265,32 @@ def pretrain_layers_and_dims(
         dim_frac_enc = 1
         dim_frac_dec = 1
 
+    # TODO: use explicit param names otherwise multiple matches can lead to multiple reductions!
+    # TODO: WARNING: this does not include weight dropout and weight noise!
     # do not enable regulizations in the first pretraining step to make it more stable
+    if initial_disabled_regularization_patterns is None:
+        regs_words = ["dropout", "noise", "l2"]  # dropout, weight dropout, l2, weight noise
+    else:
+        regs_words = initial_disabled_regularization_patterns
     for k in encoder_args_copy.keys():
-        if "dropout" in k and encoder_args_copy[k] is not None:
-            if idx <= 1:
-                encoder_args_copy[k] = 0.0
-            else:
-                encoder_args_copy[k] *= dim_frac_enc
-        if "l2" in k and encoder_args_copy[k] is not None:
-            if idx <= 1:
-                encoder_args_copy[k] = 0.0
-            else:
-                encoder_args_copy[k] *= dim_frac_enc
+        for regs_word in regs_words:
+            if regs_word in k and encoder_args_copy[k] is not None:
+                if not isinstance(encoder_args_copy[k], float):
+                    continue
+                if idx <= 1:
+                    encoder_args_copy[k] = 0.0
+                else:
+                    encoder_args_copy[k] *= dim_frac_enc
 
     for k in decoder_args_copy.keys():
-        if "dropout" in k and decoder_args_copy[k] is not None:
-            if idx <= 1:
-                decoder_args_copy[k] = 0.0
-            else:
-                decoder_args_copy[k] *= dim_frac_dec
-        if "l2" in k and decoder_args_copy[k] is not None:
-            if idx <= 1:
-                decoder_args_copy[k] = 0.0
-            else:
-                decoder_args_copy[k] *= dim_frac_dec
+        for regs_word in regs_words:
+            if regs_word in k and decoder_args_copy[k] is not None:
+                if not isinstance(decoder_args_copy[k], float):
+                    continue
+                if idx <= 1:
+                    decoder_args_copy[k] = 0.0
+                else:
+                    decoder_args_copy[k] *= dim_frac_dec
 
     encoder_model = encoder_type(**encoder_args_copy)
     encoder_model.create_network()
@@ -326,6 +329,7 @@ class ConformerEncoderArgs(EncoderArgs):
     input: str = "data"
     input_layer: str = "lstm-6"
     input_layer_conv_act: str = "relu"
+    add_abs_pos_enc_to_input: bool = False
     pos_enc: str = "rel"
 
     sandwich_conv: bool = False
@@ -465,7 +469,6 @@ class RNNDecoderArgs(DecoderArgs):
     enc_key_dim: int = 1024  # also attention dim  # also attention dim
 
     # location feedback
-    loc_conv_att_num_channels: Optional[int] = None
     loc_conv_att_filter_size: Optional[int] = None
 
     # param init
@@ -485,7 +488,6 @@ class RNNDecoderArgs(DecoderArgs):
     reduceout: bool = True
 
     # lstm lm
-    lstm_lm_proj_dim: int = 1024
     lstm_lm_dim: int = 1024
     add_lstm_lm: bool = False
 
@@ -499,6 +501,9 @@ class RNNDecoderArgs(DecoderArgs):
     label_smoothing: float = 0.1
 
     use_zoneout_output: bool = False
+
+    monotonic_att_weights_loss_scale: Optional[float] = None
+    att_weights_variance_loss_scale: Optional[float] = None
 
 
 def create_config(
@@ -557,6 +562,7 @@ def create_config(
     keep_best_n=None,
     param_dropout=0.0,
     mixup_aug_opts=None,
+    enable_mixup_in_pretrain=True,
     seq_train_opts=None,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
@@ -682,8 +688,9 @@ def create_config(
         # freeze BN during training (e.g when retraining.)
         encoder_args["batch_norm_opts"] = {"momentum": 0.0, "use_sample": 1.0}
 
+    encoder_args_input_ = encoder_args["input"]
     if mixup_aug_opts:
-        encoder_args.update({"input": "mixup"})  # name of mixup layer which will be input to specaug
+        encoder_args.update({"input": "mixup_features"})  # name of mixup layer which will be input to specaug
 
     conformer_encoder = encoder_type(**encoder_args)
     conformer_encoder.create_network()
@@ -792,21 +799,8 @@ def create_config(
     if feature_extraction_net and global_stats:
         add_global_stats_norm(global_stats, exp_config["network"])
 
-    from i6_experiments.users.zeineldeen.data_aug.mixup.tf_mixup import make_mixup_layer_dict
-
     if mixup_aug_opts:
-        use_exp_feats = mixup_aug_opts.pop("use_exp_feats", False)
-        exp_config["network"].update(
-            make_mixup_layer_dict(
-                src="log_mel_features",
-                dim=feature_extraction_net["mel_filterbank"]["n_out"],
-                opts=mixup_aug_opts,
-                use_exp_feats=use_exp_feats,
-            )
-        )
-        if use_exp_feats:
-            exp_config["network"]["source_log"] = {"class": "activation", "from": "mixup", "activation": "safe_log"}
-            exp_config["network"]["source"]["from"] = "source_log"
+        add_mixup_layers(exp_config["network"], feature_extraction_net, mixup_aug_opts, is_recog)
 
     staged_network_dict = None
 
@@ -816,6 +810,8 @@ def create_config(
             staged_network_dict = {}
             idx = 0
             while True:
+                if mixup_aug_opts and not enable_mixup_in_pretrain:
+                    encoder_args["input"] = encoder_args_input_
                 net = pretrain_layers_and_dims(
                     idx, exp_config["network"], encoder_type, decoder_type, encoder_args, decoder_args, **pretrain_opts
                 )
@@ -826,15 +822,20 @@ def create_config(
                     net.update(feature_extraction_net)
                     if global_stats:
                         add_global_stats_norm(global_stats, net)
-                if mixup_aug_opts:
-                    net["mixup"] = make_mixup_layer_dict(
-                        src="log_mel_features",
-                        dim=feature_extraction_net["mel_filterbank"]["n_out"],
-                        opts=mixup_aug_opts,
-                    )
-                staged_network_dict[(idx * pretrain_reps) + 1] = net
+                if mixup_aug_opts and enable_mixup_in_pretrain:
+                    add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog)
+                    net_as_str = "from returnn.config import get_global_config\n"
+                    net_as_str += "network = %s" % str(net)
+                    staged_network_dict[(idx * pretrain_reps) + 1] = net_as_str
+                else:
+                    staged_network_dict[(idx * pretrain_reps) + 1] = net
                 idx += 1
-            staged_network_dict[(idx * pretrain_reps) + 1] = exp_config["network"]
+            if mixup_aug_opts:
+                net_as_str = "from returnn.config import get_global_config\n"
+                net_as_str += "network = %s" % str(exp_config["network"])  # mixup already added
+                staged_network_dict[(idx * pretrain_reps) + 1] = net_as_str
+            else:
+                staged_network_dict[(idx * pretrain_reps) + 1] = exp_config["network"]
             exp_config.pop("network")
         else:
             if pretrain_opts is None:
@@ -900,19 +901,22 @@ def create_config(
             _get_raw_func,
         ]
 
-    # modify hyperparameters based on epoch
-    if staged_hyperparams:
+    # modify hyperparameters based on epoch (only used in training)
+    if staged_network_dict and staged_hyperparams:
         for ep, v in staged_hyperparams.items():
-            base_net = copy.deepcopy(exp_config["network"])
+            staged_net_dict_max_ep = max(staged_network_dict.keys())
+            assert ep > staged_net_dict_max_ep
+            base_net = copy.deepcopy(staged_network_dict[staged_net_dict_max_ep])
+            assert isinstance(v, dict)
             base_net["#config"] = v
-            assert ep not in staged_hyperparams
-            assert ep > max(staged_hyperparams.keys())
+            assert ep not in staged_network_dict
             staged_network_dict[ep] = base_net
 
     if seq_train_opts:
         from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.seq_train_helpers import (
             add_double_softmax,
             add_min_wer,
+            add_mmi,
         )
 
         assert retrain_checkpoint, "seq train requires retrain checkpoint"
@@ -921,7 +925,7 @@ def create_config(
         opts = copy.deepcopy(seq_train_opts)
         del opts["type"]
         if seq_train_type == "mmi":
-            raise NotImplementedError
+            add_mmi(net=exp_config["network"], **opts)
         elif seq_train_type == "min_wer":
             add_min_wer(net=exp_config["network"], **opts)
         elif seq_train_type == "double_softmax":
@@ -986,3 +990,32 @@ def add_global_stats_norm(global_stats, net):
             "from": ["log10_", "global_mean", "global_stddev"],
             "eval": "(source(0) - source(1)) / source(2)",
         }
+
+
+def add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog):
+    from i6_experiments.users.zeineldeen.data_aug.mixup.tf_mixup import make_mixup_layer_dict
+
+    assert feature_extraction_net
+    assert "log_mel_features" in feature_extraction_net, "currently mixup is only supported for log-mel features"
+    use_log10_features = mixup_aug_opts.get("use_log10_features", False)
+    net.update(
+        make_mixup_layer_dict(
+            src="log_mel_features" if use_log10_features else "mel_filterbank",
+            dim=feature_extraction_net["mel_filterbank"]["n_out"],
+            opts=mixup_aug_opts,
+            use_log10_features=use_log10_features,
+            is_recog=is_recog,
+        )
+    )
+    if not use_log10_features:
+        # mixup features are not in log10 space so we need to convert
+        net["log"] = {
+            "from": "mixup",
+            "class": "activation",
+            "activation": "safe_log",
+            "opts": {"eps": 1e-10},
+        }
+        # this layer is fed as input to SpecAugment layer
+        net["mixup_features"] = {"from": "log", "class": "eval", "eval": "source(0) / 2.3026"}
+    else:
+        net["mixup_features"] = {"class": "copy", "from": "mixup"}

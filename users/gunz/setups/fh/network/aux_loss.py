@@ -25,33 +25,30 @@ def add_intermediate_loss(
     center_state_only: bool = False,
     final_ctx_type: PhoneticContext = PhoneticContext.triphone_forward,
     focal_loss_factor: float = 2.0,
-    label_smoothing: float = 0.0,
+    label_smoothing: float = 0.2,
     l2: float = 0.0,
-    upsampling: bool = True,
 ) -> Network:
-    network = copy.deepcopy(network)
-    prefix = f"aux_{at_layer:03d}_"
+    assert (
+        f"aux_{at_layer}_ff1" in network
+    ), "network needs to be built w/ CART intermediate loss to add FH intermediate loss (upsampling)"
 
-    old_ff1_layer = network.pop(f"aux_{at_layer}_ff1", None)
+    network = copy.deepcopy(network)
+
+    network.pop(f"aux_{at_layer}_ff1", None)
     network.pop(f"aux_{at_layer}_ff2", None)
     network.pop(f"aux_{at_layer}_output_prob", None)
+    aux_length = network.pop(f"aux_{at_layer}_length_masked")
 
-    if upsampling:
-        assert (
-            old_ff1_layer is not None
-        ), "network needs to be built w/ CART intermediate loss to add FH intermediate loss (upsampling)"
+    input_layer = f"aux_{at_layer:03d}_length_masked"
+    prefix = f"aux_{at_layer:03d}_"
 
-        aux_length = network.pop(f"aux_{at_layer}_length_masked")
-        input_layer = f"aux_{at_layer:03d}_length_masked"
-        network[input_layer] = {
-            "class": "slice_nd",
-            "from": aux_length["from"],
-            "start": 0,
-            "size": returnn.CodeWrapper(time_tag_name),
-            "axis": "T",
-        }
-    else:
-        input_layer = f"enc_{at_layer:03d}"
+    network[input_layer] = {
+        "class": "slice_nd",
+        "from": aux_length["from"],
+        "start": 0,
+        "size": returnn.CodeWrapper(time_tag_name),
+        "axis": "T",
+    }
 
     network = augment_net_with_monophone_outputs(
         network,

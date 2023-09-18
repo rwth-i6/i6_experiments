@@ -477,7 +477,6 @@ def get_vtln_sat_args(
 def get_final_output(name="final"):
     output_args = rasr_util.OutputArgs(name)
 
-    output_args.define_corpus_type("train-clean-100", "train")
     output_args.define_corpus_type("train-other-960", "train")
     output_args.define_corpus_type("dev-clean", "dev")
     output_args.define_corpus_type("dev-other", "dev")

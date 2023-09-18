@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import Optional, Any, Tuple, Dict, Sequence, List
 import tree
+import math
+import numpy
 
 from sisyphus import tk
 
@@ -13,12 +15,7 @@ import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
-from i6_core.returnn.training import Checkpoint
-
-from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef, ModelWithCheckpoint
-from i6_experiments.users.zeyer.recog import recog_model
-from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
+from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
 
 
 # From Mohammad, 2023-06-29
@@ -26,45 +23,98 @@ from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpoi
 # dev-other  5.39
 # test-clean  2.41
 # test-other  5.51
-# _returnn_tf_config_filename = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config"
+# _returnn_tf_config_filename = (
+#   "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config")
 # E.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
 _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
 
+# The model gets raw features (16khz) and does feature extraction internally.
+_log_mel_feature_dim = 80
 
-def sis_run_with_prefix(prefix_name: str):
+
+def sis_run_with_prefix(prefix_name: str = None):
     """run the exp"""
+    from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
     from ._moh_att_2023_06_30_import import map_param_func_v2
+    from .sis_setup import get_prefix_for_config
+    from .train import train
+    from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
+    from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
+    from i6_experiments.users.zeyer.recog import recog_model, recog_training_exp
+    from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_bpe10k_raw
 
-    task = get_switchboard_task_bpe1k()
+    if not prefix_name:
+        prefix_name = get_prefix_for_config(__file__)
+
+    task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
 
     extern_data_dict = task.train_dataset.get_extern_data()
-    default_input_key = task.train_dataset.get_default_input()
     default_target_key = task.train_dataset.get_default_target()
-    data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
     targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
-    in_dim = data.feature_dim_or_sparse_dim
     target_dim = targets.feature_dim_or_sparse_dim
 
-    epoch = 300
-    new_chkpt = ConvertTfCheckpointToRfPtJob(
-        checkpoint=Checkpoint(
-            # TODO wrong path here... not used so far, only testing other code here...
-            index_path=tk.Path(
-                f"/u/zeyer/setups/combined/2021-05-31"
-                f"/alias/exp_fs_base/old_nick_att_conformer_lrs2/train/output/models/epoch.{epoch:03}.index"
-            )
-        ),
+    new_chkpt_path = ConvertTfCheckpointToRfPtJob(
+        checkpoint=TfCheckpoint(index_path=generic_job_output(_returnn_tf_ckpt_filename)),
         make_model_func=MakeModel(
-            in_dim=in_dim.dimension,
+            in_dim=_log_mel_feature_dim,
             target_dim=target_dim.dimension,
             eos_label=_get_eos_idx(target_dim),
         ),
         map_func=map_param_func_v2,
     ).out_checkpoint
+    new_chkpt = PtCheckpoint(new_chkpt_path)
     model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
 
     res = recog_model(task, model_with_checkpoint, model_recog)
-    tk.register_output(prefix_name + f"/recog_results_per_epoch/{epoch:03}", res.output)
+    tk.register_output(prefix_name + f"/recog_results", res.output)
+
+    model_with_checkpoint = train(
+        prefix_name + "/from-scratch-train",
+        task=task,
+        config=config,
+        post_config=post_config,
+        model_def=from_scratch_model_def,
+        train_def=from_scratch_training,
+    )
+    recog_training_exp(prefix_name + "/from-scratch-train", task, model_with_checkpoint, recog_def=model_recog)
+
+
+py = sis_run_with_prefix  # if run directly via `sis m ...`
+
+_batch_size_factor = 160
+
+config = dict(
+    batching="laplace:.1000",
+    batch_size=15_000 * _batch_size_factor,
+    max_seqs=200,
+    max_seq_length_default_target=75,
+    accum_grad_multiple_step=2,
+    # gradient_clip=0,
+    # gradient_clip_global_norm = 1.0
+    optimizer={"class": "nadam", "epsilon": 1e-8},
+    # gradient_noise=0.0,
+    learning_rate=0.0005,
+    learning_rates=(
+        # matching pretraining
+        list(numpy.linspace(0.0001, 0.001, num=10)) * 3
+        + list(numpy.linspace(0.0001, 0.0005, num=10))
+        + [0.0005] * 20
+        + list(numpy.linspace(0.0005, 0.001, num=20))
+    ),
+    min_learning_rate=0.001 / 50,
+    learning_rate_control="newbob_multi_epoch",
+    learning_rate_control_relative_error_relative_lr=True,
+    relative_error_div_by_old=True,
+    use_learning_rate_control_always=True,
+    newbob_multi_update_interval=1,
+    learning_rate_control_min_num_epochs_per_new_lr=1,
+    learning_rate_decay=0.9,
+    newbob_relative_error_threshold=-0.01,
+)
+post_config = dict(
+    cleanup_old_models=dict(keep_last_n=5),
+)
 
 
 class MakeModel:
@@ -82,8 +132,7 @@ class MakeModel:
         in_dim = Dim(name="in", dimension=self.in_dim, kind=Dim.Types.Feature)
         target_dim = Dim(name="target", dimension=self.target_dim, kind=Dim.Types.Feature)
         target_dim.vocab = Vocabulary.create_vocab_from_labels(
-            [str(i) for i in range(target_dim.dimension)],
-            eos_label=self.eos_label
+            [str(i) for i in range(target_dim.dimension)], eos_label=self.eos_label
         )
 
         return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers)
@@ -211,32 +260,21 @@ class Model(rf.Module):
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[Dict[str, Tensor], Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
-        if source.feature_dim:
-            assert source.feature_dim.dimension == 1
-            source = rf.squeeze(source, source.feature_dim)
         # log mel filterbank features
-        source, in_spatial_dim, in_dim_ = rf.stft(
-            source, in_spatial_dim=in_spatial_dim, frame_step=160, frame_length=400, fft_length=512
+        source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
+            source,
+            in_spatial_dim=in_spatial_dim,
+            out_dim=self.in_dim,
+            sampling_rate=16_000,
+            log_base=math.exp(2.3026),  # almost 10.0 but not exactly...
         )
-        source = rf.abs(source) ** 2.0
-        source = rf.mel_filterbank(source, in_dim=in_dim_, out_dim=self.in_dim, sampling_rate=16000)
-        source = rf.safe_log(source, eps=1e-10) / 2.3026
-        # TODO specaug
-        # source = specaugment_wei(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)  # TODO
+        # SpecAugment
+        source = rf.audio.specaugment(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)
+        # Encoder including convolutional frontend
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         enc_ctx = self.enc_ctx(enc)
         inv_fertility = rf.sigmoid(self.inv_fertility(enc))
         return dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility), enc_spatial_dim
-
-    @staticmethod
-    def encoder_unstack(ext: Dict[str, rf.Tensor]) -> Dict[str, rf.Tensor]:
-        """
-        prepare the encoder output for the loop (full-sum or time-sync)
-        """
-        # We might improve or generalize the interface later...
-        # https://github.com/rwth-i6/returnn_common/issues/202
-        loop = rf.inner_loop()
-        return {k: loop.unstack(v) for k, v in ext.items()}
 
     def decoder_default_initial_state(self, *, batch_dims: Sequence[Dim], enc_spatial_dim: Dim) -> rf.State:
         """Default initial state"""
@@ -334,19 +372,25 @@ def _get_eos_idx(target_dim: Dim) -> int:
 
 def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
-    epoch  # noqa
+    in_dim, epoch  # noqa
+    # real input is raw audio, internally it does logmel
+    in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
     return MakeModel.make_model(in_dim, target_dim)
 
 
 from_scratch_model_def: ModelDef[Model]
 from_scratch_model_def.behavior_version = 14
+from_scratch_model_def.backend = "torch"
+from_scratch_model_def.batch_size_factor = _batch_size_factor
 
 
 def from_scratch_training(
     *, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim
 ):
     """Function is run within RETURNN."""
-    assert not data.feature_dim  # raw samples
+    if data.feature_dim and data.feature_dim.dimension == 1:
+        data = rf.squeeze(data, axis=data.feature_dim)
+    assert not data.feature_dim  # raw audio
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
 
     batch_dims = data.remaining_dims(data_spatial_dim)
@@ -374,11 +418,21 @@ def from_scratch_training(
     )
 
     logits = model.decode_logits(input_embed=input_embeddings, **loop_out)
+    logits_packed, pack_dim = rf.pack_padded(logits, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False)
+    targets_packed, _ = rf.pack_padded(
+        targets, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim
+    )
 
-    log_prob = rf.log_softmax(logits, axis=model.target_dim)
-    # log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1)
-    loss = rf.cross_entropy(target=targets, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim)
+    log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
+    log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
+    loss = rf.cross_entropy(
+        target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
+    )
     loss.mark_as_loss("ce")
+
+    best = rf.reduce_argmax(logits_packed, axis=model.target_dim)
+    frame_error = best != targets_packed
+    frame_error.mark_as_loss(name="fer", as_error=True)
 
 
 from_scratch_training: TrainDef[Model]
@@ -390,7 +444,6 @@ def model_recog(
     model: Model,
     data: Tensor,
     data_spatial_dim: Dim,
-    targets_dim: Dim,  # noqa
     max_seq_len: Optional[int] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
@@ -430,7 +483,6 @@ def model_recog(
     seq_targets = []
     seq_backrefs = []
     while True:
-        print("** step", i)
         input_embed = model.target_embed(target)
         step_out, decoder_state = model.loop_step(
             **enc_args,

@@ -459,14 +459,12 @@ class UkrainianHybridSystem(NnSystem):
             else:
                 crp.acoustic_model_config.state_tying.type = 'no-tying-dense'  # for correct tree of dependency
 
-
         crp.acoustic_model_config.allophones.add_all = self.lexicon_args['add_all_allophones']
         crp.acoustic_model_config.allophones.add_from_lexicon = not self.lexicon_args['add_all_allophones']
         if add_base_allophones:
             crp.acoustic_model_config.allophones.add_from_file = self.base_allophones
 
         crp.lexicon_config.normalize_pronunciation = self.lexicon_args['norm_pronunciation']
-
 
     def _update_am_setting_for_all_crps(self, train_tdp_type, eval_tdp_type, add_base_allophones=False):
         types = {'train': train_tdp_type, 'eval': eval_tdp_type}

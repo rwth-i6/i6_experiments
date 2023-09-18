@@ -41,7 +41,7 @@ def loss_boost_func(loss, boost_positions_mask):
     return final_loss
 
 
-def loss_boost_func_v2(loss, boost_positions_mask):
-    import tensorflow as tf
+# def loss_boost_func(loss, boost_positions_mask):
+#     import tensorflow as tf
 
-    return tf.where(boost_positions_mask, loss, tf.zeros_like(loss))
+#     return tf.where(boost_positions_mask, loss, tf.zeros_like(loss))

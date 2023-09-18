@@ -155,14 +155,6 @@ def true_tdnn_layer(width, context, input, **kwargs):
 def true_tdnn_layer_comp(width, dilation, filter_size, input, **kwargs):
     return true_tdnn_layer(width, dilation, input, **kwargs)
 
-# gated_res_bottleneck_layer = {
-#     "conv"      : conv_layer(bottleneck, dilation, activation=None, input="data", **kwargs),
-#     "gating"    : { "class": "gating", "activation": "tanh", "from": ["conv"] },
-#     "linear"    : { "class": "linear", "activation": None, "from": ["gating"], "n_out": width},
-#     "projection": { "class": "linear", "activation": None, "from": ["data"], "n_out": width},
-#     "output"    : { "class": "combine", "kind": "add", "from": ["projection", "linear"]}
-# }
-
 def gated_conv_layer_bottleneck(width, dilation, input_layer, bottleneck, **kwargs):
     res = {
         "conv"      : conv_layer(bottleneck, dilation, activation=None, input="data", **kwargs),
@@ -219,6 +211,18 @@ class ConfigBuilder:
     def apply_topology(self, config, **topology):
         self.set_topology(config, topology)
     
+    def make_net(self, focal_loss_factor=2.0, loss='ce', **topology):
+        loss_opts = {"focal_loss_factor": focal_loss_factor}
+        res = {}
+        res['input_conv'] = conv_layer(
+            1700, 1, 'relu', 5, input='data', forward_weights_init=None
+        )
+        topology = {**self.default_topology, **topology}
+        encoder, output = ConfigBuilder.build_net(self.layer_func, **topology, input_layer="input_conv")
+        res.update(encoder)
+        res['output'] = { 'class' : 'softmax', 'from' : [output], "loss": loss, "loss_opts": loss_opts }
+        return res
+    
     def set_topology(self, config, topology):
         topology = {**self.default_topology, **topology}
         old_net = config['network']
@@ -267,10 +271,10 @@ class ConfigBuilder:
 
     @staticmethod
     def create_layer_func_from_stack(
-            layer_constructors: dict,
-            layer_sequence: list,
-            auto_add_layers=True
-        ):
+        layer_constructors: dict,
+        layer_sequence: list,
+        auto_add_layers=True
+    ):
         if auto_add_layers:
             auto_add_layers = ("projection", "output")
         def layer_func(width, dilation, input, bottleneck, filter_size=None, **kwargs):
@@ -310,6 +314,28 @@ layer_funcs = {
     "projection": lambda src, width: { "class": "linear", "activation": None, "from": ["data"], "n_out": width},
     "output"    : lambda src, width: { "class": "combine", "kind": "add", "from": ["projection", src]}
 }
+
+def make_network(
+    ffnn_size=2048,
+    num_layers=6,
+    filter_size=5*[2]+[1],
+    dilations=5*[1]+[1],
+    bottleneck=200,
+    focal_loss_factor=2.0
+):
+    layers = [ffnn_size] * num_layers
+    default_layer_sequence = ("conv", "gating", "linear", "bottleneck")
+    layer_factory = ConfigBuilder.create_layer_func_from_stack(
+        layer_funcs,
+        assign_bottleneck(default_layer_sequence),
+    )
+    fbuilder = ConfigBuilder(layer_factory)
+    fbuilder.default_topology["bottleneck"] = 200
+    return fbuilder.make_net(
+        layers=layers,
+        dilations=dilations,
+        filters=filter_size, 
+    )
 
 def make_baseline(num_input, network_kwargs=None, **kwargs):
     from .configs import blstm_config

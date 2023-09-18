@@ -78,6 +78,7 @@ class FairseqHydraTrainingJob(Job):
         mem_rqmt=4,
         cpu_rqmt=2,
         gpu_rqmt=1,
+        gpu_mem_rqmt=11,
         fairseq_python_exe=None,
         fairseq_hydra_exe=None,
         fairseq_root=None,
@@ -180,6 +181,7 @@ class FairseqHydraTrainingJob(Job):
         self.gpu_rqmt = gpu_rqmt
         self.rqmt = {
             "gpu": gpu_rqmt,
+            "gpu_mem": gpu_mem_rqmt,
             "cpu": cpu_rqmt,
             "mem": mem_rqmt,
             "time": time_rqmt,

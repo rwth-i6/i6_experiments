@@ -30,6 +30,10 @@ from .specaug_time import (
     specaug_layer_only_time,
     get_funcs_only_time,
 )
+from .specaug_random import (
+    specaug_layer_random,
+    get_funcs_random,   
+)
 
 RECUSRION_LIMIT = """
 import sys
@@ -183,6 +187,7 @@ def get_returnn_config(
     specaug_mask_sorting: bool = False,
     specaug_after_first_layer: bool = False,
     specaug_time_only: bool = False,
+    specaug_shuffled: bool = False,
     mask_divisor: int = None,
 ):
     base_config = {
@@ -217,6 +222,7 @@ def get_returnn_config(
         network["source"] = {"class": "copy", "from": "features"}
     elif enable_specaug:
         if specaug_mask_sorting:
+            assert not specaug_shuffled, "shuffling cannot be combined with sorting!"
             assert specaug_after_first_layer, "Sorted specaug is only possible after the first layer!"
             network["features"]["subnetwork"]["specaug"] = specaug_layer_sorted(in_layer=["conv_h_act"], mask_divisor=mask_divisor)
             network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
@@ -224,6 +230,7 @@ def get_returnn_config(
             prolog = get_funcs_sorted()
         else:
             if specaug_after_first_layer:
+                assert not specaug_shuffled, "shuffling can only be done on the second layer"
                 if specaug_time_only:
                     network["features"]["subnetwork"]["specaug"] = specaug_layer_only_time(in_layer=["conv_h_act"])
                     network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
@@ -239,13 +246,22 @@ def get_returnn_config(
                     network["source"] = specaug_layer_only_time(in_layer=["features"])
                     prolog = get_funcs_only_time()
                 else:
-                    network["source"] = specaug_layer_jingjing(in_layer=["features"])
-                    prolog = get_funcs_jingjing()
+                    if specaug_shuffled:
+                        network["source"] = specaug_layer_random(in_layer=["features"])
+                        prolog = get_funcs_random()
+                    else:
+                        network["source"] = specaug_layer_jingjing(in_layer=["features"])
+                        prolog = get_funcs_jingjing()
 
         network = fix_network_for_sparse_output(network)
     else:
-        assert not specaug_mask_sorting and not specaug_after_first_layer and not specaug_time_only, \
-            "specaug options are specified, but enable_specaug=False"
+        assert (
+            not specaug_mask_sorting and 
+            not specaug_after_first_layer and 
+            not specaug_time_only and 
+            not specaug_shuffled
+        ), "specaug options are specified, but enable_specaug=False"
+
         network["source"] = {"class": "copy", "from": "features"}
         network = fix_network_for_sparse_output(network)
 

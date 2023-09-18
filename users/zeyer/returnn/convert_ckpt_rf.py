@@ -66,6 +66,7 @@ class ConvertTfCheckpointToRfPtJob(Job):
         print()
 
         print("Creating model...")
+        rf.select_backend_torch()
         model = self.make_model_func()
         print("Created model:", model)
         print("Model parameters:")

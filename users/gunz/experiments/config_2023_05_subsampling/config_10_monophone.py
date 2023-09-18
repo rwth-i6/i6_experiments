@@ -311,6 +311,7 @@ def run_single(
         train_hdfs=train_hdfs,
         dev_hdfs=[dev_hdf],
         on_2080=False,
+        use_old_cache_epilog=True,
     )
 
     s.set_graph_for_experiment("fh")
@@ -341,7 +342,7 @@ def run_single(
 
         recog_args = recog_args.with_lm_scale(1.0).with_prior_scale(0.5)
 
-        for pC, tdp_simple, tdp_scale in itertools.product([0.5, 0.7], [True, False], [0.0, 0.2, 0.4, 0.6, 0.8]):
+        for pC, tdp_simple, tdp_scale in itertools.product([0.5, 0.7], [True, False], [0.2, 0.4, 0.6, 0.8]):
             cfg = recog_args.with_prior_scale(pC).with_tdp_scale(tdp_scale)
 
             if tdp_simple:
@@ -355,6 +356,26 @@ def run_single(
                 search_parameters=cfg,
                 num_encoder_output=conf_model_dim,
                 rerun_after_opt_lm=True,
+                calculate_stats=True,
+                rtf_cpu=4,
+            )
+
+        for (tdp_sil_loop, tdp_sil_fwd), (tdp_sp_loop, tdp_sp_fwd) in itertools.product(
+            itertools.product([0.0, 3.0], [0.0, 3.0]),
+            itertools.product([0.0, 3.0], [0.0, 3.0]),
+        ):
+            sil_non_w_tdp = (tdp_sil_loop, tdp_sil_fwd, "infinity", 20.0)
+            cfg = dataclasses.replace(
+                recog_args,
+                tdp_non_word=sil_non_w_tdp,
+                tdp_silence=sil_non_w_tdp,
+                tdp_speech=(tdp_sp_loop, tdp_sp_fwd, "infinity", 0.0),
+            )
+            recognizer.recognize_count_lm(
+                label_info=s.label_info,
+                search_parameters=cfg,
+                num_encoder_output=conf_model_dim,
+                rerun_after_opt_lm=False,
                 calculate_stats=True,
                 rtf_cpu=4,
             )

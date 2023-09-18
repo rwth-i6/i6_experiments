@@ -13,6 +13,7 @@ from returnn.tf.layers.basic import LayerBase
 
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 from i6_experiments.users.zeineldeen.modules.abs_module import AbsModule
+from i6_experiments.users.zeineldeen.modules.attention import AdditiveLocAwareness
 
 
 class AttentionMechanism(AbsModule):
@@ -28,6 +29,7 @@ class AttentionMechanism(AbsModule):
         l2,
         loc_filter_size,
         loc_num_channels,
+        use_weight_feedback,
     ):
         super().__init__()
         self.enc_key_dim = enc_key_dim
@@ -43,6 +45,8 @@ class AttentionMechanism(AbsModule):
         self.select_base_enc: Optional[Callable[[str], str]] = None
         self.enc_time_dim = None
 
+        self.use_weight_feedback = use_weight_feedback
+
     def create(self):
         out_net = ReturnnNetwork()
 
@@ -50,12 +54,20 @@ class AttentionMechanism(AbsModule):
             "s_transformed", "s", n_out=self.enc_key_dim, with_bias=False, l2=self.l2
         )  # project query
 
+        if self.use_weight_feedback:
+            weight_feedback = AdditiveLocAwareness(
+                enc_key_dim=self.enc_key_dim, att_num_heads=self.att_num_heads.dimension
+            )
+            out_net.update(weight_feedback.create())  # add weight feedback to network
+        else:
+            weight_feedback = None
+
         enc_ctx = "base:enc_ctx"
         if self.select_base_enc:
             enc_ctx = self.select_base_enc(enc_ctx)
         out_net.add_combine_layer(
             "energy_in",
-            [enc_ctx, "s_transformed"],
+            [enc_ctx, "s_transformed"] if not weight_feedback else [enc_ctx, weight_feedback.name, "s_transformed"],
             kind="add",
             n_out=self.enc_key_dim,
         )
@@ -151,6 +163,7 @@ class RNNDecoder:
         masked_computation_blank_idx: Optional[int] = None,
         full_sum_simple_approx: bool = False,
         prev_target_embed_direct: bool = False,
+        use_zoneout_output: bool = False,
     ):
         """
         :param base_model: base/encoder model instance
@@ -261,6 +274,8 @@ class RNNDecoder:
         if full_sum_simple_approx:
             assert enc_chunks_dim is not None, "full_sum_simple_approx requires enc_chunks_dim"
         self.prev_target_embed_direct = prev_target_embed_direct
+
+        self.use_zoneout_output = use_zoneout_output
 
     def add_decoder_subnetwork(
         self,
@@ -428,7 +443,16 @@ class RNNDecoder:
             l2=self.l2,
             loc_filter_size=self.loc_conv_att_filter_size,
             loc_num_channels=self.loc_conv_att_num_channels,
+            use_weight_feedback=not self.enc_chunks_dim,  # TODO: allow when chunked
         )
+        if self.masked_computation_blank_idx is not None:
+            subnet_unit["prev_att_masked"] = {
+                "class": "masked_computation",
+                "mask": "prev:masked_comp_mask",
+                "unit": {"class": "copy", "from": "data"},
+                "from": "prev:att",
+            }
+
         if self.enc_chunks_dim:
             att.enc_time_dim = self.enc_time_dim
             if self.full_sum_simple_approx:
@@ -482,7 +506,11 @@ class RNNDecoder:
             lstm_inputs += [lstm_lm_component_proj]
         else:
             lstm_inputs += [prev_target_embed]
-        lstm_inputs += ["prev:att"]
+
+        if self.masked_computation_blank_idx is not None:
+            lstm_inputs += ["prev_att_masked"]
+        else:
+            lstm_inputs += ["prev:att"]
 
         if self.add_lstm_lm:
             # element-wise addition is applied instead of concat
@@ -493,6 +521,9 @@ class RNNDecoder:
         # LSTM decoder (or decoder state)
         if self.dec_zoneout and not self.full_sum_simple_approx:
             # It's bad to use rnn_cell here... Just annoying to keep this just to preserve hash...
+            zoneout_unit_opts = {"zoneout_factor_cell": 0.15, "zoneout_factor_output": 0.05}
+            if self.use_zoneout_output:
+                zoneout_unit_opts["use_zoneout_output"] = True
             subnet_unit.add_rnn_cell_layer(
                 "s",
                 lstm_inputs,
@@ -500,7 +531,7 @@ class RNNDecoder:
                 l2=self.l2,
                 weights_init=self.lstm_weights_init,
                 unit="zoneoutlstm",
-                unit_opts={"zoneout_factor_cell": 0.15, "zoneout_factor_output": 0.05},
+                unit_opts=zoneout_unit_opts,
             )
         else:
             subnet_unit.add_rec_layer(
@@ -776,13 +807,25 @@ class RNNDecoder:
                 ),
             )
 
-        self.base_model.network.add_linear_layer(
-            "inv_fertility",
-            "encoder",
-            activation="sigmoid",
-            n_out=self.att_num_heads,
-            with_bias=False,
-        )
+        if not self.enc_chunks_dim:  # use weight feedback
+            # there was a bug where n_out should be dimension and not the tag
+            # this does not override the layer to not break hashes of old exps without weight feedback. super annoying
+            self.base_model.network.add_linear_layer(
+                "inv_fertility",
+                "encoder",
+                activation="sigmoid",
+                n_out=self.att_num_heads.dimension,
+                with_bias=False,
+            )
+        else:
+            # this layer is not used anw and kept just to not break hashes
+            self.base_model.network.add_linear_layer(
+                "inv_fertility",
+                "encoder",
+                activation="sigmoid",
+                n_out=self.att_num_heads,  # Note: this is a bug
+                with_bias=False,
+            )
 
         self.base_model.network["out_best"] = {
             "class": "decide",

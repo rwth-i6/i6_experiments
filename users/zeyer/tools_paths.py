@@ -22,6 +22,7 @@ or just overwrite it globally.
 Also see i6_experiments/common/baselines/librispeech/default_tools.py.
 """
 
+import sys
 from sisyphus import tk, gs
 
 
@@ -57,17 +58,28 @@ def get_rasr_exe(name: str) -> tk.Path:
 
 def get_sctk_binary_path() -> tk.Path:
     """SCTK binary path"""
-    # If it is common to have sclite in the PATH env, we could also check for that here...
-    assert getattr(gs, "SCTK_PATH", None), "SCTK_PATH not set"
-    return tk.Path(getattr(gs, "SCTK_PATH"), hash_overwrite="DEFAULT_SCTK_BINARY_PATH")
+    hash_overwrite = "DEFAULT_SCTK_BINARY_PATH"
+    sctk_path = getattr(gs, "SCTK_PATH", None)
+
+    if sctk_path is None:
+        from i6_experiments.common.tools.sctk import compile_sctk
+
+        path = compile_sctk(branch="v2.4.12")  # use last published version
+        path.hash_overwrite = hash_overwrite
+        return path
+
+    return tk.Path(sctk_path, hash_overwrite=hash_overwrite)
 
 
 def get_returnn_python_exe() -> tk.Path:
     """
     RETURNN Python executable
     """
-    assert getattr(gs, "RETURNN_PYTHON_EXE", None), "RETURNN_PYTHON_EXE not set"
-    return tk.Path(getattr(gs, "RETURNN_PYTHON_EXE"), hash_overwrite="DEFAULT_RETURNN_PYTHON_EXE")
+    hash_overwrite = "DEFAULT_RETURNN_PYTHON_EXE"
+    path = getattr(gs, "RETURNN_PYTHON_EXE", None)
+    if path is None:
+        path = sys.executable
+    return tk.Path(path, hash_overwrite=hash_overwrite)
 
 
 def get_returnn_root() -> tk.Path:

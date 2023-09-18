@@ -459,7 +459,7 @@ class RNNDecoderArgs(DecoderArgs):
     enc_key_dim: int = 1024  # also attention dim  # also attention dim
 
     # location feedback
-    loc_conv_att_num_channels: Optional[int] = None
+    # loc_conv_att_num_channels: Optional[int] = None
     loc_conv_att_filter_size: Optional[int] = None
 
     # param init
@@ -479,7 +479,7 @@ class RNNDecoderArgs(DecoderArgs):
     reduceout: bool = True
 
     # lstm lm
-    lstm_lm_proj_dim: int = 1024
+    # lstm_lm_proj_dim: int = 1024
     lstm_lm_dim: int = 1024
     add_lstm_lm: bool = False
 
@@ -504,7 +504,7 @@ class CTCDecoderArgs(DecoderArgs):
     ctc_scale: float = 1.0
     add_att_dec: bool = False
     att_scale: float = 0.3
-    use_ts_discount: bool = False # wip
+    ts_reward: float = 0.0
     blank_prob_scale: float = 0.0
     repeat_prob_scale: float = 0.0
     ctc_prior_correction: bool = False
@@ -513,7 +513,12 @@ class CTCDecoderArgs(DecoderArgs):
     remove_eos: bool = False
     eos_postfix: bool = False
     add_eos_to_blank: bool = False
+    rescore_last_eos: bool = False
     ctc_beam_search_tf: bool = False
+    att_masking_fix: bool = False
+    one_minus_term_mul_scale: float = 1.0
+    one_minus_term_sub_scale: float = 0.0
+    length_normalization: bool = False
 
 
 def create_config(

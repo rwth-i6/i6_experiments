@@ -31,7 +31,6 @@ def get_bliss_corpus_dict(audio_format: str = "wav", output_prefix: str = "datas
         "wav": {
             "output_format": "wav",
             "codec": "pcm_s16le",
-            "recover_duration": False,
         },
         "ogg": {"output_format": "ogg", "codec": "libvorbis"},
         "flac": {"output_format": "flac", "codec": "flac"},
@@ -43,6 +42,7 @@ def get_bliss_corpus_dict(audio_format: str = "wav", output_prefix: str = "datas
             bliss_change_encoding_job = BlissChangeEncodingJob(
                 corpus_file=sph_corpus,
                 sample_rate=16000,
+                recover_duration=False,
                 **audio_format_options[audio_format],
             )
             bliss_change_encoding_job.add_alias(

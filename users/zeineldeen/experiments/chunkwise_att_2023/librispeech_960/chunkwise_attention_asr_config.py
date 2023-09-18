@@ -159,6 +159,47 @@ def load_qkv_mats(name, shape, reader):
     return None
 
 
+def load_params_v2(name, shape, reader):
+    import numpy
+
+    model_dim = val_dim.dimension
+
+    if name.startswith("conformer_block_"):
+        idx = name.split("_")[2]
+        qkv_tensor = reader.get_tensor("conformer_block_%s_self_att/QKV" % idx)
+        assert qkv_tensor.shape == (model_dim, 3 * model_dim)
+
+        qkv_tensor_ = qkv_tensor.reshape((model_dim, num_heads, 3, model_dim_per_head))
+        q = qkv_tensor_[:, :, 0, :].reshape((model_dim, model_dim))
+        k = qkv_tensor_[:, :, 1, :].reshape((model_dim, model_dim))
+        v = qkv_tensor_[:, :, 2, :].reshape((model_dim, model_dim))
+
+        if name == "conformer_block_%s_self_att_ln_K/W" % idx:
+            return k
+        elif name == "conformer_block_%s_self_att_ln_Q/W" % idx:
+            return q
+        elif name == "conformer_block_%s_self_att_ln_V/W" % idx:
+            return v
+    else:
+        # input is [y_{i-1}, c_{i-1}, h_{i-1}]
+        s_kernel = reader.get_tensor("output/rec/s/rec/lstm_cell/kernel")  # (input_dim, 4 * lstm_dim)
+        s_bias = reader.get_tensor("output/rec/s/rec/lstm_cell/bias")  # (4 * lstm_dim,)
+        target_embed = reader.get_tensor("output/rec/target_embed0/W")  # (V, embed_dim)
+        embed_dim = target_embed.shape[1]
+        emb_ = s_kernel[:embed_dim]
+        h_ = s_kernel[embed_dim + model_dim :]
+        s_kernel_ = numpy.concatenate([emb_, h_], axis=0)
+        assert s_kernel_.shape[0] == s_kernel.shape[0] - model_dim
+        assert s_kernel_.shape[1] == s_kernel.shape[1]
+
+        if name == "output/rec/s_wo_att/rec/lstm_cell/kernel":
+            return s_kernel_  # modified
+        elif name == "output/rec/s_wo_att/rec/lstm_cell/bias":
+            return s_bias
+
+    return None
+
+
 # -------------------------- Pretraining -------------------------- #
 
 
@@ -178,6 +219,7 @@ def pretrain_layers_and_dims(
     second_bs_idx=None,
     enc_dec_share_grow_frac=True,
     repeat_first=True,
+    ignored_keys_for_reduce_dim=None,
 ):
     """
     Pretraining implementation that works for multiple encoder/decoder combinations
@@ -266,6 +308,8 @@ def pretrain_layers_and_dims(
         dim_frac_enc = InitialDimFactor + (1.0 - InitialDimFactor) * grow_frac_enc
 
         for key in encoder_keys:
+            if ignored_keys_for_reduce_dim and key in ignored_keys_for_reduce_dim:
+                continue
             encoder_args_copy[key] = (
                 int(encoder_args[key] * dim_frac_enc / float(EncoderAttNumHeads)) * EncoderAttNumHeads
             )
@@ -288,6 +332,8 @@ def pretrain_layers_and_dims(
                 decoder_keys += ["conv_kernel_size"]
 
             for key in decoder_keys:
+                if ignored_keys_for_reduce_dim and key in ignored_keys_for_reduce_dim:
+                    continue
                 decoder_args_copy[key] = (
                     int(decoder_args[key] * dim_frac_dec / float(DecoderAttNumHeads)) * DecoderAttNumHeads
                 )
@@ -378,6 +424,11 @@ class ConformerEncoderArgs(EncoderArgs):
     dropout_in: float = 0.1
     att_dropout: float = 0.1
     lstm_dropout: float = 0.1
+
+    # weight dropout
+    ff_weight_dropout: Optional[float] = None
+    mhsa_weight_dropout: Optional[float] = None
+    conv_weight_dropout: Optional[float] = None
 
     # norms
     batch_norm_opts: Optional[Dict[str, Any]] = None
@@ -515,12 +566,14 @@ class RNNDecoderArgs(DecoderArgs):
     coverage_scale: float = None
     coverage_threshold: float = None
 
+    use_zoneout_output: bool = False
+
 
 def create_config(
     training_datasets,
     encoder_args: EncoderArgs,
     decoder_args: DecoderArgs,
-    with_staged_network=False,
+    with_staged_network=True,
     is_recog=False,
     input_key="audio_features",
     lr=0.0008,
@@ -533,6 +586,7 @@ def create_config(
     accum_grad=2,
     pretrain_reps=5,
     max_seq_length=75,
+    max_seqs=200,
     noam_opts=None,
     warmup_lr_opts=None,
     with_pretrain=True,
@@ -556,6 +610,7 @@ def create_config(
     specaug_str_func_opts=None,
     recursion_limit=3000,
     feature_extraction_net=None,
+    global_stats=None,
     config_override=None,
     feature_extraction_net_global_norm=False,
     freeze_bn=False,
@@ -566,6 +621,7 @@ def create_config(
     chunk_size=20,
     chunk_step=None,
     chunk_level="encoder",  # or "input"
+    chunked_decoder=True,
     eoc_idx=0,
     search_type=None,
     dump_alignments_dataset=None,  # train, dev, etc
@@ -574,8 +630,11 @@ def create_config(
     enable_check_align=True,
     recog_ext_pipeline=False,
     window_left_padding=None,
+    end_slice_start=None,
     end_slice_size=None,
     conf_mem_opts=None,
+    gpu_mem=11,
+    remove_att_ctx_from_dec_state=False,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -618,7 +677,7 @@ def create_config(
         "accum_grad_multiple_step": accum_grad,
         "gradient_noise": gradient_noise,
         "batch_size": batch_size,
-        "max_seqs": 200,
+        "max_seqs": max_seqs,
         "truncation": -1,
     }
     # default: Adam optimizer
@@ -737,7 +796,12 @@ def create_config(
                 chunk_size=chunk_size,
                 chunk_size_dim=chunk_size_dim,
                 mem_size=conf_mem_opts.get("mem_size", 1),
-                mask_paddings=conf_mem_opts.get("mask_paddings", False),
+                conv_cache_size=conf_mem_opts.get("conv_cache_size", None),
+                use_cached_prev_kv=conf_mem_opts.get("use_cached_prev_kv", False),
+                mem_slice_size=conf_mem_opts.get("mem_slice_size", None),
+                mem_slice_start=conf_mem_opts.get("mem_slice_start", None),
+                use_emformer_mem=conf_mem_opts.get("use_emformer_mem", False),
+                apply_tanh_on_emformer_mem=conf_mem_opts.get("apply_tanh_on_emformer_mem", False),
             )
 
         conformer_encoder = encoder_type(**encoder_args)
@@ -814,11 +878,13 @@ def create_config(
             src = "__encoder"
             if end_slice_size is not None:
                 new_chunk_size_dim = SpatialDim("sliced-chunk-size", end_slice_size)
+                # TODO: this will break hashes for left-context only exps so needs to handle this later
                 conformer_encoder.network["___encoder"] = {
                     "class": "slice",
                     "from": "__encoder",
                     "axis": chunk_size_dim,
-                    "slice_start": chunk_size - end_slice_size,
+                    "slice_start": end_slice_start,
+                    "slice_end": end_slice_start + end_slice_size,
                     "out_dim": new_chunk_size_dim,
                 }
                 chunk_size_dim = new_chunk_size_dim
@@ -857,15 +923,32 @@ def create_config(
     decoder_args = asdict(decoder_args)
     decoder_args.update({"target": target, "beam_size": beam_size})
 
-    decoder_args["enc_chunks_dim"] = chunked_time_dim
-    decoder_args["enc_time_dim"] = chunk_size_dim
-    decoder_args["eos_id"] = eoc_idx
-    decoder_args["search_type"] = search_type
-    decoder_args["enable_check_align"] = enable_check_align  # just here to keep some old changes
+    if chunked_decoder:
+        decoder_args["enc_chunks_dim"] = chunked_time_dim
+        decoder_args["enc_time_dim"] = chunk_size_dim
+        decoder_args["eos_id"] = eoc_idx
+        decoder_args["search_type"] = search_type
+        decoder_args["enable_check_align"] = enable_check_align  # just here to keep some old changes
 
-    if decoder_args["full_sum_simple_approx"] and is_recog:
-        decoder_args["full_sum_simple_approx"] = False
-        decoder_args["masked_computation_blank_idx"] = eoc_idx
+        if decoder_args["full_sum_simple_approx"] and is_recog:
+            decoder_args["full_sum_simple_approx"] = False
+            decoder_args["masked_computation_blank_idx"] = eoc_idx
+    elif chunk_size:
+        # chunked encoder and non-chunked decoder so we need to merge encoder chunks
+        # assert "encoder_" not in conformer_encoder.network
+        conformer_encoder.network["encoder_"] = copy.deepcopy(conformer_encoder.network["encoder"])
+        if chunk_size == chunk_step:
+            conformer_encoder.network["encoder"] = {
+                "class": "merge_dims",
+                "from": "encoder_",  # [B,C,W,D]
+                "axes": [chunked_time_dim, chunk_size_dim],  # [C, W]
+                "keep_order": True,
+            }  # [B,C*W,D]
+            if encoder_args["with_ctc"]:
+                conformer_encoder.network["ctc"]["from"] = "encoder"
+        else:
+            # TODO: average overlapped chunks
+            raise NotImplementedError("chunk_size != chunk_step not implemented yet")
 
     transformer_decoder = decoder_type(base_model=conformer_encoder, **decoder_args)
     if not dump_ctc_dataset:
@@ -897,6 +980,8 @@ def create_config(
 
     if feature_extraction_net:
         exp_config["network"].update(feature_extraction_net)
+        if global_stats:
+            add_global_stats_norm(global_stats, exp_config["network"])
 
     # if chunked_time_dim:
     #   exp_config['network']["_check_alignment"] = {
@@ -964,6 +1049,19 @@ def create_config(
         assert retrain_checkpoint_opts is None
         retrain_checkpoint_opts = {}
         retrain_checkpoint_opts["custom_missing_load_func"] = load_qkv_mats
+
+    if remove_att_ctx_from_dec_state:
+        assert retrain_checkpoint_opts is None
+        retrain_checkpoint_opts = {}
+        retrain_checkpoint_opts["custom_missing_load_func"] = load_params_v2
+        # TODO: hacky way for now
+        exp_config["network"]["output"]["unit"]["s_wo_att"] = copy.deepcopy(exp_config["network"]["output"]["unit"]["s"])
+        exp_config["network"]["output"]["unit"].pop("s", None)
+
+        # change inputs
+        exp_config["network"]["output"]["unit"]["s_wo_att"]["from"] = "prev:target_embed"  # remove prev:att
+        exp_config["network"]["output"]["unit"]["s_transformed"]["from"] = "s_wo_att"
+        exp_config["network"]["output"]["unit"]["readout_in"]["from"][0] = "s_wo_att"
 
     if retrain_checkpoint is not None:
         if retrain_checkpoint_opts:
@@ -1075,7 +1173,8 @@ def create_config(
 
     # seems to only work only when TF_FORCE_GPU_ALLOW_GROWTH is set to True in settings.py
     # otherwise I get CUDNN not loaded error. Also some error related to conv ops.
-    # post_config["tf_session_opts"] = {"gpu_options": {"per_process_gpu_memory_fraction": 0.94}}
+    if gpu_mem == 24:
+        post_config["tf_session_opts"] = {"gpu_options": {"per_process_gpu_memory_fraction": 0.94}}
 
     returnn_config = ReturnnConfig(
         exp_config,
@@ -1093,3 +1192,31 @@ def create_config(
     # pprint(serialized_config.config)
 
     return serialized_config
+
+
+def add_global_stats_norm(global_stats: dict, net):
+    from sisyphus.delayed_ops import DelayedFormat
+
+    global_mean_delayed = DelayedFormat("{}", global_stats["mean"])
+    global_stddev_delayed = DelayedFormat("{}", global_stats["stddev"])
+
+    net["log10_"] = copy.deepcopy(net["log10"])
+    net["global_mean"] = {
+        "class": "constant",
+        "value": CodeWrapper(
+            f"eval(\"exec('import numpy') or numpy.loadtxt('{global_mean_delayed}', dtype='float32')\")"
+        ),
+        "dtype": "float32",
+    }
+    net["global_stddev"] = {
+        "class": "constant",
+        "value": CodeWrapper(
+            f"eval(\"exec('import numpy') or numpy.loadtxt('{global_stddev_delayed}', dtype='float32')\")"
+        ),
+        "dtype": "float32",
+    }
+    net["log10"] = {
+        "class": "eval",
+        "from": ["log10_", "global_mean", "global_stddev"],
+        "eval": "(source(0) - source(1)) / source(2)",
+    }

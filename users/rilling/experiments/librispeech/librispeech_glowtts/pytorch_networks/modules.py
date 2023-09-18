@@ -242,7 +242,9 @@ class InvConvNear(nn.Module):
     else:
       x_len = torch.sum(x_mask, [1, 2])
 
+    # group the channels into two halves for the splitting in the coupling layer and into (channels // n_split) groups (160 channels // 4 splits => 40 groups)
     x = x.view(b, 2, c // self.n_split, self.n_split // 2, t)
+    # Mix the groups between the two halves of the vector to make sure that each half consists of parts from the original top and the bottom
     x = x.permute(0, 1, 3, 2, 4).contiguous().view(b, self.n_split, c // self.n_split, t)
 
     if reverse:
@@ -258,9 +260,12 @@ class InvConvNear(nn.Module):
       else:
         logdet = torch.logdet(self.weight) * (c / self.n_split) * x_len # [b]
 
-    weight = weight.view(self.n_split, self.n_split, 1, 1)
+    # n_split x n_split kernels are shared between the groups
+    # bring the n_split x n_split kernel in the necessary shape for it to be used for 1x1 convolutions:
+    weight = weight.view(self.n_split, self.n_split, 1, 1) 
     z = F.conv2d(x, weight)
 
+    # undo the permutation and grouping:
     z = z.view(b, 2, self.n_split // 2, c // self.n_split, t)
     z = z.permute(0, 1, 3, 2, 4).contiguous().view(b, c, t) * x_mask
     return z, logdet

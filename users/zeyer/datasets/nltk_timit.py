@@ -14,10 +14,12 @@ class NltkTimit(DatasetConfig):
     NLTK TIMIT (small subset of TIMIT, but freely available via NLTK)
     """
 
-    def __init__(self, *,
-                 main_key: Optional[str] = None,
-                 random_permute_audio: Union[None, bool, Dict[str, Any]] = None,  # for train/main_key
-                 ):
+    def __init__(
+        self,
+        *,
+        main_key: Optional[str] = None,
+        random_permute_audio: Union[None, bool, Dict[str, Any]] = None,  # for train/main_key
+    ):
         super(NltkTimit, self).__init__()
         self.vocab = _timit_vocab
         self.main_key = main_key
@@ -30,7 +32,7 @@ class NltkTimit(DatasetConfig):
         """dataset"""
         assert key in {"train", "dev", "devtrain"}
         # num_seqs = {'train': 3696, 'dev': 192}  # full TIMIT
-        num_seqs = {'train': 144, 'dev': 16, "devtrain": 144}
+        num_seqs = {"train": 144, "dev": 16, "devtrain": 144}
         d = {
             "class": "NltkTimitDataset",
             "with_delta": True,
@@ -46,17 +48,19 @@ class NltkTimit(DatasetConfig):
 
     def get_extern_data(self) -> Dict[str, Dict[str]]:
         """extern data"""
-        from returnn.tf.util.data import FeatureDim, SpatialDim, batch_dim
-        time_dim = SpatialDim("time")
-        feature_dim = FeatureDim("audio", 40 * 2)  # keep consistent with above
-        out_spatial_dim = SpatialDim("out-spatial")
-        classes_dim = FeatureDim("phones", dimension=self.vocab.get_num_classes())
+        from returnn.tensor import Dim, batch_dim
+
+        time_dim = Dim(None, name="time", kind=Dim.Types.Spatial)
+        feature_dim = Dim(40 * 2, name="audio", kind=Dim.Types.Feature)  # keep consistent with above
+        out_spatial_dim = Dim(None, name="out-spatial", kind=Dim.Types.Spatial)
+        classes_dim = Dim(self.vocab.get_num_classes(), name="phones", kind=Dim.Types.Feature)
         return {
             "data": {"dim_tags": [batch_dim, time_dim, feature_dim]},
             "classes": {
                 "dim_tags": [batch_dim, out_spatial_dim],
                 "sparse_dim": classes_dim,
-                "vocab": self.vocab.get_opts()},
+                "vocab": self.vocab.get_opts(),
+            },
         }
 
     def get_train_dataset(self) -> Dict[str]:
@@ -98,10 +102,12 @@ class TimitVocab(VocabConfig):
         e.g. as defined in `Data`, `extern_data`, :func:`Vocabulary.create_vocab` (in RETURNN).
         """
         from returnn.datasets.generating import TimitDataset
+
         labels = TimitDataset.get_labels(num_phones=61)
         return {
             "class": "Vocabulary",
-            "labels": labels, "vocab_file": None,
+            "labels": labels,
+            "vocab_file": None,
             "unknown_label": None,
             "user_defined_symbols": {"<sil>": labels.index("pau")},
         }
@@ -129,10 +135,8 @@ def get_nltk_timit_task() -> Task:
         train_epoch_split=1,
         dev_dataset=NltkTimit(main_key="dev"),
         eval_datasets={"dev": NltkTimit(main_key="dev")},
-
         main_measure_type=MeasureType(short_name="WER%"),
         main_measure_name="dev",
-
         score_recog_output_func=_dummy_score_recog_output_func,  # TODO
     )
 

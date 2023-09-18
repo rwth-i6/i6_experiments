@@ -78,11 +78,14 @@ class OptunaRasrFunctor(RasrFunctor, ABC):
         train_job: returnn.OptunaReturnnTrainingJob,
         epoch: types.EpochType,
         trial_num: types.TrialType = "best",
+        backend: Backend = Backend.TENSORFLOW,
     ) -> Checkpoint:
         if trial_num == "best":
             if epoch == "best":
                 return returnn.GetBestCheckpointJob(
-                    model_dir=train_job.out_model_dir, learning_rates=train_job.out_learning_rates
+                    model_dir=train_job.out_model_dir,
+                    learning_rates=train_job.out_learning_rates,
+                    backend=backend,
                 ).out_checkpoint
             return train_job.out_checkpoints[epoch]
 
@@ -90,6 +93,7 @@ class OptunaRasrFunctor(RasrFunctor, ABC):
             return returnn.GetBestCheckpointJob(
                 model_dir=train_job.out_trial_model_dir[trial_num],
                 learning_rates=train_job.out_trial_learning_rates[trial_num],
+                backend=backend,
             ).out_checkpoint
         return train_job.out_trial_checkpoints[trial_num][epoch]
 

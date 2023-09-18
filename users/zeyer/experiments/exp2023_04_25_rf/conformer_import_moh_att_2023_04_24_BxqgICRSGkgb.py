@@ -190,7 +190,7 @@ class Model(rf.Module):
             source, in_spatial_dim=in_spatial_dim, frame_step=160, frame_length=400, fft_length=512
         )
         source = rf.abs(source) ** 2.0
-        source = rf.mel_filterbank(source, in_dim=in_dim_, out_dim=self.in_dim, sampling_rate=16000)
+        source = rf.audio.mel_filterbank(source, in_dim=in_dim_, out_dim=self.in_dim, sampling_rate=16000)
         source = rf.safe_log(source, eps=1e-10) / 2.3026
         # TODO specaug
         # source = specaugment_wei(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)  # TODO
@@ -347,7 +347,7 @@ def from_scratch_training(
     logits = model.decode_logits(input_embed=input_embeddings, **loop_out)
 
     log_prob = rf.log_softmax(logits, axis=model.target_dim)
-    # log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1)
+    log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
     loss = rf.cross_entropy(target=targets, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim)
     loss.mark_as_loss("ce")
 
