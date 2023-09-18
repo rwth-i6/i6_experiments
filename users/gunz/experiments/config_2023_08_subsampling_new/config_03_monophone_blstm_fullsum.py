@@ -100,6 +100,18 @@ def run(returnn_root: tk.Path):
             bw_transition_scale=0.3,
         ),
         Experiment(
+            adapt_transition_model_to_ss=False,
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            feature_time_shift=10 / 1000,
+            lr="v8",
+            model_dim=model_dim,
+            n_states_per_phone=1,
+            output_time_step=40 / 1000,
+            subsampling_approach="mp:2@2+mp:2@4",
+            bw_transition_scale=0.3,
+        ),
+        Experiment(
             adapt_transition_model_to_ss=True,
             alignment_name="scratch",
             bw_label_scale=0.3,
