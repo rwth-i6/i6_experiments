@@ -9,7 +9,7 @@ from i6_experiments.common.setups.rasr.util import RasrSteps
 from i6_experiments.common.baselines.tedlium2.hybrid.data import get_corpus_data_inputs
 from i6_experiments.common.baselines.tedlium2.hybrid.baseline_args import get_log_mel_feature_extraction_args
 from i6_experiments.users.hilmes.experiments.tedlium2.asr_2023.hybrid.torch_baselines.whisper_args import get_nn_args
-from i6_experiments.common.setups.rasr.pytorch_onnx_hybrid_system import PyTorchOnnxHybridSystem
+from i6_experiments.users.hilmes.modules.pytorch_onnx_hybrid_system import PyTorchOnnxHybridSystem
 
 
 def run_gmm_system():
