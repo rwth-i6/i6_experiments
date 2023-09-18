@@ -75,7 +75,6 @@ class Import(SerializerObject):
         self,
         *,
         code_object_path: Union[str, FunctionType, Any],
-        *,
         unhashed_package_root: Optional[str] = None,
         import_as: Optional[str] = None,
         use_for_hash: bool = True,
@@ -113,7 +112,7 @@ class Import(SerializerObject):
                 raise ValueError(
                     f"unhashed_package_root: {unhashed_package_root} is not a prefix of {self.code_object}"
                 )
-            self.code_object = self.code_object[len(unhashed_package_root):]
+            self.code_object = self.code_object[len(unhashed_package_root) :]
 
         self.import_as = import_as
         self.use_for_hash = use_for_hash
