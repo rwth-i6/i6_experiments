@@ -1,8 +1,15 @@
 import sys
+import os
 from sisyphus import Job, Task, tk
+from typing import Any, Dict
+import logging
 
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import PtCheckpoint
+from onnxruntime.quantization import quant_pre_process, quantize_static, CalibrationDataReader, CalibrationMethod
+from onnxruntime import InferenceSession, SessionOptions
+from returnn.datasets import Dataset, init_dataset
+import numpy as np
 
 class ExportPyTorchModelToOnnxJob(Job):
     """
@@ -10,7 +17,7 @@ class ExportPyTorchModelToOnnxJob(Job):
 
     JUST FOR DEBUGGING, THIS FUNCTIONALITY SHOULD BE IN RETURNN ITSELF
     """
-    __sis_hash_exclude__ = {"quantize_dynamic": False}
+    __sis_hash_exclude__ = {"quantize_dynamic": False, "quantize_static": False}
 
     def __init__(self, pytorch_checkpoint: PtCheckpoint, returnn_config: ReturnnConfig, returnn_root: tk.Path, quantize_dynamic: bool = False):
 
@@ -59,3 +66,102 @@ class ExportPyTorchModelToOnnxJob(Job):
             quantized_model = quantize_dynamic(model_fp32, self.out_onnx_model.get())
         else:
             export_func(model=model, model_filename=self.out_onnx_model.get())
+
+
+class ModelQuantizeStaticJob(Job):
+
+    __sis_hash_exclude__ = {"moving_average": False, "smoothing_factor": 0.0, "symmetric": False}
+
+    def __init__(self,
+        model: tk.Path,
+        dataset: Dict[str, Any],
+        num_seqs: int = 10,
+        num_parallel_seqs: int = 25,
+        calibrate_method: CalibrationMethod = CalibrationMethod.MinMax,
+        moving_average: bool = False,
+        smoothing_factor: float = 0.0,
+        symmetric: bool = False,
+    ):
+        """
+        :param model:
+        :param dataset:
+        :param num_seqs:
+        :param num_parallel_seqs:
+        :param moving_average: whether to use moving average for MinMax or Symmetry for Entropy
+        """
+        self.model = model
+        self.dataset = dataset
+        self.num_seqs = num_seqs
+        self.num_parallel_seqs = num_parallel_seqs
+        self.moving_average = moving_average
+
+        self.out_model = self.output_path("model.onnx")
+        if num_seqs >= 5000:
+            time = 12
+        elif num_seqs >= 2500:
+            time = 6
+        elif num_seqs >= 1000:
+            time = 4
+        else:
+            time = 1
+        if not calibrate_method == CalibrationMethod.MinMax:
+            time *= 2
+
+        self.rqmt = {"cpu": 8 if num_seqs > 100 else 4, "mem": 16.0 if calibrate_method == CalibrationMethod.MinMax else 48, "time": time}
+        self.calibration_method = calibrate_method
+        self.smoothing_factor = smoothing_factor
+        self.symmetric = symmetric
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        print("Start")
+        quant_pre_process(
+            input_model_path=self.model.get_path(),
+            output_model_path="model_prep.onnx")
+
+        class DummyDataReader(CalibrationDataReader):
+
+            def __init__(self, model_str: str, data: Dataset, max_seqs: int):
+
+                self.max_seqs = max_seqs
+                self.data = data
+                self.idx: int = 0
+                sess_option = SessionOptions()
+                logging.info(f"Data Loading {os.getenv('SLURM_CPUS_PER_TASK')}")
+                sess_option.intra_op_num_threads = int(os.getenv('SLURM_CPUS_PER_TASK'))
+                session = InferenceSession(model_str, sess_option)
+                self.input_name_1 = session.get_inputs()[0].name
+                self.input_name_2 = session.get_inputs()[1].name
+
+            def get_next(self):
+                if not self.data.is_less_than_num_seqs(self.idx) or self.idx == self.max_seqs:
+                    return None
+                self.data.load_seqs(self.idx, self.idx + 1)
+                seq_len: np.ndarray = self.data.get_seq_length(self.idx)["data"]
+                data: np.ndarray = self.data.get_data(self.idx, "data")
+                if self.idx % 10 == 0:
+                    logging.info(f"{self.idx} seqs seen")
+                    print(self.idx)
+                seq_len = np.array([seq_len], dtype=np.int32)
+                data = np.expand_dims(data, axis=0)
+                self.idx += 1
+                return {self.input_name_1: data, self.input_name_2: seq_len}
+        dataset: Dataset = init_dataset(self.dataset)
+        dataset.init_seq_order(1)
+        y = DummyDataReader(model_str="model_prep.onnx", data=dataset, max_seqs=self.num_seqs)
+        quant_options = {
+                "CalibMaxIntermediateOutputs": self.num_parallel_seqs,
+                "CalibMovingAverage": self.moving_average,
+                "CalibTensorRangeSymmetric": self.symmetric,
+            }
+        if self.smoothing_factor > 0.0:
+            quant_options["CalibSmoothRange"] = self.smoothing_factor
+        quantize_static(
+            model_input="model_prep.onnx",
+            model_output=self.out_model.get_path(),
+            calibration_data_reader=y,
+            calibrate_method=self.calibration_method,
+            extra_options=quant_options,
+        )

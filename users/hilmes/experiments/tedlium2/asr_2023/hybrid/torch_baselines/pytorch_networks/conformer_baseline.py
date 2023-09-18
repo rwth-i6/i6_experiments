@@ -541,7 +541,7 @@ class Model(torch.nn.Module):
         self.final_linear = nn.Linear(conformer_size, target_size)
         self.export_mode = False
         self.prior_comp = False
-        assert len(kwargs) == 1  # for some reason there is some random arg always here
+        assert len(kwargs) in [0, 1]  # for some reason there is some random arg always here
 
     def forward(
         self,
