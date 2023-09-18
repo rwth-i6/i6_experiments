@@ -61,6 +61,7 @@ train_key = "train-other-960"
 
 @dataclass(frozen=True)
 class Experiment:
+    adapt_transition_model_to_ss: bool
     alignment: tk.Path
     batch_size: int
     decode_all_corpora: bool
@@ -84,6 +85,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
 
     configs = [
         Experiment(
+            adapt_transition_model_to_ss=False,
             alignment=alignment,
             batch_size=10000,
             dc_detection=False,
@@ -96,6 +98,21 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             run_tdp_study=False,
         ),
         Experiment(
+            adapt_transition_model_to_ss=False,
+            alignment=alignment,
+            batch_size=10000,
+            dc_detection=False,
+            decode_all_corpora=False,
+            fine_tune=a_name == "40ms-FF-v8",
+            lr="v13",
+            # 200 is the equivalent number of epochs in training time of training an FF-NN for alignment
+            num_epochs=600 + 600,
+            run_performance_study=a_name == "40ms-FF-v8",
+            tune_decoding=a_name == "40ms-FF-v8",
+            run_tdp_study=False,
+        ),
+        Experiment(
+            adapt_transition_model_to_ss=True,
             alignment=alignment,
             batch_size=10000,
             dc_detection=False,
@@ -111,6 +128,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
     ]
     for exp in configs:
         run_single(
+            adapt_transition_model_to_ss=exp.adapt_transition_model_to_ss,
             alignment=exp.alignment,
             batch_size=exp.batch_size,
             dc_detection=exp.dc_detection,
@@ -129,6 +147,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
 
 def run_single(
     *,
+    adapt_transition_model_to_ss: bool,
     alignment: tk.Path,
     batch_size: int,
     dc_detection: bool,
@@ -149,7 +168,7 @@ def run_single(
     bw_scale = baum_welch.BwScales(label_posterior_scale=0.3, label_prior_scale=None, transition_scale=0.3)
     ss_factor = 4
 
-    name = f"conf-2-ep:{num_epochs}-lr:{lr}-fl:{focal_loss}-fs-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
+    name = f"conf-2-ep:{num_epochs}-lr:{lr}-fl:{focal_loss}-fs-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}-tdp:{'adapted' if adapt_transition_model_to_ss else 'classic'}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -193,8 +212,8 @@ def run_single(
         chunk_size=CONF_CHUNKING_10MS,
     )
     s._update_am_setting_for_all_crps(
-        train_tdp_type="heuristic",
-        eval_tdp_type="heuristic",
+        train_tdp_type="heuristic-40ms" if adapt_transition_model_to_ss else "heuristic",
+        eval_tdp_type="heuristic-40ms" if adapt_transition_model_to_ss else "heuristic",
         add_base_allophones=False,
     )
 
