@@ -83,6 +83,17 @@ def get_40ms_wei_a():
 
 
 @cache
+def align_tinas_models():
+    from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new import (
+        config_03b_monophone_blstm_fullsum_tina,
+    )
+
+    returnn_root = _clone_returnn_safe()
+    exps = config_03b_monophone_blstm_fullsum_tina.run(returnn_root=returnn_root)
+    return exps
+
+
+@cache
 def run_blstm_a():
     from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new import (
         config_03_monophone_blstm_fullsum,
@@ -106,6 +117,9 @@ def get_n_blstm_a(
     from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new.config_03_monophone_blstm_fullsum import (
         Experiment,
     )
+    from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new.config_03b_monophone_blstm_fullsum_tina import (
+        Experiment as TinaE,
+    )
 
     via_dict = {
         (False, 30 / 1000, 0.3, False): tk.Path(ALIGN_30MS_BLSTM_MP, cached=True),
@@ -117,6 +131,11 @@ def get_n_blstm_a(
     result = via_dict.get((feature_stacking, t_step, transition_scale, adapted_tdps), None)
     if result is not None:
         return result
+
+    exps_tina: Dict[TinaE, Any] = align_tinas_models()
+    if t_step == 30 / 1000 and feature_stacking and (adapted_tdps is None or adapted_tdps == False):
+        target_s = next(iter(exps_tina.values()))
+        return target_s.experiments["fh"]["alignment_job"].out_alignment_bundle
 
     exps: Dict[Experiment, Any] = run_blstm_a()
     target_s = next(
