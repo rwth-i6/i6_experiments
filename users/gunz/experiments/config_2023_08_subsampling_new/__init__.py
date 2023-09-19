@@ -291,6 +291,7 @@ def the_plan():
         config_11b_diphone_fs1x3_30ms,
         config_21_diphone_mpc1x4_40ms,
         config_21h_diphone_fs1x4_40ms,
+        config_21i_diphone_ss_variations_40ms,
     )
 
     returnn_root = _clone_returnn_safe()
@@ -337,6 +338,9 @@ def the_plan():
 
     config_11_diphone_mpc1x3_30ms.run(returnn_root=returnn_root, alignments=[(phmms_30ms_ffnn_a, "30ms-FFs-v8")])
     config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmms_40ms_ffnn_a, a_name="40ms-FFs-v8")
+    config_21i_diphone_ss_variations_40ms.run(
+        returnn_root=returnn_root, alignment=phmms_40ms_ffnn_a, a_name="40ms-FFs-v8"
+    )
 
 
 def main():
