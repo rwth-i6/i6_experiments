@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Tuple
 
 __all__ = [
     "ConformerBlockConvFirstV1Config",
@@ -11,12 +12,11 @@ import torch
 from torch import nn
 from dataclasses import dataclass
 
-from i6_models.config import ModelConfiguration, SubassemblyWithOptions
+from i6_models.config import ModelConfiguration, ModuleFactoryV1
+import i6_experiments.users.berger.pytorch.custom_parts as custom_parts
 from i6_models.parts.conformer import (
     ConformerConvolutionV1,
     ConformerConvolutionV1Config,
-    ConformerMHSAV1,
-    ConformerMHSAV1Config,
     ConformerPositionwiseFeedForwardV1,
     ConformerPositionwiseFeedForwardV1Config,
 )
@@ -27,13 +27,14 @@ class ConformerBlockConvFirstV1Config(ModelConfiguration):
     """
     Attributes:
         ff_cfg: Configuration for ConformerPositionwiseFeedForwardV1
-        mhsa_cfg: Configuration for ConformerMHSAV1
+        mhsa_cfg: Configuration for Conformer
         conv_cfg: Configuration for ConformerConvolutionV1
     """
 
     # nested configurations
+    rel_pos_enc_cfg: custom_parts.SelfAttRelPosEncodingV1Config
     ff_cfg: ConformerPositionwiseFeedForwardV1Config
-    mhsa_cfg: ConformerMHSAV1Config
+    mhsa_cfg: custom_parts.ConformerMHSARelposV1Config
     conv_cfg: ConformerConvolutionV1Config
 
 
@@ -47,8 +48,9 @@ class ConformerBlockConvFirstV1(nn.Module):
         :param cfg: conformer block configuration with subunits for the different conformer parts
         """
         super().__init__()
+        self.rel_pos_enc = custom_parts.SelfAttRelPosEncodingV1(cfg=cfg.rel_pos_enc_cfg)
         self.ff_1 = ConformerPositionwiseFeedForwardV1(cfg=cfg.ff_cfg)
-        self.mhsa = ConformerMHSAV1(cfg=cfg.mhsa_cfg)
+        self.mhsa = custom_parts.ConformerMHSARelposV1(cfg=cfg.mhsa_cfg)
         self.conv = ConformerConvolutionV1(model_cfg=cfg.conv_cfg)
         self.ff_2 = ConformerPositionwiseFeedForwardV1(cfg=cfg.ff_cfg)
         self.final_layer_norm = torch.nn.LayerNorm(cfg.ff_cfg.input_dim)
@@ -59,15 +61,11 @@ class ConformerBlockConvFirstV1(nn.Module):
         :param sequence_mask: mask tensor where 0 defines positions within the sequence and 1 outside, shape: [B, T]
         :return: torch.Tensor of shape [B, T, F]
         """
-        residual = tensor  #  [B, T, F]
-        x = self.ff_1(residual)  #  [B, T, F]
-        residual = 0.5 * x + residual  #  [B, T, F]
-        x = self.conv(residual)  #  [B, T, F]
-        residual = x + residual  # [B, T, F]
-        x = self.mhsa(residual, sequence_mask)  #  [B, T, F]
-        residual = x + residual  # [B, T, F]
-        x = self.ff_2(residual)  #  [B, T, F]
-        x = 0.5 * x + residual  #  [B, T, F]
+        x = tensor  #  [B, T, F]
+        x = 0.5 * x + self.ff_1(x)  #  [B, T, F]
+        x = x + self.conv(x)  # [B, T, F]
+        x = x + self.mhsa(x, self.rel_pos_enc(x), sequence_mask)  #  [B, T, F]
+        x = 0.5 * x + self.ff_2(x)  #  [B, T, F]
         x = self.final_layer_norm(x)  #  [B, T, F]
         return x
 
@@ -82,9 +80,7 @@ class ConformerEncoderConvFirstV1Config(ModelConfiguration):
     """
 
     num_layers: int
-
-    # nested configurations
-    frontend: SubassemblyWithOptions
+    frontend: ModuleFactoryV1
     block_cfg: ConformerBlockConvFirstV1Config
 
 
@@ -101,12 +97,12 @@ class ConformerEncoderConvFirstV1(nn.Module):
         """
         super().__init__()
 
-        self.frontend = cfg.frontend.construct()
+        self.frontend = cfg.frontend()
         self.module_list = torch.nn.ModuleList(
             [ConformerBlockConvFirstV1(cfg.block_cfg) for _ in range(cfg.num_layers)]
         )
 
-    def forward(self, data_tensor: torch.Tensor, sequence_mask: torch.Tensor):
+    def forward(self, data_tensor: torch.Tensor, sequence_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         :param data_tensor: input tensor of shape [B, T', F]
         :param sequence_mask: mask tensor where 0 defines positions within the sequence and 1 outside, shape: [B, T']
@@ -119,4 +115,4 @@ class ConformerEncoderConvFirstV1(nn.Module):
         for module in self.module_list:
             x = module(x, mask)  # [B, T, F']
 
-        return x
+        return x, mask
