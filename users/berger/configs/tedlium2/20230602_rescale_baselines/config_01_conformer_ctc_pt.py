@@ -86,6 +86,7 @@ def run_exp() -> SummaryReport:
         returnn_python_exe=tools.returnn_python_exe,
         rasr_binary_path=tools.rasr_binary_path,
         augmented_lexicon=True,
+        feature_type=FeatureType.GAMMATONE,
     )
 
     # ********** Step args **********
@@ -94,8 +95,8 @@ def run_exp() -> SummaryReport:
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
         epochs=[40, 80, 160, 240, num_subepochs],
-        prior_scales=[0.3, 0.4],
-        lm_scales=[0.5, 0.7, 0.9],
+        prior_scales=[0.9],
+        lm_scales=[1.1],
         feature_type=FeatureType.GAMMATONE,
     )
 
