@@ -103,7 +103,7 @@ def pop_phoneme_state_classes(
 
 @dataclass(frozen=True, eq=True)
 class SubsamplingInfo:
-    factor: int
+    factor: typing.Union[int, typing.List[int]]
     time_tag_name: str
 
 
@@ -120,13 +120,18 @@ def augment_net_with_label_pops(
     if classes_subsampling_info is not None:
         # This layer sets the time step ratio between the input and the output of the NN.
 
+        ss_factors = (
+            [classes_subsampling_info.factor]
+            if isinstance(classes_subsampling_info.factor, int)
+            else classes_subsampling_info.factor
+        )
+        t_tag = f"{classes_subsampling_info.time_tag_name}"
+        for factor in ss_factors:
+            t_tag += f".ceildiv_right({factor})"
+
         network["classes_"] = {
             "class": "reinterpret_data",
-            "set_dim_tags": {
-                "T": returnn.CodeWrapper(
-                    f"{classes_subsampling_info.time_tag_name}.ceildiv_right({classes_subsampling_info.factor})"
-                )
-            },
+            "set_dim_tags": {"T": returnn.CodeWrapper(t_tag)},
             "from": labeling_input,
         }
         labeling_input = "classes_"

@@ -227,6 +227,13 @@ def run_single(
         "mp:2@2+mp:2@4": (2, 2),
         "mp:4@2": (4, 1),
     }
+    reduction_pattern = {
+        "cs:2@2+cs:2@2": [2, 2],
+        "mp:2@2+mp:2@4": [2, 2],
+        "cs:4@2": 4,
+        "cs:4@4": 4,
+        "mp:4@2": 4,
+    }
 
     time_prolog, time_tag_name = returnn_time_tag.get_shared_time_tag()
     network_builder = conformer.get_best_model_config(
@@ -247,7 +254,7 @@ def run_single(
     network = augment_net_with_label_pops(
         network,
         label_info=s.label_info,
-        classes_subsampling_info=SubsamplingInfo(factor=ss_factor, time_tag_name=time_tag_name),
+        classes_subsampling_info=SubsamplingInfo(factor=reduction_pattern[ss_strategy], time_tag_name=time_tag_name),
     )
     network = augment_net_with_monophone_outputs(
         network,
