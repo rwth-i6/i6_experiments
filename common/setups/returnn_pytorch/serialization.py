@@ -5,13 +5,13 @@ import pathlib
 import shutil
 import string
 import textwrap
+from collections import OrderedDict
 from dataclasses import fields
 from inspect import isfunction
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import torch
 from i6_core.util import instanciate_delayed
-from i6_models.config import ModelConfiguration, ModuleFactoryV1
 from sisyphus import gs, tk
 from sisyphus.delayed_ops import DelayedBase
 from sisyphus.hash import sis_hash_helper
@@ -117,7 +117,7 @@ class Collection(DelayedBase):
         content = ["import os\nimport sys\n"]
 
         # have sys.path setup first
-        if self.make_local_package_copy:
+        if self.make_local_package_copy and self.packages is not None:
             out_dir = os.path.join(os.getcwd(), "../output")
             for package in self.packages:
                 if isinstance(package, tk.Path):
@@ -144,7 +144,7 @@ class Collection(DelayedBase):
 
 
 def build_config_constructor_serializers(
-    cfg: ModelConfiguration, variable_name: Optional[str] = None, unhashed_package_root: Optional[str] = None
+    cfg: Any, variable_name: Optional[str] = None, unhashed_package_root: Optional[str] = None
 ) -> Tuple[Call, List[Import]]:
     """
     Creates a Call object that will re-construct the given ModelConfiguration when serialized and
@@ -158,6 +158,9 @@ def build_config_constructor_serializers(
     :param unhashed_package_root: Will be passed to all generated Import objects.
     :return: Call object and list of necessary imports.
     """
+    from i6_models.config import ModelConfiguration, ModuleFactoryV1
+
+    assert isinstance(cfg, ModelConfiguration)
 
     # Import the class of <cfg>
     imports = [
@@ -242,5 +245,7 @@ def build_config_constructor_serializers(
             # No special case (usually python primitives)
             # -> Just get string representation
             call_kwargs.append((key.name, str(value)))
+
+    imports = list(OrderedDict.fromkeys(imports))  # remove duplications
 
     return Call(callable_name=type(cfg).__name__, kwargs=call_kwargs, return_assign_variables=variable_name), imports

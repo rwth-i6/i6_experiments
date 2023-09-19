@@ -73,8 +73,8 @@ class Import(SerializerObject):
 
     def __init__(
         self,
-        *,
         code_object_path: Union[str, FunctionType, Any],
+        *,
         unhashed_package_root: Optional[str] = None,
         import_as: Optional[str] = None,
         use_for_hash: bool = True,
@@ -354,16 +354,16 @@ class Call(SerializerObject):
     SerializerObject that serializes the call of a callable with given arguments.
     The return values of the call are optionally assigned to variables of a given name.
     Example:
-    Call(callable_name="range", args=[1, 10], kwargs=[("step", 2)], return_assign_variables="number_range")
+    Call(callable_name="range", kwargs=[("start", 1), ("stop", 10)], return_assign_variables="number_range")
     ->
-    number_range = range(1, 10, step=2)
+    number_range = range(start=1, stop=10)
     """
 
     def __init__(
         self,
         callable_name: str,
-        args: Optional[List[Union[str, DelayedBase]]] = None,
         kwargs: Optional[List[Tuple[str, Union[str, DelayedBase]]]] = None,
+        unhashed_kwargs: Optional[List[Tuple[str, Union[str, DelayedBase]]]] = None,
         return_assign_variables: Optional[Union[str, List[str]]] = None,
     ) -> None:
         """
@@ -373,8 +373,8 @@ class Call(SerializerObject):
         :param return_assign_variables: Optional name or list of variable names that the return value(s) of the call are assigned to.
         """
         self.callable_name = callable_name
-        self.args = args or []
         self.kwargs = kwargs or []
+        self.unhashed_kwargs = unhashed_kwargs or []
         self.return_assign_variables = return_assign_variables
 
         if isinstance(self.return_assign_variables, str):
@@ -386,19 +386,15 @@ class Call(SerializerObject):
         if self.return_assign_variables is not None:
             return_assign_str = ", ".join(self.return_assign_variables) + " = "
 
-        # args and kwargs
-        args_kwargs_str_list = []
-        for arg in self.args:
-            args_kwargs_str_list.append(str(try_get(arg)))
-        for key, val in self.kwargs:
-            args_kwargs_str_list.append(f"{key}={try_get(val)}")
+        # kwargs
+        kwargs_str_list = [f"{key}={try_get(val)}" for key, val in self.kwargs + self.unhashed_kwargs]
 
-        return f"{return_assign_str}{self.callable_name}({', '.join(args_kwargs_str_list)})"
+        # full call
+        return f"{return_assign_str}{self.callable_name}({', '.join(kwargs_str_list)})"
 
     def _sis_hash(self):
         h = {
             "callable_name": self.callable_name,
-            "args": self.args,
             "kwargs": self.kwargs,
             "return_assign_variables": self.return_assign_variables,
         }
