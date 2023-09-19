@@ -191,6 +191,7 @@ def build_config_constructor_serializers(
             # -> Import classes ModuleFactoryV1, VGGFrontend and VGGFrontendConfig
             # -> Sub-Constructor-Call for VGGFrontendConfig
             subcall, subimports = build_config_constructor_serializers(value.cfg)
+            imports += subimports
             imports.append(
                 Import(
                     code_object_path=f"{value.module_class.__module__}.{value.module_class.__name__}",

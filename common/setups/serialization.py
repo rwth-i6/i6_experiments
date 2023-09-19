@@ -129,6 +129,11 @@ class Import(SerializerObject):
             return sis_hash_helper({"code_object": self.code_object, "import_as": self.import_as})
         return sis_hash_helper(self.code_object)
 
+    def __hash__(self):
+        if self.import_as and not self.ignore_import_as_for_hash:
+            return hash({"code_object": self.code_object, "import_as": self.import_as})
+        return hash(self.code_object)
+
 
 class PartialImport(Import):
     """
