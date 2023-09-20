@@ -476,6 +476,25 @@ def run_single(
             tdp_speech=[(0, 0, "infinity", 0), (3, 0, "infinity", 0)],
         )
 
+        for cfg in [
+            base_params.with_tdp_scale(0.4).with_prior_scale(0.4),
+            base_params.with_tdp_scale(0.6).with_prior_scale(0.6),
+        ]:
+            s.recognize_cart(
+                key="fh",
+                epoch=max(keep_epochs),
+                calculate_statistics=True,
+                cart_tree_or_tying_config=tying_cfg,
+                cpu_rqmt=2,
+                crp_corpus="dev-other",
+                lm_gc_simple_hash=True,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                mem_rqmt=4,
+                n_cart_out=diphone_li.get_n_of_dense_classes(),
+                opt_lm_am_scale=True,
+                params=cfg,
+            )
+
     if run_performance_study:
         clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
         nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
