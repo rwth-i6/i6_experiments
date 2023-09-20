@@ -63,10 +63,10 @@ DEFAULT_ENVIRONMENT_SET["TMPDIR"] = TMP_PREFIX
 def check_engine_limits(current_rqmt, task):
     CPU_BOTH_JOBLIST = {
         "AdvancedTreeSearchLmImageAndGlobalCacheJob",
-    }
-    CPU_SLOW_JOBLIST = [
         "BuildGlobalCacheJob",
         "CreateLmImageJob",
+    }
+    CPU_SLOW_JOBLIST = [
         "ExtractSearchStatisticsJob",
         "Hub5ScoreJob",
         "JoinRightContextPriorsJob",
