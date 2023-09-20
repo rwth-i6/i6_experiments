@@ -1460,12 +1460,9 @@ class FactoredHybridSystem(NnSystem):
             crp.acoustic_model_config.state_tying.type = "cart"
 
         def SearchJob(*args, **kwargs):
-            nonlocal adv_tree_search_job
-
             kwargs["lmgc_scorer"] = rasr.DiagonalMaximumScorer(p_mixtures)
             kwargs["separate_lm_image_gc_generation"] = True
-
-            return adv_tree_search_job
+            return recognition.AdvancedTreeSearchJob(*args, **kwargs)
 
         decoder = HybridDecoder(
             rasr_binary_path=self.rasr_binary_path,
