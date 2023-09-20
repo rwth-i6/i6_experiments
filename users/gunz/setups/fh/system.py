@@ -6,7 +6,7 @@ import typing
 from typing import Dict, List, Optional, Union
 
 # -------------------- Sisyphus --------------------
-from sisyphus import tk
+from sisyphus import delayed_ops, tk
 
 # -------------------- Recipes --------------------
 import i6_core.corpus as corpus_recipe
@@ -40,7 +40,6 @@ from i6_experiments.common.setups.rasr.util.decode import (
     PriorPath,
 )
 
-
 from ..common.decoder.rtf import ExtractSearchStatisticsJob
 from ..common.hdf import RasrAlignmentToHDF, RasrFeaturesToHdf
 from ..common.nn.cache_epilog import hdf_dataset_cache_epilog, hdf_dataset_cache_epilog_v0
@@ -57,6 +56,7 @@ from .priors import (
     JoinRightContextPriorsJob,
     ReshapeCenterStatePriorsJob,
 )
+from .util.argmin import ComputeArgminJob
 from .util.pipeline_helpers import get_lexicon_args, get_tdp_values
 from .util.rasr import SystemInput
 
@@ -87,6 +87,16 @@ class Experiment(typing.TypedDict, total=False):
     prior_job: typing.Optional[returnn.ReturnnRasrComputePriorJobV2]
     returnn_config: typing.Optional[returnn.ReturnnConfig]
     train_job: typing.Optional[returnn.ReturnnRasrTrainingJob]
+
+
+@dataclasses.dataclass(frozen=True)
+class TuningResult:
+    best_config: delayed_ops.Delayed
+    decoder: HybridDecoder
+
+
+def to_tdp(tdp_tuple: typing.Tuple[TDP, TDP, TDP, TDP]) -> Tdp:
+    return Tdp(loop=tdp_tuple[0], forward=tdp_tuple[1], skip=tdp_tuple[2], exit=tdp_tuple[3])
 
 
 class FactoredHybridSystem(NnSystem):
@@ -1414,6 +1424,177 @@ class FactoredHybridSystem(NnSystem):
         assert p_info is not None, "set priors first"
         return SearchParameters.default_cart(priors=p_info)
 
+    def recognize_optimize_scales_nn_pch(
+        self,
+        *,
+        key: str,
+        epoch: int,
+        crp_corpus: str,
+        n_out: int,
+        cart_tree_or_tying_config: typing.Union[tk.Path, rasr.RasrConfig],
+        params: SearchParameters,
+        log_softmax_returnn_config: returnn.ReturnnConfig,
+        prior_scales: List[float],
+        tdp_scales: Optional[List[float]] = None,
+        tdp_speech: Optional[List[typing.Tuple[TDP, TDP, TDP, TDP]]] = None,
+        tdp_silence: Optional[List[typing.Tuple[TDP, TDP, TDP, TDP]]] = None,
+        tune_altas: int = 12,
+        tune_beam: int = 14,
+        encoder_output_layer: str = "output",
+        mem_rqmt: int = 4,
+        cpu_rqmt: int = 2,
+        alias_output_prefix: str = "",
+        prior_epoch: typing.Union[int, str] = "",
+    ) -> TuningResult:
+        p_info: PriorInfo = self.experiments[key].get("priors", None)
+        assert p_info is not None, "set priors first"
+
+        p_mixtures = mm.CreateDummyMixturesJob(n_out, self.initial_nn_args["num_input"]).out_mixtures
+
+        crp = copy.deepcopy(self.crp[crp_corpus])
+
+        if isinstance(cart_tree_or_tying_config, rasr.RasrConfig):
+            crp.acoustic_model_config.state_tying = cart_tree_or_tying_config
+        else:
+            crp.acoustic_model_config.state_tying.file = cart_tree_or_tying_config
+            crp.acoustic_model_config.state_tying.type = "cart"
+
+        def SearchJob(*args, **kwargs):
+            nonlocal adv_tree_search_job
+
+            kwargs["lmgc_scorer"] = rasr.DiagonalMaximumScorer(p_mixtures)
+            kwargs["separate_lm_image_gc_generation"] = True
+
+            return adv_tree_search_job
+
+        decoder = HybridDecoder(
+            rasr_binary_path=self.rasr_binary_path,
+            returnn_root=self.returnn_root,
+            returnn_python_exe=self.returnn_python_exe,
+            required_native_ops=None,
+            search_job_class=SearchJob,
+            alias_output_prefix=f"{alias_output_prefix}scales-nn-pch",
+        )
+        decoder.set_crp("init", crp)
+
+        corpus = meta.CorpusObject()
+        corpus.corpus_file = crp.corpus_config.file
+        corpus.audio_format = crp.audio_format
+        corpus.duration = crp.corpus_duration
+
+        decoder.init_eval_datasets(
+            eval_datasets={crp_corpus: corpus},
+            concurrency={crp_corpus: crp.concurrent},
+            corpus_durations=durations,
+            feature_flows=self.feature_flows,
+            stm_paths={crp_corpus: self.scorer_args[crp_corpus]["ref"]},
+        )
+
+        @dataclasses.dataclass
+        class RasrConfigWrapper:
+            obj: rasr.RasrConfig
+
+            def get(self) -> rasr.RasrConfig:
+                return self.obj
+
+        adv_search_extra_config = rasr.RasrConfig()
+        adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.acoustic_lookahead_temporal_approximation_scale = (
+            tune_altas
+        )
+
+        lat2ctm_extra_config = rasr.RasrConfig()
+        lat2ctm_extra_config.flf_lattice_tool.network.to_lemma.links = "best"
+
+        tdp_sil = tdp_silence if tdp_silence is not None else [params.tdp_silence]
+        tdp_ssp = tdp_speech if tdp_speech is not None else [params.tdp_speech]
+        tdp_sc = tdp_scales if tdp_scales is not None else [params.tdp_scale]
+
+        decoder.recognition(
+            name=self.experiments[key]["name"],
+            checkpoints={epoch: self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)},
+            epochs=[epoch],
+            forward_output_layer=encoder_output_layer,
+            prior_paths={
+                f"rp{prior_epoch}": PriorPath(
+                    acoustic_mixture_path=p_mixtures,
+                    prior_xml_path=p_info.center_state_prior.file,
+                )
+            },
+            recognition_parameters={
+                crp_corpus: [
+                    DevRecognitionParameters(
+                        altas=[tune_altas],
+                        am_scales=[1],
+                        lm_scales=[params.lm_scale],
+                        prior_scales=prior_scales,
+                        pronunciation_scales=[params.pron_scale],
+                        speech_tdps=[to_tdp(tdp) for tdp in tdp_ssp],
+                        silence_tdps=[to_tdp(tdp) for tdp in tdp_sil],
+                        nonspeech_tdps=[to_tdp(tdp) for tdp in tdp_sil],
+                        tdp_scales=tdp_sc,
+                    )
+                ]
+            },
+            returnn_config=log_softmax_returnn_config,
+            lm_configs={"4gram": RasrConfigWrapper(obj=crp.language_model_config)},
+            search_job_args=AdvTreeSearchJobArgs(
+                search_parameters={
+                    "beam-pruning": tune_beam,
+                    "beam-pruning-limit": params.beam_limit,
+                    "word-end-pruning": params.we_pruning,
+                    "word-end-pruning-limit": params.we_pruning_limit,
+                },
+                use_gpu=False,
+                mem=mem_rqmt,
+                cpu=cpu_rqmt,
+                lm_lookahead=True,
+                lmgc_mem=12,
+                lookahead_options=None,
+                create_lattice=True,
+                eval_best_in_lattice=True,
+                eval_single_best=True,
+                extra_config=adv_search_extra_config,
+                extra_post_config=None,
+                rtf=4,
+            ),
+            lat_2_ctm_args=Lattice2CtmArgs(
+                parallelize=True,
+                best_path_algo="bellman-ford",
+                encoding="utf-8",
+                extra_config=lat2ctm_extra_config,
+                extra_post_config=None,
+                fill_empty_segments=True,
+            ),
+            scorer_args=self.scorer_args[crp_corpus],
+            optimize_parameters=OptimizeJobArgs(
+                opt_only_lm_scale=True,
+                maxiter=100,
+                precision=2,
+                extra_config=None,
+                extra_post_config=None,
+            ),
+            optimize_pron_lm_scales=False,
+        )
+
+        n_errors = {
+            (key, exp_name): job.out_num_errors
+            for key, jobs in decoder.jobs.items()
+            for exp_name, job in jobs["score"].items()
+        }
+        best_overall_n_err = ComputeArgminJob(n_errors)
+
+        name = self.experiments[key]["name"]
+        tk.register_output(f"scales-nn-pch/{name}/scales", best_overall_n_err.out_argmin)
+        tk.register_output(f"scales-nn-pch/{name}/n_err", best_overall_n_err.out_min)
+        tk.register_output(
+            f"scales-nn-pch/{name}/wer",
+            delayed_ops.Delayed(decoder.jobs)[best_overall_n_err.out_argmin[0]]["score"][
+                best_overall_n_err.out_argmin[1]
+            ].out_wer,
+        )
+
+        return TuningResult(best_config=best_overall_n_err.out_argmin, decoder=decoder)
+
     def recognize_cart(
         self,
         *,
@@ -1607,9 +1788,6 @@ class FactoredHybridSystem(NnSystem):
         )
 
         if calculate_statistics:
-
-            def to_tdp(tdp_tuple: typing.Tuple[TDP, TDP, TDP, TDP]) -> Tdp:
-                return Tdp(loop=tdp_tuple[0], forward=tdp_tuple[1], skip=tdp_tuple[2], exit=tdp_tuple[3])
 
             assert adv_tree_search_job is not None
             stats_job = ExtractSearchStatisticsJob(

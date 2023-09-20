@@ -75,6 +75,7 @@ class Experiment:
     dc_detection: bool
     run_performance_study: bool
     tune_decoding: bool
+    tune_nn_pch: bool
     run_tdp_study: bool
 
     filter_segments: typing.Optional[typing.List[str]] = None
@@ -99,7 +100,8 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             label_smoothing=CONF_LABEL_SMOOTHING,
             lr="v13",
             run_performance_study=a_name == "40ms-FF-v8",
-            tune_decoding=a_name in ["40ms-FF-v8", "40ms-FFs-v8"],
+            tune_decoding=a_name in ["40ms-FF-v8"],
+            tune_nn_pch=a_name in ["40ms-FFs-v8"],
             run_tdp_study=False,
         )
     ]
@@ -118,6 +120,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
                 lr="v13",
                 run_performance_study=False,
                 tune_decoding=False,
+                tune_nn_pch=False,
                 run_tdp_study=False,
             ),
             Experiment(
@@ -132,6 +135,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
                 lr="v13",
                 run_performance_study=False,
                 tune_decoding=a_name == "40ms-FF-v8",
+                tune_nn_pch=False,
                 run_tdp_study=False,
             ),
         ]
@@ -152,6 +156,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             filter_segments=exp.filter_segments,
             lr=exp.lr,
             run_tdp_study=exp.run_tdp_study,
+            tune_nn_pch=exp.tune_nn_pch,
         )
 
 
@@ -169,6 +174,7 @@ def run_single(
     returnn_root: tk.Path,
     run_performance_study: bool,
     tune_decoding: bool,
+    tune_nn_pch: bool,
     run_tdp_study: bool,
     label_smoothing: float = CONF_LABEL_SMOOTHING,
     filter_segments: typing.Optional[typing.List[str]],
@@ -427,6 +433,48 @@ def run_single(
                 name_override="best/4gram",
                 rtf_cpu=32,
             )
+
+    if tune_nn_pch:
+        clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+        nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=clean_returnn_config,
+            label_info=s.label_info,
+            out_joint_score_layer="output",
+            log_softmax=True,
+        )
+        prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=clean_returnn_config,
+            label_info=s.label_info,
+            out_joint_score_layer="output",
+            log_softmax=False,
+        )
+        s.set_mono_priors_returnn_rasr(
+            key="fh",
+            epoch=keep_epochs[-2],
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=prior_returnn_config,
+            output_layer_name="output",
+        )
+
+        diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+        tying_cfg = rasr.RasrConfig()
+        tying_cfg.type = "diphone-dense"
+        base_params = dataclasses.replace(s.get_cart_params("fh"), beam_limit=100000, lm_scale=2.4)
+
+        s.recognize_optimize_scales_nn_pch(
+            key="fh",
+            epoch=max(keep_epochs),
+            cart_tree_or_tying_config=tying_cfg,
+            crp_corpus="dev-other",
+            log_softmax_returnn_config=nn_precomputed_returnn_config,
+            n_out=diphone_li.get_n_of_dense_classes(),
+            params=base_params,
+            prior_scales=[round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
+            tdp_scales=[round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
+            tdp_speech=[(0, 0, "infinity", 0), (3, 0, "infinity", 0)],
+        )
 
     if run_performance_study:
         clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
