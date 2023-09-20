@@ -461,7 +461,7 @@ def forward_init_hook(run_ctx, **kwargs):
 
     generator = Generator(h).to(run_ctx.device)
 
-    state_dict_g = load_checkpoint("g_02310000", run_ctx.device)
+    state_dict_g = load_checkpoint("g_01080000", run_ctx.device)
     generator.load_state_dict(state_dict_g['generator'])
 
     run_ctx.generator = generator
@@ -474,7 +474,7 @@ def forward_finish_hook(run_ctx, **kwargs):
 
 MAX_WAV_VALUE = 32768.0
 
-def forward_step_waveform(*, model: Model, data, run_ctx, **kwargs):
+def forward_step(*, model: Model, data, run_ctx, **kwargs):
     phonemes = data["phonemes"] # [B, N] (sparse)
     phonemes_len = data["phonemes:size1"]  # [B]
     speaker_labels = data["speaker_labels"]  # [B, 1] (sparse)
@@ -482,7 +482,7 @@ def forward_step_waveform(*, model: Model, data, run_ctx, **kwargs):
 
     tags = data["seq_tag"]
     
-    (log_mels, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(phonemes, phonemes_len, g=speaker_labels, gen=True, noise_scale=0.66, length_scale=1) #TODO: Use noise scale and length scale
+    (log_mels, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(phonemes, phonemes_len, g=speaker_labels, gen=True, noise_scale=1, length_scale=1) #TODO: Use noise scale and length scale
 
     noise = torch.randn([1, 64, log_mels.shape[-1]]).to(device=log_mels.device)
     audios = run_ctx.generator.forward(noise, log_mels)
@@ -495,12 +495,15 @@ def forward_step_waveform(*, model: Model, data, run_ctx, **kwargs):
     audios_gt = audios_gt * MAX_WAV_VALUE
     audios_gt = audios_gt.cpu().numpy().astype('int16')
 
-    os.makedirs("/var/tmp/out", exist_ok=True)
+    if not os.path.exists("/var/tmp/lukas.rilling/"):
+        os.makedirs("/var/tmp/lukas.rilling/")
+    if not os.path.exists("/var/tmp/lukas.rilling/out"):
+        os.makedirs("/var/tmp/lukas.rilling/out/", exist_ok=True)
     for audio, audio_gt, tag in zip (audios, audios_gt, tags):
-        soundfile.write(f"/var/tmp/out" + tag.replace("/", "_") + ".wav", audio[0], 16000)
-        soundfile.write(f"/var/tmp/out" + tag.replace("/", "_") + "_gt.wav", audio_gt[0], 16000)
+        soundfile.write(f"/var/tmp/lukas.rilling/out/" + tag.replace("/", "_") + ".wav", audio[0], 16000)
+        soundfile.write(f"/var/tmp/lukas.rilling/out/" + tag.replace("/", "_") + "_gt.wav", audio_gt[0], 16000)
 
-def forward_step(*, model: Model, data, run_ctx, **kwargs):
+def forward_step_spectrograms(*, model: Model, data, run_ctx, **kwargs):
     tags = data["seq_tag"]
     audio_features = data["audio_features"]  # [B, T, F]
     audio_features = audio_features.transpose(1, 2) # [B, F, T] necessary because glowTTS expects the channels to be in the 2nd dimension
