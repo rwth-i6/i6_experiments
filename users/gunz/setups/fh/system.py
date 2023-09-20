@@ -1580,15 +1580,18 @@ class FactoredHybridSystem(NnSystem):
         }
         best_overall_n_err = ComputeArgminJob(n_errors)
 
+        wer = delayed_ops.Delayed(
+            {
+                (key, exp_name): job.out_wer
+                for key, jobs in decoder.jobs.items()
+                for exp_name, job in jobs["score"].items()
+            }
+        )
+
         name = self.experiments[key]["name"]
         tk.register_output(f"scales-nn-pch/{name}/scales", best_overall_n_err.out_argmin)
         tk.register_output(f"scales-nn-pch/{name}/n_err", best_overall_n_err.out_min)
-        tk.register_output(
-            f"scales-nn-pch/{name}/wer",
-            delayed_ops.Delayed(decoder.jobs)[best_overall_n_err.out_argmin[0]]["score"][
-                best_overall_n_err.out_argmin[1]
-            ].out_wer,
-        )
+        tk.register_output(f"scales-nn-pch/{name}/wer", wer[best_overall_n_err.out_argmin])
 
         return TuningResult(best_config=best_overall_n_err.out_argmin, decoder=decoder)
 
