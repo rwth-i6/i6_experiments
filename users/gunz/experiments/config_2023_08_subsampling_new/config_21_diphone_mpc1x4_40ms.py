@@ -536,7 +536,7 @@ def run_single(
             *configs,
             *(
                 (lr, baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3))
-                for lr in [1e-5, 2e-5, 3e-5, 8e-5]
+                for lr in [1e-5, 2e-5, 3e-5, 8e-5, 1e-4]
             ),
         ]
 
