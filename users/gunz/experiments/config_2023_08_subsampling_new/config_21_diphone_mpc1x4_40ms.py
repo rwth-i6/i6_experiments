@@ -586,9 +586,8 @@ def run_single(
                 baum_welch.BwScales(label_posterior_scale=p, label_prior_scale=None, transition_scale=t)
                 for p, t in itertools.product([0.3, 1.0], [0.0, 0.3])
             ]
-            configs = [(5e-5, scales) for scales in bw_scales]
             configs = [
-                *configs,
+                *((5e-5, False, scales) for scales in bw_scales),
                 *(
                     (
                         lr,
