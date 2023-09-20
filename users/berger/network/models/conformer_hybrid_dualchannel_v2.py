@@ -16,7 +16,10 @@ from i6_experiments.users.berger.network.helpers.specaug_2 import (
 def make_conformer_hybrid_dualchannel_model(
     specaug_args: Dict = {},
     use_secondary_audio: bool = False,
-    use_prim_identity_init: bool = False,
+    use_comb_init: bool = False,
+    sep_comb_diag: float = 0.9,
+    mix_comb_diag: float = 0.1,
+    comb_noise: float = 0.01,
     emulate_single_speaker: bool = False,
 ) -> Tuple[Dict, List[str]]:
     network = {}
@@ -54,13 +57,9 @@ def make_conformer_hybrid_dualchannel_model(
             "activation": None,
         }
 
-        if use_prim_identity_init:
-            # network["combine_encoders"]["forward_weights_init"] = CodeWrapper(
-            #     "np.vstack((1.0 * np.eye(512), 0.0 * np.eye(512)))"
-            # )
-
+        if use_comb_init:
             network["combine_encoders"]["forward_weights_init"] = CodeWrapper(
-                "np.vstack((0.9 * np.eye(512), 0.1 * np.eye(512))) + np.random.uniform(low=-0.01, high=0.01, size=(1024,512))"
+                f"np.vstack(({sep_comb_diag} * np.eye(512), {mix_comb_diag} * np.eye(512))) + np.random.uniform(low=-{comb_noise}, high={comb_noise}, size=(1024,512))"
             )
 
     from_list = "combine_encoders"

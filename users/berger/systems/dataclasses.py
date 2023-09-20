@@ -115,7 +115,8 @@ class ReturnnConfigs(Generic[types.ConfigType]):
 class CustomStepKwargs:
     train_step_kwargs: dict = field(default_factory=dict)
     align_step_kwargs: dict = field(default_factory=dict)
-    recog_step_kwargs: dict = field(default_factory=dict)
+    dev_recog_step_kwargs: dict = field(default_factory=dict)
+    test_recog_step_kwargs: dict = field(default_factory=dict)
 
 
 class SummaryKey(Enum):
