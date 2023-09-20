@@ -1470,7 +1470,7 @@ class FactoredHybridSystem(NnSystem):
             returnn_python_exe=self.returnn_python_exe,
             required_native_ops=None,
             search_job_class=SearchJob,
-            alias_output_prefix=f"{alias_output_prefix}scales-nn-pch",
+            alias_output_prefix=f"{alias_output_prefix}scales-nn-pch/",
         )
         decoder.set_crp("init", crp)
 
