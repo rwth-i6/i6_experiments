@@ -96,7 +96,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             chunking=CONF_CHUNKING_10MS,
             dc_detection=False,
             decode_all_corpora=False,
-            fine_tune=a_name in ["40ms-FF-v8"],
+            fine_tune=a_name in ["40ms-FF-v8", "40ms-FFs-v8"],
             label_smoothing=CONF_LABEL_SMOOTHING,
             lr="v13",
             run_performance_study=a_name == "40ms-FF-v8",
@@ -575,20 +575,31 @@ def run_single(
         keep_epochs = [23, 100, 225, 400, 450]
         orig_name = name
 
-        bw_scales = [
-            baum_welch.BwScales(label_posterior_scale=p, label_prior_scale=None, transition_scale=t)
-            for p, t in itertools.product([0.3, 1.0], [0.0, 0.3])
-        ]
-        configs = [(5e-5, scales) for scales in bw_scales]
-        configs = [
-            *configs,
-            *(
-                (lr, baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3))
-                for lr in [1e-5, 2e-5, 3e-5, 8e-5, 1e-4]
-            ),
-        ]
+        if alignment_name == "40ms-FFs-v8":
+            configs = [
+                (lr, True, baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=t))
+                for lr in [8e-5, 1e-4]
+                for t in [0.0, 0.3]
+            ]
+        else:
+            bw_scales = [
+                baum_welch.BwScales(label_posterior_scale=p, label_prior_scale=None, transition_scale=t)
+                for p, t in itertools.product([0.3, 1.0], [0.0, 0.3])
+            ]
+            configs = [(5e-5, scales) for scales in bw_scales]
+            configs = [
+                *configs,
+                *(
+                    (
+                        lr,
+                        False,
+                        baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3),
+                    )
+                    for lr in [1e-5, 2e-5, 3e-5, 8e-5, 1e-4]
+                ),
+            ]
 
-        for peak_lr, bw_scale in configs:
+        for peak_lr, adapt_transition_model, bw_scale in configs:
             name = f"{orig_name}-fs:{peak_lr}-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
             s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=name)
 
@@ -596,8 +607,8 @@ def run_single(
             s.lexicon_args["norm_pronunciation"] = False
 
             s._update_am_setting_for_all_crps(
-                train_tdp_type="heuristic",
-                eval_tdp_type="heuristic",
+                train_tdp_type="heuristic-40ms" if adapt_transition_model else "heuristic",
+                eval_tdp_type="heuristic-40ms" if adapt_transition_model else "heuristic",
                 add_base_allophones=False,
             )
 
