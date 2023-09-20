@@ -95,11 +95,11 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             chunking=CONF_CHUNKING_10MS,
             dc_detection=False,
             decode_all_corpora=False,
-            fine_tune=a_name == "40ms-FF-v8",
+            fine_tune=a_name in ["40ms-FF-v8"],
             label_smoothing=CONF_LABEL_SMOOTHING,
             lr="v13",
             run_performance_study=a_name == "40ms-FF-v8",
-            tune_decoding=a_name == "40ms-FF-v8",
+            tune_decoding=a_name in ["40ms-FF-v8", "40ms-FFs-v8"],
             run_tdp_study=False,
         )
     ]
