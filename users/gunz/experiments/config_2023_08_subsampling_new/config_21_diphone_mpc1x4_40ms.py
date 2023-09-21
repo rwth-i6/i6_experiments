@@ -479,10 +479,7 @@ def run_single(
             tdp_speech=[(0, 0, "infinity", 0), (3, 0, "infinity", 0)],
         )
 
-        for cfg in [
-            base_params.with_tdp_scale(0.4).with_prior_scale(0.4),
-            base_params.with_tdp_scale(0.6).with_prior_scale(0.6),
-        ]:
+        for cfg in [base_params.with_lm_scale(1.5).with_tdp_scale(sc).with_prior_scale(sc) for sc in [0.4, 0.6]]:
             s.recognize_cart(
                 key="fh",
                 epoch=max(keep_epochs),
