@@ -276,6 +276,8 @@ def run_single(
         st_emb_size=s.label_info.st_emb_size,
         use_multi_task=True,
     )
+    if label_smoothing > 0:
+        network["linear1-triphone"]["from"] = ["encoder-output"]
     network = aux_loss.add_intermediate_loss(
         network,
         center_state_only=True,
