@@ -415,7 +415,7 @@ def run_single(
         if tune_decoding and ep == keep_epochs[-1]:
             best_config = recognizer.recognize_optimize_scales(
                 label_info=s.label_info,
-                search_parameters=recog_args,
+                search_parameters=recog_args.with_lm_scale(1.5),
                 num_encoder_output=conf_model_dim,
                 tdp_speech=[(3, 0, "infinity", 0)],
                 tdp_sil=[(3, 10, "infinity", 10)],
@@ -464,7 +464,7 @@ def run_single(
         diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
         tying_cfg = rasr.RasrConfig()
         tying_cfg.type = "diphone-dense"
-        base_params = dataclasses.replace(s.get_cart_params("fh"), beam_limit=100000, lm_scale=2.4)
+        base_params = dataclasses.replace(s.get_cart_params("fh"), beam_limit=100000, lm_scale=1.5)
 
         s.recognize_optimize_scales_nn_pch(
             key="fh",
