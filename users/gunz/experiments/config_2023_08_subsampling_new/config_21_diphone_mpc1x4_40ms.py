@@ -277,6 +277,7 @@ def run_single(
         use_multi_task=True,
     )
     if label_smoothing > 0:
+        # Make sure it is defined
         network["linear1-triphone"]["from"] = ["encoder-output"]
     network = aux_loss.add_intermediate_loss(
         network,
@@ -286,7 +287,7 @@ def run_single(
         focal_loss_factor=focal_loss,
         l2=L2,
         label_info=s.label_info,
-        label_smoothing=0.0,
+        label_smoothing=0.0,  # no LS here!
         time_tag_name=time_tag_name,
         upsampling=False,
     )
