@@ -66,6 +66,7 @@ class Model(nn.Module):
         final_hidden_channels=80,
         final_n_layers=1,
         label_target_size=None,
+        subsampling_factor=4,
         **kwargs,
     ):
         """_summary_
@@ -107,6 +108,7 @@ class Model(nn.Module):
         self.window_size = window_size
         self.block_length = block_length
         self.hidden_channels_dec = hidden_channels_dec
+        self.subsampling_factor = subsampling_factor
 
         self.net_kwargs = {
             "repeat_per_num_frames": 100,
@@ -142,7 +144,7 @@ class Model(nn.Module):
             gin_channels=gin_channels,
         )
 
-        blstm_config = BlstmEncoderV1Config(num_layers=final_n_layers, input_dim=out_channels, hidden_dim=final_hidden_channels, dropout=p_dropout, enforce_sorted=False)
+        blstm_config = BlstmEncoderV1Config(num_layers=final_n_layers, input_dim=self.out_channels*self.subsampling_factor, hidden_dim=final_hidden_channels, dropout=p_dropout, enforce_sorted=False)
 
         # self.final = FinalLinear(
         #     out_channels, final_hidden_channels, self.label_target_size + 1, n_layers=final_n_layers
@@ -179,14 +181,16 @@ class Model(nn.Module):
         mask = torch.unsqueeze(commons.sequence_mask(log_mel_features_len, flow_in.size(2)), 1).to(flow_in.dtype)
 
         with torch.no_grad():
-            flow_out, _ = self.decoder(flow_in, mask, reverse=False)
+            flow_out, _ = self.decoder(flow_in, mask, reverse=False) # [B, F, T]
 
-        blstm_out = self.final(flow_out.transpose(1,2), flow_in_length) # [B, T, F]
-        # embed()
+        blstm_in, mask = commons.channel_squeeze(flow_out, mask, self.subsampling_factor) # frame stacking for subsampling is equivalent to the channel squeezing operation in glowTTS
+        blstm_in_length = flow_in_length // 4
+
+        blstm_out = self.final(blstm_in.transpose(1,2), blstm_in_length) # [B, T, F]
         logits = self.final_linear(blstm_out)
         log_probs = torch.log_softmax(logits, dim=2)
-        # embed()
-        return log_probs, flow_in_length
+        
+        return log_probs, blstm_in_length
 
     def preprocess(self, y, y_lengths, y_max_length):
         if y_max_length is not None:

@@ -185,7 +185,7 @@ def get_pytorch_glowTTS():
 
     training_datasets2 = build_training_dataset(silence_preprocessed=True, durations_file="/work/asr4/rossenbach/sisyphus_work_folders/tts_asr_2021_work/i6_experiments/users/rossenbach/tts/duration_extraction/ViterbiAlignmentToDurationsJob.AyAO6JWXTnVc/output/durations.hdf", center=False)
 
-    tts_hdf = run_exp_2_steps(name=net_module + "injected_durations", params=params, net_module=net_module, config=config, dataset=training_datasets2, debug=True)
+    # tts_hdf = run_exp_2_steps(name=net_module + "injected_durations", params=params, net_module=net_module, config=config, dataset=training_datasets2, debug=True)
     # tts_hdf = run_exp(name=net_module + "further_training", params=params, net_module=net_module, config=config, dataset=training_datasets, debug=True)
 
     config["learning_rates"] = list(np.concatenate((np.linspace(1e-5, 5*1e-4, 50), np.linspace(5*1e-4, 1e-5, 50))))
@@ -193,7 +193,7 @@ def get_pytorch_glowTTS():
 
     params_vMF = params.copy()
     params_vMF["mean_only"] = True
-    tts_hdf = run_exp(name=net_module, params=params, net_module=net_module, config=config, dataset=training_datasets, debug=True)
+    # tts_hdf = run_exp(name=net_module, params=params, net_module=net_module, config=config, dataset=training_datasets, debug=True)
     
     net_module = "glowTTS"
     tts_hdf = run_exp(net_module + "_warmup", params, net_module, config, dataset=training_datasets, debug=True)

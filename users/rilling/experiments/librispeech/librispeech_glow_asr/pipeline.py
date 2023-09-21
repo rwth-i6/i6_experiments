@@ -76,6 +76,7 @@ def search_single(
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
         hdf_outputs=["search_out.py"],
+        device="cpu"
     )
     search_job.add_alias(prefix_name + "/search_job")
 

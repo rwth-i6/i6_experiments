@@ -6,7 +6,7 @@ Extended weight init code
 
 from dataclasses import dataclass
 import torch
-import numpy
+import numpy as np
 from torch import nn
 import multiprocessing
 from librosa import filters
@@ -17,209 +17,24 @@ import math
 
 from torchaudio.functional import mask_along_axis
 
-# from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config
-# from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwardV1Config
-# from i6_models.parts.conformer.mhsa import ConformerMHSAV1Config
-# from i6_models.parts.conformer.norm import LayerNormNC
-# from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
-# from i6_models.assemblies.conformer.conformer_v1 import ConformerEncoderV1Config, ConformerEncoderV1
-# from i6_models.assemblies.conformer.conformer_v1 import ConformerBlockV1Config
-# from i6_models.config import ModuleFactoryV1, ModelConfiguration
-# from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
-# from i6_models.parts.frontend.common import mask_pool
+from i6_models.parts.blstm import BlstmEncoderV1, BlstmEncoderV1Config
 
 from returnn.torch.context import get_run_ctx
 
 from .shared.configs import DbMelFeatureExtractionConfig
 from .shared.feature_extraction import DbMelFeatureExtraction
+from .shared.spec_augment import apply_spec_aug
+from .shared.mask import mask_tensor
 
-from . import modules
-from . import commons
-from . import attentions
+from .shared import modules
+from .shared import commons
+from .shared import attentions
 from .monotonic_align import maximum_path
 
-def apply_spec_aug(input, num_repeat_time, max_dim_time, num_repeat_feat, max_dim_feat):
-    """
-    :param Tensor input: the input audio features (B,T,F)
-    :param int num_repeat_time: number of repetitions to apply time mask
-    :param int max_dim_time: number of columns to be masked on time dimension will be uniformly sampled from [0, mask_param]
-    :param int num_repeat_feat: number of repetitions to apply feature mask
-    :param int max_dim_feat: number of columns to be masked on feature dimension will be uniformly sampled from [0, mask_param]
-    """
-    for _ in range(num_repeat_time):
-        input = mask_along_axis(input, mask_param=max_dim_time, mask_value=0.0, axis=1)
+from .shared.forward import forward_init_hook, forward_step, forward_finish_hook
+from .shared.train import train_step
 
-    for _ in range(num_repeat_feat):
-        input = mask_along_axis(input, mask_param=max_dim_feat, mask_value=0.0, axis=2)
-    return input
-
-
-def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
-    """
-    mask a tensor with a "positive" mask (boolean true means position is used)
-
-    This function is traceable.
-
-    :param tensor: [B,T,....]
-    :param seq_len: [B]
-    :return: [B,T]
-    """
-    r = torch.arange(tensor.shape[2], device=get_run_ctx().device)  # [T]
-    seq_mask = torch.less(r[None, :], seq_len[:, None])  # broadcast to [B,T]
-    return seq_mask
-
-
-class FinalLinear(nn.Module):
-    def __init__(self, in_size, hidden_size, target_size, n_layers=1, p_dropout=0.01):
-        super().__init__()
-        self.in_size = in_size
-        self.hidden_size = hidden_size
-        self.target_size = target_size
-        self.n_layers = n_layers
-        self.p_dropout = p_dropout
-
-        self.layers = nn.ModuleList()
-
-        self.layers.append(modules.LinearBlock(self.in_size, self.hidden_size, self.p_dropout))
-
-        for i in range(1, n_layers - 1):
-            self.layers.append(modules.LinearBlock(self.hidden_size, self.hidden_size, self.p_dropout))
-
-        self.layers.append(modules.LinearBlock(self.hidden_size, self.target_size, self.p_dropout))
-
-    def forward(self, x):
-        for l in self.layers:
-           x = l(x)
-
-        return x
-
-
-class FinalConvolutional(nn.Module):
-    def __init__(
-        self, in_channels, hidden_channels, target_channels, kernel_size=3, padding=1, n_layers=1, p_dropout=0.1
-    ):
-        super().__init__()
-        self.in_channels = in_channels
-        self.hidden_channels = hidden_channels
-        self.target_channels = target_channels
-        self.kernel_size = kernel_size
-        self.padding = padding
-        self.n_layers = n_layers
-        self.p_dropout = p_dropout
-
-        self.layers = nn.ModuleList()
-
-        if (n_layers > 1):
-            self.layers.append(
-                modules.Conv1DBlock(self.in_channels, self.hidden_channels, self.kernel_size, padding=self.padding, p_dropout=p_dropout)
-            )
-
-            for _ in range(1, n_layers - 1):
-                self.layers.append(
-                    modules.Conv1DBlock(self.hidden_channels, self.hidden_channels, self.kernel_size, padding=self.padding, p_dropout=p_dropout)
-                )
-
-            self.layers.append(
-                modules.Conv1DBlock(self.hidden_channels, self.target_channels, self.kernel_size, padding=self.padding, p_dropout=p_dropout)
-            )
-        else:
-            self.layers.append(
-                modules.Conv1DBlock(self.in_channels, self.target_channels, self.kernel_size, padding=self.padding, p_dropout=p_dropout)
-            )
-
-    def forward(self, x):
-        for l in self.layers:
-            x = l(x)
-
-        return x
-
-
-class Flow(nn.Module):
-    def __init__(
-        self,
-        in_channels,
-        hidden_channels,
-        kernel_size,
-        dilation_rate,
-        n_blocks,
-        n_layers,
-        p_dropout=0.0,
-        n_split=4,
-        n_sqz=2,
-        sigmoid_scale=False,
-        gin_channels=0,
-    ):
-        """Flow-based decoder model
-
-        Args:
-            in_channels (int): Number of incoming channels
-            hidden_channels (int): Number of hidden channels
-            kernel_size (int): Kernel Size for convolutions in coupling blocks
-            dilation_rate (float): Dilation Rate to define dilation in convolutions of coupling block
-            n_blocks (int): Number of coupling blocks
-            n_layers (int): Number of layers in CNN of the coupling blocks
-            p_dropout (float, optional): Dropout probability for CNN in coupling blocks. Defaults to 0..
-            n_split (int, optional): Number of splits for the 1x1 convolution for flows in the decoder. Defaults to 4.
-            n_sqz (int, optional): Squeeze. Defaults to 1.
-            sigmoid_scale (bool, optional): Boolean to define if log probs in coupling layers should be rescaled using sigmoid. Defaults to False.
-            gin_channels (int, optional): Number of speaker embedding channels. Defaults to 0.
-        """
-        super().__init__()
-
-        self.in_channels = in_channels
-        self.hidden_channels = hidden_channels
-        self.kernel_size = kernel_size
-        self.dilation_rate = dilation_rate
-        self.n_blocks = n_blocks
-        self.n_layers = n_layers
-        self.p_dropout = p_dropout
-        self.n_split = n_split
-        self.n_sqz = n_sqz
-        self.sigmoid_scale = sigmoid_scale
-        self.gin_channels = gin_channels
-
-        self.flows = nn.ModuleList()
-
-        for b in range(n_blocks):
-            self.flows.append(modules.ActNorm(channels=in_channels * n_sqz))
-            self.flows.append(modules.InvConvNear(channels=in_channels * n_sqz, n_split=n_split))
-            self.flows.append(
-                attentions.CouplingBlock(
-                    in_channels * n_sqz,
-                    hidden_channels,
-                    kernel_size=kernel_size,
-                    dilation_rate=dilation_rate,
-                    n_layers=n_layers,
-                    gin_channels=gin_channels,
-                    p_dropout=p_dropout,
-                    sigmoid_scale=sigmoid_scale,
-                )
-            )
-
-    def forward(self, x, x_mask, g=None, reverse=False):
-        if not reverse:
-            flows = self.flows
-            logdet_tot = 0
-        else:
-            flows = reversed(self.flows)
-            logdet_tot = None
-
-        if self.n_sqz > 1:
-            x, x_mask = commons.channel_squeeze(x, x_mask, self.n_sqz)
-        for f in flows:
-            if not reverse:
-                x, logdet = f(x, x_mask, g=g, reverse=reverse)
-                logdet_tot += logdet
-            else:
-                x, logdet = f(x, x_mask, g=g, reverse=reverse)
-        if self.n_sqz > 1:
-            x, x_mask = commons.channel_unsqueeze(x, x_mask, self.n_sqz)
-        return x, logdet_tot
-
-    def store_inverse(self):
-        for f in self.flows:
-            f.store_inverse()
-
+from IPython import embed
 
 class Model(nn.Module):
     """
@@ -308,7 +123,7 @@ class Model(nn.Module):
         else:
             self.label_target_size = label_target_size
 
-        self.decoder = Flow(
+        self.decoder = modules.Flow(
             out_channels,
             hidden_channels_dec or hidden_channels,
             kernel_size_dec,
@@ -322,7 +137,7 @@ class Model(nn.Module):
             gin_channels=gin_channels,
         )
 
-        self.final = FinalConvolutional(
+        self.final = modules.FinalConvolutional(
             out_channels, final_hidden_channels, self.label_target_size + 1, n_layers=final_n_layers
         )
 
@@ -369,99 +184,3 @@ class Model(nn.Module):
 
     def store_inverse(self):
         self.decoder.store_inverse()
-
-
-def train_step(*, model: Model, data, run_ctx, **kwargs):
-    raw_audio = data["raw_audio"]  # [B, T', F]
-    raw_audio_len = data["raw_audio:size1"]  # [B]
-
-    phon_labels = data["phon_labels"]  # [B, N] (sparse)
-    phon_labels_len = data["phon_labels:size1"]  # [B, N]
-
-    logprobs, audio_features_len = model(
-        raw_audio=raw_audio,
-        raw_audio_len=raw_audio_len,
-    )
-    transposed_logprobs = torch.permute(logprobs, (1, 0, 2))
-    ctc_loss = nn.functional.ctc_loss(
-        transposed_logprobs,
-        phon_labels,
-        input_lengths=audio_features_len,
-        target_lengths=phon_labels_len,
-        blank=model.label_target_size,
-        reduction="sum",
-    )
-    num_phonemes = torch.sum(phon_labels_len)
-    run_ctx.mark_as_loss(name="ctc", loss=ctc_loss, inv_norm_factor=num_phonemes)
-
-
-def forward_init_hook(run_ctx, **kwargs):
-    # we are storing durations, but call it output.hdf to match
-    # the default output of the ReturnnForwardJob
-    from torchaudio.models.decoder import ctc_decoder
-    run_ctx.recognition_file = open("search_out.py", "wt")
-    run_ctx.recognition_file.write("{\n")
-    import subprocess
-    if kwargs["arpa_lm"] is not None:
-        lm = subprocess.check_output(["cf", kwargs["arpa_lm"]]).decode().strip()
-    else:
-        lm = None
-    from returnn.datasets.util.vocabulary import Vocabulary
-    vocab = Vocabulary.create_vocab(
-        vocab_file=kwargs["returnn_vocab"], unknown_label=None)
-    labels = vocab.labels
-    print(f"labels from vocab:{labels}")
-    run_ctx.ctc_decoder = ctc_decoder(
-        lexicon=kwargs["lexicon"],
-        lm=lm,
-        lm_weight=5,
-        # Add unnecessary silence because it is part of the lexicon
-        tokens=labels + ["[SILENCE]"],
-        blank_token="[blank]",
-        sil_token="[space]",  # [space] is our actual silence
-        unk_word="[UNKNOWN]",
-        nbest=1,
-        beam_size=kwargs["beam_size"],
-        beam_threshold=kwargs["beam_threshold"],
-        sil_score=kwargs.get("sil_score", 0.0),
-        word_score=kwargs.get("word_score", 0.0),
-    )
-    run_ctx.labels = labels
-    run_ctx.blank_log_penalty = kwargs.get("blank_log_penalty", None)
-
-    if kwargs.get("prior_file", None):
-        run_ctx.prior = np.loadtxt(kwargs["prior_file"], dtype="float32")
-        run_ctx.prior_scale = kwargs["prior_scale"]
-    else:
-        run_ctx.prior = None
-
-
-def forward_finish_hook(run_ctx, **kwargs):
-    run_ctx.recognition_file.write("}\n")
-    run_ctx.recognition_file.close()
-
-
-def forward_step(*, model, data, run_ctx, **kwargs):
-    raw_audio = data["raw_audio"]  # [B, T', F]
-    raw_audio_len = data["raw_audio:size1"]  # [B]
-
-    logprobs, audio_features_len = model(
-        raw_audio=raw_audio,
-        raw_audio_len=raw_audio_len,
-    )
-
-    tags = data["seq_tag"]
-
-    logprobs_cpu = logprobs.cpu()
-    if run_ctx.blank_log_penalty is not None:
-        # assumes blank is last
-        logprobs_cpu[:, :, -1] -= run_ctx.blank_log_penalty
-    if run_ctx.prior is not None:
-        logprobs_cpu -= run_ctx.prior_scale * run_ctx.prior
-    hypothesis = run_ctx.ctc_decoder(logprobs_cpu, audio_features_len.cpu())
-
-    for hyp, tag in zip(hypothesis, tags):
-        words = hyp[0].words
-        sequence = " ".join([word for word in words if not word.startswith("[")])
-        print(sequence)
-        run_ctx.recognition_file.write("%s: %s,\n" % (repr(tag), repr(sequence)))

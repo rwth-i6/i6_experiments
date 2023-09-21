@@ -68,7 +68,7 @@ def glowASR():
 
     config = {}
 
-    def run_exp(ft_name, datasets, train_args, search_args=None, num_epochs=100):
+    def run_exp(ft_name, datasets, train_args, search_args=None, num_epochs=100, extra_evaluate_epoch=None):
         search_args = search_args if search_args is not None else {}
 
         returnn_config = get_training_config(training_datasets=datasets, **train_args)
@@ -77,15 +77,25 @@ def glowASR():
 
         # averaged_checkpoint = get_average_checkpoint(train_job, num_average=4)
         # best_checkpoint = get_best_checkpoint(train_job)
+        if ft_name.endswith("test_blstm512_warmup") or ft_name.endswith("test_blstm512_warmup_search_lmW10"):
+            search(
+                ft_name + "/default_250",
+                returnn_search_config,
+                train_job.out_checkpoints[num_epochs],
+                test_dataset_tuples,
+                RETURNN_EXE,
+                MINI_RETURNN_ROOT,
+            )
 
-        search(
-            ft_name + "/default_250",
-            returnn_search_config,
-            train_job.out_checkpoints[num_epochs],
-            test_dataset_tuples,
-            RETURNN_EXE,
-            MINI_RETURNN_ROOT,
-        )
+        if extra_evaluate_epoch is not None:
+            search(
+                ft_name + "/default_250/extra",
+                returnn_search_config,
+                train_job.out_checkpoints[extra_evaluate_epoch],
+                test_dataset_tuples,
+                RETURNN_EXE,
+                MINI_RETURNN_ROOT,
+            )
         # search(ft_name + "/default_best", returnn_search_config, best_checkpoint, test_dataset_tuples, RETURNN_EXE, RETURNN_ROOT)
         # search(ft_name + "/average_4", returnn_search_config, averaged_checkpoint, test_dataset_tuples, RETURNN_EXE, RETURNN_ROOT)
 
@@ -112,9 +122,10 @@ def glowASR():
     }
 
     default_search_args = {
-        "lexicon": get_text_lexicon(),
+        # "lexicon": get_text_lexicon(),
+        "lexicon": "/u/lukas.rilling/experiments/glow_tts_asr_v2/lexicon.txt",
         "returnn_vocab": label_datastream.vocab,
-        "beam_size": 64,
+        "beam_size": 32,
         "arpa_lm": get_arpa_lm(),
         "lm_weight": 5,
         "beam_threshold": 50
@@ -141,12 +152,6 @@ def glowASR():
 
     # run_exp(prefix_name + "test_conv_warmup", datasets=train_data, train_args=train_args_conv, search_args=default_search_args)
 
-    # train_args_conv2 = copy.deepcopy(train_args)
-    # train_args_conv2["network_module"] = "basic_glowASR_conv_v2"
-    # train_args_conv2["net_args"]["final_n_layers"] = 4
-    
-    # run_exp(prefix_name + "test_conv2", datasets=train_data, train_args=train_args_conv2)
-
     train_args_blstm = copy.deepcopy(train_args)
     train_args_blstm["network_module"] = "basic_glowASR_blstm"
     train_args_blstm["net_args"]["final_n_layers"] = 4
@@ -167,7 +172,39 @@ def glowASR():
     # train_args_blstm["config"]["learning_rates"] = list(np.concatenate((np.linspace(1e-5, 5*1e-4, 50), np.linspace(5*1e-4, 1e-5, 50))))
     run_exp(prefix_name + "test_blstm512_warmup", datasets=train_data, train_args=train_args_blstm4, search_args=default_search_args)
 
+    additional_search_args = {}
+    additional_search_args["lm_weight"] = 10
+    additional_search_args["beam_size"] = 32
+    run_exp(prefix_name + "test_blstm512_warmup_search_lmW10", datasets=train_data, train_args=train_args_blstm4, search_args={**default_search_args, **additional_search_args})
+
+    train_args_blstm4["net_args"]["p_dropout"] = 0.2
+
+    run_exp(prefix_name + "test_blstm512_warmup_d0.2_b300", datasets=train_data, train_args=train_args_blstm4, search_args=default_search_args)
 
 
+    train_args_blstm4["config"]["batch_size"] = 100 * 16000
 
+    run_exp(prefix_name + "test_blstm512_warmup_d0.2_b100", datasets=train_data, train_args=train_args_blstm4, search_args=default_search_args, extra_evaluate_epoch=72)
+    
+    train_args_blstm4["config"]["batch_size"] = 600 * 16000
+
+    run_exp(prefix_name + "test_blstm512_warmup_d0.2_b600", datasets=train_data, train_args=train_args_blstm4, search_args=default_search_args)
+
+    train_args_blstm4["config"]["accum_grad_multiple_step"] = 4
+    run_exp(prefix_name + "test_blstm512_warmup_d0.2_b600_ga4", datasets=train_data, train_args=train_args_blstm4, search_args=default_search_args)
+
+    train_args_blstm_frame_stack = copy.deepcopy(train_args_blstm3)
+    train_args_blstm_frame_stack["network_module"] = "glowASR_blstm_frame_stack"
+    train_args_blstm_frame_stack["config"]["learning_rates"] = list(np.concatenate((np.linspace(1e-5, 5*1e-4, 50), np.linspace(5*1e-4, 1e-5, 50))))
+    train_args_blstm_frame_stack["net_args"]["p_dropout"] = 0.2
+    train_args_blstm_frame_stack["net_args"]["final_hidden_channels"] = 512
+    train_args_blstm_frame_stack["net_args"]["final_n_layers"] = 2
+    train_args_blstm_frame_stack["net_args"]["subsampling_factor"] = 4
+
+    search_args = {
+        "beam_size": 128,
+        "beam_threshold": 16
+    }
+    
+    run_exp(prefix_name + "blstm_2x512_d0.2_b300_fs4", datasets=train_data, train_args=train_args_blstm_frame_stack, search_args={**default_search_args, **search_args})
 
