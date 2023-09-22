@@ -379,7 +379,7 @@ def run_single(
 
         configs = [
             (lr, baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3))
-            for lr in [1e-5, 2e-5, 3e-5, 5e-5, 8e-5]
+            for lr in [5e-5, 8e-5]
         ]
 
         for peak_lr, bw_scale in configs:
@@ -439,7 +439,7 @@ def run_single(
                         "existing-model": {
                             "init_for_train": True,
                             "ignore_missing": True,
-                            "filename": viterbi_train_j.out_checkpoints[600],
+                            "filename": viterbi_train_j.out_checkpoints[max(keep_epochs)],
                         }
                     },
                     "extern_data": {"data": {"dim": 50}},
