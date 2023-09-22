@@ -8,13 +8,16 @@ import textwrap
 from collections import OrderedDict
 from dataclasses import fields
 from inspect import isfunction
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, TYPE_CHECKING
 
 import torch
 from i6_core.util import instanciate_delayed
 from sisyphus import gs, tk
 from sisyphus.delayed_ops import DelayedBase
 from sisyphus.hash import sis_hash_helper
+
+if TYPE_CHECKING:
+    from i6_models.config import ModelConfiguration
 
 from ..serialization import Call, Import, SerializerObject
 
@@ -159,8 +162,6 @@ def build_config_constructor_serializers(
     :return: Call object and list of necessary imports.
     """
     from i6_models.config import ModelConfiguration, ModuleFactoryV1
-
-    assert isinstance(cfg, ModelConfiguration)
 
     # Import the class of <cfg>
     imports = [
