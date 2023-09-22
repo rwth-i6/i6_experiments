@@ -144,7 +144,7 @@ class Collection(DelayedBase):
 
 
 def build_config_constructor_serializers(
-    cfg: Any, variable_name: Optional[str] = None, unhashed_package_root: Optional[str] = None
+    cfg: 'ModelConfiguration', variable_name: Optional[str] = None, unhashed_package_root: Optional[str] = None
 ) -> Tuple[Call, List[Import]]:
     """
     Creates a Call object that will re-construct the given ModelConfiguration when serialized and
