@@ -439,7 +439,7 @@ def run_single(
                         "existing-model": {
                             "init_for_train": True,
                             "ignore_missing": True,
-                            "filename": viterbi_train_j.out_checkpoints[max(keep_epochs)],
+                            "filename": viterbi_train_j.out_checkpoints[num_epochs],
                         }
                     },
                     "extern_data": {"data": {"dim": 50}},
