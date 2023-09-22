@@ -350,7 +350,7 @@ def run_single(
                 search_parameters=recog_args,
                 num_encoder_output=conf_model_dim,
                 tdp_speech=[(3, 0, "infinity", 0)],
-                tdp_sil=[(3, 10, "infinity", 10)],
+                tdp_sil=[(3, 10, "infinity", 10), (0, 3, "infinity", 20)],
                 prior_scales=np.linspace(0.0, 0.8, 9),
                 tdp_scales=[0.4],
             )

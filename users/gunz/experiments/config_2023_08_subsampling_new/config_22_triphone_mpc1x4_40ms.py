@@ -384,7 +384,7 @@ def run_single(
                 search_parameters=recog_args,
                 num_encoder_output=conf_model_dim,
                 tdp_speech=[(3, 0, "infinity", 0)],
-                tdp_sil=[(10, 10, "infinity", 10)],
+                tdp_sil=[(10, 10, "infinity", 10), (0, 3, "infinity", 20)],
                 prior_scales=list(
                     itertools.product(
                         np.linspace(0.1, 0.5, 5),
