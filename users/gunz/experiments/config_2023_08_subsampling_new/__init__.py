@@ -345,9 +345,9 @@ def the_plan():
     # P-HMM FF-NN
 
     phmm_40ms_ffnn_a = get_40ms_linear_a()
-    # config_21i_diphone_ss_variations_40ms.run(
-    #     returnn_root=returnn_root, alignment=phmm_40ms_ffnn_a, a_name="40ms-FF-v8"
-    # )
+    config_21i_diphone_ss_variations_40ms.run(
+        returnn_root=returnn_root, alignment=phmm_40ms_ffnn_a, a_name="40ms-FF-v8"
+    )
 
 
 def main():
