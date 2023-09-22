@@ -418,8 +418,8 @@ def run_single(
                 label_info=s.label_info,
                 search_parameters=recog_args.with_lm_scale(1.5),
                 num_encoder_output=conf_model_dim,
-                tdp_speech=[(3, 0, "infinity", 0)],
-                tdp_sil=[(3, 10, "infinity", 10)],
+                tdp_speech=[(3, 0, "infinity", 0), (0, 0, "infinity", 0)],
+                tdp_sil=[(3, 10, "infinity", 10), (0, 3, "infinity", 20)],
                 prior_scales=list(
                     itertools.product(
                         [round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
