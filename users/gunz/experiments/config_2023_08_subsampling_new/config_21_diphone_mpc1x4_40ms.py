@@ -386,6 +386,7 @@ def run_single(
             ((3, 0, "infinity", 0), (3, 10, "infinity", 10)),  # 8,9%
             ((3, 0, "infinity", 3), (3, 10, "infinity", 10)),  # 8,9%
             ((3, 0, "infinity", 0), (10, 10, "infinity", 10)),  # 9,0%
+            *[((3, 0, "infinity", 0), (0, 3, "infinity", 20)) if ep == max(keep_epochs) else []],  # default
         ]
 
         for cfg in [
