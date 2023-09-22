@@ -546,6 +546,7 @@ def run_single(
                 mem_rqmt=4,
                 n_cart_out=diphone_li.get_n_of_dense_classes(),
                 params=cfg,
+                opt_lm_am_scale=True,
                 rtf=1.5,
             )
             j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
