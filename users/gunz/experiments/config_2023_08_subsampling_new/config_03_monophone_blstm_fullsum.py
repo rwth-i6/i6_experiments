@@ -481,7 +481,10 @@ def run_single(
 
     s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone)
     s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
-    s.set_graph_for_experiment("fh", override_cfg=remove_label_pops_and_losses_from_returnn_config(returnn_config))
+
+    graph_cfg = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+    graph_cfg.config["network"]["encoder-output"]["register_as_extern_data"] = "encoder-output"
+    s.set_graph_for_experiment("fh", override_cfg=graph_cfg)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_BINARY_PATH_TF)
