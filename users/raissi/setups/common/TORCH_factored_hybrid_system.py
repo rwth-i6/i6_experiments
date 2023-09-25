@@ -43,7 +43,7 @@ from i6_experiments.common.setups.rasr.util import (
 import i6_experiments.users.raissi.setups.common.encoder.blstm as blstm_setup
 import i6_experiments.users.raissi.setups.common.encoder.conformer as conformer_setup
 import i6_experiments.users.raissi.setups.common.helpers.network.augment as fh_augmenter
-import i6_experiments.users.raissi.common.helpers.train as train_helpers
+import i6_experiments.users.raissi.setups.common.helpers.train as train_helpers
 
 from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import BASEFactoredHybridBaseSystem
 
@@ -75,7 +75,7 @@ from i6_experiments.users.raissi.setups.common.decoder.config import (
 )
 
 from i6_experiments.users.raissi.setups.common.util.hdf import (
-    SprintFeatureToHdf
+    RasrFeaturesToHdf
 )
 
 # -------------------- Init --------------------

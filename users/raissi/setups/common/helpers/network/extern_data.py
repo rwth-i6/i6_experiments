@@ -4,7 +4,7 @@ import typing
 
 import i6_core.returnn as returnn
 
-from i6_experiments.users.raissi.common.data.factored_label import LabelInfo
+from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo
 
 
 def get_extern_data_config(label_info: LabelInfo, time_tag_name: typing.Optional[str]) -> typing.Dict[str, typing.Any]:

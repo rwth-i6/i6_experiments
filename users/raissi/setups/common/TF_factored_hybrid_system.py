@@ -31,7 +31,10 @@ from i6_experiments.common.setups.rasr.nn_system import (
     NnSystem
 )
 
-from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import BASEFactoredHybridBaseSystem
+from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import (
+    BASEFactoredHybridBaseSystem,
+    Experiment
+)
 
 
 from i6_experiments.common.setups.rasr.util import (
@@ -45,7 +48,7 @@ from i6_experiments.common.setups.rasr.util import (
 import i6_experiments.users.raissi.setups.common.encoder.blstm as blstm_setup
 import i6_experiments.users.raissi.setups.common.encoder.conformer as conformer_setup
 import i6_experiments.users.raissi.setups.common.helpers.network.augment as fh_augmenter
-import i6_experiments.users.raissi.common.helpers.train as train_helpers
+import i6_experiments.users.raissi.setups.common.helpers.train as train_helpers
 
 
 from i6_experiments.users.raissi.setups.common.helpers.train.specaugment import (
@@ -75,7 +78,7 @@ from i6_experiments.users.raissi.setups.common.decoder.config import (
 )
 
 from i6_experiments.users.raissi.setups.common.util.hdf import (
-    SprintFeatureToHdf
+    RasrFeaturesToHdf
 )
 
 # -------------------- Init --------------------
@@ -90,6 +93,21 @@ class Graphs(TypedDict):
     train: Optional[tk.Path]
     inference: Optional[tk.Path]
 
+class ExtraReturnnCode(TypedDict):
+    epilog: str
+    prolog: str
+
+class TFExperiment(Experiment):
+    """
+    The class is used in the config files as a single experiment
+    """
+    extra_returnn_code: ExtraReturnnCode
+    name: str
+    graph: Graphs
+    priors: Optional[PriorInfo]
+    prior_job: Optional[returnn.ReturnnRasrComputePriorJobV2]
+    returnn_config: Optional[returnn.ReturnnConfig]
+    train_job: Optional[returnn.ReturnnRasrTrainingJob]
 
 # -------------------- Systems --------------------
 class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
@@ -113,6 +131,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
             returnn_python_home=returnn_python_home,
             returnn_python_exe=returnn_python_exe,
             rasr_binary_path=rasr_binary_path,
+            rasr_init_args=rasr_init_args,
             train_data=train_data,
             dev_data=dev_data,
             test_data=test_data,
@@ -127,8 +146,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
     def _set_native_lstm_path(self):
         compile_native_op_job = returnn.CompileNativeOpJob(
             "NativeLstm2",
-            returnn_root=returnn_root,
-            returnn_python_exe=returnn_python_exe,
+            returnn_root=self.returnn_root,
+            returnn_python_exe=self.returnn_python_exe,
             blas_lib=None,
         )
         self.native_lstm2_path = compile_native_op_job.out_op
@@ -622,46 +641,3 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
             )
             tk.register_output(f"optLM/{name}.onlyLmOpt{only_lm_opt}.optlm.txt", opt.out_log_file)
 
-    # -------------------- run setup  --------------------
-
-    def run(self, steps: RasrSteps):
-        if "init" in steps.get_step_names_as_list():
-            init_args = steps.get_args_via_idx(0)
-            self.init_system(label_info_additional_args=init_args)
-        for eval_c in self.dev_corpora + self.test_corpora:
-            stm_args = (
-                self.rasr_init_args.stm_args
-                if self.rasr_init_args.stm_args is not None
-                else {}
-            )
-            self.create_stm_from_corpus(eval_c, **stm_args)
-            self._set_scorer_for_corpus(eval_c)
-
-        for step_idx, (step_name, step_args) in enumerate(steps.get_step_iter()):
-            # ---------- Feature Extraction ----------
-            if step_name.startswith("extract"):
-                if step_args is None:
-                    step_args = self.rasr_init_args.feature_extraction_args
-                step_args[self.nn_feature_type]['prefix'] = 'features/'
-                for all_c in (
-                        self.train_corpora
-                        + self.dev_corpora
-                        + self.test_corpora
-                ):
-                    self.feature_caches[all_c] = {}
-                    self.feature_bundles[all_c] = {}
-                    self.feature_flows[all_c] = {}
-
-                self.extract_features(step_args)
-            #-----------Set alignments if needed-------
-            # here you might one to align cv with a given aligner
-            if step_name.startswith("alignment"):
-                #step_args here is a dict that has the keys as corpora
-                for c in step_args.keys():
-                    self.alignments[c] = step_args[c]
-            # ---------------Step Input ----------
-            if step_name.startswith("input"):
-                if not len(step_args.extract_features):
-                    add_feature_to_extract(self.nn_feature_type)
-
-                self.run_input_step(step_args)

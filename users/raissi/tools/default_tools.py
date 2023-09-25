@@ -16,16 +16,21 @@ from i6_experiments.common.tools.sctk import compile_sctk
 # RASR_BINARY_PATH = None
 # RASR_BINARY_PATH = compile_rasr_binaries_i6mode(commit="907eec4f4e36c11153f6ab6b5dd7675116f909f6")  # use tested RASR
 
+##All u16 related
+u16_rasr_path_tf1 = tk.Path("/u/raissi/dev/rasr_github/rasr_tf1_conformer", hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF1")
+u16_rasr_path_tf2 = tk.Path("/u/raissi/dev/rasr_github/rasr_tf2", hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2")
+U16_RASR_BINARY_PATHS = {'TF1': u16_rasr_path_tf1, 'TF2': u16_rasr_path_tf2}
 
-#RASR_BINARY_PATH = compile_rasr_binaries_i6mode()  #  use most recent RASR
-rasr_path_tf1 = tk.Path("/u/raissi/dev/rasr_github/rasr_tf1_conformer", hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF1")
-rasr_path_tf2 = tk.Path("/u/raissi/dev/rasr_github/rasr_tf2", hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2")
-RASR_BINARY_PATHS = {'TF1': rasr_path_tf1, 'TF2': rasr_path_tf2}
+u16_returnn_launcher_tf2 = tk.Path("/u/raissi/bin/apptainer-launchers/u16/returnn_tf2.3_apptainer_u16_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER_TF1")
+U16_RETURNN_LAUNCHERS = {'TF2': u16_returnn_launcher_tf2}
+
+RETURNN_ROOT = tk.Path("/work/tools/users/raissi/returnn_versions/conformer", hash_overwrite="CONFORMER_RETURNN_ROOT")
+
+##All u22 related
+u22_rasr_path_onnxtorch = tk.Path("/work/tools22/users/raissi/rasr/rasr_pytorch-onnx", hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TORCHONNX")
+u22_RASR_BINARY_PATHS = {'ONNX-TORCH': u22_rasr_path_onnxtorch}
 
 
-returnn_launcher_tf1 = tk.Path("/u/raissi/bin/returnn/returnn_tf1.15_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER_TF1")
-returnn_launcher_tf2 = tk.Path("/u/raissi/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER_TF1")
-RETURNN_LAUNCHERS = {'TF1': returnn_launcher_tf1, 'TF2': returnn_launcher_tf2}
 
 
 SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version

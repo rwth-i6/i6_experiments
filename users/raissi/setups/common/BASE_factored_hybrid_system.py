@@ -3,10 +3,10 @@ __all__ = ["FactoredHybridSystem"]
 import copy
 import itertools
 import sys
-
+from IPython import embed
 from dataclasses import asdict
 from enum import Enum
-from typing import Dict, List, Optional, Tuple, TypedDict, Union
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
 
 # -------------------- Sisyphus --------------------
 
@@ -38,12 +38,18 @@ from i6_experiments.common.setups.rasr.util import (
     RasrDataInput,
     RasrSteps,
     ReturnnRasrDataInput,
+    ReturnnRasrTrainingArgs
 )
+
+from i6_experiments.users.raissi.setups.common.util.rasr import (
+    SystemInput,
+)
+
 
 import i6_experiments.users.raissi.setups.common.encoder.blstm as blstm_setup
 import i6_experiments.users.raissi.setups.common.encoder.conformer as conformer_setup
 import i6_experiments.users.raissi.setups.common.helpers.network.augment as fh_augmenter
-import i6_experiments.users.raissi.common.helpers.train as train_helpers
+import i6_experiments.users.raissi.setups.common.helpers.train as train_helpers
 
 
 from i6_experiments.users.raissi.setups.common.helpers.train.specaugment import (
@@ -75,7 +81,7 @@ from i6_experiments.users.raissi.setups.common.decoder.config import (
 )
 
 from i6_experiments.users.raissi.setups.common.util.hdf import (
-    SprintFeatureToHdf
+    RasrFeaturesToHdf
 )
 
 
@@ -143,9 +149,7 @@ class Experiment(TypedDict, total=False):
     """
     The class is used in the config files as a single experiment
     """
-    extra_returnn_code: ExtraReturnnCode
     name: str
-    graph: Graphs
     priors: Optional[PriorInfo]
     prior_job: Optional[returnn.ReturnnRasrComputePriorJobV2]
     returnn_config: Optional[returnn.ReturnnConfig]
@@ -165,7 +169,7 @@ class BASEFactoredHybridBaseSystem(NnSystem):
             train_data: Dict[str, RasrDataInput] = None,
             dev_data:   Dict[str, RasrDataInput] = None,
             test_data:  Dict[str, RasrDataInput] = None,
-            initial_nn_args: Dict = None,
+            initial_nn_args: Dict = {},
     ):
         super().__init__(
             returnn_root=returnn_root,
@@ -322,7 +326,7 @@ class BASEFactoredHybridBaseSystem(NnSystem):
     def _set_native_lstm_path(self):
         compile_native_op_job = returnn.CompileNativeOpJob(
             "NativeLstm2",
-            returnn_root=returnn_root,
+            returnn_root=self.returnn_root,
             returnn_python_exe=returnn_python_exe,
             blas_lib=None,
         )
@@ -728,7 +732,7 @@ class BASEFactoredHybridBaseSystem(NnSystem):
             self,
             experiment_key: str,
             returnn_config: returnn.ReturnnConfig,
-            nn_train_args: typing.Any,
+            nn_train_args: Any,
             on_2080: bool = False,
     ):
         assert isinstance(returnn_config, returnn.ReturnnConfig)
@@ -755,11 +759,11 @@ class BASEFactoredHybridBaseSystem(NnSystem):
         experiment_key: str,
         returnn_config: returnn.ReturnnConfig,
         nn_train_args,
-        train_hdfs: typing.List[tk.Path],
-        dev_hdfs: typing.List[tk.Path],
+        train_hdfs: List[tk.Path],
+        dev_hdfs: List[tk.Path],
         on_2080: bool = True,
-        dev_data: typing.Optional[typing.Dict[str, typing.Any]] = None,
-        train_data: typing.Optional[typing.Dict[str, typing.Any]] = None,
+        dev_data: Optional[Dict[str, Any]] = None,
+        train_data: Optional[Dict[str, Any]] = None,
     ):
         from textwrap import dedent
 
@@ -784,7 +788,7 @@ class BASEFactoredHybridBaseSystem(NnSystem):
 
         returnn_config = copy.deepcopy(returnn_config)
         update_config = returnn.ReturnnConfig(
-            config={"dev": dev_data, "train": train_data}, python_epilog=hdf_dataset_cache_epilog
+            config={"dev": dev_data, "train": train_data}, python_epilog=train_helpers.cache_epilog.hdf_dataset_cache_epilog
         )
         returnn_config.update(update_config)
 
@@ -923,7 +927,7 @@ class BASEFactoredHybridBaseSystem(NnSystem):
 
     def create_hdf(self):
         gammatone_features_paths: MultiPath = self.feature_caches[self.train_key]["gt"]
-        hdf_job = SprintFeatureToHdf(
+        hdf_job = RasrFeaturesToHdf(
             feature_caches=gammatone_features_paths,
         )
 
@@ -975,4 +979,4 @@ class BASEFactoredHybridBaseSystem(NnSystem):
                 if not len(step_args.extract_features):
                     add_feature_to_extract(self.nn_feature_type)
 
-                self.run_input_step(step_args)
+                self._run_input_step(step_args)

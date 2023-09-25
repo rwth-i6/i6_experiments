@@ -12,7 +12,7 @@ import tempfile
 import time
 import typing
 
-from sisyphus import Job, Path, Task
+from sisyphus import Job, Path, Task, tk
 
 from i6_core.lib.rasr_cache import FileArchive
 from i6_core.util import MultiPath
