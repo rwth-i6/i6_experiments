@@ -179,13 +179,14 @@ class ReturnnRasrDataInput:
         self.crp = crp
 
     def update_crp_with_shuffle_parameters(self):
-        if self.shuffling_parameters["shuffle_data"]:
+        if self.shuffle_data:
             self.crp.corpus_config.segment_order_shuffle = True
-        if "segment_order_sort_by_time_length_chunk_size" in self.shuffling_parameters:
-            self.crp.corpus_config.segment_order_sort_by_time_length = True
-            self.crp.corpus_config.segment_order_sort_by_time_length_chunk_size = self.shuffling_parameters[
-                "segment_order_sort_by_time_length_chunk_size"
-            ]
+        if self.shuffling_parameters is not None:
+            if "segment_order_sort_by_time_length_chunk_size" in self.shuffling_parameters:
+                self.crp.corpus_config.segment_order_sort_by_time_length = True
+                self.crp.corpus_config.segment_order_sort_by_time_length_chunk_size = self.shuffling_parameters[
+                    "segment_order_sort_by_time_length_chunk_size"
+                ]
 
     def update_crp_with(
         self,
@@ -195,7 +196,8 @@ class ReturnnRasrDataInput:
         corpus_duration: Optional[int] = None,
         segment_path: Optional[Union[str, tk.Path]] = None,
         concurrent: Optional[int] = None,
-        shuffling_paramters: Dict = None,
+        shuffle_data: Optional[bool] = None,
+        shuffling_parameters: Optional[Dict[str, Any]] = None,
     ):
         if corpus_file is not None:
             self.crp.corpus_config.file = corpus_file
@@ -207,11 +209,11 @@ class ReturnnRasrDataInput:
             self.crp.segment_path = segment_path
         if concurrent is not None:
             self.crp.concurrent = concurrent
-        if self.shuffling_parameters is not None:
-            assert (
-                "shuffle_data" in self.shuffle_parameters or "shuffle_data" in shuffle_parameters
-            ), "You need to set at least the shuffle_data"
-            self.shuffling_parameters = shuffling_paramters
+        if shuffle_data is not None:
+            self.shuffle_data = shuffle_data
+        if shuffling_parameters is not None:
+            assert self.shuffle_data, "You need to set shuffle_data to true when using shuffling_parameters"
+            self.shuffling_parameters = shuffling_parameters
             self.update_crp_with_shuffle_parameters()
 
     def get_crp(self, **kwargs) -> rasr.CommonRasrParameters:
@@ -222,8 +224,7 @@ class ReturnnRasrDataInput:
         if self.crp is None:
             self.build_crp(**kwargs)
 
-        if self.shuffling_parameters is not None:
-
+        if self.shuffle_data:
             self.update_crp_with_shuffle_parameters()
 
         return self.crp
