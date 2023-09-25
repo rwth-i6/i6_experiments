@@ -134,7 +134,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
                 label_smoothing=0.0,
                 lr="v13",
                 run_performance_study=False,
-                tune_decoding=a_name == "40ms-FF-v8",
+                tune_decoding=False,
                 tune_nn_pch=False,
                 run_tdp_study=False,
             ),
