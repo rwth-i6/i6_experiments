@@ -90,7 +90,7 @@ def run(returnn_root: tk.Path, alignments: typing.List[typing.Tuple[tk.Path, str
             lr="v13",
             multitask=True,
             run_performance_study=a_name == "30ms-FF-v8",
-            tune_decoding=True,
+            tune_decoding="TD" not in a_name,
             run_tdp_study=False,
         )
         for a, a_name in alignments

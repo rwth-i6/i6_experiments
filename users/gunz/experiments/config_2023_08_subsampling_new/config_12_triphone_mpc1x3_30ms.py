@@ -97,7 +97,7 @@ def run(
                 lr="v13",
                 own_priors=True,
                 run_performance_study=a_name == "30ms-FF-v8",
-                tune_decoding=True,
+                tune_decoding="TD" not in a_name,
             )
             for a, a_name, _ in alignments
         ),
