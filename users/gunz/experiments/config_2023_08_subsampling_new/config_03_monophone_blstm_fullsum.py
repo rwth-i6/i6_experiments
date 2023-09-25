@@ -483,6 +483,7 @@ def run_single(
 
     graph_cfg = remove_label_pops_and_losses_from_returnn_config(returnn_config)
     graph_cfg.config["network"]["encoder-output"]["register_as_extern_data"] = "encoder-output"
+    graph_cfg.config["network"]["center-output"]["register_as_extern_data"] = "center-output"
 
     s.set_returnn_config_for_experiment("fh", graph_cfg)
     s.set_graph_for_experiment("fh", override_cfg=graph_cfg)
