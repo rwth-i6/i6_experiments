@@ -455,7 +455,6 @@ def run_single(
     )
 
     s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
-    s.set_returnn_config_for_experiment("fh", remove_label_pops_and_losses_from_returnn_config(returnn_config))
 
     train_cfg = baum_welch.augment_for_fast_bw(
         crp=s.crp[s.crp_names["train"]],
@@ -484,6 +483,8 @@ def run_single(
 
     graph_cfg = remove_label_pops_and_losses_from_returnn_config(returnn_config)
     graph_cfg.config["network"]["encoder-output"]["register_as_extern_data"] = "encoder-output"
+
+    s.set_returnn_config_for_experiment("fh", graph_cfg)
     s.set_graph_for_experiment("fh", override_cfg=graph_cfg)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
