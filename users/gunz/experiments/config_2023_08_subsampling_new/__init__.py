@@ -161,8 +161,9 @@ def viterbi_30ms():
 
     returnn_root = _clone_returnn_safe()
     lin_a = get_30ms_linear_a()
-    tdnn_a = get_30ms_tdnn_a()
-    alignments = [(lin_a, "30ms-FF-v8"), (tdnn_a, "30ms-TD-v8")]
+    # tdnn_a = get_30ms_tdnn_a()
+    # alignments = [(lin_a, "30ms-FF-v8"), (tdnn_a, "30ms-TD-v8")]
+    alignments = [(lin_a, "30ms-FF-v8")]
     config_10_monophone_mpc1x3_30ms.run(returnn_root=returnn_root, alignments=alignments)
     config_11_diphone_mpc1x3_30ms.run(returnn_root=returnn_root, alignments=alignments)
     config_12_triphone_mpc1x3_30ms.run(
