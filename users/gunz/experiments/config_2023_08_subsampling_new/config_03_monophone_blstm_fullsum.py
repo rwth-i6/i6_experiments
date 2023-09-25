@@ -556,7 +556,7 @@ def run_single(
     align_search_jobs = recognizer.recognize_count_lm(
         label_info=s.label_info,
         search_parameters=align_cfg,
-        num_encoder_output=model_dim,
+        num_encoder_output=2 * model_dim,
         rerun_after_opt_lm=False,
         opt_lm_am=False,
         add_sis_alias_and_output=False,
