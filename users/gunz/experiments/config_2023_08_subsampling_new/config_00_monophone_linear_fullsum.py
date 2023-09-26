@@ -497,63 +497,6 @@ def run_single(
         lm_gc_simple_hash=True,
     )
 
-    for pC, sil_exit, tdp_s, sil_fwd in itertools.product([0.6, 0.0, 0.3], [3.0, 0.0], [1.0, 0.0], [3.0, 0.0]):
-        s.feature_flows["train-other-960.train"].flags["cache_mode"] = "bundle"
-
-        sil_tdp = (recog_args.tdp_silence[0], sil_fwd, "infinity", sil_exit)
-        align_cfg = (
-            recog_args.with_prior_scale(pC).with_tdp_scale(tdp_s).with_tdp_silence(sil_tdp).with_tdp_non_word(sil_tdp)
-        )
-        align_search_jobs = recognizer.recognize_count_lm(
-            label_info=s.label_info,
-            search_parameters=align_cfg,
-            num_encoder_output=model_dim,
-            rerun_after_opt_lm=False,
-            opt_lm_am=False,
-            add_sis_alias_and_output=False,
-            calculate_stats=True,
-            rtf_cpu=4,
-        )
-        crp = copy.deepcopy(align_search_jobs.search_crp)
-        crp.acoustic_model_config.tdp.applicator_type = "corrected"
-        crp.acoustic_model_config.allophones.add_all = False
-        crp.acoustic_model_config.allophones.add_from_lexicon = True
-        crp.concurrent = 1
-
-        segs = corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, 1)
-        segs = corpus.FilterSegmentsByListJob(
-            segs.out_single_segment_files, ["train-other-960/2920-156224-0013/2920-156224-0013"]
-        )
-        crp.segment_path = segs.out_segment_path
-
-        a_job = recognizer.align(
-            f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
-            crp=crp,
-            feature_scorer=align_search_jobs.search_feature_scorer,
-            default_tdp=True,
-            set_do_not_normalize_lemma_sequence_scores=False,
-            rtf=1,
-        )
-
-        allophones = lexicon.StoreAllophonesJob(crp)
-        tk.register_output(
-            f"allophones/{name}-tdpS{tdp_s}-sil_exit{sil_exit}-sil_fwd{sil_fwd}-pC{pC}/allophones",
-            allophones.out_allophone_file,
-        )
-
-        plots = PlotViterbiAlignmentsJob(
-            alignment_bundle_path=a_job.out_alignment_bundle,
-            allophones_path=allophones.out_allophone_file,
-            segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
-            show_labels=False,
-            monophone=True,
-        )
-        tk.register_output(
-            f"alignments/{name}-tdpS{tdp_s}-sil_exit{sil_exit}-sil_fwd{sil_fwd}-pC{pC}/alignment-plots",
-            plots.out_plot_folder,
-        )
-        s.feature_flows["train-other-960.train"].flags["cache_mode"] = "task_dependent"
-
     sil_tdp = (*recog_args.tdp_silence[:3], 3.0)
     align_cfg = (
         recog_args.with_prior_scale(0.6).with_tdp_scale(tdp_scale).with_tdp_silence(sil_tdp).with_tdp_non_word(sil_tdp)
