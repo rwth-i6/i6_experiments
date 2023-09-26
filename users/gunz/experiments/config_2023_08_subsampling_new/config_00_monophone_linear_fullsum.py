@@ -498,6 +498,8 @@ def run_single(
     )
 
     for pC, sil_exit, tdp_s, sil_fwd in itertools.product([0.6, 0.0, 0.3], [3.0, 0.0], [1.0, 0.0], [3.0, 0.0]):
+        s.feature_flows["train-other-960.train"].flags["cache_mode"] = "bundle"
+
         sil_tdp = (recog_args.tdp_silence[0], sil_fwd, "infinity", sil_exit)
         align_cfg = (
             recog_args.with_prior_scale(pC).with_tdp_scale(tdp_s).with_tdp_silence(sil_tdp).with_tdp_non_word(sil_tdp)
@@ -545,6 +547,7 @@ def run_single(
             f"alignments/{name}-tdpS{tdp_s}-sil_exit{sil_exit}-sil_fwd{sil_fwd}-pC{pC}/alignment-plots",
             plots.out_plot_folder,
         )
+        s.feature_flows["train-other-960.train"].flags["cache_mode"] = "task_dependent"
 
     sil_tdp = (*recog_args.tdp_silence[:3], 3.0)
     align_cfg = (
