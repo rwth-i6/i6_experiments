@@ -351,6 +351,7 @@ def run_single(
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
                 mem_rqmt=4,
                 n_cart_out=diphone_li.get_n_of_dense_classes(),
+                opt_lm_am_scale=ep == max(keep_epochs),
                 params=cfg,
                 rtf=4,
             )
