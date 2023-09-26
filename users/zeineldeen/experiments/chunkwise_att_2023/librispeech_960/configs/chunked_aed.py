@@ -1570,7 +1570,7 @@ def run_all_exps():
                                     prefix_name=prefix_name,
                                     exp_name=exp_name_,
                                     epoch="avg",
-                                    test_set_names=["test-other"],
+                                    test_set_names=["dev-other", "test-other"],
                                     lm_scales=[lm_scale],
                                     am_scale=1 - lm_scale,
                                     prior_scales=[prior_scale],
