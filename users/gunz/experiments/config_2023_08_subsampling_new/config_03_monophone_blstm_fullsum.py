@@ -550,7 +550,7 @@ def run_single(
         lm_gc_simple_hash=True,
     )
 
-    for silExit, pC, tdp_scale in itertools.product([3.0, 0.0], [0.0, 0.6], [0.0, 1.0]):
+    for silExit, pC, tdp_scale in itertools.product([3.0, 0.0], [0.0, 0.3, 0.6], [0.0, 1.0]):
         sil_tdp = (*recog_args.tdp_silence[:3], silExit)
         align_cfg = (
             recog_args.with_prior_scale(pC)
@@ -599,7 +599,9 @@ def run_single(
             show_labels=False,
             monophone=True,
         )
-        tk.register_output(f"alignments/{name}/alignment-plots", plots.out_plot_folder)
+        tk.register_output(
+            f"alignments/{name}-pC{pC}-silExit{silExit}-tdpS{tdp_scale}/alignment-plots", plots.out_plot_folder
+        )
 
         phoneme_durs = PlotPhonemeDurationsJob(
             alignment_bundle_path=a_job.out_alignment_bundle,
