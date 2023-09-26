@@ -518,8 +518,13 @@ def run_single(
         crp.acoustic_model_config.tdp.applicator_type = "corrected"
         crp.acoustic_model_config.allophones.add_all = False
         crp.acoustic_model_config.allophones.add_from_lexicon = True
-        crp.concurrent = 300
-        crp.segment_path = corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, crp.concurrent).out_segment_path
+        crp.concurrent = 1
+
+        segs = corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, 1)
+        segs = corpus.FilterSegmentsByListJob(
+            segs.out_single_segment_files, ["train-other-960/2920-156224-0013/2920-156224-0013"]
+        )
+        crp.segment_path = segs.out_segment_path
 
         a_job = recognizer.align(
             f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
