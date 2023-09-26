@@ -99,6 +99,8 @@ def search_single(
     use_returnn_compute_wer=True,
     recog_ext_pipeline=False,
     remove_label: Optional[Union[str, Set[str]]] = None,
+    gpu_mem: int = 11,
+    use_gpu_test: bool = False,
 ):
     """
     Run search for a specific test dataset
@@ -113,6 +115,8 @@ def search_single(
     :param recog_ext_pipeline: the search output is the raw beam search output, all beams.
         still need to select best, and also still need to maybe remove blank/EOS/whatever.
     :param remove_label: for SearchRemoveLabelJob
+    :param gpu_mem: used in sis settings.py to select gpu partition
+    :param use_gpu_test: if enabled, use gpu_test partition (usually just for testing)
     """
     from i6_core.returnn.search import (
         ReturnnSearchJobV2,
@@ -131,6 +135,11 @@ def search_single(
         returnn_root=returnn_root,
         output_gzip=recog_ext_pipeline,
     )
+    if use_gpu_test:
+        search_job.rqmt["gpu_test"] = True
+    else:
+        assert gpu_mem in [11, 24]
+        search_job.rqmt["gpu_mem"] = gpu_mem
     search_job.add_alias(prefix_name + "/search_job")
     search_bpe = search_job.out_search_file
 
