@@ -399,7 +399,7 @@ def run_single(
                 calculate_statistics=True,
                 cart_tree_or_tying_config=tying_cfg,
                 cpu_rqmt=2,
-                opt_lm_am_scale=True,
+                opt_lm_am_scale=ep == max(keep_epochs),
                 crp_corpus=crp_k,
                 lm_gc_simple_hash=True,
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
