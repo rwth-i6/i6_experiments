@@ -28,7 +28,7 @@ class ComputeWordEmitLatencyJob(Job):
         :param tk.Path bliss_corpus: path to bliss corpus
         :param tk.Path lexicon: path to lexicon
         :param tk.Path chunked_output_hdf: path to chunked output hdf
-        :param int bpe_vocab: bpe vocab size
+        :param tk.Path bpe_vocab: bpe vocab size
         :param int left_padding: left padding size
         :param int chunk_size:
         :param int chunk_stride:
