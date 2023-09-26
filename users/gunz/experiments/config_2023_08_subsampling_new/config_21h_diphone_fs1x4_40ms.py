@@ -360,6 +360,7 @@ def run_single(
                 cpu_rqmt=2,
                 crp_corpus=crp_k,
                 lm_gc_simple_hash=True,
+                opt_lm_am_scale=True,
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
                 mem_rqmt=4,
                 n_cart_out=diphone_li.get_n_of_dense_classes(),
