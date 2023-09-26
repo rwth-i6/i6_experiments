@@ -112,7 +112,7 @@ trafo_10k_lm_opts = {
     "load_on_init_opts": {
         "filename": "/work/asr3/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/transfo_24_d00.4096_1024.sgd.lr1.8_heads/bk-net-model/network.023",
         "params_prefix": "",
-        "load_if_prefix": "lm_output/",
+        "load_if_prefix": "lm_output_masked/",
     },
     "name": "trafo",
 }
@@ -213,10 +213,12 @@ def run_single_search(
         recognition_reference=recog_ref,
         recognition_bliss_corpus=recog_bliss_corpus,
         returnn_exe=RETURNN_CPU_EXE,
-        returnn_root=RETURNN_ROOT,
+        returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
         mem_rqmt=mem_rqmt,
         time_rqmt=time_rqmt,
         use_sclite=True,
+        use_gpu_test=kwargs.get("use_gpu_test", False),
+        gpu_mem=kwargs.get("gpu_mem", 11),
     )
 
 
@@ -232,6 +234,7 @@ def run_lm_fusion(
     feature_net,
     bpe_size,
     args,
+    am_scale=1.0,
     beam_size=12,
     prior_scales=None,
     prior_type=None,
@@ -240,6 +243,7 @@ def run_lm_fusion(
     prior_type_name=None,
     coverage_scale=None,
     coverage_threshold=None,
+    lm_desc_suffix="",
     **kwargs,
 ):
     assert lm_type in ["lstm", "trafo"], "lm type should be lstm or trafo"
@@ -261,6 +265,8 @@ def run_lm_fusion(
         search_checkpoint = train_job.out_checkpoints[epoch]
 
     ext_lm_opts = lstm_lm_opts_map[bpe_size] if lm_type == "lstm" else trafo_lm_opts_map[bpe_size]
+
+    ext_lm_opts["am_scale"] = am_scale
 
     time_rqmt = 1.0
 
@@ -341,7 +347,12 @@ def run_lm_fusion(
             if prior_type_name is None:
                 prior_type_name = prior_type
 
-            lm_desc = f"lm-scale-{lm_scale}"
+            lm_desc = ""
+
+            if am_scale:
+                lm_desc += f"am-scale-{am_scale}-"
+
+            lm_desc += f"lm-scale-{lm_scale}"
             if prior_scale:
                 lm_desc += f"-prior-{prior_scale}-{prior_type_name}"
             lm_desc += f"-beam-{beam_size}"
@@ -353,6 +364,9 @@ def run_lm_fusion(
                 search_args["decoder_args"].coverage_scale = coverage_scale
                 search_args["decoder_args"].coverage_threshold = coverage_threshold
                 lm_desc += f"_coverage-thre{coverage_threshold}-scale{coverage_scale}"
+
+            if lm_desc_suffix:
+                lm_desc += f"{lm_desc_suffix}"
 
             name = f"{exp_name}/recog-{lm_type}-lm/ep-{epoch}/{lm_desc}/{test_set}"
 
@@ -367,7 +381,11 @@ def run_lm_fusion(
                 feature_extraction_net=feature_net,
                 recog_dataset=test_dataset_tuples[test_set][0],
                 recog_ref=test_dataset_tuples[test_set][1],
+                recog_bliss_corpus=test_dataset_tuples[test_set][2],
                 time_rqmt=kwargs.get("time_rqmt", time_rqmt),
+                gpu_mem=kwargs.get("gpu_mem", 11),
+                use_gpu_test=kwargs.get("use_gpu_test", False),
+                returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
             )
 
 
@@ -647,6 +665,8 @@ def train_mini_lstm(
     use_dec_state=False,
     use_ffn=False,
     ffn_opts=None,
+    train_fixed_alignment=None,
+    cv_fixed_alignment=None,
     **kwargs,
 ):
     if not w_drop:
@@ -675,13 +695,26 @@ def train_mini_lstm(
     mini_lstm_args.update(kwargs)
 
     exp_prefix = os.path.join(prefix_name, exp_name, name)
-    mini_lstm_train_data = build_training_datasets(
-        bpe_size=10000,
-        use_raw_features=True,
-        epoch_wise_filter=None,
-        link_speed_perturbation=False,  # depends only on text
-        seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
-    )
+    if train_fixed_alignment is None:
+        mini_lstm_train_data = build_training_datasets(
+            bpe_size=10000,
+            use_raw_features=True,
+            epoch_wise_filter=None,
+            link_speed_perturbation=False,  # depends only on text
+            seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
+        )
+    else:
+        mini_lstm_train_data = build_chunkwise_training_datasets(
+            train_fixed_alignment=train_fixed_alignment,
+            cv_fixed_alignment=cv_fixed_alignment,
+            bpe_size=BPE_10K,
+            use_raw_features=True,
+            partition_epoch=20,
+            epoch_wise_filter=None,
+            link_speed_perturbation=False,
+            seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
+        )
+
     returnn_config = create_config(
         training_datasets=mini_lstm_train_data,
         **mini_lstm_args,
@@ -1220,6 +1253,10 @@ def run_chunkwise_train(
                             train_args["freeze_bn"] = True
                             exp_name += "_freezeBN"
 
+                        if kwargs.get("remove_att_ctx_from_dec_state", False):
+                            train_args["remove_att_ctx_from_dec_state"] = True
+                            exp_name += "_woDecAtt"
+
                         if suffix:
                             exp_name += suffix
 
@@ -1286,7 +1323,7 @@ def run_chunkwise_train(
                                 assert len(start_lrs) == 1
                                 assert len(decay_pt_factors) == 1
 
-                                return train_args, exp_name, train_data
+                                return train_args, exp_name, train_data, train_fixed_alignment, cv_fixed_alignment
 
 
 def _run_exp_full_sum_simple_approx(
@@ -1403,7 +1440,7 @@ def baseline():
         (0, 20, 5, 1, 2),
         (0, 20, 5, 2, 2),
     ]:
-        train_args_, exp_name_, train_data = run_chunkwise_train(
+        train_args_, exp_name_, train_data, train_fixed_align, cv_fixed_align = run_chunkwise_train(
             enc_stream_type="chunked",
             run_all_for_best_last_avg=True,
             enable_check_align=False,
@@ -1436,8 +1473,8 @@ def baseline():
             # chunked_att_chunk-25_step-20_linDecay300_0.0002_decayPt0.3333333333333333_bs15000_accum2_winLeft0_endSliceStart0_endSlice20_memVariant1_memSize2_convCache2_useCachedKV_memSlice0-20_L0_C20_R5
             # 2.57         6.83          2.83          6.73  avg
             for beam in [8, 12, 24, 32, 64]:
-                for eoc_pen in [0.1, 0.15, 0.2, 0.3]:
-                    for length_norm in [True, False]:
+                for eos_pen in [0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0]:
+                    for length_norm in [False]:
                         search_exp_name = exp_name_
                         search_args = copy.deepcopy(train_args_)
                         search_args["beam_size"] = beam
@@ -1445,8 +1482,8 @@ def baseline():
                         search_args["decoder_args"].length_normalization = length_norm
                         if length_norm is False:
                             search_exp_name += "_noLenNorm"
-                        search_args["decoder_args"].eoc_penalty = eoc_pen
-                        search_exp_name += f"_eocPen{eoc_pen}"
+                        search_args["decoder_args"].eos_penalty = eos_pen
+                        search_exp_name += f"_eosPen{eos_pen}"
                         test_datasets = get_test_dataset_tuples(bpe_size=BPE_10K)
                         for test_dataset in ["dev-other"]:
                             run_single_search(
@@ -1460,6 +1497,94 @@ def baseline():
                                 recog_ref=test_datasets[test_dataset][1],
                                 recog_bliss_corpus=test_datasets[test_dataset][2],
                             )
+            for beam in [1, 4, 8, 12, 32, 64]:
+                for length_norm in [True, False]:
+                    search_exp_name = exp_name_
+                    search_args = copy.deepcopy(train_args_)
+                    search_args["beam_size"] = beam
+                    search_exp_name += f"_beam{beam}"
+                    search_args["decoder_args"].length_normalization = length_norm
+                    if length_norm is False:
+                        search_exp_name += "_noLenNorm"
+                    test_datasets = get_test_dataset_tuples(bpe_size=BPE_10K)
+                    for test_dataset in ["dev-other", "test-other"]:
+                        run_single_search(
+                            prefix_name=prefix_name,
+                            exp_name=search_exp_name + f"/{test_dataset}",
+                            train_data=train_data,
+                            search_args=search_args,
+                            checkpoint=train_job_avg_ckpt[exp_name_],
+                            feature_extraction_net=log10_net_10ms,
+                            recog_dataset=test_datasets[test_dataset][0],
+                            recog_ref=test_datasets[test_dataset][1],
+                            recog_bliss_corpus=test_datasets[test_dataset][2],
+                        )
+
+            # # TODO: external LM
+            # for renorm_wo_eos in [True]:
+            #     for beam_size in [64, 70]:
+            #         lm_args = copy.deepcopy(train_args_)
+            #         lm_args["lm_mask_layer_name"] = "lm_eoc_mask"
+            #         lm_args["eos_cond_layer_name"] = "chunk_idx_reached_last"  # added already to config
+            #         lm_args["handle_eos_for_ilm"] = True
+            #         lm_args["renorm_wo_eos"] = renorm_wo_eos
+            #         for lm_type in ["lstm", "trafo"]:
+            #             run_lm_fusion(
+            #                 lm_type=lm_type,
+            #                 prefix_name=prefix_name,
+            #                 exp_name=exp_name_,
+            #                 epoch="avg",
+            #                 test_set_names=["dev-other"],
+            #                 lm_scales=[0.48, 0.5, 0.52, 0.54],
+            #                 train_job=None,
+            #                 train_data=train_data,
+            #                 feature_net=log10_net_10ms,
+            #                 bpe_size=BPE_10K,
+            #                 args=lm_args,
+            #                 beam_size=beam_size,
+            #                 lm_desc_suffix="_lmEOS" + ("_renorm" if renorm_wo_eos else ""),
+            #             )
+            #
+            # mini_lstm_args = copy.deepcopy(train_args_)
+            # mini_lstm_args.pop("retrain_checkpoint")  # param import is handled in train_mini_lstm function
+            # mini_lstm_job = train_mini_lstm(
+            #     prefix_name,
+            #     exp_name=exp_name_,
+            #     checkpoint=train_job_avg_ckpt[exp_name_],
+            #     args=mini_lstm_args,
+            #     num_epochs=20,
+            #     time_rqmt=8,
+            #     w_drop=True,
+            #     train_fixed_alignment=train_fixed_align,
+            #     cv_fixed_alignment=cv_fixed_align,
+            #     learning_rates_list=None,  # just use newbob
+            # )
+            #
+            # # TODO: ILM
+            # for renorm in [True]:
+            #     for beam_size in [70]:
+            #         lm_args = copy.deepcopy(train_args_)
+            #         lm_args["lm_mask_layer_name"] = "lm_eoc_mask"
+            #         lm_args["eos_cond_layer_name"] = "chunk_idx_reached_last"  # added already to config
+            #         lm_args["renorm_wo_eos"] = renorm
+            #         run_lm_fusion(
+            #             lm_type="lstm",
+            #             prefix_name=prefix_name,
+            #             exp_name=exp_name_,
+            #             epoch="avg",
+            #             test_set_names=["dev-other"],
+            #             lm_scales=[0.6, 0.62, 0.64, 0.66, 0.68, 0.7],
+            #             prior_scales=[0.28, 0.3, 0.32, 0.34, 0.36],
+            #             prior_type="mini_lstm",
+            #             prior_type_name="mini_lstm_best_lmEOS" + ("_renorm" if renorm else ""),
+            #             mini_lstm_ckpt=get_best_checkpoint(mini_lstm_job, key="dev_score"),
+            #             train_job=None,
+            #             train_data=train_data,
+            #             feature_net=log10_net_10ms,
+            #             bpe_size=BPE_10K,
+            #             args=lm_args,
+            #             beam_size=beam_size,
+            #         )
 
     for lr in [2e-4]:
         for left_context, center_context, right_context, conv_cache_size, mem_size in [
@@ -1469,7 +1594,7 @@ def baseline():
             (0, 30, 5, 1, 2),
             (0, 33, 5, 1, 2),
         ]:
-            run_chunkwise_train(
+            train_args_, exp_name_, train_data, train_fixed_align, cv_fixed_align = run_chunkwise_train(
                 enc_stream_type="chunked",
                 run_all_for_best_last_avg=True,
                 enable_check_align=False,
@@ -1495,44 +1620,300 @@ def baseline():
                 },
                 suffix=f"_L{left_context}_C{center_context}_R{right_context}",
                 selected_datasets=["dev-other"],
+                return_args=True,
             )
 
-        for min_lr in [1e-5, 1e-6]:
-            for left_context, center_context, right_context, conv_cache_size, mem_size in [
-                (0, 20, 5, 2, 2),
-            ]:
-                run_chunkwise_train(
-                    enc_stream_type="chunked",
-                    run_all_for_best_last_avg=True,
-                    enable_check_align=False,
-                    chunk_sizes=[left_context + center_context + right_context],
-                    chunk_step_factors=[center_context / (left_context + center_context + right_context)],
-                    start_lrs=[2e-4],
-                    decay_pt_factors=[0.2, 1 / 3],
-                    min_lr=min_lr,
-                    gpu_mem=24,
-                    total_epochs=[300],
-                    batch_size=15_000,
-                    accum_grad=2,
-                    time_rqmt=168,
-                    end_slice_start=left_context,
-                    end_slice_size=center_context,
-                    window_left_padding=left_context * 6,
-                    conf_mem_opts={
-                        "self_att_version": 1,
-                        "mem_size": mem_size,
-                        "use_cached_prev_kv": True,
-                        "conv_cache_size": conv_cache_size,
-                        "mem_slice_start": left_context,
-                        "mem_slice_size": center_context,
-                    },
-                    suffix=f"_L{left_context}_C{center_context}_R{right_context}",
-                    selected_datasets=["dev-other"],
+            if center_context == 33:
+                # lm-scale-0.4-beam-70_lmEOS_renorm                                    5.33
+                # am-scale-0.65-lm-scale-0.35-beam-80_lmEOS_renorm_asrEosNoScale       5.25
+                # am-scale-0.64-lm-scale-0.36-beam-80_lmEOS_renorm_asrEosNoScale_fix   5.16
+                for beam_size in [80]:
+                    for lm_scale in [0.36]:
+                        lm_args = copy.deepcopy(train_args_)
+                        lm_args.pop("retrain_checkpoint")
+                        lm_args["lm_mask_layer_name"] = "lm_eoc_mask"
+                        lm_args["eos_cond_layer_name"] = "chunk_idx_reached_last"  # added already to config
+                        lm_args["renorm_wo_eos"] = True
+                        lm_args["asr_eos_no_scale"] = True
+
+                        run_lm_fusion(
+                            lm_type="lstm",
+                            prefix_name=prefix_name,
+                            exp_name=exp_name_,
+                            epoch="avg",
+                            test_set_names=["test-other"],
+                            lm_scales=[lm_scale],
+                            am_scale=1 - lm_scale,
+                            train_job=None,
+                            train_data=train_data,
+                            feature_net=log10_net_10ms,
+                            bpe_size=BPE_10K,
+                            args=lm_args,
+                            beam_size=beam_size,
+                            lm_desc_suffix="_lmEOS_renorm_asrEosNoScale_fix2",
+                            time_rqmt=2.0,
+                            gpu_mem=11,
+                            RETURNN_ROOT="",
+                        )
+
+                        # TODO: test with pos enc masking fix
+
+                        for lm_scale in [0.39, 0.4, 0.41]:
+                            lm_args["max_seqs"] = 1
+                            run_lm_fusion(
+                                lm_type="trafo",
+                                prefix_name=prefix_name,
+                                exp_name=exp_name_,
+                                epoch="avg",
+                                test_set_names=["dev-other"],
+                                lm_scales=[lm_scale],
+                                am_scale=1 - lm_scale,
+                                train_job=None,
+                                train_data=train_data,
+                                feature_net=log10_net_10ms,
+                                bpe_size=BPE_10K,
+                                args=lm_args,
+                                beam_size=beam_size,
+                                lm_desc_suffix="_lmEOS_renorm_asrEosNoScale_fix2",
+                                time_rqmt=2.0,
+                                gpu_mem=24,
+                                returnn_root=tk.Path(
+                                    "/u/zeineldeen/setups/ubuntu_22_setups/2023-06-14--streaming-conf/returnn-mask-fix",
+                                    hash_overwrite="returnn_mask_fix",
+                                ),
+                            )
+
+                mini_lstm_args = copy.deepcopy(train_args_)
+                mini_lstm_args.pop("retrain_checkpoint")  # param import is handled in train_mini_lstm function
+
+                # TODO: train mini-lstm with alignment as input i.e including EOC
+                mini_lstm_w_eoc_job = train_mini_lstm(
+                    prefix_name,
+                    exp_name=exp_name_,
+                    checkpoint=train_job_avg_ckpt[exp_name_],
+                    args=mini_lstm_args,
+                    num_epochs=40,
+                    time_rqmt=8,
+                    w_drop=True,
+                    train_fixed_alignment=train_fixed_align,
+                    cv_fixed_alignment=cv_fixed_align,
+                    learning_rates_list=None,  # just use newbob
                 )
 
-    # TODO: longer trained model
+                # TODO: train mini-lstm with only labels as input
+                mini_lstm_wo_eoc_job = train_mini_lstm(
+                    prefix_name,
+                    exp_name=exp_name_,
+                    checkpoint=train_job_avg_ckpt[exp_name_],
+                    args=mini_lstm_args,
+                    num_epochs=40,
+                    time_rqmt=8,
+                    w_drop=True,
+                    train_fixed_alignment=None,
+                    cv_fixed_alignment=None,
+                    learning_rates_list=None,  # just use newbob
+                    name="mini_lstm_wo_eoc",
+                )
+
+                # TODO: ILM
+                # best variant is mini-lstm-wo-eoc + use ILM EOS prob
+
+                for use_eos_for_ilm in [True]:  # True seems the best
+                    for beam_size in [80]:
+                        for lm_scale in [0.3]:
+                            for prior_scale in [0.22]:
+                                # am-scale-0.64-lm-scale-0.36-prior-0.2-mini_lstm_best_lmEOS_renorm_fix2-beam-80                                 4.75         *
+
+                                lm_args = copy.deepcopy(train_args_)
+                                lm_args.pop("retrain_checkpoint")
+                                lm_args["lm_mask_layer_name"] = "lm_eoc_mask"
+                                lm_args["eos_cond_layer_name"] = "chunk_idx_reached_last"  # added already to config
+                                lm_args["renorm_wo_eos"] = True
+                                lm_args["asr_eos_no_scale"] = True
+
+                                lm_args["handle_eos_for_ilm"] = use_eos_for_ilm
+
+                                # when EOS handling is enabled, do not add ILM EOC prob at the end
+                                lm_args["mask_always_eos_for_ilm"] = True
+
+                                # TODO: Mini-LSTM-EOC ILM
+                                # - Mini-lstm trained with EOC
+                                # - Feed EOC as input
+                                # - recog: either use EOC prob at all chunk or never
+                                # run_lm_fusion(
+                                #     lm_type="lstm",
+                                #     prefix_name=prefix_name,
+                                #     exp_name=exp_name_,
+                                #     epoch="avg",
+                                #     test_set_names=["dev-other"],
+                                #     lm_scales=[lm_scale],
+                                #     am_scale=1 - lm_scale,
+                                #     prior_scales=[prior_scale],
+                                #     prior_type="mini_lstm",
+                                #     prior_type_name="mini_lstm_best_lmEOS_renorm_fix2"
+                                #     + ("_useILMEos" if not use_eos_for_ilm else ""),
+                                #     mini_lstm_ckpt=get_best_checkpoint(mini_lstm_w_eoc_job, key="dev_score"),
+                                #     train_job=None,
+                                #     train_data=train_data,
+                                #     feature_net=log10_net_10ms,
+                                #     bpe_size=BPE_10K,
+                                #     args=lm_args,
+                                #     beam_size=beam_size,
+                                # )
+
+                                # TODO: Mini-LSTM-No-EOC ILM
+                                # am-scale-0.7-lm-scale-0.3-prior-0.22-mini_lstm_wo_eoc_best_lmEOS_renorm_fix2-beam-80                                4.54         *
+                                # - Mini-lstm trained without EOC
+                                # - Mask out EOC as input for consistency with training
+                                # - recog: never use EOC prob or use it only at the end?
+                                lm_args["ilm_mask_layer_name"] = "lm_eoc_mask"
+                                lm_args["handle_eos_for_ilm"] = True
+                                lm_args["mask_always_eos_for_ilm"] = False  # add at the end
+                                run_lm_fusion(
+                                    lm_type="lstm",
+                                    prefix_name=prefix_name,
+                                    exp_name=exp_name_,
+                                    epoch="avg",
+                                    test_set_names=["test-other"],
+                                    lm_scales=[lm_scale],
+                                    am_scale=1 - lm_scale,
+                                    prior_scales=[prior_scale],
+                                    prior_type="mini_lstm",
+                                    prior_type_name="mini_lstm_wo_eoc_best_lmEOS_renorm_fix2",
+                                    mini_lstm_ckpt=get_best_checkpoint(mini_lstm_wo_eoc_job, key="dev_score"),
+                                    train_job=None,
+                                    train_data=train_data,
+                                    feature_net=log10_net_10ms,
+                                    bpe_size=BPE_10K,
+                                    args=lm_args,
+                                    beam_size=beam_size,
+                                )
+
+                                for lm_scale in [0.32, 0.34, 0.35, 0.36, 0.37, 0.38]:
+                                    for prior_scale in [0.17, 0.18, 0.19, 0.2, 0.21, 0.22, 0.23, 0.24]:
+                                        lm_args["max_seqs"] = 1  # work on 11gb?
+                                        # run_lm_fusion(
+                                        #     lm_type="trafo",
+                                        #     prefix_name=prefix_name,
+                                        #     exp_name=exp_name_,
+                                        #     epoch="avg",
+                                        #     test_set_names=["dev-other"],
+                                        #     lm_scales=[lm_scale],
+                                        #     am_scale=1 - lm_scale,
+                                        #     prior_scales=[prior_scale],
+                                        #     prior_type="mini_lstm",
+                                        #     prior_type_name="mini_lstm_wo_eoc_best_lmEOS_renorm_fix2",
+                                        #     mini_lstm_ckpt=get_best_checkpoint(mini_lstm_wo_eoc_job, key="dev_score"),
+                                        #     train_job=None,
+                                        #     train_data=train_data,
+                                        #     feature_net=log10_net_10ms,
+                                        #     bpe_size=BPE_10K,
+                                        #     args=lm_args,
+                                        #     beam_size=beam_size,
+                                        # )
+                                        run_lm_fusion(
+                                            lm_type="trafo",
+                                            prefix_name=prefix_name,
+                                            exp_name=exp_name_,
+                                            epoch="avg",
+                                            test_set_names=["dev-other"],
+                                            lm_scales=[lm_scale],
+                                            am_scale=1 - lm_scale,
+                                            prior_scales=[prior_scale],
+                                            prior_type="mini_lstm",
+                                            prior_type_name="mini_lstm_wo_eoc_best_lmEOS_renorm_fix2_returnnPos",
+                                            mini_lstm_ckpt=get_best_checkpoint(mini_lstm_wo_eoc_job, key="dev_score"),
+                                            train_job=None,
+                                            train_data=train_data,
+                                            feature_net=log10_net_10ms,
+                                            bpe_size=BPE_10K,
+                                            args=lm_args,
+                                            beam_size=beam_size,
+                                            returnn_root=tk.Path(
+                                                "/u/zeineldeen/setups/ubuntu_22_setups/2023-06-14--streaming-conf/returnn-mask-fix",
+                                                hash_overwrite="returnn_mask_fix",
+                                            ),
+                                        )
+
+                                        run_lm_fusion(
+                                            lm_type="trafo",
+                                            prefix_name=prefix_name,
+                                            exp_name=exp_name_,
+                                            epoch="avg",
+                                            test_set_names=["test-other"],
+                                            lm_scales=[0.35],
+                                            am_scale=1 - 0.35,
+                                            prior_scales=[0.2],
+                                            prior_type="mini_lstm",
+                                            prior_type_name="mini_lstm_wo_eoc_best_lmEOS_renorm_fix2_returnnPos",
+                                            mini_lstm_ckpt=get_best_checkpoint(mini_lstm_wo_eoc_job, key="dev_score"),
+                                            train_job=None,
+                                            train_data=train_data,
+                                            feature_net=log10_net_10ms,
+                                            bpe_size=BPE_10K,
+                                            args=lm_args,
+                                            gpu_mem=24,
+                                            beam_size=80,
+                                            returnn_root=tk.Path(
+                                                "/u/zeineldeen/setups/ubuntu_22_setups/2023-06-14--streaming-conf/returnn-mask-fix",
+                                                hash_overwrite="returnn_mask_fix",
+                                            ),
+                                        )
+                                        run_lm_fusion(
+                                            lm_type="trafo",
+                                            prefix_name=prefix_name,
+                                            exp_name=exp_name_,
+                                            epoch="avg",
+                                            test_set_names=["test-other"],
+                                            lm_scales=[0.35],
+                                            am_scale=1 - 0.35,
+                                            prior_scales=[0.2],
+                                            prior_type="mini_lstm",
+                                            prior_type_name="mini_lstm_wo_eoc_best_lmEOS_renorm_fix2",
+                                            mini_lstm_ckpt=get_best_checkpoint(mini_lstm_wo_eoc_job, key="dev_score"),
+                                            train_job=None,
+                                            train_data=train_data,
+                                            feature_net=log10_net_10ms,
+                                            bpe_size=BPE_10K,
+                                            args=lm_args,
+                                            gpu_mem=24,
+                                            beam_size=80,
+                                        )
+
+        # for left_context, center_context, right_context, conv_cache_size, mem_size in [
+        #     (0, 20, 5, 2, 3),
+        # ]:
+        #     run_chunkwise_train(
+        #         enc_stream_type="chunked",
+        #         run_all_for_best_last_avg=True,
+        #         enable_check_align=False,
+        #         chunk_sizes=[left_context + center_context + right_context],
+        #         chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+        #         start_lrs=[2e-4, 1e-4],
+        #         decay_pt_factors=[1 / 3, 0.4, 0.5],
+        #         gpu_mem=24,
+        #         total_epochs=[300],
+        #         batch_size=15_000,
+        #         accum_grad=2,
+        #         time_rqmt=168,
+        #         end_slice_start=left_context,
+        #         end_slice_size=center_context,
+        #         window_left_padding=left_context * 6,
+        #         conf_mem_opts={
+        #             "self_att_version": 1,
+        #             "mem_size": mem_size,
+        #             "use_cached_prev_kv": True,
+        #             "conv_cache_size": conv_cache_size,
+        #             "mem_slice_start": left_context,
+        #             "mem_slice_size": center_context,
+        #         },
+        #         suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+        #         selected_datasets=["dev-other"],
+        #     )
+
     for left_context, center_context, right_context, conv_cache_size, mem_size in [
-        (0, 20, 5, 1, 2),
+        (0, 20, 5, 2, 4),
+        # (0, 10, 5, 4, 8),
     ]:
         run_chunkwise_train(
             enc_stream_type="chunked",
@@ -1558,9 +1939,47 @@ def baseline():
                 "mem_slice_start": left_context,
                 "mem_slice_size": center_context,
             },
-            suffix=f"_L{left_context}_C{center_context}_R{right_context}_bestCkpt",
+            suffix=f"_L{left_context}_C{center_context}_R{right_context}",
             selected_datasets=["dev-other"],
-            retrain_ckpt=global_att_v2,
+        )
+
+    for left_context, center_context, right_context, conv_cache_size, mem_size in [
+        (0, 10, 5, 4, 2),
+        (0, 10, 15, 4, 2),
+        #
+        (0, 10, 10, 4, 4),
+        (0, 10, 15, 4, 4),
+        #
+        (0, 20, 0, 2, 2),
+        (0, 20, 10, 2, 2),
+        (0, 20, 15, 2, 2),
+    ]:
+        run_chunkwise_train(
+            enc_stream_type="chunked",
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            chunk_sizes=[left_context + center_context + right_context],
+            chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+            start_lrs=[lr],
+            decay_pt_factors=[1 / 3],
+            gpu_mem=24,
+            total_epochs=[300],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=168,
+            end_slice_start=left_context,
+            end_slice_size=center_context,
+            window_left_padding=left_context * 6,
+            conf_mem_opts={
+                "self_att_version": 1,
+                "mem_size": mem_size,
+                "use_cached_prev_kv": True,
+                "conv_cache_size": conv_cache_size,
+                "mem_slice_start": left_context,
+                "mem_slice_size": center_context,
+            },
+            suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+            selected_datasets=["dev-other", "test-other"],
         )
 
     # TODO: freeze BN
@@ -1641,20 +2060,20 @@ def baseline():
     # TODO: h_t without linear trafo (might be different dim)
 
     # TODO: no h_t at all (also different dim)
-    run_chunkwise_train(
-        enc_stream_type="global",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[1],
-        chunk_step_factors=[1],
-        start_lrs=[2e-4],
-        decay_pt_factors=[0.25],
-        gpu_mem=24,
-        total_epochs=[200],
-        batch_size=30_000,
-        accum_grad=1,
-        time_rqmt=120,
-        decoder_mask_eoc=True,
-        remove_att_ctx_from_dec_state=True,
-        returnn_root=RETURNN_ROOT_V2,
-    )
+    # run_chunkwise_train(
+    #     enc_stream_type="global",
+    #     run_all_for_best_last_avg=True,
+    #     enable_check_align=False,
+    #     chunk_sizes=[1, 20],
+    #     chunk_step_factors=[1],
+    #     start_lrs=[2e-4],
+    #     decay_pt_factors=[0.25],
+    #     gpu_mem=24,
+    #     total_epochs=[300, 400],
+    #     batch_size=30_000,
+    #     accum_grad=1,
+    #     time_rqmt=120,
+    #     decoder_mask_eoc=True,
+    #     remove_att_ctx_from_dec_state=True,
+    #     returnn_root=RETURNN_ROOT_V2,
+    # )
