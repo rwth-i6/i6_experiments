@@ -611,18 +611,18 @@ def create_config(
     )  # for network construction
 
     # LR scheduling
-    if noam_opts and allow_lr_scheduling:
+    if noam_opts and retrain_checkpoint is None and allow_lr_scheduling:
         noam_opts["model_d"] = encoder_args.enc_key_dim
         exp_config["learning_rate"] = noam_opts["lr"]
         exp_config["learning_rate_control"] = "constant"
         extra_python_code += "\n" + noam_lr_str.format(**noam_opts)
-    elif warmup_lr_opts and allow_lr_scheduling:
+    elif warmup_lr_opts and retrain_checkpoint is None and allow_lr_scheduling:
         if warmup_lr_opts.get("learning_rates", None):
             exp_config["learning_rates"] = warmup_lr_opts["learning_rates"]
         exp_config["learning_rate"] = warmup_lr_opts["peak_lr"]
         exp_config["learning_rate_control"] = "constant"
         extra_python_code += "\n" + warmup_lr_str.format(**warmup_lr_opts)
-    elif oclr_opts and allow_lr_scheduling:
+    elif oclr_opts and retrain_checkpoint is None and allow_lr_scheduling:
         if oclr_opts.get("learning_rates", None):
             exp_config["learning_rates"] = oclr_opts["learning_rates"]
         exp_config["learning_rate"] = oclr_opts["peak_lr"]
