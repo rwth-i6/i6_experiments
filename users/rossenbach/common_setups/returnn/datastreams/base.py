@@ -6,8 +6,10 @@ from i6_experiments.common.setups.returnn_common.serialization import DataInitAr
 
 class Datastream:
     """
-    Defines a "Datastream" for a RETURNN setup, meaning a single entry in the "extern_data" dictionary
+    Defines a "Datastream" for a setup, e.g. related to an entry in the "extern_data" dictionary
     of the RETURNN config.
+
+    This can be raw audio, audio-features, text labels, speaker labels etc...
     """
 
     def __init__(self, available_for_inference: bool):
@@ -21,6 +23,8 @@ class Datastream:
         self, available_for_inference: Optional[bool] = None
     ) -> Dict[str, Any]:
         """
+        generates an option dictionary to be used as value of an `extern_data` entry.
+
         :param available_for_inference: allows to overwrite "available_for_inference" directly
         """
         opts = {
