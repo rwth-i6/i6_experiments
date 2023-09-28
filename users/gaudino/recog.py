@@ -314,7 +314,7 @@ def search_config_v2(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 1,
+                            "version": 2,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,

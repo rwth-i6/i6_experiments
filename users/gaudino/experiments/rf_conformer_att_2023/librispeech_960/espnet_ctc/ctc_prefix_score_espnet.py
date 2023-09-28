@@ -18,7 +18,7 @@ class CTCPrefixScoreTH(object):
     Speech Recognition," In INTERSPEECH (pp. 3825-3829), 2019.
     """
 
-    def __init__(self, x, xlens, blank, eos, margin=0):
+    def __init__(self, x, xlens, blank, eos, margin=0, maskEos=True):
         """Construct CTC prefix scorer
 
         :param torch.Tensor x: input label posterior sequences (B, T, O)
@@ -41,6 +41,7 @@ class CTCPrefixScoreTH(object):
             if x.is_cuda
             else torch.device("cpu")
         )
+        self.maskEos = maskEos
         # Pad the rest of posteriors in the batch
         # TODO(takaaki-hori): need a better way without for-loops
         for i, l in enumerate(xlens):
@@ -180,8 +181,9 @@ class CTCPrefixScoreTH(object):
             ) # [B*H, O]
 
         # eos is handled differently by espnet
-        # for si in range(n_bh):
-        #     log_psi[si, self.eos] = r_sum[self.end_frames[si // n_hyps], si] # r_sum: [T, B*H], log_psi: [B*H, O] (line 4)
+        if self.maskEos:
+            for si in range(n_bh):
+                log_psi[si, self.eos] = r_sum[self.end_frames[si // n_hyps], si] # r_sum: [T, B*H], log_psi: [B*H, O] (line 4)
 
         # exclude blank probs
         log_psi[:, self.blank] = self.logzero
