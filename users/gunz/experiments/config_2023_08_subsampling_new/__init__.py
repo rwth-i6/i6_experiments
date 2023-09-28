@@ -119,7 +119,7 @@ def get_n_blstm_a(
     )
 
     previous_exps: Dict[PreviousE, Any] = align_previous_blstm_models()
-    previous_as_dict = {("fs" in exp.name, exp.t_step, 0.3, 0.6, False): s for exp, s in previous_exps.items()}
+    previous_as_dict = {("fs" in exp.name, exp.t_step, 0.3, 0.0, False): s for exp, s in previous_exps.items()}
     current_exps: Dict[Experiment, Any] = run_blstm_a()
     current_as_dict = {
         (
