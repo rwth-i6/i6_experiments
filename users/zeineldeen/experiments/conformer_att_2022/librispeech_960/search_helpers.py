@@ -7,6 +7,7 @@ def add_joint_ctc_att_subnet(
     net,
     att_scale,
     ctc_scale,
+    ctc_prior_scale,
     beam_size=12,
     remove_eos=False,
     renorm_after_remove_eos=False,
@@ -507,7 +508,7 @@ def add_filter_blank_and_merge_labels_layers(net):
     }
 
 
-def create_ctc_greedy_decoder(net):
+def create_ctc_greedy_decoder(net, ctc_prior_scale):
     """
     Create a greedy decoder for CTC.
 
@@ -516,7 +517,18 @@ def create_ctc_greedy_decoder(net):
 
     # time-sync search
     assert net["output"]["class"] == "rec"
-    net["output"]["from"] = "ctc"  # [B,T,V+1]
+
+    if ctc_prior_scale:
+        assert "ctc_log_prior" in net, "ctc log prior layer is not added to network?"
+        net["ctc_log_prior_scaled"] = {
+            "class": "eval",
+            "from": "ctc_log_prior",
+            "eval": f"{ctc_prior_scale} * source(0)",
+        }
+        net["ctc_prior_scaled"] = {"class": "activation", "activation": "safe_exp", "from": "ctc_log_prior_scaled"}
+        net["ctc_w_prior"] = {"class": "combine", "kind": "truediv", "from": ["ctc", "ctc_prior_scaled"]}
+
+    net["output"]["from"] = "ctc_w_prior" if ctc_prior_scale else "ctc"  # [B,T,V+1]
     net["output"]["target"] = "bpe_labels_w_blank"
 
     # used for label-sync search
@@ -546,15 +558,26 @@ def update_tensor_entry(source, **kwargs):
     return tf.tensor_scatter_nd_update(tensor, indices, updates)
 
 
-def add_ctc_forced_align_for_rescore(net):
+def add_ctc_forced_align_for_rescore(net, ctc_prior_scale):
     beam = net["output"]["unit"]["output"]["beam_size"]
     net["extra.search:output"] = copy.deepcopy(net["output"])  # use search in forward
     net["decision"]["from"] = "extra.search:output"
     del net["output"]  # set to ctc scores later and this will be dumped
     net["extra.search:output"]["register_as_extern_data"] = "att_nbest"
+
+    if ctc_prior_scale:
+        assert "ctc_log_prior" in net, "ctc log prior layer is not added to network?"
+        net["ctc_log_prior_scaled"] = {
+            "class": "eval",
+            "from": "ctc_log_prior",
+            "eval": f"{ctc_prior_scale} * source(0)",
+        }
+        net["ctc_prior_scaled"] = {"class": "activation", "activation": "safe_exp", "from": "ctc_log_prior_scaled"}
+        net["ctc_w_prior"] = {"class": "combine", "kind": "truediv", "from": ["ctc", "ctc_prior_scaled"]}
+
     net["ctc_align"] = {
         "class": "forced_align",
-        "from": "ctc",
+        "from": "ctc_w_prior" if ctc_prior_scale else "ctc",
         "input_type": "prob",
         "topology": "ctc",
         "align_target": "data:att_nbest",  # [B*Beam,T]
@@ -587,7 +610,8 @@ def rescore_att_ctc_search(
     time_rqmt,
     att_scale,
     ctc_scale,
-    use_sclite=False,
+    ctc_prior_scale,
+    use_sclite=True,
     rescore_with_ctc: bool = True,
     remove_label: Optional[Union[str, Set[str]]] = None,
 ):
@@ -617,6 +641,8 @@ def rescore_att_ctc_search(
 
     att_config = copy.deepcopy(returnn_config)
     att_config.config["search_output_layer"] = "output"  # n-best list
+    beam = att_config.config["network"]["output"]["unit"]["output"]["beam_size"]
+    att_config.config["batch_size"] = int(att_config.config["batch_size"] * (0.5 if beam > 64 else 1.0))
     search_job = ReturnnSearchJobV2(
         search_data=recognition_dataset.as_returnn_opts(),
         model_checkpoint=checkpoint,
@@ -630,7 +656,7 @@ def rescore_att_ctc_search(
     search_job.add_alias(prefix_name + "/search_job")
 
     ctc_search_config = copy.deepcopy(returnn_config)
-    add_ctc_forced_align_for_rescore(ctc_search_config.config["network"])
+    add_ctc_forced_align_for_rescore(ctc_search_config.config["network"], ctc_prior_scale)
     ctc_search_config.config["need_data"] = True
     ctc_search_config.config["target"] = "bpe_labels"
     beam = ctc_search_config.config["network"]["extra.search:output"]["unit"]["output"]["beam_size"]

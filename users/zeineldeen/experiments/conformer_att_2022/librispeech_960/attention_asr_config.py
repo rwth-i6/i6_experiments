@@ -196,7 +196,7 @@ def pretrain_layers_and_dims(
         num_blocks = max(2 * idx, 1)  # 1/1/2/4/6/8/10/12 -> 8
         StartNumLayers = 1
     elif variant == 2:
-        num_blocks = 2**idx  # 1/1/2/4/8/12 -> 6
+        num_blocks = 2 ** idx  # 1/1/2/4/8/12 -> 6
         StartNumLayers = 1
     elif variant == 3:
         idx += 1
@@ -204,11 +204,11 @@ def pretrain_layers_and_dims(
         StartNumLayers = 2
     elif variant == 4:
         idx += 1
-        num_blocks = 2**idx  # 2/2/4/8/12 -> 5
+        num_blocks = 2 ** idx  # 2/2/4/8/12 -> 5
         StartNumLayers = 2
     elif variant == 5:
         idx += 2
-        num_blocks = 2**idx  # 4/4/8/12 -> 4
+        num_blocks = 2 ** idx  # 4/4/8/12 -> 4
         StartNumLayers = 4
     elif variant == 6:
         idx += 1  # 1 1 2 3
@@ -557,6 +557,8 @@ def create_config(
     speed_pert_version=1,
     specaug_version=1,
     ctc_greedy_decode=False,
+    ctc_log_prior_file=None,
+    ctc_prior_scale=None,
     joint_ctc_att_decode_args=None,
     staged_hyperparams: dict = None,
     keep_best_n=None,
@@ -723,33 +725,14 @@ def create_config(
     if feature_extraction_net:
         exp_config["network"].update(feature_extraction_net)
 
+    if ctc_log_prior_file:
+        add_ctc_log_prior(exp_config, ctc_log_prior_file)
+
     if ctc_greedy_decode:
-        # create bpe labels with blank extern data
-        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
-        exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
-
-        create_ctc_greedy_decoder(exp_config["network"])
-
-        # filter out blanks from best hyp
-        # TODO: we might want to also dump blank for analysis, however, this needs some fix to work.
-        add_filter_blank_and_merge_labels_layers(exp_config["network"])
-        exp_config["network"].pop(exp_config["search_output_layer"], None)
-        exp_config["search_output_layer"] = "out_best_wo_blank"
+        add_ctc_greedy_decoding(exp_config, ctc_prior_scale)
 
     if joint_ctc_att_decode_args:
-        # create bpe labels with blank extern data
-        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
-        exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
-
-        # TODO: this is just for debugging. find a better way to do it later.
-        add_joint_ctc_att_subnet(exp_config["network"], **joint_ctc_att_decode_args)
-        joint_ctc_scale = joint_ctc_att_decode_args["ctc_scale"]
-        if joint_ctc_scale > 0.0:
-            add_filter_blank_and_merge_labels_layers(exp_config["network"])
-            exp_config["network"].pop(exp_config["search_output_layer"], None)
-            exp_config["search_output_layer"] = "out_best_wo_blank"
-        else:
-            pass  # use decision layer as before
+        add_att_ctc_joint_decoding(exp_config, joint_ctc_att_decode_args)
 
     # -------------------------- end network -------------------------- #
 
@@ -901,6 +884,9 @@ def create_config(
             _get_raw_func,
         ]
 
+    if (global_stats and not global_stats.get("use_legacy_version", False)) or ctc_log_prior_file:
+        python_prolog += ["import numpy"]
+
     # modify hyperparameters based on epoch (only used in training)
     if staged_network_dict and staged_hyperparams:
         for ep, v in staged_hyperparams.items():
@@ -948,21 +934,30 @@ def add_global_stats_norm(global_stats, net):
     if isinstance(global_stats, dict):
         from sisyphus.delayed_ops import DelayedFormat
 
-        global_mean_delayed = DelayedFormat("{}", global_stats["mean"])
-        global_stddev_delayed = DelayedFormat("{}", global_stats["stddev"])
+        global_mean_delayed = CodeWrapper(DelayedFormat("numpy.loadtxt('{}', dtype='float32')", global_stats["mean"]))
+        global_stddev_delayed = CodeWrapper(
+            DelayedFormat("numpy.loadtxt('{}', dtype='float32')", global_stats["stddev"])
+        )
 
         net["log10_"] = copy.deepcopy(net["log10"])
+
+        use_legacy_version = global_stats.pop("legacy", False)
+
         net["global_mean"] = {
             "class": "constant",
             "value": CodeWrapper(
-                f"eval(\"exec('import numpy') or numpy.loadtxt('{global_mean_delayed}', dtype='float32')\")"
+                f"eval(\"exec('import numpy') or {global_mean_delayed}\")"
+                if use_legacy_version
+                else global_mean_delayed
             ),
             "dtype": "float32",
         }
         net["global_stddev"] = {
             "class": "constant",
             "value": CodeWrapper(
-                f"eval(\"exec('import numpy') or numpy.loadtxt('{global_stddev_delayed}', dtype='float32')\")"
+                f"eval(\"exec('import numpy') or {global_stddev_delayed}\")"
+                if use_legacy_version
+                else global_stddev_delayed
             ),
             "dtype": "float32",
         }
@@ -1019,3 +1014,41 @@ def add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog):
         net["mixup_features"] = {"from": "log", "class": "eval", "eval": "source(0) / 2.3026"}
     else:
         net["mixup_features"] = {"class": "copy", "from": "mixup"}
+
+
+def add_ctc_greedy_decoding(config, ctc_prior_scale):
+    # create bpe labels with blank extern data
+    config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(config["extern_data"]["bpe_labels"])
+    config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
+
+    create_ctc_greedy_decoder(config["network"], ctc_prior_scale)
+
+    # filter out blanks from best hyp
+    # TODO: we might want to also dump blank for analysis, however, this needs some fix to work.
+    add_filter_blank_and_merge_labels_layers(config["network"])
+    config["network"].pop(config["search_output_layer"], None)
+    config["search_output_layer"] = "out_best_wo_blank"
+
+
+def add_att_ctc_joint_decoding(config, joint_ctc_att_decode_args):
+    # create bpe labels with blank extern data
+    config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(config["extern_data"]["bpe_labels"])
+    config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
+
+    add_joint_ctc_att_subnet(config["network"], **joint_ctc_att_decode_args)
+    joint_ctc_scale = joint_ctc_att_decode_args["ctc_scale"]
+    if joint_ctc_scale > 0.0:
+        add_filter_blank_and_merge_labels_layers(config["network"])
+        config["network"].pop(config["search_output_layer"], None)
+        config["search_output_layer"] = "out_best_wo_blank"
+    else:
+        pass  # use decision layer as before
+
+
+def add_ctc_log_prior(config, ctc_log_prior_file):
+    from sisyphus.delayed_ops import DelayedFormat
+
+    config["network"]["ctc_log_prior"] = {
+        "class": "constant",
+        "value": CodeWrapper(DelayedFormat("numpy.loadtxt('{}', dtype='float32')", ctc_log_prior_file)),
+    }
