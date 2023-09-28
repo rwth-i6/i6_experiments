@@ -41,13 +41,13 @@ train_key = "train-other-960"
 
 @dataclass(frozen=True, eq=True)
 class Experiment:
-    dc_detection: bool
     feature_time_shift: float
     import_checkpoint: returnn.Checkpoint
     import_epoch: int
     import_graph: tk.Path
     import_priors: tk.Path
     name: str
+    t_step: float
 
 
 def run(returnn_root: tk.Path):
@@ -58,7 +58,6 @@ def run(returnn_root: tk.Path):
 
     configs = [
         Experiment(
-            dc_detection=False,
             feature_time_shift=10 / 1000,
             import_checkpoint=returnn.Checkpoint(
                 tk.Path(
@@ -73,11 +72,45 @@ def run(returnn_root: tk.Path):
                 "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/tina-blstm-30ms-fs/prior.xml"
             ),
             name="30ms-fs",
+            t_step=30 / 1000,
+        ),
+        Experiment(
+            feature_time_shift=7.5 / 1000,
+            import_checkpoint=returnn.Checkpoint(
+                tk.Path(
+                    "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/blstm-30ms-mp/epoch.600.index",
+                )
+            ),
+            import_epoch=600,
+            import_graph=tk.Path(
+                "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/blstm-30ms-mp/graph.meta"
+            ),
+            import_priors=tk.Path(
+                "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/blstm-30ms-mp/prior.xml"
+            ),
+            name="30ms-mp",
+            t_step=30 / 1000,
+        ),
+        Experiment(
+            feature_time_shift=10 / 1000,
+            import_checkpoint=returnn.Checkpoint(
+                tk.Path(
+                    "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/blstm-40ms-mp/epoch.600.index",
+                )
+            ),
+            import_epoch=600,
+            import_graph=tk.Path(
+                "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/blstm-40ms-mp/graph.meta"
+            ),
+            import_priors=tk.Path(
+                "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/blstm-40ms-mp/prior.xml"
+            ),
+            name="40ms-mp",
+            t_step=40 / 1000,
         ),
     ]
     experiments = {
         exp: run_single(
-            dc_detection=exp.dc_detection,
             exp_name=exp.name,
             feature_time_shift=exp.feature_time_shift,
             import_checkpoint=exp.import_checkpoint,
@@ -95,7 +128,6 @@ def run(returnn_root: tk.Path):
 def run_single(
     *,
     exp_name: str,
-    dc_detection: bool,
     feature_time_shift: float,
     import_checkpoint: returnn.Checkpoint,
     import_epoch: int,
@@ -105,7 +137,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"blstm-1-fs_tina-{exp_name}"
+    name = f"blstm-1-fs-previous-{exp_name}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -115,7 +147,7 @@ def run_single(
         test_data_inputs,
     ) = lbs_data_setups.get_data_inputs()
 
-    rasr_init_args = lbs_data_setups.get_init_args(gt_normalization=True, dc_detection=dc_detection)
+    rasr_init_args = lbs_data_setups.get_init_args(gt_normalization=True, dc_detection=False)
     rasr_init_args.feature_extraction_args["gt"]["parallel"] = 50
     rasr_init_args.feature_extraction_args["gt"]["rtf"] = 0.5
     rasr_init_args.feature_extraction_args["gt"]["gt_options"]["tempint_shift"] = feature_time_shift
@@ -187,9 +219,9 @@ def run_single(
         tf_library=s.native_lstm2_job.out_op,
         lm_gc_simple_hash=True,
     )
-    sil_tdp = (*recog_args.tdp_silence[:3], 3.0)
+    sil_tdp = (*recog_args.tdp_silence[:3], 0.0)
     align_cfg = (
-        recog_args.with_prior_scale(0.5)
+        recog_args.with_prior_scale(0.0)
         .with_tdp_scale(1.0)
         .with_tdp_silence(sil_tdp)
         .with_tdp_non_word(sil_tdp)
@@ -212,15 +244,17 @@ def run_single(
     crp.concurrent = 300
     crp.segment_path = corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, crp.concurrent).out_segment_path
 
+    a_name = f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}-silE{align_cfg.tdp_silence[-1]}"
+
     a_job = recognizer.align(
-        f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
+        a_name,
         crp=crp,
         feature_scorer=align_search_jobs.search_feature_scorer,
         default_tdp=True,
     )
 
     allophones = lexicon.StoreAllophonesJob(crp)
-    tk.register_output(f"allophones/{name}/allophones", allophones.out_allophone_file)
+    tk.register_output(f"allophones/{a_name}/allophones", allophones.out_allophone_file)
 
     plots = PlotViterbiAlignmentsJob(
         alignment_bundle_path=a_job.out_alignment_bundle,
@@ -229,16 +263,16 @@ def run_single(
         show_labels=False,
         monophone=True,
     )
-    tk.register_output(f"alignments/{name}/alignment-plots", plots.out_plot_folder)
+    tk.register_output(f"alignments/{a_name}/alignment-plots", plots.out_plot_folder)
 
     phoneme_durs = PlotPhonemeDurationsJob(
         alignment_bundle_path=a_job.out_alignment_bundle,
         allophones_path=allophones.out_allophone_file,
         time_step_s=40 / 1000,
     )
-    tk.register_output(f"alignments/{name}/statistics/plots", phoneme_durs.out_plot_folder)
-    tk.register_output(f"alignments/{name}/statistics/means", phoneme_durs.out_means)
-    tk.register_output(f"alignments/{name}/statistics/variances", phoneme_durs.out_vars)
+    tk.register_output(f"alignments/{a_name}/statistics/plots", phoneme_durs.out_plot_folder)
+    tk.register_output(f"alignments/{a_name}/statistics/means", phoneme_durs.out_means)
+    tk.register_output(f"alignments/{a_name}/statistics/variances", phoneme_durs.out_vars)
 
     s.experiments["fh"]["alignment_job"] = a_job
 

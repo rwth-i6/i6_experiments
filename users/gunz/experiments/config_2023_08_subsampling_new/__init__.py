@@ -83,13 +83,13 @@ def get_40ms_wei_a():
 
 
 @cache
-def align_tinas_models():
+def align_previous_blstm_models():
     from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new import (
-        config_03b_monophone_blstm_fullsum_tina,
+        config_03b_monophone_blstm_fullsum_previous,
     )
 
     returnn_root = _clone_returnn_safe()
-    exps = config_03b_monophone_blstm_fullsum_tina.run(returnn_root=returnn_root)
+    exps = config_03b_monophone_blstm_fullsum_previous.run(returnn_root=returnn_root)
     return exps
 
 
@@ -108,47 +108,43 @@ def get_n_blstm_a(
     feature_stacking: bool,
     t_step: float,
     transition_scale: float,
+    prior_scale: Optional[float],
     adapted_tdps: Optional[bool],
 ):
-    from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new.config import (
-        ALIGN_30MS_BLSTM_MP,
-        ALIGN_40MS_BLSTM_MP,
-    )
     from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new.config_03_monophone_blstm_fullsum import (
         Experiment,
     )
-    from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new.config_03b_monophone_blstm_fullsum_tina import (
-        Experiment as TinaE,
+    from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new.config_03b_monophone_blstm_fullsum_previous import (
+        Experiment as PreviousE,
     )
 
-    via_dict = {
-        (False, 30 / 1000, 0.3, False): tk.Path(ALIGN_30MS_BLSTM_MP, cached=True),
-        (False, 30 / 1000, 0.3, None): tk.Path(ALIGN_30MS_BLSTM_MP, cached=True),
-        (False, 40 / 1000, 0.3, False): tk.Path(ALIGN_40MS_BLSTM_MP, cached=True),
-        (False, 40 / 1000, 0.3, None): tk.Path(ALIGN_40MS_BLSTM_MP, cached=True),
+    previous_exps: Dict[PreviousE, Any] = align_previous_blstm_models()
+    previous_as_dict = {("fs" in exp.name, exp.t_step, 0.3, 0.6, False): s for exp, s in previous_exps.items()}
+    current_exps: Dict[Experiment, Any] = run_blstm_a()
+    current_as_dict = {
+        (
+            "fs" in exp.subsampling_approach,
+            exp.output_time_step,
+            exp.bw_transition_scale,
+            exp.alignment_prior_scale_center,
+            exp.adapt_transition_model_to_ss,
+        ): s
+        for exp, s in current_exps.items()
     }
+    all_exps = {**current_as_dict, **previous_as_dict}
 
-    result = via_dict.get((feature_stacking, t_step, transition_scale, adapted_tdps), None)
-    if result is not None:
-        return result
-
-    exps_tina: Dict[TinaE, Any] = align_tinas_models()
-    if t_step == 30 / 1000 and feature_stacking and (adapted_tdps is None or adapted_tdps == False):
-        target_s = next(iter(exps_tina.values()))
-        return target_s.experiments["fh"]["alignment_job"].out_alignment_bundle
-
-    exps: Dict[Experiment, Any] = run_blstm_a()
-    target_s = next(
+    exp = next(
         (
             s
-            for e, s in exps.items()
-            if e.output_time_step == t_step
-            and e.bw_transition_scale == transition_scale
-            and (adapted_tdps is None or e.adapt_transition_model_to_ss == adapted_tdps)
-            and (not feature_stacking or "fs:" in e.subsampling_approach)
+            for (fs, t_step_, bw_t, p_c, adapt), s in all_exps.items()
+            if fs == feature_stacking
+            and t_step_ == t_step
+            and bw_t == transition_scale
+            and (prior_scale is None or p_c == prior_scale)
+            and (adapted_tdps is None or adapt == adapted_tdps)
         )
     )
-    return target_s.experiments["fh"]["alignment_job"].out_alignment_bundle
+    return exp.experiments["fh"]["alignment_job"].out_alignment_bundle
 
 
 @tk.block("viterbi_30ms")
@@ -299,8 +295,12 @@ def the_plan():
 
     # FS vs. MP
 
-    phmm_30ms_mp_a = get_n_blstm_a(feature_stacking=False, transition_scale=0.3, adapted_tdps=False, t_step=30 / 1000)
-    phmm_30ms_fs_a = get_n_blstm_a(feature_stacking=True, transition_scale=0.3, adapted_tdps=False, t_step=30 / 1000)
+    phmm_30ms_mp_a = get_n_blstm_a(
+        feature_stacking=False, transition_scale=0.3, adapted_tdps=False, t_step=30 / 1000, prior_scale=0.0
+    )
+    phmm_30ms_fs_a = get_n_blstm_a(
+        feature_stacking=True, transition_scale=0.3, adapted_tdps=False, t_step=30 / 1000, prior_scale=0.0
+    )
 
     config_11_diphone_mpc1x3_30ms.run(
         returnn_root=returnn_root, alignments=[(phmm_30ms_mp_a, "30ms-Bmp-v8"), (phmm_30ms_fs_a, "30ms-Bfs-v8")]
@@ -309,28 +309,42 @@ def the_plan():
         returnn_root=returnn_root, alignments=[(phmm_30ms_mp_a, "30ms-Bmp-v8"), (phmm_30ms_fs_a, "30ms-Bfs-v8")]
     )
 
-    phmm_40ms_mp_a = get_n_blstm_a(feature_stacking=False, transition_scale=0.3, adapted_tdps=False, t_step=40 / 1000)
-    phmm_40ms_fs_a = get_n_blstm_a(feature_stacking=True, transition_scale=0.3, adapted_tdps=False, t_step=40 / 1000)
+    phmm_40ms_mp_a = get_n_blstm_a(
+        feature_stacking=False, transition_scale=0.3, adapted_tdps=False, t_step=40 / 1000, prior_scale=0.0
+    )
+    phmm_40ms_fs_a = get_n_blstm_a(
+        feature_stacking=True, transition_scale=0.3, adapted_tdps=False, t_step=40 / 1000, prior_scale=0.0
+    )
 
-    config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_mp_a, a_name="40ms-Bmp-v8")
-    config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_fs_a, a_name="40ms-Bfs-v8")
-    config_21h_diphone_fs1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_mp_a, a_name="40ms-Bmp-v8")
-    config_21h_diphone_fs1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_fs_a, a_name="40ms-Bfs-v8")
+    config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_mp_a, a_name="40ms-Bmp-pC0.0")
+    config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_fs_a, a_name="40ms-Bfs-pC0.0")
+    config_21h_diphone_fs1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_mp_a, a_name="40ms-Bmp-pC0.0")
+    config_21h_diphone_fs1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_fs_a, a_name="40ms-Bfs-pC0.0")
 
     # P-HMM ADAPTED TDPs
 
     phmm_40ms_mp_adapted_a = get_n_blstm_a(
-        feature_stacking=False, transition_scale=0.3, adapted_tdps=True, t_step=40 / 1000
+        feature_stacking=False, transition_scale=0.3, adapted_tdps=True, t_step=40 / 1000, prior_scale=None
     )
     config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_mp_adapted_a, a_name="40ms-Ba-v8")
 
     # P-HMM-S
 
-    phmms_30ms_mp_a = get_n_blstm_a(feature_stacking=False, transition_scale=0.0, adapted_tdps=None, t_step=30 / 1000)
-    phmms_40ms_mp_a = get_n_blstm_a(feature_stacking=False, transition_scale=0.0, adapted_tdps=None, t_step=40 / 1000)
+    phmms_30ms_mp_a = get_n_blstm_a(
+        feature_stacking=False, transition_scale=0.0, adapted_tdps=None, t_step=30 / 1000, prior_scale=0.6
+    )
+    phmms_40ms_mp_a_silency = get_n_blstm_a(
+        feature_stacking=False, transition_scale=0.0, adapted_tdps=None, t_step=40 / 1000, prior_scale=0.3
+    )
+    phmms_40ms_mp_a = get_n_blstm_a(
+        feature_stacking=False, transition_scale=0.0, adapted_tdps=None, t_step=40 / 1000, prior_scale=0.6
+    )
 
-    config_11_diphone_mpc1x3_30ms.run(returnn_root=returnn_root, alignments=[(phmms_30ms_mp_a, "30ms-Bs-v8")])
-    config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmms_40ms_mp_a, a_name="40ms-Bs-v8")
+    config_11_diphone_mpc1x3_30ms.run(returnn_root=returnn_root, alignments=[(phmms_30ms_mp_a, "30ms-Bs-pC0.6")])
+    config_21_diphone_mpc1x4_40ms.run(
+        returnn_root=returnn_root, alignment=phmms_40ms_mp_a_silency, a_name="40ms-Bs-pC0.3"
+    )
+    config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmms_40ms_mp_a, a_name="40ms-Bs-pC0.6")
 
     # P-HMM-S FF-NN
 

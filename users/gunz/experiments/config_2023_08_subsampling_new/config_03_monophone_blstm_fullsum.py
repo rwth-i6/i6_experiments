@@ -56,6 +56,7 @@ train_key = "train-other-960"
 class Experiment:
     adapt_transition_model_to_ss: bool
     alignment_name: str
+    alignment_prior_scale_center: float
     bw_label_scale: float
     bw_transition_scale: float
     feature_time_shift: float
@@ -79,6 +80,7 @@ def run(returnn_root: tk.Path):
         Experiment(
             adapt_transition_model_to_ss=False,
             alignment_name="scratch",
+            alignment_prior_scale_center=0.0,
             bw_label_scale=0.3,
             feature_time_shift=10 / 1000,
             lr="v8",
@@ -95,6 +97,7 @@ def run(returnn_root: tk.Path):
         Experiment(
             adapt_transition_model_to_ss=True,
             alignment_name="scratch",
+            alignment_prior_scale_center=0.6,
             bw_label_scale=0.3,
             feature_time_shift=10 / 1000,
             lr="v8",
@@ -108,6 +111,7 @@ def run(returnn_root: tk.Path):
         Experiment(
             adapt_transition_model_to_ss=True,  # doesn't matter here, but set for hash compat
             alignment_name="scratch",
+            alignment_prior_scale_center=0.6,
             bw_label_scale=0.3,
             feature_time_shift=7.5 / 1000,
             lr="v8",
@@ -120,6 +124,20 @@ def run(returnn_root: tk.Path):
         Experiment(
             adapt_transition_model_to_ss=True,  # doesn't matter here, but set for hash compat
             alignment_name="scratch",
+            alignment_prior_scale_center=0.3,
+            bw_label_scale=0.3,
+            feature_time_shift=10 / 1000,
+            lr="v8",
+            model_dim=model_dim,
+            n_states_per_phone=1,
+            output_time_step=40 / 1000,
+            subsampling_approach="mp:2@2+mp:2@4",
+            bw_transition_scale=0.0,
+        ),
+        Experiment(
+            adapt_transition_model_to_ss=True,  # doesn't matter here, but set for hash compat
+            alignment_name="scratch",
+            alignment_prior_scale_center=0.6,
             bw_label_scale=0.3,
             feature_time_shift=10 / 1000,
             lr="v8",
@@ -134,6 +152,7 @@ def run(returnn_root: tk.Path):
         exp: run_single(
             adapt_transition_model_to_ss=exp.adapt_transition_model_to_ss,
             alignment_name=exp.alignment_name,
+            align_prior_scale_center=exp.alignment_prior_scale_center,
             bw_label_scale=exp.bw_label_scale,
             feature_time_shift=exp.feature_time_shift,
             lr=exp.lr,
@@ -154,6 +173,7 @@ def run_single(
     *,
     adapt_transition_model_to_ss: bool,
     alignment_name: str,
+    align_prior_scale_center: float,
     bw_label_scale: float,
     bw_transition_scale: float,
     feature_time_shift: float,
@@ -550,71 +570,12 @@ def run_single(
         lm_gc_simple_hash=True,
     )
 
-    for silExit, pC, tdp_scale in itertools.product([3.0, 0.0], [0.0, 0.3, 0.6], [0.0, 1.0]):
-        sil_tdp = (*recog_args.tdp_silence[:3], silExit)
-        align_cfg = (
-            recog_args.with_prior_scale(pC)
-            .with_tdp_scale(tdp_scale)
-            .with_tdp_silence(sil_tdp)
-            .with_tdp_non_word(sil_tdp)
-        )
-        align_search_jobs = recognizer.recognize_count_lm(
-            label_info=s.label_info,
-            search_parameters=align_cfg,
-            num_encoder_output=2 * model_dim,
-            rerun_after_opt_lm=False,
-            opt_lm_am=False,
-            add_sis_alias_and_output=False,
-            calculate_stats=True,
-            rtf_cpu=4,
-        )
-        crp = copy.deepcopy(align_search_jobs.search_crp)
-        crp.acoustic_model_config.tdp.applicator_type = "corrected"
-        crp.acoustic_model_config.allophones.add_all = False
-        crp.acoustic_model_config.allophones.add_from_lexicon = True
-        crp.concurrent = 1
-
-        segs = corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, 1)
-        segs = corpus.FilterSegmentsByListJob(
-            segs.out_single_segment_files, ["train-other-960/2920-156224-0013/2920-156224-0013"]
-        )
-        crp.segment_path = segs.out_segment_path
-
-        a_job = recognizer.align(
-            f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-silExit{silExit}-tdp{align_cfg.tdp_scale}",
-            crp=crp,
-            feature_scorer=align_search_jobs.search_feature_scorer,
-            default_tdp=True,
-            set_do_not_normalize_lemma_sequence_scores=False,
-            rtf=1,
-        )
-
-        allophones = lexicon.StoreAllophonesJob(crp)
-        tk.register_output(f"allophones/{name}/allophones", allophones.out_allophone_file)
-
-        plots = PlotViterbiAlignmentsJob(
-            alignment_bundle_path=a_job.out_alignment_bundle,
-            allophones_path=allophones.out_allophone_file,
-            segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
-            show_labels=False,
-            monophone=True,
-        )
-        tk.register_output(
-            f"alignments/{name}-pC{pC}-silExit{silExit}-tdpS{tdp_scale}/alignment-plots", plots.out_plot_folder
-        )
-
-        phoneme_durs = PlotPhonemeDurationsJob(
-            alignment_bundle_path=a_job.out_alignment_bundle,
-            allophones_path=allophones.out_allophone_file,
-            time_step_s=feature_time_shift * 4,
-        )
-        tk.register_output(f"alignments/{name}/statistics/plots", phoneme_durs.out_plot_folder)
-        tk.register_output(f"alignments/{name}/statistics/means", phoneme_durs.out_means)
-        tk.register_output(f"alignments/{name}/statistics/variances", phoneme_durs.out_vars)
-
-    sil_tdp = (*recog_args.tdp_silence[:3], 3.0)
+    sil_tdp = (*recog_args.tdp_silence[:3], 0.0)
     align_cfg = (
-        recog_args.with_prior_scale(0.6).with_tdp_scale(tdp_scale).with_tdp_silence(sil_tdp).with_tdp_non_word(sil_tdp)
+        recog_args.with_prior_scale(align_prior_scale_center)
+        .with_tdp_scale(tdp_scale)
+        .with_tdp_silence(sil_tdp)
+        .with_tdp_non_word(sil_tdp)
     )
     align_search_jobs = recognizer.recognize_count_lm(
         label_info=s.label_info,
@@ -633,8 +594,9 @@ def run_single(
     crp.concurrent = 300
     crp.segment_path = corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, crp.concurrent).out_segment_path
 
+    a_name = f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}"
     a_job = recognizer.align(
-        f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
+        a_name,
         crp=crp,
         feature_scorer=align_search_jobs.search_feature_scorer,
         default_tdp=True,
@@ -643,7 +605,7 @@ def run_single(
     )
 
     allophones = lexicon.StoreAllophonesJob(crp)
-    tk.register_output(f"allophones/{name}/allophones", allophones.out_allophone_file)
+    tk.register_output(f"allophones/{a_name}/allophones", allophones.out_allophone_file)
 
     plots = PlotViterbiAlignmentsJob(
         alignment_bundle_path=a_job.out_alignment_bundle,
@@ -652,16 +614,16 @@ def run_single(
         show_labels=False,
         monophone=True,
     )
-    tk.register_output(f"alignments/{name}/alignment-plots", plots.out_plot_folder)
+    tk.register_output(f"alignments/{a_name}/alignment-plots", plots.out_plot_folder)
 
     phoneme_durs = PlotPhonemeDurationsJob(
         alignment_bundle_path=a_job.out_alignment_bundle,
         allophones_path=allophones.out_allophone_file,
         time_step_s=feature_time_shift * 4,
     )
-    tk.register_output(f"alignments/{name}/statistics/plots", phoneme_durs.out_plot_folder)
-    tk.register_output(f"alignments/{name}/statistics/means", phoneme_durs.out_means)
-    tk.register_output(f"alignments/{name}/statistics/variances", phoneme_durs.out_vars)
+    tk.register_output(f"alignments/{a_name}/statistics/plots", phoneme_durs.out_plot_folder)
+    tk.register_output(f"alignments/{a_name}/statistics/means", phoneme_durs.out_means)
+    tk.register_output(f"alignments/{a_name}/statistics/variances", phoneme_durs.out_vars)
 
     s.experiments["fh"]["alignment_job"] = a_job
 
