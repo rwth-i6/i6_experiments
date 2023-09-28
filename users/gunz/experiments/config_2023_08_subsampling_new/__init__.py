@@ -144,7 +144,9 @@ def get_n_blstm_a(
             and (adapted_tdps is None or adapt == adapted_tdps)
         )
     )
-    return exp.experiments["fh"]["alignment_job"].out_alignment_bundle
+    bundle = exp.experiments["fh"]["alignment_job"].out_alignment_bundle
+    print(f"({feature_stacking}, {t_step}, {transition_scale}, {prior_scale}, {adapted_tdps}) -> {bundle}")
+    return bundle
 
 
 @tk.block("viterbi_30ms")
