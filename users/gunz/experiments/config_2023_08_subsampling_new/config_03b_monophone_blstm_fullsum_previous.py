@@ -103,7 +103,7 @@ def run(returnn_root: tk.Path):
                 "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/blstm-40ms-mp/graph.meta"
             ),
             import_priors=tk.Path(
-                "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/blstm-40ms-mp/prior.xml"
+                "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/blstm-40ms-mp/priors.xml"
             ),
             name="40ms-mp",
             t_step=40 / 1000,
