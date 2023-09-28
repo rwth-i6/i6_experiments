@@ -1,4 +1,5 @@
 from functools import cache
+
 from sisyphus import tk
 from typing import Any, Dict, Optional
 
@@ -111,6 +112,7 @@ def get_n_blstm_a(
     prior_scale: Optional[float],
     adapted_tdps: Optional[bool],
 ):
+    from i6_core.mm import AlignmentJob
     from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new.config_03_monophone_blstm_fullsum import (
         Experiment,
     )
@@ -144,8 +146,11 @@ def get_n_blstm_a(
             and (adapted_tdps is None or adapt == adapted_tdps)
         )
     )
-    bundle = exp.experiments["fh"]["alignment_job"].out_alignment_bundle
-    print(f"({feature_stacking}, {t_step}, {transition_scale}, {prior_scale}, {adapted_tdps}) -> {bundle}")
+    a_job: AlignmentJob = exp.experiments["fh"]["alignment_job"]
+    bundle = a_job.out_alignment_bundle
+    print(
+        f"({feature_stacking}, {t_step}, {transition_scale}, {prior_scale}, {adapted_tdps}) -> {bundle}, {a_job.get_aliases()}"
+    )
     return bundle
 
 
