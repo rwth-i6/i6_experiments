@@ -570,7 +570,9 @@ def run_single(
         lm_gc_simple_hash=True,
     )
 
-    for p_c, sil_e in itertools.product([0.0, 0.3, 0.6, align_prior_scale_center], [0.0, 3.0]):
+    for p_c, sil_e in itertools.product(
+        [0.0, 0.3, 0.6, align_prior_scale_center], [0.0, 3.0], [0.0, 1.0] if bw_transition_scale == 0.0 else [tdp_scale]
+    ):
         sil_tdp = (0.0, 3.0, "infinity", sil_e)
         align_cfg = (
             recog_args.with_prior_scale(p_c)
