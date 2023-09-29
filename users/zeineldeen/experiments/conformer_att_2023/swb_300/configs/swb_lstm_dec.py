@@ -831,7 +831,7 @@ def conformer_baseline():
         base_v2_args["decoder_args"].embed_dropout = embed_drop
         base_v2_args["decoder_args"].use_zoneout_output = True
 
-        base_v2_args["global_stats"] = {"mean": mean, "stddev": stddev}
+        base_v2_args["global_stats"] = {"mean": mean, "stddev": stddev, "use_legacy_version": True}
         base_v2_args["encoder_args"].input_layer = "conv-6"
         base_v2_args["pretrain_reps"] = 3
         base_v2_args["specaug_version"] = 3  # TODO: check again

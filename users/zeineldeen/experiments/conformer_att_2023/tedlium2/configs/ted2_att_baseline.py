@@ -957,7 +957,7 @@ def conformer_baseline():
             + list(numpy.linspace(lr, lr / 10, cyc_ep))
             + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
         )
-        base_v1_args["global_stats"] = {"mean": global_mean, "stddev": global_std}
+        base_v1_args["global_stats"] = {"mean": global_mean, "stddev": global_std, "use_legacy_version": True}
         base_v1_args["pretrain_reps"] = pretrain_reps
         base_v1_args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
         base_v1_args["encoder_args"].dropout = enc_drop
