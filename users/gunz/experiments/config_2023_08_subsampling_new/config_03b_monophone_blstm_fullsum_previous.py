@@ -27,7 +27,6 @@ from .config import (
     BLSTM_FH_DECODING_TENSOR_CONFIG,
     BLSTM_FH_TINA_DECODING_TENSOR_CONFIG,
     CONF_CHUNKING_10MS,
-    MLP_FH_DECODING_TENSOR_CONFIG,
     RASR_ARCH,
     RASR_ROOT_NO_TF,
     RASR_ROOT_TF2,
@@ -49,7 +48,9 @@ class Experiment:
     import_graph: tk.Path
     import_priors: tk.Path
     name: str
+    p_c: float
     t_step: float
+    tdp_sil_e: float
     tensor_config: DecodingTensorMap
 
 
@@ -59,7 +60,7 @@ def run(returnn_root: tk.Path):
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    configs = [
+    fs_30ms_configs = [
         Experiment(
             feature_time_shift=10 / 1000,
             import_checkpoint=returnn.Checkpoint(
@@ -74,10 +75,15 @@ def run(returnn_root: tk.Path):
             import_priors=tk.Path(
                 "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/tina-blstm-30ms-fs/prior.xml"
             ),
-            name="30ms-fs",
+            name=f"30ms-fs-pC{p_c}",
+            p_c=p_c,
             t_step=30 / 1000,
+            tdp_sil_e=0.0,
             tensor_config=BLSTM_FH_TINA_DECODING_TENSOR_CONFIG,
-        ),
+        )
+        for p_c in [0.3, 0.6]
+    ]
+    mp_30ms_configs = [
         Experiment(
             feature_time_shift=7.5 / 1000,
             import_checkpoint=returnn.Checkpoint(
@@ -92,10 +98,15 @@ def run(returnn_root: tk.Path):
             import_priors=tk.Path(
                 "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/blstm-30ms-mp/prior.xml"
             ),
-            name="30ms-mp",
+            name=f"30ms-mp-pC{p_c}",
+            p_c=p_c,
             t_step=30 / 1000,
+            tdp_sil_e=0.0,
             tensor_config=BLSTM_FH_DECODING_TENSOR_CONFIG,
-        ),
+        )
+        for p_c in [0.3, 0.6]
+    ]
+    mp_40ms_configs = [
         Experiment(
             feature_time_shift=10 / 1000,
             import_checkpoint=returnn.Checkpoint(
@@ -110,47 +121,16 @@ def run(returnn_root: tk.Path):
             import_priors=tk.Path(
                 "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/blstm-40ms-mp/priors.xml"
             ),
-            name="40ms-mp",
+            name=f"40ms-mp-pC{p_c}",
+            p_c=p_c,
             t_step=40 / 1000,
+            tdp_sil_e=0.0,
             tensor_config=BLSTM_FH_DECODING_TENSOR_CONFIG,
-        ),
-        Experiment(
-            feature_time_shift=10 / 1000,
-            import_checkpoint=returnn.Checkpoint(
-                tk.Path(
-                    "/u/mgunz/setups/2023-08--subsampling-new/alias/00_monophone_linear_fullsum/train/nn_mono-from-scratch-mlp-1-lr:v8-n:1-ss:mp:2@2+mp:2@4-dx:4.0-d:2048-bwl:0.3-bwt:0.3/output/models/epoch.600.index",
-                )
-            ),
-            import_epoch=600,
-            import_graph=tk.Path(
-                "/u/mgunz/setups/2023-05--subsampling-tf2/work/i6_core/returnn/compile/CompileTFGraphJob.eaZYP6msXR4K/output/graph.meta"
-            ),
-            import_priors=tk.Path(
-                "/u/mgunz/setups/2023-05--subsampling-tf2/work/i6_experiments/users/gunz/setups/fh/priors/smoothen/SmoothenPriorsJob.rcVqXHhcQvfI/output/priors.xml"
-            ),
-            name="40ms-ff-mp",
-            t_step=40 / 1000,
-            tensor_config=MLP_FH_DECODING_TENSOR_CONFIG,
-        ),
-        Experiment(
-            feature_time_shift=10 / 1000,
-            import_checkpoint=returnn.Checkpoint(
-                tk.Path(
-                    "/u/mgunz/setups/2023-08--subsampling-new/alias/00_monophone_linear_fullsum/train/nn_mono-from-scratch-mlp-1-lr:v8-n:1-ss:mp:2@2+mp:2@4-dx:4.0-d:2048-bwl:0.3-bwt:0.0/output/models/epoch.600.index",
-                )
-            ),
-            import_epoch=600,
-            import_graph=tk.Path(
-                "/u/mgunz/setups/2023-08--subsampling-new/work/i6_core/returnn/compile/CompileTFGraphJob.eaZYP6msXR4K/output/graph.meta"
-            ),
-            import_priors=tk.Path(
-                "/u/mgunz/setups/2023-08--subsampling-new/work/i6_experiments/users/gunz/setups/fh/priors/smoothen/SmoothenPriorsJob.jBTChIPRQpds/output/priors.xml"
-            ),
-            name="40ms-ffs-mp",
-            t_step=40 / 1000,
-            tensor_config=MLP_FH_DECODING_TENSOR_CONFIG,
-        ),
+        )
+        for p_c in [0.0, 0.3, 0.6]
     ]
+
+    configs = [*fs_30ms_configs, *mp_30ms_configs, *mp_40ms_configs]
     experiments = {
         exp: run_single(
             exp_name=exp.name,
@@ -159,8 +139,11 @@ def run(returnn_root: tk.Path):
             import_epoch=exp.import_epoch,
             import_graph=exp.import_graph,
             import_priors=exp.import_priors,
+            p_c=exp.p_c,
             returnn_root=returnn_root,
+            tdp_sil_e=exp.tdp_sil_e,
             tensor_config=exp.tensor_config,
+            t_step=exp.t_step,
         )
         for exp in configs
     }
@@ -178,6 +161,9 @@ def run_single(
     import_priors: tk.Path,
     returnn_root: tk.Path,
     tensor_config: DecodingTensorMap,
+    p_c: float,
+    tdp_sil_e: float,
+    t_step: float,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
@@ -264,66 +250,63 @@ def run_single(
         lm_gc_simple_hash=True,
     )
 
-    for p_c, sil_e, tdp_scale in itertools.product([0.0, 0.3, 0.6], [0.0, 3.0], [0.0, 1.0] if "ffs" in name else [1.0]):
-        sil_tdp = (0.0, 3.0, "infinity", sil_e)
-        align_cfg = (
-            recog_args.with_prior_scale(p_c)
-            .with_tdp_scale(tdp_scale)
-            .with_tdp_speech((3.0, 0.0, "infinity", 0.0))
-            .with_tdp_silence(sil_tdp)
-            .with_tdp_non_word(sil_tdp)
-        )
-        align_search_jobs = recognizer.recognize_count_lm(
-            label_info=s.label_info,
-            search_parameters=align_cfg,
-            num_encoder_output=2048 if "ff" in name else 2 * 512,
-            rerun_after_opt_lm=False,
-            opt_lm_am=False,
-            add_sis_alias_and_output=False,
-            calculate_stats=True,
-            rtf_cpu=12,
-        )
-        crp = copy.deepcopy(align_search_jobs.search_crp)
-        crp.acoustic_model_config.tdp.applicator_type = "corrected"
-        crp.acoustic_model_config.allophones.add_all = False
-        crp.acoustic_model_config.allophones.add_from_lexicon = True
-        crp.concurrent = 1  # 300
-        crp.segment_path = tk.Path(
-            "/u/mgunz/setups/2023-08--subsampling-new/test-a-segment"
-        )  # corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, crp.concurrent).out_segment_path
+    sil_tdp = (0.0, 3.0, "infinity", tdp_sil_e)
+    align_cfg = (
+        recog_args.with_prior_scale(p_c)
+        .with_tdp_scale(1.0)
+        .with_tdp_speech((3.0, 0.0, "infinity", 0.0))
+        .with_tdp_silence(sil_tdp)
+        .with_tdp_non_word(sil_tdp)
+    )
+    align_search_jobs = recognizer.recognize_count_lm(
+        label_info=s.label_info,
+        search_parameters=align_cfg,
+        num_encoder_output=2048 if "ff" in name else 2 * 512,
+        rerun_after_opt_lm=False,
+        opt_lm_am=False,
+        add_sis_alias_and_output=False,
+        calculate_stats=True,
+        rtf_cpu=12,
+    )
+    crp = copy.deepcopy(align_search_jobs.search_crp)
+    crp.acoustic_model_config.tdp.applicator_type = "corrected"
+    crp.acoustic_model_config.allophones.add_all = False
+    crp.acoustic_model_config.allophones.add_from_lexicon = True
+    crp.concurrent = 300
+    crp.segment_path = corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, crp.concurrent).out_segment_path
 
-        a_name = f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-silE{align_cfg.tdp_silence[-1]}-tdp{align_cfg.tdp_scale}"
+    a_name = f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-silE{align_cfg.tdp_silence[-1]}-tdp{align_cfg.tdp_scale}"
 
-        a_job = recognizer.align(
-            a_name,
-            crp=crp,
-            feature_scorer=align_search_jobs.search_feature_scorer,
-            default_tdp=False,
-            rtf=10,
-        )
-        a_job.alignment_flow.flags["cache_mode"] = "bundle"
+    a_job = recognizer.align(
+        a_name,
+        crp=crp,
+        feature_scorer=align_search_jobs.search_feature_scorer,
+        default_tdp=False,
+        rtf=10,
+    )
+    # a_job.alignment_flow.flags["cache_mode"] = "bundle"
 
-        allophones = lexicon.StoreAllophonesJob(crp)
-        tk.register_output(f"allophones/{a_name}/allophones", allophones.out_allophone_file)
+    allophones = lexicon.StoreAllophonesJob(crp)
+    tk.register_output(f"allophones/{a_name}/allophones", allophones.out_allophone_file)
 
-        plots = PlotViterbiAlignmentsJob(
-            alignment_bundle_path=a_job.out_alignment_bundle,
-            allophones_path=allophones.out_allophone_file,
-            segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
-            show_labels=False,
-            monophone=True,
-        )
-        tk.register_output(f"alignments/{a_name}/alignment-plots", plots.out_plot_folder)
+    plots = PlotViterbiAlignmentsJob(
+        alignment_bundle_path=a_job.out_alignment_bundle,
+        allophones_path=allophones.out_allophone_file,
+        segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
+        show_labels=False,
+        monophone=True,
+    )
+    tk.register_output(f"alignments/{a_name}/alignment-plots", plots.out_plot_folder)
 
-        phoneme_durs = PlotPhonemeDurationsJob(
-            alignment_bundle_path=a_job.out_alignment_bundle,
-            allophones_path=allophones.out_allophone_file,
-            time_step_s=40 / 1000,
-        )
-        tk.register_output(f"alignments/{a_name}/statistics/plots", phoneme_durs.out_plot_folder)
-        tk.register_output(f"alignments/{a_name}/statistics/means", phoneme_durs.out_means)
-        tk.register_output(f"alignments/{a_name}/statistics/variances", phoneme_durs.out_vars)
+    phoneme_durs = PlotPhonemeDurationsJob(
+        alignment_bundle_path=a_job.out_alignment_bundle,
+        allophones_path=allophones.out_allophone_file,
+        time_step_s=t_step,
+    )
+    tk.register_output(f"alignments/{a_name}/statistics/plots", phoneme_durs.out_plot_folder)
+    tk.register_output(f"alignments/{a_name}/statistics/means", phoneme_durs.out_means)
+    tk.register_output(f"alignments/{a_name}/statistics/variances", phoneme_durs.out_vars)
 
-        s.experiments["fh"]["alignment_job"] = a_job
+    s.experiments["fh"]["alignment_job"] = a_job
 
     return s

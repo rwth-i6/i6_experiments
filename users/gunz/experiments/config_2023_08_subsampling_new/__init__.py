@@ -307,73 +307,183 @@ def the_plan():
 
     # FS vs. MP
 
-    phmm_30ms_mp_a = get_n_blstm_a(
-        feature_stacking=False, transition_scale=0.3, adapted_tdps=False, t_step=30 / 1000, prior_scale=0.0
+    phmm_30ms_mp_p0_3_a = get_n_blstm_a(
+        feature_stacking=False,
+        transition_scale=0.3,
+        adapted_tdps=False,
+        t_step=30 / 1000,
+        prior_scale=0.3,
     )
-    phmm_30ms_fs_a = get_n_blstm_a(
-        feature_stacking=True, transition_scale=0.3, adapted_tdps=False, t_step=30 / 1000, prior_scale=0.0
+    phmm_30ms_mp_p0_6_a = get_n_blstm_a(
+        feature_stacking=False,
+        transition_scale=0.3,
+        adapted_tdps=False,
+        t_step=30 / 1000,
+        prior_scale=0.6,
+    )
+    phmm_30ms_fs_p0_3_a = get_n_blstm_a(
+        feature_stacking=True,
+        transition_scale=0.3,
+        adapted_tdps=False,
+        t_step=30 / 1000,
+        prior_scale=0.3,
+    )
+    phmm_30ms_fs_p0_6_a = get_n_blstm_a(
+        feature_stacking=True,
+        transition_scale=0.3,
+        adapted_tdps=False,
+        t_step=30 / 1000,
+        prior_scale=0.6,
     )
 
     config_11_diphone_mpc1x3_30ms.run(
-        returnn_root=returnn_root, alignments=[(phmm_30ms_mp_a, "30ms-Bmp-v8"), (phmm_30ms_fs_a, "30ms-Bfs-v8")]
+        returnn_root=returnn_root,
+        alignments=[
+            (phmm_30ms_mp_p0_3_a, "30ms-Bmp-pC0.3"),
+            (phmm_30ms_mp_p0_6_a, "30ms-Bmp-pC0.6"),
+            (phmm_30ms_fs_p0_3_a, "30ms-Bfs-pC0.3"),
+            (phmm_30ms_fs_p0_6_a, "30ms-Bfs-pC0.6"),
+        ],
     )
     config_11b_diphone_fs1x3_30ms.run(
-        returnn_root=returnn_root, alignments=[(phmm_30ms_mp_a, "30ms-Bmp-v8"), (phmm_30ms_fs_a, "30ms-Bfs-v8")]
+        returnn_root=returnn_root,
+        alignments=[
+            (phmm_30ms_mp_p0_3_a, "30ms-Bmp-pC0.3"),
+            (phmm_30ms_mp_p0_6_a, "30ms-Bmp-pC0.6"),
+            (phmm_30ms_fs_p0_3_a, "30ms-Bfs-pC0.3"),
+            (phmm_30ms_fs_p0_6_a, "30ms-Bfs-pC0.6"),
+        ],
     )
 
-    phmm_40ms_mp_a = get_n_blstm_a(
-        feature_stacking=False, transition_scale=0.3, adapted_tdps=False, t_step=40 / 1000, prior_scale=0.0
+    phmm_40ms_mp_p0_0_a = get_n_blstm_a(
+        feature_stacking=False,
+        transition_scale=0.3,
+        adapted_tdps=False,
+        t_step=40 / 1000,
+        prior_scale=0.0,
     )
-    phmm_40ms_fs_a = get_n_blstm_a(
-        feature_stacking=True, transition_scale=0.3, adapted_tdps=False, t_step=40 / 1000, prior_scale=0.0
+    phmm_40ms_mp_p0_3_a = get_n_blstm_a(
+        feature_stacking=False,
+        transition_scale=0.3,
+        adapted_tdps=False,
+        t_step=40 / 1000,
+        prior_scale=0.3,
+    )
+    phmm_40ms_mp_p0_6_a = get_n_blstm_a(
+        feature_stacking=False,
+        transition_scale=0.3,
+        adapted_tdps=False,
+        t_step=40 / 1000,
+        prior_scale=0.6,
+    )
+    config_21_diphone_mpc1x4_40ms.run(
+        returnn_root=returnn_root,
+        alignment=phmm_40ms_mp_p0_0_a,
+        a_name="40ms-Bmp-pC0.0",
+    )
+    config_21_diphone_mpc1x4_40ms.run(
+        returnn_root=returnn_root,
+        alignment=phmm_40ms_mp_p0_3_a,
+        a_name="40ms-Bmp-pC0.3",
+    )
+    config_21_diphone_mpc1x4_40ms.run(
+        returnn_root=returnn_root,
+        alignment=phmm_40ms_mp_p0_6_a,
+        a_name="40ms-Bmp-pC0.6",
     )
 
-    config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_mp_a, a_name="40ms-Bmp-pC0.0")
-    config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_fs_a, a_name="40ms-Bfs-pC0.0")
-    config_21h_diphone_fs1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_mp_a, a_name="40ms-Bmp-pC0.0")
-    config_21h_diphone_fs1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_fs_a, a_name="40ms-Bfs-pC0.0")
+    # phmm_40ms_fs_a = get_n_blstm_a(
+    #     feature_stacking=True, transition_scale=0.3, adapted_tdps=False, t_step=40 / 1000, prior_scale=0.0
+    # )
+    # config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_fs_a, a_name="40ms-Bfs-pC0.0")
+    # config_21h_diphone_fs1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_fs_a, a_name="40ms-Bfs-pC0.0")
 
     # P-HMM ADAPTED TDPs
 
     phmm_40ms_mp_adapted_a = get_n_blstm_a(
-        feature_stacking=False, transition_scale=0.3, adapted_tdps=True, t_step=40 / 1000, prior_scale=None
+        feature_stacking=False,
+        transition_scale=0.3,
+        adapted_tdps=True,
+        t_step=40 / 1000,
+        prior_scale=None,
     )
-    config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_mp_adapted_a, a_name="40ms-Ba-v8")
+    config_21_diphone_mpc1x4_40ms.run(
+        returnn_root=returnn_root,
+        alignment=phmm_40ms_mp_adapted_a,
+        a_name="40ms-Ba-v8",
+    )
 
     # P-HMM-S
 
-    phmms_30ms_mp_a = get_n_blstm_a(
-        feature_stacking=False, transition_scale=0.0, adapted_tdps=None, t_step=30 / 1000, prior_scale=0.6
+    # phmms_30ms_mp_a = get_n_blstm_a(
+    #     feature_stacking=False, transition_scale=0.0, adapted_tdps=None, t_step=30 / 1000, prior_scale=0.6
+    # )
+    phmms_40ms_mp_a_very_silency = get_n_blstm_a(
+        feature_stacking=False,
+        transition_scale=0.0,
+        adapted_tdps=None,
+        t_step=40 / 1000,
+        prior_scale=0.0,
     )
     phmms_40ms_mp_a_silency = get_n_blstm_a(
-        feature_stacking=False, transition_scale=0.0, adapted_tdps=None, t_step=40 / 1000, prior_scale=0.3
+        feature_stacking=False,
+        transition_scale=0.0,
+        adapted_tdps=None,
+        t_step=40 / 1000,
+        prior_scale=0.3,
     )
     phmms_40ms_mp_a = get_n_blstm_a(
-        feature_stacking=False, transition_scale=0.0, adapted_tdps=None, t_step=40 / 1000, prior_scale=0.6
+        feature_stacking=False,
+        transition_scale=0.0,
+        adapted_tdps=None,
+        t_step=40 / 1000,
+        prior_scale=0.6,
     )
 
-    config_11_diphone_mpc1x3_30ms.run(returnn_root=returnn_root, alignments=[(phmms_30ms_mp_a, "30ms-Bs-pC0.6")])
+    # config_11_diphone_mpc1x3_30ms.run(returnn_root=returnn_root, alignments=[(phmms_30ms_mp_a, "30ms-Bs-pC0.6")])
     config_21_diphone_mpc1x4_40ms.run(
-        returnn_root=returnn_root, alignment=phmms_40ms_mp_a_silency, a_name="40ms-Bs-pC0.3"
+        returnn_root=returnn_root,
+        alignment=phmms_40ms_mp_a_very_silency,
+        a_name="40ms-Bs-pC0.0",
     )
-    config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmms_40ms_mp_a, a_name="40ms-Bs-pC0.6")
+    config_21_diphone_mpc1x4_40ms.run(
+        returnn_root=returnn_root,
+        alignment=phmms_40ms_mp_a_silency,
+        a_name="40ms-Bs-pC0.3",
+    )
+    config_21_diphone_mpc1x4_40ms.run(
+        returnn_root=returnn_root,
+        alignment=phmms_40ms_mp_a,
+        a_name="40ms-Bs-pC0.6",
+    )
 
     # P-HMM-S FF-NN
 
     phmms_30ms_ffnn_a = get_30ms_linear_a(t_scale=0.0)
     phmms_40ms_ffnn_a = get_40ms_linear_a(t_scale=0.0)
 
-    config_11_diphone_mpc1x3_30ms.run(returnn_root=returnn_root, alignments=[(phmms_30ms_ffnn_a, "30ms-FFs-v8")])
-    config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmms_40ms_ffnn_a, a_name="40ms-FFs-v8")
+    config_11_diphone_mpc1x3_30ms.run(
+        returnn_root=returnn_root,
+        alignments=[(phmms_30ms_ffnn_a, "30ms-FFs-v8")],
+    )
+    config_21_diphone_mpc1x4_40ms.run(
+        returnn_root=returnn_root,
+        alignment=phmms_40ms_ffnn_a,
+        a_name="40ms-FFs-v8",
+    )
     config_21i_diphone_ss_variations_40ms.run(
-        returnn_root=returnn_root, alignment=phmms_40ms_ffnn_a, a_name="40ms-FFs-v8"
+        returnn_root=returnn_root,
+        alignment=phmms_40ms_ffnn_a,
+        a_name="40ms-FFs-v8",
     )
 
     # P-HMM FF-NN
 
     phmm_40ms_ffnn_a = get_40ms_linear_a()
     config_21i_diphone_ss_variations_40ms.run(
-        returnn_root=returnn_root, alignment=phmm_40ms_ffnn_a, a_name="40ms-FF-v8"
+        returnn_root=returnn_root,
+        alignment=phmm_40ms_ffnn_a,
+        a_name="40ms-FF-v8",
     )
 
 
