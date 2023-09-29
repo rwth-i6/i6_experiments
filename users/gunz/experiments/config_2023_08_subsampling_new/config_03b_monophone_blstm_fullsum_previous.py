@@ -27,6 +27,7 @@ from .config import (
     BLSTM_FH_DECODING_TENSOR_CONFIG,
     BLSTM_FH_TINA_DECODING_TENSOR_CONFIG,
     CONF_CHUNKING_10MS,
+    MLP_FH_DECODING_TENSOR_CONFIG,
     RASR_ARCH,
     RASR_ROOT_NO_TF,
     RASR_ROOT_TF2,
@@ -112,6 +113,24 @@ def run(returnn_root: tk.Path):
             name="40ms-mp",
             t_step=40 / 1000,
             tensor_config=BLSTM_FH_DECODING_TENSOR_CONFIG,
+        ),
+        Experiment(
+            feature_time_shift=10 / 1000,
+            import_checkpoint=returnn.Checkpoint(
+                tk.Path(
+                    "/u/mgunz/setups/2023-08--subsampling-new/alias/00_monophone_linear_fullsum/train/nn_mono-from-scratch-mlp-1-lr:v8-n:1-ss:mp:2@2+mp:2@4-dx:4.0-d:2048-bwl:0.3-bwt:0.3/output/models/epoch.600.index",
+                )
+            ),
+            import_epoch=600,
+            import_graph=tk.Path(
+                "/u/mgunz/setups/2023-05--subsampling-tf2/work/i6_core/returnn/compile/CompileTFGraphJob.eaZYP6msXR4K/output/graph.meta"
+            ),
+            import_priors=tk.Path(
+                "/u/mgunz/setups/2023-05--subsampling-tf2/work/i6_experiments/users/gunz/setups/fh/priors/smoothen/SmoothenPriorsJob.rcVqXHhcQvfI/output/priors.xml"
+            ),
+            name="40ms-ff-mp",
+            t_step=40 / 1000,
+            tensor_config=MLP_FH_DECODING_TENSOR_CONFIG,
         ),
     ]
     experiments = {
