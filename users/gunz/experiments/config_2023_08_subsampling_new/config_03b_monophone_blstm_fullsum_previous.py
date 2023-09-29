@@ -19,13 +19,14 @@ import i6_experiments.common.setups.rasr.util as rasr_util
 from ...setups.common.analysis import PlotPhonemeDurationsJob, PlotViterbiAlignmentsJob
 from ...setups.fh import system as fh_system
 from ...setups.fh.decoder.config import PriorConfig, PriorInfo
+from ...setups.fh.decoder.search import DecodingTensorMap
 from ...setups.fh.factored import PhoneticContext, RasrStateTying
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
+    BLSTM_FH_DECODING_TENSOR_CONFIG,
     BLSTM_FH_TINA_DECODING_TENSOR_CONFIG,
     CONF_CHUNKING_10MS,
-    CONF_FOCAL_LOSS,
     RASR_ARCH,
     RASR_ROOT_NO_TF,
     RASR_ROOT_TF2,
@@ -48,6 +49,7 @@ class Experiment:
     import_priors: tk.Path
     name: str
     t_step: float
+    tensor_config: DecodingTensorMap
 
 
 def run(returnn_root: tk.Path):
@@ -73,6 +75,7 @@ def run(returnn_root: tk.Path):
             ),
             name="30ms-fs",
             t_step=30 / 1000,
+            tensor_config=BLSTM_FH_TINA_DECODING_TENSOR_CONFIG,
         ),
         Experiment(
             feature_time_shift=7.5 / 1000,
@@ -90,6 +93,7 @@ def run(returnn_root: tk.Path):
             ),
             name="30ms-mp",
             t_step=30 / 1000,
+            tensor_config=BLSTM_FH_DECODING_TENSOR_CONFIG,
         ),
         Experiment(
             feature_time_shift=10 / 1000,
@@ -107,6 +111,7 @@ def run(returnn_root: tk.Path):
             ),
             name="40ms-mp",
             t_step=40 / 1000,
+            tensor_config=BLSTM_FH_DECODING_TENSOR_CONFIG,
         ),
     ]
     experiments = {
@@ -134,6 +139,7 @@ def run_single(
     import_graph: tk.Path,
     import_priors: tk.Path,
     returnn_root: tk.Path,
+    tensor_config: DecodingTensorMap,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
@@ -214,7 +220,7 @@ def run_single(
         crp_corpus="train-other-960.train",
         epoch=import_epoch,
         gpu=False,
-        tensor_map=BLSTM_FH_TINA_DECODING_TENSOR_CONFIG,
+        tensor_map=tensor_config,
         set_batch_major_for_feature_scorer=False,
         tf_library=s.native_lstm2_job.out_op,
         lm_gc_simple_hash=True,
