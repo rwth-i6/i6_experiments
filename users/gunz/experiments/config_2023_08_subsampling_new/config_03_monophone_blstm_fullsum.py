@@ -615,7 +615,7 @@ def run_single(
         feature_scorer=align_search_jobs.search_feature_scorer,
         default_tdp=False,
         set_do_not_normalize_lemma_sequence_scores=False,
-        rtf=10,
+        rtf=4,
     )
     # a_job.alignment_flow.flags["cache_mode"] = "bundle"
 

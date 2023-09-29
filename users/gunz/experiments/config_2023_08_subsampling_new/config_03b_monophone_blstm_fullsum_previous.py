@@ -282,7 +282,7 @@ def run_single(
         crp=crp,
         feature_scorer=align_search_jobs.search_feature_scorer,
         default_tdp=False,
-        rtf=10,
+        rtf=4,
     )
     # a_job.alignment_flow.flags["cache_mode"] = "bundle"
 
