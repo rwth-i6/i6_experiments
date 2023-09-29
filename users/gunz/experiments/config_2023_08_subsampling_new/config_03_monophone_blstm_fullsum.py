@@ -553,7 +553,6 @@ def run_single(
             )
 
     tdp_scale = 0.0 if bw_transition_scale == 0.0 else 1.0
-    s.feature_flows["train-other-960.train"].flags["cache_mode"] = "bundle"
     s.set_binaries_for_crp("train-other-960.train", RASR_BINARY_PATH_TF)
     s.create_stm_from_corpus("train-other-960.train")
     s._set_scorer_for_corpus("train-other-960.train")
@@ -608,6 +607,7 @@ def run_single(
             set_do_not_normalize_lemma_sequence_scores=False,
             rtf=1,
         )
+        a_job.alignment_flow.flags["cache_mode"] = "bundle"
 
         allophones = lexicon.StoreAllophonesJob(crp)
         tk.register_output(f"allophones/{a_name}/allophones", allophones.out_allophone_file)

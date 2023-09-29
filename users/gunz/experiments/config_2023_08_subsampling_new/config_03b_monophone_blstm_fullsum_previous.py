@@ -210,7 +210,6 @@ def run_single(
 
     s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone)
     s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
-    s.feature_flows["train-other-960.train"].flags["cache_mode"] = "bundle"
     s.set_binaries_for_crp("train-other-960.train", RASR_BINARY_PATH_TF)
     s.create_stm_from_corpus("train-other-960.train")
     s._set_scorer_for_corpus("train-other-960.train")
@@ -264,6 +263,7 @@ def run_single(
             feature_scorer=align_search_jobs.search_feature_scorer,
             default_tdp=False,
         )
+        a_job.alignment_flow.flags["cache_mode"] = "bundle"
 
         allophones = lexicon.StoreAllophonesJob(crp)
         tk.register_output(f"allophones/{a_name}/allophones", allophones.out_allophone_file)
