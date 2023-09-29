@@ -241,7 +241,7 @@ class ReturnnNetwork:
         self._net[name].update(kwargs)
         return name
 
-    def add_subnet_rec_layer(self, name, unit, target, source=None, **kwargs):
+    def add_subnet_rec_layer(self, name, unit, target, source=None, include_eos=False, **kwargs):
         if source is None:
             source = []
         self._net[name] = {
@@ -251,6 +251,8 @@ class ReturnnNetwork:
             "target": target,
             "max_seq_len": "max_len_from('base:encoder')",
         }
+        if include_eos:
+            self._net[name]["include_eos"] = include_eos
         self._net[name].update(kwargs)
         return name
 

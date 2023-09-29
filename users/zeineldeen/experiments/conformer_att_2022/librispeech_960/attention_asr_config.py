@@ -196,7 +196,7 @@ def pretrain_layers_and_dims(
         num_blocks = max(2 * idx, 1)  # 1/1/2/4/6/8/10/12 -> 8
         StartNumLayers = 1
     elif variant == 2:
-        num_blocks = 2 ** idx  # 1/1/2/4/8/12 -> 6
+        num_blocks = 2**idx  # 1/1/2/4/8/12 -> 6
         StartNumLayers = 1
     elif variant == 3:
         idx += 1
@@ -204,11 +204,11 @@ def pretrain_layers_and_dims(
         StartNumLayers = 2
     elif variant == 4:
         idx += 1
-        num_blocks = 2 ** idx  # 2/2/4/8/12 -> 5
+        num_blocks = 2**idx  # 2/2/4/8/12 -> 5
         StartNumLayers = 2
     elif variant == 5:
         idx += 2
-        num_blocks = 2 ** idx  # 4/4/8/12 -> 4
+        num_blocks = 2**idx  # 4/4/8/12 -> 4
         StartNumLayers = 4
     elif variant == 6:
         idx += 1  # 1 1 2 3
@@ -504,6 +504,8 @@ class RNNDecoderArgs(DecoderArgs):
 
     monotonic_att_weights_loss_scale: Optional[float] = None
     att_weights_variance_loss_scale: Optional[float] = None
+
+    include_eos_in_search_output: bool = False
 
 
 def create_config(
