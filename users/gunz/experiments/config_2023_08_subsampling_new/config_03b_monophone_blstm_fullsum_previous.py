@@ -144,7 +144,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"blstm-1-fs-previous-{exp_name}"
+    name = f"blstm-1-previous-{exp_name}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
