@@ -678,15 +678,15 @@ def rescore_att_ctc_search(
     hdf_scores = forward_job.out_hdf_files["output.hdf"]
     tk.register_output(prefix_name + "/search_job/hdf_scores", hdf_scores)
 
-    if remove_label:
-        from i6_core.returnn.search import SearchRemoveLabelJob
-
-        search_bpe = SearchRemoveLabelJob(search_bpe, remove_label=remove_label, output_gzip=True).out_search_results
-
     search_bpe = SearchTakeBestRescore(
         search_bpe, hdf_scores, scale1=att_scale, scale2=ctc_scale
     ).out_best_search_results
     tk.register_output(prefix_name + "/search_job/comb_search_bpe", search_bpe)
+
+    if remove_label:
+        from i6_core.returnn.search import SearchRemoveLabelJob
+
+        search_bpe = SearchRemoveLabelJob(search_bpe, remove_label=remove_label, output_gzip=True).out_search_results
 
     search_words = SearchBPEtoWordsJob(search_bpe).out_word_search_results
     tk.register_output(prefix_name + "/search_job/comb_search_words", search_words)
