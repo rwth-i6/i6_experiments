@@ -553,6 +553,7 @@ def run_single(
             )
 
     tdp_scale = 0.0 if bw_transition_scale == 0.0 else 1.0
+    s.feature_flows["train-other-960.train"].flags["cache_mode"] = "bundle"
     s.set_binaries_for_crp("train-other-960.train", RASR_BINARY_PATH_TF)
     s.create_stm_from_corpus("train-other-960.train")
     s._set_scorer_for_corpus("train-other-960.train")
