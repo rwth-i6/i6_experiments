@@ -123,6 +123,7 @@ def run(returnn_root: tk.Path):
             import_graph=exp.import_graph,
             import_priors=exp.import_priors,
             returnn_root=returnn_root,
+            tensor_config=exp.tensor_config,
         )
         for exp in configs
     }
