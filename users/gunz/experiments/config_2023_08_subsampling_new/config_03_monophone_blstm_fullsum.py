@@ -615,9 +615,7 @@ def run_single(
         plots = PlotViterbiAlignmentsJob(
             alignment_bundle_path=a_job.out_alignment_bundle,
             allophones_path=allophones.out_allophone_file,
-            segments=[
-                "train-other-960/103-1240-0000/103-1240-00006"
-            ],  # ["train-other-960/2920-156224-0013/2920-156224-0013"],
+            segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
             show_labels=False,
             monophone=True,
         )
