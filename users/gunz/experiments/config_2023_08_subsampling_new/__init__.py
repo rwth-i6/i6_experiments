@@ -105,6 +105,11 @@ def run_blstm_a():
     return exps
 
 
+def run_all_blstm_a():
+    run_blstm_a()
+    align_previous_blstm_models()
+
+
 def get_n_blstm_a(
     feature_stacking: bool,
     t_step: float,
