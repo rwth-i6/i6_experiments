@@ -264,11 +264,11 @@ def run_single(
         lm_gc_simple_hash=True,
     )
 
-    for p_c, sil_e in itertools.product([0.0, 0.3, 0.6], [0.0, 3.0]):
+    for p_c, sil_e, tdp_scale in itertools.product([0.0, 0.3, 0.6], [0.0, 3.0], [0.0, 1.0] if "ffs" in name else [1.0]):
         sil_tdp = (0.0, 3.0, "infinity", sil_e)
         align_cfg = (
             recog_args.with_prior_scale(p_c)
-            .with_tdp_scale(1.0)
+            .with_tdp_scale(tdp_scale)
             .with_tdp_speech((3.0, 0.0, "infinity", 0.0))
             .with_tdp_silence(sil_tdp)
             .with_tdp_non_word(sil_tdp)
