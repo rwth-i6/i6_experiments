@@ -38,3 +38,14 @@ def run():
     tk.register_output(f"alignments/10ms-scratch-blstm/statistics/plots", scratch_data.out_plot_folder)
     tk.register_output(f"alignments/10ms-scratch-blstm/statistics/means", scratch_data.out_means)
     tk.register_output(f"alignments/10ms-scratch-blstm/statistics/variances", scratch_data.out_vars)
+
+    plots = PlotViterbiAlignmentsJob(
+        alignment_bundle_path=Path(SCRATCH_ALIGNMENT, cached=True),
+        allophones_path=Path(
+            "/work/asr3/raissi/shared_workspaces/gunz/2023-05--subsampling-tf2/i6_core/lexicon/allophones/StoreAllophonesJob.Qa3bLX1BHz42/output/allophones"
+        ),
+        segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
+        show_labels=False,
+        monophone=True,
+    )
+    tk.register_output(f"alignments/10ms-scratch-blstm/alignment-plots", plots.out_plot_folder)
