@@ -92,7 +92,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str, run_additional_l
             decode_all_corpora=False,
             lr="v13",
             own_priors=True,
-            run_performance_study=a_name == "40ms-FF-v8",
+            run_performance_study=False,  # a_name == "40ms-FF-v8",
             tune_decoding=True,
         ),
         *(
