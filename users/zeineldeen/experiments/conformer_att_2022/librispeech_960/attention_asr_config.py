@@ -13,7 +13,7 @@ from i6_experiments.users.zeineldeen.models.lm.external_lm_decoder import Extern
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.search_helpers import (
     add_joint_ctc_att_subnet,
     add_filter_blank_and_merge_labels_layers,
-    create_ctc_greedy_decoder,
+    create_ctc_decoder,
     update_tensor_entry,
 )
 
@@ -558,9 +558,10 @@ def create_config(
     global_stats=None,
     speed_pert_version=1,
     specaug_version=1,
-    ctc_greedy_decode=False,
+    ctc_decode=False,
     ctc_log_prior_file=None,
     ctc_prior_scale=None,
+    ctc_remove_eos=False,
     joint_ctc_att_decode_args=None,
     staged_hyperparams: dict = None,
     keep_best_n=None,
@@ -730,8 +731,8 @@ def create_config(
     if ctc_log_prior_file:
         add_ctc_log_prior(exp_config, ctc_log_prior_file)
 
-    if ctc_greedy_decode:
-        add_ctc_greedy_decoding(exp_config, ctc_prior_scale)
+    if ctc_decode:
+        add_ctc_decoding(exp_config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_opts)
 
     if joint_ctc_att_decode_args:
         add_att_ctc_joint_decoding(exp_config, joint_ctc_att_decode_args)
@@ -1018,12 +1019,26 @@ def add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog):
         net["mixup_features"] = {"class": "copy", "from": "mixup"}
 
 
-def add_ctc_greedy_decoding(config, ctc_prior_scale):
+def add_ctc_decoding(config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_opts):
     # create bpe labels with blank extern data
     config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(config["extern_data"]["bpe_labels"])
     config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
 
-    create_ctc_greedy_decoder(config["network"], ctc_prior_scale)
+    create_ctc_decoder(config["network"], beam_size, ctc_prior_scale, ctc_remove_eos)
+
+    # if ext_lm_opts:
+    #     # TODO: add mask for ext lm
+    #     config["network"]["output"]["unit"]["non_blank_mask"] = {
+    #         "class": "compare",
+    #         "from": "output",
+    #         "kind": "not_equal",
+    #         "value": 10025,
+    #     }
+    #     config["network"]["output"]["unit"]["lm_output"] = {
+    #         "class": "masked_computation",
+    #         "mask": "prev:non_blank_mask",
+    #     }
+    #     config["network"]["output"]["unit"]["combo_output_prob"]["from"][0] = "data:source"
 
     # filter out blanks from best hyp
     # TODO: we might want to also dump blank for analysis, however, this needs some fix to work.

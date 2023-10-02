@@ -450,7 +450,7 @@ def add_joint_ctc_att_subnet(
             net["output"]["unit"]["att_log_scores_"]["from"] = "att_scores_wo_eos"
 
 
-def add_filter_blank_and_merge_labels_layers(net):
+def add_filter_blank_and_merge_labels_layers(net, blank_idx=10025):
     """
     Add layers to filter out blank and merge repeated labels of a CTC output sequence.
     :param dict net: network dict
@@ -484,7 +484,7 @@ def add_filter_blank_and_merge_labels_layers(net):
     net["non_blank_mask"] = {
         "class": "compare",
         "from": "out_best_time_reinterpret",
-        "value": 10025,
+        "value": blank_idx,
         "kind": "not_equal",
     }
     net["out_best_mask"] = {
@@ -508,7 +508,7 @@ def add_filter_blank_and_merge_labels_layers(net):
     }
 
 
-def create_ctc_greedy_decoder(net, ctc_prior_scale):
+def create_ctc_decoder(net, beam_size, ctc_prior_scale, remove_eos=False):
     """
     Create a greedy decoder for CTC.
 
@@ -531,6 +531,17 @@ def create_ctc_greedy_decoder(net, ctc_prior_scale):
     net["output"]["from"] = "ctc_w_prior" if ctc_prior_scale else "ctc"  # [B,T,V+1]
     net["output"]["target"] = "bpe_labels_w_blank"
 
+    if remove_eos:
+        net["vocab_arange"] = {"class": "range_in_axis", "axis": "F", "from": "ctc"}  # 0...V
+        net["ctc_eos_mask"] = {"class": "compare", "from": "vocab_arange", "value": 0, "kind": "not_equal"}
+        net["ctc_wo_eos"] = {
+            "class": "switch",
+            "condition": "ctc_eos_mask",
+            "true_from": "ctc_w_prior" if ctc_prior_scale else "ctc",
+            "false_from": 1e-20,
+        }
+        net["output"]["from"] = "ctc_wo_eos"
+
     # used for label-sync search
     net["output"]["unit"].pop("end", None)
     net["output"].pop("max_seq_len", None)
@@ -539,9 +550,10 @@ def create_ctc_greedy_decoder(net, ctc_prior_scale):
     net["output"]["unit"]["output"] = {
         "class": "choice",
         "target": "bpe_labels_w_blank",
-        "beam_size": 1,
+        "beam_size": beam_size,
         "from": "data:source",
         "initial_output": 0,
+        "length_normalization": False,
     }
 
 
@@ -585,10 +597,6 @@ def add_ctc_forced_align_for_rescore(net, ctc_prior_scale):
     }
     net["ctc_scores_"] = {"class": "copy", "from": "ctc_align/scores"}  # [B*Beam]
     net["ctc_scores"] = {"class": "split_dims", "from": "ctc_scores_", "axis": "B", "dims": (-1, beam)}  # [B,Beam]
-    # net["att_beam_scores_"] = {"class": "choice_get_beam_scores", "from": "extra.search:output"}  # [B*Beam]
-    # net["att_beam_scores"] = {"class": "split_batch_beam", "from": "att_beam_scores_"}  # [B,Beam]
-    # net["comb_att_ctc"] = {"class": "combine", "kind": "add", "from": ["ctc_scores", "att_beam_scores"]}  # [B,Beam]
-    # net["comb_att_ctc_scores"] = {"class": "expand_dims", "from": "comb_att_ctc", "axis": "t"}  # [B,Beam,1|T]
     net["output"] = {"class": "expand_dims", "from": "ctc_scores", "axis": "t"}  # [B,Beam,1|T]
 
 
