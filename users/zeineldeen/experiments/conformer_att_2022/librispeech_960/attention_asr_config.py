@@ -1026,20 +1026,6 @@ def add_ctc_decoding(config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_
 
     create_ctc_decoder(config["network"], beam_size, ctc_prior_scale, ctc_remove_eos)
 
-    # if ext_lm_opts:
-    #     # TODO: add mask for ext lm
-    #     config["network"]["output"]["unit"]["non_blank_mask"] = {
-    #         "class": "compare",
-    #         "from": "output",
-    #         "kind": "not_equal",
-    #         "value": 10025,
-    #     }
-    #     config["network"]["output"]["unit"]["lm_output"] = {
-    #         "class": "masked_computation",
-    #         "mask": "prev:non_blank_mask",
-    #     }
-    #     config["network"]["output"]["unit"]["combo_output_prob"]["from"][0] = "data:source"
-
     # filter out blanks from best hyp
     # TODO: we might want to also dump blank for analysis, however, this needs some fix to work.
     add_filter_blank_and_merge_labels_layers(config["network"])
