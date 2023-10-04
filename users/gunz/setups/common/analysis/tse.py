@@ -97,8 +97,8 @@ class ComputeTimestampErrorJob(Job):
             seq_lens[seg] = len(a_states)
 
             a_states_ref = [mix for _, mix, state, _ in ref_alignment.read(seg, "align")]
-            a_states_dedup = [(k, len(g)) for k, g in itertools.groupby(a_states) if k != s_idx]
-            a_states_ref_dedup = [(k, len(g)) for k, g in itertools.groupby(a_states_ref) if k != s_idx]
+            a_states_dedup = [(k, len(list(g))) for k, g in itertools.groupby(a_states) if k != s_idx]
+            a_states_ref_dedup = [(k, len(list(g))) for k, g in itertools.groupby(a_states_ref) if k != s_idx]
 
             if len(a_states_dedup) != len(a_states_ref_dedup):
                 logging.info(
