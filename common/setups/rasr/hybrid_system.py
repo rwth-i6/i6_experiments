@@ -1,4 +1,4 @@
-__all__ = ["HybridArgs", "HybridSystem"]
+__all__ = ["HybridSystem"]
 
 import copy
 import itertools
@@ -21,17 +21,21 @@ from i6_core.returnn.flow import (
     add_tf_flow_to_base_flow,
 )
 from i6_core.util import MultiPath, MultiOutputPath
+from i6_core.mm import CreateDummyMixturesJob
+from i6_core.returnn import ReturnnComputePriorJobV2
 
 from .nn_system import NnSystem
+from .hybrid_decoder import HybridDecoder
 
 from .util import (
     RasrInitArgs,
     ReturnnRasrDataInput,
-    OggZipHdfDataInput,
     HybridArgs,
     NnRecogArgs,
     RasrSteps,
     NnForcedAlignArgs,
+    ReturnnTrainingJobArgs,
+    AllowedReturnnTrainingDataInput,
 )
 
 # -------------------- Init --------------------
@@ -39,6 +43,13 @@ from .util import (
 Path = tk.setup_path(__package__)
 
 # -------------------- System --------------------
+from i6_core.report.report import _Report_Type
+
+
+def hybrid_report_format(report: _Report_Type) -> str:
+    out = [(recog, str(report[recog])) for recog in report]
+    out = sorted(out, key=lambda x: float(x[1]))
+    return "\n".join([f"{pair[0]}:  {str(pair[1])}" for pair in out])
 
 
 class HybridSystem(NnSystem):
@@ -90,9 +101,15 @@ class HybridSystem(NnSystem):
         self.cv_corpora = []
         self.devtrain_corpora = []
 
-        self.train_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
-        self.cv_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
-        self.devtrain_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
+        self.train_input_data = (
+            None
+        )  # type:Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]]
+        self.cv_input_data = (
+            None
+        )  # type:Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]]
+        self.devtrain_input_data = (
+            None
+        )  # type:Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]]
         self.dev_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
         self.test_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
 
@@ -128,9 +145,9 @@ class HybridSystem(NnSystem):
     def init_system(
         self,
         rasr_init_args: RasrInitArgs,
-        train_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
-        cv_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
-        devtrain_data: Optional[Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]]] = None,
+        train_data: Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]],
+        cv_data: Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]],
+        devtrain_data: Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]] = None,
         dev_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
         test_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
         train_cv_pairing: Optional[List[Tuple[str, ...]]] = None,  # List[Tuple[trn_c, cv_c, name, dvtr_c]]
@@ -211,21 +228,17 @@ class HybridSystem(NnSystem):
 
     def returnn_training(
         self,
-        name,
-        returnn_config,
-        nn_train_args,
+        name: str,
+        returnn_config: returnn.ReturnnConfig,
+        nn_train_args: Union[Dict, ReturnnTrainingJobArgs],
         train_corpus_key,
         cv_corpus_key,
         devtrain_corpus_key=None,
-    ):
-        assert isinstance(returnn_config, returnn.ReturnnConfig)
-
-        returnn_config.config["train"] = self.train_input_data[train_corpus_key].get_data_dict()
-        returnn_config.config["dev"] = self.cv_input_data[cv_corpus_key].get_data_dict()
-        if devtrain_corpus_key is not None:
-            returnn_config.config["eval_datasets"] = {
-                "devtrain": self.devtrain_input_data[devtrain_corpus_key].get_data_dict()
-            }
+    ) -> returnn.ReturnnTrainingJob:
+        if nn_train_args.returnn_root is None:
+            nn_train_args.returnn_root = self.returnn_root
+        if nn_train_args.returnn_python_exe is None:
+            nn_train_args.returnn_python_exe = self.returnn_python_exe
 
         train_job = returnn.ReturnnTrainingJob(
             returnn_config=returnn_config,
@@ -346,7 +359,7 @@ class HybridSystem(NnSystem):
         name: str,
         returnn_config: returnn.ReturnnConfig,
         checkpoints: Dict[int, returnn.Checkpoint],
-        acoustic_mixture_path: tk.Path,  # TODO maybe Optional if prior file provided -> automatically construct dummy file
+        train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob],
         prior_scales: List[float],
         pronunciation_scales: List[float],
         lm_scales: List[float],
@@ -362,6 +375,7 @@ class HybridSystem(NnSystem):
         use_epoch_for_compile=False,
         forward_output_layer="output",
         native_ops: Optional[List[str]] = None,
+        acoustic_mixture_path: Optional[tk.Path] = None,
         **kwargs,
     ):
         with tk.block(f"{name}_recognition"):
@@ -384,15 +398,31 @@ class HybridSystem(NnSystem):
 
             for pron, lm, prior, epoch in itertools.product(pronunciation_scales, lm_scales, prior_scales, epochs):
                 assert epoch in checkpoints.keys()
+                acoustic_mixture_path = CreateDummyMixturesJob(
+                    num_mixtures=returnn_config.config["extern_data"]["classes"]["dim"],
+                    num_features=returnn_config.config["extern_data"]["data"]["dim"],
+                ).out_mixtures
+                lmgc_scorer = rasr.GMMFeatureScorer(acoustic_mixture_path)
+                prior_job = ReturnnComputePriorJobV2(
+                    model_checkpoint=checkpoints[epoch],
+                    returnn_config=train_job.returnn_config,
+                    returnn_python_exe=train_job.returnn_python_exe,
+                    returnn_root=train_job.returnn_root,
+                    log_verbosity=train_job.returnn_config.post_config["log_verbosity"],
+                )
+
+                prior_job.add_alias("extract_nn_prior/" + name)
+                prior_file = prior_job.out_prior_xml_file
+                assert prior_file is not None
+                scorer = rasr.PrecomputedHybridFeatureScorer(
+                    prior_mixtures=acoustic_mixture_path,
+                    priori_scale=prior,
+                    prior_file=prior_file,
+                )
                 assert acoustic_mixture_path is not None
 
                 if use_epoch_for_compile:
                     tf_graph = self.nn_compile_graph(name, returnn_config, epoch=epoch)
-
-                scorer = rasr.PrecomputedHybridFeatureScorer(
-                    prior_mixtures=acoustic_mixture_path,
-                    priori_scale=prior,
-                )
 
                 tf_flow = make_precomputed_hybrid_tf_feature_flow(
                     tf_checkpoint=checkpoints[epoch],
@@ -419,6 +449,8 @@ class HybridSystem(NnSystem):
                     parallelize_conversion=parallelize_conversion,
                     rtf=rtf,
                     mem=mem,
+                    lmgc_alias=f"lmgc/{name}/{recognition_corpus_key}-{recog_name}",
+                    lmgc_scorer=lmgc_scorer,
                     **kwargs,
                 )
 
@@ -429,15 +461,22 @@ class HybridSystem(NnSystem):
         returnn_config: Path,
         checkpoints: Dict[int, returnn.Checkpoint],
         step_args: HybridArgs,
+        train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob],
     ):
         for recog_name, recog_args in step_args.recognition_args.items():
+            recog_args = copy.deepcopy(recog_args)
+            whitelist = recog_args.pop("training_whitelist", None)
+            if whitelist:
+                if train_name not in whitelist:
+                    continue
             for dev_c in self.dev_corpora:
                 self.nn_recognition(
                     name=f"{train_corpus_key}-{train_name}-{recog_name}",
                     returnn_config=returnn_config,
                     checkpoints=checkpoints,
-                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
+                    train_job=train_job,
                     recognition_corpus_key=dev_c,
+                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
                     **recog_args,
                 )
 
@@ -451,8 +490,9 @@ class HybridSystem(NnSystem):
                     name=f"{train_name}-{recog_name}",
                     returnn_config=returnn_config,
                     checkpoints=checkpoints,
-                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
+                    train_job=train_job,
                     recognition_corpus_key=tst_c,
+                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
                     **r_args,
                 )
 
@@ -509,7 +549,7 @@ class HybridSystem(NnSystem):
                         train_corpus_key=trn_c,
                         cv_corpus_key=cv_c,
                     )
-                else:
+                elif isinstance(self.train_input_data[trn_c], AllowedReturnnTrainingDataInput):
                     returnn_train_job = self.returnn_training(
                         name=name,
                         returnn_config=step_args.returnn_training_configs[name],
@@ -518,6 +558,8 @@ class HybridSystem(NnSystem):
                         cv_corpus_key=cv_c,
                         devtrain_corpus_key=dvtr_c,
                     )
+                else:
+                    raise NotImplementedError
 
                 returnn_recog_config = step_args.returnn_recognition_configs.get(
                     name, step_args.returnn_training_configs[name]
@@ -529,7 +571,27 @@ class HybridSystem(NnSystem):
                     returnn_config=returnn_recog_config,
                     checkpoints=returnn_train_job.out_checkpoints,
                     step_args=step_args,
+                    train_job=returnn_train_job,
                 )
+                from i6_core.report import GenerateReportStringJob, MailJob
+
+                results = {}
+                for c in self.dev_corpora + self.test_corpora:
+                    for job_name in self.jobs[c]:
+                        if "scorer" not in job_name:
+                            continue
+                        if name not in job_name:
+                            continue
+                        if "scorer" in job_name:
+                            scorer = self.jobs[c][job_name]
+                            if scorer.out_wer:
+                                results[job_name] = scorer.out_wer
+
+                report = GenerateReportStringJob(report_values=results, report_template=hybrid_report_format)
+                report.add_alias(name + "/report_job")
+                mail = MailJob(report.out_report, send_contents=True, subject=name)
+                mail.add_alias(name + "/mail_job")
+                tk.register_output(name + "/mail", mail.out_status)
 
     def run_nn_recog_step(self, step_args: NnRecogArgs):
         for eval_c in self.dev_corpora + self.test_corpora:
