@@ -61,9 +61,11 @@ class ComputeTimestampErrorJob(Job):
         self.reference_n_states_per_phone = reference_n_states_per_phone
         self.reference_t_step = reference_t_step
 
-        self.out_seq_lens = {i: self.output_var(f"{i}.len", pickle=True) for i in range(NUM_TASKS)}
         self.out_tse = self.output_var("merged.tse")
-        self.out_tse_map = {i: self.output_var(f"{i}.tse", pickle=True) for i in range(NUM_TASKS)}
+
+        self.out_seq_lens = {i: self.output_var(f"{i}.len", pickle=True) for i in range(NUM_TASKS)}
+        self.out_skipped = {i: self.output_var(f"{i}.skipped") for i in range(NUM_TASKS)}
+        self.out_tses = {i: self.output_var(f"{i}.tse", pickle=True) for i in range(NUM_TASKS)}
 
         self.rqmt = {"cpu": 1, "mem": 4}
 
@@ -85,6 +87,7 @@ class ComputeTimestampErrorJob(Job):
 
         s_idx = next(iter(alignment.files.values())).allophones.index("[SILENCE]{#+#}@i@f")
 
+        skipped = 0
         seq_lens = {}
         tse = {}
 
@@ -113,7 +116,8 @@ class ComputeTimestampErrorJob(Job):
                 logging.info(f"align: {[s for s, dur in a_states_dedup]}")
                 logging.info(f"ref align: {[s for s, dur in a_states_ref_dedup]}")
 
-                return
+                skipped += 1
+                continue
 
             # unzip the list
             a_states_dedup, a_states_duration = list(zip(*a_states_dedup))
@@ -124,7 +128,8 @@ class ComputeTimestampErrorJob(Job):
             tse[seg] = self._compute_distance(a_states_begins, a_states_ends, a_states_ref_begins, a_states_ref_ends)
 
         self.out_seq_lens[task_id].set(seq_lens)
-        self.out_tse_map[task_id].set(tse)
+        self.out_skipped[task_id].set(skipped)
+        self.out_tses[task_id].set(tse)
 
     def _compute_distance(
         self, begins: np.ndarray, ends: np.ndarray, ref_begins: np.ndarray, ref_ends: np.ndarray
@@ -135,7 +140,7 @@ class ComputeTimestampErrorJob(Job):
 
     def merge(self):
         seq_lens: Dict[int, Dict[str, int]] = {k: v.get() for k, v in self.out_seq_lens.items()}
-        tses: Dict[int, Dict[str, float]] = {k: v.get() for k, v in self.out_tse_map.items()}
+        tses: Dict[int, Dict[str, float]] = {k: v.get() for k, v in self.out_tses.items()}
 
         all_tse = [tses[i][key] * seq_lens[i][key] for i in tses.keys() for key in tses[i].keys()]
         total_lens = [seq_len for len_map in self.out_seq_lens.values() for seq_len in len_map.get().values()]
