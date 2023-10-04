@@ -36,6 +36,7 @@ from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
     ALIGN_GMM_TRI_10MS,
+    ALIGN_GMM_TRI_ALLOPHONES,
     CONF_CHUNKING_10MS,
     CONF_SA_CONFIG,
     MLP_FH_DECODING_TENSOR_CONFIG,
@@ -554,6 +555,7 @@ def run_single(
         alignment=a_job.out_alignment_bundle,
         n_states_per_phone=1,
         t_step=output_time_step,
+        reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
         reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
         reference_n_states_per_phone=3,
         reference_t_step=10 / 1000,

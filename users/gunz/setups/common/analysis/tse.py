@@ -39,6 +39,7 @@ class ComputeTimestampErrorJob(Job):
         alignment: Path,
         n_states_per_phone: int,
         t_step: float,
+        reference_allophones: Path,
         reference_alignment: Path,
         reference_n_states_per_phone: int,
         reference_t_step: float,
@@ -51,11 +52,11 @@ class ComputeTimestampErrorJob(Job):
         super().__init__()
 
         self.allophones = allophones
-
         self.alignment = alignment
         self.n_states_per_phone = n_states_per_phone
         self.t_step = t_step
 
+        self.reference_allophones = reference_allophones
         self.reference_alignment = reference_alignment
         self.reference_n_states_per_phone = reference_n_states_per_phone
         self.reference_t_step = reference_t_step
@@ -72,10 +73,10 @@ class ComputeTimestampErrorJob(Job):
 
     def run(self, task_id: int):
         alignment = FileArchiveBundle(cache(self.alignment))
-        ref_alignment = FileArchiveBundle(cache(self.reference_alignment))
+        alignment.setAllophones(self.allophones.get_path())
 
-        for bundle in [alignment, ref_alignment]:
-            bundle.setAllophones(self.allophones.get_path())
+        ref_alignment = FileArchiveBundle(cache(self.reference_alignment))
+        ref_alignment.setAllophones(self.reference_allophones.get_path())
 
         segments = [s for s in alignment.file_list() if not s.endswith(".attribs")]
         chunked = list(chunks(segments, NUM_TASKS))[task_id]
@@ -88,7 +89,7 @@ class ComputeTimestampErrorJob(Job):
         tse = {}
 
         for seg in segments:
-            a_states = [mix for i, mix, state, _ in alignment.read(seg, "align")]
+            a_states = [alignment.files[seg].allophones[mix] for i, mix, state, _ in alignment.read(seg, "align")]
 
             if len(a_states) == 0:
                 logging.warning(f"empty alignment for {seg}, skipping")
@@ -96,20 +97,21 @@ class ComputeTimestampErrorJob(Job):
 
             seq_lens[seg] = len(a_states)
 
-            a_states_ref = [mix for _, mix, state, _ in ref_alignment.read(seg, "align")]
-            a_states_dedup = [(k, len(list(g))) for k, g in itertools.groupby(a_states) if k != s_idx]
-            a_states_ref_dedup = [(k, len(list(g))) for k, g in itertools.groupby(a_states_ref) if k != s_idx]
+            a_states_ref = [
+                ref_alignment.files[seg].allophones[mix] for _, mix, state, _ in ref_alignment.read(seg, "align")
+            ]
+            a_states_dedup = [(k, len(list(g)) * self.t_step) for k, g in itertools.groupby(a_states) if k != s_idx]
+            a_states_ref_dedup = [
+                (k, len(list(g)) * self.reference_t_step) for k, g in itertools.groupby(a_states_ref) if k != s_idx
+            ]
 
             if len(a_states_dedup) != len(a_states_ref_dedup):
                 logging.info(
                     f"len mismatch in {seg} of {len(a_states_dedup)} vs. {len(a_states_ref_dedup)}, skipping due to different pronunciation"
                 )
 
-                allos = [ref_alignment.files[seg].allophones[i] for i, _ in a_states_dedup]
-                ref_allos = [ref_alignment.files[seg].allophones[i] for i, _ in a_states_ref_dedup]
-
-                logging.info(f"align: {allos}")
-                logging.info(f"ref align: {ref_allos}")
+                logging.info(f"align: {a_states}")
+                logging.info(f"ref align: {a_states_ref}")
 
                 return
 
