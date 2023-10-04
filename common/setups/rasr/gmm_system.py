@@ -295,6 +295,7 @@ class GmmSystem(RasrSystem):
             )
 
         state_tying_job = allophones.DumpStateTyingJob(self.crp[corpus_key])
+        self.jobs[corpus_key][f"state_tying_{name}"] = state_tying_job
         tk.register_output(
             "{}_{}_state_tying".format(corpus_key, name),
             state_tying_job.out_state_tying,
@@ -369,6 +370,7 @@ class GmmSystem(RasrSystem):
             crp.acoustic_model_config.state_tying.file = cart_lda.last_cart_tree
 
         state_tying_job = allophones.DumpStateTyingJob(self.crp[corpus_key])
+        self.jobs[corpus_key][f"state_tying_{name}"] = state_tying_job
         tk.register_output(
             "{}_{}_state_tying".format(corpus_key, name),
             state_tying_job.out_state_tying,
