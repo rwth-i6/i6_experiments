@@ -71,7 +71,7 @@ class ComputeTimestampErrorJob(Job):
         self.rqmt = {"cpu": 1, "mem": 8, "time": 1}
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", args=list(range(NUM_TASKS)), rqmt=self.rqmt)
+        yield Task("run", args=list(range(NUM_TASKS)), rqmt=self.rqmt, tries=3)
         yield Task("merge", mini_task=True)
 
     def run(self, task_id: int):
