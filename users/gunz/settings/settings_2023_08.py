@@ -137,6 +137,7 @@ def worker_wrapper(job, task_name, call):
         "ReturnnRasrTrainingJob",
         "ReturnnTrainingJob",
         "Seq2SeqAlignmentJob",
+        "StoreAllophonesJob",
         "TdpFromAlignmentJob",
         "TransformCheckpointJob",
     }
