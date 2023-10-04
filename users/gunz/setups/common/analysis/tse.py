@@ -32,7 +32,7 @@ class ComputeTimestampErrorJob(Job):
     than the alignment to be tested.
     """
 
-    def __int__(
+    def __init__(
         self,
         *,
         allophones: Path,
