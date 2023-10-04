@@ -144,6 +144,6 @@ class ComputeTimestampErrorJob(Job):
         tses: Dict[int, Dict[str, float]] = {k: v.get() for k, v in self.out_tses.items()}
 
         all_tse = [tses[i][key] * seq_lens[i][key] for i in tses.keys() for key in tses[i].keys()]
-        total_lens = [seq_len for len_map in self.out_seq_lens.values() for seq_len in len_map.get().values()]
+        total_lens = [seq_len for len_map in seq_lens.values() for seq_len in len_map.values()]
 
         self.out_tse.set(sum(all_tse) / sum(total_lens))
