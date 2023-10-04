@@ -18,7 +18,7 @@ from sisyphus import gs, tk
 from i6_core import corpus, lexicon, rasr, returnn
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.analysis import PlotPhonemeDurationsJob, PlotViterbiAlignmentsJob
+from ...setups.common.analysis import ComputeTimestampErrorJob, PlotPhonemeDurationsJob, PlotViterbiAlignmentsJob
 from ...setups.common.nn import baum_welch, oclr
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
@@ -35,6 +35,7 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
+    ALIGN_GMM_TRI_10MS,
     CONF_CHUNKING_10MS,
     CONF_SA_CONFIG,
     BLSTM_FH_DECODING_TENSOR_CONFIG,
@@ -639,6 +640,17 @@ def run_single(
     tk.register_output(f"alignments/{a_name}/statistics/plots", phoneme_durs.out_plot_folder)
     tk.register_output(f"alignments/{a_name}/statistics/means", phoneme_durs.out_means)
     tk.register_output(f"alignments/{a_name}/statistics/variances", phoneme_durs.out_vars)
+
+    tse_job = ComputeTimestampErrorJob(
+        allophones=allophones.out_allophone_file,
+        alignment=a_job.out_alignment_bundle,
+        n_states_per_phone=1,
+        t_step=feature_time_shift * 4,
+        reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
+        reference_n_states_per_phone=3,
+        reference_t_step=10 / 1000,
+    )
+    tk.register_output(f"alignments/{name}/statistics/tse", tse_job.out_tse)
 
     s.experiments["fh"]["alignment_job"] = a_job
 
