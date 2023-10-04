@@ -86,27 +86,24 @@ class ComputeTimestampErrorJob(Job):
         logging.info(f"processing {len(chunked)} segments")
 
         s_idx = next(iter(alignment.files.values())).allophones.index("[SILENCE]{#+#}@i@f")
+        ref_s_idx = next(iter(ref_alignment.files.values())).allophones.index("[SILENCE]{#+#}@i@f")
 
         skipped = 0
         seq_lens = {}
         tse = {}
 
         for seg in segments:
-            a_states = [alignment.files[seg].allophones[mix] for i, mix, state, _ in alignment.read(seg, "align")]
+            a_states = [alignment.files[seg].allophones[mix] for _, mix, _, _ in alignment.read(seg, "align")]
+            a_states_ref = [
+                ref_alignment.files[seg].allophones[mix] for _, mix, _, _ in ref_alignment.read(seg, "align")
+            ]
 
             if len(a_states) == 0:
                 logging.warning(f"empty alignment for {seg}, skipping")
                 continue
 
-            seq_lens[seg] = len(a_states)
-
-            a_states_ref = [
-                ref_alignment.files[seg].allophones[mix] for _, mix, state, _ in ref_alignment.read(seg, "align")
-            ]
-            a_states_dedup = [(k, len(list(g)) * self.t_step) for k, g in itertools.groupby(a_states) if k != s_idx]
-            a_states_ref_dedup = [
-                (k, len(list(g)) * self.reference_t_step) for k, g in itertools.groupby(a_states_ref) if k != s_idx
-            ]
+            a_states_dedup = [(k, len(list(g))) for k, g in itertools.groupby(a_states) if k != s_idx]
+            a_states_ref_dedup = [(k, len(list(g))) for k, g in itertools.groupby(a_states_ref) if k != ref_s_idx]
 
             if len(a_states_dedup) != len(a_states_ref_dedup):
                 logging.info(
@@ -125,7 +122,13 @@ class ComputeTimestampErrorJob(Job):
             a_states_ref_dedup, a_states_ref_duration = list(zip(*a_states_ref_dedup))
             a_states_ref_begins, a_states_ref_ends = compute_begins_ends(a_states_ref_duration)
 
-            tse[seg] = self._compute_distance(a_states_begins, a_states_ends, a_states_ref_begins, a_states_ref_ends)
+            seq_lens[seg] = len(a_states)
+            tse[seg] = self._compute_distance(
+                np.array(a_states_begins) * self.t_step,
+                np.array(a_states_ends) * self.t_step,
+                np.array(a_states_ref_begins) * self.reference_t_step,
+                np.array(a_states_ref_ends) * self.reference_t_step,
+            )
 
         self.out_seq_lens[task_id].set(seq_lens)
         self.out_skipped[task_id].set(skipped)
@@ -136,7 +139,7 @@ class ComputeTimestampErrorJob(Job):
     ) -> np.ndarray:
         begins_err = np.abs(begins - ref_begins)
         ends_err = np.abs(ends - ref_ends)
-        return np.sum(begins_err) + np.sum(ends_err)
+        return (np.sum(begins_err) + np.sum(ends_err)) / begins.size
 
     def merge(self):
         seq_lens: Dict[int, Dict[str, int]] = {k: v.get() for k, v in self.out_seq_lens.items()}
