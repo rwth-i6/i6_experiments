@@ -104,7 +104,14 @@ class ComputeTimestampErrorJob(Job):
                 logging.info(
                     f"len mismatch in {seg} of {len(a_states_dedup)} vs. {len(a_states_ref_dedup)}, skipping due to different pronunciation"
                 )
-                continue
+
+                allos = [ref_alignment.files[seg].allophones[i] for i in a_states]
+                ref_allos = [ref_alignment.files[seg].allophones[i] for i in a_states_ref]
+
+                logging.info(f"align: {allos}")
+                logging.info(f"ref align: {ref_allos}")
+
+                return
 
             # unzip the list
             a_states_dedup, a_states_duration = list(zip(*a_states_dedup))
