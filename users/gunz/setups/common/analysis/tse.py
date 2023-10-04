@@ -107,7 +107,7 @@ class ComputeTimestampErrorJob(Job):
 
             if len(a_states_dedup) != len(a_states_ref_dedup):
                 logging.info(
-                    f"len mismatch in {seg} of {len(a_states_dedup)} vs. {len(a_states_ref_dedup)}, skipping due to different pronunciation"
+                    f"len mismatch in {seg} of {len(a_states_dedup)} vs. {len(a_states_ref_dedup)}, skipping due to different pronunciation. {len(tse)} alignments already diffed."
                 )
 
                 logging.info(f"align: {[s for s, dur in a_states_dedup]}")
