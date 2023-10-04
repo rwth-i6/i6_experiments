@@ -48,6 +48,8 @@ class ComputeTimestampErrorJob(Job):
         )
         assert reference_t_step >= t_step > 0
 
+        super().__init__()
+
         self.allophones = allophones
 
         self.alignment = alignment
