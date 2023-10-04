@@ -11,7 +11,7 @@ from i6_core.lib.rasr_cache import FileArchiveBundle
 from i6_core.util import chunks
 
 
-NUM_TASKS = 1
+NUM_TASKS = 50
 
 
 def cache(path: Path) -> str:
