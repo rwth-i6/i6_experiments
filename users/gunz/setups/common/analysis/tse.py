@@ -67,7 +67,7 @@ class ComputeTimestampErrorJob(Job):
         self.out_skipped = {i: self.output_var(f"{i}.skipped") for i in range(NUM_TASKS)}
         self.out_tses = {i: self.output_var(f"{i}.tse", pickle=True) for i in range(NUM_TASKS)}
 
-        self.rqmt = {"cpu": 1, "mem": 4}
+        self.rqmt = {"cpu": 1, "mem": 8}
 
     def tasks(self) -> Iterator[Task]:
         yield Task("run", args=list(range(NUM_TASKS)), rqmt=self.rqmt)
