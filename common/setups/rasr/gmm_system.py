@@ -1061,6 +1061,13 @@ class GmmSystem(RasrSystem):
             gmm_output.alignments = self.alignments[corpus_key][f"train_{steps.get_prev_gmm_step(step_idx)}"][-1]
             gmm_output.acoustic_mixtures = self.mixtures[corpus_key][f"train_{steps.get_prev_gmm_step(step_idx)}"][-1]
 
+        state_tying_job = allophones.DumpStateTyingJob(self.crp[corpus_key])
+        self.jobs[corpus_key]["state_tying"] = state_tying_job
+        tk.register_output(
+            "final_{}_state_tying".format(corpus_key),
+            state_tying_job.out_state_tying,
+        )
+
         return gmm_output
 
     # -------------------- run functions  --------------------
