@@ -2,9 +2,9 @@ import os
 
 from sisyphus import gs, tk, Path
 
-from ...setups.common.analysis import PlotPhonemeDurationsJob, PlotViterbiAlignmentsJob
+from ...setups.common.analysis import ComputeTimestampErrorJob, PlotPhonemeDurationsJob, PlotViterbiAlignmentsJob
 from ..config_2023_05_baselines_thesis_tf2.config import SCRATCH_ALIGNMENT
-from .config import ZHOU_ALLOPHONES, ZHOU_SUBSAMPLED_ALIGNMENT
+from .config import ALIGN_GMM_TRI_10MS, ALIGN_GMM_TRI_ALLOPHONES, ZHOU_ALLOPHONES, ZHOU_SUBSAMPLED_ALIGNMENT
 
 
 def run():
@@ -49,3 +49,32 @@ def run():
         monophone=True,
     )
     tk.register_output(f"alignments/10ms-scratch-blstm/alignment-plots", plots.out_plot_folder)
+
+    scratch_data = PlotPhonemeDurationsJob(
+        alignment_bundle_path=Path(ALIGN_GMM_TRI_10MS, cached=True),
+        allophones_path=Path(ALIGN_GMM_TRI_ALLOPHONES),
+        time_step_s=10 / 1000,
+    )
+    tk.register_output(f"alignments/10ms-gmm-tri/statistics/plots", scratch_data.out_plot_folder)
+    tk.register_output(f"alignments/10ms-gmm-tri/statistics/means", scratch_data.out_means)
+    tk.register_output(f"alignments/10ms-gmm-tri/statistics/variances", scratch_data.out_vars)
+
+    plots = PlotViterbiAlignmentsJob(
+        alignment_bundle_path=Path(ALIGN_GMM_TRI_10MS, cached=True),
+        allophones_path=Path(ALIGN_GMM_TRI_ALLOPHONES),
+        segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
+        show_labels=False,
+        monophone=True,
+    )
+    tk.register_output(f"alignments/10ms-gmm-tri/alignment-plots", plots.out_plot_folder)
+    tse_job = ComputeTimestampErrorJob(
+        allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+        alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
+        n_states_per_phone=3,
+        t_step=10 / 1000,
+        reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+        reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
+        reference_n_states_per_phone=3,
+        reference_t_step=10 / 1000,
+    )
+    tk.register_output(f"alignments/10ms-gmm-tri/tse", tse_job.out_tse)
