@@ -64,7 +64,8 @@ class ComputeTimestampErrorJob(Job):
         self.out_tse = self.output_var("merged.tse")
 
         self.out_seq_lens = {i: self.output_var(f"{i}.len", pickle=True) for i in range(NUM_TASKS)}
-        self.out_skipped = {i: self.output_var(f"{i}.skipped") for i in range(NUM_TASKS)}
+        self.out_num_segs = {i: self.output_var(f"{i}.processed") for i in range(NUM_TASKS)}
+        self.out_num_skipped = {i: self.output_var(f"{i}.skipped") for i in range(NUM_TASKS)}
         self.out_tses = {i: self.output_var(f"{i}.tse", pickle=True) for i in range(NUM_TASKS)}
 
         self.rqmt = {"cpu": 1, "mem": 8}
@@ -80,10 +81,9 @@ class ComputeTimestampErrorJob(Job):
         ref_alignment = FileArchiveBundle(cache(self.reference_alignment))
         ref_alignment.setAllophones(self.reference_allophones.get_path())
 
-        segments = [s for s in alignment.file_list() if not s.endswith(".attribs")]
-        chunked = list(chunks(segments, NUM_TASKS))[task_id]
+        segments = list(chunks([s for s in alignment.file_list() if not s.endswith(".attribs")], NUM_TASKS))[task_id]
 
-        logging.info(f"processing {len(chunked)} segments")
+        logging.info(f"processing {len(segments)} segments")
 
         s_idx = next(iter(alignment.files.values())).allophones.index("[SILENCE]{#+#}@i@f")
         ref_s_idx = next(iter(ref_alignment.files.values())).allophones.index("[SILENCE]{#+#}@i@f")
@@ -128,7 +128,8 @@ class ComputeTimestampErrorJob(Job):
             )
 
         self.out_seq_lens[task_id].set(seq_lens)
-        self.out_skipped[task_id].set(skipped)
+        self.out_num_segs[task_id].set(len(segments))
+        self.out_num_skipped[task_id].set(skipped)
         self.out_tses[task_id].set(tse)
 
     def _compute_distance(
