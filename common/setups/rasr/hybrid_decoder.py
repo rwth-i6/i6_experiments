@@ -23,6 +23,7 @@ from .config.lm_config import (
     CombineLmRasrConfig,
 )
 from .util.decode import (
+    DevRecognitionParameters,
     RecognitionParameters,
     SearchJobArgs,
     Lattice2CtmArgs,
@@ -47,7 +48,7 @@ class HybridDecoder(BaseDecoder):
     def __init__(
         self,
         rasr_binary_path: tk.Path,
-        rasr_arch: "str" = "linux-x86_64-standard",
+        rasr_arch: str = "linux-x86_64-standard",
         compress: bool = False,
         append: bool = False,
         unbuffered: bool = False,
@@ -155,8 +156,9 @@ class HybridDecoder(BaseDecoder):
         tf_fwd_input_name: str = "tf-fwd-input",
     ):
         """
-        run the recognitino, consisting of search, lattice to ctm, and scoring
+        run the recognition, consisting of search, lattice to ctm, and scoring
 
+        :param name: decoding name
         :param returnn_config: RETURNN config for recognition
         :param checkpoints: epoch to model checkpoint mapping
         :param recognition_parameters: keys are the corpus keys so that recog params can be set for specific eval sets.
