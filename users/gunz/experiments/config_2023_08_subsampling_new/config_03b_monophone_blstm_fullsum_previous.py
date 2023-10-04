@@ -319,6 +319,7 @@ def run_single(
         reference_n_states_per_phone=3,
         reference_t_step=10 / 1000,
     )
+    tse_job.add_alias(f"alignments/{name}/tse")
     tk.register_output(f"alignments/{name}/statistics/tse", tse_job.out_tse)
 
     s.experiments["fh"]["alignment_job"] = a_job
