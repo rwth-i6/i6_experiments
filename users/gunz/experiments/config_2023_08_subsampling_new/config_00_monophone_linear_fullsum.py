@@ -520,8 +520,9 @@ def run_single(
     crp.concurrent = 300
     crp.segment_path = corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, crp.concurrent).out_segment_path
 
+    a_name = f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}"
     a_job = recognizer.align(
-        f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
+        a_name,
         crp=crp,
         feature_scorer=align_search_jobs.search_feature_scorer,
         default_tdp=True,
@@ -530,7 +531,7 @@ def run_single(
     )
 
     allophones = lexicon.StoreAllophonesJob(crp)
-    tk.register_output(f"allophones/{name}/allophones", allophones.out_allophone_file)
+    tk.register_output(f"allophones/{a_name}/allophones", allophones.out_allophone_file)
 
     plots = PlotViterbiAlignmentsJob(
         alignment_bundle_path=a_job.out_alignment_bundle,
@@ -539,16 +540,16 @@ def run_single(
         show_labels=False,
         monophone=True,
     )
-    tk.register_output(f"alignments/{name}/alignment-plots", plots.out_plot_folder)
+    tk.register_output(f"alignments/{a_name}/alignment-plots", plots.out_plot_folder)
 
     phoneme_durs = PlotPhonemeDurationsJob(
         alignment_bundle_path=a_job.out_alignment_bundle,
         allophones_path=allophones.out_allophone_file,
         time_step_s=feature_time_shift * 4,
     )
-    tk.register_output(f"alignments/{name}/statistics/plots", phoneme_durs.out_plot_folder)
-    tk.register_output(f"alignments/{name}/statistics/means", phoneme_durs.out_means)
-    tk.register_output(f"alignments/{name}/statistics/variances", phoneme_durs.out_vars)
+    tk.register_output(f"alignments/{a_name}/statistics/plots", phoneme_durs.out_plot_folder)
+    tk.register_output(f"alignments/{a_name}/statistics/means", phoneme_durs.out_means)
+    tk.register_output(f"alignments/{a_name}/statistics/variances", phoneme_durs.out_vars)
 
     tse_job = ComputeTimestampErrorJob(
         allophones=allophones.out_allophone_file,
@@ -560,8 +561,8 @@ def run_single(
         reference_n_states_per_phone=3,
         reference_t_step=10 / 1000,
     )
-    tse_job.add_alias(f"alignments/{name}/tse")
-    tk.register_output(f"alignments/{name}/statistics/tse", tse_job.out_tse)
+    tse_job.add_alias(f"alignments/{a_name}/tse")
+    tk.register_output(f"alignments/{a_name}/statistics/tse", tse_job.out_tse)
 
     s.experiments["fh"]["alignment_job"] = a_job
 
