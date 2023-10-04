@@ -308,9 +308,11 @@ def get_corpus_data_inputs(
     allophone_labeling = AllophoneLabeling(
         silence_phone="[SILENCE]",
         allophone_file=delayed_ops.DelayedFormat("{}", gmm_system.allophone_files["train-other-960"]),
+        # allophone_file = gmm_system.allophone_files["train-other-960"],
         state_tying_file=delayed_ops.DelayedFormat(
             "{}", gmm_system.jobs["train-other-960"]["state_tying"].out_state_tying
         ),
+        # state_tying_file=gmm_system.jobs["train-other-960"]["state_tying"].out_state_tying,
     )
 
     # ******************** dump features ********************

@@ -77,9 +77,9 @@ def get_feature_extraction_args():
     }
 
 
-def get_nn_args(num_outputs: int = 9001, num_epochs: int = 500):
+def get_nn_args(num_inputs: int = 80, num_outputs: int = 9001, num_epochs: int = 500):
     returnn_train_configs = get_returnn_configs(
-        num_inputs=40,
+        num_inputs=num_inputs,
         num_outputs=num_outputs,
         batch_size=24000,
         num_epochs=num_epochs,
@@ -94,15 +94,13 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 500):
 
     training_args = {
         "log_verbosity": 4,
+        "device": "gpu",
         "num_epochs": num_epochs,
-        "num_classes": num_outputs,
         "save_interval": 1,
         "keep_epochs": None,
         "time_rqmt": 168,
         "mem_rqmt": 7,
         "cpu_rqmt": 3,
-        "partition_epochs": {"train": 20, "dev": 1},
-        "use_python_control": False,
     }
     recognition_args = {
         "dev-other": {

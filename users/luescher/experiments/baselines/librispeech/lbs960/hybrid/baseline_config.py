@@ -2,7 +2,7 @@ import copy
 from sisyphus import gs, tk
 
 from i6_core.tools.git import CloneGitRepositoryJob
-from i6_core.features import GammatoneJob, gammatone_flow
+from i6_core.features import FilterbankJob, GammatoneJob, gammatone_flow
 
 from i6_experiments.common.setups.rasr.util import RasrSteps
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
@@ -60,6 +60,15 @@ def run_librispeech_960_hybrid_baseline():
 
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
+
+    returnn_exe = tk.Path(
+        "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh",
+        hash_overwrite="GENERIC_RETURNN_LAUNCHER",
+    )
+    blas_lib = tk.Path(
+        "/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so",
+        hash_overwrite="TF23_MKL_BLAS",
+    )
 
     lbs_nn_system = HybridSystem(
         returnn_root=RETURNN_ROOT_PATH,
