@@ -46,7 +46,7 @@ class ComputeTimestampErrorJob(Job):
         assert (reference_n_states_per_phone == n_states_per_phone) or (
             reference_n_states_per_phone >= n_states_per_phone == 1
         )
-        assert reference_t_step >= t_step > 0
+        assert t_step >= reference_t_step > 0
 
         super().__init__()
 
