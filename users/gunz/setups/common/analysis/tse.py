@@ -68,7 +68,7 @@ class ComputeTimestampErrorJob(Job):
         self.out_num_skipped = {i: self.output_var(f"{i}.skipped") for i in range(NUM_TASKS)}
         self.out_tses = {i: self.output_var(f"{i}.tse") for i in range(NUM_TASKS)}
 
-        self.rqmt = {"cpu": 1, "mem": 8}
+        self.rqmt = {"cpu": 1, "mem": 8, "time": 1}
 
     def tasks(self) -> Iterator[Task]:
         yield Task("run", args=list(range(NUM_TASKS)), rqmt=self.rqmt)
@@ -134,7 +134,7 @@ class ComputeTimestampErrorJob(Job):
 
     def _compute_distance(
         self, begins: np.ndarray, ends: np.ndarray, ref_begins: np.ndarray, ref_ends: np.ndarray
-    ) -> np.ndarray:
+    ) -> float:
         begins_err = np.abs(begins - ref_begins)
         ends_err = np.abs(ends - ref_ends)
         return (np.sum(begins_err) + np.sum(ends_err)) / begins.size
