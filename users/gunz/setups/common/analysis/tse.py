@@ -63,10 +63,10 @@ class ComputeTimestampErrorJob(Job):
 
         self.out_tse = self.output_var("merged.tse")
 
-        self.out_seq_lens = {i: self.output_var(f"{i}.len", pickle=True) for i in range(NUM_TASKS)}
+        self.out_seq_lens = {i: self.output_var(f"{i}.len") for i in range(NUM_TASKS)}
         self.out_num_segs = {i: self.output_var(f"{i}.processed") for i in range(NUM_TASKS)}
         self.out_num_skipped = {i: self.output_var(f"{i}.skipped") for i in range(NUM_TASKS)}
-        self.out_tses = {i: self.output_var(f"{i}.tse", pickle=True) for i in range(NUM_TASKS)}
+        self.out_tses = {i: self.output_var(f"{i}.tse") for i in range(NUM_TASKS)}
 
         self.rqmt = {"cpu": 1, "mem": 8}
 
