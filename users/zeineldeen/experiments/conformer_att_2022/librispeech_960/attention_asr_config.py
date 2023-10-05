@@ -937,31 +937,34 @@ def add_global_stats_norm(global_stats, net):
     if isinstance(global_stats, dict):
         from sisyphus.delayed_ops import DelayedFormat
 
-        global_mean_delayed = CodeWrapper(DelayedFormat("numpy.loadtxt('{}', dtype='float32')", global_stats["mean"]))
-        global_stddev_delayed = CodeWrapper(
-            DelayedFormat("numpy.loadtxt('{}', dtype='float32')", global_stats["stddev"])
-        )
-
         net["log10_"] = copy.deepcopy(net["log10"])
 
-        use_legacy_version = global_stats.pop("legacy", False)
+        use_legacy_version = global_stats.get("use_legacy_version", False)
+
+        if use_legacy_version:
+            # note: kept to not break hashes
+            global_mean_delayed = DelayedFormat("{}", global_stats["mean"])
+            global_stddev_delayed = DelayedFormat("{}", global_stats["stddev"])
+            global_mean_value = CodeWrapper(
+                f"eval(\"exec('import numpy') or numpy.loadtxt('{global_mean_delayed}', dtype='float32')\")"
+            )
+            global_stddev_value = CodeWrapper(
+                f"eval(\"exec('import numpy') or numpy.loadtxt('{global_stddev_delayed}', dtype='float32')\")"
+            )
+        else:
+            global_mean_delayed = DelayedFormat("numpy.loadtxt('{}', dtype='float32')", global_stats["mean"])
+            global_stddev_delayed = DelayedFormat("numpy.loadtxt('{}', dtype='float32')", global_stats["stddev"])
+            global_mean_value = CodeWrapper(global_mean_delayed)
+            global_stddev_value = CodeWrapper(global_stddev_delayed)
 
         net["global_mean"] = {
             "class": "constant",
-            "value": CodeWrapper(
-                f"eval(\"exec('import numpy') or {global_mean_delayed}\")"
-                if use_legacy_version
-                else global_mean_delayed
-            ),
+            "value": global_mean_value,
             "dtype": "float32",
         }
         net["global_stddev"] = {
             "class": "constant",
-            "value": CodeWrapper(
-                f"eval(\"exec('import numpy') or {global_stddev_delayed}\")"
-                if use_legacy_version
-                else global_stddev_delayed
-            ),
+            "value": global_stddev_value,
             "dtype": "float32",
         }
         net["log10"] = {
