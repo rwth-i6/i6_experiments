@@ -312,11 +312,9 @@ def run_single(
     tse_job = ComputeTimestampErrorJob(
         allophones=allophones.out_allophone_file,
         alignment=a_job.out_alignment_bundle,
-        n_states_per_phone=1,
         t_step=t_step,
         reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
         reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
-        reference_n_states_per_phone=3,
         reference_t_step=10 / 1000,
     )
     tse_job.add_alias(f"alignments/{a_name}/tse")

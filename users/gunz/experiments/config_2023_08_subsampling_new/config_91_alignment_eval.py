@@ -57,11 +57,9 @@ def run():
             "/work/asr3/raissi/shared_workspaces/gunz/2023-05--subsampling-tf2/i6_core/lexicon/allophones/StoreAllophonesJob.Qa3bLX1BHz42/output/allophones"
         ),
         alignment=Path(SCRATCH_ALIGNMENT, cached=True),
-        n_states_per_phone=3,
         t_step=10 / 1000,
         reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
         reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
-        reference_n_states_per_phone=3,
         reference_t_step=10 / 1000,
     )
     tk.register_output(f"alignments/10ms-scratch-blstm/tse", tse_job.out_tse)
@@ -95,11 +93,9 @@ def run():
     tse_job = ComputeTimestampErrorJob(
         allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
         alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
-        n_states_per_phone=3,
         t_step=10 / 1000,
         reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
         reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
-        reference_n_states_per_phone=3,
         reference_t_step=10 / 1000,
     )
     tk.register_output(f"alignments/10ms-gmm-tri/tse", tse_job.out_tse)
