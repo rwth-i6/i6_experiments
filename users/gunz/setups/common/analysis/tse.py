@@ -121,12 +121,16 @@ class ComputeTimestampErrorJob(Job):
                 b_allos = [ref_alignment.files[seg].allophones[mix] for mix in mix_indices_ref]
 
                 seq_matcher = SequenceMatcher(None, a=a_allos, b=b_allos)
-                match_blocks = [bl for bl in seq_matcher.get_matching_blocks() if bl.size >= 3]
+                match_blocks = [bl for bl in seq_matcher.get_matching_blocks() if bl.size >= 5]
 
                 if len(match_blocks) == 0:
                     logging.info(f"No matching blocks in sequence found. Skipping {seg}.")
                     skipped += 1
                     continue
+
+                logging.info(a_allos)
+                logging.info(b_allos)
+                logging.info(match_blocks)
 
                 # We do the comparison of the positions on a sequence of the full length to
                 # track mismatches in the starts of the blocks.
