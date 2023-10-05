@@ -379,7 +379,7 @@ def test_import_forward():
     print("*** Create new model")
     new_model = _make_new_model()
 
-    rf.init_train_step_run_ctx(train_flag=False)
+    rf.init_train_step_run_ctx(train_flag=False, step=0)
     extern_data.reset_content()
     extern_data.assign_from_raw_tensor_dict_(extern_data_numpy_raw_dict)
     tensor_dict_numpy_to_torch_(extern_data)
@@ -616,8 +616,8 @@ def test_import_search():
         epoch=1,
         seq_list=[f"dev-other/116-288045-{i:04d}/116-288045-{i:04d}" for i in range(33)],
     )
-    # batch_num_seqs = 1
-    batch_num_seqs = 10
+    batch_num_seqs = 1
+    # batch_num_seqs = 10
     dataset.load_seqs(0, batch_num_seqs)
     batch = Batch()
     for seq_idx in range(batch_num_seqs):
@@ -646,29 +646,30 @@ def test_import_search():
 
     print("*** Convert old model to new model")
     # pt_checkpoint_path = _get_pt_checkpoint_path()
-    pt_checkpoint_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/full_w_lm_import_2023_09_07/average.pt"
+    pt_checkpoint_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/full_w_lm_import_2023_10_03/average.pt"
     print(pt_checkpoint_path)
 
     print("*** Create new model")
     search_args = {
-        "att_scale": 0.7,
+        "att_scale": 1.0,
         "ctc_scale": 0.3,
         "beam_size": 12,
         "use_ctc": False,
         "mask_eos": True,
-        "add_lstm_lm": False,
-        "lstm_scale": 0.3,
+        "add_lstm_lm": True,
+        "lstm_scale": 0.33,
         "prior_corr": False,
         "prior_scale": 0.2,
         "length_normalization_exponent": 1.0,
         # "window_margin": 10,
         "rescore_w_ctc": False,
     }
+    # returnn/torch/fonrtend/_backend 1635: sizes_raw = torch.reshape(sizes.raw_tensor, [batch_dim]).to('cpu')
     new_model = MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers, search_args=search_args)
 
     from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
 
-    rf.init_train_step_run_ctx(train_flag=False)
+    rf.init_train_step_run_ctx(train_flag=False, step=0)
     extern_data.reset_content()
     extern_data.assign_from_raw_tensor_dict_(extern_data_numpy_raw_dict)
     tensor_dict_numpy_to_torch_(extern_data)
@@ -690,8 +691,9 @@ def test_import_search():
 
     with torch.no_grad():
         with rf.set_default_device_ctx("cuda"):
+            # manually switch between different decoders
             ctc_only = False
-            time_sync = True
+            time_sync = False
             if ctc_only:
                 seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog_ctc(
                     model=new_model,
@@ -712,6 +714,8 @@ def test_import_search():
                 )
     print(seq_targets, seq_targets.raw_tensor) # seq_targets [T,Batch,Beam]
     print("Out spatial dim:", out_spatial_dim)
+
+    # serialize output
     vocab_1 = Vocabulary("/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab", eos_label=0)
     for batch_idx in range(batch_dim.get_dim_value()):
         # process seq

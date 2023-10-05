@@ -44,9 +44,9 @@ class LSTM_LM_Model(rf.Module):
     def loop_step(self, prev_target, prev_state):
         """loop step"""
         lm_state = rf.State()
-        breakpoint()
         input = self.input(prev_target)
         input += self.input_bias
+        # breakpoint()
         lstm_0, lstm_0_state = self.lstm_0(input, state=prev_state.lstm_0, spatial_dim=single_step_dim)
         lm_state.lstm_0 = lstm_0_state
         lstm_1, lstm_1_state = self.lstm_1(lstm_0, state=prev_state.lstm_1, spatial_dim=single_step_dim)

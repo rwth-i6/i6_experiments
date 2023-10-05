@@ -52,7 +52,7 @@ def test_convert_checkpoint():
     import torch
     import numpy
 
-    out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/full_w_lm_import_2023_09_07"
+    out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/full_w_lm_import_2023_10_03"
 
     reader = CheckpointReader(_returnn_tf_ckpt_filename)
     reader_lm = CheckpointReader(lm_path)
@@ -99,7 +99,6 @@ def test_convert_checkpoint():
     ckpt_name = os.path.basename(_returnn_tf_ckpt_filename)
 
     pt_model = rf_module_to_pt_module(model)
-    breakpoint()
 
     os.makedirs(out_dir, exist_ok=True)
     filename = out_dir + "/" + ckpt_name + ".pt"
@@ -252,8 +251,8 @@ _add_params()
 def map_param_func_lstm(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
     """map params, TF to RF"""
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
-    from i6_experiments.users.zeyer.returnn.convert.params import (
-        numpy as convert_params_np,
+    from i6_experiments.users.gaudino.convert import (
+        convert_params,
     )
     from i6_experiments.users.zeyer.returnn.convert.params import (
         tf_to_rf_np as convert_params_tf_to_rf_np,
@@ -272,11 +271,18 @@ def map_param_func_lstm(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
         value = reader.get_tensor(var_name)
         assert isinstance(value, numpy.ndarray)
 
-        if (
-            name.endswith(".ff_weight")
-            or name.endswith(".rec_weight")
-            or name == "output.weight"
-        ):
+        if name.endswith(".ff_weight"):
+            value = convert_params.convert_tf_lstm_to_torch_lstm_ff(value)
+
+        if name.endswith(".rec_weight"):
+            value = convert_params.convert_tf_lstm_to_torch_lstm_rec(value)
+
+        if "lstm" in name and name.endswith(".bias"):
+            value = convert_params.convert_tf_lstm_to_torch_lstm_bias(
+                value
+            )
+
+        if (name == "output.weight"):
             # value = convert_params_np.convert_tf_lstm_to_native_lstm_ff(value)
             value = value.transpose()
 

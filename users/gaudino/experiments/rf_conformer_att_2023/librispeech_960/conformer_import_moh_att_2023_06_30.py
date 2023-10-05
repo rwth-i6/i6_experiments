@@ -87,20 +87,6 @@ def sis_run_with_prefix(prefix_name: str = None):
     ).out_checkpoint
 
     # att + ctc decoding
-    search_args = {
-        "beam_size": 12,
-        # att decoder args
-        "att_scale": 1.0,
-        "ctc_scale": 0.01,
-        "use_ctc": False,
-        "mask_eos": True,
-        "add_lstm_lm": False,
-        "prior_corr": False,
-        "prior_scale": 0.2,
-        "length_normalization_exponent": 1.0, # 0.0 for disabled
-        # "window_margin": 10,
-        "rescore_w_ctc": True,
-    }
 
     new_chkpt_path = tk.Path(_torch_ckpt_filename_w_lstm_lm, hash_overwrite="torch_ckpt_w_lstm_lm")
     new_chkpt = PtCheckpoint(new_chkpt_path)
@@ -108,7 +94,22 @@ def sis_run_with_prefix(prefix_name: str = None):
         definition=from_scratch_model_def, checkpoint=new_chkpt
     )
 
-    if False:
+    if True:
+        search_args = {
+            "beam_size": 12,
+            # att decoder args
+            "att_scale": 1.0,
+            "ctc_scale": 0.0,
+            "use_ctc": False,
+            "mask_eos": True,
+            "add_lstm_lm": True,
+            "lstm_scale": 0.33,
+            "prior_corr": False,
+            "prior_scale": 0.2,
+            "length_normalization_exponent": 1.0,  # 0.0 for disabled
+            # "window_margin": 10,
+            "rescore_w_ctc": False,
+        }
         dev_sets = ["dev-other"]  # only dev-other for testing
         # dev_sets = None  # all
         res = recog_model(
@@ -121,7 +122,8 @@ def sis_run_with_prefix(prefix_name: str = None):
         tk.register_output(
             prefix_name
             # + f"/espnet_att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_beam{search_args['beam_size']}_maskEos"
-            + f"/att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_beam{search_args['beam_size']}_two_pass_maskeos"
+            # + f"/att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_beam{search_args['beam_size']}_two_pass_maskeos"
+            + f"/att{search_args['att_scale']}_lstm_lm{search_args['lstm_scale']}_beam{search_args['beam_size']}"
             + f"/recog_results",
             res.output,
         )
@@ -169,7 +171,7 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # time sync decoding
     search_args = {
-        "beam_size": 12,
+        "beam_size": 32,
         "add_lstm_lm": False,
         "length_normalization_exponent": 1.0,  # 0.0 for disabled
         "mask_eos": True,
@@ -189,7 +191,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
     tk.register_output(
         prefix_name
-        + f"/time_sync_att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_beam{search_args['beam_size']}_mask_eos"
+        + f"/time_sync_att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_beam{search_args['beam_size']}_mask_eos_2"
         + f"/recog_results",
         res.output,
     )
@@ -483,7 +485,7 @@ class Model(rf.Module):
             fft_length=512,
         )
         source = rf.abs(source) ** 2.0
-        source = rf.mel_filterbank(
+        source = rf.audio.mel_filterbank(
             source, in_dim=in_dim_, out_dim=self.in_dim, sampling_rate=16000
         )
         source = rf.safe_log(source, eps=1e-10) / 2.3026
@@ -635,9 +637,9 @@ def from_scratch_model_def(
 
 
 from_scratch_model_def: ModelDef[Model]
-from_scratch_model_def.behavior_version = 14
+from_scratch_model_def.behavior_version = 16
 from_scratch_model_def.backend = "torch"
-from_scratch_model_def.batch_size_factor = 40  # 160 # change batch size here
+from_scratch_model_def.batch_size_factor = 40  # 160 # change batch size here - 20 for att_window - 40 for ctc_prefix
 
 
 def from_scratch_training(
