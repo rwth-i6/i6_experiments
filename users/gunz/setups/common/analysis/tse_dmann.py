@@ -20,7 +20,7 @@ class DMannComputeTseJob(Job):
         self.rqmts = {"time": 1, "cpu": 1, "mem": 8}
 
     def tasks(self):
-        yield Task("run", resume="run", rqmt=self.rqmts)
+        yield Task("run", resume="run", mini_task=True)
 
     def run(self):
         # load archives
