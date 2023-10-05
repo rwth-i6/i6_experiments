@@ -84,6 +84,8 @@ def run():
     ]
 
     avg_tse = ComputeAverageJob([tse.out_tse for tse in tses])
+    for i, job in enumerate(tses):
+        tk.register_output(f"alignments/10ms-scratch-blstm/tse_dmann/tse.{i}", job.out_tse)
     tk.register_output(f"alignments/10ms-scratch-blstm/tse_dmann", avg_tse.out_avg)
 
     scratch_data = PlotPhonemeDurationsJob(
