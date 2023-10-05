@@ -3,6 +3,8 @@ import os
 from sisyphus import gs, tk, Path
 
 from ...setups.common.analysis import ComputeTimestampErrorJob, PlotPhonemeDurationsJob, PlotViterbiAlignmentsJob
+from ...setups.common.analysis.tse_dmann import DMannComputeTseJob
+from ...setups.common.util import ComputeAverageJob
 from ..config_2023_05_baselines_thesis_tf2.config import SCRATCH_ALIGNMENT
 from .config import ALIGN_GMM_TRI_10MS, ALIGN_GMM_TRI_ALLOPHONES, ZHOU_ALLOPHONES, ZHOU_SUBSAMPLED_ALIGNMENT
 
@@ -63,6 +65,26 @@ def run():
         reference_t_step=10 / 1000,
     )
     tk.register_output(f"alignments/10ms-scratch-blstm/tse", tse_job.out_tse)
+
+    tses = [
+        DMannComputeTseJob(
+            allophones=Path(
+                "/work/asr3/raissi/shared_workspaces/gunz/2023-05--subsampling-tf2/i6_core/lexicon/allophones/StoreAllophonesJob.Qa3bLX1BHz42/output/allophones"
+            ),
+            alignment=Path(
+                f"/work/asr3/raissi/shared_workspaces/gunz/dependencies/alignments/ls-960/scratch/10ms/alignment.cache.{i}",
+                cached=True,
+            ),
+            reference_alignment=tk.Path(
+                f"/work/asr4/raissi/setups/librispeech/960-ls/work/i6_core/mm/alignment/AlignmentJob.hK21a0UU4iiJ/output/alignment.cache.{i}",
+                cached=True,
+            ),
+        )
+        for i in range(1, 300 + 1)
+    ]
+
+    avg_tse = ComputeAverageJob([tse.out_tse for tse in tses])
+    tk.register_output(f"alignments/10ms-scratch-blstm/tse_dmann", avg_tse.out_avg)
 
     scratch_data = PlotPhonemeDurationsJob(
         alignment_bundle_path=Path(ALIGN_GMM_TRI_10MS, cached=True),
