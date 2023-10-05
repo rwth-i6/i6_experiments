@@ -1,3 +1,4 @@
+from difflib import SequenceMatcher
 import logging
 import numpy as np
 import subprocess
@@ -43,6 +44,8 @@ class ComputeTimestampErrorJob(Job):
     than the alignment to be tested.
     """
 
+    __sis_hash_exclude__ = {"fuzzy_match_mismatching_phoneme_sequences": False}
+
     def __init__(
         self,
         *,
@@ -52,6 +55,7 @@ class ComputeTimestampErrorJob(Job):
         reference_allophones: Path,
         reference_alignment: Path,
         reference_t_step: float,
+        fuzzy_match_mismatching_phoneme_sequences: bool = True,
     ):
         assert t_step >= reference_t_step > 0
 
@@ -64,6 +68,8 @@ class ComputeTimestampErrorJob(Job):
         self.reference_allophones = reference_allophones
         self.reference_alignment = reference_alignment
         self.reference_t_step = reference_t_step
+
+        self.fuzzy_match_mismatching_phoneme_sequences = fuzzy_match_mismatching_phoneme_sequences
 
         self.out_num_processed = self.output_var("num_processed")
         self.out_num_skipped = self.output_var("num_skipped")
@@ -105,25 +111,44 @@ class ComputeTimestampErrorJob(Job):
             begins, ends = compute_begins_ends(mix_indices, s_idx)
             begins_ref, ends_ref = compute_begins_ends(mix_indices_ref, ref_s_idx)
 
-            # Debug logging
-            # logging.info(begins)
-            # logging.info(ends)
-            # logging.info(begins_ref)
-            # logging.info(ends_ref)
+            if len(begins) == len(begins_ref) and len(ends) == len(ends_ref):
+                data = [(begins, ends, begins_ref, ends_ref)]
+            elif self.fuzzy_match_mismatching_phoneme_sequences:
+                b_matcher = SequenceMatcher(None, a=begins, b=begins_ref)
+                b_matches = [b for b in b_matcher.get_matching_blocks() if b.size > 3]
 
-            # quick escape hatch for phoneme sequence (in)equality, avoids having to fetch the allophones
-            if len(begins) != len(begins_ref) or len(ends) != len(ends_ref):
+                e_matcher = SequenceMatcher(None, a=ends, b=ends_ref)
+                e_matches = [b for b in e_matcher.get_matching_blocks() if b.size > 3]
+
+                if len(b_matches) != len(e_matches):
+                    logging.info(
+                        f"Diff between begins and ends gave different number of matching blocks, skipping: {len(b_matches)} vs. {len(e_matches)}"
+                    )
+                    skipped += 1
+                    continue
+
+                data = [
+                    (
+                        begins[b_match.a : b_match.a + b_match.size],
+                        ends[e_match.a : e_match.a + e_match.size],
+                        begins_ref[b_match.b : b_match.b + b_match.size],
+                        ends_ref[e_match.b : e_match.b + e_match.size],
+                    )
+                    for b_match, e_match in zip(b_matches, e_matches)
+                ]
+            else:
                 logging.info(
                     f"len mismatch in {seg} of {len(begins)}/{len(ends)} vs. {len(begins_ref)}/{len(ends_ref)}, skipping due to different pronunciation. {len(tse)} alignments already diffed."
                 )
                 skipped += 1
                 continue
 
-            dist, num = self._compute_distance(begins, ends, begins_ref, ends_ref)
+            distances = [self._compute_distance(b, e, b_ref, e_ref) for b, e, b_ref, e_ref in data]
+            dists, nums = list(zip(*distances))
 
-            total_num += num
-            total_dist += dist
-            tse[seg] = (dist / num) * self.t_step
+            total_num += sum(nums)
+            total_dist += sum(dists)
+            tse[seg] = (sum(dists) / sum(nums)) * self.t_step
 
         self.out_num_skipped.set(skipped)
         self.out_tse.set((total_dist / total_num) * self.t_step)
