@@ -20,7 +20,7 @@ def cache(path: Path) -> str:
 
 def get_mixture_indices(a_cache: FileArchiveBundle, segment: str) -> np.ndarray:
     a_data: List[Tuple[int, int, int, int]] = a_cache.read(segment, "align")
-    return np.array(a_data)[:, 1]  # return only mixture indices
+    return np.array(a_data)[:, 1] if len(a_data) > 0 else np.array([])  # return only mixture indices
 
 
 def compute_begins_ends(mix_indices: np.ndarray, silence_idx: int) -> Tuple[np.ndarray, np.ndarray]:
