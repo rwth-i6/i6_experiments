@@ -73,7 +73,7 @@ def run():
         alignment=Path(SCRATCH_ALIGNMENT, cached=True),
         reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
     )
-    tk.register_output(f"alignments/10ms-scratch-blstm/tse_dmann", dmann_tse.out_avg)
+    tk.register_output(f"alignments/10ms-scratch-blstm/tse_dmann", dmann_tse.out_tse)
 
     scratch_data = PlotPhonemeDurationsJob(
         alignment_bundle_path=Path(ALIGN_GMM_TRI_10MS, cached=True),
