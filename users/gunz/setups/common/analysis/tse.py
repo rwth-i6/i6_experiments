@@ -55,7 +55,7 @@ class ComputeTimestampErrorJob(Job):
         reference_allophones: Path,
         reference_alignment: Path,
         reference_t_step: float,
-        fuzzy_match_mismatching_phoneme_sequences: bool = True,
+        fuzzy_match_mismatching_phoneme_sequences: bool = False,
     ):
         assert t_step >= reference_t_step > 0
 
@@ -114,6 +114,9 @@ class ComputeTimestampErrorJob(Job):
             if len(begins) == len(begins_ref) and len(ends) == len(ends_ref):
                 data = [(begins, ends, begins_ref, ends_ref)]
             elif self.fuzzy_match_mismatching_phoneme_sequences:
+                skipped += 1
+                continue  # for now, impl is difficult
+
                 # Compute matching sequence on decoded allophones to allow mismatches in
                 # allophone indices, and then go back to the mixture indices for efficient
                 # computation of the boundaries (indexes are the same).
