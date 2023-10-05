@@ -74,7 +74,7 @@ class ComputeTimestampErrorJob(Job):
         self.rqmt = {"cpu": 1, "mem": 8, "time": 1}
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", rqmt=self.rqmt)
+        yield Task("run", resume="run", rqmt=self.rqmt)
 
     def run(self):
         alignment = FileArchiveBundle(cache(self.alignment))
