@@ -1,8 +1,7 @@
-import itertools
 import logging
 import numpy as np
 import subprocess
-from typing import Any, Dict, Iterator, List, Tuple, TypeVar, Union
+from typing import Iterator, List, Tuple, TypeVar
 import sys
 
 from sisyphus import Job, Path, Task
