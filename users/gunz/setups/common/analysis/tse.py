@@ -121,12 +121,12 @@ class ComputeTimestampErrorJob(Job):
 
             total_num += num
             total_dist += dist
-            tse[seg] = dist / num
+            tse[seg] = (dist / num) * self.t_step
 
             break
 
         self.out_num_skipped.set(skipped)
-        self.out_tse.set(total_dist / total_num)
+        self.out_tse.set((total_dist / total_num) * self.t_step)
         self.out_tse_per_seq.set(tse)
 
     def _compute_distance(
