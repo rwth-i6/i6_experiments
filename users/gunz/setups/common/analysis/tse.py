@@ -120,7 +120,7 @@ class ComputeTimestampErrorJob(Job):
                 a_allos = [alignment.files[seg].allophones[mix] for mix in mix_indices]
                 b_allos = [ref_alignment.files[seg].allophones[mix] for mix in mix_indices_ref]
 
-                seq_matcher = SequenceMatcher(None, a=a_allos, b=b_allos)
+                seq_matcher = SequenceMatcher(None, a=a_allos, b=b_allos, autojunk=False)
                 match_blocks = [bl for bl in seq_matcher.get_matching_blocks() if bl.size >= 5]
 
                 if len(match_blocks) == 0:
