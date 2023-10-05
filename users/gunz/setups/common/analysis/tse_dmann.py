@@ -5,6 +5,8 @@ from sisyphus import Job, Path, Task
 
 from i6_core.lib import rasr_cache
 
+from .tse import cache
+
 
 class DMannComputeTseJob(Job):
     def __init__(
@@ -26,7 +28,7 @@ class DMannComputeTseJob(Job):
         # load archives
         archives = []
         for a in [self.alignment, self.reference_alignment]:
-            archive = rasr_cache.open_file_archive(a.get_path())
+            archive = rasr_cache.open_file_archive(cache(a))
             archive.setAllophones(self.allophones.get_path())
             archives.append(archive)
 
