@@ -71,8 +71,10 @@ class ComputeTimestampErrorJob(Job):
         self.out_tse = self.output_var("out_tse")
         self.out_tse_per_seq = self.output_var("out_tse_per_seq")
 
+        self.rqmt = {"cpu": 1, "mem": 8, "time": 1}
+
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", mini_task=True)
+        yield Task("run", rqmt=self.rqmt)
 
     def run(self):
         alignment = FileArchiveBundle(cache(self.alignment))
@@ -104,10 +106,11 @@ class ComputeTimestampErrorJob(Job):
             begins, ends = compute_begins_ends(mix_indices, s_idx)
             begins_ref, ends_ref = compute_begins_ends(mix_indices_ref, ref_s_idx)
 
-            logging.info(begins)
-            logging.info(ends)
-            logging.info(begins_ref)
-            logging.info(ends_ref)
+            # Debug logging
+            # logging.info(begins)
+            # logging.info(ends)
+            # logging.info(begins_ref)
+            # logging.info(ends_ref)
 
             # quick escape hatch for phoneme sequence (in)equality, avoids having to fetch the allophones
             if len(begins) != len(begins_ref):
@@ -122,8 +125,6 @@ class ComputeTimestampErrorJob(Job):
             total_num += num
             total_dist += dist
             tse[seg] = (dist / num) * self.t_step
-
-            break
 
         self.out_num_skipped.set(skipped)
         self.out_tse.set((total_dist / total_num) * self.t_step)
