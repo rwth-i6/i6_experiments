@@ -112,9 +112,9 @@ class ComputeTimestampErrorJob(Job):
             # logging.info(ends_ref)
 
             # quick escape hatch for phoneme sequence (in)equality, avoids having to fetch the allophones
-            if len(begins) != len(begins_ref):
+            if len(begins) != len(begins_ref) or len(ends) != len(ends_ref):
                 logging.info(
-                    f"len mismatch in {seg} of {len(begins)} vs. {len(begins_ref)}, skipping due to different pronunciation. {len(tse)} alignments already diffed."
+                    f"len mismatch in {seg} of {len(begins)}/{len(ends)} vs. {len(begins_ref)}/{len(ends_ref)}, skipping due to different pronunciation. {len(tse)} alignments already diffed."
                 )
                 skipped += 1
                 continue
