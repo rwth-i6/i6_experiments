@@ -114,27 +114,40 @@ class ComputeTimestampErrorJob(Job):
             if len(begins) == len(begins_ref) and len(ends) == len(ends_ref):
                 data = [(begins, ends, begins_ref, ends_ref)]
             elif self.fuzzy_match_mismatching_phoneme_sequences:
-                b_matcher = SequenceMatcher(None, a=begins, b=begins_ref)
-                b_matches = [b for b in b_matcher.get_matching_blocks() if b.size > 3]
+                # Compute matching sequence on decoded allophones to allow mismatches in
+                # allophone indices, and then go back to the mixture indices for efficient
+                # computation of the boundaries (indexes are the same).
+                a_allos = [alignment.files[seg].allophones[mix] for mix in mix_indices]
+                b_allos = [ref_alignment.files[seg].allophones[mix] for mix in mix_indices_ref]
 
-                e_matcher = SequenceMatcher(None, a=ends, b=ends_ref)
-                e_matches = [b for b in e_matcher.get_matching_blocks() if b.size > 3]
+                seq_matcher = SequenceMatcher(None, a=a_allos, b=b_allos)
+                match_blocks = [bl for bl in seq_matcher.get_matching_blocks() if bl.size >= 3]
 
-                if len(b_matches) != len(e_matches):
-                    logging.info(
-                        f"Diff between begins and ends gave different number of matching blocks, skipping: {len(b_matches)} vs. {len(e_matches)}"
-                    )
+                if len(match_blocks) == 0:
+                    logging.info(f"No matching blocks in sequence found. Skipping {seg}.")
                     skipped += 1
                     continue
 
+                # We do the comparison of the positions on a sequence of the full length to
+                # track mismatches in the starts of the blocks.
+                #
+                # Basically we zero out everything else but the matching block of indices and
+                # recompute the begins and ends over that instead.
+                mix_indices_all = [np.zeros_like(mix_indices) for _ in match_blocks]
+                for mi, bl in zip(mix_indices_all, match_blocks):
+                    mi[bl.a : bl.a + bl.size] = mix_indices[bl.a : bl.a + bl.size]
+                mix_indices_ref_all = [np.zeros_like(mix_indices_ref) for _ in match_blocks]
+                for mi, bl in zip(mix_indices_ref_all, match_blocks):
+                    mi[bl.b : bl.b + bl.size] = mix_indices_ref[bl.b : bl.b + bl.size]
+
+                # mix_indices_all = [mix_indices[bl.a : bl.a + bl.size] for bl in match_blocks]
+                # mix_indices_ref_all = [mix_indices_ref[bl.b : bl.b + bl.size] for bl in match_blocks]
+
                 data = [
-                    (
-                        begins[b_match.a : b_match.a + b_match.size],
-                        ends[e_match.a : e_match.a + e_match.size],
-                        begins_ref[b_match.b : b_match.b + b_match.size],
-                        ends_ref[e_match.b : e_match.b + e_match.size],
-                    )
-                    for b_match, e_match in zip(b_matches, e_matches)
+                    (begins, ends, begins_ref, ends_ref)
+                    for mix_indices, mix_indices_ref in zip(mix_indices_all, mix_indices_ref_all)
+                    for begins, ends in [compute_begins_ends(mix_indices, s_idx)]
+                    for begins_ref, ends_ref in [compute_begins_ends(mix_indices_ref, ref_s_idx)]
                 ]
             else:
                 logging.info(
