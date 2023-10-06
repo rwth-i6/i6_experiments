@@ -296,10 +296,10 @@ def run_single(
         num_classes=s.label_info.get_n_of_dense_classes(),
         time_tag_name=time_tag_name,
         upsample_by_transposed_conv=False,
+        weights_init=weights_init,
         conf_args={
             "feature_stacking": False,
             "conv_args": conv_args.get(ss_strategy, None),
-            "initialization": weights_init,
             "reduction_factor": pooling_size.get(ss_strategy, None),
         },
     )
