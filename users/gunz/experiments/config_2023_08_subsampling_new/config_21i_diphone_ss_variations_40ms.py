@@ -354,7 +354,7 @@ def run_single(
             network[f"enc_{i:03d}_conv_output"]["from"] = [f"enc_{i:03d}_ff1_out", f"enc_{i:03d}_conv_dropout"]
 
             network[f"enc_{i:03d}_self_att_laynorm"]["from"] = [f"enc_{i:03d}_conv_output"]
-            network[f"enc_{i:03d}_self_att_out"]["from"] = [f"enc_{i:03d}_conv_output", "enc_001_self_att_drop"]
+            network[f"enc_{i:03d}_self_att_out"]["from"] = [f"enc_{i:03d}_conv_output", f"enc_{i:03d}_self_att_drop"]
 
             network[f"enc_{i:03d}_ff2_laynorm"]["from"] = [f"enc_{i:03d}_self_att_out"]
             network[f"enc_{i:03d}_ff2_out"]["from"] = [f"enc_{i:03d}_self_att_out", f"enc_{i:03d}_ff2_drop_half"]
