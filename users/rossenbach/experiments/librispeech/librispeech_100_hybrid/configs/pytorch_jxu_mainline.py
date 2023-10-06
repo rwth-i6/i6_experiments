@@ -73,8 +73,7 @@ def get_nn_args_jxu(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_re
             "cpu": 2,
             "parallelize_conversion": True,
             "needs_features_size": False,
-            "training_whitelist": [
-                "jxu_i6_conformer_downsample_3_mainline"],
+            "nn_prior": False,
         },
     }
     test_recognition_args = None
