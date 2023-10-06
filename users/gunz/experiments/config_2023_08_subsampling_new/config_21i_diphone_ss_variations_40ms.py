@@ -356,6 +356,8 @@ def run_single(
             network[f"enc_{i:03d}_self_att_laynorm"]["from"] = [f"enc_{i:03d}_conv_output"]
             network[f"enc_{i:03d}_self_att_out"]["from"] = [f"enc_{i:03d}_conv_output", "enc_001_self_att_drop"]
 
+            network[f"enc_{i:03d}_ff2_laynorm"]["from"] = [f"enc_{i:03d}_self_att_out"]
+
     base_config = {
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
