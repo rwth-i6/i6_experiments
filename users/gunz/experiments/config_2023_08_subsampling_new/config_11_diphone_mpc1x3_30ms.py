@@ -335,6 +335,7 @@ def run_single(
 
         # Top 3 from monophone TDP study
         good_values = [
+            ((3, 0, "infinity", 0), (0, 3, "infinity", 20)),  # default
             ((3, 0, "infinity", 0), (3, 10, "infinity", 10)),  # 8,9%
             ((3, 0, "infinity", 3), (3, 10, "infinity", 10)),  # 8,9%
             ((3, 0, "infinity", 0), (10, 10, "infinity", 10)),  # 9,0%
@@ -346,7 +347,7 @@ def run_single(
             recog_args.with_prior_scale(0.4, 0.6)
             .with_tdp_scale(0.4)
             .with_tdp_speech((3, 0, "infinity", 0))
-            .with_tdp_silence((3, 10, "infinity", 10)),
+            .with_tdp_silence((0, 3, "infinity", 20)),
             *(
                 recog_args.with_prior_scale(0.4, 0.4)
                 .with_tdp_scale(0.4)
@@ -362,7 +363,7 @@ def run_single(
                 num_encoder_output=conf_model_dim,
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
-                rtf_cpu=20,
+                rtf_cpu=30,
             )
 
         if tune_decoding and ep == max(keep_epochs):
