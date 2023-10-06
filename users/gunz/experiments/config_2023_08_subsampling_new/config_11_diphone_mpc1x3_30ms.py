@@ -532,7 +532,7 @@ def run_single(
                 False,
                 baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3),
             )
-            for lr in [8e-5, 1e-4]
+            for lr in [5e-5, 8e-5]
         ]
 
         for peak_lr, adapt_transition_model, bw_scale in configs:
