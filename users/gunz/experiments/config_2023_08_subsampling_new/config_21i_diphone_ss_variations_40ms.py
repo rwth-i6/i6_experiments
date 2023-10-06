@@ -34,6 +34,7 @@ from ...setups.fh.network import conformer, diphone_joint_output
 from ...setups.fh.factored import PhoneticContext, RasrStateTying
 from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
+    DEFAULT_INIT,
     SubsamplingInfo,
     augment_net_with_diphone_outputs,
     augment_net_with_monophone_outputs,
@@ -70,6 +71,8 @@ class Experiment:
     chunking: str
     decode_all_corpora: bool
     fine_tune: bool
+    global_l2: bool
+    init: str
     label_smoothing: float
     lr: str
     dc_detection: bool
@@ -77,6 +80,7 @@ class Experiment:
     tune_decoding: bool
     run_tdp_study: bool
     ss_strategy: str
+    swap_mhsa_conv: bool
 
     filter_segments: typing.Optional[typing.List[str]] = None
     focal_loss: float = CONF_FOCAL_LOSS
@@ -97,16 +101,48 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             dc_detection=False,
             decode_all_corpora=False,
             fine_tune=False,
+            global_l2=False,
+            init=DEFAULT_INIT,
             label_smoothing=CONF_LABEL_SMOOTHING,
             lr="v13",
             run_performance_study=a_name == "40ms-FF-v8",
             tune_decoding=a_name == "40ms-FF-v8",
             run_tdp_study=False,
             ss_strategy=ss,
+            swap_mhsa_conv=False,
         )
         for ss in ["mp:2@2+mp:2@4", "mp:4@2", "cs:2@2+cs:2@2", "cs:4@2", "cs:4@4"]
     ]
-    for exp in configs:
+    additional_configs = [
+        Experiment(
+            alignment=alignment,
+            alignment_name=a_name,
+            batch_size=12500,
+            chunking=CONF_CHUNKING_10MS,
+            dc_detection=False,
+            decode_all_corpora=False,
+            fine_tune=False,
+            global_l2=global_l2,
+            init=w_init,
+            label_smoothing=CONF_LABEL_SMOOTHING,
+            lr="v13",
+            run_performance_study=a_name == "40ms-FFs-v8",
+            tune_decoding=a_name == "40ms-FFs-v8",
+            run_tdp_study=False,
+            ss_strategy="mp:4@4",
+            swap_mhsa_conv=swap_mhsa_conv,
+        )
+        for w_init, swap_mhsa_conv, global_l2 in itertools.product(
+            [
+                "glorot_uniform",  # RETURNN default
+                "he_normal",  # Glorot adapted for ReLU
+            ],
+            [False, True],
+            [False, True],
+        )
+        if a_name == "40ms-FFs-v8"
+    ]
+    for exp in [*configs, *additional_configs]:
         run_single(
             alignment=exp.alignment,
             alignment_name=exp.alignment_name,
@@ -116,6 +152,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             decode_all_corpora=exp.decode_all_corpora,
             fine_tune=exp.fine_tune,
             focal_loss=exp.focal_loss,
+            global_l2=exp.global_l2,
             label_smoothing=exp.label_smoothing,
             returnn_root=returnn_root,
             run_performance_study=exp.run_performance_study,
@@ -124,6 +161,8 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             lr=exp.lr,
             run_tdp_study=exp.run_tdp_study,
             ss_strategy=exp.ss_strategy,
+            swap_mhsa_conv=exp.swap_mhsa_conv,
+            weights_init=exp.init,
         )
 
 
@@ -137,6 +176,7 @@ def run_single(
     decode_all_corpora: bool,
     fine_tune: bool,
     focal_loss: float,
+    global_l2: bool,
     lr: str,
     returnn_root: tk.Path,
     run_performance_study: bool,
@@ -145,12 +185,22 @@ def run_single(
     run_tdp_study: bool,
     label_smoothing: float = CONF_LABEL_SMOOTHING,
     filter_segments: typing.Optional[typing.List[str]],
+    weights_init: str,
+    swap_mhsa_conv: bool,
     conf_model_dim: int = 512,
     num_epochs: int = 600,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
     name = f"conf-2-{ss_strategy}-a:{alignment_name}-lr:{lr}-fl:{focal_loss}-ls:{label_smoothing}-ch:{chunking}"
+    if weights_init != DEFAULT_INIT:
+        name += f"-init:{weights_init}"
+    else:
+        name += "-init:default"
+    if global_l2:
+        name += "-l2"
+    if swap_mhsa_conv:
+        name += "-swap"
     print(f"fh {name}")
 
     ss_factor = 4
@@ -226,6 +276,7 @@ def run_single(
     pooling_size = {
         "mp:2@2+mp:2@4": (2, 2),
         "mp:4@2": (4, 1),
+        "mp:4@4": (1, 4),
     }
     reduction_pattern = {
         "cs:2@2+cs:2@2": [2, 2],
@@ -233,6 +284,7 @@ def run_single(
         "cs:4@2": 4,
         "cs:4@4": 4,
         "mp:4@2": 4,
+        "mp:4@4": 4,
     }
 
     time_prolog, time_tag_name = returnn_time_tag.get_shared_time_tag()
@@ -247,6 +299,7 @@ def run_single(
         conf_args={
             "feature_stacking": False,
             "conv_args": conv_args.get(ss_strategy, None),
+            "initialization": weights_init,
             "reduction_factor": pooling_size.get(ss_strategy, None),
         },
     )
@@ -266,6 +319,7 @@ def run_single(
         label_info=s.label_info,
         label_smoothing=label_smoothing,
         use_multi_task=True,
+        weights_init=weights_init,
     )
     network = augment_net_with_diphone_outputs(
         network,
@@ -288,6 +342,19 @@ def run_single(
         time_tag_name=time_tag_name,
         upsampling=False,
     )
+
+    if global_l2:
+        for layer in network.values():
+            if layer.get("class", "").lower() in ["conv", "linear", "softmax"]:
+                layer["L2"] = L2
+
+    if swap_mhsa_conv:
+        for i in range(1, 12 + 1):
+            network[f"enc_{i:03d}_conv_laynorm"]["from"] = [f"enc_{i:03d}_ff1_out"]
+            network[f"enc_{i:03d}_conv_output"]["from"] = [f"enc_{i:03d}_ff1_out", f"enc_{i:03d}_conv_dropout"]
+
+            network[f"enc_{i:03d}_self_att_laynorm"]["from"] = [f"enc_{i:03d}_conv_output"]
+            network[f"enc_{i:03d}_self_att_out"]["from"] = [f"enc_{i:03d}_conv_output", "enc_001_self_att_drop"]
 
     base_config = {
         **s.initial_nn_args,

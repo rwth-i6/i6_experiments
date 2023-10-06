@@ -221,6 +221,7 @@ def augment_net_with_monophone_outputs(
     prefix: str = "",
     loss_scale=1.0,
     shared_delta_encoder=False,
+    weights_init: str = DEFAULT_INIT,
 ) -> Network:
     assert (
         encoder_output_layer in shared_network
@@ -246,6 +247,7 @@ def augment_net_with_monophone_outputs(
                 prefix=prefix,
                 source_layer=encoder_output_layer,
                 l2=l2,
+                init=weights_init,
             )
 
             network[f"{prefix}center-output"] = {
@@ -264,6 +266,7 @@ def augment_net_with_monophone_outputs(
                     prefix=prefix,
                     source_layer=encoder_output_layer,
                     l2=l2,
+                    init=weights_init,
                 )
                 network[f"{prefix}right-output"] = {
                     "class": "softmax",
@@ -292,6 +295,7 @@ def augment_net_with_monophone_outputs(
                 prefix=prefix,
                 source_layer=encoder_output_layer,
                 l2=l2,
+                init=weights_init,
             )
 
             network[f"{prefix}center-output"] = {
@@ -311,6 +315,7 @@ def augment_net_with_monophone_outputs(
                     prefix=prefix,
                     source_layer=encoder_output_layer,
                     l2=l2,
+                    init=weights_init,
                 )
                 tri_mlp = add_mlp(
                     network,
@@ -319,6 +324,7 @@ def augment_net_with_monophone_outputs(
                     prefix=prefix,
                     source_layer=encoder_output_layer,
                     l2=l2,
+                    init=weights_init,
                 )
 
                 network[f"{prefix}left-output"] = {
@@ -350,6 +356,7 @@ def augment_net_with_monophone_outputs(
                 prefix=prefix,
                 source_layer=encoder_output_layer,
                 l2=l2,
+                init=weights_init,
             )
             di_mlp = add_mlp(
                 network,
@@ -358,6 +365,7 @@ def augment_net_with_monophone_outputs(
                 prefix=prefix,
                 source_layer=encoder_output_layer,
                 l2=l2,
+                init=weights_init,
             )
             tri_mlp = add_mlp(
                 network,
@@ -366,6 +374,7 @@ def augment_net_with_monophone_outputs(
                 prefix=prefix,
                 source_layer=encoder_output_layer,
                 l2=l2,
+                init=weights_init,
             )
 
             network[f"{prefix}center-output"] = {
@@ -406,10 +415,24 @@ def augment_net_with_monophone_outputs(
                     l2=l2,
                     source_layer=encoder_output_layer,
                 )
-                di_mlp = add_mlp(network, "diphone", di_out, source_layer=delta_blstm_n, l2=l2)
+                di_mlp = add_mlp(
+                    network,
+                    "diphone",
+                    di_out,
+                    source_layer=delta_blstm_n,
+                    l2=l2,
+                    init=weights_init,
+                )
             else:
                 add_delta_blstm_(network, name=delta_blstm_n, l2=l2, prefix=prefix)
-                di_mlp = add_mlp(network, "diphone", di_out, l2=l2, prefix=prefix)
+                di_mlp = add_mlp(
+                    network,
+                    "diphone",
+                    di_out,
+                    l2=l2,
+                    prefix=prefix,
+                    init=weights_init,
+                )
 
             network[f"{prefix}center-output"] = {
                 "class": "softmax",
@@ -428,6 +451,7 @@ def augment_net_with_monophone_outputs(
                     prefix=prefix,
                     source_layer=encoder_output_layer,
                     l2=l2,
+                    init=weights_init,
                 )
 
                 if shared_delta_encoder:
@@ -438,6 +462,7 @@ def augment_net_with_monophone_outputs(
                         prefix=prefix,
                         source_layer=delta_blstm_n,
                         l2=l2,
+                        init=weights_init,
                     )
                 else:
                     tri_mlp = add_mlp(
@@ -447,6 +472,7 @@ def augment_net_with_monophone_outputs(
                         prefix=prefix,
                         source_layer=delta_blstm_n,
                         l2=l2,
+                        init=weights_init,
                     )
 
                 network[f"{prefix}left-output"] = {
@@ -515,6 +541,7 @@ def augment_net_with_diphone_outputs(
     st_emb_size=256,
     encoder_output_layer: str = "encoder-output",
     prefix: str = "",
+    weights_init: str = DEFAULT_INIT,
 ) -> Network:
     assert (
         encoder_output_layer in shared_network
@@ -533,7 +560,7 @@ def augment_net_with_diphone_outputs(
     else:
         loss_opts = copy.deepcopy(network[f"{prefix}center-output"]["loss_opts"])
         loss_opts["label_smoothing"] = label_smoothing
-        left_ctx_mlp = add_mlp(network, "leftContext", encoder_output_len, l2=l2, prefix=prefix)
+        left_ctx_mlp = add_mlp(network, "leftContext", encoder_output_len, l2=l2, prefix=prefix, init=weights_init)
         network[f"{prefix}left-output"] = {
             "class": "softmax",
             "from": left_ctx_mlp,
