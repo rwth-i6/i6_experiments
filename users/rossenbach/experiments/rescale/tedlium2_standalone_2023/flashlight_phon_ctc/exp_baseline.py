@@ -71,9 +71,9 @@ def conformer_baseline():
 
         returnn_search_config = get_search_config(**train_args, decoder_args=search_args, decoder="ctc.decoder.flashlight_phoneme_ctc")
 
-        search(ft_name + "/default_%i" % num_epochs, returnn_search_config, train_job.out_checkpoints[num_epochs], test_dataset_tuples, RETURNN_EXE, MINI_RETURNN_ROOT)
+        _, _, search_jobs = search(ft_name + "/default_%i" % num_epochs, returnn_search_config, train_job.out_checkpoints[num_epochs], test_dataset_tuples, RETURNN_EXE, MINI_RETURNN_ROOT)
 
-        return train_job
+        return train_job, search_jobs
 
     from ..pytorch_networks.ctc.conformer_0923.transparent_i6modelsV1_2x1D_frontend_xavierinit_cfg import \
         SpecaugConfig, TwoLayer1DFrontendConfig, ModelConfig
@@ -795,7 +795,7 @@ def conformer_baseline():
             }
             search_args["beam_size"] = 1024
             search_args["beam_threshold"] = 16
-            train_job = run_exp(prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_JJLR_nosub/lm%.1f_prior%.2f_bs1024" % (
+            train_job, _ = run_exp(prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_JJLR_nosub/lm%.1f_prior%.2f_bs1024" % (
                 lm_weight, prior_scale),
                     datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
             train_job.rqmt["gpu_mem"] = 24
@@ -893,3 +893,134 @@ def conformer_baseline():
             run_exp(prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v3_JJLR/lm%.1f_prior%.2f_bs1024_th14" % (
                 lm_weight, prior_scale),
                     datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+    # Search GRID
+    for lm_weight in [1.6, 1.8, 2.0, 2.2, 2.4]:  # 5
+        for prior_scale in [0.0, 0.3, 0.4, 0.5, 0.6, 0.7]:  # 5
+            for beam_threshold in [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]:  # 12
+                # for beam_size in [256, 1024, 4096, 8192]:  # 4
+                for beam_size in [256, 1024]:  # 4
+                    search_args = {
+                        **copy.deepcopy(default_search_args),
+                        "lm_weight": lm_weight,
+                        "prior_scale": prior_scale,
+                    }
+                    search_args["beam_size"] = beam_size
+                    search_args["beam_threshold"] = beam_threshold
+                    search_args["node"] = "intel"
+                    _, search_jobs = run_exp(prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v3_JJLR/search_grid_intel_full/lm%.1f_prior%.2f_bs%i_th%i" % (
+                        lm_weight, prior_scale, beam_size, beam_threshold),
+                            datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+                    for search_job in search_jobs:
+                        search_job.rqmt["sbatch_args"] = "-p rescale_intel -A rescale_speed"
+                        if beam_size > 1024:
+                            search_job.rqmt["mem"] = 12
+                        elif beam_size > 4096:
+                            search_job.rqmt["mem"] = 16
+
+    # with speed perturbation
+    train_args = {
+        **copy.deepcopy(train_args_adamw03_accum2),
+        "network_module": "ctc.conformer_0923.i6modelsV1_VGG4LayerActFrontendV1_v3",
+        "debug": True,
+        "net_args": {
+            "model_config_dict": asdict(model_config),
+        },
+        "use_speed_perturbation": True
+    }
+    train_args["config"]["learning_rates"] = list(np.linspace(7e-6, 7e-4, 110)) + list(np.linspace(7e-4, 7e-5, 110)) + list(np.linspace(7e-5, 1e-8, 30))
+    train_args["config"]["batch_size"] = 180 * 16000
+    for lm_weight in [1.6, 1.8, 2.0, 2.2]:
+        for prior_scale in [0.3, 0.5]:
+            search_args = {
+                **default_search_args,
+                "lm_weight": lm_weight,
+                "prior_scale": prior_scale,
+            }
+            search_args["beam_size"] = 1024
+            search_args["beam_threshold"] = 14
+            run_exp(prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v3_JJLR_speed/lm%.1f_prior%.2f_bs1024_th14" % (
+                lm_weight, prior_scale),
+                    datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+            
+            
+    frontend_config_large = VGG4LayerActFrontendV1Config_mod(
+        in_features=80,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(2, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        activation_str="ReLU",
+        out_features=512,
+        activation=None,
+    )
+    model_config_large = ModelConfig(
+        frontend_config=frontend_config_large,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=512,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=2048,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+    )
+    train_args = {
+        **copy.deepcopy(train_args_adamw03_accum2),
+        "network_module": "ctc.conformer_0923.i6modelsV1_VGG4LayerActFrontendV1_v3",
+        "debug": True,
+        "net_args": {
+            "model_config_dict": asdict(model_config_large),
+        },
+    }
+    train_args["config"]["learning_rates"] = list(np.linspace(7e-6, 7e-4, 110)) + list(np.linspace(7e-4, 7e-5, 110)) + list(np.linspace(7e-5, 1e-8, 30))
+    train_args["config"]["batch_size"] = 100 * 16000
+    for lm_weight in [1.6, 1.8, 2.0, 2.2]:
+        for prior_scale in [0.3, 0.5]:
+            search_args = {
+                **default_search_args,
+                "lm_weight": lm_weight,
+                "prior_scale": prior_scale,
+            }
+            search_args["beam_size"] = 1024
+            search_args["beam_threshold"] = 14
+            run_exp(prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v3_JJLR_large_accum2/lm%.1f_prior%.2f_bs1024_th14" % (
+                lm_weight, prior_scale),
+                    datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+
+    train_args = {
+        **copy.deepcopy(train_args_adamw03_accum2),
+        "network_module": "ctc.conformer_0923.i6modelsV1_VGG4LayerActFrontendV1_v3",
+        "debug": True,
+        "net_args": {
+            "model_config_dict": asdict(model_config_large),
+        },
+    }
+    train_args["config"]["learning_rates"] = list(np.linspace(7e-6, 7e-4, 110)) + list(
+        np.linspace(7e-4, 7e-5, 110)) + list(np.linspace(7e-5, 1e-8, 30))
+    train_args["config"]["batch_size"] = 100 * 16000
+    train_args["config"]["accum_grad_multiple_step"] = 3
+    for lm_weight in [1.6, 1.8, 2.0, 2.2]:
+        for prior_scale in [0.3, 0.5]:
+            search_args = {
+                **default_search_args,
+                "lm_weight": lm_weight,
+                "prior_scale": prior_scale,
+            }
+            search_args["beam_size"] = 1024
+            search_args["beam_threshold"] = 14
+            run_exp(
+                prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v3_JJLR_large_accum3/lm%.1f_prior%.2f_bs1024_th14" % (
+                    lm_weight, prior_scale),
+                datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)

@@ -99,7 +99,7 @@ def search_single(
     tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
     tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
 
-    return sclite_job.out_wer
+    return sclite_job.out_wer, search_job
 
 
 @tk.block()
@@ -116,8 +116,10 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
     """
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
     wers = {}
+    search_jobs = []
     for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
-        wers[key] = search_single(prefix_name + "/%s" % key, returnn_config, checkpoint, test_dataset, test_dataset_reference, returnn_exe, returnn_root)
+        wers[key], search_job = search_single(prefix_name + "/%s" % key, returnn_config, checkpoint, test_dataset, test_dataset_reference, returnn_exe, returnn_root)
+        search_jobs.append(search_job)
 
     from i6_core.report import GenerateReportStringJob, MailJob
     format_string_report = ",".join(["{%s_val}" % (prefix_name + key) for key in test_dataset_tuples.keys()])
@@ -132,7 +134,7 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
     report = GenerateReportStringJob(report_values=values, report_template=format_string, compress=False).out_report
     #mail = MailJob(result=report, subject=prefix_name, send_contents=True).out_status
     #tk.register_output(os.path.join(prefix_name, "mail_status"), mail)
-    return format_string_report, values_report
+    return format_string_report, values_report, search_jobs
 
 
 @tk.block()

@@ -20,8 +20,7 @@ from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.base impo
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import ReturnnAudioRawOptions, AudioRawDatastream
-
-from returnn_common.datasets import Dataset, OggZipDataset, MetaDataset
+from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset, MetaDataset
 
 from .default_tools import MINI_RETURNN_ROOT, RETURNN_EXE
 

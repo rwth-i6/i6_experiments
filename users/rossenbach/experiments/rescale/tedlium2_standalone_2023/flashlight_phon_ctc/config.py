@@ -3,10 +3,14 @@ import numpy as np
 from sisyphus import tk
 from typing import Any, Dict
 
-from i6_core.returnn import ReturnnConfig
+from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 
+from i6_experiments.common.setups.returnn_pytorch.serialization import (
+    Collection as TorchCollection,
+)
+from i6_experiments.common.setups.serialization import Import
 from ..data import TrainingDatasets
-from .serializer import get_pytorch_serializer_v3
+from .serializer import get_pytorch_serializer_v3, PACKAGE
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datasets import GenericDataset
 
@@ -18,6 +22,7 @@ def get_training_config(
         config: Dict[str, Any],
         debug: bool = False,
         use_custom_engine=False,
+        use_speed_perturbation=False,
 ):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_aligner
@@ -37,7 +42,7 @@ def get_training_config(
     base_config = {
         "max_seqs": 60,
         #############
-        "train": training_datasets.train.as_returnn_opts(),
+        "train": copy.deepcopy(training_datasets.train.as_returnn_opts()),
         "dev": training_datasets.cv.as_returnn_opts(),
         "eval_datasets": {
             "devtrain": training_datasets.devtrain.as_returnn_opts()
@@ -52,8 +57,19 @@ def get_training_config(
         debug=debug,
         use_custom_engine=use_custom_engine
     )
+    python_prolog = None
+    if use_speed_perturbation:
+        prolog_serializer = TorchCollection(
+            serializer_objects=[Import(
+                code_object_path=PACKAGE + ".dataset_code.speed_perturbation.legacy_speed_perturbation",
+                unhashed_package_root=PACKAGE
+            )]
+        )
+        python_prolog = [prolog_serializer]
+        config["train"]["datasets"]["zip_dataset"]["audio"]["pre_process"] = CodeWrapper("legacy_speed_perturbation")
+
     returnn_config = ReturnnConfig(
-        config=config, post_config=post_config, python_epilog=[serializer]
+        config=config, post_config=post_config, python_prolog=python_prolog, python_epilog=[serializer]
     )
     return returnn_config
 
@@ -111,6 +127,7 @@ def get_search_config(
         config: Dict[str, Any],
         debug: bool = False,
         use_custom_engine=False,
+        **kwargs,
 ):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_aligner

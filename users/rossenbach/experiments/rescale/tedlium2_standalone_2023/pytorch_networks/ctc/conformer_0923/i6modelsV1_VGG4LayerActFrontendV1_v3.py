@@ -145,6 +145,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         target_lengths=labels_len,
         blank=model.cfg.label_target_size,
         reduction="sum",
+        zero_infinity=True,
     )
     num_phonemes = torch.sum(labels_len)
     run_ctx.mark_as_loss(name="ctc", loss=ctc_loss, inv_norm_factor=num_phonemes)
