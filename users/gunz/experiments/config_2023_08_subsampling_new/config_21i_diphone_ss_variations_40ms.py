@@ -415,8 +415,6 @@ def run_single(
         "dev": {"reduce_target_factor": ss_factor},
         "train": {"reduce_target_factor": ss_factor},
     }
-    if smooth_oclr:
-        base_config["dynamic_learning_rate"] = dynamic_learning_rate
     keep_epochs = [100, 300, 400, 500, 550, num_epochs]
     base_post_config = {
         "cleanup_old_models": {
@@ -424,6 +422,16 @@ def run_single(
             "keep": keep_epochs,
         },
     }
+    epilog = {
+        "functions": [
+            sa_mask,
+            sa_random_mask,
+            sa_summary,
+            sa_transform,
+        ],
+    }
+    if smooth_oclr:
+        epilog["lr"] = dynamic_learning_rate
     returnn_config = returnn.ReturnnConfig(
         config=base_config,
         post_config=base_post_config,
@@ -432,14 +440,7 @@ def run_single(
             "numpy": "import numpy as np",
             "time": time_prolog,
         },
-        python_epilog={
-            "functions": [
-                sa_mask,
-                sa_random_mask,
-                sa_summary,
-                sa_transform,
-            ],
-        },
+        python_epilog=epilog,
     )
 
     s.set_experiment_dict("fh", alignment_name, "di", postfix_name=name)
