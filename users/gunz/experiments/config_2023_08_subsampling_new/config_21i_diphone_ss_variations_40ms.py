@@ -121,7 +121,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             chunking=CONF_CHUNKING_10MS,
             dc_detection=False,
             decode_all_corpora=False,
-            fine_tune=False,
+            fine_tune=True,
             global_l2=global_l2,
             init=w_init,
             label_smoothing=CONF_LABEL_SMOOTHING,
@@ -488,18 +488,8 @@ def run_single(
         keep_epochs = [23, 100, 225, 400, 450]
         orig_name = name
 
-        bw_scales = [
-            baum_welch.BwScales(label_posterior_scale=p, label_prior_scale=None, transition_scale=t)
-            for p, t in itertools.product([0.3, 1.0], [0.0, 0.3])
-        ]
-        configs = [(5e-5, scales) for scales in bw_scales]
-        configs = [
-            *configs,
-            *(
-                (lr, baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3))
-                for lr in [1e-5, 2e-5, 3e-5, 8e-5]
-            ),
-        ]
+        bw_scales = [baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3)]
+        configs = [(8e-5, scales) for scales in bw_scales]
 
         for peak_lr, bw_scale in configs:
             name = f"{orig_name}-fs:{peak_lr}-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
