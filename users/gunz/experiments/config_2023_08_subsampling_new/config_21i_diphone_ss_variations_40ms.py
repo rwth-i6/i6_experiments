@@ -80,6 +80,7 @@ class Experiment:
     tune_decoding: bool
     run_tdp_study: bool
     ss_strategy: str
+    smooth_oclr: bool
     swap_mhsa_conv: bool
 
     filter_segments: typing.Optional[typing.List[str]] = None
@@ -92,7 +93,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    configs = [
+    frontend_configs = [
         Experiment(
             alignment=alignment,
             alignment_name=a_name,
@@ -108,12 +109,13 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             run_performance_study=a_name == "40ms-FF-v8",
             tune_decoding=a_name == "40ms-FF-v8",
             run_tdp_study=False,
+            smooth_oclr=False,
             ss_strategy=ss,
             swap_mhsa_conv=False,
         )
         for ss in ["mp:2@2+mp:2@4", "mp:4@2", "cs:2@2+cs:2@2", "cs:4@2", "cs:4@4"]
     ]
-    additional_configs = [
+    encoder_configs = [
         Experiment(
             alignment=alignment,
             alignment_name=a_name,
@@ -130,6 +132,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             tune_decoding=a_name == "40ms-FFs-v8",
             run_tdp_study=False,
             ss_strategy="mp:4@4",
+            smooth_oclr=False,
             swap_mhsa_conv=swap_mhsa_conv,
         )
         for w_init, swap_mhsa_conv, global_l2 in itertools.product(
@@ -142,7 +145,32 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
         )
         if a_name == "40ms-FFs-v8"
     ]
-    for exp in [*configs, *additional_configs]:
+    smooth_lr_configs = (
+        [
+            Experiment(
+                alignment=alignment,
+                alignment_name=a_name,
+                batch_size=12500,
+                chunking=CONF_CHUNKING_10MS,
+                dc_detection=False,
+                decode_all_corpora=False,
+                fine_tune=True,
+                global_l2=False,
+                init=DEFAULT_INIT,
+                label_smoothing=CONF_LABEL_SMOOTHING,
+                lr="v13",
+                run_performance_study=a_name == "40ms-FFs-v8",
+                tune_decoding=a_name == "40ms-FFs-v8",
+                run_tdp_study=False,
+                ss_strategy="mp:4@4",
+                smooth_oclr=True,
+                swap_mhsa_conv=False,
+            )
+        ]
+        if a_name == "40ms-FFs-v8"
+        else []
+    )
+    for exp in [*frontend_configs, *encoder_configs, *smooth_lr_configs]:
         run_single(
             alignment=exp.alignment,
             alignment_name=exp.alignment_name,
@@ -160,6 +188,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             filter_segments=exp.filter_segments,
             lr=exp.lr,
             run_tdp_study=exp.run_tdp_study,
+            smooth_oclr=exp.smooth_oclr,
             ss_strategy=exp.ss_strategy,
             swap_mhsa_conv=exp.swap_mhsa_conv,
             weights_init=exp.init,
@@ -187,6 +216,7 @@ def run_single(
     filter_segments: typing.Optional[typing.List[str]],
     weights_init: str,
     swap_mhsa_conv: bool,
+    smooth_oclr: bool,
     conf_model_dim: int = 512,
     num_epochs: int = 600,
 ) -> fh_system.FactoredHybridSystem:
@@ -383,6 +413,8 @@ def run_single(
         "dev": {"reduce_target_factor": ss_factor},
         "train": {"reduce_target_factor": ss_factor},
     }
+    if smooth_oclr:
+        base_config["dynamic_learning_rate"] = dynamic_learning_rate
     keep_epochs = [100, 300, 400, 500, 550, num_epochs]
     base_post_config = {
         "cleanup_old_models": {
@@ -777,3 +809,33 @@ def run_single(
                 )
 
     return s
+
+
+# one cycle LR: triangular linear w.r.t. iterations(steps)
+def dynamic_learning_rate(*, network, global_train_step, learning_rate, **kwargs):
+    # -- need to be adjusted w.r.t. training -- #
+    initialLR = 3.69e-05  # v13 initial LR
+    peakLR = 0.001  # v13 peak LR
+    finalLR = 1e-6
+    totalEpoch = 600
+    cycleEpoch = int(totalEpoch * 0.45)
+    nStep = 1488  # steps/epoch depending on batch_size, manually tuned by averaging from previous training
+
+    # -- derived -- #
+    steps = cycleEpoch * nStep
+    stepSize = (peakLR - initialLR) / steps
+    steps2 = (totalEpoch - 2 * cycleEpoch) * nStep
+    stepSize2 = (initialLR - finalLR) / steps2
+
+    import tensorflow as tf
+
+    n = tf.cast(global_train_step, tf.float32)
+    return tf.where(
+        global_train_step <= steps,
+        initialLR + stepSize * n,
+        tf.where(
+            global_train_step <= 2 * steps,
+            peakLR - stepSize * (n - steps),
+            tf.maximum(initialLR - stepSize2 * (n - 2 * steps), finalLR),
+        ),
+    )
