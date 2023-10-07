@@ -499,8 +499,8 @@ def run_single(
             s.lexicon_args["norm_pronunciation"] = False
 
             s._update_am_setting_for_all_crps(
-                train_tdp_type="heuristic",
-                eval_tdp_type="heuristic",
+                train_tdp_type="heuristic-40ms",
+                eval_tdp_type="heuristic-40ms",
                 add_base_allophones=False,
             )
 
