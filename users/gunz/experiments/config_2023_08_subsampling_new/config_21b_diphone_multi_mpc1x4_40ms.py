@@ -86,38 +86,38 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str, init_from_system
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    configs = [
-        Experiment(
-            alignment=alignment,
-            alignment_name=a_name,
-            batch_size=12500,
-            dc_detection=False,
-            decode_all_corpora=False,
-            fine_tune=a_name in ["40ms-FF-v8", "40ms-FFs-v8"],
-            init_from_system=init_from_system,
-            lr="v13",
-            run_performance_study=a_name == "40ms-FF-v8",
-            tune_decoding=a_name == "40ms-FF-v8",
-            run_tdp_study=False,
-        )
-    ]
-    for exp in configs:
-        run_single(
-            alignment=exp.alignment,
-            alignment_name=exp.alignment_name,
-            batch_size=exp.batch_size,
-            dc_detection=exp.dc_detection,
-            decode_all_corpora=exp.decode_all_corpora,
-            fine_tune=exp.fine_tune,
-            focal_loss=exp.focal_loss,
-            returnn_root=returnn_root,
-            run_performance_study=exp.run_performance_study,
-            tune_decoding=exp.tune_decoding,
-            filter_segments=exp.filter_segments,
-            init_from_system=exp.init_from_system,
-            lr=exp.lr,
-            run_tdp_study=exp.run_tdp_study,
-        )
+    exp = Experiment(
+        alignment=alignment,
+        alignment_name=a_name,
+        batch_size=12500,
+        dc_detection=False,
+        decode_all_corpora=False,
+        fine_tune=a_name in ["40ms-FF-v8", "40ms-FFs-v8"],
+        init_from_system=init_from_system,
+        lr="v13",
+        run_performance_study=a_name == "40ms-FF-v8",
+        tune_decoding=a_name == "40ms-FF-v8",
+        run_tdp_study=False,
+    )
+
+    s = run_single(
+        alignment=exp.alignment,
+        alignment_name=exp.alignment_name,
+        batch_size=exp.batch_size,
+        dc_detection=exp.dc_detection,
+        decode_all_corpora=exp.decode_all_corpora,
+        fine_tune=exp.fine_tune,
+        focal_loss=exp.focal_loss,
+        returnn_root=returnn_root,
+        run_performance_study=exp.run_performance_study,
+        tune_decoding=exp.tune_decoding,
+        filter_segments=exp.filter_segments,
+        init_from_system=exp.init_from_system,
+        lr=exp.lr,
+        run_tdp_study=exp.run_tdp_study,
+    )
+
+    return exp, s
 
 
 def run_single(

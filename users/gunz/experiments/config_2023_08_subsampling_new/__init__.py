@@ -480,7 +480,7 @@ def the_plan():
         alignment=phmms_40ms_ffnn_a,
         a_name="40ms-FFs-v8",
     )
-    di_sys = config_21b_diphone_multi_mpc1x4_40ms.run(
+    _, di_sys = config_21b_diphone_multi_mpc1x4_40ms.run(
         returnn_root=returnn_root,
         alignment=phmms_40ms_ffnn_a,
         a_name="40ms-FFs-v8",
