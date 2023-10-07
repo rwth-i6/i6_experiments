@@ -302,12 +302,13 @@ def run_single(
         },
     )
     prev_key = "fh-fs" if "fh-fs" in init_from_system.experiments else "fh"
+    ckpts = init_from_system.experiments[prev_key]["train_job"].out_checkpoints
     returnn_config = multistage.transform_checkpoint(
         name=name,
         init_new=multistage.Init.glorot_uniform,
         input_returnn_config=init_from_system.experiments[prev_key]["returnn_config"],
         input_label_info=init_from_system.label_info,
-        input_model_path=init_from_system.experiments[prev_key]["train_job"].out_checkpoints[600],
+        input_model_path=ckpts[max(ckpts)],
         output_returnn_config=returnn_config,
         output_label_info=s.label_info,
         returnn_root=returnn_root,
