@@ -461,7 +461,7 @@ def run_single(
                         "existing-model": {
                             "init_for_train": True,
                             "ignore_missing": True,
-                            "filename": viterbi_train_j.out_checkpoints[600],
+                            "filename": viterbi_train_j.out_checkpoints[max(viterbi_train_j.out_checkpoints)],
                         }
                     },
                     "extern_data": {"data": {"dim": 50}},
