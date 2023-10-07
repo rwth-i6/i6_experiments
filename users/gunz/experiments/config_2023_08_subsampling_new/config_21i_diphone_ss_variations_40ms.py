@@ -231,6 +231,8 @@ def run_single(
         name += "-l2"
     if swap_mhsa_conv:
         name += "-swap"
+    if smooth_oclr:
+        name += "-smooth"
     print(f"fh {name}")
 
     ss_factor = 4
