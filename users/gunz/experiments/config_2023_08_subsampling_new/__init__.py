@@ -206,14 +206,12 @@ def viterbi_40ms():
         config_20_monophone_mpc1x4_40ms,
         config_20b_monophone_zhou_a_mpc1x4_40ms,
         config_21_diphone_mpc1x4_40ms,
-        config_21b_diphone_multi_mpc1x4_40ms,
         config_21c_diphone_zhou_40ms,
         config_21d_diphone_fs_mpc1x4_40ms,
         config_21e_diphone_pp_mpc1x4_40ms,
         config_21f_diphone_zhou_compare_mpc1x4_40ms,
         config_21g_diphone_zhou_a_mpc1x4_40ms,
         config_22_triphone_mpc1x4_40ms,
-        config_22b_triphone_multi_mpc1x4_40ms,
         config_22c_triphone_zhou_a_mpc1x4_40ms,
     )
 
@@ -225,14 +223,8 @@ def viterbi_40ms():
         (lin_a, "40ms-FF-v8", True),
         # (tdnn_a, "40ms-TD-v8", False),
     ]:
-        exp, sys = config_20_monophone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=a, a_name=a_name)
+        config_20_monophone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=a, a_name=a_name)
         config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=a, a_name=a_name)
-        config_21b_diphone_multi_mpc1x4_40ms.run(
-            returnn_root=returnn_root,
-            alignment=a,
-            a_name=a_name,
-            init_from_system=sys,
-        )
         config_21c_diphone_zhou_40ms.run(returnn_root=returnn_root, alignment=a, a_name=a_name)
         config_21d_diphone_fs_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=a, a_name=a_name)
         config_21f_diphone_zhou_compare_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=a, a_name=a_name)
@@ -241,12 +233,6 @@ def viterbi_40ms():
             alignment=a,
             a_name=a_name,
             run_additional_lrs=run_tri_lrs,
-        )
-        config_22b_triphone_multi_mpc1x4_40ms.run(
-            returnn_root=returnn_root,
-            alignment=a,
-            a_name=a_name,
-            init_from_system=sys,
         )
 
     a = tk.Path(config.ALIGN_BLSTM_40MS)
@@ -307,9 +293,12 @@ def the_plan():
         config_03_monophone_blstm_fullsum,
         config_11_diphone_mpc1x3_30ms,
         config_11b_diphone_fs1x3_30ms,
+        config_20_monophone_mpc1x4_40ms,
         config_21_diphone_mpc1x4_40ms,
+        config_21b_diphone_multi_mpc1x4_40ms,
         config_21h_diphone_fs1x4_40ms,
         config_21i_diphone_ss_variations_40ms,
+        config_22b_triphone_multi_mpc1x4_40ms,
     )
 
     returnn_root = _clone_returnn_safe()
@@ -484,6 +473,24 @@ def the_plan():
         returnn_root=returnn_root,
         alignment=phmms_40ms_ffnn_a,
         a_name="40ms-FFs-v8",
+    )
+
+    _, mono_sys = config_20_monophone_mpc1x4_40ms.run(
+        returnn_root=returnn_root,
+        alignment=phmms_40ms_ffnn_a,
+        a_name="40ms-FFs-v8",
+    )
+    di_sys = config_21b_diphone_multi_mpc1x4_40ms.run(
+        returnn_root=returnn_root,
+        alignment=phmms_40ms_ffnn_a,
+        a_name="40ms-FFs-v8",
+        init_from_system=mono_sys,
+    )
+    config_22b_triphone_multi_mpc1x4_40ms.run(
+        returnn_root=returnn_root,
+        alignment=phmms_40ms_ffnn_a,
+        a_name="40ms-FFs-v8",
+        init_from_system=di_sys,
     )
 
     # P-HMM FF-NN

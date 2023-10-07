@@ -247,10 +247,22 @@ def run_single(
         upsampling=False,
     )
 
+    lrates = oclr.get_learning_rates(
+        lrate=8e-5,
+        increase=0,
+        constLR=math.floor(num_epochs * 0.45),
+        decay=math.floor(num_epochs * 0.45),
+        decMinRatio=0.1,
+        decMaxRatio=1,
+    )
     base_config = {
         **s.initial_nn_args,
-        **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
+        "learning_rates": list(
+            np.concatenate(
+                [lrates, np.linspace(min(lrates), 1e-6, num_epochs - len(lrates))],
+            )
+        ),
         "batch_size": batch_size,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
@@ -295,12 +307,13 @@ def run_single(
             ],
         },
     )
+    prev_key = "fh-fs" if "fh-fs" in init_from_system.experiments else "fh"
     returnn_config = multistage.transform_checkpoint(
         name=name,
         init_new=multistage.Init.glorot_uniform,
-        input_returnn_config=init_from_system.experiments["fh"]["returnn_config"],
+        input_returnn_config=init_from_system.experiments[prev_key]["returnn_config"],
         input_label_info=init_from_system.label_info,
-        input_model_path=init_from_system.experiments["fh"]["train_job"].out_checkpoints[600],
+        input_model_path=init_from_system.experiments[prev_key]["train_job"].out_checkpoints[600],
         output_returnn_config=returnn_config,
         output_label_info=s.label_info,
         returnn_root=returnn_root,
@@ -323,107 +336,83 @@ def run_single(
         nn_train_args=train_args,
     )
 
-    for ep, crp_k in itertools.product([400, 500, 550, 600], ["dev-other"]):
-        s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+    clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+    nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+        returnn_config=clean_returnn_config,
+        label_info=s.label_info,
+        out_joint_score_layer="output",
+        log_softmax=True,
+    )
+    prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+        returnn_config=clean_returnn_config,
+        label_info=s.label_info,
+        out_joint_score_layer="output",
+        log_softmax=False,
+    )
 
-        s.set_diphone_priors_returnn_rasr(
+    for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
+        s.set_mono_priors_returnn_rasr(
             key="fh",
-            epoch=ep,
+            epoch=min(ep, keep_epochs[-2]),
             train_corpus_key=s.crp_names["train"],
             dev_corpus_key=s.crp_names["cvtrain"],
             smoothen=True,
-            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+            returnn_config=prior_returnn_config,
+            output_layer_name="output",
         )
 
-        recognizer, recog_args = s.get_recognizer_and_args(
-            key="fh",
-            context_type=PhoneticContext.diphone,
-            crp_corpus=crp_k,
-            epoch=ep,
-            gpu=False,
-            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-            set_batch_major_for_feature_scorer=True,
-            lm_gc_simple_hash=True,
-        )
-        recog_args = recog_args.with_lm_scale(round(recog_args.lm_scale / float(ss_factor), 2)).with_tdp_scale(0.1)
+        diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+        tying_cfg = rasr.RasrConfig()
+        tying_cfg.type = "diphone-dense"
 
-        # Top 3 from monophone TDP study
-        good_values = [
-            ((3, 0, "infinity", 0), (3, 10, "infinity", 10)),  # 8,9%
-            ((3, 0, "infinity", 3), (3, 10, "infinity", 10)),  # 8,9%
-            ((3, 0, "infinity", 0), (10, 10, "infinity", 10)),  # 9,0%
+        configs = [
+            dataclasses.replace(
+                s.get_cart_params("fh"), beam=18, beam_limit=100000, lm_scale=2, tdp_scale=tdpS
+            ).with_prior_scale(pC)
+            for pC, tdpS in itertools.product(
+                [0.4, 0.6],
+                [0.4, 0.6],
+            )
         ]
-
-        for cfg in [
-            recog_args.with_prior_scale(0.4, 0.4),
-            recog_args.with_prior_scale(0.4, 0.2),
-            recog_args.with_prior_scale(0.4, 0.6)
-            .with_tdp_scale(0.4)
-            .with_tdp_speech((3, 0, "infinity", 0))
-            .with_tdp_silence((3, 10, "infinity", 10)),
-            *(
-                recog_args.with_prior_scale(0.4, 0.4)
-                .with_tdp_scale(0.4)
-                .with_tdp_speech(tdp_sp)
-                .with_tdp_silence(tdp_sil)
-                for tdp_sp, tdp_sil in good_values
-            ),
-        ]:
-            recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=cfg,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=True,
-                calculate_stats=True,
-                rtf_cpu=20,
+        for cfg in configs:
+            s.recognize_cart(
+                key="fh",
+                epoch=ep,
+                calculate_statistics=True,
+                cart_tree_or_tying_config=tying_cfg,
+                cpu_rqmt=2,
+                opt_lm_am_scale=ep == max(keep_epochs),
+                crp_corpus=crp_k,
+                lm_gc_simple_hash=True,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                mem_rqmt=4,
+                n_cart_out=diphone_li.get_n_of_dense_classes(),
+                params=cfg,
+                rtf=4,
             )
 
-        if tune_decoding and ep == keep_epochs[-1]:
-            best_config = recognizer.recognize_optimize_scales(
-                label_info=s.label_info,
-                search_parameters=recog_args,
-                num_encoder_output=conf_model_dim,
-                tdp_speech=[(3, 0, "infinity", 0)],
-                tdp_sil=[(3, 10, "infinity", 10)],
-                prior_scales=list(
-                    itertools.product(
-                        np.linspace(0.1, 0.7, 7),
-                        np.linspace(0.0, 0.8, 9),
-                    )
-                ),
-                tdp_scales=[0.4],
-            )
-            recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=best_config,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=True,
-                calculate_stats=True,
-                name_override="best/4gram",
-                rtf_cpu=32,
-            )
+    # ###########
+    # FINE TUNING
+    # ###########
 
     if fine_tune:
-        # ###########
-        # FINE TUNING
-        # ###########
-
         fine_tune_epochs = 450
-        keep_epochs = [23, 225, 400, 450]
+        keep_epochs = [23, 100, 225, 400, 450]
         orig_name = name
 
         bw_scales = [baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3)]
+        configs = [(8e-5, scales) for scales in bw_scales]
 
-        for bw_scale in bw_scales:
-            name = f"{orig_name}-fs-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
+        for peak_lr, bw_scale in configs:
+            name = f"{orig_name}-fs:{peak_lr}-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
             s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=name)
 
             s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
             s.lexicon_args["norm_pronunciation"] = False
 
             s._update_am_setting_for_all_crps(
-                train_tdp_type="heuristic",
-                eval_tdp_type="heuristic",
+                train_tdp_type="heuristic-40ms",
+                eval_tdp_type="heuristic-40ms",
                 add_base_allophones=False,
             )
 
@@ -454,7 +443,7 @@ def run_single(
                 log_linear_scales=bw_scale,
             )
             lrates = oclr.get_learning_rates(
-                lrate=5e-5,
+                lrate=peak_lr,
                 increase=0,
                 constLR=math.floor(fine_tune_epochs * 0.45),
                 decay=math.floor(fine_tune_epochs * 0.45),
@@ -521,12 +510,10 @@ def run_single(
                 decoding_cfgs = [
                     dataclasses.replace(
                         base_params,
-                        lm_scale=base_params.lm_scale / ss_factor,
-                        tdp_speech=(10, 0, "infinity", 0),
-                        tdp_silence=(10, 10, "infinity", 10),
+                        lm_scale=round(base_params.lm_scale / ss_factor, 2),
                         tdp_scale=sc,
-                    ).with_prior_scale(pC)
-                    for sc, pC in [(0.4, 0.3), (0.2, 0.4), (0.4, 0.4), (0.2, 0.5)]
+                    ).with_prior_scale(0.6)
+                    for sc in [0.4, 0.6]
                 ]
                 for cfg in decoding_cfgs:
                     s.recognize_cart(
@@ -540,115 +527,10 @@ def run_single(
                         calculate_statistics=True,
                         opt_lm_am_scale=True,
                         prior_epoch=min(ep, keep_epochs[-2]),
-                        rtf=12,
+                        rtf=8,
+                        cpu_rqmt=2,
+                        mem_rqmt=4,
                     )
-
-    if run_performance_study:
-        assert tune_decoding
-
-        ep = 600
-        s.set_diphone_priors_returnn_rasr(
-            key="fh",
-            epoch=ep,
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            smoothen=True,
-            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-        )
-        recognizer, recog_args = s.get_recognizer_and_args(
-            key="fh",
-            context_type=PhoneticContext.diphone,
-            crp_corpus="dev-other",
-            epoch=ep,
-            gpu=False,
-            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-            set_batch_major_for_feature_scorer=True,
-            lm_gc_simple_hash=True,
-        )
-        recog_args = dataclasses.replace(best_config, altas=2, beam=20, lm_scale=best_config.lm_scale + 0.01)
-        jobs = recognizer.recognize_count_lm(
-            label_info=s.label_info,
-            search_parameters=recog_args,
-            num_encoder_output=conf_model_dim,
-            rerun_after_opt_lm=True,
-            calculate_stats=True,
-            pre_path="decoding-perf-eval",
-            name_override="best/4gram",
-            cpu_rqmt=2,
-            mem_rqmt=4,
-        )
-        jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
-
-    if run_tdp_study:
-        s.feature_flows["dev-other"].flags["cache_mode"] = "bundle"
-        li = dataclasses.replace(s.label_info, n_states_per_phone=1, state_tying=RasrStateTying.diphone)
-
-        base_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
-        prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
-            returnn_config=base_config, label_info=li, out_joint_score_layer="output", log_softmax=False
-        )
-        s.set_mono_priors_returnn_rasr(
-            "fh",
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            epoch=max(keep_epochs),
-            returnn_config=prior_returnn_config,
-            output_layer_name="output",
-            smoothen=True,
-        )
-
-        nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
-            returnn_config=base_config, label_info=li, out_joint_score_layer="output", log_softmax=True
-        )
-        s.set_graph_for_experiment("fh", override_cfg=nn_precomputed_returnn_config)
-
-        tying_cfg = rasr.RasrConfig()
-        tying_cfg.type = "diphone-dense"
-
-        search_cfg = SearchParameters.default_diphone(priors=s.experiments["fh"]["priors"]).with_prior_scale(0.5)
-        tdps = itertools.product(
-            [0, 3, 10],
-            [0],
-            [0, 3, 10],
-            [0, 3, 10],
-            [3],
-            [1, 3, 10],
-            (0.1, *((round(v, 1) for v in np.linspace(0.2, 0.8, 4)))),
-        )
-        for cfg in tdps:
-            sp_loop, sp_fwd, sp_exit, sil_loop, sil_fwd, sil_exit, tdp_scale = cfg
-            sp_tdp = (sp_loop, sp_fwd, "infinity", sp_exit)
-            sil_tdp = (sil_loop, sil_fwd, "infinity", sil_exit)
-            params = dataclasses.replace(
-                search_cfg,
-                altas=2,
-                lm_scale=1.95,
-                tdp_speech=sp_tdp,
-                tdp_silence=sil_tdp,
-                tdp_non_word=sil_tdp,
-                tdp_scale=tdp_scale,
-            )
-
-            def set_concurrency(crp):
-                crp.concurrent = 1
-
-            s.recognize_cart(
-                key="fh",
-                crp_corpus="dev-other",
-                epoch=max(keep_epochs),
-                params=params,
-                cart_tree_or_tying_config=tying_cfg,
-                log_softmax_returnn_config=nn_precomputed_returnn_config,
-                n_cart_out=li.get_n_of_dense_classes(),
-                crp_update=set_concurrency,
-                calculate_statistics=False,
-                lm_gc_simple_hash=True,
-                opt_lm_am_scale=False,
-                prior_epoch=max(keep_epochs),
-                mem_rqmt=2,
-                cpu_rqmt=2,
-                rtf=4,
-            )
 
     if decode_all_corpora:
         assert False, "this is broken r/n"

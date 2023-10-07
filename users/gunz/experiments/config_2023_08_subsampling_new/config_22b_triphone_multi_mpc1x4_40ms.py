@@ -2,6 +2,7 @@ __all__ = ["run", "run_single"]
 
 import copy
 import dataclasses
+import math
 import typing
 from dataclasses import dataclass
 import itertools
@@ -240,10 +241,22 @@ def run_single(
         upsampling=False,
     )
 
+    lrates = oclr.get_learning_rates(
+        lrate=8e-5,
+        increase=0,
+        constLR=math.floor(num_epochs * 0.45),
+        decay=math.floor(num_epochs * 0.45),
+        decMinRatio=0.1,
+        decMaxRatio=1,
+    )
     base_config = {
         **s.initial_nn_args,
-        **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
+        "learning_rates": list(
+            np.concatenate(
+                [lrates, np.linspace(min(lrates), 1e-6, num_epochs - len(lrates))],
+            )
+        ),
         "batch_size": batch_size,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
@@ -288,12 +301,13 @@ def run_single(
             ],
         },
     )
+    prev_key = "fh-fs" if "fh-fs" in init_from_system.experiments else "fh"
     returnn_config = multistage.transform_checkpoint(
         name=name,
         init_new=multistage.Init.glorot_uniform,
-        input_returnn_config=init_from_system.experiments["fh"]["returnn_config"],
+        input_returnn_config=init_from_system.experiments[prev_key]["returnn_config"],
         input_label_info=init_from_system.label_info,
-        input_model_path=init_from_system.experiments["fh"]["train_job"].out_checkpoints[600],
+        input_model_path=init_from_system.experiments[prev_key]["train_job"].out_checkpoints[600],
         output_returnn_config=returnn_config,
         output_label_info=s.label_info,
         returnn_root=returnn_root,
@@ -320,22 +334,15 @@ def run_single(
     for ep, crp_k in itertools.product([300, 550, max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
-        if own_priors:
-            s.set_triphone_priors_returnn_rasr(
-                key="fh",
-                epoch=550,
-                train_corpus_key=s.crp_names["train"],
-                dev_corpus_key=s.crp_names["cvtrain"],
-                smoothen=True,
-                returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-                data_share=0.1,
-            )
-        else:
-            s.experiments["fh"]["priors"] = PriorInfo.from_triphone_job(
-                tk.Path(
-                    "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/priors/conf-tri-40ms-scratch-ff-e550"
-                )
-            )
+        s.set_triphone_priors_returnn_rasr(
+            key="fh",
+            epoch=min(ep, 550),
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+            data_share=0.1,
+        )
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
