@@ -133,7 +133,7 @@ def run_single(
     tune_decoding: bool,
     filter_segments: typing.Optional[typing.List[str]],
     conf_model_dim: int = 512,
-    num_epochs: int = 600,
+    num_epochs: int = 450,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
@@ -277,7 +277,7 @@ def run_single(
         "dev": {"reduce_target_factor": ss_factor},
         "train": {"reduce_target_factor": ss_factor},
     }
-    keep_epochs = [300, 550, num_epochs]
+    keep_epochs = [100, 225, 375, num_epochs]
     base_post_config = {
         "cleanup_old_models": {
             "keep_best_n": 3,
@@ -332,12 +332,12 @@ def run_single(
     )
 
     best_config = None
-    for ep, crp_k in itertools.product([300, 550, max(keep_epochs)], ["dev-other"]):
+    for ep, crp_k in itertools.product([225, num_epochs], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
         s.set_triphone_priors_returnn_rasr(
             key="fh",
-            epoch=min(ep, 550),
+            epoch=ep,
             train_corpus_key=s.crp_names["train"],
             dev_corpus_key=s.crp_names["cvtrain"],
             smoothen=True,
