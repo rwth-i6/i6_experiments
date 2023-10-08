@@ -423,7 +423,7 @@ def run_single(
                 prior_scales=list(
                     itertools.product(
                         [round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
-                        [round(v, 1) for v in np.linspace(0.0, 0.6, 4)],
+                        [round(v, 1) for v in np.linspace(0.2, 0.6, 3)],
                     )
                 ),
                 tdp_scales=[round(v, 1) for v in np.linspace(0.2, 0.6, 3)],
