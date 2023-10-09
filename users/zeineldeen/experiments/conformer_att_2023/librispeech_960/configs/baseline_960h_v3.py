@@ -885,6 +885,9 @@ def conformer_baseline():
                                     coverage_threshold=cov_thre,
                                 )
 
+            # best recog model:
+            # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_0.0001/recog-trafo-lm/ep-avg/lm-scale-0.54-prior-0.4-mini_lstm_mseLoss0.05-beam-84_coverage-thre0.1-scale0.2
+            # dev-other/test-other: 3.64/4.18
             run_lm_fusion(
                 lm_type="trafo",
                 exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
