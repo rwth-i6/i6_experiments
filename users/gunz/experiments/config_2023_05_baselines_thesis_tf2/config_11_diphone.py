@@ -669,15 +669,15 @@ def run_single(
 
     integrated_training_schedule = alignment_name == "scratch" or n_states_per_phone == 3
     if integrated_training_schedule:
+        orig_name = name
         for start_ep in [300, 500]:
             fine_tune_epochs = num_epochs - start_ep
             fine_tune_keep_epochs = [int(v) for v in np.linspace(fine_tune_epochs * 0.1, fine_tune_epochs, 4)]
-            orig_name = name
 
             bw_scale = baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3)
 
-            name = f"{orig_name}-fs_integrated:{start_ep}-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
-            s.set_experiment_dict("fh-fs-integrated", alignment_name, "di", postfix_name=name)
+            fine_tune_name = f"{orig_name}-fs_integrated:{start_ep}-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
+            s.set_experiment_dict("fh-fs-integrated", alignment_name, "di", postfix_name=fine_tune_name)
 
             s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
             s.lexicon_args["norm_pronunciation"] = False
