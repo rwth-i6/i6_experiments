@@ -89,10 +89,10 @@ def train(
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
-                    serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
-                    serialization.Import(_returnn_v2_get_model, "get_model"),
-                    serialization.Import(train_def, "_train_def", ignore_import_as_for_hash=True),
-                    serialization.Import(_returnn_v2_train_step, "train_step"),
+                    serialization.Import(model_def, import_as="_model_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_v2_get_model, import_as="get_model"),
+                    serialization.Import(train_def, import_as="_train_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_v2_train_step, import_as="train_step"),
                     serialization.ExplicitHash(
                         {
                             # Increase the version whenever some incompatible change is made in this train() function,
