@@ -3,11 +3,57 @@ import os.path
 from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
 from i6_core.corpus.convert import CorpusToStmJob
 from i6_core.corpus.filter import FilterCorpusBySegmentsJob
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.config import RasrConfigBuilder
 
 from abc import ABC
 
 from sisyphus import *
 
+
+class SWBCorpus:
+  def __init__(self):
+    self.corpus_keys = ("train", "cv", "devtrain", "dev", "hub5e_01", "rt03s")
+
+    self.stm_paths = {
+      "dev": Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"),
+      "hub5e_01": Path("/u/tuske/bin/switchboard/hub5e_01.2.stm"),
+      "rt03s": Path("/u/tuske/bin/switchboard/rt03s_ctsonly.stm"),
+    }
+
+    self.corpus_paths = {
+      "train": Path("/work/asr3/irie/data/switchboard/corpora/train.corpus.gz", cached=True),
+      "dev": Path("/work/asr3/irie/data/switchboard/corpora/dev.corpus.gz", cached=True),
+      "hub5e_01": Path("/work/asr3/irie/data/switchboard/corpora/hub5e_01.corpus.gz", cached=True),
+      "rt03s": Path("/work/asr3/irie/data/switchboard/corpora/rt03s.corpus.gz", cached=True)}
+    self.corpus_paths["devtrain"] = self.corpus_paths["train"]
+    self.corpus_paths["cv"] = self.corpus_paths["train"]
+
+    self.feature_cache_paths = {
+      "train": Path("/u/tuske/work/ASR/switchboard/feature.extraction/gt40_40/data/gt.train.bundle", cached=True),
+      "dev": Path("/u/tuske/work/ASR/switchboard/feature.extraction/gt40_40/data/gt.dev.bundle", cached=True),
+      "hub5e_01": Path("/u/tuske/work/ASR/switchboard/feature.extraction/gt40_40/data/gt.hub5e_01.bundle", cached=True),
+      "rt03s": Path("/u/tuske/work/ASR/switchboard/feature.extraction/gt40_40/data/gt.rt03s.bundle", cached=True)}
+    self.feature_cache_paths["devtrain"] = self.feature_cache_paths["train"]
+    self.feature_cache_paths["cv"] = self.feature_cache_paths["train"]
+
+    self.oggzip_paths = {
+      "train": [Path(
+        "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/oggzip/BlissToOggZipJob.tSpSJCnE1d2G/output/out.ogg.zip",
+        cached=True)],
+      "cv": [Path(
+        "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/oggzip/BlissToOggZipJob.wjjrGz1EDF9t/output/out.ogg.zip",
+        cached=True)],
+      "dev": None
+    }
+    self.oggzip_paths["devtrain"] = self.oggzip_paths["train"]
+
+    self.partition_epoch = 6
+
+    self.rasr_feature_extraction_config_paths = {
+      corpus_key: RasrConfigBuilder.get_feature_extraction_config(
+        segment_path=None,
+        feature_cache_path=self.feature_cache_paths[corpus_key],
+        corpus_path=self.corpus_paths[corpus_key]) for corpus_key in self.corpus_keys}
 
 class SWBCorpora(ABC):
   stm_paths = {

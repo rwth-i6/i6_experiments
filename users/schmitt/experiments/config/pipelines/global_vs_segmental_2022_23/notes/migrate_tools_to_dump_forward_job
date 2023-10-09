@@ -1,0 +1,14 @@
+calc_search_error:
+- build eval config which does search on a given dataset and collects scores of best sequences
+- build forward config which feeds ground-truth alignment through model and collects scores of given seqs
+- compare scores inside config and calculate search errors
+- dump search errors into hdf file
+
+compare_aligns:
+- directly use local job to load specific seqs from hdf files and plots
+
+dump_/plot_attention_weights:
+- dump attention weights into hdf file and then load in local job to plot
+
+dump_alignment_from_txt_new:
+- build config with ExternSprintDataset to load alignment cache and dump into hdf

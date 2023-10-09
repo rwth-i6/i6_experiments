@@ -4,23 +4,26 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from abc import ABC
 
 
+LIBRISPEECH_CORPUS = LibrispeechCorpora()
+
+
 class LibrispeechLabelDefinition(LabelDefinition, ABC):
   @property
   def stm_paths(self) -> str:
-    return LibrispeechCorpora.stm_paths
+    return LIBRISPEECH_CORPUS.stm_paths
 
   @property
   def stm_jobs(self) -> str:
-    return LibrispeechCorpora.stm_jobs
+    return LIBRISPEECH_CORPUS.stm_jobs
 
   @property
   def corpus_keys(self) -> str:
-    return LibrispeechCorpora.corpus_keys
+    return LIBRISPEECH_CORPUS.corpus_keys
 
   @property
   def oggzip_paths(self) -> str:
-    return LibrispeechCorpora.oggzip_paths
+    return LIBRISPEECH_CORPUS.oggzip_paths
 
   @property
   def segment_paths(self) -> str:
-    return LibrispeechCorpora.segment_paths
+    return LIBRISPEECH_CORPUS.segment_paths
