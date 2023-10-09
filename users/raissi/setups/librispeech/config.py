@@ -1,5 +1,5 @@
 import dataclasses
-from i6_experiments.users.raissi.setups.common.decoder import DecodingTensorMap
+from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_search import DecodingTensorMap
 
 
 RAISSI_ALIGNMENT = "/work/asr4/raissi/setups/librispeech/960-ls/work/i6_core/mm/alignment/AlignmentJob.hK21a0UU4iiJ/output/alignment.cache.bundle"
@@ -26,5 +26,3 @@ CONF_SA_CONFIG = {
 
 L2 = 1e-6
 LABEL_SMOOTHING = 0.2
-
-

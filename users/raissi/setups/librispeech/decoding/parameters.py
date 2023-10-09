@@ -17,10 +17,7 @@ from i6_experiments.users.raissi.setups.common.data.factored_label import (
     PhoneticContext,
 )
 
-from i6_experiments.users.raissi.setups.common.decoder.config import (
-    SearchParameters
-)
-
+from i6_experiments.users.raissi.setups.common.decoder.config import SearchParameters
 
 
 @dataclass(eq=True, frozen=True)
@@ -75,4 +72,3 @@ class LibriSpeechSearchParameters(SearchParameters):
             we_pruning=0.5,
             we_pruning_limit=10000,
         )
-

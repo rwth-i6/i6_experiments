@@ -22,4 +22,3 @@ def get_base_returnn_dict(debug=False):
         base.update(**debug_params)
 
     return base
-

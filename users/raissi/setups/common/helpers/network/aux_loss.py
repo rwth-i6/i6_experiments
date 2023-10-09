@@ -4,12 +4,9 @@ import copy
 
 import i6_core.returnn as returnn
 
-from i6_experiments.users.raissi.common.data.factored_label import (
-    LabelInfo,
-    PhoneticContext
-)
+from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo, PhoneticContext
 
-from i6_experiments.users.raissi.common.helpers.network.augment import (
+from i6_experiments.users.raissi.setups.common.helpers.network.augment import (
     augment_net_with_monophone_outputs,
     augment_net_with_diphone_outputs,
     augment_net_with_triphone_outputs,

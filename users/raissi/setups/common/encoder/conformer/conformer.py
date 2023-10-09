@@ -1,14 +1,15 @@
 __all__ = ["get_best_conformer_network"]
 
-from typing import Optional
+from typing import Optional, Union
 
 
-from i6_experiments.users.raissi.common.encoder.conformer.best_conformer import get_best_model_config, Size
-from i6_experiments.users.raissi.common.helpers.network.augment import Network
-from i6_experiments.users.raissi.common.helpers.train import returnn_time_tag
+from i6_experiments.users.raissi.setups.common.encoder.conformer.best_setup import get_best_model_config, Size
+from i6_experiments.users.raissi.setups.common.helpers.network.augment import Network
+from i6_experiments.users.raissi.setups.common.helpers.train import returnn_time_tag
+
 
 def get_best_conformer_network(
-    size: typing.Union[Size, int],
+    size: Union[Size, int],
     num_classes: int,
     *,
     time_tag_name: Optional[str] = None,

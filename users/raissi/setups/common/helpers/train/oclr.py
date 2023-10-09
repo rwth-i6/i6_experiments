@@ -1,6 +1,7 @@
 __all__ = ["get_oclr_config"]
 
 import typing
+import numpy as np
 
 
 # This function is designed by Wei Zhou
@@ -63,47 +64,22 @@ def warmup_lrates(initial=0.0001, final=0.001, epochs=20):
     return lrates
 
 
-def get_oclr_config(num_epochs: int, *, schedule: str = "v6") -> typing.Dict[str, typing.Any]:
+def get_oclr_config(
+    num_epochs: int,
+    lrate: float,
+) -> typing.Dict[str, typing.Any]:
     """Returns learning rate RETURNN config for OneCycle LR."""
 
-    import numpy as np
+    n = int((num_epochs // 10) * 9)
+    n_rest = num_epochs - n
+    lrates = get_learning_rates(lrate=lrate / 0.3, increase=n // 2, decay=n // 2)
+    lrates += list(np.linspace(lrates[-1], min([*lrates, 1e-6]), n_rest))
 
-    assert schedule in [f"v{v}" for v in range(6, 13)], "unknown LR schedule"
+    assert len(lrates) == num_epochs
 
-    def oclr_cfg(lrate: float):
-        n = int((num_epochs // 10) * 9)
-        n_rest = num_epochs - n
-        lrates = get_learning_rates(lrate=lrate, increase=n // 2, decay=n // 2)
-        lrates += list(np.linspace(lrates[-1], min([*lrates, 1e-6]), n_rest))
-
-        assert len(lrates) == num_epochs
-
-        return {
-            "learning_rate_file": "lr.log",
-            "min_learning_rate": 1e-6,
-            "learning_rates": lrates,
-            "learning_rate_control": "constant",
-        }
-
-    if schedule == "v6":
-        # OneCycle from Wei + linear decrease at the end to 1e-6
-        #
-        # Max LR 0.0003.
-
-        return oclr_cfg(lrate=0.001)
-    elif schedule in [f"v{v}" for v in range(7, 13)]:
-        # Like v6 but higher max LR (0.00053 vs 0.0003)
-        #
-        # This is proportionally scaled to a batch size of 11k vs 6144, where schedule v6 is better.
-
-        peak_lr = {
-            "v8": 0.0003,
-            "v9": 0.0004,
-            "v7": 0.00053,
-            "v10": 0.0006,
-            "v11": 0.0007,
-            "v12": 0.0008,
-        }
-        return oclr_cfg(lrate=peak_lr[schedule] / 0.3)
-    else:
-        raise ValueError(f"unknown LR schedule {schedule}")
+    return {
+        "learning_rate_file": "lr.log",
+        "min_learning_rate": 1e-6,
+        "learning_rates": lrates,
+        "learning_rate_control": "constant",
+    }

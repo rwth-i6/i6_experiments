@@ -1,4 +1,4 @@
-__all__ = ['get_lexicon_args', 'get_tdp_values']
+__all__ = ["get_lexicon_args", "get_tdp_values"]
 
 
 def get_lexicon_args(add_all_allophones=False, norm_pronunciation=True):

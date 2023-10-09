@@ -1,11 +1,4 @@
-__all__ = [
-    "default_posterior_scales",
-    "Float",
-    "PriorConfig",
-    "PriorInfo",
-    "PosteriorScales",
-    "SearchParameters"
-]
+__all__ = ["default_posterior_scales", "Float", "PriorConfig", "PriorInfo", "PosteriorScales", "SearchParameters"]
 
 import dataclasses
 from dataclasses import dataclass
@@ -123,7 +116,6 @@ def default_posterior_scales() -> PosteriorScales:
         "right-context-scale": 1.0,
         "center-state-scale": 1.0,
     }
-
 
 
 @dataclass(eq=True, frozen=True)

@@ -26,5 +26,3 @@ CONF_SA_CONFIG = {
 
 L2 = 1e-6
 LABEL_SMOOTHING = 0.2
-
-
