@@ -845,8 +845,8 @@ def conformer_baseline():
         num_epochs=600,
     )
 
-    for att_constraints_loss in ["cos", "cos_v2"]:
-        for att_constraint_scale in [0.05, 0.1, 0.3, 0.5, 0.8, 1.0]:
+    for att_constraints_loss in ["mse"]:
+        for att_constraint_scale in [0.05]:
             mini_lstm_j = train_mini_lstm(
                 exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
                 checkpoint=best_global_att_avg_ckpt,
@@ -858,27 +858,54 @@ def conformer_baseline():
                 name=f"mini_lstm_{att_constraints_loss}Loss{att_constraint_scale}",
             )
 
-            for lm_scale in [0.52, 0.53, 0.54, 0.55, 0.56]:
-                for prior_scale in [0.36, 0.38, 0.4, 0.42, 0.44, 0.46]:
-                    run_lm_fusion(
-                        lm_type="trafo",
-                        exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
-                        epoch="avg",
-                        test_set_names=["dev-other"],
-                        lm_scales=[lm_scale],
-                        prior_scales=[prior_scale],
-                        prior_type="mini_lstm",
-                        prior_type_name=f"mini_lstm_{att_constraints_loss}Loss{att_constraint_scale}",
-                        mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score_output/output_prob"),
-                        train_job=train_j,
-                        train_data=train_data,
-                        feature_net=log10_net_10ms,
-                        args=oclr_args,
-                        beam_size=70,
-                        batch_size=1000 * 160,
-                        bpe_size=BPE_10K,
-                        use_sclite=True,
-                    )
+            for beam_size in [83, 84, 85]:
+                for lm_scale in [0.54]:
+                    for prior_scale in [0.4]:
+                        for cov_scale in [0.2, 0.21, 0.22]:
+                            for cov_thre in [0.1, 0.11, 0.12]:
+                                run_lm_fusion(
+                                    lm_type="trafo",
+                                    exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                                    epoch="avg",
+                                    test_set_names=["dev-other"],
+                                    lm_scales=[lm_scale],
+                                    prior_scales=[prior_scale],
+                                    prior_type="mini_lstm",
+                                    prior_type_name=f"mini_lstm_{att_constraints_loss}Loss{att_constraint_scale}",
+                                    mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score_output/output_prob"),
+                                    train_job=train_j,
+                                    train_data=train_data,
+                                    feature_net=log10_net_10ms,
+                                    args=oclr_args,
+                                    beam_size=beam_size,
+                                    batch_size=1000 * 160,
+                                    bpe_size=BPE_10K,
+                                    use_sclite=True,
+                                    coverage_scale=cov_scale,
+                                    coverage_threshold=cov_thre,
+                                )
+
+            run_lm_fusion(
+                lm_type="trafo",
+                exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                epoch="avg",
+                test_set_names=["test-other"],
+                lm_scales=[0.54],
+                prior_scales=[0.4],
+                prior_type="mini_lstm",
+                prior_type_name=f"mini_lstm_{att_constraints_loss}Loss{att_constraint_scale}",
+                mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score_output/output_prob"),
+                train_job=train_j,
+                train_data=train_data,
+                feature_net=log10_net_10ms,
+                args=oclr_args,
+                beam_size=84,
+                batch_size=1000 * 160,
+                bpe_size=BPE_10K,
+                coverage_scale=0.2,
+                coverage_threshold=0.1,
+                use_sclite=True,
+            )
 
     # ------------------------------------- #
 
