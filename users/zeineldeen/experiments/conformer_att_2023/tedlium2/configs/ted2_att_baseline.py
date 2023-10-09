@@ -1117,7 +1117,7 @@ def conformer_baseline():
                                 #                 partition_epoch=4,
                                 #             )
 
-    for num_blocks in [12]:
+    for num_blocks in [14, 16]:
         for ep in [100 * 4]:
             for lr in [8e-4]:
                 for target_embed_dim in [256]:
@@ -1138,11 +1138,51 @@ def conformer_baseline():
                                 args["pretrain_opts"]["initial_batch_size"] *= 2
                                 args["accum_grad"] = 1
 
-                                args["speed_pert_version"] = 3
+                                name = (
+                                    exp_name
+                                    + f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}_bs30k"
+                                )
+                                run_exp(
+                                    name,
+                                    args,
+                                    num_epochs=ep,
+                                    epoch_wise_filter=None,
+                                    bpe_size=BPE_1K,
+                                    partition_epoch=4,
+                                    gpu_mem=24,
+                                )
+
+    for num_blocks in [16]:
+        for ep in [100 * 4]:
+            for lr in [8e-4]:
+                for target_embed_dim in [256]:
+                    for att_drop in [0.0]:
+                        for weight_drop in [0.1]:
+                            for enc_drop in [0.15]:
+                                base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
+                                args = copy.deepcopy(base_v1_args)
+                                args["encoder_args"].num_blocks = num_blocks
+                                args["encoder_args"].mhsa_weight_dropout = weight_drop
+                                args["encoder_args"].ff_weight_dropout = weight_drop
+                                args["encoder_args"].conv_weight_dropout = weight_drop
+
+                                args["encoder_args"].enc_key_dim = 384
+                                args["encoder_args"].att_num_heads = 6
+                                args["encoder_args"].ff_dim = 1536
+
+                                args["decoder_args"].embed_dim = target_embed_dim
+                                args["decoder_args"].att_dropout = att_drop
+
+                                args["batch_size"] *= 2
+                                args["accum_grad"] = 1
+
+                                # modify pretrain
+                                args["pretrain_opts"]["initial_batch_size"] *= 2
+                                args["pretrain_opts"]["initial_dim_factor"] = 256 / 384
 
                                 name = (
                                     exp_name
-                                    + f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}_bs30k_spt3"
+                                    + f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}_dim384_bs30k"
                                 )
                                 run_exp(
                                     name,

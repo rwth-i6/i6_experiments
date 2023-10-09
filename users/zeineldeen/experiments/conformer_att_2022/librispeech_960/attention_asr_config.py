@@ -98,10 +98,16 @@ def dynamic_learning_rate(*, network, global_train_step, learning_rate, **kwargs
 # -------------------------- SpecAugment -------------------------- #
 
 specaug_transform_func = """
-def transform(data, network, max_time_dim={max_time_dim}, freq_dim_factor={freq_dim_factor}):
+def transform(
+    data,
+    network,
+    max_time_dim={max_time_dim},
+    max_time_num={max_time_num},
+    min_num_add_factor={min_num_add_factor},
+    freq_dim_factor={freq_dim_factor},
+):
   x = data.placeholder
   from returnn.tf.compat import v1 as tf
-  # summary("features", x)
   step = network.global_train_step
   step1 = tf.where(tf.greater_equal(step, 1000), 1, 0)
   step2 = tf.where(tf.greater_equal(step, 2000), 1, 0)
@@ -109,13 +115,16 @@ def transform(data, network, max_time_dim={max_time_dim}, freq_dim_factor={freq_
       x_masked = x
       x_masked = random_mask(
         x_masked, batch_axis=data.batch_dim_axis, axis=data.time_dim_axis,
-        min_num=step1 + step2, max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // 100, 2) * (1 + step1 + step2 * 2),
-        max_dims=max_time_dim)
+        min_num=step1 + step2 + min_num_add_factor,
+        max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // max_time_num, 2) * (1 + step1 + step2 * 2),
+        max_dims=max_time_dim
+      )
       x_masked = random_mask(
         x_masked, batch_axis=data.batch_dim_axis, axis=data.feature_dim_axis,
-        min_num=step1 + step2, max_num=2 + step1 + step2 * 2,
-        max_dims=data.dim // freq_dim_factor)
-      #summary("features_mask", x_masked)
+        min_num=step1 + step2 + min_num_add_factor,
+        max_num=2 + step1 + step2 * 2,
+        max_dims=data.dim // freq_dim_factor
+      )
       return x_masked
   x = network.cond_on_train(get_masked, lambda: x)
   return x
