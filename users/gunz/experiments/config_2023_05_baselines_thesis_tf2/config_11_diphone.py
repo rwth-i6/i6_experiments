@@ -667,7 +667,7 @@ def run_single(
                         rtf=12,
                     )
 
-    integrated_training_schedule = alignment_name == "scratch" or n_states_per_phone == 3
+    integrated_training_schedule = alignment_name == "scratch" and n_states_per_phone == 3
     if integrated_training_schedule:
         orig_name = name
         for start_ep in [300, 500]:
