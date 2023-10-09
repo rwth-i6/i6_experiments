@@ -667,4 +667,127 @@ def run_single(
                         rtf=12,
                     )
 
+    integrated_training_schedule = alignment_name == "scratch" or n_states_per_phone == 3
+    if integrated_training_schedule:
+        for start_ep in [300, 500]:
+            fine_tune_epochs = num_epochs - start_ep
+            fine_tune_keep_epochs = [int(v) for v in np.linspace(fine_tune_epochs * 0.1, fine_tune_epochs, 4)]
+            orig_name = name
+
+            bw_scale = baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3)
+
+            name = f"{orig_name}-fs_integrated:{start_ep}-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
+            s.set_experiment_dict("fh-fs-integrated", alignment_name, "di", postfix_name=name)
+
+            s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+            s.lexicon_args["norm_pronunciation"] = False
+
+            s._update_am_setting_for_all_crps(
+                train_tdp_type="heuristic",
+                eval_tdp_type="heuristic",
+                add_base_allophones=False,
+            )
+
+            returnn_config_ft = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+            nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+                returnn_config=returnn_config_ft,
+                label_info=s.label_info,
+                out_joint_score_layer="output",
+                log_softmax=True,
+            )
+            prior_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+                returnn_config=returnn_config_ft,
+                label_info=s.label_info,
+                out_joint_score_layer="output",
+                log_softmax=False,
+            )
+            returnn_config_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
+                returnn_config=returnn_config_ft,
+                label_info=s.label_info,
+                out_joint_score_layer="output",
+                log_softmax=True,
+                prepare_for_train=True,
+            )
+            returnn_config_ft = baum_welch.augment_for_fast_bw(
+                crp=s.crp[s.crp_names["train"]],
+                from_output_layer="output",
+                returnn_config=returnn_config_ft,
+                log_linear_scales=bw_scale,
+            )
+            update_config = returnn.ReturnnConfig(
+                config={
+                    "batch_size": 4096,
+                    "learning_rates": returnn_config.config["learning_rates"][start_ep:],
+                    "preload_from_files": {
+                        "existing-model": {
+                            "init_for_train": True,
+                            "ignore_missing": True,
+                            "filename": viterbi_train_j.out_checkpoints[start_ep],
+                        }
+                    },
+                    "extern_data": {
+                        "data": {"dim": 50, "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)}},
+                    },
+                },
+                post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": fine_tune_keep_epochs}},
+                python_epilog={
+                    "dynamic_lr_reset": "dynamic_learning_rate = None",
+                },
+            )
+            returnn_config_ft.update(update_config)
+
+            s.set_returnn_config_for_experiment("fh-fs-integrated", copy.deepcopy(returnn_config_ft))
+
+            train_args = {
+                **s.initial_train_args,
+                "num_epochs": fine_tune_epochs,
+                "mem_rqmt": 10,
+                "partition_epochs": partition_epochs,
+                "returnn_config": copy.deepcopy(returnn_config_ft),
+            }
+            s.returnn_rasr_training(
+                experiment_key="fh-fs-integrated",
+                train_corpus_key=s.crp_names["train"],
+                dev_corpus_key=s.crp_names["cvtrain"],
+                nn_train_args=train_args,
+            )
+
+            for ep, crp_k in itertools.product(fine_tune_keep_epochs, ["dev-other"]):
+                s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+                s.set_mono_priors_returnn_rasr(
+                    key="fh-fs-integrated",
+                    epoch=ep,
+                    train_corpus_key=s.crp_names["train"],
+                    dev_corpus_key=s.crp_names["cvtrain"],
+                    smoothen=True,
+                    returnn_config=remove_label_pops_and_losses_from_returnn_config(
+                        prior_config, except_layers=["pastLabel"]
+                    ),
+                    output_layer_name="output",
+                )
+
+                diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+                tying_cfg = rasr.RasrConfig()
+                tying_cfg.type = "diphone-dense"
+
+                base_params = s.get_cart_params(key="fh-fs-integrated")
+                decoding_cfgs = [
+                    dataclasses.replace(base_params, lm_scale=5, tdp_scale=sc).with_prior_scale(pC)
+                    for sc, pC in [(0.4, 0.3), (0.2, 0.4), (0.4, 0.4), (0.2, 0.5)]
+                ]
+                for cfg in decoding_cfgs:
+                    s.recognize_cart(
+                        key="fh-fs-integrated",
+                        epoch=ep,
+                        crp_corpus=crp_k,
+                        n_cart_out=diphone_li.get_n_of_dense_classes(),
+                        cart_tree_or_tying_config=tying_cfg,
+                        params=cfg,
+                        log_softmax_returnn_config=nn_precomputed_returnn_config,
+                        calculate_statistics=True,
+                        opt_lm_am_scale=True,
+                        rtf=12,
+                    )
+
     return s
