@@ -134,10 +134,6 @@ class RasrFeatureToHDF(Job):
     if isinstance(feature_path, tk.Path):
         feature_path = feature_path.get_path()
     feature_cache = FileArchive(feature_path)
-<<<<<<< HEAD:users/raissi/v1/setups/common/helpers/pipeline_data.py
-
-=======
->>>>>>> 12678a8e (integrating all changes from ukr and lbs):users/raissi/setups/common/helpers/pipeline_data.py
     out = h5py.File(self.hdf_files[task_id - 1].get_path(), 'w')
 
     # root

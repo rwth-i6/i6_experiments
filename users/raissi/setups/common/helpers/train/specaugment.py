@@ -209,10 +209,7 @@ def transform(x, network):
     return x
 
 
-
-
-
-#---------------------------- these are from Jingjing legacy hybrid -------------------------------------------------
+# ---------------------------- these are from Jingjing legacy hybrid -------------------------------------------------
 
 
 def _mask(x, batch_axis, axis, pos, max_amount):
@@ -224,6 +221,7 @@ def _mask(x, batch_axis, axis, pos, max_amount):
     :param int|tf.Tensor max_amount: inclusive
     """
     from returnn.tf.compat import v1 as tf
+
     ndim = x.get_shape().ndims
     n_batch = tf.shape(x)[batch_axis]
     dim = tf.shape(x)[axis]
@@ -237,8 +235,10 @@ def _mask(x, batch_axis, axis, pos, max_amount):
         cond = tf.transpose(cond)  # (dim,batch)
     cond = tf.reshape(cond, [tf.shape(x)[i] if i in (batch_axis, axis) else 1 for i in range(ndim)])
     from TFUtil import where_bc
+
     x = where_bc(cond, 0.0, x)
     return x
+
 
 def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
     """
@@ -250,6 +250,7 @@ def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
     :param int|tf.Tensor max_dims: inclusive
     """
     from returnn.tf.compat import v1 as tf
+
     n_batch = tf.shape(x)[batch_axis]
     if isinstance(min_num, int) and isinstance(max_num, int) and min_num == max_num:
         num = min_num
@@ -272,28 +273,43 @@ def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
                 tf.where(
                     tf.less(i, num),
                     _mask(x, batch_axis=batch_axis, axis=axis, pos=indices[:, i], max_amount=max_dims),
-                    x)),
-            loop_vars=(0, x))
+                    x,
+                ),
+            ),
+            loop_vars=(0, x),
+        )
     return x
+
 
 def specaugment_eval_func(data, network, time_factor=1):
     x = data.placeholder
     from returnn.tf.compat import v1 as tf
+
     # summary("features", x)
     step = network.global_train_step
     step1 = tf.where(tf.greater_equal(step, 1000), 1, 0)
     step2 = tf.where(tf.greater_equal(step, 2000), 1, 0)
+
     def get_masked():
         x_masked = x
         x_masked = _random_mask(
-            x_masked, batch_axis=data.batch_dim_axis, axis=data.time_dim_axis,
-            min_num=step1 + step2, max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // 100, 2) * (1 + step1 + step2 * 2),
-            max_dims=20 // time_factor)
+            x_masked,
+            batch_axis=data.batch_dim_axis,
+            axis=data.time_dim_axis,
+            min_num=step1 + step2,
+            max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // 100, 2) * (1 + step1 + step2 * 2),
+            max_dims=20 // time_factor,
+        )
         x_masked = _random_mask(
-            x_masked, batch_axis=data.batch_dim_axis, axis=data.feature_dim_axis,
-            min_num=step1 + step2, max_num=2 + step1 + step2 * 2,
-            max_dims=data.dim // 5)
+            x_masked,
+            batch_axis=data.batch_dim_axis,
+            axis=data.feature_dim_axis,
+            min_num=step1 + step2,
+            max_num=2 + step1 + step2 * 2,
+            max_dims=data.dim // 5,
+        )
         return x_masked
+
     x = network.cond_on_train(get_masked, lambda: x)
     return x
 
@@ -307,10 +323,11 @@ def specaug_layer_jingjing(in_layer):
     return {
         "class": "eval",
         "from": in_layer,
-        "eval":"self.network.get_config().typed_value('specaugment_eval_func')("
-               "source(0, as_data=True), "
-               "network=self.network)"
+        "eval": "self.network.get_config().typed_value('specaugment_eval_func')("
+        "source(0, as_data=True), "
+        "network=self.network)",
     }
+
 
 def get_funcs_jingjing():
     funcs = []
@@ -320,11 +337,11 @@ def get_funcs_jingjing():
     return funcs
 
 
-#---------------------------- tina Legacy BLSTM -------------------------------------------------
+# ---------------------------- tina Legacy BLSTM -------------------------------------------------
 def get_legacy_specaugment_epilog_blstm(t_num=3, t=10, f_num=5, f=4):
     code = f"""
 def _mask(x, batch_axis, axis, pos, max_amount):
-  import tensorflow as tf
+  from returnn.tf.compat import v1 as tf
   ndim = x.get_shape().ndims
   n_batch = tf.shape(x)[batch_axis]
   dim = tf.shape(x)[axis]
@@ -343,7 +360,7 @@ def _mask(x, batch_axis, axis, pos, max_amount):
 
 
 def random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
-  import tensorflow as tf
+  from returnn.tf.compat import v1 as tf
   n_batch = tf.shape(x)[batch_axis]
   if isinstance(min_num, int) and isinstance(max_num, int) and min_num == max_num:
     num = min_num
@@ -398,4 +415,3 @@ def transform(data, network):
   x = network.cond_on_train(get_masked, lambda: x)
   return x """
     return code
-

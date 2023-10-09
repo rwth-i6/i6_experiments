@@ -14,43 +14,52 @@ import i6_core.lm as lm
 import i6_core.mm as mm
 import i6_core.corpus as corpus_recipes
 
-from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
-    ContextEnum,
-    ContextMapper
-)
+from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import ContextEnum, ContextMapper
 
-from i6_experiments.users.raissi.setups.common.decoder.rtf import (
-    ExtractSearchStatisticsJob
-)
-from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_feature_scorer import (
-    FactoredHybridFeatureScorer
-)
+from i6_experiments.users.raissi.setups.common.decoder.rtf import ExtractSearchStatisticsJob
+from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_feature_scorer import FactoredHybridFeatureScorer
 
 
-def get_feature_scorer(context_type, context_mapper, featureScorerConfig, mixtures, silence_id,
-    prior_info, posterior_scales=None, num_label_contexts=47, num_states_per_phone=3, num_encoder_output=1024,
-    loop_scale=1.0, forward_scale=1.0, silence_loop_penalty=0.0, silence_forward_penalty=0.0,
-    use_estimated_tdps=False, state_dependent_tdp_file=None,
-    is_min_duration=False, use_word_end_classes=False, use_boundary_classes=False, is_multi_encoder_output=False):
+def get_feature_scorer(
+    context_type,
+    context_mapper,
+    featureScorerConfig,
+    mixtures,
+    silence_id,
+    prior_info,
+    posterior_scales=None,
+    num_label_contexts=47,
+    num_states_per_phone=3,
+    num_encoder_output=1024,
+    loop_scale=1.0,
+    forward_scale=1.0,
+    silence_loop_penalty=0.0,
+    silence_forward_penalty=0.0,
+    use_estimated_tdps=False,
+    state_dependent_tdp_file=None,
+    is_min_duration=False,
+    use_word_end_classes=False,
+    use_boundary_classes=False,
+    is_multi_encoder_output=False,
+):
 
-    #WIP for different contexts: check consistency within the passed data
+    # WIP for different contexts: check consistency within the passed data
     if context_type.value in [context_mapper.get_enum(i) for i in [1, 7]]:
-        assert prior_info['center-state-prior']['file'] is not None
-        if not prior_info['center-state-prior']['scale']:
-            print('You are setting prior scale equale to zero, are you sure?')
-
+        assert prior_info["center-state-prior"]["file"] is not None
+        if not prior_info["center-state-prior"]["scale"]:
+            print("You are setting prior scale equale to zero, are you sure?")
 
     elif context_type.value in [context_mapper.get_enum(i) for i in [2, 8]]:
-        assert prior_info['center-state-prior']['file'] is not None
-        assert prior_info['left-context-prior']['file'] is not None
-        if not prior_info['center-state-prior']['scale']:
-            print('You are setting center prior scale equale to zero, are you sure?')
-        if not prior_info['left-context-prior']['scale']:
-            print('You are setting left context prior scale equale to zero, are you sure?')
+        assert prior_info["center-state-prior"]["file"] is not None
+        assert prior_info["left-context-prior"]["file"] is not None
+        if not prior_info["center-state-prior"]["scale"]:
+            print("You are setting center prior scale equale to zero, are you sure?")
+        if not prior_info["left-context-prior"]["scale"]:
+            print("You are setting left context prior scale equale to zero, are you sure?")
 
     else:
         print("Not Implemented")
-        assert(False)
+        assert False
 
     return FactoredHybridFeatureScorer(
         featureScorerConfig,
@@ -71,7 +80,7 @@ def get_feature_scorer(context_type, context_mapper, featureScorerConfig, mixtur
         state_dependent_tdp_file=state_dependent_tdp_file,
         is_min_duration=is_min_duration,
         use_word_end_classes=use_word_end_classes,
-        use_boundary_classes=use_boundary_classes
+        use_boundary_classes=use_boundary_classes,
     )
 
 
@@ -142,25 +151,21 @@ class FHDecoder:
         self.context_mapper = context_mapper
         self.model_path = model_path
         self.graph = graph
-        self.mixtures = (
-            mixtures  # s.mixtures["train_magic"]["estimate_mixtures_monophoneContext"]
-        )
+        self.mixtures = mixtures  # s.mixtures["train_magic"]["estimate_mixtures_monophoneContext"]
         self.is_multi_encoder_output = is_multi_encoder_output
         self.tdp = {}
         self.tm = tm
         self.output_string = output_string
         self.silence_id = silence_id
 
-        self.eval_files = (
-            eval_files  # ctm file as ref
-        )
+        self.eval_files = eval_files  # ctm file as ref
 
         self.bellman_post_config = False
         self.gpu = gpu
         self.library_path = (
             tf_library
             if tf_library is not None
-            else  "/work/asr4/raissi/ms-thesis-setups/lm-sa-swb/dependencies/binaries/recognition/NativeLstm2.so"
+            else "/work/asr4/raissi/ms-thesis-setups/lm-sa-swb/dependencies/binaries/recognition/NativeLstm2.so"
         )
 
         # LM attributes
@@ -195,8 +200,9 @@ class FHDecoder:
     def get_requirements(self, beam, isLstm=False):
         # under 27 is short queue
         rtf = 15
-        if (self.context_type.value != self.context_mapper.get_enum(1) and
-            self.context_type.value != self.context_mapper.get_enum(2)):
+        if self.context_type.value != self.context_mapper.get_enum(
+            1
+        ) and self.context_type.value != self.context_mapper.get_enum(2):
             rtf += 5
         if beam > 17:
             rtf += 10
@@ -204,7 +210,7 @@ class FHDecoder:
         if isLstm:
             rtf += 20
             mem = 16.0
-            if 'eval' in self.name:
+            if "eval" in self.name:
                 rtf *= 2
         else:
             mem = 8
@@ -212,11 +218,7 @@ class FHDecoder:
         return {"rtf": rtf, "mem": mem}
 
     def get_lookahead_options(scale=1.0, hlimit=-1, clow=0, chigh=500):
-        lmla_options = {'scale': scale,
-                        'history_limit': hlimit,
-                        'cache_low': clow,
-                        'cache_high': chigh
-                        }
+        lmla_options = {"scale": scale, "history_limit": hlimit, "cache_low": clow, "cache_high": chigh}
         return lmla_options
 
     def set_tf_fs_flow(self, feature_path, model_path, graph):
@@ -231,9 +233,7 @@ class FHDecoder:
         tfMapping = tfFeatureFlow.add_net(tfFlow)
 
         tfFeatureFlow.interconnect_inputs(feature_path, baseMapping)
-        tfFeatureFlow.interconnect(
-            feature_path, baseMapping, tfFlow, tfMapping, {"features": "input-features"}
-        )
+        tfFeatureFlow.interconnect(feature_path, baseMapping, tfFlow, tfMapping, {"features": "input-features"})
         tfFeatureFlow.interconnect_outputs(tfFlow, tfMapping)
 
         self.featureScorerFlow = tfFeatureFlow
@@ -253,19 +253,11 @@ class FHDecoder:
         tfFlow.config = rasr.RasrConfig()
 
         tfFlow.config[tfFwd].input_map.info_0.param_name = "features"
-        tfFlow.config[
-            tfFwd
-        ].input_map.info_0.tensor_name = "extern_data/placeholders/data/data"
-        tfFlow.config[
-            tfFwd
-        ].input_map.info_0.seq_length_tensor_name = (
-            "extern_data/placeholders/data/data_dim0_size"
-        )
+        tfFlow.config[tfFwd].input_map.info_0.tensor_name = "extern_data/placeholders/data/data"
+        tfFlow.config[tfFwd].input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/data/data_dim0_size"
 
         tfFlow.config[tfFwd].output_map.info_0.param_name = "encoder-output"
-        tfFlow.config[
-            tfFwd
-        ].output_map.info_0.tensor_name = "encoder-output/output_batch_major"
+        tfFlow.config[tfFwd].output_map.info_0.tensor_name = "encoder-output/output_batch_major"
 
         tfFlow.config[tfFwd].loader.type = "meta"
         tfFlow.config[tfFwd].loader.meta_graph_file = graph
@@ -285,37 +277,26 @@ class FHDecoder:
         tfFwd = tfFlow.add_node("tensorflow-forward", "tf-fwd", {"id": "$(id)"})
         tfFlow.link("network:input-features", tfFwd + ":features")
 
-        concat = tfFlow.add_node('generic-vector-f32-concat',
-                                 'concatenation',
-                                 {'check-same-length': True,
-                                  'timestamp-port': 'feature-1'})
+        concat = tfFlow.add_node(
+            "generic-vector-f32-concat", "concatenation", {"check-same-length": True, "timestamp-port": "feature-1"}
+        )
 
-        tfFlow.link(tfFwd + ":encoder-output", '%s:%s' % (concat, 'feature-1'))
-        tfFlow.link(tfFwd + ":deltaEncoder-output", '%s:%s' % (concat, 'feature-2'))
+        tfFlow.link(tfFwd + ":encoder-output", "%s:%s" % (concat, "feature-1"))
+        tfFlow.link(tfFwd + ":deltaEncoder-output", "%s:%s" % (concat, "feature-2"))
 
         tfFlow.link(concat, "network:features")
 
         tfFlow.config = rasr.RasrConfig()
 
         tfFlow.config[tfFwd].input_map.info_0.param_name = "features"
-        tfFlow.config[
-            tfFwd
-        ].input_map.info_0.tensor_name = "extern_data/placeholders/data/data"
-        tfFlow.config[
-            tfFwd
-        ].input_map.info_0.seq_length_tensor_name = (
-            "extern_data/placeholders/data/data_dim0_size"
-        )
+        tfFlow.config[tfFwd].input_map.info_0.tensor_name = "extern_data/placeholders/data/data"
+        tfFlow.config[tfFwd].input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/data/data_dim0_size"
 
         tfFlow.config[tfFwd].output_map.info_0.param_name = "encoder-output"
-        tfFlow.config[
-            tfFwd
-        ].output_map.info_0.tensor_name = "encoder-output/output_batch_major"
+        tfFlow.config[tfFwd].output_map.info_0.tensor_name = "encoder-output/output_batch_major"
 
         tfFlow.config[tfFwd].output_map.info_1.param_name = "deltaEncoder-output"
-        tfFlow.config[
-            tfFwd
-        ].output_map.info_1.tensor_name = "deltaEncoder-output/output_batch_major"
+        tfFlow.config[tfFwd].output_map.info_1.tensor_name = "deltaEncoder-output/output_batch_major"
 
         tfFlow.config[tfFwd].loader.type = "meta"
         tfFlow.config[tfFwd].loader.meta_graph_file = graph
@@ -328,69 +309,47 @@ class FHDecoder:
         fsTfConfig = rasr.RasrConfig()
         fsTfConfig.loader = self.featureScorerFlow.config["tf-fwd"]["loader"]
         del fsTfConfig.input_map
-        #input is the same for each model, since the label embeddings are calculated from the dense label identity
+        # input is the same for each model, since the label embeddings are calculated from the dense label identity
         fsTfConfig.input_map.info_0.param_name = "encoder-output"
-        fsTfConfig.input_map.info_0.tensor_name = (
-            "concat_fwd_6_bwd_6/concat_sources/concat"
-        )
-        #monophone does not have any context
+        fsTfConfig.input_map.info_0.tensor_name = "concat_fwd_6_bwd_6/concat_sources/concat"
+        # monophone does not have any context
         if self.context_type.value not in [self.context_mapper.get_enum(i) for i in [1, 7]]:
             fsTfConfig.input_map.info_1.param_name = "dense-classes"
-            fsTfConfig.input_map.info_1.tensor_name = (
-                "extern_data/placeholders/classes/classes"
-            )
+            fsTfConfig.input_map.info_1.tensor_name = "extern_data/placeholders/classes/classes"
 
-        if self.context_type.value in [self.context_mapper.get_enum(i) for i in [1,7]] :
+        if self.context_type.value in [self.context_mapper.get_enum(i) for i in [1, 7]]:
             fsTfConfig.output_map.info_0.param_name = "center-state-posteriors"
-            fsTfConfig.output_map.info_0.tensor_name = ("-").join(
-                [self.tm["center"], self.output_string]
-            )
+            fsTfConfig.output_map.info_0.tensor_name = ("-").join([self.tm["center"], self.output_string])
             if self.context_type.value == self.context_mapper.get_enum(7):
-                #add the delta outputs
+                # add the delta outputs
                 fsTfConfig.output_map.info_1.param_name = "delta-posteriors"
                 fsTfConfig.output_map.info_1.tensor_name = "delta_ce/output_batch_major"
 
         if self.context_type.value in [self.context_mapper.get_enum(i) for i in [2, 8]]:
             fsTfConfig.output_map.info_0.param_name = "center-state-posteriors"
-            fsTfConfig.output_map.info_0.tensor_name = ("-").join(
-                [self.tm["center"], self.output_string]
-            )
+            fsTfConfig.output_map.info_0.tensor_name = ("-").join([self.tm["center"], self.output_string])
             fsTfConfig.output_map.info_1.param_name = "left-context-posteriors"
-            fsTfConfig.output_map.info_1.tensor_name = ("-").join(
-                [self.tm["left"], self.output_string]
-            )
+            fsTfConfig.output_map.info_1.tensor_name = ("-").join([self.tm["left"], self.output_string])
             if self.context_type.value == self.context_mapper.get_enum(8):
                 fsTfConfig.output_map.info_2.param_name = "delta-posteriors"
                 fsTfConfig.output_map.info_2.tensor_name = "delta_ce/output_batch_major"
 
         if self.context_type.value == self.context_mapper.get_enum(3):
             fsTfConfig.output_map.info_0.param_name = "center-state-posteriors"
-            fsTfConfig.output_map.info_0.tensor_name = ("-").join(
-                [self.tm["center"], self.output_string]
-            )
+            fsTfConfig.output_map.info_0.tensor_name = ("-").join([self.tm["center"], self.output_string])
             fsTfConfig.output_map.info_1.param_name = "left-context-posteriors"
-            fsTfConfig.output_map.info_1.tensor_name = ("-").join(
-                [self.tm["left"], self.output_string]
-            )
+            fsTfConfig.output_map.info_1.tensor_name = ("-").join([self.tm["left"], self.output_string])
             fsTfConfig.output_map.info_2.param_name = "right-context-posteriors"
-            fsTfConfig.output_map.info_2.tensor_name = ("-").join(
-                [self.tm["right"], self.output_string]
-            )
+            fsTfConfig.output_map.info_2.tensor_name = ("-").join([self.tm["right"], self.output_string])
 
         if self.context_type.value in [self.context_mapper.get_enum(i) for i in [4, 6]]:
             # outputs
             fsTfConfig.output_map.info_0.param_name = "right-context-posteriors"
-            fsTfConfig.output_map.info_0.tensor_name = ("-").join(
-                [self.tm["right"], self.output_string]
-            )
+            fsTfConfig.output_map.info_0.tensor_name = ("-").join([self.tm["right"], self.output_string])
             fsTfConfig.output_map.info_1.param_name = "center-state-posteriors"
-            fsTfConfig.output_map.info_1.tensor_name = ("-").join(
-                [self.tm["center"], self.output_string]
-            )
+            fsTfConfig.output_map.info_1.tensor_name = ("-").join([self.tm["center"], self.output_string])
             fsTfConfig.output_map.info_2.param_name = "left-context-posteriors"
-            fsTfConfig.output_map.info_2.tensor_name = ("-").join(
-                [self.tm["left"], self.output_string]
-            )
+            fsTfConfig.output_map.info_2.tensor_name = ("-").join([self.tm["left"], self.output_string])
 
             if self.context_type.value == self.context_mapper.get_enum(6):
                 fsTfConfig.output_map.info_3.param_name = "delta-posteriors"
@@ -399,30 +358,21 @@ class FHDecoder:
         elif self.context_type.value == self.context_mapper.get_enum(5):
             # outputs
             fsTfConfig.output_map.info_0.param_name = "left-context-posteriors"
-            fsTfConfig.output_map.info_0.tensor_name = ("-").join(
-                [self.tm["left"], self.output_string]
-            )
+            fsTfConfig.output_map.info_0.tensor_name = ("-").join([self.tm["left"], self.output_string])
             fsTfConfig.output_map.info_1.param_name = "right-context-posteriors"
-            fsTfConfig.output_map.info_1.tensor_name = ("-").join(
-                [self.tm["right"], self.output_string]
-            )
+            fsTfConfig.output_map.info_1.tensor_name = ("-").join([self.tm["right"], self.output_string])
             fsTfConfig.output_map.info_2.param_name = "center-state-posteriors"
-            fsTfConfig.output_map.info_2.tensor_name = ("-").join(
-                [self.tm["center"], self.output_string]
-            )
+            fsTfConfig.output_map.info_2.tensor_name = ("-").join([self.tm["center"], self.output_string])
 
         if self.is_multi_encoder_output:
-            if self.context_type.value == self.context_mapper.get_enum(7) \
-                or self.context_type.value == self.context_mapper.get_enum(1):
+            if self.context_type.value == self.context_mapper.get_enum(
+                7
+            ) or self.context_type.value == self.context_mapper.get_enum(1):
                 fsTfConfig.input_map.info_1.param_name = "deltaEncoder-output"
-                fsTfConfig.input_map.info_1.tensor_name = (
-                    "concat_fwd_delta_bwd_delta/concat_sources/concat"
-                )
+                fsTfConfig.input_map.info_1.tensor_name = "concat_fwd_delta_bwd_delta/concat_sources/concat"
             else:
                 fsTfConfig.input_map.info_2.param_name = "deltaEncoder-output"
-                fsTfConfig.input_map.info_2.tensor_name = (
-                    "concat_fwd_delta_bwd_delta/concat_sources/concat"
-                )
+                fsTfConfig.input_map.info_2.tensor_name = "concat_fwd_delta_bwd_delta/concat_sources/concat"
 
         self.featureScorerConfig = fsTfConfig
 
@@ -518,12 +468,8 @@ class FHDecoder:
         rnn_lm_config.loader.required_libraries = Path(self.native_lstm_path)
 
         rnn_lm_config.input_map.info_0.param_name = "word"
-        rnn_lm_config.input_map.info_0.tensor_name = (
-            "extern_data/placeholders/delayed/delayed"
-        )
-        rnn_lm_config.input_map.info_0.seq_length_tensor_name = (
-            "extern_data/placeholders/delayed/delayed_dim0_size"
-        )
+        rnn_lm_config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
+        rnn_lm_config.input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/delayed/delayed_dim0_size"
 
         rnn_lm_config.output_map.info_0.param_name = "softmax"
         rnn_lm_config.output_map.info_0.tensor_name = "output/output_batch_major"
@@ -531,9 +477,7 @@ class FHDecoder:
         kazuki_fake_nce_lm = copy.deepcopy(rnn_lm_config)
         tfrnn_dir = "/work/asr3/beck/setups/swb1/2018-06-08_nnlm_decoding/dependencies/tfrnn_nce"
         kazuki_fake_nce_lm.vocab_file = Path("%s/vocabmap.freq_sorted.txt" % tfrnn_dir)
-        kazuki_fake_nce_lm.loader.meta_graph_file = Path(
-            "%s/inference.meta" % tfrnn_dir
-        )
+        kazuki_fake_nce_lm.loader.meta_graph_file = Path("%s/inference.meta" % tfrnn_dir)
         kazuki_fake_nce_lm.loader.saved_model_file = rasr.StringWrapper(
             "%s/network.018" % tfrnn_dir, Path("%s/network.018.index" % tfrnn_dir)
         )
@@ -560,40 +504,65 @@ class FHDecoder:
         rnn_lm_config.loader.required_libraries = Path(self.native_lstm_path)
 
         rnn_lm_config.input_map.info_0.param_name = "word"
-        rnn_lm_config.input_map.info_0.tensor_name = (
-            "extern_data/placeholders/delayed/delayed"
-        )
-        rnn_lm_config.input_map.info_0.seq_length_tensor_name = (
-            "extern_data/placeholders/delayed/delayed_dim0_size"
-        )
+        rnn_lm_config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
+        rnn_lm_config.input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/delayed/delayed_dim0_size"
 
         rnn_lm_config.output_map.info_0.param_name = "softmax"
         rnn_lm_config.output_map.info_0.tensor_name = "output/output_batch_major"
 
         self.tfrnn_lms["kazuki_full"] = rnn_lm_config
 
-    def recognize_count_lm(self, priorInfo, lmScale, posteriorScales=None, n_contexts=42, n_states_per_phone=3,
-                           num_encoder_output=1024, is_min_duration=False, use_word_end_classes=False, transitionScales=None, silencePenalties=None,
-                           useEstimatedTdps=False, forwardProbfile=None,
-                           addAllAllos=True,
-                           tdpScale=1.0, tdpExit=0.0, tdpNonword=20.0, silExit=20.0, tdpSkip=30.0, spLoop=3.0, spFwd=0.0, silLoop=0.0, silFwd=3.0,
-                           beam=20.0, beamLimit=400000, wePruning=0.5, wePruningLimit=10000, pronScale=3.0, altas=None,
-                           use_boundary_classes=False, onlyLmOpt=True, calculateStat=False, keep_value=12,
+    def recognize_count_lm(
+        self,
+        priorInfo,
+        lmScale,
+        posteriorScales=None,
+        n_contexts=42,
+        n_states_per_phone=3,
+        num_encoder_output=1024,
+        is_min_duration=False,
+        use_word_end_classes=False,
+        transitionScales=None,
+        silencePenalties=None,
+        useEstimatedTdps=False,
+        forwardProbfile=None,
+        addAllAllos=True,
+        tdpScale=1.0,
+        tdpExit=0.0,
+        tdpNonword=20.0,
+        silExit=20.0,
+        tdpSkip=30.0,
+        spLoop=3.0,
+        spFwd=0.0,
+        silLoop=0.0,
+        silFwd=3.0,
+        beam=20.0,
+        beamLimit=400000,
+        wePruning=0.5,
+        wePruningLimit=10000,
+        pronScale=3.0,
+        altas=None,
+        use_boundary_classes=False,
+        onlyLmOpt=True,
+        calculateStat=False,
+        keep_value=12,
     ):
 
         if posteriorScales is None:
-            posteriorScales = dict(zip([f'{k}-scale' for k in ['left-context', 'center-state', 'right-context' ]], [1.0] * 3))
+            posteriorScales = dict(
+                zip([f"{k}-scale" for k in ["left-context", "center-state", "right-context"]], [1.0] * 3)
+            )
         loopScale = forwardScale = 1.0
         silFwdPenalty = silLoopPenalty = 0.0
 
-        name = ('-').join([self.name, f"Beam{beam}", f"Lm{lmScale}", "pronScale-"])
-        for k in ['left-context', 'center-state', 'right-context']:
-            if priorInfo[f'{k}-prior']['file'] is not None:
+        name = ("-").join([self.name, f"Beam{beam}", f"Lm{lmScale}", "pronScale-"])
+        for k in ["left-context", "center-state", "right-context"]:
+            if priorInfo[f"{k}-prior"]["file"] is not None:
                 k_ = k.split("-")[0]
                 name = f"{name}-{k_}-priorScale-{priorInfo[f'{k}-prior']['scale']}"
 
         if tdpScale > 0:
-            name += f'tdpScale-{tdpScale}tdpEx-{tdpExit}silExitEx-{silExit}tdpNEx-{tdpNonword}'
+            name += f"tdpScale-{tdpScale}tdpEx-{tdpExit}silExitEx-{silExit}tdpNEx-{tdpNonword}"
             if transitionScales is not None:
                 loopScale = transitionScales[0]
                 forwardScale = transitionScales[1]
@@ -604,10 +573,10 @@ class FHDecoder:
                 silFwdPenalty = silencePenalties[1]
                 name += "fsilLoopP-{silLoopPenalty}"
                 name += f"silFwdP-{silFwdPenalty}"
-            if tdpSkip == 'infinity':
+            if tdpSkip == "infinity":
                 name += "noSkip"
         else:
-            name += 'noTdp'
+            name += "noTdp"
             spLoop = spFwd = tdpExit = silLoop = silFwd = silExit = 0.0
         if wePruning > 0.5:
             name += "wep" + str(wePruning)
@@ -627,20 +596,16 @@ class FHDecoder:
             across_word_model=True,
             early_recombination=False,
             tdp_scale=tdpScale,
-            tdp_transition=(spLoop, spFwd, 'infinity', tdpExit),
-            tdp_silence=(silLoop, silFwd, 'infinity', silExit),
+            tdp_transition=(spLoop, spFwd, "infinity", tdpExit),
+            tdp_silence=(silLoop, silFwd, "infinity", silExit),
         )
 
         searchCrp.acoustic_model_config.allophones["add-all"] = addAllAllos
         searchCrp.acoustic_model_config.allophones["add-from-lexicon"] = not addAllAllos
 
-        if 'tying-dense' in state_tying:
-            use_boundary_classes = self.search_crp.acoustic_model_config["state-tying"][
-                "use-boundary-classes"
-            ]
-            searchCrp.acoustic_model_config["state-tying"][
-                "use-boundary-classes"
-            ] = use_boundary_classes
+        if "tying-dense" in state_tying:
+            use_boundary_classes = self.search_crp.acoustic_model_config["state-tying"]["use-boundary-classes"]
+            searchCrp.acoustic_model_config["state-tying"]["use-boundary-classes"] = use_boundary_classes
 
         if use_word_end_classes:
             searchCrp.acoustic_model_config["state-tying"]["use-word-end-classes"] = True
@@ -655,7 +620,7 @@ class FHDecoder:
             modelCombinationConfig = None
             pronScale = 1.0
         # additional search parameters
-        name += f'pronScale{pronScale}'
+        name += f"pronScale{pronScale}"
         rqms = self.get_requirements(beam)
         sp = self.get_search_params(beam, beamLimit, wePruning, wePruningLimit, isCount=True)
 
@@ -667,21 +632,33 @@ class FHDecoder:
         else:
             adv_search_extra_config = None
 
-        self.feature_scorer = featureScorer = get_feature_scorer(context_type=self.context_type, context_mapper=self.context_mapper,
-                                           featureScorerConfig=self.featureScorerConfig,
-                                           mixtures=self.mixtures, silence_id=self.silence_id,
-                                           prior_info=priorInfo,
-                                           posterior_scales=posteriorScales, num_label_contexts=n_contexts, num_states_per_phone=n_states_per_phone,
-                                           num_encoder_output=num_encoder_output,
-                                           loop_scale=loopScale, forward_scale=forwardScale,
-                                           silence_loop_penalty=silLoopPenalty, silence_forward_penalty=silFwdPenalty,
-                                           use_estimated_tdps=useEstimatedTdps, state_dependent_tdp_file=forwardProbfile,
-                                           is_min_duration=is_min_duration, use_word_end_classes=use_word_end_classes,
-                                           use_boundary_classes=use_boundary_classes, is_multi_encoder_output=self.is_multi_encoder_output)
+        self.feature_scorer = featureScorer = get_feature_scorer(
+            context_type=self.context_type,
+            context_mapper=self.context_mapper,
+            featureScorerConfig=self.featureScorerConfig,
+            mixtures=self.mixtures,
+            silence_id=self.silence_id,
+            prior_info=priorInfo,
+            posterior_scales=posteriorScales,
+            num_label_contexts=n_contexts,
+            num_states_per_phone=n_states_per_phone,
+            num_encoder_output=num_encoder_output,
+            loop_scale=loopScale,
+            forward_scale=forwardScale,
+            silence_loop_penalty=silLoopPenalty,
+            silence_forward_penalty=silFwdPenalty,
+            use_estimated_tdps=useEstimatedTdps,
+            state_dependent_tdp_file=forwardProbfile,
+            is_min_duration=is_min_duration,
+            use_word_end_classes=use_word_end_classes,
+            use_boundary_classes=use_boundary_classes,
+            is_multi_encoder_output=self.is_multi_encoder_output,
+        )
 
         if altas is not None:
-            prepath = 'decoding-gridsearch/'
-        else: prepath = 'decoding/'
+            prepath = "decoding-gridsearch/"
+        else:
+            prepath = "decoding/"
 
         search = recog.AdvancedTreeSearchJob(
             crp=searchCrp,
@@ -708,8 +685,6 @@ class FHDecoder:
 
         if keep_value is not None:
             search.keep_value(keep_value)
-
-
 
         lat2ctm_extra_config = rasr.RasrConfig()
         lat2ctm_extra_config.flf_lattice_tool.network.to_lemma.links = "best"
@@ -738,7 +713,6 @@ class FHDecoder:
             )
             tk.register_output(f"{prepath}{name}.onlyLmOpt{onlyLmOpt}.optlm.txt", opt.out_log_file)
 
-
     def align(
         self,
         name,
@@ -753,24 +727,22 @@ class FHDecoder:
         if am_trainer_exe_path is not None:
             alignCrp.acoustic_model_trainer_exe = am_trainer_exe_path
 
-
         if default_tdp:
-            v = (3.0, 0.0, 'infinity', 0.0)
-            sv = (0.0, 3.0, 'infinity', 0.0)
+            v = (3.0, 0.0, "infinity", 0.0)
+            sv = (0.0, 3.0, "infinity", 0.0)
             keys = ["loop", "forward", "skip", "exit"]
             for i, k in enumerate(keys):
                 alignCrp.acoustic_model_config.tdp["*"][k] = v[i]
                 alignCrp.acoustic_model_config.tdp["silence"][k] = sv[i]
 
-        #make sure it is correct for the fh feature scorer scorer
-        alignCrp.acoustic_model_config.state_tying.type = 'no-tying-dense'
+        # make sure it is correct for the fh feature scorer scorer
+        alignCrp.acoustic_model_config.state_tying.type = "no-tying-dense"
 
         # make sure the FSA is not buggy
         alignCrp.acoustic_model_config["*"]["fix-allophone-context-at-word-boundaries"] = True
         alignCrp.acoustic_model_config["*"]["transducer-builder-filter-out-invalid-allophones"] = True
         alignCrp.acoustic_model_config["*"]["allow-for-silence-repetitions"] = False
         alignCrp.acoustic_model_config["*"]["fix-tdp-leaving-epsilon-arc"] = True
-
 
         alignment = mm.AlignmentJob(
             crp=alignCrp,
@@ -781,8 +753,6 @@ class FHDecoder:
         )
         alignment.rqmt["cpu"] = 2
         alignment.rqmt["mem"] = 8
-        alignment.add_alias(f'alignments/align_{name}')
+        alignment.add_alias(f"alignments/align_{name}")
         tk.register_output("alignments/realignment-{}".format(name), alignment.out_alignment_bundle)
         return alignment
-
-

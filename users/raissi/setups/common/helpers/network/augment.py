@@ -2,11 +2,16 @@ import copy
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from sisyphus import tk
+from sisyphus.delayed_ops import DelayedFormat
 
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
-from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo, PhonemeStateClasses, PhoneticContext
+from i6_experiments.users.raissi.setups.common.data.factored_label import (
+    LabelInfo,
+    PhonemeStateClasses,
+    PhoneticContext,
+)
 
 DEFAULT_INIT = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)"
 
@@ -223,6 +228,7 @@ def augment_net_with_monophone_outputs(
             network[f"{prefix}center-output"] = {
                 "class": "softmax",
                 "from": tri_mlp,
+                "n_out": label_info.get_n_state_classes(),
                 "target": "centerState",
                 "loss": "ce",
                 "loss_opts": copy.copy(loss_opts),
@@ -270,6 +276,7 @@ def augment_net_with_monophone_outputs(
                 "class": "softmax",
                 "from": di_mlp,
                 "target": "centerState",
+                "n_out": label_info.get_n_state_classes(),
                 "loss": "ce",
                 "loss_opts": copy.copy(loss_opts),
             }
@@ -444,6 +451,7 @@ def augment_net_with_monophone_outputs(
             "class": "softmax",
             "from": encoder_output_layer,
             "target": "centerState",
+            "n_out": label_info.get_n_state_classes(),
             "loss": "ce",
             "loss_opts": copy.copy(loss_opts),
         }
@@ -574,8 +582,7 @@ def add_fast_bw_layer(
     label_prior: Optional[returnn.CodeWrapper] = None,
     extra_rasr_config: Optional[rasr.RasrConfig] = None,
     extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
-)-> returnn.ReturnnConfig:
-
+) -> returnn.ReturnnConfig:
 
     crp.acoustic_model_config.tdp.applicator_type = "corrected"
     transition_types = ["*", "silence"]
@@ -590,12 +597,15 @@ def add_fast_bw_layer(
     if "label_prior_scale" in log_linear_scales:
         assert prior is not None, "Hybrid HMM needs a transcription based prior for fullsum training"
 
+    for attribute in ["loss", "loss_opts", "target"]:
+        del returnn_config.config["network"][reference_layer][attribute]
+
     inputs = []
-    out_denot = out.split("-")[0]
+    out_denot = reference_layer.split("-")[0]
     # prior calculation
 
     if label_prior is not None:
-        #Here we are creating a standard hybrid HMM, without prior we have a posterior HMM
+        # Here we are creating a standard hybrid HMM, without prior we have a posterior HMM
         prior_name = ("_").join(["label_prior", reference_layer_denot])
         returnn_config.config["network"][prior_name] = {"class": "constant", "dtype": "float32", "value": label_prior}
         comb_name = ("_").join(["comb-prior", out_denot])
@@ -604,13 +614,16 @@ def add_fast_bw_layer(
             "class": "combine",
             "kind": "eval",
             "eval": "am_scale*( safe_log(source(0)) - (safe_log(source(1)) * prior_scale) )",
-            "eval_locals": {"am_scale": log_linear_scales["label_posterior_scale"], "prior_scale": log_linear_scales["label_prior_scale"]},
+            "eval_locals": {
+                "am_scale": log_linear_scales["label_posterior_scale"],
+                "prior_scale": log_linear_scales["label_prior_scale"],
+            },
             "from": [reference_layer, prior_name],
         }
     else:
         comb_name = ("_").join(["multiply-scale", out_denot])
         inputs.append(comb_name)
-        crnn_config.config["network"][comb_name] = {
+        returnn_config.config["network"][comb_name] = {
             "class": "combine",
             "kind": "eval",
             "eval": "am_scale*(safe_log(source(0)))",
@@ -648,7 +661,7 @@ def add_fast_bw_layer(
         "lexicon": ["neural-network-trainer.alignment-fsa-exporter.model-combination.lexicon"],
         "acoustic_model": ["neural-network-trainer.alignment-fsa-exporter.model-combination.acoustic-model"],
     }
-    config, post_config = sp.build_config_from_mapping(crp, mapping)
+    config, post_config = rasr.build_config_from_mapping(crp, mapping)
     post_config["*"].output_channel.file = "fastbw.log"
 
     # Define action
@@ -672,11 +685,12 @@ def add_fast_bw_layer(
     config._update(extra_rasr_config)
     post_config._update(extra_rasr_post_config)
 
-    automaton_config = WriteRasrConfigJob(config, post_config).out_config
+    automaton_config = rasr.WriteRasrConfigJob(config, post_config).out_config
+    tk.register_output("train/bw.config", automaton_config)
 
     returnn_config.config["network"]["fast_bw"]["sprint_opts"] = {
-        "sprintExecPath": RasrCommand.select_exe(crp.nn_trainer_exe, "nn-trainer"),
-        "sprintConfigStr": f"--config={automaton_config}",
+        "sprintExecPath": rasr.RasrCommand.select_exe(crp.nn_trainer_exe, "nn-trainer"),
+        "sprintConfigStr": DelayedFormat("--config={}", automaton_config),
         "sprintControlConfig": {"verbose": True},
         "usePythonSegmentOrder": False,
         "numInstances": 1,

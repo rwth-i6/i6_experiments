@@ -1,8 +1,13 @@
-__all__ = ["PhonemeStateClasses", "LabelInfo", "PhoneticContext", ]
+__all__ = [
+    "PhonemeStateClasses",
+    "LabelInfo",
+    "PhoneticContext",
+]
 
 from enum import Enum
 from dataclasses import dataclass
 import typing
+
 
 class RasrStateTying(Enum):
     """The algorithm by which RASR calculates the labels to score."""
@@ -13,6 +18,7 @@ class RasrStateTying(Enum):
 
     def __str__(self):
         return self.value
+
 
 class PhonemeStateClasses(Enum):
     none = "none"
@@ -36,7 +42,7 @@ class PhonemeStateClasses(Enum):
         return self == PhonemeStateClasses.word_end
 
 
-@dataclass(eq=True, frozen=True)
+@dataclass(eq=True, frozen=False)
 class LabelInfo:
     n_contexts: int
     n_states_per_phone: int
@@ -116,9 +122,3 @@ class PhoneticContext(Enum):
             or self == PhoneticContext.triphone_symmetric
             or self == PhoneticContext.tri_state_transition
         )
-
-
-
-
-
-

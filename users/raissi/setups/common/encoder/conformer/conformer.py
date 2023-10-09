@@ -7,6 +7,7 @@ from i6_experiments.users.raissi.setups.common.encoder.conformer.best_setup impo
 from i6_experiments.users.raissi.setups.common.helpers.network.augment import Network
 from i6_experiments.users.raissi.setups.common.helpers.train import returnn_time_tag
 
+
 def get_best_conformer_network(
     size: Union[Size, int],
     num_classes: int,

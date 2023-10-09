@@ -21,9 +21,7 @@ extern_data = {'data': {"dim": %d, "same_dim_tags_as": {"t": time_tag}}}
 
     if use_word_end_classes:
         n_classes = n_contexts**3 * n_states * 2
-        n_center_state_classes = (
-            n_contexts * 2 if is_min_duration else n_contexts * n_states * 2
-        )
+        n_center_state_classes = n_contexts * 2 if is_min_duration else n_contexts * n_states * 2
 
     else:
         n_classes = n_contexts**3 * n_states

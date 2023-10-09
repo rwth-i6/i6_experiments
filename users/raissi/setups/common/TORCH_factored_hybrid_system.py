@@ -14,6 +14,7 @@ import sisyphus.toolkit as tk
 import sisyphus.global_settings as gs
 
 from sisyphus.delayed_ops import DelayedFormat
+
 # -------------------- Recipes --------------------
 import i6_core.corpus as corpus_recipe
 import i6_core.features as features
@@ -26,10 +27,8 @@ import i6_core.text as text
 from i6_core.util import MultiPath, MultiOutputPath
 from i6_core.lexicon.allophones import DumpStateTyingJob, StoreAllophonesJob
 
-#common modules
-from i6_experiments.common.setups.rasr.nn_system import (
-    NnSystem
-)
+# common modules
+from i6_experiments.common.setups.rasr.nn_system import NnSystem
 
 
 from i6_experiments.common.setups.rasr.util import (
@@ -56,7 +55,7 @@ from i6_experiments.users.raissi.setups.common.helpers.train.specaugment import 
 )
 
 
-#user based modules
+# user based modules
 from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
     get_lexicon_args,
     get_tdp_values,
@@ -64,37 +63,28 @@ from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
 
 from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo
 
-from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_search import (
-    FactoredHybridBaseDecoder
-)
+from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_search import FactoredHybridBaseDecoder
 
-from i6_experiments.users.raissi.setups.common.decoder.config import (
-    PriorInfo,
-    PosteriorScales,
-    SearchParameters
-)
+from i6_experiments.users.raissi.setups.common.decoder.config import PriorInfo, PosteriorScales, SearchParameters
 
-from i6_experiments.users.raissi.setups.common.util.hdf import (
-    RasrFeaturesToHdf
-)
+from i6_experiments.users.raissi.setups.common.util.hdf import RasrFeaturesToHdf
 
 # -------------------- Init --------------------
 Path = tk.setup_path(__package__)
 
 # -------------------- Systems --------------------
 class TORCHFactoredHybridSystem(BASEFactoredHybridSystem):
-
     def __init__(
-            self,
-            returnn_root: Optional[str] = None,
-            returnn_python_home: Optional[str] = None,
-            returnn_python_exe: Optional[tk.Path] = None,
-            rasr_binary_path: Optional[tk.Path] = None,
-            rasr_init_args: RasrInitArgs = None,
-            train_data: Dict[str, RasrDataInput] = None,
-            dev_data: Dict[str, RasrDataInput] = None,
-            test_data: Dict[str, RasrDataInput] = None,
-            initial_nn_args: Dict = None,
+        self,
+        returnn_root: Optional[str] = None,
+        returnn_python_home: Optional[str] = None,
+        returnn_python_exe: Optional[tk.Path] = None,
+        rasr_binary_path: Optional[tk.Path] = None,
+        rasr_init_args: RasrInitArgs = None,
+        train_data: Dict[str, RasrDataInput] = None,
+        dev_data: Dict[str, RasrDataInput] = None,
+        test_data: Dict[str, RasrDataInput] = None,
+        initial_nn_args: Dict = None,
     ):
         super().__init__(
             returnn_root=returnn_root,
@@ -104,6 +94,5 @@ class TORCHFactoredHybridSystem(BASEFactoredHybridSystem):
             train_data=train_data,
             dev_data=dev_data,
             test_data=test_data,
-            initial_nn_args=initial_nn_args
-
+            initial_nn_args=initial_nn_args,
         )

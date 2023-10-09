@@ -6,6 +6,7 @@ from i6_experiments.common.setups.rasr.util import (
     ReturnnRasrDataInput,
 )
 
+
 class SystemInput:
     """
     holds all the information generated as output to the GMM pipeline
@@ -14,12 +15,8 @@ class SystemInput:
     def __init__(self):
         self.crp: Optional[rasr.CommonRasrParameters] = None
         self.feature_flows: Dict[str, rasr.FlowNetwork] = {}
-        self.features: Dict[
-            str, Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]
-        ] = {}
-        self.alignments: Optional[
-            Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]
-        ] = None
+        self.features: Dict[str, Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]] = {}
+        self.alignments: Optional[Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]] = None
 
     def as_returnn_rasr_data_input(
         self,

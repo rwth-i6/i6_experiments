@@ -64,12 +64,15 @@ def warmup_lrates(initial=0.0001, final=0.001, epochs=20):
     return lrates
 
 
-def get_oclr_config(num_epochs: int) -> typing.Dict[str, typing.Any]:
+def get_oclr_config(
+    num_epochs: int,
+    lrate: float,
+) -> typing.Dict[str, typing.Any]:
     """Returns learning rate RETURNN config for OneCycle LR."""
 
     n = int((num_epochs // 10) * 9)
     n_rest = num_epochs - n
-    lrates = get_learning_rates(lrate=lrate/0.3, increase=n // 2, decay=n // 2)
+    lrates = get_learning_rates(lrate=lrate / 0.3, increase=n // 2, decay=n // 2)
     lrates += list(np.linspace(lrates[-1], min([*lrates, 1e-6]), n_rest))
 
     assert len(lrates) == num_epochs
@@ -80,4 +83,3 @@ def get_oclr_config(num_epochs: int) -> typing.Dict[str, typing.Any]:
         "learning_rates": lrates,
         "learning_rate_control": "constant",
     }
-

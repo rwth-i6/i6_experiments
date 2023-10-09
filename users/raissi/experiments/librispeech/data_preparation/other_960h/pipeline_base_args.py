@@ -21,7 +21,6 @@ import i6_experiments.common.setups.rasr.util as rasr_util
 # -------------------- helpers --------------------
 
 
-
 def get_final_output(name="final"):
     output_args = rasr_util.OutputArgs(name)
 
@@ -33,7 +32,4 @@ def get_final_output(name="final"):
 
     output_args.add_feature_to_extract("gt")
 
-
     return output_args
-
-
