@@ -494,6 +494,7 @@ def main():
     print(f"median latency: {res[len(res) // 2]}sec")
     print(f"p90 latency: {res[int(len(res) * 0.9)]}sec")
     print(f"p95 latency: {res[int(len(res) * 0.95)]}sec")
+    print(f"p99 latency: {res[int(len(res) * 0.99)]}sec")
 
 
 if __name__ == "__main__":

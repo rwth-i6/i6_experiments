@@ -13,7 +13,7 @@ from i6_experiments.users.zeineldeen.models.lm.external_lm_decoder import Extern
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.search_helpers import (
     add_joint_ctc_att_subnet,
     add_filter_blank_and_merge_labels_layers,
-    create_ctc_greedy_decoder,
+    create_ctc_decoder,
     update_tensor_entry,
 )
 
@@ -98,10 +98,16 @@ def dynamic_learning_rate(*, network, global_train_step, learning_rate, **kwargs
 # -------------------------- SpecAugment -------------------------- #
 
 specaug_transform_func = """
-def transform(data, network, max_time_dim={max_time_dim}, freq_dim_factor={freq_dim_factor}):
+def transform(
+    data,
+    network,
+    max_time_dim={max_time_dim},
+    max_time_num={max_time_num},
+    min_num_add_factor={min_num_add_factor},
+    freq_dim_factor={freq_dim_factor},
+):
   x = data.placeholder
   from returnn.tf.compat import v1 as tf
-  # summary("features", x)
   step = network.global_train_step
   step1 = tf.where(tf.greater_equal(step, 1000), 1, 0)
   step2 = tf.where(tf.greater_equal(step, 2000), 1, 0)
@@ -109,13 +115,16 @@ def transform(data, network, max_time_dim={max_time_dim}, freq_dim_factor={freq_
       x_masked = x
       x_masked = random_mask(
         x_masked, batch_axis=data.batch_dim_axis, axis=data.time_dim_axis,
-        min_num=step1 + step2, max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // 100, 2) * (1 + step1 + step2 * 2),
-        max_dims=max_time_dim)
+        min_num=step1 + step2 + min_num_add_factor,
+        max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // max_time_num, 2) * (1 + step1 + step2 * 2),
+        max_dims=max_time_dim
+      )
       x_masked = random_mask(
         x_masked, batch_axis=data.batch_dim_axis, axis=data.feature_dim_axis,
-        min_num=step1 + step2, max_num=2 + step1 + step2 * 2,
-        max_dims=data.dim // freq_dim_factor)
-      #summary("features_mask", x_masked)
+        min_num=step1 + step2 + min_num_add_factor,
+        max_num=2 + step1 + step2 * 2,
+        max_dims=data.dim // freq_dim_factor
+      )
       return x_masked
   x = network.cond_on_train(get_masked, lambda: x)
   return x
@@ -505,6 +514,8 @@ class RNNDecoderArgs(DecoderArgs):
     monotonic_att_weights_loss_scale: Optional[float] = None
     att_weights_variance_loss_scale: Optional[float] = None
 
+    include_eos_in_search_output: bool = False
+
 
 def create_config(
     training_datasets,
@@ -556,7 +567,10 @@ def create_config(
     global_stats=None,
     speed_pert_version=1,
     specaug_version=1,
-    ctc_greedy_decode=False,
+    ctc_decode=False,
+    ctc_log_prior_file=None,
+    ctc_prior_scale=None,
+    ctc_remove_eos=False,
     joint_ctc_att_decode_args=None,
     staged_hyperparams: dict = None,
     keep_best_n=None,
@@ -611,18 +625,18 @@ def create_config(
     )  # for network construction
 
     # LR scheduling
-    if noam_opts and allow_lr_scheduling:
+    if noam_opts and retrain_checkpoint is None and allow_lr_scheduling:
         noam_opts["model_d"] = encoder_args.enc_key_dim
         exp_config["learning_rate"] = noam_opts["lr"]
         exp_config["learning_rate_control"] = "constant"
         extra_python_code += "\n" + noam_lr_str.format(**noam_opts)
-    elif warmup_lr_opts and allow_lr_scheduling:
+    elif warmup_lr_opts and retrain_checkpoint is None and allow_lr_scheduling:
         if warmup_lr_opts.get("learning_rates", None):
             exp_config["learning_rates"] = warmup_lr_opts["learning_rates"]
         exp_config["learning_rate"] = warmup_lr_opts["peak_lr"]
         exp_config["learning_rate_control"] = "constant"
         extra_python_code += "\n" + warmup_lr_str.format(**warmup_lr_opts)
-    elif oclr_opts and allow_lr_scheduling:
+    elif oclr_opts and retrain_checkpoint is None and allow_lr_scheduling:
         if oclr_opts.get("learning_rates", None):
             exp_config["learning_rates"] = oclr_opts["learning_rates"]
         exp_config["learning_rate"] = oclr_opts["peak_lr"]
@@ -723,33 +737,14 @@ def create_config(
     if feature_extraction_net:
         exp_config["network"].update(feature_extraction_net)
 
-    if ctc_greedy_decode:
-        # create bpe labels with blank extern data
-        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
-        exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
+    if ctc_log_prior_file:
+        add_ctc_log_prior(exp_config, ctc_log_prior_file)
 
-        create_ctc_greedy_decoder(exp_config["network"])
-
-        # filter out blanks from best hyp
-        # TODO: we might want to also dump blank for analysis, however, this needs some fix to work.
-        add_filter_blank_and_merge_labels_layers(exp_config["network"])
-        exp_config["network"].pop(exp_config["search_output_layer"], None)
-        exp_config["search_output_layer"] = "out_best_wo_blank"
+    if ctc_decode:
+        add_ctc_decoding(exp_config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_opts)
 
     if joint_ctc_att_decode_args:
-        # create bpe labels with blank extern data
-        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
-        exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
-
-        # TODO: this is just for debugging. find a better way to do it later.
-        add_joint_ctc_att_subnet(exp_config["network"], **joint_ctc_att_decode_args)
-        joint_ctc_scale = joint_ctc_att_decode_args["ctc_scale"]
-        if joint_ctc_scale > 0.0:
-            add_filter_blank_and_merge_labels_layers(exp_config["network"])
-            exp_config["network"].pop(exp_config["search_output_layer"], None)
-            exp_config["search_output_layer"] = "out_best_wo_blank"
-        else:
-            pass  # use decision layer as before
+        add_att_ctc_joint_decoding(exp_config, joint_ctc_att_decode_args)
 
     # -------------------------- end network -------------------------- #
 
@@ -901,6 +896,9 @@ def create_config(
             _get_raw_func,
         ]
 
+    if (global_stats and not global_stats.get("use_legacy_version", False)) or ctc_log_prior_file:
+        python_prolog += ["import numpy"]
+
     # modify hyperparameters based on epoch (only used in training)
     if staged_network_dict and staged_hyperparams:
         for ep, v in staged_hyperparams.items():
@@ -948,22 +946,34 @@ def add_global_stats_norm(global_stats, net):
     if isinstance(global_stats, dict):
         from sisyphus.delayed_ops import DelayedFormat
 
-        global_mean_delayed = DelayedFormat("{}", global_stats["mean"])
-        global_stddev_delayed = DelayedFormat("{}", global_stats["stddev"])
-
         net["log10_"] = copy.deepcopy(net["log10"])
+
+        use_legacy_version = global_stats.get("use_legacy_version", False)
+
+        if use_legacy_version:
+            # note: kept to not break hashes
+            global_mean_delayed = DelayedFormat("{}", global_stats["mean"])
+            global_stddev_delayed = DelayedFormat("{}", global_stats["stddev"])
+            global_mean_value = CodeWrapper(
+                f"eval(\"exec('import numpy') or numpy.loadtxt('{global_mean_delayed}', dtype='float32')\")"
+            )
+            global_stddev_value = CodeWrapper(
+                f"eval(\"exec('import numpy') or numpy.loadtxt('{global_stddev_delayed}', dtype='float32')\")"
+            )
+        else:
+            global_mean_delayed = DelayedFormat("numpy.loadtxt('{}', dtype='float32')", global_stats["mean"])
+            global_stddev_delayed = DelayedFormat("numpy.loadtxt('{}', dtype='float32')", global_stats["stddev"])
+            global_mean_value = CodeWrapper(global_mean_delayed)
+            global_stddev_value = CodeWrapper(global_stddev_delayed)
+
         net["global_mean"] = {
             "class": "constant",
-            "value": CodeWrapper(
-                f"eval(\"exec('import numpy') or numpy.loadtxt('{global_mean_delayed}', dtype='float32')\")"
-            ),
+            "value": global_mean_value,
             "dtype": "float32",
         }
         net["global_stddev"] = {
             "class": "constant",
-            "value": CodeWrapper(
-                f"eval(\"exec('import numpy') or numpy.loadtxt('{global_stddev_delayed}', dtype='float32')\")"
-            ),
+            "value": global_stddev_value,
             "dtype": "float32",
         }
         net["log10"] = {
@@ -1019,3 +1029,41 @@ def add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog):
         net["mixup_features"] = {"from": "log", "class": "eval", "eval": "source(0) / 2.3026"}
     else:
         net["mixup_features"] = {"class": "copy", "from": "mixup"}
+
+
+def add_ctc_decoding(config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_opts):
+    # create bpe labels with blank extern data
+    config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(config["extern_data"]["bpe_labels"])
+    config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
+
+    create_ctc_decoder(config["network"], beam_size, ctc_prior_scale, ctc_remove_eos)
+
+    # filter out blanks from best hyp
+    # TODO: we might want to also dump blank for analysis, however, this needs some fix to work.
+    add_filter_blank_and_merge_labels_layers(config["network"])
+    config["network"].pop(config["search_output_layer"], None)
+    config["search_output_layer"] = "out_best_wo_blank"
+
+
+def add_att_ctc_joint_decoding(config, joint_ctc_att_decode_args):
+    # create bpe labels with blank extern data
+    config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(config["extern_data"]["bpe_labels"])
+    config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
+
+    add_joint_ctc_att_subnet(config["network"], **joint_ctc_att_decode_args)
+    joint_ctc_scale = joint_ctc_att_decode_args["ctc_scale"]
+    if joint_ctc_scale > 0.0:
+        add_filter_blank_and_merge_labels_layers(config["network"])
+        config["network"].pop(config["search_output_layer"], None)
+        config["search_output_layer"] = "out_best_wo_blank"
+    else:
+        pass  # use decision layer as before
+
+
+def add_ctc_log_prior(config, ctc_log_prior_file):
+    from sisyphus.delayed_ops import DelayedFormat
+
+    config["network"]["ctc_log_prior"] = {
+        "class": "constant",
+        "value": CodeWrapper(DelayedFormat("numpy.loadtxt('{}', dtype='float32')", ctc_log_prior_file)),
+    }

@@ -44,6 +44,7 @@ class RNNDecoder:
         use_zoneout_output: bool = False,
         monotonic_att_weights_loss_scale=None,
         att_weights_variance_loss_scale=None,
+        include_eos_in_search_output=False,
     ):
         """
         :param base_model: base/encoder model instance
@@ -130,6 +131,8 @@ class RNNDecoder:
 
         self.monotonic_att_weights_loss_scale = monotonic_att_weights_loss_scale
         self.att_weights_variance_loss_scale = att_weights_variance_loss_scale
+
+        self.include_eos_in_search_output = include_eos_in_search_output
 
         self.network = ReturnnNetwork()
         self.subnet_unit = ReturnnNetwork()
@@ -350,7 +353,11 @@ class RNNDecoder:
 
         # recurrent subnetwork
         dec_output = self.network.add_subnet_rec_layer(
-            "output", unit=subnet_unit.get_net(), target=self.target, source=self.source
+            "output",
+            unit=subnet_unit.get_net(),
+            target=self.target,
+            source=self.source,
+            include_eos=self.include_eos_in_search_output,
         )
 
         return dec_output

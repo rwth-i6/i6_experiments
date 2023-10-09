@@ -232,7 +232,9 @@ def run_single_search(
     )
 
 
-def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, checkpoint, mem_rqmt=8, time_rqmt=1):
+def run_concat_seq_recog(
+    exp_name, corpus_names, num, train_data, search_args, checkpoint, mem_rqmt=8, time_rqmt=1, gpu_mem=11
+):
     exp_prefix = os.path.join(prefix_name, exp_name)
 
     from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.concat_seqs import (
@@ -282,6 +284,7 @@ def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, c
             # no scoring
             use_sclite=False,
             use_returnn_compute_wer=False,
+            gpu_mem=gpu_mem,
         )
 
         from i6_core.corpus.convert import CorpusToStmJob
@@ -603,18 +606,21 @@ def run_exp(
             seq_postfix=kwargs.get("seq_postfix", 0),
         )
 
-    train_job = run_train(
-        prefix_name,
-        exp_name,
-        train_args,
-        train_data,
-        feature_extraction_net,
-        num_epochs,
-        recog_epochs,
-        time_rqmt=time_rqmt,
-        **kwargs,
-    )
-    train_jobs_map[exp_name] = train_job
+    if kwargs.get("do_not_train", False):
+        return None, train_data
+    else:
+        train_job = run_train(
+            prefix_name,
+            exp_name,
+            train_args,
+            train_data,
+            feature_extraction_net,
+            num_epochs,
+            recog_epochs,
+            time_rqmt=time_rqmt,
+            **kwargs,
+        )
+        train_jobs_map[exp_name] = train_job
 
     run_search(
         prefix_name,
@@ -654,6 +660,7 @@ def run_exp(
             train_data=train_data,
             search_args=search_args_,
             checkpoint=concat_recog_ckpt,
+            gpu_mem=kwargs.get("gpu_mem", 11),
         )
 
     return train_job, train_data
@@ -949,40 +956,48 @@ def compute_search_errors(exp_name, corpus_name, train_data, forward_args, model
     returnn_forward_config.config.pop("dev", None)
     returnn_forward_config.config.pop("devtrain", None)
 
-    # 1. forward with ground truth and dump scores + target
-    config_ = copy.deepcopy(returnn_forward_config)
-    config_.config["network"]["dump_targets"] = {
-        "class": "hdf_dump",
-        "from": "data:bpe_labels",
-        "filename": "ground_truth_targets.hdf",
-        "is_output_layer": True,
-    }
-    assert "output_log_prob" not in config_.config["network"], "output_log_prob already exists?"
-    config_.config["network"]["output_log_prob"] = {
-        "class": "activation",
-        "from": "output_prob",
-        "activation": "safe_log",
-    }
-    config_.config["network"]["dump_output"] = {
-        "class": "hdf_dump",
-        "from": "output_log_prob",
-        "filename": "ground_truth_scores.hdf",
-        "is_output_layer": True,
-    }
-    j = ReturnnForwardJob(
-        model_checkpoint=model_checkpoint,
-        returnn_config=config_,
-        returnn_python_exe=RETURNN_CPU_EXE,
-        returnn_root=returnn_root_fix,
-        hdf_outputs=["ground_truth_targets.hdf", "ground_truth_scores.hdf"],
-        eval_mode=True,
+    def dump_scores_and_targets(config_, targets_hdf_name, scores_hdf_name):
+        config_.config["network"]["dump_targets"] = {
+            "class": "hdf_dump",
+            "from": "data:bpe_labels",
+            "filename": f"{targets_hdf_name}.hdf",
+            "is_output_layer": True,
+        }
+        assert "output_log_prob" not in config_.config["network"]["output"]["unit"], "output_log_prob already exists?"
+        config_.config["network"]["output"]["unit"]["output_log_prob"] = {
+            "class": "activation",
+            "from": "output_prob",
+            "activation": "safe_log",
+        }
+        config_.config["network"]["output"]["unit"]["dump_output"] = {
+            "class": "hdf_dump",
+            "from": "output_log_prob",
+            "filename": f"{scores_hdf_name}.hdf",
+            "is_output_layer": True,
+        }
+        j = ReturnnForwardJob(
+            model_checkpoint=model_checkpoint,
+            returnn_config=config_,
+            returnn_python_exe=RETURNN_CPU_EXE,
+            returnn_root=returnn_root_fix,
+            hdf_outputs=[f"{targets_hdf_name}.hdf", f"{scores_hdf_name}.hdf"],
+            eval_mode=True,
+        )
+        return j
+
+    j = dump_scores_and_targets(
+        copy.deepcopy(returnn_forward_config),
+        targets_hdf_name="ground_truth_targets",
+        scores_hdf_name="ground_truth_scores",
     )
     ground_truth_targets = j.out_hdf_files["ground_truth_targets.hdf"]
     ground_truth_scores = j.out_hdf_files["ground_truth_scores.hdf"]
     tk.register_output(
-        os.path.join(exp_name, f"{corpus_name}_search_errors/ground_truth_targets"), ground_truth_targets
+        os.path.join(prefix_name, exp_name, f"{corpus_name}_search_errors/ground_truth_targets"), ground_truth_targets
     )
-    tk.register_output(os.path.join(exp_name, f"{corpus_name}_search_errors/ground_truth_scores"), ground_truth_scores)
+    tk.register_output(
+        os.path.join(prefix_name, exp_name, f"{corpus_name}_search_errors/ground_truth_scores"), ground_truth_scores
+    )
 
     # 2. forward with beam search and dump scores of 1-best
     config_ = copy.deepcopy(returnn_forward_config)
@@ -1001,8 +1016,18 @@ def compute_search_errors(exp_name, corpus_name, train_data, forward_args, model
         hdf_outputs=["search_output.hdf"],
         eval_mode=False,
     )
-    search_scores = j.out_hdf_files["search_output.hdf"]  # targets included here?
-    tk.register_output(os.path.join(exp_name, f"{corpus_name}_search_errors/search_scores"), search_scores)
+    search_output = j.out_hdf_files["search_output.hdf"]  # targets included here?
+    tk.register_output(os.path.join(prefix_name, exp_name, f"{corpus_name}_search_errors/search_output"), search_output)
+
+    j = dump_scores_and_targets(
+        copy.deepcopy(returnn_forward_config), targets_hdf_name="search_targets", scores_hdf_name="search_scores"
+    )
+    search_targets = j.out_hdf_files["search_targets.hdf"]
+    search_scores = j.out_hdf_files["search_scores.hdf"]
+    tk.register_output(
+        os.path.join(prefix_name, exp_name, f"{corpus_name}_search_errors/search_targets"), search_targets
+    )
+    tk.register_output(os.path.join(prefix_name, exp_name, f"{corpus_name}_search_errors/search_scores"), search_scores)
 
     from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.search_errors import ComputeSearchErrorsJob
 
@@ -1303,6 +1328,8 @@ def run_chunkwise_train(
     lrs_list: Optional[List[float]] = None,
     lr_list_desc: Optional[str] = None,
     return_args: bool = False,
+    return_hdf_align: bool = False,
+    do_not_train=False,
     **kwargs,
 ):
     if isinstance(start_lrs, float):
@@ -1324,8 +1351,8 @@ def run_chunkwise_train(
                 for start_lr in start_lrs:
                     for decay_pt_factor in decay_pt_factors:
                         train_args = copy.deepcopy(default_args)
-                        train_args["speed_pert"] = speed_pert  # no speed pert
-                        train_args["search_type"] = None  # fixed alignment
+                        train_args["speed_pert"] = speed_pert
+                        train_args["search_type"] = None
 
                         train_args["max_seq_length"] = None  # no filtering!
 
@@ -1475,6 +1502,10 @@ def run_chunkwise_train(
                             train_args["remove_att_ctx_from_dec_state"] = True
                             exp_name += "_woDecAtt"
 
+                        if kwargs.get("asr_ce_scale", None) is not None:
+                            train_args["decoder_args"].ce_loss_scale = kwargs["asr_ce_scale"]
+                            exp_name += f"_ceScale{kwargs['asr_ce_scale']}"
+
                         if suffix:
                             exp_name += suffix
 
@@ -1499,7 +1530,8 @@ def run_chunkwise_train(
                             )
                         elif on_the_fly_align:
                             train_args["search_type"] = "end-of-chunk"  # on-the-fly alignment
-                            run_exp(
+                            exp_name += "_onTheFlyAlign"
+                            _, train_data = run_exp(
                                 prefix_name=prefix_name,
                                 exp_name=exp_name,
                                 train_args=train_args,
@@ -1508,8 +1540,17 @@ def run_chunkwise_train(
                                 time_rqmt=time_rqmt,
                                 key=search_score_key,
                                 use_sclite=True,
+                                do_not_train=do_not_train,
                                 **kwargs,
                             )
+                            if return_hdf_align:
+                                return (
+                                    train_args,
+                                    exp_name,
+                                    train_data,
+                                    ctc_chunksync_align["train"][f"{chunk_size}_{chunk_step}"],
+                                    ctc_chunksync_align["dev"][f"{chunk_size}_{chunk_step}"],
+                                )
                         else:
                             if full_sum_approx:
                                 # just use original targets without EOC
@@ -1541,6 +1582,8 @@ def run_chunkwise_train(
                                 assert len(start_lrs) == 1
                                 assert len(decay_pt_factors) == 1
 
+                                if return_hdf_align:
+                                    return train_args, exp_name, train_data, train_fixed_alignment, cv_fixed_alignment
                                 return train_args, exp_name, train_data
 
 
@@ -1647,53 +1690,51 @@ def baseline():
     )
 
     # TODO: concat recog
-    # for num in [2, 3, 4, 5, 6, 7, 8, 9, 10, 20]:
-    #     search_args = {}
-    #     if num >= 6:
-    #         search_args = {"max_seqs": 1}
-    #     run_chunkwise_train(
-    #         enc_stream_type="global",
-    #         run_all_for_best_last_avg=True,
-    #         enable_check_align=False,
-    #         chunk_sizes=[10],
-    #         chunk_step_factors=[1],
-    #         start_lrs=[1e-4],
-    #         decay_pt_factors=[0.25],
-    #         gpu_mem=11,
-    #         total_epochs=[120],
-    #         batch_size=15_000,
-    #         accum_grad=2,
-    #         time_rqmt=120,
-    #         concat_recog_opts={
-    #             "num": num,
-    #             "checkpoint": "avg",
-    #             "corpus_names": ["dev", "test"],
-    #             "search_args": search_args,
-    #         },
-    #     )
+    for num in [10, 20]:
+        search_args = {"max_seqs": 1}
+        run_chunkwise_train(
+            enc_stream_type="global",
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            chunk_sizes=[10],
+            chunk_step_factors=[1],
+            start_lrs=[1e-4],
+            decay_pt_factors=[0.25],
+            gpu_mem=24,
+            total_epochs=[120],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=120,
+            concat_recog_opts={
+                "num": num,
+                "checkpoint": "avg",
+                "corpus_names": ["test"],
+                "search_args": search_args,
+            },
+        )
 
-    train_args, exp_name, train_data = run_chunkwise_train(
-        enc_stream_type="global",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[25],
-        chunk_step_factors=[1],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[80],
-        batch_size=30_000,
-        accum_grad=1,
-        time_rqmt=48,
-        return_args=True,
-    )
-    compute_search_errors(
-        exp_name,
-        corpus_name="dev",
-        train_data=train_data,
-        forward_args=train_args,
-        model_checkpoint=train_job_avg_ckpt[exp_name],
-    )
+    # train_args, exp_name, train_data = run_chunkwise_train(
+    #     enc_stream_type="global",
+    #     run_all_for_best_last_avg=True,
+    #     enable_check_align=False,
+    #     chunk_sizes=[25],
+    #     chunk_step_factors=[1],
+    #     start_lrs=[2e-4],
+    #     decay_pt_factors=[1 / 3],
+    #     gpu_mem=24,
+    #     total_epochs=[80],
+    #     batch_size=30_000,
+    #     accum_grad=1,
+    #     time_rqmt=48,
+    #     return_args=True,
+    # )
+    # compute_search_errors(
+    #     exp_name,
+    #     corpus_name="dev",
+    #     train_data=train_data,
+    #     forward_args=train_args,
+    #     model_checkpoint=train_job_avg_ckpt[exp_name],
+    # )
 
     # TODO: LR schedule tuning
     # global_att_chunk-1_step-1_linDecay80_0.0002_decayPt0.25_bs15000_accum2
@@ -1715,25 +1756,6 @@ def baseline():
 
     # ----------------- Chunked Encoder + Chunked Decoder ----------------- #
 
-    # TODO: No overlap
-    # chunked_att_chunk-20_step-20_linDecay120_0.0001_decayPt0.25_bs15000_accum2  11.19   11.02  avg
-    # chunked_att_chunk-10_step-10_linDecay120_0.0002_decayPt0.25_bs15000_accum2  14.6    14.53  best
-    for enc_stream_type in ["chunked"]:
-        run_chunkwise_train(
-            enc_stream_type=enc_stream_type,
-            run_all_for_best_last_avg=True,
-            enable_check_align=False,
-            chunk_sizes=[10, 15, 20],
-            chunk_step_factors=[1],
-            start_lrs=[1e-4, 2e-4],
-            decay_pt_factors=[1 / 4],
-            gpu_mem=11,
-            total_epochs=[120],
-            batch_size=15_000,
-            accum_grad=2,
-            time_rqmt=120,
-        )
-
     # TODO: overlap
     # chunked_att_chunk-20_step-14_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3   8.96    8.5   best
     # chunked_att_chunk-20_step-10_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3   8.51    8.03  avg
@@ -1742,34 +1764,34 @@ def baseline():
     # chunked_att_chunk-10_step-7_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3   12.17   11.18  avg
     # chunked_att_chunk-10_step-5_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3   11.04   10.44  avg
     # chunked_att_chunk-10_step-3_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2   10.76   10.06  avg
-    run_chunkwise_train(
-        enc_stream_type="chunked",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[10, 20],
-        chunk_step_factors=[0.7, 0.5],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=11,
-        total_epochs=[120],
-        batch_size=10_000,
-        accum_grad=3,
-        time_rqmt=120,
-    )
-    run_chunkwise_train(
-        enc_stream_type="chunked",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[10, 20],
-        chunk_step_factors=[0.3],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[120],
-        batch_size=15_000,
-        accum_grad=2,
-        time_rqmt=120,
-    )
+    # run_chunkwise_train(
+    #     enc_stream_type="chunked",
+    #     run_all_for_best_last_avg=True,
+    #     enable_check_align=False,
+    #     chunk_sizes=[10, 20],
+    #     chunk_step_factors=[0.7, 0.5],
+    #     start_lrs=[2e-4],
+    #     decay_pt_factors=[1 / 3],
+    #     gpu_mem=11,
+    #     total_epochs=[120],
+    #     batch_size=10_000,
+    #     accum_grad=3,
+    #     time_rqmt=120,
+    # )
+    # run_chunkwise_train(
+    #     enc_stream_type="chunked",
+    #     run_all_for_best_last_avg=True,
+    #     enable_check_align=False,
+    #     chunk_sizes=[10, 20],
+    #     chunk_step_factors=[0.3],
+    #     start_lrs=[2e-4],
+    #     decay_pt_factors=[1 / 3],
+    #     gpu_mem=24,
+    #     total_epochs=[120],
+    #     batch_size=15_000,
+    #     accum_grad=2,
+    #     time_rqmt=120,
+    # )
 
     # chunked_att_chunk-10_step-5_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3_memVariant1_memSize4                9.81    9.57  avg
     # chunked_att_chunk-10_step-5_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3_memVariant1_memSize3               10       9.68  avg
@@ -1834,25 +1856,25 @@ def baseline():
     #         )
 
     # TODO: extended chunk
-    for left_context, center_context, right_context in [(0, 20, 5), (0, 10, 5), (5, 10, 5)]:
-        run_chunkwise_train(
-            enc_stream_type="chunked",
-            run_all_for_best_last_avg=True,
-            enable_check_align=False,
-            chunk_sizes=[left_context + center_context + right_context],
-            chunk_step_factors=[center_context / (left_context + center_context + right_context)],
-            start_lrs=[2e-4],
-            decay_pt_factors=[1 / 3],
-            gpu_mem=24,
-            total_epochs=[120],
-            batch_size=15_000,
-            accum_grad=2,
-            time_rqmt=120,
-            end_slice_start=left_context,
-            end_slice_size=center_context,
-            window_left_padding=left_context * 6,
-            suffix=f"_L{left_context}_C{center_context}_R{right_context}",
-        )
+    # for left_context, center_context, right_context in [(0, 20, 5), (0, 10, 5), (5, 10, 5)]:
+    #     run_chunkwise_train(
+    #         enc_stream_type="chunked",
+    #         run_all_for_best_last_avg=True,
+    #         enable_check_align=False,
+    #         chunk_sizes=[left_context + center_context + right_context],
+    #         chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+    #         start_lrs=[2e-4],
+    #         decay_pt_factors=[1 / 3],
+    #         gpu_mem=24,
+    #         total_epochs=[120],
+    #         batch_size=15_000,
+    #         accum_grad=2,
+    #         time_rqmt=120,
+    #         end_slice_start=left_context,
+    #         end_slice_size=center_context,
+    #         window_left_padding=left_context * 6,
+    #         suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+    #     )
 
     # TODO: with mem
     for left_context, center_context, right_context, mem_size in [
@@ -1921,23 +1943,6 @@ def baseline():
             suffix=f"_L{left_context}_C{center_context}_R{right_context}",
         )
 
-    # TODO: using cached prev kv
-    run_chunkwise_train(
-        enc_stream_type="chunked",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[10],
-        chunk_step_factors=[0.5],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[120],
-        batch_size=15_000,
-        accum_grad=2,
-        time_rqmt=120,
-        conf_mem_opts={"self_att_version": 1, "mem_size": 1, "use_cached_prev_kv": True},
-    )
-
     for left_context, center_context, right_context, mem_size in [
         (0, 20, 5, 1),
         (0, 15, 10, 1),
@@ -1972,7 +1977,7 @@ def baseline():
 
     # TODO: recog on concat seqs
     # baseline: 7.7/7.3
-    for num in [2, 3, 4, 5, 6, 7, 8, 9, 10, 20]:
+    for num in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20]:
         for left_context, center_context, right_context, conv_cache_size, mem_size in [(0, 20, 5, 1, 2)]:
             run_chunkwise_train(
                 enc_stream_type="chunked",
@@ -1999,7 +2004,7 @@ def baseline():
                     "mem_slice_size": center_context,
                 },
                 suffix=f"_L{left_context}_C{center_context}_R{right_context}",
-                concat_recog_opts={"corpus_names": ["dev", "test"], "num": num, "checkpoint": "avg"},
+                concat_recog_opts={"corpus_names": ["test"], "num": num, "checkpoint": "avg"},
             )
 
     # TODO: best streaming model + EOC masking
@@ -2036,94 +2041,135 @@ def baseline():
         )
 
     # TODO: decoder wo length norm
-    for beam in [1, 4, 8, 12, 16, 20, 24, 32, 64, 128]:
-        for length_norm in [True, False]:
-            # chunked_att_chunk-25_step-20_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2_winLeft0_endSliceStart0_endSlice20_memVariant1_memSize2_convCache1_useCachedKV_memSlice0-20_L0_C20_R5    7.7     7.25  avg
-            for left_context, center_context, right_context, mem_size in [
-                (0, 20, 5, 2),
-            ]:
-                train_args_, exp_name_, train_data = run_chunkwise_train(
-                    enc_stream_type="chunked",
-                    run_all_for_best_last_avg=True,
-                    enable_check_align=False,
-                    chunk_sizes=[left_context + center_context + right_context],
-                    chunk_step_factors=[center_context / (left_context + center_context + right_context)],
-                    start_lrs=[2e-4],
-                    decay_pt_factors=[1 / 3],
-                    gpu_mem=24,
-                    total_epochs=[120],
-                    batch_size=15_000,
-                    accum_grad=2,
-                    time_rqmt=120,
-                    end_slice_start=left_context,
-                    end_slice_size=center_context,
-                    window_left_padding=left_context * 6,
-                    conf_mem_opts={
-                        "self_att_version": 1,
-                        "mem_size": mem_size,
-                        "use_cached_prev_kv": True,
-                        "conv_cache_size": conv_cache_size,
-                        "mem_slice_start": left_context,
-                        "mem_slice_size": center_context,
-                    },
-                    suffix=f"_L{left_context}_C{center_context}_R{right_context}",
-                    return_args=True,
-                )
-
-                search_exp_name = exp_name_
-                search_args = copy.deepcopy(train_args_)
-                search_args["beam_size"] = beam
-                search_exp_name += f"_beam{beam}"
-                search_args["decoder_args"].length_normalization = length_norm
-                if length_norm is False:
-                    search_exp_name += "_noLenNorm"
-                test_datasets = get_test_dataset_tuples(bpe_size=BPE_1K)
-                for test_dataset in ["dev", "test"]:
-                    run_single_search(
-                        prefix_name=prefix_name,
-                        exp_name=search_exp_name + f"/{test_dataset}",
-                        train_data=train_data,
-                        search_args=search_args,
-                        checkpoint=train_job_avg_ckpt[exp_name_],
-                        feature_extraction_net=log10_net_10ms,
-                        recog_dataset=test_datasets[test_dataset][0],
-                        recog_ref=test_datasets[test_dataset][1],
-                        recog_bliss_corpus=test_datasets[test_dataset][2],
-                    )
-
-                # TODO: use smaller slice (wrong implementation - fix later)
-                # if beam == 12 and length_norm == True:
-                #     for slice_size in [5, 10, 15]:
-                #         search_exp_name = exp_name_
-                #         search_args = copy.deepcopy(train_args_)
-                #         search_args["end_slice_size"] = slice_size
-                #         search_exp_name += f"_decSlice{slice_size}"
-                #         search_args["beam_size"] = beam
-                #         search_exp_name += f"_beam{beam}"
-                #         search_args["decoder_args"].length_normalization = length_norm
-                #         if length_norm is False:
-                #             search_exp_name += "_noLenNorm"
-                #         test_datasets = get_test_dataset_tuples(bpe_size=BPE_1K)
-                #         for test_dataset in ["dev", "test"]:
-                #             run_single_search(
-                #                 prefix_name=prefix_name,
-                #                 exp_name=search_exp_name + f"/{test_dataset}",
-                #                 train_data=train_data,
-                #                 search_args=search_args,
-                #                 checkpoint=train_job_avg_ckpt[exp_name_],
-                #                 feature_extraction_net=log10_net_10ms,
-                #                 recog_dataset=test_datasets[test_dataset][0],
-                #                 recog_ref=test_datasets[test_dataset][1],
-                #                 recog_bliss_corpus=test_datasets[test_dataset][2],
-                #             )
-
-    # TODO: use smaller chunk size only in decoding
+    # for beam in [1, 4, 8, 12, 16, 20, 24, 32, 64, 128]:
+    #     for length_norm in [True, False]:
+    #         # chunked_att_chunk-25_step-20_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2_winLeft0_endSliceStart0_endSlice20_memVariant1_memSize2_convCache1_useCachedKV_memSlice0-20_L0_C20_R5    7.7     7.25  avg
+    #         for left_context, center_context, right_context, mem_size in [
+    #             (0, 20, 5, 2),
+    #         ]:
+    #             train_args_, exp_name_, train_data = run_chunkwise_train(
+    #                 enc_stream_type="chunked",
+    #                 run_all_for_best_last_avg=True,
+    #                 enable_check_align=False,
+    #                 chunk_sizes=[left_context + center_context + right_context],
+    #                 chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+    #                 start_lrs=[2e-4],
+    #                 decay_pt_factors=[1 / 3],
+    #                 gpu_mem=24,
+    #                 total_epochs=[120],
+    #                 batch_size=15_000,
+    #                 accum_grad=2,
+    #                 time_rqmt=120,
+    #                 end_slice_start=left_context,
+    #                 end_slice_size=center_context,
+    #                 window_left_padding=left_context * 6,
+    #                 conf_mem_opts={
+    #                     "self_att_version": 1,
+    #                     "mem_size": mem_size,
+    #                     "use_cached_prev_kv": True,
+    #                     "conv_cache_size": conv_cache_size,
+    #                     "mem_slice_start": left_context,
+    #                     "mem_slice_size": center_context,
+    #                 },
+    #                 suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+    #                 return_args=True,
+    #             )
+    #
+    #             search_exp_name = exp_name_
+    #             search_args = copy.deepcopy(train_args_)
+    #             search_args["beam_size"] = beam
+    #             search_exp_name += f"_beam{beam}"
+    #             search_args["decoder_args"].length_normalization = length_norm
+    #             if length_norm is False:
+    #                 search_exp_name += "_noLenNorm"
+    #             test_datasets = get_test_dataset_tuples(bpe_size=BPE_1K)
+    #             for test_dataset in ["dev", "test"]:
+    #                 run_single_search(
+    #                     prefix_name=prefix_name,
+    #                     exp_name=search_exp_name + f"/{test_dataset}",
+    #                     train_data=train_data,
+    #                     search_args=search_args,
+    #                     checkpoint=train_job_avg_ckpt[exp_name_],
+    #                     feature_extraction_net=log10_net_10ms,
+    #                     recog_dataset=test_datasets[test_dataset][0],
+    #                     recog_ref=test_datasets[test_dataset][1],
+    #                     recog_bliss_corpus=test_datasets[test_dataset][2],
+    #                 )
 
     # TODO: CTC alignments
     # - concat align + freeze
     # - average align + freeze
     # - average align + average train
     # - concat align + average train
+
+    for left_context, center_context, right_context, conv_size, mem_size in [
+        (0, 20, 0, 1, 2),
+        (0, 20, 10, 1, 2),
+        (0, 20, 15, 1, 2),
+        #
+        (0, 10, 15, 4, 4),
+        (0, 10, 10, 4, 4),
+        # #
+        (0, 25, 5, 1, 2),
+        (0, 30, 5, 1, 2),
+        (0, 33, 5, 1, 2),
+    ]:
+        run_chunkwise_train(
+            enc_stream_type="chunked",
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            chunk_sizes=[left_context + center_context + right_context],
+            chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+            start_lrs=[2e-4],
+            decay_pt_factors=[1 / 3],
+            gpu_mem=24,
+            total_epochs=[120],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=120,
+            end_slice_start=left_context,
+            end_slice_size=center_context,
+            window_left_padding=left_context * 6,
+            conf_mem_opts={
+                "self_att_version": 1,
+                "mem_size": mem_size,
+                "use_cached_prev_kv": True,
+                "conv_cache_size": 1,
+                "mem_slice_start": left_context,
+                "mem_slice_size": center_context,
+            },
+            suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+        )
+
+    for left_context, center_context, right_context, conv_size, mem_size in [
+        (0, 25, 0, 1, 2),
+    ]:
+        run_chunkwise_train(
+            enc_stream_type="chunked",
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            chunk_sizes=[25],
+            chunk_step_factors=[20 / 25],
+            start_lrs=[2e-4],
+            decay_pt_factors=[1 / 3],
+            gpu_mem=24,
+            total_epochs=[120],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=120,
+            end_slice_start=left_context,
+            end_slice_size=20,
+            window_left_padding=left_context * 6,
+            conf_mem_opts={
+                "self_att_version": 1,
+                "mem_size": mem_size,
+                "use_cached_prev_kv": True,
+                "conv_cache_size": conv_size,
+                "mem_slice_start": left_context,
+                "mem_slice_size": 20,
+            },
+            suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+        )
 
     # ---------------------- Chunk-size 1 AED Transducer ------------------------- #
 
@@ -2145,25 +2191,198 @@ def baseline():
             decoder_mask_eoc=mask_eoc,
         )
 
-    # TODO: change it to h_t, with att out linear transformation (should then be same kind of embedding, also same dim)
-
-    # TODO: h_t without linear trafo (might be different dim)
-
     # TODO: no h_t at all (also different dim)
-    run_chunkwise_train(
-        enc_stream_type="global",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[1],
-        chunk_step_factors=[1],
-        start_lrs=[2e-4],
-        decay_pt_factors=[0.25],
-        gpu_mem=24,
-        total_epochs=[60, 80, 120],
-        batch_size=30_000,
-        accum_grad=1,
-        time_rqmt=120,
-        decoder_mask_eoc=True,
-        remove_att_ctx_from_dec_state=True,
-        returnn_root=RETURNN_ROOT_V2,
-    )
+    for chunk_size in [1]:
+        run_chunkwise_train(
+            enc_stream_type="global",
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            chunk_sizes=[chunk_size],
+            chunk_step_factors=[1],
+            start_lrs=[2e-4],
+            decay_pt_factors=[0.25],
+            gpu_mem=24,
+            total_epochs=[80, 120, 160],
+            batch_size=30_000,
+            accum_grad=1,
+            time_rqmt=120,
+            decoder_mask_eoc=True,
+            remove_att_ctx_from_dec_state=True,
+            returnn_root=RETURNN_ROOT_V2,
+        )
+
+    # ------------------- Word Emit Latency -------------------- #
+
+    def compute_latency(
+        args,
+        train_data,
+        model_exp_name,
+        dev_hdf_align,
+        center_context,
+        right_context,
+        chunk_stride,
+        mem_size,
+        beam=64,
+    ):
+        exp_prefix = os.path.join(prefix_name, model_exp_name)
+        config_ = create_config(
+            training_datasets=train_data,
+            **args,
+            feature_extraction_net=log10_net_10ms,
+            is_recog=True,
+        )
+        config_.config["dev"] = train_data.cv.as_returnn_opts()
+
+        # add train alignment hdf
+        config_.config["dev"]["datasets"].update(
+            {
+                "chunk_hdf_dataset": {
+                    "class": "HDFDataset",
+                    "files": [
+                        dev_hdf_align,
+                    ],
+                    "partition_epoch": 1,
+                    "use_cache_manager": True,
+                },
+            }
+        )
+        config_.config["dev"]["data_map"].update({"chunk_bpe_labels": ("chunk_hdf_dataset", "data")})
+
+        config_.config["extern_data"]["chunk_bpe_labels"] = config_.config["extern_data"]["bpe_labels"]
+
+        config_.config["network"]["output"] = copy.deepcopy(config_.config["network"]["output_align"])
+        config_.config["network"]["output"].pop("name_scope")
+        config_.config["network"].pop("output_align")
+        config_.config["network"]["out_best"]["from"] = "output"
+
+        # add cheating
+        config_.config["network"]["output"]["unit"]["output"]["cheating"] = "exclusive"
+        config_.config["network"]["output"]["unit"]["output"]["beam_size"] = beam
+        config_.config["network"]["output"]["unit"]["output"]["target"] = "chunk_bpe_labels"
+        config_.config["network"]["output"]["target"] = "chunk_bpe_labels"
+
+        # add hdf dump
+        config_.config["network"]["dump_out_best"] = {
+            "class": "hdf_dump",
+            "from": "out_best",  # should have "from": "output_align"
+            "filename": "out_best.hdf",
+            "is_output_layer": True,
+        }
+
+        # dummy loss
+        config_.config["network"]["dummy_loss"] = {"class": "constant", "value": 10, "loss": "as_is"}
+
+        # delete
+        config_.config["network"].pop("_02_alignment_on_the_fly")
+        config_.config["network"]["out_best_wo_blank"].pop("target")
+
+        forward_j = ReturnnForwardJob(
+            model_checkpoint=train_job_avg_ckpt[model_exp_name],
+            returnn_config=config_,
+            returnn_root=tk.Path("/u/zeineldeen/debugging/align/returnn", hash_overwrite="returnn_align"),
+            returnn_python_exe=RETURNN_CPU_EXE,
+            hdf_outputs=["out_best.hdf"],
+            eval_mode=True,
+            device="gpu",
+            time_rqmt=0.2,
+        )
+        forward_j.add_alias(exp_prefix + "/latency_forward")
+        from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.latency import ComputeWordEmitLatencyJob
+
+        allophones_file = tk.Path("/u/zeineldeen/debugging/align/C10-R15/allophones", hash_overwrite="allophones")
+        lexicon = tk.Path("/u/zeineldeen/debugging/align/C10-R15/oov.lexicon.gz", hash_overwrite="lexicon")
+        bpe_vocab = tk.Path("/u/zeineldeen/debugging/align/C10-R15/bpe.vocab", hash_overwrite="bpe_vocab")
+        alignment_cache = tk.Path(
+            "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2023-09-06--ted2-hybrid/work/i6_core/mm/alignment/AlignmentJob.EQyTKVqJMGtp/output/alignment.cache.bundle",
+            hash_overwrite="alignment_cache",
+        )
+        bliss_corpus = tk.Path("/u/zeineldeen/debugging/align/C10-R15/dev.xml.gz", hash_overwrite="bliss_corpus")
+
+        latency_j = ComputeWordEmitLatencyJob(
+            allophones_file=allophones_file,
+            lexicon=lexicon,
+            bpe_vocab=bpe_vocab,
+            alignment_cache=alignment_cache,
+            bliss_corpus=bliss_corpus,
+            left_padding=0,
+            chunk_size=center_context + right_context,
+            chunk_stride=chunk_stride,
+            chunked_output_hdf=forward_j.out_hdf_files["out_best.hdf"],
+            latency_script_path=tk.Path("/u/zeineldeen/debugging/align/latency.py", hash_overwrite="latency_script"),
+            python_exec=RETURNN_CPU_EXE,
+        )
+        latency_j.add_alias(prefix_name + f"/latency/C{center_context}_R{right_context}_CarryOver{mem_size}")
+        tk.register_output(exp_prefix + "/latency/dummy", latency_j.out_dummy_value)
+
+    def _run(
+        left_context,
+        center_context,
+        right_context,
+        conv_cache_size,
+        mem_size,
+        on_the_fly_align=False,
+        do_not_train=False,
+    ):
+        train_args_, exp_name_, train_data, train_align_hdf, dev_align_hdf = run_chunkwise_train(
+            enc_stream_type="chunked",
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            chunk_sizes=[left_context + center_context + right_context],
+            chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+            start_lrs=[2e-4],
+            decay_pt_factors=[1 / 3],
+            gpu_mem=24,
+            total_epochs=[120],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=120,
+            end_slice_start=left_context,
+            end_slice_size=center_context,
+            window_left_padding=left_context * 6,
+            conf_mem_opts={
+                "self_att_version": 1,
+                "mem_size": mem_size,
+                "use_cached_prev_kv": True,
+                "conv_cache_size": conv_cache_size,
+                "mem_slice_start": left_context,
+                "mem_slice_size": center_context,
+            },
+            suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+            on_the_fly_align=on_the_fly_align,
+            return_args=True,
+            return_hdf_align=True,
+            do_not_train=do_not_train,
+        )
+        return train_args_, exp_name_, train_data, train_align_hdf, dev_align_hdf
+
+    # for left_context, center_context, right_context, conv_cache_size, mem_size in [
+    #     (0, 20, 5, 1, 2),  # C=1.2,R=0.3
+    #     (0, 20, 5, 1, 1),  # C=1.2,R=0.3
+    #     (0, 20, 10, 1, 2),  # C=1.2,R=0.6
+    #     (0, 20, 15, 1, 2),  # C=1.2,R=0.6
+    #     (0, 30, 5, 1, 2),  # C=1.8,R=0.3
+    #     (0, 10, 5, 2, 1),  # C=0.6,R=0.3
+    #     (0, 10, 15, 4, 2),  # C=0.6,R=0.9
+    # ]:
+    #     train_args_, _, train_data, _, dev_hdf_align = _run(
+    #         left_context,
+    #         center_context,
+    #         right_context,
+    #         conv_cache_size,
+    #         mem_size,
+    #         on_the_fly_align=True,
+    #         do_not_train=True,
+    #     )
+    #     _, model_exp_name, _, _, _ = _run(
+    #         left_context, center_context, right_context, conv_cache_size, mem_size, on_the_fly_align=False
+    #     )
+    #     compute_latency(
+    #         train_args_,
+    #         train_data,
+    #         model_exp_name,
+    #         dev_hdf_align,
+    #         center_context=center_context * 6 / 100,
+    #         right_context=right_context * 6 / 100,
+    #         chunk_stride=center_context * 6 / 100,
+    #         mem_size=mem_size,
+    #     )

@@ -72,15 +72,8 @@ def get_nn_args_jxu(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_re
             "lmgc_mem": 16,
             "cpu": 2,
             "parallelize_conversion": True,
-            "needs_features_size": False,
-            "training_whitelist": [
-                "torchaudio_conformer",
-                "torchaudio_conformer_subup_medium",
-                "torchaudio_conformer_v2_subx2_lchunk",
-                "torchaudio_conformer_v2_subx2_lchunk_nomhsa",
-                "torchaudio_conformer_v3_subx2_lchunk",
-                "i6_models_conformer_block",
-                "i6_models_conformer_block_convfirst"],
+            "needs_features_size": True,
+            "nn_prior": False,
         },
     }
     test_recognition_args = None
@@ -110,11 +103,7 @@ def get_pytorch_returnn_configs(
     }
     base_post_config = {
         "backend": "torch",
-        "debug_print_layer_output_template": True,
-        "log_batch_size": True,
-        "tf_log_memory_usage": True,
         "cache_size": "0",
-
     }
 
     blstm_base_config = copy.deepcopy(base_config)
@@ -143,7 +132,7 @@ def get_pytorch_returnn_configs(
     jxu_best = copy.deepcopy((blstm_base_config))
     jxu_best["learning_rates"] = list(np.linspace(1e-4, 1e-3, (num_epochs-60)//2)) + list(np.linspace(1e-3, 1e-4, (num_epochs-60)//2)) + list(np.linspace(1e-4, 1e-8, 60))
     jxu_best["chunking"] = "400:200"
-    jxu_best["batch_size"] = 18000
+    jxu_best["batch_size"] = 17000
 
     # those are hashed
     pytorch_package = PACKAGE + ".pytorch_networks"
@@ -168,7 +157,7 @@ def get_pytorch_returnn_configs(
         if use_i6_models:
             i6_models_repo = CloneGitRepositoryJob(
                 url="https://github.com/rwth-i6/i6_models",
-                commit="2e76cd9bf346ba0a635815731f4cff53cd817d2a",
+                commit="1e94a4d9d1aa48fe3ac7f60de2cd7bd3fea19c3e",
                 checkout_folder_name="i6_models"
             ).out_repository
             i6_models_repo.hash_overwrite = "LIBRISPEECH_DEFAULT_I6_MODELS"
@@ -210,6 +199,6 @@ def get_pytorch_returnn_configs(
         return blstm_base_returnn_config
 
     return {
-        "jxu_i6_conformer_downsample_3": construct_from_net_kwargs(jxu_best, {
-            "model_type": "jxu_i6_conformer_downsample_3"}, use_tracing=True),  #
+        "i6_models_jxu_style_conf_downsample3_static": construct_from_net_kwargs(jxu_best, {
+            "model_type": "i6_models_jxu_style_conf_downsample3_static"}, use_tracing=True),  #
     }

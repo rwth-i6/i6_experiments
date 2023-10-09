@@ -104,7 +104,7 @@ class RasrConfigBuilder:
     return RasrConfigBuilder._write_config(config=config, post_config=post_config)
 
   @staticmethod
-  def get_feature_extraction_config(segment_path: Path, feature_cache_path: Path, corpus_path: Path) -> Path:
+  def get_feature_extraction_config(segment_path: Optional[Path], feature_cache_path: Path, corpus_path: Path) -> Path:
     crp = CommonRasrParameters()
 
     misc_config = RasrConfig()

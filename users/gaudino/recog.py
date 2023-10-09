@@ -224,9 +224,9 @@ def search_config(
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
-                    serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
-                    serialization.Import(recog_def, "_recog_def", ignore_import_as_for_hash=True),
-                    serialization.Import(_returnn_get_network, "get_network", use_for_hash=False),
+                    serialization.Import(model_def, import_as="_model_def", ignore_import_as_for_hash=True),
+                    serialization.Import(recog_def, import_as="_recog_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_get_network, import_as="get_network", use_for_hash=False),
                     serialization.ExplicitHash(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
@@ -305,16 +305,16 @@ def search_config_v2(
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
-                    serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
-                    serialization.Import(_returnn_v2_get_model, "get_model"),
-                    serialization.Import(recog_def, "_recog_def", ignore_import_as_for_hash=True),
-                    serialization.Import(_returnn_v2_forward_step, "forward_step"),
-                    serialization.Import(_returnn_v2_get_forward_callback, "forward_callback"),
+                    serialization.Import(model_def, import_as="_model_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_v2_get_model, import_as="get_model"),
+                    serialization.Import(recog_def, import_as="_recog_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_v2_forward_step, import_as="forward_step"),
+                    serialization.Import(_returnn_v2_get_forward_callback, import_as="forward_callback"),
                     serialization.ExplicitHash(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 1,
+                            "version": 3,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,

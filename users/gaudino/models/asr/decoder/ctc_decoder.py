@@ -1216,7 +1216,10 @@ class CTCDecoder:
         # add masks
         self.add_masks(subnet_unit)
         # add attention decoder
-        subnet_unit.update(attention_decoder_dict)
+        if self.att_masking_fix:
+            subnet_unit.update(attention_decoder_dict_with_fix)
+        else:
+            subnet_unit.update(attention_decoder_dict)
         # add lstm lm
         subnet_unit.update(
             {

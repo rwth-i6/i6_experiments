@@ -90,7 +90,7 @@ class RASRRealignmentParallelJob(RasrCommand, Job):
     )
 
     self.rqmt = {
-      "cpu": 1,
+      "cpu": 3,
       "mem": self.mem_rqmt, "time": self.time_rqmt, "gpu": 1 if use_gpu else 0}
 
     # self.out_alignment = self.output_path("alignment.cache.1")

@@ -1,0 +1,3 @@
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.tedlium2.bpe.bpe_alignments import TedLium2Bpe1058CtcAlignment
+
+TEDLIUM2BPE1058_CTC_ALIGNMENT = TedLium2Bpe1058CtcAlignment()

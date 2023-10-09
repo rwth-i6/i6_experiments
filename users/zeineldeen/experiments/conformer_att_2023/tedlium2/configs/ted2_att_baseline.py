@@ -940,7 +940,7 @@ def conformer_baseline():
     #             )
 
     # --------------------- V1 ---------------------
-    def get_base_v1_args(lr, ep, enc_drop=0.1, pretrain_reps=3):
+    def get_base_v1_args(lr, ep, enc_drop=0.1, pretrain_reps=3, use_legacy_stats=True):
         #  base_bpe1000_peakLR0.0008_ep200_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.1_woDepthConvPre
         # Average ckpt: 8.19/7.64 (50 epochs)
         # - Epoch-based OCLR with peak LR 8e-4
@@ -957,7 +957,11 @@ def conformer_baseline():
             + list(numpy.linspace(lr, lr / 10, cyc_ep))
             + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
         )
-        base_v1_args["global_stats"] = {"mean": global_mean, "stddev": global_std}
+        base_v1_args["global_stats"] = {
+            "mean": global_mean,
+            "stddev": global_std,
+            "use_legacy_version": use_legacy_stats,
+        }
         base_v1_args["pretrain_reps"] = pretrain_reps
         base_v1_args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
         base_v1_args["encoder_args"].dropout = enc_drop
@@ -1007,33 +1011,33 @@ def conformer_baseline():
 
     # TODO: longer training with more regularization
     # TODO: embed dropout?
+    # for num_blocks in [12]:
+    #     for ep in [100 * 4]:
+    #         for lr in [8e-4]:
+    #             for weight_drop in [0.1]:
+    #                 for enc_drop in [0.1, 0.15, 0.2]:
+    #                     base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
+    #                     args = copy.deepcopy(base_v1_args)
+    #
+    #                     args["encoder_args"].num_blocks = num_blocks
+    #                     args["encoder_args"].mhsa_weight_dropout = weight_drop
+    #                     args["encoder_args"].ff_weight_dropout = weight_drop
+    #                     args["encoder_args"].conv_weight_dropout = weight_drop
+    #
+    #                     name = exp_name + f"_weightDrop{weight_drop}_numBlocks{num_blocks}"
+    #                     run_exp(
+    #                         name,
+    #                         args,
+    #                         num_epochs=ep,
+    #                         epoch_wise_filter=None,
+    #                         bpe_size=BPE_1K,
+    #                         partition_epoch=4,
+    #                     )
+
     for num_blocks in [12]:
         for ep in [100 * 4]:
             for lr in [8e-4]:
-                for weight_drop in [0.1]:
-                    for enc_drop in [0.1, 0.15, 0.2]:
-                        base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
-                        args = copy.deepcopy(base_v1_args)
-
-                        args["encoder_args"].num_blocks = num_blocks
-                        args["encoder_args"].mhsa_weight_dropout = weight_drop
-                        args["encoder_args"].ff_weight_dropout = weight_drop
-                        args["encoder_args"].conv_weight_dropout = weight_drop
-
-                        name = exp_name + f"_weightDrop{weight_drop}_numBlocks{num_blocks}"
-                        run_exp(
-                            name,
-                            args,
-                            num_epochs=ep,
-                            epoch_wise_filter=None,
-                            bpe_size=BPE_1K,
-                            partition_epoch=4,
-                        )
-
-    for num_blocks in [12]:
-        for ep in [100 * 4]:
-            for lr in [8e-4]:
-                for target_embed_dim in [256, 640]:  # 640 is used by default
+                for target_embed_dim in [256]:  # 640 is used by default
                     for att_drop in [0.0]:
                         for weight_drop in [0.1]:
                             for enc_drop in [0.15]:
@@ -1062,53 +1066,130 @@ def conformer_baseline():
                                 # TODO: retrain
                                 # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12
                                 # 7.4     6.85  avg
-                                if target_embed_dim == 256 and att_drop == 0.0:
-                                    # long-form speech recognition
-                                    for num in [2, 3, 4, 5, 6, 7, 8, 9, 10]:
-                                        search_args = {}
-                                        if num >= 5:
-                                            search_args["max_seqs"] = 1  # o.w OOM
-                                        run_exp(
-                                            name,
-                                            args,
-                                            num_epochs=ep,
-                                            epoch_wise_filter=None,
-                                            bpe_size=BPE_1K,
-                                            partition_epoch=4,
-                                            concat_recog_opts={
-                                                "num": num,
-                                                "corpus_names": ["dev", "test"],
-                                                "checkpoint": "avg",
-                                                "search_args": search_args,
-                                            },
-                                        )
+                                # if target_embed_dim == 256 and att_drop == 0.0:
+                                #     # long-form speech recognition
+                                #     for num in [2, 3, 4, 5, 6, 7, 8, 9, 10]:
+                                #         search_args = {}
+                                #         if num >= 5:
+                                #             search_args["max_seqs"] = 1  # o.w OOM
+                                #         run_exp(
+                                #             name,
+                                #             args,
+                                #             num_epochs=ep,
+                                #             epoch_wise_filter=None,
+                                #             bpe_size=BPE_1K,
+                                #             partition_epoch=4,
+                                #             concat_recog_opts={
+                                #                 "num": num,
+                                #                 "corpus_names": ["dev", "test"],
+                                #                 "checkpoint": "avg",
+                                #                 "search_args": search_args,
+                                #             },
+                                #         )
 
-                                    for dec_att_drop in [0.1]:
-                                        for weight_drop in [0.15]:
-                                            for lr in [8e-4]:
-                                                retrain_args = copy.deepcopy(args)
-                                                retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[name]
-                                                retrain_args["learning_rates_list"] = [lr] * 8 + list(
-                                                    numpy.linspace(lr, 1e-6, 200 - 8)
-                                                )
-                                                retrain_args["decoder_args"].att_dropout = dec_att_drop
-                                                retrain_args["encoder_args"].dropout = 0.2
-                                                retrain_args["encoder_args"].dropout_in = 0.2
-                                                retrain_args["encoder_args"].att_dropout = 0.2
+                                # for dec_att_drop in [0.1]:
+                                #     for weight_drop in [0.15]:
+                                #         for lr in [8e-4]:
+                                #             retrain_args = copy.deepcopy(args)
+                                #             retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[name]
+                                #             retrain_args["learning_rates_list"] = [lr] * 8 + list(
+                                #                 numpy.linspace(lr, 1e-6, 200 - 8)
+                                #             )
+                                #             retrain_args["decoder_args"].att_dropout = dec_att_drop
+                                #             retrain_args["encoder_args"].dropout = 0.2
+                                #             retrain_args["encoder_args"].dropout_in = 0.2
+                                #             retrain_args["encoder_args"].att_dropout = 0.2
+                                #
+                                #             retrain_args["encoder_args"].mhsa_weight_dropout = weight_drop
+                                #             retrain_args["encoder_args"].ff_weight_dropout = weight_drop
+                                #             retrain_args["encoder_args"].conv_weight_dropout = weight_drop
+                                #
+                                #             retrain_name = (
+                                #                 exp_name
+                                #                 + f"_weightDrop{weight_drop}_decAttDrop{dec_att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
+                                #             )
+                                #             run_exp(
+                                #                 retrain_name + f"_retrain1_lr{lr}_ep200",
+                                #                 retrain_args,
+                                #                 num_epochs=200,
+                                #                 epoch_wise_filter=None,
+                                #                 bpe_size=BPE_1K,
+                                #                 partition_epoch=4,
+                                #             )
 
-                                                retrain_args["encoder_args"].mhsa_weight_dropout = weight_drop
-                                                retrain_args["encoder_args"].ff_weight_dropout = weight_drop
-                                                retrain_args["encoder_args"].conv_weight_dropout = weight_drop
+    for num_blocks in [14, 16]:
+        for ep in [100 * 4]:
+            for lr in [8e-4]:
+                for target_embed_dim in [256]:
+                    for att_drop in [0.0]:
+                        for weight_drop in [0.1]:
+                            for enc_drop in [0.15]:
+                                base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
+                                args = copy.deepcopy(base_v1_args)
+                                args["encoder_args"].num_blocks = num_blocks
+                                args["encoder_args"].mhsa_weight_dropout = weight_drop
+                                args["encoder_args"].ff_weight_dropout = weight_drop
+                                args["encoder_args"].conv_weight_dropout = weight_drop
 
-                                                retrain_name = (
-                                                    exp_name
-                                                    + f"_weightDrop{weight_drop}_decAttDrop{dec_att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
-                                                )
-                                                run_exp(
-                                                    retrain_name + f"_retrain1_lr{lr}_ep200",
-                                                    retrain_args,
-                                                    num_epochs=200,
-                                                    epoch_wise_filter=None,
-                                                    bpe_size=BPE_1K,
-                                                    partition_epoch=4,
-                                                )
+                                args["decoder_args"].embed_dim = target_embed_dim
+                                args["decoder_args"].att_dropout = att_drop
+
+                                args["batch_size"] *= 2
+                                args["pretrain_opts"]["initial_batch_size"] *= 2
+                                args["accum_grad"] = 1
+
+                                name = (
+                                    exp_name
+                                    + f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}_bs30k"
+                                )
+                                run_exp(
+                                    name,
+                                    args,
+                                    num_epochs=ep,
+                                    epoch_wise_filter=None,
+                                    bpe_size=BPE_1K,
+                                    partition_epoch=4,
+                                    gpu_mem=24,
+                                )
+
+    for num_blocks in [16]:
+        for ep in [100 * 4]:
+            for lr in [8e-4]:
+                for target_embed_dim in [256]:
+                    for att_drop in [0.0]:
+                        for weight_drop in [0.1]:
+                            for enc_drop in [0.15]:
+                                base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
+                                args = copy.deepcopy(base_v1_args)
+                                args["encoder_args"].num_blocks = num_blocks
+                                args["encoder_args"].mhsa_weight_dropout = weight_drop
+                                args["encoder_args"].ff_weight_dropout = weight_drop
+                                args["encoder_args"].conv_weight_dropout = weight_drop
+
+                                args["encoder_args"].enc_key_dim = 384
+                                args["encoder_args"].att_num_heads = 6
+                                args["encoder_args"].ff_dim = 1536
+
+                                args["decoder_args"].embed_dim = target_embed_dim
+                                args["decoder_args"].att_dropout = att_drop
+
+                                args["batch_size"] *= 2
+                                args["accum_grad"] = 1
+
+                                # modify pretrain
+                                args["pretrain_opts"]["initial_batch_size"] *= 2
+                                args["pretrain_opts"]["initial_dim_factor"] = 256 / 384
+
+                                name = (
+                                    exp_name
+                                    + f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}_dim384_bs30k"
+                                )
+                                run_exp(
+                                    name,
+                                    args,
+                                    num_epochs=ep,
+                                    epoch_wise_filter=None,
+                                    bpe_size=BPE_1K,
+                                    partition_epoch=4,
+                                    gpu_mem=24,
+                                )
