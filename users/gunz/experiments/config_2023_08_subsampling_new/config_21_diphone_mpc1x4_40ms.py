@@ -778,9 +778,9 @@ def run_single(
                         j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if fine_tune and alignment_name == "40ms-FFs-v8":
-        # Training schedule w/ same number of epochs, 50% viterbi 50% FS
+        # Training schedule w/ same number of epochs, 600-X eps viterbi + X eps FS
 
-        for start_ep in [300, 500]:
+        for start_ep in [120, 300, 500]:
             fine_tune_epochs = num_epochs - start_ep
             keep_epochs = [int(v) for v in np.linspace(fine_tune_epochs * 0.1, fine_tune_epochs, 4)]
             orig_name = name
