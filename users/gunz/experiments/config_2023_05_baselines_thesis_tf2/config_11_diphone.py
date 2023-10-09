@@ -670,7 +670,7 @@ def run_single(
     integrated_training_schedule = alignment_name == "scratch" and n_states_per_phone == 3
     if integrated_training_schedule:
         orig_name = name
-        for start_ep in [300, 500]:
+        for start_ep in [500]:
             fine_tune_epochs = num_epochs - start_ep
             fine_tune_keep_epochs = [int(v) for v in np.linspace(fine_tune_epochs * 0.1, fine_tune_epochs, 4)]
 
