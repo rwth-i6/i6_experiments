@@ -100,7 +100,8 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             label_smoothing=CONF_LABEL_SMOOTHING,
             lr="v13",
             run_performance_study=a_name == "40ms-FF-v8",
-            tune_decoding=a_name in ["40ms-FFs-v8", "40ms-Bmp-pC0.6", "40ms-Bs-pC0.6"],  # ["40ms-FF-v8", "40ms-FFs-v8"],
+            tune_decoding=a_name
+            in ["40ms-FFs-v8", "40ms-Bmp-pC0.6", "40ms-Bs-pC0.6"],  # ["40ms-FF-v8", "40ms-FFs-v8"],
             tune_nn_pch=a_name in ["40ms-FFs-v8"],
             run_tdp_study=False,
         )
