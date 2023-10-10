@@ -356,4 +356,86 @@ def run_single(
                 rtf=4,
             )
 
+    for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
+        s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+        s.set_diphone_priors_returnn_rasr(
+            key="fh",
+            epoch=ep,
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+        )
+
+        recognizer, recog_args = s.get_recognizer_and_args(
+            key="fh",
+            context_type=PhoneticContext.diphone,
+            crp_corpus=crp_k,
+            epoch=ep,
+            gpu=False,
+            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+            set_batch_major_for_feature_scorer=True,
+            lm_gc_simple_hash=True,
+        )
+        recog_args = recog_args.with_lm_scale(round(recog_args.lm_scale / float(ss_factor), 2)).with_tdp_scale(0.1)
+
+        # Top 3 from monophone TDP study
+        good_values = [
+            ((3, 0, "infinity", 0), (0, 3, "infinity", 20)),  # default
+            ((3, 0, "infinity", 0), (3, 10, "infinity", 10)),  # 8,9%
+            ((3, 0, "infinity", 3), (3, 10, "infinity", 10)),  # 8,9%
+            ((3, 0, "infinity", 0), (10, 10, "infinity", 10)),  # 9,0%
+        ]
+
+        for cfg in [
+            recog_args.with_prior_scale(0.4, 0.4),
+            recog_args.with_prior_scale(0.4, 0.2),
+            recog_args.with_prior_scale(0.4, 0.6)
+            .with_tdp_scale(0.4)
+            .with_tdp_speech((3, 0, "infinity", 0))
+            .with_tdp_silence((0, 3, "infinity", 20)),
+            *(
+                recog_args.with_prior_scale(0.4, 0.4)
+                .with_tdp_scale(0.4)
+                .with_tdp_speech(tdp_sp)
+                .with_tdp_silence(tdp_sil)
+                for tdp_sp, tdp_sil in good_values
+                if ep == 600
+            ),
+        ]:
+            recognizer.recognize_count_lm(
+                label_info=s.label_info,
+                search_parameters=cfg,
+                num_encoder_output=conf_model_dim,
+                rerun_after_opt_lm=True,
+                calculate_stats=True,
+                rtf_cpu=30,
+            )
+
+        if tune_decoding and ep == max(keep_epochs):
+            best_config = recognizer.recognize_optimize_scales(
+                label_info=s.label_info,
+                search_parameters=recog_args,
+                num_encoder_output=conf_model_dim,
+                tdp_speech=[(3, 0, "infinity", 0)],
+                tdp_sil=[(3, 10, "infinity", 10), (0, 3, "infinity", 20)],
+                prior_scales=list(
+                    itertools.product(
+                        np.linspace(0.1, 0.7, 7),
+                        np.linspace(0.0, 0.8, 9),
+                    )
+                ),
+                tdp_scales=[0.4],
+            )
+            recognizer.recognize_count_lm(
+                label_info=s.label_info,
+                search_parameters=best_config,
+                num_encoder_output=conf_model_dim,
+                rerun_after_opt_lm=True,
+                calculate_stats=True,
+                name_override="best/4gram",
+                rtf_cpu=32,
+            )
+
     return s
