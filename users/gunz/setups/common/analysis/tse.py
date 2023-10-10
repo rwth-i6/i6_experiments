@@ -152,7 +152,7 @@ class ComputeTimestampErrorJob(Job):
                 ]
             else:
                 logging.info(
-                    f"len mismatch in {seg} of {len(begins)}/{len(ends)} vs. {len(begins_ref)}/{len(ends_ref)}, skipping due to different pronunciation. {len(tse)} alignments already diffed."
+                    f"len mismatch in {seg} of {len(begins)}/{len(ends)} (alignment) vs. {len(begins_ref)}/{len(ends_ref)} (reference alignment), skipping due to different pronunciation. {len(tse)} alignments already diffed."
                 )
                 skipped += 1
                 continue
