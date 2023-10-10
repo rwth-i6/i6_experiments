@@ -79,6 +79,7 @@ class Experiment:
     run_performance_study: bool
     tune_decoding: bool
     run_tdp_study: bool
+    sa_max_reps_t: int
     ss_strategy: str
     smooth_oclr: bool
     swap_mhsa_conv: bool
@@ -110,6 +111,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             tune_decoding=a_name == "40ms-FF-v8",
             run_tdp_study=False,
             smooth_oclr=False,
+            sa_max_reps_t=20,
             ss_strategy=ss,
             swap_mhsa_conv=False,
         )
@@ -131,6 +133,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             run_performance_study=a_name == "40ms-FFs-v8",
             tune_decoding=a_name == "40ms-FFs-v8",
             run_tdp_study=False,
+            sa_max_reps_t=20,
             ss_strategy="mp:4@4",
             smooth_oclr=False,
             swap_mhsa_conv=swap_mhsa_conv,
@@ -162,6 +165,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
                 run_performance_study=a_name == "40ms-FFs-v8",
                 tune_decoding=a_name == "40ms-FFs-v8",
                 run_tdp_study=False,
+                sa_max_reps_t=20,
                 ss_strategy="mp:4@4",
                 smooth_oclr=True,
                 swap_mhsa_conv=False,
@@ -170,7 +174,31 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
         if a_name == "40ms-FFs-v8"
         else []
     )
-    for exp in [*frontend_configs, *encoder_configs, *smooth_lr_configs]:
+    sa_configs = [
+        Experiment(
+            alignment=alignment,
+            alignment_name=a_name,
+            batch_size=12500,
+            chunking=CONF_CHUNKING_10MS,
+            dc_detection=False,
+            decode_all_corpora=False,
+            fine_tune=True,
+            global_l2=False,
+            init=DEFAULT_INIT,
+            label_smoothing=CONF_LABEL_SMOOTHING,
+            lr="v13",
+            run_performance_study=a_name == "40ms-FFs-v8",
+            tune_decoding=a_name == "40ms-FFs-v8",
+            run_tdp_study=False,
+            sa_max_reps_t=sa,
+            ss_strategy="mp:4@4",
+            smooth_oclr=False,
+            swap_mhsa_conv=False,
+        )
+        for sa in [4, 10, 14]
+        if a_name == "40ms-FFs-v8"
+    ]
+    for exp in [*frontend_configs, *encoder_configs, *smooth_lr_configs, *sa_configs]:
         run_single(
             alignment=exp.alignment,
             alignment_name=exp.alignment_name,
@@ -189,6 +217,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             lr=exp.lr,
             run_tdp_study=exp.run_tdp_study,
             smooth_oclr=exp.smooth_oclr,
+            sa_max_reps_t=exp.sa_max_reps_t,
             ss_strategy=exp.ss_strategy,
             swap_mhsa_conv=exp.swap_mhsa_conv,
             weights_init=exp.init,
@@ -217,6 +246,7 @@ def run_single(
     weights_init: str,
     swap_mhsa_conv: bool,
     smooth_oclr: bool,
+    sa_max_reps_t: int,
     conf_model_dim: int = 512,
     num_epochs: int = 600,
 ) -> fh_system.FactoredHybridSystem:
@@ -395,6 +425,7 @@ def run_single(
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
+        "max_reps_time": sa_max_reps_t,
         "batch_size": batch_size,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
