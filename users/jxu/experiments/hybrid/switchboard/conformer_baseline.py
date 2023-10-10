@@ -108,7 +108,7 @@ def run_torch_hybrid_baseline_jingjing(peak_lr):
 
     RASR_BINARY_PATH = tk.Path("/work/asr4/rossenbach/rescale/pytorch_mixed_precision/onnx_extended_rasr/arch/linux-x86_64-standard")
     RASR_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_RASR_BINARY_PATH"
-    RETURNN_ROOT = tk.Path("/u/jxu/setups/librispeech-100/2023-06-10--torch-model/tools/20230620-returnn")
+    RETURNN_ROOT = tk.Path("/u/jxu/setups/switchboard/2023-02-07-hybrid-new-recipe/tools/returnn", hash_overwrite="RETURNN_ROOT",)
     returnn_exe = tk.Path("/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCHER",)
 
 
