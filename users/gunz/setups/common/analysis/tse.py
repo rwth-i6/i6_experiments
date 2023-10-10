@@ -189,6 +189,11 @@ class ComputeTimestampErrorJob(Job):
 
 
 class ComputeWordLevelTimestampErrorJob(ComputeTimestampErrorJob):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.rqmt["time"] = 4
+
     def _compute_begins_ends(
         self, alignment: FileArchiveBundle, seg_name: str, mix_indices: np.ndarray, silence_idx: int
     ) -> Tuple[np.ndarray, np.ndarray]:
