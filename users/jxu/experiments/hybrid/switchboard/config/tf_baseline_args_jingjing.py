@@ -82,7 +82,7 @@ def get_nn_args(
             "lmgc_mem": 16,
             "cpu": 4,
             "parallelize_conversion": True,
-            "forward_output_layer": "output",
+            # "forward_output_layer": "output",
         },
     }
     test_recognition_args = None
@@ -129,10 +129,10 @@ def get_returnn_configs_jingjing(
             "keep": evaluation_epochs,
         }
 
-    from .reduced_dim import network
+    from ..reduced_dim import network
 
     network_jingjing = copy.deepcopy(network)
-    from ....spec_aug.legacy_specaug_jingjing import (
+    from .....spec_aug.legacy_specaug_jingjing import (
         specaug_layer_jingjing,
         get_funcs_jingjing,
     )
