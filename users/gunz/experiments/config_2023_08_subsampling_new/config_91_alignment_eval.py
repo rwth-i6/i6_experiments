@@ -2,7 +2,12 @@ import os
 
 from sisyphus import gs, tk, Path
 
-from ...setups.common.analysis import ComputeTimestampErrorJob, PlotPhonemeDurationsJob, PlotViterbiAlignmentsJob
+from ...setups.common.analysis import (
+    ComputeTimestampErrorJob,
+    ComputeWordLevelTimestampErrorJob,
+    PlotPhonemeDurationsJob,
+    PlotViterbiAlignmentsJob,
+)
 from ...setups.common.analysis.tse_dmann import DMannComputeTseJob
 from ...setups.common.util import ComputeAverageJob
 from ..config_2023_05_baselines_thesis_tf2.config import SCRATCH_ALIGNMENT
@@ -61,10 +66,11 @@ def run():
         reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
         reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
         reference_t_step=10 / 1000,
-        fuzzy_match_mismatching_phoneme_sequences=True,
+        fuzzy_match_mismatching_phoneme_sequences=False,
     )
-    tk.register_output(f"alignments/10ms-scratch-blstm/tse-fuzzy", tse_job.out_tse)
-    tse_job = ComputeTimestampErrorJob(
+    tk.register_output(f"alignments/10ms-scratch-blstm/tse", tse_job.out_tse)
+
+    tse_w_job = ComputeWordLevelTimestampErrorJob(
         allophones=Path(
             "/work/asr3/raissi/shared_workspaces/gunz/2023-05--subsampling-tf2/i6_core/lexicon/allophones/StoreAllophonesJob.Qa3bLX1BHz42/output/allophones"
         ),
@@ -75,7 +81,7 @@ def run():
         reference_t_step=10 / 1000,
         fuzzy_match_mismatching_phoneme_sequences=False,
     )
-    tk.register_output(f"alignments/10ms-scratch-blstm/tse", tse_job.out_tse)
+    tk.register_output(f"alignments/10ms-scratch-blstm/statistics/tse-w", tse_w_job.out_tse)
 
     dmann_tse = DMannComputeTseJob(
         allophones=Path(
