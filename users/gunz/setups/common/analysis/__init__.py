@@ -1,2 +1,2 @@
 from .plot import PlotPhonemeDurationsJob, PlotViterbiAlignmentsJob
-from .tse import ComputeTimestampErrorJob
+from .tse import ComputeTimestampErrorJob, ComputeWordLevelTimestampErrorJob

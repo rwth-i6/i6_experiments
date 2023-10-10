@@ -16,7 +16,12 @@ from sisyphus import gs, tk
 from i6_core import corpus, lexicon, rasr, returnn
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.analysis import ComputeTimestampErrorJob, PlotPhonemeDurationsJob, PlotViterbiAlignmentsJob
+from ...setups.common.analysis import (
+    ComputeTimestampErrorJob,
+    ComputeWordLevelTimestampErrorJob,
+    PlotPhonemeDurationsJob,
+    PlotViterbiAlignmentsJob,
+)
 from ...setups.fh import system as fh_system
 from ...setups.fh.decoder.config import PriorConfig, PriorInfo
 from ...setups.fh.decoder.search import DecodingTensorMap
@@ -317,8 +322,19 @@ def run_single(
         reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
         reference_t_step=10 / 1000,
     )
-    tse_job.add_alias(f"alignments/{a_name}/tse")
+    tse_job.add_alias(f"tse/{a_name}")
     tk.register_output(f"alignments/{a_name}/statistics/tse", tse_job.out_tse)
+
+    tse_w_job = ComputeWordLevelTimestampErrorJob(
+        allophones=allophones.out_allophone_file,
+        alignment=a_job.out_alignment_bundle,
+        t_step=t_step,
+        reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+        reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
+        reference_t_step=10 / 1000,
+    )
+    tse_w_job.add_alias(f"tse-w/{a_name}/tse")
+    tk.register_output(f"alignments/{a_name}/statistics/tse-w", tse_w_job.out_tse)
 
     s.experiments["fh"]["alignment_job"] = a_job
 

@@ -24,16 +24,10 @@ def get_mixture_indices(a_cache: FileArchiveBundle, segment: str) -> np.ndarray:
     return np.array(a_data)[:, 1] if len(a_data) > 0 else np.array([])  # return only mixture indices
 
 
-def compute_begins_ends(mix_indices: np.ndarray, silence_idx: int) -> Tuple[np.ndarray, np.ndarray]:
-    def get_boundaries(a: np.ndarray) -> np.ndarray:
-        change_mask = np.logical_and(a[1:] != a[:-1], a[1:] != silence_idx)
-        boundaries = np.where(change_mask)[0] + 1
-        return boundaries
-
-    begins = get_boundaries(mix_indices)
-    ends = len(mix_indices) - get_boundaries(mix_indices[::-1])[::-1]
-
-    return begins, ends
+def get_boundaries(a: np.ndarray, silence_idx: int) -> np.ndarray:
+    change_mask = np.logical_and(a[1:] != a[:-1], a[1:] != silence_idx)
+    boundaries = np.where(change_mask)[0] + 1
+    return boundaries
 
 
 class ComputeTimestampErrorJob(Job):
@@ -108,8 +102,8 @@ class ComputeTimestampErrorJob(Job):
                 skipped += 1
                 continue
 
-            begins, ends = compute_begins_ends(mix_indices, s_idx)
-            begins_ref, ends_ref = compute_begins_ends(mix_indices_ref, ref_s_idx)
+            begins, ends = self._compute_begins_ends(alignment, seg, mix_indices, s_idx)
+            begins_ref, ends_ref = self._compute_begins_ends(ref_alignment, seg, mix_indices_ref, ref_s_idx)
 
             if len(begins) == len(begins_ref) and len(ends) == len(ends_ref):
                 data = [(begins, ends, begins_ref, ends_ref)]
@@ -174,6 +168,14 @@ class ComputeTimestampErrorJob(Job):
         self.out_tse.set((total_dist / total_num) * self.t_step)
         self.out_tse_per_seq.set(tse)
 
+    def _compute_begins_ends(
+        self, alignment: FileArchiveBundle, seg_name: str, mix_indices: np.ndarray, silence_idx: int
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        begins = get_boundaries(mix_indices, silence_idx)
+        ends = len(mix_indices) - get_boundaries(mix_indices[::-1], silence_idx)[::-1]
+
+        return begins, ends
+
     def _compute_distance(
         self, begins: np.ndarray, ends: np.ndarray, ref_begins: np.ndarray, ref_ends: np.ndarray
     ) -> Tuple[float, int]:
@@ -184,3 +186,24 @@ class ComputeTimestampErrorJob(Job):
         num_boundaries = len(begins) + len(ends)
 
         return distance, num_boundaries
+
+
+class ComputeWordLevelTimestampErrorJob(ComputeTimestampErrorJob):
+    def _compute_begins_ends(
+        self, alignment: FileArchiveBundle, seg_name: str, mix_indices: np.ndarray, silence_idx: int
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        # Find the next phoneme that is at the word-end and "smear" it over
+        # the word. This way we consider word-ends for the TSE only.
+        #
+        # Probably pretty slow this here, but we should be able to avoid separate
+        # phoneme sequences this way.
+        final_phonemes = [
+            next(
+                (mix_j for mix_j in mix_indices[i:] if "@f" in alignment.files[seg_name].allophones[mix_j]),
+                mix,
+            )
+            for i, mix in enumerate(mix_indices)
+        ]
+        return super()._compute_begins_ends(
+            alignment=alignment, seg_name=seg_name, mix_indices=np.array(final_phonemes), silence_idx=silence_idx
+        )
