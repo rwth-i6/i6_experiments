@@ -178,7 +178,11 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
 
     # -------------------------------------------- Training --------------------------------------------------------
     def get_config_with_legacy_prolog_and_epilog(
-        self, config: Dict, prolog_additional_str: str = None, epilog_additional_str: str = None, use_frame_wise_label = True,
+        self,
+        config: Dict,
+        prolog_additional_str: str = None,
+        epilog_additional_str: str = None,
+        use_frame_wise_label=True,
     ):
         # this is not a returnn config, but the dict params
         assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
@@ -190,7 +194,9 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
             }
         }
         if use_frame_wise_label:
-            config["extern_data"].update(**get_extern_data_config(label_info=self.label_info, time_tag_name=time_tag_name))
+            config["extern_data"].update(
+                **get_extern_data_config(label_info=self.label_info, time_tag_name=time_tag_name)
+            )
 
         # these two are gonna get popped and stored during returnn config object creation
         config["python_prolog"] = {"numpy": "import numpy as np", "time": time_prolog}

@@ -39,15 +39,15 @@ from i6_experiments.common.setups.rasr.util import (
     ReturnnRasrTrainingArgs,
 )
 
-from i6_experiments.users.raissi.setups.common.util.rasr import (
-    SystemInput,
-)
-
+# user dependent
 import i6_experiments.users.raissi.setups.common.encoder.blstm as blstm_setup
 import i6_experiments.users.raissi.setups.common.encoder.conformer as conformer_setup
 import i6_experiments.users.raissi.setups.common.helpers.network.augment as fh_augmenter
 import i6_experiments.users.raissi.setups.common.helpers.train as train_helpers
 
+from i6_experiments.users.raissi.setups.common.util.rasr import (
+    SystemInput,
+)
 from i6_experiments.users.raissi.setups.common.helpers.network.extern_data import get_extern_data_config
 
 from i6_experiments.users.raissi.setups.common.helpers.train.specaugment import (
@@ -71,54 +71,6 @@ from i6_experiments.users.raissi.setups.common.decoder.config import PriorInfo, 
 from i6_experiments.users.raissi.setups.common.util.hdf import RasrFeaturesToHdf
 from i6_experiments.users.raissi.costum.returnn.rasr_returnn_bw import ReturnnRasrTrainingBWJob
 
-
-# From here to be checked
-# get_recog_ctx_args*() functions are imported here
-"""
-from i6_experiments.users.raissi.experiments.librispeech.search.recognition_args import *
-from i6_experiments.users.raissi.setups.common.helpers.estimate_povey_like_prior_fh import *
-
-
-from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
-    ContextEnum,
-    ContextMapper,
-    LabelInfo,
-    PipelineStages,
-    RasrFeatureToHDF,
-    RasrFeatureAndAlignmentToHDF
-)
-
-from i6_experiments.users.raissi.setups.common.helpers.network_architectures import (
-    get_graph_from_returnn_config
-)
-
-from i6_experiments.users.raissi.setups.common.helpers.train_helpers import (
-    get_extra_config_segment_order,
-)
-
-from i6_experiments.users.raissi.setups.common.helpers.specaugment_returnn_epilog import (
-    get_specaugment_epilog,
-)
-
-from i6_experiments.users.raissi.setups.common.helpers.returnn_epilog import (
-    get_epilog_code_dense_label,
-)
-
-from i6_experiments.users.raissi.setups.common.util.rasr import (
-    SystemInput,
-)
-
-import i6_private.users.raissi.datasets.ukrainian_8khz as uk_8khz_data
-
-from i6_experiments.users.raissi.setups.hykist.util.pipeline_helpers import (
-    get_lexicon_args,
-    get_tdp_values,
-)
-
-from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_search import (
-    FactoredHybridBaseDecoder
-)
-"""
 # -------------------- Init --------------------
 
 Path = tk.setup_path(__package__)
@@ -222,7 +174,7 @@ class BASEFactoredHybridBaseSystem(NnSystem):
             "log_verbosity": 3,
         }
 
-        self.partition_epochs = None #default to None to break it, set it in the config
+        self.partition_epochs = None  # default to None to break it, set it in the config
         self.shuffling_params = {
             "shuffle_data": True,
             "segment_order_sort_by_time_length_chunk_size": 348,
@@ -231,7 +183,11 @@ class BASEFactoredHybridBaseSystem(NnSystem):
 
         # extern classes and objects
         self.training_criterion: TrainingCriterion = TrainingCriterion.fullsum
-        self.trainers = {"returnn": returnn.ReturnnTrainingJob, "rasr-returnn": returnn.ReturnnRasrTrainingJob}
+        self.trainers = {
+            "returnn": returnn.ReturnnTrainingJob,
+            "rasr-returnn": returnn.ReturnnRasrTrainingJob,
+            "rasr-returnn-costum": ReturnnRasrTrainingBWJob,
+        }
         self.recognizers = {"base": FactoredHybridBaseDecoder}
         self.aligners = {}
         self.returnn_configs = {}
@@ -959,7 +915,7 @@ class BASEFactoredHybridBaseSystem(NnSystem):
             returnn_config = nn_train_args.pop("returnn_config")
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
-        train_job = ReturnnRasrTrainingBWJob(
+        train_job = self.trainers["rasr-returnn-costum"](
             train_crp=train_crp,
             dev_crp=dev_crp,
             feature_flows={"train": train_data.feature_flow, "dev": dev_data.feature_flow},
@@ -1002,7 +958,7 @@ class BASEFactoredHybridBaseSystem(NnSystem):
     # -------------------- run setup  --------------------
 
     def run(self, steps: RasrSteps):
-        #init args are the label info args
+        # init args are the label info args
         if "init" in steps.get_step_names_as_list():
             init_args = steps.get_args_via_idx(0)
             self.init_system(label_info_additional_args=init_args)
