@@ -426,8 +426,9 @@ def train_step(*, model: Model, extern_data, **_kwargs):
                                                        enforce_sorted=False)
     targets_masked, _ = nn.utils.rnn.pad_packed_sequence(targets_packed, batch_first=True, padding_value=-100)
 
-    loss = nn.functional.cross_entropy(logits, targets_masked)
-    rf.get_run_ctx().mark_as_loss(name="CE", loss=loss)
+    loss = nn.functional.cross_entropy(logits, targets_masked, reduction="sum")
+    num_phonemes = torch.sum(phonemes_len)
+    rf.get_run_ctx().mark_as_loss(name="CE", loss=loss, custom_inv_norm_factor=int(num_phonemes))
 
 
 def export_trace(*, model: Model, model_filename: str):
