@@ -197,11 +197,9 @@ class ComputeWordLevelTimestampErrorJob(ComputeTimestampErrorJob):
         #
         # Probably pretty slow this here, but we should be able to avoid separate
         # phoneme sequences this way.
+        all_allos = alignment.files[seg_name].allophones
         final_phonemes = [
-            next(
-                (mix_j for mix_j in mix_indices[i:] if "@f" in alignment.files[seg_name].allophones[mix_j]),
-                mix,
-            )
+            next((mix_j for mix_j in mix_indices[i:] if "@f" in all_allos[mix_j]), mix)
             for i, mix in enumerate(mix_indices)
         ]
         return super()._compute_begins_ends(
