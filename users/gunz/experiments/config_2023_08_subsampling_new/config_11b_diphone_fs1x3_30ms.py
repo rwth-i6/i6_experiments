@@ -356,7 +356,7 @@ def run_single(
                 rtf=4,
             )
 
-    for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
+    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
         s.set_diphone_priors_returnn_rasr(
