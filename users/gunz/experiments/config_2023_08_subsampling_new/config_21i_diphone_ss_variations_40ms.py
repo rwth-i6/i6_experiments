@@ -252,7 +252,10 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-2-{ss_strategy}-a:{alignment_name}-lr:{lr}-fl:{focal_loss}-ls:{label_smoothing}-ch:{chunking}"
+    name = (
+        f"conf-2-{ss_strategy}-a:{alignment_name}-lr:{lr}-fl:{focal_loss}-ls:{label_smoothing}-ch:{chunking}-sa_t"
+        f":{sa_max_reps_t}"
+    )
     if weights_init != DEFAULT_INIT:
         name += f"-init:{weights_init}"
     else:
