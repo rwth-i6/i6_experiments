@@ -185,6 +185,7 @@ def conformer_baseline():
         prior_type_name=None,
         coverage_scale=None,
         coverage_threshold=None,
+        coverage_update="sum",
         **kwargs,
     ):
         assert lm_type in ["lstm", "trafo"], "lm type should be lstm or trafo"
@@ -297,7 +298,10 @@ def conformer_baseline():
                     assert isinstance(search_args["decoder_args"], RNNDecoderArgs)
                     search_args["decoder_args"].coverage_scale = coverage_scale
                     search_args["decoder_args"].coverage_threshold = coverage_threshold
+                    search_args["decoder_args"].coverage_update = coverage_update
                     lm_desc += f"_coverage-thre{coverage_threshold}-scale{coverage_scale}"
+                    if coverage_update != "sum":
+                        lm_desc += f"-{coverage_update}"
 
                 name = f"{exp_name}/recog-{lm_type}-lm/ep-{epoch}/{lm_desc}/{test_set}"
 
@@ -858,11 +862,11 @@ def conformer_baseline():
                 name=f"mini_lstm_{att_constraints_loss}Loss{att_constraint_scale}",
             )
 
-            for beam_size in [83, 84, 85]:
+            for beam_size in [84]:
                 for lm_scale in [0.54]:
                     for prior_scale in [0.4]:
-                        for cov_scale in [0.2, 0.21, 0.22]:
-                            for cov_thre in [0.1, 0.11, 0.12]:
+                        for cov_scale in [0.18, 0.2, 0.22]:
+                            for cov_thre in [0.08, 0.1, 0.12]:
                                 run_lm_fusion(
                                     lm_type="trafo",
                                     exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
@@ -883,6 +887,7 @@ def conformer_baseline():
                                     use_sclite=True,
                                     coverage_scale=cov_scale,
                                     coverage_threshold=cov_thre,
+                                    coverage_update="max",
                                 )
 
             # best recog model:
