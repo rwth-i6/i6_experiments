@@ -413,9 +413,13 @@ def the_plan():
 
     # P-HMM-S
 
-    # phmms_30ms_mp_a = get_n_blstm_a(
-    #     feature_stacking=False, transition_scale=0.0, adapted_tdps=None, t_step=30 / 1000, prior_scale=0.6
-    # )
+    phmms_30ms_mp_a = get_n_blstm_a(
+        feature_stacking=False,
+        transition_scale=0.0,
+        adapted_tdps=None,
+        t_step=30 / 1000,
+        prior_scale=0.6,
+    )
     phmms_40ms_mp_a_very_silency = get_n_blstm_a(
         feature_stacking=False,
         transition_scale=0.0,
@@ -438,7 +442,7 @@ def the_plan():
         prior_scale=0.6,
     )
 
-    # config_11_diphone_mpc1x3_30ms.run(returnn_root=returnn_root, alignments=[(phmms_30ms_mp_a, "30ms-Bs-pC0.6")])
+    config_11_diphone_mpc1x3_30ms.run(returnn_root=returnn_root, alignments=[(phmms_30ms_mp_a, "30ms-Bs-pC0.6")])
     config_21_diphone_mpc1x4_40ms.run(
         returnn_root=returnn_root,
         alignment=phmms_40ms_mp_a_very_silency,
