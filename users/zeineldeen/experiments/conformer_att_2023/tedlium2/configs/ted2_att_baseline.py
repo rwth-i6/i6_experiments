@@ -1117,7 +1117,7 @@ def conformer_baseline():
                                 #                 partition_epoch=4,
                                 #             )
 
-    for num_blocks in [14, 16]:
+    for num_blocks in [14]:
         for ep in [100 * 4]:
             for lr in [8e-4]:
                 for target_embed_dim in [256]:
@@ -1126,6 +1126,9 @@ def conformer_baseline():
                             for enc_drop in [0.15]:
                                 base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
                                 args = copy.deepcopy(base_v1_args)
+                                search_args = copy.deepcopy(base_v1_args)
+                                search_args["recursion_limit"] = 6000
+
                                 args["encoder_args"].num_blocks = num_blocks
                                 args["encoder_args"].mhsa_weight_dropout = weight_drop
                                 args["encoder_args"].ff_weight_dropout = weight_drop
@@ -1150,6 +1153,7 @@ def conformer_baseline():
                                     bpe_size=BPE_1K,
                                     partition_epoch=4,
                                     gpu_mem=24,
+                                    search_args=search_args,
                                 )
 
     for num_blocks in [16]:
@@ -1161,6 +1165,8 @@ def conformer_baseline():
                             for enc_drop in [0.15]:
                                 base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
                                 args = copy.deepcopy(base_v1_args)
+                                search_args = copy.deepcopy(base_v1_args)
+
                                 args["encoder_args"].num_blocks = num_blocks
                                 args["encoder_args"].mhsa_weight_dropout = weight_drop
                                 args["encoder_args"].ff_weight_dropout = weight_drop
@@ -1192,4 +1198,5 @@ def conformer_baseline():
                                     bpe_size=BPE_1K,
                                     partition_epoch=4,
                                     gpu_mem=24,
+                                    search_args=search_args,
                                 )

@@ -851,6 +851,7 @@ def run_pipeline():
         num_epochs=600,
     )
 
+    init_global_att_avg_ckpt = train_job_avg_ckpt["base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009"]
     best_global_att_avg_ckpt = train_job_avg_ckpt[
         f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
     ]
@@ -930,93 +931,116 @@ def run_pipeline():
                 two_pass_rescore=True,  # two-pass rescoring
             )
             # TODO: add prior correction
-            for prior_scale in [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1]:
-                run_decoding(
-                    exp_name=f"two_pass_ctcRescore_{att_scale}_{ctc_scale}_ctcPrior{prior_scale}_beam{beam_size}",
-                    train_data=train_data,
-                    checkpoint=train_job_avg_ckpt[
-                        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
-                    ],
-                    search_args={"beam_size": beam_size, **oclr_args},
-                    feature_extraction_net=log10_net_10ms,
-                    bpe_size=BPE_10K,
-                    test_sets=["dev-other"],
-                    use_sclite=True,
-                    att_scale=att_scale,
-                    ctc_scale=ctc_scale,
-                    ctc_log_prior_file=ctc_log_prior_file,
-                    ctc_prior_scale=prior_scale,
-                    two_pass_rescore=True,  # two-pass rescoring
-                )
-                if prior_scale == 0.03:
-                    run_decoding(
-                        exp_name=f"two_pass_ctcRescore_{att_scale}_{ctc_scale}_ctcPrior{prior_scale}_beam{beam_size}",
-                        train_data=train_data,
-                        checkpoint=train_job_avg_ckpt[
-                            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
-                        ],
-                        search_args={"beam_size": beam_size, **oclr_args},
-                        feature_extraction_net=log10_net_10ms,
-                        bpe_size=BPE_10K,
-                        test_sets=["test-other"],
-                        use_sclite=True,
-                        att_scale=att_scale,
-                        ctc_scale=ctc_scale,
-                        ctc_log_prior_file=ctc_log_prior_file,
-                        ctc_prior_scale=prior_scale,
-                        two_pass_rescore=True,  # two-pass rescoring
-                    )
+            # for prior_scale in [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1]:
+            #     run_decoding(
+            #         exp_name=f"two_pass_ctcRescore_{att_scale}_{ctc_scale}_ctcPrior{prior_scale}_beam{beam_size}",
+            #         train_data=train_data,
+            #         checkpoint=train_job_avg_ckpt[
+            #             f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+            #         ],
+            #         search_args={"beam_size": beam_size, **oclr_args},
+            #         feature_extraction_net=log10_net_10ms,
+            #         bpe_size=BPE_10K,
+            #         test_sets=["dev-other"],
+            #         use_sclite=True,
+            #         att_scale=att_scale,
+            #         ctc_scale=ctc_scale,
+            #         ctc_log_prior_file=ctc_log_prior_file,
+            #         ctc_prior_scale=prior_scale,
+            #         two_pass_rescore=True,  # two-pass rescoring
+            #     )
+            #     if prior_scale == 0.03:
+            #         run_decoding(
+            #             exp_name=f"two_pass_ctcRescore_{att_scale}_{ctc_scale}_ctcPrior{prior_scale}_beam{beam_size}",
+            #             train_data=train_data,
+            #             checkpoint=train_job_avg_ckpt[
+            #                 f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+            #             ],
+            #             search_args={"beam_size": beam_size, **oclr_args},
+            #             feature_extraction_net=log10_net_10ms,
+            #             bpe_size=BPE_10K,
+            #             test_sets=["test-other"],
+            #             use_sclite=True,
+            #             att_scale=att_scale,
+            #             ctc_scale=ctc_scale,
+            #             ctc_log_prior_file=ctc_log_prior_file,
+            #             ctc_prior_scale=prior_scale,
+            #             two_pass_rescore=True,  # two-pass rescoring
+            #         )
 
     # TODO: two-pass joint decoding with CTC with LM
-    for beam_size in [32]:
-        for ctc_scale in [0.004, 0.003, 0.0025]:
-            for lm_scale in [0.34, 0.36, 0.38, 0.4, 0.42, 0.44]:
-                att_scale = 1.0
-                args = copy.deepcopy(oclr_args)
-                args["batch_size"] = 10_000 * 160
-                run_lm_fusion(
-                    args=args,
-                    lm_type="lstm",
-                    exp_name=f"two_pass_ctcRescore_{att_scale}_{ctc_scale}_lstmLM{lm_scale}_beam{beam_size}",
-                    train_data=train_data,
-                    train_job=train_j,
-                    feature_net=log10_net_10ms,
-                    epoch=best_global_att_avg_ckpt,
-                    ckpt_name="avg",
-                    lm_scales=[lm_scale],
-                    beam_size=beam_size,
-                    bpe_size=BPE_10K,
-                    test_set_names=["dev-clean", "dev-other"],
-                    use_sclite=True,
-                    att_scale=att_scale,
-                    ctc_scale=ctc_scale,
-                    two_pass_rescore=True,  # two-pass rescoring
-                )
-
     # for beam_size in [32]:
-    #     for ctc_scale in [0.004, 0.003]:
-    #         for prior_scale in [0.03, 0.05, 0.08, 0.1]:
-    #             for lm_scale in [0.38, 0.4, 0.42]:
-    #                 att_scale = 1.0
-    #                 args = copy.deepcopy(oclr_args)
-    #                 args["batch_size"] = 10_000 * 160
-    #                 run_lm_fusion(
-    #                     args=args,
-    #                     lm_type="lstm",
-    #                     exp_name=f"two_pass_ctcRescore_{att_scale}_{ctc_scale}_ctcPrior{prior_scale}_lstmLM{lm_scale}_beam{beam_size}",
-    #                     train_data=train_data,
-    #                     train_job=train_j,
-    #                     feature_net=log10_net_10ms,
-    #                     epoch=best_global_att_avg_ckpt,
-    #                     ckpt_name="avg",
-    #                     lm_scales=[lm_scale],
-    #                     beam_size=beam_size,
-    #                     bpe_size=BPE_10K,
-    #                     test_set_names=["dev-other"],
-    #                     use_sclite=True,
-    #                     att_scale=att_scale,
-    #                     ctc_scale=ctc_scale,
-    #                     two_pass_rescore=True,  # two-pass rescoring
-    #                     ctc_prior_scale=prior_scale,
-    #                     ctc_log_prior_file=ctc_log_prior_file,
-    #                 )
+    #     for ctc_scale in [0.004, 0.003, 0.0025]:
+    #         for lm_scale in [0.34, 0.36, 0.38, 0.4, 0.42, 0.44]:
+    #             att_scale = 1.0
+    #             args = copy.deepcopy(oclr_args)
+    #             args["batch_size"] = 10_000 * 160
+    #             run_lm_fusion(
+    #                 args=args,
+    #                 lm_type="lstm",
+    #                 exp_name=f"two_pass_ctcRescore_{att_scale}_{ctc_scale}_lstmLM{lm_scale}_beam{beam_size}",
+    #                 train_data=train_data,
+    #                 train_job=train_j,
+    #                 feature_net=log10_net_10ms,
+    #                 epoch=best_global_att_avg_ckpt,
+    #                 ckpt_name="avg",
+    #                 lm_scales=[lm_scale],
+    #                 beam_size=beam_size,
+    #                 bpe_size=BPE_10K,
+    #                 test_set_names=["dev-clean", "dev-other"],
+    #                 use_sclite=True,
+    #                 att_scale=att_scale,
+    #                 ctc_scale=ctc_scale,
+    #                 two_pass_rescore=True,  # two-pass rescoring
+    #             )
+
+    # TODO: Init baseline
+    # baseline Wo LM with avg:  2.28/5.60/2.48/5.75
+    for beam_size in [4, 8, 12]:
+        for ctc_scale in [
+            0.008,
+            0.0085,
+            0.009,
+            0.0095,
+            0.01,
+            0.011,
+            0.012,
+            0.013,
+            0.014,
+            0.015,
+            0.016,
+            0.017,
+            0.018,
+            0.019,
+            0.2,
+        ]:
+            att_scale = 1 - ctc_scale
+            search_args = copy.deepcopy(oclr_args)
+            run_decoding(
+                exp_name=f"two_pass_ctcRescore_{att_scale}_{ctc_scale}_beam{beam_size}_initBaseline",
+                train_data=train_data,
+                checkpoint=init_global_att_avg_ckpt,
+                search_args={"beam_size": beam_size, **search_args},
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+                remove_label={"<s>"},
+                use_sclite=True,
+                att_scale=att_scale,
+                ctc_scale=ctc_scale,
+                two_pass_rescore=True,  # two-pass rescoring
+            )
+            run_decoding(
+                exp_name=f"two_pass_ctcRescore_{1.0}_{ctc_scale}_beam{beam_size}_initBaseline",
+                train_data=train_data,
+                checkpoint=init_global_att_avg_ckpt,
+                search_args={"beam_size": beam_size, **search_args},
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+                remove_label={"<s>"},
+                use_sclite=True,
+                att_scale=1.0,
+                ctc_scale=ctc_scale,
+                two_pass_rescore=True,  # two-pass rescoring
+            )
