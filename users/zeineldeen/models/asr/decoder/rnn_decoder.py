@@ -40,6 +40,7 @@ class RNNDecoder:
         length_normalization=True,
         coverage_threshold=None,
         coverage_scale=None,
+        coverage_update="sum",
         ce_loss_scale=1.0,
         use_zoneout_output: bool = False,
         monotonic_att_weights_loss_scale=None,
@@ -76,6 +77,7 @@ class RNNDecoder:
         :param bool length_normalization: if set to True, length normalization is applied
         :param float|None coverage_threshold: threshold for coverage value used in search
         :param float|None coverage_scale: scale for coverage value
+        :param str coverage_update: either cumulative sum or maximum
         :param float ce_loss_scale: scale for cross-entropy loss
         :param bool use_zoneout_output: if set, return the output h after zoneout
         """
@@ -124,6 +126,8 @@ class RNNDecoder:
         self.length_normalization = length_normalization
         self.coverage_threshold = coverage_threshold
         self.coverage_scale = coverage_scale
+        assert coverage_update in ["sum", "max"]
+        self.coverage_update = coverage_update
 
         self.ce_loss_scale = ce_loss_scale
 
@@ -315,9 +319,15 @@ class RNNDecoder:
 
         if self.coverage_scale and self.coverage_threshold:
             assert self.att_num_heads == 1, "Not supported for multi-head attention."  # TODO: just average the heads?
-            accum_w = self.subnet_unit.add_eval_layer(
-                "accum_w", source=["prev:att_weights", "att_weights"], eval="source(0) + source(1)"
-            )  # [B,enc-T,H=1]
+            if self.coverage_update == "sum":
+                accum_w = self.subnet_unit.add_eval_layer(
+                    "accum_w", source=["prev:att_weights", "att_weights"], eval="source(0) + source(1)"
+                )  # [B,enc-T,H=1]
+            else:
+                assert self.coverage_update == "max"
+                accum_w = self.subnet_unit.add_combine_layer(
+                    "accum_w", ["prev:att_weights", "att_weights"], kind="maximum"
+                )
             merge_accum_w = self.subnet_unit.add_merge_dims_layer(
                 "merge_accum_w", accum_w, axes="except_batch"
             )  # [B,enc-T]

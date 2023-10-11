@@ -504,6 +504,7 @@ class RNNDecoderArgs(DecoderArgs):
 
     coverage_scale: float = None
     coverage_threshold: float = None
+    coverage_update: str = "sum"
 
     ce_loss_scale: Optional[float] = 1.0
 
