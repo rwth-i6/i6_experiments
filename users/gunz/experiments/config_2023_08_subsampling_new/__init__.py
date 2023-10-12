@@ -47,6 +47,11 @@ def get_60ms_linear_a(t_scale=0.3):
     return get_n_linear_a(t_step=0.06, t_scale=t_scale)
 
 
+@tk.block("mono linear fullsum 80ms")
+def get_60ms_linear_a(t_scale=0.3):
+    return get_n_linear_a(t_step=0.08, t_scale=t_scale)
+
+
 @cache
 def run_tdnn_a():
     from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new import (
@@ -300,6 +305,7 @@ def the_plan():
         config_21i_diphone_ss_variations_40ms,
         config_22b_triphone_multi_mpc1x4_40ms,
         config_31_diphone_mpc2x3_60ms,
+        config_41_diphone_mpc2x4_80ms,
     )
 
     returnn_root = _clone_returnn_safe()
@@ -465,6 +471,7 @@ def the_plan():
     phmms_30ms_ffnn_a = get_30ms_linear_a(t_scale=0.0)
     phmms_40ms_ffnn_a = get_40ms_linear_a(t_scale=0.0)
     phmms_60ms_ffnn_a = get_60ms_linear_a(t_scale=0.0)
+    phmms_80ms_ffnn_a = get_80ms_linear_a(t_scale=0.0)
 
     config_11_diphone_mpc1x3_30ms.run(
         returnn_root=returnn_root,
@@ -502,6 +509,11 @@ def the_plan():
         returnn_root=returnn_root,
         alignment=phmms_60ms_ffnn_a,
         a_name="60ms-FFs-v8",
+    )
+    config_41_diphone_mpc2x4_80ms.run(
+        returnn_root=returnn_root,
+        alignment=phmms_80ms_ffnn_a,
+        a_name="80ms-FFs-v8",
     )
 
     # P-HMM FF-NN
