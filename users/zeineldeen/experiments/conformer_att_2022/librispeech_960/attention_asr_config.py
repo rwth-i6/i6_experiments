@@ -782,13 +782,13 @@ def create_config(
 
     if speed_pert:
         if speed_pert_version == 1:
-            python_prolog += [data_aug.speed_pert]
+            python_prolog += [data_aug.speed_perturbation.speed_pert]
         elif speed_pert_version == 2:
-            python_prolog += [data_aug.speed_pert_v2]
+            python_prolog += [data_aug.speed_perturbation_v2.speed_pert]
         elif speed_pert_version == 3:
-            python_prolog += [data_aug.speed_pert_v3]
+            python_prolog += [data_aug.speed_perturbation_v3.speed_pert]
         elif speed_pert_version == 4:
-            python_prolog += [data_aug.speed_pert_v4]
+            python_prolog += [data_aug.speed_perturbation_v3.speed_pert]
         else:
             raise ValueError("Invalid speed_pert_version")
 
