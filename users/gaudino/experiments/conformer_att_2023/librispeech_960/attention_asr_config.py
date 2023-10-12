@@ -501,9 +501,9 @@ class CTCDecoderArgs(DecoderArgs):
     lm_type: Optional[str] = None
     ext_lm_opts: Optional[dict] = None
     lm_scale: float = 0.3
-    ctc_scale: float = 1.0
+    ctc_scale: float = 0.35
     add_att_dec: bool = False
-    att_scale: float = 0.3
+    att_scale: float = 0.65
     ts_reward: float = 0.0
     blank_prob_scale: float = 0.0
     repeat_prob_scale: float = 0.0
@@ -519,6 +519,7 @@ class CTCDecoderArgs(DecoderArgs):
     one_minus_term_mul_scale: float = 1.0
     one_minus_term_sub_scale: float = 0.0
     length_normalization: bool = False
+    hash_override_version: Optional[int] = None
 
 
 def create_config(
@@ -709,6 +710,11 @@ def create_config(
     decoder_args = asdict(decoder_args)
     decoder_args.update({"target": target, "beam_size": beam_size})
 
+    if "hash_override_version" in decoder_args.keys():
+        if decoder_args["hash_override_version"] is not None:
+            exp_config["version"] = decoder_args["hash_override_version"]
+        decoder_args.pop("hash_override_version")
+
     transformer_decoder = decoder_type(base_model=conformer_encoder, **decoder_args)
     transformer_decoder.create_network()
 
@@ -843,6 +849,13 @@ def create_config(
             "class": "constant",
             "value": CodeWrapper(f"numpy.loadtxt('{tmp}', dtype='float32')"),
         }
+        # to wait for prior job (not tested):
+        # from sisyphus.delayed_ops import DelayedFormat
+        #
+        # config["network"]["ctc_log_prior"] = {
+        #     "class": "constant",
+        #     "value": CodeWrapper(DelayedFormat("numpy.loadtxt('{}', dtype='float32')", ctc_log_prior_file)),
+        # }
         # TODO: name of ctc layer standalone
         # TODO: name of ctc layer combined with LM/Att
 
