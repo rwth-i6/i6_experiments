@@ -299,6 +299,7 @@ def the_plan():
         config_21h_diphone_fs1x4_40ms,
         config_21i_diphone_ss_variations_40ms,
         config_22b_triphone_multi_mpc1x4_40ms,
+        config_31_diphone_mpc2x3_60ms,
     )
 
     returnn_root = _clone_returnn_safe()
@@ -463,6 +464,7 @@ def the_plan():
 
     phmms_30ms_ffnn_a = get_30ms_linear_a(t_scale=0.0)
     phmms_40ms_ffnn_a = get_40ms_linear_a(t_scale=0.0)
+    phmms_60ms_ffnn_a = get_60ms_linear_a(t_scale=0.0)
 
     config_11_diphone_mpc1x3_30ms.run(
         returnn_root=returnn_root,
@@ -495,6 +497,11 @@ def the_plan():
         alignment=phmms_40ms_ffnn_a,
         a_name="40ms-FFs-v8",
         init_from_system=di_sys,
+    )
+    config_31_diphone_mpc2x3_60ms.run(
+        returnn_root=returnn_root,
+        alignment=phmms_60ms_ffnn_a,
+        a_name="60ms-FFs-v8",
     )
 
     # P-HMM FF-NN
