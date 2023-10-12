@@ -1,3 +1,5 @@
+from typing import Iterator
+
 from sisyphus import Job, Path, Task
 
 from .processor import AlignmentProcessor
