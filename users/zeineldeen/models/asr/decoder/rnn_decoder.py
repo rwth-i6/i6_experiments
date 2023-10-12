@@ -328,6 +328,8 @@ class RNNDecoder:
                 accum_w = self.subnet_unit.add_combine_layer(
                     "accum_w", ["prev:att_weights", "att_weights"], kind="maximum"
                 )
+
+            assert self.att_num_heads == 1, "Not supported for multi-head attention."  # TODO: just average the heads?
             merge_accum_w = self.subnet_unit.add_merge_dims_layer(
                 "merge_accum_w", accum_w, axes="except_batch"
             )  # [B,enc-T]
@@ -337,14 +339,21 @@ class RNNDecoder:
             float_coverage_mask = self.subnet_unit.add_cast_layer(
                 "float_coverage_mask", coverage_mask, dtype="float32"
             )  # [B,enc-T]
+
             accum_coverage = self.subnet_unit.add_reduce_layer(
-                "accum_coverage", float_coverage_mask, mode="sum", axes=-1, keep_dims=True
-            )  # [B,1]
+                "accum_coverage", float_coverage_mask, mode="sum", axes=-1
+            )  # [B]
+
+            accum_coverage = self.subnet_unit.add_combine_layer(
+                "diff_accum_coverage",
+                [accum_coverage, "prev:" + accum_coverage],
+                kind="sub",
+            )  # [B]
 
             self.output_prob = self.subnet_unit.add_eval_layer(
                 "output_prob_coverage",
                 source=[self.output_prob, accum_coverage],
-                eval=f"source(0) * (source(1) ** {self.coverage_scale})",
+                eval=f"source(0) + {self.coverage_scale} * source(1)",
             )
 
         if self.length_normalization:
