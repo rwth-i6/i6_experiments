@@ -238,6 +238,35 @@ def run_single(
     s.experiments["fh"]["graph"]["inference"] = import_graph
     s.experiments["fh"]["priors"] = PriorInfo(PriorConfig(file=import_priors, scale=0.0))
 
+    for ep, crp_k in itertools.product([import_epoch], ["dev-other"]):
+        s.set_binaries_for_crp(crp_k, RASR_ROOT_TF2)
+
+        recognizer, recog_args = s.get_recognizer_and_args(
+            key="fh",
+            context_type=PhoneticContext.diphone,
+            crp_corpus=crp_k,
+            epoch=ep,
+            gpu=False,
+            tensor_map=tensor_config,
+            set_batch_major_for_feature_scorer=False,
+            lm_gc_simple_hash=True,
+            tf_library=[s.native_lstm2_job.out_op],
+        )
+        recog_args = recog_args.with_lm_scale(1.5).with_tdp_scale(0.4).with_prior_scale(0.4)
+
+        for cfg in [
+            recog_args,
+            recog_args.with_tdp_speech((3, 0, "infinity", 0)).with_tdp_silence((3, 10, "infinity", 10)),
+        ]:
+            recognizer.recognize_count_lm(
+                label_info=s.label_info,
+                search_parameters=cfg,
+                num_encoder_output=2 * 512,
+                rerun_after_opt_lm=True,
+                calculate_stats=True,
+                rtf_cpu=20,
+            )
+
     s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone)
     s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
     s.set_binaries_for_crp("train-other-960.train", RASR_BINARY_PATH_TF)
