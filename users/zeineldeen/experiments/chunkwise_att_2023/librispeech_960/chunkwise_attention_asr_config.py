@@ -1128,7 +1128,7 @@ def create_config(
         python_prolog = specaugment.specaug_tf2.get_funcs()  # type: list
 
     if speed_pert:
-        python_prolog += [data_aug.speed_perturbation.speed_pert]
+        python_prolog += [data_aug.speed_pert]
 
     # python_prolog += [_check_alignment]
 
