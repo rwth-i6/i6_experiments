@@ -17,6 +17,7 @@ from i6_core import corpus, lexicon, rasr, returnn
 import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.common.analysis import (
+    ComputeSilencePercentageJob,
     ComputeTimestampErrorJob,
     ComputeWordLevelTimestampErrorJob,
     PlotPhonemeDurationsJob,
@@ -364,6 +365,9 @@ def run_single(
     )
     tse_w_job.add_alias(f"tse-w/{a_name}/tse")
     tk.register_output(f"alignments/{a_name}/statistics/tse-w", tse_w_job.out_tse)
+
+    tse_w_job = ComputeSilencePercentageJob(a_job.out_alignment_bundle, allophones.out_allophone_file)
+    tk.register_output(f"alignments/{a_name}/statistics/sil", tse_w_job.out_percent_sil)
 
     s.experiments["fh"]["alignment_job"] = a_job
 
