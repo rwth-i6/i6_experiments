@@ -143,7 +143,7 @@ class PlotViterbiAlignmentsJob(Job):
         self.out_plot_folder = self.output_path("plots", directory=True)
 
         if isinstance(segments, list):
-            self.out_plots = [self.output_path(f"plots/{s.replace('/', '_')}.png") for s in segments]
+            self.out_plots = [self.output_path(f"plots/{s.replace('/', '_')}.pdf") for s in segments]
         else:
             self.out_plots = None
 
@@ -161,11 +161,11 @@ class PlotViterbiAlignmentsJob(Job):
         if isinstance(self.segments, tk.Variable):
             segments_to_plot = self.segments.get()
             assert isinstance(segments_to_plot, list)
-            out_plot_files = [self.output_path(f"plots/{s.replace('/', '_')}.png") for s in segments_to_plot]
+            out_plot_files = [self.output_path(f"plots/{s.replace('/', '_')}.pdf") for s in segments_to_plot]
         elif isinstance(self.segments, Path):
             with open(self.segments, "rt") as segments_file:
                 segments_to_plot = [s.strip() for s in segments_file.readlines()]
-            out_plot_files = [self.output_path(f"plots/{s.replace('/', '_')}.png") for s in segments_to_plot]
+            out_plot_files = [self.output_path(f"plots/{s.replace('/', '_')}.pdf") for s in segments_to_plot]
         else:
             segments_to_plot = self.segments
             out_plot_files = self.out_plots
