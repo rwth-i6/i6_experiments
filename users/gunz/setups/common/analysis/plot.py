@@ -172,4 +172,4 @@ class PlotViterbiAlignmentsJob(Job):
 
         for seg, out_path in zip(segments_to_plot, out_plot_files):
             fig, ax, *_ = processor.plot_segment(seg, self.show_labels)
-            fig.savefig(out_path)
+            fig.savefig(out_path, transparent=True)
