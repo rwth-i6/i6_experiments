@@ -42,7 +42,7 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
-    CONF_CHUNKING_60MS,
+    CONF_CHUNKING_10MS,
     CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
@@ -92,7 +92,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             alignment=alignment,
             alignment_name=a_name,
             batch_size=12500,
-            chunking=CONF_CHUNKING_60MS,
+            chunking=CONF_CHUNKING_10MS,
             dc_detection=False,
             decode_all_corpora=False,
             fine_tune=False,
