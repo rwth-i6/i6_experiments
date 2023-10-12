@@ -1,4 +1,4 @@
-from sisyphus import tk, Job, Path
+from sisyphus import Job, Path, Task
 
 from .processor import AlignmentProcessor
 
@@ -10,6 +10,11 @@ class ComputeSilencePercentageJob(Job):
         self.sil_allophone = sil_allophone
 
         self.out_percent_sil = self.output_var("sil")
+
+        self.rqmt = {"cpu": 1, "mem": 8, "time": 4}
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", rqmt=self.rqmt)
 
     def run(self):
         processor = AlignmentProcessor(
