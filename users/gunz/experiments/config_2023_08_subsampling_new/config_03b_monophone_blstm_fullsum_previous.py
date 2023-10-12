@@ -264,7 +264,7 @@ def run_single(
                 num_encoder_output=2 * 512,
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
-                rtf_cpu=20,
+                rtf_cpu=30,
             )
 
     s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone)
