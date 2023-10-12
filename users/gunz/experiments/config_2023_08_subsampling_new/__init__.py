@@ -48,7 +48,7 @@ def get_60ms_linear_a(t_scale=0.3):
 
 
 @tk.block("mono linear fullsum 80ms")
-def get_60ms_linear_a(t_scale=0.3):
+def get_80ms_linear_a(t_scale=0.3):
     return get_n_linear_a(t_step=0.08, t_scale=t_scale)
 
 
