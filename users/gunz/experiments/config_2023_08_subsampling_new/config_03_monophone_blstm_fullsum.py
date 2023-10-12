@@ -571,6 +571,7 @@ def run_single(
                 cpu_rqmt=2,
                 mem_rqmt=4,
                 rtf=12,
+                native_ops=["NativeLstm2"],
             )
 
     s.set_binaries_for_crp("train-other-960.train", RASR_BINARY_PATH_TF)
