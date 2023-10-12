@@ -1039,9 +1039,9 @@ def conformer_baseline():
 
             args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
             args["specaug_str_func_opts"] = {
-                "max_time_num": 80,
+                "max_time_num": 80,  # more time masking
                 "max_time_dim": 20,
-                "min_num_add_factor": 1,
+                "min_num_add_factor": 1,  # more masking
                 "freq_dim_factor": 5,
             }
             run_default_exp(
@@ -1052,7 +1052,7 @@ def conformer_baseline():
                 bpe_size=BPE_500,
             )
             args["specaug_str_func_opts"] = {
-                "max_time_num": 80,
+                "max_time_num": 80,  # more time masking
                 "max_time_dim": 20,
                 "min_num_add_factor": 0,
                 "freq_dim_factor": 5,
@@ -1067,11 +1067,32 @@ def conformer_baseline():
             args["specaug_str_func_opts"] = {
                 "max_time_num": 100,
                 "max_time_dim": 20,
-                "min_num_add_factor": 1,
+                "min_num_add_factor": 1,  # more masking
                 "freq_dim_factor": 5,
             }
             run_default_exp(
                 name + f"_specaugV1c",
+                train_args=args,
+                num_epochs=ep,
+                gpu_mem=11,
+                bpe_size=BPE_500,
+            )
+
+            for speed_pert_version in [3, 4]:
+                args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
+                args["speed_pert_version"] = speed_pert_version
+                run_default_exp(
+                    name + f"_sptV{speed_pert_version}",
+                    train_args=args,
+                    num_epochs=ep,
+                    gpu_mem=11,
+                    bpe_size=BPE_500,
+                )
+
+            args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
+            args["speed_pert_version"] = {"max_factor": 3, "min_factor": -2, "step": 0.1}
+            run_default_exp(
+                name + "_sptVa",
                 train_args=args,
                 num_epochs=ep,
                 gpu_mem=11,

@@ -789,6 +789,11 @@ def create_config(
             python_prolog += [data_aug.speed_pert_v3]
         elif speed_pert_version == 4:
             python_prolog += [data_aug.speed_pert_v4]
+        elif isinstance(speed_pert_version, dict):
+            # generic
+            speed_pert_generic_str = data_aug.speed_pert_generic
+            assert isinstance(speed_pert_generic_str, str)
+            python_prolog += [speed_pert_generic_str.format(**speed_pert_version)]
         else:
             raise ValueError("Invalid speed_pert_version")
 
