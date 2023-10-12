@@ -20,7 +20,7 @@ import i6_core.returnn as returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
+from ...setups.common.nn import oclr, returnn_time_tag
 from ...setups.common.nn.chunking import subsample_chunking
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
@@ -29,7 +29,6 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
-from ...setups.fh.decoder.config import SearchParameters
 from ...setups.fh.network import conformer, diphone_joint_output
 from ...setups.fh.factored import PhoneticContext, RasrStateTying
 from ...setups.fh.network import aux_loss, extern_data
@@ -43,7 +42,7 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
-    CONF_CHUNKING_10MS,
+    CONF_CHUNKING_60MS,
     CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
@@ -93,7 +92,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             alignment=alignment,
             alignment_name=a_name,
             batch_size=12500,
-            chunking=CONF_CHUNKING_10MS,
+            chunking=CONF_CHUNKING_60MS,
             dc_detection=False,
             decode_all_corpora=False,
             fine_tune=False,
@@ -320,14 +319,69 @@ def run_single(
         "partition_epochs": partition_epochs,
         "returnn_config": copy.deepcopy(returnn_config),
     }
-    viterbi_train_j = s.returnn_rasr_training(
+    s.returnn_rasr_training(
         experiment_key="fh",
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
     )
 
+    clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+    nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+        returnn_config=clean_returnn_config,
+        label_info=s.label_info,
+        out_joint_score_layer="output",
+        log_softmax=True,
+    )
+    prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+        returnn_config=clean_returnn_config,
+        label_info=s.label_info,
+        out_joint_score_layer="output",
+        log_softmax=False,
+    )
+
     for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
+        s.set_mono_priors_returnn_rasr(
+            key="fh",
+            epoch=min(ep, keep_epochs[-2]),
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=prior_returnn_config,
+            output_layer_name="output",
+        )
+
+        diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+        tying_cfg = rasr.RasrConfig()
+        tying_cfg.type = "diphone-dense"
+
+        configs = [
+            dataclasses.replace(
+                s.get_cart_params("fh"), beam=18, beam_limit=100000, lm_scale=2, tdp_scale=tdpS
+            ).with_prior_scale(pC)
+            for pC, tdpS in itertools.product(
+                [0.4, 0.6],
+                [0.4, 0.6],
+            )
+        ]
+        for cfg in configs:
+            s.recognize_cart(
+                key="fh",
+                epoch=ep,
+                calculate_statistics=True,
+                cart_tree_or_tying_config=tying_cfg,
+                cpu_rqmt=2,
+                opt_lm_am_scale=ep == max(keep_epochs),
+                crp_corpus=crp_k,
+                lm_gc_simple_hash=True,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                mem_rqmt=4,
+                n_cart_out=diphone_li.get_n_of_dense_classes(),
+                params=cfg,
+                rtf=4,
+            )
+
+    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
         s.set_diphone_priors_returnn_rasr(
