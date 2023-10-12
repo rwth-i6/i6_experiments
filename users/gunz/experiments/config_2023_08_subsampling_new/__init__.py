@@ -449,7 +449,10 @@ def the_plan():
         prior_scale=0.6,
     )
 
-    config_11_diphone_mpc1x3_30ms.run(returnn_root=returnn_root, alignments=[(phmms_30ms_mp_a, "30ms-Bs-pC0.6")])
+    config_11_diphone_mpc1x3_30ms.run(
+        returnn_root=returnn_root,
+        alignments=[(phmms_30ms_mp_a, "30ms-Bs-pC0.6")],
+    )
     config_21_diphone_mpc1x4_40ms.run(
         returnn_root=returnn_root,
         alignment=phmms_40ms_mp_a_very_silency,
