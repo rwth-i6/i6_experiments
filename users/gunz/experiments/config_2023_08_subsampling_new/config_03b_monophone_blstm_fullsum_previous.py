@@ -243,7 +243,7 @@ def run_single(
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
-            context_type=PhoneticContext.diphone,
+            context_type=PhoneticContext.monophone,
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,
