@@ -531,45 +531,46 @@ def run_single(
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_BINARY_PATH_TF)
 
+        prior_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+
         s.set_mono_priors_returnn_rasr(
             key="fh",
             epoch=ep,
             train_corpus_key=s.crp_names["train"],
             dev_corpus_key=s.crp_names["cvtrain"],
             smoothen=True,
-            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-        )
-        recognizer, recog_args = s.get_recognizer_and_args(
-            key="fh",
-            context_type=PhoneticContext.monophone,
-            crp_corpus=crp_k,
-            epoch=ep,
-            gpu=False,
-            tensor_map=BLSTM_FH_DECODING_TENSOR_CONFIG,
-            set_batch_major_for_feature_scorer=True,
-            lm_gc_simple_hash=True,
+            returnn_config=prior_config,
         )
 
-        continue
+        base_params = s.get_cart_params("fh")
+        monophone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
+        nn_pch_config = copy.deepcopy(prior_config)
+        nn_pch_config.config["network"]["center-output"] = {
+            **nn_pch_config.config["network"]["center-output"],
+            "class": "linear",
+            "activation": "log_softmax",
+            "register_as_extern_data": "center-output",
+        }
+        tying_cfg = rasr.RasrConfig()
+        tying_cfg.type = "monophone-dense"
 
-        recog_args = recog_args.with_lm_scale(1.0).with_prior_scale(0.5)
-
-        for pC, tdp_simple, tdp_scale in itertools.product([0.5], [False], [0.1, 0.2]):
-            cfg = recog_args.with_prior_scale(pC).with_tdp_scale(tdp_scale)
-
-            if tdp_simple:
-                sil_non_w_tdp = (0.0, 0.0, "infinity", 20.0)
-                cfg = dataclasses.replace(
-                    cfg, tdp_non_word=sil_non_w_tdp, tdp_silence=sil_non_w_tdp, tdp_speech=(0.0, 0.0, "infinity", 0.0)
-                )
-
-            recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=cfg,
-                num_encoder_output=model_dim,
-                rerun_after_opt_lm=True,
-                calculate_stats=True,
-                rtf_cpu=12,
+        for pC, tdp in itertools.product([0.4, 0.6], [0.4, 0.6]):
+            cfg = dataclasses.replace(base_params, beam_limit=100000, lm_scale=1.5, tdp_scale=tdp).with_prior_scale(pC)
+            s.recognize_cart(
+                key="fh",
+                crp_corpus="dev-other",
+                epoch=max(keep_epochs),
+                calculate_statistics=True,
+                cart_tree_or_tying_config=tying_cfg,
+                log_softmax_returnn_config=returnn_config,
+                encoder_output_layer="center__output",
+                n_cart_out=monophone_li.get_n_of_dense_classes(),
+                params=cfg,
+                lm_gc_simple_hash=True,
+                opt_lm_am_scale=True,
+                cpu_rqmt=2,
+                mem_rqmt=4,
+                rtf=12,
             )
 
     s.set_binaries_for_crp("train-other-960.train", RASR_BINARY_PATH_TF)
