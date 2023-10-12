@@ -490,7 +490,7 @@ def run_single(
                 epoch=max(keep_epochs),
                 calculate_statistics=True,
                 cart_tree_or_tying_config=tying_cfg,
-                log_softmax_returnn_config=returnn_config,
+                log_softmax_returnn_config=nn_pch_config,
                 encoder_output_layer="center__output",
                 n_cart_out=monophone_li.get_n_of_dense_classes(),
                 params=cfg,
