@@ -465,19 +465,10 @@ def run_single(
             set_batch_major_for_feature_scorer=True,
         )
 
-        continue
+        recog_args = recog_args.with_lm_scale(1.0)
 
-        recog_args = recog_args.with_lm_scale(1.0).with_prior_scale(0.5)
-
-        for pC, tdp_simple, tdp_scale in itertools.product([0.5], [False], [0.1, 0.2]):
+        for pC, tdp_scale in itertools.product([0.2, 0.4, 0.6], [0.2, 0.4, 0.6]):
             cfg = recog_args.with_prior_scale(pC).with_tdp_scale(tdp_scale)
-
-            if tdp_simple:
-                sil_non_w_tdp = (0.0, 0.0, "infinity", 20.0)
-                cfg = dataclasses.replace(
-                    cfg, tdp_non_word=sil_non_w_tdp, tdp_silence=sil_non_w_tdp, tdp_speech=(0.0, 0.0, "infinity", 0.0)
-                )
-
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
                 search_parameters=cfg,
