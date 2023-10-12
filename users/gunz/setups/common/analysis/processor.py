@@ -50,6 +50,8 @@ class AlignmentProcessor:
 
     def percent_silence_in(self, seg_name: str):
         alignment_states = self._get_alignment_states(seg_name)
+        if len(alignment_states) == 0:
+            return 0.0
         num_sil = sum((1 for st in alignment_states if self.sil_allophone in st.upper()))
         return num_sil / len(alignment_states)
 
