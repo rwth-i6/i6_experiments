@@ -121,7 +121,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"mlp-1-lr:{lr}-dx:{output_time_step/(10/1000)}-d:{model_dim}-bw:{bw_label_scale}"
+    name = f"mlp-1-lr:{lr}-dx:{output_time_step/(10/1000)}-d:{model_dim}-bw:{bw_label_scale}-w:{'default' if w_init == augment.DEFAULT_INIT else w_init}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
