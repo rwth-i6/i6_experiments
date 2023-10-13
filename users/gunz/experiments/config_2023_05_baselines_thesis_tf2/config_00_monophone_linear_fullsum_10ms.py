@@ -87,7 +87,7 @@ def run(returnn_root: tk.Path):
             lr="v8",
             model_dim=model_dim,
             output_time_step=10 / 1000,
-            w_init=None,
+            w_init="glorot_uniform",
         ),
     ]
     experiments = {
