@@ -15,11 +15,17 @@ from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
 
-import i6_core.rasr as rasr
-import i6_core.returnn as returnn
+
+from i6_core import corpus, lexicon, rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
+from ...setups.common.analysis import (
+    ComputeSilencePercentageJob,
+    ComputeTimestampErrorJob,
+    ComputeWordLevelTimestampErrorJob,
+    PlotViterbiAlignmentsJob,
+)
 from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
 from ...setups.common.nn.chunking import subsample_chunking
 from ...setups.common.nn.specaugment import (
@@ -43,6 +49,8 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
+    ALIGN_GMM_TRI_10MS,
+    ALIGN_GMM_TRI_ALLOPHONES,
     CONF_CHUNKING_10MS,
     CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
@@ -781,6 +789,106 @@ def run_single(
                             rtf=1.5,
                         )
                         j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+
+            if (
+                alignment_name in ["40ms-FFs-v8", "40ms-FF-v8"]
+                and peak_lr == 8e-5
+                and bw_scale.label_posterior_scale == 1.0
+                and bw_scale.transition_scale == 0.3
+                and not adapt_transition_model
+            ):
+                s.set_binaries_for_crp("train-other-960.train", RASR_TF_BINARY_PATH)
+                s.create_stm_from_corpus("train-other-960.train")
+                s._set_scorer_for_corpus("train-other-960.train")
+                s._init_lm("train-other-960.train", **next(iter(dev_data_inputs.values())).lm)
+                s._update_crp_am_setting("train-other-960.train", tdp_type="default", add_base_allophones=False)
+                recognizer, recog_args = s.get_recognizer_and_args(
+                    key="fh-fs",
+                    context_type=PhoneticContext.diphone,
+                    crp_corpus="train-other-960.train",
+                    epoch=fine_tune_epochs,
+                    gpu=False,
+                    tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+                    set_batch_major_for_feature_scorer=False,
+                    lm_gc_simple_hash=True,
+                )
+
+                sil_tdp = (*recog_args.tdp_silence[:3], 0.0)
+                align_cfg = (
+                    recog_args.with_prior_scale(0.6)
+                    .with_tdp_scale(1.0)
+                    .with_tdp_silence(sil_tdp)
+                    .with_tdp_non_word(sil_tdp)
+                )
+                align_search_jobs = recognizer.recognize_count_lm(
+                    label_info=s.label_info,
+                    search_parameters=align_cfg,
+                    num_encoder_output=conf_model_dim,
+                    rerun_after_opt_lm=False,
+                    opt_lm_am=False,
+                    add_sis_alias_and_output=False,
+                    calculate_stats=True,
+                    rtf_cpu=4,
+                )
+                crp = copy.deepcopy(align_search_jobs.search_crp)
+                crp.acoustic_model_config.tdp.applicator_type = "corrected"
+                crp.acoustic_model_config.allophones.add_all = False
+                crp.acoustic_model_config.allophones.add_from_lexicon = True
+                crp.concurrent = 300
+                crp.segment_path = corpus.SegmentCorpusJob(
+                    s.corpora[s.train_key].corpus_file, crp.concurrent
+                ).out_segment_path
+
+                a_name = f"{ft_name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}"
+                a_job = recognizer.align(
+                    a_name,
+                    crp=crp,
+                    feature_scorer=align_search_jobs.search_feature_scorer,
+                    default_tdp=True,
+                    set_do_not_normalize_lemma_sequence_scores=False,
+                    rtf=2,
+                )
+
+                output_time_step = 40 / 1000
+
+                allophones = lexicon.StoreAllophonesJob(crp)
+                tk.register_output(f"allophones/{a_name}/allophones", allophones.out_allophone_file)
+
+                plots = PlotViterbiAlignmentsJob(
+                    alignment_bundle_path=a_job.out_alignment_bundle,
+                    allophones_path=allophones.out_allophone_file,
+                    segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
+                    show_labels=False,
+                    monophone=True,
+                )
+                tk.register_output(f"alignments/{a_name}/alignment-plots", plots.out_plot_folder)
+
+                tse_job = ComputeTimestampErrorJob(
+                    allophones=allophones.out_allophone_file,
+                    alignment=a_job.out_alignment_bundle,
+                    t_step=output_time_step,
+                    reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+                    reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
+                    reference_t_step=10 / 1000,
+                )
+                tse_job.add_alias(f"tse/{a_name}")
+                tk.register_output(f"alignments/{a_name}/statistics/tse", tse_job.out_tse)
+
+                tse_w_job = ComputeWordLevelTimestampErrorJob(
+                    allophones=allophones.out_allophone_file,
+                    alignment=a_job.out_alignment_bundle,
+                    t_step=output_time_step,
+                    reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+                    reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
+                    reference_t_step=10 / 1000,
+                )
+                tse_w_job.add_alias(f"tse-w/{a_name}/tse")
+                tk.register_output(f"alignments/{a_name}/statistics/tse-w", tse_w_job.out_tse)
+
+                tse_w_job = ComputeSilencePercentageJob(a_job.out_alignment_bundle, allophones.out_allophone_file)
+                tk.register_output(f"alignments/{a_name}/statistics/sil", tse_w_job.out_percent_sil)
+
+                s.experiments["fh"]["alignment_job"] = a_job
 
     if fine_tune and alignment_name == "40ms-FFs-v8":
         # Training schedule w/ same number of epochs, 600-X eps viterbi + X eps FS
