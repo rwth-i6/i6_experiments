@@ -92,7 +92,7 @@ def run(returnn_root: tk.Path, alignments: typing.List[typing.Tuple[tk.Path, str
             batch_size=12500,
             dc_detection=False,
             decode_all_corpora=False,
-            fine_tune=a_name == "30ms-FFs-v8",
+            fine_tune=a_name in ["30ms-FFs-v8", "30ms-Bmp-pC0.6"],
             lr="v13",
             run_performance_study=False,  # a_name == "30ms-FF-v8",
             tune_decoding="TD" not in a_name,
