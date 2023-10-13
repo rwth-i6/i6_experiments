@@ -25,7 +25,7 @@ class attention_for_hybrid:
         share_par=True,
         normalized_loss=False,
         label_smoothing=0.0,
-        focal_loss_factor=0.0,
+        focal_loss_factor=2.0,
         softmax_dropout=0.0,
         use_spec_augment=True,
         spec_aug_as_data=True,
@@ -168,14 +168,9 @@ class attention_for_hybrid:
         self.target = target
         self.num_classes = num_classes
 
-        self.spec_aug_params = (
-            {"use_spec_augment": True, "spec_aug_as_data": False, "func_name": "transform"}
-            if spec_aug_params is None
-            else spec_aug_params
-        )
-
-        self.use_spec_augment = use_spec_augment
-        self.spec_aug_as_data = spec_aug_as_data
+        self.spec_aug_params = {"use_spec_augment": use_spec_augment,
+                                "spec_aug_as_data": spec_aug_as_data,
+                                "func_name": "transform"}
 
         self.add_blstm_block = add_blstm_block
         self.num_blstm_layers = len(blstm_args["dims"]) if blstm_args and "dims" in blstm_args.keys() else 2
@@ -1017,7 +1012,10 @@ class attention_for_hybrid:
         # default 'from' layer: 'data'
         if self.spec_aug_params["use_spec_augment"]:
             as_data = self.spec_aug_params["spec_aug_as_data"]
-            eval_str = f"self.network.get_config().typed_value('{func_name}', as_data={as_data})(source(0), network=self.network)"
+            if as_data:
+                eval_str = f"self.network.get_config().typed_value('{self.spec_aug_params['func_name']}', as_data={as_data})(source(0), network=self.network)"
+            else:
+                eval_str = f"self.network.get_config().typed_value('{self.spec_aug_params['func_name']}')(source(0), network=self.network)"
             self.network["source"] = {"class": "eval", "eval": eval_str, "from": "data"}
             last_layer = sec_last_layer = ["source"]
 

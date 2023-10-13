@@ -40,21 +40,12 @@ from i6_experiments.common.setups.rasr.util import (
 )
 
 # user dependent
-import i6_experiments.users.raissi.setups.common.encoder.blstm as blstm_setup
-import i6_experiments.users.raissi.setups.common.encoder.conformer as conformer_setup
-import i6_experiments.users.raissi.setups.common.helpers.network.augment as fh_augmenter
+import i6_experiments.users.raissi.setups.common.encoder as encoder_archs
+import i6_experiments.users.raissi.setups.common.helpers.network as net_helpers
 import i6_experiments.users.raissi.setups.common.helpers.train as train_helpers
 
 from i6_experiments.users.raissi.setups.common.util.rasr import (
     SystemInput,
-)
-from i6_experiments.users.raissi.setups.common.helpers.network.extern_data import get_extern_data_config
-
-from i6_experiments.users.raissi.setups.common.helpers.train.specaugment import (
-    mask as sa_mask,
-    random_mask as sa_random_mask,
-    summary as sa_summary,
-    transform as sa_transform,
 )
 
 from i6_experiments.users.raissi.setups.common.helpers.train.cache_epilog import hdf_dataset_cache_epilog
@@ -578,12 +569,12 @@ class BASEFactoredHybridBaseSystem(NnSystem):
         # ToDo: decide how you want to set the number of segments
         print("WARNING: hardcoded number of segments")
 
-        key = train_key if train_key is not None else self.train_key
-        train_corpus_path = self.corpora[key].corpus_file
+        assert self.train_key is not None, "You did not specify the train_key"
+        train_corpus_path = self.corpora[self.train_key].corpus_file
 
         all_segments = self._get_segment_file(corpus_path=train_corpus_path)
 
-        assert self.train_key in num_segments, "It seems that you set a wrong train key in inputs step"
+        assert self.train_key in self.num_segments, "It seems that you set a wrong train key in inputs step"
         cv_size = cv_num_segments / self.num_segments[self.train_key]
 
         splitted_segments_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
@@ -671,16 +662,16 @@ class BASEFactoredHybridBaseSystem(NnSystem):
                 "dim": self.initial_nn_args["num_input"],
                 "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)},
             },
-            **get_extern_data_config(label_info=self.label_info, time_tag_name=time_tag_name),
+            **net_helpers.extern_data.get_extern_data_config(label_info=self.label_info, time_tag_name=time_tag_name),
         }
         # these two are gonna get popped and stored during returnn config object creation
         config["python_prolog"] = {"numpy": "import numpy as np", "time": time_prolog}
         config["python_epilog"] = {
             "functions": [
-                sa_mask,
-                sa_random_mask,
-                sa_summary,
-                sa_transform,
+                train_helpers.specaugment.mask,
+                train_helpers.specaugment.random_mask,
+                train_helpers.specaugment.summary,
+                train_helpers.specaugment.transform,
             ],
         }
 

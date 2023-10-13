@@ -15,9 +15,14 @@ def blstm_network(
     result = {}
 
     if specaugment:
+        if as_data:
+            eval_str = f"self.network.get_config().typed_value('{transform_func_name}')(source(0, as_data={as_data}), network=self.network)"
+        else:
+            eval_str = f"self.network.get_config().typed_value('{transform_func_name}')(source(0), network=self.network)"
+
         result["source"] = {
             "class": "eval",
-            "eval": f"self.network.get_config().typed_value('{transform_func_name}')(source(0, as_data={as_data}), network=self.network)",
+            "eval": eval_str,
         }
         input_first_layer = "source"
     else:

@@ -46,20 +46,10 @@ from i6_experiments.common.setups.rasr.util import (
     ReturnnRasrDataInput,
 )
 
-import i6_experiments.users.raissi.setups.common.encoder.blstm as blstm_setup
-import i6_experiments.users.raissi.setups.common.encoder.conformer as conformer_setup
-import i6_experiments.users.raissi.setups.common.helpers.network.augment as fh_augmenter
+import i6_experiments.users.raissi.setups.common.encoder as encoder_archs
+import i6_experiments.users.raissi.setups.common.helpers.network as net_helpers
 import i6_experiments.users.raissi.setups.common.helpers.train as train_helpers
 import i6_experiments.users.raissi.setups.common.helpers.decode as decode_helpers
-
-from i6_experiments.users.raissi.setups.common.helpers.network.extern_data import get_extern_data_config
-
-from i6_experiments.users.raissi.setups.common.helpers.train.specaugment import (
-    mask as sa_mask,
-    random_mask as sa_random_mask,
-    summary as sa_summary,
-    transform as sa_transform,
-)
 
 
 # user based modules
@@ -195,7 +185,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
         }
         if use_frame_wise_label:
             config["extern_data"].update(
-                **get_extern_data_config(label_info=self.label_info, time_tag_name=time_tag_name)
+                **net_helpers.extern_data.get_extern_data_config(label_info=self.label_info, time_tag_name=time_tag_name)
             )
 
         # these two are gonna get popped and stored during returnn config object creation
@@ -212,24 +202,25 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
     # -------------encoder architectures -------------------------------
     def get_blstm_network(self, **kwargs):
         # this is without any loss and output layers
-        network = blstm_setup.blstm_network(**kwargs)
+        network = encoder_archs.blstm.blstm_network(**kwargs)
         if self.training_criterion != TrainingCriterion.fullsum:
-            network = augment_net_with_label_pops(network, label_info=self.label_info)
+            network = net_helpers.augment.augment_net_with_label_pops(network, label_info=self.label_info)
 
         return network
 
-    def get_conformer_network(self, chunking, conf_model_dim, aux_loss_args):
+    def get_conformer_network(self, chunking: str, conf_model_dim: int, label_smoothing: float = 0.0, **kwargs):
         # this only includes auxilaury losses
-        network_builder = conformer_setup.get_best_conformer_network(
-            conf_model_dim,
+        network_builder = encoder_archs.conformer.get_best_conformer_network(
+            size=conf_model_dim,
+            num_classes=self.label_info.get_n_of_dense_classes(),
+            num_input_feature=self.initial_nn_args["num_input"],
             chunking=chunking,
-            focal_loss_factor=aux_loss_args["focal_loss_factor"],
-            label_smoothing=aux_loss_args["label_smoothing"],
-            num_classes=s.label_info.get_n_of_dense_classes(),
+            label_smoothing=label_smoothing,
+            additional_args = kwargs,
         )
         network = network_builder.network
         if self.training_criterion != TrainingCriterion.fullsum:
-            network = augment_net_with_label_pops(network, label_info=s.label_info)
+            network = net_helpers.augment.augment_net_with_label_pops(network, label_info=self.label_info)
         return network
 
     # -------------------- Decoding --------------------
@@ -354,7 +345,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
         job.add_alias(f"priors/{name}/c")
         tk.register_output(f"priors/{name}/center-state.xml", job.out_prior_xml_file)
 
-        s.experiments[key]["priors"] = [job.out_prior_xml_file]
+        self.experiments[key]["priors"] = [job.out_prior_xml_file]
 
     def set_diphone_priors(
         self,

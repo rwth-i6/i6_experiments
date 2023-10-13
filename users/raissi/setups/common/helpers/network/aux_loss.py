@@ -25,7 +25,6 @@ def add_intermediate_loss(
     scale: float = 0.5,
     center_state_only: bool = False,
     final_ctx_type: PhoneticContext = PhoneticContext.triphone_forward,
-    focal_loss_factor: float = 2.0,
     label_smoothing: float = 0.2,
     l2: float = 0.0,
 ) -> Network:
@@ -58,7 +57,6 @@ def add_intermediate_loss(
         final_ctx_type=final_ctx_type,
         encoder_output_len=encoder_output_len,
         encoder_output_layer=input_layer,
-        focal_loss_factor=focal_loss_factor,
         label_smoothing=label_smoothing,
         l2=l2,
         use_multi_task=True,

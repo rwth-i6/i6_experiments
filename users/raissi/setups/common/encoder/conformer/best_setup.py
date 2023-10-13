@@ -1,10 +1,14 @@
 __all__ = ["INT_LOSS_LAYER", "INT_LOSS_SCALE", "get_best_model_config", "Size"]
 
-import typing
-from enum import Enum
 
-from .get_network_args import get_encoder_args, get_network_args
-from .transformer_network import attention_for_hybrid
+from enum import Enum
+from typing import Union, Optional
+from i6_experiments.users.raissi.setups.common.encoder.conformer.get_network_args import (
+    get_encoder_args,
+    get_network_args
+)
+
+from i6_experiments.users.raissi.setups.common.encoder.conformer.transformer_network import attention_for_hybrid
 
 INT_LOSS_LAYER = 6
 INT_LOSS_SCALE = 0.5
@@ -20,16 +24,17 @@ class Size(Enum):
 
 
 def get_best_model_config(
-    size: typing.Union[Size, int],
+    size: Union[Size, int],
     num_classes: int,
+    num_input_feature: int,
     *,
-    chunking: typing.Optional[str] = None,
-    int_loss_at_layer: typing.Optional[int] = None,
-    int_loss_scale: typing.Optional[float] = None,
-    focal_loss_factor: typing.Optional[float] = None,
-    label_smoothing: typing.Optional[float] = None,
+    chunking: Optional[str] = None,
+    int_loss_at_layer: Optional[int] = None,
+    int_loss_scale: Optional[float] = None,
+    label_smoothing: Optional[float] = None,
     target: str = "classes",
-    time_tag_name: typing.Optional[str] = None,
+    time_tag_name: Optional[str] = None,
+    additional_args: Optional[dict] = None
 ) -> attention_for_hybrid:
     if int_loss_at_layer is None:
         int_loss_at_layer = INT_LOSS_LAYER
@@ -75,8 +80,8 @@ def get_best_model_config(
         },
     }
 
-    if focal_loss_factor is not None:
-        loss6_down_up_3_two_vggs_args["focal_loss_factor"] = focal_loss_factor
+    if additional_args is not None:
+        loss6_down_up_3_two_vggs_args.update(**additional_args)
 
     pe400_conformer_down_up_3_loss6_args = get_network_args(
         num_enc_layers=12,
@@ -84,6 +89,7 @@ def get_best_model_config(
         enc_args=pe400_enc_args,
         target=target,
         num_classes=num_classes,
+        num_input_feature=num_input_feature,
         label_smoothing=label_smoothing,
         **loss6_down_up_3_two_vggs_args,
     )

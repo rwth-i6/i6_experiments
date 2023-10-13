@@ -1,5 +1,3 @@
-__all__ = ["get_initial_nn_args"]
-
 
 def get_initial_nn_args_viterbi():
     return {
@@ -19,3 +17,5 @@ def get_initial_nn_args_fullsum():
         "keep_epochs": None,
         "keep_best_n": None,
     }
+
+

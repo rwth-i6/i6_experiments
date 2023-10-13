@@ -191,7 +191,6 @@ def augment_net_with_monophone_outputs(
     add_mlps=True,
     use_multi_task=True,
     final_ctx_type: Optional[PhoneticContext] = None,
-    focal_loss_factor=2.0,
     label_smoothing=0.0,
     l2=None,
     encoder_output_layer: str = "encoder-output",
@@ -207,9 +206,7 @@ def augment_net_with_monophone_outputs(
     network = copy.copy(shared_network)
     encoder_out_len = encoder_output_len
 
-    loss_opts = {}
-    if focal_loss_factor > 0.0:
-        loss_opts["focal_loss_factor"] = focal_loss_factor
+    loss_opts = {"focal_loss_factor": 2.0}
     if label_smoothing > 0.0:
         loss_opts["label_smoothing"] = label_smoothing
 
