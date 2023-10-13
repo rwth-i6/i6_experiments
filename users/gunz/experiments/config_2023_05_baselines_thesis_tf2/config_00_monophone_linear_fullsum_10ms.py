@@ -272,7 +272,7 @@ def run_single(
         "update_on_device": True,
         "optimizer": {"class": "nadam"},
         "optimizer_epsilon": 1e-8,
-        "gradient_clip": 10,
+        "gradient_clip": 20,
         "gradient_noise": 0.0,
         "network": network,
         "extern_data": {"data": {"dim": 50}},
