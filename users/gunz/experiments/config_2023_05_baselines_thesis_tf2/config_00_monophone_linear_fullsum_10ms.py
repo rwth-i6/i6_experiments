@@ -59,6 +59,7 @@ class Experiment:
     lr: str
     model_dim: int
     output_time_step: float
+    w_init: typing.Optional[str]
 
 
 def run(returnn_root: tk.Path):
@@ -77,6 +78,16 @@ def run(returnn_root: tk.Path):
             lr="v8",
             model_dim=model_dim,
             output_time_step=10 / 1000,
+            w_init=augment.DEFAULT_INIT,
+        ),
+        Experiment(
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            context_window_size=15,
+            lr="v8",
+            model_dim=model_dim,
+            output_time_step=10 / 1000,
+            w_init=None,
         ),
     ]
     experiments = {
@@ -86,8 +97,9 @@ def run(returnn_root: tk.Path):
             context_window_size=exp.context_window_size,
             lr=exp.lr,
             model_dim=exp.model_dim,
-            returnn_root=returnn_root,
             output_time_step=exp.output_time_step,
+            returnn_root=returnn_root,
+            w_init=exp.w_init,
         )
         for exp in configs
     }
@@ -104,6 +116,7 @@ def run_single(
     returnn_root: tk.Path,
     output_time_step: float,
     model_dim: int,
+    w_init: typing.Optional[str],
     num_epochs: int = 600,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
@@ -182,7 +195,7 @@ def run_single(
             "activation": "relu",
             "from": "window-merged",
             "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
+            "forward_weights_init": w_init,
             "L2": 0.0001,
             "n_out": model_dim,
         },
@@ -191,7 +204,7 @@ def run_single(
             "activation": "relu",
             "from": "linear-1",
             "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
+            "forward_weights_init": w_init,
             "L2": 0.0001,
             "n_out": model_dim,
         },
@@ -200,7 +213,7 @@ def run_single(
             "activation": "relu",
             "from": "linear-2",
             "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
+            "forward_weights_init": w_init,
             "L2": 0.0001,
             "n_out": model_dim,
         },
@@ -209,7 +222,7 @@ def run_single(
             "activation": "relu",
             "from": "linear-3",
             "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
+            "forward_weights_init": w_init,
             "L2": 0.0001,
             "n_out": model_dim,
         },
@@ -218,7 +231,7 @@ def run_single(
             "activation": "relu",
             "from": "linear-4",
             "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
+            "forward_weights_init": w_init,
             "L2": 0.0001,
             "n_out": model_dim,
         },
@@ -227,7 +240,7 @@ def run_single(
             "activation": "relu",
             "from": "linear-5",
             "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
+            "forward_weights_init": w_init,
             "L2": 0.0001,
             "n_out": model_dim,
         },
@@ -294,7 +307,7 @@ def run_single(
     train_cfg = baum_welch.augment_for_fast_bw(
         crp=s.crp[s.crp_names["train"]],
         log_linear_scales=baum_welch.BwScales(
-            label_posterior_scale=bw_label_scale, label_prior_scale=None, transition_scale=bw_label_scale
+            label_posterior_scale=bw_label_scale, label_prior_scale=None, transition_scale=0.1
         ),
         returnn_config=returnn_config,
     )
