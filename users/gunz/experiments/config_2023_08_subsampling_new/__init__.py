@@ -381,6 +381,8 @@ def the_plan():
         t_step=40 / 1000,
         prior_scale=0.6,
     )
+    phmm_40ms_ffnn_a = get_40ms_linear_a()
+
     config_21_diphone_mpc1x4_40ms.run(
         returnn_root=returnn_root,
         alignment=phmm_40ms_mp_p0_0_a,
@@ -491,23 +493,24 @@ def the_plan():
         a_name="40ms-FFs-v8",
     )
 
-    _, mono_sys = config_20_monophone_mpc1x4_40ms.run(
-        returnn_root=returnn_root,
-        alignment=phmms_40ms_ffnn_a,
-        a_name="40ms-FFs-v8",
-    )
-    _, di_sys = config_21b_diphone_multi_mpc1x4_40ms.run(
-        returnn_root=returnn_root,
-        alignment=phmms_40ms_ffnn_a,
-        a_name="40ms-FFs-v8",
-        init_from_system=mono_sys,
-    )
-    config_22b_triphone_multi_mpc1x4_40ms.run(
-        returnn_root=returnn_root,
-        alignment=phmms_40ms_ffnn_a,
-        a_name="40ms-FFs-v8",
-        init_from_system=di_sys,
-    )
+    for a, a_name in [(phmm_40ms_ffnn_a, "40ms-FF-v8"), (phmms_40ms_ffnn_a, "40ms-FFs-v8")]:
+        _, mono_sys = config_20_monophone_mpc1x4_40ms.run(
+            returnn_root=returnn_root,
+            alignment=a,
+            a_name=a_name,
+        )
+        _, di_sys = config_21b_diphone_multi_mpc1x4_40ms.run(
+            returnn_root=returnn_root,
+            alignment=a,
+            a_name=a_name,
+            init_from_system=mono_sys,
+        )
+        config_22b_triphone_multi_mpc1x4_40ms.run(
+            returnn_root=returnn_root,
+            alignment=a,
+            a_name=a_name,
+            init_from_system=di_sys,
+        )
     config_31_diphone_mpc2x3_60ms.run(
         returnn_root=returnn_root,
         alignment=phmms_60ms_ffnn_a,
@@ -521,7 +524,6 @@ def the_plan():
 
     # P-HMM FF-NN
 
-    phmm_40ms_ffnn_a = get_40ms_linear_a()
     config_21i_diphone_ss_variations_40ms.run(
         returnn_root=returnn_root,
         alignment=phmm_40ms_ffnn_a,
