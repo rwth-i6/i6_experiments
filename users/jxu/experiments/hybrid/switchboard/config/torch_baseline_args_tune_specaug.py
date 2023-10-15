@@ -20,7 +20,7 @@ def get_nn_args(
     num_outputs: int = 9001, num_epochs: int = 500, extra_exps=False, peak_lr=2e-3
 ):
     # evaluation_epochs = list(np.arange(num_epochs, num_epochs + 1, 10))
-    evaluation_epochs = [240, 260]
+    evaluation_epochs = [260]
 
     returnn_configs = get_pytorch_returnn_configs(
         num_inputs=40,
@@ -130,7 +130,7 @@ def get_pytorch_returnn_configs(
     conformer_base_config = copy.deepcopy(base_config)
     conformer_base_config.update(
         {
-            "batch_size": 12000,  # {"classes": batch_size, "data": batch_size},
+            "batch_size": 14000,  # {"classes": batch_size, "data": batch_size},
             # "batching": 'sort_bin_shuffle:.64',
             "chunking": "500:250",
             "min_chunk_size": 10,
@@ -156,7 +156,7 @@ def get_pytorch_returnn_configs(
 
     def construct_from_net_kwargs(base_config, net_kwargs, explicit_hash=None, use_tracing=False,
                                   use_custom_engine=False, use_espnet=False, use_i6_models=False,
-                                  aux_loss_scale=None, drop_one_layer=None):
+                                  aux_loss_scale=None):
         if aux_loss_scale is not None:
             base_config["_kwargs"] = {"aux_loss_scale": aux_loss_scale}
         model_type = net_kwargs.pop("model_type")
@@ -189,12 +189,12 @@ def get_pytorch_returnn_configs(
         if use_i6_models:
             i6_models_repo = CloneGitRepositoryJob(
                 url="https://github.com/rwth-i6/i6_models",
-                commit="83af04d84f6a223a980f0bed8db6d2d1466dd690",
+                commit="48ade422412bf73e1835a36ee72f12af73106cc6",
                 checkout_folder_name="i6_models"
             ).out_repository
-            i6_models_repo.hash_overwrite = "LIBRISPEECH_DEFAULT_I6_MODELS"
+            i6_models_repo.hash_overwrite = "SWB_DEFAULT_I6_MODELS"
             i6_models = ExternalImport(import_path=i6_models_repo)
-            serializer_objects.append(i6_models)
+            serializer_objects.insert(0, i6_models)
         if use_custom_engine:
             pytorch_engine = Import(
                 PACKAGE + ".pytorch_networks.%s.CustomEngine" % model_type
@@ -231,17 +231,36 @@ def get_pytorch_returnn_configs(
         return blstm_base_returnn_config
 
     return {
-        "i6_conformer_epochs_{}_peak_lr_{}".format(num_epochs, str(peak_lr).replace(".", "_")): construct_from_net_kwargs(
+        "i6_conformer_new_specaug_epochs_kernel_size_9_{}_peak_lr_{}".format(num_epochs, str(peak_lr).replace(".", "_")): construct_from_net_kwargs(
             conformer_jingjing_config,
-            {"model_type": "i6_conformer_downsample_3",
+            {"model_type": "i6_conformer_with_new_specaug",
              "model_size": 384,
              "num_layers": 12,
              "kernel_size": 9,
-             "num_repeat_time": 15,
-             "max_dim_time": 20,
-             "num_repeat_feat": 5,
-             "max_dim_feat": 10},
+             "time_min_num_masks": 2,
+             "time_max_mask_per_n_frames": 25,
+             "time_mask_max_size": 20,
+             "freq_min_num_masks": 2,
+             "freq_max_num_masks": 5,
+             "freq_mask_max_size": 8,},
             use_tracing=True,
-            drop_one_layer=1
+            use_i6_models=True,
             ),
+
+        "i6_conformer_new_specaug_epochs_kernel_size_31_{}_peak_lr_{}".format(num_epochs, str(peak_lr).replace(".",
+                                                                                                "_")): construct_from_net_kwargs(
+            conformer_jingjing_config,
+            {"model_type": "i6_conformer_with_new_specaug",
+             "model_size": 384,
+             "num_layers": 12,
+             "kernel_size": 31,
+             "time_min_num_masks": 2,
+             "time_max_mask_per_n_frames": 25,
+             "time_mask_max_size": 20,
+             "freq_min_num_masks": 2,
+             "freq_max_num_masks": 5,
+             "freq_mask_max_size": 8, },
+            use_tracing=True,
+            use_i6_models=True,
+        ),
     }
