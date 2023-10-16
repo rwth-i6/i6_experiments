@@ -96,11 +96,7 @@ config = dict(
     # gradient_noise=0.0,
     learning_rate=0.0005,
     learning_rates=(
-        # matching pretraining
-        list(numpy.linspace(0.0001, 0.001, num=10)) * 3
-        + list(numpy.linspace(0.0001, 0.0005, num=10))
-        + [0.0005] * 20
-        + list(numpy.linspace(0.0005, 0.001, num=20))
+        list(numpy.linspace(0.0001, 0.0005, num=20)) + [0.0005] * 20 + list(numpy.linspace(0.0005, 0.001, num=20))
     ),
     min_learning_rate=0.001 / 50,
     learning_rate_control="newbob_multi_epoch",
