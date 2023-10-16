@@ -352,7 +352,7 @@ def run_single(
                 tdp_speech=[(3, 0, "infinity", 0)],
                 tdp_sil=[(3, 10, "infinity", 10), (0, 3, "infinity", 20)],
                 prior_scales=np.linspace(0.0, 0.8, 9),
-                tdp_scales=[0.2, 0.4, 0.6] if "FFs" in alignment_name else [0.4],
+                tdp_scales=[0.2, 0.4, 0.6] if "FF" in alignment_name else [0.4],
             )
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
