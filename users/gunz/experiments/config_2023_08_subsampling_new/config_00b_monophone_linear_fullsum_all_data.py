@@ -207,7 +207,7 @@ def run_single(
         test_data=test_data_inputs,
     )
 
-    s.cv_num_segments = 0
+    s.cv_num_segments = 1  # must be > 0
     s.label_info = dataclasses.replace(
         s.label_info, n_states_per_phone=n_states_per_phone, state_tying=RasrStateTying.monophone
     )
