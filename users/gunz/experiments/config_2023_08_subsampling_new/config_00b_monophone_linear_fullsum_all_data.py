@@ -156,8 +156,8 @@ def run(returnn_root: tk.Path) -> Results:
     return Results(
         phmm_30ms=(phmm_30ms, r(phmm_30ms)),
         phmm_40ms=(phmm_40ms, r(phmm_40ms)),
-        phmms_30ms=(phmms_30ms, r(phmm_30ms)),
-        phmms_40ms=(phmms_40ms, r(phmm_40ms)),
+        phmms_30ms=(phmms_30ms, r(phmms_30ms)),
+        phmms_40ms=(phmms_40ms, r(phmms_40ms)),
     )
 
 
