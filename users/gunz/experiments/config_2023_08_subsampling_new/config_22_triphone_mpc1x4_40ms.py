@@ -392,7 +392,7 @@ def run_single(
                         np.linspace(0.0, 0.4, 3),
                     )
                 ),
-                tdp_scales=[0.4],
+                tdp_scales=[0.2, 0.4, 0.6] if "FFs" in alignment_name else [0.4],
             )
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
