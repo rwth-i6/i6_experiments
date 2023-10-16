@@ -531,8 +531,33 @@ def the_plan():
     )
 
 
+def quant_data_util():
+    from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new import (
+        config_00b_monophone_linear_fullsum_all_data,
+        config_11_diphone_mpc1x3_30ms,
+        config_21_diphone_mpc1x4_40ms,
+    )
+
+    returnn_root = _clone_returnn_safe()
+    alignment_exps = config_00b_monophone_linear_fullsum_all_data.run(returnn_root=returnn_root)
+
+    alignments_30ms = [
+        (alignment_exps.phmm_30ms[1].experiments["fh"]["alignment_job"].out_alignment_bundle, "30ms-FFall-v8"),
+        (alignment_exps.phmms_30ms[1].experiments["fh"]["alignment_job"].out_alignment_bundle, "30ms-FFsall-v8"),
+    ]
+    config_11_diphone_mpc1x3_30ms.run(returnn_root=returnn_root, alignments=alignments_30ms)
+
+    alignments_40ms = [
+        (alignment_exps.phmm_40ms[1].experiments["fh"]["alignment_job"].out_alignment_bundle, "40ms-FFall-v8"),
+        (alignment_exps.phmms_40ms[1].experiments["fh"]["alignment_job"].out_alignment_bundle, "40ms-FFsall-v8"),
+    ]
+    for a, a_name in alignments_40ms:
+        config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=a, a_name=a_name)
+
+
 def main():
     the_plan()
+    quant_data_util()
 
     viterbi_30ms()
     viterbi_40ms()

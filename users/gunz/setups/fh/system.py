@@ -211,6 +211,7 @@ class FactoredHybridSystem(NnSystem):
         self.train_key = None  # "train-other-960"
 
         self.do_not_set_returnn_python_exe_for_graph_compiles = False
+        self.cv_num_segments = 3000
 
     # ----------- pipeline construction -----------------
     def set_experiment_dict(self, key: str, alignment: str, context: str, postfix_name=""):
@@ -597,7 +598,7 @@ class FactoredHybridSystem(NnSystem):
     def prepare_train_data_with_cv_from_train(self, input_key):
         train_corpus_path = self.corpora[self.train_key].corpus_file
         total_train_num_segments = num_segments[self.train_key]
-        cv_size = 3000 / total_train_num_segments
+        cv_size = (self.cv_num_segments if self.cv_num_segments is not None else 3000) / total_train_num_segments
 
         segment_job = corpus_recipe.SegmentCorpusJob(train_corpus_path, 1)
         all_segments = segment_job.out_single_segment_files[1]
