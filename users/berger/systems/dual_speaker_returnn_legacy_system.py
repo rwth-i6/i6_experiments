@@ -9,9 +9,7 @@ from sisyphus import tk
 Path = tk.setup_path(__package__)
 
 
-class DualSpeakerReturnnLegacySystem(
-    BaseSystem[returnn.ReturnnTrainingJob, DualSpeakerReturnnConfig]
-):
+class DualSpeakerReturnnLegacySystem(BaseSystem[returnn.ReturnnTrainingJob, DualSpeakerReturnnConfig]):
     def _initialize_functors(
         self,
     ) -> functors.Functors[returnn.ReturnnTrainingJob, DualSpeakerReturnnConfig]:

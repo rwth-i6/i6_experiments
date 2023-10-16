@@ -18,20 +18,21 @@ class SelfAttRelPosEncodingV1(torch.nn.Module):
         self.dropout = torch.nn.Dropout(p=cfg.dropout)
         self.out_dim = cfg.out_dim
         self.encoding_matrix = torch.nn.Parameter(torch.empty(size=(2 * cfg.clipping + 1, cfg.out_dim)))
+        torch.nn.init.xavier_uniform_(self.encoding_matrix)
 
         self.clipping = cfg.clipping
 
-        self.pos_enc = None
-        self.pos_enc = self.forward(torch.zeros(size=(1, cfg.clipping + 1), dtype=torch.float32))
+        # self.pos_enc = None
+        # self.forward(torch.zeros(size=(1, cfg.clipping + 1), dtype=torch.float32))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: [B, T, F]
 
-        if self.pos_enc is not None and self.pos_enc.size(0) >= x.size(1):
-            if self.pos_enc.device != x.device:
-                self.pos_enc.to(device=x.device)
-            # Encoding matrix has already been computed and is large enough
-            return self.pos_enc[: x.size(1), : x.size(1)]  # [T, T, out_dim]
+        # if self.pos_enc is not None and self.pos_enc.size(0) >= x.size(1):
+        #     if self.pos_enc.device != x.device:
+        #         self.pos_enc.to(device=x.device)
+        #     # Encoding matrix has already been computed and is large enough
+        #     return self.pos_enc[: x.size(1), : x.size(1)]  # [T, T, out_dim]
 
         # Example: T = 4, clipping = 2
         # Position range [0, 1, 2, 3]
@@ -53,5 +54,5 @@ class SelfAttRelPosEncodingV1(torch.nn.Module):
         pos_distance_mat_clipped = distance_mat_clipped + self.clipping  # [T, T]
 
         # Index such that self.pos_enc[a, b, :] = self.encoding_matrix[pos_distance_mat_clipped[a, b], :]
-        self.pos_enc = self.encoding_matrix[pos_distance_mat_clipped].to(device=x.device)  # [T, T, out_dim]
-        return self.pos_enc
+        # self.pos_enc = self.encoding_matrix[pos_distance_mat_clipped].to(device=x.device)  # [T, T, out_dim]
+        return self.encoding_matrix[pos_distance_mat_clipped].to(device=x.device)  # [T, T, out_dim]

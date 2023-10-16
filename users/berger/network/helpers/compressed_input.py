@@ -1,4 +1,3 @@
-
 compressed_concat_code = """
 import tensorflow as tf
 from returnn.tf.layers.basic import _ConcatInputLayer, register_layer_class

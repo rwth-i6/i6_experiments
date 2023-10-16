@@ -17,7 +17,7 @@ from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
 from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
-from recipe.i6_experiments.users.berger.corpus.librispeech.ctc_data import (
+from i6_experiments.users.berger.corpus.librispeech.ctc_data import (
     get_librispeech_data_hdf,
 )
 from sisyphus import gs, tk
@@ -131,11 +131,13 @@ def run_exp() -> Tuple[SummaryReport, Dict]:
 
     train_args = exp_args.get_ctc_train_step_args(
         num_epochs=500,
+        gpu_mem_rqmt=24,
+        mem_rqmt=24,
     )
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)
     align_args = exp_args.get_ctc_align_step_args(num_classes)
-    recog_args["epochs"] = [400, 480, 500, "best"]
+    recog_args["epochs"] = [40, 80, 160, 240, 320, 400, 480, "best"]
     recog_args["prior_scales"] = [0.3]
     recog_args["lm_scales"] = [0.9]
     align_args["epochs"] = ["best"]

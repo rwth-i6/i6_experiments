@@ -37,9 +37,7 @@ def get_hybrid_recog_step_args(num_classes: int, **kwargs) -> Dict:
         "create_lattice": True,
         "eval_single_best": True,
         "eval_best_in_lattice": True,
-        "search_parameters": get_atr_search_parameters(
-            bp=12.0, bpl=100_000, wep=0.5, wepl=25_000
-        ),
+        "search_parameters": get_atr_search_parameters(bp=12.0, bpl=100_000, wep=0.5, wepl=25_000),
         "lattice_to_ctm_kwargs": {
             "fill_empty_segments": True,
             "best_path_algo": "bellman-ford",

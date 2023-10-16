@@ -170,10 +170,12 @@ def run_exp() -> SummaryReport:
 
     data_per_lm = {}
 
-    for lm_name in ["4gram" , "kazuki_transformer"]:
+    for lm_name in ["4gram", "kazuki_transformer"]:
         data_per_lm[lm_name] = get_hybrid_data(
             train_key="enhanced_tfgridnet_v1",
-            dev_keys=["segmented_libri_css_tfgridnet_dev_v1", "segmented_libri_css_tfgridnet_eval_v1"] if lm_name == "4gram" else [],
+            dev_keys=["segmented_libri_css_tfgridnet_dev_v1", "segmented_libri_css_tfgridnet_eval_v1"]
+            if lm_name == "4gram"
+            else [],
             test_keys=["segmented_libri_css_tfgridnet_eval_v1"] if lm_name == "kazuki_transformer" else [],
             gmm_system=gmm_system,
             returnn_root=tools.returnn_root,
@@ -200,7 +202,9 @@ def run_exp() -> SummaryReport:
             "/work/asr4/raissi/setups/librispeech/960-ls/work/i6_core/g2p/convert/G2POutputToBlissLexiconJob.JOqKFQpjp04H/output/oov.lexicon.gz"
         )
     for key in data.test_keys:
-        data.data_inputs[key].lexicon.filename = tk.Path("/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/lexicon/modification/MergeLexiconJob.z54fVoMlr0md/output/lexicon.xml.gz")
+        data.data_inputs[key].lexicon.filename = tk.Path(
+            "/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/lexicon/modification/MergeLexiconJob.z54fVoMlr0md/output/lexicon.xml.gz"
+        )
 
     # ********** Step args **********
 
@@ -208,7 +212,7 @@ def run_exp() -> SummaryReport:
     dev_recog_args = [
         exp_args.get_hybrid_recog_step_args(
             num_classes=num_outputs,
-            epochs=[600], #[20, 40, 80, 160, 240, 320, 400, 480, 560, 600],
+            epochs=[600],  # [20, 40, 80, 160, 240, 320, 400, 480, 560, 600],
             prior_scales=[0.3],
             pronunciation_scales=[6.0],
             lm_scales=[10.0],
@@ -220,7 +224,7 @@ def run_exp() -> SummaryReport:
         ),
         exp_args.get_hybrid_recog_step_args(
             num_classes=num_outputs,
-            epochs=[600], #[20, 40, 80, 160, 240, 320, 400, 480, 560, 600],
+            epochs=[600],  # [20, 40, 80, 160, 240, 320, 400, 480, 560, 600],
             prior_scales=[0.8],
             pronunciation_scales=[6.0],
             lm_scales=[11.0],
@@ -229,17 +233,15 @@ def run_exp() -> SummaryReport:
             search_parameters={"word-end-pruning-limit": 15000},
             mem=16,
             rtf=50,
-        )
+        ),
     ]
     test_recog_args = exp_args.get_hybrid_recog_step_args(
         num_classes=num_outputs,
-        epochs=[600], #[20, 40, 80, 160, 240, 320, 400, 480, 560, 600],
+        epochs=[600],  # [20, 40, 80, 160, 240, 320, 400, 480, 560, 600],
         prior_scales=[0.2],
         pronunciation_scales=[2.0],
         lm_scales=[9.3],
-        search_parameters=get_atr_search_parameters(
-            bp=16.0, bpl=100_000, wep=0.5, wepl=25_000
-        ),
+        search_parameters=get_atr_search_parameters(bp=16.0, bpl=100_000, wep=0.5, wepl=25_000),
         feature_type=FeatureType.CONCAT_GAMMATONE,
         lattice_processing_type=LatticeProcessingType.MultiChannelMultiSegment,
         use_gpu=True,
@@ -444,7 +446,7 @@ def run_exp() -> SummaryReport:
     system.run_train_step(**train_args)
     for recog_args in dev_recog_args:
         system.run_dev_recog_step(**recog_args)
-    
+
     system.run_test_recog_step(**test_recog_args)
 
     assert system.summary_report

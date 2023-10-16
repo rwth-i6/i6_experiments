@@ -9,15 +9,11 @@ from sisyphus import tk
 Path = tk.setup_path(__package__)
 
 
-class ReturnnLegacySystem(
-    BaseSystem[returnn.ReturnnTrainingJob, returnn.ReturnnConfig]
-):
+class ReturnnLegacySystem(BaseSystem[returnn.ReturnnTrainingJob, returnn.ReturnnConfig]):
     def _initialize_functors(
         self,
     ) -> functors.Functors[returnn.ReturnnTrainingJob, returnn.ReturnnConfig]:
-        train_functor = functors.ReturnnTrainFunctor(
-            self._tool_paths.returnn_root, self._tool_paths.returnn_python_exe
-        )
+        train_functor = functors.ReturnnTrainFunctor(self._tool_paths.returnn_root, self._tool_paths.returnn_python_exe)
 
         recog_functor = functors.AdvancedTreeSearchFunctor(
             self._tool_paths.returnn_root,

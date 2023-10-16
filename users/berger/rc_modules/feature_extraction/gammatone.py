@@ -3,9 +3,7 @@ from returnn_common.asr.gt import GammatoneV2
 from returnn_common import nn
 
 
-def make_gammatone_module(
-    *args, sample_rate: int = 8_000, **kwargs
-) -> Tuple[GammatoneV2, nn.Dim]:
+def make_gammatone_module(*args, sample_rate: int = 8_000, **kwargs) -> Tuple[GammatoneV2, nn.Dim]:
     assert sample_rate in {8_000, 16_000}
     default_kwargs = {
         8000: {
@@ -29,9 +27,7 @@ def make_gammatone_module(
     else:
         out_dim = nn.FeatureDim("channels", 50)
 
-    module = GammatoneV2(
-        out_dim=out_dim, *args, sample_rate=sample_rate, **default_kwargs
-    )
+    module = GammatoneV2(out_dim=out_dim, *args, sample_rate=sample_rate, **default_kwargs)
     for p in module.parameters():
         p.trainable = False
 

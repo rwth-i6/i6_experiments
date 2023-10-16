@@ -184,11 +184,7 @@ def make_context_1_blstm_transducer_fullsum(
         blank_index=blank_index,
     )
 
-    (
-        joint_output,
-        decoder_unit,
-        decoder_python,
-    ) = label_context.add_context_1_decoder_fullsum(
+    (joint_output, decoder_unit, decoder_python,) = label_context.add_context_1_decoder_fullsum(
         network,
         context_labels=context_labels,
         encoder="encoder",
@@ -254,9 +250,7 @@ def make_context_1_blstm_transducer_recog(
 def get_viterbi_transducer_alignment_config(reduction_factor: int) -> RasrConfig:
     alignment_config = RasrConfig()
     alignment_config.neural_network_trainer["*"].force_single_state = True
-    alignment_config.neural_network_trainer[
-        "*"
-    ].reduce_alignment_factor = reduction_factor
+    alignment_config.neural_network_trainer["*"].reduce_alignment_factor = reduction_factor
     alignment_config.neural_network_trainer["*"].peaky_alignment = True
     alignment_config.neural_network_trainer["*"].peak_position = 1.0
 
@@ -274,9 +268,7 @@ def pretrain_construction_algo(idx, net_dict):
             del net_dict["fwd_lstm_%i" % enc_layer_idx]
             del net_dict["bwd_lstm_%i" % enc_layer_idx]
         if enc_layer_idx >= num_layers and "max_pool_%i" % enc_layer_idx in net_dict:
-            remaining_reduction *= net_dict["max_pool_%i" % enc_layer_idx]["pool_size"][
-                0
-            ]
+            remaining_reduction *= net_dict["max_pool_%i" % enc_layer_idx]["pool_size"][0]
             del net_dict["max_pool_%i" % enc_layer_idx]
 
     if num_layers <= enc_layer_idx:
@@ -315,9 +307,7 @@ def pretrain_construction_algo(idx, net_dict):
 
         if num_dec_layers <= dec_layer_idx:
             # partial decoder
-            net_dict["output"]["unit"]["decoder"]["from"] = [
-                "dec_ff_%i" % num_dec_layers
-            ]
+            net_dict["output"]["unit"]["decoder"]["from"] = ["dec_ff_%i" % num_dec_layers]
         else:  # full encoder and full decoder -> finished pre-training
             return None
 

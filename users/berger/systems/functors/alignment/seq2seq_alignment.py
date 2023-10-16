@@ -5,7 +5,7 @@ from typing import Dict, List, Tuple, Union
 from i6_core import returnn
 from i6_experiments.users.berger.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import mm
-from recipe.i6_core.lexicon.allophones import DumpStateTyingJob, StoreAllophonesJob
+from i6_core.lexicon.allophones import DumpStateTyingJob, StoreAllophonesJob
 from sisyphus import tk
 
 from ... import dataclasses

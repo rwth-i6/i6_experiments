@@ -1,15 +1,11 @@
-from typing import Callable, Dict, List, Optional
+from typing import Dict, List
 import copy
 
-from i6_core import returnn, corpus
+from i6_core import corpus
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
-from recipe.i6_core.returnn.hdf import BlissToPcmHDFJob
-from recipe.i6_core.text.processing import ConcatenateJob
-from recipe.i6_experiments.users.berger.args.returnn.dataset import MetaDatasetBuilder
-from recipe.i6_experiments.users.berger.recipe.corpus.filter import (
-    FilterMismatchedSequencesJob,
-)
-from recipe.i6_experiments.users.berger.systems.dataclasses import AlignmentData
+from i6_core.returnn.hdf import BlissToPcmHDFJob
+from i6_experiments.users.berger.args.returnn.dataset import MetaDatasetBuilder
+from i6_experiments.users.berger.systems.dataclasses import AlignmentData
 from . import data
 from ..general import BasicSetupData
 from sisyphus import tk
@@ -24,15 +20,11 @@ def get_librispeech_data(
     test_keys: List[str] = ["test-clean", "test-other"],
     add_unknown: bool = False,
     augmented_lexicon: bool = True,
-    length_mismatch_check_function: Optional[Callable[[int, int], bool]] = None,
+    **kwargs,
 ) -> BasicSetupData:
     # ********** Data inputs **********
 
-    (
-        train_data_inputs,
-        dev_data_inputs,
-        test_data_inputs,
-    ) = data.get_data_inputs(
+    (train_data_inputs, dev_data_inputs, test_data_inputs,) = data.get_data_inputs(
         train_key=train_key,
         dev_keys=dev_keys,
         test_keys=test_keys,
@@ -41,6 +33,7 @@ def get_librispeech_data(
         add_all_allophones=True,
         audio_format="wav",  # Note: OGGZip dataset lead to length mismatches between features and alignment
         add_unknown_phoneme_and_mapping=add_unknown,
+        **kwargs,
     )
 
     # ********** Train data **********
@@ -56,23 +49,15 @@ def get_librispeech_data(
             all_unknown=False,
         ).out_corpus
 
-    train_sample_hdf_job = BlissToPcmHDFJob(train_corpus, returnn_root=returnn_root)
+    train_sample_hdf_job = BlissToPcmHDFJob(
+        train_corpus, rounding=BlissToPcmHDFJob.RoundingScheme.rasr_compatible, returnn_root=returnn_root
+    )
     train_sample_hdf_job.rqmt["mem"] = 8
     train_sample_hdf_job.rqmt["time"] = 24
     train_sample_hdf = train_sample_hdf_job.out_hdf
     train_alignment_hdf = alignments[f"{train_key}_align"].get_hdf(
         returnn_python_exe=returnn_python_exe, returnn_root=returnn_root
     )
-
-    if length_mismatch_check_function is not None:
-        segment_whitelist = FilterMismatchedSequencesJob(
-            feature_hdf=train_sample_hdf,
-            target_hdf=train_alignment_hdf,
-            check_mismatch_func=length_mismatch_check_function,
-            returnn_root=returnn_root,
-        ).out_segment_whitelist
-    else:
-        segment_whitelist = None
 
     train_dataset_builder = MetaDatasetBuilder()
     train_dataset_builder.add_hdf_dataset(
@@ -86,8 +71,7 @@ def get_librispeech_data(
         hdf_files=train_alignment_hdf,
         dataset_config={
             "partition_epoch": 20,
-            "seq_list_filter_file": segment_whitelist,
-            "seq_ordering": "laplace:25",
+            "seq_ordering": "laplace:.1000",
         },
         key_mapping={"data": "classes"},
         control=True,
@@ -109,33 +93,17 @@ def get_librispeech_data(
 
     cv_sample_hdfs = [
         BlissToPcmHDFJob(
-            data_input.corpus_object.corpus_file, returnn_root=returnn_root
+            data_input.corpus_object.corpus_file,
+            rounding=BlissToPcmHDFJob.RoundingScheme.rasr_compatible,
+            returnn_root=returnn_root,
         ).out_hdf
         for key, data_input in cv_data_inputs.items()
         if key in dev_keys
     ]
     cv_alignment_hdfs = [
-        alignments[f"{dev_key}_align"].get_hdf(
-            returnn_python_exe=returnn_python_exe, returnn_root=returnn_root
-        )
+        alignments[f"{dev_key}_align"].get_hdf(returnn_python_exe=returnn_python_exe, returnn_root=returnn_root)
         for dev_key in dev_keys
     ]
-
-    if length_mismatch_check_function is not None:
-        segment_whitelists = [
-            FilterMismatchedSequencesJob(
-                feature_hdf=cv_sample_hdf,
-                target_hdf=cv_alignment_hdf,
-                check_mismatch_func=length_mismatch_check_function,
-                returnn_root=returnn_root,
-            ).out_segment_whitelist
-            for cv_sample_hdf, cv_alignment_hdf in zip(
-                cv_sample_hdfs, cv_alignment_hdfs
-            )
-        ]
-        segment_whitelist = ConcatenateJob(segment_whitelists).out
-    else:
-        segment_whitelist = None
 
     cv_dataset_builder = MetaDatasetBuilder()
     cv_dataset_builder.add_hdf_dataset(
@@ -149,7 +117,6 @@ def get_librispeech_data(
         hdf_files=cv_alignment_hdfs,
         dataset_config={
             "partition_epoch": 1,
-            "seq_list_filter_file": segment_whitelist,
             "seq_ordering": "sorted",
         },
         key_mapping={"data": "classes"},
@@ -168,13 +135,11 @@ def get_librispeech_data(
 
         if not add_unknown:
             assert data_input.corpus_object.corpus_file is not None
-            data_input.corpus_object.corpus_file = (
-                corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
-                    data_input.corpus_object.corpus_file,
-                    train_lexicon,
-                    all_unknown=False,
-                ).out_corpus
-            )
+            data_input.corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
+                data_input.corpus_object.corpus_file,
+                train_lexicon,
+                all_unknown=False,
+            ).out_corpus
 
     # ********** Recog lexicon **********
 

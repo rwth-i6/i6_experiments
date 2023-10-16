@@ -19,9 +19,7 @@ from i6_experiments.users.berger.recipe.lexicon.modification import (
 
 def get_corpus_object_dict() -> Dict[str, CorpusObject]:
     bliss_corpus_dict = {
-        key: tk.Path(
-            f"/work/asr4/berger/dependencies/librispeech/corpus/{name}_no_timing.gz"
-        )
+        key: tk.Path(f"/work/asr4/berger/dependencies/librispeech/corpus/{name}_no_timing.gz")
         for key, name in [
             ("sms-train-other-960", "train_960"),
             ("sms-dev-clean", "dev_clean"),
@@ -124,9 +122,7 @@ def get_data_inputs(
 
 def get_scoring_corpora() -> Dict[str, tk.Path]:
     return {
-        key: tk.Path(
-            f"/work/asr4/berger/dependencies/librispeech/corpus/{name}_transcriptions.gz"
-        )
+        key: tk.Path(f"/work/asr4/berger/dependencies/librispeech/corpus/{name}_transcriptions.gz")
         for key, name in [
             ("sms-train-other-960", "train_960"),
             ("sms-dev-clean", "dev_clean"),

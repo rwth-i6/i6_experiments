@@ -1,5 +1,6 @@
 def convert_pytorch_model_to_returnn(wrapped_import, inputs: torch.Tensor, checkpoint):
     import typing
+
     if typing.TYPE_CHECKING or not wrapped_import:
         import torch
         import einops
@@ -16,12 +17,13 @@ def convert_pytorch_model_to_returnn(wrapped_import, inputs: torch.Tensor, check
         recurrent_layers=3,
         units=600,
         K=2,
-        dropout_input=0.,
-        dropout_hidden=0.,
-        dropout_linear=0.,
-        output_activation='sigmoid')
+        dropout_input=0.0,
+        dropout_hidden=0.0,
+        dropout_linear=0.0,
+        output_activation="sigmoid",
+    )
     if checkpoint is not None:
-        model.load_checkpoint(checkpoint, 'model.mask_net')
+        model.load_checkpoint(checkpoint, "model.mask_net")
 
     with torch.no_grad():
         masks = model({"Y_abs": inputs})

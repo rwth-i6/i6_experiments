@@ -73,9 +73,7 @@ def run_exp(**kwargs) -> None:
 
     # ********** Transducer System **********
 
-    subword_nmt_repo = CloneGitRepositoryJob(
-        "https://github.com/albertz/subword-nmt.git"
-    ).out_repository
+    subword_nmt_repo = CloneGitRepositoryJob("https://github.com/albertz/subword-nmt.git").out_repository
 
     bpe_size = kwargs.get("bpe_size", 100)
     if text_cleaning:
@@ -126,9 +124,7 @@ def run_exp(**kwargs) -> None:
     clean_data = kwargs.get("clean_data", True)
     from_0 = "data:data_clean_0" if clean_data else "data:data_separated_0"
     if specaug:
-        from_0 = add_specaug_layer(
-            train_blstm_net, name="specaug_0", from_list=from_0, **specaug_args
-        )
+        from_0 = add_specaug_layer(train_blstm_net, name="specaug_0", from_list=from_0, **specaug_args)
     from_0, _ = add_blstm_stack(
         train_blstm_net,
         from_list=from_0,
@@ -142,9 +138,7 @@ def run_exp(**kwargs) -> None:
 
     from_1 = "data:data_clean_1" if clean_data else "data:data_separated_1"
     if specaug:
-        from_1 = add_specaug_layer(
-            train_blstm_net, name="specaug_1", from_list=from_1, **specaug_args
-        )
+        from_1 = add_specaug_layer(train_blstm_net, name="specaug_1", from_list=from_1, **specaug_args)
     from_1, _ = add_blstm_stack(
         train_blstm_net,
         from_list=from_1,
@@ -163,9 +157,7 @@ def run_exp(**kwargs) -> None:
     if kwargs.get("mixed_input", False):
         from_mix = "data"
         if specaug:
-            from_mix = add_specaug_layer(
-                train_blstm_net, name="specaug_mix", from_list=from_mix, **specaug_args
-            )
+            from_mix = add_specaug_layer(train_blstm_net, name="specaug_mix", from_list=from_mix, **specaug_args)
         from_mix, _ = add_blstm_stack(
             train_blstm_net,
             from_list=from_mix,
@@ -268,9 +260,7 @@ def run_exp(**kwargs) -> None:
                 "seq_ordering": "sorted",
                 "partition_epoch": 1,
             },
-            "data_time_tag": CodeWrapper(
-                'Dim(kind=Dim.Types.Time, description="time")'
-            ),
+            "data_time_tag": CodeWrapper('Dim(kind=Dim.Types.Time, description="time")'),
             "extern_data": {
                 "data": {
                     "dim": num_inputs,
@@ -361,9 +351,7 @@ def run_exp(**kwargs) -> None:
                 "seq_ordering": "sorted",
                 "partition_epoch": 1,
             },
-            "data_time_tag": CodeWrapper(
-                'Dim(kind=Dim.Types.Time, description="time")'
-            ),
+            "data_time_tag": CodeWrapper('Dim(kind=Dim.Types.Time, description="time")'),
             "extern_data": {
                 "data": {
                     "dim": num_inputs,
@@ -709,9 +697,7 @@ def run_exp(**kwargs) -> None:
         python_prolog=["from returnn.tf.util.data import Dim"],
         hash_full_python_code=False,
         extra_config={
-            "data_time_tag": CodeWrapper(
-                'Dim(kind=Dim.Types.Time, description="time")'
-            ),
+            "data_time_tag": CodeWrapper('Dim(kind=Dim.Types.Time, description="time")'),
             "extern_data": {
                 "data": {
                     "dim": num_inputs,
@@ -784,15 +770,11 @@ def run_exp(**kwargs) -> None:
             mini_task=True,
         )
 
-        recog_bliss_corpus = tk.Path(
-            "/work/asr4/berger/dependencies/sms_wsj/corpus/8kHz/sms_test_eval92.corpus.gz"
-        )
+        recog_bliss_corpus = tk.Path("/work/asr4/berger/dependencies/sms_wsj/corpus/8kHz/sms_test_eval92.corpus.gz")
 
         word2ctm_job = SearchWordsToCTMJob(words_job_processed.out, recog_bliss_corpus)
         scorer_job = ScliteJob(
-            CorpusToStmJob(
-                recog_bliss_corpus, non_speech_tokens=["<NOISE>"]
-            ).out_stm_path,
+            CorpusToStmJob(recog_bliss_corpus, non_speech_tokens=["<NOISE>"]).out_stm_path,
             word2ctm_job.out_ctm_file,
         )
 

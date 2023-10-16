@@ -46,13 +46,9 @@ def py():
     )
 
     # Subset of hub5e-00 with OOV words removed
-    dev_segments = tk.Path(
-        "/work/asr4/berger/dependencies/switchboard/segments/hub5e-00.reduced"
-    )
+    dev_segments = tk.Path("/work/asr4/berger/dependencies/switchboard/segments/hub5e-00.reduced")
 
-    allophone_file = tk.Path(
-        "/work/asr4/berger/dependencies/switchboard/allophones/tuske_allophones"
-    )
+    allophone_file = tk.Path("/work/asr4/berger/dependencies/switchboard/allophones/tuske_allophones")
 
     f_name = "gt"
 
@@ -148,9 +144,7 @@ def py():
     nn_data_inputs["test"] = {}
 
     # Allophone correction
-    nn_data_inputs["dev"][
-        dev_key
-    ].crp.acoustic_model_config.allophones.add_from_lexicon = False
+    nn_data_inputs["dev"][dev_key].crp.acoustic_model_config.allophones.add_from_lexicon = False
     nn_data_inputs["dev"][dev_key].crp.acoustic_model_config.allophones.add_all = True
 
     # ********** Transducer System **********
@@ -162,21 +156,12 @@ def py():
         ]:
             train_networks = {}
             recog_networks = {}
-            name = (
-                "BLSTM_transducer"
-                + suffix
-                + ("_mono-context" if context_trafo else "_eow-context")
-            )
-            (
-                train_blstm_net,
-                train_python_code,
-            ) = make_context_1_blstm_transducer_noblank(
+            name = "BLSTM_transducer" + suffix + ("_mono-context" if context_trafo else "_eow-context")
+            (train_blstm_net, train_python_code,) = make_context_1_blstm_transducer_noblank(
                 num_outputs=num_classes,
                 nonword_labels=nonword_labels,
                 context_transformation_func=transform_func if context_trafo else None,
-                context_label_dim=transformed_label_dim
-                if context_trafo
-                else num_classes,
+                context_label_dim=transformed_label_dim if context_trafo else num_classes,
                 loss_boost_scale=0,
                 blstm_args={
                     "max_pool": max_pool,
@@ -213,9 +198,7 @@ def py():
 
             alignment_config = rasr.RasrConfig()
             alignment_config.neural_network_trainer["*"].force_single_state = True
-            alignment_config.neural_network_trainer[
-                "*"
-            ].reduce_alignment_factor = red_fact
+            alignment_config.neural_network_trainer["*"].reduce_alignment_factor = red_fact
 
             if red_fact > 1:
                 alignment_config.neural_network_trainer["*"].segments_to_skip = [

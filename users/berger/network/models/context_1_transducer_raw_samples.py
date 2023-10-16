@@ -15,7 +15,7 @@ from i6_experiments.users.berger.network.helpers.loss_boost import (
     loss_boost_func,
 )
 import i6_experiments.users.berger.network.helpers.label_context as label_context
-from recipe.i6_experiments.users.berger.network.helpers.feature_extraction import (
+from i6_experiments.users.berger.network.helpers.feature_extraction import (
     add_gt_feature_extraction,
 )
 
@@ -141,11 +141,7 @@ def make_context_1_conformer_transducer_fullsum(
     }
     context_labels = "pred_labels_int32"
 
-    (
-        joint_output,
-        decoder_unit,
-        decoder_python,
-    ) = label_context.add_context_1_decoder_fullsum(
+    (joint_output, decoder_unit, decoder_python,) = label_context.add_context_1_decoder_fullsum(
         network,
         context_labels=context_labels,
         encoder="encoder",

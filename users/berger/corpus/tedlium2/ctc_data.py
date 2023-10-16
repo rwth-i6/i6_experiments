@@ -64,7 +64,11 @@ def get_tedlium2_pytorch_data(
             single_hdf=True,
         )
     elif feature_type == FeatureType.SAMPLES:
-        train_feature_hdf = BlissToPcmHDFJob(train_corpus_object.corpus_file, returnn_root=returnn_root).out_hdf
+        train_feature_hdf = BlissToPcmHDFJob(
+            train_corpus_object.corpus_file,
+            rounding=BlissToPcmHDFJob.RoundingScheme.rasr_compatible,
+            returnn_root=returnn_root,
+        ).out_hdf
     else:
         raise NotImplementedError
 
@@ -72,6 +76,11 @@ def get_tedlium2_pytorch_data(
         train_feature_hdf,
         name="features",
         key_mapping={"data": "data"},
+        dataset_config={
+            "partition_epoch": 5,
+            "seq_ordering": "laplace:.1000",
+        },
+        control=True,
     )
 
     train_targets_hdf = BlissCorpusToTargetHdfJob(
@@ -83,11 +92,7 @@ def get_tedlium2_pytorch_data(
         train_targets_hdf,
         name="targets",
         key_mapping={"data": "targets"},
-        dataset_config={
-            "partition_epoch": 5,
-            "seq_ordering": "random",
-        },
-        control=True,
+        control=False,
     )
 
     train_data_config = train_dataset_builder.get_dict()
@@ -118,7 +123,11 @@ def get_tedlium2_pytorch_data(
             single_hdf=True,
         )
     elif feature_type == FeatureType.SAMPLES:
-        cv_feature_hdf = BlissToPcmHDFJob(cv_corpus_object.corpus_file, returnn_root=returnn_root).out_hdf
+        cv_feature_hdf = BlissToPcmHDFJob(
+            cv_corpus_object.corpus_file,
+            rounding=BlissToPcmHDFJob.RoundingScheme.rasr_compatible,
+            returnn_root=returnn_root,
+        ).out_hdf
     else:
         raise NotImplementedError
 
@@ -126,6 +135,11 @@ def get_tedlium2_pytorch_data(
         cv_feature_hdf,
         name="features",
         key_mapping={"data": "data"},
+        dataset_config={
+            "partition_epoch": 1,
+            "seq_ordering": "sorted",
+        },
+        control=True,
     )
 
     cv_targets_hdf = BlissCorpusToTargetHdfJob(
@@ -137,11 +151,7 @@ def get_tedlium2_pytorch_data(
         cv_targets_hdf,
         name="targets",
         key_mapping={"data": "targets"},
-        dataset_config={
-            "partition_epoch": 1,
-            "seq_ordering": "sorted",
-        },
-        control=True,
+        control=False,
     )
 
     cv_data_config = cv_dataset_builder.get_dict()
@@ -212,15 +222,19 @@ def get_tedlium2_tf_data(
             single_hdf=True,
         )
     elif feature_type == FeatureType.SAMPLES:
-        train_feature_hdf = BlissToPcmHDFJob(train_corpus_object.corpus_file, returnn_root=returnn_root).out_hdf
+        train_feature_hdf = BlissToPcmHDFJob(
+            train_corpus_object.corpus_file,
+            rounding=BlissToPcmHDFJob.RoundingScheme.rasr_compatible,
+            returnn_root=returnn_root,
+        ).out_hdf
     else:
         raise NotImplementedError
 
     train_data_config = {
         "class": "HDFDataset",
-        "files": [train_feature_hdf],
+        "files": train_feature_hdf,
         "partition_epoch": 5,
-        "seq_ordering": "laplace:25",
+        "seq_ordering": "laplace:.30",
         "use_cache_manager": True,
     }
 
@@ -248,7 +262,11 @@ def get_tedlium2_tf_data(
             single_hdf=True,
         )
     elif feature_type == FeatureType.SAMPLES:
-        cv_feature_hdf = BlissToPcmHDFJob(cv_corpus_object.corpus_file, returnn_root=returnn_root).out_hdf
+        cv_feature_hdf = BlissToPcmHDFJob(
+            cv_corpus_object.corpus_file,
+            rounding=BlissToPcmHDFJob.RoundingScheme.rasr_compatible,
+            returnn_root=returnn_root,
+        ).out_hdf
     else:
         raise NotImplementedError
 

@@ -62,14 +62,7 @@ class EnhancedMeetingDataToBlissCorpusJob(Job):
                     int(os.path.basename(r.audio).split("_")[-1].strip(".wav")) == channel
                 ), f"wav files should end on '_<channel>.wav'. For channel {channel}, got {r.audio}"
 
-                for (
-                    segment_id,
-                    speaker_id,
-                    transcription,
-                    num_samples,
-                    offset,
-                    channel_alignment,
-                ) in zip_strict(
+                for (segment_id, speaker_id, transcription, num_samples, offset, channel_alignment,) in zip_strict(
                     range(len(ex["speaker_id"])),
                     ex["speaker_id"],
                     ex.get("kaldi_transcription") or ex["transcription"],
@@ -165,14 +158,7 @@ class EnhancedMeetingDataToSplitBlissCorporaJob(Job):
                     r.audio = audio
                     rec.append(r)
 
-            for (
-                segment_id,
-                speaker_id,
-                transcription,
-                num_samples,
-                offset,
-                channel_alignment,
-            ) in zip_strict(
+            for (segment_id, speaker_id, transcription, num_samples, offset, channel_alignment,) in zip_strict(
                 range(len(ex["speaker_id"])),
                 ex["speaker_id"],
                 ex.get("kaldi_transcription") or ex["transcription"],
@@ -401,13 +387,7 @@ class EnhancedMeetingDataRasrAlignmentPadAndDumpHDFJob(Job):
 
         for ex in ds:
             for channel, wav_file in enumerate(ex["audio_path"]["enhanced"]):
-                for (
-                    segment_id,
-                    source_id,
-                    num_samples,
-                    offset,
-                    channel_alignment,
-                ) in zip_strict(
+                for (segment_id, source_id, num_samples, offset, channel_alignment,) in zip_strict(
                     range(len(ex["source_id"])),
                     ex["source_id"],
                     ex["num_samples"]["original_source"],

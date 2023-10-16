@@ -114,12 +114,8 @@ def run_exp() -> SummaryReport:
         "dev_data_config": data.cv_data_config,
     }
 
-    train_config = OptunaReturnnConfig(
-        returnn_config_generator, {"train": True, **config_generator_kwargs}
-    )
-    recog_config = OptunaReturnnConfig(
-        returnn_config_generator, {"train": False, **config_generator_kwargs}
-    )
+    train_config = OptunaReturnnConfig(returnn_config_generator, {"train": True, **config_generator_kwargs})
+    recog_config = OptunaReturnnConfig(returnn_config_generator, {"train": False, **config_generator_kwargs})
 
     returnn_configs = ReturnnConfigs(
         train_config=train_config,
@@ -147,9 +143,7 @@ def run_exp() -> SummaryReport:
 
     system = OptunaReturnnSeq2SeqSystem(default_tools)
 
-    system.add_experiment_configs(
-        "BLSTM_CTC_legacy-specaug_augment-lex", returnn_configs
-    )
+    system.add_experiment_configs("BLSTM_CTC_legacy-specaug_augment-lex", returnn_configs)
     system.init_corpora(
         dev_keys=data.dev_keys,
         test_keys=data.test_keys,

@@ -28,9 +28,7 @@ def py() -> SummaryReport:
     summary_report.merge_report(summary, collapse_rows=True)
     summary_report.merge_report(py_03_transducer(ctc_alignments), collapse_rows=True)
     summary_report.merge_report(py_04_ctc_bpe(), collapse_rows=True)
-    summary_report.merge_report(
-        py_05_conf_hybrid(gmm_alignments, cart_file), collapse_rows=True
-    )
+    summary_report.merge_report(py_05_conf_hybrid(gmm_alignments, cart_file), collapse_rows=True)
 
     tk.register_report(
         f"{dir_handle}/summary.report",

@@ -63,9 +63,7 @@ def run_exp(**kwargs) -> Checkpoint:
 
     num_classes = bpe_job.out_vocab_size  # bpe count
 
-    subword_nmt_repo = CloneGitRepositoryJob(
-        "https://github.com/albertz/subword-nmt.git"
-    ).out_repository
+    subword_nmt_repo = CloneGitRepositoryJob("https://github.com/albertz/subword-nmt.git").out_repository
 
     train_corpus = ApplyBPEToTextJob(
         get_lm_corpus(lm_cleaning=lm_cleaning),
@@ -75,9 +73,7 @@ def run_exp(**kwargs) -> Checkpoint:
 
     # Convert corpora to text files containing the BPE symbols
     base_lexicon = dev_data_inputs[dev_key].lexicon["filename"]
-    base_lexicon = PreprocessWSJLexiconJob(
-        base_lexicon, lm_cleaning=lm_cleaning
-    ).out_lexicon_file
+    base_lexicon = PreprocessWSJLexiconJob(base_lexicon, lm_cleaning=lm_cleaning).out_lexicon_file
     bpe_lexicon = CreateBPELexiconJob(
         base_lexicon_path=base_lexicon,
         bpe_codes=bpe_codes,
@@ -87,12 +83,8 @@ def run_exp(**kwargs) -> Checkpoint:
 
     for data_input in [dev_data_inputs[dev_key], test_data_inputs[test_key]]:
         corpus_file = data_input.corpus_object.corpus_file
-        corpus_file = ReplaceUnknownWordsJob(
-            corpus_file, base_lexicon, unknown_token="[UNKNOWN]"
-        ).out_corpus_file
-        corpus_file = corpus_recipe.ApplyLexiconToCorpusJob(
-            corpus_file, bpe_lexicon
-        ).out_corpus
+        corpus_file = ReplaceUnknownWordsJob(corpus_file, base_lexicon, unknown_token="[UNKNOWN]").out_corpus_file
+        corpus_file = corpus_recipe.ApplyLexiconToCorpusJob(corpus_file, bpe_lexicon).out_corpus
         corpus_file = corpus_recipe.CorpusToTxtJob(corpus_file, gzip=True).out_txt
         data_input.corpus_object.corpus_file = corpus_file
 
@@ -159,15 +151,9 @@ def run_exp(**kwargs) -> Checkpoint:
             },
             "calculate_exp_loss": True,
             "learning_rate_control_error_measure": "dev_score_output:exp",
-            "train": get_lm_dataset_config(
-                corpora["train"], vocab_file, "laplace:6721", "UNK", 15
-            ),
-            "dev": get_lm_dataset_config(
-                corpora["dev"], vocab_file, "sorted", "UNK", 1
-            ),
-            "test": get_lm_dataset_config(
-                corpora["test"], vocab_file, "default", "UNK", 1
-            ),
+            "train": get_lm_dataset_config(corpora["train"], vocab_file, "laplace:6721", "UNK", 15),
+            "dev": get_lm_dataset_config(corpora["dev"], vocab_file, "sorted", "UNK", 1),
+            "test": get_lm_dataset_config(corpora["test"], vocab_file, "default", "UNK", 1),
         },
     )
 

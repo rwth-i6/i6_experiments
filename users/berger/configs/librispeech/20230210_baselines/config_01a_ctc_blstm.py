@@ -17,7 +17,7 @@ from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
 from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
-from recipe.i6_experiments.users.berger.corpus.librispeech.ctc_data import (
+from i6_experiments.users.berger.corpus.librispeech.ctc_data import (
     get_librispeech_data_hdf,
 )
 from sisyphus import gs, tk
@@ -132,7 +132,7 @@ def run_exp() -> Tuple[SummaryReport, Dict]:
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)
     align_args = exp_args.get_ctc_align_step_args(num_classes)
-    recog_args["epochs"] = ["best"]
+    recog_args["epochs"] = [40, 80, 160, 240, 320, 400, 480, "best"]
     recog_args["prior_scales"] = [0.2, 0.3, 0.4]
     recog_args["lm_scales"] = [0.8, 0.9, 1.0, 1.1, 1.2]
     align_args["epochs"] = ["best"]
@@ -173,7 +173,8 @@ def run_exp() -> Tuple[SummaryReport, Dict]:
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)
     system.run_test_recog_step(**recog_args)
-    alignments = system.run_align_step(**align_args)
+    # alignments = system.run_align_step(**align_args)
+    alignments = None
 
     assert system.summary_report
     return system.summary_report, alignments

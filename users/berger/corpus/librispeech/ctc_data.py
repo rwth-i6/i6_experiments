@@ -3,7 +3,6 @@ import copy
 
 from i6_core import returnn, corpus
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
-from recipe.i6_core.returnn.hdf import BlissToPcmHDFJob
 from . import data
 from ..general import CTCSetupData
 from sisyphus import tk
@@ -30,11 +29,7 @@ def get_librispeech_data(
         add_unknown_phoneme_and_mapping=add_unknown,
     )
 
-    (
-        wav_train_data_inputs,
-        wav_dev_data_inputs,
-        wav_test_data_inputs,
-    ) = data.get_data_inputs(
+    (wav_train_data_inputs, wav_dev_data_inputs, wav_test_data_inputs,) = data.get_data_inputs(
         train_key=train_key,
         dev_keys=dev_keys,
         test_keys=test_keys,
@@ -138,13 +133,11 @@ def get_librispeech_data(
 
         if not add_unknown:
             assert data_input.corpus_object.corpus_file is not None
-            data_input.corpus_object.corpus_file = (
-                corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
-                    data_input.corpus_object.corpus_file,
-                    align_lexicon,
-                    all_unknown=False,
-                ).out_corpus
-            )
+            data_input.corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
+                data_input.corpus_object.corpus_file,
+                align_lexicon,
+                all_unknown=False,
+            ).out_corpus
 
     return CTCSetupData(
         train_key=train_key,
@@ -174,11 +167,7 @@ def get_librispeech_data_hdf(
 ) -> CTCSetupData:
     # ********** Data inputs **********
 
-    (
-        train_data_inputs,
-        dev_data_inputs,
-        test_data_inputs,
-    ) = data.get_data_inputs(
+    (train_data_inputs, dev_data_inputs, test_data_inputs,) = data.get_data_inputs(
         train_key=train_key,
         dev_keys=dev_keys,
         test_keys=test_keys,
@@ -202,7 +191,9 @@ def get_librispeech_data_hdf(
             all_unknown=False,
         ).out_corpus
 
-    train_sample_hdf_job = BlissToPcmHDFJob(train_corpus, returnn_root=returnn_root)
+    train_sample_hdf_job = returnn.BlissToPcmHDFJob(
+        train_corpus, rounding=returnn.BlissToPcmHDFJob.RoundingScheme.rasr_compatible, returnn_root=returnn_root
+    )
     train_sample_hdf_job.rqmt["mem"] = 8
     train_sample_hdf_job.rqmt["time"] = 24
     train_sample_hdf = train_sample_hdf_job.out_hdf
@@ -211,7 +202,7 @@ def get_librispeech_data_hdf(
         "class": "HDFDataset",
         "files": [train_sample_hdf],
         "partition_epoch": 20,
-        "seq_ordering": "laplace:25",
+        "seq_ordering": "laplace:.30",
         "use_cache_manager": True,
     }
 
@@ -229,8 +220,10 @@ def get_librispeech_data_hdf(
             ).out_corpus
 
     cv_sample_hdfs = [
-        BlissToPcmHDFJob(
-            cv_data_inputs[key].corpus_object.corpus_file, returnn_root=returnn_root
+        returnn.BlissToPcmHDFJob(
+            cv_data_inputs[key].corpus_object.corpus_file,
+            rounding=returnn.BlissToPcmHDFJob.RoundingScheme.rasr_compatible,
+            returnn_root=returnn_root,
         ).out_hdf
         for key in dev_keys
     ]
@@ -272,13 +265,11 @@ def get_librispeech_data_hdf(
 
         if not add_unknown:
             assert data_input.corpus_object.corpus_file is not None
-            data_input.corpus_object.corpus_file = (
-                corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
-                    data_input.corpus_object.corpus_file,
-                    align_lexicon,
-                    all_unknown=False,
-                ).out_corpus
-            )
+            data_input.corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
+                data_input.corpus_object.corpus_file,
+                align_lexicon,
+                all_unknown=False,
+            ).out_corpus
 
     return CTCSetupData(
         train_key=train_key,

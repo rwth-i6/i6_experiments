@@ -1,20 +1,19 @@
 import copy
 import os
 from pathlib import Path
-from typing import List, Union
+from typing import List
 
 import i6_core.rasr as rasr
 import optuna
-import torch
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.users.berger.args.experiments import ctc as exp_args
 from i6_experiments.users.berger.args.returnn.config import Backend, get_returnn_config
-from i6_experiments.users.berger.args.returnn.learning_rates import LearningRateSchedules
+from i6_experiments.users.berger.args.returnn.learning_rates import LearningRateSchedules, Optimizers
 from i6_experiments.users.berger.corpus.tedlium2.ctc_data import get_tedlium2_pytorch_data
 from i6_experiments.users.berger.pytorch.models import conformer_ctc
 from i6_experiments.users.berger.recipe.returnn.optuna_config import OptunaReturnnConfig
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
-from i6_experiments.users.berger.systems.dataclasses import ConfigVariant, CustomStepKwargs, FeatureType, ReturnnConfigs
+from i6_experiments.users.berger.systems.dataclasses import ConfigVariant, FeatureType, ReturnnConfigs
 from i6_experiments.users.berger.systems.optuna_returnn_seq2seq_system import OptunaReturnnSeq2SeqSystem
 from i6_experiments.users.berger.util import default_tools_v2
 from sisyphus import gs, tk
@@ -39,54 +38,26 @@ tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/onnx/arch
 
 
 def tune_specaugment(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
-    model_config.specaugment_cfg.max_feature_mask_num = trial.suggest_int("max_feature_num", 1, 7, step=2)
-    model_config.specaugment_cfg.max_feature_mask_num = trial.suggest_int("max_feature", 5, 10, step=5)
-    model_config.specaugment_cfg.max_time_mask_num = trial.suggest_int("max_time_num", 0, 25, step=5)
-    model_config.specaugment_cfg.max_time_mask_size = trial.suggest_int("max_time", 10, 20, step=5)
+    model_config.specaugment.cfg.time_max_mask_per_n_frames = trial.suggest_int(
+        "time_max_mask_per_n_frames", 10, 40, step=10
+    )
+    model_config.specaugment.cfg.time_mask_max_size = trial.suggest_int("time_mask_max_size", 10, 30, step=10)
+
+    freq_max_num_masks = trial.suggest_int("freq_max_num_masks", 3, 9, step=2)
+    model_config.specaugment.cfg.freq_max_num_masks = freq_max_num_masks
+    model_config.specaugment.cfg.freq_mask_max_size = 50 // freq_max_num_masks
 
     return {}
 
 
-def tune_model_size(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
-    num_heads = trial.suggest_int("num_att_heads", 4, 8, step=2)
-    lin_size = num_heads * 64
-
-    model_config.conformer_cfg.frontend.cfg.out_features = lin_size
-    model_config.conformer_cfg.block_cfg.ff_cfg.input_dim = lin_size
-    model_config.conformer_cfg.block_cfg.ff_cfg.hidden_dim = lin_size * 4
-    model_config.conformer_cfg.block_cfg.conv_cfg.channels = lin_size
-    model_config.conformer_cfg.block_cfg.conv_cfg.norm = torch.nn.BatchNorm1d(num_features=lin_size, affine=False)
-    model_config.conformer_cfg.block_cfg.mhsa_cfg.input_dim = lin_size
-    model_config.conformer_cfg.block_cfg.mhsa_cfg.num_att_heads = num_heads
-
-    return {}
-
-
-def tune_frontend(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
-    model_config.conformer_cfg.frontend.cfg.conv1_channels = trial.suggest_categorical("conv1_channels", [32, 64])
-    model_config.conformer_cfg.frontend.cfg.conv2_channels = trial.suggest_categorical("conv2_channels", [32, 64])
-    model_config.conformer_cfg.frontend.cfg.conv3_channels = trial.suggest_categorical("conv3_channels", [32, 64])
-    model_config.conformer_cfg.frontend.cfg.conv4_channels = trial.suggest_categorical("conv4_channels", [32, 64])
-
-    model_config.conformer_cfg.frontend.cfg.pool1_kernel_size = (2, trial.suggest_int("pool1_f", 1, 2))
-    model_config.conformer_cfg.frontend.cfg.pool2_kernel_size = (2, trial.suggest_int("pool2_f", 1, 2))
-
-    return {}
-
-
-def tune_oclr_schedule(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
+def tune_oclr_schedule(trial: optuna.Trial, _: conformer_ctc.ConformerCTCConfig) -> dict:
     peak_lr = trial.suggest_float("peak_lr", 1e-04, 1e-03, log=True)
-    initial_lr = peak_lr / trial.suggest_categorical("init_lr_factor", [5, 10, 20])
-    return {
-        "initial_lr": initial_lr,
-        "peak_lr": peak_lr
-    }
+    initial_lr = peak_lr / 10
+    return {"initial_lr": initial_lr, "peak_lr": peak_lr}
 
 
 tuning_functions = {
     "specaugment": tune_specaugment,
-    "model_size": tune_model_size,
-    "frontend": tune_frontend,
     "oclr_schedule": tune_oclr_schedule,
 }
 
@@ -119,15 +90,18 @@ def returnn_config_generator(
         "num_outputs": num_outputs,
         "target": "targets",
         "extern_data_config": True,
-        "extra_python": [conformer_ctc.get_serializer(model_config, variant)],
+        "extra_python": [conformer_ctc.get_serializer(model_config, variant, in_dim=50)],
         "backend": Backend.PYTORCH,
         "grad_noise": 0.0,
-        "grad_clip": 100.0,
+        "grad_clip": 0.0,
+        "optimizer": Optimizers.AdamW,
         "schedule": LearningRateSchedules.OCLR,
-        "initial_lr": 1e-05,
-        "peak_lr": 3e-04,
-        "final_lr": 1e-06,
-        "batch_size": 10000,
+        "initial_lr": 7e-05,
+        "peak_lr": 7e-04,
+        "final_lr": 1e-08,
+        "batch_size": 18000,
+        "accum_grad": 2,
+        "max_seqs": 60,
         "use_chunking": False,
         "extra_config": extra_config,
     }
@@ -193,9 +167,7 @@ def run_exp() -> SummaryReport:
 
     system.add_experiment_configs(
         "Conformer_CTC_tune",
-        get_returnn_config_collection(
-            ["specaugment", "model_size", "frontend", "oclr_schedule"], data.train_data_config, data.cv_data_config
-        ),
+        get_returnn_config_collection(["specaugment", "oclr_schedule"], data.train_data_config, data.cv_data_config),
     )
 
     # ********** Steps **********
@@ -204,18 +176,16 @@ def run_exp() -> SummaryReport:
         num_epochs=num_subepochs,
         study_storage=storage,
         score_key="dev_loss_CTC",
-        num_trials=150,
+        num_trials=20,
         num_parallel=10,
         backend=Backend.PYTORCH,
     )
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
-        epochs=[num_subepochs],
-        prior_scales=[0.9],
+        epochs=[40, 80, 160, 240, num_subepochs],
+        prior_scales=[0.5],
         lm_scales=[1.1],
-        #trial_nums=list(range(150)) + ["best"],
-        # trial_nums=[34, 48, 65, 70, 121, 139, "best"],
-        trial_nums=[48],
+        trial_nums=[3, 5, 6, 7, 8, 9, 11, 17],  # ["best"]
         backend=Backend.PYTORCH,
         feature_type=FeatureType.GAMMATONE,
     )

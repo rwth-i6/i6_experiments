@@ -20,12 +20,7 @@ def get_wsj_data(
 ) -> CTCSetupData:
     # ********** Data inputs **********
 
-    (
-        train_data_input,
-        cv_data_input,
-        dev_data_inputs,
-        test_data_inputs,
-    ) = data.get_data_inputs(
+    (train_data_input, cv_data_input, dev_data_inputs, test_data_inputs,) = data.get_data_inputs(
         train_key=train_key,
         cv_key=cv_key,
         dev_keys=dev_keys,
@@ -106,9 +101,7 @@ def get_wsj_data(
     test_data_inputs = copy.deepcopy(test_data_inputs)
 
     for rasr_input in {**dev_data_inputs, **test_data_inputs}.values():
-        rasr_input.lexicon.filename = AddEowPhonemesToLexiconJob(
-            rasr_input.lexicon.filename
-        ).out_lexicon
+        rasr_input.lexicon.filename = AddEowPhonemesToLexiconJob(rasr_input.lexicon.filename).out_lexicon
 
     all_data_inputs = {
         f"{train_key}_align": train_data_input,

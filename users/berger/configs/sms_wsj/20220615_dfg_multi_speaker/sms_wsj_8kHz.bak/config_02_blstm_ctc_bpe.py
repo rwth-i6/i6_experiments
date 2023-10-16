@@ -56,8 +56,11 @@ lm_models = {
     100: tk.Path(
         "/work/asr4/berger/sisyphus_work_dirs/sms_wsj/20220615_dfg_multi_speaker/i6_core/returnn/training/ReturnnTrainingJob.OXKudR5Jxo0p/output/models/epoch.150.meta"
     ),
-    1000: tk.Path("/work/asr4/berger/sisyphus_work_dirs/sms_wsj/20220615_dfg_multi_speaker/i6_core/returnn/training/ReturnnTrainingJob.Ol9oGphLUIx5/output/models/epoch.150.meta"),
+    1000: tk.Path(
+        "/work/asr4/berger/sisyphus_work_dirs/sms_wsj/20220615_dfg_multi_speaker/i6_core/returnn/training/ReturnnTrainingJob.Ol9oGphLUIx5/output/models/epoch.150.meta"
+    ),
 }
+
 
 def run_exp(**kwargs) -> None:
 
@@ -91,9 +94,7 @@ def run_exp(**kwargs) -> None:
     feature_system.run(["extract"])
 
     train_corpus_object = train_data_inputs[train_key].corpus_object
-    train_corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(
-        train_corpus_object.corpus_file
-    ).out_corpus_file
+    train_corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(train_corpus_object.corpus_file).out_corpus_file
 
     # ********** Data inputs **********
 
@@ -120,13 +121,9 @@ def run_exp(**kwargs) -> None:
     }
 
     dev_corpus_object = dev_data_inputs[dev_key].corpus_object
-    dev_corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(
-        dev_corpus_object.corpus_file
-    ).out_corpus_file
+    dev_corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(dev_corpus_object.corpus_file).out_corpus_file
     test_corpus_object = test_data_inputs[test_key].corpus_object
-    test_corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(
-        test_corpus_object.corpus_file
-    ).out_corpus_file
+    test_corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(test_corpus_object.corpus_file).out_corpus_file
 
     nn_data_inputs["dev"] = {
         dev_key: get_returnn_rasr_data_input(
@@ -163,9 +160,7 @@ def run_exp(**kwargs) -> None:
         mini_task=True,
     ).out  # Remove <s> and </s> tokens
 
-    subword_nmt_repo = CloneGitRepositoryJob(
-        "https://github.com/albertz/subword-nmt.git"
-    ).out_repository
+    subword_nmt_repo = CloneGitRepositoryJob("https://github.com/albertz/subword-nmt.git").out_repository
 
     bpe_size = kwargs.get("bpe_size", 500)
     train_bpe_job = ReturnnTrainBpeJob(
@@ -466,16 +461,12 @@ def run_exp(**kwargs) -> None:
             "mem_rqmt": 6.0,
         },
         recog_args={
-            "epochs": [num_subepochs]
-            if kwargs.get("recog_final_only", False)
-            else None,
+            "epochs": [num_subepochs] if kwargs.get("recog_final_only", False) else None,
             "prior_scales": kwargs.get("prior_scales", None),
             "log_prob_layer": output_name,
         },
         test_recog_args={
-            "epochs": [num_subepochs]
-            if kwargs.get("recog_final_only", False)
-            else None,
+            "epochs": [num_subepochs] if kwargs.get("recog_final_only", False) else None,
             "prior_scales": kwargs.get("prior_scales", None),
             "log_prob_layer": output_name,
         },

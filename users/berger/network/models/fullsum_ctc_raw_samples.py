@@ -189,7 +189,6 @@ def add_rasr_fastbw_output_layer(
     return name
 
 
-
 def make_blstm_fullsum_ctc_model(
     num_outputs: int,
     gt_args: Dict = {},

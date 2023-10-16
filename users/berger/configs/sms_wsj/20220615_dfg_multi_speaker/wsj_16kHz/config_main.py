@@ -18,9 +18,7 @@ def py() -> SummaryReport:
     alignments = {key: output.alignments for key, output in gmm_outputs.items()}
     cart_file = gmm_outputs["train_si284"].crp.acoustic_model_config.state_tying.file
 
-    summary_report.merge_report(
-        py_01_hybrid(alignments, cart_file), update_structure=True, collapse_rows=True
-    )
+    summary_report.merge_report(py_01_hybrid(alignments, cart_file), update_structure=True, collapse_rows=True)
     alignments, summary = py_02_ctc()
     summary_report.merge_report(summary, collapse_rows=True)
     summary_report.merge_report(py_03_transducer(alignments), collapse_rows=True)

@@ -20,7 +20,7 @@ from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
 from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
-from recipe.i6_experiments.users.berger.systems.dataclasses import AlignmentData
+from i6_experiments.users.berger.systems.dataclasses import AlignmentData
 from .config_01_ctc import py as py_ctc
 from .config_02_transducer import py as py_transducer
 from sisyphus import gs, tk
@@ -46,10 +46,7 @@ def generate_returnn_config(
     model_preload: tk.Path,
 ) -> ReturnnConfig:
     if train:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer_fullsum(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_fullsum(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
@@ -87,10 +84,7 @@ def generate_returnn_config(
             },
         )
     else:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer_recog(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
@@ -165,6 +159,7 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: tk.P
         tools.returnn_python_exe,
         alignments=alignments,
         add_unknown=False,
+        lm_name="kazuki_transformer",
     )
 
     # ********** Returnn Configs **********
@@ -193,7 +188,10 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: tk.P
 
     recog_args = exp_args.get_transducer_recog_step_args(
         num_classes,
-        epochs=[40, 80, 160, 240, 300, "best"],
+        lm_scales=[0.5, 0.7],
+        epochs=[240, 300, "best"],
+        lookahead_options={"scale": 0.5},
+        search_parameters={"label-pruning": 8.0},
     )
 
     # ********** System **********

@@ -41,9 +41,7 @@ glm_file = "/u/corpora/speech/hub5e_00/xml/glm"
 # recog_lexicon = tk.Path("/work/asr3/berger/asr-exps/switchboard/dependencies/lexicon/recog-lexicon.1state.eow.gz")
 
 # Subset of hub5e-00 with OOV words removed
-cv_segments = tk.Path(
-    "/work/asr4/berger/dependencies/switchboard/segments/hub5e-00.renamed.reduced"
-)
+cv_segments = tk.Path("/work/asr4/berger/dependencies/switchboard/segments/hub5e-00.renamed.reduced")
 
 # allophone_file = tk.Path("/work/asr4/berger/dependencies/switchboard/allophones/tuske_allophones")
 
@@ -71,15 +69,11 @@ def run_exp(**kwargs):
 
     # ********** Init args **********
 
-    train_data_inputs, dev_data_inputs, test_data_inputs = get_data_inputs(
-        delete_empty_orth=True
-    )
+    train_data_inputs, dev_data_inputs, test_data_inputs = get_data_inputs(delete_empty_orth=True)
 
     # rename dev corpus to train corpus name
     train_corpus = corpus.Corpus()
-    train_corpus_path = train_data_inputs[
-        train_key
-    ].corpus_object.corpus_file.get_path()
+    train_corpus_path = train_data_inputs[train_key].corpus_object.corpus_file.get_path()
     train_corpus.load(train_corpus_path)
 
     dev_corpus_path = dev_data_inputs[dev_key].corpus_object.corpus_file

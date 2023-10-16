@@ -45,10 +45,7 @@ class AddBoundaryMarkerToLexiconJob(Job):
         for phoneme, variation in in_lexicon.phonemes.items():
             out_lexicon.add_phoneme(phoneme, variation)
             if not (
-                phoneme.startswith("[")
-                or phoneme.endswith("]")
-                or phoneme.startswith("<")
-                or phoneme.endswith(">")
+                phoneme.startswith("[") or phoneme.endswith("]") or phoneme.startswith("<") or phoneme.endswith(">")
             ):
                 if self.add_eow:
                     eow_phon_list.append((phoneme + "#", variation))
@@ -99,9 +96,7 @@ class DeleteEmptyOrthJob(Job):
                     orths.append(orth)
                 lemma.orth = orths
                 silence_phon = lemma.phon[0]
-                assert (
-                    len(lemma.phon) == 1
-                ), "Silence lemma does not have only one phoneme"
+                assert len(lemma.phon) == 1, "Silence lemma does not have only one phoneme"
         assert silence_phon, "No silence lemma found"
 
         write_xml(self.out_lexicon.get_path(), out_lexicon.to_xml())
@@ -135,9 +130,7 @@ class EnsureSilenceFirstJob(Job):
         for lemma in out_lexicon.lemmata:
             if lemma.special == "silence":
                 silence_phon = lemma.phon[0]
-                assert (
-                    len(lemma.phon) == 1
-                ), "Silence lemma does not have only one phoneme"
+                assert len(lemma.phon) == 1, "Silence lemma does not have only one phoneme"
         assert silence_phon, "No silence lemma found"
 
         out_lexicon.add_phoneme(silence_phon, in_lexicon.phonemes[silence_phon])
@@ -178,9 +171,7 @@ class EnsureUnknownPronunciationOrthJob(Job):
         for lemma in out_lexicon.lemmata:
             if lemma.special == "silence":
                 silence_phon = lemma.phon[0]
-                assert (
-                    len(lemma.phon) == 1
-                ), "Silence lemma does not have only one phoneme"
+                assert len(lemma.phon) == 1, "Silence lemma does not have only one phoneme"
                 break
         assert silence_phon, "No silence lemma found"
 
@@ -223,9 +214,7 @@ class MakeBlankLexiconJob(Job):
         out_lexicon.add_phoneme(blank_phon, variation="none")
         out_lexicon.phonemes.update(in_lexicon.phonemes)
 
-        out_lexicon.add_lemma(
-            Lemma(orth=[blank_phon], phon=[blank_phon], special="blank")
-        )
+        out_lexicon.add_lemma(Lemma(orth=[blank_phon], phon=[blank_phon], special="blank"))
         out_lexicon.lemmata += in_lexicon.lemmata
 
         if not self.separate_silence:
@@ -234,9 +223,7 @@ class MakeBlankLexiconJob(Job):
                 if lemma.special == "silence":
                     # Extract silence phone
                     silence_phon = lemma.phon[0]
-                    assert (
-                        len(lemma.phon) == 1
-                    ), "Silence lemma does not have only one phoneme"
+                    assert len(lemma.phon) == 1, "Silence lemma does not have only one phoneme"
 
                     # Remove empty orth from silence lemma
                     orths = []

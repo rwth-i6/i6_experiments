@@ -90,21 +90,13 @@ scoring_dev_key = "sms_cv_dev93"
 scoring_test_key = "sms_test_eval92"
 
 alignments = {
-    train_key: tk.Path(
-        "/work/asr4/berger/dependencies/sms_wsj/hdf/alignment/train_si284.cart-9001.hdf"
-    ),
-    dev_key: tk.Path(
-        "/work/asr4/berger/dependencies/sms_wsj/hdf/alignment/cv_dev93.cart-9001.hdf"
-    ),
+    train_key: tk.Path("/work/asr4/berger/dependencies/sms_wsj/hdf/alignment/train_si284.cart-9001.hdf"),
+    dev_key: tk.Path("/work/asr4/berger/dependencies/sms_wsj/hdf/alignment/cv_dev93.cart-9001.hdf"),
 }
 
 json_paths = {
-    train_key: tk.Path(
-        "/work/asr4/berger/dependencies/sms_wsj/json/sms_wsj_remove_invalid.json"
-    ),
-    dev_key: tk.Path(
-        "/work/asr4/berger/dependencies/sms_wsj/json/sms_wsj_remove_invalid.json"
-    ),
+    train_key: tk.Path("/work/asr4/berger/dependencies/sms_wsj/json/sms_wsj_remove_invalid.json"),
+    dev_key: tk.Path("/work/asr4/berger/dependencies/sms_wsj/json/sms_wsj_remove_invalid.json"),
 }
 
 zip_cache_path = tk.Path("/work/asr3/converse/data/sms_wsj_original_and_rir.zip")
@@ -266,9 +258,7 @@ def run_exp(**kwargs) -> SummaryReport:
         for key in [train_key, dev_key]
     }
 
-    extern_data_config = {
-        "data_time_tag": CodeWrapper('Dim(kind=Dim.Types.Time, description="time")')
-    }
+    extern_data_config = {"data_time_tag": CodeWrapper('Dim(kind=Dim.Types.Time, description="time")')}
 
     # ********** Training setup **********
 
@@ -281,11 +271,7 @@ def run_exp(**kwargs) -> SummaryReport:
     num_context_layers = kwargs.get("num_context_layers", 0)
 
     if num_combine_layers:
-        (
-            train_blstm_net,
-            train_python_code,
-            dim_tags,
-        ) = make_blstm_hybrid_dual_output_combine_enc_model(
+        (train_blstm_net, train_python_code, dim_tags,) = make_blstm_hybrid_dual_output_combine_enc_model(
             num_outputs=num_outputs,
             gt_args={
                 "sample_rate": frequency * 1000,
@@ -296,17 +282,11 @@ def run_exp(**kwargs) -> SummaryReport:
             blstm_01_mix_args={"num_layers": num_01_mix_layers, "size": 400},
             blstm_combine_args={"num_layers": num_combine_layers, "size": 800},
             aux_loss_01_layers=[(num_01_layers, 0.3)] if num_mix_layers else [],
-            aux_loss_01_mix_layers=[(num_01_mix_layers, 0.3)]
-            if num_01_mix_layers
-            else [],
+            aux_loss_01_mix_layers=[(num_01_mix_layers, 0.3)] if num_01_mix_layers else [],
             freeze_separator=kwargs.get("freeze_separator", True),
         )
     elif num_context_layers:
-        (
-            train_blstm_net,
-            train_python_code,
-            dim_tags,
-        ) = make_blstm_hybrid_dual_output_soft_context_model(
+        (train_blstm_net, train_python_code, dim_tags,) = make_blstm_hybrid_dual_output_soft_context_model(
             num_outputs=num_outputs,
             gt_args={
                 "sample_rate": frequency * 1000,
@@ -323,11 +303,7 @@ def run_exp(**kwargs) -> SummaryReport:
             freeze_separator=kwargs.get("freeze_separator", True),
         )
     else:
-        (
-            train_blstm_net,
-            train_python_code,
-            dim_tags,
-        ) = make_blstm_hybrid_dual_output_model(
+        (train_blstm_net, train_python_code, dim_tags,) = make_blstm_hybrid_dual_output_model(
             num_outputs=num_outputs,
             gt_args={
                 "sample_rate": frequency * 1000,
@@ -336,9 +312,7 @@ def run_exp(**kwargs) -> SummaryReport:
             blstm_01_args={"num_layers": num_01_layers, "size": 400},
             blstm_mix_args={"num_layers": num_mix_layers, "size": 400},
             blstm_01_mix_args={"num_layers": num_01_mix_layers, "size": 400},
-            aux_loss_01_layers=[(num_01_layers, 0.3)]
-            if num_01_layers and num_01_mix_layers
-            else [],
+            aux_loss_01_layers=[(num_01_layers, 0.3)] if num_01_layers and num_01_mix_layers else [],
             aux_loss_01_mix_layers=[],
             freeze_separator=kwargs.get("freeze_separator", True),
         )
@@ -489,11 +463,7 @@ def run_exp(**kwargs) -> SummaryReport:
     recog_graphs = {}
     for speaker_idx in [0, 1]:
         if num_combine_layers:
-            (
-                recog_blstm_net,
-                recog_python_code,
-                dim_tags,
-            ) = make_blstm_hybrid_dual_output_combine_enc_recog_model(
+            (recog_blstm_net, recog_python_code, dim_tags,) = make_blstm_hybrid_dual_output_combine_enc_recog_model(
                 num_outputs=num_outputs,
                 speaker_idx=speaker_idx,
                 gt_args={"sample_rate": frequency * 1000},
@@ -503,11 +473,7 @@ def run_exp(**kwargs) -> SummaryReport:
                 blstm_combine_args={"num_layers": num_combine_layers, "size": 800},
             )
         elif num_context_layers:
-            (
-                recog_blstm_net,
-                recog_python_code,
-                dim_tags,
-            ) = make_blstm_hybrid_dual_output_soft_context_recog_model(
+            (recog_blstm_net, recog_python_code, dim_tags,) = make_blstm_hybrid_dual_output_soft_context_recog_model(
                 num_outputs=num_outputs,
                 speaker_idx=speaker_idx,
                 gt_args={"sample_rate": frequency * 1000},
@@ -518,11 +484,7 @@ def run_exp(**kwargs) -> SummaryReport:
                 use_logits=kwargs.get("use_logits", True),
             )
         else:
-            (
-                recog_blstm_net,
-                recog_python_code,
-                dim_tags,
-            ) = make_blstm_hybrid_dual_output_recog_model(
+            (recog_blstm_net, recog_python_code, dim_tags,) = make_blstm_hybrid_dual_output_recog_model(
                 num_outputs=num_outputs,
                 speaker_idx=speaker_idx,
                 gt_args={"sample_rate": frequency * 1000},
@@ -558,9 +520,7 @@ def run_exp(**kwargs) -> SummaryReport:
         )
         recog_config = serialize_dim_tags(recog_config)
 
-        graph = CompileTFGraphJob(
-            recog_config, returnn_root=tk.Path(gs.RETURNN_ROOT)
-        ).out_graph
+        graph = CompileTFGraphJob(recog_config, returnn_root=tk.Path(gs.RETURNN_ROOT)).out_graph
         recog_graphs[speaker_idx] = graph
 
     # *** Compile nativelstm2 ***
@@ -604,9 +564,7 @@ def run_exp(**kwargs) -> SummaryReport:
         crp = rasr.CommonRasrParameters()
 
         rasr.crp_add_default_output(crp)
-        crp.set_executables(
-            rasr_binary_path=rasr_binary_path, rasr_arch="linux-x86_64-standard"
-        )
+        crp.set_executables(rasr_binary_path=rasr_binary_path, rasr_arch="linux-x86_64-standard")
 
         rasr.crp_set_corpus(crp, data_input.corpus_object)
         crp.concurrent = data_input.concurrent
@@ -621,15 +579,11 @@ def run_exp(**kwargs) -> SummaryReport:
 
         crp.lexicon_config = rasr.RasrConfig()
         crp.lexicon_config.file = data_input.lexicon["filename"]
-        crp.lexicon_config.normalize_pronunciation = data_input.lexicon[
-            "normalize_pronunciation"
-        ]
+        crp.lexicon_config.normalize_pronunciation = data_input.lexicon["normalize_pronunciation"]
 
         crp.acoustic_model_config = acoustic_model_config(**am_args)
         crp.acoustic_model_config.allophones.add_all = data_input.lexicon["add_all"]
-        crp.acoustic_model_config.allophones.add_from_lexicon = data_input.lexicon[
-            "add_from_lexicon"
-        ]
+        crp.acoustic_model_config.allophones.add_from_lexicon = data_input.lexicon["add_from_lexicon"]
 
         model_combination_config = rasr.RasrConfig()
         model_combination_config.pronunciation_scale = 0.0
@@ -655,21 +609,15 @@ def run_exp(**kwargs) -> SummaryReport:
 
         tf_flow.config = rasr.RasrConfig()
         tf_flow.config[tf_fwd_name].input_map.info_0.param_name = "input"
+        tf_flow.config[tf_fwd_name].input_map.info_0.tensor_name = "extern_data/placeholders/data/data"
         tf_flow.config[
             tf_fwd_name
-        ].input_map.info_0.tensor_name = "extern_data/placeholders/data/data"
-        tf_flow.config[
-            tf_fwd_name
-        ].input_map.info_0.seq_length_tensor_name = (
-            "extern_data/placeholders/data/data_dim0_size"
-        )
+        ].input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/data/data_dim0_size"
 
         tf_flow.config[tf_fwd_name].output_map.info_0.param_name = "log-posteriors"
         tf_flow.config[
             tf_fwd_name
-        ].output_map.info_0.tensor_name = (
-            f"{train_config.get('forward_output_layer', 'output')}/output_batch_major"
-        )
+        ].output_map.info_0.tensor_name = f"{train_config.get('forward_output_layer', 'output')}/output_batch_major"
 
         tf_flow.config[tf_fwd_name].loader.type = "meta"
         tf_flow.config[tf_fwd_name].loader.required_libraries = native_lstm_path
@@ -677,9 +625,7 @@ def run_exp(**kwargs) -> SummaryReport:
         for epoch in kwargs.get("recog_epochs", [20, 60, 80, 100, 120]):
 
             prefix = f"nn_recog/{train_key}_{name}_recog/"
-            exp_name = (
-                f"{corpus_key}-e{epoch:03d}-prior{prior_scale:02.2f}-lm{lm_scale:02.2f}"
-            )
+            exp_name = f"{corpus_key}-e{epoch:03d}-prior{prior_scale:02.2f}-lm{lm_scale:02.2f}"
 
             ## ********** Prior computation **********
 
@@ -694,9 +640,7 @@ def run_exp(**kwargs) -> SummaryReport:
 
             # *** Create feature scorer ***
 
-            acoustic_mixture_path = CreateDummyMixturesJob(
-                num_outputs, num_inputs
-            ).out_mixtures
+            acoustic_mixture_path = CreateDummyMixturesJob(num_outputs, num_inputs).out_mixtures
             feature_scorer = PrecomputedHybridFeatureScorer(
                 prior_mixtures=acoustic_mixture_path,
                 priori_scale=prior_scale,
@@ -713,12 +657,8 @@ def run_exp(**kwargs) -> SummaryReport:
 
                 # *** Finalize tf flow and interconnect with base flow ***
 
-                tf_flow.config[tf_fwd_name].loader.meta_graph_file = recog_graphs[
-                    speaker_idx
-                ]
-                tf_flow.config[
-                    tf_fwd_name
-                ].loader.saved_model_file = train_job.out_checkpoints[epoch]
+                tf_flow.config[tf_fwd_name].loader.meta_graph_file = recog_graphs[speaker_idx]
+                tf_flow.config[tf_fwd_name].loader.saved_model_file = train_job.out_checkpoints[epoch]
 
                 ext_flow = FlowNetwork()
                 base_mapping = ext_flow.add_net(base_flow)
@@ -749,9 +689,7 @@ def run_exp(**kwargs) -> SummaryReport:
                     use_gpu=True,
                     mem=8,
                 )
-                recog_job.set_vis_name(
-                    f"Recog {prefix}{exp_name}_speaker-{speaker_idx}"
-                )
+                recog_job.set_vis_name(f"Recog {prefix}{exp_name}_speaker-{speaker_idx}")
                 recog_job.add_alias(f"{prefix}{exp_name}_speaker-{speaker_idx}")
 
                 lattice_job = LatticeToCtmJob(
@@ -763,27 +701,17 @@ def run_exp(**kwargs) -> SummaryReport:
 
                 lattices[speaker_idx] = recog_job.out_lattice_bundle
                 ctm_files[speaker_idx] = lattice_job.out_ctm_file
-                ctm_file = CtmRepeatForSpeakersJob(
-                    lattice_job.out_ctm_file, 2
-                ).out_ctm_file
+                ctm_file = CtmRepeatForSpeakersJob(lattice_job.out_ctm_file, 2).out_ctm_file
 
-                scoring_reports[speaker_idx] = ScliteJob(
-                    ref=stm_path, hyp=ctm_file
-                ).out_report_dir
+                scoring_reports[speaker_idx] = ScliteJob(ref=stm_path, hyp=ctm_file).out_report_dir
 
             # *** Score minimum permutation ctm
 
-            min_perm_ctm_job = MinimumPermutationCtmJob(
-                scoring_files=scoring_reports, ctms=ctm_files, stm=stm_path
-            )
+            min_perm_ctm_job = MinimumPermutationCtmJob(scoring_files=scoring_reports, ctms=ctm_files, stm=stm_path)
 
-            scorer_minimum_job = ScliteJob(
-                ref=stm_path, hyp=min_perm_ctm_job.out_ctm_file
-            )
+            scorer_minimum_job = ScliteJob(ref=stm_path, hyp=min_perm_ctm_job.out_ctm_file)
 
-            tk.register_output(
-                f"{prefix}recog_{exp_name}.reports", scorer_minimum_job.out_report_dir
-            )
+            tk.register_output(f"{prefix}recog_{exp_name}.reports", scorer_minimum_job.out_report_dir)
 
             summary_report.add_row(
                 {
@@ -808,9 +736,7 @@ def run_exp(**kwargs) -> SummaryReport:
                     scoring_corpus_key,
                 )
                 crp_scoring_corpus = copy.deepcopy(crp)
-                crp_scoring_corpus.corpus_config.file = (
-                    scoring_data_input.corpus_object.corpus_file
-                )
+                crp_scoring_corpus.corpus_config.file = scoring_data_input.corpus_object.corpus_file
                 opt_job = OptimizeAMandLMScaleJob(
                     crp=crp_scoring_corpus,
                     lattice_cache=join_lattices.out_lattice_cache,
@@ -828,12 +754,8 @@ def run_exp(**kwargs) -> SummaryReport:
 
                     # *** Finalize tf flow and interconnect with base flow ***
 
-                    tf_flow.config[tf_fwd_name].loader.meta_graph_file = recog_graphs[
-                        speaker_idx
-                    ]
-                    tf_flow.config[
-                        tf_fwd_name
-                    ].loader.saved_model_file = train_job.out_checkpoints[epoch]
+                    tf_flow.config[tf_fwd_name].loader.meta_graph_file = recog_graphs[speaker_idx]
+                    tf_flow.config[tf_fwd_name].loader.saved_model_file = train_job.out_checkpoints[epoch]
 
                     ext_flow = FlowNetwork()
                     base_mapping = ext_flow.add_net(base_flow)
@@ -864,12 +786,8 @@ def run_exp(**kwargs) -> SummaryReport:
                         use_gpu=True,
                         mem=8,
                     )
-                    recog_job.set_vis_name(
-                        f"Recog {prefix}{exp_name}_speaker-{speaker_idx}_optlm"
-                    )
-                    recog_job.add_alias(
-                        f"{prefix}{exp_name}_speaker-{speaker_idx}_optlm"
-                    )
+                    recog_job.set_vis_name(f"Recog {prefix}{exp_name}_speaker-{speaker_idx}_optlm")
+                    recog_job.add_alias(f"{prefix}{exp_name}_speaker-{speaker_idx}_optlm")
 
                     lattice_job = LatticeToCtmJob(
                         crp=opt_crp,
@@ -880,23 +798,15 @@ def run_exp(**kwargs) -> SummaryReport:
 
                     lattices[speaker_idx] = recog_job.out_lattice_bundle
                     ctm_files[speaker_idx] = lattice_job.out_ctm_file
-                    ctm_file = CtmRepeatForSpeakersJob(
-                        lattice_job.out_ctm_file, 2
-                    ).out_ctm_file
+                    ctm_file = CtmRepeatForSpeakersJob(lattice_job.out_ctm_file, 2).out_ctm_file
 
-                    scoring_reports[speaker_idx] = ScliteJob(
-                        ref=stm_path, hyp=ctm_file
-                    ).out_report_dir
+                    scoring_reports[speaker_idx] = ScliteJob(ref=stm_path, hyp=ctm_file).out_report_dir
 
                 # *** Score minimum permutation ctm
 
-                min_perm_ctm_job = MinimumPermutationCtmJob(
-                    scoring_files=scoring_reports, ctms=ctm_files, stm=stm_path
-                )
+                min_perm_ctm_job = MinimumPermutationCtmJob(scoring_files=scoring_reports, ctms=ctm_files, stm=stm_path)
 
-                scorer_minimum_job = ScliteJob(
-                    ref=stm_path, hyp=min_perm_ctm_job.out_ctm_file
-                )
+                scorer_minimum_job = ScliteJob(ref=stm_path, hyp=min_perm_ctm_job.out_ctm_file)
 
                 tk.register_output(
                     f"{prefix}recog_{exp_name}_optlm.reports",

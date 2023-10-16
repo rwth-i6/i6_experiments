@@ -17,7 +17,7 @@ from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
 from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
-from recipe.i6_experiments.users.berger.corpus.librispeech.ctc_data import (
+from i6_experiments.users.berger.corpus.librispeech.ctc_data import (
     get_librispeech_data_hdf,
 )
 from sisyphus import gs, tk

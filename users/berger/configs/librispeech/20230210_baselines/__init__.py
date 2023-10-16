@@ -1,8 +1,9 @@
 from sisyphus import tk
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
-from i6_experiments.common.baselines.librispeech.ls960.gmm import (
-    baseline_config as gmm_config,
-)
+
+# from i6_experiments.common.baselines.librispeech.ls960.gmm import (
+#     baseline_config as gmm_config,
+# )
 from .config_01a_ctc_blstm import py as py_01a
 from .config_01b_ctc_conformer import py as py_01b
 from .config_02_transducer import py as py_02
@@ -10,7 +11,7 @@ from .config_03_transducer_fullsum import py as py_03
 
 
 def main() -> SummaryReport:
-    gmm_config.run_librispeech_960_common_baseline()
+    # gmm_config.run_librispeech_960_common_baseline()
 
     summary_report = SummaryReport()
 

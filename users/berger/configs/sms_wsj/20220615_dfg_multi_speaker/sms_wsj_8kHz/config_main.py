@@ -24,9 +24,7 @@ def py() -> SummaryReport:
     }
     cart_file = gmm_outputs["train_si284"].crp.acoustic_model_config.state_tying.file
 
-    summary_report.merge_report(
-        py_01_hybrid(gmm_alignments, cart_file), update_structure=True, collapse_rows=True
-    )
+    summary_report.merge_report(py_01_hybrid(gmm_alignments, cart_file), update_structure=True, collapse_rows=True)
     _, summary = py_02_ctc()
     summary_report.merge_report(summary, collapse_rows=True)
 
@@ -41,9 +39,7 @@ def py() -> SummaryReport:
 
     py_05_ctc_mixed_inputs()
 
-    summary_report.merge_report(
-        py_06_conformer_hybrid(gmm_alignments, cart_file), collapse_rows=True
-    )
+    summary_report.merge_report(py_06_conformer_hybrid(gmm_alignments, cart_file), collapse_rows=True)
 
     tk.register_report(
         f"{dir_handle}/summary.report",

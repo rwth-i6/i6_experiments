@@ -36,17 +36,13 @@ train_key = "train_si284"
 dev_key = "cv_dev93"
 test_key = "test_eval92"
 
-cv_segments = tk.Path(
-    "/work/asr4/berger/dependencies/sms_wsj/segments/cv_dev93_16kHz.reduced"
-)
+cv_segments = tk.Path("/work/asr4/berger/dependencies/sms_wsj/segments/cv_dev93_16kHz.reduced")
 
 ctc_model = "/work/asr4/berger/sisyphus_work_dirs/sms_wsj/20220615_dfg_multi_speaker/i6_core/returnn/rasr_training/ReturnnRasrTrainingJob.nSDi7F07VTlp/output/models/epoch.300.index"
 train_alignment = tk.Path(
     "/work/asr4/berger/dependencies/sms_wsj/alignment/16kHz/train_si284_gmm/alignment.cache.bundle"
 )
-dev_alignment = tk.Path(
-    "/work/asr4/berger/dependencies/sms_wsj/alignment/16kHz/cv_dev93_gmm/alignment.cache.bundle"
-)
+dev_alignment = tk.Path("/work/asr4/berger/dependencies/sms_wsj/alignment/16kHz/cv_dev93_gmm/alignment.cache.bundle")
 
 gmm_allophones = tk.Path(
     "/work/asr4/berger/sisyphus_work_dirs/sms_wsj/20220615_dfg_multi_speaker/i6_core/lexicon/allophones/StoreAllophonesJob.74FPxuoluGhv/output/allophones"
@@ -230,9 +226,7 @@ def run_exp(**kwargs):
                 "train": {"reduce_target_factor": red_fact},
                 "dev": {"reduce_target_factor": red_fact},
             },
-            "python_prolog": [pretrain_construction_algo]
-            if kwargs.get("pretrain", False)
-            else None,
+            "python_prolog": [pretrain_construction_algo] if kwargs.get("pretrain", False) else None,
         },
         returnn_recog_config_args={
             "extra_python": recog_python_code,
@@ -245,9 +239,7 @@ def run_exp(**kwargs):
             "mem_rqmt": 6.0,
         },
         recog_args={
-            "epochs": [num_subepochs]
-            if kwargs.get("recog_final_epoch_only", False)
-            else None,
+            "epochs": [num_subepochs] if kwargs.get("recog_final_epoch_only", False) else None,
             "lm_scales": kwargs.get("lm_scales", [0.6]),
             "prior_scales": kwargs.get("prior_scales", [0.0]),
             "use_gpu": True,

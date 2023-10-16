@@ -31,13 +31,9 @@ def make_conformer_hybrid_model(
     from_list = add_specaug_layer(network, **specaug_args)
     python_code += get_specaug_funcs()
 
-    from_list = add_initial_conv(
-        network, "vgg_conv", from_list=from_list, **init_conv_args
-    )
+    from_list = add_initial_conv(network, "vgg_conv", from_list=from_list, **init_conv_args)
 
-    from_list, blocks = add_conformer_stack(
-        network, from_list=from_list, name="conformer", **conformer_args
-    )
+    from_list, blocks = add_conformer_stack(network, from_list=from_list, name="conformer", **conformer_args)
 
     network["encoder"] = {"class": "copy", "from": from_list}
 
@@ -109,13 +105,9 @@ def make_conformer_hybrid_recog_model(
 
     from_list = ["data"]
 
-    from_list = add_initial_conv(
-        network, "vgg_conv", from_list=from_list, **init_conv_args
-    )
+    from_list = add_initial_conv(network, "vgg_conv", from_list=from_list, **init_conv_args)
 
-    from_list, _ = add_conformer_stack(
-        network, from_list=from_list, name="conformer", **conformer_args
-    )
+    from_list, _ = add_conformer_stack(network, from_list=from_list, name="conformer", **conformer_args)
 
     network["encoder"] = {"class": "copy", "from": from_list}
 

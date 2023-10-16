@@ -32,9 +32,7 @@ def make_blstm_hybrid_model(
 
     from_list = add_feed_forward_stack(network, "encoder", **mlp_args)
 
-    add_softmax_output(
-        network, from_list=from_list, num_outputs=num_outputs, **output_args
-    )
+    add_softmax_output(network, from_list=from_list, num_outputs=num_outputs, **output_args)
 
     return network, python_code
 
@@ -65,9 +63,7 @@ def make_blstm_hybrid_multitask_model(
         }
         base_labels = "base_labels"
 
-    pred_layer, succ_layer = add_pred_succ_targets_noblank(
-        network, context_label_dim, nonword_labels, base_labels
-    )
+    pred_layer, succ_layer = add_pred_succ_targets_noblank(network, context_label_dim, nonword_labels, base_labels)
 
     # === PREDECESSOR ===
     from_list = add_feed_forward_stack(network, "encoder", name="pred_ff", **mlp_args)

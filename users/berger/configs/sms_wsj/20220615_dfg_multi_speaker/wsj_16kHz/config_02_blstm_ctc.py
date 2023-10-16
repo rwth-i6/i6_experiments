@@ -59,12 +59,7 @@ def run_exp(**kwargs) -> Tuple[Dict[str, Any], SummaryReport]:
     }
 
     # ********** Data inputs **********
-    (
-        train_data_input,
-        cv_data_input,
-        dev_data_inputs,
-        test_data_inputs,
-    ) = get_data_inputs(
+    (train_data_input, cv_data_input, dev_data_inputs, test_data_inputs,) = get_data_inputs(
         train_key=train_key,
         dev_keys=[dev_key],
         test_keys=[test_key],
@@ -220,9 +215,7 @@ def run_exp(**kwargs) -> Tuple[Dict[str, Any], SummaryReport]:
     )
 
     nn_steps = rasr_util.RasrSteps()
-    nn_steps.add_step(
-        "extract", {"feature_key": f_name, **init_args.feature_extraction_args}
-    )
+    nn_steps.add_step("extract", {"feature_key": f_name, **init_args.feature_extraction_args})
     nn_steps.add_step("nn", nn_args)
     nn_steps.add_step("nn_recog", nn_args)
     nn_steps.add_step("realign", nn_args)

@@ -56,30 +56,18 @@ def get_nn_args(
         for name, net in recog_networks.items()
     }
 
-    training_args = get_base_training_args(
-        num_epochs=num_epochs, num_outputs=num_outputs, **(train_args or {})
-    )
+    training_args = get_base_training_args(num_epochs=num_epochs, num_outputs=num_outputs, **(train_args or {}))
 
     recog_name = recog_name or "recog"
-    recognition_args = {
-        recog_name: get_recognition_args(
-            search_type, epochs=keep_epochs, **(recog_args or {})
-        )
-    }
+    recognition_args = {recog_name: get_recognition_args(search_type, epochs=keep_epochs, **(recog_args or {}))}
 
     test_recog_name = test_recog_name or recog_name
     test_recognition_args = {
-        test_recog_name: get_recognition_args(
-            search_type, epochs=keep_epochs, **(test_recog_args or recog_args or {})
-        )
+        test_recog_name: get_recognition_args(search_type, epochs=keep_epochs, **(test_recog_args or recog_args or {}))
     }
 
     align_name = align_name or "align"
-    alignment_args = {
-        align_name: get_alignment_args(
-            search_type, epochs=[num_epochs], **(align_args or {})
-        )
-    }
+    alignment_args = {align_name: get_alignment_args(search_type, epochs=[num_epochs], **(align_args or {}))}
 
     return rasr_util.HybridArgs(
         returnn_training_configs=returnn_train_configs,

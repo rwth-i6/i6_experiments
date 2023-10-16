@@ -218,17 +218,23 @@ def split_session0_dev(corpus_path: tk.Path) -> Tuple[tk.Path, tk.Path]:
     all_segments = corpus.SegmentCorpusJob(corpus_path, 1).out_single_segment_files
 
     dev_segments = corpus.FilterSegmentsByRegexJob(
-        all_segments, ".*session0.*", invert_match=True,
+        all_segments,
+        ".*session0.*",
+        invert_match=True,
     ).out_single_segment_files
     dev_corpus_filtered = corpus.FilterCorpusBySegmentsJob(
-        corpus_path, list(dev_segments.values()),
+        corpus_path,
+        list(dev_segments.values()),
     ).out_corpus
 
     eval_segments = corpus.FilterSegmentsByRegexJob(
-        all_segments, ".*session0.*", invert_match=False,
+        all_segments,
+        ".*session0.*",
+        invert_match=False,
     ).out_single_segment_files
     eval_corpus_filtered = corpus.FilterCorpusBySegmentsJob(
-        corpus_path, list(eval_segments.values()),
+        corpus_path,
+        list(eval_segments.values()),
     ).out_corpus
 
     return dev_corpus_filtered, eval_corpus_filtered

@@ -165,9 +165,7 @@ class SummaryReport:
             prev_to_index = to_index
 
             # Data with no value at <col_sort_index> gets discarded
-            remove_empty = [
-                row for row in data[from_index:to_index] if row[col_sort_index].strip()
-            ]
+            remove_empty = [row for row in data[from_index:to_index] if row[col_sort_index].strip()]
             # If nothing would be left, we have to take one of the valueless rows regardless
             if not remove_empty:
                 collapsed_data.append(data[from_index])
@@ -202,8 +200,7 @@ class SummaryReport:
         f = StringIO()
 
         col_widths = [
-            max(len(c_name), max(len(row[c]) for row in collapsed_data))
-            for c, c_name in enumerate(self._col_names)
+            max(len(c_name), max(len(row[c]) for row in collapsed_data)) for c, c_name in enumerate(self._col_names)
         ]
 
         def write_row_separator() -> None:

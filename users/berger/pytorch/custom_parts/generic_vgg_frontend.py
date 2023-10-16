@@ -146,7 +146,9 @@ class GenericVGGFrontendV1(nn.Module):
             bias=True,
         )
 
-    def forward(self, tensor: torch.Tensor, sequence_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, tensor: torch.Tensor, sequence_mask: Optional[torch.Tensor]
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
         T might be reduced to T' or T'' depending on stride of the layers
 
@@ -162,8 +164,9 @@ class GenericVGGFrontendV1(nn.Module):
 
         tensor = self.ops(tensor)  # [B, C, T', F']
 
-        for fn in self.mask_ops:
-            sequence_mask = fn(sequence_mask)  # [B, T']
+        if sequence_mask is not None:
+            for fn in self.mask_ops:
+                sequence_mask = fn(sequence_mask)  # [B, T']
 
         tensor = torch.transpose(tensor, 1, 2)  # [B, T', C, F']
         tensor = torch.flatten(tensor, start_dim=2, end_dim=-1)  # [B, T', C*F']

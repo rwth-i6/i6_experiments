@@ -10,15 +10,11 @@ Path = tk.setup_path(__package__)
 
 
 class OptunaReturnnLegacySystem(
-    BaseSystem[
-        returnn_custom.OptunaReturnnTrainingJob, returnn_custom.OptunaReturnnConfig
-    ]
+    BaseSystem[returnn_custom.OptunaReturnnTrainingJob, returnn_custom.OptunaReturnnConfig]
 ):
     def _initialize_functors(
-            self,
-    ) -> functors.Functors[
-        returnn_custom.OptunaReturnnTrainingJob, returnn_custom.OptunaReturnnConfig
-    ]:
+        self,
+    ) -> functors.Functors[returnn_custom.OptunaReturnnTrainingJob, returnn_custom.OptunaReturnnConfig]:
         train_functor = functors.OptunaReturnnTrainFunctor(
             self._tool_paths.returnn_root, self._tool_paths.returnn_python_exe
         )

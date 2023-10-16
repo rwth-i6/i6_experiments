@@ -35,12 +35,7 @@ def run_exp() -> Dict[str, rasr_util.GmmOutput]:
 
     # ********** GMM System **********
 
-    (
-        train_data_inputs,
-        dev_data_inputs,
-        test_data_inputs,
-        align_data_inputs,
-    ) = get_data_inputs(
+    (train_data_inputs, dev_data_inputs, test_data_inputs, align_data_inputs,) = get_data_inputs(
         train_key=train_key,
         dev_keys=[dev_key],
         test_keys=[test_key],
@@ -80,9 +75,7 @@ def run_exp() -> Dict[str, rasr_util.GmmOutput]:
     )
     wsj_gmm_system.run(steps)
 
-    return {
-        corpus: output["final"] for corpus, output in wsj_gmm_system.outputs.items()
-    }
+    return {corpus: output["final"] for corpus, output in wsj_gmm_system.outputs.items()}
 
 
 def py() -> Dict[str, rasr_util.GmmOutput]:

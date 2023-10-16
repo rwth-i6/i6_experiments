@@ -394,9 +394,7 @@ def run_exp(lm_model: tk.Path, **kwargs) -> SummaryReport:
     )
 
     nn_steps = rasr_util.RasrSteps()
-    nn_steps.add_step(
-        "extract", {"feature_key": f_name, **init_args.feature_extraction_args}
-    )
+    nn_steps.add_step("extract", {"feature_key": f_name, **init_args.feature_extraction_args})
     nn_steps.add_step("nn", nn_args)
     nn_steps.add_step("nn_recog", nn_args)
 

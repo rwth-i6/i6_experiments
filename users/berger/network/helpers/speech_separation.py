@@ -236,9 +236,7 @@ def add_speech_separation(
     frame_shift: int = 128,
     trainable: bool = True,
 ) -> Tuple[str, Dict[str, Dim]]:
-    sep_net, sep_dim_tags = get_speech_separator(
-        frame_size=frame_size, trainable=trainable
-    )
+    sep_net, sep_dim_tags = get_speech_separator(frame_size=frame_size, trainable=trainable)
     dim_tags = {
         "waveform_time": SpatialDim("waveform_time_dim"),
         "waveform_feature": FeatureDim("waveform_feature_dim", 1),

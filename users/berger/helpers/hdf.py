@@ -57,11 +57,7 @@ def build_rasr_feature_hdfs(
     rasr.crp_set_corpus(base_crp, corpus)
     base_crp.concurrent = split
 
-    feature_job = {
-        "mfcc": features.MfccJob,
-        "gt": features.GammatoneJob,
-        "energy": features.EnergyJob,
-    }[
+    feature_job = {"mfcc": features.MfccJob, "gt": features.GammatoneJob, "energy": features.EnergyJob,}[
         feature_type
     ](crp=base_crp, **feature_extraction_args)
 

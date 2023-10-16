@@ -27,9 +27,7 @@ def add_pred_succ_targets_noblank(
     # 1110000000
     eval_str = f"tf.math.not_equal(source(0), {nonword_labels[0]})"
     for label in nonword_labels[1:]:
-        eval_str = (
-            f"tf.math.logical_and(tf.math.not_equal(source(0), {label}), {eval_str})"
-        )
+        eval_str = f"tf.math.logical_and(tf.math.not_equal(source(0), {label}), {eval_str})"
     network["mask_no_nonword"] = {
         "class": "eval",
         "from": base_labels,
@@ -236,9 +234,7 @@ def add_pred_succ_targets_blank(
     # 00001001001
     eval_str = f"tf.math.not_equal(source(0), {blank_index})"
     for label in nonword_labels:
-        eval_str = (
-            f"tf.math.logical_and(tf.math.not_equal(source(0), {label}), {eval_str})"
-        )
+        eval_str = f"tf.math.logical_and(tf.math.not_equal(source(0), {label}), {eval_str})"
     network["mask_true_symbol"] = {
         "class": "eval",
         "from": base_labels,

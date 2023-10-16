@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional, Tuple, Union
 from i6_experiments.users.berger.network.helpers.specaug import add_specaug_layer_v2
-from recipe.i6_experiments.users.berger.network.helpers.specaug import (
+from i6_experiments.users.berger.network.helpers.specaug import (
     add_specaug_layer,
     add_specaug_layer_v2,
     get_specaug_funcs,

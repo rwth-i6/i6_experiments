@@ -16,7 +16,7 @@ from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
 from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs
 from i6_experiments.users.berger.util import default_tools as tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
-from recipe.i6_experiments.users.berger.corpus.sms_wsj.ctc_data import get_wsj_data
+from i6_experiments.users.berger.corpus.sms_wsj.ctc_data import get_wsj_data
 from sisyphus import gs, tk
 
 # ********** Settings **********

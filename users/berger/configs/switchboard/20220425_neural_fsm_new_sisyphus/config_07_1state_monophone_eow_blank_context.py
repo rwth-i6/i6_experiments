@@ -43,16 +43,14 @@ def run_exp(**kwargs):
             ),
             "dev": tk.Path(
                 "/work/asr4/berger/dependencies/switchboard/alignments/hub5e-00.reduced.tuske/alignment.cache.bundle"
-            )
+            ),
         }
     }
     align_type = kwargs.get("align_type", "gmm")
     alignments = alignments[align_type]
 
     # Subset of hub5e-00 with OOV words removed
-    dev_segments = tk.Path(
-        "/work/asr4/berger/dependencies/switchboard/segments/hub5e-00.reduced"
-    )
+    dev_segments = tk.Path("/work/asr4/berger/dependencies/switchboard/segments/hub5e-00.reduced")
 
     f_name = "gt"
 
@@ -74,9 +72,7 @@ def run_exp(**kwargs):
 
     # ********** Init args **********
 
-    train_data_inputs, dev_data_inputs, test_data_inputs = get_data_inputs(
-        delete_empty_orth=False
-    )
+    train_data_inputs, dev_data_inputs, test_data_inputs = get_data_inputs(delete_empty_orth=False)
     init_args = get_init_args(sample_rate_kHz=8, scorer="hub5", feature_args={"dc_detection": align_type == "gmm"})
     init_args.feature_extraction_args = {
         f_name: init_args.feature_extraction_args[f_name]
@@ -196,14 +192,10 @@ def run_exp(**kwargs):
 
     alignment_config = rasr.RasrConfig()
     alignment_config.neural_network_trainer["*"].force_single_state = True
-    alignment_config.neural_network_trainer[
-        "*"
-    ].reduce_alignment_factor = red_fact
+    alignment_config.neural_network_trainer["*"].reduce_alignment_factor = red_fact
     alignment_config.neural_network_trainer["*"].peaky_alignment = True
     alignment_config.neural_network_trainer["*"].peak_position = 1.0
-    alignment_config.neural_network_trainer["*"].segments_to_skip = [
-        "switchboard-1/sw04118A/sw4118A-ms98-a-0045"
-    ]
+    alignment_config.neural_network_trainer["*"].segments_to_skip = ["switchboard-1/sw04118A/sw4118A-ms98-a-0045"]
 
     if red_fact > 1:
         alignment_config.neural_network_trainer["*"].segments_to_skip += [
@@ -301,6 +293,7 @@ def run_exp(**kwargs):
     system.glm_files[dev_key] = glm_file
 
     system.run(nn_steps)
+
 
 def py():
     # OCLR

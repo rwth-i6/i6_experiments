@@ -61,12 +61,7 @@ def run_exp(alignments: Dict[str, Any], **kwargs) -> SummaryReport:
     }
 
     # ********** Data inputs **********
-    (
-        train_data_inputs,
-        dev_data_inputs,
-        test_data_inputs,
-        align_data_inputs,
-    ) = get_data_inputs(
+    (train_data_inputs, dev_data_inputs, test_data_inputs, align_data_inputs,) = get_data_inputs(
         train_keys=[train_key],
         dev_keys=[dev_key],
         test_keys=[test_key],
@@ -190,9 +185,7 @@ def run_exp(alignments: Dict[str, Any], **kwargs) -> SummaryReport:
                 "train": {"reduce_target_factor": red_fact},
                 "dev": {"reduce_target_factor": red_fact},
             },
-            "python_prolog": [pretrain_construction_algo]
-            if kwargs.get("pretrain", False)
-            else [],
+            "python_prolog": [pretrain_construction_algo] if kwargs.get("pretrain", False) else [],
         },
         returnn_recog_config_args={
             "extra_python": recog_python_code,
@@ -249,9 +242,7 @@ def run_exp(alignments: Dict[str, Any], **kwargs) -> SummaryReport:
     )
 
     nn_steps = rasr_util.RasrSteps()
-    nn_steps.add_step(
-        "extract", {"feature_key": f_name, **init_args.feature_extraction_args}
-    )
+    nn_steps.add_step("extract", {"feature_key": f_name, **init_args.feature_extraction_args})
     nn_steps.add_step("nn", nn_args)
     nn_steps.add_step("nn_recog", nn_args)
 

@@ -44,9 +44,7 @@ train_key = "train_si284"
 dev_key = "cv_dev93"
 test_key = "test_eval92"
 
-cv_segments = tk.Path(
-    "/work/asr4/berger/dependencies/sms_wsj/segments/cv_dev93_16kHz.reduced"
-)
+cv_segments = tk.Path("/work/asr4/berger/dependencies/sms_wsj/segments/cv_dev93_16kHz.reduced")
 
 frequency = 16
 
@@ -95,13 +93,9 @@ def run_exp(**kwargs):
     feature_system.run(["extract"])
 
     train_corpus_object = train_data_inputs[train_key].corpus_object
-    train_corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(
-        train_corpus_object.corpus_file
-    ).out_corpus_file
+    train_corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(train_corpus_object.corpus_file).out_corpus_file
     dev_corpus_object = dev_data_inputs[dev_key].corpus_object
-    dev_corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(
-        dev_corpus_object.corpus_file
-    ).out_corpus_file
+    dev_corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(dev_corpus_object.corpus_file).out_corpus_file
 
     # ********** Data inputs **********
 
@@ -118,9 +112,7 @@ def run_exp(**kwargs):
         )
     }
 
-    nn_data_inputs["train"][
-        f"{train_key}.train"
-    ].crp.lexicon_config.file = PreprocessWSJLexiconJob(
+    nn_data_inputs["train"][f"{train_key}.train"].crp.lexicon_config.file = PreprocessWSJLexiconJob(
         nn_data_inputs["train"][f"{train_key}.train"].crp.lexicon_config.file
     ).out_lexicon_file
 
@@ -136,9 +128,9 @@ def run_exp(**kwargs):
         )
     }
 
-    nn_data_inputs["cv"][f"{train_key}.cv"].crp.lexicon_config.file = nn_data_inputs[
-        "train"
-    ][f"{train_key}.train"].crp.lexicon_config.file
+    nn_data_inputs["cv"][f"{train_key}.cv"].crp.lexicon_config.file = nn_data_inputs["train"][
+        f"{train_key}.train"
+    ].crp.lexicon_config.file
 
     nn_data_inputs["dev"] = {
         dev_key: get_returnn_rasr_data_input(
@@ -162,15 +154,13 @@ def run_exp(**kwargs):
     # ********** Transducer System **********
 
     bpe_txt = text.PipelineJob(
-        tk.Path("/u/corpora/language/wsj/NAB-training-corpus.gz", cached=True), ['sed "s/ \S*$//"', 'sed "s/^\S* //"'], mini_task=True
+        tk.Path("/u/corpora/language/wsj/NAB-training-corpus.gz", cached=True),
+        ['sed "s/ \S*$//"', 'sed "s/^\S* //"'],
+        mini_task=True,
     ).out  # Remove <s> and </s> tokens
-    subword_nmt_repo = CloneGitRepositoryJob(
-        "https://github.com/albertz/subword-nmt.git"
-    ).out_repository
+    subword_nmt_repo = CloneGitRepositoryJob("https://github.com/albertz/subword-nmt.git").out_repository
 
-    train_bpe_job = ReturnnTrainBpeJob(
-        bpe_txt, kwargs.get("bpe_size", 1000), subword_nmt_repo=subword_nmt_repo
-    )
+    train_bpe_job = ReturnnTrainBpeJob(bpe_txt, kwargs.get("bpe_size", 1000), subword_nmt_repo=subword_nmt_repo)
     bpe_codes = train_bpe_job.out_bpe_codes
     bpe_vocab = train_bpe_job.out_bpe_vocab
 

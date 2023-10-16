@@ -5,9 +5,7 @@ from ... import dataclasses
 from ..base import TrainFunctor
 
 
-class OptunaReturnnTrainFunctor(
-    TrainFunctor[returnn.OptunaReturnnTrainingJob, returnn.OptunaReturnnConfig]
-):
+class OptunaReturnnTrainFunctor(TrainFunctor[returnn.OptunaReturnnTrainingJob, returnn.OptunaReturnnConfig]):
     def __init__(
         self,
         returnn_root: tk.Path,
@@ -30,8 +28,6 @@ class OptunaReturnnTrainFunctor(
         )
 
         train_job.add_alias(f"train_nn/{train_config.name}")
-        tk.register_output(
-            f"train_nn/{train_config.name}/learning_rate.png", train_job.out_plot_lr
-        )
+        tk.register_output(f"train_nn/{train_config.name}/learning_rate.png", train_job.out_plot_lr)
 
         return train_job

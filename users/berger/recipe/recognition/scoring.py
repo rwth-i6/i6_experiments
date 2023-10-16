@@ -23,9 +23,7 @@ class BestScoreJob(Job):
         yield Task("run", mini_task=True)
 
     def run(self) -> None:
-        best_name, best_job = min(
-            self.scoring_jobs.items(), key=lambda item: item[1].out_num_errors
-        )
+        best_name, best_job = min(self.scoring_jobs.items(), key=lambda item: item[1].out_num_errors)
 
         self.out_best_name.set(best_name)
         self.out_best_job.set(best_job)
