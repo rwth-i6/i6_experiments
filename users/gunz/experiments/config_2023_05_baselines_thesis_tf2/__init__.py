@@ -121,8 +121,6 @@ def plot_a():
 
 
 def main():
-    fs()
-
     mono()
     di()
     di_joint()
