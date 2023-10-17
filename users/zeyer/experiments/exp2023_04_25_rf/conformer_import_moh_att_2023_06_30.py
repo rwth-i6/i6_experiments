@@ -107,6 +107,7 @@ config = dict(
     learning_rate_control_min_num_epochs_per_new_lr=1,
     learning_rate_decay=0.9,
     newbob_relative_error_threshold=-0.01,
+    # torch_amp="float16",  # TODO check if this works with RF https://github.com/rwth-i6/returnn/issues/1311
 )
 post_config = dict(
     cleanup_old_models=dict(keep_last_n=5),
@@ -389,6 +390,8 @@ def from_scratch_training(
         data = rf.squeeze(data, axis=data.feature_dim)
     assert not data.feature_dim  # raw audio
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+
+    # TODO CTC
 
     batch_dims = data.remaining_dims(data_spatial_dim)
     input_embeddings = model.target_embed(targets)
