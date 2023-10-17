@@ -195,7 +195,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             smooth_oclr=False,
             swap_mhsa_conv=False,
         )
-        for sa in [4, 10, 14, 20]
+        for sa in [4, 10, 14, 20, 25]
         if a_name == "40ms-FFs-v8"
     ]
     for exp in [*frontend_configs, *encoder_configs, *smooth_lr_configs, *sa_configs]:
