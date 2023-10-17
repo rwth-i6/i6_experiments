@@ -12,9 +12,14 @@ TODO:
 - wdf?
 - wdro
 - lsxx01, or other lsxx
-- cnnblstmf2
 - specaugweia? yes but generalize... also could be optimized
 - twarp?
 - rndresize09_12, or other
 - mhsapinit05
 - chunk, some variant, unclear which is best...
+
+TODO model changes:
+
+- Second decoder LSTM
+- ZoneoutLSTM use_zoneout_output=True
+- cnnblstmf2

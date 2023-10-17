@@ -108,6 +108,7 @@ config = dict(
     learning_rate_decay=0.9,
     newbob_relative_error_threshold=-0.01,
     # torch_amp="float16",  # TODO check if this works with RF https://github.com/rwth-i6/returnn/issues/1311
+    # aux_loss_layers=[4, 8],  # TODO enable this when we have CTC in RF
 )
 post_config = dict(
     cleanup_old_models=dict(keep_last_n=5),
@@ -136,7 +137,7 @@ class MakeModel:
         return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers)
 
     @classmethod
-    def make_model(cls, in_dim: Dim, target_dim: Dim, *, num_enc_layers: int = 12) -> Model:
+    def make_model(cls, in_dim: Dim, target_dim: Dim, *, num_enc_layers: int = 12, **extra) -> Model:
         """make"""
         return Model(
             in_dim,
@@ -160,6 +161,7 @@ class MakeModel:
             blank_idx=target_dim.dimension,
             bos_idx=_get_bos_idx(target_dim),
             eos_idx=_get_eos_idx(target_dim),
+            **extra,
         )
 
 
@@ -172,9 +174,11 @@ class Model(rf.Module):
         *,
         num_enc_layers: int = 12,
         target_dim: Dim,
+        wb_target_dim: Optional[Dim] = None,
         blank_idx: int,
         eos_idx: int,
         bos_idx: int,
+        enc_aux_logits: Sequence[int] = (),  # layers
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
         enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
         enc_att_num_heads: int = 4,
@@ -249,6 +253,12 @@ class Model(rf.Module):
 
         for p in self.parameters():
             p.weight_decay = l2
+
+        if enc_aux_logits:
+            if not wb_target_dim:
+                wb_target_dim = target_dim + 1
+        for i in enc_aux_logits:
+            setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
 
     def encode(
         self,
@@ -370,10 +380,14 @@ def _get_eos_idx(target_dim: Dim) -> int:
 
 def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
+    from returnn.config import get_global_config
+
     in_dim, epoch  # noqa
+    config = get_global_config()  # noqa
+    enc_aux_logits = config.typed_value("aux_loss_layers")
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
-    return MakeModel.make_model(in_dim, target_dim)
+    return MakeModel.make_model(in_dim, target_dim, enc_aux_logits=enc_aux_logits or ())
 
 
 from_scratch_model_def: ModelDef[Model]
@@ -386,12 +400,25 @@ def from_scratch_training(
     *, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim
 ):
     """Function is run within RETURNN."""
+    from returnn.config import get_global_config
+
+    config = get_global_config()  # noqa
+    aux_loss_layers = config.typed_value("aux_loss_layers")
+
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
     assert not data.feature_dim  # raw audio
-    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
 
-    # TODO CTC
+    collected_outputs = {}
+    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+    if aux_loss_layers:
+        for i in aux_loss_layers:
+            if i > len(model.encoder.layers):
+                continue
+            linear = getattr(model, f"enc_aux_logits_{i}")
+            aux_logits = linear(collected_outputs[str(i - 1)])
+            aux_loss = rf.ctc_loss(logits=aux_logits, targets=targets)
+            aux_loss.mark_as_loss(f"ctc_{i}")
 
     batch_dims = data.remaining_dims(data_spatial_dim)
     input_embeddings = model.target_embed(targets)
