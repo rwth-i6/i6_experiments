@@ -791,6 +791,7 @@ def run_single(
             s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone)
             s._update_crp_am_setting("train-other-960.train", tdp_type="default", add_base_allophones=False)
 
+            s.set_returnn_config_for_experiment("fh-fs", copy.deepcopy(returnn_config))
             s.set_diphone_priors_returnn_rasr(
                 key="fh-fs",
                 epoch=fine_tune_epochs,
@@ -800,7 +801,6 @@ def run_single(
                 returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
             )
 
-            s.set_graph_for_experiment("fh-fs", override_cfg=returnn_config)
             recognizer, recog_args = s.get_recognizer_and_args(
                 key="fh-fs",
                 context_type=PhoneticContext.diphone,
