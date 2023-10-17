@@ -18,7 +18,12 @@ from sisyphus import gs, tk
 from i6_core import corpus, lexicon, rasr, returnn
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.analysis import PlotPhonemeDurationsJob, PlotViterbiAlignmentsJob
+from ...setups.common.analysis import (
+    ComputeSilencePercentageJob,
+    ComputeWordLevelTimestampErrorJob,
+    PlotPhonemeDurationsJob,
+    PlotViterbiAlignmentsJob,
+)
 from ...setups.common.nn import baum_welch, oclr
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
@@ -34,9 +39,11 @@ from ...setups.fh.network.augment import (
 )
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
+from ..config_2023_08_subsampling_new.config import ALIGN_GMM_TRI_ALLOPHONES
 from .config import (
     CONF_CHUNKING,
     CONF_SA_CONFIG,
+    GMM_TRI_ALIGNMENT,
     MLP_FH_DECODING_TENSOR_CONFIG,
     RASR_ARCH,
     RASR_ROOT_NO_TF,
@@ -146,7 +153,7 @@ def run_single(
         test_data=test_data_inputs,
     )
 
-    s.label_info = dataclasses.replace(s.label_info, n_states_per_phone=1, state_tying=RasrStateTying.monophone)
+    s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
     s.lexicon_args["norm_pronunciation"] = False
     s.lm_gc_simple_hash = True
     s.train_key = train_key
@@ -389,7 +396,7 @@ def run_single(
         set_batch_major_for_feature_scorer=False,
         lm_gc_simple_hash=True,
     )
-    sil_tdp = (*recog_args.tdp_silence[:3], 3.0)
+    sil_tdp = (*recog_args.tdp_silence[:3], 0.0)
     align_cfg = (
         recog_args.with_prior_scale(0.6).with_tdp_scale(tdp_scale).with_tdp_silence(sil_tdp).with_tdp_non_word(sil_tdp)
     )
@@ -410,8 +417,9 @@ def run_single(
     crp.concurrent = 300
     crp.segment_path = corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, crp.concurrent).out_segment_path
 
+    a_name = f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}"
     a_job = recognizer.align(
-        f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
+        a_name,
         crp=crp,
         feature_scorer=align_search_jobs.search_feature_scorer,
         default_tdp=True,
@@ -419,7 +427,7 @@ def run_single(
     )
 
     allophones = lexicon.StoreAllophonesJob(crp)
-    tk.register_output(f"allophones/{name}/allophones", allophones.out_allophone_file)
+    tk.register_output(f"allophones/{a_name}/allophones", allophones.out_allophone_file)
 
     plots = PlotViterbiAlignmentsJob(
         alignment_bundle_path=a_job.out_alignment_bundle,
@@ -428,16 +436,30 @@ def run_single(
         show_labels=False,
         monophone=True,
     )
-    tk.register_output(f"alignments/{name}/alignment-plots", plots.out_plot_folder)
+    tk.register_output(f"alignments/{a_name}/alignment-plots", plots.out_plot_folder)
 
     phoneme_durs = PlotPhonemeDurationsJob(
         alignment_bundle_path=a_job.out_alignment_bundle,
         allophones_path=allophones.out_allophone_file,
         time_step_s=10 / 1000,
     )
-    tk.register_output(f"alignments/{name}/statistics/plots", phoneme_durs.out_plot_folder)
-    tk.register_output(f"alignments/{name}/statistics/means", phoneme_durs.out_means)
-    tk.register_output(f"alignments/{name}/statistics/variances", phoneme_durs.out_vars)
+    tk.register_output(f"alignments/{a_name}/statistics/plots", phoneme_durs.out_plot_folder)
+    tk.register_output(f"alignments/{a_name}/statistics/means", phoneme_durs.out_means)
+    tk.register_output(f"alignments/{a_name}/statistics/variances", phoneme_durs.out_vars)
+
+    tse_w_job = ComputeWordLevelTimestampErrorJob(
+        allophones=allophones.out_allophone_file,
+        alignment=a_job.out_alignment_bundle,
+        t_step=output_time_step,
+        reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+        reference_alignment=tk.Path(GMM_TRI_ALIGNMENT, cached=True),
+        reference_t_step=10 / 1000,
+    )
+    tse_w_job.add_alias(f"tse-w/{a_name}/tse")
+    tk.register_output(f"alignments/{a_name}/statistics/tse-w", tse_w_job.out_tse)
+
+    tse_w_job = ComputeSilencePercentageJob(a_job.out_alignment_bundle, allophones.out_allophone_file)
+    tk.register_output(f"alignments/{a_name}/statistics/sil", tse_w_job.out_percent_sil)
 
     s.experiments["fh"]["alignment_job"] = a_job
 
