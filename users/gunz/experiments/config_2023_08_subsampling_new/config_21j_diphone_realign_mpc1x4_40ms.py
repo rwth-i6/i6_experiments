@@ -613,7 +613,7 @@ def run_single(
             configs = [
                 (
                     8e-5,
-                    False,
+                    True,
                     baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.0),
                 )
             ]
