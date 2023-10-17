@@ -25,7 +25,7 @@ def get_ffnn_a():
     returnn_root = _clone_returnn()
     configs = config_00_monophone_linear_fullsum_10ms.run(returnn_root=returnn_root)
 
-    sys = next((v for k, v in configs.items() if k.w_init == "glorot_uniform"))
+    sys = next((v for v in configs.values()))
     return sys.experiments["fh"]["alignment_job"].out_alignment_bundle
 
 

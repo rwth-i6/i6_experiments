@@ -87,15 +87,15 @@ def run(returnn_root: tk.Path):
             output_time_step=10 / 1000,
             w_init=augment.DEFAULT_INIT,
         ),
-        Experiment(
-            alignment_name="scratch",
-            bw_label_scale=0.3,
-            context_window_size=15,
-            lr="v8",
-            model_dim=model_dim,
-            output_time_step=10 / 1000,
-            w_init="glorot_uniform",
-        ),
+        # Experiment(
+        #     alignment_name="scratch",
+        #     bw_label_scale=0.3,
+        #     context_window_size=15,
+        #     lr="v8",
+        #     model_dim=model_dim,
+        #     output_time_step=10 / 1000,
+        #     w_init="glorot_uniform",
+        # ),
     ]
     experiments = {
         exp: run_single(
