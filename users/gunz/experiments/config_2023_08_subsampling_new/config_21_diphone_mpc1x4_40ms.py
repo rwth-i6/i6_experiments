@@ -794,8 +794,10 @@ def run_single(
                 alignment_name in ["40ms-FFs-v8", "40ms-FF-v8"]
                 and peak_lr == 8e-5
                 and bw_scale.label_posterior_scale == 1.0
-                and bw_scale.transition_scale == 0.3
-                and not adapt_transition_model
+                and (
+                    (alignment_name == "40ms-FF-v8" and bw_scale.transition_scale == 0.3)
+                    or (alignment_name == "40ms-FFs-v8" and bw_scale.transition_scale == 0.0)
+                )
             ):
                 s.set_binaries_for_crp("train-other-960.train", RASR_TF_BINARY_PATH)
                 s.create_stm_from_corpus("train-other-960.train")
