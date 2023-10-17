@@ -303,6 +303,7 @@ def the_plan():
         config_21b_diphone_multi_mpc1x4_40ms,
         config_21h_diphone_fs1x4_40ms,
         config_21i_diphone_ss_variations_40ms,
+        config_21j_diphone_realign_mpc1x4_40ms,
         config_22b_triphone_multi_mpc1x4_40ms,
         config_31_diphone_mpc2x3_60ms,
         config_41_diphone_mpc2x4_80ms,
@@ -398,6 +399,11 @@ def the_plan():
         alignment=phmm_40ms_mp_p0_6_a,
         a_name="40ms-Bmp-pC0.6",
     )
+    config_21j_diphone_realign_mpc1x4_40ms.run(
+        returnn_root=returnn_root,
+        alignment=phmm_40ms_ffnn_a,
+        a_name="40ms-FF-v8",
+    )
 
     # phmm_40ms_fs_a = get_n_blstm_a(
     #     feature_stacking=True, transition_scale=0.3, adapted_tdps=False, t_step=40 / 1000, prior_scale=0.0
@@ -488,6 +494,11 @@ def the_plan():
         a_name="40ms-FFs-v8",
     )
     config_21i_diphone_ss_variations_40ms.run(
+        returnn_root=returnn_root,
+        alignment=phmms_40ms_ffnn_a,
+        a_name="40ms-FFs-v8",
+    )
+    config_21j_diphone_realign_mpc1x4_40ms.run(
         returnn_root=returnn_root,
         alignment=phmms_40ms_ffnn_a,
         a_name="40ms-FFs-v8",
