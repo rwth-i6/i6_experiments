@@ -727,7 +727,7 @@ class FactoredHybridSystem(NnSystem):
 
         return crp_bw
 
-    def set_rasr_returnn_input_datas(self, input_key, chunk_size=1152, is_cv_separate_from_train=False):
+    def set_rasr_returnn_input_datas(self, input_key, is_cv_separate_from_train=False, **kwargs):
         for k in self.corpora.keys():
             assert self.inputs[k] is not None
             assert self.inputs[k][input_key] is not None
