@@ -790,7 +790,7 @@ def run_single(
                         )
                         j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
-    if fine_tune and alignment_name in ["40ms-FFs-v8", "40ms-FFs-v8"]:
+    if fine_tune and alignment_name in ["40ms-FF-v8", "40ms-FFs-v8"]:
         # Training schedule w/ same number of epochs, 600-X eps viterbi + X eps FS
 
         start_eps = [100, 300, 500, 550] if alignment_name == "40ms-FFs-v8" else [500, 550]
