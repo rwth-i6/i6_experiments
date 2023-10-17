@@ -110,6 +110,7 @@ config = dict(
 )
 post_config = dict(
     cleanup_old_models=dict(keep_last_n=5),
+    torch_dataloader_opts=dict(num_workers=1),
 )
 
 
