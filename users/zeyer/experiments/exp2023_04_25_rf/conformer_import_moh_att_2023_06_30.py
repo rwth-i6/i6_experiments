@@ -108,7 +108,7 @@ config = dict(
     learning_rate_decay=0.9,
     newbob_relative_error_threshold=-0.01,
     # torch_amp="float16",  # TODO check if this works with RF https://github.com/rwth-i6/returnn/issues/1311
-    # aux_loss_layers=[4, 8],  # TODO enable this when we have CTC in RF
+    aux_loss_layers=[4, 8],
 )
 post_config = dict(
     cleanup_old_models=dict(keep_last_n=5),
@@ -417,7 +417,13 @@ def from_scratch_training(
                 continue
             linear = getattr(model, f"enc_aux_logits_{i}")
             aux_logits = linear(collected_outputs[str(i - 1)])
-            aux_loss = rf.ctc_loss(logits=aux_logits, targets=targets)
+            aux_loss = rf.ctc_loss(
+                logits=aux_logits,
+                targets=targets,
+                input_spatial_dim=enc_spatial_dim,
+                targets_spatial_dim=targets_spatial_dim,
+                blank_index=model.blank_idx,
+            )
             aux_loss.mark_as_loss(f"ctc_{i}")
 
     batch_dims = data.remaining_dims(data_spatial_dim)
