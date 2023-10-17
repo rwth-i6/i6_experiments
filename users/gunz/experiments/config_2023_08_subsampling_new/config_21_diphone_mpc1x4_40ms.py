@@ -791,8 +791,7 @@ def run_single(
                         j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
             if (
-                False  # TODO FIXME
-                and alignment_name in ["40ms-FFs-v8", "40ms-FF-v8"]
+                alignment_name in ["40ms-FFs-v8", "40ms-FF-v8"]
                 and peak_lr == 8e-5
                 and bw_scale.label_posterior_scale == 1.0
                 and bw_scale.transition_scale == 0.3
@@ -802,14 +801,25 @@ def run_single(
                 s.create_stm_from_corpus("train-other-960.train")
                 s._set_scorer_for_corpus("train-other-960.train")
                 s._init_lm("train-other-960.train", **next(iter(dev_data_inputs.values())).lm)
+                s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone)
                 s._update_crp_am_setting("train-other-960.train", tdp_type="default", add_base_allophones=False)
 
-                s.set_graph_for_experiment(
-                    "fh-fs", override_cfg=remove_label_pops_and_losses_from_returnn_config(returnn_config)
+                prior_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+
+                s.set_graph_for_experiment("fh-fs", override_cfg=prior_config)
+
+                s.set_diphone_priors_returnn_rasr(
+                    key="fh-fs",
+                    epoch=fine_tune_epochs,
+                    train_corpus_key=s.crp_names["train"],
+                    dev_corpus_key=s.crp_names["cvtrain"],
+                    smoothen=True,
+                    returnn_config=prior_config,
                 )
+
                 recognizer, recog_args = s.get_recognizer_and_args(
                     key="fh-fs",
-                    context_type=PhoneticContext.monophone,
+                    context_type=PhoneticContext.diphone,
                     crp_corpus="train-other-960.train",
                     epoch=fine_tune_epochs,
                     gpu=False,
@@ -893,7 +903,7 @@ def run_single(
                 tse_w_job = ComputeSilencePercentageJob(a_job.out_alignment_bundle, allophones.out_allophone_file)
                 tk.register_output(f"alignments/{a_name}/statistics/sil", tse_w_job.out_percent_sil)
 
-                s.experiments["fh"]["alignment_job"] = a_job
+                s.experiments["fh-fs"]["alignment_job"] = a_job
 
     if fine_tune and alignment_name == "40ms-FFs-v8":
         # Training schedule w/ same number of epochs, 600-X eps viterbi + X eps FS
