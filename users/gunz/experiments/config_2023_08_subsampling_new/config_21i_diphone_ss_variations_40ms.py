@@ -524,9 +524,10 @@ def run_single(
 
         configs = [
             dataclasses.replace(
-                s.get_cart_params("fh"), beam=18, beam_limit=100000, lm_scale=2, tdp_scale=tdpS
+                s.get_cart_params("fh"), beam=beam, beam_limit=100000, lm_scale=2, tdp_scale=tdpS
             ).with_prior_scale(pC)
-            for pC, tdpS in itertools.product(
+            for beam, pC, tdpS in itertools.product(
+                [18, 20] if ep == max(keep_epochs) else [18],
                 [0.4, 0.6],
                 [0.4, 0.6],
             )
