@@ -88,7 +88,9 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # att + ctc decoding
 
-    new_chkpt_path = tk.Path(_torch_ckpt_filename_w_lstm_lm, hash_overwrite="torch_ckpt_w_lstm_lm")
+    new_chkpt_path = tk.Path(
+        _torch_ckpt_filename_w_lstm_lm, hash_overwrite="torch_ckpt_w_lstm_lm"
+    )
     new_chkpt = PtCheckpoint(new_chkpt_path)
     model_with_checkpoint = ModelWithCheckpoint(
         definition=from_scratch_model_def, checkpoint=new_chkpt
@@ -98,20 +100,20 @@ def sis_run_with_prefix(prefix_name: str = None):
         search_args = {
             "beam_size": 12,
             # att decoder args
-            "att_scale": 1.0,
-            "ctc_scale": 0.0,
-            "use_ctc": False,
+            "att_scale": 0.7,
+            "ctc_scale": 0.3,
+            "use_ctc": True,
             "mask_eos": True,
-            "add_lstm_lm": True,
+            "add_lstm_lm": False,
             "lstm_scale": 0.33,
-            "prior_corr": False,
+            "prior_corr": True,
             "prior_scale": 0.2,
             "length_normalization_exponent": 1.0,  # 0.0 for disabled
             # "window_margin": 10,
             "rescore_w_ctc": False,
         }
-        dev_sets = ["dev-other"]  # only dev-other for testing
-        # dev_sets = None  # all
+        # dev_sets = ["dev-other"]  # only dev-other for testing
+        dev_sets = None  # all
         res = recog_model(
             task,
             model_with_checkpoint,
@@ -121,16 +123,17 @@ def sis_run_with_prefix(prefix_name: str = None):
         )
         tk.register_output(
             prefix_name
-            # + f"/espnet_att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_beam{search_args['beam_size']}_maskEos"
+            + f"/espnet_att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_beam{search_args['beam_size']}_bsf40"
             # + f"/att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_beam{search_args['beam_size']}_two_pass_maskeos"
-            + f"/att{search_args['att_scale']}_lstm_lm{search_args['lstm_scale']}_beam{search_args['beam_size']}"
+            # + f"/att{search_args['att_scale']}_lstm_lm{search_args['lstm_scale']}_beam{search_args['beam_size']}"
+            # + f"/att{search_args['att_scale']}_beam{search_args['beam_size']}_bsf_40"
             + f"/recog_results",
             res.output,
         )
 
     for prior_scale in []:
-        search_args['prior_scale'] = prior_scale
-        search_args['length_normalization_exponent'] = 1.0
+        search_args["prior_scale"] = prior_scale
+        search_args["length_normalization_exponent"] = 1.0
         res = recog_model(
             task,
             model_with_checkpoint,
@@ -178,6 +181,8 @@ def sis_run_with_prefix(prefix_name: str = None):
         "att_scale": 0.65,
         "ctc_scale": 0.35,
         "rescore_w_ctc": False,
+        "prior_corr": True,
+        "prior_scale": 0.3,
     }
 
     dev_sets = ["dev-other"]  # only dev-other for testing
@@ -191,7 +196,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
     tk.register_output(
         prefix_name
-        + f"/time_sync_att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_beam{search_args['beam_size']}_mask_eos_2"
+        + f"/time_sync_att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_prior{search_args['prior_scale']}_beam{search_args['beam_size']}_mask_eos"
         + f"/recog_results",
         res.output,
     )
@@ -208,6 +213,7 @@ def sis_run_with_prefix(prefix_name: str = None):
 
 
 py = sis_run_with_prefix  # if run directly via `sis m ...`
+
 
 def sis_run_dump_scores(prefix_name: str = None):
     """run the exp"""
@@ -257,10 +263,10 @@ def sis_run_dump_scores(prefix_name: str = None):
         "add_lstm_lm": False,
         "prior_corr": False,
         "prior_scale": 0.2,
-        "length_normalization_exponent": 1.0, # 0.0 for disabled
+        "length_normalization_exponent": 1.0,  # 0.0 for disabled
         # "window_margin": 10,
         "rescore_w_ctc": False,
-        "dump_ctc": True
+        "dump_ctc": True,
     }
 
     # new_chkpt_path = tk.Path(_torch_ckpt_filename_w_ctc, hash_overwrite="torch_ckpt_w_ctc")
@@ -281,8 +287,7 @@ def sis_run_dump_scores(prefix_name: str = None):
     tk.register_output(
         prefix_name
         # + f"/espnet_att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_beam{search_args['beam_size']}_maskEos"
-        + f"/dump_ctc_scores"
-        + f"/scores",
+        + f"/dump_ctc_scores" + f"/scores",
         res.output,
     )
 
@@ -639,7 +644,9 @@ def from_scratch_model_def(
 from_scratch_model_def: ModelDef[Model]
 from_scratch_model_def.behavior_version = 16
 from_scratch_model_def.backend = "torch"
-from_scratch_model_def.batch_size_factor = 40  # 160 # change batch size here - 20 for att_window - 40 for ctc_prefix
+from_scratch_model_def.batch_size_factor = (
+    40  # 160 # change batch size here - 20 for att_window - 40 for ctc_prefix
+)
 
 
 def from_scratch_training(

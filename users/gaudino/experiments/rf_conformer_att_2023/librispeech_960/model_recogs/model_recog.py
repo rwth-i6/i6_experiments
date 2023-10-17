@@ -41,7 +41,7 @@ def model_recog(
     """
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    beam_size = model.search_args["beam_size"]
+    beam_size = model.search_args.get("beam_size", 12)
     length_normalization_exponent = model.search_args["length_normalization_exponent"]
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
@@ -56,7 +56,7 @@ def model_recog(
     decoder_state = model.decoder_default_initial_state(
         batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
     )
-    if model.search_args["add_lstm_lm"]:
+    if model.search_args.get("add_lstm_lm", False):
         lm_state = model.lstm_lm.lm_default_initial_state(batch_dims=batch_dims_)
     target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
     ended = rf.constant(False, dims=batch_dims_)
@@ -87,7 +87,7 @@ def model_recog(
         .raw_tensor
     )  # [B,T,V+1]
 
-    if model.search_args["mask_eos"]:
+    if model.search_args.get("mask_eos", True):
         ctc_eos = ctc_out[:, :, model.eos_idx].unsqueeze(2)
         ctc_blank = ctc_out[:, :, model.blank_idx].unsqueeze(2)
         ctc_out[:, :, model.blank_idx] = torch.logsumexp(
@@ -95,7 +95,7 @@ def model_recog(
         )
         ctc_out[:, :, model.eos_idx] = -1e30
 
-    if model.search_args["use_ctc"]:
+    if model.search_args.get("use_ctc", False):
         # ctc prefix scorer espnet
         from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.espnet_ctc.ctc_prefix_score_espnet import (
             CTCPrefixScoreTH,
@@ -104,8 +104,7 @@ def model_recog(
         # hlens = max_seq_len.raw_tensor.repeat(beam_size).view(beam_size, data.raw_tensor.shape[0]).transpose(0, 1)
         hlens = max_seq_len.raw_tensor
 
-
-        if model.search_args["prior_corr"]:
+        if model.search_args.get("prior_corr", False):
             ctc_log_prior = numpy.loadtxt(_ctc_prior_filename, dtype="float32")
             ctc_out = ctc_out - (
                 torch.tensor(ctc_log_prior)
@@ -120,7 +119,7 @@ def model_recog(
             hlens,
             10025,
             0,
-            model.search_args["window_margin"],
+            model.search_args.get("window_margin", 0),
             model.search_args["mask_eos"],
         )
         ctc_state = None
@@ -149,20 +148,20 @@ def model_recog(
 
         label_log_prob = label_log_prob * model.search_args["att_scale"]
 
-        if model.search_args["add_lstm_lm"]:
+        if model.search_args.get("add_lstm_lm", False):
             lstm_lm_out, lm_state = model.lstm_lm.loop_step(target, lm_state)
             lstm_log_prob = rf.log_softmax(lstm_lm_out["output"], axis=model.target_dim)
             label_log_prob = (
                 label_log_prob + model.search_args["lstm_scale"] * lstm_log_prob
             )
 
-        if model.search_args["use_ctc"]:
+        if model.search_args.get("use_ctc", False):
             # add ctc espnet
             ctc_prefix_scores, ctc_state = ctc_prefix_scorer(
                 output_length=i,
                 last_ids=target_ctc,
                 state=ctc_state,
-                att_w=att_weights if model.search_args["window_margin"] > 0 else None,
+                att_w=att_weights if model.search_args.get("window_margin", 0) > 0 else None,
             )
 
             if i == 0:
@@ -180,7 +179,7 @@ def model_recog(
                 raw_tensor=ctc_prefix_scores[:, :, :10025],
             )
             label_log_prob = (
-                label_log_prob + model.search_args["ctc_scale"] * ctc_prefix_scores
+                label_log_prob + model.search_args.get("ctc_scale") * ctc_prefix_scores
             )
 
         # Filter out finished beams
