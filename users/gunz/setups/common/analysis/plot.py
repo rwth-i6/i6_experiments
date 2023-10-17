@@ -68,7 +68,7 @@ class PlotPhonemeDurationsJob(Job):
             archives = [a.strip() for a in bundle_file.readlines()]
         yield Task("compute_statistics", args=archives, rqmt={"cpu": 1, "mem": 1, "time": 10 / 60})
         yield Task("plot", rqmt={"cpu": 1, "mem": 8})
-        yield Task("cleanup", rqmt={"cpu": 1, "mem": 0.5, "time": 0.5})
+        yield Task("cleanup", mini_task=True)
 
     def compute_statistics(self, cache_file: str):
         durations = compute_phoneme_durations(cache_file=cache_file, allophones=self.allophones_path.get_path())
@@ -93,13 +93,13 @@ class PlotPhonemeDurationsJob(Job):
         ph_counts = {k: v for k, v in merged_counts.items() if k != self.sil_allophone}
         sil_counts = {k: v for k, v in merged_counts.items() if k == self.sil_allophone}
         to_plot = [
-            (ph_counts, self.out_plot_folder.join_right("phonemes.png")),
-            (sil_counts, self.out_plot_folder.join_right("sil.png")),
+            (ph_counts, self.out_plot_folder.join_right("phonemes.pdf")),
+            (sil_counts, self.out_plot_folder.join_right("sil.pdf")),
         ]
 
         for group, phonemes in self.stat_groups.items():
             joined_stats = {group: [count for ph in phonemes for count in merged_counts[ph]]}
-            to_plot.append((joined_stats, self.out_plot_folder.join_right(f"{group}.png")))
+            to_plot.append((joined_stats, self.out_plot_folder.join_right(f"{group}.pdf")))
 
         for counts, dest in to_plot:
             plt.clf()
@@ -109,7 +109,7 @@ class PlotPhonemeDurationsJob(Job):
             ax.set_xlabel("Phoneme")
             ax.set_ylabel("Duration [s]")
             ax.set_ylim(bottom=0)
-            fig.savefig(dest)
+            fig.savefig(dest, transparent=True)
 
         means = {k: np.mean(v) for k, v in merged_counts.items()}
         self.out_means.set(means)
