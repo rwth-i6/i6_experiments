@@ -17,13 +17,16 @@ def _clone_returnn() -> tk.Path:
 
 @cache
 @tk.block("fullsum")
-def fs():
+def get_ffnn_a():
     from i6_experiments.users.gunz.experiments.config_2023_05_baselines_thesis_tf2 import (
         config_00_monophone_linear_fullsum_10ms,
     )
 
     returnn_root = _clone_returnn()
-    return config_00_monophone_linear_fullsum_10ms.run(returnn_root=returnn_root)
+    configs = config_00_monophone_linear_fullsum_10ms.run(returnn_root=returnn_root)
+
+    sys = next((v for k, v in configs.items() if k.w_init == "glorot_uniform"))
+    return sys.experiments["fh"]["alignment_job"].out_alignment_bundle
 
 
 @tk.block("mono")
@@ -33,18 +36,7 @@ def mono():
     )
 
     returnn_root = _clone_returnn()
-    a_system = next(iter(fs().values()))
-    config_10_monophone.run(
-        returnn_root=returnn_root,
-        # additional_alignments=tuple(
-        #     [
-        #         (
-        #             a_system.experiments["fh"]["alignment_job"].out_alignment_bundle,
-        #             "10ms-FF-v8",
-        #         ),
-        #     ]
-        # ),
-    )
+    config_10_monophone.run(returnn_root=returnn_root, additional_alignments=[(get_ffnn_a(), "10ms-FF-v8")])
 
 
 @tk.block("di")
@@ -54,7 +46,7 @@ def di():
     )
 
     returnn_root = _clone_returnn()
-    config_11_diphone.run(returnn_root=returnn_root)
+    config_11_diphone.run(returnn_root=returnn_root, additional_alignments=[(get_ffnn_a(), "10ms-FF-v8")])
 
 
 @tk.block("di_joint")
@@ -74,7 +66,7 @@ def tri():
     )
 
     returnn_root = _clone_returnn()
-    config_13_triphone.run(returnn_root=returnn_root)
+    config_13_triphone.run(returnn_root=returnn_root, additional_alignments=[(get_ffnn_a(), "10ms-FF-v8")])
 
 
 @tk.block("blstm_mono")

@@ -3,6 +3,7 @@ __all__ = ["run", "run_single"]
 import copy
 import dataclasses
 import math
+import typing
 from dataclasses import dataclass
 import itertools
 
@@ -77,7 +78,7 @@ class Experiment:
     focal_loss: float = CONF_FOCAL_LOSS
 
 
-def run(returnn_root: tk.Path):
+def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.List[typing.Tuple[tk.Path, str]]] = None):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
@@ -121,6 +122,20 @@ def run(returnn_root: tk.Path):
             run_performance_study=True,
             tune_decoding=False,
         ),
+        *(
+            Experiment(
+                alignment=a,
+                alignment_name=a_name,
+                batch_size=12500,
+                dc_detection=False,
+                decode_all_corpora=False,
+                lr="v13",
+                n_states_per_phone=3,
+                run_performance_study=False,
+                tune_decoding=True,
+            )
+            for a, a_name in (additional_alignments or [])
+        )
         # Experiment(
         #     alignment=scratch_align_daniel,
         #     alignment_name="scratch_daniel",
