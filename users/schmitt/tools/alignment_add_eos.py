@@ -37,16 +37,12 @@ def dump(hdf_dataset_in, hdf_dataset_out, blank_idx, eos_idx):
   keep_tags = []
   excluded_tags = []
 
-  print("hdf num seqs: ", hdf_dataset_in.num_seqs)
-
   while hdf_dataset_in.is_less_than_num_seqs(seq_idx) and seq_idx <= float("inf"):
     hdf_dataset_in.load_seqs(seq_idx, seq_idx + 1)
     data = hdf_dataset_in.get_data(seq_idx, "data")
 
     if seq_idx % 1000 == 0:
       print("\n\n" + str(seq_idx) + "\n\n")
-
-    print("DATA: ", data)
 
     if data[-1] != blank_idx:
       num_last_frame_label += 1
@@ -69,9 +65,6 @@ def dump(hdf_dataset_in, hdf_dataset_out, blank_idx, eos_idx):
       data[-1] = eos_idx
 
     keep_tags.append(hdf_dataset_in.get_tag(seq_idx))
-    print("NEW DATA: ", data)
-    print("\n")
-    #
     seq_len = hdf_dataset_in.get_seq_length(seq_idx)["data"]
     tag = hdf_dataset_in.get_tag(seq_idx)
 
