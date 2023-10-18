@@ -42,6 +42,7 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from ..config_2023_05_baselines_thesis_tf2.config import SCRATCH_ALIGNMENT
+from ..config_2023_05_baselines_thesis_tf2 import config_00_monophone_linear_fullsum_10ms
 from .config import (
     CONF_CHUNKING_10MS,
     CONF_FH_DECODING_TENSOR_CONFIG,
@@ -89,10 +90,13 @@ def run(returnn_root: tk.Path):
 
     alignment = tk.Path(SCRATCH_ALIGNMENT, cached=True)
 
+    ffnn_sys = next(v for v in config_00_monophone_linear_fullsum_10ms.run(returnn_root).values())
+    ffnn_a = ffnn_sys.experiments["fh"]["alignment_job"].out_alignment_bundle
+
     configs = [
         Experiment(
-            alignment=alignment,
-            alignment_name="10ms-B",
+            alignment=a,
+            alignment_name=a_name,
             batch_size=12500,
             chunking=CONF_CHUNKING_10MS,
             dc_detection=False,
@@ -104,6 +108,7 @@ def run(returnn_root: tk.Path):
             tune_decoding=True,
             run_tdp_study=False,
         )
+        for a, a_name in [(alignment, "10ms-B"), (ffnn_a, "10ms-FF")]
     ]
     for exp in configs:
         run_single(
