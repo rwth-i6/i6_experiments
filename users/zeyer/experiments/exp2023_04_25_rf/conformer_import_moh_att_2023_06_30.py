@@ -92,9 +92,12 @@ config = dict(
     accum_grad_multiple_step=2,
     # gradient_clip=0,
     # gradient_clip_global_norm = 1.0
-    # TODO adamw, use weight decay
-    #   (check Nadam: https://github.com/rwth-i6/returnn/issues/1440)
-    optimizer={"class": "nadam", "epsilon": 1e-8},
+    # TODO check Nadam: https://github.com/rwth-i6/returnn/issues/1440
+    optimizer={
+        "class": "adamw",
+        "epsilon": 1e-8,
+        "weight_decay": 0.000001,
+    },
     # gradient_noise=0.0,
     learning_rate=0.0005,
     learning_rates=(
