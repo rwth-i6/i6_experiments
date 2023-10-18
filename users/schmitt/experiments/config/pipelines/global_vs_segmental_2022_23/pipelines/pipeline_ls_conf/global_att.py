@@ -128,10 +128,10 @@ def glob_att_import_global_concat_recog(
 
 
 def center_window_att_import_global_do_label_sync_search(
-        win_size_list: Tuple[int] = (2, 4, 8, 16, 32, 64, 128),
-        n_epochs_list: Tuple[int] = (10, 100),
-        weight_feedback_list: Tuple[bool] = (True, False),
-        const_lr_list: Tuple[float] = (1e-4,),
+        win_size_list: Tuple[int, ...] = (2, 4, 8, 16, 32, 64, 128),
+        n_epochs_list: Tuple[int, ...] = (10, 100),
+        weight_feedback_list: Tuple[bool, ...] = (True, False),
+        const_lr_list: Tuple[float, ...] = (1e-4,),
 ):
   for win_size in win_size_list:
     for weight_feedback in weight_feedback_list:
