@@ -288,15 +288,22 @@ class AlignmentCenterSegBoundaryJob(Job):
     shutil.move("out_alignment", self.out_align.get_path())
 
 
-class AlignmentAddEOSJob(Job):
-  def __init__(self, hdf_align_path, segment_file, blank_idx, eos_idx,
-               returnn_python_exe=None, returnn_root=None):
+class AlignmentAddEosJob(Job):
+  def __init__(
+          self,
+          hdf_align_path: Path,
+          segment_file: Path,
+          blank_idx: int,
+          eos_idx: int,
+          returnn_python_exe: Path,
+          returnn_root: Path,
+  ):
+    self.returnn_root = returnn_root
+    self.returnn_python_exe = returnn_python_exe
     self.blank_idx = blank_idx
     self.eos_idx = eos_idx
     self.hdf_align_path = hdf_align_path
     self.segment_file = segment_file
-    self.returnn_python_exe = (returnn_python_exe if returnn_python_exe is not None else gs.RETURNN_PYTHON_EXE)
-    self.returnn_root = (returnn_root if returnn_root is not None else gs.RETURNN_ROOT)
 
     self.out_align = self.output_path("out_align")
     self.out_keep_seqs = self.output_path("out_keep_seqs")
@@ -307,13 +314,13 @@ class AlignmentAddEOSJob(Job):
 
   def run(self):
     command = [
-      self.returnn_python_exe,
+      self.returnn_python_exe.get_path(),
       os.path.join(tools_dir, "alignment_add_eos.py"),
       self.hdf_align_path.get_path(),
-      "--segment_file", tk.uncached_path(self.segment_file),
+      "--segment_file", self.segment_file.get_path(),
       "--blank_idx", str(self.blank_idx),
       "--eos_idx", str(self.eos_idx),
-      "--returnn_root", self.returnn_root
+      "--returnn_root", self.returnn_root.get_path()
     ]
 
     create_executable("rnn.sh", command)
