@@ -644,7 +644,7 @@ def run_single(
                 tf_fwd_input_name="tf-fwd-input",
             )
 
-            a_name = f"{name}-pC{p_c}-silE{sil_e}-tdp{tdp_scale}"
+            a_name = f"{name}-nnpch-pC{p_c}-silE{sil_e}-tdp{tdp_scale}"
             recognizer, _ = s.get_recognizer_and_args(
                 key="fh",
                 context_type=PhoneticContext.diphone,
