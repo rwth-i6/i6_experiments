@@ -795,107 +795,108 @@ def run_single(
             s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
             s._update_crp_am_setting("train-other-960.train", tdp_type="default", add_base_allophones=False)
 
-            crp = copy.deepcopy(s.crp["train-other-960.train"])
-            crp.acoustic_model_config.allophones.add_all = False
-            crp.acoustic_model_config.allophones.add_from_lexicon = True
-            crp.acoustic_model_config.state_tying.type = "diphone-dense"
-            crp.acoustic_model_config.tdp.applicator_type = "corrected"
-            crp.acoustic_model_config.tdp.scale = 1.0
+            for sil_e in [0.0, 3.0]:
+                crp = copy.deepcopy(s.crp["train-other-960.train"])
+                crp.acoustic_model_config.allophones.add_all = False
+                crp.acoustic_model_config.allophones.add_from_lexicon = True
+                crp.acoustic_model_config.state_tying.type = "diphone-dense"
+                crp.acoustic_model_config.tdp.applicator_type = "corrected"
+                crp.acoustic_model_config.tdp.scale = 1.0
 
-            v = (3.0, 0.0, "infinity", 0.0)
-            sv = (0.0, 3.0, "infinity", 0.0)
-            keys = ["loop", "forward", "skip", "exit"]
-            for i, k in enumerate(keys):
-                crp.acoustic_model_config.tdp["*"][k] = v[i]
-                crp.acoustic_model_config.tdp["silence"][k] = sv[i]
+                v = (3.0, 0.0, "infinity", 0.0)
+                sv = (0.0, 3.0, "infinity", sil_e)
+                keys = ["loop", "forward", "skip", "exit"]
+                for i, k in enumerate(keys):
+                    crp.acoustic_model_config.tdp["*"][k] = v[i]
+                    crp.acoustic_model_config.tdp["silence"][k] = sv[i]
 
-            crp.concurrent = 300
-            crp.segment_path = corpus.SegmentCorpusJob(
-                s.corpora[s.train_key].corpus_file, crp.concurrent
-            ).out_segment_path
+                crp.concurrent = 300
+                crp.segment_path = corpus.SegmentCorpusJob(
+                    s.corpora[s.train_key].corpus_file, crp.concurrent
+                ).out_segment_path
 
-            p_mixtures = mm.CreateDummyMixturesJob(
-                s.label_info.get_n_of_dense_classes(), s.initial_nn_args["num_input"]
-            )
-            priors = s.experiments["fh-fs"]["priors"].center_state_prior
-            p_c = 0.6
-            feature_scorer = PrecomputedHybridFeatureScorer(
-                prior_mixtures=p_mixtures.out_mixtures,
-                prior_file=priors.file,
-                priori_scale=p_c,
-            )
-            tf_flow = make_precomputed_hybrid_tf_feature_flow(
-                tf_graph=s.experiments["fh-fs"]["graph"]["inference"],
-                tf_checkpoint=s.experiments["fh-fs"]["train_job"].out_checkpoints[fine_tune_epochs],
-                output_layer_name="output",
-                tf_fwd_input_name="tf-fwd-input",
-            )
-            feature_flow = add_tf_flow_to_base_flow(
-                base_flow=s.feature_flows["train-other-960.train"],
-                tf_flow=tf_flow,
-                tf_fwd_input_name="tf-fwd-input",
-            )
+                p_mixtures = mm.CreateDummyMixturesJob(
+                    s.label_info.get_n_of_dense_classes(), s.initial_nn_args["num_input"]
+                )
+                priors = s.experiments["fh-fs"]["priors"].center_state_prior
+                p_c = 0.6
+                feature_scorer = PrecomputedHybridFeatureScorer(
+                    prior_mixtures=p_mixtures.out_mixtures,
+                    prior_file=priors.file,
+                    priori_scale=p_c,
+                )
+                tf_flow = make_precomputed_hybrid_tf_feature_flow(
+                    tf_graph=s.experiments["fh-fs"]["graph"]["inference"],
+                    tf_checkpoint=s.experiments["fh-fs"]["train_job"].out_checkpoints[fine_tune_epochs],
+                    output_layer_name="output",
+                    tf_fwd_input_name="tf-fwd-input",
+                )
+                feature_flow = add_tf_flow_to_base_flow(
+                    base_flow=s.feature_flows["train-other-960.train"],
+                    tf_flow=tf_flow,
+                    tf_fwd_input_name="tf-fwd-input",
+                )
 
-            a_name = f"{ft_name}-pC{p_c}-tdp{1.0}"
-            recognizer, _ = s.get_recognizer_and_args(
-                key="fh-fs",
-                context_type=PhoneticContext.diphone,
-                crp_corpus="train-other-960.train",
-                epoch=fine_tune_epochs,
-                gpu=False,
-                tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-                set_batch_major_for_feature_scorer=True,
-                lm_gc_simple_hash=True,
-            )
-            a_job = recognizer.align(
-                a_name,
-                crp=crp,
-                feature_scorer=feature_scorer,
-                feature_flow=feature_flow,
-                default_tdp=False,
-                set_do_not_normalize_lemma_sequence_scores=False,
-                set_no_tying_dense=False,
-                rtf=2,
-            )
+                a_name = f"{ft_name}-pC{p_c}-silE{sil_e}-tdp{1.0}"
+                recognizer, _ = s.get_recognizer_and_args(
+                    key="fh-fs",
+                    context_type=PhoneticContext.diphone,
+                    crp_corpus="train-other-960.train",
+                    epoch=fine_tune_epochs,
+                    gpu=False,
+                    tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+                    set_batch_major_for_feature_scorer=True,
+                    lm_gc_simple_hash=True,
+                )
+                a_job = recognizer.align(
+                    a_name,
+                    crp=crp,
+                    feature_scorer=feature_scorer,
+                    feature_flow=feature_flow,
+                    default_tdp=False,
+                    set_do_not_normalize_lemma_sequence_scores=False,
+                    set_no_tying_dense=False,
+                    rtf=2,
+                )
 
-            output_time_step = 40 / 1000
+                output_time_step = 40 / 1000
 
-            allophones = lexicon.StoreAllophonesJob(crp)
-            tk.register_output(f"allophones/{a_name}/allophones", allophones.out_allophone_file)
+                allophones = lexicon.StoreAllophonesJob(crp)
+                tk.register_output(f"allophones/{a_name}/allophones", allophones.out_allophone_file)
 
-            plots = PlotViterbiAlignmentsJob(
-                alignment_bundle_path=a_job.out_alignment_bundle,
-                allophones_path=allophones.out_allophone_file,
-                segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
-                show_labels=False,
-                monophone=True,
-            )
-            tk.register_output(f"alignments/{a_name}/alignment-plots", plots.out_plot_folder)
+                plots = PlotViterbiAlignmentsJob(
+                    alignment_bundle_path=a_job.out_alignment_bundle,
+                    allophones_path=allophones.out_allophone_file,
+                    segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
+                    show_labels=False,
+                    monophone=True,
+                )
+                tk.register_output(f"alignments/{a_name}/alignment-plots", plots.out_plot_folder)
 
-            tse_job = ComputeTimestampErrorJob(
-                allophones=allophones.out_allophone_file,
-                alignment=a_job.out_alignment_bundle,
-                t_step=output_time_step,
-                reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
-                reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
-                reference_t_step=10 / 1000,
-            )
-            tse_job.add_alias(f"tse/{a_name}")
-            tk.register_output(f"alignments/{a_name}/statistics/tse", tse_job.out_tse)
+                tse_job = ComputeTimestampErrorJob(
+                    allophones=allophones.out_allophone_file,
+                    alignment=a_job.out_alignment_bundle,
+                    t_step=output_time_step,
+                    reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+                    reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
+                    reference_t_step=10 / 1000,
+                )
+                tse_job.add_alias(f"tse/{a_name}")
+                tk.register_output(f"alignments/{a_name}/statistics/tse", tse_job.out_tse)
 
-            tse_w_job = ComputeWordLevelTimestampErrorJob(
-                allophones=allophones.out_allophone_file,
-                alignment=a_job.out_alignment_bundle,
-                t_step=output_time_step,
-                reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
-                reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
-                reference_t_step=10 / 1000,
-            )
-            tse_w_job.add_alias(f"tse-w/{a_name}/tse")
-            tk.register_output(f"alignments/{a_name}/statistics/tse-w", tse_w_job.out_tse)
+                tse_w_job = ComputeWordLevelTimestampErrorJob(
+                    allophones=allophones.out_allophone_file,
+                    alignment=a_job.out_alignment_bundle,
+                    t_step=output_time_step,
+                    reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+                    reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
+                    reference_t_step=10 / 1000,
+                )
+                tse_w_job.add_alias(f"tse-w/{a_name}/tse")
+                tk.register_output(f"alignments/{a_name}/statistics/tse-w", tse_w_job.out_tse)
 
-            tse_w_job = ComputeSilencePercentageJob(a_job.out_alignment_bundle, allophones.out_allophone_file)
-            tk.register_output(f"alignments/{a_name}/statistics/sil", tse_w_job.out_percent_sil)
+                tse_w_job = ComputeSilencePercentageJob(a_job.out_alignment_bundle, allophones.out_allophone_file)
+                tk.register_output(f"alignments/{a_name}/statistics/sil", tse_w_job.out_percent_sil)
 
             s.experiments["fh-fs"]["alignment_job"] = a_job
 
