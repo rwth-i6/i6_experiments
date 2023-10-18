@@ -167,60 +167,6 @@ class MakeModel:
         )
 
 
-def log_mel_filterbank_from_raw(
-    raw_audio: Tensor,
-    *,
-    in_spatial_dim: Dim,
-    out_dim: Dim,
-    sampling_rate: int = 16_000,
-    window_len: float = 0.025,
-    step_len: float = 0.010,
-    n_fft: Optional[int] = None,
-    log_base: Union[int, float] = 10,
-) -> Tuple[Tensor, Dim]:
-    """
-    log mel filterbank features
-
-    :param raw_audio: (..., in_spatial_dim, ...). if it has a feature_dim with dimension 1, it is squeezed away.
-    :param in_spatial_dim:
-    :param out_dim: nr of mel filters.
-    :param sampling_rate: samples per second
-    :param window_len: in seconds
-    :param step_len: in seconds
-    :param n_fft: fft_size, n_fft. Should match fft_length from :func:`stft`.
-        If not provided, next power-of-two from window_num_frames.
-    :param log_base: e.g. 10 or math.e
-    """
-    from returnn.util import math as util_math
-    import torch
-
-    if raw_audio.feature_dim and raw_audio.feature_dim.dimension == 1:
-        raw_audio = rf.squeeze(raw_audio, axis=raw_audio.feature_dim)
-    window_num_frames = int(window_len * sampling_rate)
-    step_num_frames = int(step_len * sampling_rate)
-    if not n_fft:
-        n_fft = util_math.next_power_of_two(window_num_frames)
-    spectrogram, out_spatial_dim, in_dim_ = rf.stft(
-        raw_audio,
-        in_spatial_dim=in_spatial_dim,
-        frame_step=step_num_frames,
-        frame_length=window_num_frames,
-        fft_length=n_fft,
-    )
-    if anomaly_checks:
-        assert spectrogram.raw_tensor.isfinite().all(), "spectrogram is not finite"
-    power_spectrogram = rf.abs(spectrogram) ** 2.0
-    mel_fbank = rf.audio.mel_filterbank(power_spectrogram, in_dim=in_dim_, out_dim=out_dim, sampling_rate=sampling_rate)
-    if anomaly_checks:
-        assert mel_fbank.raw_tensor.isfinite().all(), "mel_fbank is not finite"
-    log_mel_fbank = rf.safe_log(mel_fbank)
-    if anomaly_checks:
-        assert log_mel_fbank.raw_tensor.isfinite().all(), "log_mel_fbank is not finite"
-    if log_base != math.e:
-        log_mel_fbank = log_mel_fbank * (1.0 / math.log(log_base))
-    return log_mel_fbank, out_spatial_dim
-
-
 class Model(rf.Module):
     """Model definition"""
 
@@ -324,18 +270,14 @@ class Model(rf.Module):
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[Dict[str, Tensor], Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
-        if anomaly_checks:
-            assert source.raw_tensor.isfinite().all(), "source is not finite"
         # log mel filterbank features
-        source, in_spatial_dim = log_mel_filterbank_from_raw(
+        source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
             source,
             in_spatial_dim=in_spatial_dim,
             out_dim=self.in_dim,
             sampling_rate=16_000,
             log_base=math.exp(2.3026),  # almost 10.0 but not exactly...
         )
-        if anomaly_checks:
-            assert source.raw_tensor.isfinite().all(), "log mel features are not finite"
         # SpecAugment
         source = rf.audio.specaugment(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)
         # Encoder including convolutional frontend
@@ -476,17 +418,12 @@ def from_scratch_training(
 
     collected_outputs = {}
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
-    if anomaly_checks:
-        for k, v in collected_outputs.items():
-            assert v.raw_tensor.isfinite().all(), f"encoder output {k} is not finite"
     if aux_loss_layers:
         for i in aux_loss_layers:
             if i > len(model.encoder.layers):
                 continue
             linear = getattr(model, f"enc_aux_logits_{i}")
             aux_logits = linear(collected_outputs[str(i - 1)])
-            if anomaly_checks:
-                assert aux_logits.raw_tensor.isfinite().all(), f"aux CTC logits {i} are not finite"
             aux_loss = rf.ctc_loss(
                 logits=aux_logits,
                 targets=targets,
@@ -521,8 +458,6 @@ def from_scratch_training(
     )
 
     logits = model.decode_logits(input_embed=input_embeddings, **loop_out)
-    if anomaly_checks:
-        assert logits.raw_tensor.isfinite().all(), "logits are not finite"
     logits_packed, pack_dim = rf.pack_padded(logits, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False)
     targets_packed, _ = rf.pack_padded(
         targets, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim
@@ -533,8 +468,6 @@ def from_scratch_training(
     loss = rf.cross_entropy(
         target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
     )
-    if anomaly_checks:
-        assert loss.raw_tensor.isfinite().all(), "CE is not finite"
     loss.mark_as_loss("ce")
 
     best = rf.reduce_argmax(logits_packed, axis=model.target_dim)
