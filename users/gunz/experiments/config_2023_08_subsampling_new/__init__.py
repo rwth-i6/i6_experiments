@@ -412,7 +412,7 @@ def the_plan():
     )
     for a, a_name in [
         (phmm_40ms_ffnn_a, "40ms-FF-v8"),
-        (realign_sys.experiments["fh-fs"]["alignment_job"].out_alignment_bundle, "40ms-FA-Conf"),
+        (realign_sys.experiments["fh-fs"]["alignment_job"].out_alignment_bundle, "40ms-FA-conf"),
     ]:
         config_22b_triphone_multi_mpc1x4_40ms.run(
             returnn_root=returnn_root, alignment=a, a_name=a_name, init_from_system=realign_sys
