@@ -635,7 +635,7 @@ def run_single(
             tf_flow = make_precomputed_hybrid_tf_feature_flow(
                 tf_graph=s.experiments["fh"]["graph"]["inference"],
                 tf_checkpoint=viterbi_train_j.out_checkpoints[max(keep_epochs)],
-                output_layer_name="output",
+                output_layer_name="center__output",
                 tf_fwd_input_name="tf-fwd-input",
             )
             feature_flow = add_tf_flow_to_base_flow(
