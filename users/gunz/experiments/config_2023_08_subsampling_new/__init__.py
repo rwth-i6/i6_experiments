@@ -566,13 +566,13 @@ def quant_data_util():
 
     alignments_30ms = [
         (alignment_exps.phmm_30ms[1].experiments["fh"]["alignment_job"].out_alignment_bundle, "30ms-FFall-v8"),
-        (alignment_exps.phmms_30ms[1].experiments["fh"]["alignment_job"].out_alignment_bundle, "30ms-FFsall-v8"),
+        # (alignment_exps.phmms_30ms[1].experiments["fh"]["alignment_job"].out_alignment_bundle, "30ms-FFsall-v8"),
     ]
     config_11_diphone_mpc1x3_30ms.run(returnn_root=returnn_root, alignments=alignments_30ms)
 
     alignments_40ms = [
         (alignment_exps.phmm_40ms[1].experiments["fh"]["alignment_job"].out_alignment_bundle, "40ms-FFall-v8"),
-        (alignment_exps.phmms_40ms[1].experiments["fh"]["alignment_job"].out_alignment_bundle, "40ms-FFsall-v8"),
+        # (alignment_exps.phmms_40ms[1].experiments["fh"]["alignment_job"].out_alignment_bundle, "40ms-FFsall-v8"),
     ]
     for a, a_name in alignments_40ms:
         config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=a, a_name=a_name)
