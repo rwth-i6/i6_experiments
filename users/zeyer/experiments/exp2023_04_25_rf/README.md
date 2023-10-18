@@ -2,7 +2,8 @@
 * Training speedup (https://github.com/rwth-i6/returnn/issues/1402).
   Mostly done now, we get almost same speed as TF?
   (CTC still missing)
-* [Check older experiments on Conformer](../exp2022_07_21_transducer/exp_fs_base/README.md)
+* [Check older experiments on Conformer](../exp2022_07_21_transducer/exp_fs_base/README.md),
+  example: conformer_ln_pre10_d384_h6_blstmf2_fix245_wdro_specaugweia_attdrop01_posdrop01_aux48ff_mhsapinit05_lsxx01
 
 TODO:
 
