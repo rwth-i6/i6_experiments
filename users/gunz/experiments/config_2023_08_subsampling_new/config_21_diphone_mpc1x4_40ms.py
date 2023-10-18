@@ -167,7 +167,8 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             lr=exp.lr,
             run_tdp_study=exp.run_tdp_study,
             tune_nn_pch=exp.tune_nn_pch,
-        ) for exp in configs
+        )
+        for exp in configs
     }
 
     return exps
@@ -615,7 +616,12 @@ def run_single(
 
         if alignment_name == "40ms-FFs-v8":
             configs = [
-                (lr, True, baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=t))
+                (
+                    lr,
+                    True,
+                    False,
+                    baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=t),
+                )
                 for lr in [8e-5, 1e-4]
                 for t in [0.0, 0.3]
             ]
@@ -625,19 +631,28 @@ def run_single(
                 for p, t in itertools.product([0.3, 1.0], [0.0, 0.3])
             ]
             configs = [
-                *((5e-5, False, scales) for scales in bw_scales),
+                *((5e-5, False, False, scales) for scales in bw_scales),
                 *(
                     (
                         lr,
+                        False,
                         False,
                         baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3),
                     )
                     for lr in [1e-5, 2e-5, 3e-5, 1e-4, 8e-5]
                 ),
+                (
+                    8e-5,
+                    False,
+                    True,
+                    baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3),
+                ),
             ]
 
-        for peak_lr, adapt_transition_model, bw_scale in configs:
+        for peak_lr, adapt_transition_model, more_l2, bw_scale in configs:
             ft_name = f"{orig_name}-fs:{peak_lr}-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
+            if more_l2:
+                ft_name += "-l2"
             s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=ft_name)
 
             s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
@@ -675,6 +690,10 @@ def run_single(
                 returnn_config=returnn_config_ft,
                 log_linear_scales=bw_scale,
             )
+            if more_l2:
+                for layer in returnn_config_ft.config["network"].values():
+                    if layer.get("class", "").lower() in ["conv", "linear", "softmax"]:
+                        layer["L2"] = L2
             lrates = oclr.get_learning_rates(
                 lrate=peak_lr,
                 increase=0,
