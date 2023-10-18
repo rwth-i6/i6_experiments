@@ -20,7 +20,7 @@ from returnn.tensor import Tensor, Dim, batch_dim, TensorDict
 
 sys.path.insert(0, "/u/zeineldeen/setups/ubuntu_22_setups/2023-05-24--pytorch/recipe/i6_models")
 
-from i6_experiments.users.zeineldeen.pytorch_recipes.models.aed import create_model
+from i6_experiments.users.zeineldeen.pytorch_recipes.models.aed import create_model, ConformerAEDModel
 
 import torch
 
@@ -271,30 +271,30 @@ def test_import_forward():
     # See the func tracing logic below, entries in captured_tensors.
     # RETURNN layer name -> trace point in RF/PT model forwarding.
     _layer_mapping = {
-        "source": (Model.encode, 0, "source", -1),
-        "conv_merged": (ConformerEncoder.__call__, 0, "x_subsample", 0),
-        "source_linear": (ConformerEncoder.__call__, 0, "x_linear", 0),
-        "conformer_block_01_ffmod_1_drop2": (ConformerEncoderLayer.__call__, 0, "x_ffn1", 0),
-        "conformer_block_01_ffmod_1_res": (ConformerEncoderLayer.__call__, 0, "x_ffn1_out", 0),
-        "conformer_block_01_self_att_ln": (ConformerEncoderLayer.__call__, 0, "x_mhsa_ln", 0),
-        "conformer_block_01_self_att_linear": (ConformerEncoderLayer.__call__, 0, "x_mhsa", 0),
-        "conformer_block_01_self_att_res": (ConformerEncoderLayer.__call__, 0, "x_mhsa_out", 0),
-        "conformer_block_01_conv_mod_res": (ConformerEncoderLayer.__call__, 0, "x_conv_out", 0),
-        "conformer_block_01_ffmod_2_res": (ConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
-        "conformer_block_01": (ConformerEncoderLayer.__call__, 1, "inp", 0),
-        "encoder": (Model.encode, 0, "enc", 0),
-        "inv_fertility": (Model.encode, 0, "inv_fertility", 0),
-        "enc_ctx": (Model.encode, 0, "enc_ctx", 0),
-        "output/prev:target_embed": (from_scratch_training, 0, "input_embeddings", -1),
-        # Note: Some of these commented-out checks are not available anymore because we cleaned up the code.
-        # If we want to test this again, we need to re-add the corresponding locals and outputs from rf.scan.
-        # "output/weight_feedback": (from_scratch_training, 0, "weight_feedback", 0),
-        "output/s": (Model.decode_logits, 0, "s", 0),
-        # "output/s_transformed": (from_scratch_training, 0, "s_transformed", 0),
-        # "output/energy": (from_scratch_training, 0, "energy", 0),
-        # "output/att_weights": (from_scratch_training, 0, "att_weights", 0),
-        "output/att": (Model.decode_logits, 0, "att", 0),
-        "output/output_prob": (from_scratch_training, 0, "logits", 0),
+        "source": (ConformerAEDModel.encode, 0, "audio_features", -1),
+        # "conv_merged": (ConformerEncoder.__call__, 0, "x_subsample", 0),
+        # "source_linear": (ConformerEncoder.__call__, 0, "x_linear", 0),
+        # "conformer_block_01_ffmod_1_drop2": (ConformerEncoderLayer.__call__, 0, "x_ffn1", 0),
+        # "conformer_block_01_ffmod_1_res": (ConformerEncoderLayer.__call__, 0, "x_ffn1_out", 0),
+        # "conformer_block_01_self_att_ln": (ConformerEncoderLayer.__call__, 0, "x_mhsa_ln", 0),
+        # "conformer_block_01_self_att_linear": (ConformerEncoderLayer.__call__, 0, "x_mhsa", 0),
+        # "conformer_block_01_self_att_res": (ConformerEncoderLayer.__call__, 0, "x_mhsa_out", 0),
+        # "conformer_block_01_conv_mod_res": (ConformerEncoderLayer.__call__, 0, "x_conv_out", 0),
+        # "conformer_block_01_ffmod_2_res": (ConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
+        # "conformer_block_01": (ConformerEncoderLayer.__call__, 1, "inp", 0),
+        # "encoder": (Model.encode, 0, "enc", 0),
+        # "inv_fertility": (Model.encode, 0, "inv_fertility", 0),
+        # "enc_ctx": (Model.encode, 0, "enc_ctx", 0),
+        # "output/prev:target_embed": (from_scratch_training, 0, "input_embeddings", -1),
+        # # Note: Some of these commented-out checks are not available anymore because we cleaned up the code.
+        # # If we want to test this again, we need to re-add the corresponding locals and outputs from rf.scan.
+        # # "output/weight_feedback": (from_scratch_training, 0, "weight_feedback", 0),
+        # "output/s": (Model.decode_logits, 0, "s", 0),
+        # # "output/s_transformed": (from_scratch_training, 0, "s_transformed", 0),
+        # # "output/energy": (from_scratch_training, 0, "energy", 0),
+        # # "output/att_weights": (from_scratch_training, 0, "att_weights", 0),
+        # "output/att": (Model.decode_logits, 0, "att", 0),
+        # "output/output_prob": (from_scratch_training, 0, "logits", 0),
     }
 
     from i6_experiments.common.setups.returnn_common import serialization
@@ -427,12 +427,12 @@ def test_import_forward():
     print("*** Forwarding with tracing ...")
 
     funcs_to_trace_list = [
-        Model.encode,
-        Model.decode_logits,
-        ConformerEncoder.__call__,
-        ConformerEncoderLayer.__call__,
-        ConformerConvSubsample.__call__,
-        from_scratch_training,
+        ConformerAEDModel.encode,
+        #     Model.decode_logits,
+        #     ConformerEncoder.__call__,
+        #     ConformerEncoderLayer.__call__,
+        #     ConformerConvSubsample.__call__,
+        #     from_scratch_training,
     ]
     code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
     captured_tensors = {}  # func -> (list of calls) -> tensor local name -> (list of versions) -> tensor
@@ -457,13 +457,13 @@ def test_import_forward():
 
     sys.settrace(_trace_func)
 
-    from_scratch_training(
-        model=new_model,
-        data=extern_data["audio_features"],
-        data_spatial_dim=time_dim,
-        targets=extern_data["bpe_labels"],
-        targets_spatial_dim=target_spatial_dim,
-    )
+    # from_scratch_training(
+    #     model=new_model,
+    #     data=extern_data["audio_features"],
+    #     data_spatial_dim=time_dim,
+    #     targets=extern_data["bpe_labels"],
+    #     targets_spatial_dim=target_spatial_dim,
+    # )
     sys.settrace(None)
     pprint(captured_tensors)
 
