@@ -72,10 +72,15 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
     if "output_log_prob" not in returnn_config.config["network"]["label_model"]["unit"]:
       returnn_config.config["network"]["label_model"]["unit"]["output_log_prob"] = network_builder.get_output_log_prob(output_prob_layer_name="output_prob")
 
+    if "att_weight_penalty" in returnn_config.config["network"]["label_model"]["unit"]:
+      output_log_prob_layer_name = "output_log_prob0"
+    else:
+      output_log_prob_layer_name = "output_log_prob"
+
     returnn_config.config["network"]["label_model"]["unit"].update({
       "gather_output_log_prob": {
         "class": "gather",
-        "from": "output_log_prob",
+        "from": output_log_prob_layer_name,
         "axis": "f",
         "position": "base:data:label_ground_truth",
         "is_output_layer": True
@@ -114,6 +119,18 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
         "is_output_layer": True,
       },
     })
+
+    if "att_weight_penalty_scores" in hdf_filenames:
+      assert "att_weight_penalty" in returnn_config.config["network"]["label_model"]["unit"]
+      returnn_config.config["network"]["label_model"]["unit"]["att_weight_penalty"]["is_output_layer"] = True
+      returnn_config.config["network"].update({
+        "att_weight_penalty_scores_dump": {
+          "class": "hdf_dump",
+          "filename": hdf_filenames["att_weight_penalty_scores"],
+          "from": "label_model/att_weight_penalty",
+          "is_output_layer": True,
+        },
+      })
 
     returnn_config.config["forward_batch_size"] = CodeWrapper("batch_size")
 

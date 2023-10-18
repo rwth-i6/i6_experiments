@@ -45,6 +45,9 @@ def calc_search_errors(
     dump_scores_opts_ground_truth["use_train_net"] = True
     dump_scores_opts_search["use_train_net"] = True
     hdf_filenames["length_model_log_scores"] = "length_model_log_scores.hdf"
+    if config_builder.variant_params["network"].get("att_weight_recog_penalty_opts"):
+      # in this case, we also want to dump the att weight penalty scores
+      hdf_filenames["att_weight_penalty_scores"] = "att_weight_penalty_scores.hdf"
 
   dump_scores_opts_ground_truth["hdf_filenames"] = hdf_filenames
   dump_scores_opts_search["hdf_filenames"] = hdf_filenames
@@ -81,14 +84,38 @@ def calc_search_errors(
   else:
     blank_idx = None
 
+  label_sync_scores_ground_truth_hdf = {
+    "label_model": forward_jobs["ground_truth"].out_hdf_files["label_model_log_scores.hdf"]
+  }
+  att_weight_penalty_scores_ground_truth_hdf = forward_jobs["ground_truth"].out_hdf_files.get(hdf_filenames.get("att_weight_penalty_scores"))
+  if att_weight_penalty_scores_ground_truth_hdf:
+    label_sync_scores_ground_truth_hdf["att_weight_penalty"] = att_weight_penalty_scores_ground_truth_hdf
+
+  frame_sync_scores_ground_truth_hdf = {}
+  length_model_scores_ground_truth_hdf = forward_jobs["ground_truth"].out_hdf_files.get(hdf_filenames.get("length_model_log_scores"))
+  if length_model_scores_ground_truth_hdf:
+    frame_sync_scores_ground_truth_hdf["length_model"] = length_model_scores_ground_truth_hdf
+
+  label_sync_scores_search_hdf = {
+    "label_model": forward_jobs["search"].out_hdf_files["label_model_log_scores.hdf"]
+  }
+  att_weight_penalty_scores_search_hdf = forward_jobs["search"].out_hdf_files.get(
+    hdf_filenames.get("att_weight_penalty_scores"))
+  if att_weight_penalty_scores_search_hdf:
+    label_sync_scores_search_hdf["att_weight_penalty"] = att_weight_penalty_scores_search_hdf
+
+  frame_sync_scores_search_hdf = {}
+  length_model_scores_search_hdf = forward_jobs["search"].out_hdf_files.get(
+    hdf_filenames.get("length_model_log_scores"))
+  if length_model_scores_search_hdf:
+    frame_sync_scores_search_hdf["length_model"] = length_model_scores_search_hdf
+
   calc_search_error_job = CalcSearchErrorJobV2(
-    label_model_scores_ground_truth_hdf=forward_jobs["ground_truth"].out_hdf_files["label_model_log_scores.hdf"],
-    length_model_scores_ground_truth_hdf=forward_jobs["ground_truth"].out_hdf_files.get(
-      hdf_filenames.get("length_model_log_scores")),
+    label_sync_scores_ground_truth_hdf=label_sync_scores_ground_truth_hdf,
+    frame_sync_scores_ground_truth_hdf=frame_sync_scores_ground_truth_hdf,
     targets_ground_truth_hdf=forward_jobs["ground_truth"].out_hdf_files["targets.hdf"],
-    label_model_scores_search_hdf=forward_jobs["search"].out_hdf_files["label_model_log_scores.hdf"],
-    length_model_scores_search_hdf=forward_jobs["search"].out_hdf_files.get(
-      hdf_filenames.get("length_model_log_scores")),
+    label_sync_scores_search_hdf=label_sync_scores_search_hdf,
+    frame_sync_scores_search_hdf=frame_sync_scores_search_hdf,
     targets_search_hdf=forward_jobs["search"].out_hdf_files["targets.hdf"],
     blank_idx=blank_idx,
     json_vocab_path=config_builder.dependencies.vocab_path
