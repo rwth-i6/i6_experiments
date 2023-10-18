@@ -44,8 +44,8 @@ class ConformerConv2dFrontend(nn.Module):
         tensor = tensor.transpose(1, 2)  # [B,T',64,F']
         tensor = tensor.flatten(2)  # [B,T',64*F']
 
-        tensor = self.source_linear(tensor)  # [B,T',512]
-        tensor = self.source_linear_dropout(tensor)  # [B,T',512]
+        tensor = self.linear_proj(tensor)  # [B,T',512]
+        tensor = self.linear_proj_dropout(tensor)  # [B,T',512]
 
         # TODO: modify seq_mask w.r.t subsample rate
 
