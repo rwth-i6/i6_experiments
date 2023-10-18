@@ -891,6 +891,69 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
 
     def _add_gaussian_att_weight_interpolation(rec_layer_name: str):
       raise NotImplementedError
+    def _add_gaussian_att_weight_interpolation(rec_layer_name: str, opts: Dict):
+      # just to make sure the network looks as we expect
+      assert seg_net_dict[rec_layer_name]["unit"]["att_weights"]["class"] == "softmax_over_spatial"
+      assert "att_weights0" not in seg_net_dict[rec_layer_name]["unit"]
+      assert network_opts["segment_center_window_size"] is not None
+
+      network_builder.add_center_positions(network=seg_net_dict)
+
+      tf_gauss_str = "1.0 / ({std} * tf.sqrt(2 * 3.141592)) * tf.exp(-0.5 * ((tf.cast({range} - {mean}, tf.float32)) / {std}) ** 2)".format(
+        std=opts["std"], mean="source(1)", range="source(0)"
+      )
+
+      seg_net_dict[rec_layer_name]["unit"].update({
+        "att_weights0":  copy.deepcopy(seg_net_dict[rec_layer_name]["unit"]["att_weights"]),
+        "gaussian_mask": {
+          "class": "compare",
+          "from": ["gaussian_start", "gaussian_range", "gaussian_end"],
+          "kind": "less"
+        },
+        "gaussian_start": {
+          "class": "eval",
+          "from": "center_positions",
+          "eval": "source(0) - 3"
+        },
+        "gaussian_end": {
+          "class": "eval",
+          "from": "center_positions",
+          "eval": "source(0) + 3"
+        },
+        "gaussian_range0": {
+          "class": "range_in_axis",
+          "from": "att_weights0",
+          "axis": "stag:sliced-time:segments",
+        },
+        "gaussian_range": {
+          "class": "eval",
+          "from": ["gaussian_range0", "segment_starts"],
+          "eval": "source(0) + source(1)"
+        },
+        "gaussian0": {
+          "class": "eval",
+          "from": ["gaussian_range", "center_positions"],
+          "eval": tf_gauss_str,
+          "out_type": {"dtype": "float32"}
+        },
+        "gaussian1": {
+          "class": "switch",
+          "condition": "gaussian_mask",
+          "true_from": "gaussian0",
+          "false_from": CodeWrapper('float("-inf")')
+        },
+        "gaussian": {
+          "class": "softmax_over_spatial",
+          "axis": "stag:sliced-time:segments",
+          "from": "gaussian1"
+        },
+        "att_weights": {
+          "class": "eval",
+          "from": ["att_weights0", "gaussian"],
+          "eval": "{gauss_scale} * source(1) + (1 - {gauss_scale}) * source(0)".format(
+            gauss_scale=opts["gauss_scale"])
+        },
+      })
 
     def _add_weight_feedback(rec_layer_name: str):
       if network_opts["use_weight_feedback"]:
@@ -1183,8 +1246,9 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
     if att_weights_recog_penalty_opts:
       _add_att_weight_recog_penalty(rec_layer_name, att_weights_recog_penalty_opts)
 
-    if network_opts.get("use_gaussian_att_weight_interpolation"):
-      _add_gaussian_att_weight_interpolation(rec_layer_name)
+    gaussian_att_weight_interpolation_opts = network_opts.get("gaussian_att_weight_interpolation_opts")
+    if gaussian_att_weight_interpolation_opts:
+      _add_gaussian_att_weight_interpolation(rec_layer_name, gaussian_att_weight_interpolation_opts)
 
     return seg_net_dict
 
