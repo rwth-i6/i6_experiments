@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Any, Tuple, Dict, Sequence, List
+from typing import Optional, Union, Any, Tuple, Dict, Sequence, List
 import tree
 import math
 import numpy
@@ -167,6 +167,56 @@ class MakeModel:
         )
 
 
+def log_mel_filterbank_from_raw(
+    raw_audio: Tensor,
+    *,
+    in_spatial_dim: Dim,
+    out_dim: Dim,
+    sampling_rate: int = 16_000,
+    window_len: float = 0.025,
+    step_len: float = 0.010,
+    n_fft: Optional[int] = None,
+    log_base: Union[int, float] = 10,
+) -> Tuple[Tensor, Dim]:
+    """
+    log mel filterbank features
+
+    :param raw_audio: (..., in_spatial_dim, ...). if it has a feature_dim with dimension 1, it is squeezed away.
+    :param in_spatial_dim:
+    :param out_dim: nr of mel filters.
+    :param sampling_rate: samples per second
+    :param window_len: in seconds
+    :param step_len: in seconds
+    :param n_fft: fft_size, n_fft. Should match fft_length from :func:`stft`.
+        If not provided, next power-of-two from window_num_frames.
+    :param log_base: e.g. 10 or math.e
+    """
+    from returnn.util import math as util_math
+
+    if raw_audio.feature_dim and raw_audio.feature_dim.dimension == 1:
+        raw_audio = rf.squeeze(raw_audio, axis=raw_audio.feature_dim)
+    window_num_frames = int(window_len * sampling_rate)
+    step_num_frames = int(step_len * sampling_rate)
+    if not n_fft:
+        n_fft = util_math.next_power_of_two(window_num_frames)
+    spectrogram, out_spatial_dim, in_dim_ = rf.stft(
+        raw_audio,
+        in_spatial_dim=in_spatial_dim,
+        frame_step=step_num_frames,
+        frame_length=window_num_frames,
+        fft_length=n_fft,
+    )
+    assert spectrogram.raw_tensor.isfinite().all(), "spectrogram is not finite"
+    power_spectrogram = rf.abs(spectrogram) ** 2.0
+    mel_fbank = rf.audio.mel_filterbank(power_spectrogram, in_dim=in_dim_, out_dim=out_dim, sampling_rate=sampling_rate)
+    assert mel_fbank.raw_tensor.isfinite().all(), "mel_fbank is not finite"
+    log_mel_fbank = rf.safe_log(mel_fbank, eps=1e-10)
+    assert log_mel_fbank.raw_tensor.isfinite().all(), "log_mel_fbank is not finite"
+    if log_base != math.e:
+        log_mel_fbank = log_mel_fbank * (1.0 / math.log(log_base))
+    return log_mel_fbank, out_spatial_dim
+
+
 class Model(rf.Module):
     """Model definition"""
 
@@ -273,7 +323,7 @@ class Model(rf.Module):
         if anomaly_checks:
             assert source.raw_tensor.isfinite().all(), "source is not finite"
         # log mel filterbank features
-        source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
+        source, in_spatial_dim = log_mel_filterbank_from_raw(
             source,
             in_spatial_dim=in_spatial_dim,
             out_dim=self.in_dim,
