@@ -107,7 +107,7 @@ config = dict(
     learning_rate_control_min_num_epochs_per_new_lr=1,
     learning_rate_decay=0.9,
     newbob_relative_error_threshold=-0.01,
-    # torch_amp="float16",  # TODO check if this works with RF https://github.com/rwth-i6/returnn/issues/1311
+    torch_amp="float16",
     aux_loss_layers=[4, 8],
 )
 post_config = dict(
