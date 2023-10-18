@@ -90,8 +90,8 @@ def run(returnn_root: tk.Path):
 
     alignment = tk.Path(SCRATCH_ALIGNMENT, cached=True)
 
-    ffnn_sys = next(v for v in config_00_monophone_linear_fullsum_10ms.run(returnn_root).values())
-    ffnn_a = ffnn_sys.experiments["fh"]["alignment_job"].out_alignment_bundle
+    # ffnn_sys = next(v for v in config_00_monophone_linear_fullsum_10ms.run(returnn_root).values())
+    # ffnn_a = ffnn_sys.experiments["fh"]["alignment_job"].out_alignment_bundle
 
     configs = [
         Experiment(
@@ -108,7 +108,7 @@ def run(returnn_root: tk.Path):
             tune_decoding=True,
             run_tdp_study=False,
         )
-        for a, a_name in [(alignment, "10ms-B"), (ffnn_a, "10ms-FF")]
+        for a, a_name in [(alignment, "10ms-B")]  # , (ffnn_a, "10ms-FF")]
     ]
     for exp in configs:
         run_single(
