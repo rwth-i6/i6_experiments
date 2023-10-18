@@ -31,6 +31,8 @@ _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.Bx
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
 
+anomaly_checks = True
+
 
 def sis_run_with_prefix(prefix_name: str = None):
     """run the exp"""
@@ -382,6 +384,11 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
 
+    if anomaly_checks:
+        import torch
+
+        torch.autograd.set_detect_anomaly(True)
+
     in_dim, epoch  # noqa
     config = get_global_config()  # noqa
     enc_aux_logits = config.typed_value("aux_loss_layers")
@@ -411,12 +418,17 @@ def from_scratch_training(
 
     collected_outputs = {}
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+    if anomaly_checks:
+        for k, v in collected_outputs.items():
+            assert v.raw_tensor.isfinite().all(), f"encoder output {k} is not finite"
     if aux_loss_layers:
         for i in aux_loss_layers:
             if i > len(model.encoder.layers):
                 continue
             linear = getattr(model, f"enc_aux_logits_{i}")
             aux_logits = linear(collected_outputs[str(i - 1)])
+            if anomaly_checks:
+                assert aux_logits.raw_tensor.isfinite().all(), f"aux CTC logits {i} are not finite"
             aux_loss = rf.ctc_loss(
                 logits=aux_logits,
                 targets=targets,
@@ -451,6 +463,8 @@ def from_scratch_training(
     )
 
     logits = model.decode_logits(input_embed=input_embeddings, **loop_out)
+    if anomaly_checks:
+        assert logits.raw_tensor.isfinite().all(), "logits are not finite"
     logits_packed, pack_dim = rf.pack_padded(logits, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False)
     targets_packed, _ = rf.pack_padded(
         targets, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim
@@ -461,6 +475,8 @@ def from_scratch_training(
     loss = rf.cross_entropy(
         target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
     )
+    if anomaly_checks:
+        assert loss.raw_tensor.isfinite().all(), "CE is not finite"
     loss.mark_as_loss("ce")
 
     best = rf.reduce_argmax(logits_packed, axis=model.target_dim)
