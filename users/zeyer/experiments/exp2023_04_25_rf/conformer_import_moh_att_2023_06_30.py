@@ -192,6 +192,7 @@ def log_mel_filterbank_from_raw(
     :param log_base: e.g. 10 or math.e
     """
     from returnn.util import math as util_math
+    import torch
 
     if raw_audio.feature_dim and raw_audio.feature_dim.dimension == 1:
         raw_audio = rf.squeeze(raw_audio, axis=raw_audio.feature_dim)
@@ -206,12 +207,16 @@ def log_mel_filterbank_from_raw(
         frame_length=window_num_frames,
         fft_length=n_fft,
     )
-    assert spectrogram.raw_tensor.isfinite().all(), "spectrogram is not finite"
+    if anomaly_checks:
+        assert spectrogram.raw_tensor.isfinite().all(), "spectrogram is not finite"
     power_spectrogram = rf.abs(spectrogram) ** 2.0
     mel_fbank = rf.audio.mel_filterbank(power_spectrogram, in_dim=in_dim_, out_dim=out_dim, sampling_rate=sampling_rate)
-    assert mel_fbank.raw_tensor.isfinite().all(), "mel_fbank is not finite"
-    log_mel_fbank = rf.safe_log(mel_fbank, eps=1e-10)
-    assert log_mel_fbank.raw_tensor.isfinite().all(), "log_mel_fbank is not finite"
+    if anomaly_checks:
+        assert mel_fbank.raw_tensor.isfinite().all(), "mel_fbank is not finite"
+    with torch.autocast(device_type=rf.get_default_device(), enabled=False):
+        log_mel_fbank = rf.safe_log(mel_fbank, eps=1e-10)
+    if anomaly_checks:
+        assert log_mel_fbank.raw_tensor.isfinite().all(), "log_mel_fbank is not finite"
     if log_base != math.e:
         log_mel_fbank = log_mel_fbank * (1.0 / math.log(log_base))
     return log_mel_fbank, out_spatial_dim
