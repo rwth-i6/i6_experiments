@@ -109,7 +109,7 @@ config = dict(
     learning_rate_control_min_num_epochs_per_new_lr=1,
     learning_rate_decay=0.9,
     newbob_relative_error_threshold=-0.01,
-    torch_amp="float16",
+    # torch_amp="float16",  # -- needs more testing
     aux_loss_layers=[4, 8],
 )
 post_config = dict(
