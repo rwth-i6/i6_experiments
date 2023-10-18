@@ -270,6 +270,8 @@ class Model(rf.Module):
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[Dict[str, Tensor], Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
+        if anomaly_checks:
+            assert source.raw_tensor.isfinite().all(), "source is not finite"
         # log mel filterbank features
         source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
             source,
@@ -278,6 +280,8 @@ class Model(rf.Module):
             sampling_rate=16_000,
             log_base=math.exp(2.3026),  # almost 10.0 but not exactly...
         )
+        if anomaly_checks:
+            assert source.raw_tensor.isfinite().all(), "log mel features are not finite"
         # SpecAugment
         source = rf.audio.specaugment(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)
         # Encoder including convolutional frontend
