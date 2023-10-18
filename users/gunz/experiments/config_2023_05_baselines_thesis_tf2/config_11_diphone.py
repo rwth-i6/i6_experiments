@@ -511,11 +511,12 @@ def run_single(
                 params=cfg,
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
                 calculate_statistics=True,
+                opt_lm_am_scale=True,
                 cpu_rqmt=2,
                 mem_rqmt=4,
                 rtf=3,
             )
-            job.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+            # job.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
         additional_cfg = dataclasses.replace(
             s.get_cart_params("fh").with_prior_scale(0.6),
@@ -536,11 +537,12 @@ def run_single(
                 params=cfg,
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
                 calculate_statistics=True,
+                opt_lm_am_scale=True,
                 cpu_rqmt=2,
                 mem_rqmt=4,
                 rtf=3,
             )
-            job.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+            # job.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     # ###########
     # FINE TUNING
