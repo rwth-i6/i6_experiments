@@ -1224,8 +1224,10 @@ class FHDecoder:
         name: str,
         crp: typing.Optional[rasr.CommonRasrParameters] = None,
         feature_scorer: typing.Optional[rasr.FeatureScorer] = None,
+        feature_flow: typing.Optional[rasr.FlowNetwork] = None,
         default_tdp=True,
         set_do_not_normalize_lemma_sequence_scores: bool = True,
+        set_no_tying_dense: bool = True,
         rtf=4,
     ):
         align_crp = copy.deepcopy(crp) if crp is not None else self.search_crp
@@ -1238,8 +1240,9 @@ class FHDecoder:
                 align_crp.acoustic_model_config.tdp["*"][k] = v[i]
                 align_crp.acoustic_model_config.tdp["silence"][k] = sv[i]
 
-        # make sure it is correct for the fh feature scorer scorer
-        align_crp.acoustic_model_config.state_tying.type = "no-tying-dense"
+        if set_no_tying_dense:
+            # make sure it is correct for the fh feature scorer scorer
+            align_crp.acoustic_model_config.state_tying.type = "no-tying-dense"
 
         # make sure the FSA is not buggy
         align_crp.acoustic_model_config["*"]["fix-allophone-context-at-word-boundaries"] = True
@@ -1251,7 +1254,7 @@ class FHDecoder:
 
         alignment = mm.AlignmentJob(
             crp=align_crp,
-            feature_flow=self.featureScorerFlow,
+            feature_flow=feature_flow if feature_flow is not None else self.featureScorerFlow,
             feature_scorer=feature_scorer if feature_scorer is not None else self.feature_scorer,
             use_gpu=self.gpu,
             rtf=rtf,

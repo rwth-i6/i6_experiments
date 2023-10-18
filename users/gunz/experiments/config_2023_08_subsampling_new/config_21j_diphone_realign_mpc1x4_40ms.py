@@ -10,13 +10,16 @@ import itertools
 import numpy as np
 import os
 
+
 # -------------------- Sisyphus --------------------
 from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
 
 
-from i6_core import corpus, lexicon, rasr, returnn
+from i6_core import corpus, lexicon, mm, rasr, returnn
+from i6_core.rasr import PrecomputedHybridFeatureScorer
+from i6_core.returnn.flow import add_tf_flow_to_base_flow, make_precomputed_hybrid_tf_feature_flow
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
@@ -35,7 +38,6 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
-from ...setups.fh.decoder.config import SearchParameters
 from ...setups.fh.network import conformer, diphone_joint_output
 from ...setups.fh.factored import PhoneticContext, RasrStateTying
 from ...setups.fh.network import aux_loss, extern_data
@@ -784,71 +786,75 @@ def run_single(
                         )
                         j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
+            s.set_graph_for_experiment("fh-fs", override_cfg=nn_precomputed_returnn_config)
+
             s.set_binaries_for_crp("train-other-960.train", RASR_TF_BINARY_PATH)
             s.create_stm_from_corpus("train-other-960.train")
             s._set_scorer_for_corpus("train-other-960.train")
             s._init_lm("train-other-960.train", **next(iter(dev_data_inputs.values())).lm)
-            s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone)
+            s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
             s._update_crp_am_setting("train-other-960.train", tdp_type="default", add_base_allophones=False)
 
-            graph_cfg = copy.deepcopy(returnn_config)
-            aux_to_pop = [k for k in graph_cfg.config["network"].keys() if "aux_" in k]
-            for k in [*aux_to_pop, "currentState", "linear1-triphone", "linear2-triphone", "right-output"]:
-                graph_cfg.config["network"].pop(k)
+            crp = copy.deepcopy(s.crp["train-other-960.train"])
+            crp.acoustic_model_config.allophones.add_all = False
+            crp.acoustic_model_config.allophones.add_from_lexicon = True
+            crp.acoustic_model_config.state_tying.type = "diphone-dense"
+            crp.acoustic_model_config.tdp.applicator_type = "corrected"
+            crp.acoustic_model_config.tdp.scale = 1.0
 
-            s.set_returnn_config_for_experiment("fh-fs", graph_cfg)
-            s.set_diphone_priors_returnn_rasr(
-                key="fh-fs",
-                epoch=fine_tune_epochs,
-                train_corpus_key=s.crp_names["train"],
-                dev_corpus_key=s.crp_names["cvtrain"],
-                smoothen=True,
-                returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+            v = (3.0, 0.0, "infinity", 0.0)
+            sv = (0.0, 3.0, "infinity", 0.0)
+            keys = ["loop", "forward", "skip", "exit"]
+            for i, k in enumerate(keys):
+                crp.acoustic_model_config.tdp["*"][k] = v[i]
+                crp.acoustic_model_config.tdp["silence"][k] = sv[i]
+
+            crp.concurrent = 300
+            crp.segment_path = corpus.SegmentCorpusJob(
+                s.corpora[s.train_key].corpus_file, crp.concurrent
+            ).out_segment_path
+
+            p_mixtures = mm.CreateDummyMixturesJob(
+                s.label_info.get_n_of_dense_classes(), s.initial_nn_args["num_input"]
             )
-            recognizer, recog_args = s.get_recognizer_and_args(
+            priors = s.experiments["fh-fs"]["priors"].center_state_prior
+            p_c = 0.6
+            feature_scorer = PrecomputedHybridFeatureScorer(
+                prior_mixtures=p_mixtures.out_mixtures,
+                prior_file=priors.file,
+                priori_scale=p_c,
+            )
+            tf_flow = make_precomputed_hybrid_tf_feature_flow(
+                tf_graph=s.experiments["fh-fs"]["graph"]["inference"],
+                tf_checkpoint=s.experiments["fh-fs"]["train_job"].out_checkpoints[fine_tune_epochs],
+                output_layer_name="output",
+                tf_fwd_input_name="tf-fwd-input",
+            )
+            feature_flow = add_tf_flow_to_base_flow(
+                base_flow=s.feature_flows["train-other-960.train"],
+                tf_flow=tf_flow,
+                tf_fwd_input_name="tf-fwd-input",
+            )
+
+            a_name = f"{ft_name}-pC{p_c}-tdp{1.0}"
+            recognizer, _ = s.get_recognizer_and_args(
                 key="fh-fs",
                 context_type=PhoneticContext.diphone,
                 crp_corpus="train-other-960.train",
                 epoch=fine_tune_epochs,
                 gpu=False,
                 tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-                set_batch_major_for_feature_scorer=False,
+                set_batch_major_for_feature_scorer=True,
                 lm_gc_simple_hash=True,
             )
-
-            sil_tdp = (*recog_args.tdp_silence[:3], 0.0)
-            align_cfg = (
-                recog_args.with_prior_scale(0.6, 0.4)
-                .with_tdp_scale(1.0)
-                .with_tdp_silence(sil_tdp)
-                .with_tdp_non_word(sil_tdp)
-            )
-            align_search_jobs = recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=align_cfg,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=False,
-                opt_lm_am=False,
-                add_sis_alias_and_output=False,
-                calculate_stats=True,
-                rtf_cpu=4,
-            )
-            crp = copy.deepcopy(align_search_jobs.search_crp)
-            crp.acoustic_model_config.tdp.applicator_type = "corrected"
-            crp.acoustic_model_config.allophones.add_all = False
-            crp.acoustic_model_config.allophones.add_from_lexicon = True
-            crp.concurrent = 300
-            crp.segment_path = corpus.SegmentCorpusJob(
-                s.corpora[s.train_key].corpus_file, crp.concurrent
-            ).out_segment_path
-
-            a_name = f"{ft_name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}"
             a_job = recognizer.align(
                 a_name,
                 crp=crp,
-                feature_scorer=align_search_jobs.search_feature_scorer,
-                default_tdp=True,
+                feature_scorer=feature_scorer,
+                feature_flow=feature_flow,
+                default_tdp=False,
                 set_do_not_normalize_lemma_sequence_scores=False,
+                set_no_tying_dense=False,
                 rtf=2,
             )
 
