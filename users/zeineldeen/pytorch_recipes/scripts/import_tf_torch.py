@@ -457,13 +457,12 @@ def test_import_forward():
 
     sys.settrace(_trace_func)
 
-    # from_scratch_training(
-    #     model=new_model,
-    #     data=extern_data["audio_features"],
-    #     data_spatial_dim=time_dim,
-    #     targets=extern_data["bpe_labels"],
-    #     targets_spatial_dim=target_spatial_dim,
-    # )
+    pt_module.forward(
+        raw_audio_features=extern_data["audio_features"].raw_tensor,
+        raw_audio_features_lens=extern_data["audio_features"].dims[1].dyn_size_ext.raw_tensor,
+        bpe_labels=extern_data["bpe_labels"].raw_tensor,
+    )
+
     sys.settrace(None)
     pprint(captured_tensors)
 
