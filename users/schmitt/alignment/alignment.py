@@ -317,11 +317,13 @@ class AlignmentAddEosJob(Job):
       self.returnn_python_exe.get_path(),
       os.path.join(tools_dir, "alignment_add_eos.py"),
       self.hdf_align_path.get_path(),
-      "--segment_file", self.segment_file.get_path(),
       "--blank_idx", str(self.blank_idx),
       "--eos_idx", str(self.eos_idx),
       "--returnn_root", self.returnn_root.get_path()
     ]
+
+    if self.segment_file is not None:
+      command += ["--segment_file", self.segment_file.get_path()]
 
     create_executable("rnn.sh", command)
     subprocess.check_call(["./rnn.sh"])
