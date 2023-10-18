@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Union, Any, Tuple, Dict, Sequence, List
+from typing import Optional, Any, Tuple, Dict, Sequence, List
 import tree
 import math
 import numpy
