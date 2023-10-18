@@ -89,6 +89,7 @@ config = dict(
     batch_size=15_000 * _batch_size_factor,
     max_seqs=200,
     max_seq_length_default_target=75,
+    # TODO grad accum scheduling, higher in beginning for better convergence?
     accum_grad_multiple_step=2,
     # gradient_clip=0,
     # gradient_clip_global_norm = 1.0
@@ -99,6 +100,7 @@ config = dict(
         "weight_decay": 0.000001,
     },
     # gradient_noise=0.0,
+    # TODO better LR schedule
     learning_rate=0.0005,
     learning_rates=(
         list(numpy.linspace(0.0001, 0.0005, num=20)) + [0.0005] * 20 + list(numpy.linspace(0.0005, 0.001, num=20))

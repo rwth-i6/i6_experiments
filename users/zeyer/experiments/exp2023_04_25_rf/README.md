@@ -19,8 +19,16 @@ TODO:
 - mhsapinit05
 - chunk, some variant, unclear which is best...
 
+- data loading, shuffling, batching, more like ESPnet?
+- optimizer, weight decay
+- LR scheduling
+- loss normalization, mean or sum?
+- feature normalization?
+- param init. Linear is different
+- higher batch size / more grad accum, or schedule
+
 TODO model changes:
 
 - Second decoder LSTM
 - ZoneoutLSTM use_zoneout_output=True
-- cnnblstmf2
+- (cnnblstmf2)
