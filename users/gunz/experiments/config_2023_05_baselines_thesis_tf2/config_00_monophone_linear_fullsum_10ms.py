@@ -326,7 +326,7 @@ def run_single(
         "partition_epochs": partition_epochs,
         "returnn_config": copy.deepcopy(train_cfg),
     }
-    s.returnn_rasr_training(
+    train_j = s.returnn_rasr_training(
         experiment_key="fh",
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
@@ -334,6 +334,7 @@ def run_single(
         on_2080=False,
         include_alignment=False,
     )
+    train_j.rqmt.update({"sbatch_args": ["-w", "cn-285"]})
 
     s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone)
     s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
