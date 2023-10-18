@@ -792,7 +792,7 @@ def run_single(
             s._update_crp_am_setting("train-other-960.train", tdp_type="default", add_base_allophones=False)
 
             graph_cfg = copy.deepcopy(returnn_config)
-            to_pop = (k for k in graph_cfg.config["network"].keys() if "aux_" in k)
+            to_pop = [k for k in graph_cfg.config["network"].keys() if "aux_" in k]
             for k in to_pop:
                 graph_cfg.config["network"].pop(k)
 
