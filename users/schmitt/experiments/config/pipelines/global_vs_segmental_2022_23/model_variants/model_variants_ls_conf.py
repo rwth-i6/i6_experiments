@@ -29,7 +29,11 @@ models = {
         "corpus": LIBRISPEECH_CORPUS
       },
       "network": {
-        "segment_center_window_size": None
+        "segment_center_window_size": None,
+        "length_model_opts": {
+          "use_embedding": True,
+          "embedding_size": 128,
+        }
       },
       "config": {
         "train_seq_ordering": "laplace:.1000"

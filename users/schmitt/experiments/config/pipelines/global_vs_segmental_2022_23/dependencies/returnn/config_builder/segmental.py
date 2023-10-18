@@ -590,7 +590,7 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
         "att_val": {"class": "copy", "from": "segments"},
       })
 
-    def _add_output_layer():
+    def _add_output_layer(length_model_opts: Dict):
       if task == "train":
         seg_net_dict["output"]["unit"] = {}
         del seg_net_dict["output"]["max_seq_len"]
@@ -779,13 +779,25 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
             "L2": 0.0001,
             "class": "rec",
             "dropout": 0.3,
-            "from": ["am", "prev_out_embed"],
+            "from": ["am"],
             "n_out": 128,
             "unit": "nativelstm2",
             "unit_opts": {"rec_weight_dropout": 0.3},
           },
         },
       )
+
+      if length_model_opts["use_embedding"]:
+        assert "embedding_size" in length_model_opts
+        seg_net_dict["output"]["unit"].update({
+            "prev_out_embed": {
+              "activation": None,
+              "class": "linear",
+              "from": "prev:output",
+              "n_out": length_model_opts["embedding_size"],
+            },
+          })
+        seg_net_dict["output"]["unit"]["s"]["from"].append("prev_out_embed")
 
       length_scale = network_opts.get("length_scale")
       if type(length_scale) == float and length_scale != 1.0:
@@ -1137,7 +1149,7 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
       _remove_not_needed_layers()
       _add_base_layers()
       _add_label_model_layer()
-      _add_output_layer()
+      _add_output_layer(length_model_opts=network_opts["length_model_opts"])
       _add_label_model_att_layers(rec_layer_name)
       _add_weight_feedback(rec_layer_name)
       _add_segments()
@@ -1146,7 +1158,7 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
       _remove_not_needed_layers()
       _add_label_model_att_layers(rec_layer_name)
       _add_weight_feedback(rec_layer_name)
-      _add_output_layer()
+      _add_output_layer(length_model_opts=network_opts["length_model_opts"])
       _add_segments()
 
     if network_opts.get("use_positional_embedding"):

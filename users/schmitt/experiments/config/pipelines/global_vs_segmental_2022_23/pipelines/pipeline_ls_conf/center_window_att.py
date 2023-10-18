@@ -128,6 +128,92 @@ def center_window_att_import_global_global_ctc_align(
         )
 
 
+def center_window_att_import_global_global_ctc_align_length_model_no_label_feedback(
+        win_size_list: Tuple[int, ...] = (4, 128),
+        n_epochs_list: Tuple[int, ...] = (10,),
+        const_lr_list: Tuple[float, ...] = (1e-4,),
+):
+  for win_size in win_size_list:
+    for n_epochs in n_epochs_list:
+      for const_lr in const_lr_list:
+        alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_length_model_no_label_feedback/win-size-%d_%d-epochs_%f-const-lr" % (
+          default_import_model_name, win_size, n_epochs, const_lr
+        )
+        config_builder = get_center_window_att_config_builder(
+          win_size=win_size,
+          use_weight_feedback=False,
+          length_model_opts={"use_embedding": False}
+        )
+
+        train_exp = SegmentalTrainExperiment(
+          config_builder=config_builder,
+          alias=alias,
+          n_epochs=n_epochs,
+          import_model_train_epoch1=external_checkpoints[default_import_model_name],
+          align_targets=ctc_aligns.global_att_ctc_align.ctc_alignments,
+          lr_opts={
+            "type": "const_then_linear",
+            "const_lr": const_lr,
+            "const_frac": 1 / 3,
+            "final_lr": 1e-6,
+            "num_epochs": n_epochs
+          }
+        )
+        checkpoints, model_dir, learning_rates = train_exp.run_train()
+
+        recog_center_window_att_import_global(
+          alias=alias,
+          config_builder=config_builder,
+          checkpoint=checkpoints[n_epochs],
+          analyse=True,
+          search_corpus_key="dev-other"
+        )
+
+
+def center_window_att_import_global_global_ctc_align_length_model_diff_emb_size(
+        win_size_list: Tuple[int, ...] = (4, 128),
+        n_epochs_list: Tuple[int, ...] = (10,),
+        const_lr_list: Tuple[float, ...] = (1e-4,),
+        emb_size_list: Tuple[int, ...] = (64,),
+):
+  for win_size in win_size_list:
+    for n_epochs in n_epochs_list:
+      for const_lr in const_lr_list:
+        for emb_size in emb_size_list:
+          alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_length_model_diff_emb_size/win-size-%d_%d-epochs_%f-const-lr/emb-size-%d" % (
+            default_import_model_name, win_size, n_epochs, const_lr, emb_size
+          )
+          config_builder = get_center_window_att_config_builder(
+            win_size=win_size,
+            use_weight_feedback=False,
+            length_model_opts={"use_embedding": True, "embedding_size": emb_size}
+          )
+
+          train_exp = SegmentalTrainExperiment(
+            config_builder=config_builder,
+            alias=alias,
+            n_epochs=n_epochs,
+            import_model_train_epoch1=external_checkpoints[default_import_model_name],
+            align_targets=ctc_aligns.global_att_ctc_align.ctc_alignments,
+            lr_opts={
+              "type": "const_then_linear",
+              "const_lr": const_lr,
+              "const_frac": 1 / 3,
+              "final_lr": 1e-6,
+              "num_epochs": n_epochs
+            }
+          )
+          checkpoints, model_dir, learning_rates = train_exp.run_train()
+
+          recog_center_window_att_import_global(
+            alias=alias,
+            config_builder=config_builder,
+            checkpoint=checkpoints[n_epochs],
+            analyse=True,
+            search_corpus_key="dev-other"
+          )
+
+
 def center_window_att_import_global_global_ctc_align_att_weight_penalty_recog(
         win_size_list: Tuple[int, ...] = (128,),
         n_epochs_list: Tuple[int, ...] = (10,),
@@ -439,6 +525,7 @@ def get_center_window_att_config_builder(
         use_weight_feedback: bool = False,
         use_positional_embedding: bool = False,
         att_weight_recog_penalty_opts: Optional[Dict] = None,
+        length_model_opts: Optional[Dict] = None,
         length_scale: float = 1.0,
         blank_penalty: float = 0.0,
 ):
@@ -451,6 +538,9 @@ def get_center_window_att_config_builder(
   variant_params["network"]["att_weight_recog_penalty_opts"] = att_weight_recog_penalty_opts
   variant_params["network"]["length_scale"] = length_scale
   variant_params["network"]["blank_penalty"] = blank_penalty
+
+  if length_model_opts:
+    variant_params["network"]["length_model_opts"] = copy.deepcopy(length_model_opts)
 
   config_builder = LibrispeechConformerSegmentalAttentionConfigBuilder(
     dependencies=variant_params["dependencies"],
