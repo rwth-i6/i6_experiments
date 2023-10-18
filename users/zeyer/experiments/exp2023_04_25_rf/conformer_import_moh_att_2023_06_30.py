@@ -213,8 +213,7 @@ def log_mel_filterbank_from_raw(
     mel_fbank = rf.audio.mel_filterbank(power_spectrogram, in_dim=in_dim_, out_dim=out_dim, sampling_rate=sampling_rate)
     if anomaly_checks:
         assert mel_fbank.raw_tensor.isfinite().all(), "mel_fbank is not finite"
-    with torch.autocast(device_type=rf.get_default_device(), enabled=False):
-        log_mel_fbank = rf.safe_log(mel_fbank, eps=1e-10)
+    log_mel_fbank = rf.safe_log(mel_fbank)
     if anomaly_checks:
         assert log_mel_fbank.raw_tensor.isfinite().all(), "log_mel_fbank is not finite"
     if log_base != math.e:
