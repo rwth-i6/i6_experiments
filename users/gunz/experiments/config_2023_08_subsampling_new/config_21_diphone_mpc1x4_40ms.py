@@ -148,8 +148,9 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
                 run_tdp_study=False,
             ),
         ]
-    for exp in configs:
-        run_single(
+
+    exps = {
+        exp: run_single(
             alignment=exp.alignment,
             alignment_name=exp.alignment_name,
             batch_size=exp.batch_size,
@@ -166,7 +167,10 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             lr=exp.lr,
             run_tdp_study=exp.run_tdp_study,
             tune_nn_pch=exp.tune_nn_pch,
-        )
+        ) for exp in configs
+    }
+
+    return exps
 
 
 def run_single(
@@ -628,7 +632,7 @@ def run_single(
                         False,
                         baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3),
                     )
-                    for lr in [1e-5, 2e-5, 3e-5, 8e-5, 1e-4]
+                    for lr in [1e-5, 2e-5, 3e-5, 1e-4, 8e-5]
                 ),
             ]
 

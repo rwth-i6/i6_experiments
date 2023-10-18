@@ -399,6 +399,17 @@ def the_plan():
         alignment=phmm_40ms_mp_p0_6_a,
         a_name="40ms-Bmp-pC0.6",
     )
+    di_exps = config_21_diphone_mpc1x4_40ms.run(
+        returnn_root=returnn_root,
+        alignment=phmm_40ms_ffnn_a,
+        a_name="40ms-FF-v8",
+    )
+    config_22b_triphone_multi_mpc1x4_40ms.run(
+        returnn_root=returnn_root,
+        alignment=phmm_40ms_ffnn_a,
+        a_name="40ms-FF-v8",
+        init_from_system=next(iter(di_exps.values())),
+    )
     config_21j_diphone_realign_mpc1x4_40ms.run(
         returnn_root=returnn_root,
         alignment=phmm_40ms_ffnn_a,
