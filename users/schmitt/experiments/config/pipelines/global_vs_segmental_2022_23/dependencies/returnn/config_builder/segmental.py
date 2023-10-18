@@ -858,6 +858,18 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
         },
       })
 
+      if opts.get("use_as_loss"):
+        assert "loss_scale" in opts
+        seg_net_dict[rec_layer_name]["unit"].update({
+          "att_weight_penalty_loss": {
+            "class": "eval",
+            "from": "att_weight_penalty",
+            "eval": "-source(0)",  # penalty is negative, but we want to minimize loss, there -
+            "loss": "as_is",
+            "loss_opts": {"scale": opts["loss_scale"]}
+          }
+        })
+
       if rec_layer_name == "label_model":
         # raise NotImplementedError
         assert "output_prob" in seg_net_dict[rec_layer_name]["unit"]
