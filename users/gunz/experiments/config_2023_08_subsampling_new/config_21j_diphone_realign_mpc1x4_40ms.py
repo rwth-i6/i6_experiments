@@ -98,77 +98,41 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    configs = [
-        Experiment(
-            alignment=alignment,
-            alignment_name=a_name,
-            batch_size=12500,
-            chunking=CONF_CHUNKING_10MS,
-            dc_detection=False,
-            decode_all_corpora=False,
-            fine_tune=a_name in ["40ms-FF-v8", "40ms-FFs-v8"],
-            label_smoothing=CONF_LABEL_SMOOTHING,
-            lr="v13",
-            run_performance_study=a_name == "40ms-FF-v8",
-            tune_decoding=a_name
-            in ["40ms-FFs-v8", "40ms-Bmp-pC0.6", "40ms-Bs-pC0.6"],  # ["40ms-FF-v8", "40ms-FFs-v8"],
-            tune_nn_pch=a_name in ["40ms-FFs-v8"],
-            run_tdp_study=False,
-        )
-    ]
-    if a_name == "40ms-FF-v8":
-        configs = [
-            *configs,
-            Experiment(
-                alignment=alignment,
-                alignment_name=a_name,
-                batch_size=12500,
-                chunking=CONF_CHUNKING_10MS,
-                dc_detection=False,
-                decode_all_corpora=False,
-                fine_tune=False,
-                label_smoothing=0.1,
-                lr="v13",
-                run_performance_study=False,
-                tune_decoding=True,
-                tune_nn_pch=False,
-                run_tdp_study=False,
-            ),
-            Experiment(
-                alignment=alignment,
-                alignment_name=a_name,
-                batch_size=12500,
-                chunking="256:128",
-                dc_detection=False,
-                decode_all_corpora=False,
-                fine_tune=False,
-                label_smoothing=0.0,
-                lr="v13",
-                run_performance_study=False,
-                tune_decoding=False,
-                tune_nn_pch=False,
-                run_tdp_study=False,
-            ),
-        ]
-    for exp in configs:
-        run_single(
-            alignment=exp.alignment,
-            alignment_name=exp.alignment_name,
-            batch_size=exp.batch_size,
-            chunking=exp.chunking,
-            dc_detection=exp.dc_detection,
-            decode_all_corpora=exp.decode_all_corpora,
-            fine_tune=exp.fine_tune,
-            focal_loss=exp.focal_loss,
-            label_smoothing=exp.label_smoothing,
-            returnn_root=returnn_root,
-            run_performance_study=exp.run_performance_study,
-            tune_decoding=exp.tune_decoding,
-            filter_segments=exp.filter_segments,
-            lr=exp.lr,
-            run_tdp_study=exp.run_tdp_study,
-            tune_nn_pch=exp.tune_nn_pch,
-        )
+    exp = Experiment(
+        alignment=alignment,
+        alignment_name=a_name,
+        batch_size=12500,
+        chunking=CONF_CHUNKING_10MS,
+        dc_detection=False,
+        decode_all_corpora=False,
+        fine_tune=a_name in ["40ms-FF-v8", "40ms-FFs-v8"],
+        label_smoothing=CONF_LABEL_SMOOTHING,
+        lr="v13",
+        run_performance_study=a_name == "40ms-FF-v8",
+        tune_decoding=a_name in ["40ms-FFs-v8", "40ms-Bmp-pC0.6", "40ms-Bs-pC0.6"],  # ["40ms-FF-v8", "40ms-FFs-v8"],
+        tune_nn_pch=a_name in ["40ms-FFs-v8"],
+        run_tdp_study=False,
+    )
+    sys = run_single(
+        alignment=exp.alignment,
+        alignment_name=exp.alignment_name,
+        batch_size=exp.batch_size,
+        chunking=exp.chunking,
+        dc_detection=exp.dc_detection,
+        decode_all_corpora=exp.decode_all_corpora,
+        fine_tune=exp.fine_tune,
+        focal_loss=exp.focal_loss,
+        label_smoothing=exp.label_smoothing,
+        returnn_root=returnn_root,
+        run_performance_study=exp.run_performance_study,
+        tune_decoding=exp.tune_decoding,
+        filter_segments=exp.filter_segments,
+        lr=exp.lr,
+        run_tdp_study=exp.run_tdp_study,
+        tune_nn_pch=exp.tune_nn_pch,
+    )
+
+    return exp, sys
 
 
 def run_single(
@@ -795,7 +759,7 @@ def run_single(
             s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
             s._update_crp_am_setting("train-other-960.train", tdp_type="default", add_base_allophones=False)
 
-            for sil_e in [0.0, 3.0]:
+            for sil_e in [3.0, 0.0]:  # reverse order to use 0.0 in other exps
                 crp = copy.deepcopy(s.crp["train-other-960.train"])
                 crp.acoustic_model_config.allophones.add_all = False
                 crp.acoustic_model_config.allophones.add_from_lexicon = True
@@ -898,7 +862,7 @@ def run_single(
                 tse_w_job = ComputeSilencePercentageJob(a_job.out_alignment_bundle, allophones.out_allophone_file)
                 tk.register_output(f"alignments/{a_name}/statistics/sil", tse_w_job.out_percent_sil)
 
-            s.experiments["fh-fs"]["alignment_job"] = a_job
+                s.experiments["fh-fs"]["alignment_job"] = a_job
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
