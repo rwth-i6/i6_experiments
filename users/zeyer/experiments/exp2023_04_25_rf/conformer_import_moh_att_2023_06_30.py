@@ -31,8 +31,6 @@ _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.Bx
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
 
-anomaly_checks = True
-
 
 def sis_run_with_prefix(prefix_name: str = None):
     """run the exp"""
@@ -383,11 +381,6 @@ def _get_eos_idx(target_dim: Dim) -> int:
 def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
-
-    if anomaly_checks:
-        import torch
-
-        torch.autograd.set_detect_anomaly(True)
 
     in_dim, epoch  # noqa
     config = get_global_config()  # noqa
