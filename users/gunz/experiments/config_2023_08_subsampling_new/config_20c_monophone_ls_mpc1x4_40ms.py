@@ -222,7 +222,7 @@ def run_single(
         focal_loss_factor=focal_loss,
         l2=L2,
         label_info=s.label_info,
-        label_smoothing=0.1,
+        label_smoothing=0.0,
         time_tag_name=time_tag_name,
         upsampling=False,
     )
