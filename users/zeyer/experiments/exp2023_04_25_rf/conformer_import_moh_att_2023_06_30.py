@@ -434,6 +434,11 @@ def from_scratch_training(
             aux_loss.mark_as_loss(
                 f"ctc_{i}", custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(), use_normalized_loss=True
             )
+            # decoded, decoded_spatial_dim = rf.ctc_greedy_decode(aux_logits, in_spatial_dim=enc_spatial_dim)
+            # error = rf.edit_distance(
+            #     a=decoded, a_spatial_dim=decoded_spatial_dim, b=targets, b_spatial_dim=targets_spatial_dim
+            # )
+            # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor())
 
     batch_dims = data.remaining_dims(data_spatial_dim)
     input_embeddings = model.target_embed(targets)
