@@ -9,7 +9,7 @@ from ...setups.common.analysis import (
     PlotViterbiAlignmentsJob,
 )
 from ...setups.common.analysis.tse_dmann import DMannComputeTseJob
-from ...setups.common.util import ComputeAverageJob
+from ...setups.common.analysis.tse_tina import ComputeTinaTseJob
 from ..config_2023_05_baselines_thesis_tf2.config import SCRATCH_ALIGNMENT
 from .config import ALIGN_GMM_TRI_10MS, ALIGN_GMM_TRI_ALLOPHONES, ZHOU_ALLOPHONES, ZHOU_SUBSAMPLED_ALIGNMENT
 
@@ -82,6 +82,18 @@ def run():
         fuzzy_match_mismatching_phoneme_sequences=False,
     )
     tk.register_output(f"alignments/10ms-scratch-blstm/statistics/tse-w", tse_w_job.out_tse)
+
+    tse_tina_job = ComputeTinaTseJob(
+        allophones=Path(
+            "/work/asr3/raissi/shared_workspaces/gunz/2023-05--subsampling-tf2/i6_core/lexicon/allophones/StoreAllophonesJob.Qa3bLX1BHz42/output/allophones"
+        ),
+        alignment_bundle=Path(SCRATCH_ALIGNMENT, cached=True),
+        ref_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+        ref_alignment_bundle=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
+        ref_t_step=10 / 1000,
+        ss_factor=1,
+    )
+    tk.register_output(f"alignments/10ms-scratch-blstm/statistics/tse-tina", tse_tina_job.out_tse)
 
     dmann_tse = DMannComputeTseJob(
         allophones=Path(
