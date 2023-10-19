@@ -101,7 +101,7 @@ def run(returnn_root: tk.Path):
             chunking=CONF_CHUNKING_10MS,
             dc_detection=False,
             decode_all_corpora=False,
-            fine_tune=False,
+            fine_tune=True,
             label_smoothing=CONF_LABEL_SMOOTHING,
             lr="v13",
             run_performance_study=False,
