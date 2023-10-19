@@ -22,7 +22,7 @@ TODO:
 - data loading, shuffling, batching, more like ESPnet?
 - optimizer, weight decay
 - LR scheduling
-- loss normalization, mean or sum?
+- loss normalization, mean batch, mean all, or sum? also div by grad accum?
 - feature normalization?
 - param init. Linear is different
 - higher batch size / more grad accum, or schedule
