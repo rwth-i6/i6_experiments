@@ -90,7 +90,7 @@ config = dict(
     max_seqs=200,
     max_seq_length_default_target=75,
     # TODO grad accum scheduling, higher in beginning for better convergence?
-    accum_grad_multiple_step=2,
+    accum_grad_multiple_step=8,
     # gradient_clip=0,
     # gradient_clip_global_norm = 1.0
     # TODO check Nadam: https://github.com/rwth-i6/returnn/issues/1440
