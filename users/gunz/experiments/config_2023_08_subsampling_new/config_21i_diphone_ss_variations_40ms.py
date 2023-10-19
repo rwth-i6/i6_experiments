@@ -182,7 +182,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             chunking=CONF_CHUNKING_10MS,
             dc_detection=False,
             decode_all_corpora=False,
-            fine_tune=True,
+            fine_tune=sa >= 20,
             global_l2=False,
             init=DEFAULT_INIT,
             label_smoothing=CONF_LABEL_SMOOTHING,
@@ -198,7 +198,31 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
         for sa in [4, 10, 14, 20, 25]
         if a_name == "40ms-FFs-v8"
     ]
-    for exp in [*frontend_configs, *encoder_configs, *smooth_lr_configs, *sa_configs]:
+    sa_configs2 = [
+        Experiment(
+            alignment=alignment,
+            alignment_name=a_name,
+            batch_size=12500,
+            chunking=CONF_CHUNKING_10MS,
+            dc_detection=False,
+            decode_all_corpora=False,
+            fine_tune=True,
+            global_l2=False,
+            init=DEFAULT_INIT,
+            label_smoothing=CONF_LABEL_SMOOTHING,
+            lr="v13",
+            run_performance_study=False,
+            tune_decoding=a_name == "40ms-FF-v8",
+            run_tdp_study=False,
+            sa_max_reps_t=sa,
+            ss_strategy="mp:4@4",
+            smooth_oclr=False,
+            swap_mhsa_conv=False,
+        )
+        for sa in [25]
+        if a_name == "40ms-FF-v8"
+    ]
+    for exp in [*frontend_configs, *encoder_configs, *smooth_lr_configs, *sa_configs, *sa_configs2]:
         run_single(
             alignment=exp.alignment,
             alignment_name=exp.alignment_name,
