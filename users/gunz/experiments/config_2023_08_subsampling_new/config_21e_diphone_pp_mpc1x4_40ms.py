@@ -474,11 +474,11 @@ def run_single(
 
         bw_scales = [
             baum_welch.BwScales(label_posterior_scale=p, label_prior_scale=None, transition_scale=t)
-            for p, t in itertools.product([0.3, 1.0], [0.0, 0.3])
+            for p, t in itertools.product([1.0], [0.3])
         ]
 
-        for bw_scale in bw_scales:
-            name = f"{orig_name}-fs-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
+        for bw_scale, peak_lr in itertools.product(bw_scales, [5e-5, 8e-5]):
+            name = f"{orig_name}-fs{peak_lr}-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
             s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=name)
 
             s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
@@ -517,7 +517,7 @@ def run_single(
                 log_linear_scales=bw_scale,
             )
             lrates = oclr.get_learning_rates(
-                lrate=5e-5,
+                lrate=peak_lr,
                 increase=0,
                 constLR=math.floor(fine_tune_epochs * 0.45),
                 decay=math.floor(fine_tune_epochs * 0.45),
