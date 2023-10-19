@@ -431,7 +431,9 @@ def from_scratch_training(
                 targets_spatial_dim=targets_spatial_dim,
                 blank_index=model.blank_idx,
             )
-            aux_loss.mark_as_loss(f"ctc_{i}")
+            aux_loss.mark_as_loss(
+                f"ctc_{i}", custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(), use_normalized_loss=True
+            )
 
     batch_dims = data.remaining_dims(data_spatial_dim)
     input_embeddings = model.target_embed(targets)
@@ -468,7 +470,7 @@ def from_scratch_training(
     loss = rf.cross_entropy(
         target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
     )
-    loss.mark_as_loss("ce")
+    loss.mark_as_loss("ce", use_normalized_loss=True)
 
     best = rf.reduce_argmax(logits_packed, axis=model.target_dim)
     frame_error = best != targets_packed
