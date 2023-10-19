@@ -3,6 +3,7 @@ import os
 from sisyphus import gs, tk, Path
 
 from ...setups.common.analysis import (
+    ComputeSilencePercentageJob,
     ComputeTimestampErrorJob,
     ComputeWordLevelTimestampErrorJob,
     PlotPhonemeDurationsJob,
@@ -104,6 +105,16 @@ def run():
     )
     tk.register_output(f"alignments/10ms-scratch-blstm/tse_dmann", dmann_tse.out_tse)
 
+    sil_job = ComputeSilencePercentageJob(
+        Path(SCRATCH_ALIGNMENT, cached=True),
+        Path(
+            "/work/asr3/raissi/shared_workspaces/gunz/2023-05--subsampling-tf2/i6_core/lexicon/allophones/StoreAllophonesJob.Qa3bLX1BHz42/output/allophones"
+        ),
+    )
+    tk.register_output(f"alignments/10ms-scratch-blstm/sil", sil_job.out_percent_sil)
+
+    # GMM
+
     scratch_data = PlotPhonemeDurationsJob(
         alignment_bundle_path=Path(ALIGN_GMM_TRI_10MS, cached=True),
         allophones_path=Path(ALIGN_GMM_TRI_ALLOPHONES),
@@ -131,3 +142,6 @@ def run():
         fuzzy_match_mismatching_phoneme_sequences=False,
     )
     tk.register_output(f"alignments/10ms-gmm-tri/tse", tse_job.out_tse)
+
+    sil_job = ComputeSilencePercentageJob(tk.Path(ALIGN_GMM_TRI_10MS, cached=True), tk.Path(ALIGN_GMM_TRI_ALLOPHONES))
+    tk.register_output(f"alignments/10ms-gmm-tri/sil", sil_job.out_percent_sil)
