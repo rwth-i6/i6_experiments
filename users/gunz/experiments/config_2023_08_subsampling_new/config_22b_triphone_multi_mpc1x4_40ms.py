@@ -421,6 +421,7 @@ def run_single(
         fine_tune_keep_epochs = [25, 50, 100, 225, 400, 450]
 
         cart_crp = copy.deepcopy(s.crp[s.crp_names["train"]])
+        cart_crp.acoustic_model_config.hmm.states_per_phone = 3
         cart_crp.acoustic_model_config.state_tying.type = "cart"
         cart_crp.acoustic_model_config.state_tying.file = Path(CART_TREE_TRI, cached=True)
 
