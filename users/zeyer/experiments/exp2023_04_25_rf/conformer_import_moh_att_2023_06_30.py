@@ -88,7 +88,7 @@ config = dict(
     batch_size=15_000 * _batch_size_factor,
     max_seqs=200,
     max_seq_length_default_target=75,
-    specaugment_steps=(5000, 10000, 20000),
+    specaugment_steps=(10_000, 20_000, 40_000),
     # gradient_clip=0,
     # gradient_clip_global_norm = 1.0
     # TODO check Nadam: https://github.com/rwth-i6/returnn/issues/1440
@@ -98,12 +98,12 @@ config = dict(
         "weight_decay": 0.000001,
     },
     # TODO grad accum scheduling, higher in beginning for better convergence?
-    accum_grad_multiple_step=2,
+    accum_grad_multiple_step=4,
     # gradient_noise=0.0,
-    learning_rate=0.006,
+    learning_rate=0.0025,
     dynamic_learning_rate=dyn_lr_lin_warmup_invsqrt_decay,
-    learning_rate_warmup_steps=15000,
-    learning_rate_invsqrt_norm=15000,
+    learning_rate_warmup_steps=40_000,
+    learning_rate_invsqrt_norm=40_000,
     # torch_amp="float16",  # -- needs more testing
     aux_loss_layers=[4, 8],
 )
