@@ -6,7 +6,6 @@ from __future__ import annotations
 from typing import Optional, Any, Tuple, Dict, Sequence, List
 import tree
 import math
-import numpy
 
 from sisyphus import tk
 
@@ -16,7 +15,7 @@ from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
-
+from i6_experiments.users.zeyer.lr_schedules.lin_warmup_invsqrt_decay import dyn_lr_lin_warmup_invsqrt_decay
 
 # From Mohammad, 2023-06-29
 # dev-clean  2.27
@@ -100,20 +99,10 @@ config = dict(
         "weight_decay": 0.000001,
     },
     # gradient_noise=0.0,
-    # TODO better LR schedule
-    learning_rate=0.0005,
-    learning_rates=(
-        list(numpy.linspace(0.0001, 0.0005, num=20)) + [0.0005] * 20 + list(numpy.linspace(0.0005, 0.001, num=20))
-    ),
-    min_learning_rate=0.001 / 50,
-    learning_rate_control="newbob_multi_epoch",
-    learning_rate_control_relative_error_relative_lr=True,
-    relative_error_div_by_old=True,
-    use_learning_rate_control_always=True,
-    newbob_multi_update_interval=1,
-    learning_rate_control_min_num_epochs_per_new_lr=1,
-    learning_rate_decay=0.9,
-    newbob_relative_error_threshold=-0.01,
+    learning_rate=0.006,
+    dynamic_learning_rate=dyn_lr_lin_warmup_invsqrt_decay,
+    learning_rate_warmup_steps=15000,
+    learning_rate_invsqrt_norm=15000,
     # torch_amp="float16",  # -- needs more testing
     aux_loss_layers=[4, 8],
 )
