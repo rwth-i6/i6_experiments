@@ -2,6 +2,8 @@ __all__ = ["run", "run_single"]
 
 import copy
 import dataclasses
+import math
+import random
 import typing
 from dataclasses import dataclass
 import itertools
@@ -10,14 +12,14 @@ import numpy as np
 import os
 
 # -------------------- Sisyphus --------------------
-from sisyphus import gs, tk
+from sisyphus import Path, gs, tk
 
 # -------------------- Recipes --------------------
 
-import i6_core.rasr as rasr
-import i6_core.returnn as returnn
+from i6_core import lexicon, rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
+from ...setups.common.hdf.random_allophones import RasrFeatureAndAlignmentWithRandomAllophonesToHDF
 
 from ...setups.common.nn import oclr, returnn_time_tag
 from ...setups.common.nn.chunking import subsample_chunking
@@ -42,6 +44,7 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
+    CART_TREE_TRI,
     CONF_CHUNKING_10MS,
     CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
@@ -309,7 +312,7 @@ def run_single(
         "partition_epochs": partition_epochs,
         "returnn_config": copy.deepcopy(returnn_config),
     }
-    s.returnn_rasr_training(
+    viterbi_train_job = s.returnn_rasr_training(
         experiment_key="fh",
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
@@ -436,6 +439,98 @@ def run_single(
                 rtf_cpu=40,
             )
             jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30", "--nice=500"]})
+
+    fine_tune = False
+    if fine_tune:
+        ft_share = 0.3
+        peak_lr = 8e-5
+        fine_tune_epochs = 450
+        fine_tune_keep_epochs = [25, 50, 100, 225, 400, 450]
+
+        cart_crp = copy.deepcopy(s.crp[s.crp_names[train_key]])
+        cart_crp.acoustic_model_config.state_tying.type = "cart"
+        cart_crp.acoustic_model_config.state_tying.file = Path(CART_TREE_TRI, cached=True)
+
+        cart_tying_job = lexicon.DumpStateTyingJob(crp=cart_crp)
+        dense_tying_job = lexicon.DumpStateTyingJob(crp=s.crp[s.crp_names[train_key]])
+        allophones_job = lexicon.StoreAllophonesJob(crp=s.crp[s.crp_names[train_key]])
+
+        with open(s.alignments[train_key], "rt") as bundle:
+            a_caches = [Path(l.strip()) for l in bundle]
+
+        r = random.Random()
+        r.seed(42 - 1)
+
+        randomized_indices = set(r.sample(list(range(len(a_caches))), k=int(len(a_caches) * ft_share)))
+        randomized_a_caches = [a_caches[i] for i in randomized_indices]
+        randomized_features = [s.feature_caches[train_key]["gt"].hidden_paths[i] for i in randomized_indices]
+        randomized_hdfs = RasrFeatureAndAlignmentWithRandomAllophonesToHDF(
+            feature_caches=randomized_features,
+            alignment_caches=randomized_a_caches,
+            label_info=s.label_info,
+            allophones=allophones_job.out_allophone_file,
+            cart_tying=cart_tying_job.out_state_tying,
+            dense_tying=dense_tying_job.out_state_tying,
+        )
+        normal_indices = set(range(300)) - randomized_indices
+        normal_a_caches = [a_caches[i] for i in normal_indices]
+        normal_features = [s.feature_caches[train_key]["gt"].hidden_paths[i] for i in normal_indices]
+        normal_hdfs = RasrFeatureAndAlignmentWithRandomAllophonesToHDF(
+            feature_caches=normal_features,
+            alignment_caches=normal_a_caches,
+            label_info=s.label_info,
+            allophones=allophones_job.out_allophone_file,
+            cart_tying=cart_tying_job.out_state_tying,
+            dense_tying=dense_tying_job.out_state_tying,
+        )
+        # do not pop dev_hdf from the job output list but from a copy instead
+        normal_hdf_files = list(normal_hdfs.out_hdf_files)
+        dev_hdf = normal_hdf_files.pop(-1)
+
+        ft_config = copy.deepcopy(returnn_config)
+        lrates = oclr.get_learning_rates(
+            lrate=peak_lr,
+            increase=0,
+            constLR=math.floor(fine_tune_epochs * 0.45),
+            decay=math.floor(fine_tune_epochs * 0.45),
+            decMinRatio=0.1,
+            decMaxRatio=1,
+        )
+        update_config = returnn.ReturnnConfig(
+            config={
+                "batch_size": 10000,
+                "learning_rates": list(
+                    np.concatenate([lrates, np.linspace(min(lrates), 1e-6, fine_tune_epochs - len(lrates))])
+                ),
+                "preload_from_files": {
+                    "existing-model": {
+                        "init_for_train": True,
+                        "ignore_missing": True,
+                        "filename": viterbi_train_job.out_checkpoints[num_epochs],
+                    }
+                },
+                "extern_data": {"data": {"dim": 50}},
+            },
+            post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": fine_tune_keep_epochs}},
+            python_epilog={
+                "dynamic_lr_reset": "dynamic_learning_rate = None",
+            },
+        )
+        ft_config.update(update_config)
+
+        train_args = {
+            **s.initial_train_args,
+            "num_epochs": fine_tune_epochs,
+            "partition_epochs": partition_epochs,
+        }
+        s.returnn_training_from_hdf(
+            experiment_key="fh",
+            returnn_config=returnn_config,
+            nn_train_args=train_args,
+            train_hdfs=normal_hdf_files + randomized_hdfs.out_hdf_files,
+            dev_hdfs=[dev_hdf],
+            on_2080=False,
+        )
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
