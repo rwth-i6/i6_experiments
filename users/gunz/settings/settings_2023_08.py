@@ -79,6 +79,7 @@ def check_engine_limits(current_rqmt, task):
         "ScliteJob",
         "SmoothenPriorsJob",
         "VisualizeBestTraceJob",
+        "RasrFeatureAndAlignmentWithRandomAllophonesToHDF",
     ]
 
     """
