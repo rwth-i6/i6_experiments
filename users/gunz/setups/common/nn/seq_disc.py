@@ -174,6 +174,9 @@ def _generate_lattices(
     crp.language_model_config.type = "ARPA"
     crp.language_model_config.scale = lm_scale
 
+    feature_flow = copy.deepcopy(feature_flow)
+    feature_flow.flags["cache_mode"] = "bundle"
+
     num_lattice = discriminative_training.NumeratorLatticeJob(
         crp=crp,
         feature_flow=feature_flow,
