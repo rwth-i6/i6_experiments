@@ -997,6 +997,9 @@ class FactoredHybridSystem(NnSystem):
             **nn_train_args,
         )
 
+        if on_2080:
+            train_job.rqmt["sbatch_args"] = ["--gres=gpu:rtx_2080"]
+
         self._add_output_alias_for_train_job(
             train_job=train_job,
             name=self.experiments[experiment_key]["name"],

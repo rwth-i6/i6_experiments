@@ -30,7 +30,7 @@ from ...setups.common.analysis import (
     PlotViterbiAlignmentsJob,
 )
 from ...setups.common.analysis.tse_tina import ComputeTinaTseJob
-from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
+from ...setups.common.nn import baum_welch, oclr, returnn_time_tag, seq_disc
 from ...setups.common.nn.chunking import subsample_chunking
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
@@ -593,288 +593,351 @@ def run_single(
                 )
             ]
 
-        for peak_lr, adapt_transition_model, bw_scale in configs:
-            ft_name = f"{orig_name}-fs:{peak_lr}-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
-            s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=ft_name)
+        peak_lr, adapt_transition_model, bw_scale = configs[0]
 
-            s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
-            s.lexicon_args["norm_pronunciation"] = False
+        ft_name = f"{orig_name}-fs:{peak_lr}-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
+        s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=ft_name)
 
-            s._update_am_setting_for_all_crps(
-                train_tdp_type="heuristic-40ms" if adapt_transition_model else "heuristic",
-                eval_tdp_type="heuristic-40ms" if adapt_transition_model else "heuristic",
-                add_base_allophones=False,
-            )
+        s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+        s.lexicon_args["norm_pronunciation"] = False
 
-            returnn_config_ft = remove_label_pops_and_losses_from_returnn_config(returnn_config)
-            nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
-                returnn_config=returnn_config_ft,
-                label_info=s.label_info,
-                out_joint_score_layer="output",
-                log_softmax=True,
-            )
-            prior_config = diphone_joint_output.augment_to_joint_diphone_softmax(
-                returnn_config=returnn_config_ft,
-                label_info=s.label_info,
-                out_joint_score_layer="output",
-                log_softmax=False,
-            )
-            returnn_config_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
-                returnn_config=returnn_config_ft,
-                label_info=s.label_info,
-                out_joint_score_layer="output",
-                log_softmax=True,
-                prepare_for_train=True,
-            )
-            returnn_config_ft = baum_welch.augment_for_fast_bw(
-                crp=s.crp[s.crp_names["train"]],
-                from_output_layer="output",
-                returnn_config=returnn_config_ft,
-                log_linear_scales=bw_scale,
-            )
-            lrates = oclr.get_learning_rates(
-                lrate=peak_lr,
-                increase=0,
-                constLR=math.floor(fine_tune_epochs * 0.45),
-                decay=math.floor(fine_tune_epochs * 0.45),
-                decMinRatio=0.1,
-                decMaxRatio=1,
-            )
-            update_config = returnn.ReturnnConfig(
-                config={
-                    "batch_size": 10000,
-                    "learning_rates": list(
-                        np.concatenate([lrates, np.linspace(min(lrates), 1e-6, fine_tune_epochs - len(lrates))])
-                    ),
-                    "preload_from_files": {
-                        "existing-model": {
-                            "init_for_train": True,
-                            "ignore_missing": True,
-                            "filename": viterbi_train_j.out_checkpoints[600],
-                        }
-                    },
-                    "extern_data": {"data": {"dim": 50}},
+        s._update_am_setting_for_all_crps(
+            train_tdp_type="heuristic-40ms" if adapt_transition_model else "heuristic",
+            eval_tdp_type="heuristic-40ms" if adapt_transition_model else "heuristic",
+            add_base_allophones=False,
+        )
+
+        returnn_config_ft = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+        nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=returnn_config_ft,
+            label_info=s.label_info,
+            out_joint_score_layer="output",
+            log_softmax=True,
+        )
+        prior_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=returnn_config_ft,
+            label_info=s.label_info,
+            out_joint_score_layer="output",
+            log_softmax=False,
+        )
+        returnn_config_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=returnn_config_ft,
+            label_info=s.label_info,
+            out_joint_score_layer="output",
+            log_softmax=True,
+            prepare_for_train=True,
+        )
+        returnn_config_ft = baum_welch.augment_for_fast_bw(
+            crp=s.crp[s.crp_names["train"]],
+            from_output_layer="output",
+            returnn_config=returnn_config_ft,
+            log_linear_scales=bw_scale,
+        )
+        lrates = oclr.get_learning_rates(
+            lrate=peak_lr,
+            increase=0,
+            constLR=math.floor(fine_tune_epochs * 0.45),
+            decay=math.floor(fine_tune_epochs * 0.45),
+            decMinRatio=0.1,
+            decMaxRatio=1,
+        )
+        update_config = returnn.ReturnnConfig(
+            config={
+                "batch_size": 10000,
+                "learning_rates": list(
+                    np.concatenate([lrates, np.linspace(min(lrates), 1e-6, fine_tune_epochs - len(lrates))])
+                ),
+                "preload_from_files": {
+                    "existing-model": {
+                        "init_for_train": True,
+                        "ignore_missing": True,
+                        "filename": viterbi_train_j.out_checkpoints[600],
+                    }
                 },
-                post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": keep_epochs}},
-                python_epilog={
-                    "dynamic_lr_reset": "dynamic_learning_rate = None",
-                },
-            )
-            returnn_config_ft.update(update_config)
+                "extern_data": {"data": {"dim": 50}},
+            },
+            post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": keep_epochs}},
+            python_epilog={
+                "dynamic_lr_reset": "dynamic_learning_rate = None",
+            },
+        )
+        returnn_config_ft.update(update_config)
 
-            s.set_returnn_config_for_experiment("fh-fs", copy.deepcopy(returnn_config_ft))
+        s.set_returnn_config_for_experiment("fh-fs", copy.deepcopy(returnn_config_ft))
 
-            train_args = {
-                **s.initial_train_args,
-                "num_epochs": fine_tune_epochs,
-                "partition_epochs": partition_epochs,
-                "returnn_config": copy.deepcopy(returnn_config_ft),
-            }
-            s.returnn_rasr_training(
-                experiment_key="fh-fs",
+        train_args = {
+            **s.initial_train_args,
+            "num_epochs": fine_tune_epochs,
+            "partition_epochs": partition_epochs,
+            "returnn_config": copy.deepcopy(returnn_config_ft),
+        }
+        bw_train_job = s.returnn_rasr_training(
+            experiment_key="fh-fs",
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            nn_train_args=train_args,
+        )
+
+        for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
+            s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+            s.set_mono_priors_returnn_rasr(
+                key="fh-fs",
+                epoch=min(ep, keep_epochs[-2]),
                 train_corpus_key=s.crp_names["train"],
                 dev_corpus_key=s.crp_names["cvtrain"],
-                nn_train_args=train_args,
+                smoothen=True,
+                returnn_config=remove_label_pops_and_losses_from_returnn_config(
+                    prior_config, except_layers=["pastLabel"]
+                ),
+                output_layer_name="output",
             )
 
-            for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
-                s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+            diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+            tying_cfg = rasr.RasrConfig()
+            tying_cfg.type = "diphone-dense"
 
-                s.set_mono_priors_returnn_rasr(
+            base_params = s.get_cart_params(key="fh-fs")
+            decoding_cfgs = [
+                dataclasses.replace(
+                    base_params,
+                    lm_scale=round(base_params.lm_scale / ss_factor, 2),
+                    tdp_scale=sc,
+                ).with_prior_scale(0.6)
+                for sc in [0.4, 0.6]
+            ]
+            for cfg in decoding_cfgs:
+                s.recognize_cart(
                     key="fh-fs",
-                    epoch=min(ep, keep_epochs[-2]),
-                    train_corpus_key=s.crp_names["train"],
-                    dev_corpus_key=s.crp_names["cvtrain"],
-                    smoothen=True,
-                    returnn_config=remove_label_pops_and_losses_from_returnn_config(
-                        prior_config, except_layers=["pastLabel"]
-                    ),
-                    output_layer_name="output",
+                    epoch=ep,
+                    crp_corpus=crp_k,
+                    n_cart_out=diphone_li.get_n_of_dense_classes(),
+                    cart_tree_or_tying_config=tying_cfg,
+                    params=cfg,
+                    log_softmax_returnn_config=nn_precomputed_returnn_config,
+                    calculate_statistics=True,
+                    opt_lm_am_scale=True,
+                    prior_epoch=min(ep, keep_epochs[-2]),
+                    rtf=8,
+                    cpu_rqmt=2,
+                    mem_rqmt=4,
                 )
 
-                diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
-                tying_cfg = rasr.RasrConfig()
-                tying_cfg.type = "diphone-dense"
-
-                base_params = s.get_cart_params(key="fh-fs")
-                decoding_cfgs = [
+            if run_performance_study:
+                configs = [
                     dataclasses.replace(
-                        base_params,
-                        lm_scale=round(base_params.lm_scale / ss_factor, 2),
-                        tdp_scale=sc,
-                    ).with_prior_scale(0.6)
-                    for sc in [0.4, 0.6]
-                ]
-                for cfg in decoding_cfgs:
-                    s.recognize_cart(
-                        key="fh-fs",
-                        epoch=ep,
-                        crp_corpus=crp_k,
-                        n_cart_out=diphone_li.get_n_of_dense_classes(),
-                        cart_tree_or_tying_config=tying_cfg,
-                        params=cfg,
-                        log_softmax_returnn_config=nn_precomputed_returnn_config,
-                        calculate_statistics=True,
-                        opt_lm_am_scale=True,
-                        prior_epoch=min(ep, keep_epochs[-2]),
-                        rtf=8,
-                        cpu_rqmt=2,
-                        mem_rqmt=4,
+                        s.get_cart_params("fh"), altas=a, beam=beam, beam_limit=100000, lm_scale=2, tdp_scale=0.4
+                    ).with_prior_scale(pC)
+                    for beam, pC, a in itertools.product(
+                        [14, 16, 18],
+                        [0.4, 0.6],
+                        [None, 2, 4, 6],
                     )
+                ]
+                for cfg in configs:
+                    j = s.recognize_cart(
+                        key="fh-fs",
+                        epoch=23,
+                        calculate_statistics=True,
+                        cart_tree_or_tying_config=tying_cfg,
+                        cpu_rqmt=2,
+                        crp_corpus="dev-other",
+                        lm_gc_simple_hash=True,
+                        log_softmax_returnn_config=nn_precomputed_returnn_config,
+                        mem_rqmt=4,
+                        n_cart_out=diphone_li.get_n_of_dense_classes(),
+                        params=cfg,
+                        prior_epoch=min(ep, keep_epochs[-2]),
+                        rtf=1.5,
+                    )
+                    j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
-                if run_performance_study:
-                    configs = [
-                        dataclasses.replace(
-                            s.get_cart_params("fh"), altas=a, beam=beam, beam_limit=100000, lm_scale=2, tdp_scale=0.4
-                        ).with_prior_scale(pC)
-                        for beam, pC, a in itertools.product(
-                            [14, 16, 18],
-                            [0.4, 0.6],
-                            [None, 2, 4, 6],
-                        )
-                    ]
-                    for cfg in configs:
-                        j = s.recognize_cart(
-                            key="fh-fs",
-                            epoch=23,
-                            calculate_statistics=True,
-                            cart_tree_or_tying_config=tying_cfg,
-                            cpu_rqmt=2,
-                            crp_corpus="dev-other",
-                            lm_gc_simple_hash=True,
-                            log_softmax_returnn_config=nn_precomputed_returnn_config,
-                            mem_rqmt=4,
-                            n_cart_out=diphone_li.get_n_of_dense_classes(),
-                            params=cfg,
-                            prior_epoch=min(ep, keep_epochs[-2]),
-                            rtf=1.5,
-                        )
-                        j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+        s.set_graph_for_experiment("fh-fs", override_cfg=nn_precomputed_returnn_config)
 
-            s.set_graph_for_experiment("fh-fs", override_cfg=nn_precomputed_returnn_config)
+        s.set_binaries_for_crp("train-other-960.train", RASR_TF_BINARY_PATH)
+        s.create_stm_from_corpus("train-other-960.train")
+        s._set_scorer_for_corpus("train-other-960.train")
+        s._init_lm("train-other-960.train", **next(iter(dev_data_inputs.values())).lm)
+        s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+        s._update_crp_am_setting("train-other-960.train", tdp_type="default", add_base_allophones=False)
 
-            s.set_binaries_for_crp("train-other-960.train", RASR_TF_BINARY_PATH)
-            s.create_stm_from_corpus("train-other-960.train")
-            s._set_scorer_for_corpus("train-other-960.train")
-            s._init_lm("train-other-960.train", **next(iter(dev_data_inputs.values())).lm)
-            s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
-            s._update_crp_am_setting("train-other-960.train", tdp_type="default", add_base_allophones=False)
+        for sil_e in [3.0, 0.0]:  # reverse order to use 0.0 in other exps
+            crp = copy.deepcopy(s.crp["train-other-960.train"])
+            crp.acoustic_model_config.allophones.add_all = False
+            crp.acoustic_model_config.allophones.add_from_lexicon = True
+            crp.acoustic_model_config.state_tying.type = "diphone-dense"
+            crp.acoustic_model_config.tdp.applicator_type = "corrected"
+            crp.acoustic_model_config.tdp.scale = 1.0
 
-            for sil_e in [3.0, 0.0]:  # reverse order to use 0.0 in other exps
-                crp = copy.deepcopy(s.crp["train-other-960.train"])
-                crp.acoustic_model_config.allophones.add_all = False
-                crp.acoustic_model_config.allophones.add_from_lexicon = True
-                crp.acoustic_model_config.state_tying.type = "diphone-dense"
-                crp.acoustic_model_config.tdp.applicator_type = "corrected"
-                crp.acoustic_model_config.tdp.scale = 1.0
+            v = (3.0, 0.0, "infinity", 0.0)
+            sv = (0.0, 3.0, "infinity", sil_e)
+            keys = ["loop", "forward", "skip", "exit"]
+            for i, k in enumerate(keys):
+                crp.acoustic_model_config.tdp["*"][k] = v[i]
+                crp.acoustic_model_config.tdp["silence"][k] = sv[i]
 
-                v = (3.0, 0.0, "infinity", 0.0)
-                sv = (0.0, 3.0, "infinity", sil_e)
-                keys = ["loop", "forward", "skip", "exit"]
-                for i, k in enumerate(keys):
-                    crp.acoustic_model_config.tdp["*"][k] = v[i]
-                    crp.acoustic_model_config.tdp["silence"][k] = sv[i]
+            crp.concurrent = 300
+            crp.segment_path = corpus.SegmentCorpusJob(
+                s.corpora[s.train_key].corpus_file, crp.concurrent
+            ).out_segment_path
 
-                crp.concurrent = 300
-                crp.segment_path = corpus.SegmentCorpusJob(
-                    s.corpora[s.train_key].corpus_file, crp.concurrent
-                ).out_segment_path
+            p_mixtures = mm.CreateDummyMixturesJob(
+                s.label_info.get_n_of_dense_classes(), s.initial_nn_args["num_input"]
+            )
+            priors = s.experiments["fh-fs"]["priors"].center_state_prior
+            p_c = 0.6
+            feature_scorer = PrecomputedHybridFeatureScorer(
+                prior_mixtures=p_mixtures.out_mixtures,
+                prior_file=priors.file,
+                priori_scale=p_c,
+            )
+            tf_flow = make_precomputed_hybrid_tf_feature_flow(
+                tf_graph=s.experiments["fh-fs"]["graph"]["inference"],
+                tf_checkpoint=s.experiments["fh-fs"]["train_job"].out_checkpoints[fine_tune_epochs],
+                output_layer_name="output",
+                tf_fwd_input_name="tf-fwd-input",
+            )
+            feature_flow = add_tf_flow_to_base_flow(
+                base_flow=s.feature_flows["train-other-960.train"],
+                tf_flow=tf_flow,
+                tf_fwd_input_name="tf-fwd-input",
+            )
 
-                p_mixtures = mm.CreateDummyMixturesJob(
-                    s.label_info.get_n_of_dense_classes(), s.initial_nn_args["num_input"]
-                )
-                priors = s.experiments["fh-fs"]["priors"].center_state_prior
-                p_c = 0.6
-                feature_scorer = PrecomputedHybridFeatureScorer(
-                    prior_mixtures=p_mixtures.out_mixtures,
-                    prior_file=priors.file,
-                    priori_scale=p_c,
-                )
-                tf_flow = make_precomputed_hybrid_tf_feature_flow(
-                    tf_graph=s.experiments["fh-fs"]["graph"]["inference"],
-                    tf_checkpoint=s.experiments["fh-fs"]["train_job"].out_checkpoints[fine_tune_epochs],
-                    output_layer_name="output",
-                    tf_fwd_input_name="tf-fwd-input",
-                )
-                feature_flow = add_tf_flow_to_base_flow(
-                    base_flow=s.feature_flows["train-other-960.train"],
-                    tf_flow=tf_flow,
-                    tf_fwd_input_name="tf-fwd-input",
-                )
+            a_name = f"{ft_name}-pC{p_c}-silE{sil_e}-tdp{1.0}"
+            recognizer, _ = s.get_recognizer_and_args(
+                key="fh-fs",
+                context_type=PhoneticContext.diphone,
+                crp_corpus="train-other-960.train",
+                epoch=fine_tune_epochs,
+                gpu=False,
+                tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+                set_batch_major_for_feature_scorer=True,
+                lm_gc_simple_hash=True,
+            )
+            a_job = recognizer.align(
+                a_name,
+                crp=crp,
+                feature_scorer=feature_scorer,
+                feature_flow=feature_flow,
+                default_tdp=False,
+                set_do_not_normalize_lemma_sequence_scores=False,
+                set_no_tying_dense=False,
+                rtf=2,
+            )
 
-                a_name = f"{ft_name}-pC{p_c}-silE{sil_e}-tdp{1.0}"
-                recognizer, _ = s.get_recognizer_and_args(
-                    key="fh-fs",
-                    context_type=PhoneticContext.diphone,
-                    crp_corpus="train-other-960.train",
-                    epoch=fine_tune_epochs,
-                    gpu=False,
-                    tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-                    set_batch_major_for_feature_scorer=True,
-                    lm_gc_simple_hash=True,
-                )
-                a_job = recognizer.align(
-                    a_name,
-                    crp=crp,
-                    feature_scorer=feature_scorer,
-                    feature_flow=feature_flow,
-                    default_tdp=False,
-                    set_do_not_normalize_lemma_sequence_scores=False,
-                    set_no_tying_dense=False,
-                    rtf=2,
-                )
+            output_time_step = 40 / 1000
 
-                output_time_step = 40 / 1000
+            allophones = lexicon.StoreAllophonesJob(crp)
+            tk.register_output(f"allophones/{a_name}/allophones", allophones.out_allophone_file)
 
-                allophones = lexicon.StoreAllophonesJob(crp)
-                tk.register_output(f"allophones/{a_name}/allophones", allophones.out_allophone_file)
+            plots = PlotViterbiAlignmentsJob(
+                alignment_bundle_path=a_job.out_alignment_bundle,
+                allophones_path=allophones.out_allophone_file,
+                segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
+                show_labels=False,
+                monophone=True,
+            )
+            tk.register_output(f"alignments/{a_name}/alignment-plots", plots.out_plot_folder)
 
-                plots = PlotViterbiAlignmentsJob(
-                    alignment_bundle_path=a_job.out_alignment_bundle,
-                    allophones_path=allophones.out_allophone_file,
-                    segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
-                    show_labels=False,
-                    monophone=True,
-                )
-                tk.register_output(f"alignments/{a_name}/alignment-plots", plots.out_plot_folder)
+            tse_job = ComputeTimestampErrorJob(
+                allophones=allophones.out_allophone_file,
+                alignment=a_job.out_alignment_bundle,
+                t_step=output_time_step,
+                reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+                reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
+                reference_t_step=10 / 1000,
+            )
+            tse_job.add_alias(f"tse/{a_name}")
+            tk.register_output(f"alignments/{a_name}/statistics/tse", tse_job.out_tse)
 
-                tse_job = ComputeTimestampErrorJob(
-                    allophones=allophones.out_allophone_file,
-                    alignment=a_job.out_alignment_bundle,
-                    t_step=output_time_step,
-                    reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
-                    reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
-                    reference_t_step=10 / 1000,
-                )
-                tse_job.add_alias(f"tse/{a_name}")
-                tk.register_output(f"alignments/{a_name}/statistics/tse", tse_job.out_tse)
+            tse_w_job = ComputeWordLevelTimestampErrorJob(
+                allophones=allophones.out_allophone_file,
+                alignment=a_job.out_alignment_bundle,
+                t_step=output_time_step,
+                reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+                reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
+                reference_t_step=10 / 1000,
+            )
+            tse_w_job.add_alias(f"tse-w/{a_name}/tse")
+            tk.register_output(f"alignments/{a_name}/statistics/tse-w", tse_w_job.out_tse)
 
-                tse_w_job = ComputeWordLevelTimestampErrorJob(
-                    allophones=allophones.out_allophone_file,
-                    alignment=a_job.out_alignment_bundle,
-                    t_step=output_time_step,
-                    reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
-                    reference_alignment=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
-                    reference_t_step=10 / 1000,
-                )
-                tse_w_job.add_alias(f"tse-w/{a_name}/tse")
-                tk.register_output(f"alignments/{a_name}/statistics/tse-w", tse_w_job.out_tse)
+            tse_tina_job = ComputeTinaTseJob(
+                allophones=allophones.out_allophone_file,
+                alignment_bundle=a_job.out_alignment_bundle,
+                ref_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+                ref_alignment_bundle=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
+                ref_t_step=10 / 1000,
+                ss_factor=int(output_time_step / (10 / 1000)),
+            )
+            tse_tina_job.add_alias(f"tse-tina/{a_name}/tse")
+            tk.register_output(f"alignments/{a_name}/statistics/tse-tina", tse_tina_job.out_tse)
 
-                tse_tina_job = ComputeTinaTseJob(
-                    allophones=allophones.out_allophone_file,
-                    alignment_bundle=a_job.out_alignment_bundle,
-                    ref_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
-                    ref_alignment_bundle=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
-                    ref_t_step=10 / 1000,
-                    ss_factor=int(output_time_step / (10 / 1000)),
-                )
-                tse_tina_job.add_alias(f"tse-tina/{a_name}/tse")
-                tk.register_output(f"alignments/{a_name}/statistics/tse-tina", tse_tina_job.out_tse)
+            tse_w_job = ComputeSilencePercentageJob(a_job.out_alignment_bundle, allophones.out_allophone_file)
+            tk.register_output(f"alignments/{a_name}/statistics/sil", tse_w_job.out_percent_sil)
 
-                tse_w_job = ComputeSilencePercentageJob(a_job.out_alignment_bundle, allophones.out_allophone_file)
-                tk.register_output(f"alignments/{a_name}/statistics/sil", tse_w_job.out_percent_sil)
+            s.experiments["fh-fs"]["alignment_job"] = a_job
 
-                s.experiments["fh-fs"]["alignment_job"] = a_job
+        smbr_epochs = 120
+        returnn_config_smbr = (
+            seq_disc.augment_for_smbr(
+                crp=s.crp[s.crp_names["train"]],
+                feature_scorer=feature_scorer,
+                feature_flow=feature_flow,
+                from_output_layer="output",
+                lm_scale=1.3,
+                returnn_config=prior_config,
+                smbr_params=seq_disc.SmbrParameters(
+                    num_classes=s.label_info.get_n_of_dense_classes(),
+                    num_data_dim=50,
+                ),
+            ),
+        )
+        lrates = oclr.get_learning_rates(
+            lrate=peak_lr,
+            increase=0,
+            constLR=math.floor(smbr_epochs * 0.45),
+            decay=math.floor(smbr_epochs * 0.45),
+            decMinRatio=0.1,
+            decMaxRatio=1,
+        )
+        smbr_update_config = returnn.ReturnnConfig(
+            config={
+                "batch_size": 10000,
+                "learning_rates": list(
+                    np.concatenate([lrates, np.linspace(min(lrates), 1e-6, smbr_epochs - len(lrates))])
+                ),
+                "preload_from_files": {
+                    "existing-model": {
+                        "init_for_train": True,
+                        "ignore_missing": True,
+                        "filename": bw_train_job.out_checkpoints[fine_tune_epochs],
+                    }
+                },
+                "extern_data": {"data": {"dim": 50}},
+            },
+            post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": keep_epochs}},
+            python_epilog={
+                "dynamic_lr_reset": "dynamic_learning_rate = None",
+            },
+        )
+        returnn_config_smbr.update(smbr_update_config)
+
+        s.set_returnn_config_for_experiment("fh-smbr", copy.deepcopy(returnn_config_smbr))
+
+        train_args = {
+            **s.initial_train_args,
+            "cpu_rqmt": 4,
+            "num_epochs": smbr_epochs,
+            "partition_epochs": partition_epochs,
+            "returnn_config": copy.deepcopy(returnn_config_smbr),
+        }
+        smbr_train_job = s.returnn_rasr_training(
+            experiment_key="fh-smbr",
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            nn_train_args=train_args,
+            on_2080=True,
+        )
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
