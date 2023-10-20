@@ -181,23 +181,30 @@ def _generate_lattices(
         crp=crp,
         feature_flow=feature_flow,
         feature_scorer=feature_scorer,
+        rtf=2,
     )
+    num_lattice.rqmt["cpu"] = 1
     raw_den_lattice = discriminative_training.RawDenominatorLatticeJob(
         crp=crp,
         feature_flow=feature_flow,
         feature_scorer=feature_scorer,
+        rtf=2,
     )
+    raw_den_lattice.rqmt["cpu"] = 1
     den_lattice = discriminative_training.DenominatorLatticeJob(
         crp=crp,
         numerator_path=num_lattice.lattice_path,
         raw_denominator_path=raw_den_lattice.lattice_path,
     )
+    den_lattice.rqmt["cpu"] = 1
     state_acc = discriminative_training.StateAccuracyJob(
         crp=crp,
         feature_flow=feature_flow,
         feature_scorer=feature_scorer,
         denominator_path=den_lattice.lattice_path,
+        rtf=2,
     )
+    state_acc.rqmt["cpu"] = 1
 
     return StateAccuracyLatticeAndAlignment(
         alignment_bundle=state_acc.segmentwise_alignment_bundle, lattice_bundle=state_acc.lattice_bundle
