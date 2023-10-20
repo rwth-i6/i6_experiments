@@ -879,6 +879,8 @@ def run_single(
 
         if alignment_name == "40ms-FF-v8":
             smbr_epochs = 120
+            smbr_name = f"{name}-smbr:{smbr_epochs}"
+
             returnn_config_smbr = seq_disc.augment_for_smbr(
                 crp=s.crp[s.crp_names["train"]],
                 feature_scorer=feature_scorer,
@@ -921,6 +923,7 @@ def run_single(
             )
             returnn_config_smbr.update(smbr_update_config)
 
+            s.set_experiment_dict("fh-smbr", "scratch", "di", postfix_name=smbr_name)
             s.set_returnn_config_for_experiment("fh-smbr", copy.deepcopy(returnn_config_smbr))
 
             train_args = {
