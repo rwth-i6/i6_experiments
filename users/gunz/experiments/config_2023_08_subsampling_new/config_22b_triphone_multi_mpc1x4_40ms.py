@@ -413,7 +413,7 @@ def run_single(
                 rtf_cpu=35,
             )
 
-    fine_tune = False
+    fine_tune = True
     if fine_tune:
         ft_share = 0.3
         peak_lr = 8e-5
