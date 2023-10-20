@@ -879,18 +879,16 @@ def run_single(
 
         if alignment_name == "40ms-FF-v8":
             smbr_epochs = 120
-            returnn_config_smbr = (
-                seq_disc.augment_for_smbr(
-                    crp=s.crp[s.crp_names["train"]],
-                    feature_scorer=feature_scorer,
-                    feature_flow=feature_flow,
-                    from_output_layer="output",
-                    lm_scale=1.3,
-                    returnn_config=prior_config,
-                    smbr_params=seq_disc.SmbrParameters(
-                        num_classes=s.label_info.get_n_of_dense_classes(),
-                        num_data_dim=50,
-                    ),
+            returnn_config_smbr = seq_disc.augment_for_smbr(
+                crp=s.crp[s.crp_names["train"]],
+                feature_scorer=feature_scorer,
+                feature_flow=feature_flow,
+                from_output_layer="output",
+                lm_scale=1.3,
+                returnn_config=prior_config,
+                smbr_params=seq_disc.SmbrParameters(
+                    num_classes=s.label_info.get_n_of_dense_classes(),
+                    num_data_dim=50,
                 ),
             )
             lrates = oclr.get_learning_rates(
