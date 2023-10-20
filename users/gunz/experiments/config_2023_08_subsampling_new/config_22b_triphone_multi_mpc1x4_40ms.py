@@ -420,13 +420,13 @@ def run_single(
         fine_tune_epochs = 450
         fine_tune_keep_epochs = [25, 50, 100, 225, 400, 450]
 
-        cart_crp = copy.deepcopy(s.crp[s.crp_names[train_key]])
+        cart_crp = copy.deepcopy(s.crp[s.crp_names["train"]])
         cart_crp.acoustic_model_config.state_tying.type = "cart"
         cart_crp.acoustic_model_config.state_tying.file = Path(CART_TREE_TRI, cached=True)
 
         cart_tying_job = lexicon.DumpStateTyingJob(crp=cart_crp)
-        dense_tying_job = lexicon.DumpStateTyingJob(crp=s.crp[s.crp_names[train_key]])
-        allophones_job = lexicon.StoreAllophonesJob(crp=s.crp[s.crp_names[train_key]])
+        dense_tying_job = lexicon.DumpStateTyingJob(crp=s.crp[s.crp_names["train"]])
+        allophones_job = lexicon.StoreAllophonesJob(crp=s.crp[s.crp_names["train"]])
 
         with open(s.alignments[train_key], "rt") as bundle:
             a_caches = [Path(l.strip()) for l in bundle]
