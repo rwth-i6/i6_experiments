@@ -4,6 +4,7 @@ import math
 import random
 import shutil
 import tempfile
+import time
 from os import path
 from typing import List
 
@@ -57,6 +58,10 @@ class RasrFeatureAndAlignmentWithRandomAllophonesToHDF(Job):
 
         for file_index in to_process:
             target_file = self.out_hdf_files[file_index]
+
+            secs = random.randrange(0, 120)
+            logging.info(f"sleeping for {secs}s to prevent thundering herd")
+            time.sleep(secs)
 
             with tempfile.TemporaryDirectory() as tmp_dir:
                 f = path.join(tmp_dir, "data.hdf")
