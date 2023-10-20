@@ -877,67 +877,68 @@ def run_single(
 
             s.experiments["fh-fs"]["alignment_job"] = a_job
 
-        smbr_epochs = 120
-        returnn_config_smbr = (
-            seq_disc.augment_for_smbr(
-                crp=s.crp[s.crp_names["train"]],
-                feature_scorer=feature_scorer,
-                feature_flow=feature_flow,
-                from_output_layer="output",
-                lm_scale=1.3,
-                returnn_config=prior_config,
-                smbr_params=seq_disc.SmbrParameters(
-                    num_classes=s.label_info.get_n_of_dense_classes(),
-                    num_data_dim=50,
+        if alignment_name == "40ms-FF-v8":
+            smbr_epochs = 120
+            returnn_config_smbr = (
+                seq_disc.augment_for_smbr(
+                    crp=s.crp[s.crp_names["train"]],
+                    feature_scorer=feature_scorer,
+                    feature_flow=feature_flow,
+                    from_output_layer="output",
+                    lm_scale=1.3,
+                    returnn_config=prior_config,
+                    smbr_params=seq_disc.SmbrParameters(
+                        num_classes=s.label_info.get_n_of_dense_classes(),
+                        num_data_dim=50,
+                    ),
                 ),
-            ),
-        )
-        lrates = oclr.get_learning_rates(
-            lrate=peak_lr,
-            increase=0,
-            constLR=math.floor(smbr_epochs * 0.45),
-            decay=math.floor(smbr_epochs * 0.45),
-            decMinRatio=0.1,
-            decMaxRatio=1,
-        )
-        smbr_update_config = returnn.ReturnnConfig(
-            config={
-                "batch_size": 10000,
-                "learning_rates": list(
-                    np.concatenate([lrates, np.linspace(min(lrates), 1e-6, smbr_epochs - len(lrates))])
-                ),
-                "preload_from_files": {
-                    "existing-model": {
-                        "init_for_train": True,
-                        "ignore_missing": True,
-                        "filename": bw_train_job.out_checkpoints[fine_tune_epochs],
-                    }
+            )
+            lrates = oclr.get_learning_rates(
+                lrate=peak_lr,
+                increase=0,
+                constLR=math.floor(smbr_epochs * 0.45),
+                decay=math.floor(smbr_epochs * 0.45),
+                decMinRatio=0.1,
+                decMaxRatio=1,
+            )
+            smbr_update_config = returnn.ReturnnConfig(
+                config={
+                    "batch_size": 10000,
+                    "learning_rates": list(
+                        np.concatenate([lrates, np.linspace(min(lrates), 1e-6, smbr_epochs - len(lrates))])
+                    ),
+                    "preload_from_files": {
+                        "existing-model": {
+                            "init_for_train": True,
+                            "ignore_missing": True,
+                            "filename": bw_train_job.out_checkpoints[fine_tune_epochs],
+                        }
+                    },
+                    "extern_data": {"data": {"dim": 50}},
                 },
-                "extern_data": {"data": {"dim": 50}},
-            },
-            post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": keep_epochs}},
-            python_epilog={
-                "dynamic_lr_reset": "dynamic_learning_rate = None",
-            },
-        )
-        returnn_config_smbr.update(smbr_update_config)
+                post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": keep_epochs}},
+                python_epilog={
+                    "dynamic_lr_reset": "dynamic_learning_rate = None",
+                },
+            )
+            returnn_config_smbr.update(smbr_update_config)
 
-        s.set_returnn_config_for_experiment("fh-smbr", copy.deepcopy(returnn_config_smbr))
+            s.set_returnn_config_for_experiment("fh-smbr", copy.deepcopy(returnn_config_smbr))
 
-        train_args = {
-            **s.initial_train_args,
-            "cpu_rqmt": 4,
-            "num_epochs": smbr_epochs,
-            "partition_epochs": partition_epochs,
-            "returnn_config": copy.deepcopy(returnn_config_smbr),
-        }
-        smbr_train_job = s.returnn_rasr_training(
-            experiment_key="fh-smbr",
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            nn_train_args=train_args,
-            on_2080=True,
-        )
+            train_args = {
+                **s.initial_train_args,
+                "cpu_rqmt": 4,
+                "num_epochs": smbr_epochs,
+                "partition_epochs": partition_epochs,
+                "returnn_config": copy.deepcopy(returnn_config_smbr),
+            }
+            smbr_train_job = s.returnn_rasr_training(
+                experiment_key="fh-smbr",
+                train_corpus_key=s.crp_names["train"],
+                dev_corpus_key=s.crp_names["cvtrain"],
+                nn_train_args=train_args,
+                on_2080=True,
+            )
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
