@@ -440,7 +440,7 @@ def run_single(
             )
             jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30", "--nice=500"]})
 
-    fine_tune = False
+    fine_tune = alignment_name == "40ms-FF-v8"
     if fine_tune:
         ft_share = 0.3
         peak_lr = 8e-5
@@ -463,7 +463,7 @@ def run_single(
 
         randomized_indices = set(r.sample(list(range(len(a_caches))), k=int(len(a_caches) * ft_share)))
         randomized_a_caches = [a_caches[i] for i in randomized_indices]
-        randomized_features = [s.feature_caches[train_key]["gt"].hidden_paths[i] for i in randomized_indices]
+        randomized_features = [s.feature_caches[train_key]["gt"].hidden_paths[i + 1] for i in randomized_indices]
         randomized_hdfs = RasrFeatureAndAlignmentWithRandomAllophonesToHDF(
             feature_caches=randomized_features,
             alignment_caches=randomized_a_caches,
@@ -474,7 +474,7 @@ def run_single(
         )
         normal_indices = set(range(300)) - randomized_indices
         normal_a_caches = [a_caches[i] for i in normal_indices]
-        normal_features = [s.feature_caches[train_key]["gt"].hidden_paths[i] for i in normal_indices]
+        normal_features = [s.feature_caches[train_key]["gt"].hidden_paths[i + 1] for i in normal_indices]
         normal_hdfs = RasrFeatureAndAlignmentWithRandomAllophonesToHDF(
             feature_caches=normal_features,
             alignment_caches=normal_a_caches,
