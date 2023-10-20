@@ -163,7 +163,9 @@ def _generate_lattices(
     feature_flow: rasr.FlowNetwork,
     feature_scorer: rasr.FeatureScorer,
     lm: Union[str, Path],
+    beam_limit: int,
     lm_scale: float,
+    pron_scale: float,
     concurrency: int = 300,
 ) -> StateAccuracyLatticeAndAlignment:
     assert lm_scale > 0
@@ -177,6 +179,9 @@ def _generate_lattices(
     crp.language_model_config.scale = lm_scale
     crp.segment_path = corpus.SegmentCorpusJob(crp.corpus_config.file, concurrency).out_segment_path
 
+    model_combination_cfg = rasr.RasrConfig()
+    model_combination_cfg.pronunciation_scale = pron_scale
+
     num_lattice = discriminative_training.NumeratorLatticeJob(
         crp=crp,
         feature_flow=feature_flow,
@@ -188,6 +193,7 @@ def _generate_lattices(
         crp=crp,
         feature_flow=feature_flow,
         feature_scorer=feature_scorer,
+        search_parameters={"beam-pruning": beam_limit},
         rtf=2,
     )
     raw_den_lattice.rqmt["cpu"] = 1
@@ -195,6 +201,7 @@ def _generate_lattices(
         crp=crp,
         numerator_path=num_lattice.lattice_path,
         raw_denominator_path=raw_den_lattice.lattice_path,
+        search_options={"pruning-threshold": beam_limit},
     )
     den_lattice.rqmt["cpu"] = 1
     state_acc = discriminative_training.StateAccuracyJob(
@@ -217,7 +224,9 @@ def augment_for_smbr(
     feature_flow: rasr.FlowNetwork,
     feature_scorer: rasr.FeatureScorer,
     returnn_config: returnn.ReturnnConfig,
+    beam_limit: int,
     lm_scale: float,
+    pron_scale: float,
     smbr_params: SmbrParameters,
     lm_needs_to_be_not_good: Union[Path, str] = BIGRAM_LM,
     from_output_layer: str = "output",
@@ -240,8 +249,10 @@ def augment_for_smbr(
         concurrency=concurrency,
         feature_flow=feature_flow,
         feature_scorer=feature_scorer,
+        beam_limit=beam_limit,
         lm=lm_needs_to_be_not_good,
         lm_scale=lm_scale,
+        pron_scale=pron_scale,
     )
 
     config, post_config = _get_smbr_crp(

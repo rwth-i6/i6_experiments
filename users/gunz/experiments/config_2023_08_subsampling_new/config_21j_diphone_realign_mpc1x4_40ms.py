@@ -888,7 +888,9 @@ def run_single(
                 feature_scorer=feature_scorer,
                 feature_flow=feature_flow,
                 from_output_layer="output",
+                beam_limit=20,
                 lm_scale=1.3,
+                pron_scale=2.0,
                 returnn_config=prior_config,
                 smbr_params=seq_disc.SmbrParameters(
                     num_classes=s.label_info.get_n_of_dense_classes(),
