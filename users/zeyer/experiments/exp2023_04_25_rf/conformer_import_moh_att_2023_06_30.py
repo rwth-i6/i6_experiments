@@ -88,8 +88,7 @@ config = dict(
     batch_size=15_000 * _batch_size_factor,
     max_seqs=200,
     max_seq_length_default_target=75,
-    # TODO grad accum scheduling, higher in beginning for better convergence?
-    accum_grad_multiple_step=8,
+    specaugment_steps=(5000, 10000, 20000),
     # gradient_clip=0,
     # gradient_clip_global_norm = 1.0
     # TODO check Nadam: https://github.com/rwth-i6/returnn/issues/1440
@@ -98,6 +97,8 @@ config = dict(
         "epsilon": 1e-8,
         "weight_decay": 0.000001,
     },
+    # TODO grad accum scheduling, higher in beginning for better convergence?
+    accum_grad_multiple_step=2,
     # gradient_noise=0.0,
     learning_rate=0.006,
     dynamic_learning_rate=dyn_lr_lin_warmup_invsqrt_decay,
@@ -256,6 +257,12 @@ class Model(rf.Module):
         for i in enc_aux_logits:
             setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
 
+        from returnn.config import get_global_config
+
+        config = get_global_config()
+
+        self._specaugment_steps = config.typed_value("specaugment_steps") or (0, 1000, 2000)
+
     def encode(
         self,
         source: Tensor,
@@ -273,7 +280,9 @@ class Model(rf.Module):
             log_base=math.exp(2.3026),  # almost 10.0 but not exactly...
         )
         # SpecAugment
-        source = rf.audio.specaugment(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)
+        source = rf.audio.specaugment(
+            source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim, steps=self._specaugment_steps
+        )
         # Encoder including convolutional frontend
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         enc_ctx = self.enc_ctx(enc)
