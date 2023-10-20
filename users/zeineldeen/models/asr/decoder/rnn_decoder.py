@@ -198,8 +198,6 @@ class RNNDecoder:
                     [expected_att_weights_pos_reduce, "prev:" + expected_att_weights_pos_reduce],  # E_j - E_{j-1}
                     kind="sub",
                 )  # [B,1]
-                # TODO: maybe it is bad idea to force weights for first frame at step 0 so:
-                # TODO: better way is to enable the loss only after step 0 so the model can attend to any frame at step 0
                 self.subnet_unit.add_eval_layer(
                     "monotonic_att_weights_loss",
                     source=expected_att_weights_pos_delta,

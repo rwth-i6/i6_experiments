@@ -1066,10 +1066,14 @@ def conformer_baseline():
                                 )
 
                                 recog_datasets_tuples = get_test_dataset_tuples(bpe_size=BPE_1K)
-                                for test_set in ["dev"]:
+
+                                # baseline: 7.41/6.85
+                                # dev_coverage0.03_0.11_max/wer  7.34
+                                # test_coverage0.03_0.11_max/wer 6.85
+                                for test_set in ["test"]:
                                     for cov_update in ["max"]:
-                                        for cov_scale in [0.05, 0.08, 0.1, 0.16, 0.17, 0.18]:
-                                            for cov_thre in [0.11, 0.15, 0.2, 0.3]:
+                                        for cov_scale in [0.03, 0.04]:
+                                            for cov_thre in [0.11, 0.13]:
                                                 search_args = copy.deepcopy(args)
                                                 search_args["decoder_args"].coverage_scale = cov_scale
                                                 search_args["decoder_args"].coverage_threshold = cov_thre
@@ -1112,36 +1116,6 @@ def conformer_baseline():
                                 #             },
                                 #         )
 
-    # for dec_att_drop in [0.1]:
-    #     for weight_drop in [0.15]:
-    #         for lr in [8e-4]:
-    #             retrain_args = copy.deepcopy(args)
-    #             retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[name]
-    #             retrain_args["learning_rates_list"] = [lr] * 8 + list(
-    #                 numpy.linspace(lr, 1e-6, 200 - 8)
-    #             )
-    #             retrain_args["decoder_args"].att_dropout = dec_att_drop
-    #             retrain_args["encoder_args"].dropout = 0.2
-    #             retrain_args["encoder_args"].dropout_in = 0.2
-    #             retrain_args["encoder_args"].att_dropout = 0.2
-    #
-    #             retrain_args["encoder_args"].mhsa_weight_dropout = weight_drop
-    #             retrain_args["encoder_args"].ff_weight_dropout = weight_drop
-    #             retrain_args["encoder_args"].conv_weight_dropout = weight_drop
-    #
-    #             retrain_name = (
-    #                 exp_name
-    #                 + f"_weightDrop{weight_drop}_decAttDrop{dec_att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
-    #             )
-    #             run_exp(
-    #                 retrain_name + f"_retrain1_lr{lr}_ep200",
-    #                 retrain_args,
-    #                 num_epochs=200,
-    #                 epoch_wise_filter=None,
-    #                 bpe_size=BPE_1K,
-    #                 partition_epoch=4,
-    #             )
-
     for num_blocks in [14]:
         for ep in [100 * 4]:
             for lr in [8e-4]:
@@ -1167,52 +1141,6 @@ def conformer_baseline():
                                 name = (
                                     exp_name
                                     + f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}_bs30k"
-                                )
-                                search_args = copy.deepcopy(args)
-                                search_args["recursion_limit"] = 6000
-                                run_exp(
-                                    name,
-                                    args,
-                                    num_epochs=ep,
-                                    epoch_wise_filter=None,
-                                    bpe_size=BPE_1K,
-                                    partition_epoch=4,
-                                    gpu_mem=24,
-                                    search_args=search_args,
-                                )
-
-    for num_blocks in [16]:
-        for ep in [100 * 4]:
-            for lr in [8e-4]:
-                for target_embed_dim in [256]:
-                    for att_drop in [0.0]:
-                        for weight_drop in [0.1]:
-                            for enc_drop in [0.15]:
-                                base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
-                                args = copy.deepcopy(base_v1_args)
-
-                                args["encoder_args"].num_blocks = num_blocks
-                                args["encoder_args"].mhsa_weight_dropout = weight_drop
-                                args["encoder_args"].ff_weight_dropout = weight_drop
-                                args["encoder_args"].conv_weight_dropout = weight_drop
-
-                                args["encoder_args"].enc_key_dim = 384
-                                args["encoder_args"].att_num_heads = 6
-                                args["encoder_args"].ff_dim = 1536
-
-                                args["decoder_args"].embed_dim = target_embed_dim
-                                args["decoder_args"].att_dropout = att_drop
-
-                                args["batch_size"] *= 2
-                                args["accum_grad"] = 1
-
-                                # modify pretrain
-                                args["pretrain_opts"]["initial_batch_size"] *= 2
-                                args["pretrain_opts"]["initial_dim_factor"] = 256 / 384
-
-                                name = (
-                                    exp_name
-                                    + f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}_dim384_bs30k"
                                 )
                                 search_args = copy.deepcopy(args)
                                 search_args["recursion_limit"] = 6000
