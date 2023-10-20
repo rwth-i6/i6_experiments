@@ -878,7 +878,7 @@ def run_single(
             s.experiments["fh-fs"]["alignment_job"] = a_job
 
         if alignment_name == "40ms-FF-v8":
-            smbr_epochs = 120
+            smbr_epochs = 80
             smbr_name = f"{name}-smbr:{smbr_epochs}"
 
             returnn_config_smbr = seq_disc.augment_for_smbr(
