@@ -485,12 +485,14 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
 
 def forward_init_hook(run_ctx, **kwargs):
     import json
+    import sys
+    sys.path.insert(0, "/u/rossenbach/src/vocoder_collection/univnet")
     from utils import AttrDict
     from inference import load_checkpoint
     from generator import UnivNet as Generator
     import numpy as np
 
-    with open("config_univ.json") as f:
+    with open("/work/asr3/rossenbach/schuemann/vocoder/vocoder_resources/vocoder_test/vocoder_collection/config_univ.json") as f:
         data = f.read()
 
     json_config = json.loads(data)
@@ -498,7 +500,7 @@ def forward_init_hook(run_ctx, **kwargs):
 
     generator = Generator(h).to(run_ctx.device)
 
-    state_dict_g = load_checkpoint("g_02310000", run_ctx.device)
+    state_dict_g = load_checkpoint("/work/asr3/rossenbach/schuemann/vocoder/cp_libri_full/g_02310000", run_ctx.device)
     generator.load_state_dict(state_dict_g['generator'])
 
     run_ctx.generator = generator
@@ -531,6 +533,6 @@ def forward_step(*, model: Model, data, run_ctx, **kwargs):
     audios = audios * MAX_WAV_VALUE
     audios = audios.cpu().numpy().astype('int16')
 
-    os.makedirs("/var/tmp/out", exist_ok=True)
+    os.makedirs("audio_out/", exist_ok=True)
     for audio, tag in zip (audios, tags):
-        soundfile.write(f"/var/tmp/out" + tag.replace("/", "_") + ".wav", audio[0], 16000)
+        soundfile.write(f"audio_out/" + tag.replace("/", "_") + ".wav", audio[0], 16000)
