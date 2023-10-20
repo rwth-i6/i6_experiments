@@ -193,6 +193,7 @@ def _generate_lattices(
         crp=crp,
         feature_flow=feature_flow,
         feature_scorer=feature_scorer,
+        model_combination_config=model_combination_cfg,
         search_parameters={"beam-pruning": beam_limit},
         rtf=2,
     )
@@ -241,8 +242,6 @@ def augment_for_smbr(
     assert concurrency > 0
     assert 0.0 <= ce_smoothing < 1.0
     assert num_rasr_instances > 0
-
-    # applicatior corrected tdps
 
     lattice_data = _generate_lattices(
         crp=crp,
