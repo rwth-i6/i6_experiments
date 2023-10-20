@@ -6,7 +6,7 @@ from typing import Optional, Union, Tuple
 from sisyphus import Path
 from sisyphus.delayed_ops import DelayedFormat
 
-from i6_core import discriminative_training, rasr, returnn
+from i6_core import corpus, discriminative_training, rasr, returnn
 
 
 BIGRAM_LM = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/lm/bigram.seq_train.gz"
@@ -164,18 +164,18 @@ def _generate_lattices(
     feature_scorer: rasr.FeatureScorer,
     lm: Union[str, Path],
     lm_scale: float,
+    concurrency: int = 300,
 ) -> StateAccuracyLatticeAndAlignment:
     assert lm_scale > 0
 
     crp = copy.deepcopy(crp)
 
+    crp.concurrent = concurrency
     crp.acoustic_model_config.tdp.applicator_type = "corrected"
     crp.language_model_config.file = Path(lm) if isinstance(lm, str) else lm
     crp.language_model_config.type = "ARPA"
     crp.language_model_config.scale = lm_scale
-
-    feature_flow = copy.deepcopy(feature_flow)
-    feature_flow.flags["cache_mode"] = "bundle"
+    crp.segment_path = corpus.SegmentCorpusJob(crp.corpus_config.file, concurrency).out_segment_path
 
     num_lattice = discriminative_training.NumeratorLatticeJob(
         crp=crp,
@@ -219,8 +219,10 @@ def augment_for_smbr(
     loss_like_ce: bool = False,
     extra_rasr_config: Optional[rasr.RasrConfig] = None,
     extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
+    concurrency: int = 300,
     num_rasr_instances: int = 4,
 ) -> returnn.ReturnnConfig:
+    assert concurrency > 0
     assert 0.0 <= ce_smoothing < 1.0
     assert num_rasr_instances > 0
 
@@ -228,6 +230,7 @@ def augment_for_smbr(
 
     lattice_data = _generate_lattices(
         crp=crp,
+        concurrency=concurrency,
         feature_flow=feature_flow,
         feature_scorer=feature_scorer,
         lm=lm_needs_to_be_not_good,
