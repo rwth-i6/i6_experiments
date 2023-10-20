@@ -881,7 +881,7 @@ def run_single(
             smbr_epochs = 80
             smbr_keep_epochs = [round(v, 1) for v in np.linspace(10, smbr_epochs, 8)]
 
-            smbr_name = f"{name}-smbr:{smbr_epochs}"
+            smbr_name = f"{ft_name}-smbr:{smbr_epochs}"
 
             returnn_config_smbr = seq_disc.augment_for_smbr(
                 crp=s.crp[s.crp_names["train"]],
