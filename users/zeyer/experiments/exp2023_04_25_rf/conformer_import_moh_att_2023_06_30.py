@@ -75,6 +75,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         post_config=post_config,
         model_def=from_scratch_model_def,
         train_def=from_scratch_training,
+        num_epochs=2000,
     )
     recog_training_exp(prefix_name + "/from-scratch-train", task, model_with_checkpoint, recog_def=model_recog)
 
