@@ -140,7 +140,7 @@ def train(
     kwargs = kwargs.copy()
     for k, v in dict(log_verbosity=5, num_epochs=150, time_rqmt=80, mem_rqmt=15, cpu_rqmt=4).items():
         kwargs.setdefault(k, v)
-    returnn_train_job = ReturnnTrainingJob(returnn_train_config, **kwargs)
+    returnn_train_job = ReturnnTrainingJob(returnn_train_config, num_epochs=2000, **kwargs)
     returnn_train_job.add_alias(prefix_name + "/train")
 
     return ModelWithCheckpoints.from_training_job(definition=model_def, training_job=returnn_train_job)
