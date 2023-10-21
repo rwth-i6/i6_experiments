@@ -26,6 +26,8 @@ TODO:
 - feature normalization?
 - param init. Linear is different
 - higher batch size / more grad accum, or schedule
+- less regularization, augmentation in beginning, schedule (seems very important for convergence)
+- schedule downsampling factor, high in beginning
 
 TODO model changes:
 
