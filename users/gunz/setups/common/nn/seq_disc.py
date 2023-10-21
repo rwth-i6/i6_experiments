@@ -272,7 +272,7 @@ def augment_for_smbr(
             "class": "copy",
             "from": from_output_layer,
             "loss": "sprint",
-            "loss_like_ce": loss_like_ce,
+            # "loss_like_ce": loss_like_ce,
             "loss_scale": 1 - ce_smoothing,
             "loss_opts": {
                 "sprintConfigStr": DelayedFormat("--config={}", rasr_cfg_job.out_config),
