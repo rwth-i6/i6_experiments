@@ -29,6 +29,8 @@ TODO:
 - less regularization, augmentation in beginning, schedule (seems very important for convergence)
 - schedule downsampling factor, high in beginning
 
+- dropout mask like TF, broadcast over time?
+
 TODO model changes:
 
 - Second decoder LSTM
