@@ -268,10 +268,6 @@ def augment_for_smbr(
 
     network = {
         **returnn_config.config["network"],
-        from_output_layer: {
-            **returnn_config.config["network"][from_output_layer],
-            "loss_scale": ce_smoothing,
-        },
         smbr_layer_name: {
             "class": "copy",
             "from": from_output_layer,
@@ -287,6 +283,9 @@ def augment_for_smbr(
             },
         },
     }
+
+    if ce_smoothing > 0:
+        network[from_output_layer]["loss_scale"] = ce_smoothing
 
     returnn_config = copy.deepcopy(returnn_config)
     returnn_config.config.pop("chunking", None)

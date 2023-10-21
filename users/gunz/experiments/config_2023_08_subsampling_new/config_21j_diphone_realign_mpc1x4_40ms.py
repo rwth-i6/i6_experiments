@@ -892,6 +892,7 @@ def run_single(
                 lm_scale=1.3,
                 pron_scale=2.0,
                 returnn_config=prior_config,
+                ce_smoothing=0.0,
                 smbr_params=seq_disc.SmbrParameters(
                     num_classes=s.label_info.get_n_of_dense_classes(),
                     num_data_dim=50,
