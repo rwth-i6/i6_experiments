@@ -290,14 +290,20 @@ def augment_for_smbr(
 
     network = {
         **returnn_config.config["network"],
-        f"{from_output_layer}-subtract-prior": {
+        "subtract-prior": {
             "class": "eval",
-            "from": [from_output_layer],
-            "eval": "tf.math.divide(source(0), prior)",
+            "from": returnn_config.config["network"][from_output_layer]["from"],
+            "eval": "tf.math.subtract("
+        },
+        from_output_layer: {
+            **returnn_config.config["network"][from_output_layer],
+            "from": "subtract-prior",
+            "eval": "tf.math.subtract(source(0), prior)",
+            "eval_locals": {"prior": returnn.CodeWrapper("prior")},
         },
         smbr_layer_name: {
             "class": "copy",
-            "from": f"{from_output_layer}-subtract-prior",
+            "from": from_output_layer,
             "loss": "sprint",
             # "loss_like_ce": loss_like_ce,
             "loss_scale": 1 - ce_smoothing,
@@ -321,8 +327,8 @@ def augment_for_smbr(
         hash_full_python_code=False,
         python_prolog=[
             "import numpy as np",
-            DelayedFormat('prior = np.exp(np.load("{}"))', prior_job.out_npy_file),
-            f"prior = np.power(prior, {feature_scorer_lattice_generation.config.priori_scale})",
+            DelayedFormat('prior = np.load("{}")', prior_job.out_npy_file),
+            f"prior *= {feature_scorer_lattice_generation.config.priori_scale}",
         ],
     )
 
