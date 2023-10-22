@@ -318,6 +318,7 @@ def augment_for_smbr(
     prior_job = PriorsToPickleJob(feature_scorer_lattice_generation.config.prior_file)
     update_config = returnn.ReturnnConfig(
         config={"network": network},
+        hash_full_python_code=False,
         python_prolog=[
             "import numpy as np",
             DelayedFormat('prior = np.exp(np.load("{}"))', prior_job.out_npy_file),
