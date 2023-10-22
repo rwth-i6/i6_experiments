@@ -30,6 +30,7 @@ TODO:
 - schedule downsampling factor, high in beginning
 
 - dropout mask like TF, broadcast over time?
+- mixup (port over TF code)
 
 TODO model changes:
 
