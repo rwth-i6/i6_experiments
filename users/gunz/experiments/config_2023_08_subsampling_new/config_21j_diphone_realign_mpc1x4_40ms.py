@@ -919,6 +919,7 @@ def run_single(
                     "learning_rates": list(
                         np.concatenate([lrates, np.linspace(min(lrates), 1e-6, smbr_epochs - len(lrates))])
                     ),
+                    "log_verbosity": 4,
                     "preload_from_files": {
                         "existing-model": {
                             "init_for_train": True,
