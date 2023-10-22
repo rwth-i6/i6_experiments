@@ -173,7 +173,6 @@ def _generate_lattices(
     crp = copy.deepcopy(crp)
 
     crp.concurrent = concurrency
-    crp.acoustic_model_config.tdp.applicator_type = "corrected"
     crp.language_model_config.file = Path(lm) if isinstance(lm, str) else lm
     crp.language_model_config.type = "ARPA"
     crp.language_model_config.scale = lm_scale
@@ -242,6 +241,9 @@ def augment_for_smbr(
     assert concurrency > 0
     assert 0.0 <= ce_smoothing < 1.0
     assert num_rasr_instances > 0
+
+    crp = copy.deepcopy(crp)
+    crp.acoustic_model_config.tdp.applicator_type = "corrected"
 
     lattice_data = _generate_lattices(
         crp=crp,
