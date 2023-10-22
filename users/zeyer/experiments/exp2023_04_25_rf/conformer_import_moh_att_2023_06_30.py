@@ -79,6 +79,25 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
     recog_training_exp(prefix_name + "/from-scratch-train", task, model_with_checkpoint, recog_def=model_recog)
 
+    config_ = config.copy()
+    config_.update(
+        {
+            "torch_amp": "bfloat16",
+            "batch_size": 30_000 * 160,
+        }
+    )
+    model_with_checkpoint = train(
+        prefix_name + "/base-24gb",
+        task=task,
+        config=config_,
+        post_config=post_config,
+        model_def=from_scratch_model_def,
+        train_def=from_scratch_training,
+        num_epochs=2000,
+        gpu_mem=24,
+    )
+    recog_training_exp(prefix_name + "/base-24gb", task, model_with_checkpoint, recog_def=model_recog)
+
 
 py = sis_run_with_prefix  # if run directly via `sis m ...`
 

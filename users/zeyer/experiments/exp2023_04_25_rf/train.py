@@ -40,6 +40,7 @@ def train(
     train_def: TrainDef[ModelT],
     init_params: Optional[Checkpoint] = None,
     extra_hash: Any = None,
+    gpu_mem: Optional[int] = None,
     **kwargs,
 ) -> ModelWithCheckpoints:
     """
@@ -142,6 +143,8 @@ def train(
         kwargs.setdefault(k, v)
     returnn_train_job = ReturnnTrainingJob(returnn_train_config, **kwargs)
     returnn_train_job.add_alias(prefix_name + "/train")
+    if gpu_mem:
+        returnn_train_job.rqmt["gpu_mem"] = gpu_mem
 
     return ModelWithCheckpoints.from_training_job(definition=model_def, training_job=returnn_train_job)
 
