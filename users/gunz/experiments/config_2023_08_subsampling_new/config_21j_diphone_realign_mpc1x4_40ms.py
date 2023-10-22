@@ -955,6 +955,53 @@ def run_single(
                 on_2080=True,
             )
 
+            s.set_graph_for_experiment("fh-smbr", override_cfg=nn_precomputed_returnn_config)
+
+            for ep, crp_k in itertools.product(smbr_keep_epochs, ["dev-other"]):
+                s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+                s.set_mono_priors_returnn_rasr(
+                    key="fh-smbr",
+                    epoch=min(ep, smbr_keep_epochs[-2]),
+                    train_corpus_key=s.crp_names["train"],
+                    dev_corpus_key=s.crp_names["cvtrain"],
+                    smoothen=True,
+                    returnn_config=remove_label_pops_and_losses_from_returnn_config(
+                        prior_config, except_layers=["pastLabel"]
+                    ),
+                    output_layer_name="output",
+                )
+
+                diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+                tying_cfg = rasr.RasrConfig()
+                tying_cfg.type = "diphone-dense"
+
+                base_params = s.get_cart_params(key="fh-fs")
+                decoding_cfgs = [
+                    dataclasses.replace(
+                        base_params,
+                        lm_scale=round(base_params.lm_scale / ss_factor, 2),
+                        tdp_scale=sc,
+                    ).with_prior_scale(0.6)
+                    for sc in [0.4, 0.6]
+                ]
+                for cfg in decoding_cfgs:
+                    s.recognize_cart(
+                        key="fh-smbr",
+                        epoch=ep,
+                        crp_corpus=crp_k,
+                        n_cart_out=diphone_li.get_n_of_dense_classes(),
+                        cart_tree_or_tying_config=tying_cfg,
+                        params=cfg,
+                        log_softmax_returnn_config=nn_precomputed_returnn_config,
+                        calculate_statistics=True,
+                        opt_lm_am_scale=True,
+                        prior_epoch=min(ep, smbr_keep_epochs[-2]),
+                        rtf=8,
+                        cpu_rqmt=2,
+                        mem_rqmt=4,
+                    )
+
     if decode_all_corpora:
         assert False, "this is broken r/n"
 
