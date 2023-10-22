@@ -976,7 +976,7 @@ def run_single(
                 tying_cfg = rasr.RasrConfig()
                 tying_cfg.type = "diphone-dense"
 
-                base_params = s.get_cart_params(key="fh-fs")
+                base_params = s.get_cart_params(key="fh-smbr")
                 decoding_cfgs = [
                     dataclasses.replace(
                         base_params,
