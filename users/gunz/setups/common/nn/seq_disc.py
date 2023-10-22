@@ -327,6 +327,7 @@ def augment_for_smbr(
     )
 
     returnn_config = copy.deepcopy(returnn_config)
+    returnn_config.hash_full_python_code = False
     returnn_config.update(update_config)
 
     returnn_config.config.pop("chunking", None)
