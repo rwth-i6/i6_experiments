@@ -1,12 +1,15 @@
 import copy
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Union, Tuple
+import numpy as np
+from typing import Iterator, Optional, Union, Tuple
 
-from sisyphus import Path
+from sisyphus import Path, Job, Task
 from sisyphus.delayed_ops import DelayedFormat
 
 from i6_core import corpus, discriminative_training, rasr, returnn
+
+from i6_experiments.users.gunz.setups.fh.priors.util import read_prior_xml
 
 
 BIGRAM_LM = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/lm/bigram.seq_train.gz"
@@ -34,6 +37,20 @@ class SmbrParameters:
 class StateAccuracyLatticeAndAlignment:
     alignment_bundle: Path
     lattice_bundle: Path
+
+
+class PriorsToPickleJob(Job):
+    def __init__(self, prior_xml: Path):
+        self.prior_xml = prior_xml
+
+        self.out_npy_file = self.output_path("log_priors.npy")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        priors = read_prior_xml(self.prior_xml)
+        np.save(self.out_npy_file.get_path(), priors.priors_log)
 
 
 def _get_smbr_crp(
@@ -72,20 +89,20 @@ def _get_smbr_crp(
     config.lattice_processor.selections = "topology-reader,rescoring,linear-combination,accumulation"
 
     # subtract prior from file
-    if feature_scorer.config.prior_file is not None:
-        config.lattice_processor.priori_scale = feature_scorer.config.priori_scale
-        config.lattice_processor.prior_file = feature_scorer.config.prior_file
+    # if feature_scorer.config.prior_file is not None:
+    #     config.lattice_processor.priori_scale = feature_scorer.config.priori_scale
+    #     config.lattice_processor.prior_file = feature_scorer.config.prior_file
 
     # Sprint Neural Network
     config.lattice_processor.class_labels.number_of_classes = params.num_classes
     config.lattice_processor.neural_network.links = "0->python-layer:0"
     config.lattice_processor.python_layer.layer_type = "python"
-    config.lattice_processor.python_layer.links = "0->bias-layer:0"
+    # config.lattice_processor.python_layer.links = "0->bias-layer:0"
     config.lattice_processor.python_layer.dimension_input = params.num_data_dim
     config.lattice_processor.python_layer.dimension_output = params.num_classes
-    config.lattice_processor.bias_layer.layer_type = "bias"
-    config.lattice_processor.bias_layer.dimension_input = params.num_classes
-    config.lattice_processor.bias_layer.dimension_output = params.num_classes
+    # config.lattice_processor.bias_layer.layer_type = "bias"
+    # config.lattice_processor.bias_layer.dimension_input = params.num_classes
+    # config.lattice_processor.bias_layer.dimension_output = params.num_classes
 
     # Reader
     config.lattice_processor.topology_reader.readers = "tdps,accuracy"
@@ -273,9 +290,14 @@ def augment_for_smbr(
 
     network = {
         **returnn_config.config["network"],
+        f"{from_output_layer}-subtract-prior": {
+            "class": "eval",
+            "from": [from_output_layer],
+            "eval": f"tf.math.divide(source(0), {} * prior)",
+        },
         smbr_layer_name: {
             "class": "copy",
-            "from": from_output_layer,
+            "from": f"{from_output_layer}-subtract-prior",
             "loss": "sprint",
             # "loss_like_ce": loss_like_ce,
             "loss_scale": 1 - ce_smoothing,
@@ -290,13 +312,23 @@ def augment_for_smbr(
             },
         },
     }
-
     if ce_smoothing > 0:
         network[from_output_layer]["loss_scale"] = ce_smoothing
 
+    prior_job = PriorsToPickleJob(feature_scorer_lattice_generation.config.prior_file)
+    update_config = returnn.ReturnnConfig(
+        config={"network": network},
+        python_prolog=[
+            "import numpy as np",
+            DelayedFormat('prior = np.exp(np.load("{}"))', prior_job.out_npy_file),
+            f"prior = np.power(prior, {feature_scorer_lattice_generation.config.priori_scale})",
+        ],
+    )
+
     returnn_config = copy.deepcopy(returnn_config)
+    returnn_config.update(update_config)
+
     returnn_config.config.pop("chunking", None)
     returnn_config.config.pop("pretrain", None)
-    returnn_config.config["network"] = network
 
     return returnn_config
