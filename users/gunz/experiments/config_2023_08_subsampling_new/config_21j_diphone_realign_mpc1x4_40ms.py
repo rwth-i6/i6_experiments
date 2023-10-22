@@ -928,10 +928,7 @@ def run_single(
                     },
                     "extern_data": {"data": {"dim": 50}},
                 },
-                post_config={
-                    "cleanup_old_models": {"keep_best_n": 3, "keep": smbr_keep_epochs},
-                    "log_verbosity": 4,
-                },
+                post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": smbr_keep_epochs}},
                 python_epilog={
                     "dynamic_lr_reset": "dynamic_learning_rate = None",
                 },
@@ -945,6 +942,7 @@ def run_single(
                 **s.initial_train_args,
                 "cpu_rqmt": 4,
                 "mem_rqmt": 24,
+                "log_verbosity": 4,
                 "num_epochs": smbr_epochs,
                 "partition_epochs": partition_epochs,
                 "returnn_config": copy.deepcopy(returnn_config_smbr),
