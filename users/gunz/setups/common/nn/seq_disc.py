@@ -171,7 +171,6 @@ def _generate_lattices(
     assert lm_scale > 0
 
     crp = copy.deepcopy(crp)
-
     crp.concurrent = concurrency
     crp.segment_path = corpus.SegmentCorpusJob(crp.corpus_config.file, concurrency).out_segment_path
 
@@ -249,7 +248,6 @@ def augment_for_smbr(
     )
     crp.language_model_config.type = "ARPA"
     crp.language_model_config.scale = lm_scale
-    # crp.lexicon_config.normalize_pronunciation = True
 
     lattice_data = _generate_lattices(
         crp=crp,
@@ -271,7 +269,6 @@ def augment_for_smbr(
         feature_scorer=feature_scorer_lattice_generation,
         params=smbr_params,
     )
-
     rasr_cfg_job = rasr.WriteRasrConfigJob(config, post_config)
 
     network = {
