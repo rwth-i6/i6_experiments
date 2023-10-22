@@ -127,7 +127,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         dict(
             torch_amp="bfloat16",
             batch_size=100_000 * _batch_size_factor,
-            accum_grad_multiple_step=None,
+            accum_grad_multiple_step=1,
             learning_rate=0.002,
             learning_rate_warmup_steps=20_000,
             learning_rate_invsqrt_norm=20_000,
