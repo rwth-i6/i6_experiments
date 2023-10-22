@@ -293,7 +293,7 @@ def augment_for_smbr(
         f"{from_output_layer}-subtract-prior": {
             "class": "eval",
             "from": [from_output_layer],
-            "eval": f"tf.math.divide(source(0), {} * prior)",
+            "eval": "tf.math.divide(source(0), prior)",
         },
         smbr_layer_name: {
             "class": "copy",
