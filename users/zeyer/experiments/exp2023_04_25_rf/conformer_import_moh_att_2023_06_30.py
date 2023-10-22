@@ -142,7 +142,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         model_def=from_scratch_model_def,
         train_def=from_scratch_training,
         num_epochs=4000,
-        gpu_mem=24,
+        gpu_mem=80,
     )
     recog_training_exp(prefix_name + "/base-80gb", task, model_with_checkpoint, recog_def=model_recog)
 
