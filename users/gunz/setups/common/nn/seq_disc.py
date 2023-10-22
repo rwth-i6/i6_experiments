@@ -173,9 +173,6 @@ def _generate_lattices(
     crp = copy.deepcopy(crp)
 
     crp.concurrent = concurrency
-    crp.language_model_config.file = Path(lm) if isinstance(lm, str) else lm
-    crp.language_model_config.type = "ARPA"
-    crp.language_model_config.scale = lm_scale
     crp.segment_path = corpus.SegmentCorpusJob(crp.corpus_config.file, concurrency).out_segment_path
 
     model_combination_cfg = rasr.RasrConfig()
@@ -221,8 +218,9 @@ def _generate_lattices(
 def augment_for_smbr(
     *,
     crp: rasr.CommonRasrParameters,
-    feature_flow: rasr.FlowNetwork,
-    feature_scorer: rasr.FeatureScorer,
+    feature_flow_lattice_generation: rasr.FlowNetwork,
+    feature_flow_smbr_training: rasr.FlowNetwork,
+    feature_scorer_lattice_generation: rasr.FeatureScorer,
     returnn_config: returnn.ReturnnConfig,
     beam_limit: int,
     lm_scale: float,
@@ -244,12 +242,20 @@ def augment_for_smbr(
 
     crp = copy.deepcopy(crp)
     crp.acoustic_model_config.tdp.applicator_type = "corrected"
+    crp.language_model_config.file = (
+        Path(lm_needs_to_be_not_good, cached=True)
+        if isinstance(lm_needs_to_be_not_good, str)
+        else lm_needs_to_be_not_good
+    )
+    crp.language_model_config.type = "ARPA"
+    crp.language_model_config.scale = lm_scale
+    # crp.lexicon_config.normalize_pronunciation = True
 
     lattice_data = _generate_lattices(
         crp=crp,
         concurrency=concurrency,
-        feature_flow=feature_flow,
-        feature_scorer=feature_scorer,
+        feature_flow=feature_flow_lattice_generation,
+        feature_scorer=feature_scorer_lattice_generation,
         beam_limit=beam_limit,
         lm=lm_needs_to_be_not_good,
         lm_scale=lm_scale,
@@ -261,8 +267,8 @@ def augment_for_smbr(
         crp=crp,
         extra_rasr_config=extra_rasr_config,
         extra_rasr_post_config=extra_rasr_post_config,
-        feature_flow=feature_flow,
-        feature_scorer=feature_scorer,
+        feature_flow=feature_flow_smbr_training,
+        feature_scorer=feature_scorer_lattice_generation,
         params=smbr_params,
     )
 

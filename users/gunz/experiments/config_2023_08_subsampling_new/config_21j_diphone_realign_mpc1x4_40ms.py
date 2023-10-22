@@ -890,10 +890,13 @@ def run_single(
                 log_softmax=True,
                 prepare_for_train=True,
             )
+            train_flow = copy.deepcopy(s.feature_flows["train"]["gt"])
+            train_flow.flags["cache_mode"] = "bundle"
             returnn_config_smbr = seq_disc.augment_for_smbr(
                 crp=s.crp[s.crp_names["train"]],
-                feature_scorer=feature_scorer,
-                feature_flow=feature_flow,
+                feature_flow_lattice_generation=feature_flow,
+                feature_flow_smbr_training=train_flow,
+                feature_scorer_lattice_generation=feature_scorer,
                 from_output_layer="output",
                 beam_limit=20,
                 lm_scale=1.3,
