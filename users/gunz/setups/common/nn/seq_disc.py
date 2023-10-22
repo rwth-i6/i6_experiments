@@ -13,7 +13,7 @@ BIGRAM_LM = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/lm/bigram.seq
 
 
 class Criterion(Enum):
-    ME = "me"
+    ME = "ME"
 
     def __str__(self):
         return self.value
