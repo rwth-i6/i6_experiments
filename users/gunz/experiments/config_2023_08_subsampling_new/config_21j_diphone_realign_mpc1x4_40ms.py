@@ -883,6 +883,13 @@ def run_single(
 
             smbr_name = f"{ft_name}-smbr:{smbr_epochs}"
 
+            returnn_config_smbr = diphone_joint_output.augment_to_joint_diphone_softmax(
+                returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+                label_info=s.label_info,
+                out_joint_score_layer="output",
+                log_softmax=True,
+                prepare_for_train=True,
+            )
             returnn_config_smbr = seq_disc.augment_for_smbr(
                 crp=s.crp[s.crp_names["train"]],
                 feature_scorer=feature_scorer,
@@ -891,7 +898,7 @@ def run_single(
                 beam_limit=20,
                 lm_scale=1.3,
                 pron_scale=2.0,
-                returnn_config=prior_config,
+                returnn_config=returnn_config_smbr,
                 ce_smoothing=0.0,
                 smbr_params=seq_disc.SmbrParameters(
                     num_classes=s.label_info.get_n_of_dense_classes(),
