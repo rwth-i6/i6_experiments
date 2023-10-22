@@ -879,7 +879,7 @@ def run_single(
 
         if alignment_name == "40ms-FF-v8":
             smbr_epochs = 80
-            smbr_keep_epochs = [round(v, 1) for v in np.linspace(10, smbr_epochs, 8)]
+            smbr_keep_epochs = [int(v) for v in np.linspace(10, smbr_epochs, 8)]
 
             smbr_name = f"{ft_name}-smbr:{smbr_epochs}"
 
