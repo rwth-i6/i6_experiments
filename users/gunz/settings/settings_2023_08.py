@@ -88,9 +88,9 @@ def check_engine_limits(current_rqmt, task):
     current_rqmt["time"] = min(168, current_rqmt.get("time", 2))
     if current_rqmt.get("gpu", 0) > 0 and "-p" not in current_rqmt.get("sbatch_args", []):
         if current_rqmt.get("gpu_mem", 0) > 11:
-            current_rqmt["sbatch_args"] = ["-p", "gpu_24gb"]
+            current_rqmt["sbatch_args"] = ["-p", "gpu_24gb", *current_rqmt.get("sbatch_args", [])]
         else:
-            current_rqmt["sbatch_args"] = ["-p", "gpu_11gb"]
+            current_rqmt["sbatch_args"] = ["-p", "gpu_11gb", *current_rqmt.get("sbatch_args", [])]
 
     if "-p" not in current_rqmt.get("sbatch_args", []):
         if task._job.__class__.__name__ in CPU_BOTH_JOBLIST:
