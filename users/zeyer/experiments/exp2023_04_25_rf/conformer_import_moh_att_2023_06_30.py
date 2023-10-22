@@ -83,7 +83,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     config_.update(
         {
             "torch_amp": "bfloat16",
-            "batch_size": 30_000 * 160,
+            "batch_size": 50_000 * 160,
         }
     )
     model_with_checkpoint = train(
