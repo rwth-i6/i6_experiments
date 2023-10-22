@@ -919,7 +919,6 @@ def run_single(
                     "learning_rates": list(
                         np.concatenate([lrates, np.linspace(min(lrates), 1e-6, smbr_epochs - len(lrates))])
                     ),
-                    "log_verbosity": 4,
                     "preload_from_files": {
                         "existing-model": {
                             "init_for_train": True,
@@ -929,7 +928,10 @@ def run_single(
                     },
                     "extern_data": {"data": {"dim": 50}},
                 },
-                post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": smbr_keep_epochs}},
+                post_config={
+                    "cleanup_old_models": {"keep_best_n": 3, "keep": smbr_keep_epochs},
+                    "log_verbosity": 4,
+                },
                 python_epilog={
                     "dynamic_lr_reset": "dynamic_learning_rate = None",
                 },
