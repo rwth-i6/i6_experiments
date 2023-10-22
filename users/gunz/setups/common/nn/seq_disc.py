@@ -293,13 +293,12 @@ def augment_for_smbr(
         "subtract-prior": {
             "class": "eval",
             "from": returnn_config.config["network"][from_output_layer]["from"],
-            "eval": "tf.math.subtract("
+            "eval": "tf.math.subtract(source(0), prior)",
+            "eval_locals": {"prior": returnn.CodeWrapper("prior")},
         },
         from_output_layer: {
             **returnn_config.config["network"][from_output_layer],
             "from": "subtract-prior",
-            "eval": "tf.math.subtract(source(0), prior)",
-            "eval_locals": {"prior": returnn.CodeWrapper("prior")},
         },
         smbr_layer_name: {
             "class": "copy",
