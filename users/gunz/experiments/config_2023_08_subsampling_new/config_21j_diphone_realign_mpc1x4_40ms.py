@@ -880,6 +880,7 @@ def run_single(
         if alignment_name == "40ms-FF-v8":
             smbr_epochs = 80
             smbr_keep_epochs = [int(v) for v in np.linspace(10, smbr_epochs, 8)]
+            smbr_peak_lr = 5e-6
 
             smbr_name = f"{ft_name}-smbr:{smbr_epochs}"
 
@@ -909,7 +910,7 @@ def run_single(
                 ),
             )
             lrates = oclr.get_learning_rates(
-                lrate=peak_lr,
+                lrate=smbr_peak_lr,
                 increase=0,
                 constLR=math.floor(smbr_epochs * 0.45),
                 decay=math.floor(smbr_epochs * 0.45),
@@ -943,7 +944,7 @@ def run_single(
 
             train_args = {
                 **s.initial_train_args,
-                "cpu_rqmt": 4,
+                "cpu_rqmt": 2,
                 "mem_rqmt": 24,
                 "log_verbosity": 4,
                 "num_epochs": smbr_epochs,

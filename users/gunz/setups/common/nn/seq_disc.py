@@ -233,7 +233,7 @@ def augment_for_smbr(
     extra_rasr_config: Optional[rasr.RasrConfig] = None,
     extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
     concurrency: int = 300,
-    num_rasr_instances: int = 4,
+    num_rasr_instances: int = 1,
 ) -> returnn.ReturnnConfig:
     assert concurrency > 0
     assert 0.0 <= ce_smoothing < 1.0
