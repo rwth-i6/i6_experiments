@@ -890,7 +890,7 @@ def run_single(
                 log_softmax=True,
                 prepare_for_train=True,
             )
-            train_flow = copy.deepcopy(s.feature_flows["train-other-960.train"]["gt"])
+            train_flow = copy.deepcopy(s.feature_flows[train_key]["gt"])
             train_flow.flags["cache_mode"] = "bundle"
             returnn_config_smbr = seq_disc.augment_for_smbr(
                 crp=s.crp[s.crp_names["train"]],
@@ -955,6 +955,7 @@ def run_single(
                 train_corpus_key=s.crp_names["train"],
                 dev_corpus_key=s.crp_names["cvtrain"],
                 nn_train_args=train_args,
+                include_alignment=False,
                 on_2080=True,
             )
 
