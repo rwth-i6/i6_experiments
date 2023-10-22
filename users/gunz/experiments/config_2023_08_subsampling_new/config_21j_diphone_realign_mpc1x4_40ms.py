@@ -941,7 +941,7 @@ def run_single(
             train_args = {
                 **s.initial_train_args,
                 "cpu_rqmt": 4,
-                "mem_rqmt": 10,
+                "mem_rqmt": 24,
                 "num_epochs": smbr_epochs,
                 "partition_epochs": partition_epochs,
                 "returnn_config": copy.deepcopy(returnn_config_smbr),
