@@ -278,7 +278,7 @@ def augment_for_smbr(
                 "sprint_opts": {
                     "sprintConfigStr": DelayedFormat("--config={}", rasr_cfg_job.out_config),
                     "sprintControlConfig": {"verbose": True},
-                    "sprintExecPath": rasr.RasrCommand.select_exe(crp.nn_trainer_exe, "nn-trainer"),
+                    "sprintExecPath": rasr.RasrCommand.select_exe(crp.lattice_processor_exe, "lattice-processor"),
                     "usePythonSegmentOrder": False,
                     "numInstances": num_rasr_instances,
                 }
