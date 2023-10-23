@@ -878,7 +878,7 @@ def run_single(
 
             s.experiments["fh-fs"]["alignment_job"] = a_job
 
-        if alignment_name == "40ms-FF-v8":
+        for mix_ce in [False] if alignment_name == "40ms-FF-v8" else []:
             smbr_epochs = 80
             smbr_keep_epochs = [int(v) for v in np.linspace(10, smbr_epochs, 8)]
             smbr_peak_lr = 5e-6
@@ -940,12 +940,16 @@ def run_single(
                 lm_scale=1.3,
                 pron_scale=2.0,
                 returnn_config=returnn_config_smbr,
-                ce_smoothing=0.0,
+                ce_smoothing=0.1 if mix_ce else 0,
                 smbr_params=seq_disc.SmbrParameters(
                     num_classes=s.label_info.get_n_of_dense_classes(),
                     num_data_dim=50,
                 ),
             )
+            if mix_ce:
+                returnn_config_smbr.config["network"]["output"].pop("loss_scale")
+                for l in ["left-output", "center-output"]:
+                    returnn_config_smbr.config["network"][l]["loss_scale"] = 0.05
             lrates = oclr.get_learning_rates(
                 lrate=smbr_peak_lr,
                 increase=0,
@@ -957,6 +961,7 @@ def run_single(
             smbr_update_config = returnn.ReturnnConfig(
                 config={
                     "batch_size": 10000,
+                    "extern_data": {"data": {"dim": 50}},
                     "learning_rates": list(
                         np.concatenate([lrates, np.linspace(min(lrates), 1e-6, smbr_epochs - len(lrates))])
                     ),
@@ -967,7 +972,7 @@ def run_single(
                             "filename": bw_train_job.out_checkpoints[fine_tune_epochs],
                         }
                     },
-                    "extern_data": {"data": {"dim": 50}},
+                    "stop_on_nonfinite_train_score": False,
                 },
                 post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": smbr_keep_epochs}},
                 python_epilog={
