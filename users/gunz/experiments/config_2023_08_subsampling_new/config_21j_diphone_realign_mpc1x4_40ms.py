@@ -987,7 +987,13 @@ def run_single(
                 },
             )
             if mix_ce:
-                smbr_update_config.config["extern_data"]["classes"] = returnn_config.config["extern_data"]["classes"]
+                smbr_update_config.config["extern_data"]["classes"] = {
+                    "available_for_inference": False,
+                    "dim": diphone_li.get_n_of_dense_classes(),
+                    "dtype": "int32",
+                    "same_dim_tags_as": None,
+                    "sparse": True,
+                }
 
             returnn_config_smbr.update(smbr_update_config)
 
