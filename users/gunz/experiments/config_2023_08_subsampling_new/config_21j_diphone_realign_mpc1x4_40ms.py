@@ -920,6 +920,8 @@ def run_single(
                 "cache_mode",
                 {"bundle": ss_features.out_feature_bundle["ss"], "task_dependent": ss_features.out_feature_path["ss"]},
             )
+            smbr_train_flow = basic_cache_flow(feature_path)
+            smbr_train_flow.flags["cache_mode"] = "bundle"
 
             returnn_config_smbr = diphone_joint_output.augment_to_joint_diphone_softmax(
                 returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
@@ -931,7 +933,7 @@ def run_single(
             returnn_config_smbr = seq_disc.augment_for_smbr(
                 crp=s.crp[s.crp_names["train"]],
                 feature_flow_lattice_generation=feature_flow,
-                feature_flow_smbr_training=basic_cache_flow(feature_path),
+                feature_flow_smbr_training=smbr_train_flow,
                 feature_scorer_lattice_generation=feature_scorer,
                 from_output_layer="output",
                 beam_limit=20,
