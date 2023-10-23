@@ -916,7 +916,6 @@ def run_single(
                 port_name_mapping={"features": "ss"},
                 rtf=0.5,
             )
-            ss_features.rqmt["sbatch_args"] = ["-p", "rescale_amd"]
             feature_path = rasr.FlagDependentFlowAttribute(
                 "cache_mode", {"task_dependent": ss_features.out_feature_path}
             )
