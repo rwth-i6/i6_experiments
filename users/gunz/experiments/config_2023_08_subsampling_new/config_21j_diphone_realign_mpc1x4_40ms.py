@@ -904,8 +904,13 @@ def run_single(
                 output_layer_name="features_sampled",
             )
             train_flow = add_tf_flow_to_base_flow(s.feature_flows[train_key]["gt"], smbr_train_tf_flow)
+            crp = copy.deepcopy(s.crp[s.crp_names["train"]])
+            crp.concurrent = 300
+            crp.segment_path = corpus.SegmentCorpusJob(
+                s.corpora[s.train_key].corpus_file, crp.concurrent
+            ).out_segment_path
             ss_features = FeatureExtractionJob(
-                crp=s.crp[s.crp_names["train"]], feature_flow=train_flow, port_name_mapping={"features": "ss"}
+                crp=crp, feature_flow=train_flow, parallel=50, port_name_mapping={"features": "ss"}
             )
 
             returnn_config_smbr = diphone_joint_output.augment_to_joint_diphone_softmax(
