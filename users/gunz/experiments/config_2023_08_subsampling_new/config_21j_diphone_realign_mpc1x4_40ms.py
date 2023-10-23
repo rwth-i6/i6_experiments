@@ -530,7 +530,7 @@ def run_single(
                 opt_lm_am_scale=True,
                 rtf=1.5,
             )
-            j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+            j.rqmt.update({"sbatch_args": ["-p", "rescale_amd"]})
 
         configs = [
             dataclasses.replace(
@@ -750,7 +750,7 @@ def run_single(
                         prior_epoch=min(ep, keep_epochs[-2]),
                         rtf=1.5,
                     )
-                    j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+                    j.rqmt.update({"sbatch_args": ["-p", "rescale_amd"]})
 
         s.set_graph_for_experiment("fh-fs", override_cfg=nn_precomputed_returnn_config)
 

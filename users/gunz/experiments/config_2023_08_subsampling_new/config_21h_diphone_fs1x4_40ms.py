@@ -546,7 +546,7 @@ def run_single(
                             prior_epoch=min(ep, keep_epochs[-2]),
                             rtf=1.5,
                         )
-                        j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+                        j.rqmt.update({"sbatch_args": ["-p", "rescale_amd"]})
 
     if run_tdp_study:
         s.feature_flows["dev-other"].flags["cache_mode"] = "bundle"

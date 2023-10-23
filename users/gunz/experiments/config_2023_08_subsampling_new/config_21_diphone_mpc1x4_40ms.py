@@ -568,7 +568,7 @@ def run_single(
                 opt_lm_am_scale=True,
                 rtf=1.5,
             )
-            j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+            j.rqmt.update({"sbatch_args": ["-p", "rescale_amd"]})
 
         configs = [
             dataclasses.replace(
@@ -811,7 +811,7 @@ def run_single(
                             prior_epoch=min(ep, keep_epochs[-2]),
                             rtf=1.5,
                         )
-                        j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+                        j.rqmt.update({"sbatch_args": ["-p", "rescale_amd"]})
 
     if fine_tune and alignment_name in ["40ms-FF-v8", "40ms-FFs-v8"]:
         # Training schedule w/ same number of epochs, 600-X eps viterbi + X eps FS

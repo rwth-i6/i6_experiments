@@ -2279,7 +2279,7 @@ def run_single(
                             params=cfg,
                             rtf=1.5,
                         )
-                        j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+                        j.rqmt.update({"sbatch_args": ["-p", "rescale_amd"]})
 
     if decode_all_corpora:
         assert False, "this is broken r/n"

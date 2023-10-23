@@ -422,7 +422,7 @@ def run_single(
                 params=cfg,
                 rtf=1.5,
             )
-            j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+            j.rqmt.update({"sbatch_args": ["-p", "rescale_amd"]})
 
     if alignment_name == "40ms-FF-v8":
         nn_precomputed_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
