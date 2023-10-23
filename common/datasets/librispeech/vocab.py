@@ -15,10 +15,10 @@ from .lexicon import get_bliss_lexicon
 
 
 @lru_cache()
-def get_lm_vocab(output_prefix) -> LmIndexVocabulary:
+def get_lm_vocab(output_prefix: str) -> LmIndexVocabulary:
     """
-    :param str output_prefix:
-    :return: Path to LibriSpeech vocab file (one word per line)
+    :param output_prefix:
+    :return: LmIndexVocabulary object containing the vocab and additional information
     """
     ls960_text_job = CorpusToTxtJob(bliss_corpus=get_bliss_corpus_dict()["train-other-960"], gzip=True)
     ls960_text_job.add_alias(os.path.join(output_prefix, "ls960_to_text_job"))
@@ -31,16 +31,17 @@ def get_lm_vocab(output_prefix) -> LmIndexVocabulary:
 
 
 @lru_cache()
-def get_subword_nmt_bpe(corpus_key, bpe_size, unk_label="<unk>", output_prefix=""):
+def get_subword_nmt_bpe(
+    corpus_key: str, bpe_size: int, unk_label: str = "<unk>", output_prefix: str = ""
+) -> BPESettings:
     """
     Get the BPE tokens via the subword-nmt fork for a librispeech setup.
     When using the default settings (e.g. bpe_size 2k for train-clean-100 or 10k for train-other-960)
     this will give 100% compatible BPE settings to Albert Zeyers, Kazuki Iries and Mohammad Zeineldeens setups.
 
-    :param str corpus_key: LibriSpeech (sub-)corpus key
-    :param int bpe_size: the number of BPE merge operations. This is NOT the resulting vocab size!
-    :param str output_prefix: if set registers alias and output path
-    :rtype: BPESettings
+    :param corpus_key: LibriSpeech (sub-)corpus key
+    :param bpe_size: the number of BPE merge operations. This is NOT the resulting vocab size!
+    :param output_prefix: if set registers alias and output path
     """
     if output_prefix:
         output_prefix = os.path.join(output_prefix, "librispeech_%s_bpe_%i" % (corpus_key, bpe_size))
@@ -58,7 +59,9 @@ def get_subword_nmt_bpe(corpus_key, bpe_size, unk_label="<unk>", output_prefix="
 
 
 @lru_cache()
-def get_subword_nmt_bpe_v2(corpus_key, bpe_size, unk_label="<unk>", output_prefix=""):
+def get_subword_nmt_bpe_v2(
+    corpus_key: str, bpe_size: int, unk_label: str = "<unk>", output_prefix: str = ""
+) -> BPESettings:
     """
     Get the BPE tokens via the subword-nmt fork for a librispeech setup.
     When using the default settings (e.g. bpe_size 2k for train-clean-100 or 10k for train-other-960)
@@ -66,10 +69,9 @@ def get_subword_nmt_bpe_v2(corpus_key, bpe_size, unk_label="<unk>", output_prefi
 
     V2: Uses subword-nmt version corrected for Apptainer related bug, adds hash overwrite for repo
 
-    :param str corpus_key: LibriSpeech (sub-)corpus key
-    :param int bpe_size: the number of BPE merge operations. This is NOT the resulting vocab size!
-    :param str output_prefix: if set registers alias and output path
-    :rtype: BPESettings
+    :param corpus_key: LibriSpeech (sub-)corpus key
+    :param bpe_size: the number of BPE merge operations. This is NOT the resulting vocab size!
+    :param output_prefix: if set registers alias and output path
     """
     if output_prefix:
         output_prefix = os.path.join(output_prefix, "librispeech_%s_bpe_%i" % (corpus_key, bpe_size))
