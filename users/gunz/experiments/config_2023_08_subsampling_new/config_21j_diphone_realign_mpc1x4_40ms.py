@@ -912,6 +912,9 @@ def run_single(
             ss_features = FeatureExtractionJob(
                 crp=crp, feature_flow=train_flow, parallel=50, port_name_mapping={"features": "ss"}
             )
+            feature_path = rasr.FlagDependentFlowAttribute(
+                "cache_mode", {"task_dependent": ss_features.out_feature_path}
+            )
 
             returnn_config_smbr = diphone_joint_output.augment_to_joint_diphone_softmax(
                 returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
@@ -923,7 +926,7 @@ def run_single(
             returnn_config_smbr = seq_disc.augment_for_smbr(
                 crp=s.crp[s.crp_names["train"]],
                 feature_flow_lattice_generation=feature_flow,
-                feature_flow_smbr_training=basic_cache_flow(ss_features.out_feature_path),
+                feature_flow_smbr_training=basic_cache_flow(feature_path),
                 feature_scorer_lattice_generation=feature_scorer,
                 from_output_layer="output",
                 beam_limit=20,
