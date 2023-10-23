@@ -884,6 +884,13 @@ def run_single(
 
             smbr_name = f"{ft_name}-smbr:{smbr_epochs}"
 
+            s.set_experiment_dict("fh-smbr", "scratch", "di", postfix_name=smbr_name)
+
+            pch_config = copy.deepcopy(nn_precomputed_returnn_config)
+            pch_config.config["network"]["conv1p"]["register_as_extern_data"] = "conv1p"
+
+            s.set_graph_for_experiment("fh-smbr", override_cfg=nn_precomputed_returnn_config)
+
             returnn_config_smbr = diphone_joint_output.augment_to_joint_diphone_softmax(
                 returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
                 label_info=s.label_info,
@@ -891,8 +898,15 @@ def run_single(
                 log_softmax=True,
                 prepare_for_train=True,
             )
-            train_flow = copy.deepcopy(s.feature_flows[train_key]["gt"])
+
+            smbr_train_tf_flow = make_precomputed_hybrid_tf_feature_flow(
+                tf_graph=s.experiments["fh-smbr"]["graph"]["inference"],
+                tf_checkpoint=bw_train_job.out_checkpoints[fine_tune_epochs],
+                output_layer_name="conv1p",
+            )
+            train_flow = add_tf_flow_to_base_flow(s.feature_flows[train_key]["gt"], smbr_train_tf_flow)
             train_flow.flags["cache_mode"] = "bundle"
+
             returnn_config_smbr = seq_disc.augment_for_smbr(
                 crp=s.crp[s.crp_names["train"]],
                 feature_flow_lattice_generation=feature_flow,
@@ -939,7 +953,6 @@ def run_single(
             )
             returnn_config_smbr.update(smbr_update_config)
 
-            s.set_experiment_dict("fh-smbr", "scratch", "di", postfix_name=smbr_name)
             s.set_returnn_config_for_experiment("fh-smbr", copy.deepcopy(returnn_config_smbr))
 
             train_args = {
@@ -959,8 +972,6 @@ def run_single(
                 include_alignment=False,
                 on_2080=True,
             )
-
-            s.set_graph_for_experiment("fh-smbr", override_cfg=nn_precomputed_returnn_config)
 
             for ep, crp_k in itertools.product(smbr_keep_epochs, ["dev-other"]):
                 s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
