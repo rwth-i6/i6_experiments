@@ -341,7 +341,7 @@ def run_single(
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
-        on_2080=False,
+        on_2080=True,
     )
 
     if own_priors or n_states_per_phone != 3:
