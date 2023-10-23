@@ -10,7 +10,6 @@ import itertools
 import numpy as np
 import os
 
-
 # -------------------- Sisyphus --------------------
 from sisyphus import gs, tk
 
@@ -18,6 +17,7 @@ from sisyphus import gs, tk
 
 
 from i6_core import corpus, lexicon, mm, rasr, returnn
+from i6_core.features import FeatureExtractionJob, basic_cache_flow
 from i6_core.rasr import PrecomputedHybridFeatureScorer
 from i6_core.returnn.flow import add_tf_flow_to_base_flow, make_precomputed_hybrid_tf_feature_flow
 
@@ -904,7 +904,9 @@ def run_single(
                 output_layer_name="features_sampled",
             )
             train_flow = add_tf_flow_to_base_flow(s.feature_flows[train_key]["gt"], smbr_train_tf_flow)
-            train_flow.flags["cache_mode"] = "bundle"
+            ss_features = FeatureExtractionJob(
+                crp=s.crp[s.crp_names["train"]], feature_flow=train_flow, port_name_mapping={"features": "ss"}
+            )
 
             returnn_config_smbr = diphone_joint_output.augment_to_joint_diphone_softmax(
                 returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
@@ -916,7 +918,7 @@ def run_single(
             returnn_config_smbr = seq_disc.augment_for_smbr(
                 crp=s.crp[s.crp_names["train"]],
                 feature_flow_lattice_generation=feature_flow,
-                feature_flow_smbr_training=train_flow,
+                feature_flow_smbr_training=basic_cache_flow(ss_features.out_feature_path),
                 feature_scorer_lattice_generation=feature_scorer,
                 from_output_layer="output",
                 beam_limit=20,
