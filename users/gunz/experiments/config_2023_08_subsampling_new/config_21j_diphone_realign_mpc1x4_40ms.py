@@ -917,7 +917,8 @@ def run_single(
                 rtf=0.5,
             )
             feature_path = rasr.FlagDependentFlowAttribute(
-                "cache_mode", {"task_dependent": ss_features.out_feature_path["ss"]}
+                "cache_mode",
+                {"bundle": ss_features.out_feature_bundle["ss"], "task_dependent": ss_features.out_feature_path["ss"]},
             )
 
             returnn_config_smbr = diphone_joint_output.augment_to_joint_diphone_softmax(
