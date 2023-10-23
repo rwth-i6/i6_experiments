@@ -887,11 +887,12 @@ def run_single(
 
             s.set_experiment_dict("fh-smbr", "scratch", "di", postfix_name=smbr_name)
 
+            # Fool RASR into accepting subsampling nets
             sampling_cfg = copy.deepcopy(nn_precomputed_returnn_config)
             sampling_cfg.config["network"]["features_sampled"] = {
                 "class": "slice",
                 "from": "conv_merged",
-                "axis_kind": "F",
+                "axis": "F",
                 "slice_end": s.initial_nn_args["num_input"],
                 "register_as_extern_data": "features_sampled",
             }
@@ -970,7 +971,7 @@ def run_single(
                 "partition_epochs": partition_epochs,
                 "returnn_config": copy.deepcopy(returnn_config_smbr),
             }
-            smbr_train_job = s.returnn_rasr_training(
+            s.returnn_rasr_training(
                 experiment_key="fh-smbr",
                 train_corpus_key=s.crp_names["train"],
                 dev_corpus_key=s.crp_names["cvtrain"],
