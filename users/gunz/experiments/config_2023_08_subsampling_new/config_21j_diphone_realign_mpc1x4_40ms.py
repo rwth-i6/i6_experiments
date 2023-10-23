@@ -910,7 +910,11 @@ def run_single(
                 s.corpora[s.train_key].corpus_file, crp.concurrent
             ).out_segment_path
             ss_features = FeatureExtractionJob(
-                crp=crp, feature_flow=train_flow, parallel=50, port_name_mapping={"features": "ss"}
+                crp=crp,
+                feature_flow=train_flow,
+                parallel=50,
+                port_name_mapping={"features": "ss"},
+                rtf=0.5,
             )
             feature_path = rasr.FlagDependentFlowAttribute(
                 "cache_mode", {"task_dependent": ss_features.out_feature_path}
