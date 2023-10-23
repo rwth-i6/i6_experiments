@@ -20,6 +20,9 @@ def _get_special_lemma_lexicon(
     """
     creates the special lemma used in RASR
 
+    :param add_unknown_phoneme_and_mapping: adds [unknown] as label with [UNK] as phoneme and <unk> as LM token
+    :param add_silence: adds [silence] label with [SILENCE] phoneme,
+        use False for CTC/RNN-T setups without silence modelling.
     :return:
     """
     lex = lexicon.Lexicon()
@@ -107,8 +110,8 @@ def get_bliss_lexicon(
     """
     merges the lexicon with special RASR tokens with the lexicon created from the downloaded TedLiumV2 vocabulary
 
-    :param add_unknown_phoneme_and_mapping:
-    :param add_silence:
+    :param add_unknown_phoneme_and_mapping: add an unknown phoneme and mapping unknown phoneme:lemma
+    :param add_silence: include silence lemma and phoneme
     :param output_prefix:
     :return:
     """
