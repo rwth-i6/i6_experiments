@@ -986,6 +986,9 @@ def run_single(
                     "dynamic_lr_reset": "dynamic_learning_rate = None",
                 },
             )
+            if mix_ce:
+                smbr_update_config.config["extern_data"]["classes"] = returnn_config.config["extern_data"]["classes"]
+
             returnn_config_smbr.update(smbr_update_config)
 
             s.set_returnn_config_for_experiment("fh-smbr", copy.deepcopy(returnn_config_smbr))
