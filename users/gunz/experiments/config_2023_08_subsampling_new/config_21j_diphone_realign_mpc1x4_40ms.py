@@ -983,7 +983,7 @@ def run_single(
                 **s.initial_train_args,
                 "cpu_rqmt": 2,
                 "mem_rqmt": 24,
-                "log_verbosity": 4,
+                "log_verbosity": 5,
                 "num_epochs": smbr_epochs,
                 "partition_epochs": partition_epochs,
                 "returnn_config": copy.deepcopy(returnn_config_smbr),
