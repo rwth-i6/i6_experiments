@@ -85,13 +85,13 @@ class Experiment:
 def run(returnn_root: tk.Path):
     # ******************** Settings ********************
 
+    ffnn_sys = next(v for v in config_00_monophone_linear_fullsum_10ms.run(returnn_root).values())
+    ffnn_a = ffnn_sys.experiments["fh"]["alignment_job"].out_alignment_bundle
+
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
     alignment = tk.Path(SCRATCH_ALIGNMENT, cached=True)
-
-    ffnn_sys = next(v for v in config_00_monophone_linear_fullsum_10ms.run(returnn_root).values())
-    ffnn_a = ffnn_sys.experiments["fh"]["alignment_job"].out_alignment_bundle
 
     configs = [
         Experiment(
