@@ -83,7 +83,6 @@ def get_pytorch_serializer_v3(
             [forward_step, init_hook, finish_hook]
         )
     if prior:
-        # Just a hack to test the phoneme-based recognition
         forward_step = Import(
             code_object_path=package + ".%s.prior_step" % network_module,
             unhashed_package_root=PACKAGE,

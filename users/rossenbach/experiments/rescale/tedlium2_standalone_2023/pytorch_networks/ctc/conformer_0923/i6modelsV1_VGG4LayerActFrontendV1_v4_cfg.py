@@ -1,5 +1,5 @@
 """
-Config objects for the base CTC models v1 till v3
+Config for the base CTC models v4, including specaug start time
 """
 
 from dataclasses import dataclass
@@ -64,6 +64,7 @@ class SpecaugConfig(ModelConfiguration):
 class ModelConfig():
     frontend_config: VGG4LayerActFrontendV1Config
     specaug_config: SpecaugConfig
+    specauc_start_epoch: int
     label_target_size: int
     conformer_size: int
     num_layers: int

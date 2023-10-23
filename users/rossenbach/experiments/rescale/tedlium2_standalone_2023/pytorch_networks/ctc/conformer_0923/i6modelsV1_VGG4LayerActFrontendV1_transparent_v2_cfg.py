@@ -1,5 +1,7 @@
 """
-Config objects for the base CTC models v1 till v3
+Trying to make the aligner more AppTek-Like
+
+Extended weight init code
 """
 
 from dataclasses import dataclass
@@ -32,7 +34,7 @@ class VGG4LayerActFrontendV1Config_mod(VGG4LayerActFrontendV1Config):
 
 
 @dataclass
-class ConformerEncoderV1Config(ModelConfiguration):
+class TransparentConformerEncoderV2Config(ModelConfiguration):
     """
     Attributes:
         num_layers: Number of conformer layers in the conformer encoder
@@ -41,6 +43,7 @@ class ConformerEncoderV1Config(ModelConfiguration):
     """
 
     num_layers: int
+    transparent_weights: dict[int, float]
 
     # nested configurations
     frontend: ModuleFactoryV1
@@ -75,7 +78,8 @@ class ModelConfig():
     mhsa_dropout: float
     conv_kernel_size: int
     final_dropout: float
-    
+    transparent_weights: dict[int, float]
+
     @classmethod
     def from_dict(cls, d):
         d = d.copy()

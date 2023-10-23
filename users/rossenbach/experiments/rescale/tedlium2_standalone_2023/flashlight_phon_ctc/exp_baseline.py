@@ -7,7 +7,8 @@ from typing import cast
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream
 
-from ..data import build_phon_training_datasets, TrainingDatasetSettings, build_test_dataset, get_eow_text_lexicon
+from .data import build_phon_training_datasets, TrainingDatasetSettings, get_eow_text_lexicon
+from ..data import build_test_dataset
 from ..default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 
 from ..pipeline import training, search, compute_prior
@@ -50,7 +51,7 @@ def conformer_baseline():
 
     # ---------------------------------------------------------------------------------------------------------------- #
 
-    def run_exp(ft_name, datasets, train_args, search_args=None, with_prior=False, num_epochs=250):
+    def run_exp(ft_name, datasets, train_args, search_args=None, with_prior=False, num_epochs=250, decoder="ctc.decoder.flashlight_phoneme_ctc"):
         training_name = "/".join(ft_name.split("/")[:-1])
         search_args = search_args if search_args is not None else {}
 
@@ -69,7 +70,7 @@ def conformer_baseline():
             tk.register_output(training_name + "/prior.txt", prior_file)
             search_args["prior_file"] = prior_file
 
-        returnn_search_config = get_search_config(**train_args, decoder_args=search_args, decoder="ctc.decoder.flashlight_phoneme_ctc")
+        returnn_search_config = get_search_config(**train_args, decoder_args=search_args, decoder=decoder)
 
         _, _, search_jobs = search(ft_name + "/default_%i" % num_epochs, returnn_search_config, train_job.out_checkpoints[num_epochs], test_dataset_tuples, RETURNN_EXE, MINI_RETURNN_ROOT)
 
@@ -893,6 +894,23 @@ def conformer_baseline():
             run_exp(prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v3_JJLR/lm%.1f_prior%.2f_bs1024_th14" % (
                 lm_weight, prior_scale),
                     datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+
+            # beam search token
+            if lm_weight == 2.0 and prior_scale == 0.5:
+                for bst in [10, 20, 30, 40, 50]:
+                    search_args = copy.deepcopy(search_args)
+                    search_args["beam_size_token"] = bst
+                    run_exp(prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v3_JJLR/lm%.1f_prior%.2f_bs1024_th14_bst_%i" % (
+                        lm_weight, prior_scale, bst),
+                            datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+                    if bst == 20:
+                        run_exp(
+                            prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v3_JJLR/lm%.1f_prior%.2f_bs1024_th14_bst_%i_exp1" % (
+                                lm_weight, prior_scale, bst),
+                            datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True,
+                            decoder="ctc.decoder.flashlight_experimental_phoneme_ctc"
+                        )
+
     # Search GRID
     for lm_weight in [1.6, 1.8, 2.0, 2.2, 2.4]:  # 5
         for prior_scale in [0.0, 0.3, 0.4, 0.5, 0.6, 0.7]:  # 5
@@ -941,7 +959,53 @@ def conformer_baseline():
             run_exp(prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v3_JJLR_speed/lm%.1f_prior%.2f_bs1024_th14" % (
                 lm_weight, prior_scale),
                     datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
-            
+    
+    
+    
+    from ..pytorch_networks.ctc.conformer_0923.i6modelsV1_VGG4LayerActFrontendV1_v4_cfg import \
+        ModelConfig as ModelConfigV4
+
+    model_config_v4 = ModelConfigV4(
+        frontend_config=frontend_config,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=1,
+    )
+
+    train_args = {
+        **copy.deepcopy(train_args_adamw03_accum2),
+        "network_module": "ctc.conformer_0923.i6modelsV1_VGG4LayerActFrontendV1_v5",
+        "debug": True,
+        "net_args": {
+            "model_config_dict": asdict(model_config_v4),
+        },
+    }
+    train_args["config"]["learning_rates"] = list(np.linspace(7e-6, 7e-4, 110)) + list(np.linspace(7e-4, 7e-5, 110)) + list(np.linspace(7e-5, 1e-8, 30))
+    train_args["config"]["batch_size"] = 180 * 16000
+    for lm_weight in [1.6, 1.8, 2.0, 2.2]:
+        for prior_scale in [0.5, 0.7]:
+            search_args = {
+                **default_search_args,
+                "lm_weight": lm_weight,
+                "prior_scale": prior_scale,
+            }
+            search_args["beam_size"] = 1024
+            search_args["beam_threshold"] = 14
+            run_exp(prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v5_JJLR/lm%.1f_prior%.2f_bs1024_th14" % (
+                lm_weight, prior_scale),
+                    datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+
+
             
     frontend_config_large = VGG4LayerActFrontendV1Config_mod(
         in_features=80,
@@ -1024,3 +1088,30 @@ def conformer_baseline():
                 prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v3_JJLR_large_accum3/lm%.1f_prior%.2f_bs1024_th14" % (
                     lm_weight, prior_scale),
                 datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+            
+            
+    train_args = {
+        **copy.deepcopy(train_args_adamw03_accum2),
+        "network_module": "ctc.conformer_0923.i6modelsV1_VGG4LayerActFrontendV1_v3",
+        "debug": True,
+        "net_args": {
+            "model_config_dict": asdict(model_config_large),
+        },
+    }
+    train_args["config"]["learning_rates"] = list(np.linspace(7e-6, 7e-4, 135)) + list(
+        np.linspace(7e-4, 7e-5, 135)) + list(np.linspace(7e-5, 1e-8, 30))
+    train_args["config"]["batch_size"] = 100 * 16000
+    train_args["config"]["accum_grad_multiple_step"] = 4
+    for lm_weight in [1.6, 1.8, 2.0, 2.2]:
+        for prior_scale in [0.5, 0.7]:
+            search_args = {
+                **default_search_args,
+                "lm_weight": lm_weight,
+                "prior_scale": prior_scale,
+            }
+            search_args["beam_size"] = 1024
+            search_args["beam_threshold"] = 14
+            run_exp(
+                prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v3_JJLR_large_accum4_300ep/lm%.1f_prior%.2f_bs1024_th14" % (
+                    lm_weight, prior_scale),
+                datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True, num_epochs=300)

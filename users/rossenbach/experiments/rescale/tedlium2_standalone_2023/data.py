@@ -1,23 +1,23 @@
 """
 The new version of data.py for the 2023 Slurm and Rescale/NeuroSys setups
+
+Here are (or rather, should be) the definitions for Tedlium-V2 data and RETURNN datasets that
+are consistent across Phon/BPE as well as CTC/RNN-T/Attention systems
 """
 from sisyphus import tk
 
 from dataclasses import dataclass
 from functools import lru_cache
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from i6_core.returnn import CodeWrapper, BlissToOggZipJob
-from i6_core.returnn.vocabulary import ReturnnVocabFromPhonemeInventory
-from i6_core.corpus.transform import ApplyLexiconToCorpusJob
-from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 
 from i6_experiments.common.datasets.tedlium2.lexicon import get_g2p_augmented_bliss_lexicon, get_bliss_lexicon
 from i6_experiments.common.datasets.tedlium2.corpus import get_bliss_corpus_dict
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.base import Datastream
-from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream
+from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream, BpeDatastream
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import ReturnnAudioRawOptions, AudioRawDatastream
 from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset, MetaDataset
@@ -52,93 +52,23 @@ class TrainingDatasetSettings:
 
 # --------------------------- Helper functions  -----------------------------------
 
-def get_eow_lexicon(with_g2p=True) -> tk.Path:
+
+def get_zip(name: str, bliss_dataset: tk.Path):
     """
-    Standard bliss lexicon modified with EOW
+
+    :param name:
+    :param bliss_dataset:
     :return:
     """
-    if with_g2p:
-        lex = get_g2p_augmented_bliss_lexicon()
-    else:
-        lex = get_bliss_lexicon()
-
-    return AddEowPhonemesToLexiconJob(lex).out_lexicon
-
-
-def get_eow_text_lexicon() -> tk.Path:
-    """
-
-    :return:
-    """
-    bliss_lex = get_eow_lexicon(with_g2p=False)
-    from i6_experiments.users.rossenbach.lexicon.conversion import BlissLexiconToWordLexicon
-    word_lexicon = BlissLexiconToWordLexicon(bliss_lex).out_lexicon
-    return word_lexicon
-
-
-def get_eow_bliss(corpus_key, remove_unk_seqs=False) -> tk.Path:
-    """
-    get an EOW modified corpus with optional unknown removed for cross validation
-
-    :param corpus_key: train, dev, test
-    :param remove_unk_seqs: remove all sequences with unknowns, used for dev-clean and dev-other
-        in case of using them for cross validation
-    :return:
-    """
-    bliss = get_bliss_corpus_dict(audio_format="wav")[corpus_key]
-    if remove_unk_seqs:
-        from i6_core.corpus.filter import FilterCorpusRemoveUnknownWordSegmentsJob
-        bliss = FilterCorpusRemoveUnknownWordSegmentsJob(
-            bliss_corpus=bliss,
-            bliss_lexicon=get_eow_lexicon(),  # assume no g2p when removing unknown for test sets
-            all_unknown=False
-        ).out_corpus
-
-    # default train lexicon
-    lexicon = get_eow_lexicon(with_g2p=True)
-    converted_bliss_corpus = ApplyLexiconToCorpusJob(bliss, lexicon, word_separation_orth=None).out_corpus
-
-    return converted_bliss_corpus
-
-
-def get_eow_vocab_datastream() -> LabelDatastream:
-    """
-    Phoneme with EOW LabelDatastream for Tedlium-2
-
-    :param with_blank: datastream for CTC training
-    """
-    lexicon = get_eow_lexicon()
-    blacklist = {"[SILENCE]"}
-    returnn_vocab_job = ReturnnVocabFromPhonemeInventory(lexicon, blacklist=blacklist)
-    returnn_vocab_job.add_alias(os.path.join(DATA_PREFIX, "eow_returnn_vocab_job"))
-
-    vocab_datastream = LabelDatastream(
-        available_for_inference=True,
-        vocab=returnn_vocab_job.out_vocab,
-        vocab_size=returnn_vocab_job.out_vocab_size
-    )
-
-    return vocab_datastream
-
-
-def get_eow_bliss_and_zip(corpus_key, remove_unk_seqs=False):
-    """
-    :param corpus_key: e.g. "train", "dev", or "test,
-    :param remove_unk_seqs: remove all sequences with unknowns, used for dev-clean and dev-other
-        in case of using them for cross validation
-    :return: tuple of bliss and zip
-    """
-
-    bliss_dataset = get_eow_bliss(corpus_key=corpus_key, remove_unk_seqs=remove_unk_seqs)
-
-    zip_dataset = BlissToOggZipJob(
+    zip_dataset_job = BlissToOggZipJob(
         bliss_corpus=bliss_dataset,
         no_conversion=False,
         returnn_python_exe=RETURNN_EXE,
         returnn_root=MINI_RETURNN_ROOT,
-    ).out_ogg_zip
+    )
+    zip_dataset_job.add_alias(DATA_PREFIX + name)
 
-    return bliss_dataset, zip_dataset
+    return zip_dataset_job.out_ogg_zip
 
 
 def get_test_bliss_and_zip(corpus_key):
@@ -168,22 +98,29 @@ def get_audio_raw_datastream():
 
 # --------------------------- Dataset functions  -----------------------------------
 
-def build_phon_training_datasets(
-        settings: TrainingDatasetSettings,
-) -> TrainingDatasets:
-    """
-    :param settings:
-    """
 
-    train_bliss, train_ogg = get_eow_bliss_and_zip("train")
-    dev_bliss, dev_ogg = get_eow_bliss_and_zip("dev", remove_unk_seqs=True)
 
-    train_phon_datastream = get_eow_vocab_datastream()
+
+def build_training_datasets(
+    settings: TrainingDatasetSettings,
+    train_ogg: tk.Path,
+    dev_ogg: tk.Path,
+    label_datastream: Union[LabelDatastream, BpeDatastream],
+):
+    """
+    builds the training RETURNN datasets using raw audio input for arbitrary label type
+
+    :param settings: configuration object for the dataset pipeline
+    :param train_ogg: ogg zip for training data
+    :param dev_ogg: ogg zip for dev data
+    :param label_datastream: phoneme or bpe datastream
+    :return:
+    """
     audio_datastream = get_audio_raw_datastream()
 
     datastreams = {
         'raw_audio': audio_datastream,
-        'labels': train_phon_datastream,
+        'labels': label_datastream,
     }
 
     data_map = {"raw_audio": ("zip_dataset", "data"),
@@ -209,7 +146,7 @@ def build_phon_training_datasets(
     train_zip_dataset = OggZipDataset(
         files=train_ogg,
         audio_options=training_audio_opts,
-        target_options=train_phon_datastream.as_returnn_targets_opts(),
+        target_options=label_datastream.as_returnn_targets_opts(),
         partition_epoch=settings.partition_epoch,
         seq_ordering=settings.seq_ordering,
         additional_options=additional_opts,
@@ -219,7 +156,7 @@ def build_phon_training_datasets(
     cv_zip_dataset = OggZipDataset(
         files=dev_ogg,
         audio_options=audio_datastream.as_returnn_audio_opts(),
-        target_options=train_phon_datastream.as_returnn_targets_opts(),
+        target_options=label_datastream.as_returnn_targets_opts(),
         seq_ordering="sorted_reverse"
     )
     cv_dataset = make_meta(cv_zip_dataset)
@@ -227,16 +164,16 @@ def build_phon_training_datasets(
     devtrain_zip_dataset = OggZipDataset(
         files=train_ogg,
         audio_options=audio_datastream.as_returnn_audio_opts(),
-        target_options=train_phon_datastream.as_returnn_targets_opts(),
+        target_options=label_datastream.as_returnn_targets_opts(),
         seq_ordering="sorted_reverse",
         random_subset=3000,
     )
     devtrain_dataset = make_meta(devtrain_zip_dataset)
-    
+
     prior_zip_dataset = OggZipDataset(
         files=train_ogg,
         audio_options=training_audio_opts,
-        target_options=train_phon_datastream.as_returnn_targets_opts(),
+        target_options=label_datastream.as_returnn_targets_opts(),
         partition_epoch=1,
         seq_ordering="sorted_reverse",
         additional_options=additional_opts,

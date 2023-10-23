@@ -53,6 +53,7 @@ def forward_init_hook(run_ctx, **kwargs):
     run_ctx.running_audio_len_s = 0
     run_ctx.total_am_time = 0
     run_ctx.total_search_time = 0
+    run_ctx.graph_model = None
 
 def forward_finish_hook(run_ctx, **kwargs):
     run_ctx.recognition_file.write("}\n")
@@ -73,10 +74,37 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     audio_len_batch = torch.sum(raw_audio_len).detach().cpu().numpy() / 16000
     run_ctx.running_audio_len_s += audio_len_batch
 
+    if run_ctx.graph_model is None:
+        from torch.onnx import export
+        dummy_data = torch.randn(3, 30000)
+        dummy_data_len = torch.IntTensor([30000, 20000, 15000])
+        export(
+            model,
+            (dummy_data, dummy_data_len),
+            f="/var/tmp/some_model.onnx",
+            verbose=True,
+            input_names=["data", "data_len"],
+            output_names=["classes"],
+            dynamic_axes={
+                "data": {0: "batch", 1: "time"},
+                "data_len": {0: "batch"},
+                "classes": {0: "batch", 1: "time"},
+            },
+            opset_version=17
+        )
+        import onnxruntime as ort
+        run_ctx.ort_session = ort.InferenceSession(
+            '/var/tmp/some_model.onnx',
+            providers = ["CPUExecutionProvider"]
+        )
+
     am_start = time.time()
-    logprobs, audio_features_len = model(
-        raw_audio=raw_audio,
-        raw_audio_len=raw_audio_len,
+    logprobs, audio_features_len = run_ctx.ort_session.run(
+        None,
+        {
+            "data": raw_audio.cpu().numpy(),
+            "data_len": raw_audio_len.cpu().numpy()
+        }
     )
 
     tags = data["seq_tag"]
