@@ -20,10 +20,10 @@ class CreateBPELexiconJob(Job):
 
     def __init__(
         self,
-        base_lexicon_path,
-        bpe_codes,
-        bpe_vocab,
-        subword_nmt_repo=None,
+        base_lexicon_path: tk.Path,
+        bpe_codes: tk.Path,
+        bpe_vocab: tk.Path,
+        subword_nmt_repo: tk.Path,
         unk_label="UNK",
     ):
         """
@@ -35,7 +35,7 @@ class CreateBPELexiconJob(Job):
         self.base_lexicon_path = base_lexicon_path
         self.bpe_codes = bpe_codes
         self.bpe_vocab = bpe_vocab
-        self.subword_nmt_repo = subword_nmt_repo if subword_nmt_repo is not None else gs.SUBWORD_NMT_PATH
+        self.subword_nmt_repo = subword_nmt_repo
         self.unk_label = unk_label
 
         self.out_lexicon = self.output_path("lexicon.xml.gz", cached=True)
@@ -78,7 +78,7 @@ class CreateBPELexiconJob(Job):
                     vocab.add(symbol)
                     lexicon.add_phoneme(symbol.replace(".", "_"))
 
-        apply_binary = os.path.join(tk.uncached_path(self.subword_nmt_repo), "apply_bpe.py")
+        apply_binary = os.path.join(self.subword_nmt_repo.get_path(), "apply_bpe.py")
         args = [
             sys.executable,
             apply_binary,
