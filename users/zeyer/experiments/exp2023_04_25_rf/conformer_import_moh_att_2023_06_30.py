@@ -131,6 +131,25 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
     recog_training_exp(prefix_name + "/base-24gb-f32", task, model_with_checkpoint, recog_def=model_recog)
 
+    config_ = config_.copy()
+    config_["torch_amp"] = "bfloat16"
+    config_["optimizer"] = {
+        "class": "adamw",
+        "epsilon": 1e-16,
+        "weight_decay": 0.000001,
+    }
+    model_with_checkpoint = train(
+        prefix_name + "/base-24gb-opteps1e_16",
+        task=task,
+        config=config_,
+        post_config=post_config,
+        model_def=from_scratch_model_def,
+        train_def=from_scratch_training,
+        num_epochs=2000,
+        gpu_mem=24,
+    )
+    recog_training_exp(prefix_name + "/base-24gb-opteps1e_16", task, model_with_checkpoint, recog_def=model_recog)
+
     config_ = config.copy()
     config_.update(
         dict(
