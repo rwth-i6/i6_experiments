@@ -32,6 +32,7 @@ from ...setups.common.analysis import (
 from ...setups.common.analysis.tse_tina import ComputeTinaTseJob
 from ...setups.common.nn import baum_welch, oclr, returnn_time_tag, seq_disc
 from ...setups.common.nn.chunking import subsample_chunking
+from ...setups.common.nn.compile_graph import compile_tf_graph_from_returnn_config
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
@@ -886,10 +887,23 @@ def run_single(
 
             s.set_experiment_dict("fh-smbr", "scratch", "di", postfix_name=smbr_name)
 
-            pch_config = copy.deepcopy(nn_precomputed_returnn_config)
-            pch_config.config["network"]["conv1p"]["register_as_extern_data"] = "conv1p"
-
-            s.set_graph_for_experiment("fh-smbr", override_cfg=nn_precomputed_returnn_config)
+            sampling_cfg = copy.deepcopy(nn_precomputed_returnn_config)
+            sampling_cfg.config["network"]["features_sampled"] = {
+                "class": "slice",
+                "from": "conv_merged",
+                "axis_kind": "F",
+                "slice_end": s.initial_nn_args["num_input"],
+                "register_as_extern_data": "features_sampled",
+            }
+            smbr_train_tf_flow = make_precomputed_hybrid_tf_feature_flow(
+                tf_graph=compile_tf_graph_from_returnn_config(
+                    returnn_config=sampling_cfg, returnn_root=returnn_root, returnn_python_exe=s.returnn_python_exe
+                ),
+                tf_checkpoint=bw_train_job.out_checkpoints[fine_tune_epochs],
+                output_layer_name="features_sampled",
+            )
+            train_flow = add_tf_flow_to_base_flow(s.feature_flows[train_key]["gt"], smbr_train_tf_flow)
+            train_flow.flags["cache_mode"] = "bundle"
 
             returnn_config_smbr = diphone_joint_output.augment_to_joint_diphone_softmax(
                 returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
@@ -898,15 +912,6 @@ def run_single(
                 log_softmax=True,
                 prepare_for_train=True,
             )
-
-            smbr_train_tf_flow = make_precomputed_hybrid_tf_feature_flow(
-                tf_graph=s.experiments["fh-smbr"]["graph"]["inference"],
-                tf_checkpoint=bw_train_job.out_checkpoints[fine_tune_epochs],
-                output_layer_name="conv1p",
-            )
-            train_flow = add_tf_flow_to_base_flow(s.feature_flows[train_key]["gt"], smbr_train_tf_flow)
-            train_flow.flags["cache_mode"] = "bundle"
-
             returnn_config_smbr = seq_disc.augment_for_smbr(
                 crp=s.crp[s.crp_names["train"]],
                 feature_flow_lattice_generation=feature_flow,
@@ -954,6 +959,7 @@ def run_single(
             returnn_config_smbr.update(smbr_update_config)
 
             s.set_returnn_config_for_experiment("fh-smbr", copy.deepcopy(returnn_config_smbr))
+            s.set_graph_for_experiment("fh-smbr", override_cfg=nn_precomputed_returnn_config)
 
             train_args = {
                 **s.initial_train_args,
