@@ -64,15 +64,16 @@ def pop_phoneme_state_classes(
     network: Network,
     labeling_input: str,
     remaining_classes: int,
+    prefix: str = "",
 ) -> typing.Tuple[Network, str, int]:
     if label_info.phoneme_state_classes == PhonemeStateClasses.boundary:
-        class_layer_name = "boundaryClass"
-        labeling_output = "popBoundary"
+        class_layer_name = f"{prefix}boundaryClass"
+        labeling_output = f"{prefix}popBoundary"
 
         # continues below
     elif label_info.phoneme_state_classes == PhonemeStateClasses.word_end:
-        class_layer_name = "wordEndClass"
-        labeling_output = "popWordEnd"
+        class_layer_name = f"{prefix}wordEndClass"
+        labeling_output = f"{prefix}popWordEnd"
 
         # continues below
     elif label_info.phoneme_state_classes == PhonemeStateClasses.none:
@@ -108,7 +109,10 @@ class SubsamplingInfo:
 
 
 def augment_net_with_label_pops(
-    network: Network, label_info: LabelInfo, classes_subsampling_info: typing.Optional[SubsamplingInfo] = None
+    network: Network,
+    label_info: LabelInfo,
+    classes_subsampling_info: typing.Optional[SubsamplingInfo] = None,
+    prefix: str = "",
 ) -> Network:
     assert label_info.state_tying in [RasrStateTying.diphone, RasrStateTying.triphone]
 
@@ -129,35 +133,35 @@ def augment_net_with_label_pops(
         for factor in ss_factors:
             t_tag += f".ceildiv_right({factor})"
 
-        network["classes_"] = {
+        network[f"{prefix}classes_"] = {
             "class": "reinterpret_data",
             "set_dim_tags": {"T": returnn.CodeWrapper(t_tag)},
             "from": labeling_input,
         }
-        labeling_input = "classes_"
+        labeling_input = f"{prefix}classes_"
 
     if label_info.state_tying == RasrStateTying.triphone:
-        network["futureLabel"] = {
+        network[f"{prefix}futureLabel"] = {
             "class": "eval",
             "from": labeling_input,
             "eval": f"tf.math.floormod(source(0), {label_info.n_contexts})",
-            "register_as_extern_data": "futureLabel",
+            "register_as_extern_data": f"{prefix}futureLabel",
             "out_type": {"dim": label_info.n_contexts, "dtype": "int32", "sparse": True},
         }
         remaining_label_dim //= label_info.n_contexts
-        network["popFutureLabel"] = {
+        network[f"{prefix}popFutureLabel"] = {
             "class": "eval",
             "from": labeling_input,
             "eval": f"tf.math.floordiv(source(0), {label_info.n_contexts})",
             "out_type": {"dim": remaining_label_dim, "dtype": "int32", "sparse": True},
         }
-        labeling_input = "popFutureLabel"
+        labeling_input = f"{prefix}popFutureLabel"
 
-    network["pastLabel"] = {
+    network[f"{prefix}pastLabel"] = {
         "class": "eval",
         "from": labeling_input,
         "eval": f"tf.math.floormod(source(0), {label_info.n_contexts})",
-        "register_as_extern_data": "pastLabel",
+        "register_as_extern_data": f"{prefix}pastLabel",
         "out_type": {"dim": label_info.n_contexts, "dtype": "int32", "sparse": True},
     }
 
@@ -165,20 +169,24 @@ def augment_net_with_label_pops(
     assert remaining_label_dim == label_info.get_n_state_classes()
 
     # popPastLabel in disguise, the label order makes it so that this is directly the center state
-    network["centerState"] = {
+    network[f"{prefix}centerState"] = {
         "class": "eval",
         "from": labeling_input,
         "eval": f"tf.math.floordiv(source(0), {label_info.n_contexts})",
-        "register_as_extern_data": "centerState",
+        "register_as_extern_data": f"{prefix}centerState",
         "out_type": {"dim": remaining_label_dim, "dtype": "int32", "sparse": True},
     }
-    labeling_input = "centerState"
+    labeling_input = f"{prefix}centerState"
 
     network, labeling_input, remaining_label_dim = pop_phoneme_state_classes(
-        label_info, network, labeling_input, remaining_label_dim
+        label_info,
+        network,
+        labeling_input,
+        remaining_label_dim,
+        prefix=prefix,
     )
 
-    network["stateId"] = {
+    network[f"{prefix}stateId"] = {
         "class": "eval",
         "from": labeling_input,
         "eval": f"tf.math.floormod(source(0), {label_info.n_states_per_phone})",
@@ -192,7 +200,7 @@ def augment_net_with_label_pops(
     remaining_label_dim //= label_info.n_states_per_phone
     assert remaining_label_dim == label_info.n_contexts
 
-    network["centerPhoneme"] = {
+    network[f"{prefix}centerPhoneme"] = {
         "class": "eval",
         "from": labeling_input,
         "eval": f"tf.math.floordiv(source(0), {label_info.n_states_per_phone})",

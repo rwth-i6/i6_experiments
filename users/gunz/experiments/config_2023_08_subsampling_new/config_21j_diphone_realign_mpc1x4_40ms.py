@@ -884,6 +884,8 @@ def run_single(
             smbr_peak_lr = 5e-6
 
             smbr_name = f"{ft_name}-smbr:{smbr_epochs}"
+            if mix_ce:
+                smbr_name += "-ce"
 
             s.set_experiment_dict("fh-smbr", "scratch", "di", postfix_name=smbr_name)
 
@@ -947,9 +949,14 @@ def run_single(
                 ),
             )
             if mix_ce:
-                returnn_config_smbr.config["network"]["output"].pop("loss_scale")
-                for l in ["left-output", "center-output"]:
-                    returnn_config_smbr.config["network"][l]["loss_scale"] = 0.05
+                returnn_config_smbr.config["network"]["output"] = {
+                    **returnn_config_smbr.config["network"]["output"],
+                    "loss_opts": {
+                        **returnn_config_smbr.config["network"]["output"].get("loss_opts", {}),
+                        "focal_loss_factor": CONF_FOCAL_LOSS,
+                    },
+                }
+
             lrates = oclr.get_learning_rates(
                 lrate=smbr_peak_lr,
                 increase=0,

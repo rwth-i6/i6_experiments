@@ -298,7 +298,12 @@ def augment_for_smbr(
         },
     }
     if ce_smoothing > 0:
-        network[from_output_layer]["loss_scale"] = ce_smoothing
+        network[from_output_layer] = {
+            **network[from_output_layer],
+            "loss": "ce",
+            "loss_scale": ce_smoothing,
+            "target": "classes",
+        }
 
     update_config = returnn.ReturnnConfig(
         config={"network": network},
