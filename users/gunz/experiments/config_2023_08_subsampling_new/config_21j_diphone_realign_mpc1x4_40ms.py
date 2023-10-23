@@ -987,7 +987,7 @@ def run_single(
             train_args = {
                 **s.initial_train_args,
                 "cpu_rqmt": 2,
-                "mem_rqmt": 24,
+                "mem_rqmt": 12,
                 "log_verbosity": 5,
                 "num_epochs": smbr_epochs,
                 "partition_epochs": partition_epochs,
@@ -998,7 +998,7 @@ def run_single(
                 train_corpus_key=s.crp_names["train"],
                 dev_corpus_key=s.crp_names["cvtrain"],
                 nn_train_args=train_args,
-                include_alignment=False,
+                include_alignment=mix_ce,
                 on_2080=True,
             )
 
