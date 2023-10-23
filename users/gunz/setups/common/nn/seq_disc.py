@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Union, Tuple
 
+from i6_core.rasr import WriteFlowNetworkJob
 from i6_core.returnn.flow import add_tf_flow_to_base_flow, make_precomputed_hybrid_tf_feature_flow
 from i6_experiments.users.gunz.setups.common.nn.compile_graph import compile_tf_graph_from_returnn_config
 from sisyphus import Path
@@ -132,7 +133,10 @@ def _get_smbr_crp(
         "lattice-processor.rescoring.segmentwise-feature-extraction.feature-extraction", config, post_config
     )
 
-    config.lattice_processor.rescoring.segmentwise_feature_extraction.feature_extraction.file = "feature.flow"
+    written_flow_file = WriteFlowNetworkJob(feature_flow)
+    config.lattice_processor.rescoring.segmentwise_feature_extraction.feature_extraction.file = (
+        written_flow_file.out_flow_file
+    )
 
     # linear-combination
     if params.arc_scale is None:
