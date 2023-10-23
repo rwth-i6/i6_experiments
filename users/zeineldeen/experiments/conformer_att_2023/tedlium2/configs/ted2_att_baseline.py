@@ -1092,6 +1092,42 @@ def conformer_baseline():
                                                     recog_bliss=recog_datasets_tuples[test_set][2],
                                                 )
 
+                                # TODO: no CTC
+                                no_ctc_args = copy.deepcopy(args)
+                                no_ctc_args["encoder_args"].with_ctc = False
+                                _, train_data = run_exp(
+                                    name + "_noCTC",
+                                    no_ctc_args,
+                                    num_epochs=ep,
+                                    epoch_wise_filter=None,
+                                    bpe_size=BPE_1K,
+                                    partition_epoch=4,
+                                )
+
+                                # TODO: only CTC
+                                only_ctc_args = copy.deepcopy(args)
+                                only_ctc_args["decoder_args"].ce_loss_scale = 0.0
+                                _, train_data = run_exp(
+                                    name + "_onlyCTC",
+                                    only_ctc_args,
+                                    num_epochs=ep,
+                                    epoch_wise_filter=None,
+                                    bpe_size=BPE_1K,
+                                    partition_epoch=4,
+                                )
+
+                                # TODO: scale CTC
+                                scale_ctc_args = copy.deepcopy(args)
+                                scale_ctc_args["encoder_args"].ctc_loss_scale = 0.3 / 0.7  # AED scale is 1.0
+                                _, train_data = run_exp(
+                                    name + "_ctcScale0.3",
+                                    scale_ctc_args,
+                                    num_epochs=ep,
+                                    epoch_wise_filter=None,
+                                    bpe_size=BPE_1K,
+                                    partition_epoch=4,
+                                )
+
                                 # TODO: retrain
                                 # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12
                                 # 7.4     6.85  avg
