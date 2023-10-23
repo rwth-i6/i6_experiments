@@ -302,7 +302,7 @@ class RNNDecoder:
             subnet_unit.add_copy_layer("readout", "readout_in")
 
         ce_loss_opts = {"label_smoothing": self.label_smoothing}
-        if self.ce_loss_scale and self.ce_loss_scale != 1.0:
+        if self.ce_loss_scale != 1.0:
             ce_loss_opts["scale"] = self.ce_loss_scale
 
         self.output_prob = subnet_unit.add_softmax_layer(
