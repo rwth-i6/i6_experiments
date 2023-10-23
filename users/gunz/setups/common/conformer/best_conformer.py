@@ -22,6 +22,7 @@ class Size(Enum):
 def get_best_model_config(
     size: typing.Union[Size, int],
     num_classes: int,
+    num_inputs: int,
     *,
     chunking: typing.Optional[str] = None,
     int_loss_at_layer: typing.Optional[int] = None,
@@ -84,6 +85,7 @@ def get_best_model_config(
         enc_args=pe400_enc_args,
         target=target,
         num_classes=num_classes,
+        num_inputs=num_inputs,
         label_smoothing=label_smoothing,
         **loss6_down_up_3_two_vggs_args,
     )

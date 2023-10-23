@@ -68,7 +68,7 @@ def get_oclr_config(num_epochs: int, *, schedule: str = "v6") -> typing.Dict[str
 
     import numpy as np
 
-    assert schedule in ["v6", "v7"], "unknown LR schedule"
+    assert schedule in ["v6", "v7", "v8"], "unknown LR schedule"
 
     def oclr_cfg(lrate: float):
         n = int((num_epochs // 10) * 9)
@@ -97,5 +97,11 @@ def get_oclr_config(num_epochs: int, *, schedule: str = "v6") -> typing.Dict[str
         # This is proportionally scaled to a batch size of 11k vs 6144, where schedule v6 is better.
 
         return oclr_cfg(lrate=0.00053 / 0.3)
+    if schedule == "v8":
+        # OneCycle from Wei + linear decrease at the end to 1e-6
+        #
+        # Max LR 0.0003.
+
+        return oclr_cfg(lrate=0.0008/0.3)
     else:
         raise ValueError(f"unknown LR schedule {schedule}")

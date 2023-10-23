@@ -1,4 +1,4 @@
-__all__ = ["EstimateMonophonePriors_", "DumpXmlForMonophone", "EstimateRasrDiphoneAndContextPriors", "DumpXmlRasrForDiphone"]
+__all__ = ["EstimateMonophonePriors_", "EstimateMonophonePriorsV2", "DumpXmlForMonophone", "EstimateRasrDiphoneAndContextPriors", "DumpXmlRasrForDiphone"]
 
 
 import h5py
@@ -33,6 +33,88 @@ def get_batch_from_segments(segments, batchSize=10000):
         except IndexError:
             index = 0
 
+
+class EstimateMonophonePriorsV2(Job):
+    tm = {"center": "center", }
+
+    def __init__(self, graph, model, dataPaths, datasetIndices, libraryPath,
+                 nBatch=20000, nStates=282, gpu=1, mem=8, time=1, tensorMap=tm):
+
+        self.graphPath = graph
+        self.model = model
+        self.dataPaths = dataPaths
+        self.datasetIndices = datasetIndices
+        self.additionalLibrary = libraryPath
+        self.centerPhonemeMeans = np.zeros(nStates)
+        self.numSegments = [self.output_path('segmentLength.%d' % index, cached=False) for index in self.datasetIndices]
+        self.priorFiles = [self.output_path('centerPhonemeMeans.%d' % index, cached=False) for index in
+                           self.datasetIndices]
+        self.nBatch = nBatch
+        self.nStates = nStates
+        self.tensorMap = tensorMap
+        if "data" not in tensorMap:
+            self.tensorMap["data"] = "data"
+        if "join_symbol" not in tensorMap:
+            self.tensorMap["join_symbol"] = "-"
+        if not gpu: time *= 4
+        self.rqmt = {'cpu': 2, 'gpu': gpu, 'mem': mem, 'time': float(time)}
+
+    def tasks(self):
+        yield Task('run', resume='run', rqmt=self.rqmt, args=range(1, (len(self.datasetIndices) + 1)))
+
+    def getSegmentFeaturesFromHdf(self, dataIndex):
+        hf = h5py.File(tk.uncached_path(self.dataPaths[dataIndex]))
+        segmentNames = list(hf['streams']['features']['data'])
+        segments = []
+        for name in segmentNames:
+            segments.append(hf['streams']['features']['data'][name])
+        return np.vstack(segments)
+
+    def getPosteriors(self, session, featureVector):
+        return session.run([(self.tensorMap["join_symbol"]).join([self.tensorMap['center'], 'output/output_batch_major:0'])],
+                           feed_dict={f'extern_data/placeholders/data/data:0':
+                                          featureVector.reshape(1, featureVector.shape[0], featureVector.shape[1]),
+                                      f'extern_data/placeholders/{self.tensorMap["data"]}/{self.tensorMap["data"]}_dim0_size:0': [featureVector.shape[0]]})
+
+    def calculateMeanPosteriors(self, session, taskId):
+        sampleCount = 0
+        segments = self.getSegmentFeaturesFromHdf(self.datasetIndices[taskId - 1])
+
+        for batch in get_batch_from_segments(segments, self.nBatch):
+            bSize = len(batch)
+            denom = sampleCount + bSize
+            if (len(batch) == 0):
+                break
+
+            p = self.getPosteriors(session, batch)
+
+            for i in range(len(batch)):
+                nominator = (sampleCount * self.centerPhonemeMeans) + (bSize * np.mean(p[0][0], axis=0))
+                self.centerPhonemeMeans = np.divide(nominator, denom)
+            sampleCount += bSize
+
+        with open(tk.uncached_path(self.numSegments[taskId - 1]), "wb") as fp:
+            pickle.dump(sampleCount, fp, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def dumpMeans(self, taskId):
+        with open(tk.uncached_path(self.priorFiles[taskId - 1]), "wb") as fp:
+            pickle.dump(self.centerPhonemeMeans, fp, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def run(self, taskId):
+        if self.tensorMap["join_symbol"] == "__":
+            self.nBatch = min(self.nBatch, 12000)
+        graphPath = tk.uncached_path(self.graphPath)
+        modelPath = tk.uncached_path(self.model.ckpt_path)
+        tf.load_op_library(self.additionalLibrary)
+        mg = tf.MetaGraphDef()
+        mg.ParseFromString(open(graphPath, 'rb').read())
+        tf.import_graph_def(mg.graph_def, name='')
+        # session
+        s = tf.Session()
+        returnValue = s.run(['save/restore_all'], feed_dict={'save/Const:0': modelPath})
+
+        self.calculateMeanPosteriors(s, taskId)
+        self.dumpMeans(taskId)
 class EstimateMonophonePriors_(Job):
     tm = {"diphone": "diphone"}
     __sis_hash_exclude__ = {"tensorMap": {"diphone": "center", "context": "context"}}

@@ -79,7 +79,7 @@ def get_encoder_args(
 
 
 ## acoustic model specific parameters: frond-end, downsampling,
-def get_network_args(num_enc_layers, type, enc_args, target="classes", num_classes=12001, **kwargs):
+def get_network_args(num_enc_layers, type, enc_args, target="classes", num_classes=12001, num_inputs=40, **kwargs):
 
     assert type in ["transformer", "conformer"]
     if type == "conformer":
@@ -88,6 +88,7 @@ def get_network_args(num_enc_layers, type, enc_args, target="classes", num_class
     network_args = {
         "target": target,
         "num_classes": num_classes,
+        "num_inputs": num_inputs,
         "num_enc_layers": num_enc_layers,
         "enc_args": enc_args,
         "type": type,

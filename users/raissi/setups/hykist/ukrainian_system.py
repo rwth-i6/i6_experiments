@@ -700,6 +700,7 @@ class UkrainianHybridSystem(NnSystem):
             returnn_config = nn_train_args.pop('returnn_config')
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
+
         train_job = ReturnnRasrTrainingBWJob(
             train_crp=train_crp,
             dev_crp=dev_crp,
@@ -717,6 +718,8 @@ class UkrainianHybridSystem(NnSystem):
         )
 
         self.experiments[experiment_key]["train_job"] = train_job
+
+
         self.set_graph_for_experiment(experiment_key)
 
     # ---------------------Prior Estimation--------------
@@ -755,15 +758,137 @@ class UkrainianHybridSystem(NnSystem):
         hdfJob.add_alias(f"hdf/{crp_name}")
         tk.register_output(f"hdf/{crp_name}.hdf.1", self.hdfs[crp_name][0])
 
-    def set_mono_priors(self, key, epoch, tf_library=None, tm=None, nStateClasses=None, hdf_key='960'):
+    def _compute_returnn_rasr_priors(
+        self,
+        key: str,
+        epoch: int,
+        train_corpus_key: str,
+        dev_corpus_key: str,
+        returnn_config: returnn.ReturnnConfig,
+        share: float = 0.1,
+        time_rqmt: Optional[int] = None,
+    ):
+
+        model_checkpoint = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+
+        train_data = self.train_input_data[train_corpus_key]
+        dev_data = self.cv_input_data[dev_corpus_key]
+
+        train_crp = train_data.get_crp()
+        dev_crp = dev_data.get_crp()
+
+        if share != 1.0:
+            train_crp = copy.deepcopy(train_crp)
+            segment_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
+                segment_file=train_crp.segment_path,
+                split={"priors": share, "rest": 1 - share},
+                shuffle=True,
+            )
+            train_crp.segment_path = segment_job.out_segments["priors"]
+
+        # assert train_data.feature_flow == dev_data.feature_flow
+        # assert train_data.features == dev_data.features
+        # assert train_data.alignments == dev_data.alignments
+
+        if train_data.feature_flow is not None:
+            feature_flow = train_data.feature_flow
+        else:
+            if isinstance(train_data.features, rasr.FlagDependentFlowAttribute):
+                feature_path = train_data.features
+            elif isinstance(train_data.features, (MultiPath, MultiOutputPath)):
+                feature_path = rasr.FlagDependentFlowAttribute(
+                    "cache_mode",
+                    {
+                        "task_dependent": train_data.features,
+                    },
+                )
+            elif isinstance(train_data.features, tk.Path):
+                feature_path = rasr.FlagDependentFlowAttribute(
+                    "cache_mode",
+                    {
+                        "bundle": train_data.features,
+                    },
+                )
+            else:
+                raise NotImplementedError
+
+            feature_flow = features.basic_cache_flow(feature_path)
+            if isinstance(train_data.features, tk.Path):
+                feature_flow.flags = {"cache_mode": "bundle"}
+
+        if isinstance(train_data.alignments, rasr.FlagDependentFlowAttribute):
+            alignments = copy.deepcopy(train_data.alignments)
+            net = rasr.FlowNetwork()
+            net.flags = {"cache_mode": "bundle"}
+            alignments = alignments.get(net)
+        elif isinstance(train_data.alignments, (MultiPath, MultiOutputPath)):
+            raise NotImplementedError
+        elif isinstance(train_data.alignments, tk.Path):
+            alignments = train_data.alignments
+        else:
+            raise NotImplementedError
+
+        assert isinstance(returnn_config, returnn.ReturnnConfig)
+
+        prior_job = returnn.ReturnnRasrComputePriorJobV2(
+            train_crp=train_crp,
+            dev_crp=dev_crp,
+            model_checkpoint=model_checkpoint,
+            feature_flow=feature_flow,
+            alignment=alignments,
+            returnn_config=returnn_config,
+            returnn_root=tk.Path(self.returnn_root),
+            returnn_python_exe=self.returnn_python_exe,
+            mem_rqmt=12,
+            time_rqmt=time_rqmt if time_rqmt is not None else 12,
+        )
+
+        return prior_job
+
+    def set_mono_priors_returnn_rasr(
+        self,
+        key: str,
+        epoch: int,
+        train_corpus_key: str,
+        dev_corpus_key: str,
+        returnn_config: Optional[returnn.ReturnnConfig] = None,
+        output_layer_name: str = "output",
+        data_share: float = 0.1,
+    ):
+        self.set_graph_for_experiment(key)
+
+        name = f"{self.experiments[key]['name']}/e{epoch}"
+
+        if returnn_config is None:
+            returnn_config = self.experiments[key]["returnn_config"]
+        assert isinstance(returnn_config, returnn.ReturnnConfig)
+
+        config = copy.deepcopy(returnn_config)
+        config.config["forward_output_layer"] = output_layer_name
+
+        job = self._compute_returnn_rasr_priors(
+            key,
+            epoch,
+            train_corpus_key=train_corpus_key,
+            dev_corpus_key=dev_corpus_key,
+            returnn_config=config,
+            share=data_share,
+        )
+
+        job.add_alias(f"priors/{name}/c")
+        tk.register_output(f"priors/{name}/center-state.xml", job.out_prior_xml_file)
+
+        self.experiments[key]['priors'] = [job.out_prior_xml_file]
+
+    def set_mono_priors(self, key, epoch, tf_library=None, tm=None, nStateClasses=None, hdf_key=None):
+        if hdf_key is None:
+            hdf_key = self.crp_names['train']
+
         if nStateClasses is None:
             nStateClasses = self.label_info.get_n_state_classes()
 
         if tm is None:
             tm = self.tf_map
-
-        if tf_library is None:
-            tf_library = self.tf_library
 
         name = f"{self.experiments[key]['name']}-epoch-{epoch}"
         model_checkpoint = self._get_model_checkpoint(
@@ -771,22 +896,84 @@ class UkrainianHybridSystem(NnSystem):
         )
         graph = self.experiments[key]["graph"]["inference"]
 
-        hdf_paths = self.get_hdf_path(hdf_key)
-
-        estimateJob = EstimateMonophonePriors_(graph=graph,
-                                               model=model_checkpoint,
-                                               dataPaths=hdf_paths,
-                                               datasetIndices=list(range(len(hdf_paths) // 3)),
+        estimateJob = EstimateMonophonePriorsV2(model=model_checkpoint,
+                                               graph=graph,
+                                               dataPaths=self.hdfs[hdf_key],
+                                               datasetIndices=list(range(10)),
                                                libraryPath=tf_library,
                                                nStates=nStateClasses,
                                                tensorMap=tm,
                                                gpu=1)
         if name is not None:
             estimateJob.add_alias(f"priors/priors-{name}")
-        xmlJob = DumpXmlForMonophone(estimateJob.priorFiles[:19],
-                                     estimateJob.numSegments[:19],
+        xmlJob = DumpXmlForMonophone(estimateJob.priorFiles,
+                                     estimateJob.numSegments,
                                      nStates=nStateClasses)
         priorFiles = [xmlJob.centerPhonemeXml]
+        if name is not None:
+            xmlName = f"priors/{name}-xmlpriors"
+        else:
+            xmlName = "mono-prior"
+        tk.register_output(xmlName, priorFiles[0])
+        self.experiments[key]["priors"] = priorFiles
+
+    def set_mono_priors_returnn(self, key, epoch, hdf_key=None):
+        if hdf_key is None:
+            hdf_key = self.crp_names['train']
+
+
+        name = f"{self.experiments[key]['name']}-epoch-{epoch}"
+        model_checkpoint = self._get_model_checkpoint(
+            self.experiments[key]["train_job"], epoch
+        )
+
+        prior_returnn_cfg = copy.deepcopy(self.experiments[key]['returnn_config'])
+        prior_returnn_cfg.config['network']['output']['class'] = 'linear'
+        prior_returnn_cfg.config['network']['output']['activation'] = 'log_softmax'
+        prior_returnn_cfg.config['network']['output']['target'] = 'alignment'
+        prior_returnn_cfg.config['extern_data']['alignment'] = copy.deepcopy(prior_returnn_cfg.config['extern_data']['classes'])
+
+        del prior_returnn_cfg.config['train']
+        del prior_returnn_cfg.config['dev']
+
+        from textwrap import dedent
+        cache_epilog = dedent(
+            """
+            import importlib
+            import sys
+
+            sys.path.append("/usr/local/")
+            sys.path.append("/usr/local/cache-manager/")
+
+            cm = importlib.import_module("cache-manager")
+
+            train["files"] = [cm.cacheFile(f) for f in train["files"]]
+            """
+        )
+        update_cfg = returnn.ReturnnConfig(
+            config={}, python_epilog=cache_epilog
+        )
+        prior_returnn_cfg.update(update_cfg)
+
+
+
+        hdf_paths = self.get_hdf_path(hdf_key)
+
+        estimate_priors_job = returnn.ReturnnComputePriorJobV2(
+            model_checkpoint=model_checkpoint,
+            prior_data={
+                "class": "NextGenHDFDataset",
+                "files": [hdf_paths[i] for i in [1, 3, 5, 7, 9]],
+                "input_stream_name": "features",
+                "partition_epoch": 1,
+            },
+            returnn_config=prior_returnn_cfg,
+            returnn_python_exe=self.returnn_python_exe,
+            returnn_root=tk.Path(self.returnn_root),
+        )
+        estimate_priors_job.add_alias(f"nn_recog/priors/{name}-{epoch}")
+
+        priorFiles = [estimate_priors_job.out_prior_xml_file]
         if name is not None:
             xmlName = f"priors/{name}-xmlpriors"
         else:
@@ -850,12 +1037,24 @@ class UkrainianHybridSystem(NnSystem):
         python_epilog = self.experiments[key]["extra_returnn_code"]["epilog"]
 
         t_graph = get_graph_from_returnn_config(config, python_prolog, python_epilog)
-        if "source" in config.config["network"].keys():  # specaugment
+        infer_graph = t_graph
+        #ToDo: check if you really want to change the specaugment in inference
+        if "source" in config.config["network"].keys():  # specaugment for blostm, not changing for hash problems
             for k in ["fwd", "bwd"]:
-                config.config["network"][f"{k}_1"]["from"] = "data"
-            infer_graph = get_graph_from_returnn_config(config, python_prolog, python_epilog)
-        else:
-            infer_graph = t_graph
+                if f"{k}_1" in config.config["network"]:
+                    config.config["network"][f"{k}_1"]["from"] = "data"
+                infer_graph = get_graph_from_returnn_config(config, python_prolog, python_epilog)
+
+        if self.label_info.state_tying == 'cart':
+            infer_config = copy.deepcopy(config)
+            for k in infer_config.config['network'].keys():
+                if 'output' in k:
+                    if 'aux' in k:
+                        continue
+                    if infer_config.config['network'][k]['class'] == 'softmax':
+                        infer_config.config['network'][k]['class'] = 'linear'
+                        infer_config.config['network'][k]['activation'] = 'log_softmax'
+                        infer_graph = get_graph_from_returnn_config(infer_config, python_prolog, python_epilog)
 
         self.experiments[key]["graph"]["inference"] = infer_graph
         tk.register_output(f'graphs/{name}-infer_graph', infer_graph)
@@ -1008,7 +1207,7 @@ class UkrainianHybridSystem(NnSystem):
             search_parameters=sp,
             lm_lookahead=True,
             eval_best_in_lattice=True,
-            use_gpu=True,
+            use_gpu=False,
             rtf=12,
             mem=8,
             model_combination_config=modelCombinationConfig,

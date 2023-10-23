@@ -9,6 +9,7 @@ from .augment import Network
 def get_best_model_config(
     size: typing.Union[Size, int],
     num_classes: int,
+    num_inputs: int,
     time_tag_name: str,
     *,
     chunking: typing.Optional[str] = None,
@@ -21,6 +22,7 @@ def get_best_model_config(
 ) -> Network:
     conformer_net = get_cfg(
         num_classes=num_classes,
+        num_inputs=num_inputs,
         size=size,
         chunking=chunking,
         focal_loss_factor=focal_loss_factor,

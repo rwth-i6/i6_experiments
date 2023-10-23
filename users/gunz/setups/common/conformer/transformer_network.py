@@ -13,6 +13,7 @@ class attention_for_hybrid:
         self,
         target,
         num_classes,
+        num_inputs,
         num_enc_layers,
         enc_args,
         type="transformer",
@@ -162,6 +163,7 @@ class attention_for_hybrid:
 
         self.target = target
         self.num_classes = num_classes
+        self.num_inputs = num_inputs
 
         self.use_spec_augment = use_spec_augment
 
@@ -385,7 +387,7 @@ class attention_for_hybrid:
             "class": "split_dims",
             "axis": "F",
             "dims": (-1, 1),
-        }  # (T,50,1)
+        }  # (T,self.num_inputs,1)
 
         if inp is not None:
             if isinstance(inp, str):
@@ -407,8 +409,8 @@ class attention_for_hybrid:
             "n_out": 32,
             "activation": None,
             "with_bias": True,
-            "in_spatial_dims": ["T", "dim:50"],
-        }  # (T,50,32)
+            "in_spatial_dims": ["T", f"dim:{self.num_inputs}"],
+        }  # (T,self.num_inputs,32)
         # , "in_spatial_dims": ["T", "dim:1"]
         # , "in_spacial_dim": ["dim:1"]
 
@@ -420,8 +422,8 @@ class attention_for_hybrid:
             "n_out": 32,
             "activation": "relu",
             "with_bias": True,
-            "in_spatial_dims": ["T", "dim:50"],
-        }  # (T,50,32)
+            "in_spatial_dims": ["T", f"dim:{self.num_inputs}"],
+        }  # (T,num_inputs,32)
 
         self.network[f"{prefix}conv0p"] = {
             "class": "pool",
@@ -430,8 +432,8 @@ class attention_for_hybrid:
             "pool_size": (1, 2),
             "strides": (1, 2),
             "from": f"{prefix}conv0_1",
-            "in_spatial_dims": ["T", "dim:50"],
-        }  # (T,25,32)
+            "in_spatial_dims": ["T", f"dim:{self.num_inputs}"],
+        }  # (T,self.num_inputs/2,32)
 
         if self.reduction_factor and self.reduction_factor[0] >= 2:
             self.network[f"{prefix}conv0p"]["strides"] = (self.reduction_factor[0], 2)
@@ -445,8 +447,8 @@ class attention_for_hybrid:
             "n_out": 64,
             "activation": None,
             "with_bias": True,
-            "in_spatial_dims": ["T", "dim:25"],
-        }  # (T,25,64)
+            "in_spatial_dims": ["T", f"dim:{self.num_inputs//2}"],
+        }  # (T,self.num_inputs//2,64)
         self.network[f"{prefix}conv1_1"] = {
             "class": "conv",
             "from": f"{prefix}conv1_0",
@@ -455,8 +457,8 @@ class attention_for_hybrid:
             "n_out": 64,
             "activation": "relu",
             "with_bias": True,
-            "in_spatial_dims": ["T", "dim:25"],
-        }  # (T,25,64)
+            "in_spatial_dims": ["T", f"dim:{self.num_inputs//2}"],
+        }  # (T,self.num_inputs//2,64)
         self.network[f"{prefix}conv1p"] = {
             "class": "pool",
             "mode": "max",
@@ -464,8 +466,8 @@ class attention_for_hybrid:
             "pool_size": (1, 1),
             "strides": (1, 1),  # strides': (1, 1)?
             "from": f"{prefix}conv1_1",
-            "in_spatial_dims": ["T", "dim:25"],
-        }  # (T,25,64)
+            "in_spatial_dims": ["T", f"dim:{self.num_inputs//2}"],
+        }  # (T,self.num_inputs//2,64)
 
         if self.reduction_factor and self.reduction_factor[1] >= 2:
             self.network[f"{prefix}conv1p"]["strides"] = (self.reduction_factor[1], 1)
