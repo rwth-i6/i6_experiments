@@ -2225,6 +2225,11 @@ def run_single(
                     for sc, pC in [(0.4, 0.3), (0.2, 0.4), (0.4, 0.4), (0.2, 0.5)]
                 ]
                 for cfg in decoding_cfgs:
+                    trafo = (
+                        ep == max(keep_epochs)
+                        and bw_scale.label_posterior_scale == 1.0
+                        and bw_scale.transition_scale == 0.3
+                    )
                     s.recognize_cart(
                         key="fh-fs",
                         epoch=ep,
@@ -2236,7 +2241,8 @@ def run_single(
                         calculate_statistics=True,
                         opt_lm_am_scale=True,
                         prior_epoch=min(ep, keep_epochs[-2]),
-                        rtf=12,
+                        decode_trafo_lm=trafo,
+                        rtf=12 * (2 if trafo else 1),
                     )
 
                 if run_performance_study:

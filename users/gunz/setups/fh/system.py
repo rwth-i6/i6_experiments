@@ -23,6 +23,7 @@ from i6_core.util import MultiPath, MultiOutputPath
 
 from i6_experiments.common.datasets.librispeech.constants import durations, num_segments
 from i6_experiments.common.setups.rasr.config.am_config import Tdp
+from i6_experiments.common.setups.rasr.config.lm_config import TfRnnLmRasrConfig
 from i6_experiments.common.setups.rasr.hybrid_decoder import HybridDecoder
 from i6_experiments.common.setups.rasr.nn_system import NnSystem
 from i6_experiments.common.setups.rasr.util import (
@@ -1626,6 +1627,7 @@ class FactoredHybridSystem(NnSystem):
         search_rqmt_update: Optional[dict] = None,
         crp_update: Optional[typing.Callable] = None,
         prior_epoch: typing.Union[int, str] = "",
+        decode_trafo_lm: bool = False,
     ) -> recognition.AdvancedTreeSearchJob:
         p_info: PriorInfo = self.experiments[key].get("priors", None)
         assert p_info is not None, "set priors first"
@@ -1702,6 +1704,25 @@ class FactoredHybridSystem(NnSystem):
         lat2ctm_extra_config = rasr.RasrConfig()
         lat2ctm_extra_config.flf_lattice_tool.network.to_lemma.links = "best"
 
+        lm_configs = {"4gram": RasrConfigWrapper(obj=crp.language_model_config)}
+
+        if decode_trafo_lm:
+            lm_cfg = TfRnnLmRasrConfig(
+                common_prefix=True,
+                meta_graph_path=Path(
+                    "/work/asr3/raissi/shared_workspaces/gunz/dependencies/ls-eugen-trafo-lm/graph.meta"
+                ),
+                returnn_checkpoint=returnn.Checkpoint(
+                    index_path=Path(
+                        "/work/asr3/raissi/shared_workspaces/gunz/dependencies/ls-eugen-trafo-lm/epoch.030.index"
+                    )
+                ),
+                scale=crp.language_model_config.scale + 2,
+                softmax_adapter="quantized-blas-nce-16bit",
+                vocab_path=Path("/work/asr3/raissi/shared_workspaces/gunz/dependencies/ls-eugen-trafo-lm/vocabulary"),
+            )
+            lm_configs["eugen-trafo"] = lm_cfg
+
         decoder.recognition(
             name=self.experiments[key]["name"],
             checkpoints={epoch: self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)},
@@ -1750,7 +1771,7 @@ class FactoredHybridSystem(NnSystem):
                 ]
             },
             returnn_config=log_softmax_returnn_config,
-            lm_configs={"4gram": RasrConfigWrapper(obj=crp.language_model_config)},
+            lm_configs=lm_configs,
             search_job_args=AdvTreeSearchJobArgs(
                 search_parameters={
                     "beam-pruning": params.beam,
