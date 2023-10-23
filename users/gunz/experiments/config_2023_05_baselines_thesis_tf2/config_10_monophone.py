@@ -348,20 +348,20 @@ def run_single(
     prior_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
     if not multitask:
         prior_config.config["network"]["center-output"]["n_out"] = s.label_info.get_n_state_classes()
-    s.set_mono_priors_returnn_rasr(
-        key="fh",
-        epoch=keep_epochs[-2],
-        train_corpus_key=s.crp_names["train"],
-        dev_corpus_key=s.crp_names["cvtrain"],
-        smoothen=True,
-        returnn_config=prior_config,
-    )
 
     best_config = None
 
-    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+    for ep, crp_k in itertools.product(keep_epochs if "FF" in alignment_name else [max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
+        s.set_mono_priors_returnn_rasr(
+            key="fh",
+            epoch=min(ep, keep_epochs[-2]),
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=prior_config,
+        )
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.monophone,

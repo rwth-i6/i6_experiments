@@ -363,7 +363,7 @@ def run_single(
         s.experiments["fh"]["priors"] = smoothen_priors(prior_info)
 
     best_config = None
-    eps = [500, max(keep_epochs)] if n_states_per_phone == 1 else [max(keep_epochs)]
+    eps = [500, max(keep_epochs)] if n_states_per_phone == 1 or "FF" in alignment_name else [max(keep_epochs)]
     for ep, crp_k in itertools.product(eps, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
