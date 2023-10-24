@@ -117,6 +117,7 @@ def train(
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # stop_on_nonfinite_train_score = False,
+            watch_memory=True,
         ),
         sort_config=False,
     )
