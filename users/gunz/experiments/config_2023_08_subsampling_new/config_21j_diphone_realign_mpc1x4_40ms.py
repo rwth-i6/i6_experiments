@@ -1044,6 +1044,7 @@ def run_single(
                 decoding_cfgs = [
                     dataclasses.replace(
                         base_params,
+                        beam=20,
                         lm_scale=1.4,
                         tdp_scale=sc,
                     ).with_prior_scale(pC)
