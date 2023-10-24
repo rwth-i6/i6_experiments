@@ -140,7 +140,9 @@ def train(
     )
 
     kwargs = kwargs.copy()
-    for k, v in dict(log_verbosity=5, num_epochs=150, time_rqmt=80, mem_rqmt=15, cpu_rqmt=4).items():
+    for k, v in dict(
+        log_verbosity=5, num_epochs=150, time_rqmt=80, mem_rqmt=30 if gpu_mem and gpu_mem > 11 else 15, cpu_rqmt=4
+    ).items():
         kwargs.setdefault(k, v)
     returnn_train_job = ReturnnTrainingJob(returnn_train_config, **kwargs)
     returnn_train_job.add_alias(prefix_name + "/train")
