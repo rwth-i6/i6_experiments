@@ -1044,7 +1044,7 @@ def run_single(
                 decoding_cfgs = [
                     dataclasses.replace(
                         base_params,
-                        lm_scale=round(base_params.lm_scale / ss_factor, 2),
+                        lm_scale=1.4,
                         tdp_scale=sc,
                     ).with_prior_scale(pC)
                     for sc, pC in itertools.product([0.4, 0.6], [0.4, 0.6])
