@@ -406,6 +406,15 @@ def run_single(
                 name_override="best/4gram",
                 rtf_cpu=35,
             )
+            recognizer.recognize_ls_trafo_lm(
+                label_info=s.label_info,
+                search_parameters=best_config.with_lm_scale(best_config.lm_scale + 2),
+                num_encoder_output=conf_model_dim,
+                rerun_after_opt_lm=True,
+                calculate_stats=True,
+                name_override="best/4gram",
+                rtf_cpu=35,
+            )
 
     if run_performance_study:
         assert tune_decoding
