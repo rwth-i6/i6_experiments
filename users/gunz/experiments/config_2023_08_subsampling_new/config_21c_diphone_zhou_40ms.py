@@ -2286,6 +2286,50 @@ def run_single(
                         )
                         j.rqmt.update({"sbatch_args": ["-p", "rescale_amd"]})
 
+            for ep, crp_k in itertools.product([max(keep_epochs)], ["test-other"]):
+                s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+                diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+                tying_cfg = rasr.RasrConfig()
+                tying_cfg.type = "diphone-dense"
+
+                base_params = s.get_cart_params(key="fh-fs")
+                decoding_cfgs = [
+                    dataclasses.replace(
+                        base_params,
+                        lm_scale=base_params.lm_scale / ss_factor,
+                        tdp_speech=tdp_sp,
+                        tdp_silence=tdp_sil,
+                        tdp_scale=sc,
+                    ).with_prior_scale(pC)
+                    for sc, pC in [(0.4, 0.3), (0.2, 0.4), (0.4, 0.4), (0.2, 0.5)]
+                    for tdp_sp, tdp_sil in [
+                        ((10, 0, "infinity", 0), (10, 10, "infinity", 10)),
+                        ((3, 0, "infinity", 0), (0, 3, "infinity", 20)),
+                    ]
+                ]
+                for cfg in decoding_cfgs:
+                    trafo = (
+                        ep == max(keep_epochs)
+                        and bw_scale.label_posterior_scale == 1.0
+                        and bw_scale.transition_scale == 0.3
+                    )
+                    s.recognize_cart(
+                        key="fh-fs",
+                        epoch=ep,
+                        crp_corpus=crp_k,
+                        n_cart_out=diphone_li.get_n_of_dense_classes(),
+                        cart_tree_or_tying_config=tying_cfg,
+                        params=cfg,
+                        log_softmax_returnn_config=nn_precomputed_returnn_config,
+                        calculate_statistics=True,
+                        opt_lm_am_scale=True,
+                        prior_epoch=min(ep, keep_epochs[-2]),
+                        decode_trafo_lm=trafo,
+                        rtf=12 * (2 if trafo else 1),
+                        cpu_rqmt=2,
+                    )
+
     if decode_all_corpora:
         assert False, "this is broken r/n"
 
