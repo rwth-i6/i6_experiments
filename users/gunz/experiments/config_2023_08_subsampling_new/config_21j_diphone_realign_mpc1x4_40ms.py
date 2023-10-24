@@ -884,7 +884,7 @@ def run_single(
             smbr_epochs = 80
             smbr_keep_epochs = [int(v) for v in np.linspace(10, smbr_epochs, 8)]
 
-            smbr_name = f"{ft_name}-smbr:{smbr_epochs}-lr{smbr_peak_lr}"
+            smbr_name = f"{ft_name}-smbr:{smbr_epochs}-lr:{smbr_peak_lr}"
             if mix_ce:
                 smbr_name += "-ce"
 
