@@ -3,12 +3,8 @@ from i6_core.tools.git import CloneGitRepositoryJob
 from i6_experiments.common.tools.sctk import compile_sctk
 
 
-# RETURNN_EXE = tk.Path("/u/zeineldeen/bin/returnn_tf_ubuntu22_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
-# RETURNN_CPU_EXE = RETURNN_EXE
-
-RETURNN_CPU_EXE = tk.Path(
-    "/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCHER"
-)
+RETURNN_EXE = tk.Path("/u/luca.gaudino/bin/returnn_tf_ubuntu22_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
+RETURNN_CPU_EXE = RETURNN_EXE
 
 RETURNN_ROOT = CloneGitRepositoryJob(
     "https://github.com/rwth-i6/returnn", commit="3f7bd3b9c712c6b92ed7ccd8dd925a595cf73716"

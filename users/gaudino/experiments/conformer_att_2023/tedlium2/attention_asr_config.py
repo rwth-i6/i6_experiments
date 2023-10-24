@@ -543,6 +543,7 @@ class CTCDecoderArgs(DecoderArgs):
     one_minus_term_sub_scale: float = 0.0
     length_normalization: bool = False
     target_dim: int = 10025
+    target_embed_dim: int = 640
     # hash_override_version: Optional[int] = None
 
 
