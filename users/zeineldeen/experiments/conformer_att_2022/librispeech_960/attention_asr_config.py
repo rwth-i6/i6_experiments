@@ -512,8 +512,10 @@ class RNNDecoderArgs(DecoderArgs):
 
     use_zoneout_output: bool = False
 
+    monotonic_att_weights_loss: Optional[str] = "l1"
     monotonic_att_weights_loss_scale: Optional[float] = None
     att_weights_variance_loss_scale: Optional[float] = None
+    monotonic_att_weights_loss_scale_in_recog: Optional[float] = None
 
     include_eos_in_search_output: bool = False
 
@@ -569,6 +571,7 @@ def create_config(
     speed_pert_version=1,
     specaug_version=1,
     ctc_decode=False,
+    ctc_blank_idx=None,
     ctc_log_prior_file=None,
     ctc_prior_scale=None,
     ctc_remove_eos=False,
@@ -742,10 +745,10 @@ def create_config(
         add_ctc_log_prior(exp_config, ctc_log_prior_file)
 
     if ctc_decode:
-        add_ctc_decoding(exp_config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_opts)
+        add_ctc_decoding(exp_config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_opts, ctc_blank_idx)
 
     if joint_ctc_att_decode_args:
-        add_att_ctc_joint_decoding(exp_config, joint_ctc_att_decode_args)
+        add_att_ctc_joint_decoding(exp_config, joint_ctc_att_decode_args, ctc_blank_idx)
 
     # -------------------------- end network -------------------------- #
 
@@ -1037,7 +1040,7 @@ def add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog):
         net["mixup_features"] = {"class": "copy", "from": "mixup"}
 
 
-def add_ctc_decoding(config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_opts):
+def add_ctc_decoding(config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_opts, ctc_blank_idx):
     # create bpe labels with blank extern data
     config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(config["extern_data"]["bpe_labels"])
     config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
@@ -1046,12 +1049,12 @@ def add_ctc_decoding(config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_
 
     # filter out blanks from best hyp
     # TODO: we might want to also dump blank for analysis, however, this needs some fix to work.
-    add_filter_blank_and_merge_labels_layers(config["network"])
+    add_filter_blank_and_merge_labels_layers(config["network"], blank_idx=ctc_blank_idx)
     config["network"].pop(config["search_output_layer"], None)
     config["search_output_layer"] = "out_best_wo_blank"
 
 
-def add_att_ctc_joint_decoding(config, joint_ctc_att_decode_args):
+def add_att_ctc_joint_decoding(config, joint_ctc_att_decode_args, ctc_blank_idx):
     # create bpe labels with blank extern data
     config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(config["extern_data"]["bpe_labels"])
     config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
@@ -1059,7 +1062,7 @@ def add_att_ctc_joint_decoding(config, joint_ctc_att_decode_args):
     add_joint_ctc_att_subnet(config["network"], **joint_ctc_att_decode_args)
     joint_ctc_scale = joint_ctc_att_decode_args["ctc_scale"]
     if joint_ctc_scale > 0.0:
-        add_filter_blank_and_merge_labels_layers(config["network"])
+        add_filter_blank_and_merge_labels_layers(config["network"], blank_idx=ctc_blank_idx)
         config["network"].pop(config["search_output_layer"], None)
         config["search_output_layer"] = "out_best_wo_blank"
     else:

@@ -43,7 +43,9 @@ class RNNDecoder:
         coverage_update="sum",
         ce_loss_scale=1.0,
         use_zoneout_output: bool = False,
+        monotonic_att_weights_loss="l1",
         monotonic_att_weights_loss_scale=None,
+        monotonic_att_weights_loss_scale_in_recog=None,
         att_weights_variance_loss_scale=None,
         include_eos_in_search_output=False,
     ):
@@ -133,8 +135,10 @@ class RNNDecoder:
 
         self.use_zoneout_output = use_zoneout_output
 
+        self.monotonic_att_weights_loss = monotonic_att_weights_loss
         self.monotonic_att_weights_loss_scale = monotonic_att_weights_loss_scale
         self.att_weights_variance_loss_scale = att_weights_variance_loss_scale
+        self.monotonic_att_weights_loss_scale_in_recog = monotonic_att_weights_loss_scale_in_recog
 
         self.include_eos_in_search_output = include_eos_in_search_output
 
@@ -172,6 +176,8 @@ class RNNDecoder:
         )
         subnet_unit.update(att.create())
 
+        monotonic_att_weights_penalty = None
+
         if self.monotonic_att_weights_loss_scale or self.att_weights_variance_loss_scale:
             enc_len_range = self.network.add_range_in_axis_layer(
                 "enc_len_range", "encoder", axis="T", dtype="float32"
@@ -191,20 +197,40 @@ class RNNDecoder:
                 initial_output=0,
             )  # [B,1]
             if self.monotonic_att_weights_loss_scale:
-                # L = |delta_i - 1| - (delta_i - 1)
-                #   where delta_i = E_i - E_{i-1} and E_i = sum_{t=0}^{t-1} alpha(t|i) * t
+                #  delta_i = E_i - E_{i-1} and E_i = sum_{t=0}^{t-1} alpha(t|i) * t
                 expected_att_weights_pos_delta = self.subnet_unit.add_combine_layer(
                     "expected_att_weights_pos_delta",
                     [expected_att_weights_pos_reduce, "prev:" + expected_att_weights_pos_reduce],  # E_j - E_{j-1}
                     kind="sub",
                 )  # [B,1]
+
+                if self.monotonic_att_weights_loss == "l1":
+                    # L = |delta_i - 1| - (delta_i - 1)
+                    monotonic_loss_str = f"tf.math.abs(source(0) - 1) - (source(0) - 1)"
+                elif self.monotonic_att_weights_loss == "l2":
+                    # L = (|delta_i - 1| - (delta_i - 1))^2
+                    monotonic_loss_str = f"(tf.math.abs(source(0) - 1) - (source(0) - 1)) * (tf.math.abs(source(0) - 1) - (source(0) - 1))"
+                else:
+                    raise NotImplementedError(f"monotonic_att_weights_loss={self.monotonic_att_weights_loss!r}")
+
                 self.subnet_unit.add_eval_layer(
                     "monotonic_att_weights_loss",
                     source=expected_att_weights_pos_delta,
-                    eval=f"tf.math.abs(source(0) - 1) - (source(0) - 1)",
+                    eval=monotonic_loss_str,
                     loss="as_is",  # register as loss
                     loss_scale=self.monotonic_att_weights_loss_scale,
                 )  # [B,1]
+
+                if self.monotonic_att_weights_loss_scale_in_recog:
+                    monotonic_att_weights_penalty = self.subnet_unit.add_eval_layer(
+                        "monotonic_att_weights_penalty",
+                        source=expected_att_weights_pos_delta,
+                        eval=monotonic_loss_str,
+                    )
+                    monotonic_att_weights_penalty = self.subnet_unit.add_squeeze_layer(
+                        "monotonic_att_weights_penalty_squeeze", monotonic_att_weights_penalty, axis="except_batch"
+                    )
+
             if self.att_weights_variance_loss_scale:
                 # L = sum_{t=0}^{T-1} alpha(t|i) * (t - E_i)^2
                 att_weights_variance_ = self.subnet_unit.add_combine_layer(
@@ -352,6 +378,15 @@ class RNNDecoder:
                 "output_prob_coverage",
                 source=[self.output_prob, accum_coverage],
                 eval=f"source(0) + {self.coverage_scale} * source(1)",
+            )
+
+        if self.monotonic_att_weights_loss_scale_in_recog:
+            assert self.monotonic_att_weights_loss_scale, "monotonic loss scale for training must be set."
+            assert monotonic_att_weights_penalty
+            self.output_prob = self.subnet_unit.add_eval_layer(
+                "output_prob_monotonic_penalty",
+                source=[self.output_prob, monotonic_att_weights_penalty],
+                eval=f"source(0) - {self.monotonic_att_weights_loss_scale_in_recog} * source(1)",
             )
 
         if self.length_normalization:

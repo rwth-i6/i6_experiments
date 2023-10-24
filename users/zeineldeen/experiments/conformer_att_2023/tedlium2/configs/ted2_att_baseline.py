@@ -447,6 +447,7 @@ def conformer_baseline():
             returnn_exe=RETURNN_CPU_EXE,
             returnn_root=RETURNN_ROOT,
             num_average=num_avg,
+            key=kwargs.get("avg_key", "dev_score_output/output_prob"),
         )
         if num_avg == 4:  # TODO: just for now to not break hashes
             train_job_avg_ckpt[exp_name] = averaged_checkpoint
@@ -986,29 +987,44 @@ def conformer_baseline():
     # )
 
     # monotonic att weights loss
-    # for scale in [1e-3, 5e-3, 1e-2]:
-    #     args, exp_name = get_base_v1_args(8e-4, 50 * 4)
-    #     args["decoder_args"].monotonic_att_weights_loss_scale = scale
-    #     run_exp(
-    #         exp_name + f"_monotonicAttLoss{scale}",
-    #         args,
-    #         num_epochs=50 * 4,
-    #         epoch_wise_filter=None,
-    #         bpe_size=BPE_1K,
-    #         partition_epoch=4,
-    #     )
+    for monotonic_att_loss in ["l1", "l2"]:
+        for scale in [1e-2, 2e-2]:
+            args, exp_name = get_base_v1_args(8e-4, 50 * 4)
+            args["decoder_args"].monotonic_att_weights_loss = monotonic_att_loss
+            args["decoder_args"].monotonic_att_weights_loss_scale = scale
+            train_job, train_data = run_exp(
+                exp_name + f"_monotonicAttLoss{scale}_{monotonic_att_loss}",
+                args,
+                num_epochs=50 * 4,
+                epoch_wise_filter=None,
+                bpe_size=BPE_1K,
+                partition_epoch=4,
+                avg_key="dev_score_output/monotonic_att_weights_loss",
+            )
 
-    # for scale in [1e-1, 1e-2]:
-    #     args, exp_name = get_base_v1_args(8e-4, 50 * 4)
-    #     args["decoder_args"].att_weights_variance_loss_scale = scale
-    #     run_exp(
-    #         exp_name + f"_attWeightsVarLoss{scale}",
-    #         args,
-    #         num_epochs=50 * 4,
-    #         epoch_wise_filter=None,
-    #         bpe_size=BPE_1K,
-    #         partition_epoch=4,
-    #     )
+            if scale == 1e-2 and monotonic_att_loss == "l1":
+                for testset in ["dev"]:
+                    for beam_size in [4, 8, 12, 24]:
+                        for thre in [0.0, 0.003]:
+                            args = copy.deepcopy(args)
+                            args["decoder_args"].monotonic_att_weights_loss_scale_in_recog = thre
+                            args["beam_size"] = beam_size
+                            search_data = get_test_dataset_tuples(BPE_1K)
+                            run_single_search(
+                                exp_name
+                                + f"_monotonicAttLoss{scale}_{monotonic_att_loss}/monotonicLoss/avg/{testset}/thre{thre}_beam{beam_size}",
+                                train_data,
+                                search_args=args,
+                                checkpoint=train_job_avg_ckpt[
+                                    exp_name + f"_monotonicAttLoss{scale}_{monotonic_att_loss}"
+                                ],
+                                feature_extraction_net=log10_net_10ms,
+                                recog_dataset=search_data[testset][0],
+                                recog_ref=search_data[testset][1],
+                                recog_bliss=search_data[testset][2],
+                            )
+
+    # TODO: init from global and retrain with constraint loss
 
     # TODO: longer training with more regularization
     # TODO: embed dropout?
@@ -1114,6 +1130,7 @@ def conformer_baseline():
                                     epoch_wise_filter=None,
                                     bpe_size=BPE_1K,
                                     partition_epoch=4,
+                                    search_args={"ctc_decode": True, "ctc_blank_idx": 1057, **only_ctc_args},
                                 )
 
                                 # TODO: scale CTC

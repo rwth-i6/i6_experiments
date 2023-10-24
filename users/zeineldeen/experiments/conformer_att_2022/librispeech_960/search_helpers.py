@@ -450,7 +450,7 @@ def add_joint_ctc_att_subnet(
             net["output"]["unit"]["att_log_scores_"]["from"] = "att_scores_wo_eos"
 
 
-def add_filter_blank_and_merge_labels_layers(net, blank_idx=10025):
+def add_filter_blank_and_merge_labels_layers(net, blank_idx):
     """
     Add layers to filter out blank and merge repeated labels of a CTC output sequence.
     :param dict net: network dict
