@@ -107,7 +107,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             fine_tune=a_name in ["40ms-FF-v8", "40ms-FFs-v8"],
             label_smoothing=CONF_LABEL_SMOOTHING,
             lr="v13",
-            run_performance_study=a_name == "40ms-FF-v8",
+            run_performance_study=False,
             tune_decoding=a_name
             in ["40ms-FFs-v8", "40ms-Bmp-pC0.6", "40ms-Bs-pC0.6"],  # ["40ms-FF-v8", "40ms-FFs-v8"],
             tune_nn_pch=a_name in ["40ms-FFs-v8"],
@@ -784,7 +784,7 @@ def run_single(
                         mem_rqmt=4,
                     )
 
-                if run_performance_study:
+                if ep == max(keep_epochs) and run_performance_study:
                     configs = [
                         dataclasses.replace(
                             s.get_cart_params("fh"), altas=a, beam=beam, beam_limit=100000, lm_scale=2, tdp_scale=0.4
@@ -798,7 +798,7 @@ def run_single(
                     for cfg in configs:
                         j = s.recognize_cart(
                             key="fh-fs",
-                            epoch=23,
+                            epoch=ep,
                             calculate_statistics=True,
                             cart_tree_or_tying_config=tying_cfg,
                             cpu_rqmt=2,

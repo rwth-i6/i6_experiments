@@ -90,7 +90,7 @@ def run(
         decode_all_corpora=False,
         lr="v13",
         multitask=True,
-        run_performance_study=a_name == "40ms-FF-v8",
+        run_performance_study=False, # a_name == "40ms-FF-v8",
         tune_decoding=True,
         run_tdp_study=False,
     )

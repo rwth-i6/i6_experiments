@@ -95,7 +95,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str, init_from_system
         fine_tune=a_name in ["40ms-FF-v8", "40ms-FFs-v8"],
         init_from_system=init_from_system,
         lr="v13",
-        run_performance_study=a_name == "40ms-FF-v8",
+        run_performance_study=False, #a_name == "40ms-FF-v8",
         tune_decoding=a_name == "40ms-FF-v8",
         run_tdp_study=False,
     )
