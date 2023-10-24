@@ -2247,6 +2247,7 @@ def run_single(
                         prior_epoch=min(ep, keep_epochs[-2]),
                         decode_trafo_lm=trafo,
                         rtf=12 * (2 if trafo else 1),
+                        cpu_rqmt=2,
                     )
 
                 if run_performance_study:
