@@ -1,6 +1,9 @@
-from functools import cache
+from functools import lru_cache
 
 from sisyphus import tk
+
+
+cache = lru_cache(maxsize=None)
 
 
 def _clone_returnn() -> tk.Path:
