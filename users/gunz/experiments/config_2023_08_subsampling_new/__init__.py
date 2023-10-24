@@ -521,7 +521,7 @@ def the_plan():
         a_name="40ms-FFs-v8",
     )
 
-    for a, a_name in [(phmm_40ms_ffnn_a, "40ms-FF-v8"), (phmms_40ms_ffnn_a, "40ms-FFs-v8")]:
+    for a, a_name in [(phmm_40ms_ffnn_a, "40ms-FF-v8")]:
         _, mono_sys = config_20_monophone_mpc1x4_40ms.run(
             returnn_root=returnn_root,
             alignment=a,
@@ -535,8 +535,8 @@ def the_plan():
         )
         config_22b_triphone_multi_mpc1x4_40ms.run(
             returnn_root=returnn_root,
-            alignment=a,
-            a_name=a_name,
+            alignment=di_sys.experiments["fh-fs"]["alignment_job"].out_alignment_bundle,
+            a_name="40ms-FA-conf",
             init_from_system=di_sys,
         )
     config_31_diphone_mpc2x3_60ms.run(
