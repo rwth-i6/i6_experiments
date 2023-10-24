@@ -107,7 +107,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             init=DEFAULT_INIT,
             label_smoothing=CONF_LABEL_SMOOTHING,
             lr="v13",
-            run_performance_study=False, #a_name == "40ms-FF-v8",
+            run_performance_study=False,  # a_name == "40ms-FF-v8",
             tune_decoding=a_name == "40ms-FF-v8",
             run_tdp_study=False,
             smooth_oclr=False,
