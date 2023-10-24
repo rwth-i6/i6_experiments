@@ -768,6 +768,13 @@ def run_single(
                     for sc in [0.4, 0.6]
                 ]
                 for cfg in decoding_cfgs:
+                    trafo = (
+                        ep == max(keep_epochs)
+                        and peak_lr == 8e-5
+                        and bw_scale.label_posterior_scale == 1.0
+                        and bw_scale.transition_scale == 0.3
+                        and alignment_name == "40ms-FF-v8"
+                    )
                     s.recognize_cart(
                         key="fh-fs",
                         epoch=ep,
@@ -779,6 +786,7 @@ def run_single(
                         calculate_statistics=True,
                         opt_lm_am_scale=True,
                         prior_epoch=min(ep, keep_epochs[-2]),
+                        decode_trafo_lm=trafo,
                         rtf=8,
                         cpu_rqmt=2,
                         mem_rqmt=4,
