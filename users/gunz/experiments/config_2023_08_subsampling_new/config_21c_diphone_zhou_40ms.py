@@ -2218,11 +2218,15 @@ def run_single(
                     dataclasses.replace(
                         base_params,
                         lm_scale=base_params.lm_scale / ss_factor,
-                        tdp_speech=(10, 0, "infinity", 0),
-                        tdp_silence=(10, 10, "infinity", 10),
+                        tdp_speech=tdp_sp,
+                        tdp_silence=tdp_sil,
                         tdp_scale=sc,
                     ).with_prior_scale(pC)
                     for sc, pC in [(0.4, 0.3), (0.2, 0.4), (0.4, 0.4), (0.2, 0.5)]
+                    for tdp_sp, tdp_sil in [
+                        ((10, 0, "infinity", 0), (10, 10, "infinity", 10)),
+                        ((3, 0, "infinity", 0), (0, 3, "infinity", 20)),
+                    ]
                 ]
                 for cfg in decoding_cfgs:
                     trafo = (
