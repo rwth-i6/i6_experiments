@@ -502,7 +502,7 @@ class FHDecoder:
         max_batch_size: int = 64,
         scale: typing.Optional[float] = None,
     ) -> rasr.RasrConfig:
-        assert self.library_path is not None
+        # assert self.library_path is not None
 
         trafo_config = rasr.RasrConfig()
 
