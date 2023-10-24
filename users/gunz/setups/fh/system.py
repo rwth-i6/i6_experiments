@@ -1719,6 +1719,7 @@ class FactoredHybridSystem(NnSystem):
                 ),
                 scale=crp.language_model_config.scale + 2,
                 softmax_adapter="quantized-blas-nce-16bit",
+                state_manager="transformer-with-common-prefix-16bit",
                 vocab_path=Path("/work/asr3/raissi/shared_workspaces/gunz/dependencies/ls-eugen-trafo-lm/vocabulary"),
             )
             lm_configs["eugen-trafo"] = lm_cfg
