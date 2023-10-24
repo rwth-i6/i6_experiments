@@ -2297,7 +2297,7 @@ def run_single(
                 decoding_cfgs = [
                     dataclasses.replace(
                         base_params,
-                        lm_scale=base_params.lm_scale / ss_factor,
+                        lm_scale=2.4,
                         tdp_speech=tdp_sp,
                         tdp_silence=tdp_sil,
                         tdp_scale=sc,
