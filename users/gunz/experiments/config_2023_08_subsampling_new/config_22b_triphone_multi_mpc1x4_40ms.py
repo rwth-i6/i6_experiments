@@ -97,7 +97,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str, init_from_system
             lr="v13",
             own_priors=False,
             run_performance_study=False,
-            tune_decoding=a_name == "40ms-FF-v8",
+            tune_decoding=a_name == "40ms-FF-v8" or "FA" in a_name,
         ),
     ]
     for exp in configs:
