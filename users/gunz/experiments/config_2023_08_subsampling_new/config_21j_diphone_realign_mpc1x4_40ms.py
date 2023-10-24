@@ -878,7 +878,7 @@ def run_single(
 
             s.experiments["fh-fs"]["alignment_job"] = a_job
 
-        for mix_ce in [True, False] if alignment_name == "40ms-FF-v8" else []:
+        for mix_ce in [True] if alignment_name == "40ms-FF-v8" else []:
             smbr_epochs = 80
             smbr_keep_epochs = [int(v) for v in np.linspace(10, smbr_epochs, 8)]
             smbr_peak_lr = 5e-6
