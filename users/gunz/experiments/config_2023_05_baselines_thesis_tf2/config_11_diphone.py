@@ -526,7 +526,7 @@ def run_single(
                 cpu_rqmt=2,
                 mem_rqmt=4,
                 remove_concurrency=True,
-                rtf=1,
+                rtf=2,
             )
             job.rqmt.update({"sbatch_args": ["-A", "rescale_speed", "-p", "rescale_amd"]})
 
