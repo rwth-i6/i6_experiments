@@ -118,23 +118,29 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
     recog_training_exp(prefix_name + "/base-24gb-bs30k-f32", task, model_with_checkpoint, recog_def=model_recog)
 
-    config_ = config_24gb.copy()
-    config_["optimizer"] = {
-        "class": "adamw",
-        "epsilon": 1e-16,
-        "weight_decay": 0.000001,
-    }
+    config_24gb_v2 = config_24gb.copy()
+    config_24gb_v2.update(
+        dict(
+            optimizer={
+                "class": "adamw",
+                "epsilon": 1e-16,
+                "weight_decay": 0.000001,
+            },
+            specaugment_num_spatial_mask_factor=200,
+            specaugment_max_consecutive_feature_dims=10,
+        )
+    )
     model_with_checkpoint = train(
-        prefix_name + "/base-24gb-opteps1e_16",
+        prefix_name + "/base-24gb-v2",
         task=task,
-        config=config_,
+        config=config_24gb_v2,
         post_config=post_config,
         model_def=from_scratch_model_def,
         train_def=from_scratch_training,
         num_epochs=2000,
         gpu_mem=24,
     )
-    recog_training_exp(prefix_name + "/base-24gb-opteps1e_16", task, model_with_checkpoint, recog_def=model_recog)
+    recog_training_exp(prefix_name + "/base-24gb-v2", task, model_with_checkpoint, recog_def=model_recog)
 
     config_ = config.copy()
     config_.update(
@@ -338,7 +344,13 @@ class Model(rf.Module):
 
         config = get_global_config()
 
-        self._specaugment_steps = config.typed_value("specaugment_steps") or (0, 1000, 2000)
+        self._specaugment_opts = {
+            "steps": config.typed_value("specaugment_steps") or (0, 1000, 2000),
+            "max_consecutive_spatial_dims": config.typed_value("specaugment_max_consecutive_spatial_dims") or 20,
+            "max_consecutive_feature_dims": config.typed_value("specaugment_max_consecutive_feature_dims")
+            or (_log_mel_feature_dim // 5),
+            "num_spatial_mask_factor": config.typed_value("specaugment_num_spatial_mask_factor") or 100,
+        }
 
     def encode(
         self,
@@ -358,7 +370,10 @@ class Model(rf.Module):
         )
         # SpecAugment
         source = rf.audio.specaugment(
-            source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim, steps=self._specaugment_steps
+            source,
+            spatial_dim=in_spatial_dim,
+            feature_dim=self.in_dim,
+            **self._specaugment_opts,
         )
         # Encoder including convolutional frontend
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
