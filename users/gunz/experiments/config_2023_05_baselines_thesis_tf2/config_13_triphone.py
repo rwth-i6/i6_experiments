@@ -491,10 +491,9 @@ def run_single(
                         name_override=f"icassp/4gram/{name}",
                         rtf_cpu=80,
                     )
-                    jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30", "--nice=500"]})
 
             if run_performance_study:
-                for altas, beam in itertools.product([None, 2, 4], [12, 14, 16]):
+                for altas, beam in itertools.product([None, 2, 4, 6], [12, 14, 16]):
                     jobs = recognizer.recognize_count_lm(
                         calculate_stats=True,
                         gpu=False,
@@ -503,12 +502,14 @@ def run_single(
                         num_encoder_output=conf_model_dim,
                         opt_lm_am=False,
                         pre_path="decoding-perf",
-                        search_parameters=dataclasses.replace(best_config, altas=altas, beam=beam, beam_limit=100_000),
-                        cpu_rqmt=2,
+                        search_parameters=dataclasses.replace(
+                            best_config, altas=altas, beam=beam, beam_limit=100_000, lm_scale=10.9
+                        ),
+                        cpu_rqmt=1,
                         mem_rqmt=4,
                         rtf_cpu=40,
                     )
-                    jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30", "--nice=500"]})
+                    jobs.search.rqmt.update({"sbatch_args": ["-A", "rescale_speed", "-p", "rescale_amd", "--nice=500"]})
 
     if decode_all_corpora:
         for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-clean", "dev-other", "test-clean", "test-other"]):
