@@ -42,6 +42,7 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
+    ALIGN_GMM_MONO_10MS,
     ALIGN_GMM_TRI_10MS,
     ALIGN_GMM_TRI_ALLOPHONES,
     CONF_CHUNKING_10MS,
@@ -567,6 +568,17 @@ def run_single(
     )
     tse_tina_job.add_alias(f"tse-tina/{a_name}/tse")
     tk.register_output(f"alignments/{a_name}/statistics/tse-tina", tse_tina_job.out_tse)
+
+    tse_tina_job = ComputeTinaTseJob(
+        allophones=allophones.out_allophone_file,
+        alignment_bundle=a_job.out_alignment_bundle,
+        ref_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+        ref_alignment_bundle=tk.Path(ALIGN_GMM_MONO_10MS, cached=True),
+        ref_t_step=10 / 1000,
+        ss_factor=int(output_time_step / (10 / 1000)),
+    )
+    tse_tina_job.add_alias(f"tse-tina/{a_name}/tse-mono")
+    tk.register_output(f"alignments/{a_name}/statistics/tse-tina-mono", tse_tina_job.out_tse)
 
     tse_w_job = ComputeSilencePercentageJob(a_job.out_alignment_bundle, allophones.out_allophone_file)
     tk.register_output(f"alignments/{a_name}/statistics/sil", tse_w_job.out_percent_sil)

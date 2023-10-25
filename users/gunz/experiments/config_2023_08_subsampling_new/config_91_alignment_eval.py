@@ -12,7 +12,13 @@ from ...setups.common.analysis import (
 from ...setups.common.analysis.tse_dmann import DMannComputeTseJob
 from ...setups.common.analysis.tse_tina import ComputeTinaTseJob
 from ..config_2023_05_baselines_thesis_tf2.config import SCRATCH_ALIGNMENT
-from .config import ALIGN_GMM_TRI_10MS, ALIGN_GMM_TRI_ALLOPHONES, ZHOU_ALLOPHONES, ZHOU_SUBSAMPLED_ALIGNMENT
+from .config import (
+    ALIGN_GMM_MONO_10MS,
+    ALIGN_GMM_TRI_10MS,
+    ALIGN_GMM_TRI_ALLOPHONES,
+    ZHOU_ALLOPHONES,
+    ZHOU_SUBSAMPLED_ALIGNMENT,
+)
 
 
 def run():
@@ -96,6 +102,18 @@ def run():
     )
     tk.register_output(f"alignments/10ms-scratch-blstm/statistics/tse-tina", tse_tina_job.out_tse)
 
+    tse_tina_job = ComputeTinaTseJob(
+        allophones=Path(
+            "/work/asr3/raissi/shared_workspaces/gunz/2023-05--subsampling-tf2/i6_core/lexicon/allophones/StoreAllophonesJob.Qa3bLX1BHz42/output/allophones"
+        ),
+        alignment_bundle=Path(SCRATCH_ALIGNMENT, cached=True),
+        ref_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+        ref_alignment_bundle=tk.Path(ALIGN_GMM_MONO_10MS, cached=True),
+        ref_t_step=10 / 1000,
+        ss_factor=1,
+    )
+    tk.register_output(f"alignments/10ms-scratch-blstm/statistics/tse-tina-mono", tse_tina_job.out_tse)
+
     dmann_tse = DMannComputeTseJob(
         allophones=Path(
             "/work/asr3/raissi/shared_workspaces/gunz/2023-05--subsampling-tf2/i6_core/lexicon/allophones/StoreAllophonesJob.Qa3bLX1BHz42/output/allophones"
@@ -145,3 +163,13 @@ def run():
 
     sil_job = ComputeSilencePercentageJob(tk.Path(ALIGN_GMM_TRI_10MS, cached=True), tk.Path(ALIGN_GMM_TRI_ALLOPHONES))
     tk.register_output(f"alignments/10ms-gmm-tri/sil", sil_job.out_percent_sil)
+
+    tse_tina_job = ComputeTinaTseJob(
+        allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+        alignment_bundle=tk.Path(ALIGN_GMM_TRI_10MS, cached=True),
+        ref_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+        ref_alignment_bundle=tk.Path(ALIGN_GMM_MONO_10MS, cached=True),
+        ref_t_step=10 / 1000,
+        ss_factor=1,
+    )
+    tk.register_output(f"alignments/10ms-gmm-tri/statistics/tse-tina-mono", tse_tina_job.out_tse)

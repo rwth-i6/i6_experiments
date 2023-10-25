@@ -13,6 +13,7 @@ ALIGN_40MS_BLSTM_MP = "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments
 ZHOU_SUBSAMPLED_ALIGNMENT = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/alignments/ls-960/scratch/zhou-subsample-4-dc-detection/alignment.cache.bundle"
 ZHOU_ALLOPHONES = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/allophones/ls-960/zhou-allophones"
 
+ALIGN_GMM_MONO_10MS = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/alignments/ls-960/mono/AlignmentJob.lZiXlFMiSb0C/output/alignment.cache.bundle"
 ALIGN_GMM_TRI_10MS = "/work/asr4/raissi/setups/librispeech/960-ls/work/i6_core/mm/alignment/AlignmentJob.hK21a0UU4iiJ/output/alignment.cache.bundle"
 ALIGN_GMM_TRI_ALLOPHONES = "/work/asr4/raissi/setups/librispeech/960-ls/2022-03--adapt_pipeline/work/i6_core/lexicon/allophones/StoreAllophonesJob.bJ8Qty3dD2cO/output/allophones"
 ALIGN_BLSTM_40MS = "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/alignments/40ms/blstm-1-lr-v6-ss-4-mp2,3-mp2,4-bw0.3-pC0.6-tdp1.0/alignment.cache.bundle"
