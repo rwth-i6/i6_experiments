@@ -864,8 +864,9 @@ class FactoredHybridSystem(NnSystem):
             returnn_python_exe=self.returnn_python_exe,
             **(nn_train_args or {}),
         )
+
         if on_2080:
-            train_job.rqmt["qsub_args"] = "-l qname=*2080*"
+            train_job.rqmt["sbatch_args"] = ["--gres=gpu:rtx_2080"]
 
         self._add_output_alias_for_train_job(
             train_job=train_job,

@@ -513,7 +513,7 @@ def run_single(
             nn_train_args=train_args,
             train_hdfs=normal_hdf_files + randomized_hdfs.out_hdf_files,
             dev_hdfs=[dev_hdf],
-            on_2080=False,
+            on_2080=True,
         )
 
     if run_performance_study:
