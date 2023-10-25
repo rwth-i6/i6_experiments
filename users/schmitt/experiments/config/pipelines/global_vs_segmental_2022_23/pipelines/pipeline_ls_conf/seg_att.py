@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple, Any
+from typing import Dict, Optional, Tuple, Any, List
 import copy
 
 from sisyphus import Path
@@ -49,7 +49,28 @@ def seg_att_import_global_global_ctc_align(
         config_builder=config_builder,
         checkpoint=checkpoints[n_epochs],
         analyse=True,
-        search_corpus_key="dev-other"
+        search_corpus_key="dev-other",
+        att_weight_seq_tags=[
+          "dev-other/6467-94831-0006/6467-94831-0006",  # global 2 err, win-size-8 + win-size-128 + seg correct
+          "dev-other/8254-84205-0021/8254-84205-0021",  # seg + win-size-8 + win-size-128 2 err, global correct
+          "dev-other/6123-59150-0002/6123-59150-0002",  # seg + win-size-8 2 err, win-size-128 1 err, global correct
+          "dev-other/1585-131718-0027/1585-131718-0027",  # global 2 err, win-size-8 + win-size-128 + seg correct
+          "dev-other/1585-157660-0007/1585-157660-0007",  # seg 5 err, win-size-8 + win-size-128 4 err, global correct
+          "dev-other/6123-59150-0008/6123-59150-0008",  # global 2 err, win-size-8 + win-size-128 1 err, seg correct
+          "dev-other/1650-167613-0026/1650-167613-0026",  # seg 2 err, win-size-8 + win-size-128 3 err, global correct
+          "dev-other/1686-142278-0018/1686-142278-0018",  # global 2 err, win-size-8 + win-size-128 + seg correct
+          "dev-other/1701-141759-0026/1701-141759-0026",  # seg + win-size-8 + win-size-128 2 err, global correct
+          "dev-other/2506-11278-0017/2506-11278-0017",  # all correct
+          "dev-other/2506-11278-0025/2506-11278-0025",  # all correct
+          "dev-other/2506-13150-0004/2506-13150-0004",  # all correct
+          "dev-other/3660-172182-0035/3660-172182-0035",  # seg + win-size-8 + win-size-128 2 err, global correct
+          "dev-other/4153-186222-0014/4153-186222-0014",  # global 3 err, win-size-8 + win-size-128 1 err, seg correct
+          "dev-other/4570-14911-0000/4570-14911-0000",  # global 2 err, win-size-8 + win-size-128 1 err, seg correct
+          "dev-other/5849-50873-0033/5849-50873-0033",  # seg 2 err, global + win-size-8 + win-size-128 correct
+          "dev-other/6123-59186-0009/6123-59186-0009",  # seg 1 err, win-size-8 1 err, global + win-size-128 correct
+          "dev-other/6267-65525-0049/6267-65525-0049",  # global 2 err, win-size-8 + win-size-128 + seg correct
+          "dev-other/8288-274162-0025/8288-274162-0025",  # global 3 err, win-size-8 + win-size-128 + seg correct
+        ],
       )
 
 
@@ -159,6 +180,7 @@ def recog_seg_att_import_global(
         search_rqmt: Optional[Dict[str, Any]] = None,
         batch_size: Optional[int] = None,
         analyse: bool = False,
+        att_weight_seq_tags: Optional[List[str]] = None,
 ):
   recog_exp = ReturnnDecodingExperimentV2(
     alias=alias,
@@ -178,7 +200,8 @@ def recog_seg_att_import_global(
     recog_exp.run_analysis(
       ground_truth_hdf=ctc_aligns.global_att_ctc_align.ctc_alignments[search_corpus_key],
       att_weight_ref_alignment_hdf=ctc_aligns.global_att_ctc_align.ctc_alignments[search_corpus_key],
-      att_weight_ref_alignment_blank_idx=10025
+      att_weight_ref_alignment_blank_idx=10025,
+      att_weight_seq_tags=att_weight_seq_tags,
     )
     # run_analysis(
     #   config_builder=config_builder,

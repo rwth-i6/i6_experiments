@@ -88,7 +88,7 @@ def center_window_att_import_global_global_ctc_align_no_finetuning_no_length_mod
 
 
 def center_window_att_import_global_global_ctc_align(
-        win_size_list: Tuple[int, ...] = (2, 4, 8, 16, 32, 64, 128),
+        win_size_list: Tuple[int, ...] = (4, 128),
         n_epochs_list: Tuple[int, ...] = (10, 100),
         const_lr_list: Tuple[float, ...] = (1e-4,),
 ):
@@ -166,7 +166,7 @@ def center_window_att_import_global_global_ctc_align_length_model_no_label_feedb
           config_builder=config_builder,
           checkpoint=checkpoints[n_epochs],
           analyse=True,
-          search_corpus_key="dev-other"
+          search_corpus_key="dev-other",
         )
 
 
@@ -265,15 +265,6 @@ def center_window_att_import_global_global_ctc_align_att_weight_penalty_recog(
               checkpoint=checkpoints[n_epochs],
               analyse=True,
               search_corpus_key="dev-other",
-              att_weight_seq_tags=[
-                "dev-other/3660-6517-0005/3660-6517-0005",
-                "dev-other/6467-62797-0001/6467-62797-0001",
-                "dev-other/6467-62797-0002/6467-62797-0002",
-                "dev-other/7697-105815-0015/7697-105815-0015",
-                "dev-other/7697-105815-0051/7697-105815-0051",
-              ],
-              plot_center_positions=True,
-              dump_att_weight_penalty=True,
             )
 
             wo_penalty_alias = alias + "/wo_penalty"
@@ -288,14 +279,6 @@ def center_window_att_import_global_global_ctc_align_att_weight_penalty_recog(
               checkpoint=checkpoints[n_epochs],
               analyse=True,
               search_corpus_key="dev-other",
-              att_weight_seq_tags=[
-                "dev-other/3660-6517-0005/3660-6517-0005",
-                "dev-other/6467-62797-0001/6467-62797-0001",
-                "dev-other/6467-62797-0002/6467-62797-0002",
-                "dev-other/7697-105815-0015/7697-105815-0015",
-                "dev-other/7697-105815-0051/7697-105815-0051",
-              ],
-              plot_center_positions=True,
             )
 
 
@@ -358,15 +341,6 @@ def center_window_att_import_global_global_ctc_align_att_weight_penalty_train(
                 checkpoint=checkpoints[n_epochs],
                 analyse=True,
                 search_corpus_key="dev-other",
-                att_weight_seq_tags=[
-                  "dev-other/3660-6517-0005/3660-6517-0005",
-                  "dev-other/6467-62797-0001/6467-62797-0001",
-                  "dev-other/6467-62797-0002/6467-62797-0002",
-                  "dev-other/7697-105815-0015/7697-105815-0015",
-                  "dev-other/7697-105815-0051/7697-105815-0051",
-                ],
-                plot_center_positions=True,
-                dump_att_weight_penalty=True,
               )
 
               wo_penalty_alias = alias + "/wo_penalty"
@@ -381,14 +355,6 @@ def center_window_att_import_global_global_ctc_align_att_weight_penalty_train(
                 checkpoint=checkpoints[n_epochs],
                 analyse=True,
                 search_corpus_key="dev-other",
-                att_weight_seq_tags=[
-                  "dev-other/3660-6517-0005/3660-6517-0005",
-                  "dev-other/6467-62797-0001/6467-62797-0001",
-                  "dev-other/6467-62797-0002/6467-62797-0002",
-                  "dev-other/7697-105815-0015/7697-105815-0015",
-                  "dev-other/7697-105815-0051/7697-105815-0051",
-                ],
-                plot_center_positions=True,
               )
 
 
@@ -405,6 +371,52 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
         for std in std_list:
           for gauss_scale in gauss_scale_list:
             alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_gaussian_att_weight_interpolation/win-size-%d_%d-epochs_%f-const-lr/std-%f_gauss_scale-%f" % (
+              default_import_model_name, win_size, n_epochs, const_lr, std, gauss_scale
+            )
+
+            config_builder = get_center_window_att_config_builder(
+              win_size=win_size,
+              use_weight_feedback=True,
+              gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale}
+            )
+            train_exp = SegmentalTrainExperiment(
+              config_builder=config_builder,
+              alias=alias,
+              n_epochs=n_epochs,
+              import_model_train_epoch1=external_checkpoints[default_import_model_name],
+              align_targets=ctc_aligns.global_att_ctc_align.ctc_alignments,
+              lr_opts={
+                "type": "const_then_linear",
+                "const_lr": const_lr,
+                "const_frac": 1 / 3,
+                "final_lr": 1e-6,
+                "num_epochs": n_epochs
+              },
+            )
+            checkpoints, model_dir, learning_rates = train_exp.run_train()
+
+            recog_center_window_att_import_global(
+              alias=alias,
+              config_builder=config_builder,
+              checkpoint=checkpoints[n_epochs],
+              analyse=True,
+              search_corpus_key="dev-other",
+            )
+
+
+def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpolation_plus_att_weight_recog_penalty(
+        win_size_list: Tuple[int, ...] = (128,),
+        n_epochs_list: Tuple[int, ...] = (10,),
+        const_lr_list: Tuple[float, ...] = (1e-4,),
+        std_list: Tuple[float, ...] = (1.,),
+        gauss_scale_list: Tuple[float, ...] = (.5,),
+):
+  for win_size in win_size_list:
+    for n_epochs in n_epochs_list:
+      for const_lr in const_lr_list:
+        for std in std_list:
+          for gauss_scale in gauss_scale_list:
+            alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_gaussian_att_weight_interpolation_plus_att_weight_recog_penalty/win-size-%d_%d-epochs_%f-const-lr/std-%f_gauss_scale-%f" % (
               default_import_model_name, win_size, n_epochs, const_lr, std, gauss_scale
             )
 
@@ -428,6 +440,59 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
               },
             )
             checkpoints, model_dir, learning_rates = train_exp.run_train()
+
+            recog_config_builder = get_center_window_att_config_builder(
+              win_size=win_size,
+              use_weight_feedback=True,
+              att_weight_recog_penalty_opts={
+                "mult_weight": 0.005,
+                "exp_weight": 2.0
+              },
+            )
+            recog_center_window_att_import_global(
+              alias=alias,
+              config_builder=recog_config_builder,
+              checkpoint=checkpoints[n_epochs],
+              analyse=True,
+              search_corpus_key="dev-other",
+            )
+
+
+def center_window_att_import_global_global_ctc_align_expected_position_aux_loss(
+        win_size_list: Tuple[int, ...] = (128,),
+        n_epochs_list: Tuple[int, ...] = (10,),
+        const_lr_list: Tuple[float, ...] = (1e-4,),
+        loss_scale_list: Tuple[float, ...] = (1.,),
+):
+  for win_size in win_size_list:
+    for n_epochs in n_epochs_list:
+      for const_lr in const_lr_list:
+        for loss_scale in loss_scale_list:
+          alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_expected_position_aux_loss/win-size-%d_%d-epochs_%f-const-lr/loss_scale-%f" % (
+            default_import_model_name, win_size, n_epochs, const_lr, loss_scale
+          )
+
+          train_config_builder = get_center_window_att_config_builder(
+            win_size=win_size,
+            use_weight_feedback=True,
+            expected_position_aux_loss_opts={"loss_scale": loss_scale},
+            length_model_opts={"use_embedding": False},
+          )
+          train_exp = SegmentalTrainExperiment(
+            config_builder=train_config_builder,
+            alias=alias,
+            n_epochs=n_epochs,
+            import_model_train_epoch1=external_checkpoints[default_import_model_name],
+            align_targets=ctc_aligns.global_att_ctc_align.ctc_alignments,
+            lr_opts={
+              "type": "const_then_linear",
+              "const_lr": const_lr,
+              "const_frac": 1 / 3,
+              "final_lr": 1e-6,
+              "num_epochs": n_epochs
+            },
+          )
+          checkpoints, model_dir, learning_rates = train_exp.run_train()
 
 
 def center_window_att_import_global_global_ctc_align_chunking(
@@ -480,7 +545,7 @@ def center_window_att_import_global_global_ctc_align_chunking(
 
 
 def center_window_att_import_global_global_ctc_align_weight_feedback(
-        win_size_list: Tuple[int, ...] = (2, 4, 8, 16, 32, 64, 128),
+        win_size_list: Tuple[int, ...] = (4, 128),
         n_epochs_list: Tuple[int, ...] = (10, 100),
         const_lr_list: Tuple[float, ...] = (1e-4,),
 ):
@@ -516,7 +581,28 @@ def center_window_att_import_global_global_ctc_align_weight_feedback(
           config_builder=config_builder,
           checkpoint=checkpoints[n_epochs],
           analyse=True,
-          search_corpus_key="dev-other"
+          search_corpus_key="dev-other",
+          att_weight_seq_tags=[
+            "dev-other/6467-94831-0006/6467-94831-0006",  # global 2 err, win-size-8 + win-size-128 + seg correct
+            "dev-other/8254-84205-0021/8254-84205-0021",  # seg + win-size-8 + win-size-128 2 err, global correct
+            "dev-other/6123-59150-0002/6123-59150-0002",  # seg + win-size-8 2 err, win-size-128 1 err, global correct
+            "dev-other/1585-131718-0027/1585-131718-0027",  # global 2 err, win-size-8 + win-size-128 + seg correct
+            "dev-other/1585-157660-0007/1585-157660-0007",  # seg 5 err, win-size-8 + win-size-128 4 err, global correct
+            "dev-other/6123-59150-0008/6123-59150-0008",  # global 2 err, win-size-8 + win-size-128 1 err, seg correct
+            "dev-other/1650-167613-0026/1650-167613-0026",  # seg 2 err, win-size-8 + win-size-128 3 err, global correct
+            "dev-other/1686-142278-0018/1686-142278-0018",  # global 2 err, win-size-8 + win-size-128 + seg correct
+            "dev-other/1701-141759-0026/1701-141759-0026",  # seg + win-size-8 + win-size-128 2 err, global correct
+            "dev-other/2506-11278-0017/2506-11278-0017",  # all correct
+            "dev-other/2506-11278-0025/2506-11278-0025",  # all correct
+            "dev-other/2506-13150-0004/2506-13150-0004",  # all correct
+            "dev-other/3660-172182-0035/3660-172182-0035",  # seg + win-size-8 + win-size-128 2 err, global correct
+            "dev-other/4153-186222-0014/4153-186222-0014",  # global 3 err, win-size-8 + win-size-128 1 err, seg correct
+            "dev-other/4570-14911-0000/4570-14911-0000",  # global 2 err, win-size-8 + win-size-128 1 err, seg correct
+            "dev-other/5849-50873-0033/5849-50873-0033",  # seg 2 err, global + win-size-8 + win-size-128 correct
+            "dev-other/6123-59186-0009/6123-59186-0009",  # seg 1 err, win-size-8 1 err, global + win-size-128 correct
+            "dev-other/6267-65525-0049/6267-65525-0049",  # global 2 err, win-size-8 + win-size-128 + seg correct
+            "dev-other/8288-274162-0025/8288-274162-0025",  # global 3 err, win-size-8 + win-size-128 + seg correct
+          ],
         )
 
 
@@ -556,14 +642,6 @@ def center_window_att_import_global_global_ctc_align_large_window_problems():
       checkpoint=checkpoints[n_epochs],
       analyse=True,
       search_corpus_key="dev-other",
-      att_weight_seq_tags=[
-        "dev-other/3660-6517-0005/3660-6517-0005",
-        "dev-other/6467-62797-0001/6467-62797-0001",
-        "dev-other/6467-62797-0002/6467-62797-0002",
-        "dev-other/7697-105815-0015/7697-105815-0015",
-        "dev-other/7697-105815-0051/7697-105815-0051",
-      ],
-      plot_center_positions=True,
     )
 
 
@@ -660,6 +738,7 @@ def get_center_window_att_config_builder(
         length_scale: float = 1.0,
         blank_penalty: float = 0.0,
         gaussian_att_weight_interpolation_opts: Optional[Dict] = None,
+        expected_position_aux_loss_opts: Optional[Dict] = None,
 ):
   model_type = "librispeech_conformer_seg_att"
   variant_name = "seg.conformer.like-global"
@@ -669,6 +748,7 @@ def get_center_window_att_config_builder(
   variant_params["network"]["use_positional_embedding"] = use_positional_embedding
   variant_params["network"]["att_weight_recog_penalty_opts"] = att_weight_recog_penalty_opts
   variant_params["network"]["gaussian_att_weight_interpolation_opts"] = gaussian_att_weight_interpolation_opts
+  variant_params["network"]["expected_position_aux_loss_opts"] = expected_position_aux_loss_opts
   variant_params["network"]["length_scale"] = length_scale
   variant_params["network"]["blank_penalty"] = blank_penalty
 
@@ -738,9 +818,7 @@ def recog_center_window_att_import_global(
         batch_size: Optional[int] = None,
         analyse: bool = False,
         att_weight_seq_tags: Optional[List[str]] = None,
-        plot_center_positions: bool = False,
         load_ignore_missing_vars: bool = False,
-        dump_att_weight_penalty: bool = False,
 ):
   recog_exp = ReturnnDecodingExperimentV2(
     alias=alias,
@@ -763,8 +841,6 @@ def recog_center_window_att_import_global(
       att_weight_ref_alignment_hdf=ctc_aligns.global_att_ctc_align.ctc_alignments[search_corpus_key],
       att_weight_ref_alignment_blank_idx=10025,
       att_weight_seq_tags=att_weight_seq_tags,
-      plot_center_positions=plot_center_positions,
-      dump_att_weight_penalty=dump_att_weight_penalty,
     )
 
 
