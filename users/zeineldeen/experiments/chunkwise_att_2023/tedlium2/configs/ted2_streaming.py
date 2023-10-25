@@ -233,7 +233,16 @@ def run_single_search(
 
 
 def run_concat_seq_recog(
-    exp_name, corpus_names, num, train_data, search_args, checkpoint, mem_rqmt=8, time_rqmt=1, gpu_mem=11
+    exp_name,
+    corpus_names,
+    num,
+    train_data,
+    search_args,
+    checkpoint,
+    shuffle_rec_seqs,
+    mem_rqmt=8,
+    time_rqmt=1,
+    gpu_mem=11,
 ):
     exp_prefix = os.path.join(prefix_name, exp_name)
 
@@ -252,10 +261,13 @@ def run_concat_seq_recog(
         test_datasets = get_test_dataset_tuples(bpe_size=BPE_1K)
         stm = CorpusToStmJob(bliss_corpus=test_datasets[corpus_name][2]).out_stm_path
         tk.register_output(f"concat_seqs/{num}/orig_{corpus_name}_stm", stm)
-        concat_dataset_seqs = ConcatDatasetSeqsJob(corpus_name="TED-LIUM-realease2", stm=stm, num=num, overlap_dur=None)
-        tk.register_output(f"concat_seqs/{num}/{corpus_name}_stm", concat_dataset_seqs.out_stm)
-        tk.register_output(f"concat_seqs/{num}/{corpus_name}_tags", concat_dataset_seqs.out_concat_seq_tags)
-        tk.register_output(f"concat_seqs/{num}/{corpus_name}_lens", concat_dataset_seqs.out_concat_seq_lens_py)
+        concat_dataset_seqs = ConcatDatasetSeqsJob(
+            corpus_name="TED-LIUM-realease2", stm=stm, num=num, overlap_dur=None, shuffle_rec_seqs=shuffle_rec_seqs
+        )
+        pref = "concat_seqs" + ("_shuffle" if shuffle_rec_seqs else "")
+        tk.register_output(f"{pref}/{num}/{corpus_name}_stm", concat_dataset_seqs.out_stm)
+        tk.register_output(f"{pref}/{num}/{corpus_name}_tags", concat_dataset_seqs.out_concat_seq_tags)
+        tk.register_output(f"{pref}/{num}/{corpus_name}_lens", concat_dataset_seqs.out_concat_seq_lens_py)
 
         returnn_search_config = create_config(
             training_datasets=train_data,
@@ -653,10 +665,14 @@ def run_exp(
         search_args_ = copy.deepcopy(train_args)
         if concat_recog_search_args:
             search_args_.update(concat_recog_search_args)
+        shuffle_rec_seqs = kwargs["concat_recog_opts"].get("shuffle_rec_seqs", False)
         run_concat_seq_recog(
-            exp_name=exp_name + f"_concat{kwargs['concat_recog_opts']['num']}",
+            exp_name=exp_name
+            + f"_concat{kwargs['concat_recog_opts']['num']}"
+            + ("_shuffle" if shuffle_rec_seqs else ""),
             corpus_names=kwargs["concat_recog_opts"]["corpus_names"],
             num=kwargs["concat_recog_opts"]["num"],
+            shuffle_rec_seqs=shuffle_rec_seqs,
             train_data=train_data,
             search_args=search_args_,
             checkpoint=concat_recog_ckpt,
@@ -1690,28 +1706,28 @@ def baseline():
     )
 
     # TODO: concat recog
-    for num in [10, 20]:
-        search_args = {"max_seqs": 1}
-        run_chunkwise_train(
-            enc_stream_type="global",
-            run_all_for_best_last_avg=True,
-            enable_check_align=False,
-            chunk_sizes=[10],
-            chunk_step_factors=[1],
-            start_lrs=[1e-4],
-            decay_pt_factors=[0.25],
-            gpu_mem=24,
-            total_epochs=[120],
-            batch_size=15_000,
-            accum_grad=2,
-            time_rqmt=120,
-            concat_recog_opts={
-                "num": num,
-                "checkpoint": "avg",
-                "corpus_names": ["test"],
-                "search_args": search_args,
-            },
-        )
+    # for num in [10, 20]:
+    #     search_args = {"max_seqs": 1}
+    #     run_chunkwise_train(
+    #         enc_stream_type="global",
+    #         run_all_for_best_last_avg=True,
+    #         enable_check_align=False,
+    #         chunk_sizes=[10],
+    #         chunk_step_factors=[1],
+    #         start_lrs=[1e-4],
+    #         decay_pt_factors=[0.25],
+    #         gpu_mem=24,
+    #         total_epochs=[120],
+    #         batch_size=15_000,
+    #         accum_grad=2,
+    #         time_rqmt=120,
+    #         concat_recog_opts={
+    #             "num": num,
+    #             "checkpoint": "avg",
+    #             "corpus_names": ["test"],
+    #             "search_args": search_args,
+    #         },
+    #     )
 
     # train_args, exp_name, train_data = run_chunkwise_train(
     #     enc_stream_type="global",
@@ -1977,35 +1993,41 @@ def baseline():
 
     # TODO: recog on concat seqs
     # baseline: 7.7/7.3
-    for num in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20]:
-        for left_context, center_context, right_context, conv_cache_size, mem_size in [(0, 20, 5, 1, 2)]:
-            run_chunkwise_train(
-                enc_stream_type="chunked",
-                run_all_for_best_last_avg=True,
-                enable_check_align=False,
-                chunk_sizes=[left_context + center_context + right_context],
-                chunk_step_factors=[center_context / (left_context + center_context + right_context)],
-                start_lrs=[2e-4],
-                decay_pt_factors=[1 / 3],
-                gpu_mem=24,
-                total_epochs=[120],
-                batch_size=15_000,
-                accum_grad=2,
-                time_rqmt=120,
-                end_slice_start=left_context,
-                end_slice_size=center_context,
-                window_left_padding=left_context * 6,
-                conf_mem_opts={
-                    "self_att_version": 1,
-                    "mem_size": mem_size,
-                    "use_cached_prev_kv": True,
-                    "conv_cache_size": conv_cache_size,
-                    "mem_slice_start": left_context,
-                    "mem_slice_size": center_context,
-                },
-                suffix=f"_L{left_context}_C{center_context}_R{right_context}",
-                concat_recog_opts={"corpus_names": ["test"], "num": num, "checkpoint": "avg"},
-            )
+    for shuffle in [True, False]:
+        for num in [4, 8, 10]:  # [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20]:
+            for left_context, center_context, right_context, conv_cache_size, mem_size in [(0, 20, 5, 1, 2)]:
+                run_chunkwise_train(
+                    enc_stream_type="chunked",
+                    run_all_for_best_last_avg=True,
+                    enable_check_align=False,
+                    chunk_sizes=[left_context + center_context + right_context],
+                    chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+                    start_lrs=[2e-4],
+                    decay_pt_factors=[1 / 3],
+                    gpu_mem=24,
+                    total_epochs=[120],
+                    batch_size=15_000,
+                    accum_grad=2,
+                    time_rqmt=120,
+                    end_slice_start=left_context,
+                    end_slice_size=center_context,
+                    window_left_padding=left_context * 6,
+                    conf_mem_opts={
+                        "self_att_version": 1,
+                        "mem_size": mem_size,
+                        "use_cached_prev_kv": True,
+                        "conv_cache_size": conv_cache_size,
+                        "mem_slice_start": left_context,
+                        "mem_slice_size": center_context,
+                    },
+                    suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+                    concat_recog_opts={
+                        "corpus_names": ["test"],
+                        "num": num,
+                        "checkpoint": "avg",
+                        "shuffle_rec_seqs": shuffle,
+                    },
+                )
 
     # TODO: best streaming model + EOC masking
     # chunked_att_chunk-25_step-20_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2_winLeft0_endSliceStart0_endSlice20_memVariant1_memSize2_convCache1_useCachedKV_memSlice0-20_L0_C20_R5    7.7     7.25  avg
