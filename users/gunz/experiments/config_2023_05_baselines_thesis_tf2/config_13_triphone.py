@@ -520,7 +520,7 @@ def run_single(
                         ),
                         cpu_rqmt=1,
                         mem_rqmt=4,
-                        rtf_cpu=40,
+                        rtf_cpu=5,
                         crp_update=set_power_exe,
                         remove_concurrency=True,
                     )
