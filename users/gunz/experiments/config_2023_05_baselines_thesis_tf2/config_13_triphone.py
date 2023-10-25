@@ -493,6 +493,9 @@ def run_single(
                     )
 
             if run_performance_study:
+                lm_scale = 10.9 if n_states_per_phone == 3 else 7.9
+                nice = "--nice=500" if n_states_per_phone < 3 else ""
+
                 for altas, beam in itertools.product([None, 2, 4, 6], [12, 14, 16]):
                     jobs = recognizer.recognize_count_lm(
                         calculate_stats=True,
@@ -503,13 +506,19 @@ def run_single(
                         opt_lm_am=False,
                         pre_path="decoding-perf",
                         search_parameters=dataclasses.replace(
-                            best_config, altas=altas, beam=beam, beam_limit=100_000, lm_scale=10.9
+                            best_config,
+                            altas=altas,
+                            beam=beam,
+                            beam_limit=100_000,
+                            lm_scale=lm_scale,
                         ),
                         cpu_rqmt=1,
                         mem_rqmt=4,
                         rtf_cpu=40,
                     )
-                    jobs.search.rqmt.update({"sbatch_args": ["-A", "rescale_speed", "-p", "rescale_amd", "--nice=500"]})
+                    jobs.search.rqmt.update(
+                        {"sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]}
+                    )
 
     if decode_all_corpora:
         for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-clean", "dev-other", "test-clean", "test-other"]):

@@ -497,6 +497,8 @@ def run_single(
         tying_cfg = rasr.RasrConfig()
         tying_cfg.type = "diphone-dense"
 
+        nice = "--nice=500" if n_states_per_phone < 3 else ""
+
         for cfg in [
             dataclasses.replace(
                 s.get_cart_params("fh").with_prior_scale(pC),
@@ -528,7 +530,7 @@ def run_single(
                 remove_concurrency=True,
                 rtf=2,
             )
-            job.rqmt.update({"sbatch_args": ["-A", "rescale_speed", "-p", "rescale_amd"]})
+            job.rqmt.update({"sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]})
 
     # ###########
     # FINE TUNING
