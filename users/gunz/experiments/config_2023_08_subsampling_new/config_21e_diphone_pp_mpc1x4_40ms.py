@@ -637,6 +637,39 @@ def run_single(
                         )
                         j.rqmt.update({"sbatch_args": ["-p", "rescale_amd"]})
 
+            for ep, crp_k in itertools.product([max(keep_epochs)], ["test-other"]):
+                s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+                diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+                tying_cfg = rasr.RasrConfig()
+                tying_cfg.type = "diphone-dense"
+
+                base_params = s.get_cart_params(key="fh-fs")
+                decoding_cfgs = [
+                    dataclasses.replace(
+                        base_params,
+                        lm_scale=2.4,
+                        tdp_speech=(10, 0, "infinity", 0),
+                        tdp_silence=(10, 10, "infinity", 10),
+                        tdp_scale=sc,
+                    ).with_prior_scale(pC)
+                    for sc, pC in [(0.4, 0.3), (0.2, 0.4), (0.4, 0.4), (0.2, 0.5)]
+                ]
+                for cfg in decoding_cfgs:
+                    s.recognize_cart(
+                        key="fh-fs",
+                        epoch=ep,
+                        crp_corpus=crp_k,
+                        n_cart_out=diphone_li.get_n_of_dense_classes(),
+                        cart_tree_or_tying_config=tying_cfg,
+                        params=cfg,
+                        log_softmax_returnn_config=nn_precomputed_returnn_config,
+                        calculate_statistics=True,
+                        opt_lm_am_scale=False,
+                        prior_epoch=min(ep, keep_epochs[-2]),
+                        rtf=12,
+                    )
+
     if run_tdp_study:
         s.feature_flows["dev-other"].flags["cache_mode"] = "bundle"
         li = dataclasses.replace(s.label_info, n_states_per_phone=1, state_tying=RasrStateTying.diphone)
