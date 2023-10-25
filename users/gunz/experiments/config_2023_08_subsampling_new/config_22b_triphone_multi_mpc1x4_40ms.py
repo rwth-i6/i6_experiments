@@ -481,7 +481,7 @@ def run_single(
                 ),
                 "extern_data": {
                     "data": {"dim": 50},
-                    "centerState": {"dim": 84},
+                    "centerState": {"dim": 126},
                     "pastLabel": {"dim": 42},
                     "futureLabel": {"dim": 42},
                 },
@@ -514,6 +514,15 @@ def run_single(
             "classes_",
         ]:
             ft_config.config["network"].pop(k, None)
+
+        ft_config.config["tieCenterState"] = {
+            "class": "eval",
+            "from": "centerState",
+            "eval": "tf.math.floordiv(source(0), 2 * 3) * 2 + tf.math.floormod(source(0))",
+        }
+        for l in ft_config.config["network"].values():
+            if l.get("target", None) == "centerState":
+                l["target"] = "tieCenterState"
 
         ft_name = f"{name}-r:{ft_share}-lr:{peak_lr}"
         s.set_experiment_dict("fh-rand", "scratch", "tri", postfix_name=ft_name)
