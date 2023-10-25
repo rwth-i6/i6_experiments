@@ -1628,6 +1628,7 @@ class FactoredHybridSystem(NnSystem):
         crp_update: Optional[typing.Callable] = None,
         prior_epoch: typing.Union[int, str] = "",
         decode_trafo_lm: bool = False,
+        remove_concurrency: bool = False,
     ) -> recognition.AdvancedTreeSearchJob:
         p_info: PriorInfo = self.experiments[key].get("priors", None)
         assert p_info is not None, "set priors first"
@@ -1676,11 +1677,16 @@ class FactoredHybridSystem(NnSystem):
         corpus.audio_format = crp.audio_format
         corpus.duration = crp.corpus_duration
 
+        feature_flows = {crp_corpus: self.feature_flows[crp_corpus]}
+        if remove_concurrency:
+            feature_flows = copy.deepcopy(feature_flows)
+            feature_flows[crp_corpus].flags["cache_mode"] = "bundle"
+
         decoder.init_eval_datasets(
             eval_datasets={crp_corpus: corpus},
-            concurrency={crp_corpus: crp.concurrent},
+            concurrency={crp_corpus: crp.concurrent} if not remove_concurrency else {crp_corpus: 1},
             corpus_durations=durations,
-            feature_flows=self.feature_flows,
+            feature_flows=feature_flows,
             stm_paths={crp_corpus: self.scorer_args[crp_corpus]["ref"]},
         )
 
@@ -1814,8 +1820,8 @@ class FactoredHybridSystem(NnSystem):
         )
 
         if calculate_statistics:
-
             assert adv_tree_search_job is not None
+
             stats_job = ExtractSearchStatisticsJob(
                 search_logs=list(adv_tree_search_job.out_log_file.values()), corpus_duration_hours=durations[crp_corpus]
             )
