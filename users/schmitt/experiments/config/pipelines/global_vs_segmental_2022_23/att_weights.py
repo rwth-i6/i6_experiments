@@ -49,8 +49,6 @@ def dump_att_weights(
         ref_alignment_blank_idx: int,
         alias: str,
         seq_tags_to_analyse: Optional[List[str]] = None,
-        plot_center_positions: bool = False,
-        dump_att_weight_penalty: bool = False,
 ):
   if seq_tags_to_analyse is None:
     if corpus_key == "cv":
@@ -94,14 +92,10 @@ def dump_att_weights(
       "seg_lens": "seg_lens.hdf"
     })
 
-    if plot_center_positions:
+    if config_builder.variant_params["network"].get("segment_center_window_size") is not None:
+      # in this case, we also want to dump the center positions
       hdf_filenames.update({
         "center_positions": "center_positions.hdf"
-      })
-
-    if dump_att_weight_penalty:
-      hdf_filenames.update({
-        "att_weight_penalty": "att_weight_penalty.hdf"
       })
 
   dump_att_weights_opts["hdf_filenames"] = hdf_filenames
@@ -132,7 +126,6 @@ def dump_att_weights(
     seg_lens_hdf=forward_job.out_hdf_files.get(hdf_filenames.get("seg_lens")),
     seg_starts_hdf=forward_job.out_hdf_files.get(hdf_filenames.get("seg_starts")),
     center_positions_hdf=forward_job.out_hdf_files.get(hdf_filenames.get("center_positions")),
-    att_weight_penalty_hdf=forward_job.out_hdf_files.get(hdf_filenames.get("att_weight_penalty")),
     target_blank_idx=target_blank_idx,
     ref_alignment_blank_idx=ref_alignment_blank_idx,
     ref_alignment_hdf=ref_alignment,

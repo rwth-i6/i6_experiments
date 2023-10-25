@@ -185,7 +185,6 @@ class PlotAttentionWeightsJobV2(Job):
           seg_starts_hdf: Optional[Path],
           seg_lens_hdf: Optional[Path],
           center_positions_hdf: Optional[Path],
-          att_weight_penalty_hdf: Optional[Path],
           target_blank_idx: Optional[int],
           ref_alignment_blank_idx: int,
           ref_alignment_hdf: Path,
@@ -195,7 +194,6 @@ class PlotAttentionWeightsJobV2(Job):
     self.seg_lens_hdf = seg_lens_hdf
     self.seg_starts_hdf = seg_starts_hdf
     self.center_positions_hdf = center_positions_hdf
-    self.att_weight_penalty_hdf = att_weight_penalty_hdf
     self.targets_hdf = targets_hdf
     self.att_weight_hdf = att_weight_hdf
     self.target_blank_idx = target_blank_idx
@@ -216,7 +214,6 @@ class PlotAttentionWeightsJobV2(Job):
     seg_starts_hdf = self.seg_starts_hdf.get_path() if self.target_blank_idx is not None else None
     seg_lens_hdf = self.seg_lens_hdf.get_path() if self.target_blank_idx is not None else None
     center_positions_hdf = self.center_positions_hdf.get_path() if self.center_positions_hdf is not None else None
-    att_weight_penalty_hdf = self.att_weight_penalty_hdf.get_path() if self.att_weight_penalty_hdf is not None else None
     ref_alignment_hdf = self.ref_alignment_hdf.get_path()
     json_vocab_path = self.json_vocab_path.get_path()
 
@@ -275,16 +272,6 @@ class PlotAttentionWeightsJobV2(Job):
           center_positions_dict[seq_tags[i]] = center_positions_data[:seq_len]
           center_positions_data = center_positions_data[seq_len:]
 
-    if att_weight_penalty_hdf is not None:
-      # follows same principle as the loading of att weights
-      with h5py.File(att_weight_penalty_hdf, "r") as f:
-        att_weight_penalty_data = f["inputs"][()]
-        seq_lens = f["seqLengths"][()][:, 0]
-        att_weight_penalty_dict = {}
-        for i, seq_len in enumerate(seq_lens):
-          att_weight_penalty_dict[seq_tags[i]] = att_weight_penalty_data[:seq_len]
-          att_weight_penalty_data = att_weight_penalty_data[seq_len:]
-
     # follows same principle as the loading of att weights
     with h5py.File(ref_alignment_hdf, "r") as f:
       # here we need to load the seq tags again because the ref alignment might contain more seqs than what we dumped
@@ -312,7 +299,6 @@ class PlotAttentionWeightsJobV2(Job):
       seg_starts = seg_starts_dict[seq_tag] if self.target_blank_idx is not None else None
       seg_lens = seg_lens_dict[seq_tag] if self.target_blank_idx is not None else None
       center_positions = center_positions_dict[seq_tag] if center_positions_hdf is not None else None
-      att_weight_penalty = att_weight_penalty_dict[seq_tag] if att_weight_penalty_hdf is not None else None
       ref_alignment = ref_alignment_dict[seq_tag]
       targets = targets_dict[seq_tag]
       weights = weights_dict[seq_tag]
@@ -364,21 +350,6 @@ class PlotAttentionWeightsJobV2(Job):
       plt.savefig(filename)
       # plt.savefig(self.out_plot_pdf.get_path())
 
-    if att_weight_penalty_hdf is not None:
-      with open("att_weight_penalties", "w+") as f:
-        for seq_tag in seq_tags:
-          targets = targets_dict[seq_tag]
-          labels = targets[targets != self.target_blank_idx] if self.target_blank_idx is not None else targets  # the alignment labels which are not blank (in case of global att model, just use `targets`)
-          labels = [vocab[idx] for idx in labels]  # the corresponding bpe label
-
-          labels_plus_penalties = list(zip(labels, att_weight_penalty_dict[seq_tag]))
-
-          f.write("Seq Tag: %s\n" % seq_tag)
-          for pair in labels_plus_penalties:
-            pair = (pair[0], np.array_str(pair[1]))
-            f.write("\t%s\n" % str(pair))
-          f.write("\n")
-
 
   @classmethod
   def hash(cls, kwargs: Dict[str, Any]):
@@ -386,8 +357,5 @@ class PlotAttentionWeightsJobV2(Job):
 
     if d["center_positions_hdf"] is None:
       d.pop("center_positions_hdf")
-
-    if d["att_weight_penalty_hdf"] is None:
-      d.pop("att_weight_penalty_hdf")
 
     return super().hash(d)

@@ -136,8 +136,6 @@ class ReturnnDecodingExperimentV2(DecodingExperiment):
           att_weight_ref_alignment_hdf: Path,
           att_weight_ref_alignment_blank_idx: int,
           att_weight_seq_tags: Optional[List[str]] = None,
-          plot_center_positions: bool = False,
-          dump_att_weight_penalty: bool = False,
   ):
     forward_recog_config = self.config_builder.get_recog_config_for_forward_job(opts=self.get_recog_opts())
     forward_search_job = ReturnnForwardJob(
@@ -164,8 +162,6 @@ class ReturnnDecodingExperimentV2(DecodingExperiment):
         alias=self.alias,
         ref_alignment_blank_idx=att_weight_ref_alignment_blank_idx,
         seq_tags_to_analyse=att_weight_seq_tags,
-        plot_center_positions=plot_center_positions,
-        dump_att_weight_penalty=dump_att_weight_penalty,
       )
 
     calc_search_errors(
