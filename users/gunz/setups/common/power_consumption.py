@@ -66,7 +66,7 @@ class WritePowerConsumptionScriptJob(Job):
 
             client.loop_start()
             try:
-                subprocess.run([{self.binary_path}, *sys.argv[1:]])
+                subprocess.run(["{self.binary_path}", *sys.argv[1:]])
             finally:
                 client.disconnect()
             """
