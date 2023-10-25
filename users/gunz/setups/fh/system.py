@@ -1611,8 +1611,8 @@ class FactoredHybridSystem(NnSystem):
         log_softmax_returnn_config: returnn.ReturnnConfig,
         encoder_output_layer: str = "output",
         gpu: bool = False,
-        mem_rqmt: int = 8,
-        cpu_rqmt: int = 4,
+        mem_rqmt: int = 4,
+        cpu_rqmt: int = 2,
         native_ops: typing.Optional[
             typing.List[str]
         ] = None,  # This is a list of native op names (like "NativeLstm2"), not compiled op paths
