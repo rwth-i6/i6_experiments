@@ -2323,7 +2323,7 @@ def run_single(
                         params=cfg,
                         log_softmax_returnn_config=nn_precomputed_returnn_config,
                         calculate_statistics=True,
-                        opt_lm_am_scale=True,
+                        opt_lm_am_scale=False,
                         prior_epoch=min(ep, keep_epochs[-2]),
                         decode_trafo_lm=trafo,
                         rtf=12 * (2 if trafo else 1),
