@@ -500,7 +500,7 @@ def run_single(
                 power_consumption_script = WritePowerConsumptionScriptJob(s.crp["dev-other"].flf_tool_exe)
 
                 def set_power_exe(crp):
-                    crp.flf_tool_exe = power_consumption_script
+                    crp.flf_tool_exe = power_consumption_script.out_script
 
                 for altas, beam in itertools.product([None, 2, 4, 6], [12, 14, 16]):
                     jobs = recognizer.recognize_count_lm(

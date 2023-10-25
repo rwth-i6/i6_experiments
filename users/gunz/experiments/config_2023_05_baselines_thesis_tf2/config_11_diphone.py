@@ -476,7 +476,7 @@ def run_single(
         power_consumption_script = WritePowerConsumptionScriptJob(s.crp["dev-other"].flf_tool_exe)
 
         def set_power_exe(crp):
-            crp.flf_tool_exe = power_consumption_script
+            crp.flf_tool_exe = power_consumption_script.out_script
 
         prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
             returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=False
