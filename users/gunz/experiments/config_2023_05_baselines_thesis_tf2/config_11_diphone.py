@@ -27,6 +27,7 @@ from ...setups.common.nn.specaugment import (
     summary as sa_summary,
     transform as sa_transform,
 )
+from ...setups.common.power_consumption import WritePowerConsumptionScriptJob
 from ...setups.common.taskset import WriteTasksetRunScriptJob
 from ...setups.fh import system as fh_system
 from ...setups.fh.network import conformer, diphone_joint_output
@@ -472,6 +473,11 @@ def run_single(
                 )
 
     if run_performance_study:
+        power_consumption_script = WritePowerConsumptionScriptJob(s.crp["dev-other"].flf_tool_exe)
+
+        def set_power_exe(crp):
+            crp.flf_tool_exe = power_consumption_script
+
         prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
             returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=False
         )
@@ -528,6 +534,7 @@ def run_single(
                 cpu_rqmt=1,
                 mem_rqmt=4,
                 remove_concurrency=True,
+                crp_update=set_power_exe,
                 rtf=2,
             )
             job.rqmt.update({"sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]})

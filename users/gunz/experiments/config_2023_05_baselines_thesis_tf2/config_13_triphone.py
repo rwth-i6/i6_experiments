@@ -27,6 +27,7 @@ from ...setups.common.nn.specaugment import (
     summary as sa_summary,
     transform as sa_transform,
 )
+from ...setups.common.power_consumption import WritePowerConsumptionScriptJob
 from ...setups.fh import system as fh_system
 from ...setups.fh.decoder.config import PriorInfo
 from ...setups.fh.network import conformer
@@ -496,6 +497,11 @@ def run_single(
                 lm_scale = 10.9 if n_states_per_phone == 3 else 7.9
                 nice = "--nice=500" if n_states_per_phone < 3 else ""
 
+                power_consumption_script = WritePowerConsumptionScriptJob(s.crp["dev-other"].flf_tool_exe)
+
+                def set_power_exe(crp):
+                    crp.flf_tool_exe = power_consumption_script
+
                 for altas, beam in itertools.product([None, 2, 4, 6], [12, 14, 16]):
                     jobs = recognizer.recognize_count_lm(
                         calculate_stats=True,
@@ -515,6 +521,7 @@ def run_single(
                         cpu_rqmt=1,
                         mem_rqmt=4,
                         rtf_cpu=40,
+                        crp_update=set_power_exe,
                     )
                     jobs.search.rqmt.update(
                         {"sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]}
