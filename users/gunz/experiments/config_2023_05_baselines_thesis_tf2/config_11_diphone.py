@@ -27,7 +27,7 @@ from ...setups.common.nn.specaugment import (
     summary as sa_summary,
     transform as sa_transform,
 )
-from ...setups.common.rasr.taskset import WriteTasksetRunScriptJob
+from ...setups.common.taskset import WriteTasksetRunScriptJob
 from ...setups.fh import system as fh_system
 from ...setups.fh.network import conformer, diphone_joint_output
 from ...setups.fh.factored import PhoneticContext, RasrStateTying
