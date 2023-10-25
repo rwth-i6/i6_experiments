@@ -79,8 +79,8 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
     recog_training_exp(prefix_name + "/from-scratch-train", task, model_with_checkpoint, recog_def=model_recog)
 
-    config_ = config.copy()
-    config_.update(
+    config_24gb = config.copy()
+    config_24gb.update(
         dict(
             torch_amp="bfloat16",
             batch_size=40_000 * _batch_size_factor,
@@ -94,7 +94,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     model_with_checkpoint = train(
         prefix_name + "/base-24gb",
         task=task,
-        config=config_,
+        config=config_24gb,
         post_config=post_config,
         model_def=from_scratch_model_def,
         train_def=from_scratch_training,
@@ -103,7 +103,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
     recog_training_exp(prefix_name + "/base-24gb", task, model_with_checkpoint, recog_def=model_recog)
 
-    config_ = config_.copy()
+    config_ = config_24gb.copy()
     del config_["torch_amp"]
     config_["batch_size"] = 30_000 * _batch_size_factor
     model_with_checkpoint = train(
@@ -118,8 +118,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
     recog_training_exp(prefix_name + "/base-24gb-bs30k-f32", task, model_with_checkpoint, recog_def=model_recog)
 
-    config_ = config_.copy()
-    config_["torch_amp"] = "bfloat16"
+    config_ = config_24gb.copy()
     config_["optimizer"] = {
         "class": "adamw",
         "epsilon": 1e-16,
