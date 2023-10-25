@@ -504,7 +504,7 @@ def run_single(
                         name_override=f"altas{altas}-beam{beam}",
                         num_encoder_output=conf_model_dim,
                         opt_lm_am=False,
-                        pre_path="decoding-perf-single",
+                        pre_path="decoding-perf-single-core",
                         search_parameters=dataclasses.replace(
                             best_config,
                             altas=altas,
