@@ -1112,9 +1112,7 @@ class FHDecoder:
             flow = copy.deepcopy(flow)
             flow.flags["cache_mode"] = "bundle"
 
-            search_crp.segment_path = i6_core.corpus.SegmentCorpusJob(
-                search_crp.lexicon_config.corpus_file, 1
-            ).out_segment_path
+            search_crp.segment_path = i6_core.corpus.SegmentCorpusJob(search_crp.corpus_config.file, 1).out_segment_path
 
         search = recog.AdvancedTreeSearchJob(
             crp=search_crp,
