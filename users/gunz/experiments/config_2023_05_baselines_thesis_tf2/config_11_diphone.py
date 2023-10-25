@@ -119,7 +119,7 @@ def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Lis
             decode_all_corpora=False,
             lr="v13",
             n_states_per_phone=1,
-            run_performance_study=True,
+            run_performance_study=False,  # TODO fixme w/ proper params
             tune_decoding=False,
         ),
         *(
@@ -131,7 +131,7 @@ def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Lis
                 decode_all_corpora=False,
                 lr="v13",
                 n_states_per_phone=3,
-                run_performance_study=False,
+                run_performance_study=True,
                 tune_decoding=True,
             )
             for a, a_name in (additional_alignments or [])
@@ -501,11 +501,16 @@ def run_single(
                 s.get_cart_params("fh").with_prior_scale(pC),
                 altas=a,
                 beam=b,
-                beam_limit=100_000,
-                lm_scale=9,
+                beam_limit=b_l,
+                lm_scale=7.5,
                 tdp_scale=0.4,
             )
-            for a, pC, b in itertools.product([None, 2, 4, 6, 8], [0.4, 0.6], [14, 16])
+            for a, pC, b, b_l in itertools.product(
+                [None, 2, 4, 6, 8],
+                [0.6],
+                [12, 14, 16, 18],
+                [15_000, 25_000, 50_000, 100_000] if n_states_per_phone == 3 else [100_000],
+            )
         ]:
             job = s.recognize_cart(
                 key="fh",
@@ -516,38 +521,13 @@ def run_single(
                 params=cfg,
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
                 calculate_statistics=True,
-                opt_lm_am_scale=True,
+                opt_lm_am_scale=False,
                 cpu_rqmt=2,
                 mem_rqmt=4,
-                rtf=3,
+                remove_concurrency=True,
+                rtf=1,
             )
-            # job.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
-
-        additional_cfg = dataclasses.replace(
-            s.get_cart_params("fh").with_prior_scale(0.6),
-            altas=6,
-            beam=14,
-            beam_limit=100_000,
-            lm_scale=9,
-            tdp_speech=(0, 0, "infinity", 0),
-            tdp_scale=0.4,
-        )
-        for cfg in [additional_cfg]:
-            job = s.recognize_cart(
-                key="fh",
-                epoch=max(keep_epochs),
-                crp_corpus="dev-other",
-                n_cart_out=diphone_li.get_n_of_dense_classes(),
-                cart_tree_or_tying_config=tying_cfg,
-                params=cfg,
-                log_softmax_returnn_config=nn_precomputed_returnn_config,
-                calculate_statistics=True,
-                opt_lm_am_scale=True,
-                cpu_rqmt=2,
-                mem_rqmt=4,
-                rtf=3,
-            )
-            # job.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+            job.rqmt.update({"sbatch_args": ["-A", "rescale_speed", "-p", "rescale_amd"]})
 
     # ###########
     # FINE TUNING
