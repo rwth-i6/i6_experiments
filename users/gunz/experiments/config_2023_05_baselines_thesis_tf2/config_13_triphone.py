@@ -495,7 +495,7 @@ def run_single(
 
             if run_performance_study:
                 lm_scale = 10.9 if n_states_per_phone == 3 else 7.9
-                nice = "--nice=500" if n_states_per_phone < 3 else ""
+                nice = "--nice=500" if n_states_per_phone < 3 else "--nice=100"
 
                 power_consumption_script = WritePowerConsumptionScriptJob(s.crp["dev-other"].flf_tool_exe)
 
