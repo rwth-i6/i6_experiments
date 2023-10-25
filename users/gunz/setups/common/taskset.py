@@ -6,15 +6,11 @@ from sisyphus import tk, Job, Task, Path
 
 
 class WriteTasksetRunScriptJob(Job):
-    def __init__(
-        self,
-        rasr_binary_path: Path,
-        cores: Union[tk.Variable, List[int]],
-    ):
+    def __init__(self, binary_path: Path, pin_to_cores: Union[tk.Variable, List[int]]):
         super().__init__()
 
-        self.cores = cores
-        self.rasr_binary_path = rasr_binary_path
+        self.pin_to_cores = pin_to_cores
+        self.binary_path = binary_path
 
         self.out_script = self.output_path("run-with-task-affinity.sh")
 
@@ -22,13 +18,13 @@ class WriteTasksetRunScriptJob(Job):
         yield Task("run", mini_task=True)
 
     def run(self):
-        core_str = ",".join(self.cores if isinstance(self.cores, list) else self.cores.get())
+        core_str = ",".join(self.pin_to_cores if isinstance(self.pin_to_cores, list) else self.pin_to_cores.get())
 
         script = textwrap.dedent(
             f"""
             #!/usr/bin/env bash
 
-            taskset -c {core_str} {self.rasr_binary_path} $*
+            taskset -c {core_str} {self.binary_path} $*
             """
         )
 
