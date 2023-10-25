@@ -477,7 +477,12 @@ def run_single(
                         "filename": viterbi_train_job.out_checkpoints[num_epochs],
                     }
                 },
-                "extern_data": {"data": {"dim": 50}},
+                "extern_data": {
+                    "data": {"dim": 50},
+                    "centerState": {"dim": 84},
+                    "pastLabel": {"dim": 42},
+                    "futureLabel": {"dim": 42},
+                },
             },
             post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": fine_tune_keep_epochs}},
             python_epilog={

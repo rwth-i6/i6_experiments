@@ -479,7 +479,12 @@ def run_single(
                 "chunking": subsample_chunking(
                     CONF_CHUNKING_10MS, ss_factor, subsampled_key=["centerState", "futureLabel", "pastLabel"]
                 ),
-                "extern_data": {"data": {"dim": 50}},
+                "extern_data": {
+                    "data": {"dim": 50},
+                    "centerState": {"dim": 84},
+                    "pastLabel": {"dim": 42},
+                    "futureLabel": {"dim": 42},
+                },
                 "learning_rates": list(
                     np.concatenate([lrates, np.linspace(min(lrates), 1e-6, fine_tune_epochs - len(lrates))])
                 ),
