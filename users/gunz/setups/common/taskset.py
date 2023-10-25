@@ -18,7 +18,8 @@ class WriteTasksetRunScriptJob(Job):
         yield Task("run", mini_task=True)
 
     def run(self):
-        core_str = ",".join(self.pin_to_cores if isinstance(self.pin_to_cores, list) else self.pin_to_cores.get())
+        cores = self.pin_to_cores if isinstance(self.pin_to_cores, list) else self.pin_to_cores.get()
+        core_str = ",".join([str(v) for v in cores])
 
         script = textwrap.dedent(
             f"""
