@@ -518,9 +518,9 @@ def run_single(
                             beam_limit=100_000,
                             lm_scale=lm_scale,
                         ),
-                        cpu_rqmt=1,
+                        cpu_rqmt=2,
                         mem_rqmt=4,
-                        rtf_cpu=5,
+                        rtf_cpu=8,
                         crp_update=set_power_exe,
                         remove_concurrency=True,
                     )

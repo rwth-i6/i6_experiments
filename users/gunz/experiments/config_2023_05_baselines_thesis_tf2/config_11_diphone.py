@@ -531,7 +531,7 @@ def run_single(
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
                 calculate_statistics=True,
                 opt_lm_am_scale=False,
-                cpu_rqmt=1,
+                cpu_rqmt=2,
                 mem_rqmt=4,
                 remove_concurrency=True,
                 crp_update=set_power_exe,
