@@ -9,8 +9,8 @@ class WriteTasksetRunScriptJob(Job):
     def __init__(self, binary_path: Path, pin_to_cores: Union[tk.Variable, List[int]]):
         super().__init__()
 
-        self.pin_to_cores = pin_to_cores
         self.binary_path = binary_path
+        self.pin_to_cores = pin_to_cores
 
         self.out_script = self.output_path("run-with-task-affinity.sh")
 
@@ -27,7 +27,7 @@ class WriteTasksetRunScriptJob(Job):
 
             taskset -c {core_str} {self.binary_path} $*
             """
-        )
+        ).strip()
 
         with open(self.out_script, "wt") as f:
             f.write(script)

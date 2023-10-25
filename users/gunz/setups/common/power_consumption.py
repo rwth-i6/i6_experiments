@@ -70,7 +70,7 @@ class WritePowerConsumptionScriptJob(Job):
             finally:
                 client.disconnect()
             """
-        )
+        ).strip()
 
         with open(self.out_script, "wt") as f:
             f.write(script)
