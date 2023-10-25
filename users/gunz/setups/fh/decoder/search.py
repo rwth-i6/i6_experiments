@@ -7,6 +7,7 @@ import itertools
 import numpy as np
 import typing
 
+import i6_core.corpus
 import i6_core.recognition as recog
 from i6_core import am, mm, rasr, returnn
 
@@ -634,6 +635,7 @@ class FHDecoder:
         rtf_gpu: float = 4,
         lm_config: rasr.RasrConfig = None,
         create_lattice: bool = True,
+        remove_concurrency: bool = False,
     ) -> RecognitionJobs:
         return self.recognize(
             label_info=label_info,
@@ -659,6 +661,7 @@ class FHDecoder:
             rtf_cpu=rtf_cpu,
             rtf_gpu=rtf_gpu,
             create_lattice=create_lattice,
+            remove_concurrency=remove_concurrency,
         )
 
     def recognize_optimize_scales(
@@ -916,6 +919,7 @@ class FHDecoder:
         rtf_cpu: typing.Optional[float] = None,
         rtf_gpu: typing.Optional[float] = None,
         create_lattice: bool = True,
+        remove_concurrency: bool = False,
     ) -> RecognitionJobs:
         if (
             isinstance(search_parameters, SearchParameters)
@@ -1100,6 +1104,17 @@ class FHDecoder:
         ts_args = {}
         if self.parallel is not None:
             ts_args["parallel"] = self.parallel
+
+        flow = self.featureScorerFlow
+        if remove_concurrency:
+            search_crp.concurrent = 1
+
+            flow = copy.deepcopy(flow)
+            flow.flags["cache_mode"] = "bundle"
+
+            search_crp.segment_path = i6_core.corpus.SegmentCorpusJob(
+                search_crp.lexicon_config.corpus_file, 1
+            ).out_segment_path
 
         search = recog.AdvancedTreeSearchJob(
             crp=search_crp,

@@ -522,6 +522,7 @@ def run_single(
                         mem_rqmt=4,
                         rtf_cpu=40,
                         crp_update=set_power_exe,
+                        remove_concurrency=True,
                     )
                     jobs.search.rqmt.update(
                         {"sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]}
