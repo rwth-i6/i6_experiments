@@ -472,11 +472,6 @@ def run_single(
                 )
 
     if run_performance_study:
-        core_pinned_rasr = WriteTasksetRunScriptJob(binary_path=s.crp["dev-other"].flf_tool_exe, pin_to_cores=[0, 8])
-
-        def set_core_pinned_rasr(crp):
-            crp.flf_tool_exe = core_pinned_rasr.out_script
-
         prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
             returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=False
         )
@@ -531,7 +526,6 @@ def run_single(
                 cpu_rqmt=2,
                 mem_rqmt=4,
                 remove_concurrency=True,
-                crp_update=set_core_pinned_rasr,
                 rtf=1,
             )
             job.rqmt.update({"sbatch_args": ["-A", "rescale_speed", "-p", "rescale_amd"]})
