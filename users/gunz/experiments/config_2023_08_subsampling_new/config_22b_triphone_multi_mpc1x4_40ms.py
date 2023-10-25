@@ -476,6 +476,7 @@ def run_single(
         update_config = returnn.ReturnnConfig(
             config={
                 "batch_size": 10000,
+                "extern_data": {"data": {"dim": 50}},
                 "learning_rates": list(
                     np.concatenate([lrates, np.linspace(min(lrates), 1e-6, fine_tune_epochs - len(lrates))])
                 ),
@@ -486,7 +487,6 @@ def run_single(
                         "filename": viterbi_train_job.out_checkpoints[num_epochs],
                     }
                 },
-                "extern_data": {"data": {"dim": 50}},
             },
             post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": fine_tune_keep_epochs}},
             python_epilog={
@@ -494,6 +494,18 @@ def run_single(
             },
         )
         ft_config.update(update_config)
+
+        ft_config.config["extern_data"].pop("classes")
+        for k in [
+            "centerPhoneme",
+            "stateId",
+            "centerState",
+            "pastLabel",
+            "popFutureLabel",
+            "futureLabel",
+            "classes_",
+        ]:
+            ft_config.config["network"].pop(k)
 
         train_args = {
             **s.initial_train_args,

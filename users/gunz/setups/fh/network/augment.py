@@ -629,7 +629,7 @@ def augment_net_with_triphone_outputs(
 
 
 def remove_label_pops_and_losses(
-    network: typing.Union["returnn.ReturnnConfig", Network], except_layers: typing.Optional[typing.Iterable[str]] = None
+    network: Network, except_layers: typing.Optional[typing.Iterable[str]] = None
 ) -> Network:
     network = copy.copy(network)
 

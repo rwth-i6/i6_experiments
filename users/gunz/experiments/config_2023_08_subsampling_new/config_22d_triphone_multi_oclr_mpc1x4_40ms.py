@@ -401,7 +401,7 @@ def run_single(
                 rtf_cpu=35,
             )
 
-    fine_tune = False
+    fine_tune = True
     if fine_tune:
         ft_share = 0.3
         peak_lr = 8e-5
@@ -482,6 +482,18 @@ def run_single(
             },
         )
         ft_config.update(update_config)
+
+        ft_config.config["extern_data"].pop("classes")
+        for k in [
+            "centerPhoneme",
+            "stateId",
+            "centerState",
+            "pastLabel",
+            "popFutureLabel",
+            "futureLabel",
+            "classes_",
+        ]:
+            ft_config.config["network"].pop(k)
 
         train_args = {
             **s.initial_train_args,

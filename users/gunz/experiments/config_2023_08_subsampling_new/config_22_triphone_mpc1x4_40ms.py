@@ -449,7 +449,7 @@ def run_single(
             )
             jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30", "--nice=500"]})
 
-    fine_tune = alignment_name == "40ms-FF-v8"
+    fine_tune = alignment_name == "40ms-FF-v8" and batch_size == 12500
     if fine_tune:
         ft_share = 0.3
         peak_lr = 8e-5
@@ -530,6 +530,18 @@ def run_single(
             },
         )
         ft_config.update(update_config)
+
+        ft_config.config["extern_data"].pop("classes")
+        for k in [
+            "centerPhoneme",
+            "stateId",
+            "centerState",
+            "pastLabel",
+            "popFutureLabel",
+            "futureLabel",
+            "classes_",
+        ]:
+            ft_config.config["network"].pop(k)
 
         train_args = {
             **s.initial_train_args,
