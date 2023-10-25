@@ -464,6 +464,9 @@ def run_single(
         update_config = returnn.ReturnnConfig(
             config={
                 "batch_size": 10000,
+                "chunking": subsample_chunking(
+                    CONF_CHUNKING_10MS, ss_factor, subsampled_key=["centerState", "futureLabel", "pastLabel"]
+                ),
                 "learning_rates": list(
                     np.concatenate([lrates, np.linspace(min(lrates), 1e-6, fine_tune_epochs - len(lrates))])
                 ),
@@ -495,13 +498,17 @@ def run_single(
         ]:
             ft_config.config["network"].pop(k, None)
 
+        ft_name = f"{name}-r:{ft_share}-lr:{peak_lr}"
+        s.set_experiment_dict("fh-rand", "scratch", "tri", postfix_name=ft_name)
+        s.set_returnn_config_for_experiment("fh-rand", returnn_config=ft_config)
+
         train_args = {
             **s.initial_train_args,
             "num_epochs": fine_tune_epochs,
             "partition_epochs": partition_epochs,
         }
         s.returnn_training_from_hdf(
-            experiment_key="fh",
+            experiment_key="fh-rand",
             returnn_config=returnn_config,
             nn_train_args=train_args,
             train_hdfs=normal_hdf_files + randomized_hdfs.out_hdf_files,
