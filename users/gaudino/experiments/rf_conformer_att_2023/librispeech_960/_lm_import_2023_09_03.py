@@ -52,7 +52,7 @@ def test_convert_checkpoint():
     import torch
     import numpy
 
-    out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/full_w_lm_import_2023_10_03"
+    out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/full_w_lm_import_2023_10_18"
 
     reader = CheckpointReader(_returnn_tf_ckpt_filename)
     reader_lm = CheckpointReader(lm_path)
@@ -272,15 +272,23 @@ def map_param_func_lstm(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
         assert isinstance(value, numpy.ndarray)
 
         if name.endswith(".ff_weight"):
+            print("Old ff:", value[0][0], value[0][2048], value[0][4096], value[0][6144])
             value = convert_params.convert_tf_lstm_to_torch_lstm_ff(value)
+            print("Convert ff:", value[0][0], value[2048][0], value[4096][0], value[6144][0])
 
         if name.endswith(".rec_weight"):
+            print("Old rec:", value[0][0], value[0][2048], value[0][4096], value[0][6144])
             value = convert_params.convert_tf_lstm_to_torch_lstm_rec(value)
+            print("Convert rec:", value[0][0], value[2048][0], value[4096][0], value[6144][0])
+
 
         if "lstm" in name and name.endswith(".bias"):
+            print("Old bias:", value[0], value[2048], value[4096], value[6144])
             value = convert_params.convert_tf_lstm_to_torch_lstm_bias(
                 value
             )
+            print("Convert bias:", value[0], value[2048], value[4096], value[6144])
+
 
         if (name == "output.weight"):
             # value = convert_params_np.convert_tf_lstm_to_native_lstm_ff(value)

@@ -44,7 +44,7 @@ import numpy
 # _returnn_tf_config_filename = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config"
 # E.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
 _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
-_torch_ckpt_filename_w_lstm_lm = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/full_w_lm_import_2023_09_07/average.pt"
+_torch_ckpt_filename_w_lstm_lm = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/full_w_lm_import_2023_10_18/average.pt"
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
 
@@ -60,7 +60,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import (
         ConvertTfCheckpointToRfPtJob,
     )
-    from i6_experiments.users.zeyer.datasets.librispeech import (
+    from i6_experiments.users.gaudino.datasets.librispeech import (
         get_librispeech_task_bpe10k_raw,
     )
 
@@ -96,40 +96,65 @@ def sis_run_with_prefix(prefix_name: str = None):
         definition=from_scratch_model_def, checkpoint=new_chkpt
     )
 
-    if True:
-        search_args = {
-            "beam_size": 12,
-            # att decoder args
-            "att_scale": 0.7,
-            "ctc_scale": 0.3,
-            "use_ctc": True,
-            "mask_eos": True,
-            "add_lstm_lm": False,
-            "lstm_scale": 0.33,
-            "prior_corr": True,
-            "prior_scale": 0.2,
-            "length_normalization_exponent": 1.0,  # 0.0 for disabled
-            # "window_margin": 10,
-            "rescore_w_ctc": False,
-        }
-        # dev_sets = ["dev-other"]  # only dev-other for testing
-        dev_sets = None  # all
-        res = recog_model(
-            task,
-            model_with_checkpoint,
-            model_recog,
-            dev_sets=dev_sets,
-            search_args=search_args,
-        )
-        tk.register_output(
-            prefix_name
-            + f"/espnet_att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_beam{search_args['beam_size']}_bsf40"
-            # + f"/att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_beam{search_args['beam_size']}_two_pass_maskeos"
-            # + f"/att{search_args['att_scale']}_lstm_lm{search_args['lstm_scale']}_beam{search_args['beam_size']}"
-            # + f"/att{search_args['att_scale']}_beam{search_args['beam_size']}_bsf_40"
-            + f"/recog_results",
-            res.output,
-        )
+    # att + lstm lm
+    for lm_scale in [0.3, 0.33, 0.35]:
+        for beam_size in [12, 32]:
+            search_args = {
+                "beam_size": beam_size,
+                "add_lstm_lm": True,
+                "lm_scale": lm_scale,
+            }
+            dev_sets = ["dev-other"]  # only dev-other for testing
+            # dev_sets = None  # all
+            res = recog_model(
+                task,
+                model_with_checkpoint,
+                model_recog,
+                dev_sets=dev_sets,
+                search_args=search_args,
+            )
+            tk.register_output(
+                prefix_name
+                + f"/bsf40_att_lm{lm_scale}_beam{beam_size}"
+                + f"/recog_results",
+                res.output,
+            )
+
+    # att + espnet ctc prefix scorer + lstm lm
+    for scales in [(0.7,0.3), (0.65,0.35), (0.75,0.25)]:
+        for lm_scale in [0.3,0.4,0.5]:
+            for beam_size in [12, 32]:
+                att_scale, ctc_scale = scales
+                search_args = {
+                    "beam_size": beam_size,
+                    # att decoder args
+                    "att_scale": att_scale,
+                    "ctc_scale": ctc_scale,
+                    "use_ctc": True,
+                    "mask_eos": True,
+                    "add_lstm_lm": True,
+                    "lm_scale": lm_scale,
+                    "prior_corr": False,
+                    "prior_scale": 0.2,
+                    "length_normalization_exponent": 1.0,  # 0.0 for disabled
+                    # "window_margin": 10,
+                    "rescore_w_ctc": False,
+                }
+                dev_sets = ["dev-other"]  # only dev-other for testing
+                # dev_sets = None  # all
+                res = recog_model(
+                    task,
+                    model_with_checkpoint,
+                    model_recog,
+                    dev_sets=dev_sets,
+                    search_args=search_args,
+                )
+                tk.register_output(
+                    prefix_name
+                    + f"/bsf40_espnet_att{att_scale}_ctc{ctc_scale}_lm{lm_scale}_beam{beam_size}"
+                    + f"/recog_results",
+                    res.output,
+                )
 
     for prior_scale in []:
         search_args["prior_scale"] = prior_scale
@@ -172,44 +197,35 @@ def sis_run_with_prefix(prefix_name: str = None):
             res.output,
         )
 
-    # time sync decoding
-    search_args = {
-        "beam_size": 32,
-        "add_lstm_lm": False,
-        "length_normalization_exponent": 1.0,  # 0.0 for disabled
-        "mask_eos": True,
-        "att_scale": 0.65,
-        "ctc_scale": 0.35,
-        "rescore_w_ctc": False,
-        "prior_corr": True,
-        "prior_scale": 0.3,
-    }
+    if False:
+        # time sync decoding
+        search_args = {
+            "beam_size": 32,
+            "add_lstm_lm": False,
+            "length_normalization_exponent": 1.0,  # 0.0 for disabled
+            "mask_eos": True,
+            "att_scale": 0.65,
+            "ctc_scale": 0.35,
+            "rescore_w_ctc": False,
+            "prior_corr": True,
+            "prior_scale": 0.3,
+        }
 
-    dev_sets = ["dev-other"]  # only dev-other for testing
-    # dev_sets = None  # all
-    res = recog_model(
-        task,
-        model_with_checkpoint,
-        model_recog_time_sync,
-        dev_sets=dev_sets,
-        search_args=search_args,
-    )
-    tk.register_output(
-        prefix_name
-        + f"/time_sync_att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_prior{search_args['prior_scale']}_beam{search_args['beam_size']}_mask_eos"
-        + f"/recog_results",
-        res.output,
-    )
-
-    # search_args["beam_size"] = 20
-    #
-    # res = recog_model(task, model_with_checkpoint, model_recog, dev_sets=dev_sets, search_args=search_args)
-    # tk.register_output(
-    #     prefix_name
-    #     + f"/espnet_ctc_att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_beam{search_args['beam_size']}"
-    #     + f"/recog_results",
-    #     res.output,
-    # )
+        dev_sets = ["dev-other"]  # only dev-other for testing
+        # dev_sets = None  # all
+        res = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog_time_sync,
+            dev_sets=dev_sets,
+            search_args=search_args,
+        )
+        tk.register_output(
+            prefix_name
+            + f"/time_sync_att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_prior{search_args['prior_scale']}_beam{search_args['beam_size']}_mask_eos"
+            + f"/recog_results",
+            res.output,
+        )
 
 
 py = sis_run_with_prefix  # if run directly via `sis m ...`
@@ -302,11 +318,15 @@ class MakeModel:
         *,
         eos_label: int = 0,
         num_enc_layers: int = 12,
+        model_args: Optional[Dict[str, Any]] = None,
+        search_args: Optional[Dict[str, Any]] = None,
     ):
         self.in_dim = in_dim
         self.target_dim = target_dim
         self.eos_label = eos_label
         self.num_enc_layers = num_enc_layers
+        self.search_args = search_args
+        self.model_args = model_args
 
     def __call__(self) -> Model:
         from returnn.datasets.util.vocabulary import Vocabulary
@@ -319,7 +339,7 @@ class MakeModel:
             [str(i) for i in range(target_dim.dimension)], eos_label=self.eos_label
         )
 
-        return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers)
+        return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers, model_args=self.model_args, search_args=self.search_args)
 
     @classmethod
     def make_model(
@@ -327,6 +347,7 @@ class MakeModel:
         in_dim: Dim,
         target_dim: Dim,
         *,
+        model_args: Optional[Dict[str, Any]] = None,
         search_args: Optional[Dict[str, Any]] = None,
         num_enc_layers: int = 12,
     ) -> Model:
@@ -353,6 +374,7 @@ class MakeModel:
             blank_idx=target_dim.dimension,
             bos_idx=_get_bos_idx(target_dim),
             eos_idx=_get_eos_idx(target_dim),
+            model_args=model_args,
             search_args=search_args,
         )
 
@@ -379,6 +401,7 @@ class Model(rf.Module):
         enc_dropout: float = 0.1,
         enc_att_dropout: float = 0.1,
         l2: float = 0.0001,
+        model_args: Optional[Dict[str, Any]] = None,
         search_args: Optional[Dict[str, Any]] = None,
     ):
         super(Model, self).__init__()
@@ -430,14 +453,15 @@ class Model(rf.Module):
         self.search_args = search_args
         self.ctc = rf.Linear(self.encoder.out_dim, self.target_dim_w_b)
 
-        self.lstm_lm = LSTM_LM_Model(target_dim, target_dim)
+        if search_args.get("add_lstm_lm", False):
+            self.lstm_lm = LSTM_LM_Model(target_dim, target_dim)
 
         self.inv_fertility = rf.Linear(
             self.encoder.out_dim, att_num_heads, with_bias=False
         )
 
         self.target_embed = rf.Embedding(
-            target_dim, Dim(name="target_embed", dimension=640)
+            target_dim, Dim(name="target_embed", dimension=model_args.get("target_embed_dim", 640))
         )
 
         self.s = rf.ZoneoutLSTM(
@@ -632,13 +656,13 @@ def _get_eos_idx(target_dim: Dim) -> int:
 
 
 def from_scratch_model_def(
-    *, epoch: int, in_dim: Dim, target_dim: Dim, search_args: Optional[Dict[str, Any]]
+    *, epoch: int, in_dim: Dim, target_dim: Dim, model_args: Optional[Dict[str, Any]], search_args: Optional[Dict[str, Any]]
 ) -> Model:
     """Function is run within RETURNN."""
     in_dim, epoch  # noqa
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
-    return MakeModel.make_model(in_dim, target_dim, search_args=search_args)
+    return MakeModel.make_model(in_dim, target_dim, model_args=model_args, search_args=search_args)
 
 
 from_scratch_model_def: ModelDef[Model]

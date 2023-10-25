@@ -45,8 +45,8 @@ def model_recog_time_sync(
     """
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    beam_size = model.search_args["beam_size"]
-    length_normalization_exponent = model.search_args["length_normalization_exponent"]
+    beam_size = model.search_args.get("beam_size", 12)
+    length_normalization_exponent = model.search_args.get("length_normalization_exponent", 1.0)
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
     else:
@@ -60,7 +60,7 @@ def model_recog_time_sync(
     decoder_state = model.decoder_default_initial_state(
         batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
     )
-    if model.search_args["add_lstm_lm"]:
+    if model.search_args.get("add_lstm_lm", False):
         lm_state = model.lstm_lm.lm_default_initial_state(batch_dims=batch_dims_)
     initial_target = rf.constant(
         model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim_w_b
@@ -75,13 +75,15 @@ def model_recog_time_sync(
     batch_size = batch_dims[0].get_dim_value()
     target_ctc = [model.bos_idx for _ in range(batch_size * beam_size)]
 
+    blank_index = model.target_dim.get_dim_value()
+
     ctc_out_raw = (
         enc_args["ctc"]
         .copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_b))
         .raw_tensor
     )  # [B,T,V+1]
 
-    if model.search_args["mask_eos"]:
+    if model.search_args.get("mask_eos", False):
         ctc_eos = ctc_out_raw[:, :, model.eos_idx].unsqueeze(2)
         ctc_blank = ctc_out_raw[:, :, model.blank_idx].unsqueeze(2)
         ctc_out_raw[:, :, model.blank_idx] = torch.logsumexp(
@@ -184,7 +186,7 @@ def model_recog_time_sync(
         logits = model.decode_logits(input_embed=input_embed, **step_out)
         att_label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
 
-        att_label_log_prob = att_label_log_prob * model.search_args["att_scale"]
+        att_label_log_prob = att_label_log_prob * model.search_args.get("att_scale", 1.0)
 
         # continue in pure pytorch because slicing is easier
         # rf.gather(ctc_out, indices=i, axis=enc_spatial_dim) does not work
@@ -197,11 +199,11 @@ def model_recog_time_sync(
         ]  # [B, beam, T, V+1]
 
         label_log_prob_non_blank = (
-            ctc_out_raw_step[:, :, :10025] * model.search_args["ctc_scale"]
+            ctc_out_raw_step[:, :, :blank_index] * model.search_args.get("ctc_scale", 0.0)
             + att_label_log_prob.raw_tensor
         )
 
-        blank_log_prob = ctc_out_raw_step[:, :, 10025]
+        blank_log_prob = ctc_out_raw_step[:, :, blank_index]
 
         one_minus_term = torch.ones_like(blank_log_prob) - torch.exp(blank_log_prob)
 
@@ -310,7 +312,7 @@ def model_recog_time_sync(
         model.eos_idx,
     )
 
-    if model.search_args["rescore_w_ctc"]:
+    if model.search_args.get("rescore_w_ctc", False):
         from .two_pass import rescore_w_ctc
 
         seq_targets, seq_log_prob = rescore_w_ctc(

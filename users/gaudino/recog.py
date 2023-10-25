@@ -108,6 +108,7 @@ def recog_model(
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
     dev_sets: Optional[Collection[str]] = None,
+    model_args: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
 ) -> ScoreResultCollection:
     """recog"""
@@ -125,6 +126,7 @@ def recog_model(
             search_post_config=search_post_config,
             search_mem_rqmt=search_mem_rqmt,
             recog_post_proc_funcs=task.recog_post_proc_funcs,
+            model_args=model_args,
             search_args=search_args,
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
@@ -140,6 +142,7 @@ def search_dataset(
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
+    model_args: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
 ) -> RecogOutput:
     """
@@ -161,7 +164,12 @@ def search_dataset(
         forward_job = ReturnnForwardJobV2(
             model_checkpoint=model.checkpoint,
             returnn_config=search_config_v2(
-                dataset, model.definition, recog_def, post_config=search_post_config, search_args=search_args
+                dataset,
+                model.definition,
+                recog_def,
+                post_config=search_post_config,
+                model_args=model_args,
+                search_args=search_args,
             ),
             output_files=[_v2_forward_out_filename],
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -277,6 +285,7 @@ def search_config_v2(
     *,
     post_config: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
+    model_args: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
     returnn_recog_config_dict = dict(
         backend=model_def.backend,
@@ -295,6 +304,7 @@ def search_config_v2(
 
     returnn_recog_config_dict.update({
         "search_args": search_args,
+        "model_args": model_args,
     })
 
     returnn_recog_config = ReturnnConfig(
@@ -314,7 +324,7 @@ def search_config_v2(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 3,
+                            "version": 2,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
@@ -390,8 +400,9 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
     assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
 
     model_def = config.typed_value("_model_def")
+    model_args = config.typed_value("model_args")
     search_args = config.typed_value("search_args")
-    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim, search_args=search_args)
+    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim, model_args=model_args, search_args=search_args)
     return model
 
 

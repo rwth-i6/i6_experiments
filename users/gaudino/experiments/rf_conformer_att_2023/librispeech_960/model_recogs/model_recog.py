@@ -42,7 +42,7 @@ def model_recog(
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = model.search_args.get("beam_size", 12)
-    length_normalization_exponent = model.search_args["length_normalization_exponent"]
+    length_normalization_exponent = model.search_args.get("length_normalization_exponent", 1.0)
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
     else:
@@ -68,6 +68,8 @@ def model_recog(
     batch_size = batch_dims[0].get_dim_value()
     target_ctc = [model.bos_idx for _ in range(batch_size * beam_size)]
 
+    blank_index = model.target_dim.get_dim_value()
+
     # ctc prefix scorer speechbrain
     # from .ctc import CTCPrefixScorer
     # ctc_scorer = CTCPrefixScorer(
@@ -87,7 +89,7 @@ def model_recog(
         .raw_tensor
     )  # [B,T,V+1]
 
-    if model.search_args.get("mask_eos", True):
+    if model.search_args.get("mask_eos", True) and (model.search_args.get("use_ctc", False) or model.search_args.get("rescore_with_ctc", False)):
         ctc_eos = ctc_out[:, :, model.eos_idx].unsqueeze(2)
         ctc_blank = ctc_out[:, :, model.blank_idx].unsqueeze(2)
         ctc_out[:, :, model.blank_idx] = torch.logsumexp(
@@ -105,7 +107,7 @@ def model_recog(
         hlens = max_seq_len.raw_tensor
 
         if model.search_args.get("prior_corr", False):
-            ctc_log_prior = numpy.loadtxt(_ctc_prior_filename, dtype="float32")
+            ctc_log_prior = numpy.loadtxt(model.search_args.get("prior_file", _ctc_prior_filename), dtype="float32")
             ctc_out = ctc_out - (
                 torch.tensor(ctc_log_prior)
                 .repeat(ctc_out.shape[0], ctc_out.shape[1], 1)
@@ -117,7 +119,7 @@ def model_recog(
         ctc_prefix_scorer = CTCPrefixScoreTH(
             ctc_out,
             hlens,
-            10025,
+            blank_index,
             0,
             model.search_args.get("window_margin", 0),
             model.search_args["mask_eos"],
@@ -146,13 +148,13 @@ def model_recog(
             logits, axis=model.target_dim
         )  # (Dim{'initial-beam'(1)}, Dim{B}, Dim{F'target'(10025)})
 
-        label_log_prob = label_log_prob * model.search_args["att_scale"]
+        label_log_prob = label_log_prob * model.search_args.get("att_scale", 1.0)
 
         if model.search_args.get("add_lstm_lm", False):
             lstm_lm_out, lm_state = model.lstm_lm.loop_step(target, lm_state)
             lstm_log_prob = rf.log_softmax(lstm_lm_out["output"], axis=model.target_dim)
             label_log_prob = (
-                label_log_prob + model.search_args["lstm_scale"] * lstm_log_prob
+                label_log_prob + model.search_args["lm_scale"] * lstm_log_prob
             )
 
         if model.search_args.get("use_ctc", False):
@@ -176,7 +178,7 @@ def model_recog(
                 # dims=batch_dims_ + [model.target_dim],
                 dims=[batch_size_dim, beam_dim, model.target_dim],
                 dtype="float32",
-                raw_tensor=ctc_prefix_scores[:, :, :10025],
+                raw_tensor=ctc_prefix_scores[:, :, :blank_index],
             )
             label_log_prob = (
                 label_log_prob + model.search_args.get("ctc_scale") * ctc_prefix_scores
@@ -204,7 +206,7 @@ def model_recog(
         decoder_state = tree.map_structure(
             lambda s: rf.gather(s, indices=backrefs), decoder_state
         )
-        if model.search_args["add_lstm_lm"]:
+        if model.search_args.get("add_lstm_lm", False):
             lm_state = tree.map_structure(
                 lambda s: rf.gather(s, indices=backrefs), lm_state
             )
@@ -212,7 +214,7 @@ def model_recog(
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         i += 1
 
-        if model.search_args["use_ctc"]:
+        if model.search_args.get("use_ctc", False):
             # ctc state selection
             ctc_state = ctc_prefix_scorer.index_select_state(
                 ctc_state, target.raw_tensor
@@ -255,7 +257,7 @@ def model_recog(
     out_spatial_dim = Dim(out_seq_len, name="out-spatial")
     seq_targets = seq_targets__.stack(axis=out_spatial_dim)
 
-    if model.search_args["rescore_w_ctc"]:
+    if model.search_args.get("rescore_w_ctc",False):
         from .two_pass import rescore_w_ctc
         seq_targets, seq_log_prob = rescore_w_ctc(model, seq_targets, seq_log_prob, ctc_out, batch_size, beam_size, model.blank_idx)
 
