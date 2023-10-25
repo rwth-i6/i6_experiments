@@ -472,7 +472,7 @@ def run_single(
                 )
 
     if run_performance_study:
-        core_pinned_rasr = WriteTasksetRunScriptJob(rasr_binary_path=s.crp["dev-other"].flf_tool_exe, cores=[0, 8])
+        core_pinned_rasr = WriteTasksetRunScriptJob(binary_path=s.crp["dev-other"].flf_tool_exe, pin_to_cores=[0, 8])
 
         def set_core_pinned_rasr(crp):
             crp.flf_tool_exe = core_pinned_rasr.out_script
