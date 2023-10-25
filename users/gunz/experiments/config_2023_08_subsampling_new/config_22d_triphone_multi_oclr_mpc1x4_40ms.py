@@ -483,7 +483,7 @@ def run_single(
         )
         ft_config.update(update_config)
 
-        ft_config.config["extern_data"].pop("classes")
+        ft_config.config["extern_data"].pop("classes", None)
         for k in [
             "centerPhoneme",
             "stateId",
@@ -493,7 +493,7 @@ def run_single(
             "futureLabel",
             "classes_",
         ]:
-            ft_config.config["network"].pop(k)
+            ft_config.config["network"].pop(k, None)
 
         train_args = {
             **s.initial_train_args,
