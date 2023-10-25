@@ -110,8 +110,8 @@ def run(returnn_root: tk.Path):
         )
         for a, a_name in [(alignment, "10ms-B"), (ffnn_a, "10ms-FF")]
     ]
-    for exp in configs:
-        run_single(
+    exps = {
+        exp: run_single(
             alignment=exp.alignment,
             alignment_name=exp.alignment_name,
             batch_size=exp.batch_size,
@@ -128,6 +128,10 @@ def run(returnn_root: tk.Path):
             lr=exp.lr,
             run_tdp_study=exp.run_tdp_study,
         )
+        for exp in configs
+    }
+
+    return exps
 
 
 def run_single(

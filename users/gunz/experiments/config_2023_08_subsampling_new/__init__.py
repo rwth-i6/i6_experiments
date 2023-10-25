@@ -305,10 +305,12 @@ def the_plan():
         config_20c_monophone_ls_mpc1x4_40ms,
         config_21_diphone_mpc1x4_40ms,
         config_21b_diphone_multi_mpc1x4_40ms,
+        config_21e_diphone_pp_mpc1x4_40ms,
         config_21h_diphone_fs1x4_40ms,
         config_21i_diphone_ss_variations_40ms,
         config_21j_diphone_realign_mpc1x4_40ms,
         config_22b_triphone_multi_mpc1x4_40ms,
+        config_22d_triphone_multi_oclr_mpc1x4_40ms,
         config_31_diphone_mpc2x3_60ms,
         config_41_diphone_mpc2x4_80ms,
     )
@@ -568,6 +570,15 @@ def the_plan():
         returnn_root=returnn_root,
         alignment=phmm_40ms_ffnn_a,
         a_name="40ms-FF-v8",
+    )
+
+    pp_configs = config_21e_diphone_pp_mpc1x4_40ms.run(returnn_root=returnn_root)
+    pp_sys = next(iter(pp_configs.values()))
+    config_22d_triphone_multi_oclr_mpc1x4_40ms.run(
+        returnn_root=returnn_root,
+        alignment=phmm_40ms_ffnn_a,
+        a_name="40ms-FF-v8",
+        init_from_system=pp_sys,
     )
 
 
