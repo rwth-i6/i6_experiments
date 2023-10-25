@@ -828,29 +828,9 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
       exp_weight = opts["exp_weight"]
 
       network_builder.add_center_positions(network=seg_net_dict)
+      network_builder.add_att_weights_center_of_gravity(network=seg_net_dict, rec_layer_name=rec_layer_name)
 
       seg_net_dict[rec_layer_name]["unit"].update({
-        "segment_abs_positions0": {
-          "class": "range_in_axis",
-          "from": "att_weights",
-          "axis": "stag:sliced-time:segments",
-        },
-        "segment_abs_positions": {
-          "class": "eval",
-          "from": ["segment_abs_positions0", "segment_starts"],
-          "eval": "source(0) + source(1)"
-        },
-        "weighted_segment_abs_positions": {
-          "class": "eval",
-          "from": ["segment_abs_positions", "att_weights"],
-          "eval": "tf.cast(source(0), tf.float32) * source(1)"
-        },
-        "att_weights_center_of_gravity": {
-          "class": "reduce",
-          "mode": "sum",
-          "from": "weighted_segment_abs_positions",
-          "axis": "stag:sliced-time:segments"
-        },
         "att_weight_penalty": {
           "class": "eval",
           "from": ["att_weights_center_of_gravity", "center_positions"],
@@ -889,8 +869,6 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
         })
         seg_net_dict[rec_layer_name]["unit"]["output_log_prob"]["from"] = ["label_log_prob_w_penalty", "blank_log_prob"]
 
-    def _add_gaussian_att_weight_interpolation(rec_layer_name: str):
-      raise NotImplementedError
     def _add_gaussian_att_weight_interpolation(rec_layer_name: str, opts: Dict):
       # just to make sure the network looks as we expect
       assert seg_net_dict[rec_layer_name]["unit"]["att_weights"]["class"] == "softmax_over_spatial"
@@ -902,10 +880,11 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
       tf_gauss_str = "1.0 / ({std} * tf.sqrt(2 * 3.141592)) * tf.exp(-0.5 * ((tf.cast({range} - {mean}, tf.float32)) / {std}) ** 2)".format(
         std=opts["std"], mean="source(1)", range="source(0)"
       )
+      gaussian_clip_window_size = 3
 
       seg_net_dict[rec_layer_name]["unit"].update({
         "att_weights0":  copy.deepcopy(seg_net_dict[rec_layer_name]["unit"]["att_weights"]),
-        "gaussian_mask": {
+        "gaussian_mask": {  # true, only in (gaussian_clip_window_size * 2 - 1) frames around center
           "class": "compare",
           "from": ["gaussian_start", "gaussian_range", "gaussian_end"],
           "kind": "less"
@@ -913,12 +892,12 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
         "gaussian_start": {
           "class": "eval",
           "from": "center_positions",
-          "eval": "source(0) - 3"
+          "eval": "source(0) - %d" % gaussian_clip_window_size
         },
         "gaussian_end": {
           "class": "eval",
           "from": "center_positions",
-          "eval": "source(0) + 3"
+          "eval": "source(0) + %d" % gaussian_clip_window_size
         },
         "gaussian_range0": {
           "class": "range_in_axis",

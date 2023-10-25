@@ -487,6 +487,43 @@ def add_center_positions(network: Dict):
     })
 
 
+def add_att_weights_center_of_gravity(network: Dict, rec_layer_name: str):
+  """
+  For segmental models, add a layer which computes the center of gravity of the attention weights.
+  I.e. sum_t [alpha_t * t], where the t are absolute encoder positions (i.e. t \in [0, T))
+
+  :param network:
+  :return:
+  """
+
+  # make sure the network looks like we expect
+  assert "att_weights" in network[rec_layer_name]["unit"]
+
+  network[rec_layer_name]["unit"].update({
+    "segment_abs_positions0": {
+      "class": "range_in_axis",
+      "from": "att_weights",
+      "axis": "stag:sliced-time:segments",
+    },
+    "segment_abs_positions": {
+      "class": "eval",
+      "from": ["segment_abs_positions0", "segment_starts"],
+      "eval": "source(0) + source(1)"
+    },
+    "weighted_segment_abs_positions": {
+      "class": "eval",
+      "from": ["segment_abs_positions", "att_weights"],
+      "eval": "tf.cast(source(0), tf.float32) * source(1)"
+    },
+    "att_weights_center_of_gravity": {
+      "class": "reduce",
+      "mode": "sum",
+      "from": "weighted_segment_abs_positions",
+      "axis": "stag:sliced-time:segments"
+    },
+  })
+
+
 def get_segment_starts_and_lengths(segment_center_window_size: Optional[int]):
   if segment_center_window_size is None:
     return {

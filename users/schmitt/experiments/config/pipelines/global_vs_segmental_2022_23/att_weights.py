@@ -61,9 +61,11 @@ def dump_att_weights(
       ]
     elif corpus_key == "dev-other":
       seq_tags_to_analyse = [
-        "dev-other/116-288045-0003/116-288045-0003",
-        "dev-other/116-288045-0006/116-288045-0006",
-        "dev-other/1701-141760-0007/1701-141760-0007",
+        "dev-other/3660-6517-0005/3660-6517-0005",
+        "dev-other/6467-62797-0001/6467-62797-0001",
+        "dev-other/6467-62797-0002/6467-62797-0002",
+        "dev-other/7697-105815-0015/7697-105815-0015",
+        "dev-other/7697-105815-0051/7697-105815-0051",
       ]
     else:
       raise ValueError("No default seq tags for this corpus key!")
