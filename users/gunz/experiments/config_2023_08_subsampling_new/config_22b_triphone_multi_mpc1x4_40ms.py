@@ -521,7 +521,7 @@ def run_single(
         }
         s.returnn_training_from_hdf(
             experiment_key="fh-rand",
-            returnn_config=returnn_config,
+            returnn_config=ft_config,
             nn_train_args=train_args,
             train_hdfs=normal_hdf_files + randomized_hdfs.out_hdf_files,
             dev_hdfs=[dev_hdf],
