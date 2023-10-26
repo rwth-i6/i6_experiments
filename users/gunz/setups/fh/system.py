@@ -1663,7 +1663,7 @@ class FactoredHybridSystem(NnSystem):
             kwargs["separate_lm_image_gc_generation"] = True
 
             # work around bug in basedecoder w/ extra config
-            if decode_trafo_lm:
+            if decode_trafo_lm and kwargs["crp"].language_model_config.type == "tfrnn":
                 adv_search_extra_config = copy.deepcopy(kwargs["extra_config"])
                 if adv_search_extra_config is None:
                     adv_search_extra_config = rasr.RasrConfig()
