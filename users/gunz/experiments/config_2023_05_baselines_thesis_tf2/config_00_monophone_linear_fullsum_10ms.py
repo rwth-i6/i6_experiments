@@ -24,6 +24,7 @@ from ...setups.common.analysis import (
     PlotPhonemeDurationsJob,
     PlotViterbiAlignmentsJob,
 )
+from ...setups.common.analysis.tse_tina import ComputeTinaTseJob
 from ...setups.common.nn import baum_welch, oclr
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
@@ -61,6 +62,7 @@ train_key = "train-other-960"
 @dataclass(frozen=True, eq=True)
 class Experiment:
     alignment_name: str
+    all_data: bool
     bw_label_scale: float
     context_window_size: int
     lr: str
@@ -80,6 +82,17 @@ def run(returnn_root: tk.Path):
     configs = [
         Experiment(
             alignment_name="scratch",
+            all_data=False,
+            bw_label_scale=0.3,
+            context_window_size=15,
+            lr="v8",
+            model_dim=model_dim,
+            output_time_step=10 / 1000,
+            w_init=augment.DEFAULT_INIT,
+        ),
+        Experiment(
+            alignment_name="scratch",
+            all_data=True,
             bw_label_scale=0.3,
             context_window_size=15,
             lr="v8",
@@ -106,6 +119,7 @@ def run(returnn_root: tk.Path):
             model_dim=exp.model_dim,
             output_time_step=exp.output_time_step,
             returnn_root=returnn_root,
+            all_data=exp.all_data,
             w_init=exp.w_init,
         )
         for exp in configs
@@ -124,11 +138,14 @@ def run_single(
     output_time_step: float,
     model_dim: int,
     w_init: typing.Optional[str],
+    all_data: bool,
     num_epochs: int = 600,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
     name = f"mlp-1-lr:{lr}-dx:{output_time_step/(10/1000)}-d:{model_dim}-bw:{bw_label_scale}-w:{'default' if w_init == augment.DEFAULT_INIT else w_init}"
+    if all_data:
+        name += "-all"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -153,6 +170,8 @@ def run_single(
         test_data=test_data_inputs,
     )
 
+    if all_data:
+        s.cv_num_segments = 1  # must be > 0
     s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
     s.lexicon_args["norm_pronunciation"] = False
     s.lm_gc_simple_hash = True
@@ -331,10 +350,9 @@ def run_single(
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
-        on_2080=False,
+        on_2080=True,
         include_alignment=False,
     )
-    train_j.rqmt.update({"sbatch_args": ["-w", "cn-285"]})
 
     s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone)
     s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
@@ -458,6 +476,17 @@ def run_single(
     )
     tse_w_job.add_alias(f"tse-w/{a_name}/tse")
     tk.register_output(f"alignments/{a_name}/statistics/tse-w", tse_w_job.out_tse)
+
+    tse_tina_job = ComputeTinaTseJob(
+        allophones=allophones.out_allophone_file,
+        alignment_bundle=a_job.out_alignment_bundle,
+        ref_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+        ref_alignment_bundle=tk.Path(GMM_TRI_ALIGNMENT, cached=True),
+        ref_t_step=10 / 1000,
+        ss_factor=int(output_time_step / (10 / 1000)),
+    )
+    tse_tina_job.add_alias(f"tse-tina/{a_name}/tse")
+    tk.register_output(f"alignments/{a_name}/statistics/tse-tina", tse_tina_job.out_tse)
 
     tse_w_job = ComputeSilencePercentageJob(a_job.out_alignment_bundle, allophones.out_allophone_file)
     tk.register_output(f"alignments/{a_name}/statistics/sil", tse_w_job.out_percent_sil)
