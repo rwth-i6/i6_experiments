@@ -518,6 +518,7 @@ def run_single(
                 "extern_data": {
                     "data": {"dim": 50},
                     "centerState": {"dim": 126},
+                    "tieCenterState": {"dim": 84},
                     "pastLabel": {"dim": 42},
                     "futureLabel": {"dim": 42},
                 },
