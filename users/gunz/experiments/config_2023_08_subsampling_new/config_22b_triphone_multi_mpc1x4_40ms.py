@@ -80,7 +80,13 @@ class Experiment:
     focal_loss: float = CONF_FOCAL_LOSS
 
 
-def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str, init_from_system: fh_system.FactoredHybridSystem):
+def run(
+    returnn_root: tk.Path,
+    alignment: tk.Path,
+    a_name: str,
+    init_from_system: fh_system.FactoredHybridSystem,
+    base_name: str,
+):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
@@ -115,6 +121,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str, init_from_system
             run_performance_study=exp.run_performance_study,
             filter_segments=exp.filter_segments,
             tune_decoding=exp.tune_decoding,
+            base_name=base_name,
         )
 
 
@@ -133,12 +140,13 @@ def run_single(
     run_performance_study: bool,
     tune_decoding: bool,
     filter_segments: typing.Optional[typing.List[str]],
+    base_name: str,
     conf_model_dim: int = 512,
     num_epochs: int = 450,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-3-a:{alignment_name}-lr:{lr}-bs:{batch_size}-fl:{focal_loss}"
+    name = f"conf-3-from:{base_name}-a:{alignment_name}-lr:{lr}-bs:{batch_size}-fl:{focal_loss}"
     print(f"fh {name}")
 
     ss_factor = 4

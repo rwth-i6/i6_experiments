@@ -421,7 +421,11 @@ def the_plan():
         (realign_sys.experiments["fh-fs"]["alignment_job"].out_alignment_bundle, "40ms-FA-conf"),
     ]:
         config_22b_triphone_multi_mpc1x4_40ms.run(
-            returnn_root=returnn_root, alignment=a, a_name=a_name, init_from_system=realign_sys
+            returnn_root=returnn_root,
+            alignment=a,
+            a_name=a_name,
+            init_from_system=realign_sys,
+            base_name="di-fullsum",
         )
 
     # phmm_40ms_fs_a = get_n_blstm_a(
@@ -534,6 +538,7 @@ def the_plan():
             alignment=a,
             a_name=a_name,
             init_from_system=mono_sys,
+            base_name="mono",
         )
         # config_21b_diphone_multi_mpc1x4_40ms.run(
         #     returnn_root=returnn_root,
@@ -546,6 +551,7 @@ def the_plan():
             alignment=a,
             a_name=a_name,
             init_from_system=di_sys,
+            base_name="mono-di-fullsum",
         )
     config_31_diphone_mpc2x3_60ms.run(
         returnn_root=returnn_root,
@@ -561,11 +567,19 @@ def the_plan():
 
     # P-HMM FF-NN
 
-    config_20c_monophone_ls_mpc1x4_40ms.run(
+    _, ls_sys = config_20c_monophone_ls_mpc1x4_40ms.run(
         returnn_root=returnn_root,
         alignment=phmm_40ms_ffnn_a,
         a_name="40ms-FF-v8",
     )
+    config_21b_diphone_multi_mpc1x4_40ms.run(
+        returnn_root=returnn_root,
+        alignment=a,
+        a_name=a_name,
+        init_from_system=ls_sys,
+        base_name="mono-ls",
+    )
+
     config_21i_diphone_ss_variations_40ms.run(
         returnn_root=returnn_root,
         alignment=phmm_40ms_ffnn_a,
