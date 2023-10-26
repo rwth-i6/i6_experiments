@@ -552,11 +552,11 @@ def run_single(
         ]:
             ft_config.config["network"].pop(k, None)
 
-        ft_config.config["network"]["currentState"]["from"] = "tieCenterState"
+        ph_st_classes = s.label_info.phoneme_state_classes.factor()
         ft_config.config["network"]["tieCenterState"] = {
             "class": "eval",
             "from": "data:centerState",
-            "eval": "tf.math.floordiv(source(0), 2 * 3) * 2 + tf.math.floormod(source(0))",
+            "eval": f"tf.math.floordiv(source(0), {ph_st_classes} * 3) * {ph_st_classes} + tf.math.floormod(source(0), {ph_st_classes})",
             "register_as_extern_data": "tieCenterState",
             "n_out": 84,
         }
