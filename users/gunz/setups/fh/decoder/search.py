@@ -1109,7 +1109,7 @@ class FHDecoder:
         if (isinstance(remove_or_set_concurrency, bool) and remove_or_set_concurrency) or (
             isinstance(remove_or_set_concurrency, int) and remove_or_set_concurrency < search_crp.concurrent
         ):
-            search_crp.concurrent = int(remove_or_set_concurrency)
+            search_crp.concurrent = max(int(remove_or_set_concurrency), 1)
 
             flow = copy.deepcopy(flow)
             flow.flags["cache_mode"] = "bundle"
