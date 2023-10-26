@@ -12,6 +12,7 @@ from sisyphus import delayed_ops, tk
 import i6_core.corpus as corpus_recipe
 import i6_core.features as features
 import i6_core.lexicon as lexicon
+from i6_core.lm import CreateLmImageJob
 import i6_core.mm as mm
 import i6_core.meta as meta
 import i6_core.rasr as rasr
@@ -1733,6 +1734,18 @@ class FactoredHybridSystem(NnSystem):
                 vocab_path=Path("/work/asr3/raissi/shared_workspaces/gunz/dependencies/ls-eugen-trafo-lm/vocabulary"),
             )
             lm_configs["eugen-trafo"] = lm_cfg
+
+            # use 4gram LM for lookahead
+            if adv_search_extra_config is None:
+                adv_search_extra_config = rasr.RasrConfig()
+            else:
+                adv_search_extra_config = copy.deepcopy(adv_search_extra_config)
+            lm_img_job = CreateLmImageJob(crp)
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.image = (
+                lm_img_job.out_image
+            )
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.scale = 1.0
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.type = "ARPA"
 
         decoder.recognition(
             name=self.experiments[key]["name"],
