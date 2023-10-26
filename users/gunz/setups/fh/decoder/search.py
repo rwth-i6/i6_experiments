@@ -1106,7 +1106,9 @@ class FHDecoder:
             ts_args["parallel"] = self.parallel
 
         flow = self.featureScorerFlow
-        if remove_or_set_concurrency == True or remove_or_set_concurrency < search_crp.concurrent:
+        if (isinstance(remove_or_set_concurrency, bool) and remove_or_set_concurrency) or (
+            isinstance(remove_or_set_concurrency, int) and remove_or_set_concurrency < search_crp.concurrent
+        ):
             search_crp.concurrent = int(remove_or_set_concurrency)
 
             flow = copy.deepcopy(flow)
