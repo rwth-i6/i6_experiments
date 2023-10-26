@@ -1121,7 +1121,7 @@ class FHDecoder:
 
         search = recog.AdvancedTreeSearchJob(
             crp=search_crp,
-            feature_flow=self.featureScorerFlow,
+            feature_flow=flow,
             feature_scorer=feature_scorer,
             search_parameters=sp,
             lm_lookahead=True,
