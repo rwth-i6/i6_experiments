@@ -1842,6 +1842,8 @@ class FactoredHybridSystem(NnSystem):
             tk.register_output(f"{stats_alias}/avg_states", stats_job.avg_states)
             tk.register_output(f"{stats_alias}/avg_trees", stats_job.avg_trees)
             tk.register_output(f"{stats_alias}/rtf", stats_job.decoding_rtf)
+            tk.register_output(f"{stats_alias}/rtf-recognizer", stats_job.recognizer_rtf)
+            tk.register_output(f"{stats_alias}/stats", stats_job.ss_statistics)
 
         return adv_tree_search_job
 
