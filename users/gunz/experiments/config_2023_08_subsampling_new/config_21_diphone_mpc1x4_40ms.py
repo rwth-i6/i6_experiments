@@ -805,6 +805,14 @@ def run_single(
                 tying_cfg = rasr.RasrConfig()
                 tying_cfg.type = "diphone-dense"
 
+                trafo = (
+                    ep == max(keep_epochs)
+                    and peak_lr == 8e-5
+                    and bw_scale.label_posterior_scale == 1.0
+                    and bw_scale.transition_scale == 0.3
+                    and alignment_name == "40ms-FF-v8"
+                )
+
                 base_params = s.get_cart_params(key="fh-fs")
                 decoding_cfgs = [
                     dataclasses.replace(
@@ -815,13 +823,6 @@ def run_single(
                     for sc in [0.4, 0.6]
                 ]
                 for cfg in decoding_cfgs:
-                    trafo = (
-                        ep == max(keep_epochs)
-                        and peak_lr == 8e-5
-                        and bw_scale.label_posterior_scale == 1.0
-                        and bw_scale.transition_scale == 0.3
-                        and alignment_name == "40ms-FF-v8"
-                    )
                     s.recognize_cart(
                         key="fh-fs",
                         epoch=ep,
