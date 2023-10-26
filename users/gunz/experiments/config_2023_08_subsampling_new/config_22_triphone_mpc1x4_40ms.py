@@ -555,6 +555,7 @@ def run_single(
             "class": "eval",
             "from": "centerState",
             "eval": "tf.math.floordiv(source(0), 2 * 3) * 2 + tf.math.floormod(source(0))",
+            "register_as_extern_data": "tieCenterState",
         }
         for l in ft_config.config["network"].values():
             if l.get("target", None) == "centerState":
