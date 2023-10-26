@@ -518,7 +518,7 @@ def run_single(
                 [None, 2, 4, 6, 8],
                 [0.6],
                 [12, 14, 16, 18],
-                np.geomspace(1000, 10000, 10, dtype=int) if n_states_per_phone == 3 else [100_000],
+                [int(v) for v in np.geomspace(1000, 10000, 10, dtype=int)] if n_states_per_phone == 3 else [100_000],
             )
         ]:
             job = s.recognize_cart(
