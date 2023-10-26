@@ -511,7 +511,7 @@ def run_single(
                 altas=a,
                 beam=b,
                 beam_limit=b_l,
-                lm_scale=7.5,
+                lm_scale=7.51,
                 tdp_scale=0.4,
             )
             for a, pC, b, b_l in itertools.product(
