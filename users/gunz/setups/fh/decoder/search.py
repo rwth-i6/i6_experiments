@@ -635,7 +635,7 @@ class FHDecoder:
         rtf_gpu: float = 4,
         lm_config: rasr.RasrConfig = None,
         create_lattice: bool = True,
-        remove_concurrency: bool = False,
+        remove_or_set_concurrency: typing.Union[bool, int] = False,
     ) -> RecognitionJobs:
         return self.recognize(
             label_info=label_info,
@@ -661,7 +661,7 @@ class FHDecoder:
             rtf_cpu=rtf_cpu,
             rtf_gpu=rtf_gpu,
             create_lattice=create_lattice,
-            remove_concurrency=remove_concurrency,
+            remove_or_set_concurrency=remove_or_set_concurrency,
         )
 
     def recognize_optimize_scales(
@@ -919,7 +919,7 @@ class FHDecoder:
         rtf_cpu: typing.Optional[float] = None,
         rtf_gpu: typing.Optional[float] = None,
         create_lattice: bool = True,
-        remove_concurrency: bool = False,
+        remove_or_set_concurrency: typing.Union[bool, int] = False,
     ) -> RecognitionJobs:
         if (
             isinstance(search_parameters, SearchParameters)
@@ -1106,13 +1106,15 @@ class FHDecoder:
             ts_args["parallel"] = self.parallel
 
         flow = self.featureScorerFlow
-        if remove_concurrency:
-            search_crp.concurrent = 1
+        if remove_or_set_concurrency == True or remove_or_set_concurrency < search_crp.concurrent:
+            search_crp.concurrent = int(remove_or_set_concurrency)
 
             flow = copy.deepcopy(flow)
             flow.flags["cache_mode"] = "bundle"
 
-            search_crp.segment_path = i6_core.corpus.SegmentCorpusJob(search_crp.corpus_config.file, 1).out_segment_path
+            search_crp.segment_path = i6_core.corpus.SegmentCorpusJob(
+                search_crp.corpus_config.file, int(remove_or_set_concurrency)
+            ).out_segment_path
 
         search = recog.AdvancedTreeSearchJob(
             crp=search_crp,
