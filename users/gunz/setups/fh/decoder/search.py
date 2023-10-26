@@ -1108,7 +1108,7 @@ class FHDecoder:
 
         flow = self.featureScorerFlow
 
-        if remove_or_set_concurrency != False:
+        if remove_or_set_concurrency:
             concurrent = max(int(remove_or_set_concurrency), 1)
             search_crp.concurrent = concurrent
 
