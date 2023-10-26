@@ -517,10 +517,10 @@ def run_single(
                 ),
                 "extern_data": {
                     "data": {"dim": 50},
-                    "centerState": {"dim": 252},
-                    "tieCenterState": {"dim": 84},
-                    "pastLabel": {"dim": 42},
-                    "futureLabel": {"dim": 42},
+                    "centerState": {"dim": 252, "sparse": True},
+                    "tieCenterState": {"dim": 84, "sparse": True},
+                    "pastLabel": {"dim": 42, "sparse": True},
+                    "futureLabel": {"dim": 42, "sparse": True},
                 },
                 "learning_rates": list(
                     np.concatenate([lrates, np.linspace(min(lrates), 1e-6, fine_tune_epochs - len(lrates))])
@@ -552,15 +552,19 @@ def run_single(
         ]:
             ft_config.config["network"].pop(k, None)
 
+        ft_config.config["network"]["currentState"]["from"] = "tieCenterState"
         ft_config.config["network"]["tieCenterState"] = {
             "class": "eval",
-            "from": "centerState",
+            "from": "data:centerState",
             "eval": "tf.math.floordiv(source(0), 2 * 3) * 2 + tf.math.floormod(source(0))",
             "register_as_extern_data": "tieCenterState",
+            "n_out": 84,
         }
         for l in ft_config.config["network"].values():
             if l.get("target", None) == "centerState":
                 l["target"] = "tieCenterState"
+            if l.get("from", None) == "centerState":
+                l["from"] = "tieCenterState"
 
         ft_name = f"{name}-r:{ft_share}-lr:{peak_lr}"
         s.set_experiment_dict("fh-rand", "scratch", "tri", postfix_name=ft_name)
