@@ -1106,16 +1106,18 @@ class FHDecoder:
             ts_args["parallel"] = self.parallel
 
         flow = self.featureScorerFlow
-        if (isinstance(remove_or_set_concurrency, bool) and remove_or_set_concurrency) or (
+
+        if (isinstance(remove_or_set_concurrency, bool) and remove_or_set_concurrency == True) or (
             isinstance(remove_or_set_concurrency, int) and remove_or_set_concurrency < search_crp.concurrent
         ):
-            search_crp.concurrent = max(int(remove_or_set_concurrency), 1)
+            concurrent = max(int(remove_or_set_concurrency), 1)
+            search_crp.concurrent = concurrent
 
             flow = copy.deepcopy(flow)
             flow.flags["cache_mode"] = "bundle"
 
             search_crp.segment_path = i6_core.corpus.SegmentCorpusJob(
-                search_crp.corpus_config.file, int(remove_or_set_concurrency)
+                search_crp.corpus_config.file, concurrent
             ).out_segment_path
 
         search = recog.AdvancedTreeSearchJob(
