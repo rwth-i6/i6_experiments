@@ -544,13 +544,14 @@ def the_plan():
             base_name="mono-di-fullsum",
         )
 
-        config_21b_diphone_multi_mpc1x4_40ms.run(
-            returnn_root=returnn_root,
-            alignment=di_sys.experiments["fh-fs"]["alignment_job"].out_alignment_bundle,
-            a_name="40ms-FA-conf",
-            init_from_system=di_sys,
-            base_name="mono-di-fullsum",
-        )
+        # Can't realign the multistage diphone yet
+        # config_21b_diphone_multi_mpc1x4_40ms.run(
+        #     returnn_root=returnn_root,
+        #     alignment=di_sys.experiments["fh-fs"]["alignment_job"].out_alignment_bundle,
+        #     a_name="40ms-FA-conf",
+        #     init_from_system=di_sys,
+        #     base_name="mono-di-fullsum",
+        # )
 
     # config_31_diphone_mpc2x3_60ms.run(
     #     returnn_root=returnn_root,
