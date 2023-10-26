@@ -730,6 +730,7 @@ class FHDecoder:
                 search_parameters=dataclasses.replace(
                     recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_speech=tdp_sp
                 ).with_prior_scale(left=l, center=c, right=r),
+                remove_or_set_concurrency=False,
             )
             for ((c, l, r), tdp, tdp_sl, tdp_sp) in itertools.product(prior_scales, tdp_scales, tdp_sil, tdp_speech)
         }
