@@ -1741,6 +1741,7 @@ class FactoredHybridSystem(NnSystem):
             else:
                 adv_search_extra_config = copy.deepcopy(adv_search_extra_config)
             lm_img_job = CreateLmImageJob(crp)
+            print(f"setting {lm_img_job.out_image} trafo 4gram image")
             adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.image = (
                 lm_img_job.out_image
             )
