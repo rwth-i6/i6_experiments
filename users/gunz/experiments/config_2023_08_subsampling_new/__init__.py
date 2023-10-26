@@ -478,21 +478,22 @@ def the_plan():
         returnn_root=returnn_root,
         alignments=[(phmms_30ms_mp_a, "30ms-Bs-pC0.6")],
     )
-    config_21_diphone_mpc1x4_40ms.run(
-        returnn_root=returnn_root,
-        alignment=phmms_40ms_mp_a_very_silency,
-        a_name="40ms-Bs-pC0.0",
-    )
-    config_21_diphone_mpc1x4_40ms.run(
-        returnn_root=returnn_root,
-        alignment=phmms_40ms_mp_a_silency,
-        a_name="40ms-Bs-pC0.3",
-    )
-    config_21_diphone_mpc1x4_40ms.run(
-        returnn_root=returnn_root,
-        alignment=phmms_40ms_mp_a,
-        a_name="40ms-Bs-pC0.6",
-    )
+    # Removed for faster startup
+    # config_21_diphone_mpc1x4_40ms.run(
+    #     returnn_root=returnn_root,
+    #     alignment=phmms_40ms_mp_a_very_silency,
+    #     a_name="40ms-Bs-pC0.0",
+    # )
+    # config_21_diphone_mpc1x4_40ms.run(
+    #     returnn_root=returnn_root,
+    #     alignment=phmms_40ms_mp_a_silency,
+    #     a_name="40ms-Bs-pC0.3",
+    # )
+    # config_21_diphone_mpc1x4_40ms.run(
+    #     returnn_root=returnn_root,
+    #     alignment=phmms_40ms_mp_a,
+    #     a_name="40ms-Bs-pC0.6",
+    # )
 
     # P-HMM-S FF-NN
 
@@ -501,6 +502,7 @@ def the_plan():
     phmms_60ms_ffnn_a = get_60ms_linear_a(t_scale=0.0)
     # phmms_80ms_ffnn_a = get_80ms_linear_a(t_scale=0.0)
 
+    # Removed for faster startup
     # config_11_diphone_mpc1x3_30ms.run(
     #     returnn_root=returnn_root,
     #     alignments=[(phmms_30ms_ffnn_a, "30ms-FFs-v8")],
