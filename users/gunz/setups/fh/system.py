@@ -1664,7 +1664,7 @@ class FactoredHybridSystem(NnSystem):
                 # use 4gram LM for lookahead
                 lm_img_job = CreateLmImageJob(crp)
 
-                adv_search_extra_config = kwargs["extra_config"]
+                adv_search_extra_config = copy.deepcopy(kwargs["extra_config"])
                 if adv_search_extra_config is None:
                     adv_search_extra_config = rasr.RasrConfig()
 
