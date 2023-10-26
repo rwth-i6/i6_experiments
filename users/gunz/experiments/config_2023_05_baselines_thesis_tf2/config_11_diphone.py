@@ -503,10 +503,14 @@ def run_single(
         tying_cfg = rasr.RasrConfig()
         tying_cfg.type = "diphone-dense"
 
-        nice = "--nice=500" if n_states_per_phone < 3 else ""
-
-        for cfg in [
-            dataclasses.replace(
+        max_bl = 10000
+        for a, pC, b, b_l in itertools.product(
+            [None, 2, 4, 6, 8],
+            [0.6],
+            [12, 14, 16, 18],
+            [int(v) for v in np.geomspace(1000, max_bl, 10, dtype=int)] if n_states_per_phone == 3 else [100_000],
+        ):
+            cfg = dataclasses.replace(
                 s.get_cart_params("fh").with_prior_scale(pC),
                 altas=a,
                 beam=b,
@@ -514,13 +518,7 @@ def run_single(
                 lm_scale=7.51,
                 tdp_scale=0.4,
             )
-            for a, pC, b, b_l in itertools.product(
-                [None, 2, 4, 6, 8],
-                [0.6],
-                [12, 14, 16, 18],
-                [int(v) for v in np.geomspace(1000, 10000, 10, dtype=int)] if n_states_per_phone == 3 else [100_000],
-            )
-        ]:
+            nice = "--nice=500" if n_states_per_phone < 3 else f"--nice={int(max_bl - b_l / 1000)}"
             job = s.recognize_cart(
                 key="fh",
                 epoch=max(keep_epochs),
