@@ -1,11 +1,9 @@
 from sisyphus import tk
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from i6_core.lm.vocabulary import LmIndexVocabulary
 
-from i6_experiments.users.rossenbach.setups.returnn_standalone.data.bpe import (
-    BPESettings,
-)
+from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import BPESettings
 
 from .base import Datastream
 
@@ -21,15 +19,15 @@ class LabelDatastream(Datastream):
         self,
         available_for_inference: bool,
         vocab: tk.Path,
-        vocab_size: tk.Variable,
-        unk_label=None,
+        vocab_size: Union[tk.Variable, int],
+        unk_label: Optional[str] = None,
     ):
         """
 
-        :param bool available_for_inference:
-        :param tk.Path vocab: word vocab file path (pickle)
-        :Param tk.Variable|int vocab_size:
-        :param str unk_label: unknown label
+        :param available_for_inference:
+        :param vocab: word vocab file path (pickle containing dictionary)
+        :param vocab_size: used for the actual dimension
+        :param unk_label: unknown label
         """
         super().__init__(available_for_inference)
         self.vocab = vocab
@@ -66,7 +64,7 @@ class LmLabelDatastream(LabelDatastream):
         """
 
         :param available_for_inference:
-        :param lm:
+        :param lm_index_vocab:
         """
         super().__init__(
             available_for_inference=available_for_inference,
@@ -81,10 +79,16 @@ class BpeDatastream(LabelDatastream):
     This defines a datastream using the BytePairEncoding(Vocabulary) class of RETURNN
     """
 
-    def __init__(self, available_for_inference, bpe_settings, seq_postfix=0, use_unk_label=False):
+    def __init__(
+        self,
+        available_for_inference: bool,
+        bpe_settings: BPESettings,
+        seq_postfix: Optional[int] = 0,
+        use_unk_label: bool = False,
+    ):
         """
-        :param BPESettings bpe_settings:
-        :param Path vocab: vocab file path
+        :param bpe_settings: object from the common BPE helpers
+        :param seq_postfix:
         :param bool use_unk_label: unk_label should never be used for training
         """
         super(BpeDatastream, self).__init__(
@@ -115,18 +119,24 @@ class BpeDatastream(LabelDatastream):
 
 class SentencePieceDatastream(Datastream):
     """
-    Defines a label datastream for sentence-pieces. This does not inherit from LabelDatastream as it uses
+    Defines a label datastream for sentence-pieces. This does not inherit from LabelDatastream as it
+    does not use am explicit vocab or unknown token.
     """
 
-    def __init__(self, available_for_inference, spm_model, vocab_size):
+    def __init__(self, available_for_inference: bool, spm_model: tk.Path, vocab_size: Union[int, tk.Variable]):
+        """
+
+        :param available_for_inference:
+        :param spm_model: e.g. from TrainSentencePieceJob.out_model
+        :param vocab_size: the same vocab size as used for creation, so e.g. TrainSentencePieceJob.vocab_size
+        """
         super().__init__(available_for_inference)
         self.vocab_size = vocab_size
         self.spm_model = spm_model
 
     def as_returnn_extern_data_opts(self, available_for_inference: Optional[bool] = None, **kwargs) -> Dict[str, Any]:
         """
-        :param tk.Variable|int vocab_size: number of labels
-        :rtype: dict[str]
+        :param available_for_inference: optional override
         """
         d = {
             **super().as_returnn_extern_data_opts(available_for_inference=available_for_inference),

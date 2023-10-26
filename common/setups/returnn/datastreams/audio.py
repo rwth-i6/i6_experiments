@@ -8,8 +8,8 @@ from typing import *
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.dataset import ExtractDatasetMeanStddevJob
 
-from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.base import Datastream
-from i6_experiments.users.rossenbach.common_setups.returnn.datasets.audio import OggZipDataset
+from .base import Datastream
+from ..datasets.audio import OggZipDataset
 
 
 class AdditionalFeatureOptions(ABC):
