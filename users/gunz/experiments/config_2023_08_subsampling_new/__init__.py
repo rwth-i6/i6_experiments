@@ -428,12 +428,6 @@ def the_plan():
             base_name="di-fullsum",
         )
 
-    # phmm_40ms_fs_a = get_n_blstm_a(
-    #     feature_stacking=True, transition_scale=0.3, adapted_tdps=False, t_step=40 / 1000, prior_scale=0.0
-    # )
-    # config_21_diphone_mpc1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_fs_a, a_name="40ms-Bfs-pC0.0")
-    # config_21h_diphone_fs1x4_40ms.run(returnn_root=returnn_root, alignment=phmm_40ms_fs_a, a_name="40ms-Bfs-pC0.0")
-
     # P-HMM ADAPTED TDPs
 
     phmm_40ms_mp_adapted_a = get_n_blstm_a(
