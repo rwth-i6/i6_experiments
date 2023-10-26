@@ -413,6 +413,51 @@ def run_single(
                 rtf_cpu=32,
             )
 
+    clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+    nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+        returnn_config=clean_returnn_config,
+        label_info=s.label_info,
+        out_joint_score_layer="output",
+        log_softmax=True,
+    )
+    prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+        returnn_config=clean_returnn_config,
+        label_info=s.label_info,
+        out_joint_score_layer="output",
+        log_softmax=False,
+    )
+    s.set_mono_priors_returnn_rasr(
+        key="fh",
+        epoch=keep_epochs[-2],
+        train_corpus_key=s.crp_names["train"],
+        dev_corpus_key=s.crp_names["cvtrain"],
+        smoothen=True,
+        returnn_config=prior_returnn_config,
+        output_layer_name="output",
+    )
+
+    diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+    tying_cfg = rasr.RasrConfig()
+    tying_cfg.type = "diphone-dense"
+    base_params = dataclasses.replace(s.get_cart_params("fh"), beam_limit=50000, lm_scale=1.5, tdp_scale=0.4)
+
+    for p_c, beam, we_p in itertools.product([0.6, 0.4], [18, 22], [0.5, 0.8]):
+        s.recognize_cart(
+            key="fh",
+            epoch=max(keep_epochs),
+            calculate_statistics=True,
+            cart_tree_or_tying_config=tying_cfg,
+            cpu_rqmt=2,
+            crp_corpus="dev-other",
+            lm_gc_simple_hash=True,
+            log_softmax_returnn_config=nn_precomputed_returnn_config,
+            mem_rqmt=4,
+            n_cart_out=diphone_li.get_n_of_dense_classes(),
+            opt_lm_am_scale=True,
+            alias_output_prefix="recog-40ms-altas-tuning-check/",
+            params=dataclasses.replace(base_params, beam=beam, we_pruning=we_p).with_prior_scale(p_c),
+        )
+
     if run_performance_study:
         clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
         nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
