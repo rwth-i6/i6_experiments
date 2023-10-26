@@ -552,7 +552,7 @@ def run_single(
         ]:
             ft_config.config["network"].pop(k, None)
 
-        ft_config.config["tieCenterState"] = {
+        ft_config.config["network"]["tieCenterState"] = {
             "class": "eval",
             "from": "centerState",
             "eval": "tf.math.floordiv(source(0), 2 * 3) * 2 + tf.math.floormod(source(0))",
