@@ -17,10 +17,8 @@ from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
 from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
-from i6_experiments.users.berger.corpus.librispeech.ctc_data import (
-    get_librispeech_data_hdf,
-)
 from sisyphus import gs, tk
+from i6_experiments.users.berger.corpus.sms_wsj.ctc_data import get_wsj_data_hdf
 
 tools = copy.deepcopy(default_tools)
 
@@ -29,7 +27,7 @@ tools = copy.deepcopy(default_tools)
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 
-num_classes = 79
+num_classes = 87
 
 
 # ********** Return Config generators **********
@@ -60,7 +58,7 @@ def generate_returnn_config(
             blstm_args={
                 "num_layers": 6,
                 "max_pool": [1, 2, 2],
-                "size": 512,
+                "size": 400,
                 "dropout": 0.1,
                 "l2": 1e-04,
             },
@@ -74,12 +72,12 @@ def generate_returnn_config(
         )
     else:
         network_dict, extra_python = ctc_model.make_blstm_ctc_recog_model(
-            num_outputs=79,
+            num_outputs=87,
             gt_args={"sample_rate": 16000},
             blstm_args={
                 "num_layers": 6,
                 "max_pool": [1, 2, 2],
-                "size": 512,
+                "size": 400,
             },
             mlp_args={"num_layers": 0},
         )
@@ -87,7 +85,7 @@ def generate_returnn_config(
     returnn_config = get_returnn_config(
         network=network_dict,
         target=None,
-        num_epochs=500,
+        num_epochs=90,
         num_inputs=1,
         extra_python=extra_python,
         extern_data_config=True,
@@ -114,28 +112,30 @@ def run_exp() -> Tuple[SummaryReport, Dict]:
     assert tools.returnn_root is not None
     assert tools.returnn_python_exe is not None
 
-    data = get_librispeech_data_hdf(
+    data = get_wsj_data_hdf(
         tools.returnn_root,
-        add_unknown=False,
-        augmented_lexicon=True,
-        test_keys=[
-            "test-clean",
-            "test-other",
-        ],
+        train_key="train_si284",
+        cv_key="cv_dev93",
+        dev_keys=["cv_dev93"],
+        test_keys=["test_eval92"],
+        freq_kHz=16,
     )
 
     # ********** Step args **********
 
     train_args = exp_args.get_ctc_train_step_args(
-        num_epochs=500,
+        num_epochs=90,
+        gpu_mem_rqmt=24,
+        mem_rqmt=16,
     )
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)
     align_args = exp_args.get_ctc_align_step_args(num_classes)
-    recog_args["epochs"] = [240, 320, 400, 480, "best"]
-    recog_args["prior_scales"] = [0.3]
-    recog_args["lm_scales"] = [0.9]
-    align_args["epochs"] = ["best"]
+    recog_args["epochs"] = [20, 40, 80, 90]
+    recog_args["prior_scales"] = [0.8]
+    recog_args["lm_scales"] = [1.4]
+    align_args["prior_scales"] = [0.8]
+    align_args["epochs"] = [20]
 
     # ********** System **********
 
@@ -171,10 +171,10 @@ def run_exp() -> Tuple[SummaryReport, Dict]:
     system.add_experiment_configs("BLSTM_CTC", returnn_configs)
 
     system.run_train_step(**train_args)
-    system.run_dev_recog_step(**recog_args)
+    # system.run_dev_recog_step(**recog_args)
     system.run_test_recog_step(**recog_args)
-    # alignments = system.run_align_step(**align_args)
-    alignments = None
+    alignments = system.run_align_step(**align_args)
+    # alignments = None
 
     assert system.summary_report
     return system.summary_report, alignments

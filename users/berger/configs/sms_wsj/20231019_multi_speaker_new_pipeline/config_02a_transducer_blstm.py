@@ -9,8 +9,8 @@ from i6_experiments.users.berger.args.returnn.config import get_returnn_config
 from i6_experiments.users.berger.args.returnn.learning_rates import (
     LearningRateSchedules,
 )
-from i6_experiments.users.berger.corpus.librispeech.viterbi_transducer_data import (
-    get_librispeech_data,
+from i6_experiments.users.berger.corpus.sms_wsj.viterbi_transducer_data import (
+    get_wsj_data,
 )
 import i6_experiments.users.berger.network.models.context_1_transducer_raw_samples as transducer_model
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
@@ -24,7 +24,7 @@ from i6_experiments.users.berger.recipe.returnn.training import (
     GetBestCheckpointJob,
 )
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
-from .config_01b_ctc_conformer import py as py_ctc
+from .config_01a_ctc_blstm import py as py_ctc
 from sisyphus import gs, tk
 
 tools = copy.deepcopy(default_tools)
@@ -34,7 +34,7 @@ tools = copy.deepcopy(default_tools)
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 
-num_classes = 79
+num_classes = 87
 
 
 # ********** Return Config **********
@@ -48,7 +48,7 @@ def generate_returnn_config(
     **kwargs,
 ) -> ReturnnConfig:
     if train:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer(
+        (network_dict, extra_python,) = transducer_model.make_context_1_blstm_transducer(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
@@ -60,11 +60,12 @@ def generate_returnn_config(
                     "max_feature": 5,
                 },
             },
-            conformer_args={
-                "num_blocks": 12,
-                "size": 512,
+            blstm_args={
+                "num_layers": 6,
+                "max_pool": [1, 2, 2],
+                "size": 400,
                 "dropout": 0.1,
-                "l2": 5e-06,
+                "l2": 1e-04,
             },
             decoder_args={
                 "dec_mlp_args": {
@@ -88,15 +89,16 @@ def generate_returnn_config(
             },
         )
     else:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
+        network_dict, extra_python = transducer_model.make_context_1_blstm_transducer_recog(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
                 "specaug_after_dct": False,
             },
-            conformer_args={
-                "num_blocks": 12,
-                "size": 512,
+            blstm_args={
+                "num_layers": 6,
+                "max_pool": [1, 2, 2],
+                "size": 400,
             },
             decoder_args={
                 "dec_mlp_args": {
@@ -116,7 +118,7 @@ def generate_returnn_config(
     returnn_config = get_returnn_config(
         network=network_dict,
         target="classes",
-        num_epochs=400,
+        num_epochs=60,
         python_prolog=[
             "import sys",
             "sys.setrecursionlimit(10 ** 6)",
@@ -160,29 +162,30 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
     assert tools.returnn_root is not None
     assert tools.returnn_python_exe is not None
 
-    data = get_librispeech_data(
+    data = get_wsj_data(
         tools.returnn_root,
         tools.returnn_python_exe,
         alignments=alignments,
-        add_unknown=False,
-        augmented_lexicon=True,
-        lm_name="4gram",
-        # lm_name="kazuki_transformer",
+        train_key="train_si284",
+        cv_key="cv_dev93",
+        dev_keys=["cv_dev93"],
+        test_keys=["test_eval92"],
+        freq_kHz=16,
     )
 
     # ********** Step args **********
 
     train_args = exp_args.get_transducer_train_step_args(
-        num_epochs=400,
+        num_epochs=60,
         gpu_mem_rqmt=24,
     )
 
     recog_args = exp_args.get_transducer_recog_step_args(
         num_classes,
-        lm_scales=[0.7],
-        epochs=[160, 240, 400, "best"],
+        lm_scales=[0.9],
+        epochs=[40, 60],
         lookahead_options={"scale": 0.5},
-        search_parameters={"label-pruning": 8.0},
+        search_parameters={"label-pruning": 12.0},
     )
 
     # ********** System **********
@@ -191,25 +194,23 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
 
     # ********** Returnn Configs **********
 
-    for peak_lr in [4e-04, 8e-04]:
-        train_config = generate_returnn_config(
-            train=True,
-            peak_lr=peak_lr,
-            train_data_config=data.train_data_config,
-            dev_data_config=data.cv_data_config,
-        )
-        recog_config = generate_returnn_config(
-            train=False,
-            train_data_config=data.train_data_config,
-            dev_data_config=data.cv_data_config,
-        )
+    train_config = generate_returnn_config(
+        train=True,
+        train_data_config=data.train_data_config,
+        dev_data_config=data.cv_data_config,
+    )
+    recog_config = generate_returnn_config(
+        train=False,
+        train_data_config=data.train_data_config,
+        dev_data_config=data.cv_data_config,
+    )
 
-        returnn_configs = ReturnnConfigs(
-            train_config=train_config,
-            recog_configs={"recog": recog_config},
-        )
+    returnn_configs = ReturnnConfigs(
+        train_config=train_config,
+        recog_configs={"recog": recog_config},
+    )
 
-        system.add_experiment_configs(f"Conformer_Transducer_Viterbi_peak-lr-{peak_lr}", returnn_configs)
+    system.add_experiment_configs(f"BLSTM_Transducer_Viterbi", returnn_configs)
 
     system.init_corpora(
         dev_keys=data.dev_keys,
@@ -222,10 +223,10 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
 
     system.run_train_step(**train_args)
 
-    system.run_dev_recog_step(**recog_args)
+    # system.run_dev_recog_step(**recog_args)
     system.run_test_recog_step(**recog_args)
 
-    train_job = system.get_train_job("Conformer_Transducer_Viterbi_peak-lr-0.0008")
+    train_job = system.get_train_job()
     model = GetBestCheckpointJob(
         model_dir=train_job.out_model_dir, learning_rates=train_job.out_learning_rates
     ).out_checkpoint

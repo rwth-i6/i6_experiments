@@ -137,7 +137,7 @@ def run_exp() -> Tuple[SummaryReport, Dict]:
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)
     align_args = exp_args.get_ctc_align_step_args(num_classes)
-    recog_args["epochs"] = [40, 80, 160, 240, 320, 400, 480, "best"]
+    recog_args["epochs"] = [240, 320, 400, 480, "best"]
     recog_args["prior_scales"] = [0.3]
     recog_args["lm_scales"] = [0.9]
     align_args["epochs"] = ["best"]

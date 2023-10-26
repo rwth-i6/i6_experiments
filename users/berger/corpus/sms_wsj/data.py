@@ -1,5 +1,6 @@
 import re
 from typing import Dict, Generator, Iterable, List, Optional, Tuple
+from i6_core.audio.encoding import BlissChangeEncodingJob
 from i6_core.corpus.filter import FilterCorpusRemoveUnknownWordSegmentsJob
 from i6_core.text.label.subword_nmt.train import ReturnnTrainBpeJob
 from i6_core.tools.git import CloneGitRepositoryJob
@@ -290,6 +291,21 @@ def get_corpus_object_dict():
         corpus_object.audio_dir = j.out_audio_folder
         corpus_object.audio_format = j.output_format
 
+    for name in [
+        "train_si284",
+        "cv_dev93",
+        "test_eval92",
+    ]:
+        corpus_object, _ = corpus_object_dict[f"{name}_16kHz"]
+        j = BlissChangeEncodingJob(
+            corpus_file=corpus_object.corpus_file,
+            sample_rate=16000,
+            output_format="wav",
+        )
+        corpus_object.corpus_file = j.out_corpus
+        corpus_object.audio_dir = j.out_audio_folder
+        corpus_object.audio_format = "wav"
+
     return corpus_object_dict
 
 
@@ -299,7 +315,7 @@ def get_data_inputs(
     dev_keys: List[str] = ["cv_dev93"],
     test_keys: List[str] = ["test_eval92"],
     freq: int = 16,
-    lm_name: str = "5k_3gram",
+    lm_name: str = "64k_3gram",
     recog_lex_name: str = "nab-64k",
     ctc_lexicon: bool = False,
     preprocessing: bool = True,

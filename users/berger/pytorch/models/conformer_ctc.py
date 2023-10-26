@@ -210,12 +210,12 @@ def get_default_config_v2(num_inputs: int, num_outputs: int) -> ConformerCTCConf
     specaugment = ModuleFactoryV1(
         module_class=SpecaugmentByLengthModuleV1,
         cfg=SpecaugmentByLengthConfigV1(
-            time_min_num_masks=2,
-            time_max_mask_per_n_frames=25,
+            time_min_num_masks=1,
+            time_max_mask_per_n_frames=30,
             time_mask_max_size=20,
             freq_min_num_masks=0,
-            freq_max_num_masks=5,
-            freq_mask_max_size=num_inputs // 5,
+            freq_max_num_masks=9,
+            freq_mask_max_size=5,
         ),
     )
 
@@ -234,96 +234,21 @@ def get_default_config_v2(num_inputs: int, num_outputs: int) -> ConformerCTCConf
     ff_cfg = conformer_parts_i6.ConformerPositionwiseFeedForwardV1Config(
         input_dim=384,
         hidden_dim=1536,
-        dropout=0.2,
-        activation=torch.nn.SiLU(),
-    )
-
-    rel_pos_enc_cfg = custom_parts.SelfAttRelPosEncodingV1Config(
-        out_dim=96,
-        clipping=400,
-        dropout=0.2,
-    )
-
-    mhsa_cfg = custom_parts.ConformerMHSARelposV1Config(
-        input_dim=384,
-        num_att_heads=4,
-        att_weights_dropout=0.2,
-        dropout=0.2,
-    )
-
-    conv_cfg = conformer_parts_i6.ConformerConvolutionV1Config(
-        channels=384,
-        kernel_size=31,
-        dropout=0.2,
-        activation=torch.nn.SiLU(),
-        norm=LayerNormNC(384),
-    )
-
-    block_cfg = custom_parts.ConformerBlockConvFirstV1Config(
-        ff_cfg=ff_cfg,
-        rel_pos_enc_cfg=rel_pos_enc_cfg,
-        mhsa_cfg=mhsa_cfg,
-        conv_cfg=conv_cfg,
-    )
-
-    conformer_cfg = custom_parts.ConformerEncoderConvFirstV1Config(
-        num_layers=12,
-        frontend=frontend,
-        block_cfg=block_cfg,
-    )
-
-    return ConformerCTCConfig(
-        feature_extraction=None,
-        specaugment=specaugment,
-        conformer=ModuleFactoryV1(custom_parts.ConformerEncoderConvFirstV1, cfg=conformer_cfg),
-        dim=384,
-        target_size=num_outputs,
-    )
-
-
-def get_default_config_nick(num_inputs: int, num_outputs: int) -> ConformerCTCConfig:
-    specaugment = ModuleFactoryV1(
-        module_class=SpecaugmentByLengthModuleV1,
-        cfg=SpecaugmentByLengthConfigV1(
-            time_min_num_masks=2,
-            time_max_mask_per_n_frames=25,
-            time_mask_max_size=20,
-            freq_min_num_masks=2,
-            freq_max_num_masks=num_inputs // 5,
-            freq_mask_max_size=5,
-        ),
-    )
-
-    frontend_cfg = custom_parts.GenericVGGFrontendV1Config(
-        in_features=num_inputs,
-        out_features=384,
-        conv_channels=[32, 64, 64, 32],
-        conv_kernel_sizes=[(3, 3), (3, 3), (3, 3), (3, 3)],
-        conv_strides=[(1, 1), (1, 1), (1, 1), (1, 1)],
-        pool_sizes=[None, (2, 1), None, (2, 1)],
-        activations=[None, None, None, torch.nn.ReLU()],
-    )
-
-    frontend = ModuleFactoryV1(custom_parts.GenericVGGFrontendV1, frontend_cfg)
-
-    ff_cfg = conformer_parts_i6.ConformerPositionwiseFeedForwardV1Config(
-        input_dim=384,
-        hidden_dim=1536,
-        dropout=0.2,
+        dropout=0.1,
         activation=torch.nn.SiLU(),
     )
 
     mhsa_cfg = conformer_parts_i6.ConformerMHSAV1Config(
         input_dim=384,
-        num_att_heads=4,
-        att_weights_dropout=0.2,
-        dropout=0.2,
+        num_att_heads=6,
+        att_weights_dropout=0.1,
+        dropout=0.1,
     )
 
     conv_cfg = conformer_parts_i6.ConformerConvolutionV1Config(
         channels=384,
         kernel_size=31,
-        dropout=0.2,
+        dropout=0.1,
         activation=torch.nn.SiLU(),
         norm=LayerNormNC(384),
     )

@@ -29,7 +29,7 @@ def get_librispeech_data(
         add_unknown_phoneme_and_mapping=add_unknown,
     )
 
-    (wav_train_data_inputs, wav_dev_data_inputs, wav_test_data_inputs,) = data.get_data_inputs(
+    wav_train_data_inputs, wav_dev_data_inputs, wav_test_data_inputs = data.get_data_inputs(
         train_key=train_key,
         dev_keys=dev_keys,
         test_keys=test_keys,
@@ -167,7 +167,7 @@ def get_librispeech_data_hdf(
 ) -> CTCSetupData:
     # ********** Data inputs **********
 
-    (train_data_inputs, dev_data_inputs, test_data_inputs,) = data.get_data_inputs(
+    train_data_inputs, dev_data_inputs, test_data_inputs = data.get_data_inputs(
         train_key=train_key,
         dev_keys=dev_keys,
         test_keys=test_keys,

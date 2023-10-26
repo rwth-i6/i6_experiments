@@ -21,7 +21,7 @@ from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
-from .config_01_ctc import py as py_ctc
+from .config_01b_ctc_conformer import py as py_ctc
 from .config_02_transducer import py as py_transducer
 from sisyphus import gs, tk
 
@@ -159,7 +159,8 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: tk.P
         tools.returnn_python_exe,
         alignments=alignments,
         add_unknown=False,
-        lm_name="kazuki_transformer",
+        lm_name="4gram",
+        # lm_name="kazuki_transformer",
     )
 
     # ********** Returnn Configs **********
@@ -188,8 +189,9 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: tk.P
 
     recog_args = exp_args.get_transducer_recog_step_args(
         num_classes,
-        lm_scales=[0.5, 0.7],
-        epochs=[240, 300, "best"],
+        # lm_scales=[0.5, 0.7, 0.9],
+        lm_scales=[0.5],
+        epochs=["best"],
         lookahead_options={"scale": 0.5},
         search_parameters={"label-pruning": 8.0},
     )

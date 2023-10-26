@@ -37,7 +37,7 @@ tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/onnx/arch
 
 
 def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, dev_data_config: dict) -> ReturnnConfig:
-    model_config = conformer_ctc.get_default_config_nick(num_inputs=50, num_outputs=num_outputs)
+    model_config = conformer_ctc.get_default_config_v2(num_inputs=50, num_outputs=num_outputs)
 
     extra_config = {
         "train": train_data_config,
@@ -59,8 +59,8 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
         optimizer=Optimizers.AdamW,
         schedule=LearningRateSchedules.OCLR,
         max_seqs=60,
-        initial_lr=7e-06,
-        peak_lr=7e-04,
+        initial_lr=2.2e-05,
+        peak_lr=2.2e-04,
         final_lr=1e-08,
         batch_size=36000,
         use_chunking=False,
@@ -97,9 +97,9 @@ def run_exp() -> SummaryReport:
     train_args = exp_args.get_ctc_train_step_args(num_epochs=num_subepochs, gpu_mem_rqmt=24)
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
-        epochs=[40, 80, 160, 240, num_subepochs],
-        prior_scales=[0.5, 0.9],
-        lm_scales=[1.1, 2.0],
+        epochs=[40, 80, 160, 240, 250, "best"],
+        prior_scales=[0.5],
+        lm_scales=[1.1],
         feature_type=FeatureType.GAMMATONE,
     )
 
@@ -122,7 +122,7 @@ def run_exp() -> SummaryReport:
     # ********** Returnn Configs **********
 
     system.add_experiment_configs(
-        "Conformer_CTC_nick", get_returnn_config_collection(data.train_data_config, data.cv_data_config)
+        "Conformer_CTC", get_returnn_config_collection(data.train_data_config, data.cv_data_config)
     )
 
     system.run_train_step(**train_args)

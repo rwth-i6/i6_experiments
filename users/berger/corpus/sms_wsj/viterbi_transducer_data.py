@@ -1,21 +1,27 @@
+from typing import Dict, List
 import copy
-from typing import List
 
-from i6_core import returnn, corpus
+from i6_core import corpus
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
+from i6_core import returnn
+from i6_experiments.users.berger.args.returnn.dataset import MetaDatasetBuilder
+from i6_experiments.users.berger.systems.dataclasses import AlignmentData
 from . import data
-from ..general import CTCSetupData
+from ..general import BasicSetupData
 from sisyphus import tk
 
 
-def get_wsj_data_hdf(
+def get_wsj_data(
     returnn_root: tk.Path,
+    returnn_python_exe: tk.Path,
+    alignments: Dict[str, AlignmentData],
     train_key: str = "train_si284",
     cv_key: str = "cv_dev93",
     dev_keys: List[str] = ["cv_dev93"],
     test_keys: List[str] = ["test_eval92"],
     freq_kHz: int = 16,
-) -> CTCSetupData:
+    **kwargs,
+) -> BasicSetupData:
     # ********** Data inputs **********
 
     train_data_input, cv_data_input, dev_data_inputs, test_data_inputs = data.get_data_inputs(
@@ -31,6 +37,7 @@ def get_wsj_data_hdf(
     )
 
     # ********** Train data **********
+
     train_corpus = train_data_input.corpus_object.corpus_file
     assert train_corpus is not None
 
@@ -40,39 +47,56 @@ def get_wsj_data_hdf(
     train_sample_hdf_job.rqmt["mem"] = 8
     train_sample_hdf_job.rqmt["time"] = 24
     train_sample_hdf = train_sample_hdf_job.out_hdf
+    train_alignment_hdf = alignments[f"{train_key}_align"].get_hdf(
+        returnn_python_exe=returnn_python_exe, returnn_root=returnn_root
+    )
 
-    train_data_config = {
-        "class": "HDFDataset",
-        "files": [train_sample_hdf],
-        "partition_epoch": 3,
-        "seq_ordering": "laplace:.1000",
-        "use_cache_manager": True,
-    }
+    train_dataset_builder = MetaDatasetBuilder()
+    train_dataset_builder.add_hdf_dataset(
+        name="data",
+        hdf_files=train_sample_hdf,
+        key_mapping={"data": "data"},
+    )
+
+    train_dataset_builder.add_hdf_dataset(
+        name="classes",
+        hdf_files=train_alignment_hdf,
+        dataset_config={
+            "partition_epoch": 3,
+            "seq_ordering": "laplace:.1000",
+        },
+        key_mapping={"data": "classes"},
+        control=True,
+    )
+    train_data_config = train_dataset_builder.get_dict()
 
     # ********** CV data **********
-    cv_corpus = cv_data_input.corpus_object.corpus_file
+
     cv_sample_hdf = returnn.BlissToPcmHDFJob(
         cv_data_input.corpus_object.corpus_file,
         rounding=returnn.BlissToPcmHDFJob.RoundingScheme.rasr_compatible,
         returnn_root=returnn_root,
     ).out_hdf
+    cv_alignment_hdf = alignments[f"{cv_key}_align"].get_hdf(returnn_python_exe=returnn_python_exe, returnn_root=returnn_root)
 
-    cv_data_config = {
-        "class": "HDFDataset",
-        "files": [cv_sample_hdf],
-        "partition_epoch": 1,
-        "seq_ordering": "sorted",
-        "use_cache_manager": True,
-    }
+    cv_dataset_builder = MetaDatasetBuilder()
+    cv_dataset_builder.add_hdf_dataset(
+        name="data",
+        hdf_files=[cv_sample_hdf],
+        key_mapping={"data": "data"},
+    )
 
-    # ********** Loss corpus **********
-
-    loss_corpus = corpus.MergeCorporaJob(
-        [train_corpus, cv_corpus],
-        name="loss-corpus",
-        merge_strategy=corpus.MergeStrategy.SUBCORPORA,
-    ).out_merged_corpus
-    loss_lexicon = train_data_input.lexicon.filename
+    cv_dataset_builder.add_hdf_dataset(
+        name="classes",
+        hdf_files=[cv_alignment_hdf],
+        dataset_config={
+            "partition_epoch": 1,
+            "seq_ordering": "sorted",
+        },
+        key_mapping={"data": "classes"},
+        control=True,
+    )
+    cv_data_config = cv_dataset_builder.get_dict()
 
     # ********** Recog lexicon **********
 
@@ -99,14 +123,12 @@ def get_wsj_data_hdf(
         **align_data_inputs
     }
 
-    return CTCSetupData(
+    return BasicSetupData(
         train_key=train_key,
         dev_keys=dev_keys,
         test_keys=test_keys,
         align_keys=[f"{train_key}_align", f"{cv_key}_align"],
         train_data_config=train_data_config,
         cv_data_config=cv_data_config,
-        loss_corpus=loss_corpus,
-        loss_lexicon=loss_lexicon,
         data_inputs=all_data_inputs,
     )
