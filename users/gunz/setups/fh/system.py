@@ -1659,6 +1659,23 @@ class FactoredHybridSystem(NnSystem):
                 kwargs["parallel"] = parallel
             kwargs["separate_lm_image_gc_generation"] = True
 
+            # work around bug in basedecoder w/ extra config
+            if decode_trafo_lm:
+                # use 4gram LM for lookahead
+                lm_img_job = CreateLmImageJob(crp)
+
+                adv_search_extra_config = kwargs["extra_config"]
+                if adv_search_extra_config is None:
+                    adv_search_extra_config = rasr.RasrConfig()
+
+                adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.image = (
+                    lm_img_job.out_image
+                )
+                adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.scale = 1.0
+                adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.type = "ARPA"
+
+                kwargs["extra_config"] = adv_search_extra_config
+
             adv_tree_search_job = recognition.AdvancedTreeSearchJob(*args, **kwargs)
             if search_rqmt_update is not None:
                 adv_tree_search_job.rqmt.update(search_rqmt_update)
@@ -1734,19 +1751,6 @@ class FactoredHybridSystem(NnSystem):
                 vocab_path=Path("/work/asr3/raissi/shared_workspaces/gunz/dependencies/ls-eugen-trafo-lm/vocabulary"),
             )
             lm_configs["eugen-trafo"] = lm_cfg
-
-            # use 4gram LM for lookahead
-            if adv_search_extra_config is None:
-                adv_search_extra_config = rasr.RasrConfig()
-            else:
-                adv_search_extra_config = copy.deepcopy(adv_search_extra_config)
-            lm_img_job = CreateLmImageJob(crp)
-            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.image = (
-                lm_img_job.out_image
-            )
-            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.scale = 1.0
-            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.type = "ARPA"
-            print(adv_search_extra_config)
 
         decoder.recognition(
             name=self.experiments[key]["name"],
