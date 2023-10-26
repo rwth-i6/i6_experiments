@@ -996,6 +996,8 @@ def run_single(
                     "learning_rates": list(
                         np.concatenate([lrates, np.linspace(min(lrates), 1e-6, smbr_epochs - len(lrates))])
                     ),
+                    "max_reps_time": 0,
+                    "max_reps_feature": 0,
                     "preload_from_files": {
                         "existing-model": {
                             "init_for_train": True,
