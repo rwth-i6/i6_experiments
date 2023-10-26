@@ -1650,6 +1650,9 @@ class FactoredHybridSystem(NnSystem):
 
         adv_tree_search_job: recognition.AdvancedTreeSearchJob
 
+        # use 4gram LM for lookahead
+        lm_img_job = CreateLmImageJob(crp)
+
         def SearchJob(*args, **kwargs):
             nonlocal adv_tree_search_job
 
@@ -1661,9 +1664,6 @@ class FactoredHybridSystem(NnSystem):
 
             # work around bug in basedecoder w/ extra config
             if decode_trafo_lm:
-                # use 4gram LM for lookahead
-                lm_img_job = CreateLmImageJob(crp)
-
                 adv_search_extra_config = copy.deepcopy(kwargs["extra_config"])
                 if adv_search_extra_config is None:
                     adv_search_extra_config = rasr.RasrConfig()
