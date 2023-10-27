@@ -91,17 +91,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             specaugment_steps=(5_000, 15_000, 25_000),
         )
     )
-    model_with_checkpoint = train(
-        prefix_name + "/base-24gb",
-        task=task,
-        config=config_24gb,
-        post_config=post_config,
-        model_def=from_scratch_model_def,
-        train_def=from_scratch_training,
-        num_epochs=2000,
-        gpu_mem=24,
-    )
-    recog_training_exp(prefix_name + "/base-24gb", task, model_with_checkpoint, recog_def=model_recog)
+    # base-24gb (using config_24gb): converged, but stagnated, and hiccups
 
     config_ = config_24gb.copy()
     del config_["torch_amp"]
