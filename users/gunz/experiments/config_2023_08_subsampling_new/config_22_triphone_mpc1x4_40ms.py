@@ -553,20 +553,40 @@ def run_single(
             ft_config.config["network"].pop(k, None)
 
         ph_st_classes = s.label_info.phoneme_state_classes.factor()
-        ft_config.config["network"]["tieCenterState"] = {
-            "class": "eval",
-            "from": "data:centerState",
-            "eval": f"tf.math.floordiv(source(0), {ph_st_classes} * 3) * {ph_st_classes} + tf.math.floormod(source(0), {ph_st_classes})",
-            "register_as_extern_data": "tieCenterState",
-            "out_type": {"dim": 84, "dtype": "int32", "sparse": True},
+        ft_config.config["network"] = {
+            **ft_config.config["network"],
+            "tieCenterState": {
+                "class": "eval",
+                "from": "centerState_",
+                "eval": f"tf.math.floordiv(source(0), {ph_st_classes} * 3) * {ph_st_classes} + tf.math.floormod(source(0), {ph_st_classes})",
+                "register_as_extern_data": "tieCenterState",
+                "out_type": {"dim": 84, "dtype": "int32", "sparse": True},
+            },
+            "futureLabel_": {
+                "class": "reinterpret_data",
+                "set_dim_tags": {"T": returnn.CodeWrapper(f"{time_tag_name}.ceildiv_right(4)")},
+                "from": "data:futureLabel",
+            },
+            "pastLabel_": {
+                "class": "reinterpret_data",
+                "set_dim_tags": {"T": returnn.CodeWrapper(f"{time_tag_name}.ceildiv_right(4)")},
+                "from": "data:pastLabel",
+            },
+            "centerState_": {
+                "class": "reinterpret_data",
+                "set_dim_tags": {"T": returnn.CodeWrapper(f"{time_tag_name}.ceildiv_right(4)")},
+                "from": "data:centerState",
+            },
         }
         for l in ft_config.config["network"].values():
             if l.get("target", None) == "centerState":
                 l["target"] = "tieCenterState"
-            if l.get("from", None) == "centerState":
+            if l.get("from", None) in ["centerState", "data:centerState"]:
                 l["from"] = "tieCenterState"
-            if l.get("from", None) == "pastLabel":
-                l["from"] = "data:pastLabel"
+            if l.get("from", None) in ["pastLabel", "data:pastLabel"]:
+                l["from"] = "pastLabel_"
+            if l.get("from", None) in ["futureLabel", "data:futureLabel"]:
+                l["from"] = "futureLabel_"
 
         for l in [l for l in ft_config.config["network"].keys() if l.lower().startswith("aux")]:
             ft_config.config["network"].pop(l)
