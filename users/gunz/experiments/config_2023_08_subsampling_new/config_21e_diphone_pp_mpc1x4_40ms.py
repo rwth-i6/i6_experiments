@@ -723,7 +723,7 @@ def run_single(
                         rtf=12,
                     )
 
-            for mix_ce, smbr_peak_lr in itertools.product(["joint"], [5e-6]):
+            for mix_ce, smbr_peak_lr in itertools.product(["joint"], [5e-6] if peak_lr == 8e-5 else []):
                 smbr_epochs = 80
                 smbr_keep_epochs = [int(v) for v in np.linspace(10, smbr_epochs, 8)]
 
