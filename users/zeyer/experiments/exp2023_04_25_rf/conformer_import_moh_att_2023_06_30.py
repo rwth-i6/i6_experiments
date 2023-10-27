@@ -14,6 +14,7 @@ import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
+from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep, dict_update_delete_deep
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
 from i6_experiments.users.zeyer.lr_schedules.lin_warmup_invsqrt_decay import dyn_lr_lin_warmup_invsqrt_decay
 
@@ -106,8 +107,8 @@ def _train_exp(
 
     prefix = _sis_prefix + "/" + name
     task = _get_ls_task()
-    config = _dict_update_deep(config, config_updates)
-    config = _dict_update_delete_deep(config, config_deletes)
+    config = dict_update_deep(config, config_updates)
+    config = dict_update_delete_deep(config, config_deletes)
 
     model_with_checkpoint = train(
         prefix,
@@ -120,44 +121,6 @@ def _train_exp(
         gpu_mem=gpu_mem,
     )
     recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
-
-
-def _dict_update_deep(d: Dict[str, Any], deep_updates: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    :param d: dict to update
-    :param deep_updates: might also contain "." in the key, for nested dicts
-    :return: updated dict
-    """
-    if not deep_updates:
-        return d
-    d = d.copy()
-    for k, v in deep_updates.items():
-        assert isinstance(k, str)
-        if "." in k:
-            k1, k2 = k.split(".", 1)
-            d[k1] = _dict_update_deep(d[k1], {k2: v})
-        else:
-            d[k] = v
-    return d
-
-
-def _dict_update_delete_deep(d: Dict[str, Any], deep_deletes: Optional[Sequence[str]]) -> Dict[str, Any]:
-    """
-    :param d: dict to update (to delete from)
-    :param deep_deletes: might also contain "." in the key, for nested dicts
-    :return: updated dict
-    """
-    if not deep_deletes:
-        return d
-    d = d.copy()
-    for k in deep_deletes:
-        assert isinstance(k, str)
-        if "." in k:
-            k1, k2 = k.split(".", 1)
-            d[k1] = _dict_update_delete_deep(d[k1], [k2])
-        else:
-            del d[k]
-    return d
 
 
 _ls_task = None
@@ -221,7 +184,7 @@ config_24gb.update(
 )
 # base-24gb (using config_24gb): converged, but stagnated, and hiccups
 
-config_24gb_v2 = _dict_update_deep(
+config_24gb_v2 = dict_update_deep(
     config_24gb,
     {
         "optimizer.epsilon": 1e-16,
