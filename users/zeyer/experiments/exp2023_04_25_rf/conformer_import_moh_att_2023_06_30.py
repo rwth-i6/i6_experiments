@@ -72,11 +72,12 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     _train_exp("from-scratch-train", config, gpu_mem=None)
 
-    config_ = config_24gb.copy()
-    del config_["torch_amp"]
-    config_["batch_size"] = 30_000 * _batch_size_factor
-    _train_exp("base-24gb-bs30k-f32", config_)
-    del config_
+    _train_exp(
+        "base-24gb-bs30k-f32",
+        config_24gb,
+        config_updates={"batch_size": 30_000 * _batch_size_factor},
+        config_deletes=["torch_amp"],
+    )
 
     _train_exp("base-24gb-v2", config_24gb_v2)
     _train_exp("base-24gb-v2-lr1e_3", config_24gb_v2, config_updates={"learning_rate": 0.001})
@@ -94,8 +95,9 @@ def sis_run_with_prefix(prefix_name: str = None):
 def _train_exp(
     name: str,
     config: Dict[str, Any],
-    config_updates: Optional[Dict[str, Any]] = None,
     *,
+    config_updates: Optional[Dict[str, Any]] = None,
+    config_deletes: Optional[Sequence[str]] = None,
     num_epochs: int = 2000,
     gpu_mem: Optional[int] = 24,
 ):
@@ -104,7 +106,8 @@ def _train_exp(
 
     prefix = _sis_prefix + "/" + name
     task = _get_ls_task()
-    config = _update_dict_deep(config, config_updates)
+    config = _dict_update_deep(config, config_updates)
+    config = _dict_update_delete_deep(config, config_deletes)
 
     model_with_checkpoint = train(
         prefix,
@@ -119,7 +122,7 @@ def _train_exp(
     recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
 
 
-def _update_dict_deep(d: Dict[str, Any], deep_updates: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _dict_update_deep(d: Dict[str, Any], deep_updates: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
     :param d: dict to update
     :param deep_updates: might also contain "." in the key, for nested dicts
@@ -132,9 +135,28 @@ def _update_dict_deep(d: Dict[str, Any], deep_updates: Optional[Dict[str, Any]])
         assert isinstance(k, str)
         if "." in k:
             k1, k2 = k.split(".", 1)
-            d[k1] = _update_dict_deep(d[k1], {k2: v})
+            d[k1] = _dict_update_deep(d[k1], {k2: v})
         else:
             d[k] = v
+    return d
+
+
+def _dict_update_delete_deep(d: Dict[str, Any], deep_deletes: Optional[Sequence[str]]) -> Dict[str, Any]:
+    """
+    :param d: dict to update (to delete from)
+    :param deep_deletes: might also contain "." in the key, for nested dicts
+    :return: updated dict
+    """
+    if not deep_deletes:
+        return d
+    d = d.copy()
+    for k in deep_deletes:
+        assert isinstance(k, str)
+        if "." in k:
+            k1, k2 = k.split(".", 1)
+            d[k1] = _dict_update_delete_deep(d[k1], [k2])
+        else:
+            del d[k]
     return d
 
 
@@ -199,7 +221,7 @@ config_24gb.update(
 )
 # base-24gb (using config_24gb): converged, but stagnated, and hiccups
 
-config_24gb_v2 = _update_dict_deep(
+config_24gb_v2 = _dict_update_deep(
     config_24gb,
     {
         "optimizer.epsilon": 1e-16,
