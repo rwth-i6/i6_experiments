@@ -26,3 +26,43 @@ def dyn_lr_lin_warmup_invsqrt_decay(*, global_train_step: int, learning_rate: fl
         return learning_rate * (i / warmup_steps)  # linear warmup
     base = 1.0 + (i - warmup_steps) / norm
     return learning_rate * base**-0.5
+
+
+def demo(
+    warmup_steps: int = 20_000,
+    invsqrt_norm: int = 20_000,
+    learning_rate: float = 0.0025,
+    num_steps: int = 1_000_000,
+):
+    """demo"""
+    from returnn.config import Config, global_config_ctx
+
+    config = Config(
+        dict(
+            learning_rate_warmup_steps=warmup_steps,
+            learning_rate_invsqrt_norm=invsqrt_norm,
+        )
+    )
+
+    import numpy
+
+    steps = numpy.arange(num_steps)
+    with global_config_ctx(config):
+        lrs = [dyn_lr_lin_warmup_invsqrt_decay(global_train_step=i, learning_rate=learning_rate) for i in steps]
+    lrs = numpy.array(lrs)
+
+    import matplotlib.pyplot as plt
+
+    plt.plot(steps, lrs)
+    plt.xlabel("global train step")
+    plt.ylabel("learning rate")
+    plt.title(
+        f"lr={learning_rate}"
+        f", warmup={warmup_steps}, invsqrt_norm={invsqrt_norm}"
+        f"\nfirst lr={lrs[0]:.4e}, last lr={lrs[-1]:.4e}"
+    )
+    plt.show()
+
+
+if __name__ == "__main__":
+    demo()
