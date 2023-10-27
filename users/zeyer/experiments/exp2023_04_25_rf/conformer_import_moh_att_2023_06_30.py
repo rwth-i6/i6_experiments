@@ -71,16 +71,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     res = recog_model(task, model_with_checkpoint, model_recog)
     tk.register_output(prefix_name + f"/recog_results", res.output)
 
-    model_with_checkpoint = train(
-        prefix_name + "/from-scratch-train",
-        task=task,
-        config=config,
-        post_config=post_config,
-        model_def=from_scratch_model_def,
-        train_def=from_scratch_training,
-        num_epochs=2000,
-    )
-    recog_training_exp(prefix_name + "/from-scratch-train", task, model_with_checkpoint, recog_def=model_recog)
+    _train_exp("from-scratch-train", config, gpu_mem=None)
 
     config_24gb = config.copy()
     config_24gb.update(
@@ -99,17 +90,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     config_ = config_24gb.copy()
     del config_["torch_amp"]
     config_["batch_size"] = 30_000 * _batch_size_factor
-    model_with_checkpoint = train(
-        prefix_name + "/base-24gb-bs30k-f32",
-        task=task,
-        config=config_,
-        post_config=post_config,
-        model_def=from_scratch_model_def,
-        train_def=from_scratch_training,
-        num_epochs=2000,
-        gpu_mem=24,
-    )
-    recog_training_exp(prefix_name + "/base-24gb-bs30k-f32", task, model_with_checkpoint, recog_def=model_recog)
+    _train_exp("base-24gb-bs30k-f32", config_)
 
     config_24gb_v2 = _update_dict_deep(
         config_24gb,
@@ -182,7 +163,7 @@ def _train_exp(
     config_updates: Optional[Dict[str, Any]] = None,
     *,
     num_epochs: int = 2000,
-    gpu_mem: int = 24,
+    gpu_mem: Optional[int] = 24,
 ):
     from .train import train
     from i6_experiments.users.zeyer.recog import recog_training_exp
