@@ -180,42 +180,8 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
     recog_training_exp(prefix_name + "/base-24gb-v3", task, model_with_checkpoint, recog_def=model_recog)
 
-    config_ = config_24gb_v3.copy()
-    config_["optimizer"] = {
-        "class": "adamw",
-        "epsilon": 1e-16,
-        "weight_decay": 0.001,
-    }
-    model_with_checkpoint = train(
-        prefix_name + "/base-24gb-v3-wd1e_3",
-        task=task,
-        config=config_,
-        post_config=post_config,
-        model_def=from_scratch_model_def,
-        train_def=from_scratch_training,
-        num_epochs=2000,
-        gpu_mem=24,
-    )
-    recog_training_exp(prefix_name + "/base-24gb-v3-wd1e_3", task, model_with_checkpoint, recog_def=model_recog)
-
-    config_ = config_24gb_v3.copy()
-    config_["optimizer"] = {
-        "class": "adam",
-        "epsilon": 1e-16,
-        "weight_decay": 0.000001,
-    }
-    model_with_checkpoint = train(
-        prefix_name + "/base-24gb-v3-adam",
-        task=task,
-        config=config_,
-        post_config=post_config,
-        model_def=from_scratch_model_def,
-        train_def=from_scratch_training,
-        num_epochs=2000,
-        gpu_mem=24,
-    )
-    recog_training_exp(prefix_name + "/base-24gb-v3-adam", task, model_with_checkpoint, recog_def=model_recog)
-
+    _train_exp(prefix_name + "/base-24gb-v3-wd1e_3", config_24gb_v3, config_updates={"optimizer.weight_decay": 0.001})
+    _train_exp(prefix_name + "/base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})
     _train_exp(prefix_name + "/base-24gb-v3-lr1e_3", config_24gb_v3, config_updates=dict(learning_rate=0.001))
 
 
@@ -232,10 +198,7 @@ def _train_exp(
     from i6_experiments.users.zeyer.recog import recog_training_exp
 
     task = _get_ls_task()
-
-    if config_updates:
-        config = config.copy()
-        config.update(config_updates)
+    config = _update_dict_deep(config, config_updates)
 
     model_with_checkpoint = train(
         prefix,
@@ -248,6 +211,25 @@ def _train_exp(
         gpu_mem=gpu_mem,
     )
     recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
+
+
+def _update_dict_deep(d: Dict[str, Any], deep_updates: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    :param d: dict to update
+    :param deep_updates: might also contain "." in the key, for nested dicts
+    :return: updated dict
+    """
+    if not deep_updates:
+        return d
+    d = d.copy()
+    for k, v in deep_updates.items():
+        assert isinstance(k, str)
+        if "." in k:
+            k1, k2 = k.split(".", 1)
+            d[k1] = _update_dict_deep(d[k1], {k2: v})
+        else:
+            d[k] = v
+    return d
 
 
 _ls_task = None
