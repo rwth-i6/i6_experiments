@@ -1744,7 +1744,6 @@ class FactoredHybridSystem(NnSystem):
                         "/work/asr3/raissi/shared_workspaces/gunz/dependencies/ls-eugen-trafo-lm/epoch.030.index"
                     )
                 ),
-                scale=crp.language_model_config.scale + 2,
                 softmax_adapter="quantized-blas-nce-16bit",
                 state_manager="transformer-with-common-prefix-16bit",
                 transform_output_log=False,
@@ -1768,7 +1767,7 @@ class FactoredHybridSystem(NnSystem):
                     DevRecognitionParameters(
                         altas=[params.altas] if params.altas is not None else None,
                         am_scales=[1],
-                        lm_scales=[params.lm_scale],
+                        lm_scales=[params.lm_scale, params.lm_scale + 1] if decode_trafo_lm else [params.lm_scale],
                         prior_scales=[params.prior_info.center_state_prior.scale],
                         pronunciation_scales=[params.pron_scale],
                         speech_tdps=[
