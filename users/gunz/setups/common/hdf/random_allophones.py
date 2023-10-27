@@ -152,7 +152,7 @@ class RasrFeatureAndAlignmentWithRandomAllophonesToHDF(Job):
 
             # features
             times, features = feature_cache.read(file, "feat")
-            feature_data.create_dataset(seq_names[-1].replace("/", "\\"), data=features)
+            feature_data.create_dataset(seq_names[-1].replace("/", "\\"), data=features, dtype="f32")
 
             # alignment
             alignment = alignment_cache.read(file, "align")
@@ -182,9 +182,9 @@ class RasrFeatureAndAlignmentWithRandomAllophonesToHDF(Job):
                     pastLabel_strings = pastLabel_strings + [l] * segLen
 
             # initialize last level data
-            futureLabel_data.create_dataset(seq_names[-1].replace("/", "\\"), data=futureLabel_strings)
-            centerstateLabel_data.create_dataset(seq_names[-1].replace("/", "\\"), data=centerState_strings)
-            pastLabel_data.create_dataset(seq_names[-1].replace("/", "\\"), data=pastLabel_strings)
+            futureLabel_data.create_dataset(seq_names[-1].replace("/", "\\"), data=futureLabel_strings, dtype="i32")
+            centerstateLabel_data.create_dataset(seq_names[-1].replace("/", "\\"), data=centerState_strings, dtype="i32")
+            pastLabel_data.create_dataset(seq_names[-1].replace("/", "\\"), data=pastLabel_strings, dtype="i32")
 
         out.create_dataset("seq_names", data=[s.encode() for s in seq_names], dtype=string_dt)
 
