@@ -72,48 +72,18 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     _train_exp("from-scratch-train", config, gpu_mem=None)
 
-    config_24gb = config.copy()
-    config_24gb.update(
-        dict(
-            torch_amp="bfloat16",
-            batch_size=40_000 * _batch_size_factor,
-            accum_grad_multiple_step=2,
-            learning_rate=0.002,
-            learning_rate_warmup_steps=20_000,
-            learning_rate_invsqrt_norm=20_000,
-            specaugment_steps=(5_000, 15_000, 25_000),
-        )
-    )
-    # base-24gb (using config_24gb): converged, but stagnated, and hiccups
-
     config_ = config_24gb.copy()
     del config_["torch_amp"]
     config_["batch_size"] = 30_000 * _batch_size_factor
     _train_exp("base-24gb-bs30k-f32", config_)
     del config_
 
-    config_24gb_v2 = _update_dict_deep(
-        config_24gb,
-        {
-            "optimizer.epsilon": 1e-16,
-            "specaugment_num_spatial_mask_factor": 200,
-            "specaugment_max_consecutive_feature_dims": 10,
-        },
-    )
     _train_exp("base-24gb-v2", config_24gb_v2)
     _train_exp("base-24gb-v2-lr1e_3", config_24gb_v2, config_updates={"learning_rate": 0.001})
     _train_exp(
         "base-24gb-v2-lr1e_3-nogradscaler", config_24gb_v2, config_updates={"learning_rate": 0.001, "grad_scaler": None}
     )
 
-    config_24gb_v3 = config_24gb_v2.copy()
-    config_24gb_v3.update(
-        dict(
-            learning_rate=0.0025,
-            grad_scaler=None,
-            gradient_clip_global_norm=5.0,
-        )
-    )
     _train_exp("base-24gb-v3", config_24gb_v3)
     _train_exp("base-24gb-v3-wd1e_3", config_24gb_v3, config_updates={"optimizer.weight_decay": 0.001})
     _train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})
@@ -213,6 +183,38 @@ config = dict(
 post_config = dict(
     cleanup_old_models=dict(keep_last_n=5),
     torch_dataloader_opts=dict(num_workers=1),
+)
+
+config_24gb = config.copy()
+config_24gb.update(
+    dict(
+        torch_amp="bfloat16",
+        batch_size=40_000 * _batch_size_factor,
+        accum_grad_multiple_step=2,
+        learning_rate=0.002,
+        learning_rate_warmup_steps=20_000,
+        learning_rate_invsqrt_norm=20_000,
+        specaugment_steps=(5_000, 15_000, 25_000),
+    )
+)
+# base-24gb (using config_24gb): converged, but stagnated, and hiccups
+
+config_24gb_v2 = _update_dict_deep(
+    config_24gb,
+    {
+        "optimizer.epsilon": 1e-16,
+        "specaugment_num_spatial_mask_factor": 200,
+        "specaugment_max_consecutive_feature_dims": 10,
+    },
+)
+
+config_24gb_v3 = config_24gb_v2.copy()
+config_24gb_v3.update(
+    dict(
+        learning_rate=0.0025,
+        grad_scaler=None,
+        gradient_clip_global_norm=5.0,
+    )
 )
 
 
