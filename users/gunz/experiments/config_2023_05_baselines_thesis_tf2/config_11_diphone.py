@@ -508,7 +508,9 @@ def run_single(
             [None, 2, 4, 6, 8],
             [0.6],
             [12, 14, 16, 18],
-            [int(v) for v in np.geomspace(1000, max_bl, 10, dtype=int)] if n_states_per_phone == 3 else [100_000],
+            [int(v) for v in (*np.geomspace(250, 1000, 4, dtype=int)[:-1], *np.geomspace(1000, max_bl, 10, dtype=int))]
+            if n_states_per_phone == 3
+            else [100_000],
         ):
             cfg = dataclasses.replace(
                 s.get_cart_params("fh").with_prior_scale(pC),
