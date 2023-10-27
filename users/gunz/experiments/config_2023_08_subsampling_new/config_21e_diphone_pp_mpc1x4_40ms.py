@@ -460,7 +460,6 @@ def run_single(
             opt_lm_am_scale=True,
             alias_output_prefix=f"recog-40ms-altas-tuning-check-we{we_p}/",
             params=dataclasses.replace(base_params, beam=beam, we_pruning=we_p).with_prior_scale(p_c),
-            decode_trafo_lm=True,
         )
 
     if run_performance_study:
@@ -672,6 +671,7 @@ def run_single(
                         calculate_statistics=True,
                         opt_lm_am_scale=True,
                         prior_epoch=min(ep, keep_epochs[-2]),
+                        decode_trafo_lm=ep == max(keep_epochs) and peak_lr == 8e-5,
                         rtf=12,
                     )
 
