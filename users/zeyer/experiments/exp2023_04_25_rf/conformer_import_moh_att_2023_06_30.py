@@ -90,6 +90,11 @@ def sis_run_with_prefix(prefix_name: str = None):
     _train_exp("base-24gb-v3-wd1e_3", config_24gb_v3, config_updates={"optimizer.weight_decay": 0.001})
     _train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})
     _train_exp("base-24gb-v3-lr1e_3", config_24gb_v3, config_updates={"learning_rate": 0.001})
+    _train_exp(
+        "base-24gb-v3-adam-lossscales",
+        config_24gb_v3,
+        config_updates={"optimizer.class": "adam", "aux_loss_scales": [0.1, 0.2], "aed_loss_scale": 0.1},
+    )
 
 
 # noinspection PyShadowingNames
@@ -162,7 +167,6 @@ config = dict(
     dynamic_learning_rate=dyn_lr_lin_warmup_invsqrt_decay,
     learning_rate_warmup_steps=40_000,
     learning_rate_invsqrt_norm=40_000,
-    # torch_amp="float16",  # -- needs more testing
     aux_loss_layers=[4, 8],
 )
 post_config = dict(
@@ -508,6 +512,8 @@ def from_scratch_training(
 
     config = get_global_config()  # noqa
     aux_loss_layers = config.typed_value("aux_loss_layers")
+    aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
+    aed_loss_scale = config.float("aed_loss_scale", 1.0)
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
@@ -516,11 +522,11 @@ def from_scratch_training(
     collected_outputs = {}
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     if aux_loss_layers:
-        for i in aux_loss_layers:
-            if i > len(model.encoder.layers):
+        for i, layer_idx in enumerate(aux_loss_layers):
+            if layer_idx > len(model.encoder.layers):
                 continue
-            linear = getattr(model, f"enc_aux_logits_{i}")
-            aux_logits = linear(collected_outputs[str(i - 1)])
+            linear = getattr(model, f"enc_aux_logits_{layer_idx}")
+            aux_logits = linear(collected_outputs[str(layer_idx - 1)])
             aux_loss = rf.ctc_loss(
                 logits=aux_logits,
                 targets=targets,
@@ -529,7 +535,10 @@ def from_scratch_training(
                 blank_index=model.blank_idx,
             )
             aux_loss.mark_as_loss(
-                f"ctc_{i}", custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(), use_normalized_loss=True
+                f"ctc_{layer_idx}",
+                scale=aux_loss_scales[i],
+                custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+                use_normalized_loss=True,
             )
             # decoded, decoded_spatial_dim = rf.ctc_greedy_decode(aux_logits, in_spatial_dim=enc_spatial_dim)
             # error = rf.edit_distance(
@@ -572,7 +581,7 @@ def from_scratch_training(
     loss = rf.cross_entropy(
         target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
     )
-    loss.mark_as_loss("ce", use_normalized_loss=True)
+    loss.mark_as_loss("ce", scale=aed_loss_scale, use_normalized_loss=True)
 
     best = rf.reduce_argmax(logits_packed, axis=model.target_dim)
     frame_error = best != targets_packed
