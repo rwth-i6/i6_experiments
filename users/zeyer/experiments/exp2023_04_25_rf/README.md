@@ -32,6 +32,16 @@ TODO:
 - dropout mask like TF, broadcast over time?
 - mixup (port over TF code)
 
+- CTC/AED loss scales?
+- gradient clipping? global norm variant. 5.0. seems to solve hiccups. 
+- bfloat16 vs float16 vs float32: float16 gives nan, bfloat16 seems to work just like float32 
+- grad_scaler: not needed for bfloat16
+- adamw vs adam?
+- weight decay? (also dependent on whether adam or adamw)
+- adam eps? 1e-16 is what we had in TF, maybe better?
+- try CTC only
+- try no specaugment (should overfit then, i.e. reach train loss 0)
+
 TODO model changes:
 
 - Second decoder LSTM
