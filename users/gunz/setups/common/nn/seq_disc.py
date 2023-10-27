@@ -248,6 +248,8 @@ def augment_for_smbr(
 
     crp = copy.deepcopy(crp)
     crp.acoustic_model_config.tdp.applicator_type = "corrected"
+    if crp.language_model_config is None:
+        crp.language_model_config = rasr.RasrConfig()
     crp.language_model_config.file = (
         Path(lm_needs_to_be_not_good, cached=True)
         if isinstance(lm_needs_to_be_not_good, str)
