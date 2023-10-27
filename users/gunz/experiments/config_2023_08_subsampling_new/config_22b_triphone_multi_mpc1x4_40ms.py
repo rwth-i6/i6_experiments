@@ -537,6 +537,8 @@ def run_single(
                 l["target"] = "tieCenterState"
             if l.get("from", None) == "centerState":
                 l["from"] = "tieCenterState"
+            if l.get("from", None) == "pastLabel":
+                l["from"] = "data:pastLabel"
 
         ft_name = f"{name}-r:{ft_share}-lr:{peak_lr}"
         s.set_experiment_dict("fh-rand", "scratch", "tri", postfix_name=ft_name)
