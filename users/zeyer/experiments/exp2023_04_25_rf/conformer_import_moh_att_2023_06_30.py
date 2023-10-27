@@ -41,13 +41,11 @@ def sis_run_with_prefix(prefix_name: str = None):
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
     from i6_experiments.users.zeyer.recog import recog_model, recog_training_exp
     from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
-    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_bpe10k_raw
 
     if not prefix_name:
         prefix_name = get_prefix_for_config(__file__)
 
-    task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
-
+    task = _get_ls_task()
     extern_data_dict = task.train_dataset.get_extern_data()
     default_target_key = task.train_dataset.get_default_target()
     targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
@@ -218,19 +216,52 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
     recog_training_exp(prefix_name + "/base-24gb-v3-adam", task, model_with_checkpoint, recog_def=model_recog)
 
-    config_ = config_24gb_v3.copy()
-    config_["learning_rate"] = 0.001
+    _train_exp(prefix_name + "/base-24gb-v3-lr1e_3", config_24gb_v3, config_updates=dict(learning_rate=0.001))
+
+
+# noinspection PyShadowingNames
+def _train_exp(
+    prefix: str,
+    config: Dict[str, Any],
+    config_updates: Optional[Dict[str, Any]] = None,
+    *,
+    num_epochs: int = 2000,
+    gpu_mem: int = 24,
+):
+    from .train import train
+    from i6_experiments.users.zeyer.recog import recog_training_exp
+
+    task = _get_ls_task()
+
+    if config_updates:
+        config = config.copy()
+        config.update(config_updates)
+
     model_with_checkpoint = train(
-        prefix_name + "/base-24gb-v3-lr1e_3",
+        prefix,
         task=task,
-        config=config_,
+        config=config,
         post_config=post_config,
         model_def=from_scratch_model_def,
         train_def=from_scratch_training,
-        num_epochs=2000,
-        gpu_mem=24,
+        num_epochs=num_epochs,
+        gpu_mem=gpu_mem,
     )
-    recog_training_exp(prefix_name + "/base-24gb-v3-lr1e_3", task, model_with_checkpoint, recog_def=model_recog)
+    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
+
+
+_ls_task = None
+
+
+def _get_ls_task():
+    global _ls_task
+    if _ls_task:
+        return _ls_task
+
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_bpe10k_raw
+
+    _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
+    return _ls_task
 
 
 py = sis_run_with_prefix  # if run directly via `sis m ...`
