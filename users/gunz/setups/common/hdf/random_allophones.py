@@ -153,7 +153,7 @@ class RasrFeatureAndAlignmentWithRandomAllophonesToHDF(Job):
 
             # features
             times, features = feature_cache.read(file, "feat")
-            feature_data.create_dataset(seq_names[-1].replace("/", "\\"), data=features, dtype=numpy.float32)
+            feature_data.create_dataset(seq_names[-1].replace("/", "\\"), data=features)
 
             # alignment
             alignment = alignment_cache.read(file, "align")
