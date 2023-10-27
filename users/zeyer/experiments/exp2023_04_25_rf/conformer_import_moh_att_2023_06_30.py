@@ -111,17 +111,13 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
     recog_training_exp(prefix_name + "/base-24gb-bs30k-f32", task, model_with_checkpoint, recog_def=model_recog)
 
-    config_24gb_v2 = config_24gb.copy()
-    config_24gb_v2.update(
-        dict(
-            optimizer={
-                "class": "adamw",
-                "epsilon": 1e-16,
-                "weight_decay": 0.000001,
-            },
-            specaugment_num_spatial_mask_factor=200,
-            specaugment_max_consecutive_feature_dims=10,
-        )
+    config_24gb_v2 = _update_dict_deep(
+        config_24gb,
+        {
+            "optimizer.epsilon": 1e-16,
+            "specaugment_num_spatial_mask_factor": 200,
+            "specaugment_max_consecutive_feature_dims": 10,
+        },
     )
     model_with_checkpoint = train(
         prefix_name + "/base-24gb-v2",
@@ -173,18 +169,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             gradient_clip_global_norm=5.0,
         )
     )
-    model_with_checkpoint = train(
-        prefix_name + "/base-24gb-v3",
-        task=task,
-        config=config_24gb_v3,
-        post_config=post_config,
-        model_def=from_scratch_model_def,
-        train_def=from_scratch_training,
-        num_epochs=2000,
-        gpu_mem=24,
-    )
-    recog_training_exp(prefix_name + "/base-24gb-v3", task, model_with_checkpoint, recog_def=model_recog)
-
+    _train_exp("base-24gb-v3", config_24gb_v3)
     _train_exp("base-24gb-v3-wd1e_3", config_24gb_v3, config_updates={"optimizer.weight_decay": 0.001})
     _train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})
     _train_exp("base-24gb-v3-lr1e_3", config_24gb_v3, config_updates={"learning_rate": 0.001})
