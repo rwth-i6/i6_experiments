@@ -191,7 +191,8 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
 
     # ********** Returnn Configs **********
 
-    for peak_lr in [4e-04, 8e-04]:
+    # for peak_lr in [4e-04, 8e-04]:
+    for peak_lr in [8e-04]:
         train_config = generate_returnn_config(
             train=True,
             peak_lr=peak_lr,
