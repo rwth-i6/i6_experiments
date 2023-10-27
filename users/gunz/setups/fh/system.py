@@ -1631,6 +1631,7 @@ class FactoredHybridSystem(NnSystem):
         prior_epoch: typing.Union[int, str] = "",
         decode_trafo_lm: bool = False,
         remove_or_set_concurrency: typing.Union[bool, int] = False,
+        fix_tdp_non_word_tying: bool = False,
     ) -> recognition.AdvancedTreeSearchJob:
         p_info: PriorInfo = self.experiments[key].get("priors", None)
         assert p_info is not None, "set priors first"
@@ -1644,6 +1645,9 @@ class FactoredHybridSystem(NnSystem):
         else:
             crp.acoustic_model_config.state_tying.file = cart_tree_or_tying_config
             crp.acoustic_model_config.state_tying.type = "cart"
+
+        if fix_tdp_non_word_tying:
+            crp.acoustic_model_config.tdp.tying_type = "global-and-nonword"
 
         if crp_update is not None:
             crp_update(crp)

@@ -637,13 +637,7 @@ def run_single(
 
                 base_params = s.get_cart_params(key="fh-fs")
                 decoding_cfgs = [
-                    dataclasses.replace(
-                        base_params,
-                        lm_scale=base_params.lm_scale / ss_factor,
-                        tdp_speech=(10, 0, "infinity", 0),
-                        tdp_silence=(10, 10, "infinity", 10),
-                        tdp_scale=sc,
-                    ).with_prior_scale(pC)
+                    dataclasses.replace(base_params, lm_scale=1.5, tdp_scale=sc).with_prior_scale(pC)
                     for sc, pC in [(0.4, 0.3), (0.2, 0.4), (0.4, 0.4), (0.2, 0.5)]
                 ]
                 if ep == max(keep_epochs) and peak_lr == 8e-5:
@@ -651,7 +645,7 @@ def run_single(
                         dataclasses.replace(
                             s.get_cart_params("fh"),
                             beam=beam,
-                            beam_limit=50000,
+                            beam_limit=15000,
                             lm_scale=1.5,
                             tdp_scale=0.4,
                             we_pruning=we_p,
@@ -672,6 +666,7 @@ def run_single(
                         opt_lm_am_scale=True,
                         prior_epoch=min(ep, keep_epochs[-2]),
                         decode_trafo_lm=ep == max(keep_epochs) and peak_lr == 8e-5,
+                        fix_tdp_non_word_tying=True,
                         rtf=20,
                     )
 
