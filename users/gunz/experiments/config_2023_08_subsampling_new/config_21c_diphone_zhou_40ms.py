@@ -2230,7 +2230,8 @@ def run_single(
                 ]
                 for cfg in decoding_cfgs:
                     trafo = (
-                        ep == max(keep_epochs)
+                        False
+                        and ep == max(keep_epochs)
                         and bw_scale.label_posterior_scale == 1.0
                         and bw_scale.transition_scale == 0.3
                     )
