@@ -530,7 +530,7 @@ def run_single(
             "from": "data:centerState",
             "eval": f"tf.math.floordiv(source(0), {ph_st_classes} * 3) * {ph_st_classes} + tf.math.floormod(source(0), {ph_st_classes})",
             "register_as_extern_data": "tieCenterState",
-            "out_type": {"dim": 42, "dtype": "int32", "sparse": True},
+            "out_type": {"dim": 84, "dtype": "int32", "sparse": True},
         }
         for l in ft_config.config["network"].values():
             if l.get("target", None) == "centerState":
@@ -539,6 +539,9 @@ def run_single(
                 l["from"] = "tieCenterState"
             if l.get("from", None) == "pastLabel":
                 l["from"] = "data:pastLabel"
+
+        for l in [l for l in ft_config.config["network"].keys() if l.lower().startswith("aux")]:
+            ft_config.config["network"].pop(l)
 
         ft_name = f"{name}-r:{ft_share}-lr:{peak_lr}"
         s.set_experiment_dict("fh-rand", "scratch", "tri", postfix_name=ft_name)
