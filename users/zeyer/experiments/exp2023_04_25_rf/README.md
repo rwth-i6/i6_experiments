@@ -38,6 +38,7 @@ TODO:
 - grad_scaler: not needed for bfloat16
 - adamw vs adam?
 - weight decay? (also dependent on whether adam or adamw)
+- weight decay only on selected layers/modules, like in TF, e.g. not so much on decoder
 - adam eps? 1e-16 is what we had in TF, maybe better?
 - try CTC only
 - try no specaugment (should overfit then, i.e. reach train loss 0)
