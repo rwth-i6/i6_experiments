@@ -566,6 +566,15 @@ def run_single(
         monophone=True,
     )
     tk.register_output(f"alignments/{a_name}/alignment-plots", plots.out_plot_folder)
+    plots = PlotViterbiAlignmentsJob(
+        alignment_bundle_path=a_job.out_alignment_bundle,
+        allophones_path=allophones.out_allophone_file,
+        segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
+        show_labels=False,
+        show_title=False,
+        monophone=True,
+    )
+    tk.register_output(f"alignments/{a_name}/alignment-plots-plain", plots.out_plot_folder)
 
     phoneme_durs = PlotPhonemeDurationsJob(
         alignment_bundle_path=a_job.out_alignment_bundle,
@@ -701,6 +710,15 @@ def run_single(
                 monophone=True,
             )
             tk.register_output(f"alignments/{a_name}/alignment-plots", plots.out_plot_folder)
+            plots = PlotViterbiAlignmentsJob(
+                alignment_bundle_path=a_job.out_alignment_bundle,
+                allophones_path=allophones.out_allophone_file,
+                segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
+                show_labels=False,
+                show_title=False,
+                monophone=True,
+            )
+            tk.register_output(f"alignments/{a_name}/alignment-plots-plain", plots.out_plot_folder)
 
             phoneme_durs = PlotPhonemeDurationsJob(
                 alignment_bundle_path=a_job.out_alignment_bundle,

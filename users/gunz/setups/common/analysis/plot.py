@@ -124,12 +124,15 @@ class PlotPhonemeDurationsJob(Job):
 
 
 class PlotViterbiAlignmentsJob(Job):
+    __sis_hash_exclude__ = {"show_title": True}
+
     def __init__(
         self,
         alignment_bundle_path: Path,
         allophones_path: Path,
         segments: Union[Path, tk.Variable, List[str]],
         show_labels: bool,
+        show_title: bool = True,
         sil_allophone: str = "[SILENCE]",
         monophone: bool = True,
     ):
@@ -138,6 +141,7 @@ class PlotViterbiAlignmentsJob(Job):
         self.sil_allophone = sil_allophone
         self.monophone = monophone
         self.show_labels = show_labels
+        self.show_title = show_title
         self.segments = segments
 
         self.out_plot_folder = self.output_path("plots", directory=True)
@@ -171,5 +175,5 @@ class PlotViterbiAlignmentsJob(Job):
             out_plot_files = self.out_plots
 
         for seg, out_path in zip(segments_to_plot, out_plot_files):
-            fig, ax, *_ = processor.plot_segment(seg, self.show_labels)
+            fig, ax, *_ = processor.plot_segment(seg, show_labels=self.show_labels, show_title=self.show_title)
             fig.savefig(out_path, transparent=True)

@@ -55,7 +55,7 @@ class AlignmentProcessor:
         num_sil = sum((1 for st in alignment_states if self.sil_allophone in st.upper()))
         return num_sil / len(alignment_states)
 
-    def plot_segment(self, seg_name: str, show_labels: bool):
+    def plot_segment(self, seg_name: str, show_labels: bool, show_title: bool = True):
         def get_next_segment(align, start, collapse_3state=False):
             assert start < len(align)
             allo_idx = align[start][1]
@@ -101,7 +101,8 @@ class AlignmentProcessor:
             C, T = np.shape(viterbi_image)
 
             fig, ax = plt.subplots()
-            ax.set_title(f"Viterbi alignment of\n{seq_tag}")
+            if show_title:
+                ax.set_title(f"Viterbi alignment of\n{seq_tag}")
             ax.set_xlabel("Frame")
             ax.set_ylabel("State")
             # ax.xaxis.set_label_coords(0.98, -0.03)
