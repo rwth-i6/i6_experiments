@@ -9,6 +9,7 @@ from os import path
 from typing import List
 
 import h5py
+import numpy
 
 from i6_core.lib.rasr_cache import FileArchive
 from i6_core.util import chunks
@@ -152,7 +153,7 @@ class RasrFeatureAndAlignmentWithRandomAllophonesToHDF(Job):
 
             # features
             times, features = feature_cache.read(file, "feat")
-            feature_data.create_dataset(seq_names[-1].replace("/", "\\"), data=features, dtype="f32")
+            feature_data.create_dataset(seq_names[-1].replace("/", "\\"), data=features, dtype=numpy.float32)
 
             # alignment
             alignment = alignment_cache.read(file, "align")
