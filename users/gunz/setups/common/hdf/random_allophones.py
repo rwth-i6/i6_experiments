@@ -183,7 +183,9 @@ class RasrFeatureAndAlignmentWithRandomAllophonesToHDF(Job):
 
             # initialize last level data
             futureLabel_data.create_dataset(seq_names[-1].replace("/", "\\"), data=futureLabel_strings, dtype="i32")
-            centerstateLabel_data.create_dataset(seq_names[-1].replace("/", "\\"), data=centerState_strings, dtype="i32")
+            centerstateLabel_data.create_dataset(
+                seq_names[-1].replace("/", "\\"), data=centerState_strings, dtype="i32"
+            )
             pastLabel_data.create_dataset(seq_names[-1].replace("/", "\\"), data=pastLabel_strings, dtype="i32")
 
         out.create_dataset("seq_names", data=[s.encode() for s in seq_names], dtype=string_dt)
