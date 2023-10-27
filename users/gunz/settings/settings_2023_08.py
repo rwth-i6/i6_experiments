@@ -73,7 +73,7 @@ def check_engine_limits(current_rqmt, task):
         "LatticeToCtmJob",
         "PipelineJob",
         "PlotPhonemeDurationsJob",
-        "PlotViterbiAlignmentsJob",
+        # "PlotViterbiAlignmentsJob",
         "RasrFeaturesToHdf",
         "ReshapeCenterStatePriorsJob",
         "ScliteJob",
