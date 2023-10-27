@@ -646,6 +646,19 @@ def run_single(
                     ).with_prior_scale(pC)
                     for sc, pC in [(0.4, 0.3), (0.2, 0.4), (0.4, 0.4), (0.2, 0.5)]
                 ]
+                if ep == max(keep_epochs) and peak_lr == 8e-5:
+                    decoding_cfgs2 = [
+                        dataclasses.replace(
+                            s.get_cart_params("fh"),
+                            beam=beam,
+                            beam_limit=50000,
+                            lm_scale=1.5,
+                            tdp_scale=0.4,
+                            we_pruning=we_p,
+                        ).with_prior_scale(p_c)
+                        for p_c, beam, we_p in itertools.product([0.6, 0.4], [18, 22], [0.5, 0.8])
+                    ]
+                    decoding_cfgs = [*decoding_cfgs, *decoding_cfgs2]
                 for cfg in decoding_cfgs:
                     s.recognize_cart(
                         key="fh-fs",
