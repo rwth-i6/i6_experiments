@@ -19,7 +19,7 @@ from ...fh.factored import LabelInfo
 from ..cache_manager import cache_file
 
 
-SHARD_SIZE = 10
+SHARD_SIZE = 50
 
 
 class RasrFeatureAndAlignmentWithRandomAllophonesToHDF(Job):
@@ -60,7 +60,7 @@ class RasrFeatureAndAlignmentWithRandomAllophonesToHDF(Job):
         for file_index in to_process:
             target_file = self.out_hdf_files[file_index]
 
-            secs = random.randrange(0, 120)
+            secs = random.randrange(0, 240)
             logging.info(f"sleeping for {secs}s to prevent thundering herd")
             time.sleep(secs)
 
