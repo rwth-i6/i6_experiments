@@ -31,6 +31,9 @@ _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.Bx
 _log_mel_feature_dim = 80
 
 
+_sis_prefix: Optional[str] = None
+
+
 def sis_run_with_prefix(prefix_name: str = None):
     """run the exp"""
     from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
@@ -44,6 +47,8 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     if not prefix_name:
         prefix_name = get_prefix_for_config(__file__)
+    global _sis_prefix
+    _sis_prefix = prefix_name
 
     task = _get_ls_task()
     extern_data_dict = task.train_dataset.get_extern_data()
@@ -180,14 +185,14 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
     recog_training_exp(prefix_name + "/base-24gb-v3", task, model_with_checkpoint, recog_def=model_recog)
 
-    _train_exp(prefix_name + "/base-24gb-v3-wd1e_3", config_24gb_v3, config_updates={"optimizer.weight_decay": 0.001})
-    _train_exp(prefix_name + "/base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})
-    _train_exp(prefix_name + "/base-24gb-v3-lr1e_3", config_24gb_v3, config_updates=dict(learning_rate=0.001))
+    _train_exp("base-24gb-v3-wd1e_3", config_24gb_v3, config_updates={"optimizer.weight_decay": 0.001})
+    _train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})
+    _train_exp("base-24gb-v3-lr1e_3", config_24gb_v3, config_updates={"learning_rate": 0.001})
 
 
 # noinspection PyShadowingNames
 def _train_exp(
-    prefix: str,
+    name: str,
     config: Dict[str, Any],
     config_updates: Optional[Dict[str, Any]] = None,
     *,
@@ -197,6 +202,7 @@ def _train_exp(
     from .train import train
     from i6_experiments.users.zeyer.recog import recog_training_exp
 
+    prefix = _sis_prefix + "/" + name
     task = _get_ls_task()
     config = _update_dict_deep(config, config_updates)
 
