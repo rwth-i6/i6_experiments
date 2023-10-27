@@ -889,95 +889,6 @@ def conformer_baseline():
 
         return base_v2_args, exp_name
 
-    # for ep in [50 * 6]:
-    #     for num_blocks, reduce_factor in [(8, 1.0)]:
-    #         args, name = copy.deepcopy(
-    #             get_base_v2_args(
-    #                 ep,
-    #                 num_blocks,
-    #                 reduce_factor,
-    #                 lr_type="epoch-oclr",
-    #                 lr_opts={"lr": 1e-3},
-    #             )
-    #         )
-    #         run_default_exp(
-    #             name,
-    #             train_args=args,
-    #             num_epochs=ep,
-    #             gpu_mem=11,
-    #             bpe_size=BPE_500,
-    #         )
-    #
-    #         # wup LR
-    #         for lr in [8e-4, 1e-3]:
-    #             args, name = copy.deepcopy(
-    #                 get_base_v2_args(
-    #                     ep,
-    #                     num_blocks,
-    #                     reduce_factor,
-    #                     lr_type="wup",
-    #                     lr_opts={"wup_eps": 12, "const_eps": int((ep - 12) * 0.7), "lr": lr},
-    #                 )
-    #             )
-    #             run_default_exp(
-    #                 name,
-    #                 train_args=args,
-    #                 num_epochs=ep,
-    #                 gpu_mem=11,
-    #                 bpe_size=BPE_500,
-    #             )
-    #
-    # for ep in [50 * 6]:
-    #     for num_blocks, reduce_factor in [(8, 1.0)]:
-    #         for weight_drop, self_att_drop, dec_att_drop, embed_drop, drop in [
-    #             (0.0, 0.15, 0.2, 0.05, 0.1),
-    #             (0.05, 0.15, 0.2, 0.05, 0.1),
-    #             (0.0, 0.2, 0.2, 0.1, 0.2),
-    #         ]:
-    #             args, name = copy.deepcopy(
-    #                 get_base_v2_args(
-    #                     num_epochs=ep,
-    #                     num_blocks=num_blocks,
-    #                     reduce_factor=reduce_factor,
-    #                     self_att_drop=self_att_drop,
-    #                     enc_drop=drop,
-    #                     weight_drop=weight_drop,
-    #                     dec_att_drop=dec_att_drop,
-    #                     embed_drop=embed_drop,
-    #                     lr_type="wup",
-    #                     lr_opts={"wup_eps": 12, "const_eps": int((ep - 12) * 0.7), "lr": 8e-4},
-    #                 )
-    #             )
-    #             run_default_exp(
-    #                 name,
-    #                 train_args=args,
-    #                 num_epochs=ep,
-    #                 gpu_mem=11,
-    #                 bpe_size=BPE_500,
-    #             )
-
-    # TODO: target embed dim
-    # for target_embed_dim in [256]:
-    #     for ep in [50 * 6]:
-    #         for num_blocks, reduce_factor in [(8, 1.0)]:
-    #             args, name = copy.deepcopy(
-    #                 get_base_v2_args(
-    #                     ep,
-    #                     num_blocks,
-    #                     reduce_factor,
-    #                     lr_type="wup",
-    #                     lr_opts={"wup_eps": 12, "const_eps": int((ep - 12) * 0.7), "lr": 8e-4},
-    #                 )
-    #             )
-    #             args["decoder_args"].embed_dim = target_embed_dim
-    #             run_default_exp(
-    #                 name + f"embedDim{target_embed_dim}",
-    #                 train_args=args,
-    #                 num_epochs=ep,
-    #                 gpu_mem=11,
-    #                 bpe_size=BPE_500,
-    #             )
-
     # conf_8l_dimF1.0_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_lr0.001_specaug3_epochOCLR
     # 12.7       11.2     13.4
 
@@ -1026,109 +937,58 @@ def conformer_baseline():
     # 12.4       11.1     13.4  avg
     for ep in [50 * 6]:
         for num_blocks, reduce_factor in [(8, 1.0)]:
-            for specaug_version in [1]:
-                args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
-                args["specaug_version"] = specaug_version
+            args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
+            args["specaug_version"] = 1
+            run_default_exp(
+                name + f"_specaug1",
+                train_args=args,
+                num_epochs=ep,
+                gpu_mem=11,
+                bpe_size=BPE_500,
+            )
+
+    for ep in [50 * 6]:
+        for num_blocks, reduce_factor in [(8, 1.0)]:
+            # TODO: smaller target embed dim
+            args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
+            args["specaug_version"] = 1
+            args["decoder_args"].embed_dim = 256
+            run_default_exp(
+                name + f"_embed256_specaug1",
+                train_args=args,
+                num_epochs=ep,
+                gpu_mem=11,
+                bpe_size=BPE_500,
+            )
+
+            # TODO: effect of weight dropout
+            for weight_drop in [0.1, 0.15]:
+                args, name = get_base_v2_args(
+                    ep, num_blocks, reduce_factor, weight_drop=weight_drop, lr_type="epoch-oclr", lr_opts={"lr": 1e-3}
+                )
+                args["specaug_version"] = 1
                 run_default_exp(
-                    name + f"_specaug{specaug_version}",
+                    name + f"_weightDrop{weight_drop}_specaug1",
                     train_args=args,
                     num_epochs=ep,
                     gpu_mem=11,
                     bpe_size=BPE_500,
                 )
 
-            args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
-            args["specaug_str_func_opts"] = {
-                "max_time_num": 80,  # more time masking
-                "max_time_dim": 20,
-                "min_num_add_factor": 1,  # more masking
-                "freq_dim_factor": 5,
-            }
-            run_default_exp(
-                name + f"_specaugV1a",
-                train_args=args,
-                num_epochs=ep,
-                gpu_mem=11,
-                bpe_size=BPE_500,
-            )
-            args["specaug_str_func_opts"] = {
-                "max_time_num": 80,  # more time masking
-                "max_time_dim": 20,
-                "min_num_add_factor": 0,
-                "freq_dim_factor": 5,
-            }
-            run_default_exp(
-                name + f"_specaugV1b",
-                train_args=args,
-                num_epochs=ep,
-                gpu_mem=11,
-                bpe_size=BPE_500,
-            )
-            args["specaug_str_func_opts"] = {
-                "max_time_num": 100,
-                "max_time_dim": 20,
-                "min_num_add_factor": 1,  # more masking
-                "freq_dim_factor": 5,
-            }
-            run_default_exp(
-                name + f"_specaugV1c",
-                train_args=args,
-                num_epochs=ep,
-                gpu_mem=11,
-                bpe_size=BPE_500,
-            )
-
-            for speed_pert_version in [3, 4]:
-                args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
-                args["speed_pert_version"] = speed_pert_version
+            # TODO: dec att dropout
+            for dec_att_drop in [0.0, 0.1]:
+                args, name = get_base_v2_args(
+                    ep, num_blocks, reduce_factor, dec_att_drop=dec_att_drop, lr_type="epoch-oclr", lr_opts={"lr": 1e-3}
+                )
+                args["specaug_version"] = 1
+                args["decoder_args"].att_dropout = dec_att_drop
                 run_default_exp(
-                    name + f"_sptV{speed_pert_version}",
+                    name + f"_decAttDrop{dec_att_drop}_specaug1",
                     train_args=args,
                     num_epochs=ep,
                     gpu_mem=11,
                     bpe_size=BPE_500,
                 )
-
-            args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
-            args["speed_pert_version"] = {"max_factor": 3, "min_factor": -2, "step": 0.1}
-            run_default_exp(
-                name + "_sptVa",
-                train_args=args,
-                num_epochs=ep,
-                gpu_mem=11,
-                bpe_size=BPE_500,
-            )
-
-    # TODO: no pretrain
-    # for ep in [50 * 6]:
-    #     for num_blocks, reduce_factor in [(8, 1.0)]:
-    #         args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
-    #         args["specaug_version"] = 1
-    #         args["with_pretrain"] = False
-    #         run_default_exp(
-    #             name + f"_specaug{specaug_version}_currV1",
-    #             train_args=args,
-    #             num_epochs=ep,
-    #             gpu_mem=11,
-    #             bpe_size=BPE_500,
-    #             epoch_wise_filter=[(1, 5, 100), (6, 10, 200), (11, 15, 350)],
-    #         )
-    #         run_default_exp(
-    #             name + f"_specaug{specaug_version}_currV2",
-    #             train_args=args,
-    #             num_epochs=ep,
-    #             gpu_mem=11,
-    #             bpe_size=BPE_500,
-    #             epoch_wise_filter=[(1, 5, 200), (6, 10, 300), (11, 15, 350)],
-    #         )
-    #         run_default_exp(
-    #             name + f"_specaug{specaug_version}_currV3",
-    #             train_args=args,
-    #             num_epochs=ep,
-    #             gpu_mem=11,
-    #             bpe_size=BPE_500,
-    #             epoch_wise_filter=[(1, 5, 200), (6, 10, 300), (11, 15, 350), (16, 20, 400)],
-    #         )
 
     # TODO: longer train or retrain
     # conf_12l_dimF0.75_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_lr0.001_epochOCLR_specaug3_mixup-log10-nopre

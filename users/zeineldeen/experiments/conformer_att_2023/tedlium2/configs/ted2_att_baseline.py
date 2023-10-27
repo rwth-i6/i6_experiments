@@ -452,7 +452,7 @@ def conformer_baseline():
         if num_avg == 4:  # TODO: just for now to not break hashes
             train_job_avg_ckpt[exp_name] = averaged_checkpoint
 
-        best_checkpoint = get_best_checkpoint(train_job)
+        best_checkpoint = get_best_checkpoint(train_job, key=kwargs.get("avg_key", "dev_score_output/output_prob"))
         train_job_best_epoch[exp_name] = best_checkpoint
 
         if recog_epochs is None:
@@ -987,8 +987,8 @@ def conformer_baseline():
     # )
 
     # monotonic att weights loss
-    for monotonic_att_loss in ["l1", "l2"]:
-        for scale in [1e-2, 2e-2]:
+    for monotonic_att_loss in ["l1"]:
+        for scale in [1e-2, 2e-2, 3e-2, 5e-2]:
             args, exp_name = get_base_v1_args(8e-4, 50 * 4)
             args["decoder_args"].monotonic_att_weights_loss = monotonic_att_loss
             args["decoder_args"].monotonic_att_weights_loss_scale = scale
@@ -1024,7 +1024,21 @@ def conformer_baseline():
                                 recog_bliss=search_data[testset][2],
                             )
 
-    # TODO: init from global and retrain with constraint loss
+        # l2 unstable with scales 1e-2, 2e-2
+    for monotonic_att_loss in ["l2"]:
+        for scale in [1e-3]:
+            args, exp_name = get_base_v1_args(8e-4, 50 * 4)
+            args["decoder_args"].monotonic_att_weights_loss = monotonic_att_loss
+            args["decoder_args"].monotonic_att_weights_loss_scale = scale
+            train_job, train_data = run_exp(
+                exp_name + f"_monotonicAttLoss{scale}_{monotonic_att_loss}",
+                args,
+                num_epochs=50 * 4,
+                epoch_wise_filter=None,
+                bpe_size=BPE_1K,
+                partition_epoch=4,
+                avg_key="dev_score_output/monotonic_att_weights_loss",
+            )
 
     # TODO: longer training with more regularization
     # TODO: embed dropout?
@@ -1080,6 +1094,7 @@ def conformer_baseline():
                                     bpe_size=BPE_1K,
                                     partition_epoch=4,
                                 )
+                                best_model_name = name
 
                                 recog_datasets_tuples = get_test_dataset_tuples(bpe_size=BPE_1K)
 
@@ -1118,6 +1133,7 @@ def conformer_baseline():
                                     epoch_wise_filter=None,
                                     bpe_size=BPE_1K,
                                     partition_epoch=4,
+                                    avg_key="dev_score",
                                 )
 
                                 # TODO: only CTC
@@ -1139,6 +1155,53 @@ def conformer_baseline():
                                 _, train_data = run_exp(
                                     name + "_ctcScale0.3",
                                     scale_ctc_args,
+                                    num_epochs=ep,
+                                    epoch_wise_filter=None,
+                                    bpe_size=BPE_1K,
+                                    partition_epoch=4,
+                                )
+
+                                # TODO: import + retrain with monotonic constraint loss
+                                for ep in [20 * 4]:
+                                    for const_ep in [2 * 4]:
+                                        for lr in [3e-4, 5e-4]:
+                                            for mono_scale in [None, 1e-1, 1e-2]:
+                                                retrain_args = copy.deepcopy(args)
+                                                retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[best_model_name]
+                                                exp_name = best_model_name
+                                                if mono_scale:
+                                                    retrain_args["decoder_args"].monotonic_att_weights_loss = "l1"
+                                                    retrain_args[
+                                                        "decoder_args"
+                                                    ].monotonic_att_weights_loss_scale = scale
+                                                    exp_name += f"_monotonicAttLoss{scale}_l1"
+
+                                                # override oclr
+                                                retrain_args["learning_rates_list"] = [lr] * const_ep + list(
+                                                    numpy.linspace(lr, 1e-6, ep - const_ep)
+                                                )
+
+                                                exp_name += f"_lr{lr}_constEp{const_ep}_retrain{ep}"
+                                                run_exp(
+                                                    exp_name,
+                                                    retrain_args,
+                                                    num_epochs=ep,
+                                                    epoch_wise_filter=None,
+                                                    bpe_size=BPE_1K,
+                                                    partition_epoch=4,
+                                                )
+
+                                # TODO: more specaug
+                                specaug_args = copy.deepcopy(args)
+                                specaug_args["specaug_str_func_opts"] = {
+                                    "max_time_num": 80,  # more time masking
+                                    "max_time_dim": 20,
+                                    "min_num_add_factor": 1,  # more masking
+                                    "freq_dim_factor": 5,
+                                }
+                                _, train_data = run_exp(
+                                    name + "_specAugV1a",
+                                    specaug_args,
                                     num_epochs=ep,
                                     epoch_wise_filter=None,
                                     bpe_size=BPE_1K,
