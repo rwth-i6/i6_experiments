@@ -672,7 +672,7 @@ def run_single(
                         opt_lm_am_scale=True,
                         prior_epoch=min(ep, keep_epochs[-2]),
                         decode_trafo_lm=ep == max(keep_epochs) and peak_lr == 8e-5,
-                        rtf=12,
+                        rtf=20,
                     )
 
                 if run_performance_study:
