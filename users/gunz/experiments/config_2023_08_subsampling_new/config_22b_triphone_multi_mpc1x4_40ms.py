@@ -488,7 +488,7 @@ def run_single(
                     CONF_CHUNKING_10MS, ss_factor, subsampled_key=["centerState", "futureLabel", "pastLabel"]
                 ),
                 "extern_data": {
-                    "data": {"dim": 50},
+                    "data": {"dim": 50, "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)}},
                     "centerState": {"dim": 252, "sparse": True},
                     "tieCenterState": {"dim": 84, "sparse": True},
                     "pastLabel": {"dim": 42, "sparse": True},
