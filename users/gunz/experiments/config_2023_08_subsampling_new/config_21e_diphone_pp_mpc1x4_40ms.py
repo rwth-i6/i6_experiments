@@ -861,7 +861,6 @@ def run_single(
                                 "filename": bw_train_job.out_checkpoints[fine_tune_epochs],
                             }
                         },
-                        "stop_on_nonfinite_train_score": False,
                     },
                     post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": smbr_keep_epochs}},
                     python_epilog={
