@@ -91,6 +91,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     del config_["torch_amp"]
     config_["batch_size"] = 30_000 * _batch_size_factor
     _train_exp("base-24gb-bs30k-f32", config_)
+    del config_
 
     config_24gb_v2 = _update_dict_deep(
         config_24gb,
@@ -100,46 +101,10 @@ def sis_run_with_prefix(prefix_name: str = None):
             "specaugment_max_consecutive_feature_dims": 10,
         },
     )
-    model_with_checkpoint = train(
-        prefix_name + "/base-24gb-v2",
-        task=task,
-        config=config_24gb_v2,
-        post_config=post_config,
-        model_def=from_scratch_model_def,
-        train_def=from_scratch_training,
-        num_epochs=2000,
-        gpu_mem=24,
-    )
-    recog_training_exp(prefix_name + "/base-24gb-v2", task, model_with_checkpoint, recog_def=model_recog)
-
-    config_ = config_24gb_v2.copy()
-    config_["learning_rate"] = 0.001
-    model_with_checkpoint = train(
-        prefix_name + "/base-24gb-v2-lr1e_3",
-        task=task,
-        config=config_,
-        post_config=post_config,
-        model_def=from_scratch_model_def,
-        train_def=from_scratch_training,
-        num_epochs=2000,
-        gpu_mem=24,
-    )
-    recog_training_exp(prefix_name + "/base-24gb-v2-lr1e_3", task, model_with_checkpoint, recog_def=model_recog)
-
-    config_ = config_.copy()
-    config_["grad_scaler"] = None
-    model_with_checkpoint = train(
-        prefix_name + "/base-24gb-v2-lr1e_3-nogradscaler",
-        task=task,
-        config=config_,
-        post_config=post_config,
-        model_def=from_scratch_model_def,
-        train_def=from_scratch_training,
-        num_epochs=2000,
-        gpu_mem=24,
-    )
-    recog_training_exp(
-        prefix_name + "/base-24gb-v2-lr1e_3-nogradscaler", task, model_with_checkpoint, recog_def=model_recog
+    _train_exp("base-24gb-v2", config_24gb_v2)
+    _train_exp("base-24gb-v2-lr1e_3", config_24gb_v2, config_updates={"learning_rate": 0.001})
+    _train_exp(
+        "base-24gb-v2-lr1e_3-nogradscaler", config_24gb_v2, config_updates={"learning_rate": 0.001, "grad_scaler": None}
     )
 
     config_24gb_v3 = config_24gb_v2.copy()
