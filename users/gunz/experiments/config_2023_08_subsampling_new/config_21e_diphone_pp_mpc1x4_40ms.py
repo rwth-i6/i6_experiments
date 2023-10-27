@@ -10,17 +10,21 @@ import itertools
 import numpy as np
 import os
 
+from i6_core.rasr import PrecomputedHybridFeatureScorer
+
 # -------------------- Sisyphus --------------------
 from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
 
-import i6_core.rasr as rasr
-import i6_core.returnn as returnn
+from i6_core import corpus, mm, rasr, returnn
+from i6_core.features import FeatureExtractionJob, basic_cache_flow
+from i6_core.returnn.flow import add_tf_flow_to_base_flow, make_precomputed_hybrid_tf_feature_flow
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
+from ...setups.common.nn import baum_welch, oclr, returnn_time_tag, seq_disc
+from ...setups.common.nn.compile_graph import compile_tf_graph_from_returnn_config
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
@@ -528,8 +532,8 @@ def run_single(
         ]
 
         for bw_scale, peak_lr in itertools.product(bw_scales, [5e-5, 8e-5]):
-            name = f"{orig_name}-fs{peak_lr}-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
-            s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=name)
+            ft_name = f"{orig_name}-fs{peak_lr}-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
+            s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=ft_name)
 
             s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
             s.lexicon_args["norm_pronunciation"] = False
@@ -604,7 +608,7 @@ def run_single(
                 "partition_epochs": partition_epochs,
                 "returnn_config": copy.deepcopy(returnn_config_ft),
             }
-            s.returnn_rasr_training(
+            bw_train_job = s.returnn_rasr_training(
                 experiment_key="fh-fs",
                 train_corpus_key=s.crp_names["train"],
                 dev_corpus_key=s.crp_names["cvtrain"],
@@ -718,6 +722,221 @@ def run_single(
                         prior_epoch=min(ep, keep_epochs[-2]),
                         rtf=12,
                     )
+
+            for mix_ce, smbr_peak_lr in itertools.product(["joint"], [5e-6]):
+                smbr_epochs = 80
+                smbr_keep_epochs = [int(v) for v in np.linspace(10, smbr_epochs, 8)]
+
+                smbr_name = f"{ft_name}-smbr:{smbr_epochs}-lr:{smbr_peak_lr}"
+                if mix_ce:
+                    smbr_name += "-ce"
+
+                s.set_experiment_dict("fh-smbr", "scratch", "di", postfix_name=smbr_name)
+
+                # Fool RASR into accepting subsampling nets
+                sampling_cfg = copy.deepcopy(nn_precomputed_returnn_config)
+                sampling_cfg.config["network"]["features_sampled"] = {
+                    "class": "slice",
+                    "from": "conv_merged",
+                    "axis": "F",
+                    "slice_end": s.initial_nn_args["num_input"],
+                    "register_as_extern_data": "features_sampled",
+                }
+                smbr_train_tf_flow = make_precomputed_hybrid_tf_feature_flow(
+                    tf_graph=compile_tf_graph_from_returnn_config(
+                        returnn_config=sampling_cfg, returnn_root=returnn_root, returnn_python_exe=s.returnn_python_exe
+                    ),
+                    tf_checkpoint=bw_train_job.out_checkpoints[fine_tune_epochs],
+                    output_layer_name="features_sampled",
+                )
+                train_flow = add_tf_flow_to_base_flow(s.feature_flows[train_key]["gt"], smbr_train_tf_flow)
+                crp = copy.deepcopy(s.crp[s.crp_names["train"]])
+                crp.concurrent = 300
+                crp.segment_path = corpus.SegmentCorpusJob(
+                    s.corpora[s.train_key].corpus_file, crp.concurrent
+                ).out_segment_path
+                ss_features = FeatureExtractionJob(
+                    crp=crp,
+                    feature_flow=train_flow,
+                    parallel=50,
+                    port_name_mapping={"features": "ss"},
+                    rtf=0.5,
+                )
+                feature_path = rasr.FlagDependentFlowAttribute(
+                    "cache_mode",
+                    {
+                        "bundle": ss_features.out_feature_bundle["ss"],
+                        "task_dependent": ss_features.out_feature_path["ss"],
+                    },
+                )
+                smbr_train_flow = basic_cache_flow(feature_path)
+                smbr_train_flow.flags["cache_mode"] = "bundle"
+
+                p_mixtures = mm.CreateDummyMixturesJob(
+                    s.label_info.get_n_of_dense_classes(), s.initial_nn_args["num_input"]
+                )
+                priors = s.experiments["fh-fs"]["priors"].center_state_prior
+                p_c = 0.6
+                lattice_feature_scorer = PrecomputedHybridFeatureScorer(
+                    prior_mixtures=p_mixtures.out_mixtures,
+                    prior_file=priors.file,
+                    priori_scale=p_c,
+                )
+                lattice_tf_flow = make_precomputed_hybrid_tf_feature_flow(
+                    tf_graph=s.experiments["fh-fs"]["graph"]["inference"],
+                    tf_checkpoint=s.experiments["fh-fs"]["train_job"].out_checkpoints[fine_tune_epochs],
+                    output_layer_name="output",
+                    tf_fwd_input_name="tf-fwd-input",
+                )
+                lattice_feature_flow = add_tf_flow_to_base_flow(
+                    base_flow=s.feature_flows["train-other-960.train"],
+                    tf_flow=lattice_tf_flow,
+                    tf_fwd_input_name="tf-fwd-input",
+                )
+
+                returnn_config_smbr = diphone_joint_output.augment_to_joint_diphone_softmax(
+                    returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+                    label_info=s.label_info,
+                    out_joint_score_layer="output",
+                    log_softmax=True,
+                    prepare_for_train=True,
+                )
+                returnn_config_smbr = seq_disc.augment_for_smbr(
+                    crp=s.crp[s.crp_names["train"]],
+                    feature_flow_lattice_generation=lattice_feature_flow,
+                    feature_flow_smbr_training=smbr_train_flow,
+                    feature_scorer_lattice_generation=lattice_feature_scorer,
+                    from_output_layer="output",
+                    beam_limit=20,
+                    lm_scale=1.3,
+                    pron_scale=2.0,
+                    returnn_config=returnn_config_smbr,
+                    ce_smoothing=0.1,
+                    smbr_params=seq_disc.SmbrParameters(
+                        num_classes=s.label_info.get_n_of_dense_classes(),
+                        num_data_dim=50,
+                    ),
+                )
+                if mix_ce == "joint":
+                    returnn_config_smbr.config["network"]["output"] = {
+                        **returnn_config_smbr.config["network"]["output"],
+                        "loss_opts": {
+                            **returnn_config_smbr.config["network"]["output"].get("loss_opts", {}),
+                            "focal_loss_factor": CONF_FOCAL_LOSS,
+                        },
+                    }
+                else:
+                    raise ValueError(f"unknown value for mix_ce {mix_ce}")
+
+                lrates = oclr.get_learning_rates(
+                    lrate=smbr_peak_lr,
+                    increase=0,
+                    constLR=math.floor(smbr_epochs * 0.45),
+                    decay=math.floor(smbr_epochs * 0.45),
+                    decMinRatio=0.1,
+                    decMaxRatio=1,
+                )
+                smbr_update_config = returnn.ReturnnConfig(
+                    config={
+                        "batch_size": 10000,
+                        "extern_data": {
+                            "classes": {
+                                "available_for_inference": False,
+                                "dim": diphone_li.get_n_of_dense_classes(),
+                                "dtype": "int32",
+                                "same_dim_tags_as": None,
+                                "sparse": True,
+                            },
+                            "data": {"dim": 50},
+                        },
+                        "learning_rates": list(
+                            np.concatenate([lrates, np.linspace(min(lrates), 1e-6, smbr_epochs - len(lrates))])
+                        ),
+                        "max_reps_time": 0,
+                        "max_reps_feature": 0,
+                        "preload_from_files": {
+                            "existing-model": {
+                                "init_for_train": True,
+                                "ignore_missing": True,
+                                "filename": bw_train_job.out_checkpoints[fine_tune_epochs],
+                            }
+                        },
+                        "stop_on_nonfinite_train_score": False,
+                    },
+                    post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": smbr_keep_epochs}},
+                    python_epilog={
+                        "dynamic_lr_reset": "dynamic_learning_rate = None",
+                    },
+                )
+
+                returnn_config_smbr.update(smbr_update_config)
+
+                s.set_returnn_config_for_experiment("fh-smbr", copy.deepcopy(returnn_config_smbr))
+                s.set_graph_for_experiment("fh-smbr", override_cfg=nn_precomputed_returnn_config)
+
+                train_args = {
+                    **s.initial_train_args,
+                    "cpu_rqmt": 2,
+                    "mem_rqmt": 12,
+                    "log_verbosity": 5,
+                    "num_epochs": smbr_epochs,
+                    "partition_epochs": partition_epochs,
+                    "returnn_config": copy.deepcopy(returnn_config_smbr),
+                }
+                s.returnn_rasr_training(
+                    experiment_key="fh-smbr",
+                    train_corpus_key=s.crp_names["train"],
+                    dev_corpus_key=s.crp_names["cvtrain"],
+                    nn_train_args=train_args,
+                    include_alignment=bool(mix_ce),
+                    on_2080=True,
+                )
+
+                for ep, crp_k in itertools.product(smbr_keep_epochs, ["dev-other"]):
+                    s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+                    s.set_mono_priors_returnn_rasr(
+                        key="fh-smbr",
+                        epoch=min(ep, smbr_keep_epochs[-2]),
+                        train_corpus_key=s.crp_names["train"],
+                        dev_corpus_key=s.crp_names["cvtrain"],
+                        smoothen=True,
+                        returnn_config=remove_label_pops_and_losses_from_returnn_config(
+                            prior_config, except_layers=["pastLabel"]
+                        ),
+                        output_layer_name="output",
+                    )
+
+                    diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+                    tying_cfg = rasr.RasrConfig()
+                    tying_cfg.type = "diphone-dense"
+
+                    base_params = s.get_cart_params(key="fh-smbr")
+                    decoding_cfgs = [
+                        dataclasses.replace(
+                            base_params,
+                            beam=20,
+                            lm_scale=1.4,
+                            tdp_scale=sc,
+                        ).with_prior_scale(pC)
+                        for sc, pC in itertools.product([0.4, 0.6], [0.4, 0.6])
+                    ]
+                    for cfg in decoding_cfgs:
+                        s.recognize_cart(
+                            key="fh-smbr",
+                            epoch=ep,
+                            crp_corpus=crp_k,
+                            n_cart_out=diphone_li.get_n_of_dense_classes(),
+                            cart_tree_or_tying_config=tying_cfg,
+                            params=cfg,
+                            log_softmax_returnn_config=nn_precomputed_returnn_config,
+                            calculate_statistics=True,
+                            opt_lm_am_scale=True,
+                            prior_epoch=min(ep, smbr_keep_epochs[-2]),
+                            rtf=8,
+                            cpu_rqmt=2,
+                            mem_rqmt=4,
+                        )
 
     if run_tdp_study:
         s.feature_flows["dev-other"].flags["cache_mode"] = "bundle"
