@@ -831,11 +831,21 @@ def run_single(
                     ),
                 )
                 if mix_ce == "joint":
-                    returnn_config_smbr.config["network"]["output"] = {
-                        **returnn_config_smbr.config["network"]["output"],
-                        "loss_opts": {
-                            **returnn_config_smbr.config["network"]["output"].get("loss_opts", {}),
-                            "focal_loss_factor": CONF_FOCAL_LOSS,
+                    returnn_config_smbr.config["network"] = {
+                        **returnn_config_smbr.config["network"],
+                        "slice_classes": {
+                            "class": "slice",
+                            "from": "data:classes",
+                            "axis": "T",
+                            "slice_step": ss_factor,
+                        },
+                        "output": {
+                            **returnn_config_smbr.config["network"]["output"],
+                            "loss_opts": {
+                                **returnn_config_smbr.config["network"]["output"].get("loss_opts", {}),
+                                "focal_loss_factor": CONF_FOCAL_LOSS,
+                            },
+                            "target": "slice_classes",
                         },
                     }
                 else:
@@ -857,10 +867,10 @@ def run_single(
                                 "available_for_inference": False,
                                 "dim": diphone_li.get_n_of_dense_classes(),
                                 "dtype": "int32",
-                                "same_dim_tags_as": None,
+                                "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)},
                                 "sparse": True,
                             },
-                            "data": {"dim": 50},
+                            "data": {"dim": 50, "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)}},
                         },
                         "learning_rates": list(
                             np.concatenate([lrates, np.linspace(min(lrates), 1e-6, smbr_epochs - len(lrates))])
