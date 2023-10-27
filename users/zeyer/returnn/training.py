@@ -15,6 +15,7 @@ from i6_core.returnn.training import Checkpoint
 from i6_core.returnn.config import ReturnnConfig
 import i6_core.util as util
 import returnn.config
+from returnn.util.math import next_power_of_two
 
 
 class ReturnnInitModelJob(Job):
@@ -256,7 +257,7 @@ def default_returnn_keep_epochs(num_epochs: int) -> Set[int]:
         keep_every = 40
         keep_doubles_of = 10
     else:
-        keep_every = 80
+        keep_every = 80 * next_power_of_two(1 + num_epochs // 240)
         keep_doubles_of = 20
     for i in count(1):
         n = keep_every * i
