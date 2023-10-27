@@ -454,7 +454,7 @@ def run_single(
             mem_rqmt=4,
             n_cart_out=diphone_li.get_n_of_dense_classes(),
             opt_lm_am_scale=True,
-            alias_output_prefix="recog-40ms-altas-tuning-check/",
+            alias_output_prefix=f"recog-40ms-altas-tuning-check-we{we_p}/",
             params=dataclasses.replace(base_params, beam=beam, we_pruning=we_p).with_prior_scale(p_c),
         )
 
