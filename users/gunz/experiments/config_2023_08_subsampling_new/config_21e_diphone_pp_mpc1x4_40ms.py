@@ -810,6 +810,8 @@ def run_single(
                     log_softmax=True,
                     prepare_for_train=True,
                 )
+                for l in [k for k in returnn_config_smbr.config["network"].keys() if k.startswith("aux")]:
+                    returnn_config_smbr.config["network"].pop(l)
                 returnn_config_smbr = seq_disc.augment_for_smbr(
                     crp=s.crp[s.crp_names["train"]],
                     feature_flow_lattice_generation=lattice_feature_flow,
