@@ -666,6 +666,7 @@ def run_single(
                         opt_lm_am_scale=True,
                         prior_epoch=min(ep, keep_epochs[-2]),
                         decode_trafo_lm=ep == max(keep_epochs) and peak_lr == 8e-5,
+                        alias_output_prefix="recog-we0.8" if cfg.we_pruning != 0.5 else "",
                         fix_tdp_non_word_tying=True,
                         rtf=20,
                     )
