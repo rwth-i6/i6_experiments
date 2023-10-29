@@ -646,7 +646,7 @@ def run_single(
                             tdp_scale=tdp_sc,
                             we_pruning=we_p,
                         ).with_prior_scale(p_c)
-                        for p_c, tdp_sc, beam, we_p in itertools.product([0.4, 0.6], [0.2, 0.4])
+                        for p_c, tdp_sc in itertools.product([0.4, 0.6], [0.2, 0.4])
                     ]
                     decoding_cfgs.append(
                         dataclasses.replace(
