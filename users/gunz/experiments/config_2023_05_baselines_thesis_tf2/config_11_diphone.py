@@ -121,7 +121,7 @@ def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Lis
             decode_all_corpora=False,
             lr="v13",
             n_states_per_phone=1,
-            run_performance_study=False,  # TODO fixme w/ proper params
+            run_performance_study=True,  # TODO fixme w/ proper params
             tune_decoding=False,
         ),
         *(
@@ -518,7 +518,7 @@ def run_single(
                 beam=b,
                 beam_limit=b_l,
                 lm_scale=7.51,
-                tdp_scale=0.4,
+                tdp_scale=0.4 if n_states_per_phone == 3 else 0.2,
             )
             nice = "--nice=500" if n_states_per_phone < 3 else f"--nice={int(max_bl - b_l / 1000)}"
             job = s.recognize_cart(
@@ -551,7 +551,7 @@ def run_single(
                 beam=b,
                 beam_limit=b_l,
                 lm_scale=7.51,
-                tdp_scale=0.4,
+                tdp_scale=0.4 if n_states_per_phone == 3 else 0.2,
             )
             nice = "--nice=500" if n_states_per_phone < 3 else f"--nice={int(max_bl - b_l / 1000)}"
             job = s.recognize_cart(
