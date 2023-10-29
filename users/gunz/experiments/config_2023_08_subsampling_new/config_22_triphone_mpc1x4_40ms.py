@@ -552,6 +552,16 @@ def run_single(
         ]:
             ft_config.config["network"].pop(k, None)
 
+        for l in ft_config.config["network"].values():
+            if l.get("target", None) == "centerState":
+                l["target"] = "tieCenterState"
+            if l.get("from", None) in ["centerState", "data:centerState"]:
+                l["from"] = "tieCenterState"
+            if l.get("from", None) in ["pastLabel", "data:pastLabel"]:
+                l["from"] = "pastLabel_"
+            if l.get("from", None) in ["futureLabel", "data:futureLabel"]:
+                l["from"] = "futureLabel_"
+
         ph_st_classes = s.label_info.phoneme_state_classes.factor()
         ft_config.config["network"] = {
             **ft_config.config["network"],
@@ -578,15 +588,6 @@ def run_single(
                 "from": "data:centerState",
             },
         }
-        for l in ft_config.config["network"].values():
-            if l.get("target", None) == "centerState":
-                l["target"] = "tieCenterState"
-            if l.get("from", None) in ["centerState", "data:centerState"]:
-                l["from"] = "tieCenterState"
-            if l.get("from", None) in ["pastLabel", "data:pastLabel"]:
-                l["from"] = "pastLabel_"
-            if l.get("from", None) in ["futureLabel", "data:futureLabel"]:
-                l["from"] = "futureLabel_"
 
         for l in [l for l in ft_config.config["network"].keys() if l.lower().startswith("aux")]:
             ft_config.config["network"].pop(l)
