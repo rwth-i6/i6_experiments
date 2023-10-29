@@ -1848,7 +1848,7 @@ class FactoredHybridSystem(NnSystem):
             optimize_pron_lm_scales=opt_lm_am_scale,
         )
 
-        if calculate_statistics:
+        if False and calculate_statistics: # properly implemented now
             assert adv_tree_search_job is not None
 
             stats_job = ExtractSearchStatisticsJob(
@@ -1864,7 +1864,7 @@ class FactoredHybridSystem(NnSystem):
                 tdp_nonspeech=to_tdp(params.tdp_non_word),
                 altas=params.altas,
             )
-            stats_alias = f"{alias_output_prefix}statistics-nn-pch/{self.experiments[key]['name']}/ep{epoch}/rp{prior_epoch}/{exp_str}_beam{params.beam}_bl{params.beam_limit}"
+            stats_alias = f"{alias_output_prefix}statistics-nn-pch/{self.experiments[key]['name']}/ep{epoch}/lm-4gram/rp{prior_epoch}/{crp_corpus}/{exp_str}_beam{params.beam}_bl{params.beam_limit}"
 
             stats_job.add_alias(stats_alias)
             tk.register_output(f"{stats_alias}/avg_states", stats_job.avg_states)
