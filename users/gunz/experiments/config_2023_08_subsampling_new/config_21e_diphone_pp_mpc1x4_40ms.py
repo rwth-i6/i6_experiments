@@ -636,23 +636,33 @@ def run_single(
                 tying_cfg.type = "diphone-dense"
 
                 base_params = s.get_cart_params(key="fh-fs")
-                decoding_cfgs = [
-                    dataclasses.replace(base_params, lm_scale=1.5, tdp_scale=sc).with_prior_scale(pC)
-                    for sc, pC in [(0.4, 0.3), (0.2, 0.4), (0.4, 0.4), (0.2, 0.5)]
-                ]
                 if ep == max(keep_epochs) and peak_lr == 8e-5:
-                    decoding_cfgs2 = [
+                    decoding_cfgs = [
                         dataclasses.replace(
                             s.get_cart_params("fh"),
-                            beam=beam,
+                            beam=18,
                             beam_limit=50000,
                             lm_scale=1.5,
-                            tdp_scale=0.4,
+                            tdp_scale=tdp_sc,
                             we_pruning=we_p,
                         ).with_prior_scale(p_c)
-                        for p_c, beam, we_p in itertools.product([0.6, 0.4], [18, 22], [0.5, 0.8])
+                        for p_c, tdp_sc, beam, we_p in itertools.product([0.4, 0.6], [0.2, 0.4])
                     ]
-                    decoding_cfgs = [*decoding_cfgs, *decoding_cfgs2]
+                    decoding_cfgs.append(
+                        dataclasses.replace(
+                            s.get_cart_params("fh"),
+                            beam=22,
+                            beam_limit=50000,
+                            lm_scale=1.5,
+                            tdp_scale=0.2,
+                            we_pruning=0.8,
+                        ).with_prior_scale(0.4)
+                    )
+                else:
+                    decoding_cfgs = [
+                        dataclasses.replace(base_params, lm_scale=1.5, tdp_scale=sc).with_prior_scale(pC)
+                        for sc, pC in [(0.4, 0.3), (0.2, 0.4), (0.4, 0.4), (0.2, 0.5)]
+                    ]
                 for cfg in decoding_cfgs:
                     s.recognize_cart(
                         key="fh-fs",
