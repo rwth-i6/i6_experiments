@@ -817,10 +817,12 @@ def run_single(
                 decoding_cfgs = [
                     dataclasses.replace(
                         base_params,
+                        beam=18,
+                        beam_limit=50000,
                         lm_scale=round(base_params.lm_scale / ss_factor, 2),
-                        tdp_scale=sc,
-                    ).with_prior_scale(0.6)
-                    for sc in [0.4, 0.6]
+                        tdp_scale=tdp_sc,
+                    ).with_prior_scale(p_c)
+                    for tdp_sc, p_c in itertools.product([0.2, 0.4], [0.4, 0.6])
                 ]
                 for cfg in decoding_cfgs:
                     s.recognize_cart(
@@ -834,6 +836,7 @@ def run_single(
                         calculate_statistics=True,
                         opt_lm_am_scale=True,
                         prior_epoch=min(ep, keep_epochs[-2]),
+                        fix_tdp_non_word_tying=True,
                         decode_trafo_lm=trafo,
                         rtf=8,
                         cpu_rqmt=2,
