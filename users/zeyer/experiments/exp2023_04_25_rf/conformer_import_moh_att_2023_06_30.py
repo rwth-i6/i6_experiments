@@ -91,6 +91,15 @@ def sis_run_with_prefix(prefix_name: str = None):
     _train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})
     _train_exp("base-24gb-v3-lr1e_3", config_24gb_v3, config_updates={"learning_rate": 0.001})
     _train_exp(
+        "base-24gb-v3-adam-lossscalesX10",
+        config_24gb_v3,
+        config_updates={
+            "optimizer.class": "adam",
+            "aux_loss_scales": [1, 2],
+            "aed_loss_scale": 1,
+        },
+    )
+    _train_exp(
         "base-24gb-v3-adam-lossscales-lossnonorm",
         config_24gb_v3,
         config_updates={
