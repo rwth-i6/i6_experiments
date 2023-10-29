@@ -1647,6 +1647,7 @@ class FactoredHybridSystem(NnSystem):
             crp.acoustic_model_config.state_tying.type = "cart"
 
         if fix_tdp_non_word_tying:
+            crp.acoustic_model_config.tdp.nonword_phones = params.non_word_phonemes
             crp.acoustic_model_config.tdp.tying_type = "global-and-nonword"
 
         if crp_update is not None:
@@ -1667,11 +1668,15 @@ class FactoredHybridSystem(NnSystem):
             kwargs["separate_lm_image_gc_generation"] = True
 
             # work around bug in basedecoder w/ extra config
-            if False and decode_trafo_lm and kwargs["crp"].language_model_config.type.lower() != "arpa":
+            if decode_trafo_lm and kwargs["crp"].language_model_config.type.lower() != "arpa":
                 adv_search_extra_config = copy.deepcopy(kwargs["extra_config"])
                 if adv_search_extra_config is None:
                     adv_search_extra_config = rasr.RasrConfig()
 
+                adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.separate_lookahead_lm = True
+                adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.lm_lookahead_scale = (
+                    params.lm_scale
+                )
                 adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.image = (
                     lm_img_job.out_image
                 )
@@ -1816,7 +1821,7 @@ class FactoredHybridSystem(NnSystem):
                 cpu=cpu_rqmt,
                 lm_lookahead=True,
                 lmgc_mem=12,
-                lookahead_options=None,
+                lookahead_options=None,  # Set above only for Trafo decodings as extra config
                 create_lattice=create_lattice,
                 eval_best_in_lattice=True,
                 eval_single_best=True,
