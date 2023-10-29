@@ -1674,9 +1674,9 @@ class FactoredHybridSystem(NnSystem):
                     adv_search_extra_config = rasr.RasrConfig()
 
                 adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.separate_lookahead_lm = True
-                adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.lm_lookahead_scale = (
-                    params.lm_scale
-                )
+                adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.lm_lookahead_scale = kwargs[
+                    "crp"
+                ].language_model_config.scale
                 adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.image = (
                     lm_img_job.out_image
                 )
