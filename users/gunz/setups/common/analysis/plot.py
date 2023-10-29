@@ -124,7 +124,7 @@ class PlotPhonemeDurationsJob(Job):
 
 
 class PlotViterbiAlignmentsJob(Job):
-    __sis_hash_exclude__ = {"show_title": True}
+    __sis_hash_exclude__ = {"font_size": 10, "show_title": True}
 
     def __init__(
         self,
@@ -134,12 +134,14 @@ class PlotViterbiAlignmentsJob(Job):
         show_labels: bool,
         show_title: bool = True,
         sil_allophone: str = "[SILENCE]",
+        font_size: int = 10,
         monophone: bool = True,
     ):
         self.alignment_bundle_path = alignment_bundle_path
         self.allophones_path = allophones_path
         self.sil_allophone = sil_allophone
         self.monophone = monophone
+        self.font_size = font_size
         self.show_labels = show_labels
         self.show_title = show_title
         self.segments = segments
@@ -175,7 +177,9 @@ class PlotViterbiAlignmentsJob(Job):
             out_plot_files = self.out_plots
 
         for seg, out_path in zip(segments_to_plot, out_plot_files):
-            fig, ax, *_ = processor.plot_segment(seg, show_labels=self.show_labels, show_title=self.show_title)
+            fig, ax, *_ = processor.plot_segment(
+                seg, font_size=self.font_size, show_labels=self.show_labels, show_title=self.show_title
+            )
             if self.show_title:
                 fig.savefig(out_path, transparent=True)
             else:

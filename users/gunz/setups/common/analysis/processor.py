@@ -55,7 +55,7 @@ class AlignmentProcessor:
         num_sil = sum((1 for st in alignment_states if self.sil_allophone in st.upper()))
         return num_sil / len(alignment_states)
 
-    def plot_segment(self, seg_name: str, show_labels: bool, show_title: bool = True):
+    def plot_segment(self, seg_name: str, show_labels: bool, font_size: int = 10, show_title: bool = True):
         def get_next_segment(align, start, collapse_3state=False):
             assert start < len(align)
             allo_idx = align[start][1]
@@ -97,6 +97,8 @@ class AlignmentProcessor:
 
         def plot(viterbi_image, allophone_sequence, seq_tag, show_labels=True):
             import matplotlib.pyplot as plt
+
+            plt.rc("font", size=font_size)
 
             C, T = np.shape(viterbi_image)
 

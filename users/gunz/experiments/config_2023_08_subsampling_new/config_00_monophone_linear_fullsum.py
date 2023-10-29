@@ -567,6 +567,7 @@ def run_single(
             "train-other-960/6178-86034-0008/6178-86034-0008",
             "train-other-960/5983-39669-0034/5983-39669-0034",
         ],
+        font_size=25,
         show_labels=False,
         monophone=True,
     )
@@ -580,6 +581,7 @@ def run_single(
             "train-other-960/6178-86034-0008/6178-86034-0008",
             "train-other-960/5983-39669-0034/5983-39669-0034",
         ],
+        font_size=25,
         show_labels=False,
         show_title=False,
         monophone=True,
@@ -721,6 +723,7 @@ def run_single(
                     "train-other-960/6178-86034-0008/6178-86034-0008",
                     "train-other-960/5983-39669-0034/5983-39669-0034",
                 ],
+                font_size=25,
                 show_labels=False,
                 monophone=True,
             )
@@ -734,6 +737,7 @@ def run_single(
                     "train-other-960/6178-86034-0008/6178-86034-0008",
                     "train-other-960/5983-39669-0034/5983-39669-0034",
                 ],
+                font_size=25,
                 show_labels=False,
                 show_title=False,
                 monophone=True,

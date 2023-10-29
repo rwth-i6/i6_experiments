@@ -37,6 +37,7 @@ def run():
         alignment_bundle_path=Path(ZHOU_SUBSAMPLED_ALIGNMENT, cached=True),
         allophones_path=Path(ZHOU_ALLOPHONES),
         segments=["librispeech/2920-156224/0013"],
+        font_size=25,
         show_labels=False,
         monophone=True,
     )
@@ -45,6 +46,7 @@ def run():
         alignment_bundle_path=Path(ZHOU_SUBSAMPLED_ALIGNMENT, cached=True),
         allophones_path=Path(ZHOU_ALLOPHONES),
         segments=["librispeech/2920-156224/0013"],
+        font_size=25,
         show_labels=False,
         show_title=False,
         monophone=True,
@@ -73,6 +75,7 @@ def run():
             "train-other-960/6178-86034-0008/6178-86034-0008",
             "train-other-960/5983-39669-0034/5983-39669-0034",
         ],
+        font_size=25,
         show_labels=False,
         monophone=True,
     )
@@ -88,6 +91,7 @@ def run():
             "train-other-960/6178-86034-0008/6178-86034-0008",
             "train-other-960/5983-39669-0034/5983-39669-0034",
         ],
+        font_size=25,
         show_labels=False,
         show_title=False,
         monophone=True,
@@ -181,6 +185,7 @@ def run():
             "train-other-960/6178-86034-0008/6178-86034-0008",
             "train-other-960/5983-39669-0034/5983-39669-0034",
         ],
+        font_size=25,
         show_labels=False,
         monophone=True,
     )
@@ -194,6 +199,7 @@ def run():
             "train-other-960/6178-86034-0008/6178-86034-0008",
             "train-other-960/5983-39669-0034/5983-39669-0034",
         ],
+        font_size=25,
         show_labels=False,
         show_title=False,
         monophone=True,
