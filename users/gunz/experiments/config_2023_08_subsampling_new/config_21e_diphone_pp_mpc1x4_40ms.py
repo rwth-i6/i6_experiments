@@ -639,10 +639,10 @@ def run_single(
                 if ep == max(keep_epochs) and peak_lr == 8e-5:
                     decoding_cfgs = [
                         dataclasses.replace(
-                            s.get_cart_params("fh"),
+                            base_params,
                             beam=18,
                             beam_limit=50000,
-                            lm_scale=1.5,
+                            lm_scale=round(base_params.lm_scale / ss_factor, 2),
                             tdp_scale=tdp_sc,
                             we_pruning=we_p,
                         ).with_prior_scale(p_c)
@@ -650,10 +650,10 @@ def run_single(
                     ]
                     decoding_cfgs.append(
                         dataclasses.replace(
-                            s.get_cart_params("fh"),
+                            base_params,
                             beam=22,
                             beam_limit=50000,
-                            lm_scale=1.5,
+                            lm_scale=round(base_params.lm_scale / ss_factor, 2),
                             tdp_scale=0.2,
                             we_pruning=0.8,
                         ).with_prior_scale(0.4)
