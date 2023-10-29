@@ -520,7 +520,7 @@ def run_single(
                         ),
                         cpu_rqmt=2,
                         mem_rqmt=4,
-                        rtf_cpu=8,
+                        rtf_cpu=8 if altas is not None else 12,
                         crp_update=set_power_exe,
                         remove_or_set_concurrency=12,
                     )
