@@ -27,5 +27,6 @@ def run():
             font_size=25,
             show_labels=False,
             monophone=True,
+            show_title=False,
         )
         tk.register_output(f"alignments/{a_name}/alignment-plots", plots.out_plot_folder)
