@@ -319,6 +319,7 @@ def the_plan():
 
     # FS vs. MP
 
+    """
     phmm_30ms_mp_p0_3_a = get_n_blstm_a(
         feature_stacking=False,
         transition_scale=0.3,
@@ -366,6 +367,7 @@ def the_plan():
             (phmm_30ms_fs_p0_6_a, "30ms-Bfs-pC0.6"),
         ],
     )
+    """
 
     phmm_40ms_mp_p0_0_a = get_n_blstm_a(
         feature_stacking=False,
