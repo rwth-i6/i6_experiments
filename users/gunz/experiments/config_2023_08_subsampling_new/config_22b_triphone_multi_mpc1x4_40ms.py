@@ -435,7 +435,7 @@ def run_single(
         cart_tying_job = lexicon.DumpStateTyingJob(crp=cart_crp)
 
         dense_crp = copy.deepcopy(s.crp[s.crp_names["train"]])
-        dense_crp.acoustic_model_config.hmm.states_per_phone = 3
+        dense_crp.acoustic_model_config.hmm.states_per_phone = 1
         dense_tying_job = lexicon.DumpStateTyingJob(crp=dense_crp)
 
         allophones_job = lexicon.StoreAllophonesJob(crp=s.crp[s.crp_names["train"]])
@@ -489,8 +489,7 @@ def run_single(
                 ),
                 "extern_data": {
                     "data": {"dim": 50, "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)}},
-                    "centerState": {"dim": 252, "sparse": True},
-                    "tieCenterState": {"dim": 84, "sparse": True},
+                    "centerState": {"dim": 84, "sparse": True},
                     "pastLabel": {"dim": 42, "sparse": True},
                     "futureLabel": {"dim": 42, "sparse": True},
                 },
@@ -526,24 +525,16 @@ def run_single(
 
         for l in ft_config.config["network"].values():
             if l.get("target", None) == "centerState":
-                l["target"] = "tieCenterState"
+                l["target"] = "centerState_"
             if l.get("from", None) in ["centerState", "data:centerState"]:
-                l["from"] = "tieCenterState"
+                l["from"] = "centerState_"
             if l.get("from", None) in ["pastLabel", "data:pastLabel"]:
                 l["from"] = "pastLabel_"
             if l.get("from", None) in ["futureLabel", "data:futureLabel"]:
                 l["from"] = "futureLabel_"
 
-        ph_st_classes = s.label_info.phoneme_state_classes.factor()
         ft_config.config["network"] = {
             **ft_config.config["network"],
-            "tieCenterState": {
-                "class": "eval",
-                "from": "centerState_",
-                "eval": f"tf.math.floordiv(source(0), {ph_st_classes} * 3) * {ph_st_classes} + tf.math.floormod(source(0), {ph_st_classes})",
-                "register_as_extern_data": "tieCenterState",
-                "out_type": {"dim": 84, "dtype": "int32", "sparse": True},
-            },
             "futureLabel_": {
                 "class": "reinterpret_data",
                 "set_dim_tags": {"T": returnn.CodeWrapper(f"{time_tag_name}.ceildiv_right(4)")},
