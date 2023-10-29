@@ -1848,7 +1848,7 @@ class FactoredHybridSystem(NnSystem):
             optimize_pron_lm_scales=opt_lm_am_scale,
         )
 
-        if False and calculate_statistics: # properly implemented now
+        if False and calculate_statistics:  # properly implemented now
             assert adv_tree_search_job is not None
 
             stats_job = ExtractSearchStatisticsJob(
