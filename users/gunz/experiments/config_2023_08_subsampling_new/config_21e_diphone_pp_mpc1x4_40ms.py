@@ -644,7 +644,7 @@ def run_single(
                             beam_limit=50000,
                             lm_scale=round(base_params.lm_scale / ss_factor, 2),
                             tdp_scale=tdp_sc,
-                            we_pruning=we_p,
+                            we_pruning=0.5,
                         ).with_prior_scale(p_c)
                         for p_c, tdp_sc in itertools.product([0.4, 0.6], [0.2, 0.4])
                     ]
