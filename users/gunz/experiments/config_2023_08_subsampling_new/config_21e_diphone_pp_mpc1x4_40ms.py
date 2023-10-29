@@ -645,7 +645,7 @@ def run_single(
                         dataclasses.replace(
                             s.get_cart_params("fh"),
                             beam=beam,
-                            beam_limit=15000,
+                            beam_limit=50000,
                             lm_scale=1.5,
                             tdp_scale=0.4,
                             we_pruning=we_p,
