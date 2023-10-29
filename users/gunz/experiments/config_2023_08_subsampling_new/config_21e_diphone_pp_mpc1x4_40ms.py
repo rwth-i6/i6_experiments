@@ -844,6 +844,11 @@ def run_single(
                 if mix_ce == "joint":
                     returnn_config_smbr.config["network"] = {
                         **returnn_config_smbr.config["network"],
+                        "center-output_transposed": {
+                            "class": "transpose",
+                            "from": "center-output",
+                            "perm": {"dim:42": "dim:84", "dim:42": "dim:84"},
+                        },
                         "slice_classes": {
                             "class": "slice",
                             "from": "data:classes",
