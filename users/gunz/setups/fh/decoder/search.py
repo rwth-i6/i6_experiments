@@ -866,6 +866,7 @@ class FHDecoder:
         rtf_gpu: typing.Optional[float] = None,
         rtf_cpu: typing.Optional[float] = None,
         create_lattice: bool = True,
+        remove_or_set_concurrency: typing.Union[bool, int] = False,
     ) -> RecognitionJobs:
         return self.recognize(
             add_sis_alias_and_output=add_sis_alias_and_output,
@@ -891,6 +892,7 @@ class FHDecoder:
             rtf_cpu=rtf_cpu,
             rtf_gpu=rtf_gpu,
             create_lattice=create_lattice,
+            remove_or_set_concurrency=remove_or_set_concurrency,
         )
 
     def recognize(

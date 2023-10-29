@@ -528,6 +528,31 @@ def run_single(
                         {"sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]}
                     )
 
+                    jobs = recognizer.recognize_ls_trafo_lm(
+                        calculate_stats=True,
+                        gpu=False,
+                        label_info=s.label_info,
+                        name_override=f"altas{altas}-beam{beam}",
+                        num_encoder_output=conf_model_dim,
+                        opt_lm_am=False,
+                        pre_path="decoding-perf-single-core",
+                        search_parameters=dataclasses.replace(
+                            best_config,
+                            altas=altas,
+                            beam=beam,
+                            beam_limit=100_000,
+                            lm_scale=lm_scale + 2,
+                        ),
+                        cpu_rqmt=2,
+                        mem_rqmt=4,
+                        rtf_cpu=12 if altas is not None else 20,
+                        crp_update=set_power_exe,
+                        remove_or_set_concurrency=12,
+                    )
+                    jobs.search.rqmt.update(
+                        {"sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]}
+                    )
+
     if decode_all_corpora:
         for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-clean", "dev-other", "test-clean", "test-other"]):
             s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
