@@ -18,11 +18,7 @@ def run():
             allophones_path=Path(
                 "/u/mgunz/gunz/kept-experiments/2023-05--subsampling-tf2/alignments/30ms/conf-1-lr-v6-ss-3-fs-3-bw-0.3-pC-0.6-tdp-0.1-v2/allophones"
             ),
-            segments=[
-                "train-other-960/2920-156224-0013/2920-156224-0013",
-                "train-other-960/8011-111754-0020/8011-111754-0020",
-                "train-other-960/4771-6409-0009/4771-6409-0009",
-            ],
+            segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
             show_labels=False,
             monophone=True,
         )
