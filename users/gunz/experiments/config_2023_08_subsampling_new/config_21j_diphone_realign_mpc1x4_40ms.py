@@ -1070,7 +1070,7 @@ def run_single(
                         lm_scale=1.4,
                         tdp_scale=sc,
                     ).with_prior_scale(pC)
-                    for sc, pC in itertools.product([0.4, 0.6], [0.4, 0.6])
+                    for sc, pC in itertools.product([0.2, 0.4, 0.6], [0.4, 0.6])
                 ]
                 for cfg in decoding_cfgs:
                     s.recognize_cart(
