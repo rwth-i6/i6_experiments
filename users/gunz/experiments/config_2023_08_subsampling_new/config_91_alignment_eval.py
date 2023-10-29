@@ -67,7 +67,11 @@ def run():
         allophones_path=Path(
             "/work/asr3/raissi/shared_workspaces/gunz/2023-05--subsampling-tf2/i6_core/lexicon/allophones/StoreAllophonesJob.Qa3bLX1BHz42/output/allophones"
         ),
-        segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
+        segments=[
+            "train-other-960/2920-156224-0013/2920-156224-0013",
+            "train-other-960/8011-111754-0020/8011-111754-0020",
+            "train-other-960/4771-6409-0009/4771-6409-0009",
+        ],
         show_labels=False,
         monophone=True,
     )
@@ -77,7 +81,11 @@ def run():
         allophones_path=Path(
             "/work/asr3/raissi/shared_workspaces/gunz/2023-05--subsampling-tf2/i6_core/lexicon/allophones/StoreAllophonesJob.Qa3bLX1BHz42/output/allophones"
         ),
-        segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
+        segments=[
+            "train-other-960/2920-156224-0013/2920-156224-0013",
+            "train-other-960/8011-111754-0020/8011-111754-0020",
+            "train-other-960/4771-6409-0009/4771-6409-0009",
+        ],
         show_labels=False,
         show_title=False,
         monophone=True,
@@ -165,7 +173,11 @@ def run():
     plots = PlotViterbiAlignmentsJob(
         alignment_bundle_path=Path(ALIGN_GMM_TRI_10MS, cached=True),
         allophones_path=Path(ALIGN_GMM_TRI_ALLOPHONES),
-        segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
+        segments=[
+            "train-other-960/2920-156224-0013/2920-156224-0013",
+            "train-other-960/8011-111754-0020/8011-111754-0020",
+            "train-other-960/4771-6409-0009/4771-6409-0009",
+        ],
         show_labels=False,
         monophone=True,
     )
@@ -173,7 +185,11 @@ def run():
     plots = PlotViterbiAlignmentsJob(
         alignment_bundle_path=Path(ALIGN_GMM_TRI_10MS, cached=True),
         allophones_path=Path(ALIGN_GMM_TRI_ALLOPHONES),
-        segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
+        segments=[
+            "train-other-960/2920-156224-0013/2920-156224-0013",
+            "train-other-960/8011-111754-0020/8011-111754-0020",
+            "train-other-960/4771-6409-0009/4771-6409-0009",
+        ],
         show_labels=False,
         show_title=False,
         monophone=True,
