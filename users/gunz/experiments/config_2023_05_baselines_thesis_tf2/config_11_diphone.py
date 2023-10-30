@@ -521,7 +521,7 @@ def run_single(
                 tdp_scale=0.4 if n_states_per_phone == 3 else 0.2,
             )
             nice = "--nice=500" if n_states_per_phone < 3 else f"--nice={int(max_bl - b_l / 1000)}"
-            job = s.recognize_cart(
+            s.recognize_cart(
                 key="fh",
                 epoch=max(keep_epochs),
                 crp_corpus="dev-other",
@@ -536,8 +536,10 @@ def run_single(
                 remove_or_set_concurrency=12,
                 crp_update=set_power_exe,
                 rtf=2,
+                search_rqmt_update={
+                    "sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]
+                },
             )
-            job.rqmt.update({"sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]})
 
         for a, pC, b, b_l in itertools.product(
             [None, 2, 4, 6, 8],
@@ -553,8 +555,8 @@ def run_single(
                 lm_scale=7.51,
                 tdp_scale=0.4 if n_states_per_phone == 3 else 0.2,
             )
-            nice = "--nice=500" if n_states_per_phone < 3 else f"--nice={int(max_bl - b_l / 1000)}"
-            job = s.recognize_cart(
+            nice = "--nice=750" if n_states_per_phone < 3 else f"--nice={int(max_bl - b_l / 1000)}"
+            s.recognize_cart(
                 key="fh",
                 epoch=max(keep_epochs),
                 crp_corpus="dev-other",
@@ -570,8 +572,10 @@ def run_single(
                 crp_update=set_power_exe,
                 decode_trafo_lm=True,
                 rtf=15,
+                search_rqmt_update={
+                    "sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]
+                },
             )
-            job.rqmt.update({"sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]})
 
     # ###########
     # FINE TUNING
