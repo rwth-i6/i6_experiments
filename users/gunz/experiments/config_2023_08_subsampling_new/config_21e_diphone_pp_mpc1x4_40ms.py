@@ -108,7 +108,7 @@ def run(returnn_root: tk.Path):
             fine_tune=True,
             label_smoothing=CONF_LABEL_SMOOTHING,
             lr="v13",
-            run_performance_study=False,
+            run_performance_study="B" in a_name,
             tune_decoding=True,
             run_tdp_study=False,
         )
@@ -682,33 +682,82 @@ def run_single(
                     )
 
                 if run_performance_study:
-                    configs = [
-                        dataclasses.replace(
-                            s.get_cart_params("fh"), altas=a, beam=beam, beam_limit=100000, lm_scale=2, tdp_scale=0.4
-                        ).with_prior_scale(pC)
-                        for beam, pC, a in itertools.product(
-                            [14, 16, 18],
-                            [0.4, 0.6],
-                            [None, 2, 4, 6],
+                    max_bl = 10000
+                    for a, p_c, b, b_l in itertools.product(
+                        [None, 2, 4, 6, 8],
+                        [0.4],
+                        [12, 14, 16, 18, 20],
+                        [
+                            int(v)
+                            for v in (
+                                *np.geomspace(250, 1000, 4, dtype=int)[:-1],
+                                *np.geomspace(1000, max_bl, 10, dtype=int)[:4],
+                            )
+                        ],
+                    ):
+                        cfg = dataclasses.replace(
+                            s.get_cart_params("fh").with_prior_scale(p_c),
+                            altas=a,
+                            beam=b,
+                            beam_limit=b_l,
+                            lm_scale=2.45,
+                            tdp_scale=0.2,
                         )
-                    ]
-                    for cfg in configs:
-                        j = s.recognize_cart(
-                            key="fh-fs",
-                            epoch=23,
-                            calculate_statistics=True,
-                            cart_tree_or_tying_config=tying_cfg,
-                            cpu_rqmt=2,
+                        s.recognize_cart(
+                            key="fh",
+                            epoch=max(keep_epochs),
                             crp_corpus="dev-other",
-                            lm_gc_simple_hash=True,
-                            log_softmax_returnn_config=nn_precomputed_returnn_config,
-                            mem_rqmt=4,
                             n_cart_out=diphone_li.get_n_of_dense_classes(),
+                            cart_tree_or_tying_config=tying_cfg,
                             params=cfg,
-                            prior_epoch=min(ep, keep_epochs[-2]),
-                            rtf=1.5,
+                            log_softmax_returnn_config=nn_precomputed_returnn_config,
+                            calculate_statistics=True,
+                            opt_lm_am_scale=False,
+                            cpu_rqmt=2,
+                            mem_rqmt=4,
+                            remove_or_set_concurrency=12,
+                            crp_update=set_power_exe,
+                            rtf=2,
+                            search_rqmt_update={
+                                "sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]
+                            },
                         )
-                        j.rqmt.update({"sbatch_args": ["-p", "rescale_amd"]})
+
+                    for a, p_c, b, b_l, we_p, we_l in itertools.product(
+                        [None],
+                        [0.4],
+                        [20],
+                        [25_000],
+                        [0.3, 0.5, 0.7],
+                        [int(v) for v in np.geomspace(100, 5_000, 15, dtype=int)],
+                    ):
+                        cfg = dataclasses.replace(
+                            s.get_cart_params("fh").with_prior_scale(p_c),
+                            altas=a,
+                            beam=b,
+                            beam_limit=b_l,
+                            lm_scale=2.45,
+                            tdp_scale=0.2,
+                            we_pruning=we_p,
+                            we_pruning_limit=we_l,
+                        )
+                        s.recognize_cart(
+                            key="fh",
+                            epoch=max(keep_epochs),
+                            crp_corpus="dev-other",
+                            n_cart_out=diphone_li.get_n_of_dense_classes(),
+                            cart_tree_or_tying_config=tying_cfg,
+                            params=cfg,
+                            log_softmax_returnn_config=nn_precomputed_returnn_config,
+                            calculate_statistics=True,
+                            opt_lm_am_scale=False,
+                            cpu_rqmt=2,
+                            mem_rqmt=4,
+                            remove_or_set_concurrency=12,
+                            crp_update=set_power_exe,
+                            rtf=2,
+                            alias_output_prefix=f"test-we:{we_p}-we_l:{we_l}/",
+                        )
 
             for ep, crp_k in itertools.product([max(keep_epochs)], ["test-other"]):
                 s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
