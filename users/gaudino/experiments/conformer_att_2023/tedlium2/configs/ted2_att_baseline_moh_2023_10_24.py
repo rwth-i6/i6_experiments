@@ -4,8 +4,7 @@ import numpy
 
 import sisyphus.toolkit as tk
 
-from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.attention_asr_config import (
-    CTCDecoderArgs,
+from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.attention_asr_config import (
     create_config,
     ConformerEncoderArgs,
     TransformerDecoderArgs,
@@ -21,7 +20,7 @@ from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.dat
     build_training_datasets,
     build_test_dataset,
 )
-from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.default_tools import (
+from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.default_tools import (
     RETURNN_ROOT,
     RETURNN_CPU_EXE,
     SCTK_BINARY_PATH,
@@ -45,7 +44,6 @@ from i6_experiments.users.rossenbach.experiments.librispeech.kazuki_lm.experimen
     get_lm,
     ZeineldeenLM,
 )
-
 
 train_jobs_map = {}  # dict[str, ReturnnTrainJob]
 train_job_avg_ckpt = {}
@@ -80,9 +78,7 @@ lstm_lm_opts_map = {
     BPE_10K: lstm_10k_lm_opts,
 }
 
-trafo_lm_net = TransformerLM(
-    source="prev:output", num_layers=24, vocab_size=10025, use_as_ext_lm=True
-)
+trafo_lm_net = TransformerLM(source="prev:output", num_layers=24, vocab_size=10025, use_as_ext_lm=True)
 trafo_lm_net.create_network()
 trafo_10k_lm_opts = {
     "lm_subnet": trafo_lm_net.network.get_net(),
@@ -94,34 +90,27 @@ trafo_10k_lm_opts = {
     "name": "trafo",
 }
 
-# bpe5k_lm = get_lm("ls960_trafo24_bs3000_5ep_5kbpe")  # type: ZeineldeenLM
-# trafo_5k_lm_opts = {
-#     "lm_subnet": bpe5k_lm.combination_network,
-#     "load_on_init_opts": {
-#         "filename": get_best_checkpoint(bpe5k_lm.train_job, key="dev_score_output/output"),
-#         "params_prefix": "",
-#         "load_if_prefix": "lm_output/",
-#     },n
-#     "name": "trafo",
-# }
+bpe5k_lm = get_lm("ls960_trafo24_bs3000_5ep_5kbpe")  # type: ZeineldeenLM
+trafo_5k_lm_opts = {
+    "lm_subnet": bpe5k_lm.combination_network,
+    "load_on_init_opts": {
+        "filename": get_best_checkpoint(bpe5k_lm.train_job, key="dev_score_output/output"),
+        "params_prefix": "",
+        "load_if_prefix": "lm_output/",
+    },
+    "name": "trafo",
+}
 
 trafo_lm_opts_map = {
     BPE_10K: trafo_10k_lm_opts,
-    # BPE_5K: trafo_5k_lm_opts,
+    BPE_5K: trafo_5k_lm_opts,
 }
-
-prior_file = "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.2UG8sLxHNTMO/output/prior.txt"
 
 # ----------------------------------------------------------- #
 
 
 def compute_features_stats(
-    output_dirname,
-    feat_dim,
-    bpe_size=10000,
-    feature_extraction_net=log10_net_10ms,
-    model_checkpoint=None,
-    **kwargs,
+    output_dirname, feat_dim, bpe_size=10000, feature_extraction_net=log10_net_10ms, model_checkpoint=None, **kwargs
 ):
     train_data = build_training_datasets(
         bpe_size=bpe_size,
@@ -164,12 +153,9 @@ def compute_features_stats(
         time_rqmt=72,
         eval_mode=True if model_checkpoint else False,
     )
-    dump_features_job.add_alias(
-        f"ted2_stats/{output_dirname}/dump_train_log_mel_features"
-    )
+    dump_features_job.add_alias(f"ted2_stats/{output_dirname}/dump_train_log_mel_features")
     tk.register_output(
-        f"ted2_stats/{output_dirname}/log_mel_features.hdf",
-        dump_features_job.out_hdf_files[hdf_filename],
+        f"ted2_stats/{output_dirname}/log_mel_features.hdf", dump_features_job.out_hdf_files[hdf_filename]
     )
 
     # Extract features stats from HDFDataset
@@ -194,23 +180,12 @@ def compute_features_stats(
         returnn_python_exe=RETURNN_CPU_EXE,
         returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
     )
-    extract_mean_stddev_job.add_alias(
-        f"ted2_stats/{output_dirname}/extract_mean_stddev"
-    )
+    extract_mean_stddev_job.add_alias(f"ted2_stats/{output_dirname}/extract_mean_stddev")
 
-    tk.register_output(
-        f"ted2_stats/{output_dirname}/mean_var", extract_mean_stddev_job.out_mean
-    )
-    tk.register_output(
-        f"ted2_stats/{output_dirname}/std_dev_var", extract_mean_stddev_job.out_std_dev
-    )
-    tk.register_output(
-        f"ted2_stats/{output_dirname}/mean_file", extract_mean_stddev_job.out_mean_file
-    )
-    tk.register_output(
-        f"ted2_stats/{output_dirname}/std_dev_file",
-        extract_mean_stddev_job.out_std_dev_file,
-    )
+    tk.register_output(f"ted2_stats/{output_dirname}/mean_var", extract_mean_stddev_job.out_mean)
+    tk.register_output(f"ted2_stats/{output_dirname}/std_dev_var", extract_mean_stddev_job.out_std_dev)
+    tk.register_output(f"ted2_stats/{output_dirname}/mean_file", extract_mean_stddev_job.out_mean_file)
+    tk.register_output(f"ted2_stats/{output_dirname}/std_dev_file", extract_mean_stddev_job.out_std_dev_file)
 
     return (
         extract_mean_stddev_job.out_mean,
@@ -291,67 +266,8 @@ def conformer_baseline():
             returnn_root=RETURNN_ROOT,
             mem_rqmt=mem_rqmt,
             time_rqmt=time_rqmt,
-            **kwargs,
+            use_sclite=True,
         )
-
-    def run_decoding(
-        exp_name,
-        train_data,
-        checkpoint,
-        search_args,
-        bpe_size,
-        test_sets: list,
-        feature_extraction_net=log10_net_10ms,
-        time_rqmt: float = 1.0,
-        remove_label=None,
-        two_pass_rescore=False,
-        **kwargs,
-    ):
-        test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
-        for test_set in test_sets:
-            run_single_search(
-                exp_name=exp_name + f"/recogs/{test_set}",
-                train_data=train_data,
-                search_args=search_args,
-                checkpoint=checkpoint,
-                feature_extraction_net=feature_extraction_net,
-                recog_dataset=test_dataset_tuples[test_set][0],
-                recog_ref=test_dataset_tuples[test_set][1],
-                recog_bliss=test_dataset_tuples[test_set][2],
-                time_rqmt=time_rqmt,
-                remove_label=remove_label,
-                # two_pass_rescore=two_pass_rescore,
-                **kwargs,
-            )
-
-    def compute_ctc_prior(prior_exp_name, train_args, model_ckpt, bpe_size):
-        exp_prefix = os.path.join(prefix_name, prior_exp_name)
-        ctc_prior_train_data = build_training_datasets(
-            bpe_size=bpe_size,
-            use_raw_features=True,
-            epoch_wise_filter=None,
-            link_speed_perturbation=False,
-            partition_epoch=1,
-            seq_ordering="laplace:.1000",
-        )
-        returnn_config = create_config(
-            training_datasets=ctc_prior_train_data,
-            **train_args,
-            feature_extraction_net=log10_net_10ms,
-            with_pretrain=False,
-        )
-        returnn_config.config["network"]["output"] = {"class": "copy", "from": "ctc"}
-        returnn_config.config["max_seq_length"] = -1
-        from i6_core.returnn.extract_prior import ReturnnComputePriorJobV2
-
-        prior_j = ReturnnComputePriorJobV2(
-            model_checkpoint=model_ckpt,
-            returnn_config=returnn_config,
-            returnn_python_exe=RETURNN_CPU_EXE,
-            returnn_root=RETURNN_ROOT,
-        )
-        tk.register_output(exp_prefix + "/priors/ctc_prior_fix", prior_j.out_prior_txt_file)
-        return prior_j.out_prior_txt_file
 
     def run_lm_fusion(
         lm_type,
@@ -389,16 +305,10 @@ def conformer_baseline():
         elif epoch == "best":
             search_checkpoint = train_job_best_epoch[exp_name]
         else:
-            assert isinstance(
-                epoch, int
-            ), "epoch must be either a defined integer or a string in {avg, best}."
+            assert isinstance(epoch, int), "epoch must be either a defined integer or a string in {avg, best}."
             search_checkpoint = train_job.out_checkpoints[epoch]
 
-        ext_lm_opts = (
-            lstm_lm_opts_map[bpe_size]
-            if lm_type == "lstm"
-            else trafo_lm_opts_map[bpe_size]
-        )
+        ext_lm_opts = lstm_lm_opts_map[bpe_size] if lm_type == "lstm" else trafo_lm_opts_map[bpe_size]
 
         time_rqmt = 1.0
 
@@ -448,21 +358,15 @@ def conformer_baseline():
                     ilm_opts = {
                         "scale": prior_scale,
                         "type": prior_type,
-                        "ctx_dim": search_args[
-                            "encoder_args"
-                        ].enc_key_dim,  # this is needed for mini-lstm
+                        "ctx_dim": search_args["encoder_args"].enc_key_dim,  # this is needed for mini-lstm
                     }
                     # this is needed for mini-self-att
                     if hasattr(search_args["decoder_args"], "num_layers"):
-                        ilm_opts["num_dec_layers"] = search_args[
-                            "decoder_args"
-                        ].num_layers
+                        ilm_opts["num_dec_layers"] = search_args["decoder_args"].num_layers
                         search_args["decoder_args"].create_ilm_decoder = True
                         search_args["decoder_args"].ilm_type = prior_type
 
-                    ilm_opts.update(
-                        kwargs.get("ilm_train_opts", {})
-                    )  # example for FFN, etc
+                    ilm_opts.update(kwargs.get("ilm_train_opts", {}))  # example for FFN, etc
 
                     search_args["prior_lm_opts"] = ilm_opts
                     search_args["preload_from_files"] = {
@@ -496,9 +400,7 @@ def conformer_baseline():
                     assert isinstance(search_args["decoder_args"], RNNDecoderArgs)
                     search_args["decoder_args"].coverage_scale = coverage_scale
                     search_args["decoder_args"].coverage_threshold = coverage_threshold
-                    lm_desc += (
-                        f"_coverage-thre{coverage_threshold}-scale{coverage_scale}"
-                    )
+                    lm_desc += f"_coverage-thre{coverage_threshold}-scale{coverage_scale}"
 
                 name = f"{exp_name}/recog-{lm_type}-lm/ep-{epoch}/{lm_desc}/{test_set}"
 
@@ -545,11 +447,13 @@ def conformer_baseline():
             returnn_exe=RETURNN_CPU_EXE,
             returnn_root=RETURNN_ROOT,
             num_average=num_avg,
+            key=kwargs.get("avg_key", "dev_score_output/output_prob"),
         )
         if num_avg == 4:  # TODO: just for now to not break hashes
             train_job_avg_ckpt[exp_name] = averaged_checkpoint
 
         best_checkpoint = get_best_checkpoint(train_job)
+        # best_checkpoint = get_best_checkpoint(train_job, key=kwargs.get("avg_key", "dev_score_output/output_prob"))
         train_job_best_epoch[exp_name] = best_checkpoint
 
         if recog_epochs is None:
@@ -609,16 +513,7 @@ def conformer_baseline():
             use_sclite=True,
         )
 
-    def run_concat_seq_recog(
-        exp_name,
-        corpus_names,
-        num,
-        train_data,
-        search_args,
-        checkpoint,
-        mem_rqmt=8,
-        time_rqmt=1,
-    ):
+    def run_concat_seq_recog(exp_name, corpus_names, num, train_data, search_args, checkpoint, mem_rqmt=8, time_rqmt=1):
         exp_prefix = os.path.join(prefix_name, exp_name)
 
         from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.concat_seqs import (
@@ -634,24 +529,14 @@ def conformer_baseline():
 
         for corpus_name in corpus_names:
             test_datasets = get_test_dataset_tuples(bpe_size=BPE_1K)
-            stm = CorpusToStmJob(
-                bliss_corpus=test_datasets[corpus_name][2]
-            ).out_stm_path
+            stm = CorpusToStmJob(bliss_corpus=test_datasets[corpus_name][2]).out_stm_path
             tk.register_output(f"concat_seqs/{num}/orig_{corpus_name}_stm", stm)
             concat_dataset_seqs = ConcatDatasetSeqsJob(
                 corpus_name="TED-LIUM-realease2", stm=stm, num=num, overlap_dur=None
             )
-            tk.register_output(
-                f"concat_seqs/{num}/{corpus_name}_stm", concat_dataset_seqs.out_stm
-            )
-            tk.register_output(
-                f"concat_seqs/{num}/{corpus_name}_tags",
-                concat_dataset_seqs.out_concat_seq_tags,
-            )
-            tk.register_output(
-                f"concat_seqs/{num}/{corpus_name}_lens",
-                concat_dataset_seqs.out_concat_seq_lens_py,
-            )
+            tk.register_output(f"concat_seqs/{num}/{corpus_name}_stm", concat_dataset_seqs.out_stm)
+            tk.register_output(f"concat_seqs/{num}/{corpus_name}_tags", concat_dataset_seqs.out_concat_seq_tags)
+            tk.register_output(f"concat_seqs/{num}/{corpus_name}_lens", concat_dataset_seqs.out_concat_seq_lens_py)
 
             returnn_search_config = create_config(
                 training_datasets=train_data,
@@ -688,30 +573,18 @@ def conformer_baseline():
             stm_file = concat_dataset_seqs.out_stm
 
             concat_ctm_and_stm_job = CreateConcatSeqsCTMAndSTMJob(
-                recog_words_file=search_words,
-                stm_py_file=concat_dataset_seqs.out_stm_py,
-                stm_file=stm_file,
+                recog_words_file=search_words, stm_py_file=concat_dataset_seqs.out_stm_py, stm_file=stm_file
             )
-            tk.register_output(
-                exp_prefix + f"/{corpus_name}/sclite/stm",
-                concat_ctm_and_stm_job.out_stm_file,
-            )
-            tk.register_output(
-                exp_prefix + f"/{corpus_name}/sclite/ctm",
-                concat_ctm_and_stm_job.out_ctm_file,
-            )
+            tk.register_output(exp_prefix + f"/{corpus_name}/sclite/stm", concat_ctm_and_stm_job.out_stm_file)
+            tk.register_output(exp_prefix + f"/{corpus_name}/sclite/ctm", concat_ctm_and_stm_job.out_ctm_file)
 
             sclite_job = ScliteJob(
                 ref=concat_ctm_and_stm_job.out_stm_file,
                 hyp=concat_ctm_and_stm_job.out_ctm_file,
                 sctk_binary_path=SCTK_BINARY_PATH,
             )
-            tk.register_output(
-                exp_prefix + f"/{corpus_name}/sclite/wer", sclite_job.out_wer
-            )
-            tk.register_output(
-                exp_prefix + f"/{corpus_name}/sclite/report", sclite_job.out_report_dir
-            )
+            tk.register_output(exp_prefix + f"/{corpus_name}/sclite/wer", sclite_job.out_wer)
+            tk.register_output(exp_prefix + f"/{corpus_name}/sclite/report", sclite_job.out_report_dir)
 
     def run_exp(
         exp_name,
@@ -725,9 +598,7 @@ def conformer_baseline():
         **kwargs,
     ):
         if train_args.get("retrain_checkpoint", None):
-            assert (
-                kwargs.get("epoch_wise_filter", None) is None
-            ), "epoch_wise_filter should be disabled for retraining."
+            assert kwargs.get("epoch_wise_filter", None) is None, "epoch_wise_filter should be disabled for retraining."
         train_data = build_training_datasets(
             bpe_size=bpe_size,
             use_raw_features=True,
@@ -735,9 +606,7 @@ def conformer_baseline():
             link_speed_perturbation=train_args.get("speed_pert", True),
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
             partition_epoch=partition_epoch,
-            devtrain_subset=kwargs.get(
-                "devtrain_subset", 507
-            ),  # same as num of dev segments
+            devtrain_subset=kwargs.get("devtrain_subset", 507),  # same as num of dev segments
         )
         train_job = run_train(
             exp_name,
@@ -774,12 +643,8 @@ def conformer_baseline():
             elif isinstance(ckpt_, int):
                 concat_recog_ckpt = train_job.out_checkpoints[ckpt_]
             else:
-                raise TypeError(
-                    f"concat_recog_opts['checkpoint'] must be str or int, got {type(ckpt_)}"
-                )
-            concat_recog_search_args = kwargs["concat_recog_opts"].get(
-                "search_args", None
-            )
+                raise TypeError(f"concat_recog_opts['checkpoint'] must be str or int, got {type(ckpt_)}")
+            concat_recog_search_args = kwargs["concat_recog_opts"].get("search_args", None)
             search_args_ = copy.deepcopy(train_args)
             if concat_recog_search_args:
                 search_args_.update(concat_recog_search_args)
@@ -793,6 +658,180 @@ def conformer_baseline():
             )
 
         return train_job, train_data
+
+    def train_mini_lstm(
+        exp_name,
+        checkpoint,
+        args,
+        num_epochs=20,
+        lr=8e-4,
+        time_rqmt=4,
+        l2=1e-4,
+        name="mini_lstm",
+        w_drop=False,
+        use_dec_state=False,
+        use_ffn=False,
+        ffn_opts=None,
+        **kwargs,
+    ):
+        if not w_drop:
+            params_freeze_str = ilm_helpers.get_mini_lstm_params_freeze_str()
+        else:
+            if use_ffn:
+                params_freeze_str = ilm_helpers.get_ffn_params_freeze_str_w_drop(ffn_opts["num_ffn_layers"])
+            else:
+                params_freeze_str = ilm_helpers.get_mini_lstm_params_freeze_str_w_drop()
+
+        mini_lstm_args = copy.deepcopy(args)
+        mini_lstm_args["batch_size"] = 20000 * 160
+        mini_lstm_args["with_pretrain"] = False
+        mini_lstm_args["lr"] = lr
+        mini_lstm_args["allow_lr_scheduling"] = False
+        mini_lstm_args["encoder_args"].with_ctc = False
+        mini_lstm_args["keep_all_epochs"] = True  # keep everything
+        mini_lstm_args["extra_str"] = params_freeze_str
+        mini_lstm_args["preload_from_files"] = {
+            "import": {
+                "init_for_train": True,
+                "ignore_missing": True,
+                "filename": checkpoint,
+            }
+        }
+        mini_lstm_args.update(kwargs)
+
+        exp_prefix = os.path.join(prefix_name, exp_name, name)
+        mini_lstm_train_data = build_training_datasets(
+            bpe_size=10000,
+            use_raw_features=True,
+            epoch_wise_filter=None,
+            link_speed_perturbation=False,  # depends only on text
+            seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
+        )
+        returnn_config = create_config(
+            training_datasets=mini_lstm_train_data,
+            **mini_lstm_args,
+            feature_extraction_net=log10_net_10ms,
+        )
+
+        inp = "s" if use_dec_state else "prev:target_embed"
+
+        if use_ffn:
+            x = inp
+            activations = ffn_opts["activations"]
+            for l in range(ffn_opts["num_ffn_layers"]):
+                returnn_config.config["network"]["output"]["unit"]["ffn_%02i" % (l + 1)] = {
+                    "class": "linear",
+                    "n_out": ffn_opts["ffn_dims"][l],
+                    "L2": l2,
+                    "from": inp,
+                    "activation": activations[l] if activations and l < len(activations) else None,
+                }
+                x = "ffn_%02i" % (l + 1)
+
+            returnn_config.config["network"]["output"]["unit"]["att"] = {
+                "class": "linear",
+                "from": x,
+                "activation": None,
+                "n_out": mini_lstm_args["encoder_args"].enc_key_dim,
+                "L2": l2,
+            }
+        else:
+            # Mini-LSTM + FF
+
+            returnn_config.config["network"]["output"]["unit"]["att_lstm"] = {
+                "class": "rec",
+                "unit": "nativelstm2",
+                "from": inp,
+                "n_out": 50,
+            }
+
+            returnn_config.config["network"]["output"]["unit"]["att"] = {
+                "class": "linear",
+                "from": "att_lstm",
+                "activation": None,
+                "n_out": mini_lstm_args["encoder_args"].enc_key_dim,
+                "L2": l2,
+            }
+
+        train_job = training(
+            exp_prefix,
+            returnn_config,
+            RETURNN_CPU_EXE,
+            RETURNN_ROOT,
+            num_epochs=num_epochs,
+            time_rqmt=time_rqmt,
+        )
+        return train_job
+
+    def train_mini_self_att(
+        exp_name,
+        checkpoint,
+        args,
+        num_epochs=20,
+        lr=8e-4,
+        time_rqmt=4,
+        name="mini_self_att",
+        **kwargs,
+    ):
+        """
+        Same idea as Mini-LSTM but use masked (mini-)self-attention models instead of cross attention.
+        Note that each layer has its own (mini-)self-attention.
+
+        In the case of transformer decoder, we want to replace cross-attention layers namely:
+            transformer_decoder_{idx}_att_linear
+        with masked self-attention models.
+        """
+
+        params_freeze_str = ilm_helpers.get_mini_self_att_params_freeze_str_w_drop(args["decoder_args"].num_layers)
+
+        mini_self_att = copy.deepcopy(args)
+        mini_self_att["batch_size"] = 20000 * 160  # TODO: does this fit now?
+        mini_self_att["with_pretrain"] = False
+        mini_self_att["lr"] = lr
+        mini_self_att["allow_lr_scheduling"] = False
+        mini_self_att["encoder_args"].with_ctc = False
+        # mini_self_att['keep_all_epochs'] = True  # keep everything
+        mini_self_att["extra_str"] = params_freeze_str
+        mini_self_att["preload_from_files"] = {
+            "import": {
+                "init_for_train": True,
+                "ignore_missing": True,
+                "filename": checkpoint,
+            }
+        }
+        if "decoder_args" in kwargs:
+            assert isinstance(kwargs["decoder_args"], dict)
+            for k, v in kwargs["decoder_args"].items():
+                setattr(mini_self_att["decoder_args"], k, v)
+            kwargs.pop("decoder_args")
+        mini_self_att.update(kwargs)
+
+        exp_prefix = os.path.join(prefix_name, exp_name, name)
+        mini_self_att_train_data = build_training_datasets(
+            bpe_size=10000,
+            use_raw_features=True,
+            epoch_wise_filter=None,
+            link_speed_perturbation=False,  # depends only on text
+            seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
+        )
+
+        # use masked self-att instead of cross-att with layer names having "ilm_" as prefix
+        mini_self_att["decoder_args"].replace_cross_att_w_masked_self_att = True
+
+        returnn_config = create_config(
+            training_datasets=mini_self_att_train_data,
+            **mini_self_att,
+            feature_extraction_net=log10_net_10ms,
+        )
+        train_job = training(
+            exp_prefix,
+            returnn_config,
+            RETURNN_CPU_EXE,
+            RETURNN_ROOT,
+            num_epochs=num_epochs,
+            time_rqmt=time_rqmt,
+        )
+        return train_job
 
     # --------------------------- General Settings --------------------------- #
 
@@ -880,14 +919,7 @@ def conformer_baseline():
     oclr_args["encoder_args"].use_sqrd_relu = True
     oclr_args["max_seq_length"] = None
 
-    # add hardcoded paths because DelayedFormat breaks hashes otherwise
-    # _, _, global_mean, global_std = compute_features_stats(output_dirname="logmel_80", feat_dim=80)
-    global_mean = tk.Path(
-        "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/dataset/ExtractDatasetMeanStddevJob.UHCZghp269OR/output/mean"
-    )
-    global_std = tk.Path(
-        "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/dataset/ExtractDatasetMeanStddevJob.UHCZghp269OR/output/std_dev"
-    )
+    _, _, global_mean, global_std = compute_features_stats(output_dirname="logmel_80", feat_dim=80)
 
     # step-based: 8.5/8.2
     # epoch-based: 8.6/8.2
@@ -934,9 +966,7 @@ def conformer_baseline():
             "use_legacy_version": use_legacy_stats,
         }
         base_v1_args["pretrain_reps"] = pretrain_reps
-        base_v1_args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = [
-            "conv_kernel_size"
-        ]
+        base_v1_args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
         base_v1_args["encoder_args"].dropout = enc_drop
         base_v1_args["encoder_args"].dropout_in = enc_drop
         base_v1_args["encoder_args"].att_dropout = enc_drop
@@ -958,29 +988,44 @@ def conformer_baseline():
     # )
 
     # monotonic att weights loss
-    # for scale in [1e-3, 5e-3, 1e-2]:
-    #     args, exp_name = get_base_v1_args(8e-4, 50 * 4)
-    #     args["decoder_args"].monotonic_att_weights_loss_scale = scale
-    #     run_exp(
-    #         exp_name + f"_monotonicAttLoss{scale}",
-    #         args,
-    #         num_epochs=50 * 4,
-    #         epoch_wise_filter=None,
-    #         bpe_size=BPE_1K,
-    #         partition_epoch=4,
-    #     )
+    # for monotonic_att_loss in ["l1", "l2"]:
+    #     for scale in [1e-2, 2e-2]:
+    #         args, exp_name = get_base_v1_args(8e-4, 50 * 4)
+    #         args["decoder_args"].monotonic_att_weights_loss = monotonic_att_loss
+    #         args["decoder_args"].monotonic_att_weights_loss_scale = scale
+    #         train_job, train_data = run_exp(
+    #             exp_name + f"_monotonicAttLoss{scale}_{monotonic_att_loss}",
+    #             args,
+    #             num_epochs=50 * 4,
+    #             epoch_wise_filter=None,
+    #             bpe_size=BPE_1K,
+    #             partition_epoch=4,
+    #             avg_key="dev_score_output/monotonic_att_weights_loss",
+    #         )
+    #
+    #         if scale == 1e-2 and monotonic_att_loss == "l1":
+    #             for testset in ["dev"]:
+    #                 for beam_size in [4, 8, 12, 24]:
+    #                     for thre in [0.0, 0.003]:
+    #                         args = copy.deepcopy(args)
+    #                         args["decoder_args"].monotonic_att_weights_loss_scale_in_recog = thre
+    #                         args["beam_size"] = beam_size
+    #                         search_data = get_test_dataset_tuples(BPE_1K)
+    #                         run_single_search(
+    #                             exp_name
+    #                             + f"_monotonicAttLoss{scale}_{monotonic_att_loss}/monotonicLoss/avg/{testset}/thre{thre}_beam{beam_size}",
+    #                             train_data,
+    #                             search_args=args,
+    #                             checkpoint=train_job_avg_ckpt[
+    #                                 exp_name + f"_monotonicAttLoss{scale}_{monotonic_att_loss}"
+    #                             ],
+    #                             feature_extraction_net=log10_net_10ms,
+    #                             recog_dataset=search_data[testset][0],
+    #                             recog_ref=search_data[testset][1],
+    #                             recog_bliss=search_data[testset][2],
+    #                         )
 
-    # for scale in [1e-1, 1e-2]:
-    #     args, exp_name = get_base_v1_args(8e-4, 50 * 4)
-    #     args["decoder_args"].att_weights_variance_loss_scale = scale
-    #     run_exp(
-    #         exp_name + f"_attWeightsVarLoss{scale}",
-    #         args,
-    #         num_epochs=50 * 4,
-    #         epoch_wise_filter=None,
-    #         bpe_size=BPE_1K,
-    #         partition_epoch=4,
-    #     )
+    # TODO: init from global and retrain with constraint loss
 
     # TODO: longer training with more regularization
     # TODO: embed dropout?
@@ -1007,103 +1052,124 @@ def conformer_baseline():
     #                         partition_epoch=4,
     #                     )
 
-    ep = 100 * 4
-    lr = 8e-4
-    enc_drop = 0.15
+    for num_blocks in [12]:
+        for ep in [100 * 2]:
+            for lr in [8e-4]:
+                for target_embed_dim in [256]:  # 640 is used by default
+                    for att_drop in [0.0]:
+                        for weight_drop in [0.1]:
+                            for enc_drop in [0.15]:
+                                base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
+                                args = copy.deepcopy(base_v1_args)
+                                args["encoder_args"].num_blocks = num_blocks
+                                args["encoder_args"].mhsa_weight_dropout = weight_drop
+                                args["encoder_args"].ff_weight_dropout = weight_drop
+                                args["encoder_args"].conv_weight_dropout = weight_drop
 
-    base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
-    args = copy.deepcopy(base_v1_args)
-    args["encoder_args"].num_blocks = 12
-    args["encoder_args"].mhsa_weight_dropout = 0.1
-    args["encoder_args"].ff_weight_dropout = 0.1
-    args["encoder_args"].conv_weight_dropout = 0.1
+                                args["decoder_args"].embed_dim = target_embed_dim
+                                args["decoder_args"].att_dropout = att_drop
 
-    args["decoder_args"].embed_dim = 256
-    args["decoder_args"].att_dropout = 0.0
+                                name = (
+                                    exp_name
+                                    + f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
+                                )
+                                # _, train_data = run_exp(
+                                #     name,
+                                #     args,
+                                #     num_epochs=ep,
+                                #     epoch_wise_filter=None,
+                                #     bpe_size=BPE_1K,
+                                #     partition_epoch=4,
+                                # )
+                                #
+                                # recog_datasets_tuples = get_test_dataset_tuples(bpe_size=BPE_1K)
+                                #
+                                # # baseline: 7.41/6.85
+                                # # dev_coverage0.03_0.11_max/wer  7.34
+                                # # test_coverage0.03_0.11_max/wer 6.85
+                                # for test_set in ["test"]:
+                                #     for cov_update in ["max"]:
+                                #         for cov_scale in [0.03, 0.04]:
+                                #             for cov_thre in [0.11, 0.13]:
+                                #                 search_args = copy.deepcopy(args)
+                                #                 search_args["decoder_args"].coverage_scale = cov_scale
+                                #                 search_args["decoder_args"].coverage_threshold = cov_thre
+                                #                 name_ = f"/average_4/{test_set}_coverage{cov_scale}_{cov_thre}"
+                                #                 if cov_update == "max":
+                                #                     name_ += "_max"
+                                #                     search_args["decoder_args"].coverage_update = "max"
+                                #                 run_single_search(
+                                #                     exp_name=name + name_,
+                                #                     train_data=train_data,
+                                #                     search_args=search_args,
+                                #                     checkpoint=train_job_avg_ckpt[name],
+                                #                     feature_extraction_net=log10_net_10ms,
+                                #                     recog_dataset=recog_datasets_tuples[test_set][0],
+                                #                     recog_ref=recog_datasets_tuples[test_set][1],
+                                #                     recog_bliss=recog_datasets_tuples[test_set][2],
+                                #                 )
 
-    name = exp_name + f"_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12"
-    train_j, train_data = run_exp(
-        name,
-        args,
-        num_epochs=ep,
-        epoch_wise_filter=None,
-        bpe_size=BPE_1K,
-        partition_epoch=4,
-    )
+                                # # TODO: no CTC
+                                # no_ctc_args = copy.deepcopy(args)
+                                # no_ctc_args["encoder_args"].with_ctc = False
+                                # _, train_data = run_exp(
+                                #     name + "_noCTC",
+                                #     no_ctc_args,
+                                #     num_epochs=ep,
+                                #     epoch_wise_filter=None,
+                                #     bpe_size=BPE_1K,
+                                #     partition_epoch=4,
+                                # )
 
-    # att + ctc opts
-    search_args = copy.deepcopy(args)
-    for scales in [(0.4, 0.6), (0.7,0.3), (0.85, 0.15)]:
-        for beam_size in [12]:
-            search_args["beam_size"] = beam_size
-            att_scale, ctc_scale = scales
-            search_args["decoder_args"] = CTCDecoderArgs(
-                add_att_dec=True,
-                att_scale=att_scale,
-                ctc_scale=ctc_scale,
-                att_masking_fix=True,
-                target_dim=1057,
-                target_embed_dim=256,
-            )
-            run_decoding(
-                f"opts_ctc{ctc_scale}_att{att_scale}_beam{beam_size}",
-                train_data,
-                checkpoint=train_job_avg_ckpt[name],
-                search_args=search_args,
-                bpe_size=BPE_1K,
-                test_sets=["dev"],
-                remove_label={"<s>", "<blank>"},
-                use_sclite=True,
-            )
+                                # TODO: only CTC
+                                only_ctc_args = copy.deepcopy(args)
+                                only_ctc_args["decoder_args"].ce_loss_scale = 0.0
+                                _, train_data = run_exp(
+                                    name + "_onlyCTC",
+                                    only_ctc_args,
+                                    num_epochs=ep,
+                                    epoch_wise_filter=None,
+                                    bpe_size=BPE_1K,
+                                    partition_epoch=4,
+                                    search_args={"ctc_decode": True, "ctc_blank_idx": 1057, **only_ctc_args},
+                                )
 
-    # ctc greedy decoding
-    search_args["decoder_args"] = CTCDecoderArgs(target_dim=1057)
+                                # # TODO: scale CTC
+                                # scale_ctc_args = copy.deepcopy(args)
+                                # scale_ctc_args["encoder_args"].ctc_loss_scale = 0.3 / 0.7  # AED scale is 1.0
+                                # _, train_data = run_exp(
+                                #     name + "_ctcScale0.3",
+                                #     scale_ctc_args,
+                                #     num_epochs=ep,
+                                #     epoch_wise_filter=None,
+                                #     bpe_size=BPE_1K,
+                                #     partition_epoch=4,
+                                # )
 
-    run_decoding(
-        f"ctc_greedy",
-        train_data,
-        checkpoint=train_job_avg_ckpt[name],
-        search_args=search_args,
-        bpe_size=BPE_1K,
-        test_sets=["dev"],
-        remove_label={"<s>", "<blank>"},
-        use_sclite=True,
-    )
-
-    # compute ctc prior
-    prior_args = copy.deepcopy(args)
-    prior_args["decoder_args"] = CTCDecoderArgs()
-    # prior_file = compute_ctc_prior(
-    #     name, prior_args, train_job_avg_ckpt[name], bpe_size=BPE_1K
-    # )
-
-    # try prior correction
-    for scales in [(0.7, 0.3, 0.4)]:
-        for beam_size in [12, 32, 64]:
-            search_args["beam_size"] = beam_size
-            search_args["ctc_log_prior_file"] = prior_file
-            att_scale, ctc_scale, prior_scale = scales
-            search_args["decoder_args"] = CTCDecoderArgs(
-                add_att_dec=True,
-                att_scale=att_scale,
-                ctc_scale=ctc_scale,
-                att_masking_fix=True,
-                target_dim=1057,
-                target_embed_dim=256,
-                ctc_prior_correction=True,
-                prior_scale=prior_scale
-            )
-            run_decoding(
-                f"opts_ctc{ctc_scale}_att{att_scale}_beam{beam_size}_prior{prior_scale}",
-                train_data,
-                checkpoint=train_job_avg_ckpt[name],
-                search_args=search_args,
-                bpe_size=BPE_1K,
-                test_sets=["dev"],
-                remove_label={"<s>", "<blank>"},
-                use_sclite=True,
-            )
-
+                                # TODO: retrain
+                                # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12
+                                # 7.4     6.85  avg
+                                # if target_embed_dim == 256 and att_drop == 0.0:
+                                #     # long-form speech recognition
+                                #     for num in [2, 3, 4, 5, 6, 7, 8, 9, 10]:
+                                #         search_args = {}
+                                #         if num >= 5:
+                                #             search_args["max_seqs"] = 1  # o.w OOM
+                                #         run_exp(
+                                #             name,
+                                #             args,
+                                #             num_epochs=ep,
+                                #             epoch_wise_filter=None,
+                                #             bpe_size=BPE_1K,
+                                #             partition_epoch=4,
+                                #             concat_recog_opts={
+                                #                 "num": num,
+                                #                 "corpus_names": ["dev", "test"],
+                                #                 "checkpoint": "avg",
+                                #                 "search_args": search_args,
+                                #             },
+                                #         )
+    #
     # for num_blocks in [14]:
     #     for ep in [100 * 4]:
     #         for lr in [8e-4]:
@@ -1113,8 +1179,6 @@ def conformer_baseline():
     #                         for enc_drop in [0.15]:
     #                             base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
     #                             args = copy.deepcopy(base_v1_args)
-    #                             search_args = copy.deepcopy(base_v1_args)
-    #                             search_args["recursion_limit"] = 6000
     #
     #                             args["encoder_args"].num_blocks = num_blocks
     #                             args["encoder_args"].mhsa_weight_dropout = weight_drop
@@ -1132,51 +1196,8 @@ def conformer_baseline():
     #                                 exp_name
     #                                 + f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}_bs30k"
     #                             )
-    #                             run_exp(
-    #                                 name,
-    #                                 args,
-    #                                 num_epochs=ep,
-    #                                 epoch_wise_filter=None,
-    #                                 bpe_size=BPE_1K,
-    #                                 partition_epoch=4,
-    #                                 gpu_mem=24,
-    #                                 search_args=search_args,
-    #                             )
-    #
-    # for num_blocks in [16]:
-    #     for ep in [100 * 4]:
-    #         for lr in [8e-4]:
-    #             for target_embed_dim in [256]:
-    #                 for att_drop in [0.0]:
-    #                     for weight_drop in [0.1]:
-    #                         for enc_drop in [0.15]:
-    #                             base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
-    #                             args = copy.deepcopy(base_v1_args)
-    #                             search_args = copy.deepcopy(base_v1_args)
-    #
-    #                             args["encoder_args"].num_blocks = num_blocks
-    #                             args["encoder_args"].mhsa_weight_dropout = weight_drop
-    #                             args["encoder_args"].ff_weight_dropout = weight_drop
-    #                             args["encoder_args"].conv_weight_dropout = weight_drop
-    #
-    #                             args["encoder_args"].enc_key_dim = 384
-    #                             args["encoder_args"].att_num_heads = 6
-    #                             args["encoder_args"].ff_dim = 1536
-    #
-    #                             args["decoder_args"].embed_dim = target_embed_dim
-    #                             args["decoder_args"].att_dropout = att_drop
-    #
-    #                             args["batch_size"] *= 2
-    #                             args["accum_grad"] = 1
-    #
-    #                             # modify pretrain
-    #                             args["pretrain_opts"]["initial_batch_size"] *= 2
-    #                             args["pretrain_opts"]["initial_dim_factor"] = 256 / 384
-    #
-    #                             name = (
-    #                                 exp_name
-    #                                 + f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}_dim384_bs30k"
-    #                             )
+    #                             search_args = copy.deepcopy(args)
+    #                             search_args["recursion_limit"] = 6000
     #                             run_exp(
     #                                 name,
     #                                 args,
