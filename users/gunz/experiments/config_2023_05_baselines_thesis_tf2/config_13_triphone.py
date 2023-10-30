@@ -528,6 +528,7 @@ def run_single(
                         {"sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]}
                     )
 
+                    continue
                     jobs = recognizer.recognize_ls_trafo_lm(
                         calculate_stats=True,
                         gpu=False,

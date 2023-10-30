@@ -547,6 +547,8 @@ def run_single(
             [12, 14, 16, 18],
             [2154],  # min size at which WER 6.5 is possible
         ):
+            continue  # not for now!
+
             cfg = dataclasses.replace(
                 s.get_cart_params("fh").with_prior_scale(pC),
                 altas=a,
