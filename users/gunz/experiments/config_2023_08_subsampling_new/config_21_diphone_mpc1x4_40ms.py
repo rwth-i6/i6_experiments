@@ -806,7 +806,8 @@ def run_single(
                 tying_cfg.type = "diphone-dense"
 
                 trafo = (
-                    ep == max(keep_epochs)
+                    False
+                    and ep == max(keep_epochs)
                     and peak_lr == 8e-5
                     and bw_scale.label_posterior_scale == 1.0
                     and bw_scale.transition_scale == 0.3
