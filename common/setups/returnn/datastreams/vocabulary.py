@@ -88,7 +88,7 @@ class BpeDatastream(LabelDatastream):
     ):
         """
         :param bpe_settings: object from the common BPE helpers
-        :param seq_postfix:
+        :param seq_postfix: label index for the label to add at the end of each sequence
         :param bool use_unk_label: unk_label should never be used for training
         """
         super(BpeDatastream, self).__init__(
