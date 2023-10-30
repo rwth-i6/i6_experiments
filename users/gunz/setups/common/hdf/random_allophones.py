@@ -59,8 +59,8 @@ class RasrFeatureAndAlignmentWithRandomAllophonesToHDF(Job):
 
         def move(to_move: List[Tuple[str, Path]]):
             for i, (src, dst) in enumerate(to_move):
-                if i > 0 and i % 10 == 0:
-                    secs = random.randrange(0, 30)
+                if i % 3 == 0:
+                    secs = random.randrange(0, 10)
                     logging.info(f"sleeping for {secs}s to prevent thundering herd")
                     time.sleep(secs)
 
@@ -79,7 +79,7 @@ class RasrFeatureAndAlignmentWithRandomAllophonesToHDF(Job):
 
                 moves.append((tmp_file, target_file))
 
-                if len(moves) >= 50:
+                if len(moves) >= 10:
                     move(moves)
                     moves = []
 
