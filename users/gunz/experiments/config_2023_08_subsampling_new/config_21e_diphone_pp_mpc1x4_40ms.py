@@ -757,7 +757,6 @@ def run_single(
                             opt_lm_am_scale=False,
                             cpu_rqmt=2,
                             mem_rqmt=4,
-                            remove_or_set_concurrency=12,
                             crp_update=set_power_exe,
                             rtf=2,
                             alias_output_prefix=f"test-we:{we_p}-we_l:{we_l}/",
