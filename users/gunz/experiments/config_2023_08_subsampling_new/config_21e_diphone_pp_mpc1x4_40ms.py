@@ -733,7 +733,7 @@ def run_single(
                         [20],
                         [25_000],
                         [0.3, 0.5, 0.7],
-                        [int(v) for v in np.geomspace(100, 5_000, 15, dtype=int)],
+                        [int(v) for v in np.geomspace(100, 5_000, 10, dtype=int)],
                     ):
                         cfg = dataclasses.replace(
                             s.get_cart_params("fh").with_prior_scale(p_c),
@@ -759,7 +759,7 @@ def run_single(
                             mem_rqmt=4,
                             crp_update=set_power_exe,
                             rtf=2,
-                            alias_output_prefix=f"test-we:{we_p}-we_l:{we_l}/",
+                            alias_output_prefix=f"recog-we-p/we:{we_p}-we_l:{we_l}/",
                         )
 
             for ep, crp_k in itertools.product([max(keep_epochs)], ["test-other"]):
