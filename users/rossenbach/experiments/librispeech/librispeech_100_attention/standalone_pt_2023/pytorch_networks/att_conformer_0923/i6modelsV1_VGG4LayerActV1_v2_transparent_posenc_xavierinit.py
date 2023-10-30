@@ -1,7 +1,5 @@
 """
-Trying to make the aligner more AppTek-Like
-
-Extended weight init code
+Now including ctc loss scale
 """
 
 from dataclasses import dataclass
@@ -26,7 +24,7 @@ from i6_models.primitives.specaugment import specaugment_v1_by_length
 
 from returnn.torch.context import get_run_ctx
 
-from .i6modelsV1_VGG4LayerActFrontendV1_cfg import ModelConfig, VGG4LayerActFrontendV1Config_mod, SpecaugConfig, ConformerAEDModelConfig
+from .i6modelsV1_VGG4LayerActFrontendV1_v2_cfg import ModelConfig, VGG4LayerActFrontendV1Config_mod, SpecaugConfig, ConformerAEDModelConfig
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -287,6 +285,7 @@ class Model(torch.nn.Module):
         self.aed_model = ConformerAEDModel(cfg=aed_cfg)
 
         self.label_target_size = self.cfg.label_target_size
+        self.ctc_loss_scale = self.cfg.ctc_loss_scale
 
 
     def forward(
@@ -326,8 +325,8 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         blank=model.label_target_size,
         reduction="sum",
     )
-    num_phonemes = torch.sum(bpe_labels_len)
-    run_ctx.mark_as_loss(name="ctc", loss=ctc_loss, inv_norm_factor=num_phonemes)
+    num_labels = torch.sum(bpe_labels_len)
+    run_ctx.mark_as_loss(name="ctc", loss=ctc_loss, inv_norm_factor=num_labels, scale=model.ctc_loss_scale)
 
     # ignore padded values in the loss
     targets_packed = nn.utils.rnn.pack_padded_sequence(
@@ -340,8 +339,6 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     ce_loss = nn.functional.cross_entropy(
         decoder_logits.transpose(1, 2), targets_masked.long(), reduction="sum", label_smoothing=0.1,
     )  # [B,N]
-
-    num_labels = torch.sum(bpe_labels_len)
 
     run_ctx.mark_as_loss(name="bpe_ce", loss=ce_loss, inv_norm_factor=num_labels)
 

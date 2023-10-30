@@ -98,6 +98,8 @@ class ModelConfig():
     out_proj_dim: int
     output_dropout: float
 
+    ctc_loss_scale: float
+
     @classmethod
     def from_dict(cls, d):
         d = d.copy()

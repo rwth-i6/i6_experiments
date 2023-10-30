@@ -70,6 +70,7 @@ class ConformerAEDModelConfig:
     encoder_cfg: ConformerEncoderV1Config
     decoder_cfg: AttentionLSTMDecoderV1Config
     specaug_cfg: SpecaugConfig
+    ctc_dropout: float
 
 
 @dataclass
@@ -97,6 +98,9 @@ class ModelConfig():
     additive_att_weights_dropout: float
     out_proj_dim: int
     output_dropout: float
+
+    ctc_loss_scale: float
+    ctc_dropout: float
 
     @classmethod
     def from_dict(cls, d):

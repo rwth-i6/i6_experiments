@@ -1,7 +1,5 @@
 """
-Trying to make the aligner more AppTek-Like
-
-Extended weight init code
+Now including ctc loss scale
 """
 
 from dataclasses import dataclass
@@ -26,7 +24,7 @@ from i6_models.primitives.specaugment import specaugment_v1_by_length
 
 from returnn.torch.context import get_run_ctx
 
-from .i6modelsV1_VGG4LayerActFrontendV1_cfg import ModelConfig, VGG4LayerActFrontendV1Config_mod, SpecaugConfig, ConformerAEDModelConfig
+from .i6modelsV1_VGG4LayerActFrontendV1_v3_cfg import ModelConfig, VGG4LayerActFrontendV1Config_mod, SpecaugConfig, ConformerAEDModelConfig
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -168,6 +166,7 @@ class ConformerAEDModel(nn.Module):
         self.ctc_linear = nn.Linear(in_features=cfg.encoder_cfg.block_cfg.ff_cfg.input_dim,
                                     out_features=self.vocab_size + 1)  # +1 for CTC
         self.decoder = AttentionLSTMDecoderV1(cfg=cfg.decoder_cfg)
+        self.ctc_dropout = nn.Dropout(p=self.cfg.ctc_dropout)
 
         self.apply(self._weight_init)
 
@@ -217,7 +216,8 @@ class ConformerAEDModel(nn.Module):
         )
 
         encoder_seq_len = torch.sum(encoder_seq_mask, dim=1)  # [B]
-        ctc_logits = self.ctc_linear(encoder_outputs)  # [B, T, #vocab + 1]
+        encoder_outputs_drop = self.ctc_dropout(encoder_outputs)
+        ctc_logits = self.ctc_linear(encoder_outputs_drop)  # [B, T, #vocab + 1]
         ctc_logprobs = nn.functional.log_softmax(ctc_logits, dim=2)
 
         return decoder_logits, state, encoder_outputs, encoder_seq_len, ctc_logprobs
@@ -283,10 +283,12 @@ class Model(torch.nn.Module):
             encoder_cfg=conformer_config,
             decoder_cfg=decoder_config,
             specaug_cfg=self.cfg.specaug_config,
+            ctc_dropout=self.cfg.ctc_dropout,
         )
         self.aed_model = ConformerAEDModel(cfg=aed_cfg)
 
         self.label_target_size = self.cfg.label_target_size
+        self.ctc_loss_scale = self.cfg.ctc_loss_scale
 
 
     def forward(
@@ -326,8 +328,9 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         blank=model.label_target_size,
         reduction="sum",
     )
-    num_phonemes = torch.sum(bpe_labels_len)
-    run_ctx.mark_as_loss(name="ctc", loss=ctc_loss, inv_norm_factor=num_phonemes)
+    num_labels = torch.sum(bpe_labels_len)
+    run_ctx.mark_as_loss(name="ctc_sum", loss=ctc_loss, inv_norm_factor=None, scale=model.ctc_loss_scale)
+    run_ctx.mark_as_loss(name="ctc", loss=ctc_loss, inv_norm_factor=num_labels, scale=0.0)
 
     # ignore padded values in the loss
     targets_packed = nn.utils.rnn.pack_padded_sequence(
@@ -341,9 +344,8 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         decoder_logits.transpose(1, 2), targets_masked.long(), reduction="sum", label_smoothing=0.1,
     )  # [B,N]
 
-    num_labels = torch.sum(bpe_labels_len)
-
-    run_ctx.mark_as_loss(name="bpe_ce", loss=ce_loss, inv_norm_factor=num_labels)
+    run_ctx.mark_as_loss(name="bpe_ce_sum", loss=ce_loss, inv_norm_factor=None)
+    run_ctx.mark_as_loss(name="bpe_ce", loss=ce_loss, inv_norm_factor=num_labels, scale=0.0)
 
 
 def forward_init_hook(run_ctx, **kwargs):
