@@ -710,7 +710,7 @@ def run_single(
                             tdp_scale=0.2,
                         )
                         s.recognize_cart(
-                            key="fh",
+                            key="fh-fs",
                             epoch=max(keep_epochs),
                             crp_corpus="dev-other",
                             n_cart_out=diphone_li.get_n_of_dense_classes(),
@@ -727,6 +727,7 @@ def run_single(
                             search_rqmt_update={"sbatch_args": ["-A", "rescale_speed", "-p", "rescale_amd"]},
                         )
 
+                    # experiments for word-end pruning
                     for a, p_c, b, b_l, we_p, we_l in itertools.product(
                         [None],
                         [0.4],
@@ -746,7 +747,7 @@ def run_single(
                             we_pruning_limit=we_l,
                         )
                         s.recognize_cart(
-                            key="fh",
+                            key="fh-fs",
                             epoch=max(keep_epochs),
                             crp_corpus="dev-other",
                             n_cart_out=diphone_li.get_n_of_dense_classes(),
