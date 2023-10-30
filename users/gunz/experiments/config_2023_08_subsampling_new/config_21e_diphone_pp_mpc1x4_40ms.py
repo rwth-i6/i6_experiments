@@ -31,6 +31,7 @@ from ...setups.common.nn.specaugment import (
     summary as sa_summary,
     transform as sa_transform,
 )
+from ...setups.common.power_consumption import WritePowerConsumptionScriptJob
 from ...setups.fh import system as fh_system
 from ...setups.fh.decoder.config import SearchParameters
 from ...setups.fh.network import conformer, diphone_joint_output
@@ -682,6 +683,11 @@ def run_single(
                     )
 
                 if run_performance_study:
+                    power_consumption_script = WritePowerConsumptionScriptJob(s.crp["dev-other"].flf_tool_exe)
+
+                    def set_power_exe(crp):
+                        crp.flf_tool_exe = power_consumption_script.out_script
+
                     max_bl = 10000
                     for a, p_c, b, b_l in itertools.product(
                         [None, 2, 4, 6, 8],
