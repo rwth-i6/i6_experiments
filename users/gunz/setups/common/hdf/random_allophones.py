@@ -6,7 +6,7 @@ import shutil
 import tempfile
 import time
 from os import path
-from typing import List
+from typing import List, Tuple
 
 import h5py
 import numpy
@@ -57,21 +57,33 @@ class RasrFeatureAndAlignmentWithRandomAllophonesToHDF(Job):
     def run(self, *to_process: int):
         logging.info(f"processing files {to_process}")
 
-        for file_index in to_process:
-            target_file = self.out_hdf_files[file_index]
+        def move(to_move: List[Tuple[str, Path]]):
+            for i, src, dst in enumerate(to_move):
+                if i > 0 and i % 10 == 0:
+                    secs = random.randrange(0, 30)
+                    logging.info(f"sleeping for {secs}s to prevent thundering herd")
+                    time.sleep(secs)
 
-            secs = random.randrange(0, 240)
-            logging.info(f"sleeping for {secs}s to prevent thundering herd")
-            time.sleep(secs)
+                shutil.move(src, dst)
 
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                f = path.join(tmp_dir, "data.hdf")
-                logging.info(f"processing file {target_file} using temporary file {f}")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            moves = []
 
-                with h5py.File(f, "w") as file:
+            for file_index in to_process:
+                target_file = self.out_hdf_files[file_index]
+                tmp_file = path.join(tmp_dir, f"data.{file_index}.hdf")
+
+                logging.info(f"processing file {target_file} using temporary file {tmp_file}")
+                with h5py.File(tmp_file, "w") as file:
                     self.__run(file_index, file)
 
-                shutil.move(f, target_file.get_path())
+                moves.append((tmp_file, target_file))
+
+                if len(moves) >= 50:
+                    move(moves)
+                    moves = []
+
+            move(moves)
 
     def __run(self, file_index: int, out: h5py.File):
         rng = random.Random(self.rng_seed)
