@@ -682,9 +682,7 @@ def run_single(
                         rtf=20,
                     )
 
-                if ep == max(keep_epochs) and run_performance_study:
-                    print("perf study")
-
+                if ep == max(keep_epochs) and run_performance_study and peak_lr == 8e-5:
                     power_consumption_script = WritePowerConsumptionScriptJob(s.crp["dev-other"].flf_tool_exe)
 
                     def set_power_exe(crp):
