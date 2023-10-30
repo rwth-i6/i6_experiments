@@ -50,11 +50,11 @@ class MFCCOptions(AdditionalFeatureOptions):
 
 # list of known audio feature type with their respective options type
 KNOWN_FEATURES = {
-    "mfcc": [type(None), MFCCOptions],
-    "log_mel_filterbank": [type(None)],
-    "log_log_mel_filterbank": [type(None)],
-    "db_mel_filterbank": [type(None), DBMelFilterbankOptions],
-    "linear_spectrogram": [type(None), LinearFilterbankOptions],
+    "mfcc": [MFCCOptions],
+    "log_mel_filterbank": [],
+    "log_log_mel_filterbank": [],
+    "db_mel_filterbank": [DBMelFilterbankOptions],
+    "linear_spectrogram": [LinearFilterbankOptions],
 }
 
 
@@ -137,8 +137,7 @@ class AudioFeatureDatastream(Datastream):
 
         if options.features not in KNOWN_FEATURES:
             print("Warning: %s is not a known feature type" % options.features)
-
-        if type(options.feature_options) not in KNOWN_FEATURES.get(options.features, [type(None)]):
+        elif type(options.feature_options) not in KNOWN_FEATURES[options.features] + [type(None)]:
             print(
                 "Warning: possible feature options mismatch, passed %s but expected %s"
                 % (
