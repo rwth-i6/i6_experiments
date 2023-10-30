@@ -521,8 +521,8 @@ def run_single(
                         base_params,
                         lm_scale=round(base_params.lm_scale / ss_factor, 2),
                         tdp_scale=sc,
-                    ).with_prior_scale(0.6)
-                    for sc in [0.4, 0.6]
+                    ).with_prior_scale(p_c)
+                    for sc, p_c in itertools.product([0.2, 0.4, 0.6], [0.4, 0.6])
                 ]
                 for cfg in decoding_cfgs:
                     s.recognize_cart(
