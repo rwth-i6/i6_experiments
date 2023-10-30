@@ -98,11 +98,6 @@ def sis_run_with_prefix(prefix_name: str = None):
         config_updates={"aux_loss_scales": [0.1, 0.2], "aed_loss_scale": 0.7},
     )
     _train_exp(
-        "base-24gb-v3-lossscalesF-aux12",  # does not work?
-        config_24gb_v3,
-        config_updates={"aux_loss_scales": [0.3], "aed_loss_scale": 0.7, "aux_loss_layers": [12]},
-    )
-    _train_exp(
         "base-24gb-v3-adam-lossscalesF",  # does not work?
         config_24gb_v3,
         config_updates={"optimizer.class": "adam", "aux_loss_scales": [0.1, 0.2], "aed_loss_scale": 0.7},
@@ -125,16 +120,6 @@ def sis_run_with_prefix(prefix_name: str = None):
             "aux_loss_scales": [0.1, 0.1, 0.1],
             "aed_loss_scale": 0.1,
             "aux_loss_layers": [4, 8, 12],
-        },
-    )
-    _train_exp(
-        "base-24gb-v3-adam-lossscalesF-aux12",  # does not work?
-        config_24gb_v3,
-        config_updates={
-            "optimizer.class": "adam",
-            "aux_loss_scales": [0.3],
-            "aed_loss_scale": 0.7,
-            "aux_loss_layers": [12],
         },
     )
 
