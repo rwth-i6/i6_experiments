@@ -847,7 +847,7 @@ def run_single(
                         "center-output_transposed": {
                             "class": "transpose",
                             "from": "center-output",
-                            "perm": {"dim:42": "dim:84", "dim:42": "dim:84"},
+                            "perm": {"dim:42": "dim:84", "dim:84": "dim:42"},
                         },
                         "slice_classes": {
                             "class": "slice",
