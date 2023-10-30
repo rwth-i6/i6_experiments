@@ -17,8 +17,7 @@ from .config import get_training_config, get_search_config, get_prior_config
 
 
 def conformer_rnnt_baseline():
-    prefix_name = "experiments/rescale/tedliumv2/torchaudio_bpe_rnnt/"
-
+    prefix_name = "experiments/rescale/tedliumv2/torchaudio_bpe_rnnt/baseline/"
 
     BPE_SIZE = 1000
 
@@ -54,7 +53,7 @@ def conformer_rnnt_baseline():
 
     # ---------------------------------------------------------------------------------------------------------------- #
 
-    def run_exp(ft_name, datasets, train_args, search_args=None, with_prior=False, num_epochs=250, decoder="rnnt.decoder.experimental_rnnt_decoder", evaluate_epoch=None):
+    def run_exp(ft_name, datasets, train_args, search_args=None, num_epochs=250, decoder="rnnt.decoder.experimental_rnnt_decoder", with_prior=False, evaluate_epoch=None):
         training_name = "/".join(ft_name.split("/")[:-1])
         search_args = search_args if search_args is not None else {}
 
@@ -63,24 +62,12 @@ def conformer_rnnt_baseline():
 
         if not evaluate_epoch:
             evaluate_epoch = num_epochs
-        if with_prior:
-            returnn_config = get_prior_config(training_datasets=datasets, **train_args)
-            prior_file = compute_prior(
-                ft_name,
-                returnn_config,
-                checkpoint=train_job.out_checkpoints[evaluate_epoch],
-                returnn_exe=RETURNN_EXE,
-                returnn_root=MINI_RETURNN_ROOT,
-            )
-            tk.register_output(training_name + "/prior.txt", prior_file)
-            search_args["prior_file"] = prior_file
 
         returnn_search_config = get_search_config(**train_args, decoder_args=search_args,
                                                   decoder=decoder)
-
         _, _, search_jobs = search(ft_name + "/default_%i" % evaluate_epoch, returnn_search_config,
                                    train_job.out_checkpoints[evaluate_epoch], test_dataset_tuples, RETURNN_EXE,
-                                   MINI_RETURNN_ROOT)
+                                   MINI_RETURNN_ROOT, use_gpu=search_args.get("use_gpu", False))
 
         return train_job, search_jobs
 
@@ -99,7 +86,7 @@ def conformer_rnnt_baseline():
     }
     
     default_search_args = {
-        "lexicon": get_text_lexicon(bpe_size=BPE_SIZE),
+        "lexicon": get_text_lexicon(bpe_size=BPE_SIZE),  # TODO: cleanup
         "returnn_vocab": label_datastream.vocab,
         "beam_size": 1024,
         "arpa_lm": arpa_ted_lm,
@@ -220,24 +207,24 @@ def conformer_rnnt_baseline():
     model_config_sub6_later = copy.deepcopy(model_config_sub6)
     model_config_sub6_later.specauc_start_epoch = 40
 
-    train_args = {
-        **copy.deepcopy(train_args_adamw03_accum2_jjlr),
-        "network_module": "rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v4_transparent",
-        "net_args": {"model_config_dict": asdict(model_config_sub6_later)},
-    }
-    train_args["config"]["batch_size"] = 120 * 16000
-    train_args["config"]["accum_grad_multiple_step"] = 3
-    for lm_weight in [1.6, 1.8, 2.0, 2.2]:
-        for prior_scale in [0.3, 0.5]:
-            search_args = {
-                **default_search_args,
-                "lm_weight": lm_weight,
-                "prior_scale": prior_scale,
-            }
-            run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v4_JJLR_sub6_transparent_later/lm%.1f_prior%.2f_bs1024_th14" % (
-                    lm_weight, prior_scale),
-                datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+    # train_args = {
+    #     **copy.deepcopy(train_args_adamw03_accum2_jjlr),
+    #     "network_module": "rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v4_transparent",
+    #     "net_args": {"model_config_dict": asdict(model_config_sub6_later)},
+    # }
+    # train_args["config"]["batch_size"] = 120 * 16000
+    # train_args["config"]["accum_grad_multiple_step"] = 3
+    # for lm_weight in [1.6, 1.8, 2.0, 2.2]:
+    #     for prior_scale in [0.3, 0.5]:
+    #         search_args = {
+    #             **default_search_args,
+    #             "lm_weight": lm_weight,
+    #             "prior_scale": prior_scale,
+    #         }
+    #         run_exp(
+    #             prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v4_JJLR_sub6_transparent_later/lm%.1f_prior%.2f_bs1024_th14" % (
+    #                 lm_weight, prior_scale),
+    #             datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
             
     train_args = {
         **copy.deepcopy(train_args_adamw03_accum2_jjlr),
@@ -253,9 +240,9 @@ def conformer_rnnt_baseline():
     run_exp(
         prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v4_JJLR_sub6_transparent_latepredictor/bs12",
         datasets=train_data, train_args=train_args, search_args=search_args, with_prior=False)
-    run_exp(
-        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v4_JJLR_sub6_transparent_latepredictor/bs12_v2",
-        datasets=train_data, train_args=train_args, search_args=search_args, with_prior=False, decoder="rnnt.decoder.experimental_rnnt_decoder_v2")
+    #run_exp(
+    #    prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v4_JJLR_sub6_transparent_latepredictor/bs12_v2",
+    #    datasets=train_data, train_args=train_args, search_args=search_args, with_prior=False, decoder="rnnt.decoder.experimental_rnnt_decoder_v2")
 
 
     from ..pytorch_networks.rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v5_cfg import \
@@ -480,6 +467,37 @@ def conformer_rnnt_baseline():
         prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_sub6_start20_lstm512_transparent/bs12",
         datasets=train_data, train_args=train_args, search_args=search_args, with_prior=False)
 
+    for beam_size in [1, 2, 4, 8, 12, 16, 20, 24, 32, 64, 128]:
+        search_args_gpu = {
+            "beam_size": beam_size,
+            "returnn_vocab": label_datastream.vocab,
+            "use_gpu": True,  # also for new hash
+        }
+        run_exp(
+            prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_sub6_start20_lstm512_transparent/bs%u_gpu" % beam_size,
+            datasets=train_data, train_args=train_args, search_args=search_args_gpu, with_prior=False)
+
+    search_args_gpu = {
+        "beam_size": 12,
+        "returnn_vocab": label_datastream.vocab,
+        "use_gpu": True,  # also for new hash
+        "batched_encoder_decoding": True,
+    }
+    run_exp(
+        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_sub6_start20_lstm512_transparent/bs12_gpu_batched",
+        datasets=train_data, train_args=train_args, search_args=search_args_gpu, with_prior=False)
+
+    for blank_log_penalty in [0.1, 0.2, 0.3]:
+        search_args_gpu = {
+            "beam_size": 16,
+            "returnn_vocab": label_datastream.vocab,
+            "use_gpu": True,  # also for new hash
+            "blank_log_penalty": blank_log_penalty,
+        }
+        run_exp(
+            prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_sub6_start20_lstm512_transparent/bs16_bp%.1f_gpu" % blank_log_penalty,
+            datasets=train_data, train_args=train_args, search_args=search_args_gpu, with_prior=False)
+
     train_args_const20 = copy.deepcopy(train_args)
     train_args_const20["config"]["learning_rates"] = list(np.linspace(1e-4, 1e-4, 20)) + list(np.linspace(1e-4, 7e-4, 90)) + list(
         np.linspace(7e-4, 7e-5, 110)) + list(np.linspace(7e-5, 1e-8, 30))
@@ -490,4 +508,54 @@ def conformer_rnnt_baseline():
     run_exp(
         prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_const20_sub6_start20_lstm512_transparent/bs12",
         datasets=train_data, train_args=train_args_const20, search_args=search_args, with_prior=False)
+    
+    
+    train_args = {
+        **copy.deepcopy(train_args_adamw03_accum2_jjlr),
+        "network_module": "rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v7_transparent",
+        "net_args": {"model_config_dict": asdict(model_config_v5_sub6_512lstm)},
+    }
+    train_args["config"]["batch_size"] = 120 * 16000
+    train_args["config"]["accum_grad_multiple_step"] = 3
+    search_args = {
+        "beam_size": 12,
+        "returnn_vocab": label_datastream.vocab,
+    }
+    run_exp(
+        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub6_start20_lstm512_transparent/bs12",
+        datasets=train_data, train_args=train_args, search_args=search_args, with_prior=False)
 
+
+    train_args = {
+        **copy.deepcopy(train_args_adamw03_accum2_jjlr),
+        "network_module": "rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v7",
+        "net_args": {"model_config_dict": asdict(model_config_v5_sub6_512lstm)},
+    }
+    train_args["config"]["batch_size"] = 120 * 16000
+    train_args["config"]["accum_grad_multiple_step"] = 3
+    search_args = {
+        "beam_size": 12,
+        "returnn_vocab": label_datastream.vocab,
+    }
+    train_job, _ = run_exp(
+        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub6_start20_lstm512/bs12",
+        datasets=train_data, train_args=train_args, search_args=search_args, with_prior=False)
+    train_job.rqmt["gpu_mem"] = 24
+    # TODO: This here above is the best baseline with 9.3%, with the accum step 3 setting also runnable on 11GB GPU
+    
+    
+    train_args = {
+        **copy.deepcopy(train_args_adamw03_accum2_jjlr),
+        "network_module": "rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v7",
+        "net_args": {"model_config_dict": asdict(model_config_v5_sub6_512lstm)},
+    }
+    train_args["config"]["batch_size"] = 180 * 16000
+    train_args["config"]["accum_grad_multiple_step"] = 2
+    search_args = {
+        "beam_size": 12,
+        "returnn_vocab": label_datastream.vocab,
+    }
+    train_job, _ = run_exp(
+        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub6_start20_lstm512_r2/bs12",
+        datasets=train_data, train_args=train_args, search_args=search_args, with_prior=False)
+    train_job.rqmt["gpu_mem"] = 24

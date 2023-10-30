@@ -48,6 +48,7 @@ def conformer_baseline():
     lms_system = run_tedlium2_ngram_lm(add_unknown_phoneme_and_mapping=False)
     lm = lms_system.interpolated_lms["dev-pruned"]["4gram"]
     arpa_ted_lm = lm.ngram_lm
+    # TODO: Add binary conversion job
 
     # ---------------------------------------------------------------------------------------------------------------- #
 
@@ -1004,6 +1005,29 @@ def conformer_baseline():
             run_exp(prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v5_JJLR/lm%.1f_prior%.2f_bs1024_th14" % (
                 lm_weight, prior_scale),
                     datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+    # TODO: this here above is the best baseline, use as starting point, giving 7.2% with LM 2.2 and Prior 0.7
+
+    model_config_v4_start11 = copy.deepcopy(model_config_v4)
+    model_config_v4_start11.specauc_start_epoch = 11
+    train_args = copy.deepcopy(train_args)
+    train_args["net_args"]["model_config_dict"] = asdict(model_config_v4_start11)
+    train_args["config"]["learning_rates"] = list(np.linspace(1e-5, 1e-3, 150)) + list(np.linspace(1e-3, 1e-5, 150))
+    train_args["config"]["batch_size"] = 500 * 16000
+    train_args["config"]["accum_grad_multiple_step"] = 1
+    train_args["config"]["optimizer"]["weight_decay"] = 1e-2
+    for lm_weight in [1.6, 1.8, 2.0, 2.2]:
+        for prior_scale in [0.5, 0.7]:
+            search_args = {
+                **default_search_args,
+                "lm_weight": lm_weight,
+                "prior_scale": prior_scale,
+            }
+            search_args["beam_size"] = 1024
+            search_args["beam_threshold"] = 14
+            train_job, _ = run_exp(prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v5_24gb_bs500/lm%.1f_prior%.2f_bs1024_th14" % (
+                lm_weight, prior_scale),
+                    datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+    train_job.rqmt["gpu_mem"] = 24
 
 
             

@@ -54,7 +54,7 @@ def conformer_baseline():
 
     # ---------------------------------------------------------------------------------------------------------------- #
 
-    def run_exp(ft_name, datasets, train_args, search_args=None, with_prior=False, num_epochs=250):
+    def run_exp(ft_name, datasets, train_args, search_args=None, with_prior=False, num_epochs=250, decoder="ctc.decoder.flashlight_bpe_ctc"):
         training_name = "/".join(ft_name.split("/")[:-1])
         search_args = search_args if search_args is not None else {}
 
@@ -74,7 +74,7 @@ def conformer_baseline():
             search_args["prior_file"] = prior_file
 
         returnn_search_config = get_search_config(**train_args, decoder_args=search_args,
-                                                  decoder="ctc.decoder.flashlight_bpe_ctc")
+                                                  decoder=decoder)
 
         _, _, search_jobs = search(ft_name + "/default_%i" % num_epochs, returnn_search_config,
                                    train_job.out_checkpoints[num_epochs], test_dataset_tuples, RETURNN_EXE,
@@ -252,7 +252,8 @@ def conformer_baseline():
                 prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v4_JJLR_specstart11/lm%.1f_prior%.2f_bs1024_th14" % (
                     lm_weight, prior_scale),
                 datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
-    
+    # TODO: This here is the subsampling 4 baseline giving 8.0% with LM 1.6 and prior 0.5
+
     
     # SUB 6 from here
 
@@ -338,6 +339,16 @@ def conformer_baseline():
                     prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v3_JJLR_posenc_transparent_sub6_latespecaug/lm%.1f_prior%.2f_bs%i_th14" % (
                         lm_weight, prior_scale, beam_size),
                     datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+
+    train_args_debug = copy.deepcopy(train_args)
+    train_args_debug["debug"] = True
+    # greedy
+    search_args = {
+        "returnn_vocab": label_datastream.vocab,
+    }
+    run_exp(
+        prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v3_JJLR_posenc_transparent_sub6_latespecaug/greedy",
+        datasets=train_data, train_args=train_args_debug, search_args=search_args, with_prior=True, decoder="ctc.decoder.greedy_bpe_ctc_v2")
 
 
     from ..pytorch_networks.ctc.conformer_0923.i6modelsV1_VGG4LayerActFrontendV1_transparent_v2_cfg import ModelConfig as ModelConfigTranspV2

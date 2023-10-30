@@ -1,6 +1,4 @@
 import copy
-import numpy as np
-from sisyphus import tk
 from typing import Any, Dict
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
@@ -11,8 +9,6 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import (
 from i6_experiments.common.setups.serialization import Import
 from ..data import TrainingDatasets
 from ..flashlight_phon_ctc.serializer import get_pytorch_serializer_v3, PACKAGE
-
-from i6_experiments.users.rossenbach.common_setups.returnn.datasets import GenericDataset
 
 
 def get_training_config(

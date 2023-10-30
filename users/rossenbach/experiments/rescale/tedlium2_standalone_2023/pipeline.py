@@ -54,6 +54,7 @@ def search_single(
         returnn_exe,
         returnn_root,
         mem_rqmt=8,
+        use_gpu=False,
 ):
     """
     Run search for a specific test dataset
@@ -74,7 +75,7 @@ def search_single(
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
         time_rqmt=24,
-        device="cpu",
+        device="gpu" if use_gpu else "cpu",
         cpu_rqmt=2,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
@@ -103,7 +104,7 @@ def search_single(
 
 
 @tk.block()
-def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn_exe, returnn_root):
+def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn_exe, returnn_root, use_gpu=False):
     """
 
     :param str prefix_name:
@@ -118,7 +119,7 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
     wers = {}
     search_jobs = []
     for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
-        wers[key], search_job = search_single(prefix_name + "/%s" % key, returnn_config, checkpoint, test_dataset, test_dataset_reference, returnn_exe, returnn_root)
+        wers[key], search_job = search_single(prefix_name + "/%s" % key, returnn_config, checkpoint, test_dataset, test_dataset_reference, returnn_exe, returnn_root, use_gpu=use_gpu)
         search_jobs.append(search_job)
 
     from i6_core.report import GenerateReportStringJob, MailJob

@@ -73,7 +73,7 @@ def build_training_datasets(
     :param str seq_ordering:
     :return:
     """
-    ogg_zip_dict = get_ogg_zip_dict("corpora", returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_CPU_EXE)
+    ogg_zip_dict = get_ogg_zip_dict("corpora_v2", returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_CPU_EXE)
     train_clean_960_ogg = ogg_zip_dict['train-other-960']
     dev_clean_ogg = ogg_zip_dict['dev-clean']
     dev_other_ogg = ogg_zip_dict['dev-other']

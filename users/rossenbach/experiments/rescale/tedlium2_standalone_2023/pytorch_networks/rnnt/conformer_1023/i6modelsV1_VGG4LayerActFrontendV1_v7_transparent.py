@@ -1,7 +1,7 @@
 """
 Modified from v4 with proper configuration for the predictor and using i6models feature extraction
 
-Has a bug where joiner dropout is not set
+Sets joiner dropout correctly
 """
 
 import numpy as np
@@ -288,7 +288,8 @@ class Model(torch.nn.Module):
         self.joiner = Joiner(
             input_dim=self.cfg.joiner_dim,
             output_dim=self.cfg.label_target_size + 1,
-            activation=self.cfg.joiner_activation
+            activation=self.cfg.joiner_activation,
+            dropout=self.cfg.joiner_dropout
         )
         self.encoder_out_linear = nn.Linear(conformer_size, self.cfg.joiner_dim)
         self.specaug_start_epoch = self.cfg.specauc_start_epoch

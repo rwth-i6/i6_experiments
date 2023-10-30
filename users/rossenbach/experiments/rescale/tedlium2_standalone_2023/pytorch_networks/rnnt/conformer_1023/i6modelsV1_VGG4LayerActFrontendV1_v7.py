@@ -1,7 +1,7 @@
 """
 Modified from v4 with proper configuration for the predictor and using i6models feature extraction
 
-Has a bug where joiner dropout is not set
+Sets joiner dropout correctly
 """
 
 import numpy as np
@@ -195,50 +195,6 @@ class Joiner(torch.nn.Module):
         return output, source_lengths, target_lengths
 
 
-
-class TransparentConformerEncoderV1(nn.Module):
-    """
-    Implementation of the convolution-augmented Transformer (short Conformer), as in the original publication.
-
-    The model consists of a frontend and a stack of N conformer blocks.
-    C.f. https://arxiv.org/pdf/2005.08100.pdf
-    """
-
-    def __init__(self, cfg: ConformerEncoderV1Config):
-        """
-        :param cfg: conformer encoder configuration with subunits for frontend and conformer blocks
-        """
-        super().__init__()
-
-        self.frontend = cfg.frontend()
-        self.module_list = torch.nn.ModuleList([ConformerBlockV1(cfg.block_cfg) for _ in range(cfg.num_layers)])
-        self.transparent_scales = nn.Parameter(torch.empty((cfg.num_layers + 1,)))
-
-        torch.nn.init.constant_(self.transparent_scales, 1 / (cfg.num_layers + 1))
-
-    def forward(self, data_tensor: torch.Tensor, sequence_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        :param data_tensor: input tensor of shape [B, T', F]
-        :param sequence_mask: mask tensor where 0 defines positions within the sequence and 1 outside, shape: [B, T']
-        :return: (output, out_seq_mask)
-            where output is torch.Tensor of shape [B, T, F'],
-            out_seq_mask is a torch.Tensor of shape [B, T]
-
-        F: input feature dim, F': internal and output feature dim
-        T': data time dim, T: down-sampled time dim (internal time dim)
-        """
-        x, sequence_mask = self.frontend(data_tensor, sequence_mask)  # [B, T, F']
-
-        transparent_weights = torch.softmax(self.transparent_scales + 0.001, dim=0)
-        print(transparent_weights)
-
-        final = transparent_weights[0] * x
-        for i, module in enumerate(self.module_list):
-            x = module(x, sequence_mask)  # [B, T, F']
-            final = final + (transparent_weights[i + 1] * x)
-        return final, sequence_mask
-
-
 class Model(torch.nn.Module):
     def __init__(self, model_config_dict, **kwargs):
         super().__init__()
@@ -279,7 +235,7 @@ class Model(torch.nn.Module):
         )
 
         self.feature_extraction = LogMelFeatureExtractionV1(cfg=fe_config)
-        self.conformer = TransparentConformerEncoderV1(cfg=conformer_config)
+        self.conformer = ConformerEncoderV1(cfg=conformer_config)
         self.predictor = Predictor(
             cfg=self.cfg.predictor_config,
             label_target_size=self.cfg.label_target_size + 1,  # ctc blank added
@@ -288,7 +244,8 @@ class Model(torch.nn.Module):
         self.joiner = Joiner(
             input_dim=self.cfg.joiner_dim,
             output_dim=self.cfg.label_target_size + 1,
-            activation=self.cfg.joiner_activation
+            activation=self.cfg.joiner_activation,
+            dropout=self.cfg.joiner_dropout
         )
         self.encoder_out_linear = nn.Linear(conformer_size, self.cfg.joiner_dim)
         self.specaug_start_epoch = self.cfg.specauc_start_epoch

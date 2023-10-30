@@ -8,12 +8,10 @@ from sisyphus import tk
 
 from dataclasses import dataclass
 from functools import lru_cache
-import os
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from i6_core.returnn import CodeWrapper, BlissToOggZipJob
 
-from i6_experiments.common.datasets.tedlium2.lexicon import get_g2p_augmented_bliss_lexicon, get_bliss_lexicon
 from i6_experiments.common.datasets.tedlium2.corpus import get_bliss_corpus_dict
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.base import Datastream

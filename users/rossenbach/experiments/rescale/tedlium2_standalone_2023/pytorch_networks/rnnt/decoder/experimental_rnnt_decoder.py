@@ -8,7 +8,8 @@ import numpy as np
 import torch
 from torch import nn
 
-from torchaudio.models import RNNT, RNNTBeamSearch
+from torchaudio.models import RNNT
+from .rnnt_beam_search import ModifiedRNNTBeamSearch
 
 import torch
 
@@ -89,6 +90,10 @@ def forward_init_hook(run_ctx, **kwargs):
     run_ctx.rnnt_decoder = None
     run_ctx.beam_size = kwargs["beam_size"]
 
+    run_ctx.blank_log_penalty = kwargs.get("blank_log_penalty", None)
+
+    run_ctx.batched_encoder_decoding = kwargs.get("batched_encoder_decoding", False)
+
     run_ctx.running_audio_len_s = 0
     run_ctx.total_time = 0
 
@@ -111,9 +116,10 @@ def forward_step(*, model, data, run_ctx, **kwargs):
             predictor=model.predictor,
             joiner=model.joiner,
         )
-        run_ctx.rnnt_decoder = RNNTBeamSearch(
+        run_ctx.rnnt_decoder = ModifiedRNNTBeamSearch(
             model=rnnt_model,
             blank=model.cfg.label_target_size,
+            blank_penalty=run_ctx.blank_log_penalty,
         )
         print("done!")
 
@@ -128,13 +134,22 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     tags = data["seq_tag"]
 
     hyps = []
-    for i in range(raw_audio.shape[0]):
-        hypothesis, states = run_ctx.rnnt_decoder.infer(
-            input=raw_audio[[i]],
-            length=raw_audio_len[[i]],
+
+    if run_ctx.batched_encoder_decoding:
+        batched_hypotheses = run_ctx.rnnt_decoder.forward_semi_batched(
+            input=raw_audio,
+            length=raw_audio_len,
             beam_width=run_ctx.beam_size,
         )
-        hyps.append(hypothesis[0][0][:-1])  # exclude last sentence end token
+        hyps = [hypothesis[0][0][:-1] for hypothesis in batched_hypotheses]  # exclude last sentence end token
+    else:
+        for i in range(raw_audio.shape[0]):
+            hypothesis, states = run_ctx.rnnt_decoder.infer(
+                input=raw_audio[[i]],
+                length=raw_audio_len[[i]],
+                beam_width=run_ctx.beam_size,
+            )
+            hyps.append(hypothesis[0][0][:-1])  # exclude last sentence end token
 
     total_time = time.time() - start
     run_ctx.total_time += total_time
