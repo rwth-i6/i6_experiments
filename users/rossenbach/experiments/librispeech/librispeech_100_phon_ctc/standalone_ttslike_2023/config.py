@@ -1,4 +1,5 @@
 import copy
+import numpy as np
 from sisyphus import tk
 from typing import Any, Dict
 
@@ -34,7 +35,7 @@ def get_training_config(
 
     base_config = {
         "optimizer": {"class": "adam", "epsilon": 1e-8},
-        "learning_rates": [0.0001],
+        "learning_rates": list(np.linspace(1e-5,8e-4, 125)) + list(np.linspace(8e-4, 1e-6, 125)),
         #############
         "batch_size": 300 * 16000,  # batch size in second
         "max_seq_length": {"audio_features": 25 * 16000},  # max seq len in seconds

@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from i6_core.returnn import CodeWrapper, BlissToOggZipJob
 from i6_core.returnn.vocabulary import ReturnnVocabFromPhonemeInventory
 
-from i6_experiments.common.datasets.librispeech import get_g2p_augmented_bliss_lexicon_dict, get_bliss_corpus_dict, get_ogg_zip_dict
+from i6_experiments.common.datasets.librispeech import get_g2p_augmented_bliss_lexicon_dict, get_bliss_corpus_dict, get_ogg_zip_dict, get_bliss_lexicon
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.base import Datastream
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream
@@ -62,16 +62,22 @@ class TrainingDatasetSettings:
 
 # --------------------------- Helper functions  -----------------------------------
 
-def get_librispeech_lexicon(corpus_key="train-clean-100") -> tk.Path:
+def get_librispeech_lexicon(corpus_key="train-clean-100", with_g2p=True, add_silence=True) -> tk.Path:
+
     """
     get the TTS-extended g2p bliss lexicon with [start], [end] and [space] marker
     :return:
     """
-    return extend_lexicon_with_tts_lemmas(get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)[corpus_key])
+    if with_g2p:
+        return extend_lexicon_with_tts_lemmas(
+            get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, add_silence=add_silence)[corpus_key]
+        )
+    else:
+        return extend_lexicon_with_tts_lemmas(get_bliss_lexicon(use_stress_marker=False, add_silence=add_silence))
 
 
 def get_text_lexicon(corpus_key="train-clean-100") -> tk.Path:
-    bliss_lex = get_librispeech_lexicon(corpus_key)
+    bliss_lex = get_librispeech_lexicon(corpus_key, with_g2p=False)
     from i6_experiments.users.rossenbach.lexicon.conversion import BlissLexiconToWordLexicon
     word_lexicon = BlissLexiconToWordLexicon(bliss_lex).out_lexicon
     return word_lexicon
@@ -99,15 +105,14 @@ def get_tts_extended_bliss(ls_corpus_key, remove_unk_seqs=False) -> tk.Path:
     return tts_ls_bliss
 
 
-def get_lexicon(with_blank: bool = False, corpus_key="train-clean-100") -> tk.Path:
+def get_lexicon(with_blank: bool = False, corpus_key="train-clean-100", with_g2p=True, add_silence=True) -> tk.Path:
     """
     Get the TTS/CTC lexicon
 
     :param with_blank: add blank (e.g. for CTC training or extraction)
     :return: path to bliss lexicon file
     """
-    lexicon = get_librispeech_lexicon(corpus_key=corpus_key)
-    lexicon = extend_lexicon_with_tts_lemmas(lexicon)
+    lexicon = get_librispeech_lexicon(corpus_key=corpus_key, with_g2p=with_g2p, add_silence=add_silence)
     if with_blank:
         lexicon = extend_lexicon_with_blank(lexicon)
     return lexicon
@@ -339,16 +344,13 @@ def build_test_dataset(librispeech_key:str, dataset_key: str, silence_preprocess
     _, test_ogg = get_test_bliss_and_zip(dataset_key)
     bliss_dict = get_bliss_corpus_dict()
 
-    train_bpe_datastream = get_vocab_datastream(corpus_key=librispeech_key, with_blank=True)
-    audio_datastream = get_tts_log_mel_datastream(silence_preprocessing=False)
+    audio_datastream = get_audio_raw_datastream()
 
-    data_map = {"raw_audio": ("zip_dataset", "data"),
-                "phon_labels": ("zip_dataset", "classes")}
+    data_map = {"raw_audio": ("zip_dataset", "data")}
 
     test_zip_dataset = OggZipDataset(
         files=[test_ogg],
         audio_options=audio_datastream.as_returnn_audio_opts(),
-        target_options=train_bpe_datastream.as_returnn_targets_opts(),
         seq_ordering="sorted_reverse"
     )
     test_dataset = MetaDataset(

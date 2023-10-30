@@ -72,7 +72,9 @@ def search_single(
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=2,
+        time_rqmt=24,
+        device="cpu",
+        cpu_rqmt=2,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
         hdf_outputs=["search_out.py"],
@@ -127,7 +129,7 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
         values_report["%s_val" % (prefix_name + key)] = wers[key]
 
     report = GenerateReportStringJob(report_values=values, report_template=format_string, compress=False).out_report
-    mail = MailJob(result=report, subject=prefix_name, send_contents=True).out_status
-    tk.register_output(os.path.join(prefix_name, "mail_status"), mail)
+    #mail = MailJob(result=report, subject=prefix_name, send_contents=True).out_status
+    #tk.register_output(os.path.join(prefix_name, "mail_status"), mail)
     return format_string_report, values_report
 

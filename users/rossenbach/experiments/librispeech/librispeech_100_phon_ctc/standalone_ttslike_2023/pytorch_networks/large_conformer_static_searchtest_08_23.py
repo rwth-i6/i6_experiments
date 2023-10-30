@@ -256,13 +256,13 @@ class Model(torch.nn.Module):
             conv1_channels=256,
             conv1_kernel_size=5,
             conv1_stride=2,
-            conv2_channels=256,
+            conv2_channels=384,
             conv2_stride=1,
             conv2_kernel_size=5,
         )
-        conformer_size = 256
+        conformer_size = 384
         conformer_config = ConformerEncoderV1Config(
-            num_layers=8,
+            num_layers=10,
             frontend=ModuleFactoryV1(module_class=TwoLayer1DFrontend, cfg=frontend_config),
             block_cfg=ConformerBlockV1Config(
                 ff_cfg=ConformerPositionwiseFeedForwardV1Config(
@@ -329,11 +329,12 @@ class Model(torch.nn.Module):
         mask = mask_tensor(conformer_in, log_mel_features_len)
 
         conformer_out, out_mask = self.conformer(conformer_in, mask)
+        conformer_out = nn.functional.dropout(conformer_out, p=0.1, training=self.training, inplace=True)
         logits = self.final_linear(conformer_out)
 
         log_probs = torch.log_softmax(logits, dim=2)
 
-        return log_probs, torch.sum(out_mask, dim=1), logits
+        return log_probs, torch.sum(out_mask, dim=1)
 
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):
@@ -344,7 +345,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     phon_labels = data["phon_labels"]  # [B, N] (sparse)
     phon_labels_len = data["phon_labels:size1"]  # [B, N]
 
-    logprobs, audio_features_len, _ = model(
+    logprobs, audio_features_len = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
@@ -394,31 +395,18 @@ def forward_finish_hook(run_ctx, **kwargs):
     run_ctx.recognition_file.write("}\n")
     run_ctx.recognition_file.close()
 
-    # write empty HDF until new ForwardJob exists
-    f = open("output.hdf", "wt")
-    f.write(" ")
-    f.close()
-
-
 def search_step(*, model: Model, data, run_ctx, **kwargs):
     raw_audio = data["raw_audio"]  # [B, T', F]
     raw_audio_len = data["raw_audio:size1"]  # [B]
 
-    logprobs, audio_features_len, logits = model(
+    logprobs, audio_features_len = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
     tags = data["seq_tag"]
-    # for i in range(10):
-    #     hypothesis = run_ctx.ctc_decoders[i](logprobs.cpu(), audio_features_len.cpu())
-    #     hyp = hypothesis[0]
-    #     words = hyp[0].words
-    #     sequence = " ".join([word for word in words if not word.startswith("[")])
-    #     print("LM-Scale %i" % (i + 1))
-    #     print(sequence)
-    # assert False
+
     start = time.time()
-    hypothesis = run_ctx.ctc_decoder(logits.cpu(), audio_features_len.cpu())
+    hypothesis = run_ctx.ctc_decoder(logprobs.cpu(), audio_features_len.cpu())
     print("decoding_time: %.2f" % (time.time() - start))
     for hyp, tag in zip (hypothesis, tags):
         words = hyp[0].words
