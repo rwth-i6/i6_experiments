@@ -58,7 +58,7 @@ class RasrFeatureAndAlignmentWithRandomAllophonesToHDF(Job):
         logging.info(f"processing files {to_process}")
 
         def move(to_move: List[Tuple[str, Path]]):
-            for i, src, dst in enumerate(to_move):
+            for i, (src, dst) in enumerate(to_move):
                 if i > 0 and i % 10 == 0:
                     secs = random.randrange(0, 30)
                     logging.info(f"sleeping for {secs}s to prevent thundering herd")
