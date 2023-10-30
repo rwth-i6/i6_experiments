@@ -724,9 +724,7 @@ def run_single(
                             remove_or_set_concurrency=12,
                             crp_update=set_power_exe,
                             rtf=2,
-                            search_rqmt_update={
-                                "sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]
-                            },
+                            search_rqmt_update={"sbatch_args": ["-A", "rescale_speed", "-p", "rescale_amd"]},
                         )
 
                     for a, p_c, b, b_l, we_p, we_l in itertools.product(
