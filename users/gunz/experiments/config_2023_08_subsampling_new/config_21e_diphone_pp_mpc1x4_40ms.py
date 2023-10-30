@@ -463,7 +463,7 @@ def run_single(
             params=dataclasses.replace(base_params, beam=beam, we_pruning=we_p).with_prior_scale(p_c),
         )
 
-    if run_performance_study:
+    if False and run_performance_study:
         clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
         nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
             returnn_config=clean_returnn_config,
@@ -683,6 +683,8 @@ def run_single(
                     )
 
                 if ep == max(keep_epochs) and run_performance_study:
+                    print("perf study")
+
                     power_consumption_script = WritePowerConsumptionScriptJob(s.crp["dev-other"].flf_tool_exe)
 
                     def set_power_exe(crp):
