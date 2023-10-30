@@ -89,27 +89,26 @@ def sis_run_with_prefix(prefix_name: str = None):
     _train_exp("base-24gb-v3", config_24gb_v3)
     _train_exp("base-24gb-v3-wd1e_3", config_24gb_v3, config_updates={"optimizer.weight_decay": 0.001})
     _train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})
+    _train_exp("base-24gb-v3-lossnonorm", config_24gb_v3, config_updates={"use_normalized_loss": False})
     _train_exp("base-24gb-v3-lr1e_3", config_24gb_v3, config_updates={"learning_rate": 0.001})
+    _train_exp("base-24gb-v3-aux12", config_24gb_v3, config_updates={"aux_loss_layers": [12]})
     _train_exp(
-        "base-24gb-v3-adam-lossscalesF",
+        "base-24gb-v3-lossscalesF-aux12",
         config_24gb_v3,
-        config_updates={
-            "optimizer.class": "adam",
-            "aux_loss_scales": [0.1, 0.2],
-            "aed_loss_scale": 0.7,
-        },
+        config_updates={"aux_loss_scales": [0.3], "aed_loss_scale": 0.7, "aux_loss_layers": [12]},
     )
     _train_exp(
-        "base-24gb-v3-adam-lossscalesX10",
+        "base-24gb-v3-adam-lossscalesF",  # does not work?
         config_24gb_v3,
-        config_updates={
-            "optimizer.class": "adam",
-            "aux_loss_scales": [1, 2],
-            "aed_loss_scale": 1,
-        },
+        config_updates={"optimizer.class": "adam", "aux_loss_scales": [0.1, 0.2], "aed_loss_scale": 0.7},
     )
     _train_exp(
-        "base-24gb-v3-adam-lossscales-lossnonorm",
+        "base-24gb-v3-adam-lossscalesX10",  # does not work?
+        config_24gb_v3,
+        config_updates={"optimizer.class": "adam", "aux_loss_scales": [1, 2], "aed_loss_scale": 1},
+    )
+    _train_exp(
+        "base-24gb-v3-adam-lossscales-lossnonorm",  # works? but took very long
         config_24gb_v3,
         config_updates={
             "optimizer.class": "adam",
@@ -119,16 +118,12 @@ def sis_run_with_prefix(prefix_name: str = None):
         },
     )
     _train_exp(
-        "base-24gb-v3-adam-lossscales01",
+        "base-24gb-v3-adam-lossscales01",  # works?
         config_24gb_v3,
-        config_updates={
-            "optimizer.class": "adam",
-            "aux_loss_scales": [0.1, 0.1],
-            "aed_loss_scale": 0.1,
-        },
+        config_updates={"optimizer.class": "adam", "aux_loss_scales": [0.1, 0.1], "aed_loss_scale": 0.1},
     )
     _train_exp(
-        "base-24gb-v3-adam-lossscales-aux4812",
+        "base-24gb-v3-adam-lossscales-aux4812",  # works but took long
         config_24gb_v3,
         config_updates={
             "optimizer.class": "adam",
@@ -138,7 +133,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         },
     )
     _train_exp(
-        "base-24gb-v3-adam-lossscales-aux12",
+        "base-24gb-v3-adam-lossscales-aux12",  # does not work?
         config_24gb_v3,
         config_updates={
             "optimizer.class": "adam",
