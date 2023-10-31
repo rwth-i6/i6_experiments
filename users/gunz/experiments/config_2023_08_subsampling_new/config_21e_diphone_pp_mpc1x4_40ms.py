@@ -683,6 +683,23 @@ def run_single(
                     )
 
                 if ep == max(keep_epochs) and run_performance_study and peak_lr == 8e-5:
+                    s.recognize_optimize_scales_nn_pch(
+                        key="fh-fs",
+                        epoch=max(keep_epochs),
+                        cart_tree_or_tying_config=tying_cfg,
+                        crp_corpus="dev-other",
+                        log_softmax_returnn_config=nn_precomputed_returnn_config,
+                        n_out=diphone_li.get_n_of_dense_classes(),
+                        params=dataclasses.replace(
+                            s.get_cart_params("fh-fs").with_prior_scale(p_c), beam_limit=50_000, lm_scale=2.45
+                        ),
+                        prior_scales=[round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
+                        tdp_scales=[round(v, 1) for v in np.linspace(0.0, 0.6, 4)],
+                        tdp_speech=[(3, 0, "infinity", 0)],
+                        tune_altas=0,
+                    )
+
+                    """
                     power_consumption_script = WritePowerConsumptionScriptJob(s.crp["dev-other"].flf_tool_exe)
 
                     def set_power_exe(crp):
@@ -702,7 +719,7 @@ def run_single(
                         ],
                     ):
                         cfg = dataclasses.replace(
-                            s.get_cart_params("fh").with_prior_scale(p_c),
+                            s.get_cart_params("fh-fs").with_prior_scale(p_c),
                             altas=a,
                             beam=b,
                             beam_limit=b_l,
@@ -726,6 +743,7 @@ def run_single(
                             rtf=2,
                             search_rqmt_update={"sbatch_args": ["-A", "rescale_speed", "-p", "rescale_amd"]},
                         )
+                    """
 
                     # experiments for word-end pruning
                     for a, p_c, b, b_l, we_p, we_l in itertools.product(
@@ -737,7 +755,7 @@ def run_single(
                         [int(v) for v in np.geomspace(100, 5_000, 10, dtype=int)],
                     ):
                         cfg = dataclasses.replace(
-                            s.get_cart_params("fh").with_prior_scale(p_c),
+                            s.get_cart_params("fh-fs").with_prior_scale(p_c),
                             altas=a,
                             beam=b,
                             beam_limit=b_l,
