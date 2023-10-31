@@ -699,12 +699,12 @@ def run_single(
                         tune_altas=0,
                     )
 
-                    """
                     power_consumption_script = WritePowerConsumptionScriptJob(s.crp["dev-other"].flf_tool_exe)
 
                     def set_power_exe(crp):
                         crp.flf_tool_exe = power_consumption_script.out_script
 
+                    """
                     max_bl = 10000
                     for a, p_c, b, b_l in itertools.product(
                         [None, 2, 4, 6, 8],
