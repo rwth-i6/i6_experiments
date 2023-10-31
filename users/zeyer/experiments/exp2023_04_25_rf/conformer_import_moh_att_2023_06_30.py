@@ -80,7 +80,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         config_deletes=["torch_amp"],
     )
 
-    _train_exp("base-24gb-v2", config_24gb_v2)
+    _train_exp("base-24gb-v2", config_24gb_v2)  # broken again at later epochs
     _train_exp("base-24gb-v2-lr1e_3", config_24gb_v2, config_updates={"learning_rate": 0.001})
     _train_exp(
         "base-24gb-v2-lr1e_3-nogradscaler", config_24gb_v2, config_updates={"learning_rate": 0.001, "grad_scaler": None}
