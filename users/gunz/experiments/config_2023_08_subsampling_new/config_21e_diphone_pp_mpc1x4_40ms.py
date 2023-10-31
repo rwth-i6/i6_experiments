@@ -705,29 +705,24 @@ def run_single(
                     def set_power_exe(crp):
                         crp.flf_tool_exe = power_consumption_script.out_script
 
-                    """
                     max_bl = 10000
-                    for a, p_c, b, b_l in itertools.product(
+                    base_params = dataclasses.replace(
+                        s.get_cart_params("fh-fs").with_prior_scale(0.8), lm_scale=2.45, tdp_scale=0.4
+                    )
+                    for a, b, b_l in itertools.product(
                         [None, 2, 4, 6, 8],
-                        [0.4],
                         [12, 14, 16, 18, 20],
                         [
                             int(v)
                             for v in (
                                 *np.geomspace(250, 1000, 4, dtype=int)[:-1],
                                 *np.geomspace(1000, max_bl, 10, dtype=int),
-                                *np.geomspace(max_bl, 25_000, 5, dtype=int)[1:]
+                                *np.geomspace(max_bl, 25_000, 5, dtype=int)[1:],
                             )
                         ],
                     ):
-                        cfg = dataclasses.replace(
-                            s.get_cart_params("fh-fs").with_prior_scale(p_c),
-                            altas=a,
-                            beam=b,
-                            beam_limit=b_l,
-                            lm_scale=2.45,
-                            tdp_scale=0.2,
-                        )
+                        cfg = dataclasses.replace(base_params, altas=a, beam=b, beam_limit=b_l)
+                        nice_val = int(2 * (20 - np.log(b_l)))
                         s.recognize_cart(
                             key="fh-fs",
                             epoch=max(keep_epochs),
@@ -738,25 +733,20 @@ def run_single(
                             log_softmax_returnn_config=nn_precomputed_returnn_config,
                             calculate_statistics=True,
                             opt_lm_am_scale=False,
+                            fix_tdp_non_word_tying=True,
                             cpu_rqmt=2,
                             mem_rqmt=4,
                             remove_or_set_concurrency=12,
                             crp_update=set_power_exe,
                             rtf=2,
-                            search_rqmt_update={"sbatch_args": ["-A", "rescale_speed", "-p", "rescale_amd"]},
+                            search_rqmt_update={
+                                "sbatch_args": ["-A", "rescale_speed", "-p", "rescale_amd", f"--nice={nice_val}"]
+                            },
                         )
-                    """
 
                     # experiments for word-end pruning
                     for p_c, b, we_p in itertools.product([0.4], [20, 22], [0.3, 0.5, 0.7]):
-                        cfg = dataclasses.replace(
-                            s.get_cart_params("fh-fs").with_prior_scale(p_c),
-                            altas=None,
-                            beam=b,
-                            lm_scale=2.45,
-                            tdp_scale=0.2,
-                            we_pruning=we_p,
-                        )
+                        cfg = dataclasses.replace(base_params, beam=b, we_pruning=we_p)
                         s.recognize_cart(
                             key="fh-fs",
                             epoch=max(keep_epochs),
