@@ -91,7 +91,6 @@ def sis_run_with_prefix(prefix_name: str = None):
     _train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})
     _train_exp("base-24gb-v3-lossnonorm", config_24gb_v3, config_updates={"use_normalized_loss": False})
     _train_exp("base-24gb-v3-lr1e_3", config_24gb_v3, config_updates={"learning_rate": 0.001})
-    _train_exp("base-24gb-v3-aux12", config_24gb_v3, config_updates={"aux_loss_layers": [12]})  # does not work
     _train_exp(
         "base-24gb-v3-lr1e_3-lossscalesF",
         config_24gb_v3,
