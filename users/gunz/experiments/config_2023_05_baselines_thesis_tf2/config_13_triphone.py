@@ -495,19 +495,22 @@ def run_single(
 
             if run_performance_study:
                 lm_scale = 10.85 if n_states_per_phone == 3 else 7.85
-                nice = "--nice=500" if n_states_per_phone < 3 else "--nice=100"
 
                 power_consumption_script = WritePowerConsumptionScriptJob(s.crp["dev-other"].flf_tool_exe)
 
                 def set_power_exe(crp):
                     crp.flf_tool_exe = power_consumption_script.out_script
 
-                for altas, beam in itertools.product([None, 2, 4, 6], [12, 14, 16]):
+                for altas, beam, b_l in itertools.product(
+                    [None, 2, 4, 6], [12, 14, 16], [int(v) for v in np.geomspace(1000, 100_000, 5)]
+                ):
+                    nice = "--nice=500" if n_states_per_phone < 3 or b_l < 100_000 else "--nice=100"
+
                     jobs = recognizer.recognize_count_lm(
                         calculate_stats=True,
                         gpu=False,
                         label_info=s.label_info,
-                        name_override=f"altas{altas}-beam{beam}",
+                        name_override=f"altas{altas}-beam{beam}-beamlimit{b_l}",
                         num_encoder_output=conf_model_dim,
                         opt_lm_am=False,
                         pre_path="decoding-perf-single-core",
@@ -515,7 +518,7 @@ def run_single(
                             best_config,
                             altas=altas,
                             beam=beam,
-                            beam_limit=100_000,
+                            beam_limit=b_l,
                             lm_scale=lm_scale,
                         ),
                         cpu_rqmt=2,
