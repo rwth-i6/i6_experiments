@@ -28,7 +28,8 @@ def conformer_baseline():
         partition_epoch=3,
         epoch_wise_filters=[],
         seq_ordering="laplace:.1000",
-        preemphasis=0.97
+        preemphasis=0.97,
+        peak_normalization=True, # TODO: this is wrong compared to old setupsa and rescale, better test if it degrades
     )
 
     train_settings_retrain = copy.deepcopy(train_settings)
@@ -48,8 +49,10 @@ def conformer_baseline():
     # for testset in ["dev", "test"]:
     for testset in ["dev-other"]:
             test_dataset_tuples[testset] = build_test_dataset(
-            dataset_key=testset,
-        )
+                dataset_key=testset,
+                preemphasis=train_settings.preemphasis,
+                peak_normalization=train_settings.peak_normalization,
+            )
 
 
     arpa_4gram_lm = get_4gram_binary_lm()
@@ -195,7 +198,7 @@ def conformer_baseline():
                 "prior_scale": prior_scale,
             }
             run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_start11/lm%.1f_prior%.2f_bs1024_th14" % (
+                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_start11/lm%.1f_prior%.2f_bs1024_th14" % (
                     lm_weight, prior_scale),
                 datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
             
@@ -243,7 +246,7 @@ def conformer_baseline():
                 "prior_scale": prior_scale,
             }
             run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_smaller_decay1e-2/lm%.1f_prior%.2f_bs1024_th14" % (
+                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_peaknorm_smaller_decay1e-2/lm%.1f_prior%.2f_bs1024_th14" % (
                     lm_weight, prior_scale),
                 datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
 
@@ -259,52 +262,6 @@ def conformer_baseline():
                 "prior_scale": prior_scale,
             }
             run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_smaller_decay1e-2_start11/lm%.1f_prior%.2f_bs1024_th14" % (
+                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_peaknorm_smaller_decay1e-2_start11/lm%.1f_prior%.2f_bs1024_th14" % (
                     lm_weight, prior_scale),
                 datasets=train_data, train_args=train_args_start11, search_args=search_args, with_prior=True)
-
-
-
-
-    from ..pytorch_networks.ctc_conformer_0923.i6modelsV1_VGG4LayerActFrontendV1_cfg import \
-        SpecaugConfig, VGG4LayerActFrontendV1Config_mod, ModelConfig
-
-    specaug_config = SpecaugConfig(
-        repeat_per_n_frames=25,
-        max_dim_time=20,
-        max_dim_feat=16,
-        num_repeat_feat=5,
-    )
-    frontend_config = VGG4LayerActFrontendV1Config_mod(
-        in_features=80,
-        conv1_channels=32,
-        conv2_channels=64,
-        conv3_channels=64,
-        conv4_channels=32,
-        conv_kernel_size=(3, 3),
-        conv_padding=None,
-        pool1_kernel_size=(2, 1),
-        pool1_stride=(2, 1),
-        pool1_padding=None,
-        pool2_kernel_size=(2, 1),
-        pool2_stride=(2, 1),
-        pool2_padding=None,
-        activation_str="ReLU",
-        out_features=384,
-        activation=None,
-    )
-    model_config = ModelConfig(
-        frontend_config=frontend_config,
-        specaug_config=specaug_config,
-        label_target_size=vocab_size_without_blank,
-        conformer_size=384,
-        num_layers=12,
-        num_heads=4,
-        ff_dim=1536,
-        att_weights_dropout=0.2,
-        conv_dropout=0.2,
-        ff_dropout=0.2,
-        mhsa_dropout=0.2,
-        conv_kernel_size=9,
-        final_dropout=0.2,
-    )

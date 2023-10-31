@@ -47,18 +47,20 @@ class TrainingDatasetSettings:
     epoch_wise_filters: List[EpochWiseFilter]
     seq_ordering: str
     preemphasis: float
+    peak_normalization: bool
 
 # --------------------------- Helper functions  -----------------------------------
 
 
 @lru_cache()
-def get_audio_raw_datastream(preemphasis: Optional[float] = None) -> AudioRawDatastream:
+def get_audio_raw_datastream(preemphasis: Optional[float] = None, peak_normalization: bool = False) -> AudioRawDatastream:
     """
     :param preemphasis: set the pre-emphasis filter factor
+    :param peak_normalization: normalize every utterance to peak amplitude 1
     """
     audio_datastream = AudioRawDatastream(
         available_for_inference=True,
-        options=ReturnnAudioRawOptions(peak_normalization=True, preemphasis=preemphasis)
+        options=ReturnnAudioRawOptions(peak_normalization=peak_normalization, preemphasis=preemphasis)
     )
     return audio_datastream
 
@@ -97,7 +99,7 @@ def build_training_datasets(
     :param label_datastream:
     :param settings:
     """
-    audio_datastream = get_audio_raw_datastream(settings.preemphasis)
+    audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
 
     datastreams = {
         'raw_audio': audio_datastream,
@@ -175,19 +177,20 @@ def build_training_datasets(
 def build_test_dataset(
         dataset_key: str,
         preemphasis: Optional[float] = None,
+        peak_normalization: bool = False,
     ):
     """
 
-    :param librispeech_key: e.g. train-clean-100h, used for basic BPE stream
     :param dataset_key: e.g. dev-other, which test set to create
     :param preemphasis:
+    :param peak_normalization:
     :return:
     """
     ogg_zip_dict = get_ogg_zip_dict("corpora", returnn_root=MINI_RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
     bliss_dict = get_bliss_corpus_dict()
     test_ogg = ogg_zip_dict[dataset_key]
 
-    audio_datastream = get_audio_raw_datastream(preemphasis)
+    audio_datastream = get_audio_raw_datastream(preemphasis, peak_normalization)
 
     data_map = {"raw_audio": ("zip_dataset", "data")}
 

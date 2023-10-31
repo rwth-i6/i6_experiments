@@ -25,11 +25,9 @@ def eow_phon_ls100_1023_base():
         partition_epoch=3,
         epoch_wise_filters=[],
         seq_ordering="laplace:.1000",
-        preemphasis=0.97
+        preemphasis=0.97,
+        peak_normalization=True, # TODO: this is wrong compared to old setupsa and rescale, better test if it degrades
     )
-
-    train_settings_retrain = copy.deepcopy(train_settings)
-    train_settings_retrain.epoch_wise_filters = []
 
     # build the training datasets object containing train, cv, dev-train and the extern_data dict
     train_data = build_eow_phon_training_datasets(
@@ -44,8 +42,10 @@ def eow_phon_ls100_1023_base():
     # for testset in ["dev", "test"]:
     for testset in ["dev-other"]:
             test_dataset_tuples[testset] = build_test_dataset(
-            dataset_key=testset,
-        )
+                dataset_key=testset,
+                preemphasis=train_settings.preemphasis,
+                peak_normalization=train_settings.peak_normalization,
+            )
 
     arpa_4gram_lm = get_4gram_binary_lm()
 
@@ -186,7 +186,7 @@ def eow_phon_ls100_1023_base():
                 "prior_scale": prior_scale,
             }
             run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_gc1/lm%.1f_prior%.2f_bs1024_th14" % (
+                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1/lm%.1f_prior%.2f_bs1024_th14" % (
                     lm_weight, prior_scale),
                 datasets=train_data, train_args=train_args_gc1, search_args=search_args, with_prior=True)
 
@@ -200,7 +200,7 @@ def eow_phon_ls100_1023_base():
                 "prior_scale": prior_scale,
             }
             run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_decay1e-2/lm%.1f_prior%.2f_bs1024_th14" % (
+                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_decay1e-2/lm%.1f_prior%.2f_bs1024_th14" % (
                     lm_weight, prior_scale),
                 datasets=train_data, train_args=train_args_decay1e_2, search_args=search_args, with_prior=True)
 
@@ -211,7 +211,7 @@ def eow_phon_ls100_1023_base():
         "sil_score": -1000.0,
     }
     run_exp(
-        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_decay1e-2/lm_test1_bs1024_th14",
+        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_decay1e-2/lm_test1_bs1024_th14",
         datasets=train_data, train_args=train_args_decay1e_2, search_args=search_args, with_prior=True, decoder="ctc.decoder.flashlight_phoneme_ctc_v2")
 
     search_args = {
@@ -224,7 +224,7 @@ def eow_phon_ls100_1023_base():
         "prior_scale": 0.3,
     }
     run_exp(
-        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_decay1e-2/lm_test2_bs1024_th16",
+        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_decay1e-2/lm_test2_bs1024_th16",
         datasets=train_data, train_args=train_args_decay1e_2, search_args=search_args, with_prior=True,
         decoder="ctc.decoder.flashlight_phoneme_ctc")
     
@@ -269,7 +269,27 @@ def eow_phon_ls100_1023_base():
                 "lm_weight": lm_weight,
                 "prior_scale": prior_scale,
             }
+            # TODO: add num_epochs 300
             run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_legacy_decay1e-2_FF384/lm%.1f_prior%.2f_bs1024_th14" % (
+                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_legacy_peaknorm_decay1e-2_FF384_accum1/lm%.1f_prior%.2f_bs1024_th14" % (
                     lm_weight, prior_scale),
                 datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+            
+            
+    train_args = {
+        **copy.deepcopy(train_args_adamw_02),
+        "network_module": "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6",
+        "net_args": {"model_config_dict": asdict(model_config_small_ff)},
+    }
+    train_args["config"]["accum_grad_multiple_step"] = 2
+    for lm_weight in [2.5, 3.0, 3.5]:
+        for prior_scale in [0.0, 0.3, 0.5]:
+            search_args = {
+                **default_search_args,
+                "lm_weight": lm_weight,
+                "prior_scale": prior_scale,
+            }
+            train_job, _ = run_exp(
+                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_legacy_peaknorm_decay1e-2_FF384_accum2/lm%.1f_prior%.2f_bs1024_th14" % (
+                    lm_weight, prior_scale),
+                datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True, num_epochs=300)
