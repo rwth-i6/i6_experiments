@@ -98,7 +98,7 @@ class AlignmentProcessor:
         def plot(viterbi_image, allophone_sequence, seq_tag, show_labels=True):
             import matplotlib.pyplot as plt
 
-            plt.rc("font", family="Latin Modern Roman", size=font_size)
+            plt.rc("font", size=font_size)
 
             C, T = np.shape(viterbi_image)
 
