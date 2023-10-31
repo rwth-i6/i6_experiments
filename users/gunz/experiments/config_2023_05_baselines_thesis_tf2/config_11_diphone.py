@@ -398,11 +398,11 @@ def run_single(
                 num_encoder_output=conf_model_dim,
                 prior_scales=list(
                     itertools.product(
-                        np.linspace(0.1, 0.7, 7),
-                        np.linspace(0.0, 0.5, 6),
+                        np.linspace(0.2, 0.8, 4) if "FF" in alignment_name else np.linspace(0.1, 0.7, 7),
+                        np.linspace(0.0, 0.6, 4) if "FF" in alignment_name else np.linspace(0.0, 0.5, 6),
                     )
                 ),
-                tdp_scales=np.linspace(0.2, 0.6, 5),
+                tdp_scales=np.linspace(0.2, 0.6, 3) if "FF" in alignment_name else np.linspace(0.2, 0.6, 5),
             )
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
