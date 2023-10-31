@@ -748,23 +748,14 @@ def run_single(
                     """
 
                     # experiments for word-end pruning
-                    for a, p_c, b, b_l, we_p, we_l in itertools.product(
-                        [None],
-                        [0.4],
-                        [20],
-                        [25_000],
-                        [0.3, 0.5, 0.7],
-                        [int(v) for v in np.geomspace(100, 5_000, 10, dtype=int)],
-                    ):
+                    for p_c, b, we_p in itertools.product([0.4], [20, 22], [0.3, 0.5, 0.7]):
                         cfg = dataclasses.replace(
                             s.get_cart_params("fh-fs").with_prior_scale(p_c),
-                            altas=a,
+                            altas=None,
                             beam=b,
-                            beam_limit=b_l,
                             lm_scale=2.45,
                             tdp_scale=0.2,
                             we_pruning=we_p,
-                            we_pruning_limit=we_l,
                         )
                         s.recognize_cart(
                             key="fh-fs",
@@ -780,7 +771,8 @@ def run_single(
                             mem_rqmt=4,
                             crp_update=set_power_exe,
                             rtf=2,
-                            alias_output_prefix=f"recog-we-p/we:{we_p}-we_l:{we_l}/",
+                            alias_output_prefix=f"recog-we-p/we:{we_p}",
+                            fix_tdp_non_word_tying=True,
                         )
 
             for ep, crp_k in itertools.product([max(keep_epochs)], ["test-other"]):
