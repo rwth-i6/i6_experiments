@@ -134,7 +134,7 @@ def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Lis
                 lr="v13",
                 n_states_per_phone=3,
                 own_priors=True,
-                run_performance_study=True,
+                run_performance_study=False,
                 tune_decoding=True,
             )
             for a, a_name in (additional_alignments or [])

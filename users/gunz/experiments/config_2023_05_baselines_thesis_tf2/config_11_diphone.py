@@ -28,7 +28,6 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.common.power_consumption import WritePowerConsumptionScriptJob
-from ...setups.common.taskset import WriteTasksetRunScriptJob
 from ...setups.fh import system as fh_system
 from ...setups.fh.network import conformer, diphone_joint_output
 from ...setups.fh.factored import PhoneticContext, RasrStateTying
@@ -133,7 +132,7 @@ def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Lis
                 decode_all_corpora=False,
                 lr="v13",
                 n_states_per_phone=3,
-                run_performance_study=True,
+                run_performance_study=False,
                 tune_decoding=True,
             )
             for a, a_name in (additional_alignments or [])
