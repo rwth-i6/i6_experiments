@@ -1452,6 +1452,7 @@ class FactoredHybridSystem(NnSystem):
         cpu_rqmt: int = 2,
         alias_output_prefix: str = "",
         prior_epoch: typing.Union[int, str] = "",
+        fix_tdp_non_word_tying: bool = False,
     ) -> TuningResult:
         p_info: PriorInfo = self.experiments[key].get("priors", None)
         assert p_info is not None, "set priors first"
@@ -1465,6 +1466,10 @@ class FactoredHybridSystem(NnSystem):
         else:
             crp.acoustic_model_config.state_tying.file = cart_tree_or_tying_config
             crp.acoustic_model_config.state_tying.type = "cart"
+
+        if fix_tdp_non_word_tying:
+            crp.acoustic_model_config.tdp.nonword_phones = params.non_word_phonemes
+            crp.acoustic_model_config.tdp.tying_type = "global-and-nonword"
 
         def SearchJob(*args, **kwargs):
             kwargs["lmgc_scorer"] = rasr.DiagonalMaximumScorer(p_mixtures)

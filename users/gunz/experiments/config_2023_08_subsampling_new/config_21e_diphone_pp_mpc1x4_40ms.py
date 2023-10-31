@@ -697,6 +697,7 @@ def run_single(
                         tdp_scales=[round(v, 1) for v in np.linspace(0.0, 0.6, 4)],
                         tdp_speech=[(3, 0, "infinity", 0)],
                         tune_altas=0,
+                        fix_tdp_non_word_tying=True,
                     )
 
                     power_consumption_script = WritePowerConsumptionScriptJob(s.crp["dev-other"].flf_tool_exe)
