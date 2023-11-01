@@ -502,7 +502,15 @@ def run_single(
                     crp.flf_tool_exe = power_consumption_script.out_script
 
                 for altas, beam, b_l in itertools.product(
-                    [None, 2, 4, 6], [12, 14, 16], [int(v) for v in np.geomspace(1000, 100_000, 5)]
+                    [None, 2, 4, 6],
+                    [12, 14, 16],
+                    [
+                        int(v)
+                        for v in (
+                            *np.geomspace(250, 1000, 4, dtype=int)[:-1],
+                            *np.geomspace(1000, max_bl, 10, dtype=int)[:7],
+                        )
+                    ],
                 ):
                     nice = "--nice=500" if n_states_per_phone < 3 or b_l < 100_000 else "--nice=100"
 
