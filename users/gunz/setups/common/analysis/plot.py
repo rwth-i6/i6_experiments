@@ -67,7 +67,7 @@ class PlotPhonemeDurationsJob(Job):
         with open(self.alignment_bundle_path, "rt") as bundle_file:
             archives = [a.strip() for a in bundle_file.readlines()]
         yield Task("compute_statistics", args=archives, rqmt={"cpu": 1, "mem": 1, "time": 10 / 60})
-        yield Task("plot", rqmt={"cpu": 1, "mem": 8})
+        yield Task("plot", rqmt={"cpu": 1, "mem": 8}, mini_task=True)
         yield Task("cleanup", mini_task=True)
 
     def compute_statistics(self, cache_file: str):
@@ -109,7 +109,7 @@ class PlotPhonemeDurationsJob(Job):
             ax.set_xlabel("Phoneme")
             ax.set_ylabel("Duration [s]")
             ax.set_ylim(bottom=0)
-            fig.savefig(dest, transparent=True)
+            fig.savefig(dest, bbox_inches="tight", transparent=True)
 
         means = {k: np.mean(v) for k, v in merged_counts.items()}
         means["PHONEMES"] = np.mean(
