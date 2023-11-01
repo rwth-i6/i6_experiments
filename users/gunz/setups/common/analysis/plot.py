@@ -112,9 +112,16 @@ class PlotPhonemeDurationsJob(Job):
             fig.savefig(dest, transparent=True)
 
         means = {k: np.mean(v) for k, v in merged_counts.items()}
-        self.out_means.set(means)
+        means["PHONEMES"] = np.mean(
+            [v for ph, counts in merged_counts.items() if ph != self.sil_allophone for v in counts]
+        )
 
         variances = {k: np.var(v) for k, v in merged_counts.items()}
+        variances["PHONEMES"] = np.var(
+            [v for ph, counts in merged_counts.items() if ph != self.sil_allophone for v in counts]
+        )
+
+        self.out_means.set(means)
         self.out_vars.set(variances)
 
     def cleanup(self):
