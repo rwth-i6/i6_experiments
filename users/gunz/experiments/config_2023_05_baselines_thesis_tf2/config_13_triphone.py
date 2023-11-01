@@ -512,7 +512,13 @@ def run_single(
                         )
                     ],
                 ):
-                    nice = "--nice=500" if n_states_per_phone < 3 or b_l < 100_000 else "--nice=100"
+                    nice = (
+                        f"--nice={100 + int(2 * (20 - np.log(b_l)))}"
+                        if b_l < 100_000
+                        else "--nice=500"
+                        if n_states_per_phone < 3
+                        else "--nice=100"
+                    )
 
                     jobs = recognizer.recognize_count_lm(
                         calculate_stats=True,
