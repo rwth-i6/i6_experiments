@@ -53,6 +53,8 @@ _torch_ckpt_filename = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/202
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
 
+from IPython import embed
+
 
 def sis_run_with_prefix(prefix_name: str = None):
     """run the exp"""
@@ -104,7 +106,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     }
 
     # att only
-    for beam_size in [12, 32]:
+    for beam_size in [12, 14, 32]:
         search_args = {
             "beam_size": beam_size,
         }
@@ -118,6 +120,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             dev_sets=dev_sets,
             model_args=model_args,
             search_args=search_args,
+            prefix_name=prefix_name,
         )
         tk.register_output(
             prefix_name

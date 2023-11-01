@@ -95,6 +95,10 @@ def sis_run_with_prefix(prefix_name: str = None):
     model_with_checkpoint = ModelWithCheckpoint(
         definition=from_scratch_model_def, checkpoint=new_chkpt
     )
+    
+    model_args={
+        "add_lstm_lm": True,
+    }
 
     # att + lstm lm
     for lm_scale in [0.3, 0.33, 0.35]:
@@ -111,7 +115,9 @@ def sis_run_with_prefix(prefix_name: str = None):
                 model_with_checkpoint,
                 model_recog,
                 dev_sets=dev_sets,
+                model_args=model_args,
                 search_args=search_args,
+                prefix_name=prefix_name
             )
             tk.register_output(
                 prefix_name
@@ -147,7 +153,9 @@ def sis_run_with_prefix(prefix_name: str = None):
                     model_with_checkpoint,
                     model_recog,
                     dev_sets=dev_sets,
+                    model_args=model_args,
                     search_args=search_args,
+                    prefix_name=prefix_name
                 )
                 tk.register_output(
                     prefix_name
@@ -164,7 +172,9 @@ def sis_run_with_prefix(prefix_name: str = None):
             model_with_checkpoint,
             model_recog,
             dev_sets=dev_sets,
+            model_args=model_args,
             search_args=search_args,
+            prefix_name=prefix_name
         )
         tk.register_output(
             prefix_name
@@ -188,7 +198,9 @@ def sis_run_with_prefix(prefix_name: str = None):
             model_with_checkpoint,
             model_recog_ctc,
             dev_sets=dev_sets,
+            model_args=model_args,
             search_args=search_args,
+            prefix_name=prefix_name,
         )
         tk.register_output(
             prefix_name
@@ -218,7 +230,9 @@ def sis_run_with_prefix(prefix_name: str = None):
             model_with_checkpoint,
             model_recog_time_sync,
             dev_sets=dev_sets,
+            model_args=model_args,
             search_args=search_args,
+            prefix_name=prefix_name,
         )
         tk.register_output(
             prefix_name
@@ -453,7 +467,7 @@ class Model(rf.Module):
         self.search_args = search_args
         self.ctc = rf.Linear(self.encoder.out_dim, self.target_dim_w_b)
 
-        if search_args.get("add_lstm_lm", False):
+        if model_args.get("add_lstm_lm", False):
             self.lstm_lm = LSTM_LM_Model(target_dim, target_dim)
 
         self.inv_fertility = rf.Linear(
