@@ -66,7 +66,7 @@ class PlotPhonemeDurationsJob(Job):
     def tasks(self) -> Iterator[Task]:
         with open(self.alignment_bundle_path, "rt") as bundle_file:
             archives = [a.strip() for a in bundle_file.readlines()]
-        yield Task("compute_statistics", args=archives, mini_task=True)
+        yield Task("compute_statistics", args=archives, rqmt={"cpu": 1, "mem": 1, "time": 10 / 60})
         yield Task("plot", rqmt={"cpu": 1, "mem": 8}, mini_task=True)
         yield Task("cleanup", mini_task=True)
 
