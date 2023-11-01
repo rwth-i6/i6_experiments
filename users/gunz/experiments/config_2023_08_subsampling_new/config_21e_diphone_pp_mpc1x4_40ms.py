@@ -715,6 +715,7 @@ def run_single(
                         [
                             int(v)
                             for v in (
+                                *np.geomspace(250, 1000, 4, dtype=int)[:-1],
                                 *np.geomspace(1000, max_bl, 10, dtype=int),
                                 *np.geomspace(max_bl, 25_000, 5, dtype=int)[1:],
                             )
