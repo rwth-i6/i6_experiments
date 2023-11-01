@@ -399,7 +399,7 @@ def run_single(
                 search_parameters=recog_args,
                 num_encoder_output=conf_model_dim,
                 tdp_speech=[(3, 0, "infinity", 0)],
-                tdp_sil=[(3, 10, "infinity", 10)],
+                tdp_sil=[(3, 10, "infinity", 10), (0, 3, "infinity", 20)],
                 prior_scales=list(
                     itertools.product(
                         [round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
