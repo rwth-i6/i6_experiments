@@ -773,7 +773,7 @@ def run_single(
                             crp_corpus=crp_k,
                             n_cart_out=diphone_li.get_n_of_dense_classes(),
                             cart_tree_or_tying_config=tying_cfg,
-                            params=base_params.with_beam_limit(1000),
+                            params=base_params.with_beam_size(20).with_beam_limit(1000),
                             log_softmax_returnn_config=nn_precomputed_returnn_config,
                             calculate_statistics=True,
                             opt_lm_am_scale=False,
