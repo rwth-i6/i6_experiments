@@ -339,6 +339,7 @@ def _score(*, hyp_words: tk.Path, corpus_name: str) -> ScoreResult:
     score_job = ScliteJob(
         ref=stm_file, hyp=search_ctm, sctk_binary_path=tools_paths.get_sctk_binary_path(), precision_ndigit=2
     )
+    # tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
 
     return ScoreResult(dataset_name=corpus_name, main_measure_value=score_job.out_wer, report=score_job.out_report_dir)
 

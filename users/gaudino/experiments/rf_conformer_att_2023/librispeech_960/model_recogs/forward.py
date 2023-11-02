@@ -238,8 +238,9 @@ def forward(
         from .two_pass import rescore_w_ctc
         seq_targets, seq_log_prob = rescore_w_ctc(model, seq_targets, seq_log_prob, ctc_out, batch_size, beam_size, model.blank_idx)
 
+    out_spatial_dim = seq_targets.dims[1]
 
-    return seq_targets, seq_log_prob
+    return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 
 
 # RecogDef API

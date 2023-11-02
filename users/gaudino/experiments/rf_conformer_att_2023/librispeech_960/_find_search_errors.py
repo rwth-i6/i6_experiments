@@ -245,7 +245,7 @@ def find_search_errors():
     # forward ground truth
     with torch.no_grad():
         with rf.set_default_device_ctx("cuda"):
-            seq_targets_gt, seq_log_prob_gt = forward(
+            seq_targets_gt, seq_log_prob_gt, _, _ = forward(
                 model=new_model,
                 data=extern_data["audio_features"],
                 data_spatial_dim=time_dim,

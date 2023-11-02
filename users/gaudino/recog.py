@@ -110,6 +110,7 @@ def recog_model(
     dev_sets: Optional[Collection[str]] = None,
     model_args: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
+    prefix_name: str,
 ) -> ScoreResultCollection:
     """recog"""
     if dev_sets is not None:
@@ -128,10 +129,11 @@ def recog_model(
             recog_post_proc_funcs=task.recog_post_proc_funcs,
             model_args=model_args,
             search_args=search_args,
+            prefix_name=prefix_name,
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[name] = score_out
-    return task.collect_score_results_func(outputs)
+    return task.collect_score_results_func(outputs), recog_out
 
 
 def search_dataset(
@@ -144,6 +146,7 @@ def search_dataset(
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     model_args: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
+    prefix_name: str,
 ) -> RecogOutput:
     """
     recog on the specific dataset
@@ -176,6 +179,7 @@ def search_dataset(
             returnn_root=tools_paths.get_returnn_root(),
             mem_rqmt=search_mem_rqmt,
         )
+        forward_job.add_alias(prefix_name + "/forward_job")
         res = forward_job.out_files[_v2_forward_out_filename]
     if recog_def.output_blank_label:
         res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results

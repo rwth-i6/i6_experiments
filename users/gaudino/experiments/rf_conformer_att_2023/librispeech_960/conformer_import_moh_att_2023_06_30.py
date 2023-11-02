@@ -57,12 +57,15 @@ def sis_run_with_prefix(prefix_name: str = None):
     from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
     from i6_experiments.users.gaudino.recog import recog_model
+    from i6_experiments.users.gaudino.forward import forward_model
+
     from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import (
         ConvertTfCheckpointToRfPtJob,
     )
     from i6_experiments.users.gaudino.datasets.librispeech import (
         get_librispeech_task_bpe10k_raw,
     )
+    from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.search_errors import ComputeSearchErrorsJob
 
     if not prefix_name:
         prefix_name = get_prefix_for_config(__file__)
@@ -183,6 +186,60 @@ def sis_run_with_prefix(prefix_name: str = None):
             + f"/recog_results",
             res.output,
         )
+
+    # check for search errors
+    for scales in [(0.7,0.3)]:
+        for beam_size in [12]:
+            att_scale, ctc_scale = scales
+            search_args = {
+                "beam_size": beam_size,
+                # att decoder args
+                "att_scale": att_scale,
+                "ctc_scale": ctc_scale,
+                "use_ctc": True,
+                "mask_eos": True,
+            }
+            dev_sets = ["dev-other"]  # only dev-other for testing
+            # dev_sets = None  # all
+
+            recog_name = f"/bsf40_espnet_att{att_scale}_ctc{ctc_scale}_beam{beam_size}"
+
+            # first recog
+            recog_res, recog_out = recog_model(
+                task,
+                model_with_checkpoint,
+                model_recog,
+                dev_sets=dev_sets,
+                model_args=model_args,
+                search_args=search_args,
+                prefix_name=prefix_name
+            )
+            tk.register_output(
+                prefix_name
+                + recog_name
+                + f"/recog_results",
+                recog_res.output,
+            )
+
+            # then forward
+            forward_out = forward_model(
+                task,
+                model_with_checkpoint,
+                model_recog,
+                dev_sets=dev_sets,
+                model_args=model_args,
+                search_args=search_args,
+                prefix_name=prefix_name
+            )
+
+            # TODO compute search errors
+            res = ComputeSearchErrorsJob(forward_out.output, recog_out.output).out_search_errors
+            tk.register_output(
+                prefix_name
+                + recog_name
+                + f"/search_errors",
+                res,
+            )
 
     # ctc only decoding
     if False:
