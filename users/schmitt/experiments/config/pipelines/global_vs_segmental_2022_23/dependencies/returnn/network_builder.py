@@ -487,10 +487,10 @@ def add_center_positions(network: Dict):
     })
 
 
-def add_att_weights_center_of_gravity(network: Dict, rec_layer_name: str):
+def add_abs_segment_positions(network: Dict, rec_layer_name: str):
   """
-  For segmental models, add a layer which computes the center of gravity of the attention weights.
-  I.e. sum_t [alpha_t * t], where the t are absolute encoder positions (i.e. t \in [0, T))
+  For segmental models, add a layer which computes the absolute (w.r.t. T) positions of frames within a segment.
+  E.g. if a segment is 5 frames long and starts at time 4, the layer outputs [4, 5, 6, 7, 8]
 
   :param network:
   :return:
@@ -510,6 +510,24 @@ def add_att_weights_center_of_gravity(network: Dict, rec_layer_name: str):
       "from": ["segment_abs_positions0", "segment_starts"],
       "eval": "source(0) + source(1)"
     },
+  })
+
+
+def add_att_weights_center_of_gravity(network: Dict, rec_layer_name: str):
+  """
+  For segmental models, add a layer which computes the center of gravity of the attention weights.
+  I.e. sum_t [alpha_t * t], where the t are absolute encoder positions (i.e. t \in [0, T))
+
+  :param network:
+  :return:
+  """
+
+  # make sure the network looks like we expect
+  assert "att_weights" in network[rec_layer_name]["unit"]
+
+  add_abs_segment_positions(network, rec_layer_name)
+
+  network[rec_layer_name]["unit"].update({
     "weighted_segment_abs_positions": {
       "class": "eval",
       "from": ["segment_abs_positions", "att_weights"],
@@ -520,6 +538,23 @@ def add_att_weights_center_of_gravity(network: Dict, rec_layer_name: str):
       "mode": "sum",
       "from": "weighted_segment_abs_positions",
       "axis": "stag:sliced-time:segments"
+    },
+  })
+
+
+def add_att_weight_interpolation(
+        network: Dict, rec_layer_name: str, interpolation_layer_name: str, interpolation_scale: float):
+  # just to make sure the network looks as we expect
+  assert "att_weights0" not in network[rec_layer_name]["unit"]
+  assert network[rec_layer_name]["unit"]["att_weights"]["class"] == "softmax_over_spatial"
+
+  network[rec_layer_name]["unit"].update({
+    "att_weights0": copy.deepcopy(network[rec_layer_name]["unit"]["att_weights"]),
+    "att_weights": {
+      "class": "eval",
+      "from": ["att_weights0", interpolation_layer_name],
+      "eval": "{interpolation_scale} * source(1) + (1 - {interpolation_scale}) * source(0)".format(
+        interpolation_scale=interpolation_scale)
     },
   })
 

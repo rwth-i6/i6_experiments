@@ -876,14 +876,12 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
       assert network_opts["segment_center_window_size"] is not None
 
       network_builder.add_center_positions(network=seg_net_dict)
-
       tf_gauss_str = "1.0 / ({std} * tf.sqrt(2 * 3.141592)) * tf.exp(-0.5 * ((tf.cast({range} - {mean}, tf.float32)) / {std}) ** 2)".format(
         std=opts["std"], mean="source(1)", range="source(0)"
       )
       gaussian_clip_window_size = 3
 
       seg_net_dict[rec_layer_name]["unit"].update({
-        "att_weights0":  copy.deepcopy(seg_net_dict[rec_layer_name]["unit"]["att_weights"]),
         "gaussian_mask": {  # true, only in (gaussian_clip_window_size * 2 - 1) frames around center
           "class": "compare",
           "from": ["gaussian_start", "gaussian_range", "gaussian_end"],
@@ -926,7 +924,14 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
           "axis": "stag:sliced-time:segments",
           "from": "gaussian1"
         },
-        "att_weights": {
+      })
+
+      network_builder.add_att_weight_interpolation(
+        network=seg_net_dict,
+        rec_layer_name=rec_layer_name,
+        interpolation_layer_name="gaussian",
+        interpolation_scale=opts["gauss_scale"],
+      )
           "class": "eval",
           "from": ["att_weights0", "gaussian"],
           "eval": "{gauss_scale} * source(1) + (1 - {gauss_scale}) * source(0)".format(
