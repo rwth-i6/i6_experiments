@@ -11,6 +11,9 @@ from .phoneme_duration import compute_phoneme_durations
 from .processor import AlignmentProcessor
 
 
+FONT = "/usr/share/texmf/fonts/opentype/public/lm/lmroman17-regular.otf"
+
+
 DEFAULT_GROUPS = {
     "consonants": [
         "B",
@@ -164,6 +167,8 @@ class PlotViterbiAlignmentsJob(Job):
         yield Task("run", rqmt={"cpu": 1, "time": 1, "mem": 4})
 
     def run(self):
+        from matplotlib import font_manager, pyplot as plt
+
         processor = AlignmentProcessor(
             alignment_bundle_path=self.alignment_bundle_path.get_path(),
             allophones_path=self.allophones_path.get_path(),
@@ -182,6 +187,11 @@ class PlotViterbiAlignmentsJob(Job):
         else:
             segments_to_plot = self.segments
             out_plot_files = self.out_plots
+
+        font_manager.fontManager.addfont(FONT)
+        prop = font_manager.FontProperties(fname=FONT)
+        plt.rc("font", family="serif", size=25)
+        plt.rcParams.update({"font.serif": prop.get_name()})
 
         for seg, out_path in zip(segments_to_plot, out_plot_files):
             fig, ax, *_ = processor.plot_segment(
