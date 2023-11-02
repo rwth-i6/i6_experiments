@@ -540,30 +540,24 @@ def run_single(
                 },
             )
 
-        for a, pC, b, b_l in itertools.product(
-            [None, 2, 4, 6, 8],
-            [0.6],
-            [12, 14, 16, 18],
-            [2154],  # min size at which WER 6.5 is possible
-        ):
-            continue  # not for now!
+        for crp_k in ["test-clean", "test-other", "dev-other", "dev-clean"]:
+            s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
-            cfg = dataclasses.replace(
-                s.get_cart_params("fh").with_prior_scale(pC),
-                altas=a,
-                beam=b,
-                beam_limit=b_l,
-                lm_scale=7.51,
+            base_params = dataclasses.replace(
+                s.get_cart_params("fh").with_prior_scale(0.6),
+                beam=18,
+                beam_limit=15_000,
+                lm_scale=8.4,
                 tdp_scale=0.4 if n_states_per_phone == 3 else 0.2,
             )
-            nice = "--nice=750" if n_states_per_phone < 3 else f"--nice={int(max_bl - b_l / 1000)}"
+
             s.recognize_cart(
                 key="fh",
                 epoch=max(keep_epochs),
-                crp_corpus="dev-other",
+                crp_corpus=crp_k,
                 n_cart_out=diphone_li.get_n_of_dense_classes(),
                 cart_tree_or_tying_config=tying_cfg,
-                params=cfg,
+                params=base_params,
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
                 calculate_statistics=True,
                 opt_lm_am_scale=False,
@@ -571,11 +565,25 @@ def run_single(
                 mem_rqmt=4,
                 remove_or_set_concurrency=12,
                 crp_update=set_power_exe,
+                rtf=2,
+            )
+            s.recognize_cart(
+                key="fh",
+                epoch=max(keep_epochs),
+                crp_corpus=crp_k,
+                n_cart_out=diphone_li.get_n_of_dense_classes(),
+                cart_tree_or_tying_config=tying_cfg,
+                params=base_params.with_lm_scale(base_params.lm_scale + 2),
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                calculate_statistics=True,
+                opt_lm_am_scale=False,
+                cpu_rqmt=2,
+                mem_rqmt=4,
+                remove_or_set_concurrency=12,
+                crp_update=set_power_exe,
+                rtf=20,
                 decode_trafo_lm=True,
-                rtf=15,
-                search_rqmt_update={
-                    "sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]
-                },
+                recognize_only_trafo=True,
             )
 
     # ###########
