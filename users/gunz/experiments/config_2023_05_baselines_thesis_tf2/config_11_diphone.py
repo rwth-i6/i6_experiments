@@ -563,7 +563,6 @@ def run_single(
                 opt_lm_am_scale=False,
                 cpu_rqmt=2,
                 mem_rqmt=4,
-                remove_or_set_concurrency=12,
                 crp_update=set_power_exe,
                 rtf=2,
             )
@@ -579,7 +578,6 @@ def run_single(
                 opt_lm_am_scale=False,
                 cpu_rqmt=2,
                 mem_rqmt=4,
-                remove_or_set_concurrency=12,
                 crp_update=set_power_exe,
                 rtf=20,
                 decode_trafo_lm=True,
