@@ -5,6 +5,7 @@ import multiprocessing
 import math
 import os
 import soundfile
+import typing
 
 from IPython import embed
 
@@ -17,6 +18,57 @@ from .monotonic_align import maximum_path
 
 from .feature_extraction import DbMelFeatureExtraction
 from ..glowTTS.feature_config import DbMelFeatureExtractionConfig
+
+class Config:
+    def __init__(self, **kwargs):
+        pass
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(**d)
+    
+@dataclass()
+class NarEncoderConfig(Config):
+    label_in_dim: int
+    embedding_size: int
+    conv_hidden_size: int
+    filter_size: int
+    dropout: float
+    lstm_size: int
+
+# This needs to be seperately defined here due to naming issues
+# Accidentally renamed ln to norm in the nar_taco models, which breaks the forwarding
+class Conv1DBlock(torch.nn.Module):
+    """
+    A 1D-Convolution with ReLU, batch-norm and non-broadcasted p_dropout
+    Will pad to the same output length
+    """
+
+    def __init__(self, in_size, out_size, filter_size, p_dropout, norm="layer"):
+        """
+        :param in_size: input feature size
+        :param out_size: output feature size
+        :param filter_size: filter size
+        :param p_dropout: dropout probability
+        """
+        super().__init__()
+        assert filter_size % 2 == 1, "Only odd filter sizes allowed"
+        self.conv = nn.Conv1d(in_size, out_size, filter_size, padding=filter_size // 2)
+        self.norm = modules.LayerNorm(channels=out_size)
+            
+        self.p_dropout = p_dropout
+
+    def forward(self, x_with_mask):
+        """
+        :param x: [B, F_in, T]
+        :return: [B, F_out, T]
+        """
+        x, x_mask = x_with_mask
+        x = self.conv(x * x_mask)
+        x = nn.functional.relu(x)
+        x = self.norm(x) # Layer normalization
+        x = nn.functional.dropout(x, p=self.p_dropout, training=self.training)
+        return (x, x_mask)
 
 
 class DurationPredictor(nn.Module):
@@ -33,13 +85,13 @@ class DurationPredictor(nn.Module):
         self.p_dropout = p_dropout
 
         self.convs = nn.Sequential(
-            modules.Conv1DBlock(
+            Conv1DBlock(
                 in_size=self.in_channels,
                 out_size=self.filter_channels,
                 filter_size=self.filter_size,
                 p_dropout=p_dropout,
             ),
-            modules.Conv1DBlock(
+            Conv1DBlock(
                 in_size=self.filter_channels,
                 out_size=self.filter_channels,
                 filter_size=self.filter_size,
@@ -54,6 +106,44 @@ class DurationPredictor(nn.Module):
         x = self.proj(x * x_mask)
         return x
 
+class NarTacoEncoder(torch.nn.Module):
+    """
+
+    """
+
+    def __init__(self, config: NarEncoderConfig):
+        super().__init__()
+        self.embedding = nn.Embedding(config.label_in_dim, config.embedding_size)
+        self.encoder_convs = nn.Sequential(
+            modules.Conv1DBlockBN(config.embedding_size, config.conv_hidden_size,
+                        filter_size=config.filter_size, dropout=config.dropout),
+            modules.Conv1DBlockBN(config.conv_hidden_size, config.conv_hidden_size, filter_size=config.filter_size, dropout=config.dropout),
+            modules.Conv1DBlockBN(config.conv_hidden_size, config.conv_hidden_size, filter_size=config.filter_size, dropout=config.dropout),
+        )
+        self.blstm = nn.LSTM(input_size=config.conv_hidden_size, hidden_size=config.lstm_size, bidirectional=True, batch_first=True)
+
+        self.output_size = 2*config.lstm_size
+
+    def forward(self, label_in, label_in_len):
+        """
+
+        :param label_in: [B, N]
+        :param label_in_len: [B]
+        :return [B, N, lstm_size * 2]
+        """
+        transformed_labels = self.embedding(label_in)  # [B, N, embedding_size]
+        transformed_labels_transposed = torch.transpose(transformed_labels, 1, 2)  # [B, embedding_size, N]
+        conv_out = self.encoder_convs(transformed_labels_transposed)  # [B, conv_hidden_size, N]
+        blstm_in = torch.transpose(conv_out, 1, 2) # [B, N, conv_hidden_size]
+
+        # Sequences are sorted by decoder length, so here we do no sorting
+        blstm_packed_in = nn.utils.rnn.pack_padded_sequence(blstm_in, label_in_len.to("cpu"), batch_first=True, enforce_sorted=False)
+        blstm_packed_out, _ = self.blstm(blstm_packed_in)
+        blstm_out, _ = nn.utils.rnn.pad_packed_sequence(
+            blstm_packed_out, padding_value=0.0, batch_first=True
+        )  # [B, N, lstm_size*2]
+
+        return blstm_out
 
 class TextEncoder(nn.Module):
     """
@@ -62,20 +152,13 @@ class TextEncoder(nn.Module):
 
     def __init__(
         self,
-        n_vocab,
+        encoder_config: NarEncoderConfig,
         out_channels,
-        hidden_channels,
-        filter_channels,
         filter_channels_dp,
-        n_heads,
-        n_layers,
         kernel_size,
         p_dropout,
-        window_size=None,
-        block_length=None,
         mean_only=False,
-        prenet=False,
-        gin_channels=0,
+        gin_channels=0
     ):
         """Text Encoder Model based on Multi-Head Self-Attention combined with FF-CCNs
 
@@ -96,53 +179,29 @@ class TextEncoder(nn.Module):
             gin_channels (int, optional): Number of channels for speaker condition. Defaults to 0.
         """
         super().__init__()
-
-        self.n_vocab = n_vocab
+        self.encoder_config = NarEncoderConfig.from_dict(encoder_config)
         self.out_channels = out_channels
-        self.hidden_channels = hidden_channels
-        self.filter_channels = filter_channels
+        self.hidden_channels = 2*self.encoder_config.lstm_size
         self.filter_channels_dp = filter_channels_dp
-        self.n_heads = n_heads
-        self.n_layers = n_layers
         self.kernel_size = kernel_size
         self.p_dropout = p_dropout
-        self.window_size = window_size
-        self.block_length = block_length
         self.mean_only = mean_only
-        self.prenet = prenet
         self.gin_channels = gin_channels
 
-        self.emb = nn.Embedding(n_vocab, hidden_channels)
-        nn.init.normal_(self.emb.weight, 0.0, hidden_channels**-0.5)
 
-        if prenet:
-            self.pre = modules.ConvReluNorm(
-                hidden_channels, hidden_channels, hidden_channels, kernel_size=5, n_layers=3, p_dropout=0.5
-            )
-        self.encoder = attentions.Encoder(
-            hidden_channels,
-            filter_channels,
-            n_heads,
-            n_layers,
-            kernel_size,
-            p_dropout,
-            window_size=window_size,
-            block_length=block_length,
-        )
+        self.encoder = NarTacoEncoder(self.encoder_config)
 
-        self.proj_m = nn.Conv1d(hidden_channels, out_channels, 1)
+        self.proj_m = nn.Conv1d(self.hidden_channels, out_channels, 1)
         if not mean_only:
-            self.proj_s = nn.Conv1d(hidden_channels, out_channels, 1)
-        self.proj_w = DurationPredictor(hidden_channels + gin_channels, filter_channels_dp, kernel_size, p_dropout)
+            self.proj_s = nn.Conv1d(self.hidden_channels, out_channels, 1)
+        self.proj_w = DurationPredictor(self.hidden_channels + gin_channels, filter_channels_dp, kernel_size, p_dropout)
 
     def forward(self, x, x_lengths, g=None):
-        x = self.emb(x) * math.sqrt(self.hidden_channels)  # [b, t, h]
-        x = torch.transpose(x, 1, -1)  # [b, h, t]
-        x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x.size(2)), 1).to(x.dtype)
+        # x = self.emb(x) * math.sqrt(self.hidden_channels)  # [b, t, h]
+        # x = torch.transpose(x, 1, -1)  # [b, h, t]
+        x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x.size(1)), 1).to(x.dtype)
 
-        if self.prenet:
-            x = self.pre(x, x_mask)
-        x = self.encoder(x, x_mask)
+        x = self.encoder(x, x_lengths).transpose(1,2)
 
         if g is not None:
             g_exp = g.expand(-1, -1, x.size(-1))
@@ -150,7 +209,6 @@ class TextEncoder(nn.Module):
             x_dp = torch.cat([torch.detach(x), g_exp], 1)
         else:
             x_dp = torch.detach(x)
-
         x_m = self.proj_m(x) * x_mask
         if not self.mean_only:
             x_logs = self.proj_s(x) * x_mask
@@ -249,7 +307,6 @@ class FlowDecoder(nn.Module):
         for f in self.flows:
             f.store_inverse()
 
-
 class Model(nn.Module):
     """
     Flow-based TTS model based on GlowTTS Structure
@@ -261,12 +318,10 @@ class Model(nn.Module):
         self,
         n_vocab: int,
         hidden_channels: int,
-        filter_channels: int,
         filter_channels_dp: int,
         out_channels: int,
+        encoder_config: NarEncoderConfig,
         kernel_size: int = 3,
-        n_heads: int = 2,
-        n_layers_enc: int = 6,
         p_dropout: float = 0.0,
         n_blocks_dec: int = 12,
         kernel_size_dec: int = 5,
@@ -278,12 +333,8 @@ class Model(nn.Module):
         n_split: int = 4,
         n_sqz: int = 1,
         sigmoid_scale: bool = False,
-        window_size: int = None,
-        block_length: int = None,
         mean_only: bool = False,
-        hidden_channels_enc: int = None,
         hidden_channels_dec: int = None,
-        prenet: bool = False,
         **kwargs,
     ):
         """_summary_
@@ -318,12 +369,9 @@ class Model(nn.Module):
         super().__init__()
         self.n_vocab = n_vocab
         self.hidden_channels = hidden_channels
-        self.filter_channels = filter_channels
         self.filter_channels_dp = filter_channels_dp
         self.out_channels = out_channels
         self.kernel_size = kernel_size
-        self.n_heads = n_heads
-        self.n_layers_enc = n_layers_enc
         self.p_dropout = p_dropout
         self.n_blocks_dec = n_blocks_dec
         self.kernel_size_dec = kernel_size_dec
@@ -335,31 +383,20 @@ class Model(nn.Module):
         self.n_split = n_split
         self.n_sqz = n_sqz
         self.sigmoid_scale = sigmoid_scale
-        self.window_size = window_size
-        self.block_length = block_length
         self.mean_only = mean_only
-        self.hidden_channels_enc = hidden_channels_enc
         self.hidden_channels_dec = hidden_channels_dec
-        self.prenet = prenet
 
         fe_config = DbMelFeatureExtractionConfig.from_dict(kwargs["fe_config"])
         self.feature_extraction = DbMelFeatureExtraction(config=fe_config)
 
         self.encoder = TextEncoder(
-            n_vocab,
+            encoder_config,
             out_channels,
-            hidden_channels_enc or hidden_channels,
-            filter_channels,
             filter_channels_dp,
-            n_heads,
-            n_layers_enc,
             kernel_size,
             p_dropout,
-            window_size=window_size,
-            block_length=block_length,
             mean_only=mean_only,
-            prenet=prenet,
-            gin_channels=gin_channels,
+            gin_channels=gin_channels
         )
 
         self.decoder = FlowDecoder(
@@ -410,7 +447,7 @@ class Model(nn.Module):
         attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
 
         if gen:
-            attn = commons.generate_path(w_ceil.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
+            attn = commons.generate_path(w_ceil.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1).to(w_ceil.dtype)
             z_m = torch.matmul(attn.squeeze(1).transpose(1, 2), x_m.transpose(1, 2)).transpose(1, 2)
             z_logs = torch.matmul(attn.squeeze(1).transpose(1, 2), x_logs.transpose(1, 2)).transpose(1, 2)
             logw_ = torch.log(1e-8 + torch.sum(attn, -1)) * x_mask
@@ -439,7 +476,7 @@ class Model(nn.Module):
             )  # [b, t', t], [b, t, d] -> [b, d, t']
 
             logw_ = torch.log(1e-8 + torch.sum(attn, -1)) * x_mask
-            return (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), y_lengths, (attn, logw, logw_)
+            return (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), (attn, logw, logw_)
 
     def preprocess(self, y, y_lengths, y_max_length):
         if y_max_length is not None:
@@ -471,7 +508,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     # print(f"phoneme length: {phonemes_len}")
     # print(f"audio_feature shape: {audio_features.shape}")
     # print(f"audio_feature length: {audio_features_len}")
-    (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), y_lengths, (attn, logw, logw_) = model(
+    (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(
         phonemes, phonemes_len, audio_features, audio_features_len, speaker_labels
     )
     # embed()
@@ -501,15 +538,6 @@ def forward_init_hook_durations(run_ctx, **kwargs):
 
 def forward_finish_hook_durations(run_ctx, **kwargs):
     run_ctx.hdf_writer.close()
-
-def forward_init_hook_latent_space(run_ctx, **kwargs):
-    run_ctx.hdf_writer_samples = SimpleHDFWriter("samples.hdf", dim=80, ndim=2)
-    run_ctx.hdf_writer_mean = SimpleHDFWriter("mean.hdf", dim=80, ndim=2)
-    run_ctx.pool = multiprocessing.Pool(8)
-
-def forward_finish_hook_latent_space(run_ctx, **kwargs):
-    run_ctx.hdf_writer_samples.close()
-    run_ctx.hdf_writer_mean.close()
 
 
 def forward_init_hook(run_ctx, **kwargs):
@@ -603,6 +631,7 @@ def forward_step_spectrograms(*, model: Model, data, run_ctx, **kwargs):
     run_ctx.hdf_writer.insert_batch(spectograms, y_lengths.detach().cpu().numpy(), tags)
 
 
+
 def forward_step_durations(*, model: Model, data, run_ctx, **kwargs):
     """Forward Step to output durations in HDF file
     Currently unused due to the name. Only "forward_step" is used in ReturnnForwardJob.
@@ -644,28 +673,3 @@ def forward_step_durations(*, model: Model, data, run_ctx, **kwargs):
         
         # assert len(d) == phon_len
         run_ctx.hdf_writer.insert_batch(np.asarray([duration[:phon_len]]), [phon_len.cpu().numpy()], [tag])
-
-def forward_step_latent_space(*, model: Model, data, run_ctx, **kwargs):
-    tags = data["seq_tag"]
-    audio_features = data["audio_features"]  # [B, T, F]
-    audio_features = audio_features.transpose(
-        1, 2
-    )  # [B, F, T] necessary because glowTTS expects the channels to be in the 2nd dimension
-    audio_features_len = data["audio_features:size1"]  # [B]
-
-    # perform local length sorting for more efficient packing
-    audio_features_len, indices = torch.sort(audio_features_len, descending=True)
-
-    audio_features = audio_features[indices, :, :]
-    phonemes = data["phonemes"][indices, :]  # [B, T] (sparse)
-    phonemes_len = data["phonemes:size1"][indices]  # [B, T]
-    speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
-    tags = list(np.array(tags)[indices.detach().cpu().numpy()])
-
-    (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), y_lengths, (attn, logw, logw_) = model(
-        phonemes, phonemes_len, audio_features, audio_features_len, g=speaker_labels, gen=False
-    ) 
-    samples = z.transpose(2, 1).detach().cpu().numpy()  # [B, T, F]
-    means = z_m.transpose(2,1).detach().cpu().numpy()
-    run_ctx.hdf_writer_samples.insert_batch(samples, y_lengths.detach().cpu().numpy(), tags)
-    run_ctx.hdf_writer_mean.insert_batch(means, y_lengths.detach().cpu().numpy(), tags)
