@@ -711,7 +711,7 @@ def run_single(
                     )
                     for a, b, b_l in itertools.product(
                         [None, 2, 4, 6, 8],
-                        [12, 14, 16, 18, 20],
+                        [12, 14, 16, 18, 20, 22],
                         [
                             int(v)
                             for v in (

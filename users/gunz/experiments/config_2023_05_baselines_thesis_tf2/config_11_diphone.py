@@ -506,7 +506,7 @@ def run_single(
         for a, pC, b, b_l in itertools.product(
             [None, 2, 4, 6, 8],
             [0.6],
-            [12, 14, 16, 18],
+            [12, 14, 16, 18, 20],
             [int(v) for v in (*np.geomspace(250, 1000, 4, dtype=int)[:-1], *np.geomspace(1000, max_bl, 10, dtype=int))]
             if n_states_per_phone == 3
             else [100_000],
