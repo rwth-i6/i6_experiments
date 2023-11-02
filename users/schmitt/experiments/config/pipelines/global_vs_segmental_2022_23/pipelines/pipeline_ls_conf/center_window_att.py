@@ -739,6 +739,7 @@ def get_center_window_att_config_builder(
         blank_penalty: float = 0.0,
         gaussian_att_weight_interpolation_opts: Optional[Dict] = None,
         expected_position_aux_loss_opts: Optional[Dict] = None,
+        pos_pred_att_weight_interpolation_opts: Optional[Dict] = None,
 ):
   model_type = "librispeech_conformer_seg_att"
   variant_name = "seg.conformer.like-global"
@@ -748,6 +749,7 @@ def get_center_window_att_config_builder(
   variant_params["network"]["use_positional_embedding"] = use_positional_embedding
   variant_params["network"]["att_weight_recog_penalty_opts"] = att_weight_recog_penalty_opts
   variant_params["network"]["gaussian_att_weight_interpolation_opts"] = gaussian_att_weight_interpolation_opts
+  variant_params["network"]["pos_pred_att_weight_interpolation_opts"] = pos_pred_att_weight_interpolation_opts
   variant_params["network"]["expected_position_aux_loss_opts"] = expected_position_aux_loss_opts
   variant_params["network"]["length_scale"] = length_scale
   variant_params["network"]["blank_penalty"] = blank_penalty

@@ -1,5 +1,6 @@
 from i6_core.returnn.config import CodeWrapper
 from typing import Optional, Dict
+import copy
 
 
 def get_source_layers(from_layer: str):
@@ -538,6 +539,129 @@ def add_att_weights_center_of_gravity(network: Dict, rec_layer_name: str):
       "mode": "sum",
       "from": "weighted_segment_abs_positions",
       "axis": "stag:sliced-time:segments"
+    },
+  })
+
+
+def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag: CodeWrapper):
+  """
+  For segmental models, add a layer which, for each frame in a segment, computes the length model probability of this
+  frame being an "emit" frame.
+  E.g. p(t_s = t) = [ \prod_{t' = t_{s-1} + 1}^{t-1} p(t' = "blank") ] * p(t = "emit")
+
+  :param network:
+  :return:
+  """
+  # for now, this is only implemented for the case that the length model is independent of alignment/label context
+  # otherwise this cannot be implemented in an efficient way
+  if network["output"]["unit"]["s"]["from"] != ["am"]:
+    raise NotImplementedError
+
+  add_abs_segment_positions(network, rec_layer_name)
+  add_center_positions(network)
+
+  network["output"]["unit"]["blank_log_prob"]["is_output_layer"] = True
+  network["output"]["unit"]["emit_log_prob"]["is_output_layer"] = True
+  network[rec_layer_name]["unit"]["segments"]["out_spatial_dim"] = att_t_dim_tag
+
+  network[rec_layer_name]["unit"].update({
+    # get all the blank log probs from the prev center pos to the second last frame of the segment
+    "blank_log_prob_size": {
+      "class": "eval",
+      "from": ["segment_starts", "segment_lens", "prev:center_positions"],
+      "eval": "source(0) + source(1) - source(2)"
+    },
+    "blank_log_prob0": {
+      "class": "slice_nd",
+      "from": "base:output/blank_log_prob",
+      "size": "blank_log_prob_size",
+      "start": "prev:center_positions"
+    },
+    # set the first of these blank log probs to 0.0
+    "blank_log_prob_mask_range": {
+      "class": "range_in_axis",
+      "from": "blank_log_prob0",
+      "axis": "stag:sliced-time:blank_log_prob0"
+    },
+    "blank_log_prob_mask": {
+      "class": "compare",
+      "from": "blank_log_prob_mask_range",
+      "value": 0,
+      "kind": "greater"
+    },
+    "blank_log_prob": {
+      "class": "switch",
+      "condition": "blank_log_prob_mask",
+      "true_from": "blank_log_prob0",
+      "false_from": 0.0
+    },
+    # cumulatively sum of all of the blank log probs
+    # this corresponds to the first product of the formula in the function documentation
+    # the initial 0.0 in the blank log probs corresponds to the case that the first frame after the last boundary
+    # is an "emit" frame
+    "blank_log_prob_cum_sum0": {
+      "class": "cumsum",
+      "from": "blank_log_prob",
+      "axis": "stag:sliced-time:blank_log_prob0"
+    },
+    # get the cum blank log probs corresponding to the current segment
+    # in case the segment is overlapping with the last one, we slice from positions which are left of the actual start
+    # of the blank_log_prob_cum_sum0 layer. in this case, the slice-nd layer clips the gather indices to 0. later, we
+    # then set the log probs of these "invalid" indices to -inf
+    "blank_log_prob_cum_sum_left_bound": {
+      "class": "eval",
+      "from": ["segment_starts", "prev:center_positions"],
+      "eval": "source(0) - source(1) - 1"
+    },
+    "blank_log_prob_cum_sum": {
+      "class": "slice_nd",
+      "from": "blank_log_prob_cum_sum0",
+      "axis": "stag:sliced-time:blank_log_prob0",
+      "out_spatial_dim": att_t_dim_tag,
+      "size": "segment_lens",
+      "start": "blank_log_prob_cum_sum_left_bound"
+    },
+    # get the emit log probs corresponding to the current segment
+    "emit_log_prob": {
+      "class": "slice_nd",
+      "from": "base:output/emit_log_prob",
+      "out_spatial_dim": att_t_dim_tag,
+      "size": "segment_lens",
+      "start": "segment_starts"
+    },
+    # get the final length model probs by adding the emit log prob with the cum blank log probs
+    "label_sync_pos_prob0": {
+      "class": "eval",
+      "from": ["blank_log_prob_cum_sum", "emit_log_prob"],
+      "eval": "tf.math.exp(source(0) + source(1))"
+    },
+    # set the prob for the invalid positions to 0.0
+    "label_sync_pos_valid_start_idx": {
+      "class": "eval",
+      "from": ["segment_starts", "segment_lens", "prev:center_positions"],
+      "eval": "source(1) - (source(0) + source(1) - source(2) - 1)"
+    },
+    "label_sync_pos_range": {
+      "class": "range_in_axis",
+      "from": "label_sync_pos_prob0",
+      "axis": att_t_dim_tag
+    },
+    "label_sync_pos_valid_mask": {
+      "class": "compare",
+      "from": ["label_sync_pos_range", "label_sync_pos_valid_start_idx"],
+      "kind": "greater_equal"
+    },
+    "label_sync_pos_prob": {
+      "class": "switch",
+      "condition": "label_sync_pos_valid_mask",
+      "true_from": "label_sync_pos_prob0",
+      "false_from": CodeWrapper('float("-inf")')
+    },
+    # normalize with softmax
+    "label_sync_pos_prob_norm": {
+      "class": "softmax_over_spatial",
+      "from": "label_sync_pos_prob",
+      "axis": att_t_dim_tag,
     },
   })
 

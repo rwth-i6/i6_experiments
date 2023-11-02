@@ -932,6 +932,16 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
         interpolation_layer_name="gaussian",
         interpolation_scale=opts["gauss_scale"],
       )
+
+    def _add_pos_pred_att_weight_interpolation(rec_layer_name: str, opts: Dict):
+      network_builder.add_length_model_pos_probs(
+        network=seg_net_dict, rec_layer_name=rec_layer_name, att_t_dim_tag=CodeWrapper("att_t_dim_tag"))
+      network_builder.add_att_weight_interpolation(
+        network=seg_net_dict,
+        rec_layer_name=rec_layer_name,
+        interpolation_layer_name="label_sync_pos_prob_norm",
+        interpolation_scale=opts["pos_pred_scale"],
+      )
           "class": "eval",
           "from": ["att_weights0", "gaussian"],
           "eval": "{gauss_scale} * source(1) + (1 - {gauss_scale}) * source(0)".format(
@@ -1233,6 +1243,10 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
     gaussian_att_weight_interpolation_opts = network_opts.get("gaussian_att_weight_interpolation_opts")
     if gaussian_att_weight_interpolation_opts:
       _add_gaussian_att_weight_interpolation(rec_layer_name, gaussian_att_weight_interpolation_opts)
+
+    pos_pred_att_weight_interpolation_opts = network_opts.get("pos_pred_att_weight_interpolation_opts")
+    if pos_pred_att_weight_interpolation_opts:
+      _add_pos_pred_att_weight_interpolation(rec_layer_name, pos_pred_att_weight_interpolation_opts)
 
     return seg_net_dict
 
