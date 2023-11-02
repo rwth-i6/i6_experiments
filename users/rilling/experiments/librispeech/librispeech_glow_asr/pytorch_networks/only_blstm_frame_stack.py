@@ -134,20 +134,6 @@ class Model(nn.Module):
         else:
             self.label_target_size = label_target_size
 
-        self.decoder = modules.Flow(
-            out_channels,
-            hidden_channels_dec or hidden_channels,
-            kernel_size_dec,
-            dilation_rate,
-            n_blocks_dec,
-            n_block_layers,
-            p_dropout=p_dropout_flow,
-            n_split=n_split,
-            n_sqz=n_sqz,
-            sigmoid_scale=sigmoid_scale,
-            gin_channels=gin_channels,
-        )
-
         blstm_config = BlstmEncoderV1Config(num_layers=final_n_layers, input_dim=self.out_channels*self.subsampling_factor, hidden_dim=final_hidden_channels, dropout=p_dropout, enforce_sorted=False)
 
         # self.final = FinalLinear(
@@ -165,35 +151,20 @@ class Model(nn.Module):
             squeezed_audio = torch.squeeze(raw_audio)
             log_mel_features, log_mel_features_len = self.feature_extraction(squeezed_audio, raw_audio_len)  # [B, T, F]
 
-            if self.training and self.spec_augment:
-                audio_features_masked_2 = apply_spec_aug(
-                    log_mel_features,
-                    num_repeat_time=torch.max(log_mel_features_len).detach().cpu().numpy()
-                    // self.net_kwargs["repeat_per_num_frames"],
-                    max_dim_time=self.net_kwargs["max_dim_time"],
-                    num_repeat_feat=self.net_kwargs["num_repeat_feat"],
-                    max_dim_feat=self.net_kwargs["max_dim_feat"],
-                )
-            else:
-                audio_features_masked_2 = log_mel_features
 
-        flow_in = audio_features_masked_2
         audio_max_length = log_mel_features.size(1)
 
-        flow_in = flow_in.transpose(1, 2)  # [B, F, T]
-        flow_in, flow_in_length, flow_in_max_length = self.preprocess(flow_in, log_mel_features_len, audio_max_length)
         # mask = mask_tensor(flow_in, log_mel_features_len)
-        mask = torch.unsqueeze(commons.sequence_mask(log_mel_features_len, flow_in.size(2)), 1).to(flow_in.dtype)
-
-        with torch.no_grad():
-            flow_out, _ = self.decoder(flow_in, mask, reverse=False) # [B, F, T]
+        mask = torch.unsqueeze(commons.sequence_mask(log_mel_features_len, audio_max_length), 1).to(log_mel_features.dtype)
 
         if (self.dropout_around_blstm):
             flow_out = self.drop_after_flow(flow_out)
-        blstm_in, mask = commons.channel_squeeze(flow_out, mask, self.subsampling_factor) # frame stacking for subsampling is equivalent to the channel squeezing operation in glowTTS
-        blstm_in_length = flow_in_length // 4
-
-        blstm_out = self.final(blstm_in.transpose(1,2), blstm_in_length) # [B, T, F]
+        
+        blstm_in = log_mel_features.transpose(1,2)
+        blstm_in, mask = commons.channel_squeeze(blstm_in, None, self.subsampling_factor) # frame stacking for subsampling is equivalent to the channel squeezing operation in glowTTS
+        blstm_in_length = log_mel_features_len // 4
+        blstm_in = blstm_in.transpose(1,2)
+        blstm_out = self.final(blstm_in, blstm_in_length) # [B, T, F]
         if (self.dropout_around_blstm):
             blstm_out = self.drop_after_blstm(blstm_out)
         logits = self.final_linear(blstm_out)

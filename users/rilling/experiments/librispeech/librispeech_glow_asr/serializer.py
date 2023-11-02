@@ -19,6 +19,7 @@ def get_pytorch_serializer_v3(
         net_args: Dict[str, Any],
         use_custom_engine=False,
         search=False,
+        prior=False,
         debug=False,
         search_args: Dict[str, Any]={},
         **kwargs
@@ -54,7 +55,6 @@ def get_pytorch_serializer_v3(
         pytorch_train_step,
     ]
     if search:
-        # Just a hack to test the phoneme-based recognition
         forward_step = Import(
             code_object_path=package + ".%s.forward_step" % network_module,
             unhashed_package_root=PACKAGE,
@@ -72,6 +72,33 @@ def get_pytorch_serializer_v3(
         serializer_objects.extend(
             [forward_step, init_hook, finish_hook]
         )
+    if prior:
+        forward_step = Import(
+            code_object_path=package + ".%s.prior_step" % network_module,
+            unhashed_package_root=PACKAGE,
+            import_as="forward_step",
+        )
+        init_hook = Import(
+            code_object_path=package + ".%s.prior_init_hook" % network_module,
+            unhashed_package_root=PACKAGE,
+            import_as="forward_init_hook",
+            )
+        finish_hook = Import(
+            code_object_path=package + ".%s.prior_finish_hook" % network_module,
+            import_as="forward_finish_hook",
+            unhashed_package_root=PACKAGE,
+        )
+        serializer_objects.extend(
+            [forward_step, init_hook, finish_hook]
+        )
+    serializer = TorchCollection(
+        serializer_objects=serializer_objects,
+        make_local_package_copy=not debug,
+        packages={
+            package,
+        },
+    )
+    
     if use_custom_engine:
         pytorch_engine = Import(
             code_object_path=package + ".%s.CustomEngine" % network_module,

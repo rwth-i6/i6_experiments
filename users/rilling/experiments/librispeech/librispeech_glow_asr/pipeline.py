@@ -8,7 +8,7 @@ from i6_experiments.users.rossenbach.common_setups.returnn.datasets import Gener
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.training import GetBestTFCheckpointJob
-from i6_core.returnn.forward import ReturnnForwardJob
+from i6_core.returnn.forward import ReturnnForwardJob, ReturnnForwardJobV2
 from i6_core.returnn.search import SearchBPEtoWordsJob, ReturnnComputeWERJob
 from i6_experiments.users.rossenbach.returnn.training import AverageCheckpointsJobV2
 
@@ -16,7 +16,7 @@ from .default_tools import RETURNN_EXE, MINI_RETURNN_ROOT, SCTK_BINARY_PATH
 
 
 @tk.block()
-def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs=250):
+def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs=250, large_gpu=False):
     """
 
     :param prefix_name:
@@ -26,7 +26,7 @@ def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs=
     :return:
     """
     default_rqmt = {
-        'mem_rqmt': 15,
+        'mem_rqmt': 10,
         'time_rqmt': 168,
         'log_verbosity': 5,
         'returnn_python_exe': returnn_exe,
@@ -38,6 +38,10 @@ def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs=
         num_epochs=num_epochs,
         **default_rqmt
     )
+
+    if (large_gpu):
+        train_job.rqmt["gpu_mem"] = 24
+    
     train_job.add_alias(prefix_name + "/training")
     tk.register_output(prefix_name + "/learning_rates", train_job.out_learning_rates)
 
@@ -72,7 +76,7 @@ def search_single(
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=2,
+        time_rqmt=4,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
         hdf_outputs=["search_out.py"],
@@ -118,17 +122,52 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
         wers[key] = search_single(prefix_name + "/%s" % key, returnn_config, checkpoint, test_dataset, test_dataset_reference, returnn_exe, returnn_root)
 
     from i6_core.report import GenerateReportStringJob, MailJob
-    format_string_report = ",".join(["{%s_val}" % (prefix_name + key) for key in test_dataset_tuples.keys()])
-    format_string = " - ".join(["{%s}: {%s_val}" % (prefix_name + key, prefix_name + key) for key in test_dataset_tuples.keys()])
+    clean_prefix_name = prefix_name.replace(".", "_")
+    format_string_report = ",".join(["{%s_val}" % (clean_prefix_name + key) for key in test_dataset_tuples.keys()])
+    format_string = " - ".join(["{%s}: {%s_val}" % (clean_prefix_name + key, clean_prefix_name + key) for key in test_dataset_tuples.keys()])
     values = {}
     values_report = {}
     for key in test_dataset_tuples.keys():
-        values[prefix_name + key] = key
-        values["%s_val" % (prefix_name + key)] = wers[key]
-        values_report["%s_val" % (prefix_name + key)] = wers[key]
+        values[clean_prefix_name + key] = key
+        values["%s_val" % (clean_prefix_name + key)] = wers[key]
+        values_report["%s_val" % (clean_prefix_name + key)] = wers[key]
 
     report = GenerateReportStringJob(report_values=values, report_template=format_string, compress=False).out_report
-    mail = MailJob(result=report, subject=prefix_name, send_contents=True).out_status
-    tk.register_output(os.path.join(prefix_name, "mail_status"), mail)
+    # mail = MailJob(result=report, subject=prefix_name, send_contents=True).out_status
+    tk.register_output(os.path.join(prefix_name, "report"), report)
     return format_string_report, values_report
+
+
+@tk.block()
+def compute_prior(
+        prefix_name,
+        returnn_config,
+        checkpoint,
+        returnn_exe,
+        returnn_root,
+        mem_rqmt=8,
+):
+    """
+    Run search for a specific test dataset
+
+    :param str prefix_name:
+    :param ReturnnConfig returnn_config:
+    :param Checkpoint checkpoint:
+    :param Path returnn_exe:
+    :param Path returnn_root:
+    """
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=1,
+        device="gpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=["prior.txt"],
+    )
+    search_job.add_alias(prefix_name + "/prior_job")
+    return search_job.out_files["prior.txt"]
 

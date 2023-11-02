@@ -148,16 +148,11 @@ class Model(nn.Module):
             gin_channels=gin_channels,
         )
 
-        blstm_config = BlstmEncoderV1Config(num_layers=final_n_layers, input_dim=self.out_channels*self.subsampling_factor, hidden_dim=final_hidden_channels, dropout=p_dropout, enforce_sorted=False)
 
         # self.final = FinalLinear(
         #     out_channels, final_hidden_channels, self.label_target_size + 1, n_layers=final_n_layers
         # )
-        self.final = BlstmEncoderV1(blstm_config)
-        self.final_linear = nn.Linear(2*final_hidden_channels, self.label_target_size + 1)  # + CTC blank
-        if(self.dropout_around_blstm):
-            self.drop_after_flow = nn.Dropout(p_dropout)
-            self.drop_after_blstm = nn.Dropout(p_dropout)
+        self.final = modules.FinalLinear(self.subsampling_factor * out_channels, final_hidden_channels, self.label_target_size + 1, n_layers=1)
 
 
     def forward(self, raw_audio, raw_audio_len):
@@ -190,16 +185,14 @@ class Model(nn.Module):
 
         if (self.dropout_around_blstm):
             flow_out = self.drop_after_flow(flow_out)
-        blstm_in, mask = commons.channel_squeeze(flow_out, mask, self.subsampling_factor) # frame stacking for subsampling is equivalent to the channel squeezing operation in glowTTS
-        blstm_in_length = flow_in_length // 4
+        linear_in, mask = commons.channel_squeeze(flow_out, mask, self.subsampling_factor) # frame stacking for subsampling is equivalent to the channel squeezing operation in glowTTS
+        linear_in_length = flow_in_length // 4
 
-        blstm_out = self.final(blstm_in.transpose(1,2), blstm_in_length) # [B, T, F]
-        if (self.dropout_around_blstm):
-            blstm_out = self.drop_after_blstm(blstm_out)
-        logits = self.final_linear(blstm_out)
-        log_probs = torch.log_softmax(logits, dim=2)
+        linear_out = self.final(linear_in.transpose(1,2)) # [B, T, F]
         
-        return log_probs, blstm_in_length
+        log_probs = torch.log_softmax(linear_out, dim=2)
+        
+        return log_probs, linear_in_length
 
     def preprocess(self, y, y_lengths, y_max_length):
         if y_max_length is not None:
