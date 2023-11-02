@@ -11,9 +11,6 @@ from .phoneme_duration import compute_phoneme_durations
 from .processor import AlignmentProcessor
 
 
-FONT = "/usr/share/texmf/fonts/opentype/public/lm/lmroman17-regular.otf"
-
-
 DEFAULT_GROUPS = {
     "consonants": [
         "B",
@@ -104,6 +101,8 @@ class PlotPhonemeDurationsJob(Job):
             joined_stats = {group: [count for ph in phonemes for count in merged_counts[ph]]}
             to_plot.append((joined_stats, self.out_plot_folder.join_right(f"{group}.pdf")))
 
+        plt.rc("font", family="sans-serif", size=25)
+
         for counts, dest in to_plot:
             plt.clf()
             fig, ax = plt.subplots(figsize=self.figsize)
@@ -167,7 +166,7 @@ class PlotViterbiAlignmentsJob(Job):
         yield Task("run", rqmt={"cpu": 1, "time": 1, "mem": 4})
 
     def run(self):
-        from matplotlib import font_manager, pyplot as plt
+        from matplotlib import pyplot as plt
 
         processor = AlignmentProcessor(
             alignment_bundle_path=self.alignment_bundle_path.get_path(),
@@ -188,10 +187,7 @@ class PlotViterbiAlignmentsJob(Job):
             segments_to_plot = self.segments
             out_plot_files = self.out_plots
 
-        font_manager.fontManager.addfont(FONT)
-        prop = font_manager.FontProperties(fname=FONT)
-        plt.rc("font", family="serif", size=25)
-        plt.rcParams.update({"font.serif": prop.get_name()})
+        plt.rc("font", family="serif")
 
         for seg, out_path in zip(segments_to_plot, out_plot_files):
             fig, ax, *_ = processor.plot_segment(
