@@ -1635,6 +1635,7 @@ class FactoredHybridSystem(NnSystem):
         crp_update: Optional[typing.Callable] = None,
         prior_epoch: typing.Union[int, str] = "",
         decode_trafo_lm: bool = False,
+        recognize_only_trafo: bool = False,
         remove_or_set_concurrency: typing.Union[bool, int] = False,
         fix_tdp_non_word_tying: bool = False,
     ) -> recognition.AdvancedTreeSearchJob:
@@ -1748,6 +1749,8 @@ class FactoredHybridSystem(NnSystem):
         lm_configs = {"4gram": RasrConfigWrapper(obj=crp.language_model_config)}
 
         if decode_trafo_lm:
+            if recognize_only_trafo:
+                lm_configs = {}
             lm_cfg = TfRnnLmRasrConfig(
                 common_prefix=True,
                 meta_graph_path=Path(
@@ -1781,7 +1784,9 @@ class FactoredHybridSystem(NnSystem):
                     DevRecognitionParameters(
                         altas=[params.altas] if params.altas is not None else None,
                         am_scales=[1],
-                        lm_scales=[params.lm_scale, params.lm_scale + 1] if decode_trafo_lm else [params.lm_scale],
+                        lm_scales=[params.lm_scale, params.lm_scale + 1]
+                        if decode_trafo_lm and not recognize_only_trafo
+                        else [params.lm_scale],
                         prior_scales=[params.prior_info.center_state_prior.scale],
                         pronunciation_scales=[params.pron_scale],
                         speech_tdps=[

@@ -765,6 +765,30 @@ def run_single(
                             fix_tdp_non_word_tying=True,
                         )
 
+                    # vals = [round(v, 1) for v in np.linspace(0.2, 0.8, 4)]
+                    neural_cfgs = [
+                        dataclasses.replace(base_params, beam=20, beam_limit=5_000, lm_scale=3.15)
+                        # for p_c, tdp_s in itertools.product(vals, vals)
+                    ]
+                    for cfg in neural_cfgs:
+                        s.recognize_cart(
+                            key="fh-fs",
+                            epoch=max(keep_epochs),
+                            crp_corpus="dev-other",
+                            n_cart_out=diphone_li.get_n_of_dense_classes(),
+                            cart_tree_or_tying_config=tying_cfg,
+                            params=cfg,
+                            log_softmax_returnn_config=nn_precomputed_returnn_config,
+                            calculate_statistics=True,
+                            opt_lm_am_scale=True,
+                            cpu_rqmt=2,
+                            mem_rqmt=4,
+                            rtf=20,
+                            fix_tdp_non_word_tying=True,
+                            decode_trafo_lm=True,
+                            recognize_only_trafo=True,
+                        )
+
             for ep, crp_k in itertools.product([max(keep_epochs)], ["test-other"]):
                 s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
