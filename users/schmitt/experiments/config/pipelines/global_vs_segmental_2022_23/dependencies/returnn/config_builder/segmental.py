@@ -942,11 +942,33 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
         interpolation_layer_name="label_sync_pos_prob_norm",
         interpolation_scale=opts["pos_pred_scale"],
       )
+
+    def _add_expected_position_aux_loss(rec_layer_name: str, opts: Dict):
+      config_dict["att_t_dim_tag"] = SegmentalConfigBuilder.get_att_t_dim_tag_code_wrapper()
+
+      network_builder.add_att_weights_center_of_gravity(network=seg_net_dict, rec_layer_name=rec_layer_name)
+      network_builder.add_length_model_pos_probs(
+        network=seg_net_dict, rec_layer_name=rec_layer_name, att_t_dim_tag=CodeWrapper("att_t_dim_tag"))
+
+      seg_net_dict[rec_layer_name]["unit"].update({
+        "pos_pred_weighted_segment_abs_positions": {
           "class": "eval",
-          "from": ["att_weights0", "gaussian"],
-          "eval": "{gauss_scale} * source(1) + (1 - {gauss_scale}) * source(0)".format(
-            gauss_scale=opts["gauss_scale"])
+          "from": ["segment_abs_positions", "label_sync_pos_prob_norm"],
+          "eval": "tf.cast(source(0), tf.float32) * source(1)"
         },
+        "expected_pos_pred": {
+          "class": "reduce",
+          "mode": "sum",
+          "from": "pos_pred_weighted_segment_abs_positions",
+          "axis": CodeWrapper("att_t_dim_tag")
+        },
+        "expected_pos_aux_loss": {
+          "class": "eval",
+          "from": ["expected_pos_pred", "att_weights_center_of_gravity"],
+          "eval": "(source(0) - source(1)) ** 2",
+          "loss": "as_is",
+          "loss_opts": {"scale": opts["loss_scale"]}
+        }
       })
 
     def _add_weight_feedback(rec_layer_name: str):
@@ -1247,6 +1269,10 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
     pos_pred_att_weight_interpolation_opts = network_opts.get("pos_pred_att_weight_interpolation_opts")
     if pos_pred_att_weight_interpolation_opts:
       _add_pos_pred_att_weight_interpolation(rec_layer_name, pos_pred_att_weight_interpolation_opts)
+
+    expected_position_aux_loss_opts = network_opts.get("expected_position_aux_loss_opts")
+    if expected_position_aux_loss_opts:
+      _add_expected_position_aux_loss(rec_layer_name, expected_position_aux_loss_opts)
 
     return seg_net_dict
 
