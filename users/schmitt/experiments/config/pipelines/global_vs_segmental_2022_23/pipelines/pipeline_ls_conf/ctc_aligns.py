@@ -78,16 +78,15 @@ def get_global_attention_ctc_align():
 
     ctc_aligns_global_att[corpus_key] = forward_job.out_hdf_files["alignments.hdf"]
 
-    if corpus_key in ["cv", "train"]:
-      statistics_job = AlignmentStatisticsJob(
-        alignment=ctc_aligns_global_att[corpus_key],
-        blank_idx=10025,
-        silence_idx=20000,  # dummy idx which is larger than the vocab size
-        returnn_root=RETURNN_ROOT,
-        returnn_python_exe=RETURNN_EXE_NEW
-      )
-      statistics_job.add_alias("datasets/LibriSpeech/statistics/%s" % corpus_key)
-      tk.register_output(statistics_job.get_one_alias(), statistics_job.out_statistics)
+    statistics_job = AlignmentStatisticsJob(
+      alignment=ctc_aligns_global_att[corpus_key],
+      blank_idx=10025,
+      silence_idx=20000,  # dummy idx which is larger than the vocab size
+      returnn_root=RETURNN_ROOT,
+      returnn_python_exe=RETURNN_EXE_NEW
+    )
+    statistics_job.add_alias("datasets/LibriSpeech/statistics/%s" % corpus_key)
+    tk.register_output(statistics_job.get_one_alias(), statistics_job.out_statistics)
 
   ctc_aligns_global_att["devtrain"] = ctc_aligns_global_att["train"]
 
