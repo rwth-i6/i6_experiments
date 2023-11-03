@@ -15,18 +15,13 @@ from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 from i6_experiments.users.zeyer.datasets.utils import multi_proc as mp_ds_utils
 from returnn_common import nn
 
-from i6_experiments.users.zeyer.model_interfaces import (
-    ModelWithCheckpoints,
-    Checkpoint,
-    ModelT,
-    ModelDef,
-    TrainDef,
-)
+from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.recog import SharedPostConfig
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
+    from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, TrainDef
 
 
 def train(
