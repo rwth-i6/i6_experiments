@@ -7,8 +7,6 @@ from typing import Optional, Any, Tuple, Dict, Sequence, List
 import tree
 import math
 
-from sisyphus import tk
-
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
@@ -37,6 +35,7 @@ _sis_prefix: Optional[str] = None
 
 def sis_run_with_prefix(prefix_name: str = None):
     """run the exp"""
+    from sisyphus import tk
     from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
     from ._moh_att_2023_06_30_import import map_param_func_v2
     from .sis_setup import get_prefix_for_config
