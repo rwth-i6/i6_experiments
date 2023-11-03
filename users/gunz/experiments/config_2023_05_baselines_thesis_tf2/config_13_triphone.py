@@ -434,7 +434,7 @@ def run_single(
                 rtf_cpu=80,
             )
 
-            if alignment_name == "scratch" and ep == max(keep_epochs):
+            if alignment_name == "scratch":
                 base_cfg = best_config.with_beam_limit(100_000)
                 base_cfgs = [
                     ("base", base_cfg),
@@ -494,6 +494,23 @@ def run_single(
                     )
 
             if run_performance_study:
+                recognizer.recognize_ls_trafo_lm(
+                    calculate_stats=True,
+                    label_info=s.label_info,
+                    num_encoder_output=conf_model_dim,
+                    opt_lm_am=True,
+                    search_parameters=dataclasses.replace(
+                        best_config,
+                        beam=18,
+                        beam_limit=100_000,
+                        lm_scale=best_config.lm_scale + 2,
+                    ),
+                    cpu_rqmt=2,
+                    mem_rqmt=4,
+                    gpu=True,
+                    remove_or_set_concurrency=5,
+                )
+
                 lm_scale = 10.85 if n_states_per_phone == 3 else 7.85
 
                 power_consumption_script = WritePowerConsumptionScriptJob(s.crp["dev-other"].flf_tool_exe)
@@ -538,31 +555,6 @@ def run_single(
                         cpu_rqmt=2,
                         mem_rqmt=4,
                         rtf_cpu=8 if altas is not None else 12,
-                        crp_update=set_power_exe,
-                        remove_or_set_concurrency=12,
-                    )
-                    jobs.search.rqmt.update(
-                        {"sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]}
-                    )
-
-                    continue
-                    jobs = recognizer.recognize_ls_trafo_lm(
-                        calculate_stats=True,
-                        gpu=False,
-                        label_info=s.label_info,
-                        name_override=f"altas{altas}-beam{beam}",
-                        num_encoder_output=conf_model_dim,
-                        opt_lm_am=False,
-                        search_parameters=dataclasses.replace(
-                            best_config,
-                            altas=altas,
-                            beam=beam,
-                            beam_limit=100_000,
-                            lm_scale=lm_scale + 2,
-                        ),
-                        cpu_rqmt=2,
-                        mem_rqmt=4,
-                        rtf_cpu=12 if altas is not None else 20,
                         crp_update=set_power_exe,
                         remove_or_set_concurrency=12,
                     )
