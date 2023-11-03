@@ -584,6 +584,7 @@ def run_single(
                 ),
                 cpu_rqmt=2,
                 mem_rqmt=4,
+                rtf_gpu=30,
                 gpu=True,
                 remove_or_set_concurrency=5,
             )
