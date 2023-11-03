@@ -3,12 +3,15 @@ Generic interfaces to define models, training and recognition.
 """
 
 from __future__ import annotations
-from typing import Protocol, TypeVar, Optional, Union, List, Dict, Set
+from typing import TYPE_CHECKING, Protocol, TypeVar, Optional, Union, List, Dict, Set
 import dataclasses
-from sisyphus import tk
 from i6_core.returnn.training import ReturnnTrainingJob, Checkpoint as TfCheckpoint, PtCheckpoint
-from returnn_common import nn
+from returnn.tensor import Tensor, Dim
 from i6_experiments.users.zeyer.returnn.training import default_returnn_keep_epochs
+
+if TYPE_CHECKING:
+    from sisyphus import tk
+    from returnn_common import nn
 
 
 ModelT = TypeVar("ModelT", bound=nn.Module)
@@ -20,7 +23,7 @@ class ModelDef(Protocol[ModelT]):
     Creates the model, per epoch
     """
 
-    def __call__(self, *, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim, training: bool = False) -> ModelT:
+    def __call__(self, *, epoch: int, in_dim: Dim, target_dim: Dim, training: bool = False) -> ModelT:
         raise NotImplementedError
 
     behavior_version: int
@@ -47,10 +50,10 @@ class TrainDef(Protocol[ModelT]):
         self,
         *,
         model: ModelT,
-        data: nn.Tensor,
-        data_spatial_dim: nn.Dim,
-        targets: nn.Tensor,
-        targets_spatial_dim: nn.Dim,
+        data: Tensor,
+        data_spatial_dim: Dim,
+        targets: Tensor,
+        targets_spatial_dim: Dim,
     ):
         raise NotImplementedError
 
@@ -66,10 +69,10 @@ class FramewiseTrainDef(Protocol[ModelT]):
         self,
         *,
         model: ModelT,
-        data: nn.Tensor,
-        data_spatial_dim: nn.Dim,
-        align_targets: nn.Tensor,
-        align_targets_spatial_dim: nn.Dim,
+        data: Tensor,
+        data_spatial_dim: Dim,
+        align_targets: Tensor,
+        align_targets_spatial_dim: Dim,
     ):
         raise NotImplementedError
 
@@ -216,9 +219,9 @@ class RecogDef(Protocol[ModelT]):
         self,
         *,
         model: ModelT,
-        data: nn.Tensor,
-        data_spatial_dim: nn.Dim,
-    ) -> nn.Tensor:
+        data: Tensor,
+        data_spatial_dim: Dim,
+    ) -> Tensor:
         """
         :return: recog output, including beam or not, depending on output_with_beam
         """
