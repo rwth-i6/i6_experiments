@@ -37,40 +37,14 @@ _sis_prefix: Optional[str] = None
 
 def sis_run_with_prefix(prefix_name: str = None):
     """run the exp"""
-    from sisyphus import tk
-    from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
-    from ._moh_att_2023_06_30_import import map_param_func_v2
-    from .sis_setup import get_prefix_for_config
-    from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
-    from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
-    from i6_experiments.users.zeyer.recog import recog_model
-    from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
-
     if not prefix_name:
+        from .sis_setup import get_prefix_for_config
+
         prefix_name = get_prefix_for_config(__file__)
     global _sis_prefix
     _sis_prefix = prefix_name
 
-    task = _get_ls_task()
-    extern_data_dict = task.train_dataset.get_extern_data()
-    default_target_key = task.train_dataset.get_default_target()
-    targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
-    target_dim = targets.feature_dim_or_sparse_dim
-
-    new_chkpt_path = ConvertTfCheckpointToRfPtJob(
-        checkpoint=TfCheckpoint(index_path=generic_job_output(_returnn_tf_ckpt_filename)),
-        make_model_func=MakeModel(
-            in_dim=_log_mel_feature_dim,
-            target_dim=target_dim.dimension,
-            eos_label=_get_eos_idx(target_dim),
-        ),
-        map_func=map_param_func_v2,
-    ).out_checkpoint
-    new_chkpt = PtCheckpoint(new_chkpt_path)
-    model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
-
-    res = recog_model(task, model_with_checkpoint, model_recog)
-    tk.register_output(prefix_name + f"/recog_results", res.output)
+    _recog_imported()
 
     _train_exp("from-scratch-train", config, gpu_mem=None)
 
@@ -116,6 +90,37 @@ def sis_run_with_prefix(prefix_name: str = None):
             "aux_loss_layers": [4, 8, 12],
         },
     )
+
+
+def _recog_imported():
+    from sisyphus import tk
+    from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
+    from ._moh_att_2023_06_30_import import map_param_func_v2
+    from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
+    from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
+    from i6_experiments.users.zeyer.recog import recog_model
+    from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
+
+    task = _get_ls_task()
+    extern_data_dict = task.train_dataset.get_extern_data()
+    default_target_key = task.train_dataset.get_default_target()
+    targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+    target_dim = targets.feature_dim_or_sparse_dim
+
+    new_chkpt_path = ConvertTfCheckpointToRfPtJob(
+        checkpoint=TfCheckpoint(index_path=generic_job_output(_returnn_tf_ckpt_filename)),
+        make_model_func=MakeModel(
+            in_dim=_log_mel_feature_dim,
+            target_dim=target_dim.dimension,
+            eos_label=_get_eos_idx(target_dim),
+        ),
+        map_func=map_param_func_v2,
+    ).out_checkpoint
+    new_chkpt = PtCheckpoint(new_chkpt_path)
+    model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
+
+    res = recog_model(task, model_with_checkpoint, model_recog)
+    tk.register_output(_sis_prefix + "/recog_results", res.output)
 
 
 # noinspection PyShadowingNames
