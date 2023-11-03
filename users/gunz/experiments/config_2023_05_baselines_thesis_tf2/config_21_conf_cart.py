@@ -6,6 +6,8 @@ import itertools
 
 import os
 
+import numpy as np
+
 # -------------------- Sisyphus --------------------
 from sisyphus import gs, tk
 
@@ -273,8 +275,12 @@ def run_single(
 
     if n_cart_phones == 3:
         for cfg in [
-            dataclasses.replace(s.get_cart_params(key="fh"), altas=a, beam=b)
-            for a, b in itertools.product([None, 2, 4, 6, 8, 10], [12, 14, 16])
+            dataclasses.replace(s.get_cart_params(key="fh"), altas=a, beam=b, beam_limit=b_l)
+            for a, b, b_l in itertools.product(
+                [None, 2, 4, 6, 8, 10],
+                [12, 14, 16],
+                [int(v) for v in np.geomspace(250, 10_000, 10, dtype=int)],
+            )
         ]:
             job = s.recognize_cart(
                 key="fh",
@@ -290,6 +296,6 @@ def run_single(
                 mem_rqmt=4,
                 rtf=2,
             )
-            job.rqmt.update({"sbatch_args": ["-w", "cn-30", "--nice=600"]})
+            job.rqmt.update({"sbatch_args": ["-A", "rescale_speed", "-p", "rescale_amd"]})
 
     return s
