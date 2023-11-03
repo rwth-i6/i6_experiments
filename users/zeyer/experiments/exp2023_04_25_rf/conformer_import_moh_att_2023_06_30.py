@@ -98,12 +98,10 @@ def _sis_setup_global_prefix(prefix_name: str = None):
 
 
 def _recog_imported():
-    from sisyphus import tk
     from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
     from ._moh_att_2023_06_30_import import map_param_func_v2
     from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
-    from i6_experiments.users.zeyer.recog import recog_model
     from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
 
     task = _get_ls_task()
