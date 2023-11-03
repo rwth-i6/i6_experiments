@@ -577,12 +577,14 @@ def run_single(
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
                 calculate_statistics=True,
                 opt_lm_am_scale=True,
-                cpu_rqmt=4,
+                cpu_rqmt=1,
                 mem_rqmt=4,
                 crp_update=set_power_exe,
                 rtf=20,
                 decode_trafo_lm=True,
                 recognize_only_trafo=True,
+                remove_or_set_concurrency=5,
+                gpu=True,
             )
 
     # ###########
