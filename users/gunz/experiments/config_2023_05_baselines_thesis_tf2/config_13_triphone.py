@@ -107,7 +107,7 @@ def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Lis
             alignment=scratch_align,
             alignment_name="scratch",
             dc_detection=False,
-            decode_all_corpora=False,
+            decode_all_corpora=True,
             lr="v13",
             n_states_per_phone=3,
             own_priors=True,
@@ -494,24 +494,6 @@ def run_single(
                     )
 
             if run_performance_study:
-                recognizer.recognize_ls_trafo_lm(
-                    calculate_stats=True,
-                    label_info=s.label_info,
-                    num_encoder_output=conf_model_dim,
-                    opt_lm_am=True,
-                    name_override=f"best",
-                    search_parameters=dataclasses.replace(
-                        best_config,
-                        beam=18,
-                        beam_limit=100_000,
-                        lm_scale=best_config.lm_scale + 2,
-                    ),
-                    cpu_rqmt=2,
-                    mem_rqmt=4,
-                    gpu=True,
-                    remove_or_set_concurrency=5,
-                )
-
                 lm_scale = 10.85 if n_states_per_phone == 3 else 7.85
 
                 power_consumption_script = WritePowerConsumptionScriptJob(s.crp["dev-other"].flf_tool_exe)
@@ -564,6 +546,8 @@ def run_single(
                     )
 
     if decode_all_corpora:
+        assert tune_decoding
+
         for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-clean", "dev-other", "test-clean", "test-other"]):
             s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
@@ -577,55 +561,31 @@ def run_single(
                 set_batch_major_for_feature_scorer=True,
             )
 
-            if n_states_per_phone == 1:
-                tdp_sp = recog_args.tdp_speech
-                recog_args = recog_args.with_tdp_speech((0, *tdp_sp[1:]))
-
-            cfgs = [
-                cfg
-                for cfg in [
-                    recog_args,
-                    recog_args.with_prior_scale(0.4, 0.4, 0.2).with_tdp_scale(0.6),
-                    # best_config,
-                ]
-                if cfg is not None
-            ]
-
-            for cfg in cfgs:
-                recognizer.recognize_count_lm(
-                    label_info=s.label_info,
-                    search_parameters=cfg,
-                    num_encoder_output=conf_model_dim,
-                    rerun_after_opt_lm=False,
-                    calculate_stats=True,
-                )
-
-            generic_lstm_base_op = returnn.CompileNativeOpJob(
-                "LstmGenericBase",
-                returnn_root=returnn_root,
-                returnn_python_exe=RETURNN_PYTHON_EXE,
+            recognizer.recognize_count_lm(
+                label_info=s.label_info,
+                search_parameters=best_config,
+                num_encoder_output=conf_model_dim,
+                rerun_after_opt_lm=True,
+                calculate_stats=True,
+                name_override="best/4gram",
+                rtf_cpu=80,
             )
-            generic_lstm_base_op.rqmt = {"cpu": 1, "mem": 4, "time": 0.5}
-            recognizer, recog_args = s.get_recognizer_and_args(
-                key="fh",
-                context_type=PhoneticContext.triphone_forward,
-                crp_corpus=crp_k,
-                epoch=ep,
+            recognizer.recognize_ls_trafo_lm(
+                calculate_stats=True,
+                label_info=s.label_info,
+                num_encoder_output=conf_model_dim,
+                opt_lm_am=True,
+                name_override="best",
+                search_parameters=dataclasses.replace(
+                    best_config,
+                    beam=18,
+                    beam_limit=100_000,
+                    lm_scale=best_config.lm_scale + 2,
+                ),
+                cpu_rqmt=2,
+                mem_rqmt=4,
                 gpu=True,
-                tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-                set_batch_major_for_feature_scorer=True,
-                tf_library=[generic_lstm_base_op.out_op, generic_lstm_base_op.out_grad_op],
+                remove_or_set_concurrency=5,
             )
-
-            for cfg in cfgs:
-                recognizer.recognize_ls_trafo_lm(
-                    label_info=s.label_info,
-                    search_parameters=cfg.with_lm_scale(cfg.lm_scale + 2.0),
-                    num_encoder_output=conf_model_dim,
-                    rerun_after_opt_lm=False,
-                    calculate_stats=True,
-                    rtf_gpu=24,
-                    gpu=True,
-                )
 
     return s
