@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Any, Tuple, Dict, Sequence, List
 import tree
 import math
+import numpy as np
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -17,7 +18,7 @@ from i6_experiments.users.zeyer.lr_schedules.lin_warmup_invsqrt_decay import dyn
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
-    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
+    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
 
 # From Mohammad, 2023-06-29
 # dev-clean  2.27
@@ -56,7 +57,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     _train_exp("base-24gb-v3", config_24gb_v3)
     _train_exp("base-24gb-v3-wd1e_3", config_24gb_v3, config_updates={"optimizer.weight_decay": 0.001})
     _train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})
-    _train_exp("base-24gb-v3-lr1e_3", config_24gb_v3, config_updates={"learning_rate": 0.001})
+    _train_exp("base-24gb-v3-lr1e_3", config_24gb_v3, config_updates={"learning_rate": 0.001}, fine_tune=1280)
     _train_exp(
         "base-24gb-v3-lr1e_3-lossscalesF",
         config_24gb_v3,
@@ -123,8 +124,17 @@ def _recog_imported():
     new_chkpt = PtCheckpoint(new_chkpt_path)
     model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
 
+    _recog("recog_results", model_with_checkpoint)
+
+
+def _recog(name: str, model_with_checkpoint: ModelWithCheckpoint):
+    from sisyphus import tk
+    from i6_experiments.users.zeyer.recog import recog_model
+
+    task = _get_ls_task()
+
     res = recog_model(task, model_with_checkpoint, model_recog)
-    tk.register_output(_sis_prefix + "/recog_results", res.output)
+    tk.register_output(_sis_prefix + "/" + name, res.output)
 
 
 # noinspection PyShadowingNames
@@ -136,6 +146,7 @@ def _train_exp(
     config_deletes: Optional[Sequence[str]] = None,
     num_epochs: int = 2000,
     gpu_mem: Optional[int] = 24,
+    fine_tune: Optional[Sequence[int]] = None,
 ) -> ModelWithCheckpoints:
     from .train import train
     from i6_experiments.users.zeyer.recog import recog_training_exp
@@ -156,6 +167,33 @@ def _train_exp(
         gpu_mem=gpu_mem,
     )
     recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
+
+    if fine_tune:
+        if isinstance(fine_tune, int):
+            fine_tune = [fine_tune]
+        for ep in fine_tune:
+            config_ = config.copy()
+            config_["import_model_train_epoch1"] = model_with_checkpoint.get_epoch(ep).checkpoint
+            config_.pop("dynamic_learning_rate")
+            num_epochs_ = 50
+            lr = config_["learning_rate"]
+            final_lr = 1e-7
+            config_["learning_rates"] = list(np.geomspace(lr, final_lr, num=num_epochs_))
+            config_["learning_rate"] = final_lr
+            config_["specaugment_steps"] = (0, 0, 0)
+
+            suffix = f"/finetune/{ep}"
+            finetune_model_with_ckpt = train(
+                prefix + suffix + "/train",
+                task=task,
+                config=config_,
+                post_config=post_config,
+                model_def=from_scratch_model_def,
+                train_def=from_scratch_training,
+                num_epochs=num_epochs_,
+                gpu_mem=gpu_mem,
+            )
+            _recog(name + suffix + "/recog/last", finetune_model_with_ckpt.get_last_fixed_epoch())
 
     return model_with_checkpoint
 
