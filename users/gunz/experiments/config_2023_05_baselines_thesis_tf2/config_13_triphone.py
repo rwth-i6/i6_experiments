@@ -583,7 +583,7 @@ def run_single(
                     lm_scale=best_config.lm_scale + 2,
                 ),
                 cpu_rqmt=2,
-                mem_rqmt=4,
+                mem_rqmt=8,
                 rtf_gpu=30,
                 gpu=True,
                 remove_or_set_concurrency=5,
