@@ -8,7 +8,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   LibrispeechLabelDefinition
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.hyperparameters import \
   SegmentalModelHyperparameters
-from i6_experiments.users.schmitt.rasr.convert import BPEJSONVocabToRasrFormatsJob
+from i6_experiments.users.schmitt.rasr.convert import BPEJSONVocabToRasrFormatsJob, JsonSubwordVocabToLexiconJob
 
 from typing import Dict
 import copy
@@ -33,7 +33,25 @@ class LibrispeechBpe10025CtcAlignment(LibrispeechBPE10025, LibrispeechLabelDefin
 
   @property
   def rasr_format_paths(self) -> RasrFormats:
-    pass
+    json_to_rasr_job = BPEJSONVocabToRasrFormatsJob(
+      Path(
+        "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab"),
+      blank_idx=10025)
+
+    vocab_to_lexicon_job = JsonSubwordVocabToLexiconJob(
+      json_vocab_path=Path(
+        "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab"),
+      blank_idx=10025,
+    )
+
+    return RasrFormats(
+      state_tying_path=json_to_rasr_job.out_state_tying,
+      allophone_path=json_to_rasr_job.out_allophones,
+      label_file_path=json_to_rasr_job.out_rasr_label_file,
+      decoding_lexicon_path=vocab_to_lexicon_job.out_lexicon,
+      realignment_lexicon_path=vocab_to_lexicon_job.out_lexicon,
+      blank_allophone_state_idx=40096
+    )
 
   @property
   def alignment_paths(self):
