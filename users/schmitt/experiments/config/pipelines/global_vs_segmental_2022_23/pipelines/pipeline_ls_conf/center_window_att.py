@@ -364,36 +364,38 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
         const_lr_list: Tuple[float, ...] = (1e-4,),
         std_list: Tuple[float, ...] = (1.,),
         gauss_scale_list: Tuple[float, ...] = (.5,),
+        dist_type_list: Tuple[str, ...] = ("gauss_double_exp_clipped",),
 ):
   for win_size in win_size_list:
     for n_epochs in n_epochs_list:
       for const_lr in const_lr_list:
         for std in std_list:
           for gauss_scale in gauss_scale_list:
-            alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_gaussian_att_weight_interpolation/win-size-%d_%d-epochs_%f-const-lr/std-%f_gauss_scale-%f" % (
-              default_import_model_name, win_size, n_epochs, const_lr, std, gauss_scale
-            )
+            for dist_type in dist_type_list:
+              alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_gaussian_att_weight_interpolation/win-size-%d_%d-epochs_%f-const-lr/%s/std-%f_scale-%f" % (
+                default_import_model_name, win_size, n_epochs, const_lr, dist_type, std, gauss_scale
+              )
 
-            config_builder = get_center_window_att_config_builder(
-              win_size=win_size,
-              use_weight_feedback=True,
-              gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale}
-            )
-            train_exp = SegmentalTrainExperiment(
-              config_builder=config_builder,
-              alias=alias,
-              n_epochs=n_epochs,
-              import_model_train_epoch1=external_checkpoints[default_import_model_name],
-              align_targets=ctc_aligns.global_att_ctc_align.ctc_alignments,
-              lr_opts={
-                "type": "const_then_linear",
-                "const_lr": const_lr,
-                "const_frac": 1 / 3,
-                "final_lr": 1e-6,
-                "num_epochs": n_epochs
-              },
-            )
-            checkpoints, model_dir, learning_rates = train_exp.run_train()
+              config_builder = get_center_window_att_config_builder(
+                win_size=win_size,
+                use_weight_feedback=True,
+                gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale, "dist_type": dist_type}
+              )
+              train_exp = SegmentalTrainExperiment(
+                config_builder=config_builder,
+                alias=alias,
+                n_epochs=n_epochs,
+                import_model_train_epoch1=external_checkpoints[default_import_model_name],
+                align_targets=ctc_aligns.global_att_ctc_align.ctc_alignments,
+                lr_opts={
+                  "type": "const_then_linear",
+                  "const_lr": const_lr,
+                  "const_frac": 1 / 3,
+                  "final_lr": 1e-6,
+                  "num_epochs": n_epochs
+                },
+              )
+              checkpoints, model_dir, learning_rates = train_exp.run_train()
 
             recog_center_window_att_import_global(
               alias=alias,
@@ -423,7 +425,7 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
             train_config_builder = get_center_window_att_config_builder(
               win_size=win_size,
               use_weight_feedback=True,
-              gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale}
+              gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale, "dist_type": "gauss_double_exp_clipped"}
             )
             train_exp = SegmentalTrainExperiment(
               config_builder=train_config_builder,
@@ -444,6 +446,7 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
             recog_config_builder = get_center_window_att_config_builder(
               win_size=win_size,
               use_weight_feedback=True,
+              gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale, "dist_type": "gauss_double_exp_clipped"},
               att_weight_recog_penalty_opts={
                 "mult_weight": 0.005,
                 "exp_weight": 2.0

@@ -876,27 +876,51 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
       assert network_opts["segment_center_window_size"] is not None
 
       network_builder.add_center_positions(network=seg_net_dict)
-      tf_gauss_str = "1.0 / ({std} * tf.sqrt(2 * 3.141592)) * tf.exp(-0.5 * ((tf.cast({range} - {mean}, tf.float32)) / {std}) ** 2)".format(
-        std=opts["std"], mean="source(1)", range="source(0)"
-      )
-      gaussian_clip_window_size = 3
+
+      if opts["dist_type"] == "gauss_double_exp_clipped":
+        tf_gauss_str = "1.0 / ({std} * tf.sqrt(2 * 3.141592)) * tf.exp(-0.5 * ((tf.cast({range} - {mean}, tf.float32)) / {std}) ** 2)".format(
+          std=opts["std"], mean="source(1)", range="source(0)"
+        )
+        gaussian_clip_window_size = 3
+
+        seg_net_dict[rec_layer_name]["unit"].update({
+          "gaussian_mask": {  # true, only in (gaussian_clip_window_size * 2 - 1) frames around center
+            "class": "compare",
+            "from": ["gaussian_start", "gaussian_range", "gaussian_end"],
+            "kind": "less"
+          },
+          "gaussian_start": {
+            "class": "eval",
+            "from": "center_positions",
+            "eval": "source(0) - %d" % gaussian_clip_window_size
+          },
+          "gaussian_end": {
+            "class": "eval",
+            "from": "center_positions",
+            "eval": "source(0) + %d" % gaussian_clip_window_size
+          },
+          "gaussian1": {
+            "class": "switch",
+            "condition": "gaussian_mask",
+            "true_from": "gaussian0",
+            "false_from": CodeWrapper('float("-inf")')
+          },
+        })
+        gauss_before_norm_str = "gaussian1"
+      elif opts["dist_type"] == "gauss":
+        tf_gauss_str = "-0.5 * ((tf.cast({range} - {mean}, tf.float32)) / {std}) ** 2".format(
+          std=opts["std"], mean="source(1)", range="source(0)"
+        )
+        gauss_before_norm_str = "gaussian0"
+      else:
+        assert opts["dist_type"] == "laplace"
+
+        tf_gauss_str = "-tf.abs((tf.cast({range} - {mean}, tf.float32)) / {std})".format(
+          std=opts["std"], mean="source(1)", range="source(0)"
+        )
+        gauss_before_norm_str = "gaussian0"
 
       seg_net_dict[rec_layer_name]["unit"].update({
-        "gaussian_mask": {  # true, only in (gaussian_clip_window_size * 2 - 1) frames around center
-          "class": "compare",
-          "from": ["gaussian_start", "gaussian_range", "gaussian_end"],
-          "kind": "less"
-        },
-        "gaussian_start": {
-          "class": "eval",
-          "from": "center_positions",
-          "eval": "source(0) - %d" % gaussian_clip_window_size
-        },
-        "gaussian_end": {
-          "class": "eval",
-          "from": "center_positions",
-          "eval": "source(0) + %d" % gaussian_clip_window_size
-        },
         "gaussian_range0": {
           "class": "range_in_axis",
           "from": "att_weights0",
@@ -913,16 +937,10 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
           "eval": tf_gauss_str,
           "out_type": {"dtype": "float32"}
         },
-        "gaussian1": {
-          "class": "switch",
-          "condition": "gaussian_mask",
-          "true_from": "gaussian0",
-          "false_from": CodeWrapper('float("-inf")')
-        },
         "gaussian": {
           "class": "softmax_over_spatial",
           "axis": "stag:sliced-time:segments",
-          "from": "gaussian1"
+          "from": gauss_before_norm_str
         },
       })
 
