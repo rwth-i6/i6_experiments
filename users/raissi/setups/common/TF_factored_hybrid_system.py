@@ -26,10 +26,8 @@ import i6_core.returnn as returnn
 import i6_core.text as text
 
 from i6_core.util import MultiPath, MultiOutputPath
-from i6_core.lexicon.allophones import DumpStateTyingJob, StoreAllophonesJob
 
 # common modules
-from i6_experiments.common.setups.rasr.nn_system import NnSystem
 
 from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import (
     BASEFactoredHybridBaseSystem,
@@ -37,13 +35,10 @@ from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system impor
     TrainingCriterion,
 )
 
-
 from i6_experiments.common.setups.rasr.util import (
     OggZipHdfDataInput,
     RasrInitArgs,
     RasrDataInput,
-    RasrSteps,
-    ReturnnRasrDataInput,
 )
 
 import i6_experiments.users.raissi.setups.common.encoder as encoder_archs
@@ -58,13 +53,25 @@ from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
     get_tdp_values,
 )
 
+from i6_experiments.users.raissi.setups.common.helpers.priors import (
+    get_returnn_config_for_center_state_prior_estimation,
+    get_returnn_config_for_left_context_prior_estimation,
+    get_returnn_configs_for_right_context_prior_estimation,
+    smoothen_priors,
+    JoinRightContextPriorsJob,
+    ReshapeCenterStatePriorsJob,
+)
+
 from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo
 
 from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_search import FactoredHybridBaseDecoder
 
-from i6_experiments.users.raissi.setups.common.decoder.config import PriorInfo, PosteriorScales, SearchParameters
-
-from i6_experiments.users.raissi.setups.common.util.hdf import RasrFeaturesToHdf
+from i6_experiments.users.raissi.setups.common.decoder.config import (
+    PriorInfo,
+    PriorConfig,
+    PosteriorScales,
+    SearchParameters,
+)
 
 # -------------------- Init --------------------
 
@@ -185,7 +192,9 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
         }
         if use_frame_wise_label:
             config["extern_data"].update(
-                **net_helpers.extern_data.get_extern_data_config(label_info=self.label_info, time_tag_name=time_tag_name)
+                **net_helpers.extern_data.get_extern_data_config(
+                    label_info=self.label_info, time_tag_name=time_tag_name
+                )
             )
 
         # these two are gonna get popped and stored during returnn config object creation
@@ -216,7 +225,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
             num_input_feature=self.initial_nn_args["num_input"],
             chunking=chunking,
             label_smoothing=label_smoothing,
-            additional_args = kwargs,
+            additional_args=kwargs,
         )
         network = network_builder.network
         if self.training_criterion != TrainingCriterion.fullsum:
@@ -233,10 +242,15 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
         returnn_config: returnn.ReturnnConfig,
         share: float,
         time_rqmt: Optional[int] = None,
+        checkpoint: Optional[returnn.Checkpoint] = None,
     ):
         self.set_graph_for_experiment(key)
 
-        model_checkpoint = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        model_checkpoint = (
+            checkpoint
+            if checkpoint is not None
+            else self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        )
 
         train_data = self.train_input_data[train_corpus_key]
         dev_data = self.cv_input_data[dev_corpus_key]
@@ -312,6 +326,54 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
 
         return prior_job
 
+    def _compute_returnn_rasr_priors_via_hdf(
+        self,
+        key: str,
+        epoch: int,
+        train_corpus_key: str,
+        dev_corpus_key: str,
+        returnn_config: returnn.ReturnnConfig,
+        share: float,
+        time_rqmt: Union[int, float] = 12,
+        checkpoint: Optional[returnn.Checkpoint] = None,
+    ):
+        self.set_graph_for_experiment(key)
+
+        model_checkpoint = (
+            checkpoint
+            if checkpoint is not None
+            else self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        )
+        returnn_config = self.get_hdf_config_from_returnn_rasr_data(
+            alignment_allophones=None,
+            dev_corpus_key=dev_corpus_key,
+            include_alignment=False,
+            laplace_ordering=False,
+            num_tied_classes=None,
+            partition_epochs={"train": 1, "dev": 1},
+            returnn_config=returnn_config,
+            train_corpus_key=train_corpus_key,
+        )
+
+        if share != 1.0:
+            segment_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
+                segment_file=returnn_config.config["train"]["seq_list_file"],
+                split={"priors": share, "rest": 1 - share},
+                shuffle=True,
+            )
+            returnn_config.config["train"]["seq_list_file"] = segment_job.out_segments["priors"]
+
+        prior_job = returnn.ReturnnComputePriorJobV2(
+            model_checkpoint=model_checkpoint,
+            returnn_config=returnn_config,
+            returnn_root=self.returnn_root,
+            returnn_python_exe=self.returnn_python_exe,
+            mem_rqmt=12,
+            time_rqmt=time_rqmt,
+        )
+
+        return prior_job
+
     def set_mono_priors_returnn_rasr(
         self,
         key: str,
@@ -347,6 +409,178 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
 
         self.experiments[key]["priors"] = [job.out_prior_xml_file]
 
+    def set_diphone_priors_returnn_rasr(
+        self,
+        key: str,
+        epoch: int,
+        train_corpus_key: str,
+        dev_corpus_key: str,
+        returnn_config: Optional[returnn.ReturnnConfig] = None,
+        left_context_output_layer_name: str = "left-output",
+        center_state_output_layer_name: str = "center-output",
+        data_share: float = 1.0 / 3.0,
+        smoothen: bool = False,
+        via_hdf: bool = False,
+        checkpoint: Optional[returnn.Checkpoint] = None,
+    ):
+        self.set_graph_for_experiment(key)
+
+        name = f"{self.experiments[key]['name']}/e{epoch}"
+
+        if returnn_config is None:
+            returnn_config = self.experiments[key]["returnn_config"]
+        assert isinstance(returnn_config, returnn.ReturnnConfig)
+
+        left_config = get_returnn_config_for_left_context_prior_estimation(
+            returnn_config,
+            left_context_softmax_layer=left_context_output_layer_name,
+        )
+        center_config = get_returnn_config_for_center_state_prior_estimation(
+            returnn_config,
+            label_info=self.label_info,
+            center_state_softmax_layer=center_state_output_layer_name,
+        )
+
+        prior_jobs = {
+            ctx: self._compute_returnn_rasr_priors_via_hdf(
+                key=key,
+                epoch=epoch,
+                train_corpus_key=train_corpus_key,
+                dev_corpus_key=dev_corpus_key,
+                returnn_config=cfg,
+                share=data_share,
+                checkpoint=checkpoint,
+            )
+            if via_hdf
+            else self._compute_returnn_rasr_priors(
+                key,
+                epoch,
+                train_corpus_key=train_corpus_key,
+                dev_corpus_key=dev_corpus_key,
+                returnn_config=cfg,
+                share=data_share,
+                checkpoint=checkpoint,
+            )
+            for (ctx, cfg) in [("l", left_config), ("c", center_config)]
+        }
+
+        for (ctx, job) in prior_jobs.items():
+            job.add_alias(f"priors/{name}/{ctx}")
+
+        center_priors = ReshapeCenterStatePriorsJob(prior_jobs["c"].out_prior_txt_file, label_info=self.label_info)
+        center_priors_xml = center_priors.out_prior_xml
+
+        p_info = PriorInfo(
+            center_state_prior=PriorConfig(file=center_priors_xml, scale=0.0),
+            left_context_prior=PriorConfig(file=prior_jobs["l"].out_prior_xml_file, scale=0.0),
+            right_context_prior=None,
+        )
+        p_info = smoothen_priors(p_info) if smoothen else p_info
+
+        results = [
+            ("center-state", p_info.center_state_prior.file),
+            ("left-context", p_info.left_context_prior.file),
+        ]
+        for context_name, file in results:
+            xml_name = f"priors/{name}/{context_name}.xml" if name is not None else f"priors/{context_name}.xml"
+            tk.register_output(xml_name, file)
+
+        self.experiments[key]["priors"] = p_info
+
+    def set_triphone_priors_returnn_rasr(
+        self,
+        key: str,
+        epoch: int,
+        train_corpus_key: str,
+        dev_corpus_key: str,
+        returnn_config: Optional[returnn.ReturnnConfig] = None,
+        left_context_output_layer_name: str = "left-output",
+        center_state_output_layer_name: str = "center-output",
+        right_context_output_layer_name: str = "right-output",
+        data_share: float = 1.0 / 3.0,
+        smoothen: bool = False,
+        via_hdf: bool = False,
+        checkpoint: Optional[returnn.Checkpoint] = None,
+    ):
+        self.set_graph_for_experiment(key)
+
+        name = f"{self.experiments[key]['name']}/e{epoch}"
+
+        if returnn_config is None:
+            returnn_config = self.experiments[key]["returnn_config"]
+        assert isinstance(returnn_config, returnn.ReturnnConfig)
+
+        left_config = get_returnn_config_for_left_context_prior_estimation(
+            returnn_config,
+            left_context_softmax_layer=left_context_output_layer_name,
+        )
+        center_config = get_returnn_config_for_center_state_prior_estimation(
+            returnn_config,
+            label_info=self.label_info,
+            center_state_softmax_layer=center_state_output_layer_name,
+        )
+        right_configs = get_returnn_configs_for_right_context_prior_estimation(
+            returnn_config,
+            label_info=self.label_info,
+            right_context_softmax_layer=right_context_output_layer_name,
+        )
+
+        prior_jobs = {
+            ctx: self._compute_returnn_rasr_priors_via_hdf(
+                key=key,
+                epoch=epoch,
+                train_corpus_key=train_corpus_key,
+                dev_corpus_key=dev_corpus_key,
+                returnn_config=cfg,
+                share=data_share,
+                checkpoint=checkpoint,
+            )
+            if via_hdf
+            else self._compute_returnn_rasr_priors(
+                key,
+                epoch,
+                train_corpus_key=train_corpus_key,
+                dev_corpus_key=dev_corpus_key,
+                returnn_config=cfg,
+                share=data_share,
+                time_rqmt=8,
+                checkpoint=checkpoint,
+            )
+            for (ctx, cfg) in (
+                ("l", left_config),
+                ("c", center_config),
+                *((f"r{i}", cfg) for i, cfg in enumerate(right_configs)),
+            )
+        }
+
+        for (ctx, job) in prior_jobs.items():
+            job.add_alias(f"priors/{name}/{ctx}")
+
+        center_priors = ReshapeCenterStatePriorsJob(prior_jobs["c"].out_prior_txt_file, label_info=self.label_info)
+        center_priors_xml = center_priors.out_prior_xml
+
+        right_priors = [prior_jobs[f"r{i}"].out_prior_txt_file for i in range(len(right_configs))]
+        right_prior_xml = JoinRightContextPriorsJob(right_priors, label_info=self.label_info).out_prior_xml
+
+        p_info = PriorInfo(
+            center_state_prior=PriorConfig(file=center_priors_xml, scale=0.0),
+            left_context_prior=PriorConfig(file=prior_jobs["l"].out_prior_xml_file, scale=0.0),
+            right_context_prior=PriorConfig(file=right_prior_xml, scale=0.0),
+        )
+        p_info = smoothen_priors(p_info) if smoothen else p_info
+
+        results = [
+            ("center-state", p_info.center_state_prior.file),
+            ("left-context", p_info.left_context_prior.file),
+            ("right-context", p_info.right_context_prior.file),
+        ]
+        for context_name, file in results:
+            xml_name = f"priors/{name}/{context_name}.xml" if name is not None else f"priors/{context_name}.xml"
+            tk.register_output(xml_name, file)
+
+        self.experiments[key]["priors"] = p_info
+
+    # deprecated
     def set_diphone_priors(
         self,
         key,
@@ -369,7 +603,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
             tf_library = self.tf_library
 
         name = f"{self.experiments[key]['name']}-epoch-{epoch}"
-        model_checkpoint = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        model_checkpoint = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
         graph = self.experiments[key]["graph"]["inference"]
 
         hdf_paths = self.get_hdf_path(hdf_key)
