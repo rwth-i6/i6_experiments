@@ -3,19 +3,16 @@ Generic interfaces to define models, training and recognition.
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Protocol, TypeVar, Optional, Union, List, Dict, Set
+from typing import Protocol, TypeVar, Optional, Union, List, Dict, Set
 import dataclasses
-from i6_core.returnn.training import ReturnnTrainingJob, Checkpoint as TfCheckpoint, PtCheckpoint
+from i6_core.returnn.training import ReturnnTrainingJob, Checkpoint as _TfCheckpoint, PtCheckpoint as _PtCheckpoint
 from returnn.tensor import Tensor, Dim
 from i6_experiments.users.zeyer.returnn.training import default_returnn_keep_epochs
+from sisyphus import tk as _tk
+from returnn_common import nn as _nn
 
-if TYPE_CHECKING:
-    from sisyphus import tk
-    from returnn_common import nn
-
-
-ModelT = TypeVar("ModelT", bound=nn.Module)
-Checkpoint = Union[TfCheckpoint, PtCheckpoint]
+ModelT = TypeVar("ModelT", bound=_nn.Module)
+Checkpoint = Union[_TfCheckpoint, _PtCheckpoint]
 
 
 class ModelDef(Protocol[ModelT]):
@@ -105,8 +102,8 @@ class ModelWithCheckpoints:
     # This is a subset of all kept epochs.
     fixed_epochs: Set[int]
     # when this becomes available, you can check potential other checkpoints
-    scores_and_learning_rates: tk.Path  # ReturnnTrainingJob.out_learning_rates
-    model_dir: tk.Path  # ReturnnTrainingJob.out_model_dir
+    scores_and_learning_rates: _tk.Path  # ReturnnTrainingJob.out_learning_rates
+    model_dir: _tk.Path  # ReturnnTrainingJob.out_model_dir
     model_name: str = "epoch"  # RETURNN config `model` option; ReturnnTrainingJob has hardcoded "epoch"
     # Note on num_pretrain_epochs: This is used to get the right model filename.
     # When ModelDef is given and used, this should always be 0,
@@ -179,11 +176,11 @@ class ModelWithCheckpoints:
         is_pretrain = epoch <= self.num_pretrain_epochs
         return ModelWithCheckpoint(
             self.definition,
-            PtCheckpoint(
+            _PtCheckpoint(
                 self.model_dir.join_right(self.model_name + (".pretrain" if is_pretrain else "") + ".%03d.pt" % epoch)
             )
             if model_def_is_torch(self.definition)
-            else TfCheckpoint(
+            else _TfCheckpoint(
                 index_path=self.model_dir.join_right(
                     self.model_name + (".pretrain" if is_pretrain else "") + ".%03d.index" % epoch
                 )
@@ -199,7 +196,7 @@ class ModelWithCheckpoints:
 class Alignment:
     """Alignment, for one specific dataset"""
 
-    hdf_files: List[tk.Path]
+    hdf_files: List[_tk.Path]
 
 
 @dataclasses.dataclass(frozen=True)

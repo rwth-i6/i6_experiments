@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Any, Tuple, Dict, Sequence, List
+from typing import TYPE_CHECKING, Optional, Any, Tuple, Dict, Sequence, List
 import tree
 import math
 
@@ -13,8 +13,10 @@ from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep, dict_update_delete_deep
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
 from i6_experiments.users.zeyer.lr_schedules.lin_warmup_invsqrt_decay import dyn_lr_lin_warmup_invsqrt_decay
+
+if TYPE_CHECKING:
+    from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
 
 # From Mohammad, 2023-06-29
 # dev-clean  2.27
