@@ -32,17 +32,9 @@ _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.Bx
 _log_mel_feature_dim = 80
 
 
-_sis_prefix: Optional[str] = None
-
-
 def sis_run_with_prefix(prefix_name: str = None):
     """run the exp"""
-    if not prefix_name:
-        from .sis_setup import get_prefix_for_config
-
-        prefix_name = get_prefix_for_config(__file__)
-    global _sis_prefix
-    _sis_prefix = prefix_name
+    _sis_setup_global_prefix(prefix_name)
 
     _recog_imported()
 
@@ -90,6 +82,18 @@ def sis_run_with_prefix(prefix_name: str = None):
             "aux_loss_layers": [4, 8, 12],
         },
     )
+
+
+_sis_prefix: Optional[str] = None
+
+
+def _sis_setup_global_prefix(prefix_name: str = None):
+    if not prefix_name:
+        from .sis_setup import get_prefix_for_config
+
+        prefix_name = get_prefix_for_config(__file__)
+    global _sis_prefix
+    _sis_prefix = prefix_name
 
 
 def _recog_imported():
