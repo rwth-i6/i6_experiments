@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Any, Tuple, Dict, Sequence, List
+from typing import TYPE_CHECKING, Optional, Any, Union, Tuple, Dict, Sequence, List
 import tree
 import math
 import numpy as np
@@ -146,7 +146,7 @@ def _train_exp(
     config_deletes: Optional[Sequence[str]] = None,
     num_epochs: int = 2000,
     gpu_mem: Optional[int] = 24,
-    fine_tune: Optional[Sequence[int]] = None,
+    fine_tune: Optional[Union[int, Sequence[int]]] = None,
 ) -> ModelWithCheckpoints:
     from .train import train
     from i6_experiments.users.zeyer.recog import recog_training_exp
