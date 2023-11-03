@@ -17,6 +17,7 @@ from i6_experiments.users.zeyer.lr_schedules.lin_warmup_invsqrt_decay import dyn
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
+    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
 
 # From Mohammad, 2023-06-29
 # dev-clean  2.27
@@ -136,7 +137,7 @@ def _train_exp(
     config_deletes: Optional[Sequence[str]] = None,
     num_epochs: int = 2000,
     gpu_mem: Optional[int] = 24,
-):
+) -> ModelWithCheckpoints:
     from .train import train
     from i6_experiments.users.zeyer.recog import recog_training_exp
 
@@ -156,6 +157,8 @@ def _train_exp(
         gpu_mem=gpu_mem,
     )
     recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
+
+    return model_with_checkpoint
 
 
 _ls_task = None
