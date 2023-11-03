@@ -4,6 +4,7 @@ from sisyphus import *
 
 from i6_core.corpus.convert import CorpusToStmJob
 from i6_core.corpus.segments import SegmentCorpusJob
+from i6_core.audio.encoding import BlissChangeEncodingJob
 
 from i6_experiments.common.datasets.librispeech.corpus import get_bliss_corpus_dict
 from i6_experiments.users.schmitt.datasets.dump import DumpDatasetConfigBuilder
@@ -37,6 +38,10 @@ class LibrispeechCorpora:
     }
 
     self.corpus_paths = get_bliss_corpus_dict()
+    self.corpus_paths_wav = {
+      key: BlissChangeEncodingJob(
+        corpus_file=val, output_format="wav").out_corpus for key, val in self.corpus_paths.items()
+    }
 
     self.stm_jobs = {
       "dev-other": CorpusToStmJob(self.corpus_paths["dev-other"]),
