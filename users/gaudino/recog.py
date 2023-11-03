@@ -120,7 +120,7 @@ def recog_model(
         if dev_sets is not None:
             if name not in dev_sets:
                 continue
-        recog_out = search_dataset(
+        recog_out, forward_job_out = search_dataset(
             dataset=dataset,
             model=model,
             recog_def=recog_def,
@@ -133,7 +133,7 @@ def recog_model(
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[name] = score_out
-    return task.collect_score_results_func(outputs), recog_out
+    return task.collect_score_results_func(outputs), forward_job_out
 
 
 def search_dataset(
@@ -181,6 +181,7 @@ def search_dataset(
         )
         forward_job.add_alias(prefix_name + "/forward_job")
         res = forward_job.out_files[_v2_forward_out_filename]
+        forward_job_out = res
     if recog_def.output_blank_label:
         res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
     for f in recog_post_proc_funcs:  # for example BPE to words
@@ -190,7 +191,7 @@ def search_dataset(
         #   It's not clear whether this is helpful in general.
         #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
-    return RecogOutput(output=res)
+    return RecogOutput(output=res), RecogOutput(output=forward_job_out)
 
 
 # Those are applied for both training, recog and potential others.

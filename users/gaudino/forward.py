@@ -37,6 +37,7 @@ def forward_model(
     dev_sets: Optional[Collection[str]] = None,
     model_args: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
+    prefix_name: str,
 ) -> ScoreResultCollection:
     """recog"""
     if dev_sets is not None:
@@ -80,15 +81,15 @@ def forward_dataset(
     )
     res = forward_job.out_files[_v2_forward_out_filename]
 
-    if recog_def.output_blank_label:
-        res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
-    for f in recog_post_proc_funcs:  # for example BPE to words
-        res = f(RecogOutput(output=res)).output
-    if recog_def.output_with_beam:
-        # Don't join scores here (SearchBeamJoinScoresJob).
-        #   It's not clear whether this is helpful in general.
-        #   As our beam sizes are very small, this might boost some hyps too much.
-        res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
+    # if recog_def.output_blank_label:
+    #     res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
+    # for f in recog_post_proc_funcs:  # for example BPE to words
+    #     res = f(RecogOutput(output=res)).output
+    # if recog_def.output_with_beam:
+    #     # Don't join scores here (SearchBeamJoinScoresJob).
+    #     #   It's not clear whether this is helpful in general.
+    #     #   As our beam sizes are very small, this might boost some hyps too much.
+    #     res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
     return RecogOutput(output=res)
 
 
@@ -148,7 +149,7 @@ def forward_config(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 2,
+                            "version": 1,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
@@ -270,18 +271,21 @@ def _returnn_v2_get_forward_callback():
             self.out_file.write("{\n")
 
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
+            import numpy as np
             hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
             scores: Tensor = outputs["scores"]  # [beam]
             assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
             assert hyps.dims[1].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
-            hyps_len = hyps.dims[1].dyn_size_ext  # [beam]
-            assert hyps.raw_tensor.shape[:1] == hyps_len.raw_tensor.shape == scores.raw_tensor.shape  # (beam,)
+            hyps_len_raw = hyps.dims[1].dyn_size_ext.raw_tensor # [beam]
+            if len(hyps_len_raw.shape) == 0:
+                hyps_len_raw = hyps_len_raw[np.newaxis]
+            assert hyps.raw_tensor.shape[:1] == hyps_len_raw.shape == scores.raw_tensor.shape  # (beam,)
             num_beam = hyps.raw_tensor.shape[0]
             # Consistent to old search task, list[(float,str)].
             self.out_file.write(f"{seq_tag!r}: [\n")
             for i in range(num_beam):
                 score = float(scores.raw_tensor[i])
-                hyp_ids = hyps.raw_tensor[i, : hyps_len.raw_tensor[i]]
+                hyp_ids = hyps.raw_tensor[i, : hyps_len_raw[i]]
                 hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
                 self.out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
             self.out_file.write("],\n")

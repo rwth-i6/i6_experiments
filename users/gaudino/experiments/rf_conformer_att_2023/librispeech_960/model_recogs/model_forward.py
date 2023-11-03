@@ -19,7 +19,7 @@ _ctc_prior_filename = "/u/luca.gaudino/debug/ctc/prior.txt"
 # _ctc_prior_filename = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZdcvhAOyWl95/output/prior.txt"
 
 
-def forward(
+def model_forward(
     *,
     model,
     data: Tensor,
@@ -115,6 +115,8 @@ def forward(
         ctc_state = None
     enc_args.pop("ctc")
 
+    ground_truth_pad = rf.pad(ground_truth, axes=ground_truth.dims, padding=[(0, 0), (0, 1)], out_dims=ground_truth.dims, value=0)[0]
+
     i = 0
     while True:
         input_embed = model.target_embed(target)
@@ -183,7 +185,7 @@ def forward(
         )
         seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
 
-        gt_slice, slice_out_dim = rf.slice(ground_truth, axis=ground_truth.dims[1], start=i, end=i+1)
+        gt_slice, slice_out_dim = rf.slice(ground_truth_pad, axis=ground_truth_pad.dims[1], start=i, end=i+1)
         gt_slice = rf.copy_to_device(rf.squeeze(gt_slice, slice_out_dim))
         seq_log_prob = rf.gather(seq_log_prob, indices=gt_slice, axis=seq_log_prob.dims[2])
         target = rf.reshape(gt_slice, gt_slice.dims, target.dims)
@@ -229,7 +231,8 @@ def forward(
                 1.0,
             )
 
-    seq_targets = ground_truth
+    out_spatial_dim = ground_truth.dims[1]
+    seq_targets = rf.reshape(ground_truth, ground_truth.dims, batch_dims_ + [out_spatial_dim] )
 
     if i > 0 and length_normalization_exponent != 0:
         seq_log_prob *= (1 / i) ** length_normalization_exponent
@@ -238,13 +241,12 @@ def forward(
         from .two_pass import rescore_w_ctc
         seq_targets, seq_log_prob = rescore_w_ctc(model, seq_targets, seq_log_prob, ctc_out, batch_size, beam_size, model.blank_idx)
 
-    out_spatial_dim = seq_targets.dims[1]
 
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 
 
 # RecogDef API
-forward: RecogDef[Model]
-forward.output_with_beam = True
-forward.output_blank_label = "<blank>"
-forward.batch_size_dependent = False
+model_forward: RecogDef[Model]
+model_forward.output_with_beam = True
+model_forward.output_blank_label = "<blank>"
+model_forward.batch_size_dependent = False

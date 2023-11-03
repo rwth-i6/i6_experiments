@@ -23,7 +23,7 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
     from_scratch_training,
 )
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog import model_recog
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.forward import forward
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_forward import model_forward
 
 from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 
@@ -245,7 +245,7 @@ def find_search_errors():
     # forward ground truth
     with torch.no_grad():
         with rf.set_default_device_ctx("cuda"):
-            seq_targets_gt, seq_log_prob_gt, _, _ = forward(
+            seq_targets_gt, seq_log_prob_gt, _, _ = model_forward(
                 model=new_model,
                 data=extern_data["audio_features"],
                 data_spatial_dim=time_dim,

@@ -22,7 +22,6 @@ class ComputeSearchErrorsJob(Job):
         yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0}, mini_task=True)
 
     def run(self):
-        blank_idx = self.blank_idx
 
         d_gt = eval(util.uopen(self.ground_truth_out, "rt").read())
         d_rec = eval(util.uopen(self.recog_out, "rt").read())
@@ -36,8 +35,8 @@ class ComputeSearchErrorsJob(Job):
         for seq_tag in d_gt.keys():
             num_seqs += 1
 
-            score_ground_truth, targets_ground_truth = d_gt[seq_tag]
-            score_search, targets_search = d_rec[seq_tag]
+            score_ground_truth, targets_ground_truth = d_gt[seq_tag][0]
+            score_search, targets_search = d_rec[seq_tag][0]
 
             # we count as search error if the label seqs differ and the search score is worse than the ground truth score
             is_search_error = False
