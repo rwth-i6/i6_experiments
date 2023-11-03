@@ -765,9 +765,10 @@ def run_single(
                             fix_tdp_non_word_tying=True,
                         )
 
-                    for crp_k, tdp_sil in itertools.product(
+                    for crp_k, tdp_sil, b_l in itertools.product(
                         ["dev-clean", "dev-other", "test-clean", "test-other"],
                         [(0, 3, "infinity", 20), (10, 10, "infinity", 20), (10, 10, "infinity", 10)],
+                        [1000, 10_000],
                     ):
                         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
                         s.recognize_cart(
@@ -776,7 +777,7 @@ def run_single(
                             crp_corpus=crp_k,
                             n_cart_out=diphone_li.get_n_of_dense_classes(),
                             cart_tree_or_tying_config=tying_cfg,
-                            params=base_params.with_beam_size(20).with_beam_limit(1000).with_tdp_silence(tdp_sil),
+                            params=base_params.with_beam_size(20).with_beam_limit(b_l).with_tdp_silence(tdp_sil),
                             log_softmax_returnn_config=nn_precomputed_returnn_config,
                             calculate_statistics=True,
                             opt_lm_am_scale=False,
