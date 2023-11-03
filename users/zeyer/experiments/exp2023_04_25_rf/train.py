@@ -3,25 +3,15 @@ helpers for training
 """
 
 from __future__ import annotations
-
 from typing import TYPE_CHECKING, Optional, Dict, Any, Sequence
 
-from i6_core.util import instanciate_delayed
-from i6_core.returnn.training import ReturnnTrainingJob
-from i6_core.returnn.config import ReturnnConfig
-from i6_experiments.common.setups import serialization
-from i6_experiments.common.setups.returnn.serialization import get_serializable_config
-from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
-from i6_experiments.users.zeyer.datasets.utils import multi_proc as mp_ds_utils
-from returnn_common import nn
-
-from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
-from i6_experiments.users.zeyer.datasets.task import Task
-from i6_experiments.users.zeyer.recog import SharedPostConfig
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
+    from i6_experiments.common.setups import serialization
+    from i6_experiments.users.zeyer.datasets.task import Task
     from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, TrainDef
+    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
 
 
 def train(
@@ -48,6 +38,17 @@ def train(
 
     TODO should use sth like unhashed_package_root (https://github.com/rwth-i6/i6_experiments/pull/157)
     """
+    from i6_core.util import instanciate_delayed
+    from i6_core.returnn.training import ReturnnTrainingJob
+    from i6_core.returnn.config import ReturnnConfig
+    from i6_experiments.common.setups import serialization
+    from i6_experiments.common.setups.returnn.serialization import get_serializable_config
+    from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
+    from i6_experiments.users.zeyer.datasets.utils import multi_proc as mp_ds_utils
+    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
+    from i6_experiments.users.zeyer.recog import SharedPostConfig
+    from returnn_common import nn
+
     returnn_train_config_dict: Dict[str, Any] = dict(
         backend=model_def.backend,
         behavior_version=model_def.behavior_version,
