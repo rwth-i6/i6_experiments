@@ -171,6 +171,7 @@ class RasrConfigBuilder:
           segment_path: Path,
           lexicon_path: Path,
           feature_cache_path: Path,
+          feature_extraction_file: Path | str,
           label_file_path: Path,
           meta_graph_path: Path,
           simple_beam_search: bool,
@@ -220,8 +221,7 @@ class RasrConfigBuilder:
     recognizer_config.add_confidence_score = False
     recognizer_config.apply_non_word_closure_filter = False
     recognizer_config.apply_posterior_pruning = False
-    recognizer_config.feature_extraction.file = Path(
-      "/u/schmitt/experiments/transducer/config/rasr-configs/feature.flow")
+    recognizer_config.feature_extraction.file = feature_extraction_file
     recognizer_config.feature_extraction.feature_cache.path = feature_cache_path
     recognizer_config.links = "evaluator archive-writer"
     recognizer_config.pronunciation_scale = 1.0
