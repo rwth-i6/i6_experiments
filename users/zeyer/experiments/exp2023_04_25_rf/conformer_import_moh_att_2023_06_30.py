@@ -54,7 +54,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         "base-24gb-v2-lr1e_3-nogradscaler", config_24gb_v2, config_updates={"learning_rate": 0.001, "grad_scaler": None}
     )
 
-    _train_exp("base-24gb-v3", config_24gb_v3)
+    _train_exp("base-24gb-v3", config_24gb_v3)  # bad
     _train_exp("base-24gb-v3-wd1e_3", config_24gb_v3, config_updates={"optimizer.weight_decay": 0.001})  # bad
     _train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})
     _train_exp("base-24gb-v3-lr1e_3", config_24gb_v3, config_updates={"learning_rate": 0.001}, fine_tune=1280)
