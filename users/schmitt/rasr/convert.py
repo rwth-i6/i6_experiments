@@ -24,7 +24,7 @@ class RASRLatticeToCTMJob(Job):
     self.out_ctm = self.output_path("lattice.ctm.1")
 
   def tasks(self):
-    yield Task("run", rqmt={"cpu": 1, "mem": self.mem_rqmt, "time": self.time_rqmt})
+    yield Task("run", rqmt={"cpu": 1, "mem": self.mem_rqmt, "time": self.time_rqmt}, mini_task=True)
 
   def run(self):
     config, post_config = build_config_from_mapping(self.crp, {
@@ -110,7 +110,7 @@ class BPEJSONVocabToRasrFormatsJob(Job):
     self.out_state_tying = self.output_path("out_state_tying")
 
   def tasks(self):
-    yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 1})
+    yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 1}, mini_task=True)
 
   def run(self):
     # load json vocab
@@ -173,7 +173,7 @@ class PhonJSONVocabToRasrFormatsJob(Job):
     self.out_state_tying = self.output_path("out_state_tying")
 
   def tasks(self):
-    yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 1})
+    yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 1}, mini_task=True)
 
   def run(self):
     # load json vocab
