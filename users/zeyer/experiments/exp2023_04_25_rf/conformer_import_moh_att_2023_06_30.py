@@ -43,7 +43,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     from .sis_setup import get_prefix_for_config
     from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
-    from i6_experiments.users.zeyer.recog import recog_model, recog_training_exp
+    from i6_experiments.users.zeyer.recog import recog_model
     from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
 
     if not prefix_name:
