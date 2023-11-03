@@ -146,6 +146,7 @@ class SearchParameters:
 
     add_all_allophones: bool = True
     altas: typing.Optional[float] = None
+    lm_lookahead_scale: typing.Optional[float] = None
     posterior_scales: typing.Optional[PosteriorScales] = None
     silence_penalties: typing.Optional[typing.Tuple[Float, Float]] = None  # loop, fwd
     state_dependent_tdps: typing.Optional[typing.Union[str, tk.Path]] = None

@@ -548,6 +548,7 @@ def run_single(
                 beam=18,
                 beam_limit=15_000,
                 lm_scale=8.4,
+                lm_lookahead_scale=4.2,
                 tdp_scale=0.4 if n_states_per_phone == 3 else 0.2,
             )
 
@@ -572,11 +573,11 @@ def run_single(
                 crp_corpus=crp_k,
                 n_cart_out=diphone_li.get_n_of_dense_classes(),
                 cart_tree_or_tying_config=tying_cfg,
-                params=base_params.with_lm_scale(base_params.lm_scale + 2),
+                params=base_params,
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
                 calculate_statistics=True,
-                opt_lm_am_scale=False,
-                cpu_rqmt=2,
+                opt_lm_am_scale=True,
+                cpu_rqmt=4,
                 mem_rqmt=4,
                 crp_update=set_power_exe,
                 rtf=20,
