@@ -499,6 +499,7 @@ def run_single(
                     label_info=s.label_info,
                     num_encoder_output=conf_model_dim,
                     opt_lm_am=True,
+                    name_override=f"best",
                     search_parameters=dataclasses.replace(
                         best_config,
                         beam=18,
