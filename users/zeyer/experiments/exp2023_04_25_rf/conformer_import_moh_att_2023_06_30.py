@@ -184,7 +184,7 @@ def _train_exp(
 
             suffix = f"/finetune/{ep}"
             finetune_model_with_ckpt = train(
-                prefix + suffix + "/train",
+                prefix + suffix,
                 task=task,
                 config=config_,
                 post_config=post_config,
