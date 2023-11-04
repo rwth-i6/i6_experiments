@@ -561,22 +561,23 @@ def run_single(
                 set_batch_major_for_feature_scorer=True,
             )
 
-            recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=best_config,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=True,
-                calculate_stats=True,
-                name_override="best/4gram",
-                rtf_cpu=80,
-            )
+            for lm in [best_config.lm_scale, 11.3]:
+                recognizer.recognize_count_lm(
+                    label_info=s.label_info,
+                    search_parameters=best_config.with_lm_scale(lm),
+                    num_encoder_output=conf_model_dim,
+                    rerun_after_opt_lm=True,
+                    calculate_stats=True,
+                    name_override=f"best/4gram-lm{lm}",
+                    rtf_cpu=80,
+                )
             for lm in [best_config.lm_scale + 2, 12.4]:
                 recognizer.recognize_ls_trafo_lm(
                     calculate_stats=True,
                     label_info=s.label_info,
                     num_encoder_output=conf_model_dim,
                     opt_lm_am=True,
-                    name_override=f"best-{lm}",
+                    name_override=f"best-lm{lm}",
                     search_parameters=dataclasses.replace(best_config, beam=18, beam_limit=100_000, lm_scale=lm),
                     cpu_rqmt=2,
                     mem_rqmt=8,
