@@ -567,25 +567,24 @@ def run_single(
                 crp_update=set_power_exe,
                 rtf=2,
             )
-
-        s.recognize_cart(
-            key="fh",
-            epoch=max(keep_epochs),
-            crp_corpus="dev-other",
-            n_cart_out=diphone_li.get_n_of_dense_classes(),
-            cart_tree_or_tying_config=tying_cfg,
-            params=base_params,
-            log_softmax_returnn_config=nn_precomputed_returnn_config,
-            calculate_statistics=True,
-            opt_lm_am_scale=True,
-            cpu_rqmt=2,
-            mem_rqmt=4,
-            rtf=20,
-            decode_trafo_lm=True,
-            recognize_only_trafo=True,
-            remove_or_set_concurrency=5,
-            gpu=True,
-        )
+            s.recognize_cart(
+                key="fh",
+                epoch=max(keep_epochs),
+                crp_corpus=crp_k,
+                n_cart_out=diphone_li.get_n_of_dense_classes(),
+                cart_tree_or_tying_config=tying_cfg,
+                params=base_params.with_lm_scale(11.4),
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                calculate_statistics=True,
+                opt_lm_am_scale=False,
+                cpu_rqmt=2,
+                mem_rqmt=4,
+                rtf=20,
+                decode_trafo_lm=True,
+                recognize_only_trafo=True,
+                remove_or_set_concurrency=5,
+                gpu=True,
+            )
 
     # ###########
     # FINE TUNING
