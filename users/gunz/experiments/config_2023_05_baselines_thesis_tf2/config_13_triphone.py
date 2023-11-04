@@ -570,23 +570,19 @@ def run_single(
                 name_override="best/4gram",
                 rtf_cpu=80,
             )
-            recognizer.recognize_ls_trafo_lm(
-                calculate_stats=True,
-                label_info=s.label_info,
-                num_encoder_output=conf_model_dim,
-                opt_lm_am=True,
-                name_override="best",
-                search_parameters=dataclasses.replace(
-                    best_config,
-                    beam=18,
-                    beam_limit=100_000,
-                    lm_scale=best_config.lm_scale + 2,
-                ),
-                cpu_rqmt=2,
-                mem_rqmt=8,
-                rtf_gpu=30,
-                gpu=True,
-                remove_or_set_concurrency=5,
-            )
+            for lm in [best_config.lm_scale + 2, 12.4]:
+                recognizer.recognize_ls_trafo_lm(
+                    calculate_stats=True,
+                    label_info=s.label_info,
+                    num_encoder_output=conf_model_dim,
+                    opt_lm_am=True,
+                    name_override=f"best-{lm}",
+                    search_parameters=dataclasses.replace(best_config, beam=18, beam_limit=100_000, lm_scale=lm),
+                    cpu_rqmt=2,
+                    mem_rqmt=8,
+                    rtf_gpu=30,
+                    gpu=True,
+                    remove_or_set_concurrency=5,
+                )
 
     return s
