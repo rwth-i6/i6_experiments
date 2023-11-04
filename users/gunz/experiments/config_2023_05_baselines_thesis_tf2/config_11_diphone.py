@@ -106,7 +106,7 @@ def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Lis
             alignment_name="scratch",
             batch_size=12500,
             dc_detection=False,
-            decode_all_corpora=False,
+            decode_all_corpora=True,
             lr="v13",
             n_states_per_phone=3,
             run_performance_study=True,
@@ -413,64 +413,6 @@ def run_single(
                 name_override="best/4gram",
             )
 
-    if decode_all_corpora:
-        for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-clean", "dev-other", "test-clean", "test-other"]):
-            s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
-
-            recognizer, recog_args = s.get_recognizer_and_args(
-                key="fh",
-                context_type=PhoneticContext.diphone,
-                crp_corpus=crp_k,
-                epoch=ep,
-                gpu=False,
-                tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-                set_batch_major_for_feature_scorer=True,
-                lm_gc_simple_hash=True,
-            )
-
-            if n_states_per_phone == 1:
-                tdp_sp = recog_args.tdp_speech
-                recog_args = recog_args.with_tdp_speech((0, *tdp_sp[1:]))
-
-            cfgs = [recog_args.with_prior_scale(0.4, 0.4).with_tdp_scale(0.4)]
-
-            for cfg in cfgs:
-                recognizer.recognize_count_lm(
-                    label_info=s.label_info,
-                    search_parameters=cfg,
-                    num_encoder_output=conf_model_dim,
-                    rerun_after_opt_lm=False,
-                    calculate_stats=True,
-                )
-
-            generic_lstm_base_op = returnn.CompileNativeOpJob(
-                "LstmGenericBase",
-                returnn_root=returnn_root,
-                returnn_python_exe=RETURNN_PYTHON_EXE,
-            )
-            generic_lstm_base_op.rqmt = {"cpu": 1, "mem": 4, "time": 0.5}
-            recognizer, recog_args = s.get_recognizer_and_args(
-                key="fh",
-                context_type=PhoneticContext.diphone,
-                crp_corpus=crp_k,
-                epoch=ep,
-                gpu=True,
-                tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-                set_batch_major_for_feature_scorer=True,
-                tf_library=[generic_lstm_base_op.out_op, generic_lstm_base_op.out_grad_op],
-            )
-
-            for cfg in cfgs:
-                recognizer.recognize_ls_trafo_lm(
-                    label_info=s.label_info,
-                    search_parameters=cfg.with_lm_scale(cfg.lm_scale + 2.0),
-                    num_encoder_output=conf_model_dim,
-                    rerun_after_opt_lm=False,
-                    calculate_stats=True,
-                    rtf_gpu=20,
-                    gpu=True,
-                )
-
     if run_performance_study:
         power_consumption_script = WritePowerConsumptionScriptJob(s.crp["dev-other"].flf_tool_exe)
 
@@ -540,6 +482,8 @@ def run_single(
                 },
             )
 
+    if decode_all_corpora:
+        assert run_performance_study
         for crp_k in ["test-clean", "test-other", "dev-other", "dev-clean"]:
             s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
