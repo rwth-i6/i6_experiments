@@ -522,7 +522,7 @@ def run_single(
                 calculate_statistics=True,
                 opt_lm_am_scale=False,
                 cpu_rqmt=2,
-                mem_rqmt=4,
+                mem_rqmt=8,
                 rtf=20,
                 decode_trafo_lm=True,
                 recognize_only_trafo=True,
