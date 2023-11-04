@@ -812,7 +812,7 @@ def run_single(
                             calculate_statistics=True,
                             opt_lm_am_scale=True,
                             cpu_rqmt=2,
-                            mem_rqmt=4,
+                            mem_rqmt=8,
                             gpu=True,
                             rtf=20,
                             fix_tdp_non_word_tying=True,
