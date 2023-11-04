@@ -818,6 +818,7 @@ def run_single(
                             fix_tdp_non_word_tying=True,
                             decode_trafo_lm=True,
                             recognize_only_trafo=True,
+                            remove_or_set_concurrency=5,
                         )
 
             for ep, crp_k in itertools.product([max(keep_epochs)], ["test-other"]):
