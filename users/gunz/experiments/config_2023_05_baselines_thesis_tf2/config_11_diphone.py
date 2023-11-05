@@ -494,12 +494,15 @@ def run_single(
             tdp_scale=0.4 if n_states_per_phone == 3 else 0.2,
         )
 
-        for crp_k in ["test-clean", "test-other", "dev-other", "dev-clean"]:
+        for crp_k, ep in itertools.product(
+            ["test-clean", "test-other", "dev-other", "dev-clean"],
+            [590, 599, max(keep_epochs)],
+        ):
             s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
             s.recognize_cart(
                 key="fh",
-                epoch=max(keep_epochs),
+                epoch=ep,
                 crp_corpus=crp_k,
                 n_cart_out=diphone_li.get_n_of_dense_classes(),
                 cart_tree_or_tying_config=tying_cfg,
@@ -514,7 +517,7 @@ def run_single(
             )
             s.recognize_cart(
                 key="fh",
-                epoch=max(keep_epochs),
+                epoch=ep,
                 crp_corpus=crp_k,
                 n_cart_out=diphone_li.get_n_of_dense_classes(),
                 cart_tree_or_tying_config=tying_cfg,
@@ -548,7 +551,6 @@ def run_single(
                 crp_update=set_power_exe,
                 rtf=2,
             )
-
 
     # ###########
     # FINE TUNING
