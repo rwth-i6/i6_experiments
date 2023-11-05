@@ -60,7 +60,12 @@ def sis_run_with_prefix(prefix_name: str = None):
         config_updates={"learning_rate": 0.001, "optimizer.weight_decay": 0.001},
     )
     _train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})
-    _train_exp("base-24gb-v3-lr1e_3", config_24gb_v3, config_updates={"learning_rate": 0.001}, fine_tune=1280)
+    _train_exp(
+        "base-24gb-v3-lr1e_3",
+        config_24gb_v3,
+        config_updates={"learning_rate": 0.001},
+        fine_tune=[(1280, {}), (1280, {"num_epochs": 100})],
+    )
     _train_exp(
         "base-24gb-v3-lr1e_3-lossscalesF",
         config_24gb_v3,
@@ -147,7 +152,7 @@ def _train_exp(
     config_deletes: Optional[Sequence[str]] = None,
     num_epochs: int = 2000,
     gpu_mem: Optional[int] = 24,
-    fine_tune: Optional[Union[int, Sequence[int]]] = None,
+    fine_tune: Optional[Union[int, List[Tuple[int, Dict[str, Any]]]]] = None,
 ) -> ModelWithCheckpoints:
     from .train import train
     from i6_experiments.users.zeyer.recog import recog_training_exp
@@ -171,19 +176,24 @@ def _train_exp(
 
     if fine_tune:
         if isinstance(fine_tune, int):
-            fine_tune = [fine_tune]
-        for ep in fine_tune:
+            fine_tune = [(fine_tune, {})]
+        for ep, opts in fine_tune:
+            assert isinstance(ep, int) and isinstance(opts, dict)
+            suffix = f"/finetune/{ep}"
+            opts = opts.copy()
+            if opts:
+                suffix += "-" + "-".join(f"{k}{str(v).replace('-', '_')}" for (k, v) in sorted(opts.items()))
+            num_epochs_ = opts.pop("num_epochs", 50)
+            final_lr = opts.pop("final_lr", 1e-7)
             config_ = config.copy()
             config_["import_model_train_epoch1"] = model_with_checkpoint.get_epoch(ep).checkpoint
             config_.pop("dynamic_learning_rate")
-            num_epochs_ = 50
             lr = config_["learning_rate"]
-            final_lr = 1e-7
             config_["learning_rates"] = list(np.geomspace(lr, final_lr, num=num_epochs_))
             config_["learning_rate"] = final_lr
             config_["specaugment_steps"] = (0, 0, 0)
+            config_.update(opts)
 
-            suffix = f"/finetune/{ep}"
             finetune_model_with_ckpt = train(
                 prefix + suffix,
                 task=task,
