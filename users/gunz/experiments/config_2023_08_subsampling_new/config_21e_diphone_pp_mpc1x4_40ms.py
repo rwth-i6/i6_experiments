@@ -776,7 +776,7 @@ def run_single(
                         [1000, 10_000],
                         kept_epochs,
                     ):
-                        if ep < max(keep_epochs) and (corpus_k != "dev-other" or tdp_sil[1] != 3 or b_l != 10_000):
+                        if ep < max(keep_epochs) and (crp_k != "dev-other" or tdp_sil[1] != 3 or b_l != 10_000):
                             continue
 
                         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
@@ -800,15 +800,15 @@ def run_single(
                     neural_cfg = dataclasses.replace(
                         base_params, beam=20, beam_limit=15_000, lm_scale=3.0, lm_lookahead_scale=1.6
                     )
-                    for corpus_k, ep in itertools.product(
+                    for crp_k, ep in itertools.product(
                         ["dev-clean", "dev-other", "test-clean", "test-other"], kept_epochs
                     ):
-                        if ep < max(keep_epochs) and corpus_k != "dev-other":
+                        if ep < max(keep_epochs) and crp_k != "dev-other":
                             continue
                         s.recognize_cart(
                             key="fh-fs",
                             epoch=ep,
-                            crp_corpus=corpus_k,
+                            crp_corpus=crp_k,
                             n_cart_out=diphone_li.get_n_of_dense_classes(),
                             cart_tree_or_tying_config=tying_cfg,
                             params=neural_cfg,
