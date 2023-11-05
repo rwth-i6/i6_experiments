@@ -792,10 +792,13 @@ def run_single(
                     neural_cfg = dataclasses.replace(
                         base_params, beam=20, beam_limit=15_000, lm_scale=3.0, lm_lookahead_scale=1.6
                     )
-                    for corpus_k in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+                    for corpus_k, ep in itertools.product(
+                        ["dev-clean", "dev-other", "test-clean", "test-other"],
+                        [412, 413, 438, 449, max(keep_epochs)] if "B" in alignment_name else [max(keep_epochs)],
+                    ):
                         s.recognize_cart(
                             key="fh-fs",
-                            epoch=max(keep_epochs),
+                            epoch=ep,
                             crp_corpus=corpus_k,
                             n_cart_out=diphone_li.get_n_of_dense_classes(),
                             cart_tree_or_tying_config=tying_cfg,
