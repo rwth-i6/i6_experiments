@@ -770,19 +770,15 @@ def run_single(
                         [412, 413, 438, 449, max(keep_epochs)] if "B" in alignment_name else [max(keep_epochs)]
                     )
 
-                    for crp_k, tdp_sil, b_l, ep in itertools.product(
+                    for crp_k, tdp_sil, b_l in itertools.product(
                         ["dev-clean", "dev-other", "test-clean", "test-other"],
                         [(0, 3, "infinity", 20), (10, 10, "infinity", 20), (10, 10, "infinity", 10)],
                         [1000, 10_000],
-                        kept_epochs,
                     ):
-                        if ep < max(keep_epochs) and (crp_k != "dev-other" or tdp_sil[1] != 3 or b_l != 10_000):
-                            continue
-
                         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
                         s.recognize_cart(
                             key="fh-fs",
-                            epoch=ep,
+                            epoch=max(keep_epochs),
                             crp_corpus=crp_k,
                             n_cart_out=diphone_li.get_n_of_dense_classes(),
                             cart_tree_or_tying_config=tying_cfg,
@@ -800,10 +796,11 @@ def run_single(
                     neural_cfg = dataclasses.replace(
                         base_params, beam=20, beam_limit=15_000, lm_scale=3.0, lm_lookahead_scale=1.6
                     )
+
                     for crp_k, ep in itertools.product(
                         ["dev-clean", "dev-other", "test-clean", "test-other"], kept_epochs
                     ):
-                        if ep < max(keep_epochs) and crp_k != "dev-other":
+                        if ep != max(kept_epochs) and crp_k != "dev-other":
                             continue
                         s.recognize_cart(
                             key="fh-fs",
@@ -825,40 +822,47 @@ def run_single(
                             remove_or_set_concurrency=5,
                         )
 
-            for ep, crp_k in itertools.product([max(keep_epochs)], ["test-other"]):
-                s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
-
-                break
-
-                diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
-                tying_cfg = rasr.RasrConfig()
-                tying_cfg.type = "diphone-dense"
-
-                base_params = s.get_cart_params(key="fh-fs")
-                decoding_cfgs = [
-                    dataclasses.replace(
-                        base_params,
-                        lm_scale=2.4,
-                        tdp_speech=(10, 0, "infinity", 0),
-                        tdp_silence=(10, 10, "infinity", 10),
-                        tdp_scale=sc,
-                    ).with_prior_scale(pC)
-                    for sc, pC in [(0.4, 0.3), (0.2, 0.4), (0.4, 0.4), (0.2, 0.5)]
-                ]
-                for cfg in decoding_cfgs:
-                    s.recognize_cart(
-                        key="fh-fs",
-                        epoch=ep,
-                        crp_corpus=crp_k,
-                        n_cart_out=diphone_li.get_n_of_dense_classes(),
-                        cart_tree_or_tying_config=tying_cfg,
-                        params=cfg,
-                        log_softmax_returnn_config=nn_precomputed_returnn_config,
-                        calculate_statistics=True,
-                        opt_lm_am_scale=False,
-                        prior_epoch=min(ep, keep_epochs[-2]),
-                        rtf=12,
-                    )
+                    for crp_k, ep in itertools.product(
+                        ["dev-clean", "dev-other", "test-clean", "test-other"],
+                        [412, 438, max(keep_epochs)],
+                    ):
+                        s.recognize_cart(
+                            key="fh-fs",
+                            epoch=ep,
+                            crp_corpus=crp_k,
+                            n_cart_out=diphone_li.get_n_of_dense_classes(),
+                            cart_tree_or_tying_config=tying_cfg,
+                            params=base_params.with_beam_size(20)
+                            .with_beam_limit(10_000)
+                            .with_tdp_silence((0, 3, "infinity", 20)),
+                            log_softmax_returnn_config=nn_precomputed_returnn_config,
+                            calculate_statistics=True,
+                            opt_lm_am_scale=False,
+                            cpu_rqmt=2,
+                            mem_rqmt=4,
+                            crp_update=set_power_exe,
+                            rtf=2,
+                            fix_tdp_non_word_tying=True,
+                        )
+                        s.recognize_cart(
+                            key="fh-fs",
+                            epoch=ep,
+                            crp_corpus=crp_k,
+                            n_cart_out=diphone_li.get_n_of_dense_classes(),
+                            cart_tree_or_tying_config=tying_cfg,
+                            params=neural_cfg,
+                            log_softmax_returnn_config=nn_precomputed_returnn_config,
+                            calculate_statistics=True,
+                            opt_lm_am_scale=False,
+                            cpu_rqmt=2,
+                            mem_rqmt=8,
+                            gpu=True,
+                            rtf=20,
+                            fix_tdp_non_word_tying=True,
+                            decode_trafo_lm=True,
+                            recognize_only_trafo=True,
+                            remove_or_set_concurrency=5,
+                        )
 
             for mix_ce, smbr_peak_lr in itertools.product(["joint"], [5e-6] if peak_lr == 8e-5 else []):
                 smbr_epochs = 80
