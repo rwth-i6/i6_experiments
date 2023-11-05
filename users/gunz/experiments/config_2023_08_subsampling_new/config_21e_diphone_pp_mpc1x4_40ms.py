@@ -766,11 +766,19 @@ def run_single(
                             fix_tdp_non_word_tying=True,
                         )
 
-                    for crp_k, tdp_sil, b_l in itertools.product(
+                    kept_epochs = (
+                        [412, 413, 438, 449, max(keep_epochs)] if "B" in alignment_name else [max(keep_epochs)]
+                    )
+
+                    for crp_k, tdp_sil, b_l, ep in itertools.product(
                         ["dev-clean", "dev-other", "test-clean", "test-other"],
                         [(0, 3, "infinity", 20), (10, 10, "infinity", 20), (10, 10, "infinity", 10)],
                         [1000, 10_000],
+                        kept_epochs,
                     ):
+                        if ep < max(keep_epochs) and (corpus_k != "dev-other" or tdp_sil[1] != 3 or b_l != 10_000):
+                            continue
+
                         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
                         s.recognize_cart(
                             key="fh-fs",
@@ -793,9 +801,10 @@ def run_single(
                         base_params, beam=20, beam_limit=15_000, lm_scale=3.0, lm_lookahead_scale=1.6
                     )
                     for corpus_k, ep in itertools.product(
-                        ["dev-clean", "dev-other", "test-clean", "test-other"],
-                        [412, 413, 438, 449, max(keep_epochs)] if "B" in alignment_name else [max(keep_epochs)],
+                        ["dev-clean", "dev-other", "test-clean", "test-other"], kept_epochs
                     ):
+                        if ep < max(keep_epochs) and corpus_k != "dev-other":
+                            continue
                         s.recognize_cart(
                             key="fh-fs",
                             epoch=ep,
