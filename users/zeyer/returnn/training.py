@@ -245,6 +245,7 @@ def _chkpt_exists(*, model_dir: tk.Path, model_name: str = "epoch", epoch: int) 
     possible_fns = [
         "%s/%s.%03d.index" % (model_dir.get_path(), model_name, epoch),
         "%s/%s.pretrain.%03d.index" % (model_dir.get_path(), model_name, epoch),
+        "%s/%s.%03d.pt" % (model_dir.get_path(), model_name, epoch),
     ]
     for fn in possible_fns:
         if os.path.exists(fn):
