@@ -484,17 +484,18 @@ def run_single(
 
     if decode_all_corpora:
         assert run_performance_study
+
+        base_params = dataclasses.replace(
+            s.get_cart_params("fh").with_prior_scale(0.6),
+            beam=18,
+            beam_limit=15_000,
+            lm_scale=8.4,
+            lm_lookahead_scale=4.2,
+            tdp_scale=0.4 if n_states_per_phone == 3 else 0.2,
+        )
+
         for crp_k in ["test-clean", "test-other", "dev-other", "dev-clean"]:
             s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
-
-            base_params = dataclasses.replace(
-                s.get_cart_params("fh").with_prior_scale(0.6),
-                beam=18,
-                beam_limit=15_000,
-                lm_scale=8.4,
-                lm_lookahead_scale=4.2,
-                tdp_scale=0.4 if n_states_per_phone == 3 else 0.2,
-            )
 
             s.recognize_cart(
                 key="fh",
@@ -529,6 +530,25 @@ def run_single(
                 remove_or_set_concurrency=5,
                 gpu=True,
             )
+
+        kept_epochs = [550, 561, 562, 573, 575, 576, 577, 578, 579, 584, 585, 586, 589, 590, 594, 595, 597, 599, 600]
+        for ep in kept_epochs:
+            s.recognize_cart(
+                key="fh",
+                epoch=ep,
+                crp_corpus="dev-other",
+                n_cart_out=diphone_li.get_n_of_dense_classes(),
+                cart_tree_or_tying_config=tying_cfg,
+                params=base_params,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                calculate_statistics=True,
+                opt_lm_am_scale=False,
+                cpu_rqmt=2,
+                mem_rqmt=4,
+                crp_update=set_power_exe,
+                rtf=2,
+            )
+
 
     # ###########
     # FINE TUNING
