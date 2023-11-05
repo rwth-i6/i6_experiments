@@ -194,7 +194,8 @@ def _train_exp(
                 num_epochs=num_epochs_,
                 gpu_mem=gpu_mem,
             )
-            _recog(name + suffix + "/recog/last", finetune_model_with_ckpt.get_last_fixed_epoch())
+            # _recog(name + suffix + "/recog/last", finetune_model_with_ckpt.get_last_fixed_epoch())
+            recog_training_exp(prefix + suffix, task, finetune_model_with_ckpt, recog_def=model_recog)
 
     return model_with_checkpoint
 
