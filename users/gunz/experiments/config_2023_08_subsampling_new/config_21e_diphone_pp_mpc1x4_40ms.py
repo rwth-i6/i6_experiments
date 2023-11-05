@@ -798,13 +798,15 @@ def run_single(
                             lm_lookahead_scale=1.6,
                             tdp_scale=tdp_s,
                         ).with_prior_scale(p_c)
-                        for p_c, tdp_s in [(0.8, 0.4), (0.4, 0.2)]
+                        for p_c, tdp_s in [(0.4, 0.2)]
                     ]
-                    for cfg in neural_cfgs:
+                    for cfg, corpus in itertools.product(
+                        neural_cfgs, ["dev-clean", "dev-other", "test-clean", "test-other"]
+                    ):
                         s.recognize_cart(
                             key="fh-fs",
                             epoch=max(keep_epochs),
-                            crp_corpus="dev-other",
+                            crp_corpus=corpus,
                             n_cart_out=diphone_li.get_n_of_dense_classes(),
                             cart_tree_or_tying_config=tying_cfg,
                             params=cfg,
