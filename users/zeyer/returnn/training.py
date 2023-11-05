@@ -9,6 +9,7 @@ from typing import Optional, Set, TextIO
 import os
 import subprocess
 import copy
+import time
 
 from sisyphus import gs, tk, Job, Task
 from i6_core.returnn.training import Checkpoint
@@ -189,7 +190,21 @@ def get_relevant_epochs_from_training_learning_rate_scores(
     nan = float("nan")
     inf = float("inf")
 
-    scores_str = open(scores_and_learning_rates.get_path()).read()
+    retries = 0
+    while True:
+        try:
+            scores_str = open(scores_and_learning_rates.get_path()).read()
+        except FileNotFoundError:
+            scores_str = None
+        if not scores_str:
+            retries += 1
+            if retries > 10:
+                raise Exception(f"Failed to read {scores_and_learning_rates}")
+            print(f"Waiting for {scores_and_learning_rates}, try {retries}...", file=log_stream)
+            time.sleep(3)
+            continue
+        break
+
     scores = eval(scores_str, {"EpochData": EpochData, "nan": nan, "inf": inf})
     assert isinstance(scores, dict)
     all_epochs = sorted(scores.keys())
