@@ -586,4 +586,49 @@ def run_single(
                     remove_or_set_concurrency=5,
                 )
 
+        kept_epochs = [
+            550,
+            562,
+            563,
+            573,
+            576,
+            577,
+            578,
+            579,
+            585,
+            586,
+            588,
+            589,
+            590,
+            594,
+            595,
+            596,
+            597,
+            598,
+            599,
+            600,
+        ]
+        for ep in kept_epochs:
+            recognizer, recog_args = s.get_recognizer_and_args(
+                key="fh",
+                context_type=PhoneticContext.triphone_forward,
+                crp_corpus="dev-other",
+                epoch=ep,
+                gpu=False,
+                tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+                set_batch_major_for_feature_scorer=True,
+            )
+            lm = 11.3
+            jobs = recognizer.recognize_count_lm(
+                label_info=s.label_info,
+                search_parameters=best_config.with_lm_scale(lm),
+                num_encoder_output=conf_model_dim,
+                rerun_after_opt_lm=True,
+                calculate_stats=True,
+                name_override=f"best/4gram-lm{lm}",
+                rtf_cpu=80,
+            )
+            nice_val = int(600 - ep)
+            jobs.search.rqmt.update({"sbatch_args": [f"--nice={nice_val}"]})
+
     return s
