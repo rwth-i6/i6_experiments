@@ -782,7 +782,7 @@ def run_single(
                         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
                         s.recognize_cart(
                             key="fh-fs",
-                            epoch=max(keep_epochs),
+                            epoch=ep,
                             crp_corpus=crp_k,
                             n_cart_out=diphone_li.get_n_of_dense_classes(),
                             cart_tree_or_tying_config=tying_cfg,
