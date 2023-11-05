@@ -67,6 +67,15 @@ def sis_run_with_prefix(prefix_name: str = None):
         fine_tune=[(1280, {}), (1280, {"num_epochs": 100})],
     )
     _train_exp(
+        "base-24gb-v3-lr1e_3-specaugorig",
+        config_24gb_v3,
+        config_updates={"learning_rate": 0.001},
+        config_deletes=[
+            "specaugment_num_spatial_mask_factor",
+            "specaugment_max_consecutive_feature_dims",
+        ],
+    )
+    _train_exp(
         "base-24gb-v3-lr1e_3-lossscalesF",
         config_24gb_v3,
         config_updates={"learning_rate": 0.001, "aux_loss_scales": [0.1, 0.2], "aed_loss_scale": 0.7},
