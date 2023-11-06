@@ -929,7 +929,7 @@ def run_single(
                 )
                 lattice_graph = compile_tf_graph_from_returnn_config(
                     returnn_config=nn_precomputed_returnn_config,
-                    returnn_root=s.returnn_root,
+                    returnn_root=returnn_root,
                     returnn_python_exe=s.returnn_python_exe,
                 )
                 lattice_tf_flow = make_precomputed_hybrid_tf_feature_flow(
