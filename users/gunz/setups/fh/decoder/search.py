@@ -867,6 +867,7 @@ class FHDecoder:
         rtf_cpu: typing.Optional[float] = None,
         create_lattice: bool = True,
         remove_or_set_concurrency: typing.Union[bool, int] = False,
+        lookahead_with_4gram: bool = False,
         **kwargs,
     ) -> RecognitionJobs:
         return self.recognize(
@@ -894,6 +895,7 @@ class FHDecoder:
             rtf_gpu=rtf_gpu,
             create_lattice=create_lattice,
             remove_or_set_concurrency=remove_or_set_concurrency,
+            lookahead_with_4gram=lookahead_with_4gram,
             **kwargs,
         )
 
@@ -925,6 +927,7 @@ class FHDecoder:
         rtf_gpu: typing.Optional[float] = None,
         create_lattice: bool = True,
         remove_or_set_concurrency: typing.Union[bool, int] = False,
+        lookahead_with_4gram: bool = False,
     ) -> RecognitionJobs:
         if (
             isinstance(search_parameters, SearchParameters)
@@ -1048,6 +1051,8 @@ class FHDecoder:
             label_info.phoneme_state_classes.use_word_end()
         )
 
+        orig_lm_config = search_crp.language_model_config
+
         # lm config update
         if lm_config is not None:
             search_crp.language_model_config = lm_config
@@ -1062,13 +1067,32 @@ class FHDecoder:
             is_count_based=True,
         )
 
+        adv_search_extra_config = None
+
         if search_parameters.altas is not None:
-            adv_search_extra_config = rasr.RasrConfig()
+            if adv_search_extra_config is None:
+                adv_search_extra_config = rasr.RasrConfig()
+
             adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.acoustic_lookahead_temporal_approximation_scale = (
                 search_parameters.altas
             )
-        else:
-            adv_search_extra_config = None
+        if lookahead_with_4gram:
+            assert orig_lm_config.type.lower() == "ARPA"
+
+            if adv_search_extra_config is None:
+                adv_search_extra_config = rasr.RasrConfig()
+
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.separate_lookahead_lm = True
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.lm_lookahead_scale = (
+                search_parameters.lm_lookahead_scale
+                if search_parameters.lm_lookahead_scale is not None
+                else search_parameters.lm_scale / 2
+            )
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.image = (
+                orig_lm_config.image
+            )
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.scale = 1.0
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.type = "ARPA"
 
         feature_scorer = get_feature_scorer(
             context_type=self.context_type,

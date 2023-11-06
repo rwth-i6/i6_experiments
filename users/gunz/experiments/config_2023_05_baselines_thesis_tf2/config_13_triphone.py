@@ -571,19 +571,23 @@ def run_single(
                     name_override=f"best/4gram-lm{lm}",
                     rtf_cpu=80,
                 )
-            for lm in [best_config.lm_scale + 2, 12.4]:
+            for lm, la_4gram in itertools.product([best_config.lm_scale + 2, 12.4], [True, False]):
+                if la_4gram and lm != 13.0:
+                    continue
+
                 recognizer.recognize_ls_trafo_lm(
                     calculate_stats=True,
                     label_info=s.label_info,
                     num_encoder_output=conf_model_dim,
                     opt_lm_am=True,
-                    name_override=f"best-lm{lm}",
+                    name_override=f"best-lm{lm}-la4gram{la_4gram}",
                     search_parameters=dataclasses.replace(best_config, beam=18, beam_limit=100_000, lm_scale=lm),
                     cpu_rqmt=2,
                     mem_rqmt=8,
                     rtf_gpu=30,
                     gpu=True,
                     remove_or_set_concurrency=5,
+                    lookahead_with_4gram=la_4gram,
                 )
 
         kept_epochs = [
