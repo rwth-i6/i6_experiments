@@ -10,6 +10,7 @@ import typing
 import i6_core.corpus
 import i6_core.recognition as recog
 from i6_core import am, mm, rasr, returnn
+from i6_core.lm import CreateLmImageJob
 
 from sisyphus import tk
 from sisyphus.delayed_ops import Delayed, DelayedBase, DelayedJoin
@@ -1077,7 +1078,7 @@ class FHDecoder:
                 search_parameters.altas
             )
         if lookahead_with_4gram:
-            assert orig_lm_config.type.lower() == "ARPA"
+            assert self.search_crp.type.lower() == "arpa"
 
             if adv_search_extra_config is None:
                 adv_search_extra_config = rasr.RasrConfig()
@@ -1088,8 +1089,9 @@ class FHDecoder:
                 if search_parameters.lm_lookahead_scale is not None
                 else search_parameters.lm_scale / 2
             )
+            lm_img_job = CreateLmImageJob(self.search_crp)
             adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.image = (
-                orig_lm_config.image
+                lm_img_job.out_image
             )
             adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.scale = 1.0
             adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.type = "ARPA"
