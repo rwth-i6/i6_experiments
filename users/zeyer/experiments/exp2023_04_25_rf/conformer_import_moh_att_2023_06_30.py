@@ -69,6 +69,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             (1280, {"num_epochs": 100}),
             (1280, {"num_epochs": 200}),
             (2000, {"num_epochs": 100}),
+            (2000, {"num_epochs": 200}),
         ],
     )
     _train_exp(
