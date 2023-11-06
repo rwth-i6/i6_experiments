@@ -1078,7 +1078,7 @@ class FHDecoder:
                 search_parameters.altas
             )
         if lookahead_with_4gram:
-            assert self.search_crp.type.lower() == "arpa"
+            assert self.search_crp.language_model_config.type.lower() == "arpa"
 
             if adv_search_extra_config is None:
                 adv_search_extra_config = rasr.RasrConfig()
