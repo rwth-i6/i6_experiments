@@ -924,8 +924,13 @@ def run_single(
                     prior_file=priors.file,
                     priori_scale=p_c,
                 )
+                lattice_graph = compile_tf_graph_from_returnn_config(
+                    returnn_config=nn_precomputed_returnn_config,
+                    returnn_root=s.returnn_root,
+                    returnn_python_exe=s.returnn_python_exe,
+                )
                 lattice_tf_flow = make_precomputed_hybrid_tf_feature_flow(
-                    tf_graph=s.experiments["fh-fs"]["graph"]["inference"],
+                    tf_graph=lattice_graph,
                     tf_checkpoint=s.experiments["fh-fs"]["train_job"].out_checkpoints[fine_tune_epochs],
                     output_layer_name="output",
                     tf_fwd_input_name="tf-fwd-input",
