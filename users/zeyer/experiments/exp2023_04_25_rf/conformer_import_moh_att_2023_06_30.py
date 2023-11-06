@@ -64,7 +64,12 @@ def sis_run_with_prefix(prefix_name: str = None):
         "base-24gb-v3-lr1e_3",
         config_24gb_v3,
         config_updates={"learning_rate": 0.001},
-        fine_tune=[(1280, {}), (1280, {"num_epochs": 100}), (1280, {"num_epochs": 200})],
+        fine_tune=[
+            (1280, {}),
+            (1280, {"num_epochs": 100}),
+            (1280, {"num_epochs": 200}),
+            (2000, {"num_epochs": 100}),
+        ],
     )
     _train_exp(
         "base-24gb-v3-lr1e_3-wdblacklist",
