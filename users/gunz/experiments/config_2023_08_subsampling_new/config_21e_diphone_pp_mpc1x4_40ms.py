@@ -661,7 +661,7 @@ def run_single(
                     )
                 else:
                     decoding_cfgs = [
-                        dataclasses.replace(base_params, lm_scale=1.5, tdp_scale=sc).with_prior_scale(pC)
+                        dataclasses.replace(base_params, beam=20, lm_scale=1.5, tdp_scale=sc).with_prior_scale(pC)
                         for sc, pC in [(0.4, 0.3), (0.2, 0.4), (0.4, 0.4), (0.2, 0.5)]
                     ]
                 for cfg in decoding_cfgs:
