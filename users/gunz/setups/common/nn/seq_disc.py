@@ -1,12 +1,10 @@
 import copy
-import math
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Union, Tuple
 
+from i6_core.lm import CreateLmImageJob
 from i6_core.rasr import WriteFlowNetworkJob
-from i6_core.returnn.flow import add_tf_flow_to_base_flow, make_precomputed_hybrid_tf_feature_flow
-from i6_experiments.users.gunz.setups.common.nn.compile_graph import compile_tf_graph_from_returnn_config
 from sisyphus import Path
 from sisyphus.delayed_ops import DelayedFormat
 
@@ -257,6 +255,10 @@ def augment_for_smbr(
     )
     crp.language_model_config.type = "ARPA"
     crp.language_model_config.scale = lm_scale
+
+    lm_image = CreateLmImageJob(crp)
+    crp = copy.deepcopy(crp)
+    crp.language_model_config.image = lm_image.out_image
 
     lattice_data = _generate_lattices(
         crp=crp,
