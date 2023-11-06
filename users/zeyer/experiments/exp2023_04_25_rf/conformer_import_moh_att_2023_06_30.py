@@ -70,6 +70,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             (1280, {"num_epochs": 200}),
             (2000, {"num_epochs": 100}),
             (2000, {"num_epochs": 200}),
+            (2000, {"num_epochs": 200, "lr_decay_type": "linspace"}),
         ],
     )
     _train_exp(
@@ -217,7 +218,9 @@ def _train_exp(
             config_["import_model_train_epoch1"] = model_with_checkpoint.get_epoch(ep).checkpoint
             config_.pop("dynamic_learning_rate")
             lr = config_["learning_rate"]
-            config_["learning_rates"] = list(np.geomspace(lr, final_lr, num=num_epochs_))
+            lr_decay_type = opts.pop("lr_decay_type", "geomspace")  # geomspace or linspace
+            lr_decay_func = getattr(np, lr_decay_type)
+            config_["learning_rates"] = list(lr_decay_func(lr, final_lr, num=num_epochs_))
             config_["learning_rate"] = final_lr
             config_["specaugment_steps"] = (0, 0, 0)
             config_.update(opts)
