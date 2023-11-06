@@ -719,6 +719,8 @@ def run_scf_baseline():
         "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
         "datasets": returnn_datasets,
         "extra_args": {"accum_grad_multiple_step": 2},
+        "conformer_type": "wei",
+        "specaug_old": {"max_feature": 15},
     }
     feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
 
