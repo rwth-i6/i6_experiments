@@ -71,6 +71,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             (2000, {"num_epochs": 100}),
             (2000, {"num_epochs": 200}),
             (2000, {"num_epochs": 200, "lr_decay_type": "linspace"}),
+            (2000, {"num_epochs": 200, "lr_decay_type": "linspace", "final_lr": 1e-6}),
         ],
     )
     _train_exp(
