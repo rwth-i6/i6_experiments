@@ -865,7 +865,10 @@ def run_single(
                             remove_or_set_concurrency=5,
                         )
 
-            for mix_ce, smbr_peak_lr in itertools.product(["joint"], [5e-6] if peak_lr == 8e-5 else []):
+            for mix_ce, smbr_peak_lr in itertools.product(
+                ["joint"],
+                [5e-6] if peak_lr == 8e-5 and "B" in alignment_name else [],
+            ):
                 smbr_epochs = 80
                 smbr_keep_epochs = [int(v) for v in np.linspace(10, smbr_epochs, 8)]
 
