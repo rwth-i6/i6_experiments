@@ -67,6 +67,19 @@ def sis_run_with_prefix(prefix_name: str = None):
         fine_tune=[(1280, {}), (1280, {"num_epochs": 100})],
     )
     _train_exp(
+        "base-24gb-v3-lr1e_3-wdblacklist",
+        config_24gb_v3,
+        config_updates={
+            "learning_rate": 0.001,
+            "optimizer.weight_decay_modules_blacklist": [
+                "rf.BatchNorm",
+                "rf.LayerNorm",
+                "rf.Embedding",
+                "rf.LearnedRelativePositionalEncoding",
+            ],
+        },
+    )
+    _train_exp(
         "base-24gb-v3-lr1e_3-specaugorig",
         config_24gb_v3,
         config_updates={"learning_rate": 0.001},
@@ -453,6 +466,11 @@ class Model(rf.Module):
             or (_log_mel_feature_dim // 5),
             "num_spatial_mask_factor": config.typed_value("specaugment_num_spatial_mask_factor") or 100,
         }
+
+        # TODO, step-based simple pretrain, initing whole model, using intermediate outputs
+        #  - interpolate between two settings each?
+        #  - zipformer, how is bypass module initialized?
+        self._pretrain_opts = {}
 
     def encode(
         self,
