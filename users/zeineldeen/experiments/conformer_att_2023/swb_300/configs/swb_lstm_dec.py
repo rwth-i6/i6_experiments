@@ -975,20 +975,31 @@ def conformer_baseline():
                     bpe_size=BPE_500,
                 )
 
-            # TODO: dec att dropout
-            for dec_att_drop in [0.0, 0.1]:
-                args, name = get_base_v2_args(
-                    ep, num_blocks, reduce_factor, dec_att_drop=dec_att_drop, lr_type="epoch-oclr", lr_opts={"lr": 1e-3}
-                )
-                args["specaug_version"] = 1
-                args["decoder_args"].att_dropout = dec_att_drop
-                run_default_exp(
-                    name + f"_decAttDrop{dec_att_drop}_specaug1",
-                    train_args=args,
-                    num_epochs=ep,
-                    gpu_mem=11,
-                    bpe_size=BPE_500,
-                )
+            # TODO: l2 on mhsa
+            args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
+            args["specaug_version"] = 1
+            args["decoder_args"].embed_dim = 256
+            args["encoder_args"].self_att_l2 = 1e-4
+            run_default_exp(
+                name + f"_embed256_specaug1_mhsaL2",
+                train_args=args,
+                num_epochs=ep,
+                gpu_mem=11,
+                bpe_size=BPE_500,
+            )
+
+            # TODO: grad clip norm
+            args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
+            args["specaug_version"] = 1
+            args["decoder_args"].embed_dim = 256
+            args["gradient_clip_global_norm"] = 5
+            run_default_exp(
+                name + f"_embed256_specaug1_gradClipNorm5",
+                train_args=args,
+                num_epochs=ep,
+                gpu_mem=11,
+                bpe_size=BPE_500,
+            )
 
     # TODO: longer train or retrain
     # conf_12l_dimF0.75_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_lr0.001_epochOCLR_specaug3_mixup-log10-nopre

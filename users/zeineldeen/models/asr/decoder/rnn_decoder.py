@@ -43,9 +43,8 @@ class RNNDecoder:
         coverage_update="sum",
         ce_loss_scale=1.0,
         use_zoneout_output: bool = False,
-        monotonic_att_weights_loss="l1",
-        monotonic_att_weights_loss_scale=None,
-        monotonic_att_weights_loss_scale_in_recog=None,
+        monotonic_att_weights_loss_opts=None,
+        use_monotonic_att_weights_loss_in_recog=False,
         att_weights_variance_loss_scale=None,
         include_eos_in_search_output=False,
     ):
@@ -135,10 +134,10 @@ class RNNDecoder:
 
         self.use_zoneout_output = use_zoneout_output
 
-        self.monotonic_att_weights_loss = monotonic_att_weights_loss
-        self.monotonic_att_weights_loss_scale = monotonic_att_weights_loss_scale
+        self.monotonic_att_weights_loss_opts = monotonic_att_weights_loss_opts
+        self.use_monotonic_att_weights_loss_in_recog = use_monotonic_att_weights_loss_in_recog
+
         self.att_weights_variance_loss_scale = att_weights_variance_loss_scale
-        self.monotonic_att_weights_loss_scale_in_recog = monotonic_att_weights_loss_scale_in_recog
 
         self.include_eos_in_search_output = include_eos_in_search_output
 
@@ -176,85 +175,7 @@ class RNNDecoder:
         )
         subnet_unit.update(att.create())
 
-        monotonic_att_weights_penalty = None
-
-        if self.monotonic_att_weights_loss_scale or self.att_weights_variance_loss_scale:
-            enc_len_range = self.network.add_range_in_axis_layer(
-                "enc_len_range", "encoder", axis="T", dtype="float32"
-            )  # [B]
-            expected_att_weights_pos = self.subnet_unit.add_combine_layer(
-                "expected_att_weights_pos",
-                ["att_weights", "base:" + enc_len_range],
-                kind="mul",
-                allow_broadcast_all_sources=True,
-            )  # [B,1,T]
-            expected_att_weights_pos_reduce = self.subnet_unit.add_reduce_layer(
-                "expected_att_weights_pos_reduce",
-                expected_att_weights_pos,
-                mode="sum",
-                axes=["T"],
-                keep_dims=False,
-                initial_output=0,
-            )  # [B,1]
-            if self.monotonic_att_weights_loss_scale:
-                #  delta_i = E_i - E_{i-1} and E_i = sum_{t=0}^{t-1} alpha(t|i) * t
-                expected_att_weights_pos_delta = self.subnet_unit.add_combine_layer(
-                    "expected_att_weights_pos_delta",
-                    [expected_att_weights_pos_reduce, "prev:" + expected_att_weights_pos_reduce],  # E_j - E_{j-1}
-                    kind="sub",
-                )  # [B,1]
-
-                if self.monotonic_att_weights_loss == "l1":
-                    # L = |delta_i - 1| - (delta_i - 1)
-                    monotonic_loss_str = f"tf.math.abs(source(0) - 1) - (source(0) - 1)"
-                elif self.monotonic_att_weights_loss == "l2":
-                    # L = (|delta_i - 1| - (delta_i - 1))^2
-                    monotonic_loss_str = f"(tf.math.abs(source(0) - 1) - (source(0) - 1)) * (tf.math.abs(source(0) - 1) - (source(0) - 1))"
-                else:
-                    raise NotImplementedError(f"monotonic_att_weights_loss={self.monotonic_att_weights_loss!r}")
-
-                self.subnet_unit.add_eval_layer(
-                    "monotonic_att_weights_loss",
-                    source=expected_att_weights_pos_delta,
-                    eval=monotonic_loss_str,
-                    loss="as_is",  # register as loss
-                    loss_scale=self.monotonic_att_weights_loss_scale,
-                )  # [B,1]
-
-                if self.monotonic_att_weights_loss_scale_in_recog:
-                    monotonic_att_weights_penalty = self.subnet_unit.add_eval_layer(
-                        "monotonic_att_weights_penalty",
-                        source=expected_att_weights_pos_delta,
-                        eval=monotonic_loss_str,
-                    )
-                    monotonic_att_weights_penalty = self.subnet_unit.add_squeeze_layer(
-                        "monotonic_att_weights_penalty_squeeze", monotonic_att_weights_penalty, axis="except_batch"
-                    )
-
-            if self.att_weights_variance_loss_scale:
-                # L = sum_{t=0}^{T-1} alpha(t|i) * (t - E_i)^2
-                att_weights_variance_ = self.subnet_unit.add_combine_layer(
-                    "att_weighst_variance_",
-                    [expected_att_weights_pos_reduce, "base:" + enc_len_range],
-                    kind="sub",
-                )  # [B,1,T]
-                att_weights_variance = self.subnet_unit.add_eval_layer(
-                    "att_weights_variance", att_weights_variance_, eval="source(0) ** 2"
-                )  # [B,1,T]
-                att_weights_variance_loss_input = self.subnet_unit.add_combine_layer(
-                    "att_weights_variance_loss_",
-                    ["att_weights", att_weights_variance],
-                    kind="mul",
-                )  # [B,1,T]
-                self.subnet_unit.add_reduce_layer(
-                    "att_weights_variance_loss",
-                    att_weights_variance_loss_input,
-                    mode="sum",
-                    axes=["T"],
-                    keep_dims=False,
-                    loss="as_is",
-                    loss_scale=self.att_weights_variance_loss_scale,
-                )  # [B,1]
+        monotonic_att_weights_penalty = self.add_att_weights_constraint_loss()
 
         # LM-like component same as here https://arxiv.org/pdf/2001.07263.pdf
         lstm_lm_component_proj = None
@@ -380,13 +301,12 @@ class RNNDecoder:
                 eval=f"source(0) + {self.coverage_scale} * source(1)",
             )
 
-        if self.monotonic_att_weights_loss_scale_in_recog:
-            assert self.monotonic_att_weights_loss_scale, "monotonic loss scale for training must be set."
+        if self.use_monotonic_att_weights_loss_in_recog:
             assert monotonic_att_weights_penalty
             self.output_prob = self.subnet_unit.add_eval_layer(
                 "output_prob_monotonic_penalty",
                 source=[self.output_prob, monotonic_att_weights_penalty],
-                eval=f"source(0) - {self.monotonic_att_weights_loss_scale_in_recog} * source(1)",
+                eval=f"source(0) - source(1)",
             )
 
         if self.length_normalization:
@@ -440,3 +360,97 @@ class RNNDecoder:
         self.decision_layer_name = decision_layer_name
 
         return self.dec_output
+
+    def add_att_weights_constraint_loss(self):
+        if self.monotonic_att_weights_loss_opts is None:
+            return None
+
+        def get_loss_str(loss_type, lb_scale, ub_scale, ub_limit):
+            if loss_type == "l1":
+                l = f"{lb_scale} * (tf.math.abs(source(0) - 1) - (source(0) - 1))"
+                if ub_scale:
+                    l += f" + {ub_scale} * (tf.math.abs(source(0) - {ub_limit}) - (source(0) - {ub_limit}))"
+                return l
+            elif loss_type == "l2":
+                l = f"{lb_scale} * ((tf.math.abs(source(0) - 1) - (source(0) - 1)) * (tf.math.abs(source(0) - 1) - (source(0) - 1)))"
+                if ub_scale:
+                    l += f" + {ub_scale} * ((tf.math.abs(source(0) - {ub_limit}) - (source(0) - {ub_limit})) * (tf.math.abs(source(0) - {ub_limit}) - (source(0) - {ub_limit})))"
+                return l
+            else:
+                raise ValueError(f"monotonic_att_weights_loss={loss_type!r}")
+
+        monotonic_att_weights_penalty = None
+
+        lb_scale = self.monotonic_att_weights_loss_opts["lb_scale"]
+        assert lb_scale, "lower bound loss scale must be set."
+        ub_scale = self.monotonic_att_weights_loss_opts["ub_scale"]
+        ub_limit = self.monotonic_att_weights_loss_opts.get("ub_limit", 20)
+        loss_type = self.monotonic_att_weights_loss_opts["loss_type"]
+
+        if lb_scale or self.att_weights_variance_loss_scale:
+            # compute the expected average position of the attention weights
+            enc_len_range = self.network.add_range_in_axis_layer(
+                "enc_len_range", "encoder", axis="T", dtype="float32"
+            )  # [B]
+            expected_att_weights_pos = self.subnet_unit.add_combine_layer(
+                "expected_att_weights_pos",
+                ["att_weights", "base:" + enc_len_range],
+                kind="mul",
+                allow_broadcast_all_sources=True,
+            )  # [B,1,T]
+            expected_att_weights_pos_reduce = self.subnet_unit.add_reduce_layer(
+                "expected_att_weights_pos_reduce",
+                expected_att_weights_pos,
+                mode="sum",
+                axes=["T"],
+                keep_dims=False,
+                initial_output=0,
+            )  # [B,1]
+
+            if lb_scale:
+                #  delta_i = E_i - E_{i-1} and E_i = sum_{t=0}^{t-1} alpha(t|i) * t
+                expected_att_weights_pos_delta = self.subnet_unit.add_combine_layer(
+                    "expected_att_weights_pos_delta",
+                    [expected_att_weights_pos_reduce, "prev:" + expected_att_weights_pos_reduce],  # E_j - E_{j-1}
+                    kind="sub",
+                )  # [B,1]
+
+                monotonic_loss_str = get_loss_str(loss_type, lb_scale, ub_scale, ub_limit)
+
+                mono_att_weights_loss = self.subnet_unit.add_eval_layer(
+                    "monotonic_att_weights_loss",
+                    source=expected_att_weights_pos_delta,
+                    eval=monotonic_loss_str,  # already scaled
+                    loss="as_is",  # register as loss
+                )  # [B,1]
+
+                monotonic_att_weights_penalty = self.subnet_unit.add_squeeze_layer(
+                    "monotonic_att_weights_penalty_squeeze", mono_att_weights_loss, axis="except_batch"
+                )  # [B]
+
+            if self.att_weights_variance_loss_scale:
+                # L = sum_{t=0}^{T-1} alpha(t|i) * (t - E_i)^2
+                att_weights_variance_ = self.subnet_unit.add_combine_layer(
+                    "att_weighst_variance_",
+                    [expected_att_weights_pos_reduce, "base:" + enc_len_range],
+                    kind="sub",
+                )  # [B,1,T]
+                att_weights_variance = self.subnet_unit.add_eval_layer(
+                    "att_weights_variance", att_weights_variance_, eval="source(0) ** 2"
+                )  # [B,1,T]
+                att_weights_variance_loss_input = self.subnet_unit.add_combine_layer(
+                    "att_weights_variance_loss_",
+                    ["att_weights", att_weights_variance],
+                    kind="mul",
+                )  # [B,1,T]
+                self.subnet_unit.add_reduce_layer(
+                    "att_weights_variance_loss",
+                    att_weights_variance_loss_input,
+                    mode="sum",
+                    axes=["T"],
+                    keep_dims=False,
+                    loss="as_is",
+                    loss_scale=self.att_weights_variance_loss_scale,
+                )  # [B,1]
+
+        return monotonic_att_weights_penalty

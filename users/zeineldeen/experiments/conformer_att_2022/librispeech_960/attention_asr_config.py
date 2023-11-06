@@ -512,10 +512,8 @@ class RNNDecoderArgs(DecoderArgs):
 
     use_zoneout_output: bool = False
 
-    monotonic_att_weights_loss: Optional[str] = "l1"
-    monotonic_att_weights_loss_scale: Optional[float] = None
-    att_weights_variance_loss_scale: Optional[float] = None
-    monotonic_att_weights_loss_scale_in_recog: Optional[float] = None
+    monotonic_att_weights_loss_opts: Optional[dict] = None
+    use_monotonic_att_weights_loss_in_recog: Optional[bool] = False
 
     include_eos_in_search_output: bool = False
 
