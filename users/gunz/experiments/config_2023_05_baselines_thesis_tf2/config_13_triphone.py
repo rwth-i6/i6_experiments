@@ -627,7 +627,7 @@ def run_single(
                 label_info=s.label_info,
                 search_parameters=best_config.with_lm_scale(lm),
                 num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=True,
+                rerun_after_opt_lm=False,
                 calculate_stats=True,
                 name_override=f"best/4gram-lm{lm}",
                 rtf_cpu=80,
