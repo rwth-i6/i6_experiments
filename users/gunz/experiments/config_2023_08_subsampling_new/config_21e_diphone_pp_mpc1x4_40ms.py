@@ -44,6 +44,7 @@ from ...setups.fh.network.augment import (
     augment_net_with_label_pops,
     remove_label_pops_and_losses_from_returnn_config,
 )
+from ...setups.fh.util.pipeline_helpers import get_tdp_values
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from ..config_2023_05_baselines_thesis_tf2.config import SCRATCH_ALIGNMENT
@@ -944,8 +945,15 @@ def run_single(
                 )
                 for l in [k for k in returnn_config_smbr.config["network"].keys() if k.startswith("aux")]:
                     returnn_config_smbr.config["network"].pop(l)
+
+                base_crp = copy.deepcopy(s.crp[s.crp_names["train"]])
+                tdp_values = get_tdp_values()["default"]
+                for ind, ele in enumerate(["loop", "forward", "skip", "exit"]):
+                    for ty in ["*", "silence"]:
+                        base_crp.acoustic_model_config["tdp"][ty][ele] = tdp_values[ty][ind]
+
                 returnn_config_smbr = seq_disc.augment_for_smbr(
-                    crp=s.crp[s.crp_names["train"]],
+                    crp=base_crp,
                     feature_flow_lattice_generation=lattice_feature_flow,
                     feature_flow_smbr_training=smbr_train_flow,
                     feature_scorer_lattice_generation=lattice_feature_scorer,
