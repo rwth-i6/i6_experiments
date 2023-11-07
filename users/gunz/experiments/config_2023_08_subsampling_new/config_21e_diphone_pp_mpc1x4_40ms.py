@@ -989,11 +989,6 @@ def run_single(
                             "from": "data:classes",
                             "axis": "T",
                             "slice_step": ss_factor,
-                            "out_type": {
-                                "dim": diphone_li.get_n_of_dense_classes(),
-                                "dtype": "int32",
-                                "sparse": True,
-                            },
                         },
                         "output": {
                             **returnn_config_smbr.config["network"]["output"],
