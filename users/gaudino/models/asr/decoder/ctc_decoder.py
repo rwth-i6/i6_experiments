@@ -968,6 +968,8 @@ class CTCDecoder:
             ext_lm_subnet["input"]["from"] = "base:prev_output_reinterpret"
         elif self.lm_type == "trafo":
             ext_lm_subnet["target_embed_raw"]["from"] = "base:prev_output_reinterpret"
+        elif self.lm_type == "trafo_ted":
+            ext_lm_subnet["target_embed_raw"]["from"] = "base:prev_output_reinterpret"
 
         assert isinstance(ext_lm_subnet, dict)
 

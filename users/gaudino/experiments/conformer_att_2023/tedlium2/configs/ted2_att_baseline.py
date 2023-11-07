@@ -1,6 +1,7 @@
 import copy, os
 
 import numpy
+from itertools import product
 
 import sisyphus.toolkit as tk
 
@@ -45,6 +46,7 @@ from i6_experiments.users.rossenbach.experiments.librispeech.kazuki_lm.experimen
     get_lm,
     ZeineldeenLM,
 )
+from i6_experiments.users.gaudino.models.asr.lm import tedlium_lm
 
 
 train_jobs_map = {}  # dict[str, ReturnnTrainJob]
@@ -350,7 +352,9 @@ def conformer_baseline():
             returnn_python_exe=RETURNN_CPU_EXE,
             returnn_root=RETURNN_ROOT,
         )
-        tk.register_output(exp_prefix + "/priors/ctc_prior_fix", prior_j.out_prior_txt_file)
+        tk.register_output(
+            exp_prefix + "/priors/ctc_prior_fix", prior_j.out_prior_txt_file
+        )
         return prior_j.out_prior_txt_file
 
     def run_lm_fusion(
@@ -940,8 +944,16 @@ def conformer_baseline():
         base_v1_args["encoder_args"].dropout = enc_drop
         base_v1_args["encoder_args"].dropout_in = enc_drop
         base_v1_args["encoder_args"].att_dropout = enc_drop
+        base_v1_args["encoder_args"].num_blocks = 12
+        base_v1_args["encoder_args"].mhsa_weight_dropout = 0.1
+        base_v1_args["encoder_args"].ff_weight_dropout = 0.1
+        base_v1_args["encoder_args"].conv_weight_dropout = 0.1
+
         base_v1_args["decoder_args"].use_zoneout_output = True
-        exp_name = f"base_bpe1000_peakLR{lr}_ep{ep}_globalNorm_epochOCLR_pre{pretrain_reps}_fixZoneout_encDrop{enc_drop}_woDepthConvPre"
+        base_v1_args["decoder_args"].embed_dim = 256
+        base_v1_args["decoder_args"].att_dropout = 0.0
+
+        exp_name = f"base_bpe1000_peakLR{lr}_ep{ep}_globalNorm_epochOCLR_pre{pretrain_reps}_fixZoneout_encDrop{enc_drop}_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12"
         return base_v1_args, exp_name
 
     # baseline v1
@@ -1013,15 +1025,9 @@ def conformer_baseline():
 
     base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
     args = copy.deepcopy(base_v1_args)
-    args["encoder_args"].num_blocks = 12
-    args["encoder_args"].mhsa_weight_dropout = 0.1
-    args["encoder_args"].ff_weight_dropout = 0.1
-    args["encoder_args"].conv_weight_dropout = 0.1
 
-    args["decoder_args"].embed_dim = 256
-    args["decoder_args"].att_dropout = 0.0
-
-    name = exp_name + f"_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12"
+    # train base model
+    name = exp_name
     train_j, train_data = run_exp(
         name,
         args,
@@ -1033,7 +1039,7 @@ def conformer_baseline():
 
     # att + ctc opts
     search_args = copy.deepcopy(args)
-    for scales in [(0.4, 0.6), (0.7,0.3), (0.85, 0.15)]:
+    for scales in [(0.4, 0.6), (0.7, 0.3), (0.85, 0.15)]:
         for beam_size in [12]:
             search_args["beam_size"] = beam_size
             att_scale, ctc_scale = scales
@@ -1070,12 +1076,75 @@ def conformer_baseline():
         use_sclite=True,
     )
 
+    tedlium_lm_opts = {
+        "lm_subnet": tedlium_lm.tedlium_lm_net,
+        "load_on_init_opts": tedlium_lm.tedlium_lm_load_on_init,
+        "name": "trafo",
+    }
+
+    # ctc + lm decoding
+    for beam_size, ctc_scale, lm_scale in product([12, 32], [1.0], [0.3, 0.4]):
+        search_args = copy.deepcopy(args)
+        search_args["beam_size"] = beam_size
+        lm_type = "trafo"
+        ext_lm_opts = tedlium_lm_opts
+        search_args["decoder_args"] = CTCDecoderArgs(
+            add_att_dec=False,
+            ctc_scale=ctc_scale,
+            add_ext_lm=True,
+            lm_type=lm_type,
+            ext_lm_opts=ext_lm_opts,
+            lm_scale=lm_scale,
+            target_dim=1057,
+            target_embed_dim=256,
+        )
+        run_decoding(
+            f"opts_ctc{ctc_scale}_lm{lm_scale}_beam{beam_size}",
+            train_data,
+            checkpoint=train_job_avg_ckpt[name],
+            search_args=search_args,
+            bpe_size=BPE_1K,
+            test_sets=["dev"],
+            remove_label={"<s>", "<blank>"},
+            use_sclite=True,
+        )
+
+    # ctc + att + lm decoding
+    # for beam_size, scales, lm_scale in product([48], [(0.7, 0.3)], [0.3, 0.35, 0.4]):
+    #     search_args = copy.deepcopy(args)
+    #     search_args["beam_size"] = beam_size
+    #     att_scale, ctc_scale = scales
+    #     # prior_scale = 0.3
+    #     lm_type = "lstm"
+    #     ext_lm_opts = tedlium_lm_opts
+    #     search_args["decoder_args"] = CTCDecoderArgs(
+    #         add_att_dec=True,
+    #         att_scale=att_scale,
+    #         ctc_scale=ctc_scale,
+    #         att_masking_fix=True,
+    #         add_ext_lm=True,
+    #         lm_type=lm_type,
+    #         ext_lm_opts=ext_lm_opts,
+    #         lm_scale=lm_scale,
+    #     )
+    #     run_decoding(
+    #         f"opts_ctc{ctc_scale}_att{att_scale}_lm{lm_scale}_beam{beam_size}",
+    #         train_data,
+    #         checkpoint=train_job_avg_ckpt[name],
+    #         search_args=search_args,
+    #         bpe_size=BPE_1K,
+    #         test_sets=["dev"],
+    #         remove_label={"<s>", "<blank>"},
+    #         use_sclite=True,
+    #     )
+
     # compute ctc prior
     prior_args = copy.deepcopy(args)
     prior_args["decoder_args"] = CTCDecoderArgs()
     # prior_file = compute_ctc_prior(
     #     name, prior_args, train_job_avg_ckpt[name], bpe_size=BPE_1K
     # )
+    prior_file = "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.2UG8sLxHNTMO/output/prior.txt"
 
     # try prior correction
     for scales in [(0.7, 0.3, 0.4)]:
@@ -1091,7 +1160,7 @@ def conformer_baseline():
                 target_dim=1057,
                 target_embed_dim=256,
                 ctc_prior_correction=True,
-                prior_scale=prior_scale
+                prior_scale=prior_scale,
             )
             run_decoding(
                 f"opts_ctc{ctc_scale}_att{att_scale}_beam{beam_size}_prior{prior_scale}",
@@ -1103,6 +1172,220 @@ def conformer_baseline():
                 remove_label={"<s>", "<blank>"},
                 use_sclite=True,
             )
+
+    # train only CTC
+    only_ctc_name = name + "_onlyCTC"
+    only_ctc_args = copy.deepcopy(args)
+    only_ctc_args["decoder_args"].ce_loss_scale = 0.0
+    _, train_data = run_exp(
+        only_ctc_name,
+        only_ctc_args,
+        num_epochs=ep,
+        epoch_wise_filter=None,
+        bpe_size=BPE_1K,
+        partition_epoch=4,
+        search_args={"ctc_decode": True, "ctc_blank_idx": 1057, **only_ctc_args},
+    )
+    prior_file_ctc_only = compute_ctc_prior(
+        only_ctc_name, prior_args, train_job_avg_ckpt[only_ctc_name], bpe_size=BPE_1K
+    )
+    # best checkpoint path "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.9o6iL7eblZwa/output/models/epoch.400"
+
+    # train scale CTC
+    scale_ctc_name = name + "_ctcScale0.3"
+    scale_ctc_args = copy.deepcopy(args)
+    scale_ctc_args["encoder_args"].ctc_loss_scale = 0.3 / 0.7  # AED scale is 1.0
+    _, train_data = run_exp(
+        scale_ctc_name,
+        scale_ctc_args,
+        num_epochs=ep,
+        epoch_wise_filter=None,
+        bpe_size=BPE_1K,
+        partition_epoch=4,
+    )
+
+    # att + ctc opts
+    prior_file_scale = compute_ctc_prior(
+        scale_ctc_name, prior_args, train_job_avg_ckpt[scale_ctc_name], bpe_size=BPE_1K
+    )
+    search_args = copy.deepcopy(args)
+    for scales in [(0.7, 0.3), (0.65, 0.35)]:
+        for beam_size in [12, 32, 64]:
+            for prior_scale in [0.4]:
+                search_args["beam_size"] = beam_size
+                search_args["ctc_log_prior_file"] = prior_file_scale
+                att_scale, ctc_scale = scales
+                search_args["decoder_args"] = CTCDecoderArgs(
+                    add_att_dec=True,
+                    att_scale=att_scale,
+                    ctc_scale=ctc_scale,
+                    att_masking_fix=True,
+                    target_dim=1057,
+                    target_embed_dim=256,
+                    ctc_prior_correction=True,
+                    prior_scale=prior_scale,
+                )
+                run_decoding(
+                    f"model_ctc_0.3_att_0.7/opts_ctc{ctc_scale}_att{att_scale}_prior{prior_scale}_beam{beam_size}",
+                    train_data,
+                    checkpoint=train_job_avg_ckpt[scale_ctc_name],
+                    search_args=search_args,
+                    bpe_size=BPE_1K,
+                    test_sets=["dev", "test"],
+                    remove_label={"<s>", "<blank>"},
+                    use_sclite=True,
+                )
+
+    # separate encoders
+    # some model + ctc only
+    for beam_size, scales, prior_scale in product(
+        [32, 64], [(0.8, 0.2)], [0.4]
+    ):
+        search_args["beam_size"] = beam_size
+        search_args["ctc_log_prior_file"] = prior_file_ctc_only
+        att_scale, ctc_scale = scales
+        search_args["decoder_args"] = CTCDecoderArgs(
+            add_att_dec=True,
+            att_scale=att_scale,
+            ctc_scale=ctc_scale,
+            att_masking_fix=True,
+            target_dim=1057,
+            target_embed_dim=256,
+            ctc_prior_correction=True,
+            prior_scale=prior_scale,
+        )
+        search_args[
+            "second_encoder_ckpt"
+        ] = "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.9o6iL7eblZwa/output/models/epoch.400"
+        # search_args["second_encoder_ckpt"] = train_job_avg_ckpt[only_ctc_name]
+        run_decoding(
+            f"model_aed1.0ctc0.3__ctc_only/opts_ctc{ctc_scale}_att{att_scale}_prior{prior_scale}_beam{beam_size}",
+            train_data,
+            checkpoint=train_job_avg_ckpt[scale_ctc_name],
+            search_args=search_args,
+            bpe_size=BPE_1K,
+            test_sets=["dev", "test"],
+            remove_label={"<s>", "<blank>"},
+            use_sclite=True,
+        )
+
+    if True:
+        # ctc greedy of separate encoder as sanity check
+        search_args["beam_size"] = beam_size
+        search_args["ctc_log_prior_file"] = prior_file_ctc_only
+        att_scale, ctc_scale = scales
+        search_args["decoder_args"] = CTCDecoderArgs(target_dim=1057)
+        search_args[
+            "second_encoder_ckpt"
+        ] = "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.9o6iL7eblZwa/output/models/epoch.400"
+        # search_args["second_encoder_ckpt"] = train_job_avg_ckpt[only_ctc_name]
+        run_decoding(
+            f"model_base__ctc_only/ctc_greedy",
+            train_data,
+            checkpoint=train_job_avg_ckpt[name],
+            search_args=search_args,
+            bpe_size=BPE_1K,
+            test_sets=["dev"],
+            remove_label={"<s>", "<blank>"},
+            use_sclite=True,
+        )
+
+    # # additional trainings
+    # for scales in [(1.0, 0.2), (0.7, 0.3), (0.9, 0.1)]:
+    #     # for scales in []:
+    #     # train scale CTC
+    #     att_scale, ctc_scale = scales
+    #     # keep wrong name
+    #     # name = name + "_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12"
+    #     scale_ctc_name = name + f"_ce{att_scale}_ctc{ctc_scale}"
+    #     scale_ctc_args = copy.deepcopy(args)
+    #     scale_ctc_args["encoder_args"].ctc_loss_scale = ctc_scale  # AED scale is 1.0
+    #     scale_ctc_args["decoder_args"].ce_loss_scale = att_scale
+    #     _, train_data = run_exp(
+    #         scale_ctc_name,
+    #         scale_ctc_args,
+    #         num_epochs=ep,
+    #         epoch_wise_filter=None,
+    #         bpe_size=BPE_1K,
+    #         partition_epoch=4,
+    #     )
+    #
+    #     # att + ctc opts
+    #     prior_file_scale = compute_ctc_prior(
+    #         scale_ctc_name,
+    #         prior_args,
+    #         train_job_avg_ckpt[scale_ctc_name],
+    #         bpe_size=BPE_1K,
+    #     )
+    #
+    # # train att only
+    # for pretrain_reps in [4, 5]:
+    #     # train base model
+    #     att_only_args, exp_name = get_base_v1_args(
+    #         lr, ep, pretrain_reps=pretrain_reps, enc_drop=enc_drop
+    #     )
+    #     att_only_args["encoder_args"].ctc_loss_scale = 0.0
+    #     exp_name = exp_name + "_noctc"
+    #     train_j, train_data = run_exp(
+    #         exp_name,
+    #         att_only_args,
+    #         num_epochs=ep,
+    #         epoch_wise_filter=None,
+    #         bpe_size=BPE_1K,
+    #         partition_epoch=4,
+    #     )
+    #
+    # # more pretrain reps
+    # scale_ctc_args, exp_name = get_base_v1_args(
+    #     lr, ep, pretrain_reps=4, enc_drop=enc_drop
+    # )
+    # att_scale, ctc_scale = (0.9, 0.1)
+    # scale_ctc_name = exp_name + f"_ce{att_scale}_ctc{ctc_scale}"
+    # scale_ctc_args["encoder_args"].ctc_loss_scale = ctc_scale  # AED scale is 1.0
+    # scale_ctc_args["decoder_args"].ce_loss_scale = att_scale
+    # _, train_data = run_exp(
+    #     scale_ctc_name,
+    #     scale_ctc_args,
+    #     num_epochs=ep,
+    #     epoch_wise_filter=None,
+    #     bpe_size=BPE_1K,
+    #     partition_epoch=4,
+    # )
+    #
+    # # att + ctc opts
+    # prior_file_scale = compute_ctc_prior(
+    #     scale_ctc_name,
+    #     prior_args,
+    #     train_job_avg_ckpt[scale_ctc_name],
+    #     bpe_size=BPE_1K,
+    # )
+
+
+
+    # --- old code ---
+
+    # # lower lr -> did not converge
+    # scale_ctc_args, exp_name = get_base_v1_args(7e-4, ep, enc_drop=enc_drop)
+    # att_scale, ctc_scale = (0.9, 0.1)
+    # scale_ctc_name = exp_name + f"_ce{att_scale}_ctc{ctc_scale}"
+    # scale_ctc_args["encoder_args"].ctc_loss_scale = ctc_scale  # AED scale is 1.0
+    # scale_ctc_args["decoder_args"].ce_loss_scale = att_scale
+    # _, train_data = run_exp(
+    #     scale_ctc_name,
+    #     scale_ctc_args,
+    #     num_epochs=ep,
+    #     epoch_wise_filter=None,
+    #     bpe_size=BPE_1K,
+    #     partition_epoch=4,
+    # )
+    #
+    # # att + ctc opts
+    # prior_file_scale = compute_ctc_prior(
+    #     scale_ctc_name,
+    #     prior_args,
+    #     train_job_avg_ckpt[scale_ctc_name],
+    #     bpe_size=BPE_1K,
+    # )
 
     # for num_blocks in [14]:
     #     for ep in [100 * 4]:
