@@ -311,6 +311,7 @@ def the_plan():
         config_21j_diphone_realign_mpc1x4_40ms,
         config_22b_triphone_multi_mpc1x4_40ms,
         config_22d_triphone_multi_oclr_mpc1x4_40ms,
+        config_22e_triphone_pp_mpc1x4_40ms,
         config_31_diphone_mpc2x3_60ms,
         config_41_diphone_mpc2x4_80ms,
     )
@@ -589,6 +590,8 @@ def the_plan():
     )
 
     pp_configs = config_21e_diphone_pp_mpc1x4_40ms.run(returnn_root=returnn_root)
+    config_22e_triphone_pp_mpc1x4_40ms.run(returnn_root=returnn_root)
+
     pp_sys = next(iter(pp_configs.values()))
     config_22d_triphone_multi_oclr_mpc1x4_40ms.run(
         returnn_root=returnn_root,
