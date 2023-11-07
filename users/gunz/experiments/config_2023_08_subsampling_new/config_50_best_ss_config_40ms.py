@@ -2351,14 +2351,22 @@ def get_conformer_config(
         **network,
         "classes_": {
             **network["classes_"],
-            "from": "slice_classes",
-            "set_dim_tags": {"T": returnn.CodeWrapper(f"{time_tag_name}.ceildiv_right({ss_factor})")},
+            "from": "slice_classes1",
+            "set_dim_tags": {
+                "T": returnn.CodeWrapper(f"{time_tag_name}.ceildiv_right({ss_factor//2}).ceildiv_right({ss_factor//2})")
+            },
         },
-        "slice_classes": {
+        "slice_classes0": {
             "axis": "T",
             "class": "slice",
             "from": "data:classes",
-            "slice_step": ss_factor,
+            "slice_step": ss_factor // 2,
+        },
+        "slice_classes1": {
+            "axis": "T",
+            "class": "slice",
+            "from": "slice_classes0",
+            "slice_step": ss_factor // 2,
         },
     }
     network = aux_loss.add_intermediate_loss(
