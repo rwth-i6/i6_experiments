@@ -43,6 +43,13 @@ TODO:
 - try CTC only
 - try no specaugment (should overfit then, i.e. reach train loss 0)
 
+- fine tune:
+  - linspace vs geomspace?
+  - step-base vs epoch-base?
+  - start LR = initial LR or most recent?
+  - final LR?
+  - how long? 50? 100? 200 subepochs?
+
 TODO model changes:
 
 - Second decoder LSTM
