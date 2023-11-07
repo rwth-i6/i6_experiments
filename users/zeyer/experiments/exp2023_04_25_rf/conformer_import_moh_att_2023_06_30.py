@@ -219,7 +219,7 @@ def _train_exp(
                     k: str
                     suffix += "-" + k.lstrip("_")
                     v = str(v).replace("-", "_")
-                    if len(v) > 10:
+                    if len(v) > 16 and not k.startswith("_"):
                         suffix += "_" + hashlib.md5(v.encode("utf8")).hexdigest()[:8]
                     else:
                         suffix += v
