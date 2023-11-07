@@ -580,6 +580,10 @@ def get_diphone_network(
     )
 
     if additive:
+        for name, l in network.items():
+            if name.startswith("linear") and "n_out" in l:
+                l["n_out"] = conf_model_dim
+
         network["pastEmbed"]["n_out"] = conf_model_dim
         network["linear1-diphone-linear"] = {
             **network["linear1-diphone"],
@@ -627,6 +631,10 @@ def get_triphone_network(
     )
 
     if additive:
+        for name, l in network.items():
+            if name.startswith("linear") and "n_out" in l:
+                l["n_out"] = conf_model_dim
+
         network["pastEmbed"]["n_out"] = conf_model_dim
         network["currentState"]["n_out"] = conf_model_dim
 
