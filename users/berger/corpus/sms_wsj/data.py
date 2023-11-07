@@ -21,8 +21,6 @@ from i6_core.lib.corpus import Corpus
 from i6_core.lib.lexicon import Lexicon
 from i6_core.util import uopen, write_xml
 
-from returnn.datasets.lm import english_cleaners
-
 
 dep_dir = "/work/asr4/berger/dependencies/sms_wsj"
 
@@ -46,6 +44,7 @@ def process_string(s: str) -> str:
 
 
 def lm_cleaning(s: str) -> str:
+    from returnn.datasets.lm import english_cleaners
     remove_regexes = [
         re.compile(expr)
         for expr in [

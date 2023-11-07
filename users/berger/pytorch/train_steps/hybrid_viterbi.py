@@ -1,12 +1,10 @@
 from typing import TYPE_CHECKING
+import torch
 if TYPE_CHECKING:
-    import torch
     from returnn.tensor.tensor_dict import TensorDict
 
 
 def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
-    import torch
-
     audio_features = extern_data["data"].raw_tensor
     audio_features_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
     assert audio_features_len is not None
