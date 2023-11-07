@@ -36,7 +36,7 @@ TODO:
 - gradient clipping? global norm variant. 5.0. seems to solve hiccups. 
 - bfloat16 vs float16 vs float32: float16 gives nan, bfloat16 seems to work just like float32 
 - grad_scaler: not needed for bfloat16
-- adamw vs adam?
+- adamw vs adam? note that weight decay param needs to be retuned
 - weight decay? (also dependent on whether adam or adamw)
 - weight decay only on selected layers/modules, like in TF, e.g. not so much on decoder
 - adam eps? 1e-16 is what we had in TF, maybe better?
