@@ -601,6 +601,15 @@ def the_plan():
     )
 
 
+def best():
+    from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new import (
+        config_50_best_ss_config_40ms,
+    )
+
+    returnn_root = _clone_returnn_safe()
+    config_50_best_ss_config_40ms.run(returnn_root=returnn_root)
+
+
 def quant_data_util():
     from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new import (
         config_00b_monophone_linear_fullsum_all_data,
