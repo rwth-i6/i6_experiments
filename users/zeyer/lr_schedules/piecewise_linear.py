@@ -20,7 +20,7 @@ def dyn_lr_piecewise_linear(*, global_train_step: int, learning_rate: float, **_
         assert step > last_step
         assert global_train_step >= last_step
         if global_train_step < step:
-            factor = (global_train_step - last_step) / (step - last_step)
+            factor = (global_train_step + 1 - last_step) / (step - last_step)
             return learning_rate * (lrs[i + 1] * factor + lrs[i] * (1 - factor))
         last_step = step
 
