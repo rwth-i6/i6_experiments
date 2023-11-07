@@ -997,10 +997,7 @@ def run_single(
                         },
                         "output": {
                             **returnn_config_smbr.config["network"]["output"],
-                            "loss_opts": {
-                                **returnn_config_smbr.config["network"]["output"].get("loss_opts", {}),
-                                "focal_loss_factor": CONF_FOCAL_LOSS,
-                            },
+                            "loss_opts": None, # no focal loss, unimpl'd
                             "target": "slice_classes",
                         },
                     }
