@@ -22,6 +22,7 @@ def dyn_lr_combine_eval(*, global_train_step: int, epoch: int, learning_rate: fl
 
     eval_str = config.value("learning_rate_eval", None)
     assert eval_str, "learning_rate_eval not specified in config"
+    assert isinstance(eval_str, str), f"learning_rate_eval must be str, got {type(eval_str)}"
 
     eval_locals = config.typed_value("learning_rate_eval_locals")
     if not eval_locals:
