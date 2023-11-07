@@ -992,7 +992,7 @@ def run_single(
                         },
                         "output": {
                             **returnn_config_smbr.config["network"]["output"],
-                            "loss_opts": None, # no focal loss, unimpl'd
+                            # "loss_opts": None, # no focal loss, unimpl'd
                             "target": "slice_classes",
                         },
                     }
