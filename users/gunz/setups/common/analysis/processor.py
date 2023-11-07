@@ -106,7 +106,7 @@ class AlignmentProcessor:
             if show_title:
                 ax.set_title(f"Viterbi alignment of\n{seq_tag}")
             ax.set_xlabel("Frame")
-            ax.set_ylabel("State")
+            ax.set_ylabel("Label")
             # ax.xaxis.set_label_coords(0.98, -0.03)
             ax.set_xbound(0, T - 1)
             ax.set_ybound(-0.5, C - 0.5)
