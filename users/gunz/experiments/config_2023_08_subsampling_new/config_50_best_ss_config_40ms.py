@@ -2391,20 +2391,9 @@ def get_conformer_config(
             "n_out": conf_model_dim,
         },
     }
-    network = augment_net_with_label_pops(
-        network,
-        label_info=label_info,
-        classes_subsampling_info=SubsamplingInfo(factor=ss_factor, time_tag_name=time_tag_name),
-    )
+    network = augment_net_with_label_pops(network, label_info=label_info, labeling_input="slice_classes1")
     network = {
         **network,
-        "classes_": {
-            **network["classes_"],
-            "from": "slice_classes1",
-            "set_dim_tags": {
-                "T": returnn.CodeWrapper(f"{time_tag_name}.ceildiv_right({ss_factor//2}).ceildiv_right({ss_factor//2})")
-            },
-        },
         "slice_classes0": {
             "axis": "T",
             "class": "slice",
@@ -2471,6 +2460,9 @@ def get_conformer_config(
             dynamic_learning_rate,
         ],
     )
+    # Only apply dim tag to classes, not to popped labels as they are popped from
+    # the sliced/sampled classes.
+    config.config["extern_data"]["classes"]["same_dim_tags_as"] = {"T": returnn.CodeWrapper(time_tag_name)}
     return config
 
 

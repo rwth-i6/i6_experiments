@@ -113,10 +113,10 @@ def augment_net_with_label_pops(
     label_info: LabelInfo,
     classes_subsampling_info: typing.Optional[SubsamplingInfo] = None,
     prefix: str = "",
+    labeling_input: str = "data:classes",
 ) -> Network:
     assert label_info.state_tying in [RasrStateTying.diphone, RasrStateTying.triphone]
 
-    labeling_input = "data:classes"
     remaining_label_dim = label_info.get_n_of_dense_classes()
 
     network = copy.deepcopy(network)
