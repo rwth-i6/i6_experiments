@@ -1,10 +1,11 @@
-from returnn.tensor import batch_dim
-from returnn.tensor.tensor_dict import TensorDict
-import returnn.frontend as rf
-import torch
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    import torch
+    from returnn.tensor.tensor_dict import TensorDict
 
 def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
+    import torch
     audio_features = extern_data["data"].raw_tensor
     assert extern_data["data"].dims[1].dyn_size_ext is not None
 
@@ -39,6 +40,8 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
         zero_infinity=True,
     )
 
+    from returnn.tensor import batch_dim
+    import returnn.frontend as rf
     rf.get_run_ctx().mark_as_loss(
         name="CTC", loss=loss, custom_inv_norm_factor=rf.reduce_sum(targets_len_rf, axis=batch_dim)
     )

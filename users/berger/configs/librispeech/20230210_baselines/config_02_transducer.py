@@ -48,7 +48,10 @@ def generate_returnn_config(
     **kwargs,
 ) -> ReturnnConfig:
     if train:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer(
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
@@ -83,12 +86,12 @@ def generate_returnn_config(
                     "activation": "tanh",
                 },
             },
-            output_args={
-                "label_smoothing": 0.2,
-            },
         )
     else:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
@@ -163,6 +166,7 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
     data = get_librispeech_data(
         tools.returnn_root,
         tools.returnn_python_exe,
+        rasr_binary_path=tools.rasr_binary_path,
         alignments=alignments,
         add_unknown=False,
         augmented_lexicon=True,
@@ -179,7 +183,7 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
 
     recog_args = exp_args.get_transducer_recog_step_args(
         num_classes,
-        lm_scales=[0.7],
+        lm_scales=[0.6],
         epochs=[160, 240, 400, "best"],
         lookahead_options={"scale": 0.5},
         search_parameters={"label-pruning": 8.0},
@@ -210,7 +214,7 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
             recog_configs={"recog": recog_config},
         )
 
-        system.add_experiment_configs(f"Conformer_Transducer_Viterbi_peak-lr-{peak_lr}", returnn_configs)
+        system.add_experiment_configs(f"Conformer_Transducer_Viterbi_raw-sample_peak-lr-{peak_lr}", returnn_configs)
 
     system.init_corpora(
         dev_keys=data.dev_keys,
@@ -226,7 +230,7 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
     system.run_dev_recog_step(**recog_args)
     system.run_test_recog_step(**recog_args)
 
-    train_job = system.get_train_job("Conformer_Transducer_Viterbi_peak-lr-0.0008")
+    train_job = system.get_train_job("Conformer_Transducer_Viterbi_raw-sample_peak-lr-0.0008")
     model = GetBestCheckpointJob(
         model_dir=train_job.out_model_dir, learning_rates=train_job.out_learning_rates
     ).out_checkpoint

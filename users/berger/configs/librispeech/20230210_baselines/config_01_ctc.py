@@ -113,9 +113,12 @@ def generate_returnn_config(
 def run_exp() -> Tuple[SummaryReport, Dict]:
     assert tools.returnn_root is not None
     assert tools.returnn_python_exe is not None
+    assert tools.rasr_binary_path is not None
 
     data = get_librispeech_data_hdf(
         tools.returnn_root,
+        tools.returnn_python_exe,
+        rasr_binary_path=tools.rasr_binary_path,
         add_unknown=False,
         augmented_lexicon=True,
         test_keys=[
@@ -168,7 +171,7 @@ def run_exp() -> Tuple[SummaryReport, Dict]:
         recog_configs={"recog": recog_config},
     )
 
-    system.add_experiment_configs("BLSTM_CTC", returnn_configs)
+    system.add_experiment_configs("BLSTM_CTC_raw-sample", returnn_configs)
 
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)

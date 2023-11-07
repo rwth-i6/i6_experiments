@@ -5,26 +5,35 @@ from i6_core import corpus
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from i6_core.returnn.hdf import BlissToPcmHDFJob
 from i6_experiments.users.berger.args.returnn.dataset import MetaDatasetBuilder
-from i6_experiments.users.berger.systems.dataclasses import AlignmentData
+from i6_experiments.users.berger.systems.dataclasses import AlignmentData, FeatureType
 from . import data
 from ..general import BasicSetupData
 from sisyphus import tk
+from ...args.jobs.rasr_init_args import get_feature_extraction_args_16kHz
+from ...helpers import build_rasr_feature_hdfs
 
 
 def get_librispeech_data(
     returnn_root: tk.Path,
     returnn_python_exe: tk.Path,
     alignments: Dict[str, AlignmentData],
+    rasr_binary_path: tk.Path,
+    rasr_arch: str = "linux-x86_64-standard",
     train_key: str = "train-other-960",
     dev_keys: List[str] = ["dev-clean", "dev-other"],
     test_keys: List[str] = ["test-clean", "test-other"],
     add_unknown: bool = False,
     augmented_lexicon: bool = True,
+    feature_type: FeatureType = FeatureType.SAMPLES,
     **kwargs,
 ) -> BasicSetupData:
     # ********** Data inputs **********
 
-    (train_data_inputs, dev_data_inputs, test_data_inputs,) = data.get_data_inputs(
+    (
+        train_data_inputs,
+        dev_data_inputs,
+        test_data_inputs,
+    ) = data.get_data_inputs(
         train_key=train_key,
         dev_keys=dev_keys,
         test_keys=test_keys,
@@ -38,23 +47,42 @@ def get_librispeech_data(
 
     # ********** Train data **********
 
-    train_corpus = train_data_inputs[train_key].corpus_object.corpus_file
+    train_corpus_object = copy.deepcopy(train_data_inputs[train_key].corpus_object)
+    train_corpus = train_corpus_object.corpus_file
     train_lexicon = train_data_inputs[train_key].lexicon.filename
     assert train_corpus is not None
 
-    if not add_unknown:
+    if not add_unknown and not augmented_lexicon:
         train_corpus = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
             train_corpus,
             train_lexicon,
             all_unknown=False,
         ).out_corpus
+        train_corpus_object.corpus_file = train_corpus
 
-    train_sample_hdf_job = BlissToPcmHDFJob(
-        train_corpus, rounding=BlissToPcmHDFJob.RoundingScheme.rasr_compatible, returnn_root=returnn_root
-    )
-    train_sample_hdf_job.rqmt["mem"] = 8
-    train_sample_hdf_job.rqmt["time"] = 24
-    train_sample_hdf = train_sample_hdf_job.out_hdf
+    if feature_type == FeatureType.GAMMATONE:
+        gt_args = get_feature_extraction_args_16kHz()["gt"]
+        train_feature_hdf = build_rasr_feature_hdfs(
+            train_corpus_object,
+            split=train_data_inputs[train_key].concurrent,
+            feature_type="gt",
+            feature_extraction_args=gt_args,
+            returnn_python_exe=returnn_python_exe,
+            returnn_root=returnn_root,
+            rasr_binary_path=rasr_binary_path,
+            rasr_arch=rasr_arch,
+        )
+    elif feature_type == FeatureType.SAMPLES:
+        train_feature_hdf_job = BlissToPcmHDFJob(
+            train_corpus,
+            rounding=BlissToPcmHDFJob.RoundingScheme.rasr_compatible,
+            returnn_root=returnn_root,
+        )
+        train_feature_hdf_job.rqmt["mem"] = 8
+        train_feature_hdf_job.rqmt["time"] = 24
+        train_feature_hdf = [train_feature_hdf_job.out_hdf]
+    else:
+        raise NotImplementedError
     train_alignment_hdf = alignments[f"{train_key}_align"].get_hdf(
         returnn_python_exe=returnn_python_exe, returnn_root=returnn_root
     )
@@ -62,7 +90,7 @@ def get_librispeech_data(
     train_dataset_builder = MetaDatasetBuilder()
     train_dataset_builder.add_hdf_dataset(
         name="data",
-        hdf_files=train_sample_hdf,
+        hdf_files=train_feature_hdf,
         key_mapping={"data": "data"},
     )
 
@@ -91,15 +119,38 @@ def get_librispeech_data(
                 all_unknown=False,
             ).out_corpus
 
-    cv_sample_hdfs = [
-        BlissToPcmHDFJob(
-            data_input.corpus_object.corpus_file,
-            rounding=BlissToPcmHDFJob.RoundingScheme.rasr_compatible,
-            returnn_root=returnn_root,
-        ).out_hdf
-        for key, data_input in cv_data_inputs.items()
-        if key in dev_keys
-    ]
+    if feature_type == FeatureType.GAMMATONE:
+        gt_args = get_feature_extraction_args_16kHz()["gt"]
+        cv_feature_hdfs = sum(
+            [
+                build_rasr_feature_hdfs(
+                    data_input.corpus_object,
+                    split=data_input.concurrent,
+                    feature_type="gt",
+                    feature_extraction_args=gt_args,
+                    returnn_python_exe=returnn_python_exe,
+                    returnn_root=returnn_root,
+                    rasr_binary_path=rasr_binary_path,
+                    rasr_arch=rasr_arch,
+                    single_hdf=True,
+                )
+                for key, data_input in cv_data_inputs.items()
+                if key in dev_keys
+            ],
+            [],
+        )
+    elif feature_type == FeatureType.SAMPLES:
+        cv_feature_hdfs = [
+            BlissToPcmHDFJob(
+                data_input.corpus_object.corpus_file,
+                rounding=BlissToPcmHDFJob.RoundingScheme.rasr_compatible,
+                returnn_root=returnn_root,
+            ).out_hdf
+            for key, data_input in cv_data_inputs.items()
+            if key in dev_keys
+        ]
+    else:
+        raise NotImplementedError
     cv_alignment_hdfs = [
         alignments[f"{dev_key}_align"].get_hdf(returnn_python_exe=returnn_python_exe, returnn_root=returnn_root)
         for dev_key in dev_keys
@@ -108,7 +159,7 @@ def get_librispeech_data(
     cv_dataset_builder = MetaDatasetBuilder()
     cv_dataset_builder.add_hdf_dataset(
         name="data",
-        hdf_files=cv_sample_hdfs,
+        hdf_files=cv_feature_hdfs,
         key_mapping={"data": "data"},
     )
 

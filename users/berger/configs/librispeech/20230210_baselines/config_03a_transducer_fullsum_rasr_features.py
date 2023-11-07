@@ -12,17 +12,17 @@ from i6_experiments.users.berger.args.returnn.learning_rates import (
 from i6_experiments.users.berger.corpus.librispeech.viterbi_transducer_data import (
     get_librispeech_data,
 )
-import i6_experiments.users.berger.network.models.context_1_transducer_raw_samples as transducer_model
+import i6_experiments.users.berger.network.models.context_1_transducer as transducer_model
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
-from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs
+from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, FeatureType
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
 from .config_01b_ctc_conformer import py as py_ctc
-from .config_02_transducer import py as py_transducer
+from .config_02a_transducer_rasr_features import py as py_transducer
 from sisyphus import gs, tk
 
 # ********** Settings **********
@@ -48,15 +48,11 @@ def generate_returnn_config(
     if train:
         (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_fullsum(
             num_outputs=num_classes,
-            gt_args={
-                "sample_rate": 16000,
-                "specaug_v2": False,
-                "specaug_args": {
-                    "max_time_num": 1,
-                    "max_time": 10,
-                    "max_feature_num": 5,
-                    "max_feature": 5,
-                },
+            specaug_args={
+                "max_time_num": 1,
+                "max_time": 10,
+                "max_feature_num": 5,
+                "max_feature": 5,
             },
             conformer_args={
                 "num_blocks": 12,
@@ -86,10 +82,6 @@ def generate_returnn_config(
     else:
         (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
-            gt_args={
-                "sample_rate": 16000,
-                "specaug_after_dct": False,
-            },
             conformer_args={
                 "num_blocks": 12,
                 "size": 512,
@@ -118,10 +110,9 @@ def generate_returnn_config(
             "import sys",
             "sys.setrecursionlimit(10 ** 6)",
         ],
-        num_inputs=1,
+        num_inputs=50,
         num_outputs=num_classes,
         extern_data_config=True,
-        extern_data_kwargs={"dtype": "int16" if train else "float32"},
         extern_target_kwargs={"dtype": "int8" if train else "int32"},
         grad_noise=0.0,
         grad_clip=20.0,
@@ -129,7 +120,7 @@ def generate_returnn_config(
         const_lr=5e-05,
         decay_lr=1e-05,
         final_lr=1e-06,
-        batch_size=1_200_000,
+        batch_size=15000,
         accum_grad=2,
         use_chunking=False,
         extra_config={
@@ -161,6 +152,7 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: tk.P
         alignments=alignments,
         add_unknown=False,
         lm_name="4gram",
+        feature_type=FeatureType.GAMMATONE,
         # lm_name="kazuki_transformer",
     )
 
@@ -190,18 +182,18 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: tk.P
 
     recog_args = exp_args.get_transducer_recog_step_args(
         num_classes,
-        # lm_scales=[0.5, 0.7, 0.9],
-        lm_scales=[0.7],
-        epochs=[160, 240, 300, "best"],
+        lm_scales=[0.6],
+        epochs=[80, 160, 240, 300, "best"],
         lookahead_options={"scale": 0.5},
         search_parameters={"label-pruning": 11.2},
+        feature_type=FeatureType.GAMMATONE,
     )
 
     # ********** System **********
 
     system = ReturnnSeq2SeqSystem(tools)
 
-    system.add_experiment_configs("Conformer_Transducer_Fullsum_raw-sample", returnn_configs)
+    system.add_experiment_configs("Conformer_Transducer_Fullsum", returnn_configs)
     system.init_corpora(
         dev_keys=data.dev_keys,
         test_keys=data.test_keys,

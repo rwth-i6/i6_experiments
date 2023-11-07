@@ -105,6 +105,7 @@ SIS_COMMAND = ["/u/berger/software/env/python3.10_sisyphus/bin/python", sys.argv
 WAIT_PERIOD_CACHE = 1  # stopping to wait for actionable jobs to appear
 WAIT_PERIOD_JOB_FS_SYNC = 1  # finishing a job
 
+JOB_AUTO_CLEANUP = False
 JOB_CLEANUP_KEEP_WORK = True
 JOB_FINAL_LOG = "finished.tar.gz"
 
