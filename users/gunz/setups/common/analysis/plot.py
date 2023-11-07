@@ -163,7 +163,7 @@ class PlotViterbiAlignmentsJob(Job):
             self.out_plots = None
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", rqmt={"cpu": 1, "time": 1, "mem": 4})
+        yield Task("run", mini_task=True, rqmt={"cpu": 1, "time": 1, "mem": 4})
 
     def run(self):
         from matplotlib import pyplot as plt
