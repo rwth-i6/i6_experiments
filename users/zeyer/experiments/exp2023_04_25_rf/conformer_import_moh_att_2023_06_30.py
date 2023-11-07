@@ -88,19 +88,8 @@ def sis_run_with_prefix(prefix_name: str = None):
         config_24gb_v3,
         config_updates={"learning_rate": 0.001, "learning_rate_invsqrt_norm": 40_000},
     )
-    _train_exp(
-        "base-24gb-v3-lr1e_3-wdblacklist",
-        config_24gb_v3,
-        config_updates={
-            "learning_rate": 0.001,
-            "optimizer.weight_decay_modules_blacklist": [
-                "rf.BatchNorm",
-                "rf.LayerNorm",
-                "rf.Embedding",
-                "rf.LearnedRelativePositionalEncoding",
-            ],
-        },
-    )
+    _train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)
+    _train_exp("base-24gb-v4", config_24gb_v4)
     _train_exp(
         "base-24gb-v3-lr1e_3-specaugorig",
         config_24gb_v3,
@@ -345,6 +334,19 @@ config_24gb_v3.update(
         grad_scaler=None,
         gradient_clip_global_norm=5.0,
     )
+)
+
+config_24gb_v4 = dict_update_deep(
+    config_24gb_v3,
+    {
+        "learning_rate": 0.001,
+        "optimizer.weight_decay_modules_blacklist": [
+            "rf.BatchNorm",
+            "rf.LayerNorm",
+            "rf.Embedding",
+            "rf.LearnedRelativePositionalEncoding",
+        ],
+    },
 )
 
 
