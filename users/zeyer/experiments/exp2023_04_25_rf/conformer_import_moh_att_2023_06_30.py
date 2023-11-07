@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Optional, Any, Union, Tuple, Dict, Sequence, L
 import tree
 import math
 import numpy as np
+import hashlib
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -72,6 +73,14 @@ def sis_run_with_prefix(prefix_name: str = None):
             (2000, {"num_epochs": 200}),
             (2000, {"num_epochs": 200, "lr_decay_type": "linspace"}),
             (2000, {"num_epochs": 200, "lr_decay_type": "linspace", "final_lr": 1e-6}),
+            (
+                2000,
+                {
+                    "num_epochs": 200,
+                    "_lr_decay_type": "L3_5_150_L7_50",
+                    "learning_rates": list(np.linspace(1e-3, 1e-5, num=150)) + list(np.linspace(1e-5, 1e-7, num=50)),
+                },
+            ),
         ],
     )
     _train_exp(
@@ -217,19 +226,32 @@ def _train_exp(
             suffix = f"/finetune/{ep}"
             opts = opts.copy()
             if opts:
-                suffix += "-" + "-".join(f"{k}{str(v).replace('-', '_')}" for (k, v) in sorted(opts.items()))
+                for k, v in sorted(opts.items()):
+                    k: str
+                    suffix += "-" + k.lstrip("_")
+                    v = str(v).replace("-", "_")
+                    if len(v) > 10:
+                        suffix += "_" + hashlib.md5(v.encode("utf8")).hexdigest()[:8]
+                    else:
+                        suffix += v
             num_epochs_ = opts.pop("num_epochs", 50)
-            final_lr = opts.pop("final_lr", 1e-7)
             config_ = config.copy()
             config_["import_model_train_epoch1"] = model_with_checkpoint.get_epoch(ep).checkpoint
             config_.pop("dynamic_learning_rate")
-            lr = config_["learning_rate"]
-            lr_decay_type = opts.pop("lr_decay_type", "geomspace")  # geomspace or linspace
-            lr_decay_func = getattr(np, lr_decay_type)
-            config_["learning_rates"] = list(lr_decay_func(lr, final_lr, num=num_epochs_))
-            config_["learning_rate"] = final_lr
+            lrs = opts.pop("learning_rates", None)
+            if lrs is None:
+                lr_decay_type = opts.pop("lr_decay_type", "geomspace")  # geomspace or linspace
+                lr_decay_func = getattr(np, lr_decay_type)
+                lr = config_["learning_rate"]
+                final_lr = opts.pop("final_lr", 1e-7)
+                lrs = list(lr_decay_func(lr, final_lr, num=num_epochs_))
+            else:
+                assert isinstance(lrs, (list, tuple))
+                assert len(lrs) == num_epochs_
+            config_["learning_rates"] = lrs
+            config_["learning_rate"] = lrs[-1]
             config_["specaugment_steps"] = (0, 0, 0)
-            config_.update(opts)
+            config_.update({k: v for k, v in opts.items() if not k.startswith("_")})
 
             finetune_model_with_ckpt = train(
                 prefix + suffix,
