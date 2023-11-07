@@ -238,7 +238,7 @@ def _train_exp(
                 assert isinstance(lrs, (list, tuple))
                 assert len(lrs) == num_epochs_
             config_["learning_rates"] = lrs
-            config_["learning_rate"] = lrs[-1]
+            config_["learning_rate"] = float(lrs[-1])
             config_["specaugment_steps"] = (0, 0, 0)
             config_.update({k: v for k, v in opts.items() if not k.startswith("_")})
 
