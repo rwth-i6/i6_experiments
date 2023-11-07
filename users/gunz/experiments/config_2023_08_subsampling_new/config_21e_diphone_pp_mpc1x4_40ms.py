@@ -1016,7 +1016,7 @@ def run_single(
                                 "dim": diphone_li.get_n_of_dense_classes(),
                                 "dtype": "int32",
                                 "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)},
-                                # "sparse": False,  # So the loss doesntt complain
+                                "sparse": False,  # So the loss doesntt complain
                             },
                             "data": {"dim": 50, "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)}},
                         },
