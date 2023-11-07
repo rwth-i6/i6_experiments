@@ -548,7 +548,9 @@ def run_single(
     if decode_all_corpora:
         assert tune_decoding
 
-        for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-clean", "dev-other", "test-clean", "test-other"]):
+        for ep, crp_k in itertools.product(
+            [596, max(keep_epochs)], ["dev-clean", "dev-other", "test-clean", "test-other"]
+        ):
             s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
             recognizer, recog_args = s.get_recognizer_and_args(
@@ -572,7 +574,7 @@ def run_single(
                     rtf_cpu=80,
                 )
             for lm, la_4gram in itertools.product([best_config.lm_scale + 2, 12.4], [True, False]):
-                if la_4gram and lm != 13.0:
+                if la_4gram and (lm != 13.0 or ep != 600):
                     continue
 
                 recognizer.recognize_ls_trafo_lm(
