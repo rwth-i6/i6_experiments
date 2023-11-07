@@ -186,7 +186,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
             **s.initial_train_args,
             "num_epochs": keep_epochs[-1],
             "partition_epochs": {"train": 20, "dev": 1},
-            "returnn_config": copy.deepcopy(returnn_config),
+            "returnn_config": copy.deepcopy(cfg),
         }
         s.returnn_rasr_training(
             experiment_key=key,
