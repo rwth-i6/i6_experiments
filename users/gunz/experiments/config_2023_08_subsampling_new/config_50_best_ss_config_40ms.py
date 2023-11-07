@@ -205,23 +205,20 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
     for (key, returnn_config), ep, crp_k in itertools.product(zip(keys, configs), keep_epochs, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
-        continue
-
-        clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
-        prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
-            returnn_config=clean_returnn_config,
-            label_info=s.label_info,
-            out_joint_score_layer="output",
-            log_softmax=False,
-        )
-        s.set_mono_priors_returnn_rasr(
-            key="fh",
-            epoch=min(ep, keep_epochs[-2]),
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            smoothen=True,
-            returnn_config=prior_returnn_config,
-        )
+        if "mono" in key:
+            decode_monophone(
+                s, key=key, crp_k=crp_k, returnn_config=returnn_config, epoch=ep, prior_epoch=min(ep, keep_epochs[-2])
+            )
+        elif "di" in key:
+            decode_diphone(
+                s, key=key, crp_k=crp_k, returnn_config=returnn_config, epoch=ep, prior_epoch=min(ep, keep_epochs[-2])
+            )
+        elif "tri" in key:
+            decode_triphone(
+                s, key=key, crp_k=crp_k, returnn_config=returnn_config, epoch=ep, prior_epoch=min(ep, keep_epochs[-2])
+            )
+        else:
+            raise ValueError(f"unknown name {key}")
 
     # ###########
     # FINE TUNING
@@ -522,6 +519,79 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
                 )
 
     return s
+
+
+def decode_monophone(
+    s: fh_system.FactoredHybridSystem,
+    key: str,
+    crp_k: str,
+    returnn_config: returnn.ReturnnConfig,
+    epoch: int,
+    prior_epoch: int,
+):
+    pass
+
+
+def decode_diphone(
+    s: fh_system.FactoredHybridSystem,
+    key: str,
+    crp_k: str,
+    returnn_config: returnn.ReturnnConfig,
+    epoch: int,
+    prior_epoch: int,
+):
+    clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+
+    prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+        returnn_config=clean_returnn_config,
+        label_info=s.label_info,
+        out_joint_score_layer="output",
+        log_softmax=False,
+    )
+    s.set_mono_priors_returnn_rasr(
+        key=key,
+        epoch=prior_epoch,
+        train_corpus_key=s.crp_names["train"],
+        dev_corpus_key=s.crp_names["cvtrain"],
+        smoothen=True,
+        returnn_config=prior_returnn_config,
+    )
+
+    diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+    nn_pch_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+        returnn_config=clean_returnn_config,
+        label_info=s.label_info,
+        out_joint_score_layer="output",
+        log_softmax=True,
+    )
+    search_params = dataclasses.replace(s.get_cart_params(key), lm_scale=2.5, tdp_scale=0.4).with_prior_scale(0.6)
+    tying_cfg = rasr.RasrConfig()
+    tying_cfg.type = "diphone-dense"
+    s.recognize_cart(
+        key=key,
+        epoch=epoch,
+        crp_corpus=crp_k,
+        n_cart_out=diphone_li.get_n_of_dense_classes(),
+        cart_tree_or_tying_config=tying_cfg,
+        params=search_params,
+        log_softmax_returnn_config=nn_pch_config,
+        calculate_statistics=True,
+        opt_lm_am_scale=True,
+        prior_epoch=prior_epoch,
+        rtf=2,
+        cpu_rqmt=2,
+    )
+
+
+def decode_triphone(
+    s: fh_system.FactoredHybridSystem,
+    key: str,
+    crp_k: str,
+    returnn_config: returnn.ReturnnConfig,
+    epoch: int,
+    prior_epoch: int,
+):
+    pass
 
 
 def get_monophone_network(
