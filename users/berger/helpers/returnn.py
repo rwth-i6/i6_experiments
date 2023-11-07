@@ -2,7 +2,6 @@ from i6_core import returnn
 from sisyphus import tk
 from i6_experiments.users.berger.util import ToolPaths
 from i6_core.returnn import ReturnnConfig
-from returnn_common.nn.naming import ReturnnDimTagsProxy
 
 def get_native_lstm_op(tool_paths: ToolPaths) -> tk.Path:
     # DO NOT USE BLAS ON I6, THIS WILL SLOW DOWN RECOGNITION ON OPTERON MACHNIES BY FACTOR 4
@@ -20,6 +19,8 @@ def serialize_dim_tags(config: ReturnnConfig) -> ReturnnConfig:
     Serialize dim tags in a given RETURNN config.
     Copied from i6_private/users/vieting/helpers/returnn.py
     """
+    from returnn_common.nn.naming import ReturnnDimTagsProxy
+
     dim_tags_proxy = ReturnnDimTagsProxy()
     config_serialized = dim_tags_proxy.collect_dim_tags_and_transform_config(
         config.config
