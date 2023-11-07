@@ -561,10 +561,7 @@ def augment_net_with_diphone_outputs(
 
     if use_multi_task:
         network["currentState"] = get_embedding_layer(source="centerState", dim=st_emb_size, l2=l2)
-        network[f"{prefix}linear1-triphone"]["from"] = [
-            encoder_output_layer,
-            "currentState",
-        ]
+        network[f"{prefix}linear1-triphone"]["from"] = [encoder_output_layer, "currentState"]
     else:
         loss_opts = copy.deepcopy(network[f"{prefix}center-output"]["loss_opts"])
         loss_opts["label_smoothing"] = label_smoothing
