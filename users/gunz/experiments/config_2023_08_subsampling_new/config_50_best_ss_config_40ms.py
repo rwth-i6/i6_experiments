@@ -193,6 +193,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
             train_corpus_key=s.crp_names["train"],
             dev_corpus_key=s.crp_names["cvtrain"],
             nn_train_args=train_args,
+            on_2080=True,
         )
 
     for (key, returnn_config), ep, crp_k in itertools.product(zip(keys, configs), keep_epochs, ["dev-other"]):
@@ -2351,7 +2352,7 @@ def get_conformer_config(
         "classes_": {
             **network["classes_"],
             "from": "slice_classes",
-            "set_dim_tags": {"T": returnn.CodeWrapper(f"{time_tag_name}.ceildiv_right(2).ceildiv_right(2)")},
+            "set_dim_tags": {"T": returnn.CodeWrapper(f"{time_tag_name}.ceildiv_right({ss_factor})")},
         },
         "slice_classes": {
             "axis": "T",
