@@ -168,11 +168,17 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
     returnn_cfg_di = get_diphone_network(
         returnn_config=returnn_config, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     )
+    returnn_cfg_di_add = get_diphone_network(
+        returnn_config=returnn_config, additive=True, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
+    )
     returnn_cfg_tri = get_triphone_network(
         returnn_config=returnn_config, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     )
-    configs = [returnn_cfg_mo, returnn_cfg_di, returnn_cfg_tri]
-    names = ["mono", "di", "tri"]
+    returnn_cfg_tri_add = get_triphone_network(
+        returnn_config=returnn_config, additive=True, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
+    )
+    configs = [returnn_cfg_mo, returnn_cfg_di, returnn_cfg_di_add, returnn_cfg_tri, returnn_cfg_tri_add]
+    names = ["mono", "di", "di-add", "tri", "tri-add"]
     keys = [f"fh-{name}" for name in names]
 
     for cfg, name, key in zip(configs, names, keys):
@@ -547,6 +553,7 @@ def get_diphone_network(
     conf_model_dim: int,
     l2: float,
     label_info: LabelInfo,
+    additive: bool = False,
     out_layer_name: str = "encoder-output",
 ) -> returnn.ReturnnConfig:
     network = augment_net_with_monophone_outputs(
@@ -571,6 +578,20 @@ def get_diphone_network(
         st_emb_size=label_info.st_emb_size,
         use_multi_task=True,
     )
+
+    if additive:
+        network["pastEmbed"]["n_out"] = conf_model_dim
+        network["linear1-diphone-linear"] = {
+            **network["linear1-diphone"],
+            "from": "linear1-diphone",
+        }
+        network["linear2-diphone"]["from"] = "linear1-diphone-linear"
+        network["linear1-diphone"] = {
+            "class": "combine",
+            "kind": "add",
+            "from": network["linear1-diphone"]["from"],
+        }
+
     returnn_config = copy.deepcopy(returnn_config)
     returnn_config.config["network"] = network
     return returnn_config
@@ -581,6 +602,7 @@ def get_triphone_network(
     conf_model_dim: int,
     l2: float,
     label_info: LabelInfo,
+    additive: bool = False,
     out_layer_name: str = "encoder-output",
 ) -> returnn.ReturnnConfig:
     network = augment_net_with_monophone_outputs(
@@ -603,6 +625,33 @@ def get_triphone_network(
         st_emb_size=label_info.st_emb_size,
         variant=PhoneticContext.triphone_forward,
     )
+
+    if additive:
+        network["pastEmbed"]["n_out"] = conf_model_dim
+        network["currentState"]["n_out"] = conf_model_dim
+
+        network["linear1-diphone-linear"] = {
+            **network["linear1-diphone"],
+            "from": "linear1-diphone",
+        }
+        network["linear2-diphone"]["from"] = "linear1-diphone-linear"
+        network["linear1-diphone"] = {
+            "class": "combine",
+            "kind": "add",
+            "from": network["linear1-diphone"]["from"],
+        }
+
+        network["linear1-triphone-linear"] = {
+            **network["linear1-triphone"],
+            "from": "linear1-triphone",
+        }
+        network["linear2-triphone"]["from"] = "linear1-triphone-linear"
+        network["linear1-triphone"] = {
+            "class": "combine",
+            "kind": "add",
+            "from": network["linear1-triphone"]["from"],
+        }
+
     returnn_config = copy.deepcopy(returnn_config)
     returnn_config.config["network"] = network
     return returnn_config
