@@ -344,51 +344,28 @@ def run_single(
         )
         recog_args = recog_args.with_lm_scale(round(recog_args.lm_scale / float(ss_factor), 2)).with_tdp_scale(0.1)
 
-        # Top 3 from monophone TDP study
-        good_values = [
-            ((3, 0, "infinity", 0), (3, 10, "infinity", 10)),  # 8,8%
-            ((3, 0, "infinity", 3), (3, 10, "infinity", 10)),  # 8,9%
-            ((3, 0, "infinity", 0), (10, 10, "infinity", 10)),  # 9,0%
-        ]
-
-        for cfg in [
-            recog_args.with_prior_scale(0.4, 0.4, 0.2),
-            recog_args.with_tdp_scale(0.4)
-            .with_prior_scale(0.3, 0.2, 0.2)
-            .with_tdp_speech((3, 0, "infinity", 0))
-            .with_tdp_silence((10, 10, "infinity", 10)),
-            *(
-                recog_args.with_prior_scale(0.4, 0.4, 0.2)
-                .with_tdp_scale(0.4)
-                .with_tdp_speech(tdp_sp)
-                .with_tdp_silence(tdp_sil)
-                for tdp_sp, tdp_sil in good_values
-            ),
-        ]:
-            recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=cfg,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=True,
-                calculate_stats=True,
-                rtf_cpu=35,
-            )
+        recognizer.recognize_count_lm(
+            label_info=s.label_info,
+            search_parameters=recog_args,
+            num_encoder_output=conf_model_dim,
+            rerun_after_opt_lm=True,
+            calculate_stats=True,
+            rtf_cpu=35,
+        )
 
         if tune_decoding and ep == keep_epochs[-1]:
             best_config = recognizer.recognize_optimize_scales(
                 label_info=s.label_info,
                 search_parameters=recog_args,
                 num_encoder_output=conf_model_dim,
-                tdp_speech=[(3, 0, "infinity", 0)],
-                tdp_sil=[(10, 10, "infinity", 10), (0, 3, "infinity", 20)],
                 prior_scales=list(
                     itertools.product(
-                        np.linspace(0.1, 0.5, 5),
-                        np.linspace(0.0, 0.4, 3),
-                        np.linspace(0.0, 0.4, 3),
+                        np.linspace(0.4, 0.8, 3),
+                        np.linspace(0.4, 0.8, 3),
+                        np.linspace(0.2, 0.6, 3),
                     )
                 ),
-                tdp_scales=[0.2, 0.4, 0.6] if "FF" in alignment_name else [0.4],
+                tdp_scales=np.linspace(0.2, 0.6, 3),
             )
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
