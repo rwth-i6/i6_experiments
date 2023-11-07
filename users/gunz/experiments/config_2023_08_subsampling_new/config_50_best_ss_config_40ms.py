@@ -2358,7 +2358,6 @@ def get_conformer_config(
             "axis": "T",
             "class": "slice",
             "from": "data:classes",
-            "out_type": {"dim": 3528, "dtype": "int32", "sparse": True},
             "slice_step": ss_factor,
         },
     }
