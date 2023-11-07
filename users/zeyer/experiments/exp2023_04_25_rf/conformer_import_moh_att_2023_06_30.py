@@ -16,6 +16,7 @@ from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSu
 
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep, dict_update_delete_deep
 from i6_experiments.users.zeyer.lr_schedules.lin_warmup_invsqrt_decay import dyn_lr_lin_warmup_invsqrt_decay
+from i6_experiments.users.zeyer.lr_schedules.combine_eval import dyn_lr_combine_eval
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
@@ -90,6 +91,15 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
     _train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)
     _train_exp("base-24gb-v4", config_24gb_v4)
+    _train_exp(
+        "base-24gb-v4-lrcos",
+        config_24gb_v4,
+        config_updates={
+            "dynamic_learning_rate": dyn_lr_combine_eval,
+            "learning_rate_eval": "orig * (np.cos(global_train_step / 10_000 * 2 * np.pi) * 0.49995 + 0.50005)",
+            "learning_rate_eval_locals": {"orig": dyn_lr_lin_warmup_invsqrt_decay},
+        },
+    )
     _train_exp(
         "base-24gb-v3-lr1e_3-specaugorig",
         config_24gb_v3,
