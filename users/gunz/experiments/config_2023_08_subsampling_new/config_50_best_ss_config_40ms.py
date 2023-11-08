@@ -26,7 +26,6 @@ from ...setups.fh import system as fh_system
 from ...setups.fh.factored import LabelInfo, PhoneticContext, RasrStateTying
 from ...setups.fh.network import aux_loss, diphone_joint_output, extern_data
 from ...setups.fh.network.augment import (
-    SubsamplingInfo,
     augment_net_with_diphone_outputs,
     augment_net_with_monophone_outputs,
     augment_net_with_label_pops,
@@ -150,6 +149,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
             "keep_last_n": 5,
             "keep": keep_epochs,
         },
+        "learning_rate_file": "lr.log",
     }
     update_config = returnn.ReturnnConfig(
         config=s.initial_nn_args,
