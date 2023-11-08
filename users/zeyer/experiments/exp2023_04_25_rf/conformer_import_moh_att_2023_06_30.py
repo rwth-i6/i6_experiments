@@ -45,25 +45,26 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     _train_exp("from-scratch-train", config, gpu_mem=None)
 
-    _train_exp(
+    _train_exp(  # dev-other 7.6
         "base-24gb-bs30k-f32",
         config_24gb,
         config_updates={"batch_size": 30_000 * _batch_size_factor},
         config_deletes=["torch_amp"],
     )
 
-    _train_exp("base-24gb-v2-lr1e_3", config_24gb_v2, config_updates={"learning_rate": 0.001})
-    _train_exp(
+    _train_exp("base-24gb-v2-lr1e_3", config_24gb_v2, config_updates={"learning_rate": 0.001})  # dev-other 7.44
+    _train_exp(  # dev-other 7.24
         "base-24gb-v2-lr1e_3-nogradscaler", config_24gb_v2, config_updates={"learning_rate": 0.001, "grad_scaler": None}
     )
 
+    # base-24gb-v3: diverges at later point
     _train_exp(
         "base-24gb-v3-lr1e_3-wd1e_3",
         config_24gb_v3,
         config_updates={"learning_rate": 0.001, "optimizer.weight_decay": 0.001},
     )
-    _train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})
-    _train_exp(
+    _train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})  # 7.56
+    _train_exp(  # dev-other 7.01 (epoch 1964)
         "base-24gb-v3-lr1e_3",
         config_24gb_v3,
         config_updates={"learning_rate": 0.001},

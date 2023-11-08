@@ -21,7 +21,10 @@ TODO:
 
 - data loading, shuffling, batching, more like ESPnet?
 - optimizer, weight decay
-- LR scheduling
+- LR scheduling:
+  - std: Noam (like ESPnet): lin warmup, inv sqrt decay 
+  - lrlin: lin warmup, lin decay, lin decay finetune
+  - lrcos: multiply with cos
 - loss normalization, mean batch, mean all, or sum? also div by grad accum?
 - feature normalization?
 - param init. Linear is different
@@ -49,6 +52,8 @@ TODO:
   - start LR = initial LR or most recent?
   - final LR?
   - how long? 50? 100? 200 subepochs?
+
+- nogradscaler: with bfloat16, seems better without grad scaler
 
 TODO model changes:
 
