@@ -8,6 +8,8 @@ from i6_core.rasr import WriteFlowNetworkJob
 from sisyphus import Path
 from sisyphus.delayed_ops import DelayedFormat
 
+from ..tdp import TDP
+
 
 BIGRAM_LM = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/lm/bigram.seq_train.gz"
 
@@ -30,8 +32,8 @@ class SmbrParameters:
     posterior_tolerance: int = 100
 
     nonword_phones = ["[UNKNOWN]"]
-    tdp_speech = (3, 0, "infinity", 0)
-    tdp_silence = (0, 3, "infinity", 20)
+    tdp_speech: TDP = (3.0, 0.0, "infinity", 0.0)
+    tdp_silence: TDP = (0.0, 3.0, "infinity", 20.0)
 
 
 @dataclass(frozen=True)
