@@ -1036,11 +1036,14 @@ def conformer_baseline():
 
     for ep in [20 * 4]:
         for const_ep in [2 * 4]:
-            for lr in [1e-4, 2e-4, 3e-4]:
+            for lr in [2e-4]:
                 for loss_type, lb_scale, ub_scale, ub_limit in [
                     ("l1", 1e-3, 0.0, 20),
                     ("l1", 1e-3, 1e-3, 20),
                     ("l1", 0.8, 0.2, 20),
+                    ("l1", 0.8, 0.2, 10),
+                    ("l1", 0.8, 0.2, 5),
+                    ("l1", 1.0, 1.0, 20),
                 ]:
                     retrain_args = copy.deepcopy(args)
                     retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[best_model_name]

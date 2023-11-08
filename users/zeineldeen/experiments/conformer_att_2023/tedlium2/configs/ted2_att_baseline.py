@@ -1086,16 +1086,6 @@ def conformer_baseline():
                                     partition_epoch=4,
                                 )
 
-                                # TODO: smaller bpes
-                                _, train_data = run_exp(
-                                    name + "_bpe500",
-                                    args,
-                                    num_epochs=ep,
-                                    epoch_wise_filter=None,
-                                    bpe_size=BPE_500,
-                                    partition_epoch=4,
-                                )
-
                                 # TODO: grad clip 5
                                 grad_clip_args = copy.deepcopy(args)
                                 grad_clip_args["gradient_clip_global_norm"] = 5
