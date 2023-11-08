@@ -955,6 +955,8 @@ def run_single(
                     returnn_config_smbr.config["network"].pop(l)
 
                 base_crp = copy.deepcopy(s.crp[s.crp_names["train"]])
+                base_crp.lexicon_config.normalize_pronunciation = True
+
                 tdp_values = get_tdp_values()["default"]
                 for ind, ele in enumerate(["loop", "forward", "skip", "exit"]):
                     for ty in ["*", "silence"]:
