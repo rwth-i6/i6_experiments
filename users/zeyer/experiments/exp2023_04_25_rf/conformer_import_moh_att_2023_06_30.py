@@ -70,7 +70,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         config_updates={"learning_rate": 0.001},
         fine_tune=[
             # (ep 1280 itself is dev-other 7.34)
-            (1280, {}),  # (num ep 50) 7.22
+            (1280, {"num_epochs": 50}),  # 7.22
             (1280, {"num_epochs": 100}),  # 7.08
             (1280, {"num_epochs": 200}),  # 7.03
             # (ep 2000 is 7.03)
