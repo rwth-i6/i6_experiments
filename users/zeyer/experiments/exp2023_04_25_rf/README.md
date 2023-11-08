@@ -5,9 +5,16 @@
 * [Check older experiments on Conformer](../exp2022_07_21_transducer/exp_fs_base/README.md),
   example: conformer_ln_pre10_d384_h6_blstmf2_fix245_wdro_specaugweia_attdrop01_posdrop01_aux48ff_mhsapinit05_lsxx01
 
+Experiments:
+
+- CTC/AED loss scales? unclear results, all worse than 1.0/1.0. also tried with loss normalization.
+- aux48ff, or aux4812ff: aux CTC. variant just aux12 (on top) did not work
+- gradient clipping? global norm variant. 5.0. seems to solve hiccups. 
+- bfloat16 vs float16 vs float32: float16 gives nan, bfloat16 seems to work just like float32 
+- grad_scaler: not needed for bfloat16, even better without (nogradscaler)
+
 TODO:
 
-- aux48ff, or aux4812ff: aux CTC
 - attdrop01
 - posdrop01
 - wdf?
@@ -35,16 +42,12 @@ TODO:
 - dropout mask like TF, broadcast over time?
 - mixup (port over TF code)
 
-- CTC/AED loss scales?
-- gradient clipping? global norm variant. 5.0. seems to solve hiccups. 
-- bfloat16 vs float16 vs float32: float16 gives nan, bfloat16 seems to work just like float32 
-- grad_scaler: not needed for bfloat16
 - adamw vs adam? note that weight decay param needs to be retuned
 - weight decay? (also dependent on whether adam or adamw)
 - weight decay only on selected layers/modules, like in TF, e.g. not so much on decoder
 - adam eps? 1e-16 is what we had in TF, maybe better?
 - try CTC only
-- try no specaugment (should overfit then, i.e. reach train loss 0)
+- try no specaugment (should overfit then, i.e. reach train loss 0). try orig specaugment
 
 - fine tune:
   - linspace vs geomspace?
@@ -53,7 +56,6 @@ TODO:
   - final LR?
   - how long? 50? 100? 200 subepochs?
 
-- nogradscaler: with bfloat16, seems better without grad scaler
 
 TODO model changes:
 
