@@ -955,13 +955,6 @@ def run_single(
                     returnn_config_smbr.config["network"].pop(l)
 
                 base_crp = copy.deepcopy(s.crp[s.crp_names["train"]])
-                base_crp.lexicon_config.normalize_pronunciation = True
-
-                tdp_values = get_tdp_values()["default"]
-                for ind, ele in enumerate(["loop", "forward", "skip", "exit"]):
-                    for ty in ["*", "silence"]:
-                        base_crp.acoustic_model_config["tdp"][ty][ele] = tdp_values[ty][ind]
-
                 returnn_config_smbr = seq_disc.augment_for_smbr(
                     crp=base_crp,
                     feature_flow_lattice_generation=lattice_feature_flow,

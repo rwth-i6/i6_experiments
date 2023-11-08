@@ -3,11 +3,10 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Union, Tuple
 
+from i6_core import am, corpus, discriminative_training, rasr, returnn
 from i6_core.rasr import WriteFlowNetworkJob
 from sisyphus import Path
 from sisyphus.delayed_ops import DelayedFormat
-
-from i6_core import corpus, discriminative_training, rasr, returnn
 
 
 BIGRAM_LM = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/lm/bigram.seq_train.gz"
@@ -29,6 +28,10 @@ class SmbrParameters:
     criterion: Criterion = Criterion.ME
     margin: float = 0.0
     posterior_tolerance: int = 100
+
+    nonword_phones = ["[UNKNOWN]"]
+    tdp_speech = (3, 0, "infinity", 0)
+    tdp_silence = (0, 3, "infinity", 20)
 
 
 @dataclass(frozen=True)
@@ -244,7 +247,20 @@ def augment_for_smbr(
     assert num_rasr_instances > 0
 
     crp = copy.deepcopy(crp)
+
+    am_config = am.acoustic_model_config(
+        tdp_scale=1.0,
+        tdp_transition=smbr_params.tdp_speech,
+        tdp_silence=smbr_params.tdp_silence,
+        tdp_nonword=smbr_params.tdp_silence,
+        nonword_phones=smbr_params.nonword_phones,
+        tying_type="global-and-nonword",
+    )
+    crp.acoustic_model_config.tdp = am_config.tdp
     crp.acoustic_model_config.tdp.applicator_type = "corrected"
+
+    crp.lexicon_config.normalize_pronunciation = True
+
     if crp.language_model_config is None:
         crp.language_model_config = rasr.RasrConfig()
     crp.language_model_config.file = (
