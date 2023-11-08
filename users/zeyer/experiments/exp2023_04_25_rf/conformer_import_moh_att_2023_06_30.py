@@ -76,14 +76,23 @@ def sis_run_with_prefix(prefix_name: str = None):
             # (ep 2000 is 7.03)
             (2000, {"num_epochs": 100}),  # 6.93
             (2000, {"num_epochs": 200}),  # dev-other* 6.84, test-other 7.06
+            (2000, {"num_epochs": 200, "final_lr": 1e-6}),
             (2000, {"num_epochs": 200, "lr_decay_type": "linspace"}),  # 6.95
             (2000, {"num_epochs": 200, "lr_decay_type": "linspace", "final_lr": 1e-6}),  # dev-ot 6.94, test-other* 7.01
             (
                 2000,
                 {
                     "num_epochs": 200,
-                    "_lr_decay_type": "L3_5_150_L7_50",  # dev-other 6.89
+                    "_lr_decay_type": "L3_5_150_L7_50",  # dev-other 6.89, test-other 7.20
                     "learning_rates": list(np.linspace(1e-3, 1e-5, num=150)) + list(np.linspace(1e-5, 1e-7, num=50)),
+                },
+            ),
+            (
+                2000,
+                {
+                    "num_epochs": 200,
+                    "_lr_decay_type": "L3_5_180_L6_20",
+                    "learning_rates": list(np.linspace(1e-3, 1e-5, num=180)) + list(np.linspace(1e-5, 1e-6, num=20)),
                 },
             ),
         ],
