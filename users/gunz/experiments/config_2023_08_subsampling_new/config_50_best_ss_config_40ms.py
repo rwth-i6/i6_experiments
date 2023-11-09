@@ -131,6 +131,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
 
     # ---------------------- returnn config---------------
     CONF_MODEL_DIM = 512
+    PARTITION_EPOCHS = {"train": 20, "dev": 1}
     SS_FACTOR = 4
     TENSOR_CONFIG = dataclasses.replace(
         CONF_FH_DECODING_TENSOR_CONFIG,
@@ -142,12 +143,12 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
     returnn_config = get_conformer_config(
         conf_model_dim=CONF_MODEL_DIM, label_info=s.label_info, time_tag_name=time_tag_name, ss_factor=SS_FACTOR
     )
-    keep_epochs = [100, 200, 300, 350, 400]
+    viterbi_keep_epochs = [100, 200, 300, 350, 400]
     base_post_config = {
         "cleanup_old_models": {
             "keep_best_n": 3,
             "keep_last_n": 5,
-            "keep": keep_epochs,
+            "keep": viterbi_keep_epochs,
         },
     }
     update_config = returnn.ReturnnConfig(
@@ -189,8 +190,8 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
 
         train_args = {
             **s.initial_train_args,
-            "num_epochs": keep_epochs[-1],
-            "partition_epochs": {"train": 20, "dev": 1},
+            "num_epochs": viterbi_keep_epochs[-1],
+            "partition_epochs": PARTITION_EPOCHS,
             "returnn_config": copy.deepcopy(cfg),
         }
         s.returnn_rasr_training(
@@ -201,20 +202,35 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
             on_2080=True,
         )
 
-    for (key, returnn_config), ep, crp_k in itertools.product(zip(keys, configs), keep_epochs, ["dev-other"]):
+    for (key, returnn_config), ep, crp_k in itertools.product(zip(keys, configs), viterbi_keep_epochs, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
         if "mono" in key:
             decode_monophone(
-                s, key=key, crp_k=crp_k, returnn_config=returnn_config, epoch=ep, prior_epoch=min(ep, keep_epochs[-2])
+                s,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=returnn_config,
+                epoch=ep,
+                prior_epoch=min(ep, viterbi_keep_epochs[-2]),
             )
         elif "di" in key:
             decode_diphone(
-                s, key=key, crp_k=crp_k, returnn_config=returnn_config, epoch=ep, prior_epoch=min(ep, keep_epochs[-2])
+                s,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=returnn_config,
+                epoch=ep,
+                prior_epoch=min(ep, viterbi_keep_epochs[-2]),
             )
         elif "tri" in key:
             decode_triphone(
-                s, key=key, crp_k=crp_k, returnn_config=returnn_config, epoch=ep, prior_epoch=min(ep, keep_epochs[-2])
+                s,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=returnn_config,
+                epoch=ep,
+                prior_epoch=min(ep, viterbi_keep_epochs[-2]),
             )
         else:
             raise ValueError(f"unknown name {key}")
@@ -222,10 +238,108 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
     # ###########
     # FINE TUNING
     # ###########
+    fine_tune_keep_epochs = [25, 150, 275, 300]
+
+    lrates = oclr.get_learning_rates(
+        lrate=5e-5,
+        increase=0,
+        constLR=math.floor(fine_tune_keep_epochs[-1] * 0.45),
+        decay=math.floor(fine_tune_keep_epochs[-1] * 0.45),
+        decMinRatio=0.1,
+        decMaxRatio=1,
+    )
+    constant_linear_decrease_lr_config = returnn.ReturnnConfig(
+        config={
+            "learning_rates": list(
+                np.concatenate([lrates, np.linspace(min(lrates), 1e-6, fine_tune_keep_epochs[-1] - len(lrates))])
+            )
+        },
+        python_epilog={"dynamic_lr_reset": "dynamic_learning_rate = None"},
+    )
+    newbob_lr_config = returnn.ReturnnConfig(
+        config={}, python_epilog={"dynamic_lr_reset": "dynamic_learning_rate = None"}
+    )
+
+    # ####################
+    # TWO STAGE MULTISTAGE
+    # ####################
+    mono_train_job = s.experiments["fh-mono"]["train_job"]
+    import_mono_config = returnn.ReturnnConfig(
+        config={
+            "preload_from_files": {
+                "existing-model": {
+                    "init_for_train": True,
+                    "ignore_missing": True,
+                    "filename": mono_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
+                }
+            },
+        }
+    )
+
+    di_add_train_job = s.experiments["fh-di-add"]["train_job"]
+    import_di_add_config = returnn.ReturnnConfig(
+        config={
+            "preload_from_files": {
+                "existing-model": {
+                    "init_for_train": True,
+                    "ignore_missing": True,
+                    "filename": di_add_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
+                }
+            },
+        }
+    )
+
+    di_from_mono_constant_lr_config = copy.deepcopy(returnn_cfg_di_add)
+    di_from_mono_constant_lr_config.update(constant_linear_decrease_lr_config)
+    di_from_mono_constant_lr_config.update(import_mono_config)
+
+    di_from_mono_newbob_config = copy.deepcopy(returnn_cfg_di_add)
+    di_from_mono_newbob_config.update(newbob_lr_config)
+    di_from_mono_newbob_config.update(import_mono_config)
+
+    tri_from_di_add_constant_lr_config = copy.deepcopy(returnn_cfg_tri_add)
+    tri_from_di_add_constant_lr_config.update(constant_linear_decrease_lr_config)
+    tri_from_di_add_constant_lr_config.update(import_di_add_config)
+
+    tri_from_di_add_newbob_config = copy.deepcopy(returnn_cfg_tri_add)
+    tri_from_di_add_newbob_config.update(newbob_lr_config)
+    tri_from_di_add_newbob_config.update(import_di_add_config)
+
+    configs = [
+        (di_from_mono_constant_lr_config, "di-add-constlr-from-mono"),
+        (di_from_mono_newbob_config, "di-add-newbob-from-mono"),
+        (tri_from_di_add_constant_lr_config, "tri-add-constlr-from-di-add"),
+        (tri_from_di_add_newbob_config, "tri-add-newbob-from-di-add"),
+    ]
+    keys = [f"fh-{name}" for _, name in configs]
+    for (cfg, name), key in zip(configs, keys):
+        post_name = f"conf-{name}-zhou"
+        print(f"fh {post_name}")
+
+        s.set_experiment_dict(key, exp.alignment_name, name, postfix_name=post_name)
+        s.set_returnn_config_for_experiment(key, copy.deepcopy(cfg))
+
+        train_args = {
+            **s.initial_train_args,
+            "num_epochs": fine_tune_keep_epochs[-1],
+            "partition_epochs": PARTITION_EPOCHS,
+            "returnn_config": copy.deepcopy(cfg),
+        }
+        s.returnn_rasr_training(
+            experiment_key=key,
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            nn_train_args=train_args,
+            on_2080=True,
+        )
+
+    # ###########
+    # FINE TUNING
+    # ###########
 
     if False:
         fine_tune_epochs = 300
-        keep_epochs = [25, 150, 275, 300]
+        viterbi_keep_epochs = [25, 150, 275, 300]
         orig_name = name
 
         bw_scales = [
@@ -295,7 +409,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
                     },
                     "extern_data": {"data": {"dim": 50}},
                 },
-                post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": keep_epochs}},
+                post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": viterbi_keep_epochs}},
                 python_epilog={
                     "dynamic_lr_reset": "dynamic_learning_rate = None",
                 },
@@ -317,12 +431,12 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
                 nn_train_args=train_args,
             )
 
-            for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
+            for ep, crp_k in itertools.product(viterbi_keep_epochs, ["dev-other"]):
                 s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
                 s.set_mono_priors_returnn_rasr(
                     key="fh-fs",
-                    epoch=min(ep, keep_epochs[-2]),
+                    epoch=min(ep, viterbi_keep_epochs[-2]),
                     train_corpus_key=s.crp_names["train"],
                     dev_corpus_key=s.crp_names["cvtrain"],
                     smoothen=True,
@@ -354,7 +468,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
                 for cfg in decoding_cfgs:
                     trafo = (
                         False
-                        and ep == max(keep_epochs)
+                        and ep == max(viterbi_keep_epochs)
                         and bw_scale.label_posterior_scale == 1.0
                         and bw_scale.transition_scale == 0.3
                     )
@@ -368,7 +482,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
                         log_softmax_returnn_config=nn_precomputed_returnn_config,
                         calculate_statistics=True,
                         opt_lm_am_scale=True,
-                        prior_epoch=min(ep, keep_epochs[-2]),
+                        prior_epoch=min(ep, viterbi_keep_epochs[-2]),
                         decode_trafo_lm=trafo,
                         rtf=12 * (2 if trafo else 1),
                         cpu_rqmt=2,
@@ -395,7 +509,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
                     for cfg in configs:
                         j = s.recognize_cart(
                             key="fh-fs",
-                            epoch=max(keep_epochs),
+                            epoch=max(viterbi_keep_epochs),
                             calculate_statistics=True,
                             cart_tree_or_tying_config=tying_cfg,
                             cpu_rqmt=2,
@@ -404,13 +518,13 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
                             log_softmax_returnn_config=nn_precomputed_returnn_config,
                             mem_rqmt=4,
                             n_cart_out=diphone_li.get_n_of_dense_classes(),
-                            prior_epoch=min(ep, keep_epochs[-2]),
+                            prior_epoch=min(ep, viterbi_keep_epochs[-2]),
                             params=cfg,
                             rtf=1.5,
                         )
                         j.rqmt.update({"sbatch_args": ["-p", "rescale_amd"]})
 
-            for ep, crp_k in itertools.product([max(keep_epochs)], ["test-other"]):
+            for ep, crp_k in itertools.product([max(viterbi_keep_epochs)], ["test-other"]):
                 s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
                 diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
@@ -434,7 +548,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
                 ]
                 for cfg in decoding_cfgs:
                     trafo = (
-                        ep == max(keep_epochs)
+                        ep == max(viterbi_keep_epochs)
                         and bw_scale.label_posterior_scale == 1.0
                         and bw_scale.transition_scale == 0.3
                     )
@@ -448,7 +562,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
                         log_softmax_returnn_config=nn_precomputed_returnn_config,
                         calculate_statistics=True,
                         opt_lm_am_scale=False,
-                        prior_epoch=min(ep, keep_epochs[-2]),
+                        prior_epoch=min(ep, viterbi_keep_epochs[-2]),
                         decode_trafo_lm=trafo,
                         rtf=12 * (2 if trafo else 1),
                         cpu_rqmt=2,
@@ -457,7 +571,9 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
     if False:
         assert False, "this is broken r/n"
 
-        for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-clean", "dev-other", "test-clean", "test-other"]):
+        for ep, crp_k in itertools.product(
+            [max(viterbi_keep_epochs)], ["dev-clean", "dev-other", "test-clean", "test-other"]
+        ):
             s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
             recognizer, recog_args = s.get_recognizer_and_args(
