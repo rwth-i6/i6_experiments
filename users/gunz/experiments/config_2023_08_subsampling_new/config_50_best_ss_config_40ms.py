@@ -644,7 +644,49 @@ def decode_monophone(
     epoch: int,
     prior_epoch: int,
 ):
-    pass
+    clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+
+    s.set_mono_priors_returnn_rasr(
+        key=key,
+        epoch=prior_epoch,
+        train_corpus_key=s.crp_names["train"],
+        dev_corpus_key=s.crp_names["cvtrain"],
+        smoothen=True,
+        returnn_config=clean_returnn_config,
+        output_layer_name="center-output",
+    )
+
+    monophone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
+    nn_pch_config = copy.deepcopy(clean_returnn_config)
+    nn_pch_config.config["network"]["center-output"] = {
+        **nn_pch_config.config["network"]["center-output"],
+        "class": "linear",
+        "activation": "log_softmax",
+    }
+    nn_pch_config.config["network"]["output"] = {
+        "class": "copy",
+        "from": "center-output",
+        "register_as_extern_data": "output",
+    }
+    search_params = dataclasses.replace(s.get_cart_params(key), beam=22, lm_scale=2.0, tdp_scale=0.4).with_prior_scale(
+        0.6
+    )
+    tying_cfg = rasr.RasrConfig()
+    tying_cfg.type = "monophone-dense"
+    s.recognize_cart(
+        key=key,
+        epoch=epoch,
+        crp_corpus=crp_k,
+        n_cart_out=monophone_li.get_n_of_dense_classes(),
+        cart_tree_or_tying_config=tying_cfg,
+        params=search_params,
+        log_softmax_returnn_config=nn_pch_config,
+        calculate_statistics=True,
+        opt_lm_am_scale=True,
+        prior_epoch=prior_epoch,
+        rtf=2,
+        cpu_rqmt=2,
+    )
 
 
 def decode_diphone(
