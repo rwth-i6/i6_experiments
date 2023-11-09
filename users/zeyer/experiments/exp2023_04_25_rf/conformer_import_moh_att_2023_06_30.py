@@ -8,6 +8,7 @@ import tree
 import math
 import numpy as np
 import hashlib
+import contextlib
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -549,7 +550,10 @@ class Model(rf.Module):
             **self._specaugment_opts,
         )
         # Encoder including convolutional frontend
-        enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
+        with _opt_apply_pretrain_to_encoder(self.encoder, self._pretrain_opts):
+            enc, enc_spatial_dim = self.encoder(
+                source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
+            )
         enc_ctx = self.enc_ctx(enc)
         inv_fertility = rf.sigmoid(self.inv_fertility(enc))
         return dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility), enc_spatial_dim
@@ -753,6 +757,21 @@ def from_scratch_training(
 
 from_scratch_training: TrainDef[Model]
 from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
+
+
+@contextlib.contextmanager
+def _opt_apply_pretrain_to_encoder(encoder: ConformerEncoder, pretrain_opts: Optional[Dict[str, Any]]):
+    """Function is run within RETURNN."""
+    if not pretrain_opts:
+        yield
+        return
+    # TODO ...
+    # somewhat hacky but that is still the easiest way I can think of, without touching a lot of other code
+    pretrain_num_layers = 6  # TODO via opts
+    orig_layers = encoder.layers[:]
+    del encoder.layers[:pretrain_num_layers]
+    yield
+    encoder.layers[:] = orig_layers
 
 
 def model_recog(
