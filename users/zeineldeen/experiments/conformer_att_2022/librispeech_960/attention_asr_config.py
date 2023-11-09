@@ -130,6 +130,44 @@ def transform(
   return x
 """
 
+# allow disabled specaug initially (step configurable)
+specaug_transform_func_v2 = """
+def transform(
+    data,
+    network,
+    step0={step0},
+    step1={step1},
+    step2={step2},
+    max_time_dim={max_time_dim},
+    max_time_num={max_time_num},
+    min_num_add_factor={min_num_add_factor},
+    freq_dim_factor={freq_dim_factor},
+):
+  x = data.placeholder
+  from returnn.tf.compat import v1 as tf
+  step = network.global_train_step
+  step0 = tf.where(tf.greater_equal(step, step0), 1, 0)
+  step1 = tf.where(tf.greater_equal(step, step1), 1, 0)
+  step2 = tf.where(tf.greater_equal(step, step2), 1, 0)
+  def get_masked():
+      x_masked = x
+      x_masked = random_mask(
+        x_masked, batch_axis=data.batch_dim_axis, axis=data.time_dim_axis,
+        min_num=step1 + step2 + min_num_add_factor,
+        max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // max_time_num, 2) * (step0 + step1 + step2 * 2),
+        max_dims=max_time_dim
+      )
+      x_masked = random_mask(
+        x_masked, batch_axis=data.batch_dim_axis, axis=data.feature_dim_axis,
+        min_num=step1 + step2 + min_num_add_factor,
+        max_num=step0 * 2 + step1 + step2 * 2,
+        max_dims=data.dim // freq_dim_factor
+      )
+      return x_masked
+  x = network.cond_on_train(get_masked, lambda: x)
+  return x
+"""
+
 # -------------------------- Pretraining -------------------------- #
 
 
@@ -768,7 +806,14 @@ def create_config(
 
     if specaug_str_func_opts:
         python_prolog = specaugment.specaug_helpers.get_funcs()
-        extra_python_code += "\n" + specaug_transform_func.format(**specaug_str_func_opts)
+        version = specaug_str_func_opts["version"]
+        specaug_str_func_opts.pop("version")
+        if version == 1:
+            extra_python_code += "\n" + specaug_transform_func.format(**specaug_str_func_opts)
+        elif version == 2:
+            extra_python_code = "\n" + specaug_transform_func_v2.format(**specaug_str_func_opts)
+        else:
+            raise ValueError("Invalid specaug version")
     else:
         if specaug_version == 1:
             python_prolog = specaugment.specaug_tf2.get_funcs()  # type: list
