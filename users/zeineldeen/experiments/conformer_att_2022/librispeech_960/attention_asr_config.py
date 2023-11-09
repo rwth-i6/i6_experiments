@@ -806,12 +806,13 @@ def create_config(
 
     if specaug_str_func_opts:
         python_prolog = specaugment.specaug_helpers.get_funcs()
-        version = specaug_str_func_opts["version"]
-        specaug_str_func_opts.pop("version")
+        specaug_str_func_opts_ = copy.deepcopy(specaug_str_func_opts)
+        version = specaug_str_func_opts_["version"]
+        specaug_str_func_opts_.pop("version")
         if version == 1:
-            extra_python_code += "\n" + specaug_transform_func.format(**specaug_str_func_opts)
+            extra_python_code += "\n" + specaug_transform_func.format(**specaug_str_func_opts_)
         elif version == 2:
-            extra_python_code = "\n" + specaug_transform_func_v2.format(**specaug_str_func_opts)
+            extra_python_code = "\n" + specaug_transform_func_v2.format(**specaug_str_func_opts_)
         else:
             raise ValueError("Invalid specaug version")
     else:
