@@ -141,11 +141,16 @@ def sis_run_with_prefix(prefix_name: str = None):
         },
     )
     _train_exp(
+        "base-24gb-v4-pretrainBug",
+        config_24gb_v4,
+        config_updates={"pretrain_opts": {"steps": {4 * 500: {"num_layers": 8}, 8 * 500: {"num_layers": 2}}}},
+    )
+    _train_exp(
         "base-24gb-v4-pretrain",
         config_24gb_v4,
         config_updates={
             "pretrain_opts": {
-                "steps": {8 * 500: {"num_layers": 2}, 4 * 500: {"num_layers": 4}, 4 * 500: {"num_layers": 8}}
+                "steps": [(8 * 500, {"num_layers": 2}), (4 * 500, {"num_layers": 4}), (4 * 500, {"num_layers": 8})]
             }
         },
     )
@@ -775,7 +780,14 @@ def _opt_apply_pretrain_to_encoder(
         yield
         return
     step = rf.get_run_ctx().step
-    steps: Dict[int, Dict[str, Any]] = pretrain_opts["steps"]
+    steps: Union[Sequence[Tuple[int, Dict[str, Any]]], Dict[int, Dict[str, Any]]] = pretrain_opts["steps"]
+    if isinstance(steps, (list, tuple)):
+        steps_ = {}
+        step_bound = 0
+        for step_bound_rel, opts in steps:
+            step_bound += step_bound_rel
+            steps_[step_bound] = opts
+        steps = steps_
     assert isinstance(steps, dict)
     for step_bound, opts in sorted(steps.items()):
         if step < step_bound:
