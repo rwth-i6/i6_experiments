@@ -198,10 +198,14 @@ class RasrDecodingExperiment(DecodingExperiment):
           full_sum_decoding: bool,
           allow_recombination: bool,
           max_segment_len: int,
+          reduction_factor: int,
+          reduction_subtrahend: int,
           concurrent: int,
           **kwargs):
     super().__init__(**kwargs)
 
+    self.reduction_subtrahend = reduction_subtrahend
+    self.reduction_factor = reduction_factor
     self.concurrent = concurrent
     self.max_segment_len = max_segment_len
     self.allow_recombination = allow_recombination
@@ -264,7 +268,8 @@ class RasrDecodingExperiment(DecodingExperiment):
       blank_label_index=self.config_builder.variant_params["dependencies"].model_hyperparameters.blank_idx,
       skip_silence=False,
       label_recombination_limit=-1,
-      reduction_factors=6,
+      reduction_factors=self.reduction_factor,
+      reduction_subtrahend=self.reduction_subtrahend,
       debug=False,
       meta_graph_path=self._get_returnn_graph(),
       lm_lookahead=False,

@@ -177,6 +177,7 @@ class RasrConfigBuilder:
           simple_beam_search: bool,
           blank_label_index: int,
           reduction_factors: int,
+          reduction_subtrahend: int,
           start_label_index: int,
           blank_update_history: bool,
           loop_update_history: bool,
@@ -243,6 +244,7 @@ class RasrConfigBuilder:
     recognizer_config.label_scorer.label_scorer_type = label_scorer_type
     recognizer_config.label_scorer.max_batch_size = max_batch_size
     recognizer_config.label_scorer.reduction_factors = reduction_factors
+    recognizer_config.label_scorer.reduction_subtrahend = reduction_subtrahend
     recognizer_config.label_scorer.scale = 1.0
     recognizer_config.label_scorer.start_label_index = start_label_index
     recognizer_config.label_scorer.transform_output_negate = True
