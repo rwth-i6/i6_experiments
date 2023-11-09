@@ -103,6 +103,21 @@ def sis_run_with_prefix(prefix_name: str = None):
         config_24gb_v3,
         config_updates={"learning_rate": 0.001, "learning_rate_invsqrt_norm": 40_000},
     )
+    _train_exp(
+        "base-24gb-v3-lr1e_3-specaugorig",
+        config_24gb_v3,
+        config_updates={"learning_rate": 0.001},
+        config_deletes=[
+            "specaugment_num_spatial_mask_factor",
+            "specaugment_max_consecutive_feature_dims",
+        ],
+    )
+    _train_exp(
+        "base-24gb-v3-lr1e_3-lossscalesF",
+        config_24gb_v3,
+        config_updates={"learning_rate": 0.001, "aux_loss_scales": [0.1, 0.2], "aed_loss_scale": 0.7},
+    )
+
     _train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)
     _train_exp("base-24gb-v4", config_24gb_v4)
     _train_exp(
@@ -126,18 +141,13 @@ def sis_run_with_prefix(prefix_name: str = None):
         },
     )
     _train_exp(
-        "base-24gb-v3-lr1e_3-specaugorig",
-        config_24gb_v3,
-        config_updates={"learning_rate": 0.001},
-        config_deletes=[
-            "specaugment_num_spatial_mask_factor",
-            "specaugment_max_consecutive_feature_dims",
-        ],
-    )
-    _train_exp(
-        "base-24gb-v3-lr1e_3-lossscalesF",
-        config_24gb_v3,
-        config_updates={"learning_rate": 0.001, "aux_loss_scales": [0.1, 0.2], "aed_loss_scale": 0.7},
+        "base-24gb-v4-pretrain",
+        config_24gb_v4,
+        config_updates={
+            "pretrain_opts": {
+                "steps": {8 * 500: {"num_layers": 2}, 4 * 500: {"num_layers": 4}, 4 * 500: {"num_layers": 8}}
+            }
+        },
     )
 
 
@@ -521,10 +531,7 @@ class Model(rf.Module):
             "num_spatial_mask_factor": config.typed_value("specaugment_num_spatial_mask_factor") or 100,
         }
 
-        # TODO, step-based simple pretrain, initing whole model, using intermediate outputs
-        #  - interpolate between two settings each?
-        #  - zipformer, how is bypass module initialized?
-        self._pretrain_opts = {}
+        self._pretrain_opts: Optional[Dict[str, Any]] = config.typed_value("pretrain_opts")
 
     def encode(
         self,
@@ -550,7 +557,7 @@ class Model(rf.Module):
             **self._specaugment_opts,
         )
         # Encoder including convolutional frontend
-        with _opt_apply_pretrain_to_encoder(self.encoder, self._pretrain_opts):
+        with _opt_apply_pretrain_to_encoder(self.encoder, collected_outputs, self._pretrain_opts):
             enc, enc_spatial_dim = self.encoder(
                 source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
             )
@@ -760,18 +767,34 @@ from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
 
 
 @contextlib.contextmanager
-def _opt_apply_pretrain_to_encoder(encoder: ConformerEncoder, pretrain_opts: Optional[Dict[str, Any]]):
+def _opt_apply_pretrain_to_encoder(
+    encoder: ConformerEncoder, collected_outputs: Optional[Dict[str, Tensor]], pretrain_opts: Optional[Dict[str, Any]]
+):
     """Function is run within RETURNN."""
     if not pretrain_opts:
         yield
         return
-    # TODO ...
-    # somewhat hacky but that is still the easiest way I can think of, without touching a lot of other code
-    pretrain_num_layers = 6  # TODO via opts
-    orig_layers = encoder.layers[:]
-    del encoder.layers[:pretrain_num_layers]
+    step = rf.get_run_ctx().step
+    steps: Dict[int, Dict[str, Any]] = pretrain_opts["steps"]
+    assert isinstance(steps, dict)
+    for step_bound, opts in sorted(steps.items()):
+        if step < step_bound:
+            assert isinstance(opts, dict)
+            opts_ = opts.copy()
+            # somewhat hacky but that is still the easiest way I can think of, without touching a lot of other code
+            pretrain_num_layers = opts_.pop("num_layers")
+            assert not opts_, f"unhandled opts: {opts_} in opts {opts} for step bound {step_bound}"
+            orig_layers = encoder.layers[:]
+            del encoder.layers[pretrain_num_layers:]
+            yield
+            encoder.layers[:] = orig_layers
+            if collected_outputs is not None:
+                assert len(collected_outputs) == pretrain_num_layers
+                for i in range(pretrain_num_layers, len(orig_layers)):
+                    collected_outputs[str(i)] = collected_outputs[str(pretrain_num_layers - 1)]
+            return
     yield
-    encoder.layers[:] = orig_layers
+    return
 
 
 def model_recog(
