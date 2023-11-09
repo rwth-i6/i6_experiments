@@ -1001,6 +1001,29 @@ def conformer_baseline():
                 bpe_size=BPE_500,
             )
 
+            # wo pretraining and disable specaug initially
+            for with_pretrain in [False, True]:
+                args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
+                args["specaug_str_func_opts"] = {
+                    "version": 2,
+                    "step0": 6_000,
+                    "step1": 8_000,
+                    "step2": 10_000,
+                    "max_time_num": 100,
+                    "max_time_dim": 20,
+                    "min_num_add_factor": 0,
+                    "freq_dim_factor": 5,
+                }
+                args["with_pretrain"] = with_pretrain
+                args["decoder_args"].embed_dim = 256
+                run_default_exp(
+                    name + f"_embed256_specaugCurrV1" + ("_noPretrain" if not with_pretrain else ""),
+                    train_args=args,
+                    num_epochs=ep,
+                    gpu_mem=11,
+                    bpe_size=BPE_500,
+                )
+
     # TODO: longer train or retrain
     # conf_12l_dimF0.75_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_lr0.001_epochOCLR_specaug3_mixup-log10-nopre
     #   12.6       11.1     13.4  avg
