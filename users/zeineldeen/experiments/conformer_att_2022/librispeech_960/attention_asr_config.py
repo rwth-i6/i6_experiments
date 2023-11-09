@@ -812,7 +812,7 @@ def create_config(
         if version == 1:
             extra_python_code += "\n" + specaug_transform_func.format(**specaug_str_func_opts_)
         elif version == 2:
-            extra_python_code = "\n" + specaug_transform_func_v2.format(**specaug_str_func_opts_)
+            extra_python_code += "\n" + specaug_transform_func_v2.format(**specaug_str_func_opts_)
         else:
             raise ValueError("Invalid specaug version")
     else:
