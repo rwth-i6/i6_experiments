@@ -7,6 +7,8 @@ from typing import Optional, Any, Tuple, Dict, Sequence, List
 import tree
 from itertools import product
 
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.lm_import_2023_11_09 import \
+    Ted2_Trafo_LM_Model
 from sisyphus import tk
 
 from returnn.tensor import Tensor, Dim, single_step_dim
@@ -538,6 +540,8 @@ class Model(rf.Module):
 
         if model_args.get("add_lstm_lm", False):
             self.lstm_lm = LSTM_LM_Model(target_dim, target_dim)
+        if model_args.get("add_ted2_trafo_lm", False):
+            self.trafo_lm = Ted2_Trafo_LM_Model(target_dim, target_dim)
 
         self.inv_fertility = rf.Linear(
             self.encoder.out_dim, att_num_heads, with_bias=False

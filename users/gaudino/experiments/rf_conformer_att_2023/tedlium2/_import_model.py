@@ -22,7 +22,7 @@ import returnn.frontend as rf
 
 
 _returnn_tf_ckpt_filename = "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.yB4JK4GDCxWG/output/model/average"
-
+_ted2_lm_ckpt_filename = "/work/asr4/michel/setups-data/language_modelling/tedlium/neurallm/trafo_kazuki19/net-model/network.020"
 
 # def _get_pt_checkpoint_path() -> tk.Path:
 #     old_tf_ckpt_path = generic_job_output(lm_path)
@@ -51,12 +51,14 @@ def test_convert_checkpoint():
     import torch
     import numpy
 
-    out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/baseline_23_10_19"
+    out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/baseline_w_trafo_lm_23_11_09"
 
     reader = CheckpointReader(_returnn_tf_ckpt_filename)
+    reader_lm = CheckpointReader(lm_path)
 
     print("Input checkpoint:")
     print(reader.debug_string().decode("utf-8"))
+    print(reader_lm.debug_string().decode("utf-8"))
     print()
 
     print("Creating model...")
