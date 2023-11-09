@@ -56,6 +56,7 @@ train_job_best_epoch = {}
 BPE_10K = 10000
 BPE_5K = 5000
 BPE_1K = 1000
+BPE_500 = 500
 
 # train:
 # ------
@@ -1083,31 +1084,31 @@ def conformer_baseline():
     }
 
     # ctc + lm decoding
-    for beam_size, ctc_scale, lm_scale in product([12, 32], [1.0], [0.3, 0.4]):
-        search_args = copy.deepcopy(args)
-        search_args["beam_size"] = beam_size
-        lm_type = "trafo"
-        ext_lm_opts = tedlium_lm_opts
-        search_args["decoder_args"] = CTCDecoderArgs(
-            add_att_dec=False,
-            ctc_scale=ctc_scale,
-            add_ext_lm=True,
-            lm_type=lm_type,
-            ext_lm_opts=ext_lm_opts,
-            lm_scale=lm_scale,
-            target_dim=1057,
-            target_embed_dim=256,
-        )
-        run_decoding(
-            f"opts_ctc{ctc_scale}_lm{lm_scale}_beam{beam_size}",
-            train_data,
-            checkpoint=train_job_avg_ckpt[name],
-            search_args=search_args,
-            bpe_size=BPE_1K,
-            test_sets=["dev"],
-            remove_label={"<s>", "<blank>"},
-            use_sclite=True,
-        )
+    # for beam_size, ctc_scale, lm_scale in product([12, 32], [1.0], [0.3, 0.4]):
+    #     search_args = copy.deepcopy(args)
+    #     search_args["beam_size"] = beam_size
+    #     lm_type = "trafo"
+    #     ext_lm_opts = tedlium_lm_opts
+    #     search_args["decoder_args"] = CTCDecoderArgs(
+    #         add_att_dec=False,
+    #         ctc_scale=ctc_scale,
+    #         add_ext_lm=True,
+    #         lm_type=lm_type,
+    #         ext_lm_opts=ext_lm_opts,
+    #         lm_scale=lm_scale,
+    #         target_dim=1057,
+    #         target_embed_dim=256,
+    #     )
+    #     run_decoding(
+    #         f"opts_ctc{ctc_scale}_lm{lm_scale}_beam{beam_size}",
+    #         train_data,
+    #         checkpoint=train_job_avg_ckpt[name],
+    #         search_args=search_args,
+    #         bpe_size=BPE_1K,
+    #         test_sets=["dev"],
+    #         remove_label={"<s>", "<blank>"},
+    #         use_sclite=True,
+    #     )
 
     # ctc + att + lm decoding
     # for beam_size, scales, lm_scale in product([48], [(0.7, 0.3)], [0.3, 0.35, 0.4]):
@@ -1291,74 +1292,92 @@ def conformer_baseline():
         )
 
     # # additional trainings
-    # for scales in [(1.0, 0.2), (0.7, 0.3), (0.9, 0.1)]:
-    #     # for scales in []:
-    #     # train scale CTC
-    #     att_scale, ctc_scale = scales
-    #     # keep wrong name
-    #     # name = name + "_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12"
-    #     scale_ctc_name = name + f"_ce{att_scale}_ctc{ctc_scale}"
-    #     scale_ctc_args = copy.deepcopy(args)
-    #     scale_ctc_args["encoder_args"].ctc_loss_scale = ctc_scale  # AED scale is 1.0
-    #     scale_ctc_args["decoder_args"].ce_loss_scale = att_scale
-    #     _, train_data = run_exp(
-    #         scale_ctc_name,
-    #         scale_ctc_args,
-    #         num_epochs=ep,
-    #         epoch_wise_filter=None,
-    #         bpe_size=BPE_1K,
-    #         partition_epoch=4,
-    #     )
-    #
-    #     # att + ctc opts
-    #     prior_file_scale = compute_ctc_prior(
-    #         scale_ctc_name,
-    #         prior_args,
-    #         train_job_avg_ckpt[scale_ctc_name],
-    #         bpe_size=BPE_1K,
-    #     )
-    #
-    # # train att only
-    # for pretrain_reps in [4, 5]:
-    #     # train base model
-    #     att_only_args, exp_name = get_base_v1_args(
-    #         lr, ep, pretrain_reps=pretrain_reps, enc_drop=enc_drop
-    #     )
-    #     att_only_args["encoder_args"].ctc_loss_scale = 0.0
-    #     exp_name = exp_name + "_noctc"
-    #     train_j, train_data = run_exp(
-    #         exp_name,
-    #         att_only_args,
-    #         num_epochs=ep,
-    #         epoch_wise_filter=None,
-    #         bpe_size=BPE_1K,
-    #         partition_epoch=4,
-    #     )
-    #
-    # # more pretrain reps
-    # scale_ctc_args, exp_name = get_base_v1_args(
-    #     lr, ep, pretrain_reps=4, enc_drop=enc_drop
-    # )
-    # att_scale, ctc_scale = (0.9, 0.1)
-    # scale_ctc_name = exp_name + f"_ce{att_scale}_ctc{ctc_scale}"
-    # scale_ctc_args["encoder_args"].ctc_loss_scale = ctc_scale  # AED scale is 1.0
-    # scale_ctc_args["decoder_args"].ce_loss_scale = att_scale
-    # _, train_data = run_exp(
-    #     scale_ctc_name,
-    #     scale_ctc_args,
-    #     num_epochs=ep,
-    #     epoch_wise_filter=None,
-    #     bpe_size=BPE_1K,
-    #     partition_epoch=4,
-    # )
-    #
-    # # att + ctc opts
-    # prior_file_scale = compute_ctc_prior(
-    #     scale_ctc_name,
-    #     prior_args,
-    #     train_job_avg_ckpt[scale_ctc_name],
-    #     bpe_size=BPE_1K,
-    # )
+    for scales in [(1.0, 0.2), (0.7, 0.3), (0.9, 0.1)]:
+        # for scales in []:
+        # train scale CTC
+        att_scale, ctc_scale = scales
+        # keep wrong name
+        # name = name + "_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12"
+        scale_ctc_name = name + f"_ce{att_scale}_ctc{ctc_scale}"
+        scale_ctc_args = copy.deepcopy(args)
+        scale_ctc_args["encoder_args"].ctc_loss_scale = ctc_scale  # AED scale is 1.0
+        scale_ctc_args["decoder_args"].ce_loss_scale = att_scale
+        _, train_data = run_exp(
+            scale_ctc_name,
+            scale_ctc_args,
+            num_epochs=ep,
+            epoch_wise_filter=None,
+            bpe_size=BPE_1K,
+            partition_epoch=4,
+        )
+
+        # att + ctc opts
+        prior_file_scale = compute_ctc_prior(
+            scale_ctc_name,
+            prior_args,
+            train_job_avg_ckpt[scale_ctc_name],
+            bpe_size=BPE_1K,
+        )
+
+    # train att only
+    for pretrain_reps in [4, 5]:
+        # train base model
+        att_only_args, exp_name = get_base_v1_args(
+            lr, ep, pretrain_reps=pretrain_reps, enc_drop=enc_drop
+        )
+        att_only_args["encoder_args"].with_ctc = False
+        exp_name = exp_name + "_noctc"
+        train_j, train_data = run_exp(
+            exp_name,
+            att_only_args,
+            num_epochs=ep,
+            epoch_wise_filter=None,
+            bpe_size=BPE_1K,
+            partition_epoch=4,
+        )
+
+    # att only with curriculum learning
+    att_only_args, exp_name = get_base_v1_args(
+        lr, ep, pretrain_reps=pretrain_reps, enc_drop=enc_drop
+    )
+    att_only_args["encoder_args"].with_ctc = False
+    exp_name = exp_name + "_noctc_currL1"
+    train_j, train_data = run_exp(
+        exp_name,
+        att_only_args,
+        num_epochs=ep,
+        epoch_wise_filter=[(1, 2, 400), (2, 4, 800)],
+        bpe_size=BPE_1K,
+        partition_epoch=4,
+    )
+
+
+    # more pretrain reps
+    scale_ctc_args, exp_name = get_base_v1_args(
+        lr, ep, pretrain_reps=4, enc_drop=enc_drop
+    )
+    att_scale, ctc_scale = (0.9, 0.1)
+    scale_ctc_name = exp_name + f"_ce{att_scale}_ctc{ctc_scale}"
+    scale_ctc_args["encoder_args"].ctc_loss_scale = ctc_scale  # AED scale is 1.0
+    scale_ctc_args["decoder_args"].ce_loss_scale = att_scale
+    _, train_data = run_exp(
+        scale_ctc_name,
+        scale_ctc_args,
+        num_epochs=ep,
+        epoch_wise_filter=None,
+        bpe_size=BPE_1K,
+        partition_epoch=4,
+    )
+
+    # att + ctc opts
+    prior_file_scale = compute_ctc_prior(
+        scale_ctc_name,
+        prior_args,
+        train_job_avg_ckpt[scale_ctc_name],
+        bpe_size=BPE_1K,
+    )
+
+
 
 
 
