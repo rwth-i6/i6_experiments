@@ -159,7 +159,7 @@ def transform(
       )
       x_masked = random_mask(
         x_masked, batch_axis=data.batch_dim_axis, axis=data.feature_dim_axis,
-        min_num=step1 + step2 + min_num_add_factor,
+        min_num=step1 + step2 + step0 * min_num_add_factor,
         max_num=step0 * 2 + step1 + step2 * 2,
         max_dims=data.dim // freq_dim_factor
       )
