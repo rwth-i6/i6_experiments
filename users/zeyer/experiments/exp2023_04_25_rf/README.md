@@ -1,9 +1,21 @@
 * Import works, recog works, produces mostly same WERs
 * Training speedup (https://github.com/rwth-i6/returnn/issues/1402).
   Mostly done now, we get almost same speed as TF?
-  (CTC still missing)
 * [Check older experiments on Conformer](../exp2022_07_21_transducer/exp_fs_base/README.md),
   example: conformer_ln_pre10_d384_h6_blstmf2_fix245_wdro_specaugweia_attdrop01_posdrop01_aux48ff_mhsapinit05_lsxx01
+
+Reference:
+
+From Mohammad, 2023-06-29
+  dev-clean  2.27
+  dev-other  5.39
+  test-clean  2.41
+  test-other  5.51
+_returnn_tf_config_filename = (
+   "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config")
+E.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
+_returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
+LR file (train/dev/devtrain): /work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.SAh74CLCNJQi/work/learning_rates
 
 Experiments:
 
