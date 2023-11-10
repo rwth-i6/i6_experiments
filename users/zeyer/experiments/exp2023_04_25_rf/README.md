@@ -15,8 +15,7 @@ Experiments:
 
 TODO:
 
-- attdrop01
-- posdrop01
+- posdrop01: base-24gb-v4-posdrop01
 - wdf?
 - wdro
 - lsxx01, or other lsxx

@@ -154,6 +154,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             }
         },
     )
+    _train_exp("base-24gb-v4-posdrop01", config_24gb_v4, config_updates={"pos_emb_dropout": 0.1})
 
 
 _sis_prefix: Optional[str] = None
@@ -401,7 +402,9 @@ class MakeModel:
         return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers)
 
     @classmethod
-    def make_model(cls, in_dim: Dim, target_dim: Dim, *, num_enc_layers: int = 12, **extra) -> Model:
+    def make_model(
+        cls, in_dim: Dim, target_dim: Dim, *, num_enc_layers: int = 12, pos_emb_dropout: float = 0.0, **extra
+    ) -> Model:
         """make"""
         return Model(
             in_dim,
@@ -418,6 +421,7 @@ class MakeModel:
                     with_pos_bias=False,
                     learnable_pos_emb=True,
                     separate_pos_emb_per_head=False,
+                    pos_emb_dropout=pos_emb_dropout,
                 ),
                 ff_activation=lambda x: rf.relu(x) ** 2.0,
             ),
@@ -671,9 +675,12 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model
     in_dim, epoch  # noqa
     config = get_global_config()  # noqa
     enc_aux_logits = config.typed_value("aux_loss_layers")
+    pos_emb_dropout = config.float("pos_emb_dropout", 0.0)
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
-    return MakeModel.make_model(in_dim, target_dim, enc_aux_logits=enc_aux_logits or ())
+    return MakeModel.make_model(
+        in_dim, target_dim, enc_aux_logits=enc_aux_logits or (), pos_emb_dropout=pos_emb_dropout
+    )
 
 
 from_scratch_model_def: ModelDef[Model]
