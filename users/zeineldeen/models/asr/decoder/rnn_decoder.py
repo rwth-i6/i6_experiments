@@ -374,7 +374,7 @@ class RNNDecoder:
             elif loss_type == "l2":
                 l = f"{lb_scale} * ((tf.math.abs(source(0) - 1) - (source(0) - 1)) * (tf.math.abs(source(0) - 1) - (source(0) - 1)))"
                 if ub_scale:
-                    l += f"{ub_scale} * ((tf.math.abs(source(0) - {ub_limit}) + (source(0) - {ub_limit})) * (tf.math.abs(source(0) - {ub_limit}) + (source(0) - {ub_limit})))"
+                    l += f" + {ub_scale} * ((tf.math.abs(source(0) - {ub_limit}) + (source(0) - {ub_limit})) * (tf.math.abs(source(0) - {ub_limit}) + (source(0) - {ub_limit})))"
                 return l
             else:
                 raise ValueError(f"monotonic_att_weights_loss={loss_type!r}")
