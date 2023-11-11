@@ -30,6 +30,7 @@ TODO:
 - posdrop01: base-24gb-v4-posdrop01
 - wdf?
 - wdro
+- wdblacklist: BatchNorm, LayerNorm etc not part of weight decay. unclear, worse?
 - lsxx01, or other lsxx
 - specaugweia? yes but generalize... also could be optimized
 - twarp?

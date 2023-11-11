@@ -155,6 +155,20 @@ def sis_run_with_prefix(prefix_name: str = None):
         },
     )
     _train_exp("base-24gb-v4-posdrop01", config_24gb_v4, config_updates={"pos_emb_dropout": 0.1})
+    _train_exp(
+        "base-24gb-v4-pretrain-posdrop01-specaugorig",
+        config_24gb_v4,
+        config_updates={
+            "pretrain_opts": {
+                "steps": [(8 * 500, {"num_layers": 2}), (4 * 500, {"num_layers": 4}), (4 * 500, {"num_layers": 8})]
+            },
+            "pos_emb_dropout": 0.1,
+        },
+        config_deletes=[
+            "specaugment_num_spatial_mask_factor",
+            "specaugment_max_consecutive_feature_dims",
+        ],
+    )
 
 
 _sis_prefix: Optional[str] = None
