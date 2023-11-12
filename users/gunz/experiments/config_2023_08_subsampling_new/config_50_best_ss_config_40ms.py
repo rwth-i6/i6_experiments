@@ -23,6 +23,7 @@ import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
 from ...setups.fh import system as fh_system
+from ...setups.fh.decoder.search import DecodingTensorMap
 from ...setups.fh.factored import LabelInfo, PhoneticContext, RasrStateTying
 from ...setups.fh.network import aux_loss, diphone_joint_output, extern_data
 from ...setups.fh.network.augment import (
@@ -231,6 +232,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
                 returnn_config=returnn_config,
                 epoch=ep,
                 prior_epoch=min(ep, viterbi_keep_epochs[-2]),
+                tensor_config=TENSOR_CONFIG,
             )
         else:
             raise ValueError(f"unknown name {key}")
@@ -748,8 +750,38 @@ def decode_triphone(
     returnn_config: returnn.ReturnnConfig,
     epoch: int,
     prior_epoch: int,
+    tensor_config: DecodingTensorMap,
 ):
-    pass
+    s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+    s.set_triphone_priors_returnn_rasr(
+        key=key,
+        epoch=prior_epoch,
+        train_corpus_key=s.crp_names["train"],
+        dev_corpus_key=s.crp_names["cvtrain"],
+        smoothen=True,
+        returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+        data_share=0.1,
+    )
+    recognizer, recog_args = s.get_recognizer_and_args(
+        key=key,
+        context_type=PhoneticContext.triphone_forward,
+        crp_corpus=crp_k,
+        epoch=epoch,
+        gpu=False,
+        tensor_map=tensor_config,
+        set_batch_major_for_feature_scorer=True,
+    )
+    recog_args = recog_args.with_lm_scale(2.5).with_tdp_scale(0.2)
+
+    recognizer.recognize_count_lm(
+        label_info=s.label_info,
+        search_parameters=recog_args,
+        num_encoder_output=512,
+        rerun_after_opt_lm=True,
+        calculate_stats=True,
+        rtf_cpu=35,
+    )
 
 
 def get_monophone_network(
