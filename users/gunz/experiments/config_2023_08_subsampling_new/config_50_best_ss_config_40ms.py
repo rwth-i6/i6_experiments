@@ -687,7 +687,7 @@ def decode_monophone(
         calculate_statistics=True,
         opt_lm_am_scale=True,
         prior_epoch=prior_epoch,
-        rtf=2,
+        rtf=4,
         cpu_rqmt=2,
     )
 
