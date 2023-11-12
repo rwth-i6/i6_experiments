@@ -225,15 +225,16 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
                 prior_epoch=min(ep, viterbi_keep_epochs[-2]),
             )
         elif "tri" in key:
-            decode_triphone(
-                s,
-                key=key,
-                crp_k=crp_k,
-                returnn_config=returnn_config,
-                epoch=ep,
-                prior_epoch=min(ep, viterbi_keep_epochs[-2]),
-                tensor_config=TENSOR_CONFIG,
-            )
+            if ep >= viterbi_keep_epochs[-2]:
+                decode_triphone(
+                    s,
+                    key=key,
+                    crp_k=crp_k,
+                    returnn_config=returnn_config,
+                    epoch=ep,
+                    prior_epoch=min(ep, viterbi_keep_epochs[-2]),
+                    tensor_config=TENSOR_CONFIG,
+                )
         else:
             raise ValueError(f"unknown name {key}")
 
