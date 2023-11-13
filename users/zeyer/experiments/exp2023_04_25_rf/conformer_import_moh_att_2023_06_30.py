@@ -170,6 +170,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             "specaugment_max_consecutive_feature_dims",
         ],
     )
+    _train_exp("base-24gb-v4-attdropfixbc", config_24gb_v4, config_updates={"rf_att_dropout_broadcast": False})
 
 
 _sis_prefix: Optional[str] = None

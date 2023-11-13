@@ -51,7 +51,7 @@ def train(
 
     returnn_train_config_dict: Dict[str, Any] = dict(
         backend=model_def.backend,
-        behavior_version=model_def.behavior_version,
+        behavior_version=config.get("behavior_version") or model_def.behavior_version,
         # dataset
         default_input=task.train_dataset.get_default_input(),
         target=task.train_dataset.get_default_target(),
