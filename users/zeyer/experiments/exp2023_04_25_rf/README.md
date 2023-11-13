@@ -59,7 +59,6 @@ TODO:
 - weight decay only on selected layers/modules, like in TF, e.g. not so much on decoder
 - adam eps? 1e-16 is what we had in TF, maybe better?
 - try CTC only
-- try no specaugment (should overfit then, i.e. reach train loss 0). try orig specaugment
 - CTC is incorrectly trained with EOS label at end - fix?
 - specaugment_steps still not like original (0, 1000, 2000), much later.
   but necessary for convergence without pretrain.
