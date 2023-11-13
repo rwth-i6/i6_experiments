@@ -304,10 +304,10 @@ class GmmSystem(RasrSystem):
             )
 
         state_tying_job = allophones.DumpStateTyingJob(self.crp[corpus_key])
-        tk.register_output(
-            "{}_{}_state_tying".format(corpus_key, name),
-            state_tying_job.out_state_tying,
-        )
+        #tk.register_output(
+        #    "{}_{}_state_tying".format(corpus_key, name),
+        #    state_tying_job.out_state_tying,
+        #)
 
     # -------------------- CaRT and LDA --------------------
 
@@ -1462,7 +1462,7 @@ class GmmSystem(RasrSystem):
             # TODO: allophones are no longer written into "base" crp,
             # so look out for potential issues
             self.store_allophones(source_corpus=trn_c, target_corpus=trn_c)
-            tk.register_output(f"{trn_c}.allophones", self.allophone_files[trn_c])
+            #tk.register_output(f"{trn_c}.allophones", self.allophone_files[trn_c])
 
         for eval_c in self.dev_corpora + self.test_corpora:
             stm_args = (

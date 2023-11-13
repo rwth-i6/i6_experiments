@@ -104,3 +104,32 @@ class G2PBasedOovAugmenter:
         )
 
         return g2p_final_lex_job.out_oov_lexicon
+
+    def get_g2p_augmented_bliss_lexicon_via_word_list(
+        self,
+        oov_word_list: tk.Path,
+        corpus_name: str,
+        alias_path: str,
+    ):
+
+        if self.g2p_model_path is None:
+            self._train_and_set_g2p_model(alias_path)
+
+        g2p_apply_job = ApplyG2PModelJob(
+            g2p_model=self.g2p_model_path,
+            word_list_file=oov_word_list,
+            **self.apply_args,
+        )
+        g2p_apply_job.add_alias(
+            os.path.join(alias_path, "apply-g2p-with-word-list-for-{}".format(corpus_name))
+        )
+
+        g2p_final_lex_job = G2POutputToBlissLexiconJob(
+            iv_bliss_lexicon=self.original_bliss_lexicon,
+            g2p_lexicon=g2p_apply_job.out_g2p_lexicon,
+        )
+        g2p_final_lex_job.add_alias(
+            os.path.join(alias_path, "g2p-output-to-bliss-with-word-list-{}".format(corpus_name))
+        )
+
+        return g2p_final_lex_job.out_oov_lexicon

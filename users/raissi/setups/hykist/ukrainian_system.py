@@ -744,8 +744,8 @@ class UkrainianHybridSystem(NnSystem):
                           range(1, len(gammaton_features_paths.keys()) + 1)]
             store_allophones = StoreAllophonesJob(self.crp[crp_name])
             dump_statetying  = DumpStateTyingJob(self.crp[crp_name])
-            tk.register_output(f'train/{crp_name}-allophones', store_allophones.out_allophone_file)
-            tk.register_output(f'train/{crp_name}-state-tying', dump_statetying.out_state_tying)
+            #tk.register_output(f'train/{crp_name}-allophones', store_allophones.out_allophone_file)
+            #tk.register_output(f'train/{crp_name}-state-tying', dump_statetying.out_state_tying)
 
             hdfJob = RasrFeatureAndAlignmentToHDF(feature_caches=feature_caches,
                                                   alignment_caches=alignment_caches,
@@ -1158,7 +1158,7 @@ class UkrainianHybridSystem(NnSystem):
         return recognizer, recog_args
 
     def run_decoding_for_cart(self, name, corpus, feature_flow, feature_scorer,
-                              tdp_scale=1.0, exit_sil=20.0,
+                              tdp_scale=1.0, exit_sil=20.0, nonword_exit=6.0,
                               norm_pron=True, pron_scale=3.0, lm_scale=10.0,
                               beam=18.0, beam_limit=500000, we_pruning=0.8, we_pruning_limit=10000, altas=None,
                               only_lm_opt=True):
@@ -1168,6 +1168,8 @@ class UkrainianHybridSystem(NnSystem):
         search_crp = copy.deepcopy(self.crp[corpus])
         search_crp.acoustic_model_config.tdp.scale = tdp_scale
         search_crp.acoustic_model_config.tdp["silence"]["exit"] = exit_sil
+        for i in ["0", "1"]:
+            search_crp.acoustic_model_config.tdp[f"nonword-{i}"]["exit"] = nonword_exit
 
         #lm
         search_crp.language_model_config.scale = lm_scale
@@ -1178,6 +1180,8 @@ class UkrainianHybridSystem(NnSystem):
             name+= f'_tdpscale-{tdp_scale}'
         if exit_sil != 20.0:
             name += f'_exitSil-{tdp_scale}'
+        if nonword_exit != 6.0:
+            name += f'_exitnw-{nonword_exit}'
 
         if altas is not None:
             name += f'_altas-{altas}'
@@ -1217,7 +1221,7 @@ class UkrainianHybridSystem(NnSystem):
         )
         search.rqmt["cpu"] = 2
         if corpus == 'russian':
-            search.rqmt["time"] = 1
+            search.rqmt["time"] = 4
 
         search.add_alias(f"{pre_path}/recog_{name}")
 
@@ -1232,10 +1236,10 @@ class UkrainianHybridSystem(NnSystem):
             best_path_algo="bellman-ford",
             extra_config=lat2ctm_extra_config,
         )
-
         sKwrgs = copy.deepcopy(self.scorer_args[corpus])
         sKwrgs["sort_files"] = True
         sKwrgs[self.scorer_hyp_arg[corpus]] = lat2ctm.out_ctm_file
+
         scorer = self.scorers[corpus](**sKwrgs)
 
         self.jobs[corpus]["scorer_%s" % name] = scorer
