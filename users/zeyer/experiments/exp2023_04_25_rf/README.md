@@ -63,7 +63,8 @@ TODO:
 - specaugment_steps still not like original (0, 1000, 2000), much later.
   but necessary for convergence without pretrain.
   also looking at overfitting-ratio, not sure if this is a big problem.
-- attention dropout: check no broadcast over batch/head (attdropfixbc, rf_att_dropout_broadcast=False)
+- attention dropout broadcast: check no broadcast over batch/head (attdropfixbc, rf_att_dropout_broadcast=False)
+- dropout broadcast in general: what effect? disable?
 - moh BatchNorm:  "momentum": 0.1, "epsilon": 0.001, TODO check what do we have?
 
 - fine tune:
