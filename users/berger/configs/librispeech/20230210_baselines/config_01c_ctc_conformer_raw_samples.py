@@ -45,7 +45,7 @@ def generate_returnn_config(
     dev_data_config: dict,
 ) -> ReturnnConfig:
     if train:
-        network_dict, extra_python = ctc_model.make_blstm_fullsum_ctc_model(
+        network_dict, extra_python = ctc_model.make_conformer_fullsum_ctc_model(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
@@ -57,14 +57,12 @@ def generate_returnn_config(
                     "max_feature": 5,
                 },
             },
-            blstm_args={
-                "num_layers": 6,
-                "max_pool": [1, 2, 2],
+            conformer_args={
+                "num_blocks": 12,
                 "size": 512,
                 "dropout": 0.1,
                 "l2": 1e-04,
             },
-            mlp_args={"num_layers": 0},
             output_args={
                 "rasr_binary_path": tools.rasr_binary_path,
                 "loss_corpus_path": loss_corpus,
@@ -73,15 +71,16 @@ def generate_returnn_config(
             },
         )
     else:
-        network_dict, extra_python = ctc_model.make_blstm_ctc_recog_model(
+        network_dict, extra_python = ctc_model.make_conformer_ctc_recog_model(
             num_outputs=79,
-            gt_args={"sample_rate": 16000},
-            blstm_args={
-                "num_layers": 6,
-                "max_pool": [1, 2, 2],
+            gt_args={
+                "sample_rate": 16000,
+                "specaug_after_dct": False,
+            },
+            conformer_args={
+                "num_blocks": 12,
                 "size": 512,
             },
-            mlp_args={"num_layers": 0},
         )
 
     returnn_config = get_returnn_config(
@@ -89,6 +88,10 @@ def generate_returnn_config(
         target=None,
         num_epochs=500,
         num_inputs=1,
+        python_prolog=[
+            "import sys",
+            "sys.setrecursionlimit(10 ** 6)",
+        ],
         extra_python=extra_python,
         extern_data_config=True,
         extern_data_kwargs={"dtype": "int16" if train else "float32"},
@@ -96,7 +99,7 @@ def generate_returnn_config(
         grad_clip=0.0,
         schedule=LearningRateSchedules.OCLR,
         initial_lr=1e-05,
-        peak_lr=4e-04,
+        peak_lr=3e-04,
         final_lr=1e-05,
         batch_size=1_600_000,
         use_chunking=False,
@@ -120,7 +123,8 @@ def run_exp() -> Tuple[SummaryReport, Dict]:
         tools.returnn_python_exe,
         rasr_binary_path=tools.rasr_binary_path,
         add_unknown=False,
-        augmented_lexicon=True,
+        augmented_lexicon=False,
+        use_wei_lexicon=True,
         test_keys=[
             "test-clean",
             "test-other",
@@ -131,13 +135,15 @@ def run_exp() -> Tuple[SummaryReport, Dict]:
 
     train_args = exp_args.get_ctc_train_step_args(
         num_epochs=500,
+        gpu_mem_rqmt=24,
+        mem_rqmt=24,
     )
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)
     align_args = exp_args.get_ctc_align_step_args(num_classes)
-    recog_args["epochs"] = ["best"]
-    recog_args["prior_scales"] = [0.2, 0.3, 0.4]
-    recog_args["lm_scales"] = [0.8, 0.9, 1.0, 1.1, 1.2]
+    recog_args["epochs"] = [160, 240, 320, 400, 480, "best"]
+    recog_args["prior_scales"] = [0.3]
+    recog_args["lm_scales"] = [0.9]
     align_args["epochs"] = ["best"]
 
     # ********** System **********
@@ -171,7 +177,7 @@ def run_exp() -> Tuple[SummaryReport, Dict]:
         recog_configs={"recog": recog_config},
     )
 
-    system.add_experiment_configs("BLSTM_CTC_raw-sample", returnn_configs)
+    system.add_experiment_configs("Conformer_CTC_raw-sample", returnn_configs)
 
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)

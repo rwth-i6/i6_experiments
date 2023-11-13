@@ -19,6 +19,7 @@ def get_librispeech_data(
     test_keys: List[str] = ["test-clean", "test-other"],
     add_unknown: bool = False,
     augmented_lexicon: bool = True,
+    use_wei_lexicon: bool = False,
 ) -> CTCSetupData:
     # ********** Data inputs **********
 
@@ -27,6 +28,7 @@ def get_librispeech_data(
         dev_keys=dev_keys,
         ctc_lexicon=True,
         use_augmented_lexicon=augmented_lexicon,
+        use_wei_lexicon=use_wei_lexicon,
         add_all_allophones=True,
         audio_format="ogg",
         add_unknown_phoneme_and_mapping=add_unknown,
@@ -49,7 +51,7 @@ def get_librispeech_data(
     train_lexicon = train_data_inputs[train_key].lexicon.filename
     assert train_corpus is not None
 
-    if not add_unknown:
+    if (not add_unknown and not augmented_lexicon) or use_wei_lexicon:
         train_corpus = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
             train_corpus,
             train_lexicon,
@@ -75,7 +77,7 @@ def get_librispeech_data(
 
     # ********** CV data **********
 
-    if not add_unknown:
+    if (not add_unknown and not augmented_lexicon) or use_wei_lexicon:
         for corpus_object in [dev_data_inputs[key].corpus_object for key in dev_keys]:
             assert corpus_object.corpus_file is not None
             corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
@@ -125,20 +127,17 @@ def get_librispeech_data(
 
     # ********** Align data **********
 
-    align_lexicon = copy.deepcopy(recog_lexicon)
-
     align_data_inputs = {
         f"{key}_align": copy.deepcopy(data_input)
         for key, data_input in {**wav_train_data_inputs, **wav_dev_data_inputs}.items()
     }
     for data_input in align_data_inputs.values():
-        data_input.lexicon.filename = align_lexicon
-
-        if not add_unknown:
+        data_input.lexicon.filename = recog_lexicon
+        if (not add_unknown and not augmented_lexicon) or use_wei_lexicon:
             assert data_input.corpus_object.corpus_file is not None
             data_input.corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
                 data_input.corpus_object.corpus_file,
-                align_lexicon,
+                train_lexicon,
                 all_unknown=False,
             ).out_corpus
 
@@ -170,6 +169,7 @@ def get_librispeech_data_hdf(
     test_keys: List[str] = ["test-clean", "test-other"],
     add_unknown: bool = False,
     augmented_lexicon: bool = True,
+    use_wei_lexicon: bool = False,
     feature_type: FeatureType = FeatureType.SAMPLES,
 ) -> CTCSetupData:
     # ********** Data inputs **********
@@ -180,6 +180,7 @@ def get_librispeech_data_hdf(
         test_keys=test_keys,
         ctc_lexicon=True,
         use_augmented_lexicon=augmented_lexicon,
+        use_wei_lexicon=use_wei_lexicon,
         add_all_allophones=True,
         audio_format="wav",
         add_unknown_phoneme_and_mapping=add_unknown,
@@ -192,7 +193,7 @@ def get_librispeech_data_hdf(
     train_lexicon = train_data_inputs[train_key].lexicon.filename
     assert train_corpus is not None
 
-    if not add_unknown and not augmented_lexicon:
+    if (not add_unknown and not augmented_lexicon) or use_wei_lexicon:
         train_corpus = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
             train_corpus,
             train_lexicon,
@@ -200,7 +201,7 @@ def get_librispeech_data_hdf(
         ).out_corpus
         train_corpus_object.corpus_file = train_corpus
 
-    if feature_type == FeatureType.GAMMATONE:
+    if feature_type == FeatureType.GAMMATONE or feature_type == FeatureType.GAMMATONE_CACHED:
         gt_args = get_feature_extraction_args_16kHz()["gt"]
         train_feature_hdf = build_rasr_feature_hdfs(
             train_corpus_object,
@@ -236,7 +237,7 @@ def get_librispeech_data_hdf(
 
     cv_data_inputs = copy.deepcopy(dev_data_inputs)
 
-    if not add_unknown:
+    if (not add_unknown and not augmented_lexicon) or use_wei_lexicon:
         for corpus_object in [cv_data_inputs[key].corpus_object for key in dev_keys]:
             assert corpus_object.corpus_file is not None
             corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
@@ -245,7 +246,7 @@ def get_librispeech_data_hdf(
                 all_unknown=False,
             ).out_corpus
 
-    if feature_type == FeatureType.GAMMATONE:
+    if feature_type == FeatureType.GAMMATONE or feature_type == FeatureType.GAMMATONE_CACHED:
         gt_args = get_feature_extraction_args_16kHz()["gt"]
         cv_feature_hdfs = sum(
             [
@@ -304,20 +305,17 @@ def get_librispeech_data_hdf(
 
     # ********** Align data **********
 
-    align_lexicon = copy.deepcopy(recog_lexicon)
-
     align_data_inputs = {
         f"{key}_align": copy.deepcopy(data_input)
         for key, data_input in {**train_data_inputs, **dev_data_inputs}.items()
     }
     for data_input in align_data_inputs.values():
-        data_input.lexicon.filename = align_lexicon
-
-        if not add_unknown:
+        data_input.lexicon.filename = recog_lexicon
+        if (not add_unknown and not augmented_lexicon) or use_wei_lexicon:
             assert data_input.corpus_object.corpus_file is not None
             data_input.corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
                 data_input.corpus_object.corpus_file,
-                align_lexicon,
+                train_lexicon,
                 all_unknown=False,
             ).out_corpus
 

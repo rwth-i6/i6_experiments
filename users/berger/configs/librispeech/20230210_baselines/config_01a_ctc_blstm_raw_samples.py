@@ -9,7 +9,7 @@ from i6_experiments.users.berger.args.returnn.config import get_returnn_config
 from i6_experiments.users.berger.args.returnn.learning_rates import (
     LearningRateSchedules,
 )
-import i6_experiments.users.berger.network.models.fullsum_ctc as ctc_model
+import i6_experiments.users.berger.network.models.fullsum_ctc_raw_samples as ctc_model
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
@@ -45,20 +45,26 @@ def generate_returnn_config(
     dev_data_config: dict,
 ) -> ReturnnConfig:
     if train:
-        network_dict, extra_python = ctc_model.make_conformer_fullsum_ctc_model(
+        network_dict, extra_python = ctc_model.make_blstm_fullsum_ctc_model(
             num_outputs=num_classes,
-            specaug_args={
-                "max_time_num": 1,
-                "max_time": 15,
-                "max_feature_num": 5,
-                "max_feature": 5,
+            gt_args={
+                "sample_rate": 16000,
+                "specaug_v2": False,
+                "specaug_args": {
+                    "max_time_num": 1,
+                    "max_time": 15,
+                    "max_feature_num": 5,
+                    "max_feature": 5,
+                },
             },
-            conformer_args={
-                "num_blocks": 12,
+            blstm_args={
+                "num_layers": 6,
+                "max_pool": [1, 2, 2],
                 "size": 512,
                 "dropout": 0.1,
                 "l2": 1e-04,
             },
+            mlp_args={"num_layers": 0},
             output_args={
                 "rasr_binary_path": tools.rasr_binary_path,
                 "loss_corpus_path": loss_corpus,
@@ -67,32 +73,32 @@ def generate_returnn_config(
             },
         )
     else:
-        network_dict, extra_python = ctc_model.make_conformer_ctc_recog_model(
+        network_dict, extra_python = ctc_model.make_blstm_ctc_recog_model(
             num_outputs=79,
-            conformer_args={
-                "num_blocks": 12,
+            gt_args={"sample_rate": 16000},
+            blstm_args={
+                "num_layers": 6,
+                "max_pool": [1, 2, 2],
                 "size": 512,
             },
+            mlp_args={"num_layers": 0},
         )
 
     returnn_config = get_returnn_config(
         network=network_dict,
         target=None,
         num_epochs=500,
-        num_inputs=50,
-        python_prolog=[
-            "import sys",
-            "sys.setrecursionlimit(10 ** 6)",
-        ],
+        num_inputs=1,
         extra_python=extra_python,
         extern_data_config=True,
+        extern_data_kwargs={"dtype": "int16" if train else "float32"},
         grad_noise=0.0,
-        grad_clip=100.0,
+        grad_clip=0.0,
         schedule=LearningRateSchedules.OCLR,
         initial_lr=1e-05,
-        peak_lr=3e-04,
+        peak_lr=4e-04,
         final_lr=1e-05,
-        batch_size=10000,
+        batch_size=1_600_000,
         use_chunking=False,
         extra_config={
             "train": train_data_config,
@@ -114,8 +120,8 @@ def run_exp() -> Tuple[SummaryReport, Dict]:
         tools.returnn_python_exe,
         rasr_binary_path=tools.rasr_binary_path,
         add_unknown=False,
-        augmented_lexicon=True,
-        feature_type=FeatureType.GAMMATONE,
+        augmented_lexicon=False,
+        use_wei_lexicon=True,
         test_keys=[
             "test-clean",
             "test-other",
@@ -127,17 +133,14 @@ def run_exp() -> Tuple[SummaryReport, Dict]:
     train_args = exp_args.get_ctc_train_step_args(
         num_epochs=500,
         gpu_mem_rqmt=24,
-        mem_rqmt=24,
     )
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)
     align_args = exp_args.get_ctc_align_step_args(num_classes)
-    recog_args["epochs"] = [160, 240, 320, 400, 480, "best"]
-    recog_args["feature_type"] = FeatureType.GAMMATONE
+    recog_args["epochs"] = [80, 160, 240, 320, 400, 480, "best"]
     recog_args["prior_scales"] = [0.3]
     recog_args["lm_scales"] = [0.9]
     align_args["epochs"] = ["best"]
-    align_args["feature_type"] = FeatureType.GAMMATONE
 
     # ********** System **********
 
@@ -170,12 +173,13 @@ def run_exp() -> Tuple[SummaryReport, Dict]:
         recog_configs={"recog": recog_config},
     )
 
-    system.add_experiment_configs("Conformer_CTC", returnn_configs)
+    system.add_experiment_configs("BLSTM_CTC_raw-samples", returnn_configs)
 
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)
     system.run_test_recog_step(**recog_args)
-    alignments = system.run_align_step(**align_args)
+    # alignments = system.run_align_step(**align_args)
+    alignments = None
 
     assert system.summary_report
     return system.summary_report, alignments

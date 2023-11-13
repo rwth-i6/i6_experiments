@@ -53,7 +53,7 @@ def make_context_1_conformer_transducer(
         mid_block = len(blocks) // 2
         add_softmax_output(
             network,
-            from_list=blocks[mid_block],
+            from_list=blocks[mid_block - 1],
             name=f"encoder_output_{mid_block}",
             num_outputs=num_outputs,
             target="classes",

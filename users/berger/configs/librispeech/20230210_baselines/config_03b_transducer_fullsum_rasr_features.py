@@ -1,6 +1,6 @@
 import copy
 import os
-from typing import Dict, Optional
+from typing import Dict
 
 import i6_core.rasr as rasr
 from i6_core.returnn.config import ReturnnConfig
@@ -21,8 +21,8 @@ from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, Feat
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
-from .config_01b_ctc_conformer import py as py_ctc
-from .config_02a_transducer_rasr_features import py as py_transducer
+from .config_01d_ctc_conformer_rasr_features import py as py_ctc
+from .config_02b_transducer_rasr_features import py as py_transducer
 from sisyphus import gs, tk
 
 # ********** Settings **********
@@ -46,7 +46,10 @@ def generate_returnn_config(
     model_preload: tk.Path,
 ) -> ReturnnConfig:
     if train:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_fullsum(
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer_fullsum(
             num_outputs=num_classes,
             specaug_args={
                 "max_time_num": 1,
@@ -80,7 +83,10 @@ def generate_returnn_config(
             },
         )
     else:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
             conformer_args={
                 "num_blocks": 12,
@@ -120,7 +126,7 @@ def generate_returnn_config(
         const_lr=5e-05,
         decay_lr=1e-05,
         final_lr=1e-06,
-        batch_size=15000,
+        batch_size=7500,
         accum_grad=2,
         use_chunking=False,
         extra_config={
@@ -151,6 +157,8 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: tk.P
         rasr_binary_path=tools.rasr_binary_path,
         alignments=alignments,
         add_unknown=False,
+        augmented_lexicon=False,
+        use_wei_lexicon=True,
         lm_name="4gram",
         feature_type=FeatureType.GAMMATONE,
         # lm_name="kazuki_transformer",
@@ -187,6 +195,8 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: tk.P
         lookahead_options={"scale": 0.5},
         search_parameters={"label-pruning": 11.2},
         feature_type=FeatureType.GAMMATONE,
+        reduction_factor=4,
+        reduction_subtrahend=0,
     )
 
     # ********** System **********

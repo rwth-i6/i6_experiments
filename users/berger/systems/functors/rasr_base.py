@@ -95,7 +95,8 @@ class RasrFunctor(ABC):
         return {
             feature_type.SAMPLES: self._make_base_sample_feature_flow,
             feature_type.GAMMATONE: self._make_base_gt_feature_flow,
-            feature_type.CONCAT_GAMMATONE: self._make_concatenated_gt_feature_flow,
+            feature_type.GAMMATONE_CACHED: self._make_base_cached_gt_feature_flow,
+            feature_type.CONCAT_GAMMATONE: self._make_cached_concatenated_gt_feature_flow,
         }[feature_type](corpus_info=corpus_info, **kwargs)
 
     def _make_base_sample_feature_flow(self, corpus_info: dataclasses.CorpusInfo, **kwargs):
@@ -109,7 +110,14 @@ class RasrFunctor(ABC):
         args.update(kwargs)
         return features.samples_flow(**args)
 
-    def _make_base_gt_feature_flow(self, corpus_info: dataclasses.CorpusInfo, **kwargs):
+    def _make_base_gt_feature_flow(self, corpus_info: dataclasses.CorpusInfo, **_):
+        gt_options = copy.deepcopy(get_feature_extraction_args_16kHz()["gt"]["gt_options"])
+        audio_format = corpus_info.crp.audio_format
+        gt_options["samples_options"]["audio_format"] = audio_format
+        gt_options["add_features_output"] = True
+        return features.gammatone_flow(**gt_options)
+
+    def _make_base_cached_gt_feature_flow(self, corpus_info: dataclasses.CorpusInfo, **_):
         gt_job = features.GammatoneJob(crp=corpus_info.crp, **get_feature_extraction_args_16kHz()["gt"])
         feature_path = rasr.FlagDependentFlowAttribute(
             "cache_mode",
@@ -121,7 +129,7 @@ class RasrFunctor(ABC):
             cache_files=feature_path,
         )
 
-    def _make_concatenated_gt_feature_flow(self, corpus_info: dataclasses.CorpusInfo, **kwargs):
+    def _make_cached_concatenated_gt_feature_flow(self, corpus_info: dataclasses.CorpusInfo, **_):
         # TODO: why does this assert fail?
         # assert isinstance(corpus_info.data.corpus_object, SeparatedCorpusObject)
         crp_prim = corpus_info.crp

@@ -1,10 +1,7 @@
 import numpy as np
 import torch
 from returnn.forward_iface import ForwardCallbackIface
-
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from returnn.tensor.tensor_dict import TensorDict
+from returnn.tensor.tensor_dict import TensorDict
 
 
 class ComputePriorCallback(ForwardCallbackIface):

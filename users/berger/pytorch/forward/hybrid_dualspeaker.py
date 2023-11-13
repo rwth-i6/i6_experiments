@@ -1,8 +1,5 @@
 import torch
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from returnn.tensor.tensor_dict import TensorDict
+from returnn.tensor.tensor_dict import TensorDict
 
 
 def forward_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):

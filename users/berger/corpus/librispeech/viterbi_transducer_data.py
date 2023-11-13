@@ -24,6 +24,7 @@ def get_librispeech_data(
     test_keys: List[str] = ["test-clean", "test-other"],
     add_unknown: bool = False,
     augmented_lexicon: bool = True,
+    use_wei_lexicon: bool = False,
     feature_type: FeatureType = FeatureType.SAMPLES,
     **kwargs,
 ) -> BasicSetupData:
@@ -39,6 +40,7 @@ def get_librispeech_data(
         test_keys=test_keys,
         ctc_lexicon=True,
         use_augmented_lexicon=augmented_lexicon,
+        use_wei_lexicon=use_wei_lexicon,
         add_all_allophones=True,
         audio_format="wav",  # Note: OGGZip dataset lead to length mismatches between features and alignment
         add_unknown_phoneme_and_mapping=add_unknown,
@@ -52,7 +54,7 @@ def get_librispeech_data(
     train_lexicon = train_data_inputs[train_key].lexicon.filename
     assert train_corpus is not None
 
-    if not add_unknown and not augmented_lexicon:
+    if (not add_unknown and not augmented_lexicon) or use_wei_lexicon:
         train_corpus = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
             train_corpus,
             train_lexicon,
@@ -110,7 +112,7 @@ def get_librispeech_data(
 
     cv_data_inputs = copy.deepcopy(dev_data_inputs)
 
-    if not add_unknown:
+    if (not add_unknown and not augmented_lexicon) or use_wei_lexicon:
         for corpus_object in [cv_data_inputs[key].corpus_object for key in dev_keys]:
             assert corpus_object.corpus_file is not None
             corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
@@ -175,6 +177,13 @@ def get_librispeech_data(
     )
     cv_data_config = cv_dataset_builder.get_dict()
 
+    # ********** Recog lexicon **********
+
+    recog_lexicon = AddEowPhonemesToLexiconJob(train_lexicon).out_lexicon
+
+    for rasr_input in {**dev_data_inputs, **test_data_inputs}.values():
+        rasr_input.lexicon.filename = recog_lexicon
+
     # ********** Align data **********
 
     align_data_inputs = {
@@ -182,22 +191,14 @@ def get_librispeech_data(
         for key, data_input in {**train_data_inputs, **dev_data_inputs}.items()
     }
     for data_input in align_data_inputs.values():
-        data_input.lexicon.filename = train_lexicon
-
-        if not add_unknown:
+        data_input.lexicon.filename = recog_lexicon
+        if (not add_unknown and not augmented_lexicon) or use_wei_lexicon:
             assert data_input.corpus_object.corpus_file is not None
             data_input.corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
                 data_input.corpus_object.corpus_file,
                 train_lexicon,
                 all_unknown=False,
             ).out_corpus
-
-    # ********** Recog lexicon **********
-
-    recog_lexicon = AddEowPhonemesToLexiconJob(train_lexicon).out_lexicon
-
-    for rasr_input in {**dev_data_inputs, **test_data_inputs}.values():
-        rasr_input.lexicon.filename = recog_lexicon
 
     return BasicSetupData(
         train_key=train_key,

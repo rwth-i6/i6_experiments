@@ -87,6 +87,7 @@ class Seq2SeqSearchFunctor(
                     base_feature_flow=base_feature_flow,
                     tf_graph=tf_graph,
                     checkpoint=checkpoint,
+                    feature_type=feature_type,
                 )
             elif backend == Backend.PYTORCH:
                 assert isinstance(checkpoint, returnn.PtCheckpoint)

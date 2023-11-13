@@ -43,4 +43,5 @@ def add_loss_boost(
 
 def loss_boost_func(loss, boost_positions_mask):
     import tensorflow as tf
+
     return tf.where(boost_positions_mask, loss, tf.zeros_like(loss))
