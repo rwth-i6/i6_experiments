@@ -65,7 +65,6 @@ TODO:
   also looking at overfitting-ratio, not sure if this is a big problem.
 - attention dropout broadcast: check no broadcast over batch/head (base-24gb-v4-attdropfixbc, rf_att_dropout_broadcast=False)
 - dropout broadcast in general: what effect? disable? running: base-24gb-v4-nodropbc. compare also base-24gb-v4-attdropfixbc
-- moh BatchNorm:  "momentum": 0.1, "epsilon": 0.001, TODO check what do we have?
 
 - fine tune:
   - linspace vs geomspace?
