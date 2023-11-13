@@ -61,6 +61,9 @@ TODO:
 - try CTC only
 - try no specaugment (should overfit then, i.e. reach train loss 0). try orig specaugment
 - CTC is incorrectly trained with EOS label at end - fix?
+- specaugment_steps still not like original (0, 1000, 2000), much later.
+  but necessary for convergence without pretrain.
+  also looking at overfitting-ratio, not sure if this is a big problem.
 
 - fine tune:
   - linspace vs geomspace?
