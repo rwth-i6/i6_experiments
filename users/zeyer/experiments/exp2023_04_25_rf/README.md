@@ -60,6 +60,7 @@ TODO:
 - adam eps? 1e-16 is what we had in TF, maybe better?
 - try CTC only
 - try no specaugment (should overfit then, i.e. reach train loss 0). try orig specaugment
+- CTC is incorrectly trained with EOS label at end - fix?
 
 - fine tune:
   - linspace vs geomspace?
