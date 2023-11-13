@@ -120,6 +120,7 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     _train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)
     _train_exp("base-24gb-v4", config_24gb_v4)
+    _train_exp("base-24gb-v4-lr09e_3", config_24gb_v4, config_updates={"learning_rate": 0.0009})
     _train_exp(
         "base-24gb-v4-lrcos",
         config_24gb_v4,
