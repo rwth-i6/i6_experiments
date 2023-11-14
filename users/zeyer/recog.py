@@ -245,6 +245,8 @@ def search_config(
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # flat_net_construction=True,
+            torch_log_memory_usage=True,
+            watch_memory=True,
         ),
         sort_config=False,
     )
