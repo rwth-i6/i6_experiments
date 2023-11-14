@@ -171,7 +171,12 @@ def sis_run_with_prefix(prefix_name: str = None):
         ],
     )
     _train_exp("base-24gb-v4-attdropfixbc", config_24gb_v4, config_updates={"rf_att_dropout_broadcast": False})
-    _train_exp("base-24gb-v4-nodropbc", config_24gb_v4, config_updates={"rf_dropout_broadcast": False})
+    _train_exp("base-24gb-v4-bs30k", config_24gb_v4, config_updates={"batch_size": 30_000 * _batch_size_factor})
+    _train_exp(
+        "base-24gb-v4-bs30k-nodropbc",
+        config_24gb_v4,
+        config_updates={"batch_size": 30_000 * _batch_size_factor, "rf_dropout_broadcast": False},
+    )
 
 
 _sis_prefix: Optional[str] = None
