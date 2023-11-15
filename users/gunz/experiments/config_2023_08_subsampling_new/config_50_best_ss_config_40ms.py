@@ -308,6 +308,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
     # ####################
     # FULL-SUM FINE TUNING
     # ####################
+    batch_size_config = returnn.ReturnnConfig(config={"batch_size": 10_000})
 
     mo_ft_sys = copy.deepcopy(s)
     mo_ft_sys.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
@@ -325,9 +326,11 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
         log_linear_scales=baum_welch.BwScales(label_posterior_scale=1.0, transition_scale=0.3),
     )
     returnn_cfg_mo_ft_constlr = copy.deepcopy(returnn_cfg_mo_ft)
+    returnn_cfg_mo_ft_constlr.update(batch_size_config)
     returnn_cfg_mo_ft_constlr.update(constant_linear_decrease_lr_config)
     returnn_cfg_mo_ft_constlr.update(import_mono_config)
     returnn_cfg_mo_ft_newbob = copy.deepcopy(returnn_cfg_mo_ft)
+    returnn_cfg_mo_ft_newbob.update(batch_size_config)
     returnn_cfg_mo_ft_newbob.update(newbob_lr_config)
     returnn_cfg_mo_ft_newbob.update(import_mono_config)
 
@@ -354,9 +357,11 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
         log_linear_scales=baum_welch.BwScales(label_posterior_scale=1.0, transition_scale=0.3),
     )
     returnn_cfg_di_ft_constlr = copy.deepcopy(returnn_cfg_di_ft)
+    returnn_cfg_di_ft_constlr.update(batch_size_config)
     returnn_cfg_di_ft_constlr.update(constant_linear_decrease_lr_config)
     returnn_cfg_di_ft_constlr.update(import_di_config)
     returnn_cfg_di_ft_newbob = copy.deepcopy(returnn_cfg_di_ft)
+    returnn_cfg_di_ft_newbob.update(batch_size_config)
     returnn_cfg_di_ft_newbob.update(newbob_lr_config)
     returnn_cfg_di_ft_newbob.update(import_di_config)
 
