@@ -238,10 +238,10 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         else:
             raise ValueError(f"unknown name {key}")
 
-    # ###########
-    # FINE TUNING
-    # ###########
-    fine_tune_keep_epochs = [25, 150, 275, 300]
+    # #############
+    # FURTHER STEPS
+    # #############
+    fine_tune_keep_epochs = [25, 50, 100, 150, 200, 250, 275, 300]
 
     lrates = oclr.get_learning_rates(
         lrate=5e-5,
@@ -391,6 +391,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             train_corpus_key=s.crp_names["train"],
             dev_corpus_key=s.crp_names["cvtrain"],
             nn_train_args=train_args,
+            on_2080=True,
         )
 
     for ((_, orig_returnn_config, sys, _), key), crp_k, ep in itertools.product(
