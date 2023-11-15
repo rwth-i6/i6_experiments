@@ -264,9 +264,6 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
         config={}, python_epilog={"dynamic_lr_reset": "dynamic_learning_rate = None"}
     )
 
-    # ####################
-    # TWO STAGE MULTISTAGE
-    # ####################
     mono_train_job = s.experiments["fh-mono"]["train_job"]
     import_mono_config = returnn.ReturnnConfig(
         config={
@@ -280,68 +277,128 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
         }
     )
 
-    di_add_train_job = s.experiments["fh-di-add"]["train_job"]
-    import_di_add_config = returnn.ReturnnConfig(
+    di_train_job = s.experiments["fh-di"]["train_job"]
+    import_di_config = returnn.ReturnnConfig(
         config={
             "preload_from_files": {
                 "existing-model": {
                     "init_for_train": True,
                     "ignore_missing": True,
-                    "filename": di_add_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
+                    "filename": di_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
                 }
             },
         }
     )
 
-    di_from_mono_constant_lr_config = copy.deepcopy(returnn_cfg_di_add)
-    di_from_mono_constant_lr_config.update(constant_linear_decrease_lr_config)
-    di_from_mono_constant_lr_config.update(import_mono_config)
+    # ####################
+    # FULL-SUM FINE TUNING
+    # ####################
 
-    di_from_mono_newbob_config = copy.deepcopy(returnn_cfg_di_add)
-    di_from_mono_newbob_config.update(newbob_lr_config)
-    di_from_mono_newbob_config.update(import_mono_config)
+    returnn_cfg_mo_ft = remove_label_pops_and_losses_from_returnn_config(returnn_cfg_mo)
+    returnn_cfg_mo_ft = baum_welch.augment_for_fast_bw(
+        crp=s.crp[s.crp_names["train"]],
+        from_output_layer="center-output",
+        returnn_config=returnn_cfg_mo_ft,
+        log_linear_scales=baum_welch.BwScales(label_posterior_scale=1.0, transition_scale=0.3),
+    )
+    returnn_cfg_mo_ft_constlr = copy.deepcopy(returnn_cfg_mo_ft)
+    returnn_cfg_mo_ft_constlr.update(constant_linear_decrease_lr_config)
+    returnn_cfg_mo_ft_constlr.update(import_mono_config)
+    returnn_cfg_mo_ft_newbob = copy.deepcopy(returnn_cfg_mo_ft)
+    returnn_cfg_mo_ft_newbob.update(newbob_lr_config)
+    returnn_cfg_mo_ft_newbob.update(import_mono_config)
 
-    tri_from_di_add_constant_lr_config = copy.deepcopy(returnn_cfg_tri_add)
-    tri_from_di_add_constant_lr_config.update(constant_linear_decrease_lr_config)
-    tri_from_di_add_constant_lr_config.update(import_di_add_config)
+    mo_ft_sys = copy.deepcopy(s)
+    mo_ft_sys.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
+    mo_ft_sys.lexicon_args["norm_pronunciation"] = False
+    mo_ft_sys._update_am_setting_for_all_crps(
+        train_tdp_type="heuristic",
+        eval_tdp_type="heuristic",
+        add_base_allophones=False,
+    )
 
-    tri_from_di_add_newbob_config = copy.deepcopy(returnn_cfg_tri_add)
-    tri_from_di_add_newbob_config.update(newbob_lr_config)
-    tri_from_di_add_newbob_config.update(import_di_add_config)
+    returnn_cfg_di_ft = remove_label_pops_and_losses_from_returnn_config(returnn_cfg_di)
+    returnn_cfg_di_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
+        returnn_config=returnn_cfg_di_ft,
+        label_info=s.label_info,
+        out_joint_score_layer="output",
+        log_softmax=True,
+        prepare_for_train=True,
+    )
+    returnn_cfg_di_ft = baum_welch.augment_for_fast_bw(
+        crp=s.crp[s.crp_names["train"]],
+        from_output_layer="output",
+        returnn_config=returnn_cfg_di_ft,
+        log_linear_scales=baum_welch.BwScales(label_posterior_scale=1.0, transition_scale=0.3),
+    )
+    returnn_cfg_di_ft_constlr = copy.deepcopy(returnn_cfg_di_ft)
+    returnn_cfg_di_ft_constlr.update(constant_linear_decrease_lr_config)
+    returnn_cfg_di_ft_constlr.update(import_di_config)
+    returnn_cfg_di_ft_newbob = copy.deepcopy(returnn_cfg_di_ft)
+    returnn_cfg_di_ft_newbob.update(newbob_lr_config)
+    returnn_cfg_di_ft_newbob.update(import_di_config)
+
+    di_ft_sys = copy.deepcopy(s)
+    di_ft_sys.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+    di_ft_sys.lexicon_args["norm_pronunciation"] = False
+    di_ft_sys._update_am_setting_for_all_crps(
+        train_tdp_type="heuristic",
+        eval_tdp_type="heuristic",
+        add_base_allophones=False,
+    )
 
     configs = [
-        (di_from_mono_constant_lr_config, "di-add-constlr-from-mono"),
-        (di_from_mono_newbob_config, "di-add-newbob-from-mono"),
-        (tri_from_di_add_constant_lr_config, "tri-add-constlr-from-di-add"),
-        (tri_from_di_add_newbob_config, "tri-add-newbob-from-di-add"),
+        (returnn_cfg_mo_ft_constlr, mo_ft_sys, "mono-fs-newbob"),
+        (returnn_cfg_mo_ft_newbob, mo_ft_sys, "mono-fs-newbob"),
+        (returnn_cfg_di_ft_constlr, di_ft_sys, "di-fs-newbob"),
+        (returnn_cfg_di_ft_newbob, di_ft_sys, "di-fs-newbob"),
     ]
-    keys = [f"fh-{name}" for _, name in configs]
-    for (cfg, name), key in zip(configs, keys):
-        continue
+    keys = [f"fh-{name}" for _, _, name in configs]
+    for (returnn_config, sys, name), key in zip(configs, keys):
+        post_name = f"config-{name}-zhou"
+        print(f"bw {post_name}")
 
-        post_name = f"conf-{name}-zhou"
-        print(f"fh {post_name}")
-
-        s.set_experiment_dict(key, exp.alignment_name, name, postfix_name=post_name)
-        s.set_returnn_config_for_experiment(key, copy.deepcopy(cfg))
+        sys.set_experiment_dict(key, "bw", name, postfix_name=post_name)
+        sys.set_returnn_config_for_experiment(key, copy.deepcopy(returnn_config))
 
         train_args = {
             **s.initial_train_args,
-            "num_epochs": fine_tune_keep_epochs[-1],
+            "num_epochs": fine_tune_keep_epochs,
             "partition_epochs": PARTITION_EPOCHS,
-            "returnn_config": copy.deepcopy(cfg),
+            "returnn_config": copy.deepcopy(returnn_config),
         }
-        s.returnn_rasr_training(
+        sys.returnn_rasr_training(
             experiment_key=key,
             train_corpus_key=s.crp_names["train"],
             dev_corpus_key=s.crp_names["cvtrain"],
             nn_train_args=train_args,
-            on_2080=True,
         )
 
-    # ###########
-    # FINE TUNING
-    # ###########
+    for (returnn_config, sys, _), key, crp_k, ep in itertools.product(
+        configs, keys, ["dev-other"], fine_tune_keep_epochs
+    ):
+        sys.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+        if "mono" in key:
+            decode_monophone(
+                sys,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=returnn_config,
+                epoch=ep,
+                prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
+            )
+        elif "di" in key:
+            decode_diphone(
+                sys,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=returnn_config,
+                epoch=ep,
+                prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
+            )
+        else:
+            raise NotImplementedError("Cannot bw-fine-tune triphones")
 
     if False:
         fine_tune_epochs = 300

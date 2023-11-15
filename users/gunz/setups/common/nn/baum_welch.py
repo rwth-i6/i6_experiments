@@ -9,11 +9,12 @@ from sisyphus.delayed_ops import DelayedFormat
 from i6_core import rasr, returnn
 
 
-@dataclass
+@dataclass(frozen=True, eq=True)
 class BwScales:
     label_posterior_scale: float
-    label_prior_scale: typing.Optional[float]
     transition_scale: float
+
+    label_prior_scale: typing.Optional[float] = None
 
     @classmethod
     def default(cls) -> "BwScales":
