@@ -137,7 +137,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
     TENSOR_CONFIG = dataclasses.replace(
         CONF_FH_DECODING_TENSOR_CONFIG,
         in_encoder_output="conformer_12_output/add",
-        in_seq_length="extern_data/placeholders/centerState/centerState_dim0_size",
+        in_seq_length="extern_data/placeholders/classes/classes_dim0_size",
     )
     ZHOU_L2 = 5e-6
 
