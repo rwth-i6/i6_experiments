@@ -196,7 +196,7 @@ class TransformCheckpointJob(tk.Job):
                     logging.warning("Variable %s not set", v)
 
             # this is a bit ugly, but the global step does not appear in the variable definitions of the meta_graph
-            s.run("global_step/Assign", feed_dict={"global_step/Initializer/zeros:0": 0})
+            # s.run("global_step/Assign", feed_dict={"global_step/Initializer/zeros:0": 0})
 
             s.run(
                 output_mg.saver_def.save_tensor_name,
