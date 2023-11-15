@@ -294,9 +294,17 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
     # FULL-SUM FINE TUNING
     # ####################
 
+    mo_ft_sys = copy.deepcopy(s)
+    mo_ft_sys.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
+    mo_ft_sys.lexicon_args["norm_pronunciation"] = False
+    mo_ft_sys._update_am_setting_for_all_crps(
+        train_tdp_type="heuristic",
+        eval_tdp_type="heuristic",
+        add_base_allophones=False,
+    )
     returnn_cfg_mo_ft = remove_label_pops_and_losses_from_returnn_config(returnn_cfg_mo)
     returnn_cfg_mo_ft = baum_welch.augment_for_fast_bw(
-        crp=s.crp[s.crp_names["train"]],
+        crp=mo_ft_sys.crp[s.crp_names["train"]],
         from_output_layer="center-output",
         returnn_config=returnn_cfg_mo_ft,
         log_linear_scales=baum_welch.BwScales(label_posterior_scale=1.0, transition_scale=0.3),
@@ -308,25 +316,24 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
     returnn_cfg_mo_ft_newbob.update(newbob_lr_config)
     returnn_cfg_mo_ft_newbob.update(import_mono_config)
 
-    mo_ft_sys = copy.deepcopy(s)
-    mo_ft_sys.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
-    mo_ft_sys.lexicon_args["norm_pronunciation"] = False
-    mo_ft_sys._update_am_setting_for_all_crps(
+    di_ft_sys = copy.deepcopy(s)
+    di_ft_sys.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+    di_ft_sys.lexicon_args["norm_pronunciation"] = False
+    di_ft_sys._update_am_setting_for_all_crps(
         train_tdp_type="heuristic",
         eval_tdp_type="heuristic",
         add_base_allophones=False,
     )
-
     returnn_cfg_di_ft = remove_label_pops_and_losses_from_returnn_config(returnn_cfg_di)
     returnn_cfg_di_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
         returnn_config=returnn_cfg_di_ft,
-        label_info=s.label_info,
+        label_info=di_ft_sys.label_info,
         out_joint_score_layer="output",
         log_softmax=True,
         prepare_for_train=True,
     )
     returnn_cfg_di_ft = baum_welch.augment_for_fast_bw(
-        crp=s.crp[s.crp_names["train"]],
+        crp=di_ft_sys.crp[s.crp_names["train"]],
         from_output_layer="output",
         returnn_config=returnn_cfg_di_ft,
         log_linear_scales=baum_welch.BwScales(label_posterior_scale=1.0, transition_scale=0.3),
@@ -337,15 +344,6 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
     returnn_cfg_di_ft_newbob = copy.deepcopy(returnn_cfg_di_ft)
     returnn_cfg_di_ft_newbob.update(newbob_lr_config)
     returnn_cfg_di_ft_newbob.update(import_di_config)
-
-    di_ft_sys = copy.deepcopy(s)
-    di_ft_sys.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
-    di_ft_sys.lexicon_args["norm_pronunciation"] = False
-    di_ft_sys._update_am_setting_for_all_crps(
-        train_tdp_type="heuristic",
-        eval_tdp_type="heuristic",
-        add_base_allophones=False,
-    )
 
     configs = [
         (returnn_cfg_mo_ft_constlr, returnn_cfg_mo, mo_ft_sys, "mono-fs-newbob"),
@@ -374,8 +372,8 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
             nn_train_args=train_args,
         )
 
-    for (_, orig_returnn_config, sys, _), key, crp_k, ep in itertools.product(
-        configs, keys, ["dev-other"], fine_tune_keep_epochs
+    for ((_, orig_returnn_config, sys, _), key), crp_k, ep in itertools.product(
+        zip(configs, keys), ["dev-other"], fine_tune_keep_epochs
     ):
         sys.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
