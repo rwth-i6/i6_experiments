@@ -267,7 +267,9 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         python_epilog={"dynamic_lr_reset": "dynamic_learning_rate = None"},
     )
     newbob_lr_config = returnn.ReturnnConfig(
-        config={},
+        config={
+            "learning_rate": 1e-3,
+        },
         post_config={
             "cleanup_old_models": {
                 "keep_best_n": 3,
