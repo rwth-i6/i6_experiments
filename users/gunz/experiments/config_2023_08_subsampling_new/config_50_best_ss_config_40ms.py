@@ -21,7 +21,7 @@ import i6_core.returnn as returnn
 import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
-from ...setups.fh import system as fh_system
+from ...setups.fh import multistage, system as fh_system
 from ...setups.fh.decoder.search import DecodingTensorMap
 from ...setups.fh.factored import LabelInfo, PhoneticContext, RasrStateTying
 from ...setups.fh.network import aux_loss, diphone_joint_output, extern_data
@@ -418,6 +418,98 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             )
         else:
             raise NotImplementedError("Cannot bw-fine-tune triphones")
+
+    # #####################
+    # MULTI STAGE TRAININGS
+    # #####################
+
+    transform_mono_to_di = multistage.transform_checkpoint(
+        name="mono-to-di",
+        input_label_info=s.label_info,
+        input_model_path=mono_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
+        input_returnn_config=returnn_cfg_mo,
+        output_label_info=s.label_info,
+        output_returnn_config=returnn_cfg_di,
+        returnn_root=s.returnn_root,
+        returnn_python_exe=s.returnn_python_exe,
+    )
+    transform_mono_to_di.update(newbob_lr_config)
+    transform_mono_to_tri = multistage.transform_checkpoint(
+        name="mono-to-tri",
+        input_label_info=s.label_info,
+        input_model_path=mono_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
+        input_returnn_config=returnn_cfg_mo,
+        output_label_info=s.label_info,
+        output_returnn_config=returnn_cfg_tri,
+        returnn_root=s.returnn_root,
+        returnn_python_exe=s.returnn_python_exe,
+    )
+    transform_mono_to_tri.update(newbob_lr_config)
+    transform_di_to_tri = multistage.transform_checkpoint(
+        name="di-to-tri",
+        input_label_info=s.label_info,
+        input_model_path=di_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
+        input_returnn_config=returnn_cfg_di,
+        output_label_info=s.label_info,
+        output_returnn_config=returnn_cfg_tri,
+        returnn_root=s.returnn_root,
+        returnn_python_exe=s.returnn_python_exe,
+    )
+    transform_di_to_tri.update(newbob_lr_config)
+
+    configs = [
+        (transform_mono_to_di, "di-from-mono"),
+        (transform_mono_to_tri, "tri-from-mono"),
+        (transform_di_to_tri, "tri-from-di"),
+    ]
+    keys = [f"fh-{name}" for _, name in configs]
+    for (returnn_config, name), key in zip(configs, keys):
+        post_name = f"config-{name}-zhou"
+        print(f"ms {post_name}")
+
+        s.set_experiment_dict(key, exp.alignment_name, name, postfix_name=post_name)
+        s.set_returnn_config_for_experiment(key, copy.deepcopy(returnn_config))
+
+        train_args = {
+            **s.initial_train_args,
+            "num_epochs": fine_tune_keep_epochs[-1],
+            "partition_epochs": PARTITION_EPOCHS,
+            "returnn_config": copy.deepcopy(returnn_config),
+        }
+        s.returnn_rasr_training(
+            experiment_key=key,
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            nn_train_args=train_args,
+        )
+
+    for ((returnn_config, _), key), crp_k, ep in itertools.product(
+        zip(configs, keys), ["dev-other"], fine_tune_keep_epochs
+    ):
+        s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+        if "di" in key:
+            decode_diphone(
+                s,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=returnn_config,
+                epoch=ep,
+                prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
+            )
+        elif "tri" in key:
+            if ep in [fine_tune_keep_epochs[0], fine_tune_keep_epochs[-1]]:
+                decode_triphone(
+                    s,
+                    key=key,
+                    crp_k=crp_k,
+                    returnn_config=returnn_config,
+                    epoch=ep,
+                    prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
+                    tensor_config=TENSOR_CONFIG,
+                )
+        else:
+            raise NotImplementedError("Cannot decode multistage monophones")
 
 
 def decode_monophone(
