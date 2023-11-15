@@ -348,13 +348,13 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
     )
 
     configs = [
-        (returnn_cfg_mo_ft_constlr, mo_ft_sys, "mono-fs-newbob"),
-        (returnn_cfg_mo_ft_newbob, mo_ft_sys, "mono-fs-newbob"),
-        (returnn_cfg_di_ft_constlr, di_ft_sys, "di-fs-newbob"),
-        (returnn_cfg_di_ft_newbob, di_ft_sys, "di-fs-newbob"),
+        (returnn_cfg_mo_ft_constlr, returnn_cfg_mo, mo_ft_sys, "mono-fs-newbob"),
+        (returnn_cfg_mo_ft_newbob, returnn_cfg_mo, mo_ft_sys, "mono-fs-newbob"),
+        (returnn_cfg_di_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-newbob"),
+        (returnn_cfg_di_ft_newbob, returnn_cfg_di, di_ft_sys, "di-fs-newbob"),
     ]
-    keys = [f"fh-{name}" for _, _, name in configs]
-    for (returnn_config, sys, name), key in zip(configs, keys):
+    keys = [f"fh-{name}" for _, _, _, name in configs]
+    for (returnn_config, _, sys, name), key in zip(configs, keys):
         post_name = f"config-{name}-zhou"
         print(f"bw {post_name}")
 
@@ -374,7 +374,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
             nn_train_args=train_args,
         )
 
-    for (returnn_config, sys, _), key, crp_k, ep in itertools.product(
+    for (_, orig_returnn_config, sys, _), key, crp_k, ep in itertools.product(
         configs, keys, ["dev-other"], fine_tune_keep_epochs
     ):
         sys.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
@@ -384,7 +384,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
                 sys,
                 key=key,
                 crp_k=crp_k,
-                returnn_config=returnn_config,
+                returnn_config=orig_returnn_config,
                 epoch=ep,
                 prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
             )
@@ -393,7 +393,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
                 sys,
                 key=key,
                 crp_k=crp_k,
-                returnn_config=returnn_config,
+                returnn_config=orig_returnn_config,
                 epoch=ep,
                 prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
             )
