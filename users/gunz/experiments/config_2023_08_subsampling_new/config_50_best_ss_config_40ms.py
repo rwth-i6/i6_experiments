@@ -726,7 +726,9 @@ def decode_diphone(
         out_joint_score_layer="output",
         log_softmax=True,
     )
-    search_params = dataclasses.replace(s.get_cart_params(key), lm_scale=2.5, tdp_scale=0.4).with_prior_scale(0.6)
+    search_params = dataclasses.replace(s.get_cart_params(key), beam=20, lm_scale=2.5, tdp_scale=0.4).with_prior_scale(
+        0.6
+    )
     tying_cfg = rasr.RasrConfig()
     tying_cfg.type = "diphone-dense"
     s.recognize_cart(
