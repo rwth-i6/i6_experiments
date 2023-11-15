@@ -361,9 +361,9 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
     returnn_cfg_di_ft_newbob.update(import_di_config)
 
     configs = [
-        (returnn_cfg_mo_ft_constlr, returnn_cfg_mo, mo_ft_sys, "mono-fs-newbob"),
+        (returnn_cfg_mo_ft_constlr, returnn_cfg_mo, mo_ft_sys, "mono-fs-constlr"),
         (returnn_cfg_mo_ft_newbob, returnn_cfg_mo, mo_ft_sys, "mono-fs-newbob"),
-        (returnn_cfg_di_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-newbob"),
+        (returnn_cfg_di_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-constlr"),
         (returnn_cfg_di_ft_newbob, returnn_cfg_di, di_ft_sys, "di-fs-newbob"),
     ]
     keys = [f"fh-{name}" for _, _, _, name in configs]
