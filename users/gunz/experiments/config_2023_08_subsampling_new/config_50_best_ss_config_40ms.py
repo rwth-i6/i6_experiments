@@ -258,10 +258,25 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
                 np.concatenate([lrates, np.linspace(min(lrates), 1e-6, fine_tune_keep_epochs[-1] - len(lrates))])
             )
         },
+        post_config={
+            "cleanup_old_models": {
+                "keep_best_n": 3,
+                "keep_last_n": 5,
+                "keep": fine_tune_keep_epochs,
+            },
+        },
         python_epilog={"dynamic_lr_reset": "dynamic_learning_rate = None"},
     )
     newbob_lr_config = returnn.ReturnnConfig(
-        config={}, python_epilog={"dynamic_lr_reset": "dynamic_learning_rate = None"}
+        config={},
+        post_config={
+            "cleanup_old_models": {
+                "keep_best_n": 3,
+                "keep_last_n": 5,
+                "keep": fine_tune_keep_epochs,
+            },
+        },
+        python_epilog={"dynamic_lr_reset": "dynamic_learning_rate = None"},
     )
 
     mono_train_job = s.experiments["fh-mono"]["train_job"]
