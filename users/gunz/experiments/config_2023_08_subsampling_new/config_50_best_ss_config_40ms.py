@@ -363,7 +363,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
 
         train_args = {
             **s.initial_train_args,
-            "num_epochs": fine_tune_keep_epochs,
+            "num_epochs": fine_tune_keep_epochs[-1],
             "partition_epochs": PARTITION_EPOCHS,
             "returnn_config": copy.deepcopy(returnn_config),
         }
