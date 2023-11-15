@@ -128,8 +128,13 @@ class TransformCheckpointJob(tk.Job):
                 gd.ParseFromString(f.read())
             return gd
 
-        def load_checkpoint(session: tf.compat.v1.Session, mg, checkpoint_path):
+        def load_checkpoint(
+            session: tf.compat.v1.Session, mg, checkpoint_path, except_vars: typing.Optional[typing.Set[str]] = None
+        ):
             saver = tf.compat.v1.train.Saver.from_proto(mg.saver_def)
+            if except_vars is not None:
+                saver._var_list = list(set(saver._var_list) - except_vars)
+                saver.build()
             saver.restore(session, checkpoint_path)
 
         def parse_variables(mg, collection="trainable_variables"):
@@ -176,7 +181,12 @@ class TransformCheckpointJob(tk.Job):
 
         with tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(device_count={"GPU": 0})) as s:
             tf.import_graph_def(output_mg.graph_def, name="")
-            load_checkpoint(s, input_mg, tk.uncached_path(self.input_checkpoint))
+            load_checkpoint(
+                s,
+                input_mg,
+                tk.uncached_path(self.input_checkpoint),
+                except_vars=set(tf_output_vars.keys()) - set(tf_input_vars.keys()),
+            )
 
             for v in var_data:
                 if v in tf_output_vars:
