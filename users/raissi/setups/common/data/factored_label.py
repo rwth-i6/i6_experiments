@@ -83,6 +83,7 @@ class PhoneticContext(Enum):
     monophone = "monophone"
     mono_state_transition = "monophone-delta"
     diphone = "diphone"
+    joint_diphone = "joint_diphone" #dummy string, it is used in nnprecomputed
     diphone_state_transition = "diphone-delta"
     triphone_symmetric = "triphone-symmetric"
     triphone_forward = "triphone-forward"
@@ -114,6 +115,9 @@ class PhoneticContext(Enum):
 
     def is_diphone(self):
         return self == PhoneticContext.diphone or self == PhoneticContext.diphone_state_transition
+
+    def is_joint_diphone(self):
+        return self == PhoneticContext.joint_diphone
 
     def is_triphone(self):
         return (

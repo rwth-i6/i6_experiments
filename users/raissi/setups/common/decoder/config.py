@@ -2,7 +2,7 @@ __all__ = ["default_posterior_scales", "Float", "PriorConfig", "PriorInfo", "Pos
 
 import dataclasses
 from dataclasses import dataclass
-import typing
+from typing import Optional, Union, Tuple, TypedDict
 
 from sisyphus import tk
 
@@ -18,7 +18,7 @@ from i6_experiments.users.raissi.setups.common.data.factored_label import (
 
 @dataclass(eq=True, frozen=True)
 class PriorConfig:
-    file: typing.Union[str, tk.Path, None]
+    file: Union[str, tk.Path, None]
     scale: Float
 
     def with_scale(self, scale: Float) -> "PriorConfig":
@@ -33,35 +33,40 @@ class PriorInfo:
     """
 
     center_state_prior: PriorConfig
-    left_context_prior: typing.Optional[PriorConfig] = None
-    right_context_prior: typing.Optional[PriorConfig] = None
+    left_context_prior: Optional[PriorConfig] = None
+    right_context_prior: Optional[PriorConfig] = None
+    diphone_prior: Optional[PriorConfig] = None
 
     def with_scale(
         self,
         center: Float,
-        left: typing.Optional[Float] = None,
-        right: typing.Optional[Float] = None,
+        left: Optional[Float] = None,
+        right: Optional[Float] = None,
+        diphone: Optional[Float] = None,
     ) -> "PriorInfo":
         """
         Returns a copy of the class with the given scales set.
 
-        left/right scale must be set if the left/right priors are set.
+        left/right/diphone scale must be set if the left/right priors are set.
         """
 
         assert self.left_context_prior is None or left is not None
         assert self.right_context_prior is None or right is not None
+        assert self.diphone_prior is None or diphone is not None
 
         left = self.left_context_prior.with_scale(left) if self.left_context_prior is not None else None
         right = self.right_context_prior.with_scale(right) if self.right_context_prior is not None else None
+        diphone = self.diphone_prior.with_scale(diphone) if self.diphone_prior is not None else None
         return dataclasses.replace(
             self,
             center_state_prior=self.center_state_prior.with_scale(center),
             left_context_prior=left,
             right_context_prior=right,
+            diphone_prior=diphone
         )
 
     @classmethod
-    def from_monophone_job(cls, output_dir: typing.Union[str, tk.Path]) -> "PriorInfo":
+    def from_monophone_job(cls, output_dir: Union[str, tk.Path]) -> "PriorInfo":
         """
         Initializes a PriorInfo instance with scale 0.0 from the output directory of
         a previously run/captured ComputeMonophonePriorsJob.
@@ -73,7 +78,7 @@ class PriorInfo:
         )
 
     @classmethod
-    def from_diphone_job(cls, output_dir: typing.Union[str, tk.Path]) -> "PriorInfo":
+    def from_diphone_job(cls, output_dir: Union[str, tk.Path]) -> "PriorInfo":
         """
         Initializes a PriorInfo instance with scale 0.0 from the output directory of
         a previously run/captured ComputeDiphonePriorsJob.
@@ -86,7 +91,7 @@ class PriorInfo:
         )
 
     @classmethod
-    def from_triphone_job(cls, output_dir: typing.Union[str, tk.Path]) -> "PriorInfo":
+    def from_triphone_job(cls, output_dir: Union[str, tk.Path]) -> "PriorInfo":
         """
         Initializes a PriorInfo instance with scale 0.0 from the output directory of
         a previously run/captured ComputeTriphoneForwardPriorsJob.
@@ -100,7 +105,7 @@ class PriorInfo:
         )
 
 
-PosteriorScales = typing.TypedDict(
+PosteriorScales = TypedDict(
     "PosteriorScales",
     {
         "left-context-scale": Float,
@@ -126,19 +131,18 @@ class SearchParameters:
     non_word_phonemes: str
     prior_info: PriorInfo
     pron_scale: Float
-    tdp_scale: typing.Optional[Float]
-    tdp_silence: typing.Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
-    tdp_speech: typing.Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
-    tdp_non_word: typing.Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
+    tdp_scale: Optional[Float]
+    tdp_silence: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
+    tdp_speech: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
+    tdp_non_word: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     we_pruning: Float
     we_pruning_limit: int
-
     add_all_allophones: bool = True
-    altas: typing.Optional[float] = None
-    posterior_scales: typing.Optional[PosteriorScales] = None
-    silence_penalties: typing.Optional[typing.Tuple[Float, Float]] = None  # loop, fwd
-    state_dependent_tdps: typing.Optional[typing.Union[str, tk.Path]] = None
-    transition_scales: typing.Optional[typing.Tuple[Float, Float]] = None  # loop, fwd
+    altas: Optional[float] = None
+    posterior_scales: Optional[PosteriorScales] = None
+    silence_penalties: Optional[Tuple[Float, Float]] = None  # loop, fwd
+    state_dependent_tdps: Optional[Union[str, tk.Path]] = None
+    transition_scales: Optional[Tuple[Float, Float]] = None  # loop, fwd
 
     def with_lm_scale(self, scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, lm_scale=scale)
@@ -146,8 +150,8 @@ class SearchParameters:
     def with_prior_scale(
         self,
         center: Float,
-        left: typing.Optional[Float] = None,
-        right: typing.Optional[Float] = None,
+        left: Optional[Float] = None,
+        right: Optional[Float] = None,
     ) -> "SearchParameters":
         return dataclasses.replace(self, prior_info=self.prior_info.with_scale(center=center, left=left, right=right))
 
@@ -157,10 +161,10 @@ class SearchParameters:
     def with_tdp_scale(self, scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, tdp_scale=scale)
 
-    def with_tdp_silence(self, tdp: typing.Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
+    def with_tdp_silence(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
         return dataclasses.replace(self, tdp_silence=tdp)
 
-    def with_tdp_speech(self, tdp: typing.Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
+    def with_tdp_speech(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
         return dataclasses.replace(self, tdp_speech=tdp)
 
     @classmethod
