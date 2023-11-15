@@ -137,6 +137,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment) -> fh_system.FactoredHybr
     TENSOR_CONFIG = dataclasses.replace(
         CONF_FH_DECODING_TENSOR_CONFIG,
         in_encoder_output="conformer_12_output/add",
+        in_seq_length="extern_data/placeholders/centerState/centerState_dim0_size",
     )
     ZHOU_L2 = 5e-6
 
@@ -772,6 +773,7 @@ def decode_triphone(
         gpu=False,
         tensor_map=tensor_config,
         set_batch_major_for_feature_scorer=True,
+        lm_gc_simple_hash=True,
     )
     recog_args = recog_args.with_lm_scale(2.5).with_tdp_scale(0.2)
 
