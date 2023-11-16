@@ -466,12 +466,12 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         (tri_from_di_cfg, returnn_cfg_tri, "tri-from-di"),
     ]
     keys = [f"fh-{name}" for _, _, name in configs]
-    for (returnn_config, _, name), key in zip(configs, keys):
+    for (returnn_config, original_returnn_config, name), key in zip(configs, keys):
         post_name = f"config-{name}-zhou"
         print(f"ms {post_name}")
 
         s.set_experiment_dict(key, exp.alignment_name, name, postfix_name=post_name)
-        s.set_returnn_config_for_experiment(key, copy.deepcopy(returnn_config))
+        s.set_returnn_config_for_experiment(key, copy.deepcopy(original_returnn_config))
 
         train_args = {
             **s.initial_train_args,
