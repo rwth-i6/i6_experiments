@@ -465,7 +465,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         (tri_from_mono_cfg, returnn_cfg_tri, "tri-from-mono"),
         (tri_from_di_cfg, returnn_cfg_tri, "tri-from-di"),
     ]
-    keys = [f"fh-{name}" for _, name in configs]
+    keys = [f"fh-{name}" for _, _, name in configs]
     for (returnn_config, _, name), key in zip(configs, keys):
         post_name = f"config-{name}-zhou"
         print(f"ms {post_name}")
