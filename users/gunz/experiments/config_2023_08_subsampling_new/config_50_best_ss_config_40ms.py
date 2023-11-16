@@ -733,6 +733,7 @@ def decode_triphone(
             num_encoder_output=512,
             rerun_after_opt_lm=True,
             calculate_stats=True,
+            name_override="best/4gram",
             rtf_cpu=35,
         )
 
