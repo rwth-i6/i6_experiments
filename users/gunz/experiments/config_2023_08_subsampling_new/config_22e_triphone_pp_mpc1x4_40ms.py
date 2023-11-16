@@ -360,9 +360,9 @@ def run_single(
                 num_encoder_output=conf_model_dim,
                 prior_scales=list(
                     itertools.product(
-                        np.linspace(0.4, 0.8, 3),
-                        np.linspace(0.4, 0.8, 3),
-                        np.linspace(0.2, 0.6, 3),
+                        np.linspace(0.2, 0.8, 4),
+                        np.linspace(0.2, 0.8, 4),
+                        np.linspace(0.0, 0.6, 4),
                     )
                 ),
                 tdp_scales=np.linspace(0.2, 0.6, 3),
