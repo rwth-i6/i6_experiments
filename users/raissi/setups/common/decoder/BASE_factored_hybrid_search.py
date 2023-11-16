@@ -1,7 +1,8 @@
-__all__ = ["FactoredHybridBaseDecoder"]
+__all__ = ["BASEFactoredHybridDecoder"]
 
 import copy
 from dataclasses import dataclass
+import numpy as np
 from typing import Any, Callable, List, Optional, Tuple, Union
 from IPython import embed
 
@@ -31,7 +32,7 @@ from i6_experiments.users.raissi.setups.common.decoder.config import PriorInfo, 
 from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_feature_scorer import (
     FactoredHybridFeatureScorer,
 )
-from i6_experiments.users.raissi.setups.common.decoder.rtf import ExtractSearchStatisticsJob
+from i6_experiments.users.raissi.setups.common.decoder.statistics import ExtractSearchStatisticsJob
 from i6_experiments.users.raissi.setups.common.util.tdp import (
     TDP,
     Float,
@@ -171,15 +172,15 @@ def get_factored_feature_scorer(
     num_label_contexts: int,
     num_states_per_phone: int,
     num_encoder_output: int,
-    loop_scale: float,
-    forward_scale: float,
-    silence_loop_penalty: float,
-    silence_forward_penalty: float,
+    loop_scale: float = 1.0,
+    forward_scale: float = 1.0,
+    silence_loop_penalty: float = 0.0,
+    silence_forward_penalty: float = 0.0,
     posterior_scales: Optional[PosteriorScales] = None,
-    use_estimated_tdps=False,
+    use_estimated_tdps: bool = False,
     state_dependent_tdp_file: Optional[Union[str, Path]] = None,
-    is_min_duration=False,
-    is_multi_encoder_output=False,
+    is_min_duration: bool = False,
+    is_multi_encoder_output: bool = False,
 ):
     if isinstance(prior_info, PriorInfo):
         check_prior_info(context_type=context_type, prior_info=prior_info)
@@ -224,7 +225,7 @@ def get_nn_precomputed_feature_scorer(context_type: PhoneticContext,
 
 
 
-class FactoredHybridBaseDecoder:
+class BASEFactoredHybridDecoder:
     def __init__(
         self,
         name: str,
@@ -960,7 +961,12 @@ class FactoredHybridBaseDecoder:
                 is_multi_encoder_output=self.is_multi_encoder_output,
             )
         elif self.feature_scorer_type.is_nnprecomputed():
-            feature_scorer =
+            feature_scorer = get_nn_precomputed_feature_scorer(context_type=self.context_type,
+                                                               feature_scorer_type=self.feature_scorer_type,
+                                                               mixtures=self.mixtures,
+                                                               prior_info=search_parameters.prior_info)
+        else:
+            raise NotImplementedError
 
 
         pre_path = (
@@ -1226,7 +1232,7 @@ class FactoredHybridBaseDecoder:
 
 
 
-class FactoredHybridAligner(FactoredHybridBaseDecoder):
+class FactoredHybridAligner(BASEFactoredHybridDecoder):
     def __init__(
         self,
         name: str,
@@ -1275,6 +1281,7 @@ class FactoredHybridAligner(FactoredHybridBaseDecoder):
         self,
         *,
         label_info: LabelInfo,
+        search_parameters: SearchParameters,
         num_encoder_output: int,
         pre_path: Optional[str] = None,
         add_sis_alias_and_output=True,
@@ -1283,31 +1290,30 @@ class FactoredHybridAligner(FactoredHybridBaseDecoder):
         use_estimated_tdps=False,
         gpu: Optional[bool] = None,
         mem_rqmt: Optional[int] = None,
-        cpu_rqmt: Optional[int] = None,
-        crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
-        rtf_cpu: Optional[float] = None,
-        rtf_gpu: Optional[float] = None,
-        create_lattice: bool = True,
-        remove_or_set_concurrency: Union[bool, int] = False,
     ) -> mm.AlignmentJob:
-        feature_scorer = get_factored_feature_scorer(
-            context_type=self.context_type,
-            label_info=label_info,
-            feature_scorer_config=self.fs_config,
-            mixtures=self.mixtures,
-            silence_id=self.silence_id,
-            prior_info=search_parameters.prior_info,
-            posterior_scales=search_parameters.posterior_scales,
-            num_label_contexts=label_info.n_contexts,
-            num_states_per_phone=label_info.n_states_per_phone,
-            num_encoder_output=num_encoder_output,
-            loop_scale=loop_scale,
-            forward_scale=forward_scale,
-            silence_loop_penalty=sil_loop_penalty,
-            silence_forward_penalty=sil_fwd_penalty,
-            use_estimated_tdps=use_estimated_tdps,
-            state_dependent_tdp_file=search_parameters.state_dependent_tdps,
-            is_min_duration=is_min_duration,
-            is_multi_encoder_output=self.is_multi_encoder_output,
-        )
+        if self.feature_scorer_type.is_factored():
+            feature_scorer = get_factored_feature_scorer(
+                context_type=self.context_type,
+                feature_scorer_type=self.feature_scorer_type,
+                label_info=label_info,
+                feature_scorer_config=self.fs_config,
+                mixtures=self.mixtures,
+                silence_id=self.silence_id,
+                prior_info=search_parameters.prior_info,
+                posterior_scales=search_parameters.posterior_scales,
+                num_label_contexts=label_info.n_contexts,
+                num_states_per_phone=label_info.n_states_per_phone,
+                num_encoder_output=num_encoder_output,
+                use_estimated_tdps=use_estimated_tdps,
+                state_dependent_tdp_file=search_parameters.state_dependent_tdps,
+                is_min_duration=is_min_duration,
+                is_multi_encoder_output=self.is_multi_encoder_output,
+            )
+        elif self.feature_scorer_type.is_nnprecomputed():
+            feature_scorer = get_nn_precomputed_feature_scorer(context_type=self.context_type,
+                                                               feature_scorer_type=self.feature_scorer_type,
+                                                               mixtures=self.mixtures,
+                                                               prior_info=search_parameters.prior_info)
+        else:
+            raise NotImplementedError
 

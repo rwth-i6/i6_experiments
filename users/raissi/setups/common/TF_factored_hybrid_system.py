@@ -30,7 +30,7 @@ from i6_core.util import MultiPath, MultiOutputPath
 # common modules
 
 from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import (
-    BASEFactoredHybridBaseSystem,
+    BASEFactoredHybridSystem,
     Experiment,
     TrainingCriterion,
 )
@@ -64,7 +64,7 @@ from i6_experiments.users.raissi.setups.common.helpers.priors import (
 
 from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo
 
-from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_search import FactoredHybridBaseDecoder
+from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import BASEFactoredHybridSystem
 
 from i6_experiments.users.raissi.setups.common.decoder.config import (
     PriorInfo,
@@ -108,7 +108,7 @@ class TFExperiment(Experiment):
 
 
 # -------------------- Systems --------------------
-class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
+class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
     """
     this class supports both cart and factored hybrid
     """
@@ -670,88 +670,66 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
 
     def get_recognizer_and_args(
         self,
-        key,
-        context_type,
-        epoch,
-        crp_corpus=None,
+        key: str,
+        context_type: PhoneticContext,
+        epoch: int,
+        crp_corpus: str,
+        recognizer_key: str = "base",
         gpu=True,
-        is_min_duration=False,
         is_multi_encoder_output=False,
-        tf_library=None,
-        dummy_mixtures=None,
+        tf_library: typing.Union[tk.Path, str, typing.List[tk.Path], typing.List[str], None] = None,
+        dummy_mixtures: typing.Optional[tk.Path] = None,
+        lm_gc_simple_hash: typing.Optional[bool] = None,
+        crp: typing.Optional[rasr.RasrConfig] = None,
+        **decoder_kwargs,
     ):
-
-        name = ("-").join([self.experiments[key]["name"], crp_corpus, f"e{epoch}-"])
-        if context_type.value in [self.context_mapper.get_enum(i) for i in range(6, 9)]:
-            name = f'{self.experiments[key]["name"]}-delta-e{epoch}-'
-
-        model_path = self._get_model_path(self.experiments[key]["train_job"], epoch)
-        num_encoder_output = self.experiments[key]["returnn_config"].config["network"]["fwd_1"]["n_out"] * 2
-        p_info = self._get_prior_info_dict()
-        assert self.experiments[key]["priors"] is not None
-
-        isSpecAug = True if "source" in self.experiments[key]["returnn_config"].config["network"].keys() else False
-        if context_type.value in [
-            self.context_mapper.get_enum(1),
-            self.context_mapper.get_enum(7),
+        if context_type in [
+            PhoneticContext.mono_state_transition,
+            PhoneticContext.diphone_state_transition,
+            PhoneticContext.tri_state_transition,
         ]:
-            if isSpecAug:
-                recog_args = get_recog_mono_specAug_args()
-            else:
-                recog_args = get_recog_mono_args()
-            scales = recog_args["priorScales"]
-            del recog_args["priorScales"]
-            p_info["center-state-prior"]["scale"] = scales["center-state"]
-            p_info["center-state-prior"]["file"] = self.experiments[key]["priors"][0]
-            recog_args["priorInfo"] = p_info
-
-        elif context_type.value in [self.context_mapper.get_enum(2), self.context_mapper.get_enum(8)]:
-            recog_args = get_recog_diphone_fromGmm_specAug_args()
-            scales = recog_args["shared_args"]["priorScales"]
-            del recog_args["shared_args"]["priorScales"]
-            p_info["center-state-prior"]["scale"] = scales["center-state"]
-            p_info["left-context-prior"]["scale"] = scales["left-context"]
-            p_info["center-state-prior"]["file"] = self.experiments[key]["priors"][0]
-            p_info["left-context-prior"]["file"] = self.experiments[key]["priors"][1]
-            recog_args["shared_args"]["priorInfo"] = p_info
+            name = f'{self.experiments[key]["name"]}-delta/e{epoch}/{crp_corpus}'
         else:
-            print("implement other contexts")
-            assert False
+            name = f"{self.experiments[key]['name']}/e{epoch}/{crp_corpus}"
 
-        recog_args["use_word_end_classes"] = self.label_info.use_word_end_classes
-        recog_args["n_states_per_phone"] = self.label_info.n_states_per_phone
-        recog_args["n_contexts"] = self.label_info.n_contexts
-        recog_args["is_min_duration"] = is_min_duration
-        recog_args["num_encoder_output"] = num_encoder_output
+        graph = self.experiments[key]["graph"].get("inference", None)
+        if graph is None:
+            self.set_graph_for_experiment(key=key)
+            graph = self.experiments[key]["graph"]["inference"]
 
-        if context_type.value not in [
-            self.context_mapper.get_enum(1),
-            self.context_mapper.get_enum(7),
-        ]:
-            recog_args["4gram_args"].update(recog_args["shared_args"])
-            recog_args["lstm_args"].update(recog_args["shared_args"])
+        p_info: PriorInfo = self.experiments[key].get("priors", None)
+        assert p_info is not None, "set priors first"
+
+        recog_args = SearchParameters.default_for_ctx(context_type, priors=p_info)
 
         if dummy_mixtures is None:
             dummy_mixtures = mm.CreateDummyMixturesJob(
-                self.label_info.get_n_of_dense_classes(), self.initial_nn_args["num_input"]
+                self.label_info.get_n_of_dense_classes(),
+                self.initial_nn_args["num_input"],
             ).out_mixtures  # gammatones
 
         assert self.label_info.sil_id is not None
 
-        recognizer = FHDecoder(
+        model_path = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        crp_corpus_base = crp_corpus.split(".", 1)[0]
+        recognizer = self.recognizers[recognizer_key](
             name=name,
-            search_crp=self.crp[crp_corpus],
+            search_crp=self.crp[crp_corpus] if crp is None else crp,
             context_type=context_type,
-            context_mapper=self.context_mapper,
             feature_path=self.feature_flows[crp_corpus],
             model_path=model_path,
-            graph=self.experiments[key]["graph"]["inference"],
+            graph=graph,
             mixtures=dummy_mixtures,
             eval_files=self.scorer_args[crp_corpus],
             tf_library=tf_library,
             is_multi_encoder_output=is_multi_encoder_output,
             silence_id=self.label_info.sil_id,
             gpu=gpu,
+            corpus_duration=self.durations[crp_corpus_base],
+            lm_gc_simple_hash=lm_gc_simple_hash
+            if (lm_gc_simple_hash is not None and lm_gc_simple_hash) or self.lm_gc_simple_hash
+            else None,
+            **decoder_kwargs,
         )
 
         return recognizer, recog_args

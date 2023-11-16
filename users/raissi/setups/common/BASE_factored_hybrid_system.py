@@ -44,6 +44,8 @@ import i6_experiments.users.raissi.setups.common.encoder as encoder_archs
 import i6_experiments.users.raissi.setups.common.helpers.network as net_helpers
 import i6_experiments.users.raissi.setups.common.helpers.train as train_helpers
 
+from i6_experiments.users.raissi.setups.common.util.tdp import to_tdp
+
 from i6_experiments.users.raissi.setups.common.util.rasr import (
     SystemInput,
 )
@@ -57,7 +59,7 @@ from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
 )
 
 from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo
-from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_search import FactoredHybridBaseDecoder
+from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import BASEFactoredHybridDecoder
 from i6_experiments.users.raissi.setups.common.decoder.config import PriorInfo, PosteriorScales, SearchParameters
 from i6_experiments.users.raissi.setups.common.util.hdf import RasrFeaturesToHdf
 from i6_experiments.users.raissi.costum.returnn.rasr_returnn_bw import ReturnnRasrTrainingBWJob
@@ -82,7 +84,6 @@ class Experiment(TypedDict, total=False):
     """
     The class is used in the config files as a single experiment
     """
-
     name: str
     priors: Optional[PriorInfo]
     prior_job: Optional[returnn.ReturnnRasrComputePriorJobV2]
@@ -90,8 +91,9 @@ class Experiment(TypedDict, total=False):
     train_job: Optional[returnn.ReturnnRasrTrainingJob]
 
 
+
 # -------------------- Systems --------------------
-class BASEFactoredHybridBaseSystem(NnSystem):
+class BASEFactoredHybridSystem(NnSystem):
     """
     this class supports both cart and factored hybrid
     """
@@ -179,7 +181,7 @@ class BASEFactoredHybridBaseSystem(NnSystem):
             "rasr-returnn": returnn.ReturnnRasrTrainingJob,
             "rasr-returnn-costum": ReturnnRasrTrainingBWJob,
         }
-        self.recognizers = {"base": FactoredHybridBaseDecoder}
+        self.recognizers = {"base": BASEFactoredHybridSystem}
         self.aligners = {}
         self.returnn_configs = {}
         self.graphs = {}

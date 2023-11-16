@@ -44,7 +44,7 @@ import i6_experiments.users.raissi.setups.common.encoder.conformer as conformer_
 import i6_experiments.users.raissi.setups.common.helpers.network.augment as fh_augmenter
 import i6_experiments.users.raissi.setups.common.helpers.train as train_helpers
 
-from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import BASEFactoredHybridBaseSystem
+from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import BASEFactoredHybridSystem
 
 
 from i6_experiments.users.raissi.setups.common.helpers.train.specaugment import (
@@ -63,7 +63,7 @@ from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
 
 from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo
 
-from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_search import FactoredHybridBaseDecoder
+from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import BASEFactoredHybridSystem
 
 from i6_experiments.users.raissi.setups.common.decoder.config import PriorInfo, PosteriorScales, SearchParameters
 
