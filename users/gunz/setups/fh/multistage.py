@@ -177,7 +177,6 @@ class TransformCheckpointJob(tk.Job):
 
         with tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(device_count={"GPU": 0})) as s:
             tf.import_graph_def(output_mg.graph_def, name="")
-            load_checkpoint(s, input_mg, tk.uncached_path(self.input_checkpoint))
 
             for v in var_data:
                 if v in tf_output_vars:
