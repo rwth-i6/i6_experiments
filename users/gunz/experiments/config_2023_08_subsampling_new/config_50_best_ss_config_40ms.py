@@ -424,7 +424,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     # #####################
 
     di_from_mono_staged_net_cfg = returnn.ReturnnConfig(
-        config={},
+        config={"network": None},
         staged_network_dict={
             0: returnn_cfg_mo.config["network"],
             1: returnn_cfg_di.config["network"],
@@ -435,7 +435,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     di_from_mono_cfg.update(newbob_lr_config)
     di_from_mono_cfg.update(import_mono_config)
     tri_from_mono_staged_net_cfg = returnn.ReturnnConfig(
-        config={},
+        config={"network": None},
         staged_network_dict={
             0: returnn_cfg_mo.config["network"],
             1: returnn_cfg_tri.config["network"],
@@ -446,7 +446,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     tri_from_mono_cfg.update(newbob_lr_config)
     tri_from_mono_cfg.update(import_mono_config)
     tri_from_di_staged_net_cfg = returnn.ReturnnConfig(
-        config={},
+        config={"network": None},
         staged_network_dict={
             0: returnn_cfg_di.config["network"],
             1: returnn_cfg_tri.config["network"],
