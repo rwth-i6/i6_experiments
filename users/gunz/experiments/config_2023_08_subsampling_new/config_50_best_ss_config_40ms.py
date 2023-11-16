@@ -469,14 +469,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     tri_from_di_staged_net_cfg = returnn.ReturnnConfig(
         config={"copy_param_mode": "subset"},
         staged_network_dict={
-            1: {
-                **returnn_cfg_di.config["network"],
-                "linear1-diphone": {
-                    **returnn_cfg_di.config["network"]["linear1-diphone"],
-                    "from": [returnn_cfg_di.config["network"]["linear1-diphone"]["from"]],
-                },
-                "#copy_param_mode": "subset",
-            },
+            1: {**returnn_cfg_di.config["network"], "#copy_param_mode": "subset"},
             2: {**returnn_cfg_tri.config["network"], "#copy_param_mode": "subset"},
         },
     )
