@@ -147,6 +147,7 @@ def check_prior_info(prior_info: PriorInfo, context_type: PhoneticContext):
         if prior_info.diphone_prior.scale is None:
             print(f"center state prior scale is unset, are you sure?")
         return
+    # in case of factored model we always have center state
     assert prior_info.center_state_prior is not None and prior_info.center_state_prior.file is not None
     if prior_info.center_state_prior.scale is None:
         print(f"center state prior scale is unset, are you sure?")
@@ -163,8 +164,8 @@ def get_factored_feature_scorer(
     context_type: PhoneticContext,
     feature_scorer_type: RasrFeatureScorer,
     label_info: LabelInfo,
-    feature_scorer_config,
-    mixtures,
+    feature_scorer_config: rasr.RasrConfig,
+    mixtures: Path,
     silence_id: int,
     prior_info: Union[PriorInfo, tk.Variable, DelayedBase],
     num_label_contexts: int,
@@ -182,7 +183,6 @@ def get_factored_feature_scorer(
 ):
     if isinstance(prior_info, PriorInfo):
         check_prior_info(context_type=context_type, prior_info=prior_info)
-
 
     return feature_scorer_type.get_fs_class()(
         feature_scorer_config,
@@ -206,8 +206,9 @@ def get_factored_feature_scorer(
         use_boundary_classes=label_info.phoneme_state_classes.use_boundary(),
     )
 
-def get_nn_precomputed_feature_scorer(context_type,
-                                      mixtures,
+def get_nn_precomputed_feature_scorer(context_type: PhoneticContext,
+                                      feature_scorer_type: RasrFeatureScorer,
+                                      mixtures: tk.Path,
                                       prior_info: Union[PriorInfo, tk.Variable, DelayedBase]):
 
     assert context_type in [PhoneticContext.monophone, PhoneticContext.joint_diphone]
@@ -217,8 +218,8 @@ def get_nn_precomputed_feature_scorer(context_type,
 
     return feature_scorer_type.get_fs_class()(
         prior_mixtures=mixtures,
-        prior_file=prior_info.file,
-        priori_scale=p_c,
+        prior_file=prior_info.joint_diphone.file,
+        priori_scale=prior_info.joint_diphone.scale,
     )
 
 
@@ -820,13 +821,11 @@ class FactoredHybridBaseDecoder:
             model_combination_config = rasr.RasrConfig()
             model_combination_config.pronunciation_scale = search_parameters.pron_scale
             pron_scale = search_parameters.pron_scale
+            if name_override is None:
+                name += f"-Pron{pron_scale}"
         else:
             model_combination_config = None
             pron_scale = 1.0
-
-        # additional search parameters
-        if name_override is None:
-            name += f"-Pron{pron_scale}"
 
         if name_override is None:
             if search_parameters.prior_info.left_context_prior is not None:
@@ -835,41 +834,6 @@ class FactoredHybridBaseDecoder:
                 name += f"-prC{search_parameters.prior_info.center_state_prior.scale}"
             if search_parameters.prior_info.right_context_prior is not None:
                 name += f"-prR{search_parameters.prior_info.right_context_prior.scale}"
-
-        loop_scale = forward_scale = 1.0
-        sil_fwd_penalty = sil_loop_penalty = 0.0
-
-        if search_parameters.tdp_scale is not None:
-            if name_override is None:
-                name += f"-tdpScale-{search_parameters.tdp_scale}"
-                name += f"-spTdp-{format_tdp(search_parameters.tdp_speech)}"
-                name += f"-silTdp-{format_tdp(search_parameters.tdp_silence)}"
-
-            if search_parameters.transition_scales is not None:
-                loop_scale, forward_scale = search_parameters.transition_scales
-
-                if name_override is None:
-                    name += f"-loopScale-{loop_scale}"
-                    name += f"-fwdScale-{forward_scale}"
-
-            if search_parameters.silence_penalties is not None:
-                sil_loop_penalty, sil_fwd_penalty = search_parameters.silence_penalties
-
-                if name_override is None:
-                    name += f"-silLoopP-{sil_loop_penalty}"
-                    name += f"-silFwdP-{sil_fwd_penalty}"
-
-            if (
-                    name_override is None
-                    and search_parameters.tdp_speech[2] == "infinity"
-                    and search_parameters.tdp_silence[2] == "infinity"
-            ):
-                name += "-noSkip"
-        else:
-            if name_override is None:
-                name += "-noTdp"
-
-        if name_override is None:
             if search_parameters.we_pruning > 0.5:
                 name += f"-wep{search_parameters.we_pruning}"
             if search_parameters.altas is not None:
@@ -878,6 +842,37 @@ class FactoredHybridBaseDecoder:
                 name += "-allAllos"
             if not create_lattice:
                 name += "-noLattice"
+
+        if search_parameters.tdp_scale is not None:
+            if name_override is None:
+                name += f"-tdpScale-{search_parameters.tdp_scale}"
+                name += f"-spTdp-{format_tdp(search_parameters.tdp_speech)}"
+                name += f"-silTdp-{format_tdp(search_parameters.tdp_silence)}"
+                if (
+                        not search_parameters.tdp_speech[2] == "infinity"
+                        and not search_parameters.tdp_silence[2] == "infinity"
+                ):
+                    name += "-withSkip"
+
+            if self.feature_scorer_type.is_factored():
+                if search_parameters.transition_scales is not None:
+                    loop_scale, forward_scale = search_parameters.transition_scales
+                    if name_override is None:
+                        name += f"-loopScale-{loop_scale}"
+                        name += f"-fwdScale-{forward_scale}"
+                else:
+                    loop_scale = forward_scale = 1.0
+
+                if search_parameters.silence_penalties is not None:
+                    sil_loop_penalty, sil_fwd_penalty = search_parameters.silence_penalties
+                    if name_override is None:
+                        name += f"-silLoopP-{sil_loop_penalty}"
+                        name += f"-silFwdP-{sil_fwd_penalty}"
+                else:
+                    sil_fwd_penalty = sil_loop_penalty = 0.0
+        else:
+            if name_override is None:
+                name += "-noTdp"
 
         state_tying = search_crp.acoustic_model_config.state_tying.type
 
@@ -942,26 +937,31 @@ class FactoredHybridBaseDecoder:
         else:
             adv_search_extra_config = None
 
-        feature_scorer = get_factored_feature_scorer(
-            context_type=self.context_type,
-            label_info=label_info,
-            feature_scorer_config=self.fs_config,
-            mixtures=self.mixtures,
-            silence_id=self.silence_id,
-            prior_info=search_parameters.prior_info,
-            posterior_scales=search_parameters.posterior_scales,
-            num_label_contexts=label_info.n_contexts,
-            num_states_per_phone=label_info.n_states_per_phone,
-            num_encoder_output=num_encoder_output,
-            loop_scale=loop_scale,
-            forward_scale=forward_scale,
-            silence_loop_penalty=sil_loop_penalty,
-            silence_forward_penalty=sil_fwd_penalty,
-            use_estimated_tdps=use_estimated_tdps,
-            state_dependent_tdp_file=search_parameters.state_dependent_tdps,
-            is_min_duration=is_min_duration,
-            is_multi_encoder_output=self.is_multi_encoder_output,
-        )
+        if self.feature_scorer_type.is_factored():
+            feature_scorer = get_factored_feature_scorer(
+                context_type=self.context_type,
+                feature_scorer_type=self.feature_scorer_type,
+                label_info=label_info,
+                feature_scorer_config=self.fs_config,
+                mixtures=self.mixtures,
+                silence_id=self.silence_id,
+                prior_info=search_parameters.prior_info,
+                posterior_scales=search_parameters.posterior_scales,
+                num_label_contexts=label_info.n_contexts,
+                num_states_per_phone=label_info.n_states_per_phone,
+                num_encoder_output=num_encoder_output,
+                loop_scale=loop_scale,
+                forward_scale=forward_scale,
+                silence_loop_penalty=sil_loop_penalty,
+                silence_forward_penalty=sil_fwd_penalty,
+                use_estimated_tdps=use_estimated_tdps,
+                state_dependent_tdp_file=search_parameters.state_dependent_tdps,
+                is_min_duration=is_min_duration,
+                is_multi_encoder_output=self.is_multi_encoder_output,
+            )
+        elif self.feature_scorer_type.is_nnprecomputed():
+            feature_scorer =
+
 
         pre_path = (
             pre_path
