@@ -424,35 +424,38 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     # #####################
 
     di_from_mono_staged_net_cfg = returnn.ReturnnConfig(
-        config={"network": None},
+        config={},
         staged_network_dict={
             0: returnn_cfg_mo.config["network"],
             1: returnn_cfg_di.config["network"],
         },
     )
     di_from_mono_cfg = copy.deepcopy(returnn_cfg_di)
+    di_from_mono_cfg.config.pop("network", None)
     di_from_mono_cfg.update(di_from_mono_staged_net_cfg)
     di_from_mono_cfg.update(newbob_lr_config)
     di_from_mono_cfg.update(import_mono_config)
     tri_from_mono_staged_net_cfg = returnn.ReturnnConfig(
-        config={"network": None},
+        config={},
         staged_network_dict={
             0: returnn_cfg_mo.config["network"],
             1: returnn_cfg_tri.config["network"],
         },
     )
     tri_from_mono_cfg = copy.deepcopy(returnn_cfg_tri)
+    tri_from_mono_cfg.config.pop("network", None)
     tri_from_mono_cfg.update(tri_from_mono_staged_net_cfg)
     tri_from_mono_cfg.update(newbob_lr_config)
     tri_from_mono_cfg.update(import_mono_config)
     tri_from_di_staged_net_cfg = returnn.ReturnnConfig(
-        config={"network": None},
+        config={},
         staged_network_dict={
             0: returnn_cfg_di.config["network"],
             1: returnn_cfg_tri.config["network"],
         },
     )
     tri_from_di_cfg = copy.deepcopy(returnn_cfg_tri)
+    tri_from_di_cfg.config.pop("network", None)
     tri_from_di_cfg.update(tri_from_di_staged_net_cfg)
     tri_from_di_cfg.update(newbob_lr_config)
     tri_from_di_cfg.update(import_di_config)
