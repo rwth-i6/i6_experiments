@@ -214,6 +214,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 returnn_config=returnn_config,
                 epoch=ep,
                 prior_epoch=min(ep, viterbi_keep_epochs[-2]),
+                tune=ep == viterbi_keep_epochs[-1],
             )
         elif "di" in key:
             decode_diphone(
@@ -223,6 +224,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 returnn_config=returnn_config,
                 epoch=ep,
                 prior_epoch=min(ep, viterbi_keep_epochs[-2]),
+                tune=ep == viterbi_keep_epochs[-1],
             )
         elif "tri" in key:
             if ep >= viterbi_keep_epochs[-2]:
@@ -234,6 +236,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                     epoch=ep,
                     prior_epoch=min(ep, viterbi_keep_epochs[-2]),
                     tensor_config=TENSOR_CONFIG,
+                    tune=ep == viterbi_keep_epochs[-1],
                 )
         else:
             raise ValueError(f"unknown name {key}")
@@ -406,6 +409,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 returnn_config=orig_returnn_config,
                 epoch=ep,
                 prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
+                tune=ep == fine_tune_keep_epochs[-1],
             )
         elif "di" in key:
             decode_diphone(
@@ -415,6 +419,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 returnn_config=orig_returnn_config,
                 epoch=ep,
                 prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
+                tune=ep == fine_tune_keep_epochs[-1],
             )
         else:
             raise NotImplementedError("Cannot bw-fine-tune triphones")
@@ -499,6 +504,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 returnn_config=returnn_config,
                 epoch=ep,
                 prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
+                tune=ep == fine_tune_keep_epochs[-1],
             )
         elif "tri" in key:
             if ep in [fine_tune_keep_epochs[0], fine_tune_keep_epochs[-1]]:
@@ -510,6 +516,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                     epoch=ep,
                     prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
                     tensor_config=TENSOR_CONFIG,
+                    tune=ep == fine_tune_keep_epochs[-1],
                 )
         else:
             raise NotImplementedError("Cannot decode multistage monophones")
@@ -522,6 +529,7 @@ def decode_monophone(
     returnn_config: returnn.ReturnnConfig,
     epoch: int,
     prior_epoch: int,
+    tune: bool,
 ):
     clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
 
@@ -547,25 +555,35 @@ def decode_monophone(
         "from": "center-output",
         "register_as_extern_data": "output",
     }
-    search_params = dataclasses.replace(s.get_cart_params(key), beam=22, lm_scale=2.0, tdp_scale=0.4).with_prior_scale(
-        0.6
-    )
     tying_cfg = rasr.RasrConfig()
     tying_cfg.type = "monophone-dense"
-    s.recognize_cart(
-        key=key,
-        epoch=epoch,
-        crp_corpus=crp_k,
-        n_cart_out=monophone_li.get_n_of_dense_classes(),
-        cart_tree_or_tying_config=tying_cfg,
-        params=search_params,
-        log_softmax_returnn_config=nn_pch_config,
-        calculate_statistics=True,
-        opt_lm_am_scale=True,
-        prior_epoch=prior_epoch,
-        rtf=8,
-        cpu_rqmt=2,
-    )
+
+    search_params = [
+        dataclasses.replace(s.get_cart_params(key), beam=22, lm_scale=2.0, tdp_scale=0.4).with_prior_scale(0.6)
+    ]
+    if tune:
+        base_cfg = search_params[-1]
+        other_cfgs = [
+            base_cfg.with_prior_scale(round(p_c, 1)).with_tdp_scale(round(tdp_s, 1))
+            for p_c, tdp_s in itertools.product(np.linspace(0.2, 0.8, 4), np.linspace(0.2, 0.8, 4))
+        ]
+        search_params.extend(other_cfgs)
+
+    for cfg in search_params:
+        s.recognize_cart(
+            key=key,
+            epoch=epoch,
+            crp_corpus=crp_k,
+            n_cart_out=monophone_li.get_n_of_dense_classes(),
+            cart_tree_or_tying_config=tying_cfg,
+            params=cfg,
+            log_softmax_returnn_config=nn_pch_config,
+            calculate_statistics=True,
+            opt_lm_am_scale=True,
+            prior_epoch=prior_epoch,
+            rtf=8,
+            cpu_rqmt=2,
+        )
 
 
 def decode_diphone(
@@ -575,6 +593,7 @@ def decode_diphone(
     returnn_config: returnn.ReturnnConfig,
     epoch: int,
     prior_epoch: int,
+    tune: bool,
 ):
     clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
 
@@ -601,25 +620,33 @@ def decode_diphone(
         out_joint_score_layer="output",
         log_softmax=True,
     )
-    search_params = dataclasses.replace(s.get_cart_params(key), beam=20, lm_scale=2.5, tdp_scale=0.4).with_prior_scale(
-        0.6
-    )
     tying_cfg = rasr.RasrConfig()
     tying_cfg.type = "diphone-dense"
-    s.recognize_cart(
-        key=key,
-        epoch=epoch,
-        crp_corpus=crp_k,
-        n_cart_out=diphone_li.get_n_of_dense_classes(),
-        cart_tree_or_tying_config=tying_cfg,
-        params=search_params,
-        log_softmax_returnn_config=nn_pch_config,
-        calculate_statistics=True,
-        opt_lm_am_scale=True,
-        prior_epoch=prior_epoch,
-        rtf=2,
-        cpu_rqmt=2,
-    )
+    search_params = [
+        dataclasses.replace(s.get_cart_params(key), beam=20, lm_scale=2.5, tdp_scale=0.4).with_prior_scale(0.6)
+    ]
+    if tune:
+        base_cfg = search_params[-1]
+        other_cfgs = [
+            base_cfg.with_prior_scale(round(p_c, 1)).with_tdp_scale(round(tdp_s, 1))
+            for p_c, tdp_s in itertools.product(np.linspace(0.2, 0.8, 4), np.linspace(0.2, 0.8, 4))
+        ]
+        search_params.extend(other_cfgs)
+    for cfg in search_params:
+        s.recognize_cart(
+            key=key,
+            epoch=epoch,
+            crp_corpus=crp_k,
+            n_cart_out=diphone_li.get_n_of_dense_classes(),
+            cart_tree_or_tying_config=tying_cfg,
+            params=cfg,
+            log_softmax_returnn_config=nn_pch_config,
+            calculate_statistics=True,
+            opt_lm_am_scale=True,
+            prior_epoch=prior_epoch,
+            rtf=2,
+            cpu_rqmt=2,
+        )
 
 
 def decode_triphone(
@@ -630,6 +657,7 @@ def decode_triphone(
     epoch: int,
     prior_epoch: int,
     tensor_config: DecodingTensorMap,
+    tune: bool,
 ):
     s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
@@ -662,6 +690,30 @@ def decode_triphone(
         calculate_stats=True,
         rtf_cpu=35,
     )
+
+    if tune:
+        best_config = recognizer.recognize_optimize_scales(
+            label_info=s.label_info,
+            search_parameters=recog_args,
+            num_encoder_output=512,
+            altas_value=8,
+            prior_scales=list(
+                itertools.product(
+                    np.linspace(0.2, 0.8, 4),
+                    np.linspace(0.2, 0.8, 3),
+                    np.linspace(0.2, 0.8, 3),
+                )
+            ),
+            tdp_scales=[round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
+        )
+        recognizer.recognize_count_lm(
+            label_info=s.label_info,
+            search_parameters=best_config,
+            num_encoder_output=512,
+            rerun_after_opt_lm=True,
+            calculate_stats=True,
+            rtf_cpu=35,
+        )
 
 
 def get_monophone_network(
