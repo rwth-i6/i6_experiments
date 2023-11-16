@@ -21,7 +21,7 @@ import i6_core.returnn as returnn
 import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
-from ...setups.fh import multistage, system as fh_system
+from ...setups.fh import system as fh_system
 from ...setups.fh.decoder.search import DecodingTensorMap
 from ...setups.fh.factored import LabelInfo, PhoneticContext, RasrStateTying
 from ...setups.fh.network import aux_loss, diphone_joint_output, extern_data
@@ -423,31 +423,37 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     # MULTI STAGE TRAININGS
     # #####################
 
-    di_from_mono_cfg = returnn.ReturnnConfig(
+    di_from_mono_staged_net_cfg = returnn.ReturnnConfig(
         config={},
         staged_network_dict={
             0: returnn_cfg_mo.config["network"],
             1: returnn_cfg_di.config["network"],
         },
     )
+    di_from_mono_cfg = copy.deepcopy(returnn_cfg_di)
+    di_from_mono_cfg.update(di_from_mono_staged_net_cfg)
     di_from_mono_cfg.update(newbob_lr_config)
     di_from_mono_cfg.update(import_mono_config)
-    tri_from_mono_cfg = returnn.ReturnnConfig(
+    tri_from_mono_staged_net_cfg = returnn.ReturnnConfig(
         config={},
         staged_network_dict={
             0: returnn_cfg_mo.config["network"],
             1: returnn_cfg_tri.config["network"],
         },
     )
+    tri_from_mono_cfg = copy.deepcopy(returnn_cfg_tri)
+    tri_from_mono_cfg.update(tri_from_mono_staged_net_cfg)
     tri_from_mono_cfg.update(newbob_lr_config)
     tri_from_mono_cfg.update(import_mono_config)
-    tri_from_di_cfg = returnn.ReturnnConfig(
+    tri_from_di_staged_net_cfg = returnn.ReturnnConfig(
         config={},
         staged_network_dict={
             0: returnn_cfg_di.config["network"],
             1: returnn_cfg_tri.config["network"],
         },
     )
+    tri_from_di_cfg = copy.deepcopy(returnn_cfg_tri)
+    tri_from_di_cfg.update(tri_from_di_staged_net_cfg)
     tri_from_di_cfg.update(newbob_lr_config)
     tri_from_di_cfg.update(import_di_config)
 
