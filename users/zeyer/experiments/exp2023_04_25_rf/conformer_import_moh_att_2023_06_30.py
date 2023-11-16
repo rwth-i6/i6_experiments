@@ -173,9 +173,18 @@ def sis_run_with_prefix(prefix_name: str = None):
     _train_exp("base-24gb-v4-attdropfixbc", config_24gb_v4, config_updates={"rf_att_dropout_broadcast": False})
     _train_exp("base-24gb-v4-bs30k", config_24gb_v4, config_updates={"batch_size": 30_000 * _batch_size_factor})
     _train_exp(
-        "base-24gb-v4-bs30k-nodropbc",
+        "base-24gb-v4-bs30k-accgrad3",
         config_24gb_v4,
-        config_updates={"batch_size": 30_000 * _batch_size_factor, "rf_dropout_broadcast": False},
+        config_updates={"batch_size": 30_000 * _batch_size_factor, "accum_grad_multiple_step": 3},
+    )
+    _train_exp(
+        "base-24gb-v4-bs30k-accgrad3-nodropbc",
+        config_24gb_v4,
+        config_updates={
+            "batch_size": 30_000 * _batch_size_factor,
+            "accum_grad_multiple_step": 3,
+            "rf_dropout_broadcast": False,
+        },
     )
 
 
@@ -394,8 +403,8 @@ config_24gb_v4 = dict_update_deep(
     {
         "learning_rate": 0.001,
         "optimizer.weight_decay_modules_blacklist": [
-            "rf.BatchNorm",
-            "rf.LayerNorm",
+            "rf.BatchNorm",  # unclear if really good
+            "rf.LayerNorm",  # unclear if really good
             "rf.Embedding",
             "rf.LearnedRelativePositionalEncoding",
         ],
