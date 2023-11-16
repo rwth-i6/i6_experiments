@@ -461,12 +461,12 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     tri_from_di_cfg.update(import_di_config)
 
     configs = [
-        (di_from_mono_cfg, "di-from-mono"),
-        (tri_from_mono_cfg, "tri-from-mono"),
-        (tri_from_di_cfg, "tri-from-di"),
+        (di_from_mono_cfg, returnn_cfg_di, "di-from-mono"),
+        (tri_from_mono_cfg, returnn_cfg_tri, "tri-from-mono"),
+        (tri_from_di_cfg, returnn_cfg_tri, "tri-from-di"),
     ]
     keys = [f"fh-{name}" for _, name in configs]
-    for (returnn_config, name), key in zip(configs, keys):
+    for (returnn_config, _, name), key in zip(configs, keys):
         post_name = f"config-{name}-zhou"
         print(f"ms {post_name}")
 
@@ -486,7 +486,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             nn_train_args=train_args,
         )
 
-    for ((returnn_config, _), key), crp_k, ep in itertools.product(
+    for ((_, returnn_config, _), key), crp_k, ep in itertools.product(
         zip(configs, keys), ["dev-other"], fine_tune_keep_epochs
     ):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
