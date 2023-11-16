@@ -424,10 +424,10 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     # #####################
 
     di_from_mono_staged_net_cfg = returnn.ReturnnConfig(
-        config={},
+        config={"copy_param_mode": "subset"},
         staged_network_dict={
-            1: returnn_cfg_mo.config["network"],
-            2: {**returnn_cfg_di.config["network"], "#copy_param_node": "subset"},
+            1: {**returnn_cfg_mo.config["network"], "#copy_param_mode": "subset"},
+            2: {**returnn_cfg_di.config["network"], "#copy_param_mode": "subset"},
         },
     )
     di_from_mono_cfg = copy.deepcopy(returnn_cfg_di)
@@ -436,10 +436,10 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     di_from_mono_cfg.update(newbob_lr_config)
     di_from_mono_cfg.update(import_mono_config)
     tri_from_mono_staged_net_cfg = returnn.ReturnnConfig(
-        config={},
+        config={"copy_param_mode": "subset"},
         staged_network_dict={
-            1: returnn_cfg_mo.config["network"],
-            2: {**returnn_cfg_tri.config["network"], "#copy_param_node": "subset"},
+            1: {**returnn_cfg_mo.config["network"], "#copy_param_mode": "subset"},
+            2: {**returnn_cfg_tri.config["network"], "#copy_param_mode": "subset"},
         },
     )
     tri_from_mono_cfg = copy.deepcopy(returnn_cfg_tri)
@@ -448,10 +448,10 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     tri_from_mono_cfg.update(newbob_lr_config)
     tri_from_mono_cfg.update(import_mono_config)
     tri_from_di_staged_net_cfg = returnn.ReturnnConfig(
-        config={},
+        config={"copy_param_mode": "subset"},
         staged_network_dict={
-            1: returnn_cfg_di.config["network"],
-            2: {**returnn_cfg_tri.config["network"], "#copy_param_node": "subset"},
+            1: {**returnn_cfg_di.config["network"], "#copy_param_mode": "subset"},
+            2: {**returnn_cfg_tri.config["network"], "#copy_param_mode": "subset"},
         },
     )
     tri_from_di_cfg = copy.deepcopy(returnn_cfg_tri)
