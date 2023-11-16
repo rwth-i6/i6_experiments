@@ -423,44 +423,38 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     # MULTI STAGE TRAININGS
     # #####################
 
-    transform_mono_to_di = multistage.transform_checkpoint(
-        name="mono-to-di",
-        input_label_info=s.label_info,
-        input_model_path=mono_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
-        input_returnn_config=returnn_cfg_mo,
-        output_label_info=s.label_info,
-        output_returnn_config=returnn_cfg_di,
-        returnn_root=s.returnn_root,
-        returnn_python_exe=s.returnn_python_exe,
+    di_from_mono_cfg = returnn.ReturnnConfig(
+        config={},
+        staged_network_dict={
+            0: returnn_cfg_mo.config["network"],
+            1: returnn_cfg_di.config["network"],
+        },
     )
-    transform_mono_to_di.update(newbob_lr_config)
-    transform_mono_to_tri = multistage.transform_checkpoint(
-        name="mono-to-tri",
-        input_label_info=s.label_info,
-        input_model_path=mono_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
-        input_returnn_config=returnn_cfg_mo,
-        output_label_info=s.label_info,
-        output_returnn_config=returnn_cfg_tri,
-        returnn_root=s.returnn_root,
-        returnn_python_exe=s.returnn_python_exe,
+    di_from_mono_cfg.update(newbob_lr_config)
+    di_from_mono_cfg.update(import_mono_config)
+    tri_from_mono_cfg = returnn.ReturnnConfig(
+        config={},
+        staged_network_dict={
+            0: returnn_cfg_mo.config["network"],
+            1: returnn_cfg_tri.config["network"],
+        },
     )
-    transform_mono_to_tri.update(newbob_lr_config)
-    transform_di_to_tri = multistage.transform_checkpoint(
-        name="di-to-tri",
-        input_label_info=s.label_info,
-        input_model_path=di_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
-        input_returnn_config=returnn_cfg_di,
-        output_label_info=s.label_info,
-        output_returnn_config=returnn_cfg_tri,
-        returnn_root=s.returnn_root,
-        returnn_python_exe=s.returnn_python_exe,
+    tri_from_mono_cfg.update(newbob_lr_config)
+    tri_from_mono_cfg.update(import_mono_config)
+    tri_from_di_cfg = returnn.ReturnnConfig(
+        config={},
+        staged_network_dict={
+            0: returnn_cfg_di.config["network"],
+            1: returnn_cfg_tri.config["network"],
+        },
     )
-    transform_di_to_tri.update(newbob_lr_config)
+    tri_from_di_cfg.update(newbob_lr_config)
+    tri_from_di_cfg.update(import_di_config)
 
     configs = [
-        (transform_mono_to_di, "di-from-mono"),
-        (transform_mono_to_tri, "tri-from-mono"),
-        (transform_di_to_tri, "tri-from-di"),
+        (di_from_mono_cfg, "di-from-mono"),
+        (tri_from_mono_cfg, "tri-from-mono"),
+        (tri_from_di_cfg, "tri-from-di"),
     ]
     keys = [f"fh-{name}" for _, name in configs]
     for (returnn_config, name), key in zip(configs, keys):
