@@ -427,7 +427,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         config={},
         staged_network_dict={
             1: returnn_cfg_mo.config["network"],
-            2: returnn_cfg_di.config["network"],
+            2: {**returnn_cfg_di.config["network"], "#copy_param_node": "subset"},
         },
     )
     di_from_mono_cfg = copy.deepcopy(returnn_cfg_di)
@@ -439,7 +439,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         config={},
         staged_network_dict={
             1: returnn_cfg_mo.config["network"],
-            2: returnn_cfg_tri.config["network"],
+            2: {**returnn_cfg_tri.config["network"], "#copy_param_node": "subset"},
         },
     )
     tri_from_mono_cfg = copy.deepcopy(returnn_cfg_tri)
@@ -451,7 +451,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         config={},
         staged_network_dict={
             1: returnn_cfg_di.config["network"],
-            2: returnn_cfg_tri.config["network"],
+            2: {**returnn_cfg_tri.config["network"], "#copy_param_node": "subset"},
         },
     )
     tri_from_di_cfg = copy.deepcopy(returnn_cfg_tri)
