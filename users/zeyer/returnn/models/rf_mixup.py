@@ -83,11 +83,11 @@ class Mixup(rf.Module):
         self.buffer_pos.assign(new_pos)
 
     def _maybe_apply_mixup(self, src: Tensor, *, spatial_dim: Dim) -> Tensor:
-        if (rf.random_uniform((), device="cpu") >= opts.apply_prob).raw_tensor:
-            return src
-
         batch_dims = src.remaining_dims((spatial_dim, self.feature_dim))
         opts = self.opts
+
+        if (rf.random_uniform((), device="cpu") >= opts.apply_prob).raw_tensor:
+            return src
 
         buffer_filled_size = rf.where(self.buffer_filled, opts.buffer_size, self.buffer_pos)
         if (buffer_filled_size < spatial_dim.get_dim_value_tensor()).raw_tensor:
@@ -113,7 +113,7 @@ class Mixup(rf.Module):
         idx = rf.range_over_dim(spatial_dim)  # [T]
         idx = rf.combine_bc(idx, "+", buffer_start_flat)  # [B_N', T]
 
-        mixup_values = rf.gather(self.buffer, indices=idx)  # [B_N', T, F]
+        mixup_values = rf.gather(self.buffer, indices=idx, axis=num_mixup_flat_dim)  # [B_N', T, F]
 
         # Scale the mixup values.
         lambda_ = rf.random_uniform(
@@ -158,3 +158,7 @@ def test_mixup():
     x = mixup(data, spatial_dim=time_dim)
     print("x':", x, x.raw_tensor)
     print("buffer':", mixup.buffer, mixup.buffer.raw_tensor)
+
+
+if __name__ == "__main__":
+    test_mixup()
