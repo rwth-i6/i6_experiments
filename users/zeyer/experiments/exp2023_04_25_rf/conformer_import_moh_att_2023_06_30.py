@@ -59,7 +59,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
 
     # base-24gb-v3: diverges at later point
-    _train_exp(
+    _train_exp(  # 7.01, slightly better than baseline.
         "base-24gb-v3-lr1e_3-wd1e_3",
         config_24gb_v3,
         config_updates={"learning_rate": 0.001, "optimizer.weight_decay": 0.001},
@@ -98,7 +98,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             ),
         ],
     )
-    _train_exp(
+    _train_exp(  # dev/test-other 6.89,7.39 (overfitting on dev? base: dev/test 7.01,7.23). unclear...
         "base-24gb-v3-lr1e_3-lrdecnorm40k",
         config_24gb_v3,
         config_updates={"learning_rate": 0.001, "learning_rate_invsqrt_norm": 40_000},
@@ -112,13 +112,13 @@ def sis_run_with_prefix(prefix_name: str = None):
             "specaugment_max_consecutive_feature_dims",
         ],
     )
-    _train_exp(
+    _train_exp(  # 8.21 (vs base 7.01, so lossscalesF is worse)
         "base-24gb-v3-lr1e_3-lossscalesF",
         config_24gb_v3,
         config_updates={"learning_rate": 0.001, "aux_loss_scales": [0.1, 0.2], "aed_loss_scale": 0.7},
     )
 
-    _train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)
+    _train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)  # 7.07 (vs base 7.01, so worse?)
     _train_exp("base-24gb-v4", config_24gb_v4)
     _train_exp(
         "base-24gb-v4-wdblacklist2",

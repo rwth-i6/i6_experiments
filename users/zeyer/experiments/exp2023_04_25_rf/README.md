@@ -54,8 +54,8 @@ TODO:
 - dropout mask like TF, broadcast over time?
 - mixup (port over TF code)
 
-- adamw vs adam? note that weight decay param needs to be retuned
-- weight decay? (also dependent on whether adam or adamw)
+- adamw vs adam? note that weight decay param needs to be retuned. adam needs another test.
+- weight decay? (also dependent on whether adam or adamw) adamw-wd1e_3 better?
 - weight decay only on selected layers/modules, like in TF, e.g. not so much on decoder
 - adam eps? 1e-16 is what we had in TF, maybe better? moh as 1e-8 though.
 - try CTC only
