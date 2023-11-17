@@ -120,3 +120,22 @@ class Mixup(rf.Module):
 
         src = src + rf.stop_gradient(mixup_value)
         return src
+
+
+def test_mixup():
+    import numpy as np
+
+    rf.select_backend_torch()
+    rf.init_train_step_run_ctx(train_flag=True, step=0)
+
+    batch_dim = Dim(2, name="batch")
+    time_dim = Dim(rf.convert_to_tensor(np.array([7, 8], dtype="int32"), dims=[batch_dim]), name="time")
+    feature_dim = Dim(5, name="feature")
+    data = rf.random_uniform([batch_dim, time_dim, feature_dim])
+    print("data:", data, data.raw_tensor)
+
+    mixup = Mixup(feature_dim=feature_dim, opts=MixupOpts(buffer_size=100))
+
+    x = mixup(data, spatial_dim=time_dim)
+    print("x:", x, x.raw_tensor)
+    print("buffer:", mixup.buffer, mixup.buffer.raw_tensor)
