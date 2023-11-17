@@ -437,7 +437,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         prior_epoch=viterbi_keep_epochs[-2],
         returnn_config=returnn_cfg_di,
     )
-    allophones = lexicon.StoreAllophonesJob(s.crp[s.crp_names[train_key]])
+    allophones = lexicon.StoreAllophonesJob(s.crp[s.crp_names["train"]])
     plots = PlotViterbiAlignmentsJob(
         alignment_bundle_path=di_forced_alignment_j.out_alignment_bundle,
         allophones_path=allophones.out_allophone_file,
