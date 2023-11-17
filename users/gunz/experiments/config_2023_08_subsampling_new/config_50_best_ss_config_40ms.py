@@ -543,16 +543,9 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     tri_from_di_cfg.update(tri_from_di_staged_net_cfg)
     tri_from_di_cfg.update(newbob_lr_config)
     tri_from_di_cfg.update(import_di_config)
-    tri_from_di_fa_staged_net_cfg = returnn.ReturnnConfig(
-        config={"copy_param_mode": "subset"},
-        staged_network_dict={
-            1: {**returnn_cfg_mo.config["network"], "#copy_param_mode": "subset"},
-            2: {**returnn_cfg_di.config["network"], "#copy_param_mode": "subset"},
-        },
-    )
-    tri_from_di_fa_cfg = copy.deepcopy(returnn_cfg_di)
+    tri_from_di_fa_cfg = copy.deepcopy(returnn_cfg_tri)
     tri_from_di_fa_cfg.config.pop("network", None)
-    tri_from_di_fa_cfg.update(tri_from_di_fa_staged_net_cfg)
+    tri_from_di_fa_cfg.update(tri_from_di_staged_net_cfg)
     tri_from_di_fa_cfg.update(newbob_lr_config)
     tri_from_di_fa_cfg.update(import_di_fa_config)
 
