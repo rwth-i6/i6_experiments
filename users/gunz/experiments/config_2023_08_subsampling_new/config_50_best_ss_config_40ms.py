@@ -377,7 +377,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     ]
     keys = [f"fh-{name}" for _, _, _, name in configs]
     for (returnn_config, _, sys, name), key in zip(configs, keys):
-        post_name = f"config-{name}-zhou"
+        post_name = f"conf-{name}-zhou"
         print(f"bw {post_name}")
 
         sys.set_experiment_dict(key, "bw", name, postfix_name=post_name)
@@ -562,7 +562,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     ]
     keys = [f"fh-{name}" for _, _, name in configs]
     for (returnn_config, original_returnn_config, name), key in zip(configs, keys):
-        post_name = f"config-{name}-zhou"
+        post_name = f"conf-{name}-zhou"
         print(f"ms {post_name}")
 
         s.set_experiment_dict(key, exp.alignment_name, name, postfix_name=post_name)
