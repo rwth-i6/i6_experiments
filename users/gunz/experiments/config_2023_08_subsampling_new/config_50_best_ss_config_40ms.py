@@ -820,7 +820,7 @@ def force_align(
     (_, dev_data_inputs, _) = lbs_data_setups.get_data_inputs()
 
     sys = copy.deepcopy(sys)
-    crp_k = sys.crp_names[train_key]
+    crp_k = sys.crp_names["train"]
 
     sys.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
     sys.create_stm_from_corpus(crp_k)
