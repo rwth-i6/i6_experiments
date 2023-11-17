@@ -822,6 +822,8 @@ def force_align(
     sil_e: float = 0.0,
     prior_scale: float = 0.6,
 ) -> mm.AlignmentJob:
+    assert tying in [RasrStateTying.diphone], "rest is unimplemented (prior generation)"
+
     import i6_core.returnn.flow as flow
 
     (_, dev_data_inputs, _) = lbs_data_setups.get_data_inputs()
@@ -842,7 +844,7 @@ def force_align(
         train_corpus_key=sys.crp_names["train"],
         dev_corpus_key=sys.crp_names["cvtrain"],
         smoothen=True,
-        returnn_config=remove_label_pops_and_losses_from_returnn_config(prior_config, except_layers=["pastLabel"]),
+        returnn_config=prior_config,
         output_layer_name="output",
     )
 
