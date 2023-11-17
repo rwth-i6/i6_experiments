@@ -48,6 +48,14 @@ class Mixup(rf.Module):
 
         assert spatial_dim in src.dims and self.feature_dim in src.dims
 
+        # Apply mixup before we add the new data to the buffer.
+        src_ = self._maybe_apply_mixup(src, spatial_dim=spatial_dim)
+
+        self._append_to_buffer(src, spatial_dim=spatial_dim)
+
+        return src_
+
+    def _append_to_buffer(self, src: Tensor, *, spatial_dim: Dim):
         batch_dims = src.remaining_dims((spatial_dim, self.feature_dim))
         opts = self.opts
 
@@ -74,8 +82,12 @@ class Mixup(rf.Module):
             new_pos = part_fill_len_
         self.buffer_pos.assign(new_pos)
 
+    def _maybe_apply_mixup(self, src: Tensor, *, spatial_dim: Dim) -> Tensor:
         if (rf.random_uniform((), device="cpu") >= opts.apply_prob).raw_tensor:
             return src
+
+        batch_dims = src.remaining_dims((spatial_dim, self.feature_dim))
+        opts = self.opts
 
         buffer_filled_size = rf.where(self.buffer_filled, opts.buffer_size, self.buffer_pos)
         if (buffer_filled_size < spatial_dim.get_dim_value_tensor()).raw_tensor:

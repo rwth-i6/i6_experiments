@@ -147,6 +147,53 @@ def _get_raw_func(*, dim: int, opts: MixupOpts):
         n_time = tf.shape(src_raw)[1]
         n_feat = dim
 
+        def _maybe_apply_mixup():
+            if tf.random.uniform(()) >= opts.apply_prob:
+                return src_raw
+
+            buffer_filled_size = opts.buffer_size if buffer_filled_raw else buffer_pos_raw
+            if buffer_filled_size < n_time:
+                return src_raw
+
+            # Apply Mixup. Collect all data we are going to add for each sequence.
+            num_mixup = tf.random.uniform([n_batch], minval=1, maxval=opts.max_num_mix + 1, dtype=tf.int32)  # [B]
+            max_num_mix = tf.reduce_max(num_mixup)  # N
+
+            buffer_start = tf.random.uniform(
+                [n_batch, max_num_mix], maxval=buffer_filled_size - n_time + 1, dtype=tf.int32
+            )  # [B, N]
+            n_mask = tf.sequence_mask(num_mixup, maxlen=max_num_mix)  # [B, N]
+            buffer_start_flat = tf.boolean_mask(buffer_start, n_mask)  # [B_N']
+
+            idx = tf.range(n_time)[None, :]  # [1, T]
+            idx = idx + buffer_start_flat[:, None]  # [B_N', T]
+
+            mixup_values = tf.raw_ops.ResourceGather(
+                resource=buffer_raw.handle, indices=idx, dtype=dtype
+            )  # [B_N', T, F]
+
+            # Scale the mixup values.
+            lambda_ = tf.random.uniform(
+                [n_batch, max_num_mix], minval=opts.lambda_min, maxval=opts.lambda_max, dtype=dtype
+            )
+            mixup_scales = tf.random.uniform([n_batch, max_num_mix], minval=0.001, maxval=1.0, dtype=dtype)
+            mixup_scales *= lambda_ / tf.reduce_sum(mixup_scales, axis=1, keepdims=True)  # [B,N]
+            mixup_scales_flat = tf.boolean_mask(mixup_scales, n_mask)  # [B_N']
+            mixup_values *= mixup_scales_flat[:, None, None]  # [B_N', T, F]
+
+            idx_b = tf.range(n_batch)[:, None]  # [B,1]
+            idx_b = tf.tile(idx_b, [1, max_num_mix])  # [B,N]
+            idx_b = tf.boolean_mask(idx_b, n_mask)  # [B_N']
+
+            mixup_value = tf.scatter_nd(
+                indices=idx_b[:, None], updates=mixup_values, shape=[n_batch, n_time, n_feat]
+            )  # [B,T,F]
+
+            return src_raw + tf.stop_gradient(mixup_value)
+
+        # Apply mixup before we add the new data to the buffer.
+        res = _maybe_apply_mixup()
+
         # Fill buffer with new data:
         t_mask = tf.sequence_mask(src_seq_lens, maxlen=n_time)  # [B,T]
         src_flat = tf.boolean_mask(src_raw, t_mask)  # [B_T',F]
@@ -170,44 +217,6 @@ def _get_raw_func(*, dim: int, opts: MixupOpts):
             new_pos = part_fill_len_
         buffer_pos_raw.assign(new_pos)
 
-        if tf.random.uniform(()) >= opts.apply_prob:
-            return src_raw
-
-        buffer_filled_size = opts.buffer_size if buffer_filled_raw else buffer_pos_raw
-        if buffer_filled_size < n_time:
-            return src_raw
-
-        # Apply Mixup. Collect all data we are going to add for each sequence.
-        num_mixup = tf.random.uniform([n_batch], minval=1, maxval=opts.max_num_mix + 1, dtype=tf.int32)  # [B]
-        max_num_mix = tf.reduce_max(num_mixup)  # N
-
-        buffer_start = tf.random.uniform(
-            [n_batch, max_num_mix], maxval=buffer_filled_size - n_time + 1, dtype=tf.int32
-        )  # [B, N]
-        n_mask = tf.sequence_mask(num_mixup, maxlen=max_num_mix)  # [B, N]
-        buffer_start_flat = tf.boolean_mask(buffer_start, n_mask)  # [B_N']
-
-        idx = tf.range(n_time)[None, :]  # [1, T]
-        idx = idx + buffer_start_flat[:, None]  # [B_N', T]
-
-        mixup_values = tf.raw_ops.ResourceGather(resource=buffer_raw.handle, indices=idx, dtype=dtype)  # [B_N', T, F]
-
-        # Scale the mixup values.
-        lambda_ = tf.random.uniform([n_batch, max_num_mix], minval=opts.lambda_min, maxval=opts.lambda_max, dtype=dtype)
-        mixup_scales = tf.random.uniform([n_batch, max_num_mix], minval=0.001, maxval=1.0, dtype=dtype)
-        mixup_scales *= lambda_ / tf.reduce_sum(mixup_scales, axis=1, keepdims=True)  # [B,N]
-        mixup_scales_flat = tf.boolean_mask(mixup_scales, n_mask)  # [B_N']
-        mixup_values *= mixup_scales_flat[:, None, None]  # [B_N', T, F]
-
-        idx_b = tf.range(n_batch)[:, None]  # [B,1]
-        idx_b = tf.tile(idx_b, [1, max_num_mix])  # [B,N]
-        idx_b = tf.boolean_mask(idx_b, n_mask)  # [B_N']
-
-        mixup_value = tf.scatter_nd(
-            indices=idx_b[:, None], updates=mixup_values, shape=[n_batch, n_time, n_feat]
-        )  # [B,T,F]
-
-        src_raw = src_raw + tf.stop_gradient(mixup_value)
-        return src_raw
+        return res
 
     return _raw_func
