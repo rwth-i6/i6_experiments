@@ -832,7 +832,7 @@ def force_align_diphone(
     sys._init_lm(crp_k, **next(iter(dev_data_inputs.values())).lm)
     sys._update_crp_am_setting(crp_k, tdp_type="default", add_base_allophones=False)
 
-    sys.set_triphone_priors_returnn_rasr(
+    sys.set_diphone_priors_returnn_rasr(
         key=key,
         epoch=prior_epoch,
         train_corpus_key=sys.crp_names["train"],
