@@ -62,7 +62,7 @@ class Mixup(rf.Module):
             key_dim=src_flat_part_dim,
             value=src_flat_part,
         )
-        if part_fill_len <= src_flat_dim.get_size_tensor():
+        if (self.buffer_pos + src_flat_dim.get_size_tensor() >= opts.buffer_size).raw_tensor:
             self.buffer_filled.assign(True)
             part_fill_len_ = rf.minimum(src_flat_dim.get_size_tensor() - part_fill_len, opts.buffer_size)
             src_flat_part, src_flat_part_dim = rf.slice(
@@ -74,11 +74,11 @@ class Mixup(rf.Module):
             new_pos = part_fill_len_
         self.buffer_pos.assign(new_pos)
 
-        if rf.random_uniform((), device="cpu") >= opts.apply_prob:
+        if (rf.random_uniform((), device="cpu") >= opts.apply_prob).raw_tensor:
             return src
 
         buffer_filled_size = rf.where(self.buffer_filled, opts.buffer_size, self.buffer_pos)
-        if buffer_filled_size < spatial_dim.get_dim_value_tensor():
+        if (buffer_filled_size < spatial_dim.get_dim_value_tensor()).raw_tensor:
             return src
 
         # Apply Mixup. Collect all data we are going to add for each sequence.
@@ -139,3 +139,10 @@ def test_mixup():
     x = mixup(data, spatial_dim=time_dim)
     print("x:", x, x.raw_tensor)
     print("buffer:", mixup.buffer, mixup.buffer.raw_tensor)
+
+    batch_dim = Dim(3, name="batch")
+    time_dim = Dim(rf.convert_to_tensor(np.array([3, 4, 2], dtype="int32"), dims=[batch_dim]), name="time")
+    data = rf.ones([batch_dim, time_dim, feature_dim])
+    x = mixup(data, spatial_dim=time_dim)
+    print("x':", x, x.raw_tensor)
+    print("buffer':", mixup.buffer, mixup.buffer.raw_tensor)
