@@ -197,6 +197,8 @@ def sis_run_with_prefix(prefix_name: str = None):
         },
     )
 
+    _train_exp("base-24gb-v5", config_24gb_v5)
+
 
 _sis_prefix: Optional[str] = None
 
@@ -419,6 +421,29 @@ config_24gb_v4 = dict_update_deep(
             "rf.LearnedRelativePositionalEncoding",
         ],
     },
+)
+
+config_24gb_v5 = dict_update_deep(
+    config_24gb_v4,
+    {
+        "pretrain_opts": {  # pretrain
+            "steps": [(8 * 500, {"num_layers": 2}), (4 * 500, {"num_layers": 4}), (4 * 500, {"num_layers": 8})]
+        },
+        "pos_emb_dropout": 0.1,  # posdrop01
+        "optimizer.weight_decay_modules_blacklist": [  # wdblacklist2
+            "rf.Embedding",
+            "rf.LearnedRelativePositionalEncoding",
+        ],
+        "rf_att_dropout_broadcast": False,  # attdropfixbc
+    },
+)
+config_24gb_v5 = dict_update_delete_deep(
+    config_24gb_v5,
+    [
+        # specaugorig
+        "specaugment_num_spatial_mask_factor",
+        "specaugment_max_consecutive_feature_dims",
+    ],
 )
 
 

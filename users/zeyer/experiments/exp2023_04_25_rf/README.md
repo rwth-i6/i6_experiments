@@ -47,7 +47,10 @@ TODO:
 - loss normalization, mean batch, mean all, or sum? also div by grad accum?
 - feature normalization?
 - param init. Linear is different
-- higher batch size / more grad accum, or schedule
+- higher batch size / more grad accum, or schedule.
+  in the very beginning (warmup phase), we might need high batch size for convergence.
+  but then, smaller batch size (bs30k) actually seem to converge faster initially?
+  for finetuning at the end, we might want to have higher batch size again.
 - less regularization, augmentation in beginning, schedule (seems very important for convergence)
 - schedule downsampling factor, high in beginning
 
