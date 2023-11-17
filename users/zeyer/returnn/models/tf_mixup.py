@@ -157,7 +157,7 @@ def _get_raw_func(*, dim: int, opts: MixupOpts):
         tf.raw_ops.ResourceStridedSliceAssign(
             ref=buffer_raw.handle, begin=[pos], end=[new_pos], strides=[1], value=src_flat[:part_fill_len]
         )
-        if part_fill_len <= src_flat_len:
+        if pos + src_flat_len >= opts.buffer_size:
             buffer_filled_raw.assign(True)
             part_fill_len_ = tf.minimum(src_flat_len - part_fill_len, opts.buffer_size)
             tf.raw_ops.ResourceStridedSliceAssign(
