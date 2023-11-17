@@ -928,7 +928,7 @@ class FactoredHybridSystem(NnSystem):
         dev_corpus_key,
         nn_train_args,
         on_2080: bool = False,
-        include_alignment: bool = True,
+        include_alignment: Union[bool, Path] = True,
     ) -> returnn.ReturnnRasrTrainingJob:
         train_data = self.train_input_data[train_corpus_key]
         dev_data = self.cv_input_data[dev_corpus_key]
@@ -975,6 +975,8 @@ class FactoredHybridSystem(NnSystem):
 
         if not include_alignment:
             alignments = None
+        elif isinstance(include_alignment, tk.Path):
+            alignments = include_alignment
         elif isinstance(train_data.alignments, rasr.FlagDependentFlowAttribute):
             alignments = copy.deepcopy(train_data.alignments)
             net = rasr.FlowNetwork()

@@ -15,11 +15,11 @@ from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
 
-import i6_core.rasr as rasr
-import i6_core.returnn as returnn
+from i6_core import corpus, lexicon, mm, rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
+from ...setups.common.analysis import PlotViterbiAlignmentsJob
 from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
 from ...setups.fh import system as fh_system
 from ...setups.fh.decoder.search import DecodingTensorMap
@@ -425,6 +425,56 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             raise NotImplementedError("Cannot bw-fine-tune triphones")
 
     # #####################
+    # FORCE-ALIGNED DIPHONE
+    # #####################
+
+    alignment_name = "40ms-di-fa"
+    di_forced_alignment_j = force_align(
+        s,
+        key="fh-di",
+        alignment_name=alignment_name,
+        ctx=PhoneticContext.diphone,
+        epoch=viterbi_keep_epochs[-1],
+        tensor_config=TENSOR_CONFIG,
+    )
+    allophones = lexicon.StoreAllophonesJob(s.crp[s.crp_names[train_key]])
+    plots = PlotViterbiAlignmentsJob(
+        alignment_bundle_path=di_forced_alignment_j.out_alignment_bundle,
+        allophones_path=allophones.out_allophone_file,
+        segments=[
+            "train-other-960/2920-156224-0013/2920-156224-0013",
+            "train-other-960/2498-134786-0003/2498-134786-0003",
+            "train-other-960/6178-86034-0008/6178-86034-0008",
+            "train-other-960/5983-39669-0034/5983-39669-0034",
+        ],
+        show_labels=False,
+        show_title=False,
+        monophone=True,
+    )
+    tk.register_output(f"alignments/{alignment_name}/plots", plots.out_plot_folder)
+
+    name = "di-fa"
+    key = f"fh-{name}"
+    post_name = f"conf-{name}-zhou"
+
+    s.set_experiment_dict(key, alignment_name, name, postfix_name=post_name)
+    s.set_returnn_config_for_experiment(key, copy.deepcopy(returnn_cfg_di))
+
+    train_args = {
+        **s.initial_train_args,
+        "num_epochs": viterbi_keep_epochs[-1],
+        "partition_epochs": PARTITION_EPOCHS,
+        "returnn_config": copy.deepcopy(returnn_cfg_di),
+    }
+    s.returnn_rasr_training(
+        experiment_key=key,
+        train_corpus_key=s.crp_names["train"],
+        dev_corpus_key=s.crp_names["cvtrain"],
+        nn_train_args=train_args,
+        include_alignment=di_forced_alignment_j.out_alignment_bundle,
+    )
+
+    # #####################
     # MULTI STAGE TRAININGS
     # #####################
 
@@ -729,6 +779,72 @@ def decode_triphone(
             name_override="best/4gram",
             rtf_cpu=35,
         )
+
+
+def force_align(
+    sys: fh_system.FactoredHybridSystem,
+    alignment_name: str,
+    key: str,
+    epoch: int,
+    ctx: PhoneticContext,
+    tensor_config: DecodingTensorMap,
+    tdp_scale: float = 1.0,
+    sil_e: float = 0.0,
+) -> mm.AlignmentJob:
+    (_, dev_data_inputs, _) = lbs_data_setups.get_data_inputs()
+
+    sys = copy.deepcopy(sys)
+    crp_k = sys.crp_names[train_key]
+
+    sys.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+    sys.create_stm_from_corpus(crp_k)
+    sys._set_scorer_for_corpus(crp_k)
+    sys._init_lm(crp_k, **next(iter(dev_data_inputs.values())).lm)
+    sys._update_crp_am_setting(crp_k, tdp_type="default", add_base_allophones=False)
+
+    recognizer, recog_args = sys.get_recognizer_and_args(
+        key=key,
+        context_type=ctx,
+        crp_corpus=crp_k,
+        epoch=epoch,
+        gpu=False,
+        tensor_map=tensor_config,
+        set_batch_major_for_feature_scorer=True,
+        lm_gc_simple_hash=True,
+    )
+
+    sil_tdp = (*recog_args.tdp_silence[:3], sil_e)
+    align_cfg = (
+        recog_args.with_prior_scale(0.6).with_tdp_scale(tdp_scale).with_tdp_silence(sil_tdp).with_tdp_non_word(sil_tdp)
+    )
+    align_search_jobs = recognizer.recognize_count_lm(
+        label_info=sys.label_info,
+        search_parameters=align_cfg,
+        num_encoder_output=512,
+        rerun_after_opt_lm=False,
+        opt_lm_am=False,
+        add_sis_alias_and_output=False,
+        calculate_stats=True,
+        rtf_cpu=4,
+    )
+
+    crp = copy.deepcopy(align_search_jobs.search_crp)
+    crp.acoustic_model_config.allophones.add_all = False
+    crp.acoustic_model_config.allophones.add_from_lexicon = True
+    crp.acoustic_model_config.tdp.applicator_type = "corrected"
+    crp.concurrent = 300
+    crp.segment_path = corpus.SegmentCorpusJob(sys.corpora[sys.train_key].corpus_file, crp.concurrent).out_segment_path
+
+    a_job = recognizer.align(
+        alignment_name,
+        crp=crp,
+        default_tdp=False,
+        set_do_not_normalize_lemma_sequence_scores=False,
+        set_no_tying_dense=False,
+        rtf=1,
+    )
+
+    return a_job
 
 
 def get_monophone_network(
