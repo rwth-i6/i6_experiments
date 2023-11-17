@@ -436,7 +436,6 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         epoch=viterbi_keep_epochs[-1],
         prior_epoch=viterbi_keep_epochs[-2],
         returnn_config=returnn_cfg_di,
-        tensor_config=TENSOR_CONFIG,
     )
     allophones = lexicon.StoreAllophonesJob(s.crp[s.crp_names[train_key]])
     plots = PlotViterbiAlignmentsJob(
@@ -810,83 +809,126 @@ def decode_triphone(
         )
 
 
-def force_align_diphone(
+def force_align(
     sys: fh_system.FactoredHybridSystem,
     alignment_name: str,
     key: str,
     epoch: int,
     prior_epoch: int,
-    tensor_config: DecodingTensorMap,
-    returnn_config: returnn.ReturnnConfig,
+    nn_pch_config: returnn.ReturnnConfig,
+    prior_config: returnn.ReturnnConfig,
+    tying: RasrStateTying,
     tdp_scale: float = 1.0,
     sil_e: float = 0.0,
+    prior_scale: float = 0.6,
 ) -> mm.AlignmentJob:
+    import i6_core.returnn.flow as flow
+
     (_, dev_data_inputs, _) = lbs_data_setups.get_data_inputs()
 
     sys = copy.deepcopy(sys)
     crp_k = sys.crp_names["train"]
 
+    sys.label_info = dataclasses.replace(sys.label_info, state_tying=tying)
     sys.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
     sys.create_stm_from_corpus(crp_k)
     sys._set_scorer_for_corpus(crp_k)
     sys._init_lm(crp_k, **next(iter(dev_data_inputs.values())).lm)
     sys._update_crp_am_setting(crp_k, tdp_type="default", add_base_allophones=False)
 
-    sys.set_diphone_priors_returnn_rasr(
+    sys.set_mono_priors_returnn_rasr(
         key=key,
         epoch=prior_epoch,
         train_corpus_key=sys.crp_names["train"],
         dev_corpus_key=sys.crp_names["cvtrain"],
         smoothen=True,
-        returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+        returnn_config=remove_label_pops_and_losses_from_returnn_config(prior_config, except_layers=["pastLabel"]),
+        output_layer_name="output",
     )
 
-    recognizer, recog_args = sys.get_recognizer_and_args(
-        key=key,
-        context_type=PhoneticContext.diphone,
-        crp_corpus=crp_k,
-        epoch=epoch,
-        gpu=False,
-        tensor_map=tensor_config,
-        set_batch_major_for_feature_scorer=True,
-        lm_gc_simple_hash=True,
-    )
-
-    sil_tdp = (*recog_args.tdp_silence[:3], sil_e)
-    align_cfg = (
-        recog_args.with_prior_scale(0.6, 0.6)
-        .with_tdp_scale(tdp_scale)
-        .with_tdp_silence(sil_tdp)
-        .with_tdp_non_word(sil_tdp)
-    )
-    align_search_jobs = recognizer.recognize_count_lm(
-        label_info=sys.label_info,
-        search_parameters=align_cfg,
-        num_encoder_output=512,
-        rerun_after_opt_lm=False,
-        opt_lm_am=False,
-        add_sis_alias_and_output=False,
-        calculate_stats=True,
-        rtf_cpu=4,
-    )
-
-    crp = copy.deepcopy(align_search_jobs.search_crp)
+    crp = copy.deepcopy(sys.crp[crp_k])
     crp.acoustic_model_config.allophones.add_all = False
     crp.acoustic_model_config.allophones.add_from_lexicon = True
+    crp.acoustic_model_config.state_tying.type = "diphone-dense"
     crp.acoustic_model_config.tdp.applicator_type = "corrected"
+    crp.acoustic_model_config.tdp.scale = tdp_scale
+
+    v = (3.0, 0.0, "infinity", 0.0)
+    sv = (0.0, 3.0, "infinity", sil_e)
+    keys = ["loop", "forward", "skip", "exit"]
+    for i, k in enumerate(keys):
+        crp.acoustic_model_config.tdp["*"][k] = v[i]
+        crp.acoustic_model_config.tdp["silence"][k] = sv[i]
+
     crp.concurrent = 300
     crp.segment_path = corpus.SegmentCorpusJob(sys.corpora[sys.train_key].corpus_file, crp.concurrent).out_segment_path
 
+    p_mixtures = mm.CreateDummyMixturesJob(sys.label_info.get_n_of_dense_classes(), sys.initial_nn_args["num_input"])
+    priors = sys.experiments[key]["priors"].center_state_prior
+    feature_scorer = rasr.PrecomputedHybridFeatureScorer(
+        prior_mixtures=p_mixtures.out_mixtures,
+        prior_file=priors.file,
+        priori_scale=prior_scale,
+    )
+    sys.set_graph_for_experiment(key=key, override_cfg=nn_pch_config)
+    tf_flow = flow.make_precomputed_hybrid_tf_feature_flow(
+        tf_graph=sys.experiments[key]["graph"]["inference"],
+        tf_checkpoint=sys.experiments[key]["train_job"].out_checkpoints[epoch],
+        output_layer_name="output",
+        tf_fwd_input_name="tf-fwd-input",
+    )
+    feature_flow = flow.add_tf_flow_to_base_flow(
+        base_flow=sys.feature_flows[crp_k],
+        tf_flow=tf_flow,
+        tf_fwd_input_name="tf-fwd-input",
+    )
+
+    recognizer, _ = sys.get_recognizer_and_args(
+        key=key,
+        context_type=PhoneticContext.diphone,
+        crp_corpus=crp_k,
+        epoch=prior_epoch,
+        gpu=False,
+        tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+        set_batch_major_for_feature_scorer=True,
+        lm_gc_simple_hash=True,
+    )
     a_job = recognizer.align(
-        alignment_name,
+        f"{alignment_name}/pC{prior_scale}-tdp{tdp_scale}-silE{sil_e}",
         crp=crp,
+        feature_scorer=feature_scorer,
+        feature_flow=feature_flow,
         default_tdp=False,
         set_do_not_normalize_lemma_sequence_scores=False,
         set_no_tying_dense=False,
-        rtf=1,
+        rtf=2,
     )
 
     return a_job
+
+
+def force_align_diphone(
+    sys: fh_system.FactoredHybridSystem,
+    returnn_config: returnn.ReturnnConfig,
+    **kwargs,
+) -> mm.AlignmentJob:
+    clean_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+    prior_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+        label_info=sys.label_info,
+        log_softmax=False,
+        out_joint_score_layer="output",
+        returnn_config=clean_config,
+    )
+    nn_pch_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+        label_info=sys.label_info,
+        log_softmax=True,
+        out_joint_score_layer="output",
+        returnn_config=clean_config,
+    )
+
+    return force_align(
+        sys=sys, prior_config=prior_config, nn_pch_config=nn_pch_config, tying=RasrStateTying.diphone, **kwargs
+    )
 
 
 def get_monophone_network(
