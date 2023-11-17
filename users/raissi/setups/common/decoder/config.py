@@ -6,9 +6,10 @@ from typing import Optional, Union, Tuple, TypedDict
 
 from sisyphus import tk
 
-from i6_experiments.users.raissi.setups.common.util.tdp import (
-    TDP,
+from i6_experiments.users.raissi.setups.common.data.typings import (
+    Int,
     Float,
+    TDP,
 )
 
 from i6_experiments.users.raissi.setups.common.data.factored_label import (
@@ -122,11 +123,10 @@ def default_posterior_scales() -> PosteriorScales:
         "center-state-scale": 1.0,
     }
 
-
 @dataclass(eq=True, frozen=True)
 class SearchParameters:
     beam: Float
-    beam_limit: int
+    beam_limit: Int
     lm_scale: Float
     non_word_phonemes: str
     prior_info: PriorInfo
@@ -136,13 +136,23 @@ class SearchParameters:
     tdp_speech: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     tdp_non_word: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     we_pruning: Float
-    we_pruning_limit: int
+    we_pruning_limit: Int
+
     add_all_allophones: bool = True
     altas: Optional[float] = None
     posterior_scales: Optional[PosteriorScales] = None
     silence_penalties: Optional[Tuple[Float, Float]] = None  # loop, fwd
     state_dependent_tdps: Optional[Union[str, tk.Path]] = None
     transition_scales: Optional[Tuple[Float, Float]] = None  # loop, fwd
+
+    def with_altas(self, altas: Float) -> "SearchParameters":
+        return dataclasses.replace(self, altas=altas)
+
+    def with_beam_limit(self, beam_limit: Int) -> "SearchParameters":
+        return dataclasses.replace(self, beam_limit=beam_limit)
+
+    def with_beam_size(self, beam: Float) -> "SearchParameters":
+        return dataclasses.replace(self, beam=beam)
 
     def with_lm_scale(self, scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, lm_scale=scale)
@@ -158,6 +168,9 @@ class SearchParameters:
     def with_pron_scale(self, pron_scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, pron_scale=pron_scale)
 
+    def with_tdp_non_word(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
+        return dataclasses.replace(self, tdp_non_word=tdp)
+
     def with_tdp_scale(self, scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, tdp_scale=scale)
 
@@ -166,6 +179,66 @@ class SearchParameters:
 
     def with_tdp_speech(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
         return dataclasses.replace(self, tdp_speech=tdp)
+
+    @classmethod
+    def default_monophone(cls, *, priors: PriorInfo) -> "SearchParameters":
+        return cls(
+            beam=22,
+            beam_limit=500_000,
+            lm_scale=4.0,
+            tdp_scale=0.4,
+            pron_scale=2.0,
+            prior_info=priors.with_scale(0.2),
+            tdp_speech=(3.0, 0.0, "infinity", 0.0),
+            tdp_silence=(0.0, 3.0, "infinity", 20.0),
+            tdp_non_word=(0.0, 3.0, "infinity", 20.0),
+            non_word_phonemes="[UNKNOWN]",
+            we_pruning=0.5,
+            we_pruning_limit=10000,
+        )
+
+    @classmethod
+    def default_diphone(cls, *, priors: PriorInfo) -> "SearchParameters":
+        return cls(
+            beam=20,
+            beam_limit=500_000,
+            lm_scale=9.0,
+            tdp_scale=0.4,
+            pron_scale=2.0,
+            prior_info=priors.with_scale(center=0.2, left=0.1),
+            tdp_speech=(3.0, 0.0, "infinity", 0.0),
+            tdp_silence=(0.0, 3.0, "infinity", 20.0),
+            tdp_non_word=(0.0, 3.0, "infinity", 20.0),
+            non_word_phonemes="[UNKNOWN]",
+            we_pruning=0.5,
+            we_pruning_limit=10000,
+        )
+
+    @classmethod
+    def default_triphone(cls, *, priors: PriorInfo) -> "SearchParameters":
+        return cls(
+            beam=20,
+            beam_limit=500_000,
+            lm_scale=11.0,
+            tdp_scale=0.6,
+            pron_scale=2.0,
+            prior_info=priors.with_scale(center=0.2, left=0.1, right=0.1),
+            tdp_speech=(3.0, 0.0, "infinity", 0.0),
+            tdp_silence=(0.0, 3.0, "infinity", 20.0),
+            tdp_non_word=(0.0, 3.0, "infinity", 20.0),
+            non_word_phonemes="[UNKNOWN]",
+            we_pruning=0.5,
+            we_pruning_limit=10000,
+        )
+
+    @classmethod
+    def default_cart(cls, *, priors: PriorInfo) -> "SearchParameters":
+        return dataclasses.replace(
+            cls.default_triphone(priors=priors.with_scale(center=0.3)),
+            beam=16,
+            beam_limit=100_000,
+            lm_scale=12,
+        )
 
     @classmethod
     def default_for_ctx(cls, context: PhoneticContext, priors: PriorInfo) -> "SearchParameters":

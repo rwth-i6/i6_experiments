@@ -1,10 +1,10 @@
 __all__ = ["FactoredHybridSystem"]
 
 import copy
+import dataclasses
 import itertools
 import sys
 from IPython import embed
-from dataclasses import asdict
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
 
@@ -181,7 +181,7 @@ class BASEFactoredHybridSystem(NnSystem):
             "rasr-returnn": returnn.ReturnnRasrTrainingJob,
             "rasr-returnn-costum": ReturnnRasrTrainingBWJob,
         }
-        self.recognizers = {"base": BASEFactoredHybridSystem}
+        self.recognizers = {"base": BASEFactoredHybridDecoder}
         self.aligners = {}
         self.returnn_configs = {}
         self.graphs = {}
@@ -482,8 +482,7 @@ class BASEFactoredHybridSystem(NnSystem):
             self._set_native_lstm_path()
 
         if label_info_additional_args is not None:
-            for k, v in label_info_additional_args.items():
-                setattr(self.label_info, k, v)
+            self.label_info = dataclasses.replace(self.label_info, **label_info_additional_args)
 
         for param in [self.rasr_init_args, self.label_info, self.train_data, self.dev_data, self.test_data]:
             assert param is not None

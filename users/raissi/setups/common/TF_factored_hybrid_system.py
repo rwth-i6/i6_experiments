@@ -28,7 +28,6 @@ import i6_core.text as text
 from i6_core.util import MultiPath, MultiOutputPath
 
 # common modules
-
 from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import (
     BASEFactoredHybridSystem,
     Experiment,
@@ -53,6 +52,12 @@ from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
     get_tdp_values,
 )
 
+from i6_experiments.users.raissi.setups.common.data.factored_label import (
+    LabelInfo,
+    PhoneticContext,
+)
+
+
 from i6_experiments.users.raissi.setups.common.helpers.priors import (
     get_returnn_config_for_center_state_prior_estimation,
     get_returnn_config_for_left_context_prior_estimation,
@@ -62,9 +67,10 @@ from i6_experiments.users.raissi.setups.common.helpers.priors import (
     ReshapeCenterStatePriorsJob,
 )
 
-from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo
-
-from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import BASEFactoredHybridSystem
+from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import (
+    BASEFactoredHybridDecoder,
+    RasrFeatureScorer
+)
 
 from i6_experiments.users.raissi.setups.common.decoder.config import (
     PriorInfo,
@@ -657,12 +663,13 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 elif isinstance(v["from"], list):
                     v["from"] = ["data" if val == "source" else val for val in v["from"]]
             del config.config["network"]["source"]
-
+            
         infer_graph = decode_helpers.compile_graph.compile_tf_graph_from_returnn_config(
             config,
             python_prolog=python_prolog,
             python_epilog=python_epilog,
             returnn_root=self.returnn_root,
+            returnn_python_exe=self.returnn_python_exe,
         )
 
         self.experiments[key]["graph"]["inference"] = infer_graph
@@ -672,15 +679,16 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         self,
         key: str,
         context_type: PhoneticContext,
+        feature_scorer_type: RasrFeatureScorer,
         epoch: int,
         crp_corpus: str,
         recognizer_key: str = "base",
         gpu=True,
         is_multi_encoder_output=False,
-        tf_library: typing.Union[tk.Path, str, typing.List[tk.Path], typing.List[str], None] = None,
-        dummy_mixtures: typing.Optional[tk.Path] = None,
-        lm_gc_simple_hash: typing.Optional[bool] = None,
-        crp: typing.Optional[rasr.RasrConfig] = None,
+        tf_library: Union[tk.Path, str, List[tk.Path], List[str], None] = None,
+        dummy_mixtures: Optional[tk.Path] = None,
+        lm_gc_simple_hash: Optional[bool] = None,
+        crp: Optional[rasr.RasrConfig] = None,
         **decoder_kwargs,
     ):
         if context_type in [
@@ -700,6 +708,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         p_info: PriorInfo = self.experiments[key].get("priors", None)
         assert p_info is not None, "set priors first"
 
+
         recog_args = SearchParameters.default_for_ctx(context_type, priors=p_info)
 
         if dummy_mixtures is None:
@@ -710,12 +719,12 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         assert self.label_info.sil_id is not None
 
-        model_path = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
-        crp_corpus_base = crp_corpus.split(".", 1)[0]
+        model_path = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
         recognizer = self.recognizers[recognizer_key](
             name=name,
-            search_crp=self.crp[crp_corpus] if crp is None else crp,
+            crp=self.crp[crp_corpus] if crp is None else crp,
             context_type=context_type,
+            feature_scorer_type=feature_scorer_type,
             feature_path=self.feature_flows[crp_corpus],
             model_path=model_path,
             graph=graph,
@@ -725,7 +734,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             is_multi_encoder_output=is_multi_encoder_output,
             silence_id=self.label_info.sil_id,
             gpu=gpu,
-            corpus_duration=self.durations[crp_corpus_base],
             lm_gc_simple_hash=lm_gc_simple_hash
             if (lm_gc_simple_hash is not None and lm_gc_simple_hash) or self.lm_gc_simple_hash
             else None,

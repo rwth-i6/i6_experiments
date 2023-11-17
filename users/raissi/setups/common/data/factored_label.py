@@ -42,7 +42,7 @@ class PhonemeStateClasses(Enum):
         return self == PhonemeStateClasses.word_end
 
 
-@dataclass(eq=True, frozen=False)
+@dataclass(eq=True, frozen=True)
 class LabelInfo:
     n_contexts: int
     n_states_per_phone: int

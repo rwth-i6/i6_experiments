@@ -3,7 +3,10 @@ __all__ = ["FactoredHybridFeatureScorer"]
 import i6_core.rasr as rasr
 
 from i6_experiments.users.raissi.setups.common.data.factored_label import PhoneticContext
-from i6_experiments.users.raissi.setups.common.decoder.config import PriorInfo
+from i6_experiments.users.raissi.setups.common.decoder.config import (
+    default_posterior_scales,
+    PriorInfo
+)
 
 
 class FactoredHybridFeatureScorer(rasr.FeatureScorer):
@@ -28,7 +31,7 @@ class FactoredHybridFeatureScorer(rasr.FeatureScorer):
         use_word_end_classes=False,
         use_boundary_classes=False,
         is_multi_encoder_output=False,
-        set_is_batch_major=False,
+        is_batch_major=False,
     ):
         super().__init__()
 
@@ -73,5 +76,5 @@ class FactoredHybridFeatureScorer(rasr.FeatureScorer):
         self.config.loader = fs_tf_config.loader
         self.config.input_map = fs_tf_config.input_map
         self.config.output_map = fs_tf_config.output_map
-        if set_is_batch_major:
-            self.config.is_batch_major = set_is_batch_major
+        if is_batch_major:
+            self.config.is_batch_major = is_batch_major

@@ -1,8 +1,10 @@
 __all__ = ["BASEFactoredHybridDecoder"]
 
 import copy
-from dataclasses import dataclass
 import numpy as np
+
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Callable, List, Optional, Tuple, Union
 from IPython import embed
 
@@ -28,19 +30,26 @@ from i6_experiments.users.raissi.setups.common.data.factored_label import (
     PhoneticContext,
 )
 
-from i6_experiments.users.raissi.setups.common.decoder.config import PriorInfo, PosteriorScales, SearchParameters
+from i6_experiments.users.raissi.setups.common.decoder.config import (
+    default_posterior_scales,
+    PriorInfo,
+    PosteriorScales,
+    SearchParameters
+)
 from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_feature_scorer import (
     FactoredHybridFeatureScorer,
 )
 from i6_experiments.users.raissi.setups.common.decoder.statistics import ExtractSearchStatisticsJob
 from i6_experiments.users.raissi.setups.common.util.tdp import (
-    TDP,
-    Float,
     format_tdp_val,
     format_tdp
 )
+from i6_experiments.users.raissi.setups.common.data.typings import (
+    TDP,
+    Float,
+)
 
-class RasrFeatureScorer():
+class RasrFeatureScorer(Enum):
     """A class that returns a speific fetaure scorer"""
     factored = "factored"
     nn_precomputed = "nn-precomputed"
@@ -181,6 +190,7 @@ def get_factored_feature_scorer(
     state_dependent_tdp_file: Optional[Union[str, Path]] = None,
     is_min_duration: bool = False,
     is_multi_encoder_output: bool = False,
+    is_batch_major: bool = True,
 ):
     if isinstance(prior_info, PriorInfo):
         check_prior_info(context_type=context_type, prior_info=prior_info)
@@ -205,6 +215,7 @@ def get_factored_feature_scorer(
         is_min_duration=is_min_duration,
         use_word_end_classes=label_info.phoneme_state_classes.use_word_end(),
         use_boundary_classes=label_info.phoneme_state_classes.use_boundary(),
+        is_batch_major=is_batch_major,
     )
 
 def get_nn_precomputed_feature_scorer(context_type: PhoneticContext,
@@ -229,7 +240,7 @@ class BASEFactoredHybridDecoder:
     def __init__(
         self,
         name: str,
-        crp,
+        crp: rasr.CommonRasrParameters,
         context_type: PhoneticContext,
         feature_scorer_type: RasrFeatureScorer,
         feature_path: Path,
@@ -240,7 +251,7 @@ class BASEFactoredHybridDecoder:
         tensor_map: Optional[Union[dict, DecodingTensorMap]] = None,
         is_multi_encoder_output=False,
         silence_id=40,
-        set_batch_major_for_feature_scorer=False,
+        set_batch_major_for_feature_scorer: bool = True,
         lm_gc_simple_hash=False,
         tf_library: Optional[Union[str, Path]] = None,
         gpu=False,
@@ -257,7 +268,7 @@ class BASEFactoredHybridDecoder:
         self.mixtures = mixtures
         self.is_multi_encoder_output = is_multi_encoder_output
         self.silence_id = silence_id
-        self.set_batch_major = set_batch_major_for_feature_scorer
+        self.set_batch_major_for_feature_scorer = set_batch_major_for_feature_scorer
         self.lm_gc_simple_hash = lm_gc_simple_hash
 
         self.tensor_map = (
@@ -275,8 +286,9 @@ class BASEFactoredHybridDecoder:
         self.library_path = DelayedJoin(tf_library, ":") if isinstance(tf_library, list) else tf_library
 
         # setting other attributes
-        self.fs_config = self.get_fs_tf_config()
         self.set_tf_fs_flow()
+        self.fs_config = self.get_fs_tf_config()
+
 
 
     def get_search_params(
@@ -959,6 +971,7 @@ class BASEFactoredHybridDecoder:
                 state_dependent_tdp_file=search_parameters.state_dependent_tdps,
                 is_min_duration=is_min_duration,
                 is_multi_encoder_output=self.is_multi_encoder_output,
+                is_batch_major=self.set_batch_major_for_feature_scorer,
             )
         elif self.feature_scorer_type.is_nnprecomputed():
             feature_scorer = get_nn_precomputed_feature_scorer(context_type=self.context_type,
@@ -978,14 +991,14 @@ class BASEFactoredHybridDecoder:
         )
 
         search = recog.AdvancedTreeSearchJob(
-            crp=crp,
+            crp=search_crp,
             feature_flow=self.feature_scorer_flow,
             feature_scorer=feature_scorer,
             search_parameters=sp,
             lm_lookahead=True,
             eval_best_in_lattice=True,
             use_gpu=gpu if gpu is not None else self.gpu,
-            rtf=rtf_gpu if rtf_gpu is not None and use_gpu else rtf_cpu if rtf_cpu is not None else rqms["rtf"],
+            rtf=rtf_gpu if rtf_gpu is not None and gpu else rtf_cpu if rtf_cpu is not None else rqms["rtf"],
             mem=rqms["mem"] if mem_rqmt is None else mem_rqmt,
             cpu=2 if cpu_rqmt is None else cpu_rqmt,
             lmgc_scorer=rasr.DiagonalMaximumScorer(self.mixtures) if self.lm_gc_simple_hash else None,
@@ -1029,7 +1042,7 @@ class BASEFactoredHybridDecoder:
         lat2ctm_extra_config = rasr.RasrConfig()
         lat2ctm_extra_config.flf_lattice_tool.network.to_lemma.links = "best"
         lat2ctm = recog.LatticeToCtmJob(
-            crp=crp,
+            crp=search_crp,
             lattice_cache=search.out_lattice_bundle,
             parallelize=True,
             best_path_algo="bellman-ford",
@@ -1047,7 +1060,7 @@ class BASEFactoredHybridDecoder:
             assert search_parameters.beam >= 15.0
 
             opt = recog.OptimizeAMandLMScaleJob(
-                crp=crp,
+                crp=search_crp,
                 lattice_cache=search.out_lattice_bundle,
                 initial_am_scale=pron_scale,
                 initial_lm_scale=search_parameters.lm_scale,
@@ -1091,7 +1104,7 @@ class BASEFactoredHybridDecoder:
             lat2ctm=lat2ctm,
             sclite=scorer,
             search=search,
-            search_crp=crp,
+            search_crp=search_crp,
             search_feature_scorer=feature_scorer,
             search_stats=stat,
         )
@@ -1263,7 +1276,7 @@ class FactoredHybridAligner(BASEFactoredHybridDecoder):
                         tensor_map=tensor_map,
                         is_multi_encoder_output=is_multi_encoder_output,
                         silence_id=silence_id,
-                        set_batch_major_for_feature_scorer=set_batch_major_for_feature_scorer)
+                        is_batch_major=set_batch_major_for_feature_scorer)
 
         self.correct_transition_applicator()
 
