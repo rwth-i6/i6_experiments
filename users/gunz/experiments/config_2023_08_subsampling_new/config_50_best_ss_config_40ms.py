@@ -429,12 +429,13 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     # #####################
 
     alignment_name = "40ms-di-fa"
-    di_forced_alignment_j = force_align(
+    di_forced_alignment_j = force_align_diphone(
         s,
         key="fh-di",
         alignment_name=alignment_name,
-        ctx=PhoneticContext.diphone,
         epoch=viterbi_keep_epochs[-1],
+        prior_epoch=viterbi_keep_epochs[-2],
+        returnn_config=returnn_cfg_di,
         tensor_config=TENSOR_CONFIG,
     )
     allophones = lexicon.StoreAllophonesJob(s.crp[s.crp_names[train_key]])
@@ -456,6 +457,8 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     name = "di-fa"
     key = f"fh-{name}"
     post_name = f"conf-{name}-zhou"
+
+    print(f"fa {post_name}")
 
     s.set_experiment_dict(key, alignment_name, name, postfix_name=post_name)
     s.set_returnn_config_for_experiment(key, copy.deepcopy(returnn_cfg_di))
@@ -807,13 +810,14 @@ def decode_triphone(
         )
 
 
-def force_align(
+def force_align_diphone(
     sys: fh_system.FactoredHybridSystem,
     alignment_name: str,
     key: str,
     epoch: int,
-    ctx: PhoneticContext,
+    prior_epoch: int,
     tensor_config: DecodingTensorMap,
+    returnn_config: returnn.ReturnnConfig,
     tdp_scale: float = 1.0,
     sil_e: float = 0.0,
 ) -> mm.AlignmentJob:
@@ -828,9 +832,18 @@ def force_align(
     sys._init_lm(crp_k, **next(iter(dev_data_inputs.values())).lm)
     sys._update_crp_am_setting(crp_k, tdp_type="default", add_base_allophones=False)
 
+    sys.set_triphone_priors_returnn_rasr(
+        key=key,
+        epoch=prior_epoch,
+        train_corpus_key=sys.crp_names["train"],
+        dev_corpus_key=sys.crp_names["cvtrain"],
+        smoothen=True,
+        returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+    )
+
     recognizer, recog_args = sys.get_recognizer_and_args(
         key=key,
-        context_type=ctx,
+        context_type=PhoneticContext.diphone,
         crp_corpus=crp_k,
         epoch=epoch,
         gpu=False,
