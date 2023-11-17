@@ -453,6 +453,33 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     )
     tk.register_output(f"alignments/{alignment_name}/plots", plots.out_plot_folder)
 
+    di_fa_config = copy.deepcopy(returnn_cfg_di)
+    fa_update_config = returnn.ReturnnConfig(
+        config={
+            "chunking": ({"classes": 64, "data": 256}, {"classes": 32, "data": 128}),
+            "network": {
+                **returnn_cfg_di.config["network"],
+                "reinterpret_classes": {
+                    "class": "reinterpret_data",
+                    "from": "data:classes",
+                    "set_dim_tags": {"T": returnn.CodeWrapper(f"{time_tag_name}.ceildiv_right(2).ceildiv_right(2)")},
+                },
+                "futureLabel": {
+                    **returnn_cfg_di.config["network"]["futureLabel"],
+                    "from": "reinterpret_classes",
+                },
+                "popFutureLabel": {
+                    **returnn_cfg_di.config["network"]["popFutureLabel"],
+                    "from": "reinterpret_classes",
+                },
+            },
+            "dev": {"reduce_target_factor": 4},
+            "train": {"reduce_target_factor": 4},
+        },
+    )
+    di_fa_config.update(import_di_config)
+    di_fa_config.update(fa_update_config)
+
     name = "di-fa"
     key = f"fh-{name}"
     post_name = f"conf-{name}-zhou"
@@ -460,13 +487,13 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     print(f"fa {post_name}")
 
     s.set_experiment_dict(key, alignment_name, name, postfix_name=post_name)
-    s.set_returnn_config_for_experiment(key, copy.deepcopy(returnn_cfg_di))
+    s.set_returnn_config_for_experiment(key, copy.deepcopy(di_fa_config))
 
     train_args = {
         **s.initial_train_args,
         "num_epochs": viterbi_keep_epochs[-1],
         "partition_epochs": PARTITION_EPOCHS,
-        "returnn_config": copy.deepcopy(returnn_cfg_di),
+        "returnn_config": copy.deepcopy(di_fa_config),
     }
     s.returnn_rasr_training(
         experiment_key=key,
