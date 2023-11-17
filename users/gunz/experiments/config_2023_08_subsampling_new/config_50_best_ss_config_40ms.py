@@ -854,7 +854,10 @@ def force_align_diphone(
 
     sil_tdp = (*recog_args.tdp_silence[:3], sil_e)
     align_cfg = (
-        recog_args.with_prior_scale(0.6).with_tdp_scale(tdp_scale).with_tdp_silence(sil_tdp).with_tdp_non_word(sil_tdp)
+        recog_args.with_prior_scale(0.6, 0.6)
+        .with_tdp_scale(tdp_scale)
+        .with_tdp_silence(sil_tdp)
+        .with_tdp_non_word(sil_tdp)
     )
     align_search_jobs = recognizer.recognize_count_lm(
         label_info=sys.label_info,
