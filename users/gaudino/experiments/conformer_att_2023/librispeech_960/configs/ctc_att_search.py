@@ -1480,17 +1480,16 @@ def run_ctc_att_search():
         )
 
     # ctc + att masking fix
-    for beam_size in [32]:
-        for scale in [(0.65, 0.35)]:
+    for beam_size, scales, bsf in product([32], [(0.65, 0.35)], [40, 80]):
             search_args = copy.deepcopy(oclr_args)
             search_args["beam_size"] = beam_size
-            att_scale, ctc_scale = scale
-
+            att_scale, ctc_scale = scales
+            search_args["batch_size"] = 20000 * bsf
             search_args["decoder_args"] = CTCDecoderArgs(
                 add_att_dec=True, att_scale=att_scale, ctc_scale=ctc_scale, att_masking_fix=True
             )
             run_decoding(
-                exp_name=f"ctc_{ctc_scale}_att_{att_scale}_beam{beam_size}_masking_fix",
+                exp_name=f"opts_ctc_{ctc_scale}_att_{att_scale}_beam{beam_size}_bsf{bsf}",
                 train_data=train_data,
                 checkpoint=train_job_avg_ckpt[
                     f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
@@ -1509,6 +1508,7 @@ def run_ctc_att_search():
         for scale in [(0.65, 0.35)]:
             search_args = copy.deepcopy(oclr_args)
             search_args["beam_size"] = beam_size
+
             att_scale, ctc_scale = scale
 
             search_args["decoder_args"] = CTCDecoderArgs(
