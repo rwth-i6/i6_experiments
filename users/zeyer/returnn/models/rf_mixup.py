@@ -126,15 +126,20 @@ class Mixup(rf.Module):
         )  # [B_N']
         mixup_values *= mixup_scales_flat  # [B_N', T, F]
 
-        mixup_value = rf.masked_scatter(
-            mixup_values, mask=n_mask, dims=batch_dims + [num_mixup_dim], in_dim=num_mixup_flat_dim
+        idx_b = rf.range_over_dims(batch_dims)  # [B] -> B
+        idx_b, _ = rf.masked_select(
+            idx_b, mask=n_mask, dims=batch_dims + [num_mixup_dim], out_dim=num_mixup_flat_dim
+        )  # [B_N'] -> B
+
+        mixup_value = rf.scatter(
+            mixup_values, indices=idx_b, indices_dim=num_mixup_flat_dim, out_dim=batch_dims
         )  # [B,T,F]
 
         src = src + rf.stop_gradient(mixup_value)
         return src
 
 
-def test_mixup():
+def _test_mixup():
     import numpy as np
 
     rf.select_backend_torch()
@@ -143,10 +148,13 @@ def test_mixup():
     batch_dim = Dim(2, name="batch")
     time_dim = Dim(rf.convert_to_tensor(np.array([7, 8], dtype="int32"), dims=[batch_dim]), name="time")
     feature_dim = Dim(5, name="feature")
-    data = rf.random_uniform([batch_dim, time_dim, feature_dim])
+    data = rf.convert_to_tensor(
+        np.arange(2 * 8 * 5).reshape(2, 8, 5).astype("float32"), dims=[batch_dim, time_dim, feature_dim]
+    )
+    data /= rf.reduce_max(data, axis=time_dim)
     print("data:", data, data.raw_tensor)
 
-    mixup = Mixup(feature_dim=feature_dim, opts=MixupOpts(buffer_size=100))
+    mixup = Mixup(feature_dim=feature_dim, opts=MixupOpts(buffer_size=30, lambda_min=1.0, lambda_max=1.0))
 
     x = mixup(data, spatial_dim=time_dim)
     print("x:", x, x.raw_tensor)
@@ -159,6 +167,11 @@ def test_mixup():
     print("x':", x, x.raw_tensor)
     print("buffer':", mixup.buffer, mixup.buffer.raw_tensor)
 
+    data = -rf.ones([batch_dim, time_dim, feature_dim])
+    x = mixup(data, spatial_dim=time_dim)
+    print("x'':", x, x.raw_tensor)
+    print("buffer'':", mixup.buffer, mixup.buffer.raw_tensor)
+
 
 if __name__ == "__main__":
-    test_mixup()
+    _test_mixup()
