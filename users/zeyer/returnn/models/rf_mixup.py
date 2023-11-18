@@ -113,7 +113,7 @@ class Mixup(rf.Module):
         idx = rf.range_over_dim(spatial_dim)  # [T]
         idx = rf.combine_bc(idx, "+", buffer_start_flat)  # [B_N', T]
 
-        mixup_values = rf.gather(self.buffer, indices=idx, axis=num_mixup_flat_dim)  # [B_N', T, F]
+        mixup_values = rf.gather(self.buffer, indices=idx, axis=self.buffer_size_dim)  # [B_N', T, F]
 
         # Scale the mixup values.
         lambda_ = rf.random_uniform(
