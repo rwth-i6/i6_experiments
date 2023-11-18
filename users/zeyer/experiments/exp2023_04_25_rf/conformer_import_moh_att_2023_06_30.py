@@ -198,6 +198,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
 
     _train_exp("base-24gb-v5", config_24gb_v5)
+    _train_exp("base-24gb-v5-embInit1", config_24gb_v5, config_updates={"embed_init_stddev": 1.0})
 
 
 _sis_prefix: Optional[str] = None
@@ -525,6 +526,11 @@ class Model(rf.Module):
         l2: float = 0.0001,
     ):
         super(Model, self).__init__()
+
+        from returnn.config import get_global_config
+
+        config = get_global_config()
+
         self.in_dim = in_dim
         self.encoder = ConformerEncoder(
             in_dim,
@@ -564,6 +570,8 @@ class Model(rf.Module):
         self.inv_fertility = rf.Linear(self.encoder.out_dim, att_num_heads, with_bias=False)
 
         self.target_embed = rf.Embedding(target_dim, Dim(name="target_embed", dimension=640))
+        if config.float("embed_init_stddev", None):
+            self.target_embed.weight.initial = rf.init.Normal(stddev=config.float("embed_init_stddev", 0.0))
 
         self.s = rf.ZoneoutLSTM(
             self.target_embed.out_dim + att_num_heads * self.encoder.out_dim,
@@ -594,10 +602,6 @@ class Model(rf.Module):
                 wb_target_dim = target_dim + 1
         for i in enc_aux_logits:
             setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
-
-        from returnn.config import get_global_config
-
-        config = get_global_config()
 
         self._specaugment_opts = {
             "steps": config.typed_value("specaugment_steps") or (0, 1000, 2000),
