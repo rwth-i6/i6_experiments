@@ -74,11 +74,11 @@ def sis_run_with_prefix(prefix_name: str = None):
             (1280, {"num_epochs": 50}),  # 7.22
             (1280, {"num_epochs": 100}),  # 7.08
             (1280, {"num_epochs": 200}),  # 7.03
-            # (ep 2000 is 7.03)
-            (2000, {"num_epochs": 100}),  # 6.93
-            (2000, {"num_epochs": 200}),  # dev-other* 6.84, test-other 7.06
-            (2000, {"num_epochs": 200, "final_lr": 1e-6}),
-            (2000, {"num_epochs": 200, "lr_decay_type": "linspace"}),  # 6.95
+            # (ep 2000 is 7.03, 7.31)
+            (2000, {"num_epochs": 100}),  # 6.93, 7.12
+            (2000, {"num_epochs": 200}),  # dev-other 6.84, test-other 7.06
+            (2000, {"num_epochs": 200, "final_lr": 1e-6}),  # dev-other* 6.83, test-other 7.10
+            (2000, {"num_epochs": 200, "lr_decay_type": "linspace"}),  # 6.95, 7.11
             (2000, {"num_epochs": 200, "lr_decay_type": "linspace", "final_lr": 1e-6}),  # dev-ot 6.94, test-other* 7.01
             (
                 2000,
@@ -92,7 +92,7 @@ def sis_run_with_prefix(prefix_name: str = None):
                 2000,
                 {
                     "num_epochs": 200,
-                    "_lr_decay_type": "L3_5_180_L6_20",
+                    "_lr_decay_type": "L3_5_180_L6_20",  # dev-other 6.87, test-other 7.12
                     "learning_rates": list(np.linspace(1e-3, 1e-5, num=180)) + list(np.linspace(1e-5, 1e-6, num=20)),
                 },
             ),

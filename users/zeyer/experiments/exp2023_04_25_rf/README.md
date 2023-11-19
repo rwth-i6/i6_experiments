@@ -77,6 +77,8 @@ TODO:
   - final LR?
   - how long? 50? 100? 200 subepochs?
 
+- model average
+
 
 TODO model changes:
 
