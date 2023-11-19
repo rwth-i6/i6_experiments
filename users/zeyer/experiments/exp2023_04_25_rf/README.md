@@ -84,3 +84,4 @@ TODO model changes:
 - ZoneoutLSTM use_zoneout_output=True
 - (cnnblstmf2)
 - QK Norm (as in QK Norm paper with L2 norm, or as in Scaling ViT paper with LayerNorm)
+- Transformer decoder, probably makes training more stable, reaches better WER without ext LM/ILM
