@@ -199,6 +199,7 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     _train_exp("base-24gb-v5", config_24gb_v5)
     _train_exp("base-24gb-v5-embInit1", config_24gb_v5, config_updates={"embed_init_stddev": 1.0})
+    _train_exp("base-24gb-v5-mixup", config_24gb_v5, config_updates={"mixup": {}})
 
 
 _sis_prefix: Optional[str] = None
@@ -613,6 +614,12 @@ class Model(rf.Module):
 
         self._pretrain_opts: Optional[Dict[str, Any]] = config.typed_value("pretrain_opts")
 
+        self._mixup = None
+        if config.typed_value("mixup", None) is not None:
+            from i6_experiments.users.zeyer.returnn.models.rf_mixup import Mixup, MixupOpts
+
+            self._mixup = Mixup(feature_dim=self.in_dim, opts=MixupOpts(**config.typed_value("mixup")))
+
     def encode(
         self,
         source: Tensor,
@@ -629,6 +636,8 @@ class Model(rf.Module):
             sampling_rate=16_000,
             log_base=math.exp(2.3026),  # almost 10.0 but not exactly...
         )
+        if self._mixup:
+            source = self._mixup(source, spatial_dim=in_spatial_dim)
         # SpecAugment
         source = rf.audio.specaugment(
             source,
