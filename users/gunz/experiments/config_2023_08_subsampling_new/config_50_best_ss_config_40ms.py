@@ -608,7 +608,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     ):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
-        if key.startswith("di"):
+        if key.startswith("fh-di"):
             decode_diphone(
                 s,
                 key=key,
@@ -618,7 +618,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
                 tune=ep == fine_tune_keep_epochs[-1],
             )
-        elif key.startswith("tri"):
+        elif key.startswith("fh-tri"):
             if ep in [fine_tune_keep_epochs[0], fine_tune_keep_epochs[-1]]:
                 decode_triphone(
                     s,
