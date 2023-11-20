@@ -1,11 +1,11 @@
 __all__ = ["TFFactoredHybridBaseSystem"]
 
 import copy
+import dataclasses
 import itertools
 import sys
 from IPython import embed
 
-from dataclasses import asdict
 from enum import Enum
 from typing import Dict, List, Optional, Tuple, TypedDict, Union
 
@@ -55,6 +55,7 @@ from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
 from i6_experiments.users.raissi.setups.common.data.factored_label import (
     LabelInfo,
     PhoneticContext,
+    RasrStateTying,
 )
 
 
@@ -586,67 +587,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         self.experiments[key]["priors"] = p_info
 
-    # deprecated
-    def set_diphone_priors(
-        self,
-        key,
-        epoch,
-        tf_library=None,
-        nStateClasses=None,
-        nContexts=None,
-        gpu=1,
-        time=20,
-        isSilMapped=True,
-        hdf_key=None,
-    ):
-        assert self.label_info.sil_id is not None
-        if nStateClasses is None:
-            nStateClasses = self.label_info.get_n_state_classes()
-        if nContexts is None:
-            nContexts = self.label_info.n_contexts
-
-        if tf_library is None:
-            tf_library = self.tf_library
-
-        name = f"{self.experiments[key]['name']}-epoch-{epoch}"
-        model_checkpoint = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
-        graph = self.experiments[key]["graph"]["inference"]
-
-        hdf_paths = self.get_hdf_path(hdf_key)
-
-        estimateJob = EstimateRasrDiphoneAndContextPriors(
-            graphPath=graph,
-            model=model_checkpoint,
-            dataPaths=hdf_paths,
-            datasetIndices=list(range(len(hdf_paths) // 3)),
-            libraryPath=tf_library,
-            nStates=nStateClasses,
-            tensorMap=self.tf_map,
-            nContexts=nContexts,
-            nStateClasses=nStateClasses,
-            gpu=gpu,
-            time=time,
-        )
-
-        estimateJob.add_alias(f"priors-{name}")
-        xmlJob = DumpXmlRasrForDiphone(
-            estimateJob.diphoneFiles,
-            estimateJob.contextFiles,
-            estimateJob.numSegments,
-            nContexts=nContexts,
-            nStateClasses=nStateClasses,
-            adjustSilence=isSilMapped,
-            silBoundaryIndices=[0, self.label_info.sil_id],
-        )
-
-        priorFiles = [xmlJob.diphoneXml, xmlJob.contextXml]
-        if name is not None:
-            xmlName = f"priors/{name}-xmlpriors"
-        else:
-            xmlName = "diphone-priors"
-        tk.register_output(xmlName, priorFiles[0])
-        self.experiments[key]["priors"] = priorFiles
-
     def set_graph_for_experiment(self, key, override_cfg: Optional[returnn.ReturnnConfig] = None):
         config = copy.deepcopy(override_cfg if override_cfg is not None else self.experiments[key]["returnn_config"])
 
@@ -656,14 +596,14 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         if "source" in config.config["network"].keys():  # specaugment
             for v in config.config["network"].values():
-                if v["class"] == "eval":
+                if v["class"] in ["eval", "range"]:
                     continue
                 if v["from"] == "source":
                     v["from"] = "data"
                 elif isinstance(v["from"], list):
                     v["from"] = ["data" if val == "source" else val for val in v["from"]]
             del config.config["network"]["source"]
-            
+
         infer_graph = decode_helpers.compile_graph.compile_tf_graph_from_returnn_config(
             config,
             python_prolog=python_prolog,
@@ -674,6 +614,37 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         self.experiments[key]["graph"]["inference"] = infer_graph
         tk.register_output(f"graphs/{name}-infer.pb", infer_graph)
+
+    def setup_returnn_config_and_graph_for_diphone_joint_decoding(self, key: str=None, returnn_config: returnn.ReturnnConfig = None):
+
+        #Joint diphone will only work with diphone-dense state-tying
+        self.label_info = dataclasses.replace(self.label_info, state_tying=RasrStateTying.diphone)
+        for crp_k in self.crp_names.keys():
+            if 'train' not in crp_k:
+                self._update_crp_am_setting_for_decoding(self.crp_names[crp_k])
+
+        if returnn_config is None:
+            returnn_config = self.experiments[key]["returnn_config"]
+        clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
+        #used for decoding
+        decoding_returnn_config = net_helpers.diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=clean_returnn_config,
+            label_info=self.label_info,
+            out_joint_score_layer="output",
+            log_softmax=True,
+        )
+
+        self.set_graph_for_experiment(key, override_cfg=decoding_returnn_config)
+        #used for prior estimation
+        prior_returnn_config = net_helpers.diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=clean_returnn_config,
+            label_info=self.label_info,
+            out_joint_score_layer="output",
+            log_softmax=False,
+        )
+
+        self.experiments[key]["returnn_config"] = prior_returnn_config
+
 
     def get_recognizer_and_args(
         self,

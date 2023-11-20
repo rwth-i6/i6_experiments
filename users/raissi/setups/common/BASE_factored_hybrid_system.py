@@ -343,7 +343,7 @@ class BASEFactoredHybridSystem(NnSystem):
             self.feature_flows[c_key] = c_data.feature_flow
             self.set_sclite_scorer(c_key)
 
-    def _update_crp_am_setting(self, crp_key, tdp_type=None, add_base_allophones=False):
+    def _update_crp_am_setting(self, crp_key: str, tdp_type: str=None, add_base_allophones=False):
         # ToDo handle different tdp values: default, based on transcription, based on an alignment
         tdp_pattern = self.tdp_values["pattern"]
         if tdp_type in ["default"]:  # additional later, maybe enum or so
@@ -389,6 +389,29 @@ class BASEFactoredHybridSystem(NnSystem):
             crp.acoustic_model_config.allophones.add_from_file = self.base_allophones
 
         crp.lexicon_config.normalize_pronunciation = self.lexicon_args["norm_pronunciation"]
+
+    def _update_crp_am_setting_for_decoding(self, crp_key):
+        # Here the idea is to be able to do decoding with different tying or FSA structure (e.g. min. dur.)
+        #ToDo handle min duration not on the model/fs level but rasr?
+        assert 'train' not in crp_key, "Call this function only with decoding crps"
+        crp = self.crp[crp_key]
+
+        if self.label_info.state_tying == "cart":
+            crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
+            assert (
+                self.label_info.state_tying_file is not None
+            ), "for cart state tying you need to set state tying file for label_info"
+            crp.acoustic_model_config.state_tying.file = self.label_info.state_tying_file
+        else:
+            if self.label_info.phoneme_state_classes.use_word_end():
+                crp.acoustic_model_config.state_tying.use_word_end_classes = (
+                    self.label_info.phoneme_state_classes.use_word_end()
+                )
+            crp.acoustic_model_config.state_tying.use_boundary_classes = (
+                self.label_info.phoneme_state_classes.use_boundary()
+            )
+            crp.acoustic_model_config.hmm.states_per_phone = self.label_info.n_states_per_phone
+            crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
 
     def _get_segment_file(self, corpus_path, remove_prefix=""):
         return corpus_recipe.SegmentCorpusJob(
