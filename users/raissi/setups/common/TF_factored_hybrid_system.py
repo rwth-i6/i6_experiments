@@ -626,15 +626,23 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         if returnn_config is None:
             returnn_config = self.experiments[key]["returnn_config"]
         clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
-        #used for decoding
+        context_size = self.label_info.n_contexts
+        context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(spatial_size=context_size,
+                                                                                     feature_size=context_size,
+                                                                                     spatial_dim_variable_name="__center_state_spatial",
+                                                                                     feature_dim_variable_name="__center_state_feature",
+                                                                                     context_type='L')
+
+        # used for decoding
         decoding_returnn_config = net_helpers.diphone_joint_output.augment_to_joint_diphone_softmax(
             returnn_config=clean_returnn_config,
             label_info=self.label_info,
             out_joint_score_layer="output",
             log_softmax=True,
         )
+        self.reset_returnn_config_for_experiment(key=key, config_dict=decoding_returnn_config.config, extra_dict_key="context", additional_python_prolog=context_time_tag)
+        self.set_graph_for_experiment(key)
 
-        self.set_graph_for_experiment(key, override_cfg=decoding_returnn_config)
         #used for prior estimation
         prior_returnn_config = net_helpers.diphone_joint_output.augment_to_joint_diphone_softmax(
             returnn_config=clean_returnn_config,
@@ -644,6 +652,29 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
 
         self.experiments[key]["returnn_config"] = prior_returnn_config
+
+    def setup_returnn_config_and_graph_for_diphone_joint_prior(self, key: str = None,
+                                                                  returnn_config: returnn.ReturnnConfig = None):
+
+        if returnn_config is None:
+            returnn_config = self.experiments[key]["returnn_config"]
+        clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
+        context_size = self.label_info.n_contexts
+        context_time_tag = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(spatial_size=context_size,
+                                                                                     feature_size=context_size,
+                                                                                     spatial_dim_variable_name="__center_state_spatial",
+                                                                                     feature_dim_variable_name="__center_state_feature",
+                                                                                     context_type='L')
+        # used for decoding
+        prior_returnn_config = net_helpers.diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=clean_returnn_config,
+            label_info=self.label_info,
+            out_joint_score_layer="output",
+            log_softmax=False,
+        )
+        self.reset_returnn_config_for_experiment(key=key, config_dict=prior_returnn_config.config, extra_dict_key="context",
+                                                 additional_python_prolog=context_time_tag)
+        self.set_graph_for_experiment(key)
 
 
     def get_recognizer_and_args(

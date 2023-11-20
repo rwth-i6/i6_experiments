@@ -674,6 +674,13 @@ class BASEFactoredHybridSystem(NnSystem):
         return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
 
     # -------------------------------------------- Training --------------------------------------------------------
+    def add_code_to_extra_returnn_code(self, key:str, extra_key: str, extra_dict_key:str, code: str):
+        # extra_key can be either prolog or epilog
+        assert extra_dict_key is not None, "set the extra dict key for your additional code"
+        old_to_update = copy.deepcopy(self.experiments[key]["extra_returnn_code"][extra_key])
+        old_to_update[extra_dict_key] = code
+        return old_to_update
+
     def get_config_with_standard_prolog_and_epilog(
         self, config: Dict, prolog_additional_str: str = None, epilog_additional_str: str = None
     ):
@@ -732,6 +739,29 @@ class BASEFactoredHybridSystem(NnSystem):
         returnn_config = returnn.ReturnnConfig(
             config=config_dict,
             post_config=base_post_config,
+            hash_full_python_code=True,
+            python_prolog=python_prolog,
+            python_epilog=python_epilog,
+        )
+        self.experiments[key]["returnn_config"] = returnn_config
+        self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
+        self.experiments[key]["extra_returnn_code"]["epilog"] = returnn_config.python_epilog
+
+    def reset_returnn_config_for_experiment(self, key:str,
+                                            config_dict: Dict,
+                                            extra_dict_key:str = None,
+                                            additional_python_prolog: str = None,
+                                            additional_python_epilog: str = None):
+        if additional_python_prolog is not None:
+            python_prolog = self.add_code_to_extra_returnn_code(key=key, extra_key="prolog", extra_dict_key=extra_dict_key, code=additional_python_prolog)
+        else: python_prolog = self.experiments[key]["extra_returnn_code"]["prolog"]
+
+        if additional_python_epilog is not None:
+            python_epilog = self.add_code_to_extra_returnn_code(key=key, extra_key="epilog", extra_dict_key=extra_dict_key, code=additional_python_epilog)
+        else: python_epilog = self.experiments[key]["extra_returnn_code"]["epilog"]
+
+        returnn_config = returnn.ReturnnConfig(
+            config=config_dict,
             hash_full_python_code=True,
             python_prolog=python_prolog,
             python_epilog=python_epilog,
