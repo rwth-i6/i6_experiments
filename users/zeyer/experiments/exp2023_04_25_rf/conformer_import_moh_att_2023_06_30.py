@@ -38,34 +38,34 @@ _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.Bx
 _log_mel_feature_dim = 80
 
 
-def sis_run_with_prefix(prefix_name: str = None):
+def sis_run_with_prefix(prefix_name: Optional[str] = None):
     """run the exp"""
     _sis_setup_global_prefix(prefix_name)
 
     _recog_imported()
 
-    _train_exp("from-scratch-train", config, gpu_mem=None)
+    train_exp("from-scratch-train", config, gpu_mem=None)
 
-    _train_exp(  # dev-other 7.6
+    train_exp(  # dev-other 7.6
         "base-24gb-bs30k-f32",
         config_24gb,
         config_updates={"batch_size": 30_000 * _batch_size_factor},
         config_deletes=["torch_amp"],
     )
 
-    _train_exp("base-24gb-v2-lr1e_3", config_24gb_v2, config_updates={"learning_rate": 0.001})  # dev-other 7.44
-    _train_exp(  # dev-other 7.24
+    train_exp("base-24gb-v2-lr1e_3", config_24gb_v2, config_updates={"learning_rate": 0.001})  # dev-other 7.44
+    train_exp(  # dev-other 7.24
         "base-24gb-v2-lr1e_3-nogradscaler", config_24gb_v2, config_updates={"learning_rate": 0.001, "grad_scaler": None}
     )
 
     # base-24gb-v3: diverges at later point
-    _train_exp(  # 7.01, slightly better than baseline.
+    train_exp(  # 7.01, slightly better than baseline.
         "base-24gb-v3-lr1e_3-wd1e_3",
         config_24gb_v3,
         config_updates={"learning_rate": 0.001, "optimizer.weight_decay": 0.001},
     )
-    _train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})  # 7.56
-    _train_exp(  # dev-other 7.01 (epoch 1964)
+    train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})  # 7.56
+    train_exp(  # dev-other 7.01 (epoch 1964)
         "base-24gb-v3-lr1e_3",
         config_24gb_v3,
         config_updates={"learning_rate": 0.001},
@@ -98,12 +98,12 @@ def sis_run_with_prefix(prefix_name: str = None):
             ),
         ],
     )
-    _train_exp(  # dev/test-other 6.89,7.39 (overfitting on dev? base: dev/test 7.01,7.23). unclear...
+    train_exp(  # dev/test-other 6.89,7.39 (overfitting on dev? base: dev/test 7.01,7.23). unclear...
         "base-24gb-v3-lr1e_3-lrdecnorm40k",
         config_24gb_v3,
         config_updates={"learning_rate": 0.001, "learning_rate_invsqrt_norm": 40_000},
     )
-    _train_exp(
+    train_exp(
         "base-24gb-v3-lr1e_3-specaugorig",
         config_24gb_v3,
         config_updates={"learning_rate": 0.001},
@@ -112,15 +112,15 @@ def sis_run_with_prefix(prefix_name: str = None):
             "specaugment_max_consecutive_feature_dims",
         ],
     )
-    _train_exp(  # 8.21 (vs base 7.01, so lossscalesF is worse)
+    train_exp(  # 8.21 (vs base 7.01, so lossscalesF is worse)
         "base-24gb-v3-lr1e_3-lossscalesF",
         config_24gb_v3,
         config_updates={"learning_rate": 0.001, "aux_loss_scales": [0.1, 0.2], "aed_loss_scale": 0.7},
     )
 
-    _train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)  # 7.07 (vs base 7.01, so worse?)
-    _train_exp("base-24gb-v4", config_24gb_v4)
-    _train_exp(
+    train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)  # 7.07 (vs base 7.01, so worse?)
+    train_exp("base-24gb-v4", config_24gb_v4)
+    train_exp(
         "base-24gb-v4-wdblacklist2",
         config_24gb_v4,
         config_updates={
@@ -130,8 +130,8 @@ def sis_run_with_prefix(prefix_name: str = None):
             ],
         },
     )
-    _train_exp("base-24gb-v4-lr09e_3", config_24gb_v4, config_updates={"learning_rate": 0.0009})
-    _train_exp(
+    train_exp("base-24gb-v4-lr09e_3", config_24gb_v4, config_updates={"learning_rate": 0.0009})
+    train_exp(
         "base-24gb-v4-lrcos",
         config_24gb_v4,
         config_updates={
@@ -140,7 +140,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             "learning_rate_eval_locals": {"orig": dyn_lr_lin_warmup_invsqrt_decay},
         },
     )
-    _train_exp(
+    train_exp(
         "base-24gb-v4-lrlin",
         config_24gb_v4,
         config_updates={
@@ -151,12 +151,12 @@ def sis_run_with_prefix(prefix_name: str = None):
             "learning_rate_piecewise_values": [0.0, 1e-3, 1e-5, 1e-6],
         },
     )
-    _train_exp(
+    train_exp(
         "base-24gb-v4-pretrainBug",
         config_24gb_v4,
         config_updates={"pretrain_opts": {"steps": {4 * 500: {"num_layers": 8}, 8 * 500: {"num_layers": 2}}}},
     )
-    _train_exp(
+    train_exp(
         "base-24gb-v4-pretrain",
         config_24gb_v4,
         config_updates={
@@ -165,8 +165,8 @@ def sis_run_with_prefix(prefix_name: str = None):
             }
         },
     )
-    _train_exp("base-24gb-v4-posdrop01", config_24gb_v4, config_updates={"pos_emb_dropout": 0.1})
-    _train_exp(
+    train_exp("base-24gb-v4-posdrop01", config_24gb_v4, config_updates={"pos_emb_dropout": 0.1})
+    train_exp(
         "base-24gb-v4-pretrain-posdrop01-specaugorig",
         config_24gb_v4,
         config_updates={
@@ -180,14 +180,14 @@ def sis_run_with_prefix(prefix_name: str = None):
             "specaugment_max_consecutive_feature_dims",
         ],
     )
-    _train_exp("base-24gb-v4-attdropfixbc", config_24gb_v4, config_updates={"rf_att_dropout_broadcast": False})
-    _train_exp("base-24gb-v4-bs30k", config_24gb_v4, config_updates={"batch_size": 30_000 * _batch_size_factor})
-    _train_exp(
+    train_exp("base-24gb-v4-attdropfixbc", config_24gb_v4, config_updates={"rf_att_dropout_broadcast": False})
+    train_exp("base-24gb-v4-bs30k", config_24gb_v4, config_updates={"batch_size": 30_000 * _batch_size_factor})
+    train_exp(
         "base-24gb-v4-bs30k-accgrad3",
         config_24gb_v4,
         config_updates={"batch_size": 30_000 * _batch_size_factor, "accum_grad_multiple_step": 3},
     )
-    _train_exp(
+    train_exp(
         "base-24gb-v4-bs30k-accgrad3-nodropbc",
         config_24gb_v4,
         config_updates={
@@ -197,15 +197,15 @@ def sis_run_with_prefix(prefix_name: str = None):
         },
     )
 
-    _train_exp("base-24gb-v5", config_24gb_v5)
-    _train_exp("base-24gb-v5-embInit1", config_24gb_v5, config_updates={"embed_init_stddev": 1.0})
-    _train_exp("base-24gb-v5-mixup", config_24gb_v5, config_updates={"mixup": {}})
+    train_exp("base-24gb-v5", config_24gb_v5)
+    train_exp("base-24gb-v5-embInit1", config_24gb_v5, config_updates={"embed_init_stddev": 1.0})
+    train_exp("base-24gb-v5-mixup", config_24gb_v5, config_updates={"mixup": {}})
 
 
 _sis_prefix: Optional[str] = None
 
 
-def _sis_setup_global_prefix(prefix_name: str = None):
+def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
     if not prefix_name:
         from .sis_setup import get_prefix_for_config
 
@@ -253,7 +253,7 @@ def _recog(name: str, model_with_checkpoint: ModelWithCheckpoint):
 
 
 # noinspection PyShadowingNames
-def _train_exp(
+def train_exp(
     name: str,
     config: Dict[str, Any],
     *,
@@ -263,8 +263,14 @@ def _train_exp(
     gpu_mem: Optional[int] = 24,
     fine_tune: Optional[Union[int, List[Tuple[int, Dict[str, Any]]]]] = None,
 ) -> ModelWithCheckpoints:
+    """
+    Train experiment
+    """
     from .train import train
     from i6_experiments.users.zeyer.recog import recog_training_exp
+
+    if _sis_prefix is None:
+        _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
     task = _get_ls_task()
