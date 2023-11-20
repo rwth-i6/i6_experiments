@@ -503,6 +503,19 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         include_alignment=di_forced_alignment_j.out_alignment_bundle,
     )
 
+    for crp_k, ep in itertools.product(["dev-other"], viterbi_keep_epochs):
+        s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+        decode_diphone(
+            s,
+            key=key,
+            crp_k=crp_k,
+            returnn_config=returnn_cfg_di,
+            epoch=ep,
+            prior_epoch=min(ep, viterbi_keep_epochs[-2]),
+            tune=ep == viterbi_keep_epochs[-1],
+        )
+
     di_fa_train_job = s.experiments[key]["train_job"]
     import_di_fa_config = returnn.ReturnnConfig(
         config={
