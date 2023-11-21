@@ -848,7 +848,13 @@ def create_config(
         add_global_stats_norm(global_stats, exp_config["network"])
 
     if mixup_aug_opts:
-        add_mixup_layers(exp_config["network"], feature_extraction_net, mixup_aug_opts, is_recog)
+        add_mixup_layers(
+            exp_config["network"],
+            feature_extraction_net,
+            mixup_aug_opts,
+            is_recog=(not with_pretrain and not staged_hyperparams)
+            or is_recog,  # add get_global_config() in network to access mixup funcs
+        )
 
     staged_network_dict = None
 
@@ -953,14 +959,19 @@ def create_config(
         python_prolog += ["import numpy"]
 
     # modify hyperparameters based on epoch (only used in training)
-    if staged_network_dict and staged_hyperparams:
+    if staged_hyperparams:
+        if staged_network_dict is None:
+            staged_network_dict = {}
+            max_ep = 0
+        else:
+            max_ep = max(staged_network_dict.keys())
         for ep, v in staged_hyperparams.items():
-            staged_net_dict_max_ep = max(staged_network_dict.keys())
-            assert ep > staged_net_dict_max_ep
-            base_net = copy.deepcopy(staged_network_dict[staged_net_dict_max_ep])
+            # assume always that the last staged network is same as the base network (e.g last network of pretraining)
+            base_net = copy.deepcopy(exp_config["network"])
             assert isinstance(v, dict)
             base_net["#config"] = v
-            assert ep not in staged_network_dict
+            assert ep not in staged_network_dict, f"{ep} already exists in staged_network_dict?"
+            assert ep > max_ep, f"Latest epoch is {max_ep} but current epoch is {ep}"
             staged_network_dict[ep] = base_net
 
     if seq_train_opts:
@@ -1059,6 +1070,7 @@ def add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog):
     from i6_experiments.users.zeineldeen.data_aug.mixup.tf_mixup import make_mixup_layer_dict
 
     assert feature_extraction_net
+    # TODO: this is just to test the effect of doing mixup on features in log-space or not
     assert "log_mel_features" in feature_extraction_net, "currently mixup is only supported for log-mel features"
     use_log10_features = mixup_aug_opts.get("use_log10_features", False)
     net.update(
@@ -1066,7 +1078,6 @@ def add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog):
             src="log_mel_features" if use_log10_features else "mel_filterbank",
             dim=feature_extraction_net["mel_filterbank"]["n_out"],
             opts=mixup_aug_opts,
-            use_log10_features=use_log10_features,
             is_recog=is_recog,
         )
     )

@@ -961,68 +961,68 @@ def conformer_baseline():
                 bpe_size=BPE_500,
             )
 
-            # TODO: effect of weight dropout
-            for weight_drop in [0.1, 0.15]:
-                args, name = get_base_v2_args(
-                    ep, num_blocks, reduce_factor, weight_drop=weight_drop, lr_type="epoch-oclr", lr_opts={"lr": 1e-3}
-                )
-                args["specaug_version"] = 1
-                run_default_exp(
-                    name + f"_weightDrop{weight_drop}_specaug1",
-                    train_args=args,
-                    num_epochs=ep,
-                    gpu_mem=11,
-                    bpe_size=BPE_500,
-                )
+            # TODO: mixup
+            for enable_mixup_in_pretrain in [True, False]:
+                for mixup_use_log10_feat in [True, False]:
+                    if enable_mixup_in_pretrain is True and mixup_use_log10_feat is False:
+                        continue
 
-            # TODO: l2 on mhsa
-            args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
-            args["specaug_version"] = 1
-            args["decoder_args"].embed_dim = 256
-            args["encoder_args"].self_att_l2 = 1e-4
-            run_default_exp(
-                name + f"_embed256_specaug1_mhsaL2",
-                train_args=args,
-                num_epochs=ep,
-                gpu_mem=11,
-                bpe_size=BPE_500,
-            )
+                    args, name = get_base_v2_args(
+                        ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3}
+                    )
+                    args["specaug_version"] = 1
+                    args["decoder_args"].embed_dim = 256
+                    args["with_pretrain"] = True
 
-            # TODO: grad clip norm
-            args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
-            args["specaug_version"] = 1
-            args["decoder_args"].embed_dim = 256
-            args["gradient_clip_global_norm"] = 5
-            run_default_exp(
-                name + f"_embed256_specaug1_gradClipNorm5",
-                train_args=args,
-                num_epochs=ep,
-                gpu_mem=11,
-                bpe_size=BPE_500,
-            )
+                    args["mixup_aug_opts"] = {
+                        "use_log10_features": mixup_use_log10_feat,
+                        "buffer_size": 1_000_000,
+                        "apply_prob": 0.4,
+                        "max_num_mix": 4,
+                        "lambda_min": 0.15,
+                        "lambda_max": 0.3,
+                    }
 
-            # wo pretraining and disable specaug initially
-            for with_pretrain in [False, True]:
-                args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
-                args["specaug_str_func_opts"] = {
-                    "version": 2,
-                    "step0": 6_000,
-                    "step1": 8_000,
-                    "step2": 10_000,
-                    "max_time_num": 100,
-                    "max_time_dim": 20,
-                    "min_num_add_factor": 0,
-                    "freq_dim_factor": 5,
-                }
-                args["with_pretrain"] = with_pretrain
-                args["decoder_args"].embed_dim = 256
-                run_default_exp(
-                    name + f"_embed256_specaugCurrV1" + ("_noPretrain" if not with_pretrain else ""),
-                    train_args=args,
-                    num_epochs=ep,
-                    gpu_mem=11,
-                    bpe_size=BPE_500,
-                )
+                    name_ = name + f"_embed256_specaug1_mixupV1"
+                    args["enable_mixup_in_pretrain"] = enable_mixup_in_pretrain
+                    if not enable_mixup_in_pretrain:
+                        name_ += "_noPretrainMixup"
+                    if mixup_use_log10_feat:
+                        name_ += "_log10"
+                    run_default_exp(
+                        name_,
+                        train_args=args,
+                        num_epochs=ep,
+                        gpu_mem=11,
+                        bpe_size=BPE_500,
+                    )
+
+            for apply_drop in [0.3, 0.4]:
+                for max_num_mix in [3, 4]:
+                    args, name = get_base_v2_args(
+                        ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3}
+                    )
+                    args["specaug_version"] = 1
+                    args["decoder_args"].embed_dim = 256
+                    args["with_pretrain"] = True
+
+                    args["mixup_aug_opts"] = {
+                        "use_log10_features": True,
+                        "buffer_size": 1_000_000,
+                        "apply_prob": apply_drop,
+                        "max_num_mix": max_num_mix,
+                        "lambda_min": 0.15,
+                        "lambda_max": 0.3,
+                    }
+                    args["enable_mixup_in_pretrain"] = False
+                    name_ = name + f"_embed256_specaug1_mixup-{max_num_mix}-{apply_drop}"
+                    run_default_exp(
+                        name_,
+                        train_args=args,
+                        num_epochs=ep,
+                        gpu_mem=11,
+                        bpe_size=BPE_500,
+                    )
 
     # TODO: longer train or retrain
     # conf_12l_dimF0.75_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_lr0.001_epochOCLR_specaug3_mixup-log10-nopre

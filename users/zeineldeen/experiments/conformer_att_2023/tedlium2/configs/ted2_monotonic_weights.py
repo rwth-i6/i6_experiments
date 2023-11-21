@@ -1036,7 +1036,7 @@ def conformer_baseline():
 
     for ep in [20 * 4]:
         for const_ep in [2 * 4]:
-            for lr in [1e-4, 2e-4, 3e-4, 5e-4]:
+            for lr in [1e-4, 2e-4, 3e-4]:
                 for loss_type, lb_scale, ub_scale, ub_limit in [
                     ("l1", 1e-3, 0.0, 20),
                     ("l1", 1e-3, 1e-3, 20),
@@ -1044,6 +1044,10 @@ def conformer_baseline():
                     ("l1", 0.8, 0.2, 10),
                     ("l1", 0.8, 0.2, 5),
                     ("l1", 1.0, 1.0, 20),
+                    #
+                    ("l2", 1.0, 1.0, 20),
+                    ("l2", 0.8, 0.2, 20),
+                    #
                 ]:
                     retrain_args = copy.deepcopy(args)
                     retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[best_model_name]
@@ -1073,31 +1077,71 @@ def conformer_baseline():
                         partition_epoch=4,
                     )
 
-                    # if lr == 2e-4 and loss_type == "l1" and lb_scale == 0.8 and ub_scale == 0.2 and ub_limit == 20:
-                    #     # *_monotonicAttLoss_lb0.8_ub0.2-20_l1_lr0.0002_constEp8_retrain80
-                    #     # 7.28    6.85  avg
-                    #     for testset in ["dev"]:
-                    #         for lb_scale in [0.001, 0.01, 0.1]:
-                    #             for ub_scale in [0.0, 0.001, 0.01, 0.1]:
-                    #                 search_args = copy.deepcopy(retrain_args)
-                    #                 search_args["decoder_args"].use_monotonic_att_weights_loss_in_recog = True
-                    #                 search_args["decoder_args"].monotonic_att_weights_loss_opts = {
-                    #                     "lb_scale": lb_scale,
-                    #                     "ub_scale": ub_scale,
-                    #                     "ub_limit": ub_limit,
-                    #                     "loss_type": loss_type,
-                    #                 }
-                    #                 search_data = get_test_dataset_tuples(BPE_1K)
-                    #                 suffix = f"lb{lb_scale}"
-                    #                 if ub_scale:
-                    #                     suffix += f"_ub{ub_scale}-{ub_limit}"
-                    #                 run_single_search(
-                    #                     exp_name + f"/monotonicLoss/avg/{testset}/{suffix}_beam{12}",
-                    #                     train_data,
-                    #                     search_args=search_args,
-                    #                     checkpoint=train_job_avg_ckpt[exp_name],
-                    #                     feature_extraction_net=log10_net_10ms,
-                    #                     recog_dataset=search_data[testset][0],
-                    #                     recog_ref=search_data[testset][1],
-                    #                     recog_bliss=search_data[testset][2],
-                    #                 )
+                    # *_monotonicAttLoss_lb1.0_ub1.0-20_l1_lr0.0002_constEp8_retrain80
+                    # 7.28    6.81  avg
+                    if lr == 2e-4 and loss_type == "l1" and lb_scale == 1.0 and ub_scale == 1.0 and ub_limit == 20:
+                        for beam_size in [12]:
+                            for testset in ["dev"]:
+                                for lb_scale in [0.001, 0.005, 0.01, 0.05, 0.1]:
+                                    for ub_scale in [0.0]:
+                                        search_args = copy.deepcopy(retrain_args)
+                                        search_args["beam_size"] = beam_size
+                                        search_args["decoder_args"].use_monotonic_att_weights_loss_in_recog = True
+                                        search_args["decoder_args"].monotonic_att_weights_loss_opts = {
+                                            "lb_scale": lb_scale,
+                                            "ub_scale": ub_scale,
+                                            "ub_limit": ub_limit,
+                                            "loss_type": loss_type,
+                                        }
+                                        search_data = get_test_dataset_tuples(BPE_1K)
+                                        suffix = f"lb{lb_scale}"
+                                        if ub_scale:
+                                            suffix += f"_ub{ub_scale}-{ub_limit}"
+                                        run_single_search(
+                                            exp_name + f"/monotonicLoss/avg/{testset}/{suffix}_beam{beam_size}",
+                                            train_data,
+                                            search_args=search_args,
+                                            checkpoint=train_job_avg_ckpt[exp_name],
+                                            feature_extraction_net=log10_net_10ms,
+                                            recog_dataset=search_data[testset][0],
+                                            recog_ref=search_data[testset][1],
+                                            recog_bliss=search_data[testset][2],
+                                        )
+
+    for ep in [20 * 4]:
+        for const_ep in [2 * 4]:
+            for lr in [2e-4]:
+                for loss_type, lb_scale, ub_scale, ub_limit in [
+                    ("l1", 1.0, 1.0, 20),
+                    ("l1", 1.0, 1.0, 30),
+                    ("l1", 1.0, 1.0, 40),
+                    ("exp", 1.0, 1.0, 20),
+                    ("log", 1.0, 1.0, 20),
+                ]:
+                    retrain_args = copy.deepcopy(args)
+                    retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[best_model_name]
+                    retrain_args["decoder_args"].monotonic_att_weights_loss_opts = {
+                        "lb_scale": lb_scale,
+                        "ub_scale": ub_scale,
+                        "ub_limit": ub_limit,
+                        "loss_type": loss_type,
+                    }
+                    exp_name = best_model_name
+                    exp_name += f"_monotonicAttLoss_lb{lb_scale}"
+                    if ub_scale:
+                        exp_name += f"_ub{ub_scale}-{ub_limit}"
+                    exp_name += f"_{loss_type}"
+
+                    # override oclr
+                    retrain_args["learning_rates_list"] = [lr] * const_ep + list(
+                        numpy.linspace(lr, 1e-6, ep - const_ep)
+                    )
+                    exp_name += f"_lr{lr}_constEp{const_ep}_retrain{ep}"
+                    run_exp(
+                        exp_name,
+                        retrain_args,
+                        num_epochs=ep,
+                        epoch_wise_filter=None,
+                        bpe_size=BPE_1K,
+                        partition_epoch=4,
+                    )

@@ -1098,6 +1098,29 @@ def conformer_baseline():
                                     partition_epoch=4,
                                 )
 
+                                # for with_ctc in [True]:
+                                #     no_pretrain = copy.deepcopy(args)
+                                #     no_pretrain["with_pretrain"] = False
+                                #     no_pretrain["specaug_str_func_opts"] = {
+                                #         "version": 2,
+                                #         "step0": 6_000,
+                                #         "step1": 8_000,
+                                #         "step2": 10_000,
+                                #         "max_time_num": 100,
+                                #         "max_time_dim": 20,
+                                #         "min_num_add_factor": 0,
+                                #         "freq_dim_factor": 5,
+                                #     }
+                                #     no_pretrain["encoder_args"].with_ctc = with_ctc
+                                #     _, train_data = run_exp(
+                                #         name + "_noPretrain" + ("_noCTC" if with_ctc is False else ""),
+                                #         no_pretrain,
+                                #         num_epochs=ep,
+                                #         epoch_wise_filter=None,
+                                #         bpe_size=BPE_1K,
+                                #         partition_epoch=4,
+                                #     )
+
                                 # TODO: retrain
                                 # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12
                                 # 7.4     6.85  avg

@@ -15,14 +15,12 @@ def make_mixup_layer_dict(
     *,
     dim: int,
     opts: dict,
-    use_log10_features: bool = False,
     is_recog: bool = False,
 ) -> Dict[str, Any]:
     """
     :param src: source layer name
     :param dim: same as src
     :param opts: mixup opts
-    :param use_log10_features: use log10 features instead of inverse
     :param is_recog: whether this is a recognition net
     """
     d = {}
