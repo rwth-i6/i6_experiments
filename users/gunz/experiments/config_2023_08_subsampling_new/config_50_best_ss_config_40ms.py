@@ -893,7 +893,7 @@ def decode_triphone(
                 itertools.product(
                     np.linspace(0.4, 0.8, 3),
                     [0.1, 0.2, 0.4],
-                    np.linspace(0.2, 0.8, 3),
+                    np.linspace(0.2, 0.8, 4),
                 )
             ),
             tdp_scales=[0.1, 0.2, 0.4],
