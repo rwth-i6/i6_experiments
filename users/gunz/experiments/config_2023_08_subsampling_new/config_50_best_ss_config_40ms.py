@@ -736,8 +736,15 @@ def decode_monophone(
     if tune:
         base_cfg = search_params[-1]
         other_cfgs = [
-            base_cfg.with_prior_scale(round(p_c, 1)).with_tdp_scale(round(tdp_s, 1))
-            for p_c, tdp_s in itertools.product(np.linspace(0.2, 0.8, 4), np.linspace(0.2, 0.8, 4))
+            base_cfg.with_prior_scale(round(p_c, 1))
+            .with_tdp_scale(round(tdp_s, 1))
+            .with_tdp_silence(tdp_silence)
+            .with_tdp_non_word(tdp_silence)
+            for p_c, tdp_s, tdp_silence in itertools.product(
+                np.linspace(0.2, 0.8, 4),
+                [0.1, *np.linspace(0.2, 0.8, 4)],
+                [base_cfg.tdp_silence, (10, 10, "infinity", 20)],
+            )
         ]
         search_params.extend(other_cfgs)
 
@@ -801,7 +808,10 @@ def decode_diphone(
     if tune:
         base_cfg = search_params[-1]
         other_cfgs = [
-            base_cfg.with_prior_scale(round(p_c, 1)).with_tdp_scale(round(tdp_s, 1))
+            base_cfg.with_prior_scale(round(p_c, 1))
+            .with_tdp_scale(round(tdp_s, 1))
+            .with_tdp_silence(tdp_silence)
+            .with_tdp_non_word(tdp_silence)
             for p_c, tdp_s, tdp_silence in itertools.product(
                 np.linspace(0.2, 0.8, 4),
                 [0.1, *np.linspace(0.2, 0.8, 4)],
