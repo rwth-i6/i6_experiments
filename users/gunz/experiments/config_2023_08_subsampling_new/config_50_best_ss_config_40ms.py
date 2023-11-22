@@ -887,7 +887,7 @@ def decode_triphone(
             label_info=s.label_info,
             search_parameters=recog_args,
             num_encoder_output=512,
-            altas_value=8,
+            altas_value=4,
             tdp_sil=[recog_args.tdp_silence, (10, 10, "infinity", 20)],
             prior_scales=list(
                 itertools.product(
