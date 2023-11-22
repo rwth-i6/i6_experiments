@@ -459,7 +459,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 continue
 
             decode_triphone(
-                s,
+                sys,
                 key=key,
                 crp_k=crp_k,
                 returnn_config=orig_returnn_config,
