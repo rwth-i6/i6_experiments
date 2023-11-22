@@ -900,7 +900,7 @@ def decode_triphone(
         )
         recognizer.recognize_count_lm(
             label_info=s.label_info,
-            search_parameters=best_config,
+            search_parameters=dataclasses.replace(best_config, we_pruning=0.7),
             num_encoder_output=512,
             rerun_after_opt_lm=True,
             calculate_stats=True,
