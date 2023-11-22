@@ -601,17 +601,6 @@ def the_plan():
     )
 
 
-def best():
-    from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new import (
-        config_50_best_ss_config_40ms,
-        config_50b_best_ss_config_10ms,
-    )
-
-    returnn_root = _clone_returnn_safe()
-    config_50_best_ss_config_40ms.run(returnn_root=returnn_root)
-    best_10ms()
-
-
 def best_10ms():
     from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new import (
         config_50b_best_ss_config_10ms,
@@ -619,6 +608,20 @@ def best_10ms():
 
     returnn_root = _clone_returnn_safe()
     config_50b_best_ss_config_10ms.run(returnn_root=returnn_root)
+
+
+def best_40ms():
+    from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new import (
+        config_50_best_ss_config_40ms,
+    )
+
+    returnn_root = _clone_returnn_safe()
+    config_50_best_ss_config_40ms.run(returnn_root=returnn_root)
+
+
+def best():
+    best_40ms()
+    best_10ms()
 
 
 def quant_data_util():
