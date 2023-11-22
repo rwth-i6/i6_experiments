@@ -309,6 +309,19 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         }
     )
 
+    tri_train_job = s.experiments["fh-tri"]["train_job"]
+    import_tri_config = returnn.ReturnnConfig(
+        config={
+            "preload_from_files": {
+                "existing-model": {
+                    "init_for_train": True,
+                    "ignore_missing": True,
+                    "filename": tri_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
+                }
+            },
+        }
+    )
+
     # ####################
     # FULL-SUM FINE TUNING
     # ####################
@@ -369,11 +382,31 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_di_ft_newbob.update(newbob_lr_config)
     returnn_cfg_di_ft_newbob.update(import_di_config)
 
+    returnn_cfg_tri_ft = remove_label_pops_and_losses_from_returnn_config(returnn_cfg_tri)
+    returnn_cfg_tri_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
+        returnn_config=returnn_cfg_tri_ft,
+        label_info=di_ft_sys.label_info,
+        out_joint_score_layer="output",
+        log_softmax=True,
+        prepare_for_train=True,
+    )
+    returnn_cfg_tri_ft = baum_welch.augment_for_fast_bw(
+        crp=di_ft_sys.crp[s.crp_names["train"]],
+        from_output_layer="output",
+        returnn_config=returnn_cfg_tri_ft,
+        log_linear_scales=baum_welch.BwScales(label_posterior_scale=1.0, transition_scale=0.3),
+    )
+    returnn_cfg_tri_ft_constlr = copy.deepcopy(returnn_cfg_tri_ft)
+    returnn_cfg_tri_ft_constlr.update(batch_size_config)
+    returnn_cfg_tri_ft_constlr.update(constant_linear_decrease_lr_config)
+    returnn_cfg_tri_ft_constlr.update(import_tri_config)
+
     configs = [
         (returnn_cfg_mo_ft_constlr, returnn_cfg_mo, mo_ft_sys, "mono-fs-constlr"),
         (returnn_cfg_mo_ft_newbob, returnn_cfg_mo, mo_ft_sys, "mono-fs-newbob"),
         (returnn_cfg_di_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-constlr"),
         (returnn_cfg_di_ft_newbob, returnn_cfg_di, di_ft_sys, "di-fs-newbob"),
+        (returnn_cfg_tri_ft_constlr, returnn_cfg_tri, di_ft_sys, "tri-fs-constlr"),
     ]
     keys = [f"fh-{name}" for _, _, _, name in configs]
     for (returnn_config, _, sys, name), key in zip(configs, keys):
@@ -419,6 +452,20 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 returnn_config=orig_returnn_config,
                 epoch=ep,
                 prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
+                tune=ep == fine_tune_keep_epochs[-1],
+            )
+        elif "tri" in key:
+            if ep not in [fine_tune_keep_epochs[0], fine_tune_keep_epochs[-1]]:
+                continue
+
+            decode_triphone(
+                s,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=orig_returnn_config,
+                epoch=ep,
+                prior_epoch_or_key="fh-tri",
+                tensor_config=TENSOR_CONFIG,
                 tune=ep == fine_tune_keep_epochs[-1],
             )
         else:
