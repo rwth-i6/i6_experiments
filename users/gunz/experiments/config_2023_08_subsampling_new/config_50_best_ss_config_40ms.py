@@ -801,7 +801,11 @@ def decode_diphone(
         base_cfg = search_params[-1]
         other_cfgs = [
             base_cfg.with_prior_scale(round(p_c, 1)).with_tdp_scale(round(tdp_s, 1))
-            for p_c, tdp_s in itertools.product(np.linspace(0.2, 0.8, 4), np.linspace(0.2, 0.8, 4))
+            for p_c, tdp_s, tdp_silence in itertools.product(
+                np.linspace(0.2, 0.8, 4),
+                [0.1, *np.linspace(0.2, 0.8, 4)],
+                [base_cfg.tdp_silence, (10, 10, "infinity", 20)],
+            )
         ]
         search_params.extend(other_cfgs)
     for cfg in search_params:
@@ -872,6 +876,7 @@ def decode_triphone(
             search_parameters=recog_args,
             num_encoder_output=512,
             altas_value=8,
+            tdp_sil=[recog_args.tdp_silence, (10, 10, "infinity", 20)],
             prior_scales=list(
                 itertools.product(
                     np.linspace(0.2, 0.8, 4),
@@ -879,7 +884,7 @@ def decode_triphone(
                     np.linspace(0.2, 0.8, 3),
                 )
             ),
-            tdp_scales=[round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
+            tdp_scales=[0.1, *[round(v, 1) for v in np.linspace(0.2, 0.8, 4)]],
         )
         recognizer.recognize_count_lm(
             label_info=s.label_info,
