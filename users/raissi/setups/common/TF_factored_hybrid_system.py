@@ -381,15 +381,17 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         return prior_job
 
-    def set_mono_priors_returnn_rasr(
+    def set_single_prior_returnn_rasr(
         self,
         key: str,
         epoch: int,
         train_corpus_key: str,
         dev_corpus_key: str,
+        context_type: PhoneticContext = PhoneticContext.monophone,
         returnn_config: Optional[returnn.ReturnnConfig] = None,
         output_layer_name: str = "output",
-        data_share: float = 0.1,
+        smoothen: bool = False,
+        data_share: float = 0.3,
     ):
         self.set_graph_for_experiment(key)
 
@@ -411,10 +413,26 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             share=data_share,
         )
 
-        job.add_alias(f"priors/{name}/c")
-        tk.register_output(f"priors/{name}/center-state.xml", job.out_prior_xml_file)
 
-        self.experiments[key]["priors"] = [job.out_prior_xml_file]
+        job.add_alias(f"priors/{name}/c")
+
+        if context_type == PhoneticContext.monophone:
+            p_info = PriorInfo(
+                center_state_prior=PriorConfig(file=job.out_prior_xml_file, scale=0.0),
+            )
+            tk.register_output(f"priors/{name}/center-state.xml", p_info.center_state_prior.file)
+        elif context_type == PhoneticContext.joint_diphone:
+            p_info = PriorInfo(
+                diphone_prior=PriorConfig(file=job.out_prior_xml_file, scale=0.0),
+            )
+            tk.register_output(f"priors/{name}/joint_diphone.xml", p_info.diphone_prior.file)
+        else:
+            raise NotImplementedError("Unknown PhoneticContext, i.e. context_type")
+
+        p_info = smoothen_priors(p_info) if smoothen else p_info
+        self.experiments[key]["priors"] = p_info
+
+
 
     def set_diphone_priors_returnn_rasr(
         self,

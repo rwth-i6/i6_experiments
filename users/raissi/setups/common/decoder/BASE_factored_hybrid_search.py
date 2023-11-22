@@ -57,9 +57,9 @@ class RasrFeatureScorer(Enum):
         return self.value
 
     def get_fs_class(self):
-        if self.factored:
+        if self == self.factored:
             return FactoredHybridFeatureScorer
-        elif self.nn_precomputed:
+        elif self == self.nn_precomputed:
             return rasr.PrecomputedHybridFeatureScorer
         else:
             raise ValueError("Unknown type of Feature Scorer")
@@ -232,10 +232,11 @@ def get_nn_precomputed_feature_scorer(
     if isinstance(prior_info, PriorInfo):
         check_prior_info(context_type=context_type, prior_info=prior_info)
 
+
     return feature_scorer_type.get_fs_class()(
         prior_mixtures=mixtures,
-        prior_file=prior_info.joint_diphone.file,
-        priori_scale=prior_info.joint_diphone.scale,
+        priori_scale=prior_info.diphone_prior.scale,
+        prior_file=prior_info.diphone_prior.file,
     )
 
 
@@ -356,21 +357,21 @@ class BASEFactoredHybridDecoder:
             raise NotImplementedError
 
     def set_nnprecomputed_tf_fs_flow(self):
-        tf_flow = self.get_nnprecomputed_tf_flow()
+        self.feature_scorer_flow = self.get_nnprecomputed_tf_flow()
+        """
         tf_feature_flow = add_tf_flow_to_base_flow(
             base_flow=self.feature_path,
             tf_flow=tf_flow,
             tf_fwd_input_name=tf_fwd_input_name,
         )
-        self.feature_scorer_flow = tf_feature_flow
+        self.feature_scorer_flow = tf_feature_flow"""
 
     def get_nnprecomputed_tf_flow(self):
         return make_precomputed_hybrid_tf_feature_flow(
             tf_graph=self.graph,
             tf_checkpoint=self.model_path,
             output_layer_name=self.tensor_map.out_joint_diphone,
-            native_ops=self.tf_library,
-            tf_fwd_input_name=tf_fwd_input_name,
+            native_ops=self.library_path,
         )
 
     def set_factored_tf_fs_flow(self):
