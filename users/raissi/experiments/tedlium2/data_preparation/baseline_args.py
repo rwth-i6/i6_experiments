@@ -61,7 +61,7 @@ def get_init_args():
                 "fft_options": None,
             }
         },
-        "gt": { #copied from Benedikt October 2023
+        "gt": {  # copied from Benedikt October 2023
             "minfreq": 100,
             "maxfreq": 7500,
             "channels": 50,
@@ -84,7 +84,6 @@ def get_init_args():
             "normalization_options": {},
         },
     }
-
 
     return util.RasrInitArgs(
         costa_args=costa_args,

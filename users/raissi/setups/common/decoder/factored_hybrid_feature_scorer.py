@@ -3,10 +3,7 @@ __all__ = ["FactoredHybridFeatureScorer"]
 import i6_core.rasr as rasr
 
 from i6_experiments.users.raissi.setups.common.data.factored_label import PhoneticContext
-from i6_experiments.users.raissi.setups.common.decoder.config import (
-    default_posterior_scales,
-    PriorInfo
-)
+from i6_experiments.users.raissi.setups.common.decoder.config import default_posterior_scales, PriorInfo
 
 
 class FactoredHybridFeatureScorer(rasr.FeatureScorer):

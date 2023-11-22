@@ -84,12 +84,12 @@ class Experiment(TypedDict, total=False):
     """
     The class is used in the config files as a single experiment
     """
+
     name: str
     priors: Optional[PriorInfo]
     prior_job: Optional[returnn.ReturnnRasrComputePriorJobV2]
     returnn_config: Optional[returnn.ReturnnConfig]
     train_job: Optional[returnn.ReturnnRasrTrainingJob]
-
 
 
 # -------------------- Systems --------------------
@@ -343,7 +343,7 @@ class BASEFactoredHybridSystem(NnSystem):
             self.feature_flows[c_key] = c_data.feature_flow
             self.set_sclite_scorer(c_key)
 
-    def _update_crp_am_setting(self, crp_key: str, tdp_type: str=None, add_base_allophones=False):
+    def _update_crp_am_setting(self, crp_key: str, tdp_type: str = None, add_base_allophones=False):
         # ToDo handle different tdp values: default, based on transcription, based on an alignment
         tdp_pattern = self.tdp_values["pattern"]
         if tdp_type in ["default"]:  # additional later, maybe enum or so
@@ -392,8 +392,8 @@ class BASEFactoredHybridSystem(NnSystem):
 
     def _update_crp_am_setting_for_decoding(self, crp_key):
         # Here the idea is to be able to do decoding with different tying or FSA structure (e.g. min. dur.)
-        #ToDo handle min duration not on the model/fs level but rasr?
-        assert 'train' not in crp_key, "Call this function only with decoding crps"
+        # ToDo handle min duration not on the model/fs level but rasr?
+        assert "train" not in crp_key, "Call this function only with decoding crps"
         crp = self.crp[crp_key]
 
         if self.label_info.state_tying == "cart":
@@ -674,7 +674,7 @@ class BASEFactoredHybridSystem(NnSystem):
         return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
 
     # -------------------------------------------- Training --------------------------------------------------------
-    def add_code_to_extra_returnn_code(self, key:str, extra_key: str, extra_dict_key:str, code: str):
+    def add_code_to_extra_returnn_code(self, key: str, extra_key: str, extra_dict_key: str, code: str):
         # extra_key can be either prolog or epilog
         assert extra_dict_key is not None, "set the extra dict key for your additional code"
         old_to_update = copy.deepcopy(self.experiments[key]["extra_returnn_code"][extra_key])
@@ -747,18 +747,27 @@ class BASEFactoredHybridSystem(NnSystem):
         self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
         self.experiments[key]["extra_returnn_code"]["epilog"] = returnn_config.python_epilog
 
-    def reset_returnn_config_for_experiment(self, key:str,
-                                            config_dict: Dict,
-                                            extra_dict_key:str = None,
-                                            additional_python_prolog: str = None,
-                                            additional_python_epilog: str = None):
+    def reset_returnn_config_for_experiment(
+        self,
+        key: str,
+        config_dict: Dict,
+        extra_dict_key: str = None,
+        additional_python_prolog: str = None,
+        additional_python_epilog: str = None,
+    ):
         if additional_python_prolog is not None:
-            python_prolog = self.add_code_to_extra_returnn_code(key=key, extra_key="prolog", extra_dict_key=extra_dict_key, code=additional_python_prolog)
-        else: python_prolog = self.experiments[key]["extra_returnn_code"]["prolog"]
+            python_prolog = self.add_code_to_extra_returnn_code(
+                key=key, extra_key="prolog", extra_dict_key=extra_dict_key, code=additional_python_prolog
+            )
+        else:
+            python_prolog = self.experiments[key]["extra_returnn_code"]["prolog"]
 
         if additional_python_epilog is not None:
-            python_epilog = self.add_code_to_extra_returnn_code(key=key, extra_key="epilog", extra_dict_key=extra_dict_key, code=additional_python_epilog)
-        else: python_epilog = self.experiments[key]["extra_returnn_code"]["epilog"]
+            python_epilog = self.add_code_to_extra_returnn_code(
+                key=key, extra_key="epilog", extra_dict_key=extra_dict_key, code=additional_python_epilog
+            )
+        else:
+            python_epilog = self.experiments[key]["extra_returnn_code"]["epilog"]
 
         returnn_config = returnn.ReturnnConfig(
             config=config_dict,

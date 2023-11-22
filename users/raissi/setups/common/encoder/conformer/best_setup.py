@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Union, Optional
 from i6_experiments.users.raissi.setups.common.encoder.conformer.get_network_args import (
     get_encoder_args,
-    get_network_args
+    get_network_args,
 )
 
 from i6_experiments.users.raissi.setups.common.encoder.conformer.transformer_network import attention_for_hybrid
@@ -34,7 +34,7 @@ def get_best_model_config(
     label_smoothing: Optional[float] = None,
     target: str = "classes",
     time_tag_name: Optional[str] = None,
-    additional_args: Optional[dict] = None
+    additional_args: Optional[dict] = None,
 ) -> attention_for_hybrid:
     if int_loss_at_layer is None:
         int_loss_at_layer = INT_LOSS_LAYER

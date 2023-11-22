@@ -148,4 +148,3 @@ def augment_to_joint_diphone_softmax(
     returnn_config.update(update_cfg)
 
     return returnn_config
-

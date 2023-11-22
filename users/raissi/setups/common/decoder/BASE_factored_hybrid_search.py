@@ -34,23 +34,22 @@ from i6_experiments.users.raissi.setups.common.decoder.config import (
     default_posterior_scales,
     PriorInfo,
     PosteriorScales,
-    SearchParameters
+    SearchParameters,
 )
 from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_feature_scorer import (
     FactoredHybridFeatureScorer,
 )
 from i6_experiments.users.raissi.setups.common.decoder.statistics import ExtractSearchStatisticsJob
-from i6_experiments.users.raissi.setups.common.util.tdp import (
-    format_tdp_val,
-    format_tdp
-)
+from i6_experiments.users.raissi.setups.common.util.tdp import format_tdp_val, format_tdp
 from i6_experiments.users.raissi.setups.common.data.typings import (
     TDP,
     Float,
 )
 
+
 class RasrFeatureScorer(Enum):
     """A class that returns a speific fetaure scorer"""
+
     factored = "factored"
     nn_precomputed = "nn-precomputed"
 
@@ -151,6 +150,7 @@ class RecognitionJobs:
     search_feature_scorer: rasr.FeatureScorer
     search_stats: Optional[ExtractSearchStatisticsJob]
 
+
 def check_prior_info(prior_info: PriorInfo, context_type: PhoneticContext):
     if context_type.is_joint_diphone():
         assert prior_info.diphone_prior is not None and prior_info.diphone_prior.file is not None
@@ -169,6 +169,7 @@ def check_prior_info(prior_info: PriorInfo, context_type: PhoneticContext):
         assert prior_info.right_context_prior is not None and prior_info.right_context_prior.file is not None
         if prior_info.right_context_prior.scale is None:
             print(f"right context prior scale is unset, are you sure?")
+
 
 def get_factored_feature_scorer(
     context_type: PhoneticContext,
@@ -218,10 +219,13 @@ def get_factored_feature_scorer(
         is_batch_major=is_batch_major,
     )
 
-def get_nn_precomputed_feature_scorer(context_type: PhoneticContext,
-                                      feature_scorer_type: RasrFeatureScorer,
-                                      mixtures: tk.Path,
-                                      prior_info: Union[PriorInfo, tk.Variable, DelayedBase]):
+
+def get_nn_precomputed_feature_scorer(
+    context_type: PhoneticContext,
+    feature_scorer_type: RasrFeatureScorer,
+    mixtures: tk.Path,
+    prior_info: Union[PriorInfo, tk.Variable, DelayedBase],
+):
 
     assert context_type in [PhoneticContext.monophone, PhoneticContext.joint_diphone]
 
@@ -233,7 +237,6 @@ def get_nn_precomputed_feature_scorer(context_type: PhoneticContext,
         prior_file=prior_info.joint_diphone.file,
         priori_scale=prior_info.joint_diphone.scale,
     )
-
 
 
 class BASEFactoredHybridDecoder:
@@ -255,7 +258,6 @@ class BASEFactoredHybridDecoder:
         lm_gc_simple_hash=False,
         tf_library: Optional[Union[str, Path]] = None,
         gpu=False,
-
     ):
 
         self.name = name
@@ -288,8 +290,6 @@ class BASEFactoredHybridDecoder:
         # setting other attributes
         self.set_tf_fs_flow()
         self.fs_config = self.get_fs_tf_config()
-
-
 
     def get_search_params(
         self,
@@ -678,7 +678,6 @@ class BASEFactoredHybridDecoder:
 
         return trafo_config
 
-
     def recognize_count_lm(
         self,
         *,
@@ -733,7 +732,6 @@ class BASEFactoredHybridDecoder:
             remove_or_set_concurrency=remove_or_set_concurrency,
         )
 
-
     def recognize_ls_trafo_lm(
         self,
         *,
@@ -783,7 +781,6 @@ class BASEFactoredHybridDecoder:
             rtf_gpu=rtf_gpu,
             create_lattice=create_lattice,
         )
-
 
     def recognize(
         self,
@@ -862,8 +859,8 @@ class BASEFactoredHybridDecoder:
                 name += f"-spTdp-{format_tdp(search_parameters.tdp_speech)}"
                 name += f"-silTdp-{format_tdp(search_parameters.tdp_silence)}"
                 if (
-                        not search_parameters.tdp_speech[2] == "infinity"
-                        and not search_parameters.tdp_silence[2] == "infinity"
+                    not search_parameters.tdp_speech[2] == "infinity"
+                    and not search_parameters.tdp_silence[2] == "infinity"
                 ):
                     name += "-withSkip"
 
@@ -974,13 +971,14 @@ class BASEFactoredHybridDecoder:
                 is_batch_major=self.set_batch_major_for_feature_scorer,
             )
         elif self.feature_scorer_type.is_nnprecomputed():
-            feature_scorer = get_nn_precomputed_feature_scorer(context_type=self.context_type,
-                                                               feature_scorer_type=self.feature_scorer_type,
-                                                               mixtures=self.mixtures,
-                                                               prior_info=search_parameters.prior_info)
+            feature_scorer = get_nn_precomputed_feature_scorer(
+                context_type=self.context_type,
+                feature_scorer_type=self.feature_scorer_type,
+                mixtures=self.mixtures,
+                prior_info=search_parameters.prior_info,
+            )
         else:
             raise NotImplementedError
-
 
         pre_path = (
             pre_path
@@ -1003,7 +1001,7 @@ class BASEFactoredHybridDecoder:
             cpu=2 if cpu_rqmt is None else cpu_rqmt,
             lmgc_scorer=rasr.DiagonalMaximumScorer(self.mixtures) if self.lm_gc_simple_hash else None,
             create_lattice=create_lattice,
-            #separate_lm_image_gc_generation=True,
+            # separate_lm_image_gc_generation=True,
             model_combination_config=model_combination_config,
             model_combination_post_config=None,
             extra_config=adv_search_extra_config,
@@ -1037,7 +1035,6 @@ class BASEFactoredHybridDecoder:
                 search_feature_scorer=feature_scorer,
                 search_stats=stat,
             )
-
 
         lat2ctm_extra_config = rasr.RasrConfig()
         lat2ctm_extra_config.flf_lattice_tool.network.to_lemma.links = "best"
@@ -1243,8 +1240,6 @@ class BASEFactoredHybridDecoder:
         )
 
 
-
-
 class FactoredHybridAligner(BASEFactoredHybridDecoder):
     def __init__(
         self,
@@ -1262,31 +1257,30 @@ class FactoredHybridAligner(BASEFactoredHybridDecoder):
         silence_id=40,
         set_batch_major_for_feature_scorer=False,
     ):
-        super().__init(self,
-                       name=name,
-                        crp=align_crp,
-                        context_type=context_type,
-                        feature_path=feature_path,
-                        model_path=model_path,
-                        graph=graph,
-                        mixtures=mixtures,
-                        eval_files=None,
-                        tf_library=tf_library,
-                        gpu=gpu,
-                        tensor_map=tensor_map,
-                        is_multi_encoder_output=is_multi_encoder_output,
-                        silence_id=silence_id,
-                        is_batch_major=set_batch_major_for_feature_scorer)
+        super().__init(
+            self,
+            name=name,
+            crp=align_crp,
+            context_type=context_type,
+            feature_path=feature_path,
+            model_path=model_path,
+            graph=graph,
+            mixtures=mixtures,
+            eval_files=None,
+            tf_library=tf_library,
+            gpu=gpu,
+            tensor_map=tensor_map,
+            is_multi_encoder_output=is_multi_encoder_output,
+            silence_id=silence_id,
+            is_batch_major=set_batch_major_for_feature_scorer,
+        )
 
         self.correct_transition_applicator()
 
-
-
-
     def correct_transition_applicator(self):
-        #correct for the FSA bug
+        # correct for the FSA bug
         self.crp.acoustic_model_config.tdp.applicator_type = "corrected"
-        #The exit penalty is on the lemma level and should not be applied for alignment
+        # The exit penalty is on the lemma level and should not be applied for alignment
         self.crp.acoustic_model_config.tdp["*"]["exit"] = 0.0
         alignCrpself.crp.acoustic_model_config.tdp["silence"]["exit"] = 0.0
 
@@ -1323,10 +1317,11 @@ class FactoredHybridAligner(BASEFactoredHybridDecoder):
                 is_multi_encoder_output=self.is_multi_encoder_output,
             )
         elif self.feature_scorer_type.is_nnprecomputed():
-            feature_scorer = get_nn_precomputed_feature_scorer(context_type=self.context_type,
-                                                               feature_scorer_type=self.feature_scorer_type,
-                                                               mixtures=self.mixtures,
-                                                               prior_info=search_parameters.prior_info)
+            feature_scorer = get_nn_precomputed_feature_scorer(
+                context_type=self.context_type,
+                feature_scorer_type=self.feature_scorer_type,
+                mixtures=self.mixtures,
+                prior_info=search_parameters.prior_info,
+            )
         else:
             raise NotImplementedError
-

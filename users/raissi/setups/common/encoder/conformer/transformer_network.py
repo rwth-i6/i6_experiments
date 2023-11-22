@@ -168,9 +168,11 @@ class attention_for_hybrid:
         self.target = target
         self.num_classes = num_classes
 
-        self.spec_aug_params = {"use_spec_augment": use_spec_augment,
-                                "spec_aug_as_data": spec_aug_as_data,
-                                "func_name": "transform"}
+        self.spec_aug_params = {
+            "use_spec_augment": use_spec_augment,
+            "spec_aug_as_data": spec_aug_as_data,
+            "func_name": "transform",
+        }
 
         self.add_blstm_block = add_blstm_block
         self.num_blstm_layers = len(blstm_args["dims"]) if blstm_args and "dims" in blstm_args.keys() else 2

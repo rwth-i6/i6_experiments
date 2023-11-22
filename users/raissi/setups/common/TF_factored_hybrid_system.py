@@ -70,7 +70,7 @@ from i6_experiments.users.raissi.setups.common.helpers.priors import (
 
 from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import (
     BASEFactoredHybridDecoder,
-    RasrFeatureScorer
+    RasrFeatureScorer,
 )
 
 from i6_experiments.users.raissi.setups.common.decoder.config import (
@@ -615,23 +615,27 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         self.experiments[key]["graph"]["inference"] = infer_graph
         tk.register_output(f"graphs/{name}-infer.pb", infer_graph)
 
-    def setup_returnn_config_and_graph_for_diphone_joint_decoding(self, key: str=None, returnn_config: returnn.ReturnnConfig = None):
+    def setup_returnn_config_and_graph_for_diphone_joint_decoding(
+        self, key: str = None, returnn_config: returnn.ReturnnConfig = None
+    ):
 
-        #Joint diphone will only work with diphone-dense state-tying
+        # Joint diphone will only work with diphone-dense state-tying
         self.label_info = dataclasses.replace(self.label_info, state_tying=RasrStateTying.diphone)
         for crp_k in self.crp_names.keys():
-            if 'train' not in crp_k:
+            if "train" not in crp_k:
                 self._update_crp_am_setting_for_decoding(self.crp_names[crp_k])
 
         if returnn_config is None:
             returnn_config = self.experiments[key]["returnn_config"]
         clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
         context_size = self.label_info.n_contexts
-        context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(spatial_size=context_size,
-                                                                                     feature_size=context_size,
-                                                                                     spatial_dim_variable_name="__center_state_spatial",
-                                                                                     feature_dim_variable_name="__center_state_feature",
-                                                                                     context_type='L')
+        context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
+            spatial_size=context_size,
+            feature_size=context_size,
+            spatial_dim_variable_name="__center_state_spatial",
+            feature_dim_variable_name="__center_state_feature",
+            context_type="L",
+        )
 
         # used for decoding
         decoding_returnn_config = net_helpers.diphone_joint_output.augment_to_joint_diphone_softmax(
@@ -640,31 +644,29 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             out_joint_score_layer="output",
             log_softmax=True,
         )
-        self.reset_returnn_config_for_experiment(key=key, config_dict=decoding_returnn_config.config, extra_dict_key="context", additional_python_prolog=context_time_tag)
+        self.reset_returnn_config_for_experiment(
+            key=key,
+            config_dict=decoding_returnn_config.config,
+            extra_dict_key="context",
+            additional_python_prolog=context_time_tag,
+        )
         self.set_graph_for_experiment(key)
 
-        #used for prior estimation
-        prior_returnn_config = net_helpers.diphone_joint_output.augment_to_joint_diphone_softmax(
-            returnn_config=clean_returnn_config,
-            label_info=self.label_info,
-            out_joint_score_layer="output",
-            log_softmax=False,
-        )
-
-        self.experiments[key]["returnn_config"] = prior_returnn_config
-
-    def setup_returnn_config_and_graph_for_diphone_joint_prior(self, key: str = None,
-                                                                  returnn_config: returnn.ReturnnConfig = None):
+    def setup_returnn_config_and_graph_for_diphone_joint_prior(
+        self, key: str = None, returnn_config: returnn.ReturnnConfig = None
+    ):
 
         if returnn_config is None:
             returnn_config = self.experiments[key]["returnn_config"]
         clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
         context_size = self.label_info.n_contexts
-        context_time_tag = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(spatial_size=context_size,
-                                                                                     feature_size=context_size,
-                                                                                     spatial_dim_variable_name="__center_state_spatial",
-                                                                                     feature_dim_variable_name="__center_state_feature",
-                                                                                     context_type='L')
+        context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
+            spatial_size=context_size,
+            feature_size=context_size,
+            spatial_dim_variable_name="__center_state_spatial",
+            feature_dim_variable_name="__center_state_feature",
+            context_type="L",
+        )
         # used for decoding
         prior_returnn_config = net_helpers.diphone_joint_output.augment_to_joint_diphone_softmax(
             returnn_config=clean_returnn_config,
@@ -672,10 +674,13 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             out_joint_score_layer="output",
             log_softmax=False,
         )
-        self.reset_returnn_config_for_experiment(key=key, config_dict=prior_returnn_config.config, extra_dict_key="context",
-                                                 additional_python_prolog=context_time_tag)
+        self.reset_returnn_config_for_experiment(
+            key=key,
+            config_dict=prior_returnn_config.config,
+            extra_dict_key="context",
+            additional_python_prolog=context_time_tag,
+        )
         self.set_graph_for_experiment(key)
-
 
     def get_recognizer_and_args(
         self,
@@ -709,7 +714,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         p_info: PriorInfo = self.experiments[key].get("priors", None)
         assert p_info is not None, "set priors first"
-
 
         recog_args = SearchParameters.default_for_ctx(context_type, priors=p_info)
 

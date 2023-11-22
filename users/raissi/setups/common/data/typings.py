@@ -6,7 +6,6 @@ from sisyphus import tk
 from sisyphus.delayed_ops import DelayedBase
 
 
-
 Int = Union[int, tk.Variable, DelayedBase]
 Float = Union[float, tk.Variable, DelayedBase]
-TDP   = Union[Float, str]
+TDP = Union[Float, str]

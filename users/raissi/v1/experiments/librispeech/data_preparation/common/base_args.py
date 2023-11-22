@@ -4,6 +4,7 @@ __all__ = [
 ]
 
 from typing import Dict, Optional, Union
+
 # -------------------- Sisyphus --------------------
 
 from sisyphus import tk
@@ -237,4 +238,3 @@ def get_corpus_data_inputs(
         dev_data=dev_data_inputs,
         test_data=test_data_inputs,
     )
-

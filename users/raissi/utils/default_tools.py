@@ -32,7 +32,7 @@ u16_rasr_path_tf2 = tk.Path(
 )
 u16_rasr_path_ted_common = tk.Path(
     get_rasr_binary_path("/u/raissi/dev/rasr_github/rasr_tf2"),
-    hash_overwrite = "TEDLIUM2_DEFAULT_RASR_BINARY_PATH",
+    hash_overwrite="TEDLIUM2_DEFAULT_RASR_BINARY_PATH",
 )
 
 U16_RASR_BINARY_PATHS = {"TF1": u16_rasr_path_tf2, "TF2": u16_rasr_path_tf2, "TED_COMMON": u16_rasr_path_ted_common}
@@ -50,17 +50,18 @@ u22_rasr_path_onnxtorch = tk.Path(
 
 u22_rasr_path_ted_common = tk.Path(
     get_rasr_binary_path("/work/tools22/users/raissi/rasr/rasr_pytorch-onnx"),
-    hash_overwrite = "TEDLIUM2_DEFAULT_RASR_BINARY_PATH",
+    hash_overwrite="TEDLIUM2_DEFAULT_RASR_BINARY_PATH",
 )
 
 u22_RASR_BINARY_PATHS = {"ONNX-TORCH": u22_rasr_path_onnxtorch, "TED-COMMON": u22_rasr_path_ted_common}
 
-#common
+# common
 RETURNN_ROOT = tk.Path("/work/tools/users/raissi/returnn_versions/conformer", hash_overwrite="CONFORMER_RETURNN_ROOT")
 RETURNN_ROOT_TORCH = tk.Path("/work/tools/users/raissi/returnn_versions/torch", hash_overwrite="TORCH_RETURNN_ROOT")
 
 SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
 SCTK_BINARY_PATH.hash_overwrite = "DEFAULT_SCTK_BINARY_PATH"
+
 
 @dataclass
 class ToolPaths:

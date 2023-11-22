@@ -1,4 +1,3 @@
-
 def get_initial_nn_args_viterbi():
     return {
         "num_input": 50,
@@ -17,5 +16,3 @@ def get_initial_nn_args_fullsum():
         "keep_epochs": None,
         "keep_best_n": None,
     }
-
-

@@ -8,4 +8,4 @@ def chunking_with_nfactor(
     It gives back the cunking dictionary for different factors. Factor 1 means no subsampling is done
     """
     chunk, overlap = [int(p.strip()) for p in chunk_str.strip().split(":")]
-    return ({"classes": chunk//factor, "data": chunk}, {"classes": overlap//factor, "data": overlap})
+    return ({"classes": chunk // factor, "data": chunk}, {"classes": overlap // factor, "data": overlap})

@@ -63,7 +63,7 @@ class PriorInfo:
             center_state_prior=self.center_state_prior.with_scale(center),
             left_context_prior=left,
             right_context_prior=right,
-            diphone_prior=diphone
+            diphone_prior=diphone,
         )
 
     @classmethod
@@ -122,6 +122,7 @@ def default_posterior_scales() -> PosteriorScales:
         "right-context-scale": 1.0,
         "center-state-scale": 1.0,
     }
+
 
 @dataclass(eq=True, frozen=True)
 class SearchParameters:

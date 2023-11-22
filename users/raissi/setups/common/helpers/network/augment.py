@@ -569,9 +569,8 @@ def augment_net_with_triphone_outputs(
 
     return network
 
-def remove_label_pops_and_losses(
-    network: Network, except_layers: Optional[Iterable[str]] = None
-) -> Network:
+
+def remove_label_pops_and_losses(network: Network, except_layers: Optional[Iterable[str]] = None) -> Network:
     network = copy.copy(network)
 
     layers_to_pop = {
@@ -609,7 +608,6 @@ def remove_label_pops_and_losses_from_returnn_config(
         cfg.config["chunking"] = f"{chk_cfg[0]['data']}:{chk_cfg[1]['data']}"
 
     return cfg
-
 
 
 def add_fast_bw_layer(

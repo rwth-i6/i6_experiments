@@ -14,6 +14,7 @@ class TfRnnLmRasrConfig:
     """
     Class for tf-rnn LM Params in RASR Config
     """
+
     vocab_path: tk.Path
     meta_graph_path: tk.Path
     returnn_checkpoint: returnn.Checkpoint

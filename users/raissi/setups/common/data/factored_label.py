@@ -83,7 +83,7 @@ class PhoneticContext(Enum):
     monophone = "monophone"
     mono_state_transition = "monophone-delta"
     diphone = "diphone"
-    joint_diphone = "joint_diphone" #dummy string, it is used in nnprecomputed
+    joint_diphone = "joint_diphone"  # dummy string, it is used in nnprecomputed
     diphone_state_transition = "diphone-delta"
     triphone_symmetric = "triphone-symmetric"
     triphone_forward = "triphone-forward"
