@@ -234,7 +234,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                     crp_k=crp_k,
                     returnn_config=returnn_config,
                     epoch=ep,
-                    prior_epoch=min(ep, viterbi_keep_epochs[-2]),
+                    prior_epoch_or_key=min(ep, viterbi_keep_epochs[-2]),
                     tensor_config=TENSOR_CONFIG,
                     tune=ep == viterbi_keep_epochs[-1],
                 )
@@ -639,7 +639,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                     crp_k=crp_k,
                     returnn_config=returnn_config,
                     epoch=ep,
-                    prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
+                    prior_epoch_or_key="fh-tri",
                     tensor_config=TENSOR_CONFIG,
                     tune=ep == fine_tune_keep_epochs[-1],
                 )
@@ -780,21 +780,24 @@ def decode_triphone(
     crp_k: str,
     returnn_config: returnn.ReturnnConfig,
     epoch: int,
-    prior_epoch: int,
+    prior_epoch_or_key: typing.Union[int, str],
     tensor_config: DecodingTensorMap,
     tune: bool,
 ):
     s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
-    s.set_triphone_priors_returnn_rasr(
-        key=key,
-        epoch=prior_epoch,
-        train_corpus_key=s.crp_names["train"],
-        dev_corpus_key=s.crp_names["cvtrain"],
-        smoothen=True,
-        returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-        data_share=0.1,
-    )
+    if isinstance(prior_epoch_or_key, int):
+        s.set_triphone_priors_returnn_rasr(
+            key=key,
+            epoch=prior_epoch_or_key,
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+            data_share=0.1,
+        )
+    else:
+        s.experiments[key]["priors"] = s.experiments[prior_epoch_or_key]["priors"]
     recognizer, recog_args = s.get_recognizer_and_args(
         key=key,
         context_type=PhoneticContext.triphone_forward,
