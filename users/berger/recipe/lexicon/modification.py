@@ -233,16 +233,16 @@ class MakeBlankLexiconJob(Job):
                         orths.append(orth)
                     lemma.orth = orths
 
+                    lemma.phon = [phon.replace(silence_phon, blank_phon) for phon in lemma.phon]
+
                     break
 
             if silence_phon is not None:
                 out_lexicon.remove_phoneme(silence_phon)
 
-                # Replace all occurrences of silence_phon with blank_phon
+                # Remove all occurrences of silence_phon in transcriptions
+                # This might lead to duplicate pronunciations, so use list(dict.fromkeys(...)) to remove duplicates while preserving order
                 for lemma in out_lexicon.lemmata:
-                    phons = []
-                    for phon in lemma.phon:
-                        phons.append(phon.replace(silence_phon, blank_phon))
-                    lemma.phon = phons
+                    lemma.phon = list(dict.fromkeys([" ".join([p for p in phon.split() if p != silence_phon]) for phon in lemma.phon]))
 
         write_xml(self.out_lexicon.get_path(), out_lexicon.to_xml())

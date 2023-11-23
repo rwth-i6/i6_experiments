@@ -7,7 +7,6 @@ from sisyphus import Job, Task, Path
 from i6_core.lib import corpus
 from i6_core.lib.hdf import get_returnn_simple_hdf_writer
 from i6_core.lib.rasr_cache import FileArchiveBundle
-from lazy_dataset.database import JsonDatabase
 
 
 def zip_strict(*args):
@@ -46,6 +45,7 @@ class EnhancedMeetingDataToBlissCorpusJob(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
+        from lazy_dataset.database import JsonDatabase
         db = JsonDatabase(self.json_database.get())
         ds = db.get_dataset(self.dataset_name)
 
@@ -124,6 +124,7 @@ class EnhancedMeetingDataToSplitBlissCorporaJob(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
+        from lazy_dataset.database import JsonDatabase
         db = JsonDatabase(self.json_database.get())
         ds = db.get_dataset(self.dataset_name)
 
@@ -203,6 +204,7 @@ class EnhancedEvalDataToBlissCorpusJob(EnhancedMeetingDataToSplitBlissCorporaJob
     """
 
     def run(self):
+        from lazy_dataset.database import JsonDatabase
         db = JsonDatabase(self.json_database.get())
         ds = db.get_dataset(self.dataset_name)
 
@@ -259,6 +261,7 @@ class EnhancedSegmentedEvalDataToBlissCorpusJob(EnhancedMeetingDataToSplitBlissC
         self.segment_audio_path_mapping = segment_audio_path_mapping
 
     def run(self):
+        from lazy_dataset.database import JsonDatabase
         db = JsonDatabase(self.json_database.get())
         ds = db.get_dataset(self.dataset_name)
 
@@ -364,6 +367,7 @@ class EnhancedMeetingDataRasrAlignmentPadAndDumpHDFJob(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
+        from lazy_dataset.database import JsonDatabase
         state_tying = dict(
             (k, int(v)) for l in open(self.state_tying_file.get_path()) for k, v in [l.strip().split()[0:2]]
         )

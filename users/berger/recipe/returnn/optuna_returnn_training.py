@@ -7,9 +7,8 @@ import os
 import subprocess as sp
 import sys
 import time
-from typing import Generator, List, Optional
+from typing import Generator, List, Optional, TYPE_CHECKING
 
-import optuna
 from i6_experiments.users.berger.recipe.returnn.training import Backend
 from sisyphus import Task, tk, Job
 
@@ -18,6 +17,8 @@ from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import Checkpoint, PtCheckpoint, ReturnnTrainingJob
 from .optuna_config import OptunaReturnnConfig
 
+if TYPE_CHECKING:
+    import optuna
 
 class OptunaReturnnTrainingJob(Job):
     def __init__(
@@ -201,7 +202,7 @@ class OptunaReturnnTrainingJob(Job):
 
         return False
 
-    def get_returnn_config(self, trial: optuna.Trial, task_id: int) -> ReturnnConfig:
+    def get_returnn_config(self, trial: "optuna.Trial", task_id: int) -> ReturnnConfig:
         returnn_config = self.optuna_returnn_config.generate_config(trial)
         returnn_config.post_config["model"] = os.path.join(self.out_trial_model_dir[task_id].get_path(), "epoch")
         returnn_config.post_config.pop("learning_rate_file", None)
@@ -284,6 +285,7 @@ class OptunaReturnnTrainingJob(Job):
         yield Task("plot", resume="plot", mini_task=True)
 
     def create_study(self) -> None:
+        import optuna
         optuna.create_study(
             study_name=self.study_name,
             storage=self.study_storage,
@@ -293,7 +295,8 @@ class OptunaReturnnTrainingJob(Job):
         )
 
     @staticmethod
-    def _check_trial_finished(study: optuna.Study, trial_num: int) -> bool:
+    def _check_trial_finished(study: "optuna.Study", trial_num: int) -> bool:
+        import optuna
         for frozen_trial in study.get_trials(
             states=[
                 optuna.trial.TrialState.COMPLETE,
@@ -308,6 +311,7 @@ class OptunaReturnnTrainingJob(Job):
         return False
 
     def run(self, task_id: int) -> None:
+        import optuna
         storage = optuna.storages.get_storage(self.study_storage)
         study = optuna.load_study(
             study_name=self.study_name,
@@ -397,6 +401,7 @@ class OptunaReturnnTrainingJob(Job):
             raise sp.CalledProcessError(-1, cmd=run_cmd)
 
     def select_best_trial(self) -> None:
+        import optuna
         study = optuna.load_study(study_name=self.study_name, storage=self.study_storage)
         self.out_best_params.set(study.best_params)
         self.out_best_trial.set(study.best_trial)
