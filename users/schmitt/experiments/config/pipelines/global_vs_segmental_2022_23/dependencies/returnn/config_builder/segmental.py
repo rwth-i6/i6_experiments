@@ -236,12 +236,6 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
       "forward_use_search": True,
       "forward_batch_size": CodeWrapper("batch_size")
     })
-    forward_recog_config.config["network"]["dump_decision"] = {
-      "class": "hdf_dump",
-      "from": "decision",
-      "is_output_layer": True,
-      "filename": "search_out.hdf"
-    }
     del forward_recog_config.config["task"]
     forward_recog_config.config["eval"] = self.get_search_dataset_dict(
       corpus_key=opts["search_corpus_key"],

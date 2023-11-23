@@ -188,7 +188,7 @@ class CalcSearchErrorJobV2(Job):
           scores_dict["ground_truth"],
           scores_dict["search"]
         )
-        log_txt += "\n\tGround-truth seq: %s\n\tSearch seq: %s" % (
+        log_txt += "\n\tGround-truth non-blank label seq: %s\n\tSearch non-blank label seq: %s" % (
           str(non_blank_targets_ground_truth),
           str(non_blank_targets_search)
         )
@@ -202,6 +202,17 @@ class CalcSearchErrorJobV2(Job):
         ]:
           # dump the different scores for each label
           log_txt += "Detailed score breakdown:\n\n"
+          log_txt += "\n\tGround-truth seq: %s\n\tSearch seq: %s" % (
+            str(targets_ground_truth),
+            str(targets_search)
+          )
+          for frame_sync_score_name in frame_sync_scores_dict["search"]:
+            log_txt += "\n\tGround-truth %s scores:\n %s\n\tSearch %s scores:\n %s" % (
+              frame_sync_score_name,
+              "\n".join([str(score) for score in np.cumsum(frame_sync_scores_dict["ground_truth"][frame_sync_score_name])]),
+              frame_sync_score_name,
+              "\n".join([str(score) for score in np.cumsum(frame_sync_scores_dict["search"][frame_sync_score_name])]),
+            )
           for frame_sync_score_name in frame_sync_scores_dict["search"]:
             log_txt += "\n\tGround-truth accum %s scores:\n %s\n\tSearch accum %s scores:\n %s" % (
               frame_sync_score_name,

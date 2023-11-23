@@ -339,11 +339,12 @@ class PlotAttentionWeightsJobV2(Job):
           ax.axvline(x=seg_start + seg_len - .5, ymin=ymin, ymax=ymax, color="r")
 
       if center_positions is not None:
-        # yellow markers to indicate center positions
+        # green markers to indicate center positions
         for i, center_position in enumerate(center_positions):
           ymin = (num_labels - i) / num_labels
           ymax = (num_labels - i - 1) / num_labels
           ax.axvline(x=center_position - .5, ymin=ymin, ymax=ymax, color="lime")
+          ax.axvline(x=center_position + .5, ymin=ymin, ymax=ymax, color="lime")
 
       dirname = self.out_plot_dir.get_path()
       filename = os.path.join(dirname, "plot.%s.png" % seq_tag.replace("/", "_"))
