@@ -33,6 +33,8 @@ models = {
         "length_model_opts": {
           "use_embedding": True,
           "embedding_size": 128,
+          "use_alignment_ctx": True,
+          "layer_class": "lstm"
         }
       },
       "config": {

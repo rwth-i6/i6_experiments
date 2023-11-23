@@ -10,7 +10,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf import ctc_aligns
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train import GlobalTrainExperiment, SegmentalTrainExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.recog import ReturnnDecodingExperimentV2
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf import center_window_att
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.center_window_att.base import recog_center_window_att_import_global, get_center_window_att_config_builder
 from i6_experiments.users.schmitt.alignment.alignment import AlignmentAddEosJob
 
 
@@ -149,7 +149,7 @@ def glob_att_import_global_concat_recog(
 
 
 def center_window_att_import_global_do_label_sync_search(
-        win_size_list: Tuple[int, ...] = (2, 4, 8, 16, 32, 64, 128),
+        win_size_list: Tuple[int, ...] = (4, 128),
         n_epochs_list: Tuple[int, ...] = (10, 100),
         weight_feedback_list: Tuple[bool, ...] = (True, False),
         const_lr_list: Tuple[float, ...] = (1e-4,),
@@ -170,9 +170,10 @@ def center_window_att_import_global_do_label_sync_search(
           center_window_att_alias = alias + "/center_window_att_train_recog"
           global_att_alias = alias + "/global_att_recog"
 
-          center_window_config_builder = center_window_att.get_center_window_att_config_builder(
+          center_window_config_builder = get_center_window_att_config_builder(
             win_size=win_size,
             use_weight_feedback=weight_feedback,
+            search_remove_eos=center_window_use_eos,
           )
 
           if center_window_use_eos:
@@ -204,6 +205,14 @@ def center_window_att_import_global_do_label_sync_search(
             align_targets=align_targets,
           )
           center_window_checkpoints, _, _ = center_window_train_exp.run_train()
+
+          recog_center_window_att_import_global(
+            alias=center_window_att_alias,
+            config_builder=center_window_config_builder,
+            checkpoint=center_window_checkpoints[n_epochs],
+            analyse=True,
+            search_corpus_key="dev-other"
+          )
 
           global_config_builder = get_global_att_config_builder(use_weight_feedback=weight_feedback)
 
