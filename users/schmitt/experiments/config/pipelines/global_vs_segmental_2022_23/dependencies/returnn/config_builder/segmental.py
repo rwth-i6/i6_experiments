@@ -371,6 +371,7 @@ class SWBConformerSegmentalAttentionConfigBuilder(SwbConformerConfigBuilder, Seg
         copy.deepcopy(networks_dict[22]),
         task=task,
         blank_idx=self.dependencies.model_hyperparameters.blank_idx,
+        sos_idx=self.dependencies.model_hyperparameters.sos_idx,
         target_num_labels_w_blank=self.dependencies.model_hyperparameters.target_num_labels,
         target_num_labels_wo_blank=self.dependencies.model_hyperparameters.target_num_labels_wo_blank,
         network_opts=self.variant_params["network"],
@@ -388,6 +389,7 @@ class SWBConformerSegmentalAttentionConfigBuilder(SwbConformerConfigBuilder, Seg
           copy.deepcopy(net_dict),
           task=task,
           blank_idx=self.dependencies.model_hyperparameters.blank_idx,
+          sos_idx=self.dependencies.model_hyperparameters.sos_idx,
           target_num_labels_w_blank=self.dependencies.model_hyperparameters.target_num_labels,
           target_num_labels_wo_blank=self.dependencies.model_hyperparameters.target_num_labels_wo_blank,
           network_opts=self.variant_params["network"],
@@ -414,6 +416,7 @@ class LibrispeechConformerSegmentalAttentionConfigBuilder(SegmentalConfigBuilder
         copy.deepcopy(networks_dict[36]),
         task=task,
         blank_idx=self.dependencies.model_hyperparameters.blank_idx,
+        sos_idx=self.dependencies.model_hyperparameters.sos_idx,
         target_num_labels_w_blank=self.dependencies.model_hyperparameters.target_num_labels,
         target_num_labels_wo_blank=self.dependencies.model_hyperparameters.target_num_labels_wo_blank,
         network_opts=self.variant_params["network"],
@@ -431,6 +434,7 @@ class LibrispeechConformerSegmentalAttentionConfigBuilder(SegmentalConfigBuilder
           copy.deepcopy(net_dict),
           task=task,
           blank_idx=self.dependencies.model_hyperparameters.blank_idx,
+          sos_idx=self.dependencies.model_hyperparameters.sos_idx,
           target_num_labels_w_blank=self.dependencies.model_hyperparameters.target_num_labels,
           target_num_labels_wo_blank=self.dependencies.model_hyperparameters.target_num_labels_wo_blank,
           network_opts=self.variant_params["network"],
@@ -448,6 +452,7 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
           global_net_dict,
           task: str,
           blank_idx: int,
+          sos_idx: int,
           target_num_labels_w_blank: int,
           target_num_labels_wo_blank: int,
           network_opts: Dict,
@@ -716,16 +721,57 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
         seg_net_dict["output"]["unit"]["target_embed_masked"]["unit"]["subnetwork"]["target_embed0"][
           "name_scope"] = "/output/rec/target_embed0"
 
+        if network_opts["search_remove_eos"]:
+          seg_net_dict.update({
+            "output_range": {
+              "class": "range_in_axis",
+              "from": "output",
+              "axis": "t"
+            },
+            "output_length": {
+              "class": "length",
+              "from": "output"
+            },
+            "output_length_minus_1": {
+              "class": "eval",
+              "from": "output_length",
+              "eval": "source(0) - 1"
+            },
+            "output_not_last_frame": {
+              "class": "compare",
+              "from": ["output_range", "output_length_minus_1"],
+              "kind": "not_equal",
+            },
+            "output_non_eos": {
+              "class": "compare",
+              "from": "output",
+              "kind": "not_equal",
+              "value": sos_idx,
+            },
+            # only set mask to 0 if it is EOS in the last frame
+            "output_non_eos_mask": {
+              "class": "combine",
+              "from": ["output_not_last_frame", "output_non_eos"],
+              "kind": "logical_or"
+            },
+            "output_wo_eos": {
+              "class": "masked_computation",
+              "from": "output",
+              "mask": "output_non_eos_mask",
+              "unit": {"class": "copy"},
+            },
+          })
+
         seg_net_dict.update({
           "output_non_blank": {
             "class": "compare",
-            "from": "output",
+            "from": "output" if not network_opts["search_remove_eos"] else "output_wo_eos",
             "kind": "not_equal",
             "value": blank_idx,
           },
           "output_wo_b": {
             "class": "masked_computation",
-            "from": "output",
+            "from": "output" if not network_opts["search_remove_eos"] else "output_wo_eos",
             "mask": "output_non_blank",
             "unit": {"class": "copy"},
           },
