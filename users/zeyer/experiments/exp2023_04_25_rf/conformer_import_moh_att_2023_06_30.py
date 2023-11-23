@@ -140,7 +140,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "learning_rate_eval_locals": {"orig": dyn_lr_lin_warmup_invsqrt_decay},
         },
     )
-    train_exp(  # 6.48 (vs base 7.07, so much better)
+    train_exp(  # 6.48 (vs base 7.07, so much better, but this is already with fine-tuning included here)
         "base-24gb-v4-lrlin",
         config_24gb_v4,
         config_updates={
