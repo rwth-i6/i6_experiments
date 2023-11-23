@@ -131,7 +131,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
     train_exp("base-24gb-v4-lr09e_3", config_24gb_v4, config_updates={"learning_rate": 0.0009})
-    train_exp(
+    train_exp(  # 7.46 (vs base 7.07, so worse)
         "base-24gb-v4-lrcos",
         config_24gb_v4,
         config_updates={
@@ -140,7 +140,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "learning_rate_eval_locals": {"orig": dyn_lr_lin_warmup_invsqrt_decay},
         },
     )
-    train_exp(
+    train_exp(  # 6.48 (vs base 7.07, so much better)
         "base-24gb-v4-lrlin",
         config_24gb_v4,
         config_updates={
@@ -151,7 +151,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "learning_rate_piecewise_values": [0.0, 1e-3, 1e-5, 1e-6],
         },
     )
-    train_exp(
+    train_exp(  # 7.08 (vs base 7.07, so unclear)
         "base-24gb-v4-pretrainBug",
         config_24gb_v4,
         config_updates={"pretrain_opts": {"steps": {4 * 500: {"num_layers": 8}, 8 * 500: {"num_layers": 2}}}},
