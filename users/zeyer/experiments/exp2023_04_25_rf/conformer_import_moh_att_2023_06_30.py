@@ -119,7 +119,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     )
 
     train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)  # 7.07 (vs base 7.01, so worse?)
-    train_exp("base-24gb-v4", config_24gb_v4)
+    train_exp("base-24gb-v4", config_24gb_v4, fine_tune=[(2000, {"num_epochs": 200, "final_lr": 1e-6})])
     train_exp(
         "base-24gb-v4-wdblacklist2",
         config_24gb_v4,
