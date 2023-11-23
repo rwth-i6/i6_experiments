@@ -169,17 +169,17 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_di = get_diphone_network(
         returnn_config=returnn_config, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     )
-    returnn_cfg_di_add = get_diphone_network(
-        returnn_config=returnn_config, additive=True, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
-    )
+    # returnn_cfg_di_add = get_diphone_network(
+    #     returnn_config=returnn_config, additive=True, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
+    # )
     returnn_cfg_tri = get_triphone_network(
         returnn_config=returnn_config, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     )
-    returnn_cfg_tri_add = get_triphone_network(
-        returnn_config=returnn_config, additive=True, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
-    )
-    configs = [returnn_cfg_mo, returnn_cfg_di, returnn_cfg_di_add, returnn_cfg_tri, returnn_cfg_tri_add]
-    names = ["mono", "di", "di-add", "tri", "tri-add"]
+    # returnn_cfg_tri_add = get_triphone_network(
+    #     returnn_config=returnn_config, additive=True, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
+    # )
+    configs = [returnn_cfg_mo, returnn_cfg_di, returnn_cfg_tri]
+    names = ["mono", "di", "tri"]
     keys = [f"fh-{name}" for name in names]
 
     for cfg, name, key in zip(configs, names, keys):
