@@ -240,6 +240,12 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         return network
 
     # -------------------- Decoding --------------------
+    def _set_diphone_joint_state_tying(self):
+        # Joint diphone decoding will only work with diphone-dense state-tying
+        self.label_info = dataclasses.replace(self.label_info, state_tying=RasrStateTying.diphone)
+        for crp_k in self.crp_names.keys():
+            if "train" not in crp_k:
+                self._update_crp_am_setting_for_decoding(self.crp_names[crp_k])
     def _compute_returnn_rasr_priors(
         self,
         key: str,
@@ -414,16 +420,16 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
 
 
-        job.add_alias(f"priors/{name}/c")
-
+        job.add_alias(f"priors/{name}/single_prior")
         if context_type == PhoneticContext.monophone:
+
             p_info = PriorInfo(
-                center_state_prior=PriorConfig(file=job.out_prior_xml_file, scale=0.0),
+                center_state_prior=PriorConfig(file=job.out_prior_xml_file, scale=1.0),
             )
             tk.register_output(f"priors/{name}/center-state.xml", p_info.center_state_prior.file)
         elif context_type == PhoneticContext.joint_diphone:
             p_info = PriorInfo(
-                diphone_prior=PriorConfig(file=job.out_prior_xml_file, scale=0.0),
+                diphone_prior=PriorConfig(file=job.out_prior_xml_file, scale=1.0),
             )
             tk.register_output(f"priors/{name}/joint_diphone.xml", p_info.diphone_prior.file)
         else:
@@ -431,8 +437,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         p_info = smoothen_priors(p_info) if smoothen else p_info
         self.experiments[key]["priors"] = p_info
-
-
 
     def set_diphone_priors_returnn_rasr(
         self,
@@ -637,12 +641,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         self, key: str = None, returnn_config: returnn.ReturnnConfig = None
     ):
 
-        # Joint diphone will only work with diphone-dense state-tying
-        self.label_info = dataclasses.replace(self.label_info, state_tying=RasrStateTying.diphone)
-        for crp_k in self.crp_names.keys():
-            if "train" not in crp_k:
-                self._update_crp_am_setting_for_decoding(self.crp_names[crp_k])
-
+        self._set_diphone_joint_state_tying()
         if returnn_config is None:
             returnn_config = self.experiments[key]["returnn_config"]
         clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
@@ -674,6 +673,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         self, key: str = None, returnn_config: returnn.ReturnnConfig = None
     ):
 
+        self._set_diphone_joint_state_tying()
         if returnn_config is None:
             returnn_config = self.experiments[key]["returnn_config"]
         clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
