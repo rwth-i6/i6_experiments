@@ -167,7 +167,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_24gb_v4,
         config_updates={"pretrain_opts": {"steps": {4 * 500: {"num_layers": 8}, 8 * 500: {"num_layers": 2}}}},
     )
-    train_exp(
+    train_exp(  # 7.30 (vs base 7.07, so worse)
         "base-24gb-v4-pretrain",
         config_24gb_v4,
         config_updates={
@@ -203,8 +203,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_24gb_v4,
         config_updates={
             "batch_size": 30_000 * _batch_size_factor,
-            "accum_grad_multiple_step": 3,
-            "rf_dropout_broadcast": False,
+            "accum_grad_multiple_step": 3,  # because of reduced batch size
+            "rf_dropout_broadcast": False,  # needs more memory, thus reduced batch size
         },
     )
 
@@ -464,6 +464,9 @@ config_24gb_v5 = dict_update_delete_deep(
         "specaugment_max_consecutive_feature_dims",
     ],
 )
+
+# TODO WIP
+config_24gb_v6 = dict_update_delete_deep(config_24gb_v5, ["pretrain_opts"])
 
 
 class MakeModel:
