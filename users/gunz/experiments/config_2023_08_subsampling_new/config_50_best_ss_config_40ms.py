@@ -540,13 +540,13 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         print(f"fa {post_name}")
 
         s.set_experiment_dict(key, alignment_name, name, postfix_name=post_name)
-        s.set_returnn_config_for_experiment(key, copy.deepcopy(di_fa_config))
+        s.set_returnn_config_for_experiment(key, copy.deepcopy(config))
 
         train_args = {
             **s.initial_train_args,
             "num_epochs": viterbi_keep_epochs[-1],
             "partition_epochs": PARTITION_EPOCHS,
-            "returnn_config": copy.deepcopy(di_fa_config),
+            "returnn_config": copy.deepcopy(config),
         }
         s.returnn_rasr_training(
             experiment_key=key,
