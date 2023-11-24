@@ -569,7 +569,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             tune=ep == viterbi_keep_epochs[-1],
         )
 
-    di_fa_train_job = s.experiments["di-fa"]["train_job"]
+    di_fa_train_job = s.experiments["fh-di-fa"]["train_job"]
     import_di_fa_config = returnn.ReturnnConfig(
         config={
             "preload_from_files": {
@@ -582,7 +582,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         }
     )
 
-    di_fa_newbob_train_job = s.experiments["di-fa-newbob"]["train_job"]
+    di_fa_newbob_train_job = s.experiments["fh-di-fa-newbob"]["train_job"]
     import_di_fa_newbob_config = returnn.ReturnnConfig(
         config={
             "preload_from_files": {
