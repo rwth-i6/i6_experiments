@@ -162,6 +162,18 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
         },
     )
+    train_exp(
+        "base-24gb-v4-lrlin-gn01",
+        config_24gb_v4,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [20_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [0.0, 1e-3, 1e-5, 1e-6],
+            "gradient_noise": 0.1,
+        },
+    )
     train_exp(  # 7.08 (vs base 7.07, so unclear)
         "base-24gb-v4-pretrainBug",
         config_24gb_v4,
