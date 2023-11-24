@@ -70,9 +70,6 @@ CONF_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
 )
 CONF_JOINT_DECODING_TENSOR_CONFIG = dataclasses.replace(
     DecodingTensorMap.default(),
-    in_encoder_output="length_masked/strided_slice",
-    in_seq_length="extern_data/placeholders/centerState/centerState_dim0_size",
-    out_encoder_output="encoder__output/output_batch_major",
     out_joint_diphone="output/output_batch_major",
 )
 BLSTM_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(

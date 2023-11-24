@@ -15,24 +15,22 @@ Indices = typing.Union[typing.List[int], typing.List[typing.Tuple[int, int]], ty
 def smoothen_priors(
     p_info: PriorInfo,
     zero_weight: float = 1e-8,
-    combine_indices_l: typing.Optional[Indices] = None,
-    combine_indices_c: typing.Optional[Indices] = None,
-    combine_indices_r: typing.Optional[Indices] = None,
 ) -> PriorInfo:
     def smoothen(
-        cfg: typing.Optional[PriorConfig], zero_w: float, combine_idx: typing.Optional[Indices]
+        cfg: typing.Optional[PriorConfig], zero_w: float
     ) -> typing.Optional[PriorConfig]:
         if cfg is None:
             return None
 
-        job = SmoothenPriorsJob(cfg.file, zero_w, combine_idx)
+        job = SmoothenPriorsJob(cfg.file, zero_w)
         return dataclasses.replace(cfg, file=job.out_priors)
 
     return dataclasses.replace(
         p_info,
-        left_context_prior=smoothen(p_info.left_context_prior, zero_weight, combine_indices_l),
-        center_state_prior=smoothen(p_info.center_state_prior, zero_weight, combine_indices_c),
-        right_context_prior=smoothen(p_info.right_context_prior, zero_weight, combine_indices_r),
+        left_context_prior=smoothen(p_info.left_context_prior, zero_weight),
+        center_state_prior=smoothen(p_info.center_state_prior, zero_weight),
+        right_context_prior=smoothen(p_info.right_context_prior, zero_weight),
+        diphone_prior=smoothen(p_info.diphone_prior, zero_weight),
     )
 
 
@@ -46,9 +44,7 @@ class SmoothenPriorsJob(Job):
         self,
         prior_xml: Path,
         zero_weight: float = 1e-8,
-        combine_indices: typing.Optional[Indices] = None,
     ):
-        self.combine_indices = combine_indices
         self.prior_xml = prior_xml
         self.zero_weight = zero_weight
 
@@ -63,15 +59,13 @@ class SmoothenPriorsJob(Job):
         priors = np.exp(parse_result.priors_log).reshape(parse_result.shape)
 
         zero_priors = priors == 0
-        print(f"smoothing {zero_priors.size} priors to {self.zero_weight:.2E}")
         priors[zero_priors] = self.zero_weight
 
-        if self.combine_indices is not None:
-            to_combine = np.array([priors[idx] for idx in self.combine_indices])
-            combined = np.sum(to_combine, axis=0)
+        smooth_weight = np.median(priors[priors < self.zero_weight])
 
-            for idx in self.combine_indices:
-                priors[idx] = combined
+        low_priors = priors < smooth_weight
+        priors[low_priors] = smooth_weight
+
 
         total_weight = priors.flatten().sum()
         print(f"total prior weight: {total_weight}")

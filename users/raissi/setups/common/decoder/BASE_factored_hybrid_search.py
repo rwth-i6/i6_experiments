@@ -1,6 +1,8 @@
 __all__ = ["BASEFactoredHybridDecoder"]
 
 import copy
+import dataclasses
+import itertools
 import numpy as np
 
 from dataclasses import dataclass
@@ -348,39 +350,69 @@ class BASEFactoredHybridDecoder:
         }
         return lmla_options
 
-    def set_tf_fs_flow(self):
+    def get_tf_flow(self):
         if self.feature_scorer_type.is_factored():
-            self.set_factored_tf_fs_flow()
+            output_string = "encoder-output"
+            output_tensor = self.tensor_map.out_encoder_output
         elif self.feature_scorer_type.is_nnprecomputed():
-            self.set_nnprecomputed_tf_fs_flow()
+            output_string = "posteriors"
+            if self.context_type.is_monophone():
+                output_tensor = self.tensor_map.out_center_state
+            elif self.context_type.is_joint_diphone():
+                output_tensor = self.tensor_map.out_joint_diphone
+            else:
+                raise ValueError("You can use nn precomputed only with monophone or joint diphone")
         else:
-            raise NotImplementedError
+            raise NotImplementedError("Unknown feature scorer type")
 
-    def set_nnprecomputed_tf_fs_flow(self):
-        self.feature_scorer_flow = self.get_nnprecomputed_tf_flow()
-        """
-        tf_feature_flow = add_tf_flow_to_base_flow(
-            base_flow=self.feature_path,
-            tf_flow=tf_flow,
-            tf_fwd_input_name=tf_fwd_input_name,
-        )
-        self.feature_scorer_flow = tf_feature_flow"""
+        tf_flow = rasr.FlowNetwork()
+        tf_flow.add_input("input-features")
+        tf_flow.add_output("features")
+        tf_flow.add_param("id")
+        tf_fwd = tf_flow.add_node("tensorflow-forward", "tf-fwd", {"id": "$(id)"})
+        tf_flow.link("network:input-features", tf_fwd + ":features")
+        if not self.is_multi_encoder_output:
+            tf_flow.link(tf_fwd + f":{output_string}", "network:features")
+        else:
+            concat = tf_flow.add_node(
+                "generic-vector-f32-concat",
+                "concatenation",
+                {"check-same-length": True, "timestamp-port": "feature-1"},
+            )
 
-    def get_nnprecomputed_tf_flow(self):
-        return make_precomputed_hybrid_tf_feature_flow(
-            tf_graph=self.graph,
-            tf_checkpoint=self.model_path,
-            output_layer_name=self.tensor_map.out_joint_diphone,
-            native_ops=self.library_path,
-        )
+            tf_flow.link(tf_fwd + output_string, "%s:%s" % (concat, "feature-1"))
+            tf_flow.link(tf_fwd + ":deltaEncoder-output", "%s:%s" % (concat, "feature-2"))
 
-    def set_factored_tf_fs_flow(self):
+            tf_flow.link(concat, "network:features")
+
+        tf_flow.config = rasr.RasrConfig()
+
+        tf_flow.config[tf_fwd].input_map.info_0.param_name = "features"
+        tf_flow.config[tf_fwd].input_map.info_0.tensor_name = self.tensor_map.in_data
+        tf_flow.config[tf_fwd].input_map.info_0.seq_length_tensor_name = self.tensor_map.in_seq_length
+
+        tf_flow.config[tf_fwd].output_map.info_0.param_name = output_string
+        tf_flow.config[tf_fwd].output_map.info_0.tensor_name = output_tensor
+
+        if self.is_multi_encoder_output:
+            tf_flow.config[tf_fwd].output_map.info_1.param_name = "deltaEncoder-output"
+            tf_flow.config[tf_fwd].output_map.info_1.tensor_name = self.tensor_map.out_delta_encoder_output
+
+        tf_flow.config[tf_fwd].loader.type = "meta"
+        tf_flow.config[tf_fwd].loader.meta_graph_file = self.graph
+        tf_flow.config[tf_fwd].loader.saved_model_file = self.model_path
+        if self.library_path is not None:
+            if isinstance(self.library_path, list):
+                tf_flow.config[tf_fwd].loader.required_libraries = DelayedJoin(self.library_path, ";")
+            else:
+                tf_flow.config[tf_fwd].loader.required_libraries = self.library_path
+
+        return tf_flow
+
+    def set_tf_fs_flow(self):
         tf_feature_flow = rasr.FlowNetwork()
         base_mapping = tf_feature_flow.add_net(self.feature_path)
-        if self.is_multi_encoder_output:
-            tf_flow = self.get_factored_tf_flow_delta()
-        else:
-            tf_flow = self.get_factored_tf_flow()
+        tf_flow = self.get_tf_flow()
 
         tf_mapping = tf_feature_flow.add_net(tf_flow)
 
@@ -395,69 +427,6 @@ class BASEFactoredHybridDecoder:
         tf_feature_flow.interconnect_outputs(tf_flow, tf_mapping)
 
         self.feature_scorer_flow = tf_feature_flow
-
-    def get_factored_tf_flow(self):
-        tf_flow = rasr.FlowNetwork()
-        tf_flow.add_input("input-features")
-        tf_flow.add_output("features")
-        tf_flow.add_param("id")
-        tf_fwd = tf_flow.add_node("tensorflow-forward", "tf-fwd", {"id": "$(id)"})
-        tf_flow.link("network:input-features", tf_fwd + ":features")
-        tf_flow.link(tf_fwd + ":encoder-output", "network:features")
-
-        tf_flow.config = rasr.RasrConfig()
-
-        tf_flow.config[tf_fwd].input_map.info_0.param_name = "features"
-        tf_flow.config[tf_fwd].input_map.info_0.tensor_name = self.tensor_map.in_data
-        tf_flow.config[tf_fwd].input_map.info_0.seq_length_tensor_name = self.tensor_map.in_seq_length
-
-        tf_flow.config[tf_fwd].output_map.info_0.param_name = "encoder-output"
-        tf_flow.config[tf_fwd].output_map.info_0.tensor_name = self.tensor_map.out_encoder_output
-
-        tf_flow.config[tf_fwd].loader.type = "meta"
-        tf_flow.config[tf_fwd].loader.meta_graph_file = self.graph
-        tf_flow.config[tf_fwd].loader.saved_model_file = self.model_path
-        tf_flow.config[tf_fwd].loader.required_libraries = self.library_path
-
-        return tf_flow
-
-    def get_factored_tf_flow_delta(self):
-        tf_flow = rasr.FlowNetwork()
-        tf_flow.add_input("input-features")
-        tf_flow.add_output("features")
-        tf_flow.add_param("id")
-        tf_fwd = tf_flow.add_node("tensorflow-forward", "tf-fwd", {"id": "$(id)"})
-        tf_flow.link("network:input-features", tf_fwd + ":features")
-
-        concat = tf_flow.add_node(
-            "generic-vector-f32-concat",
-            "concatenation",
-            {"check-same-length": True, "timestamp-port": "feature-1"},
-        )
-
-        tf_flow.link(tf_fwd + ":encoder-output", "%s:%s" % (concat, "feature-1"))
-        tf_flow.link(tf_fwd + ":deltaEncoder-output", "%s:%s" % (concat, "feature-2"))
-
-        tf_flow.link(concat, "network:features")
-
-        tf_flow.config = rasr.RasrConfig()
-
-        tf_flow.config[tf_fwd].input_map.info_0.param_name = "features"
-        tf_flow.config[tf_fwd].input_map.info_0.tensor_name = self.tensor_map.in_data
-        tf_flow.config[tf_fwd].input_map.info_0.seq_length_tensor_name = self.tensor_map.in_seq_length
-
-        tf_flow.config[tf_fwd].output_map.info_0.param_name = "encoder-output"
-        tf_flow.config[tf_fwd].output_map.info_0.tensor_name = self.tensor_map.out_encoder_output
-
-        tf_flow.config[tf_fwd].output_map.info_1.param_name = "deltaEncoder-output"
-        tf_flow.config[tf_fwd].output_map.info_1.tensor_name = self.tensor_map.out_delta_encoder_output
-
-        tf_flow.config[tf_fwd].loader.type = "meta"
-        tf_flow.config[tf_fwd].loader.meta_graph_file = self.graph
-        tf_flow.config[tf_fwd].loader.saved_model_file = self.model_path
-        tf_flow.config[tf_fwd].loader.required_libraries = self.library_path
-
-        return tf_flow
 
     def get_fs_tf_config(self):
         fs_tf_config = rasr.RasrConfig()
@@ -845,6 +814,8 @@ class BASEFactoredHybridDecoder:
                 name += f"-prC{search_parameters.prior_info.center_state_prior.scale}"
             if search_parameters.prior_info.right_context_prior is not None:
                 name += f"-prR{search_parameters.prior_info.right_context_prior.scale}"
+            if search_parameters.prior_info.diphone_prior is not None:
+                name += f"-prJ-C{search_parameters.prior_info.diphone_prior.scale}"
             if search_parameters.we_pruning > 0.5:
                 name += f"-wep{search_parameters.we_pruning}"
             if search_parameters.altas is not None:

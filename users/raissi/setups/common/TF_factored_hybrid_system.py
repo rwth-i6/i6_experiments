@@ -397,6 +397,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         returnn_config: Optional[returnn.ReturnnConfig] = None,
         output_layer_name: str = "output",
         smoothen: bool = False,
+        zero_weight: float = 1e-8,
         data_share: float = 0.3,
     ):
         self.set_graph_for_experiment(key)
@@ -422,7 +423,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         job.add_alias(f"priors/{name}/single_prior")
         if context_type == PhoneticContext.monophone:
-
             p_info = PriorInfo(
                 center_state_prior=PriorConfig(file=job.out_prior_xml_file, scale=1.0),
             )
@@ -435,7 +435,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         else:
             raise NotImplementedError("Unknown PhoneticContext, i.e. context_type")
 
-        p_info = smoothen_priors(p_info) if smoothen else p_info
+        p_info = smoothen_priors(p_info, zero_weight=zero_weight) if smoothen else p_info
         self.experiments[key]["priors"] = p_info
 
     def set_diphone_priors_returnn_rasr(
