@@ -527,30 +527,36 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     di_fa_config.update(import_di_config)
     di_fa_config.update(fa_update_config)
 
-    name = "di-fa"
-    key = f"fh-{name}"
-    post_name = f"conf-{name}-zhou"
+    di_fa_config_newbob = copy.deepcopy(di_fa_config)
+    di_fa_config_newbob.update(newbob_lr_config)
 
-    print(f"fa {post_name}")
+    configs = [di_fa_config, di_fa_config_newbob]
+    names = ["di-fa", "di-fa-newbob"]
+    keys = [f"fh-{name}" for name in names]
 
-    s.set_experiment_dict(key, alignment_name, name, postfix_name=post_name)
-    s.set_returnn_config_for_experiment(key, copy.deepcopy(di_fa_config))
+    for config, name, key in zip(configs, names, keys):
+        post_name = f"conf-{name}-zhou"
 
-    train_args = {
-        **s.initial_train_args,
-        "num_epochs": viterbi_keep_epochs[-1],
-        "partition_epochs": PARTITION_EPOCHS,
-        "returnn_config": copy.deepcopy(di_fa_config),
-    }
-    s.returnn_rasr_training(
-        experiment_key=key,
-        train_corpus_key=s.crp_names["train"],
-        dev_corpus_key=s.crp_names["cvtrain"],
-        nn_train_args=train_args,
-        include_alignment=di_forced_alignment_j.out_alignment_bundle,
-    )
+        print(f"fa {post_name}")
 
-    for crp_k, ep in itertools.product(["dev-other"], viterbi_keep_epochs):
+        s.set_experiment_dict(key, alignment_name, name, postfix_name=post_name)
+        s.set_returnn_config_for_experiment(key, copy.deepcopy(di_fa_config))
+
+        train_args = {
+            **s.initial_train_args,
+            "num_epochs": viterbi_keep_epochs[-1],
+            "partition_epochs": PARTITION_EPOCHS,
+            "returnn_config": copy.deepcopy(di_fa_config),
+        }
+        s.returnn_rasr_training(
+            experiment_key=key,
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            nn_train_args=train_args,
+            include_alignment=di_forced_alignment_j.out_alignment_bundle,
+        )
+
+    for key, crp_k, ep in itertools.product(keys, ["dev-other"], viterbi_keep_epochs):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
         decode_diphone(
@@ -563,7 +569,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             tune=ep == viterbi_keep_epochs[-1],
         )
 
-    di_fa_train_job = s.experiments[key]["train_job"]
+    di_fa_train_job = s.experiments["di-fa"]["train_job"]
     import_di_fa_config = returnn.ReturnnConfig(
         config={
             "preload_from_files": {
@@ -571,6 +577,19 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                     "init_for_train": True,
                     "ignore_missing": True,
                     "filename": di_fa_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
+                }
+            },
+        }
+    )
+
+    di_fa_newbob_train_job = s.experiments["di-fa-newbob"]["train_job"]
+    import_di_fa_newbob_config = returnn.ReturnnConfig(
+        config={
+            "preload_from_files": {
+                "existing-model": {
+                    "init_for_train": True,
+                    "ignore_missing": True,
+                    "filename": di_fa_newbob_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
                 }
             },
         }
