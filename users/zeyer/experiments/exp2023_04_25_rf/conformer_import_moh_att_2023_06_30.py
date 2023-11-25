@@ -284,6 +284,7 @@ def train_exp(
     config_deletes: Optional[Sequence[str]] = None,
     num_epochs: int = 2000,
     gpu_mem: Optional[int] = 24,
+    num_processes: Optional[int] = None,
     fine_tune: Optional[Union[int, List[Tuple[int, Dict[str, Any]]]]] = None,
 ) -> ModelWithCheckpoints:
     """
@@ -309,6 +310,8 @@ def train_exp(
         train_def=from_scratch_training,
         num_epochs=num_epochs,
         gpu_mem=gpu_mem,
+        horovod_num_processes=num_processes,  # legacy name but also applies for Torch
+        distributed_launch_cmd="torchrun" if num_processes else "mpirun",
     )
     recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
 
