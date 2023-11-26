@@ -579,6 +579,17 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 "existing-model": {
                     "init_for_train": True,
                     "ignore_missing": True,
+                    "filename": di_from_mono_newbob_train_job.out_checkpoints[fine_tune_keep_epochs[-1]],
+                }
+            },
+        }
+    )
+    import_di_from_mono_newbob_sel_epoch_config = returnn.ReturnnConfig(
+        config={
+            "preload_from_files": {
+                "existing-model": {
+                    "init_for_train": True,
+                    "ignore_missing": True,
                     "filename": di_from_mono_newbob_best_epoch_job.out_checkpoint,
                 }
             },
@@ -590,9 +601,15 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     tri_from_di_from_mono_cfg.update(tri_from_di_staged_net_cfg)
     tri_from_di_from_mono_cfg.update(newbob_lr_config)
     tri_from_di_from_mono_cfg.update(import_di_from_mono_newbob_config)
+    tri_from_di_from_mono_sel_epoch_cfg = copy.deepcopy(returnn_cfg_tri)
+    tri_from_di_from_mono_sel_epoch_cfg.config.pop("network", None)
+    tri_from_di_from_mono_sel_epoch_cfg.update(tri_from_di_staged_net_cfg)
+    tri_from_di_from_mono_sel_epoch_cfg.update(newbob_lr_config)
+    tri_from_di_from_mono_sel_epoch_cfg.update(import_di_from_mono_newbob_sel_epoch_config)
 
     configs = [
         (tri_from_di_from_mono_cfg, returnn_cfg_tri, "tri-from-di-from-mono"),
+        (tri_from_di_from_mono_sel_epoch_cfg, returnn_cfg_tri, "tri-from-di-from-mono-sel"),
     ]
     keys = [f"fh-{name}" for _, _, name in configs]
     for (returnn_config, original_returnn_config, name), key in zip(configs, keys):
