@@ -263,19 +263,6 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         },
         python_epilog={"dynamic_lr_reset": "dynamic_learning_rate = None"},
     )
-    newbob_lr_config = returnn.ReturnnConfig(
-        config={
-            "learning_rate": 1e-3,
-        },
-        post_config={
-            "cleanup_old_models": {
-                "keep_best_n": 3,
-                "keep_last_n": 5,
-                "keep": fine_tune_keep_epochs,
-            },
-        },
-        python_epilog={"dynamic_lr_reset": "dynamic_learning_rate = None"},
-    )
 
     mono_train_job = s.experiments["fh-mono"]["train_job"]
     import_mono_config = returnn.ReturnnConfig(
@@ -327,10 +314,6 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_mo_ft_constlr.update(batch_size_config)
     returnn_cfg_mo_ft_constlr.update(constant_linear_decrease_lr_config)
     returnn_cfg_mo_ft_constlr.update(import_mono_config)
-    returnn_cfg_mo_ft_newbob = copy.deepcopy(returnn_cfg_mo_ft)
-    returnn_cfg_mo_ft_newbob.update(batch_size_config)
-    returnn_cfg_mo_ft_newbob.update(newbob_lr_config)
-    returnn_cfg_mo_ft_newbob.update(import_mono_config)
 
     di_ft_sys = copy.deepcopy(s)
     di_ft_sys.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
@@ -358,16 +341,10 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_di_ft_constlr.update(batch_size_config)
     returnn_cfg_di_ft_constlr.update(constant_linear_decrease_lr_config)
     returnn_cfg_di_ft_constlr.update(import_di_config)
-    returnn_cfg_di_ft_newbob = copy.deepcopy(returnn_cfg_di_ft)
-    returnn_cfg_di_ft_newbob.update(batch_size_config)
-    returnn_cfg_di_ft_newbob.update(newbob_lr_config)
-    returnn_cfg_di_ft_newbob.update(import_di_config)
 
     configs = [
         (returnn_cfg_mo_ft_constlr, returnn_cfg_mo, mo_ft_sys, "mono-fs-constlr"),
-        (returnn_cfg_mo_ft_newbob, returnn_cfg_mo, mo_ft_sys, "mono-fs-newbob"),
         (returnn_cfg_di_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-constlr"),
-        (returnn_cfg_di_ft_newbob, returnn_cfg_di, di_ft_sys, "di-fs-newbob"),
     ]
     keys = [f"fh-{name}" for _, _, _, name in configs]
     for (returnn_config, _, sys, name), key in zip(configs, keys):
@@ -417,204 +394,6 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             )
         else:
             raise NotImplementedError("Cannot bw-fine-tune triphones")
-
-    # #####################
-    # FORCE-ALIGNED DIPHONE
-    # #####################
-
-    alignment_name = "10ms-di-fa"
-    di_forced_alignment_j = force_align_diphone(
-        s,
-        key="fh-di",
-        alignment_name=alignment_name,
-        epoch=viterbi_keep_epochs[-1],
-        prior_epoch=viterbi_keep_epochs[-2],
-        returnn_config=returnn_cfg_di,
-    )
-    allophones = lexicon.StoreAllophonesJob(s.crp[s.crp_names["train"]])
-    plots = PlotViterbiAlignmentsJob(
-        alignment_bundle_path=di_forced_alignment_j.out_alignment_bundle,
-        allophones_path=allophones.out_allophone_file,
-        segments=[
-            "train-other-960/2920-156224-0013/2920-156224-0013",
-            "train-other-960/2498-134786-0003/2498-134786-0003",
-            "train-other-960/6178-86034-0008/6178-86034-0008",
-            "train-other-960/5983-39669-0034/5983-39669-0034",
-        ],
-        show_labels=False,
-        show_title=False,
-        monophone=True,
-    )
-    tk.register_output(f"alignments/{alignment_name}/plots", plots.out_plot_folder)
-
-    di_fa_config = copy.deepcopy(returnn_cfg_di)
-    di_fa_config.update(import_di_config)
-
-    name = "di-fa"
-    key = f"fh-{name}"
-    post_name = f"conf-{name}-zhou"
-
-    print(f"fa {post_name}")
-
-    s.set_experiment_dict(key, alignment_name, name, postfix_name=post_name)
-    s.set_returnn_config_for_experiment(key, copy.deepcopy(di_fa_config))
-
-    train_args = {
-        **s.initial_train_args,
-        "num_epochs": viterbi_keep_epochs[-1],
-        "partition_epochs": PARTITION_EPOCHS,
-        "returnn_config": copy.deepcopy(di_fa_config),
-    }
-    s.returnn_rasr_training(
-        experiment_key=key,
-        train_corpus_key=s.crp_names["train"],
-        dev_corpus_key=s.crp_names["cvtrain"],
-        nn_train_args=train_args,
-        include_alignment=di_forced_alignment_j.out_alignment_bundle,
-    )
-
-    for crp_k, ep in itertools.product(["dev-other"], viterbi_keep_epochs):
-        s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
-
-        decode_diphone(
-            s,
-            key=key,
-            crp_k=crp_k,
-            returnn_config=returnn_cfg_di,
-            epoch=ep,
-            prior_epoch=min(ep, viterbi_keep_epochs[-2]),
-            tune=ep == viterbi_keep_epochs[-1],
-        )
-
-    di_fa_train_job = s.experiments[key]["train_job"]
-    import_di_fa_config = returnn.ReturnnConfig(
-        config={
-            "preload_from_files": {
-                "existing-model": {
-                    "init_for_train": True,
-                    "ignore_missing": True,
-                    "filename": di_fa_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
-                }
-            },
-        }
-    )
-
-    # #####################
-    # MULTI STAGE TRAININGS
-    # #####################
-
-    di_from_mono_staged_net_cfg = returnn.ReturnnConfig(
-        config={"copy_param_mode": "subset"},
-        staged_network_dict={
-            1: {
-                **returnn_cfg_mo.config["network"],
-                "linear1-diphone": {
-                    **returnn_cfg_mo.config["network"]["linear1-diphone"],
-                    "from": [returnn_cfg_mo.config["network"]["linear1-diphone"]["from"]],
-                },
-                "#copy_param_mode": "subset",
-            },
-            2: {**returnn_cfg_di.config["network"], "#copy_param_mode": "subset"},
-        },
-    )
-    di_from_mono_cfg = copy.deepcopy(returnn_cfg_di)
-    di_from_mono_cfg.config.pop("network", None)
-    di_from_mono_cfg.update(di_from_mono_staged_net_cfg)
-    di_from_mono_cfg.update(newbob_lr_config)
-    di_from_mono_cfg.update(import_mono_config)
-    tri_from_mono_staged_net_cfg = returnn.ReturnnConfig(
-        config={"copy_param_mode": "subset"},
-        staged_network_dict={
-            1: {
-                **returnn_cfg_mo.config["network"],
-                "linear1-diphone": {
-                    **returnn_cfg_mo.config["network"]["linear1-diphone"],
-                    "from": [returnn_cfg_mo.config["network"]["linear1-diphone"]["from"]],
-                },
-                "#copy_param_mode": "subset",
-            },
-            2: {**returnn_cfg_tri.config["network"], "#copy_param_mode": "subset"},
-        },
-    )
-    tri_from_mono_cfg = copy.deepcopy(returnn_cfg_tri)
-    tri_from_mono_cfg.config.pop("network", None)
-    tri_from_mono_cfg.update(tri_from_mono_staged_net_cfg)
-    tri_from_mono_cfg.update(newbob_lr_config)
-    tri_from_mono_cfg.update(import_mono_config)
-    tri_from_di_staged_net_cfg = returnn.ReturnnConfig(
-        config={"copy_param_mode": "subset"},
-        staged_network_dict={
-            1: {**returnn_cfg_di.config["network"], "#copy_param_mode": "subset"},
-            2: {**returnn_cfg_tri.config["network"], "#copy_param_mode": "subset"},
-        },
-    )
-    tri_from_di_cfg = copy.deepcopy(returnn_cfg_tri)
-    tri_from_di_cfg.config.pop("network", None)
-    tri_from_di_cfg.update(tri_from_di_staged_net_cfg)
-    tri_from_di_cfg.update(newbob_lr_config)
-    tri_from_di_cfg.update(import_di_config)
-    tri_from_di_fa_cfg = copy.deepcopy(returnn_cfg_tri)
-    tri_from_di_fa_cfg.config.pop("network", None)
-    tri_from_di_fa_cfg.update(tri_from_di_staged_net_cfg)
-    tri_from_di_fa_cfg.update(newbob_lr_config)
-    tri_from_di_fa_cfg.update(import_di_fa_config)
-
-    configs = [
-        (di_from_mono_cfg, returnn_cfg_di, "di-from-mono"),
-        (tri_from_mono_cfg, returnn_cfg_tri, "tri-from-mono"),
-        (tri_from_di_cfg, returnn_cfg_tri, "tri-from-di"),
-        (tri_from_di_fa_cfg, returnn_cfg_tri, "tri-from-di-fa"),
-    ]
-    keys = [f"fh-{name}" for _, _, name in configs]
-    for (returnn_config, original_returnn_config, name), key in zip(configs, keys):
-        post_name = f"conf-{name}-zhou"
-        print(f"ms {post_name}")
-
-        s.set_experiment_dict(key, exp.alignment_name, name, postfix_name=post_name)
-        s.set_returnn_config_for_experiment(key, copy.deepcopy(original_returnn_config))
-
-        train_args = {
-            **s.initial_train_args,
-            "num_epochs": fine_tune_keep_epochs[-1],
-            "partition_epochs": PARTITION_EPOCHS,
-            "returnn_config": copy.deepcopy(returnn_config),
-        }
-        s.returnn_rasr_training(
-            experiment_key=key,
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            nn_train_args=train_args,
-        )
-
-    for ((_, returnn_config, _), key), crp_k, ep in itertools.product(
-        zip(configs, keys), ["dev-other"], fine_tune_keep_epochs
-    ):
-        s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
-
-        if key.startswith("fh-di"):
-            decode_diphone(
-                s,
-                key=key,
-                crp_k=crp_k,
-                returnn_config=returnn_config,
-                epoch=ep,
-                prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
-                tune=ep == fine_tune_keep_epochs[-1],
-            )
-        elif key.startswith("fh-tri"):
-            if ep in [fine_tune_keep_epochs[0], fine_tune_keep_epochs[-1]]:
-                decode_triphone(
-                    s,
-                    key=key,
-                    crp_k=crp_k,
-                    returnn_config=returnn_config,
-                    epoch=ep,
-                    prior_epoch_or_key="fh-tri",
-                    tensor_config=TENSOR_CONFIG,
-                    tune=ep == fine_tune_keep_epochs[-1],
-                )
-        else:
-            raise NotImplementedError("Cannot decode multistage monophones")
 
 
 def decode_monophone(
