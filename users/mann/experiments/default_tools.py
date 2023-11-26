@@ -8,8 +8,8 @@ from i6_experiments.users.jxu.experiments.hybrid.switchboard.default_tools impor
 from i6_experiments.common.tools.rasr import compile_rasr_binaries_i6mode
 
 RETURNN_EXE = tk.Path(
-    "/u/mann/bin/returnn_tf2.3.4_mkl_launcher.sh",
-    # "/work/tools/asr/python/3.8.0_tf_2.3.4-haswell+cuda10.1+mkl/bin/python",
+    # "/u/mann/bin/returnn_tf2.3.4_mkl_launcher.sh",
+    "/work/tools/asr/python/3.8.0_tf_2.3.4-haswell+cuda10.1+mkl/bin/python",
     hash_overwrite="GENERIC_RETURNN_LAUNCHER",
 )
 
@@ -25,7 +25,7 @@ BLAS_LIB = tk.Path(
 RASR_BINARY_PATH = tk.Path("/work/tools/asr/rasr/20211217_tf23_cuda101_mkl/arch/linux-x86_64-standard")
 # RASR_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_RASR_BINARY_PATH"
 # RASR_BINARY_PATH.hash_overwrite = "DEFAULT_RASR_BINARY_PATH"
-RASR_BINARY_PATH.hash_overwrite = "SWITCHBOARD_DEFAULT_RASR_BINARY_PATH"
+# RASR_BINARY_PATH.hash_overwrite = "SWITCHBOARD_DEFAULT_RASR_BINARY_PATH"
 
 def SystemWithDefaultTools():
     hybrid_nn_system = HybridSystem(

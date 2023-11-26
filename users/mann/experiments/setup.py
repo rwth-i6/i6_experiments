@@ -97,6 +97,7 @@ def get_returnn_config_custom(
     recognition=False,
     extra_exps=False,
     peak_lr=2e-3,
+    min_lr=None,
     const_lr=False,
     learning_rates=None,
     network_args=None,
@@ -150,10 +151,12 @@ def get_returnn_config_custom(
     )
     if peak_lr or learning_rates:
         import numpy as np
+        if peak_lr and not min_lr:
+            min_lr = peak_lr / 10
         conformer_base_config.update({
-            "learning_rates": list(np.linspace(peak_lr / 10, peak_lr, 100))
-                + list(np.linspace(peak_lr, peak_lr / 10, 100))
-                + list(np.linspace(peak_lr / 10, 1e-8, 60)) if not learning_rates else learning_rates,
+            "learning_rates": list(np.linspace(min_lr, peak_lr, 100))
+                + list(np.linspace(peak_lr, min_lr, 100))
+                + list(np.linspace(min_lr, 1e-8, 60)) if not learning_rates else learning_rates,
             "learning_rate_control": "newbob_multi_epoch",
             "learning_rate_control_min_num_epochs_per_new_lr": 3,
             "learning_rate_control_relative_error_relative_lr": True,
