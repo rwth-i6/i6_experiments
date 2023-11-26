@@ -562,17 +562,28 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             },
         }
     )
+    tri_from_di_newbob_best_epoch_job = returnn.GetBestTFCheckpointJob(
+        model_dir=tri_from_di_train_job.out_model_dir,
+        learning_rates=tri_from_di_train_job.out_learning_rates,
+        key="dev_error_center-output",
+    )
+    import_tri_from_di_sel_config = returnn.ReturnnConfig(
+        config={
+            "preload_from_files": {
+                "existing-model": {
+                    "init_for_train": True,
+                    "ignore_missing": True,
+                    "filename": tri_from_di_newbob_best_epoch_job.out_checkpoint,
+                }
+            },
+        }
+    )
 
     # #################################
     # THREE STAGE MULTI STAGE TRAININGS
     # #################################
 
     di_from_mono_newbob_train_job = s.experiments["fh-di-from-mono"]["train_job"]
-    di_from_mono_newbob_best_epoch_job = returnn.GetBestTFCheckpointJob(
-        model_dir=di_from_mono_newbob_train_job.out_model_dir,
-        learning_rates=di_from_mono_newbob_train_job.out_learning_rates,
-        key="dev_error_center-output",
-    )
     import_di_from_mono_newbob_config = returnn.ReturnnConfig(
         config={
             "preload_from_files": {
@@ -583,6 +594,11 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 }
             },
         }
+    )
+    di_from_mono_newbob_best_epoch_job = returnn.GetBestTFCheckpointJob(
+        model_dir=di_from_mono_newbob_train_job.out_model_dir,
+        learning_rates=di_from_mono_newbob_train_job.out_learning_rates,
+        key="dev_error_center-output",
     )
     import_di_from_mono_newbob_sel_epoch_config = returnn.ReturnnConfig(
         config={
@@ -748,6 +764,10 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_tri_from_di_ft_constlr.update(batch_size_config)
     returnn_cfg_tri_from_di_ft_constlr.update(constant_linear_decrease_lr_config)
     returnn_cfg_tri_from_di_ft_constlr.update(import_tri_from_di_config)
+    returnn_cfg_tri_from_di_sel_ft_constlr = copy.deepcopy(returnn_cfg_tri_ft)
+    returnn_cfg_tri_from_di_sel_ft_constlr.update(batch_size_config)
+    returnn_cfg_tri_from_di_sel_ft_constlr.update(constant_linear_decrease_lr_config)
+    returnn_cfg_tri_from_di_sel_ft_constlr.update(import_tri_from_di_sel_config)
 
     configs = [
         (returnn_cfg_mo_ft_constlr, returnn_cfg_mo, mo_ft_sys, "mono-fs-constlr"),
@@ -757,6 +777,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         (returnn_cfg_di_from_mono_ft_constlr, returnn_cfg_di, di_ft_sys, "di-from-mono-fs-constlr"),
         (returnn_cfg_tri_ft_constlr, returnn_cfg_tri, di_ft_sys, "tri-fs-constlr"),
         (returnn_cfg_tri_from_di_ft_constlr, returnn_cfg_tri, di_ft_sys, "tri-from-di-fs-constlr"),
+        (returnn_cfg_tri_from_di_sel_ft_constlr, returnn_cfg_tri, di_ft_sys, "tri-from-di-sel-fs-constlr"),
     ]
     keys = [f"fh-{name}" for _, _, _, name in configs]
     for (returnn_config, _, sys, name), key in zip(configs, keys):
