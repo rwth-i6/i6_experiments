@@ -420,19 +420,6 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             tune=ep == viterbi_keep_epochs[-1],
         )
 
-    di_fa_train_job = s.experiments["fh-di-fa"]["train_job"]
-    import_di_fa_config = returnn.ReturnnConfig(
-        config={
-            "preload_from_files": {
-                "existing-model": {
-                    "init_for_train": True,
-                    "ignore_missing": True,
-                    "filename": di_fa_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
-                }
-            },
-        }
-    )
-
     di_fa_newbob_train_job = s.experiments["fh-di-fa-newbob"]["train_job"]
     import_di_fa_newbob_config = returnn.ReturnnConfig(
         config={
@@ -504,13 +491,13 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     tri_from_di_fa_cfg.config.pop("network", None)
     tri_from_di_fa_cfg.update(tri_from_di_staged_net_cfg)
     tri_from_di_fa_cfg.update(newbob_lr_config)
-    tri_from_di_fa_cfg.update(import_di_fa_config)
+    tri_from_di_fa_cfg.update(import_di_fa_newbob_config)
 
     configs = [
         (di_from_mono_cfg, returnn_cfg_di, "di-from-mono"),
         (tri_from_mono_cfg, returnn_cfg_tri, "tri-from-mono"),
         (tri_from_di_cfg, returnn_cfg_tri, "tri-from-di"),
-        (tri_from_di_fa_cfg, returnn_cfg_tri, "tri-from-di-fa"),
+        (tri_from_di_fa_cfg, returnn_cfg_tri, "tri-from-di-fa-newbob"),
     ]
     keys = [f"fh-{name}" for _, _, name in configs]
     for (returnn_config, original_returnn_config, name), key in zip(configs, keys):
