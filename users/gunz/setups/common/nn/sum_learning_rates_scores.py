@@ -1,3 +1,4 @@
+import dataclasses
 from dataclasses import dataclass
 from typing import Dict, Iterator, List, Union
 
@@ -18,7 +19,7 @@ class SumScoresInLearningRatesFileJob(Job):
     def run(self):
         @dataclass
         class EpochData:
-            learning_rate: float
+            learningRate: float
             error: Dict[str, float]
 
         with open(self.lr_file, "rt") as f:
@@ -31,8 +32,8 @@ class SumScoresInLearningRatesFileJob(Job):
         assert len(keys) > 0
 
         out_lr = {
-            epoch: EpochData(
-                learning_rate=vals.learning_rate,
+            epoch: dataclasses.replace(
+                vals,
                 error={
                     **vals.error,
                     self.out_key: sum((vals.error[k] for k in keys)),
