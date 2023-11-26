@@ -595,9 +595,9 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         }
     )
 
-    # #####################
-    # MULTI STAGE TRAININGS
-    # #####################
+    # ###############################
+    # TWO STAGE MULTI STAGE TRAININGS
+    # ###############################
 
     di_from_mono_staged_net_cfg = returnn.ReturnnConfig(
         config={"copy_param_mode": "subset"},
@@ -660,6 +660,88 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         (tri_from_mono_cfg, returnn_cfg_tri, "tri-from-mono"),
         (tri_from_di_cfg, returnn_cfg_tri, "tri-from-di"),
         (tri_from_di_fa_cfg, returnn_cfg_tri, "tri-from-di-fa"),
+    ]
+    keys = [f"fh-{name}" for _, _, name in configs]
+    for (returnn_config, original_returnn_config, name), key in zip(configs, keys):
+        post_name = f"conf-{name}-zhou"
+        print(f"ms {post_name}")
+
+        s.set_experiment_dict(key, exp.alignment_name, name, postfix_name=post_name)
+        s.set_returnn_config_for_experiment(key, copy.deepcopy(original_returnn_config))
+
+        train_args = {
+            **s.initial_train_args,
+            "num_epochs": fine_tune_keep_epochs[-1],
+            "partition_epochs": PARTITION_EPOCHS,
+            "returnn_config": copy.deepcopy(returnn_config),
+        }
+        s.returnn_rasr_training(
+            experiment_key=key,
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            nn_train_args=train_args,
+        )
+
+    for ((_, returnn_config, _), key), crp_k, ep in itertools.product(
+        zip(configs, keys), ["dev-other"], fine_tune_keep_epochs
+    ):
+        s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+        if key.startswith("fh-di"):
+            decode_diphone(
+                s,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=returnn_config,
+                epoch=ep,
+                prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
+                tune=ep == fine_tune_keep_epochs[-1],
+            )
+        elif key.startswith("fh-tri"):
+            if ep in [fine_tune_keep_epochs[0], fine_tune_keep_epochs[-1]]:
+                decode_triphone(
+                    s,
+                    key=key,
+                    crp_k=crp_k,
+                    returnn_config=returnn_config,
+                    epoch=ep,
+                    prior_epoch_or_key="fh-tri",
+                    tensor_config=TENSOR_CONFIG,
+                    tune=ep == fine_tune_keep_epochs[-1],
+                )
+        else:
+            raise NotImplementedError("Cannot decode multistage monophones")
+
+    # #################################
+    # THREE STAGE MULTI STAGE TRAININGS
+    # #################################
+
+    di_from_mono_newbob_train_job = s.experiments["fh-di-from-mono"]["train_job"]
+    di_from_mono_newbob_best_epoch_job = returnn.GetBestTFCheckpointJob(
+        model_dir=di_from_mono_newbob_train_job.out_model_dir,
+        learning_rates=di_from_mono_newbob_train_job.out_learning_rates,
+        key="dev_error_center-output",
+    )
+    di_from_mono_newbob_import_config = returnn.ReturnnConfig(
+        config={
+            "preload_from_files": {
+                "existing-model": {
+                    "init_for_train": True,
+                    "ignore_missing": True,
+                    "filename": di_from_mono_newbob_best_epoch_job.out_checkpoint,
+                }
+            },
+        }
+    )
+
+    tri_from_di_from_mono_cfg = copy.deepcopy(returnn_cfg_tri)
+    tri_from_di_from_mono_cfg.config.pop("network", None)
+    tri_from_di_from_mono_cfg.update(tri_from_di_staged_net_cfg)
+    tri_from_di_from_mono_cfg.update(newbob_lr_config)
+    tri_from_di_from_mono_cfg.update(di_from_mono_newbob_import_config)
+
+    configs = [
+        (tri_from_di_from_mono_cfg, returnn_cfg_tri, "tri-from-di-from-mono"),
     ]
     keys = [f"fh-{name}" for _, _, name in configs]
     for (returnn_config, original_returnn_config, name), key in zip(configs, keys):
