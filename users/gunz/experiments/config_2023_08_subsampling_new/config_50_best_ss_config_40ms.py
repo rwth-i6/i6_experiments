@@ -573,7 +573,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         learning_rates=di_from_mono_newbob_train_job.out_learning_rates,
         key="dev_error_center-output",
     )
-    di_from_mono_newbob_import_config = returnn.ReturnnConfig(
+    import_di_from_mono_newbob_config = returnn.ReturnnConfig(
         config={
             "preload_from_files": {
                 "existing-model": {
@@ -589,7 +589,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     tri_from_di_from_mono_cfg.config.pop("network", None)
     tri_from_di_from_mono_cfg.update(tri_from_di_staged_net_cfg)
     tri_from_di_from_mono_cfg.update(newbob_lr_config)
-    tri_from_di_from_mono_cfg.update(di_from_mono_newbob_import_config)
+    tri_from_di_from_mono_cfg.update(import_di_from_mono_newbob_config)
 
     configs = [
         (tri_from_di_from_mono_cfg, returnn_cfg_tri, "tri-from-di-from-mono"),
@@ -707,7 +707,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_di_from_mono_ft_constlr = copy.deepcopy(returnn_cfg_di_ft)
     returnn_cfg_di_from_mono_ft_constlr.update(batch_size_config)
     returnn_cfg_di_from_mono_ft_constlr.update(constant_linear_decrease_lr_config)
-    returnn_cfg_di_from_mono_ft_constlr.update(di_from_mono_newbob_import_config)
+    returnn_cfg_di_from_mono_ft_constlr.update(import_di_from_mono_newbob_config)
 
     returnn_cfg_tri_ft = remove_label_pops_and_losses_from_returnn_config(returnn_cfg_tri)
     returnn_cfg_tri_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
