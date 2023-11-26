@@ -4,6 +4,12 @@ from typing import Dict, Iterator, List, Union
 
 from sisyphus import tk, Job, Path, Task
 
+# must be defined here for repr to work
+@dataclass
+class EpochData:
+    learningRate: float
+    error: Dict[str, float]
+
 
 class SumScoresInLearningRatesFileJob(Job):
     def __init__(self, lr_file: Path, keys: Union[tk.Variable, List[str]], out_key: str = "sum_score"):
@@ -17,10 +23,6 @@ class SumScoresInLearningRatesFileJob(Job):
         yield Task("run", mini_task=True)
 
     def run(self):
-        @dataclass
-        class EpochData:
-            learningRate: float
-            error: Dict[str, float]
 
         with open(self.lr_file, "rt") as f:
             data: Dict[int, EpochData] = eval(
