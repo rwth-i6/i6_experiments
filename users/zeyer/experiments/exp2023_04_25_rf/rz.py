@@ -52,5 +52,5 @@ def py():
         config_24gb_v4,
         config_updates={"torch_distributed": {}},
         gpu_mem=32,
-        num_processes=16,
+        num_processes=1,
     )
