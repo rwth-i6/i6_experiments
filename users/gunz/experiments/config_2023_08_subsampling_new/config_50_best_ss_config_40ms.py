@@ -134,7 +134,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     CONF_MODEL_DIM = 512
     PARTITION_EPOCHS = {"train": 20, "dev": 1}
     SS_FACTOR = 4
-    SUM_SCORE_KEYS_DI = ["dev_error_center-output", "dev_error_left-output"]
+    SUM_SCORE_KEYS_DI = ["dev_score_center-output", "dev_score_left-output"]
     TENSOR_CONFIG = dataclasses.replace(
         CONF_FH_DECODING_TENSOR_CONFIG,
         in_encoder_output="conformer_12_output/add",
