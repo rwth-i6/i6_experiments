@@ -21,6 +21,7 @@ import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.common.analysis import PlotViterbiAlignmentsJob
 from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
+from ...setups.common.nn.sum_learning_rates_scores import SumScoresInLearningRatesFileJob
 from ...setups.fh import system as fh_system
 from ...setups.fh.decoder.search import DecodingTensorMap
 from ...setups.fh.factored import LabelInfo, PhoneticContext, RasrStateTying
@@ -133,6 +134,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     CONF_MODEL_DIM = 512
     PARTITION_EPOCHS = {"train": 20, "dev": 1}
     SS_FACTOR = 4
+    SUM_SCORE_KEYS_DI = ["dev_error_center-output", "dev_error_left-output"]
     TENSOR_CONFIG = dataclasses.replace(
         CONF_FH_DECODING_TENSOR_CONFIG,
         in_encoder_output="conformer_12_output/add",
@@ -564,8 +566,10 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     )
     tri_from_di_newbob_best_epoch_job = returnn.GetBestTFCheckpointJob(
         model_dir=tri_from_di_train_job.out_model_dir,
-        learning_rates=tri_from_di_train_job.out_learning_rates,
-        key="dev_error_center-output",
+        learning_rates=SumScoresInLearningRatesFileJob(
+            tri_from_di_train_job.out_learning_rates, keys=SUM_SCORE_KEYS_DI
+        ).out_learning_rates,
+        key="sum_score",
     )
     import_tri_from_di_sel_config = returnn.ReturnnConfig(
         config={
@@ -597,8 +601,10 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     )
     di_from_mono_newbob_best_epoch_job = returnn.GetBestTFCheckpointJob(
         model_dir=di_from_mono_newbob_train_job.out_model_dir,
-        learning_rates=di_from_mono_newbob_train_job.out_learning_rates,
-        key="dev_error_center-output",
+        learning_rates=SumScoresInLearningRatesFileJob(
+            di_from_mono_newbob_train_job.out_learning_rates, keys=SUM_SCORE_KEYS_DI
+        ).out_learning_rates,
+        key="sum_score",
     )
     import_di_from_mono_newbob_sel_epoch_config = returnn.ReturnnConfig(
         config={
