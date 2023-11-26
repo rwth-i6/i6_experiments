@@ -652,6 +652,8 @@ def main():
     the_plan()
     quant_data_util()
 
+    best()
+
     viterbi_30ms()
     viterbi_40ms()
     viterbi_60ms()
