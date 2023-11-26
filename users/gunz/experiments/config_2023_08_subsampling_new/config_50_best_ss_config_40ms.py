@@ -463,6 +463,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 key=key,
                 crp_k=crp_k,
                 returnn_config=orig_returnn_config,
+                graph_config=orig_returnn_config,
                 epoch=ep,
                 prior_epoch_or_key="fh-tri",
                 tensor_config=TENSOR_CONFIG,
@@ -947,6 +948,7 @@ def decode_triphone(
     prior_epoch_or_key: typing.Union[int, str],
     tensor_config: DecodingTensorMap,
     tune: bool,
+    graph_config: typing.Optional[returnn.ReturnnConfig] = None,
 ):
     s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
@@ -962,6 +964,10 @@ def decode_triphone(
         )
     else:
         s.experiments[key]["priors"] = s.experiments[prior_epoch_or_key]["priors"]
+
+    if graph_config:
+        s.set_graph_for_experiment(key=key, override_cfg=graph_config)
+
     recognizer, recog_args = s.get_recognizer_and_args(
         key=key,
         context_type=PhoneticContext.triphone_forward,
