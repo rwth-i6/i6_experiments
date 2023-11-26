@@ -322,156 +322,6 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         }
     )
 
-    # ####################
-    # FULL-SUM FINE TUNING
-    # ####################
-    batch_size_config = returnn.ReturnnConfig(config={"batch_size": 10_000})
-
-    mo_ft_sys = copy.deepcopy(s)
-    mo_ft_sys.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
-    mo_ft_sys.lexicon_args["norm_pronunciation"] = False
-    mo_ft_sys._update_am_setting_for_all_crps(
-        train_tdp_type="heuristic",
-        eval_tdp_type="heuristic",
-        add_base_allophones=False,
-    )
-    returnn_cfg_mo_ft = remove_label_pops_and_losses_from_returnn_config(returnn_cfg_mo)
-    returnn_cfg_mo_ft = baum_welch.augment_for_fast_bw(
-        crp=mo_ft_sys.crp[s.crp_names["train"]],
-        from_output_layer="center-output",
-        returnn_config=returnn_cfg_mo_ft,
-        log_linear_scales=baum_welch.BwScales(label_posterior_scale=1.0, transition_scale=0.3),
-    )
-    returnn_cfg_mo_ft_constlr = copy.deepcopy(returnn_cfg_mo_ft)
-    returnn_cfg_mo_ft_constlr.update(batch_size_config)
-    returnn_cfg_mo_ft_constlr.update(constant_linear_decrease_lr_config)
-    returnn_cfg_mo_ft_constlr.update(import_mono_config)
-    returnn_cfg_mo_ft_newbob = copy.deepcopy(returnn_cfg_mo_ft)
-    returnn_cfg_mo_ft_newbob.update(batch_size_config)
-    returnn_cfg_mo_ft_newbob.update(newbob_lr_config)
-    returnn_cfg_mo_ft_newbob.update(import_mono_config)
-
-    di_ft_sys = copy.deepcopy(s)
-    di_ft_sys.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
-    di_ft_sys.lexicon_args["norm_pronunciation"] = False
-    di_ft_sys._update_am_setting_for_all_crps(
-        train_tdp_type="heuristic",
-        eval_tdp_type="heuristic",
-        add_base_allophones=False,
-    )
-    returnn_cfg_di_ft = remove_label_pops_and_losses_from_returnn_config(returnn_cfg_di)
-    returnn_cfg_di_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
-        returnn_config=returnn_cfg_di_ft,
-        label_info=di_ft_sys.label_info,
-        out_joint_score_layer="output",
-        log_softmax=True,
-        prepare_for_train=True,
-    )
-    returnn_cfg_di_ft = baum_welch.augment_for_fast_bw(
-        crp=di_ft_sys.crp[s.crp_names["train"]],
-        from_output_layer="output",
-        returnn_config=returnn_cfg_di_ft,
-        log_linear_scales=baum_welch.BwScales(label_posterior_scale=1.0, transition_scale=0.3),
-    )
-    returnn_cfg_di_ft_constlr = copy.deepcopy(returnn_cfg_di_ft)
-    returnn_cfg_di_ft_constlr.update(batch_size_config)
-    returnn_cfg_di_ft_constlr.update(constant_linear_decrease_lr_config)
-    returnn_cfg_di_ft_constlr.update(import_di_config)
-    returnn_cfg_di_ft_newbob = copy.deepcopy(returnn_cfg_di_ft)
-    returnn_cfg_di_ft_newbob.update(batch_size_config)
-    returnn_cfg_di_ft_newbob.update(newbob_lr_config)
-    returnn_cfg_di_ft_newbob.update(import_di_config)
-
-    returnn_cfg_tri_ft = remove_label_pops_and_losses_from_returnn_config(returnn_cfg_tri)
-    returnn_cfg_tri_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
-        returnn_config=returnn_cfg_tri_ft,
-        label_info=di_ft_sys.label_info,
-        out_joint_score_layer="output",
-        log_softmax=True,
-        prepare_for_train=True,
-    )
-    returnn_cfg_tri_ft = baum_welch.augment_for_fast_bw(
-        crp=di_ft_sys.crp[s.crp_names["train"]],
-        from_output_layer="output",
-        returnn_config=returnn_cfg_tri_ft,
-        log_linear_scales=baum_welch.BwScales(label_posterior_scale=1.0, transition_scale=0.3),
-    )
-    returnn_cfg_tri_ft_constlr = copy.deepcopy(returnn_cfg_tri_ft)
-    returnn_cfg_tri_ft_constlr.update(batch_size_config)
-    returnn_cfg_tri_ft_constlr.update(constant_linear_decrease_lr_config)
-    returnn_cfg_tri_ft_constlr.update(import_tri_config)
-
-    configs = [
-        (returnn_cfg_mo_ft_constlr, returnn_cfg_mo, mo_ft_sys, "mono-fs-constlr"),
-        (returnn_cfg_mo_ft_newbob, returnn_cfg_mo, mo_ft_sys, "mono-fs-newbob"),
-        (returnn_cfg_di_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-constlr"),
-        (returnn_cfg_di_ft_newbob, returnn_cfg_di, di_ft_sys, "di-fs-newbob"),
-        (returnn_cfg_tri_ft_constlr, returnn_cfg_tri, di_ft_sys, "tri-fs-constlr"),
-    ]
-    keys = [f"fh-{name}" for _, _, _, name in configs]
-    for (returnn_config, _, sys, name), key in zip(configs, keys):
-        post_name = f"conf-{name}-zhou"
-        print(f"bw {post_name}")
-
-        sys.set_experiment_dict(key, "bw", name, postfix_name=post_name)
-        sys.set_returnn_config_for_experiment(key, copy.deepcopy(returnn_config))
-
-        train_args = {
-            **s.initial_train_args,
-            "num_epochs": fine_tune_keep_epochs[-1],
-            "partition_epochs": PARTITION_EPOCHS,
-            "returnn_config": copy.deepcopy(returnn_config),
-        }
-        sys.returnn_rasr_training(
-            experiment_key=key,
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            nn_train_args=train_args,
-        )
-
-    for ((_, orig_returnn_config, sys, _), key), crp_k, ep in itertools.product(
-        zip(configs, keys), ["dev-other"], fine_tune_keep_epochs
-    ):
-        sys.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
-
-        if "mono" in key:
-            decode_monophone(
-                sys,
-                key=key,
-                crp_k=crp_k,
-                returnn_config=orig_returnn_config,
-                epoch=ep,
-                prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
-                tune=ep == fine_tune_keep_epochs[-1],
-            )
-        elif "di" in key:
-            decode_diphone(
-                sys,
-                key=key,
-                crp_k=crp_k,
-                returnn_config=orig_returnn_config,
-                epoch=ep,
-                prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
-                tune=ep == fine_tune_keep_epochs[-1],
-            )
-        elif "tri" in key:
-            if ep not in [fine_tune_keep_epochs[0], fine_tune_keep_epochs[-1]]:
-                continue
-
-            decode_triphone(
-                sys,
-                key=key,
-                crp_k=crp_k,
-                returnn_config=orig_returnn_config,
-                graph_config=orig_returnn_config,
-                epoch=ep,
-                prior_epoch_or_key="fh-tri",
-                tensor_config=TENSOR_CONFIG,
-                tune=ep == fine_tune_keep_epochs[-1],
-            )
-        else:
-            raise NotImplementedError("Cannot bw-fine-tune triphones")
-
     # #####################
     # FORCE-ALIGNED DIPHONE
     # #####################
@@ -794,6 +644,161 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 )
         else:
             raise NotImplementedError("Cannot decode multistage monophones")
+
+    # ####################
+    # FULL-SUM FINE TUNING
+    # ####################
+    batch_size_config = returnn.ReturnnConfig(config={"batch_size": 10_000})
+
+    mo_ft_sys = copy.deepcopy(s)
+    mo_ft_sys.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
+    mo_ft_sys.lexicon_args["norm_pronunciation"] = False
+    mo_ft_sys._update_am_setting_for_all_crps(
+        train_tdp_type="heuristic",
+        eval_tdp_type="heuristic",
+        add_base_allophones=False,
+    )
+    returnn_cfg_mo_ft = remove_label_pops_and_losses_from_returnn_config(returnn_cfg_mo)
+    returnn_cfg_mo_ft = baum_welch.augment_for_fast_bw(
+        crp=mo_ft_sys.crp[s.crp_names["train"]],
+        from_output_layer="center-output",
+        returnn_config=returnn_cfg_mo_ft,
+        log_linear_scales=baum_welch.BwScales(label_posterior_scale=1.0, transition_scale=0.3),
+    )
+    returnn_cfg_mo_ft_constlr = copy.deepcopy(returnn_cfg_mo_ft)
+    returnn_cfg_mo_ft_constlr.update(batch_size_config)
+    returnn_cfg_mo_ft_constlr.update(constant_linear_decrease_lr_config)
+    returnn_cfg_mo_ft_constlr.update(import_mono_config)
+    returnn_cfg_mo_ft_newbob = copy.deepcopy(returnn_cfg_mo_ft)
+    returnn_cfg_mo_ft_newbob.update(batch_size_config)
+    returnn_cfg_mo_ft_newbob.update(newbob_lr_config)
+    returnn_cfg_mo_ft_newbob.update(import_mono_config)
+
+    di_ft_sys = copy.deepcopy(s)
+    di_ft_sys.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+    di_ft_sys.lexicon_args["norm_pronunciation"] = False
+    di_ft_sys._update_am_setting_for_all_crps(
+        train_tdp_type="heuristic",
+        eval_tdp_type="heuristic",
+        add_base_allophones=False,
+    )
+    returnn_cfg_di_ft = remove_label_pops_and_losses_from_returnn_config(returnn_cfg_di)
+    returnn_cfg_di_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
+        returnn_config=returnn_cfg_di_ft,
+        label_info=di_ft_sys.label_info,
+        out_joint_score_layer="output",
+        log_softmax=True,
+        prepare_for_train=True,
+    )
+    returnn_cfg_di_ft = baum_welch.augment_for_fast_bw(
+        crp=di_ft_sys.crp[s.crp_names["train"]],
+        from_output_layer="output",
+        returnn_config=returnn_cfg_di_ft,
+        log_linear_scales=baum_welch.BwScales(label_posterior_scale=1.0, transition_scale=0.3),
+    )
+    returnn_cfg_di_ft_constlr = copy.deepcopy(returnn_cfg_di_ft)
+    returnn_cfg_di_ft_constlr.update(batch_size_config)
+    returnn_cfg_di_ft_constlr.update(constant_linear_decrease_lr_config)
+    returnn_cfg_di_ft_constlr.update(import_di_config)
+    returnn_cfg_di_ft_newbob = copy.deepcopy(returnn_cfg_di_ft)
+    returnn_cfg_di_ft_newbob.update(batch_size_config)
+    returnn_cfg_di_ft_newbob.update(newbob_lr_config)
+    returnn_cfg_di_ft_newbob.update(import_di_config)
+    returnn_cfg_di_from_mono_ft_constlr = copy.deepcopy(returnn_cfg_di_ft)
+    returnn_cfg_di_from_mono_ft_constlr.update(batch_size_config)
+    returnn_cfg_di_from_mono_ft_constlr.update(constant_linear_decrease_lr_config)
+    returnn_cfg_di_from_mono_ft_constlr.update(di_from_mono_newbob_import_config)
+
+    returnn_cfg_tri_ft = remove_label_pops_and_losses_from_returnn_config(returnn_cfg_tri)
+    returnn_cfg_tri_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
+        returnn_config=returnn_cfg_tri_ft,
+        label_info=di_ft_sys.label_info,
+        out_joint_score_layer="output",
+        log_softmax=True,
+        prepare_for_train=True,
+    )
+    returnn_cfg_tri_ft = baum_welch.augment_for_fast_bw(
+        crp=di_ft_sys.crp[s.crp_names["train"]],
+        from_output_layer="output",
+        returnn_config=returnn_cfg_tri_ft,
+        log_linear_scales=baum_welch.BwScales(label_posterior_scale=1.0, transition_scale=0.3),
+    )
+    returnn_cfg_tri_ft_constlr = copy.deepcopy(returnn_cfg_tri_ft)
+    returnn_cfg_tri_ft_constlr.update(batch_size_config)
+    returnn_cfg_tri_ft_constlr.update(constant_linear_decrease_lr_config)
+    returnn_cfg_tri_ft_constlr.update(import_tri_config)
+
+    configs = [
+        (returnn_cfg_mo_ft_constlr, returnn_cfg_mo, mo_ft_sys, "mono-fs-constlr"),
+        (returnn_cfg_mo_ft_newbob, returnn_cfg_mo, mo_ft_sys, "mono-fs-newbob"),
+        (returnn_cfg_di_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-constlr"),
+        (returnn_cfg_di_ft_newbob, returnn_cfg_di, di_ft_sys, "di-fs-newbob"),
+        (returnn_cfg_di_from_mono_ft_constlr, returnn_cfg_di, di_ft_sys, "di-from-mono-fs-constlr"),
+        (returnn_cfg_tri_ft_constlr, returnn_cfg_tri, di_ft_sys, "tri-fs-constlr"),
+    ]
+    keys = [f"fh-{name}" for _, _, _, name in configs]
+    for (returnn_config, _, sys, name), key in zip(configs, keys):
+        post_name = f"conf-{name}-zhou"
+        print(f"bw {post_name}")
+
+        sys.set_experiment_dict(key, "bw", name, postfix_name=post_name)
+        sys.set_returnn_config_for_experiment(key, copy.deepcopy(returnn_config))
+
+        train_args = {
+            **s.initial_train_args,
+            "num_epochs": fine_tune_keep_epochs[-1],
+            "partition_epochs": PARTITION_EPOCHS,
+            "returnn_config": copy.deepcopy(returnn_config),
+        }
+        sys.returnn_rasr_training(
+            experiment_key=key,
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            nn_train_args=train_args,
+        )
+
+    for ((_, orig_returnn_config, sys, _), key), crp_k, ep in itertools.product(
+        zip(configs, keys), ["dev-other"], fine_tune_keep_epochs
+    ):
+        sys.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+        if "mono" in key:
+            decode_monophone(
+                sys,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=orig_returnn_config,
+                epoch=ep,
+                prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
+                tune=ep == fine_tune_keep_epochs[-1],
+            )
+        elif "di" in key:
+            decode_diphone(
+                sys,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=orig_returnn_config,
+                epoch=ep,
+                prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
+                tune=ep == fine_tune_keep_epochs[-1],
+            )
+        elif "tri" in key:
+            if ep not in [fine_tune_keep_epochs[0], fine_tune_keep_epochs[-1]]:
+                continue
+
+            decode_triphone(
+                sys,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=orig_returnn_config,
+                graph_config=orig_returnn_config,
+                epoch=ep,
+                prior_epoch_or_key="fh-tri",
+                tensor_config=TENSOR_CONFIG,
+                tune=ep == fine_tune_keep_epochs[-1],
+            )
+        else:
+            raise NotImplementedError("Cannot bw-fine-tune triphones")
 
 
 def decode_monophone(
