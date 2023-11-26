@@ -26,6 +26,7 @@ def train(
     init_params: Optional[Checkpoint] = None,
     extra_hash: Any = None,
     gpu_mem: Optional[int] = None,
+    num_processes: Optional[int] = None,
     **kwargs,
 ) -> ModelWithCheckpoints:
     """
@@ -138,7 +139,12 @@ def train(
 
     kwargs = kwargs.copy()
     for k, v in dict(
-        log_verbosity=5, num_epochs=150, time_rqmt=80, mem_rqmt=30 if gpu_mem and gpu_mem > 11 else 15, cpu_rqmt=4
+        log_verbosity=5,
+        num_epochs=150,
+        time_rqmt=10,  # TODO change back to 80, only temporary
+        mem_rqmt=30 if gpu_mem and gpu_mem > 11 else 15,
+        cpu_rqmt=4 if (not num_processes or num_processes <= 4) else 3,
+        horovod_num_processes=num_processes,  # legacy name but also applies for Torch
     ).items():
         kwargs.setdefault(k, v)
     returnn_train_job = ReturnnTrainingJob(returnn_train_config, **kwargs)

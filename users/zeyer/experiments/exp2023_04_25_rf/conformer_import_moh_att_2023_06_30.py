@@ -310,7 +310,7 @@ def train_exp(
         train_def=from_scratch_training,
         num_epochs=num_epochs,
         gpu_mem=gpu_mem,
-        horovod_num_processes=num_processes,  # legacy name but also applies for Torch
+        num_processes=num_processes,
         distributed_launch_cmd="torchrun" if num_processes else "mpirun",
     )
     recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)

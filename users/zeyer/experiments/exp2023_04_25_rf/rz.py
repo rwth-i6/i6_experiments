@@ -51,6 +51,6 @@ def py():
         "base-24gb-v4-mgpu16",
         config_24gb_v4,
         config_updates={"torch_distributed": {}},
-        gpu_mem=1,
+        gpu_mem=32,
         num_processes=16,
     )
