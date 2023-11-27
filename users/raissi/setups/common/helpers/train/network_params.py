@@ -26,11 +26,11 @@ class GeneralNetworkParams:
     use_multi_task: Optional[bool] = True
     add_mlps: Optional[bool] = True
     specaug_args: Optional[dict] = None
-    subsampling_factor: Optional[int] = 1
+    frame_rate_reduction_ratio_factor: Optional[int] = 1
 
     def __post_init__(self):
-        if self.subsampling_factor > 1:
-            self.chunking = train_helpers.chunking_with_nfactor(self.chunking, self.subsampling_factor)
+        if self.frame_rate_reduction_ratio_factor > 1:
+            self.chunking = train_helpers.chunking_with_nfactor(self.chunking, self.frame_rate_reduction_ratio_factor)
 
 
 # SpecAug params
@@ -39,5 +39,4 @@ default_sa_args = SpecAugmentParams()
 
 # no chunking for full-sum
 default_blstm_fullsum = GeneralNetworkParams(l2=1e-3, use_multi_task=False, add_mlps=False)
-
 default_conformer_viterbi = GeneralNetworkParams(chunking="400:200", l2=1e-6, specaug_args=asdict(default_sa_args))

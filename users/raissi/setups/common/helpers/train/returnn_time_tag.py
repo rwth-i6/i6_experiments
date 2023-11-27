@@ -2,13 +2,16 @@ __all__ = ["get_shared_time_tag", "get_context_dim_tag_prolog"]
 
 
 from textwrap import dedent
-import typing
+from typing import Tuple
 
 from i6_core import returnn
 
 
-def get_shared_time_tag() -> typing.Tuple[str, str]:
-    var_name = "__time_tag__"
+def get_default_time_tag_str() -> str:
+    return "__time_tag__"
+
+def get_shared_time_tag() -> Tuple[str, str]:
+    var_name = get_default_time_tag_str()
     code = dedent(
         f"""
         from returnn.tf.util.data import Dim
@@ -24,7 +27,7 @@ def get_context_dim_tag_prolog(
     context_type: str,
     spatial_dim_variable_name: str,
     feature_dim_variable_name: str,
-) -> typing.Tuple[str, returnn.CodeWrapper, returnn.CodeWrapper]:
+) -> Tuple[str, returnn.CodeWrapper, returnn.CodeWrapper]:
     code = dedent(
         f"""
         from returnn.tf.util.data import FeatureDim, SpatialDim

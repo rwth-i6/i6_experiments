@@ -61,6 +61,7 @@ from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
 from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo
 from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import BASEFactoredHybridDecoder
 from i6_experiments.users.raissi.setups.common.decoder.config import PriorInfo, PosteriorScales, SearchParameters
+from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
 from i6_experiments.users.raissi.setups.common.util.hdf import RasrFeaturesToHdf
 from i6_experiments.users.raissi.costum.returnn.rasr_returnn_bw import ReturnnRasrTrainingBWJob
 
@@ -124,6 +125,7 @@ class BASEFactoredHybridSystem(NnSystem):
 
         # general modeling approach
         self.label_info = LabelInfo.default_ls()
+        self.frame_rate_reduction_ratio_info = FrameRateReductionRatioinfo.default()
         self.lexicon_args = get_lexicon_args(norm_pronunciation=False)
         self.tdp_values = get_tdp_values()
 

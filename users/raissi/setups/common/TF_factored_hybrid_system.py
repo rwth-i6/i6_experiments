@@ -224,19 +224,29 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         return network
 
-    def get_conformer_network(self, chunking: str, conf_model_dim: int, label_smoothing: float = 0.0, **kwargs):
+    def get_conformer_network(
+        self,
+        chunking: str,
+        conf_model_dim: int,
+        frame_rate_reduction_ratio_info: net_helpers.FrameRateReductionRatioinfo,
+        label_smoothing: float = 0.0,
+        **kwargs,
+    ):
         # this only includes auxilaury losses
         network_builder = encoder_archs.conformer.get_best_conformer_network(
             size=conf_model_dim,
             num_classes=self.label_info.get_n_of_dense_classes(),
             num_input_feature=self.initial_nn_args["num_input"],
+            time_tag_name=frame_rate_reduction_ratio_info.time_tag_name,
             chunking=chunking,
             label_smoothing=label_smoothing,
-            additional_args=kwargs,
+            additional_args=kwargs,  # subsampling factor is passed here
         )
         network = network_builder.network
         if self.training_criterion != TrainingCriterion.fullsum:
-            network = net_helpers.augment.augment_net_with_label_pops(network, label_info=self.label_info)
+            network = net_helpers.augment.augment_net_with_label_pops(
+                network, label_info=self.label_info, frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info
+            )
         return network
 
     # -------------------- Decoding --------------------
@@ -246,6 +256,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         for crp_k in self.crp_names.keys():
             if "train" not in crp_k:
                 self._update_crp_am_setting_for_decoding(self.crp_names[crp_k])
+
     def _compute_returnn_rasr_priors(
         self,
         key: str,
@@ -419,7 +430,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             returnn_config=config,
             share=data_share,
         )
-
 
         job.add_alias(f"priors/{name}/single_prior")
         if context_type == PhoneticContext.monophone:

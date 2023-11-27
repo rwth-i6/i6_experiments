@@ -8,6 +8,7 @@ from i6_experiments.users.raissi.setups.common.encoder.conformer.get_network_arg
     get_network_args,
 )
 
+from i6_experiments.users.raissi.setups.common.encoder.conformer.layers import DEFAULT_INIT
 from i6_experiments.users.raissi.setups.common.encoder.conformer.transformer_network import attention_for_hybrid
 
 INT_LOSS_LAYER = 6
@@ -34,6 +35,9 @@ def get_best_model_config(
     label_smoothing: Optional[float] = None,
     target: str = "classes",
     time_tag_name: Optional[str] = None,
+    upsample_by_transposed_conv: bool = True,
+    feature_stacking_size: int = 3,
+    weights_init: str = DEFAULT_INIT,
     additional_args: Optional[dict] = None,
 ) -> attention_for_hybrid:
     if int_loss_at_layer is None:
@@ -59,31 +63,30 @@ def get_best_model_config(
         32,
         0.1,
         0.0,
-        **{
-            "relative_pe": True,
-            "clipping": clipping,
-            "layer_norm_instead_of_batch_norm": True,
-        },
+        clipping=clipping,
+        layer_norm_instead_of_batch_norm=True,
+        relative_pe=True,
+        initialization=weights_init,
     )
 
-    loss6_down_up_3_two_vggs_args = {
+    args = {
         "add_blstm_block": False,
         "add_conv_block": True,
         "loss_layer_idx": int_loss_at_layer,
         "loss_scale": int_loss_scale,
         "feature_stacking": True,
-        "feature_stacking_window": [2, 0],
-        "feature_stacking_stride": 3,
-        "transposed_conv": True,
+        "feature_stacking_window": [feature_stacking_size - 1, 0],
+        "feature_stacking_stride": feature_stacking_size,
+        "transposed_conv": upsample_by_transposed_conv,
         "transposed_conv_args": {
             "time_tag_name": time_tag_name,
         },
     }
 
     if additional_args is not None:
-        loss6_down_up_3_two_vggs_args.update(**additional_args)
+        args.update(**additional_args)
 
-    pe400_conformer_down_up_3_loss6_args = get_network_args(
+    configured_args = get_network_args(
         num_enc_layers=12,
         type="conformer",
         enc_args=pe400_enc_args,
@@ -91,10 +94,10 @@ def get_best_model_config(
         num_classes=num_classes,
         num_input_feature=num_input_feature,
         label_smoothing=label_smoothing,
-        **loss6_down_up_3_two_vggs_args,
+        **args,
     )
 
-    pe400_conformer_layer_norm_down_up_3_loss6 = attention_for_hybrid(**pe400_conformer_down_up_3_loss6_args)
-    pe400_conformer_layer_norm_down_up_3_loss6.get_network()
+    conformer = attention_for_hybrid(**configured_args)
+    conformer.get_network()
 
-    return pe400_conformer_layer_norm_down_up_3_loss6
+    return conformer

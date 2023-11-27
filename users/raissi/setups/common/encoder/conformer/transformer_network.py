@@ -28,7 +28,7 @@ class attention_for_hybrid:
         focal_loss_factor=2.0,
         softmax_dropout=0.0,
         use_spec_augment=True,
-        spec_aug_as_data=True,
+        spec_aug_as_data=False,
         use_pos_encoding=False,
         add_to_input=True,
         src_embed_args=None,
@@ -64,7 +64,6 @@ class attention_for_hybrid:
         assert type in ["transformer", "conformer"]
 
         # TODO: attention window left and right
-
         if type == "transformer":
             enc_args.pop("kernel_size", None)
             enc_args.pop("conv_post_dropout", None)
@@ -197,8 +196,11 @@ class attention_for_hybrid:
         if (feature_stacking and feature_stacking_stride >= 2) or (
             reduction_factor and reduction_factor[0] * reduction_factor[1] >= 2
         ):
-            assert alignment_reduction or transposed_conv or frame_repetition
-            assert (alignment_reduction + transposed_conv + frame_repetition) == 1
+            # Old asserts from when everything was upsampled
+            #
+            # assert alignment_reduction or transposed_conv or frame_repetition
+            # assert (alignment_reduction + transposed_conv + frame_repetition) == 1
+            pass
         else:
             alignment_reduction = transposed_conv = frame_repetition = False
 
@@ -488,12 +490,12 @@ class attention_for_hybrid:
 
         if self.conv_args:
             for name in [
-                "conv0_0",
-                "conv0_1",
-                "conv0p",
-                "conv1_0",
-                "conv1_1",
-                "conv1p",
+                f"{prefix}conv0_0",
+                f"{prefix}conv0_1",
+                f"{prefix}conv0p",
+                f"{prefix}conv1_0",
+                f"{prefix}conv1_1",
+                f"{prefix}conv1p",
             ]:
                 if self.conv_args.get(name, None):
                     self.network[name].update(self.conv_args.pop(name))

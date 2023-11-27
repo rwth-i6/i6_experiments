@@ -6,7 +6,7 @@ def blstm_network(
     dropout: float = 0.1,
     l2: float = 0.1,
     specaugment: bool = True,
-    as_data: bool = False,
+    spec_aug_as_data: bool = False,
     transform_func_name: str = "transform",
 ):
     num_layers = len(layers)
@@ -15,8 +15,8 @@ def blstm_network(
     result = {}
 
     if specaugment:
-        if as_data:
-            eval_str = f"self.network.get_config().typed_value('{transform_func_name}')(source(0, as_data={as_data}), network=self.network)"
+        if spec_aug_as_data:
+            eval_str = f"self.network.get_config().typed_value('{transform_func_name}')(source(0, as_data={spec_aug_as_data}), network=self.network)"
         else:
             eval_str = (
                 f"self.network.get_config().typed_value('{transform_func_name}')(source(0), network=self.network)"
