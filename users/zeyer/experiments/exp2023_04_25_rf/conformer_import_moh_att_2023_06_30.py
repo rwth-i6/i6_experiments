@@ -44,7 +44,19 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     _recog_imported()
 
-    train_exp("from-scratch-train", config, gpu_mem=None)
+    train_exp("from-scratch-train", config, gpu_mem=11)
+
+    train_exp(
+        "v6-11gb-bs15k-accgrad4-mgpu2",
+        config_24gb_v6,
+        config_updates={
+            "batch_size": 15_000 * _batch_size_factor,
+            "accum_grad_multiple_step": 4,
+            "torch_distributed": {},  # multi-GPU
+        },
+        gpu_mem=11,
+        num_processes=2,  # multi-GPU
+    )
 
     train_exp(  # dev-other 7.6
         "base-24gb-bs30k-f32",
@@ -223,6 +235,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     train_exp("base-24gb-v5", config_24gb_v5)
     train_exp("base-24gb-v5-embInit1", config_24gb_v5, config_updates={"embed_init_stddev": 1.0})
     train_exp("base-24gb-v5-mixup", config_24gb_v5, config_updates={"mixup": {}})
+
+    train_exp("base-24gb-v6", config_24gb_v6)
 
 
 _sis_prefix: Optional[str] = None
@@ -480,7 +494,6 @@ config_24gb_v5 = dict_update_delete_deep(
     ],
 )
 
-# TODO WIP
 config_24gb_v6 = dict_update_delete_deep(config_24gb_v5, ["pretrain_opts"])
 
 
