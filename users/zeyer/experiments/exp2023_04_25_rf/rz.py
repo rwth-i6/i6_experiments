@@ -18,7 +18,7 @@ def py():
         gpu_mem=16,
     )
     train_exp(
-        "base-24gb-v4-f32-bs20k-accgrad4",
+        "base-24gb-v4-f32-bs20k-accgrad4-mgpu2",
         config_24gb_v4,
         config_updates={
             "batch_size": 20_000 * _batch_size_factor,
