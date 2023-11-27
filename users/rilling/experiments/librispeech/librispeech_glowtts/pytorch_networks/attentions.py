@@ -51,7 +51,7 @@ class Encoder(nn.Module):
 
 
 class CouplingBlock(nn.Module):
-  def __init__(self, in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels=0, p_dropout=0, sigmoid_scale=False):
+  def __init__(self, in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels=0, p_dropout=0, sigmoid_scale=False, p_speaker_drop=0):
     super().__init__()
     self.in_channels = in_channels
     self.hidden_channels = hidden_channels
@@ -72,7 +72,7 @@ class CouplingBlock(nn.Module):
     end.bias.data.zero_()
     self.end = end
 
-    self.wn = modules.WN(in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels, p_dropout)
+    self.wn = modules.WN(in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels, p_dropout, p_speaker_drop)
 
 
   def forward(self, x, x_mask=None, reverse=False, g=None, **kwargs):

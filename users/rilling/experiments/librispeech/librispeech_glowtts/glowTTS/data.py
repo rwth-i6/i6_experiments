@@ -152,7 +152,7 @@ def build_training_dataset(
         audio_options=audio_datastream.as_returnn_audio_opts(),
         target_options=train_bpe_datastream.as_returnn_targets_opts(),
         seq_ordering="sorted_reverse",
-        random_subset=3000,
+        # random_subset=3000,
     )
     devtrain_dataset = make_meta_dataset(devtrain_zip_dataset, joint_speaker_dataset)
 

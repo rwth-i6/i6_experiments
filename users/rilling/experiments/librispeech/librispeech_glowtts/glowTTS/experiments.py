@@ -17,7 +17,7 @@ from i6_experiments.users.rossenbach.experiments.alignment_analysis_tts.gl_vocod
 from ..pytorch_networks.glowTTS_nar_taco_encoder import NarEncoderConfig
 
 
-def get_pytorch_glowTTS():
+def get_pytorch_glowTTS(x_vector_exp: dict):
     """
     Baseline for the glow TTS in returnn_common with serialization
 
@@ -27,6 +27,7 @@ def get_pytorch_glowTTS():
     """
 
     prefix = "experiments/librispeech/tts_architecture/glow_tts/raw_audio/"
+    experiments = {}
 
     def run_exp(
         name,
@@ -40,9 +41,12 @@ def get_pytorch_glowTTS():
         spectrogram_foward=False,
         durations_forward=False,
         latent_space_forward=False,
-        train_data_forward=False,
+        joint_data_forward=False,
         keep_epochs=None,
+        skip_forward=False,
     ):
+        exp = {}
+
         training_config = get_training_config(
             returnn_common_root=RETURNN_COMMON,
             training_datasets=dataset,
@@ -77,6 +81,7 @@ def get_pytorch_glowTTS():
             prefix=prefix + name,
             num_epochs=num_epochs,
         )
+        exp["train_job"] = train_job
 
         if further_training:
             further_training_args = copy.deepcopy(args)
@@ -97,105 +102,115 @@ def get_pytorch_glowTTS():
                 prefix=prefix + name + "_further_training",
                 num_epochs=num_epochs,
             )
+            exp["train_job2"] = train_job2
 
-        if extra_evaluate_epoch is not None:
-            if extra_evaluate_epoch < num_epochs:
-                glowTTS_forward(
-                    checkpoint=train_job.out_checkpoints[extra_evaluate_epoch],
-                    config=forward_config,
-                    returnn_exe=RETURNN_PYTORCH_EXE,
-                    returnn_root=MINI_RETURNN_ROOT,
-                    prefix=prefix + name,
-                    extra_evaluation_epoch=extra_evaluate_epoch,
-                )
+        if not skip_forward:
+            if extra_evaluate_epoch is not None:
+                if extra_evaluate_epoch < num_epochs:
+                    forward_job = glowTTS_forward(
+                        checkpoint=train_job.out_checkpoints[extra_evaluate_epoch],
+                        config=forward_config,
+                        returnn_exe=RETURNN_PYTORCH_EXE,
+                        returnn_root=MINI_RETURNN_ROOT,
+                        prefix=prefix + name,
+                        extra_evaluation_epoch=extra_evaluate_epoch,
+                    )
+                    exp["forward_job_extra"] = forward_job
 
-        tts_hdf = glowTTS_forward(
-            checkpoint=train_job.out_checkpoints[num_epochs],
-            config=forward_config,
-            returnn_exe=RETURNN_PYTORCH_EXE,
-            returnn_root=MINI_RETURNN_ROOT,
-            prefix=prefix + name,
-        )
-
-        if spectrogram_foward:
-            glowTTS_forward(
+            forward_job = glowTTS_forward(
                 checkpoint=train_job.out_checkpoints[num_epochs],
-                config=forward_config2,
-                returnn_exe=RETURNN_PYTORCH_EXE,
-                returnn_root=MINI_RETURNN_ROOT,
-                prefix=prefix + name,
-                target="spectrograms",
-            )
-
-            if train_data_forward:
-                forward_config_train_data = get_forward_config(
-                    returnn_common_root=RETURNN_COMMON,
-                    forward_dataset=dataset,
-                    **args,
-                    forward_args=forward_args,
-                    pytorch_mode=True,
-                    target="spectrograms",
-                    train_data=True,
-                )
-
-                glowTTS_forward(
-                    checkpoint=train_job.out_checkpoints[num_epochs],
-                    config=forward_config_train_data,
-                    returnn_exe=RETURNN_PYTORCH_EXE,
-                    returnn_root=MINI_RETURNN_ROOT,
-                    prefix=prefix + name + "_train_data",
-                    target="spectrograms",
-                )
-
-            if durations_forward:
-                forward_config_durations = get_forward_config(
-                    returnn_common_root=RETURNN_COMMON,
-                    forward_dataset=dataset,
-                    **args,
-                    forward_args=forward_args,
-                    pytorch_mode=True,
-                    target="durations",
-                    train_data=True,
-                )
-
-                glowTTS_forward(
-                    checkpoint=train_job.out_checkpoints[num_epochs],
-                    config=forward_config_durations,
-                    returnn_exe=RETURNN_PYTORCH_EXE,
-                    returnn_root=MINI_RETURNN_ROOT,
-                    prefix=prefix + name,
-                    target="durations",
-                )
-
-            if latent_space_forward:
-                forward_config_latent_space = get_forward_config(
-                    returnn_common_root=RETURNN_COMMON,
-                    forward_dataset=dataset,
-                    **args,
-                    forward_args=forward_args,
-                    pytorch_mode=True,
-                    target="latent_space",
-                )
-
-                glowTTS_forward(
-                    checkpoint=train_job.out_checkpoints[num_epochs],
-                    config=forward_config_latent_space,
-                    returnn_exe=RETURNN_PYTORCH_EXE,
-                    returnn_root=MINI_RETURNN_ROOT,
-                    prefix=prefix + name,
-                    target="latent_space",
-                )
-
-        if further_training:
-            tts_hdf = glowTTS_forward(
-                checkpoint=train_job2.out_checkpoints[num_epochs],
                 config=forward_config,
                 returnn_exe=RETURNN_PYTORCH_EXE,
                 returnn_root=MINI_RETURNN_ROOT,
-                prefix=prefix + name + "_further_training",
+                prefix=prefix + name,
             )
+            exp["forward_job"] = forward_job
 
-        return tts_hdf
+            if spectrogram_foward:
+                forward_job = glowTTS_forward(
+                    checkpoint=train_job.out_checkpoints[num_epochs],
+                    config=forward_config2,
+                    returnn_exe=RETURNN_PYTORCH_EXE,
+                    returnn_root=MINI_RETURNN_ROOT,
+                    prefix=prefix + name,
+                    target="spectrograms",
+                )
+                exp["forward_job_spec"] = forward_job
+
+                if joint_data_forward:
+                    forward_config_train_data = get_forward_config(
+                        returnn_common_root=RETURNN_COMMON,
+                        forward_dataset=dataset,
+                        **args,
+                        forward_args=forward_args,
+                        pytorch_mode=True,
+                        target="spectrograms",
+                        joint_data=True,
+                    )
+
+                    forward_job = glowTTS_forward(
+                        checkpoint=train_job.out_checkpoints[num_epochs],
+                        config=forward_config_train_data,
+                        returnn_exe=RETURNN_PYTORCH_EXE,
+                        returnn_root=MINI_RETURNN_ROOT,
+                        prefix=prefix + name + "_joint_data",
+                        target="spectrograms",
+                        
+                    )
+                    exp["forward_job_spec_train_data"] = forward_job
+
+                if durations_forward:
+                    forward_config_durations = get_forward_config(
+                        returnn_common_root=RETURNN_COMMON,
+                        forward_dataset=dataset,
+                        **args,
+                        forward_args=forward_args,
+                        pytorch_mode=True,
+                        target="durations",
+                        train_data=True,
+                    )
+
+                    forward_job = glowTTS_forward(
+                        checkpoint=train_job.out_checkpoints[num_epochs],
+                        config=forward_config_durations,
+                        returnn_exe=RETURNN_PYTORCH_EXE,
+                        returnn_root=MINI_RETURNN_ROOT,
+                        prefix=prefix + name,
+                        target="durations",
+                    )
+                    exp["forward_job_durations"] = forward_job
+
+                if latent_space_forward:
+                    forward_config_latent_space = get_forward_config(
+                        returnn_common_root=RETURNN_COMMON,
+                        forward_dataset=dataset,
+                        **args,
+                        forward_args=forward_args,
+                        pytorch_mode=True,
+                        target="latent_space",
+                    )
+
+                    forward_job = glowTTS_forward(
+                        checkpoint=train_job.out_checkpoints[num_epochs],
+                        config=forward_config_latent_space,
+                        returnn_exe=RETURNN_PYTORCH_EXE,
+                        returnn_root=MINI_RETURNN_ROOT,
+                        prefix=prefix + name,
+                        target="latent_space",
+                    )
+                    exp["forward_job_latent_space"] = forward_job
+
+            if further_training:
+                forward_job = glowTTS_forward(
+                    checkpoint=train_job2.out_checkpoints[num_epochs],
+                    config=forward_config,
+                    returnn_exe=RETURNN_PYTORCH_EXE,
+                    returnn_root=MINI_RETURNN_ROOT,
+                    prefix=prefix + name + "_further_training",
+                )
+                exp["forward_job2"] = forward_job
+
+        return exp
 
     # def run_exp_2_steps(name, params, net_module, config, dataset, num_epochs=100, use_custom_engine=False, debug=False):
     #     training_config = get_training_config(
@@ -248,7 +263,7 @@ def get_pytorch_glowTTS():
     #         num_epochs=35
     #     )
 
-    #     tts_hdf = glowTTS_forward(
+    #     exp_dict = glowTTS_forward(
     #         checkpoint=train_job.out_checkpoints[num_epochs],
     #         config=forward_config,
     #         returnn_exe=RETURNN_PYTORCH_EXE,
@@ -256,7 +271,7 @@ def get_pytorch_glowTTS():
     #         prefix=prefix + name
     #     )
 
-    #     tts_hdf = glowTTS_forward(
+    #     exp_dict = glowTTS_forward(
     #         checkpoint=further_train_job.out_checkpoints[35],
     #         config=forward_config,
     #         returnn_exe=RETURNN_PYTORCH_EXE,
@@ -399,30 +414,30 @@ def get_pytorch_glowTTS():
     #     "window_size": 4
     # }
 
-    # tts_hdf = run_exp(net_module, params, net_module, config, dataset=training_datasets, debug=True)
+    # exp_dict = run_exp(net_module, params, net_module, config, dataset=training_datasets, debug=True)
 
     # net_module = "glowTTS_v2"
 
     # training_datasets2 = build_training_dataset(silence_preprocessed=True, durations_file="/work/asr4/rossenbach/sisyphus_work_folders/tts_asr_2021_work/i6_experiments/users/rossenbach/tts/duration_extraction/ViterbiAlignmentToDurationsJob.AyAO6JWXTnVc/output/durations.hdf", center=False)
 
-    # tts_hdf = run_exp_2_steps(name=net_module + "injected_durations", params=params, net_module=net_module, config=config, dataset=training_datasets2, debug=True)
-    # tts_hdf = run_exp(name=net_module + "further_training", params=params, net_module=net_module, config=config, dataset=training_datasets, debug=True)
+    # exp_dict = run_exp_2_steps(name=net_module + "injected_durations", params=params, net_module=net_module, config=config, dataset=training_datasets2, debug=True)
+    # exp_dict = run_exp(name=net_module + "further_training", params=params, net_module=net_module, config=config, dataset=training_datasets, debug=True)
 
     # train_args["config"]["learning_rates"] = list(np.concatenate((np.linspace(1e-5, 5*1e-4, 50), np.linspace(5*1e-4, 1e-5, 50))))
     # net_module = "glowTTS_vMF"
 
     # args_vMF = train_args.copy()
     # args_vMF["net_args"]["mean_only"] = True
-    # tts_hdf = run_exp(name=net_module, params=params, net_module=net_module, config=config, dataset=training_datasets, debug=True)
+    # exp_dict = run_exp(name=net_module, params=params, net_module=net_module, config=config, dataset=training_datasets, debug=True)
 
     net_module = "glowTTS"
-    # tts_hdf = run_exp(net_module + "_warmup", train_args, dataset=training_datasets)
+    # exp_dict = run_exp(net_module + "_warmup", train_args, dataset=training_datasets)
 
     # config["learning_rates"] = [get_lr_scale(params["hidden_channels"], x, 80) for x in np.arange(0, 200)]
     train_args["net_args"]["mean_only"] = True
-    # tts_hdf = run_exp(net_module + "_warmup_fc768", params, net_module, config, dataset=training_datasets, debug=True, num_epochs=200)
+    # exp_dict = run_exp(net_module + "_warmup_fc768", params, net_module, config, dataset=training_datasets, debug=True, num_epochs=200)
 
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/enc768/mean_only/not_silence_preprocessed",
         train_args,
         dataset=training_datasets,
@@ -433,7 +448,7 @@ def get_pytorch_glowTTS():
 
     train_args_silence = copy.deepcopy(train_args)
     train_args_silence["net_args"]["fe_config"] = asdict(fe_config_silence_preprocessed)
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/enc768/mean_only/silence_preprocessed",
         train_args_silence,
         dataset=training_datasets_silence_preprocessed,
@@ -444,7 +459,7 @@ def get_pytorch_glowTTS():
     train_args["net_args"]["mean_only"] = False
     train_args_silence["net_args"]["mean_only"] = False
 
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/enc768/with_sigma/not_silence_preprocessed",
         train_args,
         dataset=training_datasets,
@@ -453,7 +468,7 @@ def get_pytorch_glowTTS():
         further_training=True,
         spectrogram_foward=True,
     )
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/enc768/with_sigma/silence_preprocessed",
         train_args_silence,
         dataset=training_datasets_silence_preprocessed,
@@ -463,7 +478,7 @@ def get_pytorch_glowTTS():
     )
 
     train_args["config"]["gradient_clip_norm"] = 10
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/enc768/with_sigma/grad_clip_norm_10",
         train_args,
         dataset=training_datasets,
@@ -473,7 +488,7 @@ def get_pytorch_glowTTS():
 
     train_args_betas = copy.deepcopy(train_args)
     train_args_betas["config"]["optimizer"] = {"class": "adam", "epsilon": 1e-9, "betas": (0.9, 0.98)}
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/enc768/with_sigma/beta2_0.98",
         train_args_betas,
         dataset=training_datasets,
@@ -482,7 +497,7 @@ def get_pytorch_glowTTS():
     )
 
     train_args["net_args"]["filter_channels"] = 256
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/enc256/not_silence_preprocessed",
         train_args,
         dataset=training_datasets,
@@ -490,7 +505,7 @@ def get_pytorch_glowTTS():
         forward_args=forward_args,
         spectrogram_foward=True,
     )
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/enc256/silence_preprocessed",
         train_args,
         dataset=training_datasets_silence_preprocessed,
@@ -505,7 +520,7 @@ def get_pytorch_glowTTS():
         np.concatenate((np.linspace(1e-6, 5e-4, 50), np.linspace(5e-4, 1e-6, 150)))
     )
 
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/enc192/lr1e-6_5e-4_1e-6",
         train_args_alternative_lr,
         dataset=training_datasets,
@@ -517,7 +532,7 @@ def get_pytorch_glowTTS():
     train_args_alternative_lr["config"]["learning_rates"] = list(
         np.concatenate((np.linspace(1e-5, 5e-4, 50), np.linspace(5e-4, 1e-5, 50)))
     )
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/enc192/100ep/not_silence_preprocessed",
         train_args_alternative_lr,
         dataset=training_datasets,
@@ -525,8 +540,9 @@ def get_pytorch_glowTTS():
         forward_args=forward_args,
         spectrogram_foward=True,
     )
+    experiments[net_module + "/enc192/100ep/not_silence_preprocessed"] = exp_dict
 
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/enc192/100ep/silence_preprocessed",
         train_args_alternative_lr,
         dataset=training_datasets_silence_preprocessed,
@@ -535,12 +551,63 @@ def get_pytorch_glowTTS():
         spectrogram_foward=True,
     )
 
+    train_args_newbob = copy.deepcopy(train_args_alternative_lr)
+    del train_args_newbob["config"]["learning_rates"]
+    new_bob_settings = {
+        "learning_rate_control": "newbob_multi_epoch",
+        "learning_rate_control_min_num_epochs_per_new_lr": 5,
+        "learning_rate_control_relative_error_relative_lr": True,
+        "newbob_learning_rate_decay": 0.9,
+        "newbob_multi_num_epochs": 5,
+        "newbob_multi_update_interval": 1,
+        "newbob_relative_error_threshold": 0,
+        "learning_rate": 5e-4,
+    }
+
+    train_args_newbob["config"] = {**train_args_newbob["config"], **new_bob_settings}
+    exp_dict = run_exp(
+        net_module + "/enc192/100ep/newbob/Adam/not_silence_preprocessed",
+        train_args_newbob,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        spectrogram_foward=True,
+        skip_forward=True,
+    )
+
+    train_args_newbob["config"]["optimizer"]["class"] = "radam"
+    exp_dict = run_exp(
+        net_module + "/enc192/100ep/newbob/RAdam/not_silence_preprocessed",
+        train_args_newbob,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        spectrogram_foward=True,
+        skip_forward=True,
+    )
+
+    train_args_drop_speaker = copy.deepcopy(train_args_alternative_lr)
+
+    for p in [0.1, 0.2, 0.3, 0.4, 0.5, 1]:
+        train_args_drop_speaker["net_args"]["p_speaker_drop"] = p
+
+        exp_dict = run_exp(
+            net_module + f"/enc192/100ep/speaker_drop/p_speaker_drop_{p}_not_silence_preprocessed",
+            train_args_drop_speaker,
+            dataset=training_datasets,
+            num_epochs=100,
+            forward_args=forward_args,
+            spectrogram_foward=True,
+        )
+
+        experiments[net_module + f"/enc192/100ep/speaker_drop/p_speaker_drop_{p}_not_silence_preprocessed"] = exp_dict
+
     train_args_long_cooldown = copy.deepcopy(train_args_alternative_lr)
     train_args_long_cooldown["config"]["learning_rates"] = list(
         np.concatenate((np.linspace(1e-5, 5e-4, 50), np.linspace(5e-4, 1e-5, 50), np.linspace(1e-5, 1e-7, 100)))
     )
     train_args_long_cooldown["config"]["optimizer"]["epsilon"] = 1e-8
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/enc192/200ep/long_cooldown/not_silence_preprocessed",
         train_args_long_cooldown,
         dataset=training_datasets,
@@ -549,11 +616,12 @@ def get_pytorch_glowTTS():
         spectrogram_foward=True,
         durations_forward=True,
         latent_space_forward=True,
-        train_data_forward=True,
+        joint_data_forward=True,
         keep_epochs={100},
     )
+    experiments[net_module + "/enc192/200ep/long_cooldown/not_silence_preprocessed"] = exp_dict
 
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/enc192/200ep/long_cooldown/silence_preprocessed",
         train_args_long_cooldown,
         dataset=training_datasets_silence_preprocessed,
@@ -566,7 +634,7 @@ def get_pytorch_glowTTS():
     train_args_fs4 = copy.deepcopy(train_args_long_cooldown)
     train_args_fs4["net_args"]["n_sqz"] = 4
 
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/enc192/200ep/long_cooldown/fs4/silence_preprocessed",
         train_args_fs4,
         dataset=training_datasets_silence_preprocessed,
@@ -578,9 +646,18 @@ def get_pytorch_glowTTS():
     train_args_radam = copy.deepcopy(train_args_long_cooldown)
     train_args_radam["config"]["optimizer"]["class"] = "radam"
     del train_args_radam["config"]["learning_rates"]
+    train_args_radam["config"]["learning_rate"] = 1e-3
+    exp_dict = run_exp(
+        net_module + "/enc192/100ep/RAdam/lr1e-3/silence_preprocessed",
+        train_args_radam,
+        dataset=training_datasets_silence_preprocessed,
+        num_epochs=100,
+        forward_args=forward_args,
+        spectrogram_foward=True,
+    )
     train_args_radam["config"]["learning_rate"] = 1e-4
-    tts_hdf = run_exp(
-        net_module + "/enc192/200ep/RAdam/lr1e-4/silence_preprocessed",
+    exp_dict = run_exp(
+        net_module + "/enc192/100ep/RAdam/lr1e-4/silence_preprocessed",
         train_args_radam,
         dataset=training_datasets_silence_preprocessed,
         num_epochs=100,
@@ -589,8 +666,8 @@ def get_pytorch_glowTTS():
     )
 
     train_args_radam["config"]["learning_rate"] = 1e-5
-    tts_hdf = run_exp(
-        net_module + "/enc192/200ep/RAdam/lr1e-5/silence_preprocessed",
+    exp_dict = run_exp(
+        net_module + "/enc192/100ep/RAdam/lr1e-5/silence_preprocessed",
         train_args_radam,
         dataset=training_datasets_silence_preprocessed,
         num_epochs=100,
@@ -599,8 +676,8 @@ def get_pytorch_glowTTS():
     )
 
     train_args_radam["config"]["learning_rate"] = 1e-6
-    tts_hdf = run_exp(
-        net_module + "/enc192/200ep/RAdam/lr1e-6/silence_preprocessed",
+    exp_dict = run_exp(
+        net_module + "/enc192/100ep/RAdam/lr1e-6/silence_preprocessed",
         train_args_radam,
         dataset=training_datasets_silence_preprocessed,
         num_epochs=100,
@@ -637,7 +714,7 @@ def get_pytorch_glowTTS():
         "encoder_config": asdict(encoder_config),
     }
 
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/not_silence_preprocessed",
         train_args_nar_taco_encoder,
         dataset=training_datasets,
@@ -646,7 +723,7 @@ def get_pytorch_glowTTS():
         spectrogram_foward=True,
         extra_evaluate_epoch=107,  # was to late so 100 was already deleted
     )
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/silence_preprocessed",
         train_args_nar_taco_encoder,
         dataset=training_datasets_silence_preprocessed,
@@ -666,7 +743,7 @@ def get_pytorch_glowTTS():
         )  # TODO: Huge step between warmup and cooldown. Delete when not needed anymore...
     )
 
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/silence_preprocessed",
         train_args_nar_taco_encoder_no_blstm,
         dataset=training_datasets_silence_preprocessed,
@@ -677,7 +754,7 @@ def get_pytorch_glowTTS():
 
     train_args_nar_taco_encoder_no_blstm["net_args"]["n_blocks_dec"] = 16
 
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/16blocks/silence_preprocessed",
         train_args_nar_taco_encoder_no_blstm,
         dataset=training_datasets_silence_preprocessed,
@@ -692,7 +769,7 @@ def get_pytorch_glowTTS():
         np.concatenate((np.linspace(5e-4, 5e-4, 50), np.linspace(5e-4, 1e-6, 50)))
     )
 
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/16blocks/radam_no_warmup/silence_preprocessed",
         train_args_nar_taco_encoder_no_blstm_no_warmup,
         dataset=training_datasets_silence_preprocessed,
@@ -706,7 +783,7 @@ def get_pytorch_glowTTS():
     train_args_simple_encoder["network_module"] = net_module
     train_args_simple_encoder["net_args"]["n_blocks_dec"] = 20
 
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/wrong_LR_schedule/silence_preprocessed",
         train_args_simple_encoder,
         dataset=training_datasets_silence_preprocessed,
@@ -721,7 +798,7 @@ def get_pytorch_glowTTS():
         np.concatenate((np.linspace(1e-4, 5e-4, 50), np.linspace(5e-4, 1e-6, 50)))
     )
 
-    tts_hdf = run_exp(
+    exp_dict = run_exp(
         net_module + "/silence_preprocessed",
         train_args_simple_encoder,
         dataset=training_datasets_silence_preprocessed,
@@ -735,7 +812,7 @@ def get_pytorch_glowTTS():
     # train_args_one_hot_encoder = copy.deepcopy(train_args_simple_encoder)
     # train_args_one_hot_encoder["network_module"] = net_module
 
-    # tts_hdf = run_exp(
+    # exp_dict = run_exp(
     #     net_module + "/silence_preprocessed",
     #     train_args_one_hot_encoder,
     #     dataset=training_datasets_silence_preprocessed,
@@ -747,7 +824,7 @@ def get_pytorch_glowTTS():
     # net_module = "glowTTS_one_hot_encoder_std"
     # train_args_one_hot_encoder["network_module"] = net_module
 
-    # tts_hdf = run_exp(
+    # exp_dict = run_exp(
     #     net_module + "/silence_preprocessed",
     #     train_args_one_hot_encoder,
     #     dataset=training_datasets_silence_preprocessed,
@@ -757,7 +834,7 @@ def get_pytorch_glowTTS():
     # )
 
     # train_args_nar_taco_encoder["net_args"]["n_blocks_dec"] = 16
-    # tts_hdf = run_exp(
+    # exp_dict = run_exp(
     #     net_module + "_16blocks",
     #     train_args_nar_taco_encoder,
     #     dataset=training_datasets,
@@ -765,7 +842,7 @@ def get_pytorch_glowTTS():
     #     forward_args=forward_args,
     #     spectrogram_foward=True,
     # )
-    # tts_hdf = run_exp(
+    # exp_dict = run_exp(
     #     net_module + "_16_blocks_silence_preprocessed",
     #     train_args_nar_taco_encoder,
     #     dataset=training_datasets_silence_preprocessed,
@@ -774,4 +851,69 @@ def get_pytorch_glowTTS():
     #     spectrogram_foward=True,
     # )
 
-    return tts_hdf
+    # ============== X-Vector speaker embeddings ====================#
+    train_args_x_vector = copy.deepcopy(train_args_alternative_lr)
+    net_module = "glowTTS_x_vector"
+    train_args_x_vector["network_module"] = net_module
+    train_args_x_vector["net_args"]["gin_channels"] = 512  # Size of speaker embeddings from trained X-Vector
+    x_vect_train_job = x_vector_exp["x_vector_cnn/1e-3_not_silence_preprocessed"]["train_job"]
+    train_args_x_vector["config"]["preload_from_files"] = {
+        "x_vector_model": {
+            "filename": x_vect_train_job.out_checkpoints[x_vect_train_job.returnn_config.get("num_epochs", 100)],
+            "init_for_train": True,
+            "prefix": "x_vector.",
+            "ignore_missing": True,
+        }
+    }
+    exp_dict = run_exp(
+        net_module + "/enc192/100ep/not_silence_preprocessed",
+        train_args_x_vector,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+    )
+
+    net_module = "glowTTS_x_vector_eval"
+    train_args_x_vector_eval = copy.deepcopy(train_args_x_vector)
+    train_args_x_vector_eval["network_module"] = net_module
+    exp_dict = run_exp(
+        net_module + "/enc192/100ep/not_silence_preprocessed",
+        train_args_x_vector_eval,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+    )
+
+    net_module = "glowTTS_x_vector_v2"
+    train_args_x_vector_v2 = copy.deepcopy(train_args_x_vector)
+    train_args_x_vector_v2["network_module"] = net_module
+    exp_dict = run_exp(
+        net_module + "/enc192/100ep/not_silence_preprocessed",
+        train_args_x_vector_v2,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+    )
+
+    train_args_x_vector_v2["net_args"]["train_x_vector_epoch"] = 10
+    exp_dict = run_exp(
+        net_module + "/enc192/100ep_x_vector_ep10/not_silence_preprocessed/",
+        train_args_x_vector_v2,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+    )
+
+    net_module = "glowTTS_x_vector_v3"
+    train_args_x_vector_v3 = copy.deepcopy(train_args_alternative_lr)#
+    train_args_x_vector_v3["net_args"]["gin_channels"] = 512  # Size of speaker embeddings from trained X-Vector
+    train_args_x_vector_v3["network_module"] = net_module
+    exp_dict = run_exp(
+        net_module + "/enc192/100ep/not_silence_preprocessed",
+        train_args_x_vector_v3,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+    )
+
+    return experiments

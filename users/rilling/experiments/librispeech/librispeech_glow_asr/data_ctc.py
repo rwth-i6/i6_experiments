@@ -37,7 +37,7 @@ from returnn_common.datasets import Dataset, OggZipDataset, MetaDataset
 
 from .default_tools import MINI_RETURNN_ROOT, RETURNN_EXE
 
-DATA_PREFIX = "experiments/librispeech_100_phon_ctc/standalone_ttslike_2023_normal_ctc/data/"
+DATA_PREFIX = "experiments/librispeech/librispeech_glow_asr/data_asr/"
 
 # -------------- Dataclasses for configuration and data passing -------------------
 

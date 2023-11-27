@@ -9,6 +9,7 @@ import soundfile
 from IPython import embed
 
 from returnn.datasets.hdf import SimpleHDFWriter
+from returnn.torch.context import get_run_ctx
 
 from . import modules
 from . import commons
@@ -17,7 +18,6 @@ from .monotonic_align import maximum_path
 
 from .feature_extraction import DbMelFeatureExtraction
 from ..glowTTS.feature_config import DbMelFeatureExtractionConfig
-
 
 class DurationPredictor(nn.Module):
     """
@@ -145,7 +145,7 @@ class TextEncoder(nn.Module):
         x = self.encoder(x, x_mask)
 
         if g is not None:
-            g_exp = g.expand(-1, -1, x.size(-1))
+            g_exp = g.unsqueeze(-1).expand(-1, -1, x.size(-1))
             # print(f"Dimension of input in Text Encoder: x.shape: {x.shape}; g: {g.shape}, g_exp: {g_exp.shape}")
             x_dp = torch.cat([torch.detach(x), g_exp], 1)
         else:
@@ -177,7 +177,7 @@ class FlowDecoder(nn.Module):
         n_sqz=2,
         sigmoid_scale=False,
         gin_channels=0,
-        p_speaker_drop=0
+        p_speaker_drop=0,
     ):
         """Flow-based decoder model
 
@@ -223,7 +223,7 @@ class FlowDecoder(nn.Module):
                     gin_channels=gin_channels,
                     p_dropout=p_dropout,
                     sigmoid_scale=sigmoid_scale,
-                    p_speaker_drop=p_speaker_drop
+                    p_speaker_drop=p_speaker_drop,
                 )
             )
 
@@ -234,6 +234,9 @@ class FlowDecoder(nn.Module):
         else:
             flows = reversed(self.flows)
             logdet_tot = None
+
+        if g is not None:
+            g = g.unsqueeze(-1)
 
         if self.n_sqz > 1:
             x, x_mask = commons.channel_squeeze(x, x_mask, self.n_sqz)
@@ -287,6 +290,7 @@ class Model(nn.Module):
         hidden_channels_dec: int = None,
         prenet: bool = False,
         p_speaker_drop=0,
+        train_x_vector_epoch=0,
         **kwargs,
     ):
         """_summary_
@@ -345,6 +349,7 @@ class Model(nn.Module):
         self.hidden_channels_dec = hidden_channels_dec
         self.prenet = prenet
         self.p_speaker_drop = p_speaker_drop
+        self.train_x_vector_epoch = train_x_vector_epoch
 
         fe_config = DbMelFeatureExtractionConfig.from_dict(kwargs["fe_config"])
         self.feature_extraction = DbMelFeatureExtraction(config=fe_config)
@@ -378,12 +383,13 @@ class Model(nn.Module):
             n_sqz=n_sqz,
             sigmoid_scale=sigmoid_scale,
             gin_channels=gin_channels,
-            p_speaker_drop=p_speaker_drop
+            p_speaker_drop=p_speaker_drop,
         )
 
-        if n_speakers > 1:
-            self.emb_g = nn.Embedding(n_speakers, gin_channels)
-            nn.init.uniform_(self.emb_g.weight, -0.1, 0.1)
+        # if n_speakers > 1:
+        #     self.x_vector = XVector(out_channels, n_speakers)
+        #     # self.emb_g = nn.Embedding(n_speakers, gin_channels)
+        #     # nn.init.uniform_(self.emb_g.weight, -0.1, 0.1)
 
     def forward(
         self, x, x_lengths, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, noise_scale=1.0, length_scale=1.0
@@ -391,15 +397,11 @@ class Model(nn.Module):
         if not gen:
             with torch.no_grad():
                 squeezed_audio = torch.squeeze(raw_audio)
-                y, y_lengths = self.feature_extraction(
-                    squeezed_audio, raw_audio_lengths
-                )  # [B, T, F]
+                y, y_lengths = self.feature_extraction(squeezed_audio, raw_audio_lengths)  # [B, T, F]
                 y = y.transpose(1, 2)  # [B, F, T]
         else:
             y, y_lengths = (None, None)
 
-        if g is not None:
-            g = nn.functional.normalize(self.emb_g(g.squeeze(-1))).unsqueeze(-1)
         x_m, x_logs, logw, x_mask = self.encoder(x, x_lengths, g=g)  # mean, std logs, duration logs, mask
 
         if gen:  # durations from dp only used during generation
@@ -472,12 +474,18 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
     tags = list(np.array(tags)[indices.detach().cpu().numpy()])
 
+    if not hasattr(run_ctx, "speaker_x_vectors"):
+        run_ctx.speaker_x_vectors = torch.load(
+            "/work/asr3/rossenbach/rilling/sisyphus_work_dirs/glow_tts_asr_v2/i6_core/returnn/forward/ReturnnForwardJob.U6UwGhE7ENbp/output/output_pooled.hdf"
+        )
+
+    speaker_x_vector = run_ctx.speaker_x_vectors[speaker_labels.detach().cpu().numpy(), :].squeeze(1)
     # print(f"phoneme shape: {phonemes.shape}")
     # print(f"phoneme length: {phonemes_len}")
     # print(f"audio_feature shape: {audio_features.shape}")
     # print(f"audio_feature length: {audio_features_len}")
     (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), y_lengths, (attn, logw, logw_) = model(
-        phonemes, phonemes_len, audio_features, audio_features_len, speaker_labels
+        phonemes, phonemes_len, audio_features, audio_features_len, g=speaker_x_vector.to(audio_features.device)
     )
     # embed()
 
@@ -493,24 +501,30 @@ import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import dijkstra
 
+
 def forward_init_hook_spectrograms(run_ctx, **kwargs):
     run_ctx.hdf_writer = SimpleHDFWriter("output.hdf", dim=80, ndim=2)
     run_ctx.pool = multiprocessing.Pool(8)
 
+
 def forward_finish_hook_spectrograms(run_ctx, **kwargs):
     run_ctx.hdf_writer.close()
+
 
 def forward_init_hook_durations(run_ctx, **kwargs):
     run_ctx.hdf_writer = SimpleHDFWriter("output.hdf", dim=80, ndim=1)
     run_ctx.pool = multiprocessing.Pool(8)
 
+
 def forward_finish_hook_durations(run_ctx, **kwargs):
     run_ctx.hdf_writer.close()
+
 
 def forward_init_hook_latent_space(run_ctx, **kwargs):
     run_ctx.hdf_writer_samples = SimpleHDFWriter("samples.hdf", dim=80, ndim=2)
     run_ctx.hdf_writer_mean = SimpleHDFWriter("mean.hdf", dim=80, ndim=2)
     run_ctx.pool = multiprocessing.Pool(8)
+
 
 def forward_finish_hook_latent_space(run_ctx, **kwargs):
     run_ctx.hdf_writer_samples.close()
@@ -601,8 +615,13 @@ def forward_step_spectrograms(*, model: Model, data, run_ctx, **kwargs):
     tags = list(np.array(tags)[indices.detach().cpu().numpy()])
 
     (y, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(
-        phonemes, phonemes_len, g=speaker_labels, gen=True, noise_scale=kwargs["noise_scale"], length_scale=kwargs["length_scale"]
-    ) 
+        phonemes,
+        phonemes_len,
+        g=speaker_labels,
+        gen=True,
+        noise_scale=kwargs["noise_scale"],
+        length_scale=kwargs["length_scale"],
+    )
     spectograms = y.transpose(2, 1).detach().cpu().numpy()  # [B, T, F]
 
     run_ctx.hdf_writer.insert_batch(spectograms, y_lengths.detach().cpu().numpy(), tags)
@@ -636,7 +655,7 @@ def forward_step_durations(*, model: Model, data, run_ctx, **kwargs):
     # embed()
     (y, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(
         phonemes, phonemes_len, g=speaker_labels, gen=True
-    ) 
+    )
     # embed()
     numpy_logprobs = logw.detach().cpu().numpy()
 
@@ -646,9 +665,10 @@ def forward_step_durations(*, model: Model, data, run_ctx, **kwargs):
         # d = duration[:phon_len]
         # total_sum = np.sum(duration)
         # assert total_sum == feat_len
-        
+
         # assert len(d) == phon_len
         run_ctx.hdf_writer.insert_batch(np.asarray([duration[:phon_len]]), [phon_len.cpu().numpy()], [tag])
+
 
 def forward_step_latent_space(*, model: Model, data, run_ctx, **kwargs):
     tags = data["seq_tag"]
@@ -669,8 +689,8 @@ def forward_step_latent_space(*, model: Model, data, run_ctx, **kwargs):
 
     (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), y_lengths, (attn, logw, logw_) = model(
         phonemes, phonemes_len, audio_features, audio_features_len, g=speaker_labels, gen=False
-    ) 
+    )
     samples = z.transpose(2, 1).detach().cpu().numpy()  # [B, T, F]
-    means = z_m.transpose(2,1).detach().cpu().numpy()
+    means = z_m.transpose(2, 1).detach().cpu().numpy()
     run_ctx.hdf_writer_samples.insert_batch(samples, y_lengths.detach().cpu().numpy(), tags)
     run_ctx.hdf_writer_mean.insert_batch(means, y_lengths.detach().cpu().numpy(), tags)

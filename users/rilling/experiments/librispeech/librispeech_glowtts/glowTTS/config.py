@@ -12,15 +12,15 @@ from ..serializer import get_network_serializer, get_pytorch_serializer
 
 
 def get_training_config(
-        returnn_common_root: tk.Path,
-        training_datasets: TrainingDataset,
-        network_module: str,
-        net_args: Dict[str, Any],
-        config: Dict[str, Any],
-        debug: bool = False,
-        pytorch_mode=False,
-        use_custom_engine=False,
-        keep_epochs: set=None
+    returnn_common_root: tk.Path,
+    training_datasets: TrainingDataset,
+    network_module: str,
+    net_args: Dict[str, Any],
+    config: Dict[str, Any],
+    debug: bool = False,
+    pytorch_mode=False,
+    use_custom_engine=False,
+    keep_epochs: set = None,
 ):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_aligner
@@ -40,7 +40,7 @@ def get_training_config(
     base_config = {
         #############
         "train": training_datasets.train.as_returnn_opts(),
-        "dev": training_datasets.cv.as_returnn_opts()
+        "dev": training_datasets.cv.as_returnn_opts(),
     }
     config = {**base_config, **copy.deepcopy(config)}
 
@@ -58,16 +58,19 @@ def get_training_config(
         network_module=network_module,
         net_args=net_args,
         debug=debug,
-        use_custom_engine=use_custom_engine
+        use_custom_engine=use_custom_engine,
     )
-    returnn_config = ReturnnConfig(
-        config=config, post_config=post_config, python_epilog=[serializer]
-    )
+    returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
     return returnn_config
 
 
 def get_extract_durations_forward__config(
-        returnn_common_root, forward_dataset: GenericDataset, network_module, net_args, debug=False, pytorch_mode=False,
+    returnn_common_root,
+    forward_dataset: GenericDataset,
+    network_module,
+    net_args,
+    debug=False,
+    pytorch_mode=False,
 ):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for forward_ctc_aligner
@@ -83,7 +86,7 @@ def get_extract_durations_forward__config(
         "max_seqs": 200,
         "forward_use_search": True,
         #############
-        "eval": forward_dataset.joint.as_returnn_opts()
+        "eval": forward_dataset.joint.as_returnn_opts(),
     }
     get_serializer = get_pytorch_serializer if pytorch_mode else get_network_serializer
 
@@ -94,13 +97,24 @@ def get_extract_durations_forward__config(
         network_module=network_module,
         net_args=net_args,
         forward=True,
-        debug=debug
+        debug=debug,
     )
     returnn_config = ReturnnConfig(config=config, python_epilog=[serializer])
     return returnn_config
 
+
 def get_forward_config(
-        returnn_common_root, forward_dataset: GenericDataset, network_module, net_args, config, debug=False, pytorch_mode=False, forward_args={}, target="audio", train_data=False
+    returnn_common_root,
+    forward_dataset: GenericDataset,
+    network_module,
+    net_args,
+    config,
+    debug=False,
+    pytorch_mode=False,
+    forward_args={},
+    target="audio",
+    train_data=False,
+    joint_data=False,
 ):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for forward_ctc_aligner
@@ -113,7 +127,9 @@ def get_forward_config(
         "behavior_version": 16,
         "forward_use_search": True,
         #############
-        "forward": forward_dataset.cv.as_returnn_opts() if not train_data else forward_dataset.train.as_returnn_opts()
+        "forward": forward_dataset.cv.as_returnn_opts()
+        if not (train_data or joint_data)
+        else (forward_dataset.joint.as_returnn_opts() if joint_data else forward_dataset.train.as_returnn_opts()),
     }
 
     config = {**base_config, **copy.deepcopy(config)}
@@ -128,9 +144,7 @@ def get_forward_config(
         forward_args=forward_args,
         forward=True,
         debug=debug,
-        target=target
+        target=target,
     )
     returnn_config = ReturnnConfig(config=config, python_epilog=[serializer])
     return returnn_config
-
-

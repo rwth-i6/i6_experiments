@@ -48,7 +48,7 @@ from returnn_common.datasets import Dataset, OggZipDataset, MetaDataset
 
 from .default_tools import MINI_RETURNN_ROOT, RETURNN_EXE
 
-DATA_PREFIX = "experiments/librispeech_100_phon_ctc/standalone_ttslike_2023/data/"
+DATA_PREFIX = "experiments/librispeech/tts_architecture/data/"
 
 # -------------- Dataclasses for configuration and data passing -------------------
 
@@ -83,16 +83,19 @@ def get_librispeech_lexicon(corpus_key="train-clean-100", with_g2p: bool = True)
     get the TTS-extended g2p bliss lexicon with [start], [end] and [space] marker
     :return:
     """
-    if (with_g2p):
+    if with_g2p:
         return extend_lexicon_with_tts_lemmas(get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)[corpus_key])
     else:
         return extend_lexicon_with_tts_lemmas(get_bliss_lexicon(use_stress_marker=False))
 
+
 def get_text_lexicon(corpus_key="train-clean-100") -> tk.Path:
     lexicon = get_lexicon(with_blank=True, with_g2p=False, corpus_key=corpus_key)
     from i6_experiments.users.rossenbach.lexicon.conversion import BlissLexiconToWordLexicon
+
     word_lexicon = BlissLexiconToWordLexicon(lexicon).out_lexicon
     return word_lexicon
+
 
 def get_arpa_lm(lm_key="4gram") -> tk.Path:
     return get_arpa_lm_dict()[lm_key]
@@ -120,7 +123,7 @@ def get_tts_extended_bliss(ls_corpus_key, remove_unk_seqs=False) -> tk.Path:
     return tts_ls_bliss
 
 
-def get_lexicon(with_blank: bool = False, with_g2p: bool = True, corpus_key: str ="train-clean-100") -> tk.Path:
+def get_lexicon(with_blank: bool = False, with_g2p: bool = True, corpus_key: str = "train-clean-100") -> tk.Path:
     """
     Get the TTS/CTC lexicon
 
@@ -265,104 +268,102 @@ def get_audio_raw_datastream():
 # --------------------------- Dataset functions  -----------------------------------
 
 
-def build_training_datasets(
-    librispeech_key: str,
-    settings: TrainingDatasetSettings,
-    silence_preprocessing=False,
-) -> TrainingDatasets:
-    """
+# def build_training_datasets(
+#     librispeech_key: str,
+#     settings: TrainingDatasetSettings,
+#     silence_preprocessing=False,
+# ) -> TrainingDatasets:
+#     """
 
-    :param settings:
-    :param output_path:
-    """
+#     :param settings:
+#     :param output_path:
+#     """
 
-    assert silence_preprocessing is False, "Silence preprocessing not supported yet"
+#     assert silence_preprocessing is False, "Silence preprocessing not supported yet"
 
-    train_bliss, train_ogg = get_train_bliss_and_zip("train-clean-100", silence_preprocessed=False)
-    _, dev_clean_ogg = get_train_bliss_and_zip("dev-clean", silence_preprocessed=False, remove_unk_seqs=True)
-    _, dev_other_ogg = get_train_bliss_and_zip("dev-other", silence_preprocessed=False, remove_unk_seqs=True)
+#     train_bliss, train_ogg = get_train_bliss_and_zip("train-clean-100", silence_preprocessed=False)
+#     _, dev_clean_ogg = get_train_bliss_and_zip("dev-clean", silence_preprocessed=False, remove_unk_seqs=True)
+#     _, dev_other_ogg = get_train_bliss_and_zip("dev-other", silence_preprocessed=False, remove_unk_seqs=True)
 
-    train_bpe_datastream = get_vocab_datastream(corpus_key=librispeech_key, with_blank=True)
-    audio_datastream = get_audio_raw_datastream()
+#     train_bpe_datastream = get_vocab_datastream(corpus_key=librispeech_key, with_blank=True)
+#     audio_datastream = get_audio_raw_datastream()
 
-    datastreams = {
-        "raw_audio": audio_datastream,
-        "phon_labels": train_bpe_datastream,
-    }
+#     datastreams = {
+#         "raw_audio": audio_datastream,
+#         "phon_labels": train_bpe_datastream,
+#     }
 
-    data_map = {"raw_audio": ("zip_dataset", "data"), "phon_labels": ("zip_dataset", "classes")}
+#     data_map = {"raw_audio": ("zip_dataset", "data"), "phon_labels": ("zip_dataset", "classes")}
 
-    training_audio_opts = audio_datastream.as_returnn_audio_opts()
-    if settings.custom_processing_function:
-        training_audio_opts["pre_process"] = CodeWrapper(settings.custom_processing_function)
+#     training_audio_opts = audio_datastream.as_returnn_audio_opts()
+#     if settings.custom_processing_function:
+#         training_audio_opts["pre_process"] = CodeWrapper(settings.custom_processing_function)
 
-    additional_opts = {}
-    if settings.epoch_wise_filters:
-        additional_opts["epoch_wise_filter"] = {}
-        for fr, to, max_mean_len in settings.epoch_wise_filters:
-            additional_opts["epoch_wise_filter"][(fr, to)] = {"max_mean_len": max_mean_len}
+#     additional_opts = {}
+#     if settings.epoch_wise_filters:
+#         additional_opts["epoch_wise_filter"] = {}
+#         for fr, to, max_mean_len in settings.epoch_wise_filters:
+#             additional_opts["epoch_wise_filter"][(fr, to)] = {"max_mean_len": max_mean_len}
 
-    def make_meta(dataset: OggZipDataset):
-        return MetaDataset(
-            data_map=data_map, datasets={"zip_dataset": dataset}, seq_order_control_dataset="zip_dataset"
-        )
+#     def make_meta(dataset: OggZipDataset):
+#         return MetaDataset(
+#             data_map=data_map, datasets={"zip_dataset": dataset}, seq_order_control_dataset="zip_dataset"
+#         )
 
-    train_zip_dataset = OggZipDataset(
-        files=train_ogg,
-        audio_options=training_audio_opts,
-        target_options=train_bpe_datastream.as_returnn_targets_opts(),
-        partition_epoch=settings.partition_epoch,
-        seq_ordering=settings.seq_ordering,
-        additional_options=additional_opts,
-    )
-    train_dataset = make_meta(train_zip_dataset)
+#     train_zip_dataset = OggZipDataset(
+#         files=train_ogg,
+#         audio_options=training_audio_opts,
+#         target_options=train_bpe_datastream.as_returnn_targets_opts(),
+#         partition_epoch=settings.partition_epoch,
+#         seq_ordering=settings.seq_ordering,
+#         additional_options=additional_opts,
+#     )
+#     train_dataset = make_meta(train_zip_dataset)
 
-    cv_zip_dataset = OggZipDataset(
-        files=[dev_clean_ogg, dev_other_ogg],
-        audio_options=audio_datastream.as_returnn_audio_opts(),
-        target_options=train_bpe_datastream.as_returnn_targets_opts(),
-        segment_file=get_mixed_cv_segments(),
-        seq_ordering="sorted_reverse",
-    )
-    cv_dataset = make_meta(cv_zip_dataset)
+#     cv_zip_dataset = OggZipDataset(
+#         files=[dev_clean_ogg, dev_other_ogg],
+#         audio_options=audio_datastream.as_returnn_audio_opts(),
+#         target_options=train_bpe_datastream.as_returnn_targets_opts(),
+#         segment_file=get_mixed_cv_segments(),
+#         seq_ordering="sorted_reverse",
+#     )
+#     cv_dataset = make_meta(cv_zip_dataset)
 
-    devtrain_zip_dataset = OggZipDataset(
-        files=train_ogg,
-        audio_options=audio_datastream.as_returnn_audio_opts(),
-        target_options=train_bpe_datastream.as_returnn_targets_opts(),
-        seq_ordering="sorted_reverse",
-        random_subset=3000,
-    )
-    devtrain_dataset = make_meta(devtrain_zip_dataset)
+#     devtrain_zip_dataset = OggZipDataset(
+#         files=train_ogg,
+#         audio_options=audio_datastream.as_returnn_audio_opts(),
+#         target_options=train_bpe_datastream.as_returnn_targets_opts(),
+#         seq_ordering="sorted_reverse",
+#         random_subset=3000,
+#     )
+#     devtrain_dataset = make_meta(devtrain_zip_dataset)
 
-    return TrainingDatasets(train=train_dataset, cv=cv_dataset, devtrain=devtrain_dataset, datastreams=datastreams)
+#     return TrainingDatasets(train=train_dataset, cv=cv_dataset, devtrain=devtrain_dataset, datastreams=datastreams)
 
 
-@lru_cache()
-def build_test_dataset(librispeech_key: str, dataset_key: str, silence_preprocessing=False):
-    """
+# @lru_cache()
+# def build_test_dataset(librispeech_key: str, dataset_key: str, silence_preprocessing=False):
+#     """
 
-    :param librispeech_key: base librispeech training set for vocab generation
-    :param dataset_key: test dataset to generate
-    :param silence_preprocessing: use a setup with silence preprocessing
-    """
-    assert silence_preprocessing is False
+#     :param librispeech_key: base librispeech training set for vocab generation
+#     :param dataset_key: test dataset to generate
+#     :param silence_preprocessing: use a setup with silence preprocessing
+#     """
+#     assert silence_preprocessing is False
 
-    _, test_ogg = get_test_bliss_and_zip(dataset_key)
-    bliss_dict = get_bliss_corpus_dict()
-    audio_datastream = get_audio_raw_datastream()
+#     _, test_ogg = get_test_bliss_and_zip(dataset_key)
+#     bliss_dict = get_bliss_corpus_dict()
+#     audio_datastream = get_audio_raw_datastream()
 
-    data_map = {
-        "raw_audio": ("zip_dataset", "data")
-    }
+#     data_map = {"raw_audio": ("zip_dataset", "data")}
 
-    test_zip_dataset = OggZipDataset(
-        files=[test_ogg],
-        audio_options=audio_datastream.as_returnn_audio_opts(),
-        seq_ordering="sorted_reverse",
-    )
-    test_dataset = MetaDataset(
-        data_map=data_map, datasets={"zip_dataset": test_zip_dataset}, seq_order_control_dataset="zip_dataset"
-    )
+#     test_zip_dataset = OggZipDataset(
+#         files=[test_ogg],
+#         audio_options=audio_datastream.as_returnn_audio_opts(),
+#         seq_ordering="sorted_reverse",
+#     )
+#     test_dataset = MetaDataset(
+#         data_map=data_map, datasets={"zip_dataset": test_zip_dataset}, seq_order_control_dataset="zip_dataset"
+#     )
 
-    return test_dataset, bliss_dict[dataset_key]
+#     return test_dataset, bliss_dict[dataset_key]
