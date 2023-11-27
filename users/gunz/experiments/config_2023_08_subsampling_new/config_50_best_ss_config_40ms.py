@@ -793,9 +793,9 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         (returnn_cfg_di_ft_newbob, returnn_cfg_di, di_ft_sys, "di-fs-newbob"),
         (returnn_cfg_di_from_mono_ft_constlr, returnn_cfg_di, di_ft_sys, "di-from-mono-fs-constlr"),
         (returnn_cfg_di_from_mono_ft_constlr_smooth, returnn_cfg_di, di_ft_sys, "di-from-mono-fs-constlr-smooth"),
-        (returnn_cfg_tri_ft_constlr, returnn_cfg_di, di_ft_sys, "di-from-tri-fs-constlr"),
-        (returnn_cfg_tri_from_di_ft_constlr, returnn_cfg_di, di_ft_sys, "di-from-tri-from-di-fs-constlr"),
-        (returnn_cfg_tri_from_di_sel_ft_constlr, returnn_cfg_di, di_ft_sys, "di-from-tri-from-di-sel-fs-constlr"),
+        (returnn_cfg_tri_ft_constlr, returnn_cfg_di, di_ft_sys, "tri-fs-constlr"),
+        (returnn_cfg_tri_from_di_ft_constlr, returnn_cfg_di, di_ft_sys, "tri-from-di-fs-constlr"),
+        (returnn_cfg_tri_from_di_sel_ft_constlr, returnn_cfg_di, di_ft_sys, "tri-from-di-sel-fs-constlr"),
     ]
     keys = [f"fh-{name}" for _, _, _, name in configs]
     for (returnn_config, _, sys, name), key in zip(configs, keys):
