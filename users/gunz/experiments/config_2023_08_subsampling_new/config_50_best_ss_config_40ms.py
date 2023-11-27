@@ -686,6 +686,15 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     # FULL-SUM FINE TUNING
     # ####################
     batch_size_config = returnn.ReturnnConfig(config={"batch_size": 10_000})
+    smooth_fs_constlr_config = (
+        returnn.ReturnnConfig(
+            config={},
+            python_epilog=[
+                dynamic_learning_rate_fs,
+                "dynamic_learning_rate = dynamic_learning_rate_fs",
+            ],
+        ),
+    )
 
     mo_ft_sys = copy.deepcopy(s)
     mo_ft_sys.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
@@ -737,6 +746,8 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_di_ft_constlr.update(batch_size_config)
     returnn_cfg_di_ft_constlr.update(constant_linear_decrease_lr_config)
     returnn_cfg_di_ft_constlr.update(import_di_config)
+    returnn_cfg_di_ft_constlr_smooth = copy.deepcopy(returnn_cfg_di_ft_constlr)
+    returnn_cfg_di_ft_constlr_smooth.update(smooth_fs_constlr_config)
     returnn_cfg_di_ft_newbob = copy.deepcopy(returnn_cfg_di_ft)
     returnn_cfg_di_ft_newbob.update(batch_size_config)
     returnn_cfg_di_ft_newbob.update(newbob_lr_config)
@@ -745,6 +756,8 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_di_from_mono_ft_constlr.update(batch_size_config)
     returnn_cfg_di_from_mono_ft_constlr.update(constant_linear_decrease_lr_config)
     returnn_cfg_di_from_mono_ft_constlr.update(import_di_from_mono_newbob_config)
+    returnn_cfg_di_from_mono_ft_constlr_smooth = copy.deepcopy(returnn_cfg_di_from_mono_ft_constlr)
+    returnn_cfg_di_from_mono_ft_constlr_smooth.update(smooth_fs_constlr_config)
 
     returnn_cfg_tri_ft = remove_label_pops_and_losses_from_returnn_config(returnn_cfg_tri)
     returnn_cfg_tri_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
@@ -782,8 +795,10 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         (returnn_cfg_mo_ft_constlr, returnn_cfg_mo, mo_ft_sys, "mono-fs-constlr"),
         (returnn_cfg_mo_ft_newbob, returnn_cfg_mo, mo_ft_sys, "mono-fs-newbob"),
         (returnn_cfg_di_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-constlr"),
+        (returnn_cfg_di_ft_constlr_smooth, returnn_cfg_di, di_ft_sys, "di-fs-constlr-smooth"),
         (returnn_cfg_di_ft_newbob, returnn_cfg_di, di_ft_sys, "di-fs-newbob"),
         (returnn_cfg_di_from_mono_ft_constlr, returnn_cfg_di, di_ft_sys, "di-from-mono-fs-constlr"),
+        (returnn_cfg_di_from_mono_ft_constlr_smooth, returnn_cfg_di, di_ft_sys, "di-from-mono-fs-constlr-smooth"),
         (returnn_cfg_tri_ft_constlr, tri_config_safe, di_ft_sys, "tri-fs-constlr"),
         (returnn_cfg_tri_from_di_ft_constlr, tri_config_safe, di_ft_sys, "tri-from-di-fs-constlr"),
         (returnn_cfg_tri_from_di_sel_ft_constlr, tri_config_safe, di_ft_sys, "tri-from-di-sel-fs-constlr"),
@@ -3304,5 +3319,35 @@ def dynamic_learning_rate(*, network, global_train_step, learning_rate, **kwargs
             global_train_step <= 2 * steps,
             peakLR - stepSize * (n - steps),
             tf.maximum(initialLR - stepSize2 * (n - 2 * steps), finalLR),
+        ),
+    )
+
+
+# adapt one cycle LR for fine-tuning: half cycle constLR + half cycle decay + final decay
+def dynamic_learning_rate_fs(*, network, global_train_step, learning_rate, **kwargs):
+    # -- need to be adjusted w.r.t. training -- #
+    constLR = 8e-5
+    decayLR = 1e-5
+    finalLR = 1e-6
+    cycleEpoch = 135
+    totalEpoch = 300
+    nStep = 2230  # steps/epoch depending on batch_size
+
+    # -- derived -- #
+    steps = cycleEpoch * nStep
+    stepSize = (constLR - decayLR) / steps
+    steps2 = (totalEpoch - 2 * cycleEpoch) * nStep
+    stepSize2 = (decayLR - finalLR) / steps2
+
+    import tensorflow as tf
+
+    n = tf.cast(global_train_step, tf.float32)
+    return tf.where(
+        global_train_step <= steps,
+        constLR,
+        tf.where(
+            global_train_step <= 2 * steps,
+            constLR - stepSize * (n - steps),
+            tf.maximum(decayLR - stepSize2 * (n - 2 * steps), finalLR),
         ),
     )
