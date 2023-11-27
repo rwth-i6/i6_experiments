@@ -764,6 +764,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         out_joint_score_layer="output",
         log_softmax=True,
         prepare_for_train=True,
+        remove_triphone_outputs=False,
     )
     returnn_cfg_tri_ft = baum_welch.augment_for_fast_bw(
         crp=di_ft_sys.crp[s.crp_names["train"]],
@@ -773,15 +774,15 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     )
     returnn_cfg_tri_ft_constlr = copy.deepcopy(returnn_cfg_tri_ft)
     returnn_cfg_tri_ft_constlr.update(batch_size_config)
-    returnn_cfg_tri_ft_constlr.update(constant_linear_decrease_lr_config)
+    returnn_cfg_tri_ft_constlr.update(smooth_fs_constlr_config)
     returnn_cfg_tri_ft_constlr.update(import_tri_config)
     returnn_cfg_tri_from_di_ft_constlr = copy.deepcopy(returnn_cfg_tri_ft)
     returnn_cfg_tri_from_di_ft_constlr.update(batch_size_config)
-    returnn_cfg_tri_from_di_ft_constlr.update(constant_linear_decrease_lr_config)
+    returnn_cfg_tri_from_di_ft_constlr.update(smooth_fs_constlr_config)
     returnn_cfg_tri_from_di_ft_constlr.update(import_tri_from_di_config)
     returnn_cfg_tri_from_di_sel_ft_constlr = copy.deepcopy(returnn_cfg_tri_ft)
     returnn_cfg_tri_from_di_sel_ft_constlr.update(batch_size_config)
-    returnn_cfg_tri_from_di_sel_ft_constlr.update(constant_linear_decrease_lr_config)
+    returnn_cfg_tri_from_di_sel_ft_constlr.update(smooth_fs_constlr_config)
     returnn_cfg_tri_from_di_sel_ft_constlr.update(import_tri_from_di_sel_config)
 
     configs = [
