@@ -208,7 +208,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     for (key, returnn_config), ep, crp_k in itertools.product(zip(keys, configs), viterbi_keep_epochs, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
-        if "mono" in key:
+        if key.startswith("fh-mono"):
             decode_monophone(
                 s,
                 key=key,
@@ -218,7 +218,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 prior_epoch=min(ep, viterbi_keep_epochs[-2]),
                 tune=ep == viterbi_keep_epochs[-1],
             )
-        elif "di" in key:
+        elif key.startswith("fh-di"):
             decode_diphone(
                 s,
                 key=key,
@@ -228,7 +228,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 prior_epoch=min(ep, viterbi_keep_epochs[-2]),
                 tune=ep == viterbi_keep_epochs[-1],
             )
-        elif "tri" in key:
+        elif key.startswith("fh-tri"):
             if ep >= viterbi_keep_epochs[-2]:
                 decode_triphone(
                     s,
@@ -814,7 +814,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     ):
         sys.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
-        if "mono" in key:
+        if key.startswith("fh-mono"):
             decode_monophone(
                 sys,
                 key=key,
@@ -824,7 +824,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
                 tune=ep == fine_tune_keep_epochs[-1],
             )
-        elif "di" in key:
+        elif key.startswith("fh-di"):
             decode_diphone(
                 sys,
                 key=key,
@@ -834,7 +834,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
                 tune=ep == fine_tune_keep_epochs[-1],
             )
-        elif "tri" in key:
+        elif key.startswith("fh-tri"):
             decode_triphone(
                 sys,
                 key=key,
