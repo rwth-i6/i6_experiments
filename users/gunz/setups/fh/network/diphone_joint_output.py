@@ -17,6 +17,7 @@ def augment_to_joint_diphone_softmax(
     left_context_softmax_layer: str = "left-output",
     encoder_output_layer: str = "encoder-output",
     prepare_for_train: bool = False,
+    remove_triphone_outputs: bool = True,
 ) -> returnn.ReturnnConfig:
     """
     Assumes a diphone FH model and expands the model to calculate the scores for the joint
@@ -58,9 +59,10 @@ def augment_to_joint_diphone_softmax(
 
     network = returnn_config.config["network"]
 
-    for k in ["linear1-triphone", "linear2-triphone", "right-output"]:
-        # reduce error surface, remove all triphone-related stuff
-        network.pop(k, None)
+    if remove_triphone_outputs:
+        for k in ["linear1-triphone", "linear2-triphone", "right-output"]:
+            # reduce error surface, remove all triphone-related stuff
+            network.pop(k, None)
     for layer in network.values():
         layer.pop("target", None)
         layer.pop("loss", None)
