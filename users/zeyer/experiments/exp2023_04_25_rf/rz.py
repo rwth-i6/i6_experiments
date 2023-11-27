@@ -18,6 +18,18 @@ def py():
         gpu_mem=16,
     )
     train_exp(
+        "base-24gb-v4-f32-bs20k-accgrad4",
+        config_24gb_v4,
+        config_updates={
+            "batch_size": 20_000 * _batch_size_factor,
+            "accum_grad_multiple_step": 4,
+            "torch_distributed": {},
+        },
+        config_deletes=["torch_amp"],
+        gpu_mem=16,
+        num_processes=2,
+    )
+    train_exp(
         "base-24gb-v4-f32-bs20k-accgrad2",
         config_24gb_v4,
         config_updates={
