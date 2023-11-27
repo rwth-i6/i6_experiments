@@ -686,14 +686,12 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     # FULL-SUM FINE TUNING
     # ####################
     batch_size_config = returnn.ReturnnConfig(config={"batch_size": 10_000})
-    smooth_fs_constlr_config = (
-        returnn.ReturnnConfig(
-            config={},
-            python_epilog=[
-                dynamic_learning_rate_fs,
-                "dynamic_learning_rate = dynamic_learning_rate_fs",
-            ],
-        ),
+    smooth_fs_constlr_config = returnn.ReturnnConfig(
+        config={},
+        python_epilog=[
+            dynamic_learning_rate_fs,
+            "dynamic_learning_rate = dynamic_learning_rate_fs",
+        ],
     )
 
     mo_ft_sys = copy.deepcopy(s)
