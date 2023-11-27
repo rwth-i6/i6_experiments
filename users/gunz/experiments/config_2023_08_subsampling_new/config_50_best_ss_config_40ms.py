@@ -538,17 +538,16 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 tune=ep == fine_tune_keep_epochs[-1],
             )
         elif key.startswith("fh-tri"):
-            if ep in [fine_tune_keep_epochs[0], fine_tune_keep_epochs[-1]]:
-                decode_triphone(
-                    s,
-                    key=key,
-                    crp_k=crp_k,
-                    returnn_config=returnn_config,
-                    epoch=ep,
-                    prior_epoch_or_key="fh-tri",
-                    tensor_config=TENSOR_CONFIG,
-                    tune=ep == fine_tune_keep_epochs[-1],
-                )
+            decode_triphone(
+                s,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=returnn_config,
+                epoch=ep,
+                prior_epoch_or_key="fh-tri",
+                tensor_config=TENSOR_CONFIG,
+                tune=ep == fine_tune_keep_epochs[-1],
+            )
         else:
             raise NotImplementedError("Cannot decode multistage monophones")
 
@@ -670,17 +669,16 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 tune=ep == fine_tune_keep_epochs[-1],
             )
         elif key.startswith("fh-tri"):
-            if ep in [fine_tune_keep_epochs[0], fine_tune_keep_epochs[-1]]:
-                decode_triphone(
-                    s,
-                    key=key,
-                    crp_k=crp_k,
-                    returnn_config=returnn_config,
-                    epoch=ep,
-                    prior_epoch_or_key="fh-tri",
-                    tensor_config=TENSOR_CONFIG,
-                    tune=ep == fine_tune_keep_epochs[-1],
-                )
+            decode_triphone(
+                s,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=returnn_config,
+                epoch=ep,
+                prior_epoch_or_key="fh-tri",
+                tensor_config=TENSOR_CONFIG,
+                tune=ep == fine_tune_keep_epochs[-1],
+            )
         else:
             raise NotImplementedError("Cannot decode multistage monophones")
 
@@ -832,9 +830,6 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 tune=ep == fine_tune_keep_epochs[-1],
             )
         elif "tri" in key:
-            if ep not in [fine_tune_keep_epochs[0], fine_tune_keep_epochs[-1]]:
-                continue
-
             decode_triphone(
                 sys,
                 key=key,
