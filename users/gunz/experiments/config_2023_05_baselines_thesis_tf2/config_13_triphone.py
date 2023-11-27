@@ -418,11 +418,11 @@ def run_single(
                 prior_scales=list(
                     itertools.product(
                         np.linspace(0.4, 0.8, 3),
-                        np.linspace(0.4, 0.8, 3),
-                        np.linspace(0.2, 0.6, 3),
+                        np.linspace(0.2, 0.8, 4),
+                        np.linspace(0.2, 0.8, 4),
                     )
                 ),
-                tdp_scales=np.linspace(0.2, 0.6, 3),
+                tdp_scales=[0.1, *np.linspace(0.2, 0.6, 3)],
             )
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
