@@ -247,6 +247,7 @@ def search_config(
             # flat_net_construction=True,
             torch_log_memory_usage=True,
             watch_memory=True,
+            use_lovely_tensors=True,
         ),
         sort_config=False,
     )

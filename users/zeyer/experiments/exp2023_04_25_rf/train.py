@@ -116,6 +116,7 @@ def train(
             # stop_on_nonfinite_train_score = False,
             torch_log_memory_usage=True,
             watch_memory=True,
+            use_lovely_tensors=True,
         ),
         sort_config=False,
     )
