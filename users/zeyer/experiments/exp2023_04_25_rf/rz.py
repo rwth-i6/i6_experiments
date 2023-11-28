@@ -60,9 +60,10 @@ def py():
         gpu_mem=16,
     )
     train_exp(
-        "base-24gb-v4-mgpu16",
+        "base-24gb-v4-f32-mgpu16",
         config_24gb_v4,
         config_updates={"torch_distributed": {}},
+        config_deletes=["torch_amp"],
         gpu_mem=32,
         num_processes=16,
     )
