@@ -94,6 +94,7 @@ def get_ctc_align_step_args(num_classes: int, reduction_factor: int = 4, **kwarg
             },
         },
         "rtf": 5,
+        "register_output": False,
     }
 
     return recursive_update(default_args, kwargs)

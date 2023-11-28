@@ -201,7 +201,7 @@ def get_librispeech_data_hdf(
         ).out_corpus
         train_corpus_object.corpus_file = train_corpus
 
-    if feature_type == FeatureType.GAMMATONE or feature_type == FeatureType.GAMMATONE_CACHED:
+    if feature_type == FeatureType.GAMMATONE_16K or feature_type == FeatureType.GAMMATONE_CACHED_16K:
         gt_args = get_feature_extraction_args_16kHz()["gt"]
         train_feature_hdf = build_rasr_feature_hdfs(
             train_corpus_object,

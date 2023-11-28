@@ -50,7 +50,7 @@ def get_tedlium2_pytorch_data(
         ).out_corpus
 
     train_dataset_builder = MetaDatasetBuilder()
-    if feature_type == FeatureType.GAMMATONE:
+    if feature_type == FeatureType.GAMMATONE_16K or feature_type == FeatureType.GAMMATONE_CACHED_16K:
         gt_args = get_feature_extraction_args_16kHz()["gt"]
         train_feature_hdf = build_rasr_feature_hdfs(
             train_corpus_object,
@@ -109,7 +109,7 @@ def get_tedlium2_pytorch_data(
 
     cv_dataset_builder = MetaDatasetBuilder()
 
-    if feature_type == FeatureType.GAMMATONE:
+    if feature_type == FeatureType.GAMMATONE_16K or feature_type == FeatureType.GAMMATONE_CACHED_16K:
         gt_args = get_feature_extraction_args_16kHz()["gt"]
         cv_feature_hdf = build_rasr_feature_hdfs(
             cv_corpus_object,
@@ -208,7 +208,7 @@ def get_tedlium2_tf_data(
             all_unknown=False,
         ).out_corpus
 
-    if feature_type == FeatureType.GAMMATONE:
+    if feature_type == FeatureType.GAMMATONE_16K or feature_type == FeatureType.GAMMATONE_CACHED_16K:
         gt_args = get_feature_extraction_args_16kHz()["gt"]
         train_feature_hdf = build_rasr_feature_hdfs(
             train_corpus_object,
@@ -248,7 +248,7 @@ def get_tedlium2_tf_data(
             all_unknown=False,
         ).out_corpus
 
-    if feature_type == FeatureType.GAMMATONE:
+    if feature_type == FeatureType.GAMMATONE_16K or feature_type == FeatureType.GAMMATONE_CACHED_16K:
         gt_args = get_feature_extraction_args_16kHz()["gt"]
         cv_feature_hdf = build_rasr_feature_hdfs(
             cv_corpus_object,
