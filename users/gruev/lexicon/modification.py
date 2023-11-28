@@ -1,23 +1,27 @@
-__all__ = ["AddSpecialLemmataToLexicon"]
+__all__ = ["HandleSpecialLemmataInLexicon"]
 
+from typing import List, Optional
 from i6_core.lib.lexicon import Lexicon, Lemma
 from i6_core.util import write_xml
 from sisyphus import tk, Job, Task
 
 
-class AddSpecialLemmataToLexicon(Job):
+class HandleSpecialLemmataInLexicon(Job):
     """
-    Adds special phonemes and lemmata to files
+    Adds, modifies or removes special phonemes and lemmata in a bliss lexicon
     """
 
     def __init__(
         self,
         bliss_lexicon: tk.Path,
+        symbol_filter: Optional[List[str]] = [],
     ):
         """
         :param tk.Path bliss_lexicon
+        :param Optional[List[str]] symbol_filter
         """
         self.bliss_lexicon = bliss_lexicon
+        self.symbol_filter = symbol_filter
         self.out_lexicon = self.output_path("lexicon.xml")
 
     def tasks(self):
@@ -31,25 +35,31 @@ class AddSpecialLemmataToLexicon(Job):
 
         # Special and corpus-specific phonemes
         out_lexicon.add_phoneme("[SILENCE]", variation="none")
-        out_lexicon.add_phoneme("[MUSIC]", variation="none")
+        # out_lexicon.add_phoneme("[music]", variation="none")
         out_lexicon.add_phoneme("[NOISE]", variation="none")
         out_lexicon.phonemes.update(in_lexicon.phonemes)
 
-        # Special and corpus-specific lemmata
-        out_lexicon.add_lemma(Lemma(orth=["[MUSIC]", "[music]"], phon=["[MUSIC]"]))
-        out_lexicon.add_lemma(Lemma(orth=["[NOISE]", "[noise]"], phon=["[NOISE]"]))
+        # Remove blacklisted phonemes
+        for symbol in self.symbol_filter:
+            out_lexicon.remove_phoneme(symbol)
 
-        out_lexicon.add_lemma(
-            Lemma(orth=["[SENTENCE-BEGIN]", "[sentence-begin]"], synt=["<s>"], special="sentence-begin")
-        )
-        out_lexicon.add_lemma(Lemma(orth=["[SENTENCE-END]", "[sentence-end]"], synt=["</s>"], special="sentence-end"))
-        out_lexicon.add_lemma(Lemma(orth=["[SILENCE]", "[silence]"], phon=["[SILENCE]"], special="silence"))
-        out_lexicon.add_lemma(
-            Lemma(orth=["[UNKNOWN]", "[unknown]"], phon=["[NOISE]", "[MUSIC]"], synt=["<unk>"], special="unknown")
-        )
+        # Special lemmata
+        # out_lexicon.add_lemma(Lemma(orth=["[music]"], phon=["[MUSIC]"]))
+        out_lexicon.add_lemma(Lemma(orth=["[noise]"], phon=["[NOISE]"]))
+        out_lexicon.add_lemma(Lemma(orth=["[vocalized-noise]"], phon=["[NOISE]"]))
+        out_lexicon.add_lemma(Lemma(orth=["[vocalized-unknown]"], phon=["[NOISE]"]))
 
-        out_lexicon.add_lemma(Lemma(orth=["[VOCALIZED-NOISE]", "[vocalized-noise]"], phon=["[NOISE]"]))
-        out_lexicon.add_lemma(Lemma(orth=["[VOCALIZED-UNKNOWN]", "[vocalized-unknown]"], phon=["[NOISE]"]))
-        out_lexicon.lemmata += in_lexicon.lemmata
+        # Corpus-specific lemmata
+        out_lexicon.add_lemma(Lemma(orth=["[sentence-begin]"], synt=["<s>"], special="sentence-begin"))
+        out_lexicon.add_lemma(Lemma(orth=["[sentence-end]"], synt=["</s>"], special="sentence-end"))
+        out_lexicon.add_lemma(Lemma(orth=["[SILENCE]"], phon=["[SILENCE]"], special="silence"))
+        out_lexicon.add_lemma(Lemma(orth=["[unknown]"], phon=["[NOISE]"], synt=["<unk>"], special="unknown"))
+
+        # Remove blacklisted lemmata
+        out_lexicon.lemmata += [
+            lemma
+            for lemma in in_lexicon.lemmata
+            if not any(symbol in lemma.orth or symbol in lemma.phon for symbol in self.symbol_filter)
+        ]
 
         write_xml(self.out_lexicon.get_path(), out_lexicon.to_xml())
