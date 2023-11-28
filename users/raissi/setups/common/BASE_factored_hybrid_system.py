@@ -501,13 +501,18 @@ class BASEFactoredHybridSystem(NnSystem):
         self.csp["base"].flf_tool_exe = path
 
     # --------------------- Init procedure -----------------
-    def init_system(self, label_info_additional_args=None):
+    def init_system(self, label_info_additional_args=None, frr_additional_args=None):
 
         if self.native_lstm2_path is None:
             self._set_native_lstm_path()
 
         if label_info_additional_args is not None:
             self.label_info = dataclasses.replace(self.label_info, **label_info_additional_args)
+
+        if frr_additional_args is not None:
+            self.frame_rate_reduction_ratio_info = dataclasses.replace(
+                self.frame_rate_reduction_ratio_info, **frr_additional_args
+            )
 
         for param in [self.rasr_init_args, self.label_info, self.train_data, self.dev_data, self.test_data]:
             assert param is not None
@@ -688,17 +693,27 @@ class BASEFactoredHybridSystem(NnSystem):
     ):
         # this is not a returnn config, but the dict params
         assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
-        time_prolog, time_tag_name = train_helpers.returnn_time_tag.get_shared_time_tag()
-
         config["extern_data"] = {
             "data": {
                 "dim": self.initial_nn_args["num_input"],
-                "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)},
-            },
-            **net_helpers.extern_data.get_extern_data_config(label_info=self.label_info, time_tag_name=time_tag_name),
+                "same_dim_tags_as": {"T": returnn.CodeWrapper(self.frame_rate_reduction_ratio_info.time_tag_name)},
+            }
         }
-        # these two are gonna get popped and stored during returnn config object creation
-        config["python_prolog"] = {"numpy": "import numpy as np", "time": time_prolog}
+        config["python_prolog"] = {
+            "numpy": "import numpy as np",
+            "time": self.frame_rate_reduction_ratio_info.get_time_tag_prolog_for_returnn_config(),
+        }
+
+        if self.training_criterion != TrainingCriterion.fullsum:
+            label_time_tag = None
+            if self.frame_rate_reduction_ratio_info.factor == 1:
+                label_time_tag = self.frame_rate_reduction_ratio_info.time_tag_name
+            config["extern_data"].update(
+                **net_helpers.extern_data.get_extern_data_config(
+                    label_info=self.label_info, time_tag_name=label_time_tag
+                )
+            )
+
         config["python_epilog"] = {
             "functions": [
                 train_helpers.specaugment.mask,
@@ -1017,7 +1032,9 @@ class BASEFactoredHybridSystem(NnSystem):
         # init args are the label info args
         if "init" in steps.get_step_names_as_list():
             init_args = steps.get_args_via_idx(0)
-            self.init_system(label_info_additional_args=init_args)
+            frame_rate_args = init_args["frr_info"] if "frr_info" in init_args else None
+            label_info_args = init_args["label_info"] if "label_info" in init_args else None
+            self.init_system(label_info_additional_args=label_info_args, frr_additional_args=frame_rate_args)
         for eval_c in self.dev_corpora + self.test_corpora:
             stm_args = self.rasr_init_args.stm_args if self.rasr_init_args.stm_args is not None else {}
             self.create_stm_from_corpus(eval_c, **stm_args)

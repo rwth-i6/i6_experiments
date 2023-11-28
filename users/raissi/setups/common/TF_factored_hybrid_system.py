@@ -186,26 +186,29 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         config: Dict,
         prolog_additional_str: str = None,
         epilog_additional_str: str = None,
-        use_frame_wise_label=True,
     ):
         # this is not a returnn config, but the dict params
         assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
-        time_prolog, time_tag_name = train_helpers.returnn_time_tag.get_shared_time_tag()
         config["extern_data"] = {
             "data": {
                 "dim": self.initial_nn_args["num_input"],
-                "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)},
+                "same_dim_tags_as": {"T": returnn.CodeWrapper(self.frame_rate_reduction_ratio_info.time_tag_name)},
             }
         }
-        if use_frame_wise_label:
+        config["python_prolog"] = {
+            "numpy": "import numpy as np",
+            "time": self.frame_rate_reduction_ratio_info.get_time_tag_prolog_for_returnn_config(),
+        }
+
+        if self.training_criterion != TrainingCriterion.fullsum:
+            label_time_tag = None
+            if self.frame_rate_reduction_ratio_info.factor == 1:
+                label_time_tag = self.frame_rate_reduction_ratio_info.time_tag_name
             config["extern_data"].update(
                 **net_helpers.extern_data.get_extern_data_config(
-                    label_info=self.label_info, time_tag_name=time_tag_name
+                    label_info=self.label_info, time_tag_name=label_time_tag
                 )
             )
-
-        # these two are gonna get popped and stored during returnn config object creation
-        config["python_prolog"] = {"numpy": "import numpy as np", "time": time_prolog}
 
         if prolog_additional_str is not None:
             config["python_prolog"]["str"] = prolog_additional_str
@@ -228,25 +231,41 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         self,
         chunking: str,
         conf_model_dim: int,
-        frame_rate_reduction_ratio_info: net_helpers.FrameRateReductionRatioinfo,
+        frame_rate_reduction_ratio_info: Optional[net_helpers.FrameRateReductionRatioinfo] = None,
         label_smoothing: float = 0.0,
         **kwargs,
     ):
+        if frame_rate_reduction_ratio_info is None:
+            frame_rate_reduction_ratio_info = self.frame_rate_reduction_ratio_info
+
+        frame_rate_args = {
+            "reduction_factor": (1, frame_rate_reduction_ratio_info.factor),
+        }
+        kwargs.update(frame_rate_args)
         # this only includes auxilaury losses
         network_builder = encoder_archs.conformer.get_best_conformer_network(
             size=conf_model_dim,
             num_classes=self.label_info.get_n_of_dense_classes(),
             num_input_feature=self.initial_nn_args["num_input"],
             time_tag_name=frame_rate_reduction_ratio_info.time_tag_name,
+            upsample_by_transposed_conv=self.frame_rate_reduction_ratio_info.factor == 1,
             chunking=chunking,
             label_smoothing=label_smoothing,
-            additional_args=kwargs,  # subsampling factor is passed here
+            additional_args=kwargs,
         )
         network = network_builder.network
         if self.training_criterion != TrainingCriterion.fullsum:
             network = net_helpers.augment.augment_net_with_label_pops(
                 network, label_info=self.label_info, frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info
             )
+            if frame_rate_reduction_ratio_info.factor > 1:
+                network["slice_classes"] = {
+                    "class": "slice",
+                    "from": network["classes_"]["from"],
+                    "axis": "T",
+                    "slice_step": frame_rate_reduction_ratio_info.factor,
+                }
+                network["classes_"]["from"] = "slice_classes"
         return network
 
     # -------------------- Decoding --------------------

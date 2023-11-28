@@ -26,8 +26,6 @@ def get_best_conformer_network(
     weights_init: str = DEFAULT_INIT,
     additional_args: Optional[Any] = None,
 ) -> attention_for_hybrid:
-    if time_tag_name is None:
-        _, time_tag_name = returnn_time_tag.get_shared_time_tag()
     conformer_net = get_best_model_config(
         size=size,
         num_classes=num_classes,

@@ -54,7 +54,7 @@ def get_best_model_config(
 
     clipping, overlap = [int(v) for v in chunking.split(":")] if chunking is not None else (400, 200)
 
-    pe400_enc_args = get_encoder_args(
+    enc_args = get_encoder_args(
         model_dim // att_dim,
         att_dim,
         att_dim,
@@ -89,7 +89,7 @@ def get_best_model_config(
     configured_args = get_network_args(
         num_enc_layers=12,
         type="conformer",
-        enc_args=pe400_enc_args,
+        enc_args=enc_args,
         target=target,
         num_classes=num_classes,
         num_input_feature=num_input_feature,

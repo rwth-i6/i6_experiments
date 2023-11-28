@@ -50,9 +50,10 @@ def augment_for_center_state(
         "available_for_inference": True,
         "dim": label_info.get_n_state_classes() * num_ctx,
         "sparse": True,
-        "same_dim_tags_as": extern_data["data"]["same_dim_tags_as"],
         "dtype": "int32",
     }
+    if "same_dim_tags_as" in extern_data["data"]:
+        extern_data[out_center_state_layer]["same_dim_tags_as"] = extern_data["data"]["same_dim_tags_as"]
 
     network = center_state_config.config["network"]
     dim_prolog, spatial_dim, range_dim = get_context_dim_tag_prolog(
