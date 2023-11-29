@@ -47,13 +47,14 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     train_exp("from-scratch-train", config, gpu_mem=11)
 
     train_exp(
-        "v6-11gb-bs15k-accgrad4-mgpu2",
+        "v6-11gb-f32-bs15k-accgrad4-mgpu2",
         config_24gb_v6,
         config_updates={
             "batch_size": 15_000 * _batch_size_factor,
             "accum_grad_multiple_step": 4,
             "torch_distributed": {},  # multi-GPU
         },
+        config_deletes=["torch_amp"],  # f32
         gpu_mem=11,
         num_processes=2,  # multi-GPU
     )
