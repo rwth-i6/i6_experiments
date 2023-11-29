@@ -7,6 +7,7 @@ from i6_core import returnn
 def get_default_time_tag_str() -> str:
     return "__time_tag__"
 
+
 def get_default_time_tag_prolog() -> str:
     var_name = get_default_time_tag_str()
     code = dedent(

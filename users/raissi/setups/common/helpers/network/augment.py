@@ -215,6 +215,19 @@ def augment_net_with_label_pops(
         },
     }
 
+    if frame_rate_reduction_ratio_info.single_state_alignment:
+        network[f"{prefix}singleStateCenter"] = {
+            "class": "eval",
+            "from": [f"{prefix}centerPhoneme", f"{prefix}wordEndClass"],
+            "eval": f"(source(0)*{label_info.phoneme_state_classes.factor()})+source(1)",
+            "out_type": {
+                "dim": label_info.get_n_single_state_classes(),
+                "dtype": "int32",
+                "sparse": True,
+            },
+            "register_as_extern_data": f"singleStateCenter",
+        }
+
     return network
 
 
@@ -222,6 +235,7 @@ def augment_net_with_monophone_outputs(
     shared_network: Network,
     encoder_output_len: int,
     label_info: LabelInfo,
+    frame_rate_reduction_ratio_info: FrameRateReductionRatioinfo,
     *,
     add_mlps=True,
     use_multi_task=True,
@@ -241,7 +255,7 @@ def augment_net_with_monophone_outputs(
     assert not add_mlps or final_ctx_type is not None
 
     network = copy.copy(shared_network)
-    encoder_out_len = encoder_output_len
+    center_target, center_dim = ("singleStateCenter", label_info.get_n_single_state_classes()) if frame_rate_reduction_ratio_info.single_state_alignment else ("centerState", label_info.get_n_state_classes())
 
     loss_opts = {}
     if focal_loss_factor > 0.0:
@@ -251,7 +265,7 @@ def augment_net_with_monophone_outputs(
 
     if add_mlps:
         if final_ctx_type == PhoneticContext.triphone_symmetric:
-            tri_out = encoder_out_len + (2 * label_info.ph_emb_size)
+            tri_out = encoder_output_len + (2 * label_info.ph_emb_size)
             tri_mlp = add_mlp(
                 network,
                 "triphone",
@@ -265,7 +279,7 @@ def augment_net_with_monophone_outputs(
             network[f"{prefix}center-output"] = {
                 "class": "softmax",
                 "from": tri_mlp,
-                "target": "centerState",
+                "target": center_target,
                 "loss": "ce",
                 "loss_opts": copy.copy(loss_opts),
             }
@@ -274,7 +288,7 @@ def augment_net_with_monophone_outputs(
                 context_mlp = add_mlp(
                     network,
                     "contexts",
-                    encoder_out_len,
+                    encoder_output_len,
                     prefix=prefix,
                     source_layer=encoder_output_layer,
                     l2=l2,
@@ -296,14 +310,14 @@ def augment_net_with_monophone_outputs(
                     "loss": "ce",
                     "loss_opts": copy.copy(loss_opts),
                 }
-                network[f"{prefix}center-output"]["target"] = "centerState"
+                network[f"{prefix}center-output"]["target"] = center_target
                 network[f"{prefix}center-output"]["n_out"] = label_info.get_n_state_classes()
 
         elif final_ctx_type == PhoneticContext.triphone_forward:
             di_mlp = add_mlp(
                 network,
                 "diphone",
-                encoder_out_len + label_info.ph_emb_size,
+                encoder_output_len + label_info.ph_emb_size,
                 prefix=prefix,
                 source_layer=encoder_output_layer,
                 l2=l2,
@@ -313,17 +327,17 @@ def augment_net_with_monophone_outputs(
             network[f"{prefix}center-output"] = {
                 "class": "softmax",
                 "from": di_mlp,
-                "target": "centerState",
+                "target": center_target,
                 "loss": "ce",
                 "loss_opts": copy.copy(loss_opts),
             }
 
             if use_multi_task:
-                tri_out = encoder_out_len + label_info.ph_emb_size + label_info.st_emb_size
+                tri_out = encoder_output_len + label_info.ph_emb_size + label_info.st_emb_size
                 left_ctx_mlp = add_mlp(
                     network,
                     "leftContext",
-                    encoder_out_len,
+                    encoder_output_len,
                     prefix=prefix,
                     source_layer=encoder_output_layer,
                     l2=l2,
@@ -355,16 +369,16 @@ def augment_net_with_monophone_outputs(
                     "loss": "ce",
                     "loss_opts": copy.copy(loss_opts),
                 }
-                network[f"{prefix}center-output"]["target"] = "centerState"
-                network[f"{prefix}center-output"]["n_out"] = label_info.get_n_state_classes()
+                network[f"{prefix}center-output"]["target"] = center_target
+                network[f"{prefix}center-output"]["n_out"] = center_dim
 
         elif final_ctx_type == PhoneticContext.triphone_backward:
             assert use_multi_task, "it is not possible to have a monophone backward without multitask"
 
             center_mlp = add_mlp(
                 network,
-                "centerState",
-                encoder_out_len,
+                center_target,
+                encoder_output_len,
                 prefix=prefix,
                 source_layer=encoder_output_layer,
                 l2=l2,
@@ -392,8 +406,8 @@ def augment_net_with_monophone_outputs(
             network[f"{prefix}center-output"] = {
                 "class": "softmax",
                 "from": center_mlp,
-                "target": "centerState",
-                "n_out": label_info.get_n_state_classes(),
+                "target": center_target,
+                "n_out": center_dim,
                 "loss": "ce",
                 "loss_opts": copy.copy(loss_opts),
             }
@@ -415,10 +429,10 @@ def augment_net_with_monophone_outputs(
             }
 
         elif final_ctx_type == PhoneticContext.tri_state_transition:
-            raise "this is not implemented yet"
+            raise "this is not tested yet"
 
             delta_blstm_n = f"{prefix}deltaEncoder-output"
-            di_out = encoder_out_len + ph_emb_size
+            di_out = encoder_output_len + ph_emb_size
 
             if shared_delta_encoder:
                 add_delta_blstm_(
@@ -449,17 +463,17 @@ def augment_net_with_monophone_outputs(
             network[f"{prefix}center-output"] = {
                 "class": "softmax",
                 "from": di_mlp,
-                "target": "centerState",
+                "target": center_target,
                 "loss": "ce",
                 "loss_opts": copy.copy(loss_opts),
             }
 
             if use_multi_task:
-                tri_out = encoder_out_len + ph_emb_size + st_emb_size
+                tri_out = encoder_output_len + ph_emb_size + st_emb_size
                 left_ctx_mlp = add_mlp(
                     network,
                     "leftContext",
-                    encoder_out_len,
+                    encoder_output_len,
                     prefix=prefix,
                     source_layer=encoder_output_layer,
                     l2=l2,
@@ -503,13 +517,13 @@ def augment_net_with_monophone_outputs(
                     "loss": "ce",
                     "loss_opts": copy.copy(loss_opts),
                 }
-                network[f"{prefix}center-output"]["target"] = "centerState"
-                network[f"{prefix}center-output"]["n_out"] = label_info.get_n_state_classes()
+                network[f"{prefix}center-output"]["target"] = center_target
+                network[f"{prefix}center-output"]["n_out"] = center_dim
     else:
         network[f"{prefix}center-output"] = {
             "class": "softmax",
             "from": encoder_output_layer,
-            "target": "centerState",
+            "target": center_target,
             "loss": "ce",
             "loss_opts": copy.copy(loss_opts),
         }
@@ -531,8 +545,8 @@ def augment_net_with_monophone_outputs(
                 "loss": "ce",
                 "loss_opts": copy.copy(loss_opts),
             }
-            network[f"{prefix}center-output"]["target"] = "centerState"
-            network[f"{prefix}center-output"]["n_out"] = label_info.get_n_state_classes()
+            network[f"{prefix}center-output"]["target"] = center_target
+            network[f"{prefix}center-output"]["n_out"] = center_dim
 
     if loss_scale != 1.0:
         network[f"{prefix}center-output"]["loss_scale"] = loss_scale
@@ -547,6 +561,7 @@ def augment_net_with_diphone_outputs(
     shared_network: Network,
     use_multi_task: bool,
     encoder_output_len: int,
+    frame_rate_reduction_ratio_info: FrameRateReductionRatioinfo,
     l2: float = 0.0,
     label_smoothing=0.2,
     ph_emb_size=64,
@@ -560,11 +575,13 @@ def augment_net_with_diphone_outputs(
     ), f"net needs output layer '{encoder_output_layer}' layer to be predefined"
 
     network = copy.deepcopy(shared_network)
+    center_target = "singleStateCenter" if frame_rate_reduction_ratio_info.single_state_alignment else "centerState"
+
     network["pastEmbed"] = get_embedding_layer(source="pastLabel", dim=ph_emb_size, l2=l2)
     network[f"{prefix}linear1-diphone"]["from"] = [encoder_output_layer, "pastEmbed"]
 
     if use_multi_task:
-        network["currentState"] = get_embedding_layer(source="centerState", dim=st_emb_size, l2=l2)
+        network["currentState"] = get_embedding_layer(source=center_target, dim=st_emb_size, l2=l2)
         network[f"{prefix}linear1-triphone"]["from"] = [encoder_output_layer, "currentState"]
     else:
         loss_opts = copy.deepcopy(network[f"{prefix}center-output"]["loss_opts"])
@@ -579,7 +596,7 @@ def augment_net_with_diphone_outputs(
         }
 
     network[f"{prefix}center-output"]["loss_opts"].pop("label_smoothing", None)
-    network[f"{prefix}center-output"]["target"] = "centerState"
+    network[f"{prefix}center-output"]["target"] = center_target
 
     return network
 
@@ -592,8 +609,12 @@ def augment_with_triphone_embeds(
     copy_net=True,
 ) -> Network:
     network = copy.deepcopy(shared_network) if copy_net else shared_network
+    center_target, center_dim = ("singleStateCenter",
+                                 label_info.get_n_single_state_classes()) if frame_rate_reduction_ratio_info.single_state_alignment else (
+    "centerState", label_info.get_n_state_classes())
+
     network["pastEmbed"] = get_embedding_layer(source="pastLabel", dim=ph_emb_size, l2=l2)
-    network["currentState"] = get_embedding_layer(source="centerState", dim=st_emb_size, l2=l2)
+    network["currentState"] = get_embedding_layer(source=center_target, dim=st_emb_size, l2=l2)
     return network
 
 
@@ -629,15 +650,12 @@ def augment_net_with_triphone_outputs(
     return network
 
 
-def remove_label_pops_and_losses(
-    network: Network, except_layers: Optional[Iterable[str]] = None
-) -> Network:
+def remove_label_pops_and_losses(network: Network, except_layers: Optional[Iterable[str]] = None) -> Network:
     network = copy.copy(network)
 
     layers_to_pop = {
         "centerPhoneme",
         "stateId",
-        "centerState",
         "pastLabel",
         "popFutureLabel",
         "futureLabel",
@@ -645,6 +663,11 @@ def remove_label_pops_and_losses(
     } - set(except_layers or [])
     for k in layers_to_pop:
         network.pop(k, None)
+
+    for center_target in ["centerState", "singleStateCenter"]:
+        if center_target in network:
+            network.pop(center_target, None)
+
 
     for layer in network.values():
         layer.pop("target", None)
@@ -661,14 +684,16 @@ def remove_label_pops_and_losses_from_returnn_config(
     cfg = copy.deepcopy(cfg)
     cfg.config["network"] = remove_label_pops_and_losses(cfg.config["network"], except_layers)
 
-    for k in ["centerState", "classes", "futureLabel", "pastLabel"]:
-        cfg.config["extern_data"].pop(k, None)
+    for k in ["centerState", "singleStateCenter", "classes", "futureLabel", "pastLabel"]:
+        if k in cfg.config["extern_data"]:
+            cfg.config["extern_data"].pop(k, None)
 
     chk_cfg = cfg.config.get("chunking", None)
     if isinstance(chk_cfg, tuple):
         cfg.config["chunking"] = f"{chk_cfg[0]['data']}:{chk_cfg[1]['data']}"
 
     return cfg
+
 
 def add_fast_bw_layer(
     crp: rasr.CommonRasrParameters,

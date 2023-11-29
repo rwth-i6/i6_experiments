@@ -94,6 +94,7 @@ class PhoneticContext(Enum):
             or self == PhoneticContext.tri_state_transition
         )
 
+
 @dataclass(eq=True, frozen=True)
 class LabelInfo:
     n_contexts: int
@@ -123,6 +124,10 @@ class LabelInfo:
 
     def get_n_state_classes(self) -> int:
         return self.n_states_per_phone * self.n_contexts * self.phoneme_state_classes.factor()
+
+    def get_n_single_state_classes(self) -> int:
+        # used for calculating single state label when n-state alignemnt is used
+        return self.n_contexts * self.phoneme_state_classes.factor()
 
     @classmethod
     def default_ls(cls) -> "LabelInfo":

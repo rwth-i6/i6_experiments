@@ -234,7 +234,6 @@ def get_nn_precomputed_feature_scorer(
     if isinstance(prior_info, PriorInfo):
         check_prior_info(context_type=context_type, prior_info=prior_info)
 
-
     return feature_scorer_type.get_fs_class()(
         prior_mixtures=mixtures,
         priori_scale=prior_info.diphone_prior.scale,

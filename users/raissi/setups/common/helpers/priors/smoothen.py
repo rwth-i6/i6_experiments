@@ -16,9 +16,7 @@ def smoothen_priors(
     p_info: PriorInfo,
     zero_weight: float = 1e-8,
 ) -> PriorInfo:
-    def smoothen(
-        cfg: typing.Optional[PriorConfig], zero_w: float
-    ) -> typing.Optional[PriorConfig]:
+    def smoothen(cfg: typing.Optional[PriorConfig], zero_w: float) -> typing.Optional[PriorConfig]:
         if cfg is None:
             return None
 
@@ -65,7 +63,6 @@ class SmoothenPriorsJob(Job):
 
         low_priors = priors < smooth_weight
         priors[low_priors] = smooth_weight
-
 
         total_weight = priors.flatten().sum()
         print(f"total prior weight: {total_weight}")

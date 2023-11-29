@@ -447,19 +447,6 @@ class BASEFactoredHybridSystem(NnSystem):
         )
 
     # -------------------- External helpers --------------------
-    def get_epilog_for_train(self, specaug_args=None):
-        # this is for FH when one needs to define extern data
-        if specaug_args is not None:
-            spec_augment_epilog = get_specaugment_epilog(**specaug_args)
-        else:
-            spec_augment_epilog = None
-        return get_epilog_code_dense_label(
-            n_input=self.initial_nn_args["num_input"],
-            n_contexts=self.label_info.n_contexts,
-            n_states=self.label_info.n_states_per_phone,
-            specaugment=spec_augment_epilog,
-        )
-
     def get_model_checkpoint(self, model_job, epoch):
         return model_job.out_checkpoints[epoch]
 
@@ -710,7 +697,9 @@ class BASEFactoredHybridSystem(NnSystem):
                 label_time_tag = self.frame_rate_reduction_ratio_info.time_tag_name
             config["extern_data"].update(
                 **net_helpers.extern_data.get_extern_data_config(
-                    label_info=self.label_info, time_tag_name=label_time_tag
+                    label_info=self.label_info,
+                    time_tag_name=label_time_tag,
+                    add_single_state_label=self.frame_rate_reduction_ratio_info.single_state_alignment,
                 )
             )
 

@@ -32,8 +32,9 @@ def augment_to_joint_diphone_softmax(
     returnn_config.config["forward_output_layer"] = out_joint_score_layer
 
     extern_data = returnn_config.config["extern_data"]
-    for k in ["centerState", "futureLabel", "pastLabel"]:
-        extern_data.pop(k, None)
+    for k in ["centerState", "singleStateCenter", "futureLabel", "pastLabel"]:
+        if k in extern_data:
+            extern_data.pop(k, None)
     if "classes" in extern_data:
         extern_data["classes"].pop("same_dim_tags_as", None)
     extern_data[out_joint_score_layer] = {

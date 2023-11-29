@@ -38,7 +38,6 @@ class PriorInfo:
     right_context_prior: Optional[PriorConfig] = None
     diphone_prior: Optional[PriorConfig] = None
 
-
     def with_scale(
         self,
         center: Optional[Float] = None,
@@ -106,6 +105,7 @@ class PriorInfo:
             left_context_prior=PriorConfig(file=output_dir.join_right("left-context.xml"), scale=0.0),
             right_context_prior=PriorConfig(file=output_dir.join_right("right-context.xml"), scale=0.0),
         )
+
     def from_diiphone_job(cls, output_dir: Union[str, tk.Path]) -> "PriorInfo":
         """
         Initializes a PriorInfo instance with scale 0.0 from the output directory of
@@ -177,7 +177,9 @@ class SearchParameters:
         right: Optional[Float] = None,
         diphone: Optional[Float] = None,
     ) -> "SearchParameters":
-        return dataclasses.replace(self, prior_info=self.prior_info.with_scale(center=center, left=left, right=right, diphone=diphone))
+        return dataclasses.replace(
+            self, prior_info=self.prior_info.with_scale(center=center, left=left, right=right, diphone=diphone)
+        )
 
     def with_pron_scale(self, pron_scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, pron_scale=pron_scale)

@@ -13,6 +13,8 @@ from i6_experiments.users.raissi.setups.common.helpers.network.augment import (
     Network,
 )
 
+from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
+
 
 def add_intermediate_loss(
     network: Network,
@@ -20,6 +22,7 @@ def add_intermediate_loss(
     label_info: LabelInfo,
     context: PhoneticContext,
     time_tag_name: str,
+    frame_rate_reduction_ratio_info: FrameRateReductionRatioinfo,
     *,
     at_layer: int = 6,
     scale: float = 0.5,
@@ -59,6 +62,7 @@ def add_intermediate_loss(
         label_info=label_info,
         add_mlps=True,
         final_ctx_type=final_ctx_type,
+        frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info,
         encoder_output_len=encoder_output_len,
         encoder_output_layer=input_layer,
         focal_loss_factor=focal_loss_factor,
@@ -75,6 +79,7 @@ def add_intermediate_loss(
         network = augment_net_with_diphone_outputs(
             network,
             encoder_output_len=encoder_output_len,
+            frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info,
             label_smoothing=label_smoothing,
             l2=l2,
             ph_emb_size=label_info.ph_emb_size,
