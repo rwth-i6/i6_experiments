@@ -20,6 +20,7 @@ def get_base_config(backend: Backend) -> Dict[str, Any]:
         result["use_tensorflow"] = True
     elif backend == Backend.PYTORCH:
         result["backend"] = "torch"
+        result["use_lovely_tensors"] = True
     else:
         raise NotImplementedError
     return result

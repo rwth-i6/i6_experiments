@@ -14,7 +14,8 @@ from i6_experiments.users.berger.network.helpers.conformer_wei import (
 from i6_experiments.users.berger.network.helpers.output import add_softmax_output
 from i6_experiments.users.berger.network.helpers.loss_boost import (
     add_loss_boost,
-    loss_boost_func,
+    loss_boost_func_v1,
+    loss_boost_func_v2,
 )
 import i6_experiments.users.berger.network.helpers.label_context as label_context
 from i6_experiments.users.berger.network.helpers.specaug import get_specaug_funcs, add_specaug_layer
@@ -30,6 +31,7 @@ def make_context_1_conformer_transducer(
     conformer_args: Dict = {},
     decoder_args: Dict = {},
     output_args: Dict = {},
+    loss_boost_v2: bool = True,
 ) -> Tuple[Dict, List]:
     network = {}
     python_code = []
@@ -99,8 +101,12 @@ def make_context_1_conformer_transducer(
             decoder_unit,
             boost_positions_mask=f"base:{mask_non_blank}",
             scale=loss_boost_scale,
+            v2=loss_boost_v2,
         )
-        python_code.append(loss_boost_func)
+        if loss_boost_v2:
+            python_code.append(loss_boost_func_v2)
+        else:
+            python_code.append(loss_boost_func_v1)
 
     return network, python_code
 
@@ -231,6 +237,7 @@ def make_context_1_blstm_transducer(
     blstm_args: Dict = {},
     decoder_args: Dict = {},
     output_args: Dict = {},
+    loss_boost_v2: bool = True,
 ) -> Tuple[Dict, List]:
     network = {}
     python_code = []
@@ -287,8 +294,12 @@ def make_context_1_blstm_transducer(
             decoder_unit,
             boost_positions_mask=f"base:{mask_non_blank}",
             scale=loss_boost_scale,
+            v2=loss_boost_v2,
         )
-        python_code.append(loss_boost_func)
+        if loss_boost_v2:
+            python_code.append(loss_boost_func_v2)
+        else:
+            python_code.append(loss_boost_func_v1)
 
     return network, python_code
 

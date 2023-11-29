@@ -246,7 +246,7 @@ def get_librispeech_data_hdf(
                 all_unknown=False,
             ).out_corpus
 
-    if feature_type == FeatureType.GAMMATONE or feature_type == FeatureType.GAMMATONE_CACHED:
+    if feature_type == FeatureType.GAMMATONE_16K or feature_type == FeatureType.GAMMATONE_CACHED_16K:
         gt_args = get_feature_extraction_args_16kHz()["gt"]
         cv_feature_hdfs = sum(
             [

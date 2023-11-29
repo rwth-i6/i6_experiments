@@ -1,6 +1,6 @@
 import copy
 import os
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 
 import i6_core.rasr as rasr
 from i6_core.returnn.config import ReturnnConfig
@@ -82,6 +82,10 @@ def generate_returnn_config(
                     "activation": "tanh",
                 },
             },
+            output_args={
+                "label_smoothing": kwargs.get("label_smoothing", None),
+            },
+            loss_boost_v2=kwargs.get("loss_boost_v2", False),
         )
     else:
         (
@@ -108,6 +112,30 @@ def generate_returnn_config(
             },
         )
 
+    extra_config = {
+        "train": train_data_config,
+        "dev": dev_data_config,
+        "chunking": (
+            {
+                "data": 256,
+                "classes": 64,
+            },
+            {
+                "data": 128,
+                "classes": 32,
+            },
+        ),
+    }
+
+    if kwargs.get("model_preload", None) is not None:
+        extra_config["preload_from_files"] = {
+            "base": {
+                "init_for_train": True,
+                "ignore_missing": True,
+                "filename": kwargs.get("model_preload", None),
+            }
+        }
+
     returnn_config = get_returnn_config(
         network=network_dict,
         target="classes",
@@ -125,31 +153,20 @@ def generate_returnn_config(
         grad_clip=20.0,
         schedule=LearningRateSchedules.OCLR_STEP,
         initial_lr=8e-05,
-        peak_lr=8e-04,
+        peak_lr=kwargs.get("peak_lr", 8e-04),
         final_lr=1e-06,
         n_steps_per_epoch=2450,
         batch_size=15000,
-        extra_config={
-            "train": train_data_config,
-            "dev": dev_data_config,
-            "chunking": (
-                {
-                    "data": 256,
-                    "classes": 64,
-                },
-                {
-                    "data": 128,
-                    "classes": 32,
-                },
-            ),
-        },
+        extra_config=extra_config,
     )
     returnn_config = serialize_dim_tags(returnn_config)
 
     return returnn_config
 
 
-def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Path]:
+def run_exp(
+    alignments: Dict[str, AlignmentData], ctc_model_checkpoint: tk.Path = None
+) -> Tuple[SummaryReport, tk.Path]:
     assert tools.returnn_root is not None
     assert tools.returnn_python_exe is not None
     assert tools.rasr_binary_path is not None
@@ -164,7 +181,7 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
         use_wei_lexicon=True,
         lm_name="4gram",
         # lm_name="kazuki_transformer",
-        feature_type=FeatureType.GAMMATONE,
+        feature_type=FeatureType.GAMMATONE_16K,
     )
 
     # ********** Step args **********
@@ -176,13 +193,12 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
 
     recog_args = exp_args.get_transducer_recog_step_args(
         num_classes,
-        # lm_scales=[0.5, 0.6, 0.7],
-        # epochs=[80, 160, 240, 320, 400, "best"],
-        lm_scales=[0.8],
-        epochs=[400],
-        # lookahead_options={"scale": 0.5},
+        lm_scales=[0.5, 0.6, 0.7],
+        # lm_scales=[0.6],
+        epochs=[80, 160, 240, 320, 400, "best"],
+        lookahead_options={"scale": 0.5},
         search_parameters={"label-pruning": 12.0},
-        feature_type=FeatureType.GAMMATONE,
+        feature_type=FeatureType.GAMMATONE_16K,
         reduction_factor=4,
         reduction_subtrahend=0,
     )
@@ -193,23 +209,43 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
 
     # ********** Returnn Configs **********
 
-    train_config = generate_returnn_config(
-        train=True,
-        train_data_config=data.train_data_config,
-        dev_data_config=data.cv_data_config,
-    )
-    recog_config = generate_returnn_config(
-        train=False,
-        train_data_config=data.train_data_config,
-        dev_data_config=data.cv_data_config,
-    )
+    for label_smoothing in [None, 0.2]:
+        for loss_boost_v2 in [True, False]:
+            for peak_lr in [4e-04, 8e-04]:
+                ctc_init_options = [False]
+                if not label_smoothing and not loss_boost_v2:
+                    ctc_init_options = [True, False]
+                for ctc_init in ctc_init_options:
+                    train_config = generate_returnn_config(
+                        train=True,
+                        train_data_config=data.train_data_config,
+                        dev_data_config=data.cv_data_config,
+                        label_smoothing=label_smoothing,
+                        loss_boost_v2=loss_boost_v2,
+                        peak_lr=peak_lr,
+                        model_preload=ctc_model_checkpoint if ctc_init else None,
+                    )
+                    recog_config = generate_returnn_config(
+                        train=False,
+                        train_data_config=data.train_data_config,
+                        dev_data_config=data.cv_data_config,
+                    )
 
-    returnn_configs = ReturnnConfigs(
-        train_config=train_config,
-        recog_configs={"recog": recog_config},
-    )
+                    returnn_configs = ReturnnConfigs(
+                        train_config=train_config,
+                        recog_configs={"recog": recog_config},
+                    )
 
-    system.add_experiment_configs("Conformer_Transducer_Viterbi", returnn_configs)
+                    suffix = f"lr-{peak_lr}"
+                    if loss_boost_v2:
+                        suffix += "_loss-boost-v2"
+                    if label_smoothing:
+                        suffix += f"_ls-{label_smoothing}"
+
+                    if ctc_init:
+                        suffix += "_ctc-init"
+
+                    system.add_experiment_configs(f"Conformer_Transducer_Viterbi_{suffix}", returnn_configs)
 
     system.init_corpora(
         dev_keys=data.dev_keys,
@@ -225,7 +261,7 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
     system.run_dev_recog_step(**recog_args)
     system.run_test_recog_step(**recog_args)
 
-    train_job = system.get_train_job("Conformer_Transducer_Viterbi")
+    train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_lr-0.0004_loss-boost-v2_ls-0.2")
     model = GetBestCheckpointJob(
         model_dir=train_job.out_model_dir, learning_rates=train_job.out_learning_rates
     ).out_checkpoint
@@ -235,12 +271,12 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
 
 
 def py() -> Tuple[SummaryReport, tk.Path]:
-    _, alignments = py_ctc()
+    _, ctc_model, alignments = py_ctc()
 
     filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
-    summary_report, model = run_exp(alignments)
+    summary_report, model = run_exp(alignments, ctc_model)
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 

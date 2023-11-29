@@ -1,6 +1,6 @@
 import copy
 import os
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 
 import i6_core.rasr as rasr
 from i6_core.returnn.config import ReturnnConfig
@@ -48,10 +48,7 @@ def generate_returnn_config(
     **kwargs,
 ) -> ReturnnConfig:
     if train:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
@@ -88,10 +85,7 @@ def generate_returnn_config(
             },
         )
     else:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer_recog(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
@@ -116,6 +110,31 @@ def generate_returnn_config(
             },
         )
 
+    extra_config = {
+        "train": train_data_config,
+        "dev": dev_data_config,
+        "chunking": (
+            {
+                "data": 256 * 160 + 1039,
+                "classes": 64,
+            },
+            {
+                "data": 128 * 160,
+                "classes": 32,
+            },
+        ),
+        "min_chunk_size": {"data": 1039 + 1, "classes": 1},
+    }
+
+    if kwargs.get("model_preload", None) is not None:
+        extra_config["preload_from_files"] = {
+            "base": {
+                "init_for_train": True,
+                "ignore_missing": True,
+                "filename": kwargs.get("model_preload", None),
+            }
+        }
+
     returnn_config = get_returnn_config(
         network=network_dict,
         target="classes",
@@ -138,28 +157,16 @@ def generate_returnn_config(
         final_lr=1e-06,
         n_steps_per_epoch=2450,
         batch_size=2_400_000,
-        extra_config={
-            "train": train_data_config,
-            "dev": dev_data_config,
-            "chunking": (
-                {
-                    "data": 256 * 160 + 1039,
-                    "classes": 64,
-                },
-                {
-                    "data": 128 * 160,
-                    "classes": 32,
-                },
-            ),
-            "min_chunk_size": {"data": 1039 + 1, "classes": 1},
-        },
+        extra_config=extra_config,
     )
     returnn_config = serialize_dim_tags(returnn_config)
 
     return returnn_config
 
 
-def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Path]:
+def run_exp(
+    alignments: Dict[str, AlignmentData], ctc_model_checkpoint: Optional[tk.Path] = None
+) -> Tuple[SummaryReport, tk.Path]:
     assert tools.returnn_root is not None
     assert tools.returnn_python_exe is not None
     assert tools.rasr_binary_path is not None
@@ -201,6 +208,7 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
         train=True,
         train_data_config=data.train_data_config,
         dev_data_config=data.cv_data_config,
+        model_preload=ctc_model_checkpoint,
     )
     recog_config = generate_returnn_config(
         train=False,
@@ -213,7 +221,10 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
         recog_configs={"recog": recog_config},
     )
 
-    system.add_experiment_configs(f"Conformer_Transducer_Viterbi_raw-sample", returnn_configs)
+    system.add_experiment_configs(
+        f"Conformer_Transducer_Viterbi_raw-sample{'_ctc-init' if ctc_model_checkpoint is not None else ''}",
+        returnn_configs,
+    )
 
     system.init_corpora(
         dev_keys=data.dev_keys,
@@ -229,7 +240,9 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
     system.run_dev_recog_step(**recog_args)
     system.run_test_recog_step(**recog_args)
 
-    train_job = system.get_train_job("Conformer_Transducer_Viterbi_raw-sample")
+    train_job = system.get_train_job(
+        f"Conformer_Transducer_Viterbi_raw-sample{'_ctc-init' if ctc_model_checkpoint else ''}"
+    )
     model = GetBestCheckpointJob(
         model_dir=train_job.out_model_dir, learning_rates=train_job.out_learning_rates
     ).out_checkpoint
@@ -239,12 +252,14 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
 
 
 def py() -> Tuple[SummaryReport, tk.Path]:
-    _, alignments = py_ctc()
+    _, ctc_model, alignments = py_ctc()
 
     filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
     summary_report, model = run_exp(alignments)
+    summary_report_2, _ = run_exp(alignments, ctc_model)
+    summary_report.merge_report(summary_report_2)
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 

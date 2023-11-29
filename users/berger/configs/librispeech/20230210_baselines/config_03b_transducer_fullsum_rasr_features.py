@@ -160,7 +160,7 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: tk.P
         augmented_lexicon=False,
         use_wei_lexicon=True,
         lm_name="4gram",
-        feature_type=FeatureType.GAMMATONE,
+        feature_type=FeatureType.GAMMATONE_16K,
         # lm_name="kazuki_transformer",
     )
 
@@ -192,9 +192,9 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: tk.P
         num_classes,
         lm_scales=[0.6],
         epochs=[80, 160, 240, 300, "best"],
-        lookahead_options={"scale": 0.5},
+        # lookahead_options={"scale": 0.5},
         search_parameters={"label-pruning": 11.2},
-        feature_type=FeatureType.GAMMATONE,
+        feature_type=FeatureType.GAMMATONE_16K,
         reduction_factor=4,
         reduction_subtrahend=0,
     )
@@ -223,7 +223,7 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: tk.P
 
 
 def py() -> SummaryReport:
-    _, alignments = py_ctc()
+    _, _, alignments = py_ctc()
     _, model = py_transducer()
 
     filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]

@@ -46,10 +46,7 @@ def generate_returnn_config(
     model_preload: tk.Path,
 ) -> ReturnnConfig:
     if train:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer_fullsum(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_fullsum(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
@@ -87,10 +84,7 @@ def generate_returnn_config(
             },
         )
     else:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer_recog(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
@@ -200,8 +194,8 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: tk.P
         num_classes,
         # lm_scales=[0.5, 0.7, 0.9],
         lm_scales=[0.7],
-        epochs=[160, 240, 300, "best"],
-        lookahead_options={"scale": 0.5},
+        epochs=[80, 160, 240, 300, "best"],
+        # lookahead_options={"scale": 0.5},
         search_parameters={"label-pruning": 11.2},
     )
 
@@ -229,7 +223,7 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: tk.P
 
 
 def py() -> SummaryReport:
-    _, alignments = py_ctc()
+    _, _, alignments = py_ctc()
     _, model = py_transducer()
 
     filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]

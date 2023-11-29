@@ -91,11 +91,11 @@ class ToolPaths:
 
 
 default_tools = ToolPaths(
-    returnn_root=tk.Path("/home/sberger/repositories/returnn"),
+    returnn_root=tk.Path("/u/berger/software/returnn"),
     returnn_python_exe=tk.Path("/usr/bin/python3"),
     # returnn_python_exe=tk.Path("/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1/bin/python3.8"),
-    rasr_binary_path=tk.Path("/home/sberger/repositories/rasr_versions/gen_seq2seq_apptainer/arch/linux-x86_64-standard"),
-    returnn_common_root=tk.Path("/home/sberger/repositories/returnn_common"),
+    rasr_binary_path=tk.Path("/u/berger/software/rasr_apptainer/arch/linux-x86_64-standard"),
+    returnn_common_root=tk.Path("/u/berger/software/returnn_common"),
     # blas_lib=tk.Path(
     #     "/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so"
     # ),

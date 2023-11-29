@@ -10,6 +10,7 @@ from i6_experiments.users.berger.args.returnn.learning_rates import (
     LearningRateSchedules,
 )
 import i6_experiments.users.berger.network.models.fullsum_ctc_raw_samples as ctc_model
+from i6_experiments.users.berger.recipe.returnn import GetBestCheckpointJob
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
@@ -113,7 +114,7 @@ def generate_returnn_config(
     return returnn_config
 
 
-def run_exp() -> Tuple[SummaryReport, Dict]:
+def run_exp() -> Tuple[SummaryReport, tk.Path, Dict]:
     assert tools.returnn_root is not None
     assert tools.returnn_python_exe is not None
     assert tools.rasr_binary_path is not None
@@ -141,7 +142,7 @@ def run_exp() -> Tuple[SummaryReport, Dict]:
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)
     align_args = exp_args.get_ctc_align_step_args(num_classes)
-    recog_args["epochs"] = [160, 240, 320, 400, 480, "best"]
+    recog_args["epochs"] = [80, 160, 240, 320, 400, 480, 500, "best"]
     recog_args["prior_scales"] = [0.3]
     recog_args["lm_scales"] = [0.9]
     align_args["epochs"] = ["best"]
@@ -184,16 +185,21 @@ def run_exp() -> Tuple[SummaryReport, Dict]:
     system.run_test_recog_step(**recog_args)
     alignments = system.run_align_step(**align_args)
 
+    train_job = system.get_train_job()
+    model = GetBestCheckpointJob(
+        model_dir=train_job.out_model_dir, learning_rates=train_job.out_learning_rates
+    ).out_checkpoint
+
     assert system.summary_report
-    return system.summary_report, alignments
+    return system.summary_report, model, alignments
 
 
-def py() -> Tuple[SummaryReport, Dict]:
+def py() -> Tuple[SummaryReport, tk.Path, Dict]:
     filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
-    summary_report, alignments = run_exp()
+    summary_report, model, alignments = run_exp()
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 
-    return summary_report, alignments
+    return summary_report, model, alignments
