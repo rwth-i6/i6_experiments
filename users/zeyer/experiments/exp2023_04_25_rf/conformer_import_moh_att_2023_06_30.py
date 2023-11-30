@@ -439,7 +439,7 @@ config = dict(
     optimizer={
         "class": "adamw",
         "epsilon": 1e-8,
-        "weight_decay": 0.000001,
+        "weight_decay": 1e-6,
     },
     # TODO grad accum scheduling, higher in beginning for better convergence?
     accum_grad_multiple_step=4,
