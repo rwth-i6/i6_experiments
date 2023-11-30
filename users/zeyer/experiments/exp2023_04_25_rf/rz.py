@@ -8,17 +8,17 @@ from .conformer_import_moh_att_2023_06_30 import train_exp, config_24gb_v4, _bat
 # run directly via `sis m ...`
 def py():
     train_exp(
-        "base-24gb-v4-f32-bs20k-accgrad4",
+        "v4-f32-bs20k-accgrad4",
         config_24gb_v4,
         config_updates={
             "batch_size": 20_000 * _batch_size_factor,  # 30k gives OOM on the 16GB GPU
             "accum_grad_multiple_step": 4,
         },
-        config_deletes=["torch_amp"],
+        config_deletes=["torch_amp"],  # f32
         gpu_mem=16,
     )
     train_exp(
-        "base-24gb-v4-f32-bs20k-accgrad4-mgpu2",
+        "v4-f32-bs20k-accgrad4-mgpu2",
         config_24gb_v4,
         config_updates={
             "batch_size": 20_000 * _batch_size_factor,
@@ -30,7 +30,7 @@ def py():
         num_processes=2,
     )
     train_exp(
-        "base-24gb-v4-f32-bs20k-accgrad2",
+        "v4-f32-bs20k-accgrad2",
         config_24gb_v4,
         config_updates={
             "batch_size": 20_000 * _batch_size_factor,
@@ -40,7 +40,7 @@ def py():
         gpu_mem=16,
     )
     train_exp(
-        "base-24gb-v4-f32-mgpu16",
+        "v4-f32-mgpu16",
         config_24gb_v4,
         config_updates={"torch_distributed": {}},
         config_deletes=["torch_amp"],
@@ -48,7 +48,7 @@ def py():
         num_processes=16,
     )
     train_exp(
-        "base-24gb-v4-f32-mgpu2",
+        "v4-f32-mgpu2",
         config_24gb_v4,
         config_updates={"torch_distributed": {}},
         config_deletes=["torch_amp"],
