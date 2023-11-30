@@ -1075,7 +1075,10 @@ def decode_triphone(
         set_batch_major_for_feature_scorer=True,
         lm_gc_simple_hash=True,
     )
-    recog_args = recog_args.with_lm_scale(2.5).with_tdp_scale(0.2)
+    tdp_sil = (10, 10, "infinity", 20)
+    recog_args = dataclasses.replace(
+        recog_args, lm_scale=2.5, tdp_scale=0.2, tdp_silence=tdp_sil, tdp_non_word=tdp_sil
+    ).with_prior_scale(0.4, 0.2, 0.2)
 
     recognizer.recognize_count_lm(
         label_info=s.label_info,
