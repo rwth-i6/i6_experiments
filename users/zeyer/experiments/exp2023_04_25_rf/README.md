@@ -71,6 +71,8 @@ TODO:
 - embedding init is probably bad. check embInit1
 - gradient noise
 - variational noise
+- compare FER to Moh, we overfit more! need more regularization
+- label smoothing for CTC?
 
 - fine tune:
   - linspace vs geomspace?
