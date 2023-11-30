@@ -787,22 +787,25 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         else:
             raise NotImplementedError("Cannot bw-fine-tune triphones")
 
-    # ##############################
-    # TWO-STAGE FULL-SUM FINE TUNING
-    # ##############################
+    # ######################################
+    # MULTI-STAGE AFTER FULL-SUM FINE TUNING
+    # ######################################
 
     mono_fs_train_job = mo_ft_sys.experiments["fh-mono-fs-constlr"]["train_job"]
     import_mono_fs_config = import_config(mono_fs_train_job.out_checkpoints[fine_tune_keep_epochs[-1]])
 
+    di_vit_from_mono_ft_config = copy.deepcopy(di_from_mono_cfg)
+    di_vit_from_mono_ft_config.update(import_mono_fs_config)
     di_ft_from_mono_ft_config = copy.deepcopy(returnn_cfg_di_ft_constlr)
     di_ft_from_mono_ft_config.update(import_mono_fs_config)
     configs = [
+        (di_vit_from_mono_ft_config, returnn_cfg_di, s, "di-from-mono-fs-constlr"),
         (di_ft_from_mono_ft_config, returnn_cfg_di, di_ft_sys, "di-fs-from-mono-fs-constlr"),
     ]
     keys = [f"fh-{name}" for _, _, _, name in configs]
     for (returnn_config, _, sys, name), key in zip(configs, keys):
         post_name = f"conf-{name}-zhou"
-        print(f"bw {post_name}")
+        print(f"bw+ {post_name}")
 
         sys.set_experiment_dict(key, "bw", name, postfix_name=post_name)
         sys.set_returnn_config_for_experiment(key, copy.deepcopy(returnn_config))
