@@ -203,6 +203,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
         },
     )
+    # gn01 ("gradient_noise": 0.1), does not converge? try again with gn before grad clip (new RETURNN)
     train_exp(
         "base-24gb-v4-lrlin-gn01",
         config_24gb_v4,
