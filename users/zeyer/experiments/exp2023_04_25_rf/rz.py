@@ -4,7 +4,12 @@ Experiments in RWTH ITC
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence
-from .conformer_import_moh_att_2023_06_30 import train_exp as _train_exp, config_24gb_v4, _batch_size_factor
+from .conformer_import_moh_att_2023_06_30 import (
+    train_exp as _train_exp,
+    config_24gb_v4,
+    config_24gb_v6,
+    _batch_size_factor,
+)
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep, dict_update_delete_deep
 
 if TYPE_CHECKING:
@@ -47,6 +52,16 @@ def py():
         num_processes=2,
     )
     train_exp(
+        "v6-f32-bs20k-accgrad2-mgpu2-wd1e-4",
+        config_v6_f32_bs20k,
+        config_updates={
+            "accum_grad_multiple_step": 2,
+            "torch_distributed": {},
+            "optimizer.weight_decay": 1e-4,
+        },
+        num_processes=2,
+    )
+    train_exp(
         "v4-f32-mgpu16",
         config_v4_f32,
         config_updates={"torch_distributed": {}},
@@ -65,6 +80,13 @@ def py():
 config_v4_f32 = dict_update_delete_deep(config_24gb_v4, ["torch_amp"])
 config_v4_f32_bs20k = dict_update_deep(
     config_v4_f32,
+    {
+        "batch_size": 20_000 * _batch_size_factor,  # 30k gives OOM on the 16GB GPU"
+    },
+)
+config_v6_f32 = dict_update_delete_deep(config_24gb_v6, ["torch_amp"])
+config_v6_f32_bs20k = dict_update_deep(
+    config_v6_f32,
     {
         "batch_size": 20_000 * _batch_size_factor,  # 30k gives OOM on the 16GB GPU"
     },
