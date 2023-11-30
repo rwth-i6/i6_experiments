@@ -165,7 +165,7 @@ def generate_returnn_config(
 
 
 def run_exp(
-    alignments: Dict[str, AlignmentData], ctc_model_checkpoint: tk.Path = None
+    alignments: Dict[str, AlignmentData], ctc_model_checkpoint: tk.Path
 ) -> Tuple[SummaryReport, tk.Path]:
     assert tools.returnn_root is not None
     assert tools.returnn_python_exe is not None
@@ -261,7 +261,7 @@ def run_exp(
     system.run_dev_recog_step(**recog_args)
     system.run_test_recog_step(**recog_args)
 
-    train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_lr-0.0004_loss-boost-v2_ls-0.2")
+    train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_lr-0.0004")
     model = GetBestCheckpointJob(
         model_dir=train_job.out_model_dir, learning_rates=train_job.out_learning_rates
     ).out_checkpoint

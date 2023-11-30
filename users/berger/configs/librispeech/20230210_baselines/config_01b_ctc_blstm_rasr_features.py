@@ -118,8 +118,6 @@ def run_exp() -> Tuple[SummaryReport, tk.Path, Dict]:
         ],
     )
 
-    tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard/")
-
     # ********** Step args **********
 
     train_args = exp_args.get_ctc_train_step_args(
