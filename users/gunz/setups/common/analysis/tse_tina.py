@@ -1,7 +1,7 @@
 import logging
 
 import numpy as np
-from typing import Dict, List, Iterator, Tuple
+from typing import Callable, Dict, List, Iterator, Optional, Tuple
 
 from i6_core.lib.rasr_cache import FileArchiveBundle
 from sisyphus import Job, Path, Task
@@ -63,6 +63,8 @@ def compute_ref_word_bounds(ref_alignments: FileArchiveBundle) -> Dict[str, Tupl
 
 
 class ComputeTinaTseJob(Job):
+    __sis_hash_exclude__ = {"map_seg_tags": None}
+
     def __init__(
         self,
         ref_alignment_bundle: Path,
@@ -71,6 +73,7 @@ class ComputeTinaTseJob(Job):
         alignment_bundle: Path,
         allophones: Path,
         ss_factor: int,
+        map_seg_tags: Optional[Callable[[str], str]] = None,
     ):
         assert ref_t_step > 0
         assert ss_factor > 0
@@ -87,6 +90,8 @@ class ComputeTinaTseJob(Job):
         self.out_tse = self.output_var("tse")
         self.out_num_len_mismatches = self.output_var("num_len_mismatches")
 
+        self.map_seg_tags = map_seg_tags
+
         self.rqmt = {"cpu": 1, "time": 4, "mem": 8}
 
     def tasks(self) -> Iterator[Task]:
@@ -97,6 +102,9 @@ class ComputeTinaTseJob(Job):
         ref_alignments.setAllophones(self.ref_allophones.get_path())
         logging.info("computing ref timestamps")
         ref_word_bounds = compute_ref_word_bounds(ref_alignments)
+
+        if self.map_seg_tags is not None:
+            ref_word_bounds = {self.map_seg_tags(k): v for k, v in ref_word_bounds.items()}
 
         alignments = FileArchiveBundle(cache(self.alignment_bundle))
         alignments.setAllophones(self.allophones.get_path())

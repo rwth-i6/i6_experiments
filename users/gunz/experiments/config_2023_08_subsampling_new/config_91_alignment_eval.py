@@ -21,6 +21,15 @@ from .config import (
 )
 
 
+def map_seg_tag(ref_tag: str) -> str:
+    # from train-other-960/103-1240-0000/103-1240-0000
+    # to librispeech/8425-292520/0013
+
+    crp, tag, _ = ref_tag.split("/")
+    a, b, c = tag.split("-")
+    return f"librispeech/{a}-{b}/{c}"
+
+
 def run():
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
 
@@ -60,6 +69,7 @@ def run():
         ref_alignment_bundle=tk.Path(ALIGN_GMM_MONO_10MS, cached=True),
         ref_t_step=10 / 1000,
         ss_factor=4,
+        map_seg_tags=map_seg_tag,
     )
     tk.register_output(f"alignments/40ms-zhou-blstm/statistics/tse-tina", tse_tina_job.out_tse)
 
