@@ -23,6 +23,7 @@ from ...setups.common.analysis import PlotViterbiAlignmentsJob
 from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
 from ...setups.common.nn.sum_learning_rates_scores import SumScoresInLearningRatesFileJob
 from ...setups.fh import system as fh_system
+from ...setups.fh.decoder.config import SearchParameters
 from ...setups.fh.decoder.search import DecodingTensorMap
 from ...setups.fh.factored import LabelInfo, PhoneticContext, RasrStateTying
 from ...setups.fh.network import aux_loss, diphone_joint_output, extern_data
@@ -863,6 +864,31 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         else:
             raise NotImplementedError("Cannot bw-fine-tune triphones")
 
+        for ep in [262, 275, 282, 294, 297, 298, 299]:
+            key = "fh-di-fs-constlr"
+
+            # best config for diphone-fine-tune
+            tdp_sil = (10, 10, "infinity", 20)
+            params = dataclasses.replace(
+                sys.get_cart_params(key),
+                beam=20,
+                lm_scale=2.1,
+                tdp_scale=0.4,
+                tdp_silence=tdp_sil,
+                tdp_non_word=tdp_sil,
+            ).with_prior_scale(0.6)
+
+            decode_diphone(
+                di_ft_sys,
+                key=key,
+                epoch=ep,
+                crp_k="dev-other",
+                params=params,
+                prior_epoch=fine_tune_keep_epochs[-2],
+                returnn_config=returnn_cfg_di,
+                tune=False,
+            )
+
 
 def decode_monophone(
     s: fh_system.FactoredHybridSystem,
@@ -944,6 +970,7 @@ def decode_diphone(
     epoch: int,
     prior_epoch: int,
     tune: bool,
+    params: typing.Optional[SearchParameters] = None,
 ):
     clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
 
@@ -974,6 +1001,8 @@ def decode_diphone(
     tying_cfg.type = "diphone-dense"
     search_params = [
         dataclasses.replace(s.get_cart_params(key), beam=20, lm_scale=2.5, tdp_scale=0.4).with_prior_scale(0.6)
+        if params is None
+        else params
     ]
     if tune:
         base_cfg = search_params[-1]
