@@ -2,56 +2,79 @@
 Experiments in RWTH ITC
 """
 
-from .conformer_import_moh_att_2023_06_30 import train_exp, config_24gb_v4, _batch_size_factor
+from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence
+from .conformer_import_moh_att_2023_06_30 import train_exp as _train_exp, config_24gb_v4, _batch_size_factor
+from i6_experiments.users.zeyer.utils.dict_update import dict_update_delete_deep
+
+if TYPE_CHECKING:
+    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
 
 
 # run directly via `sis m ...`
 def py():
     train_exp(
         "v4-f32-bs20k-accgrad4",
-        config_24gb_v4,
+        config_v4_f32,
         config_updates={
             "batch_size": 20_000 * _batch_size_factor,  # 30k gives OOM on the 16GB GPU
             "accum_grad_multiple_step": 4,
         },
-        config_deletes=["torch_amp"],  # f32
-        gpu_mem=16,
     )
     train_exp(
         "v4-f32-bs20k-accgrad4-mgpu2",
-        config_24gb_v4,
+        config_v4_f32,
         config_updates={
             "batch_size": 20_000 * _batch_size_factor,
             "accum_grad_multiple_step": 4,
             "torch_distributed": {},
         },
-        config_deletes=["torch_amp"],
-        gpu_mem=16,
         num_processes=2,
     )
     train_exp(
         "v4-f32-bs20k-accgrad2",
-        config_24gb_v4,
+        config_v4_f32,
         config_updates={
             "batch_size": 20_000 * _batch_size_factor,
             "accum_grad_multiple_step": 2,
         },
-        config_deletes=["torch_amp"],
-        gpu_mem=16,
     )
     train_exp(
         "v4-f32-mgpu16",
-        config_24gb_v4,
+        config_v4_f32,
         config_updates={"torch_distributed": {}},
-        config_deletes=["torch_amp"],
         gpu_mem=32,
         num_processes=16,
     )
     train_exp(
         "v4-f32-mgpu2",
-        config_24gb_v4,
+        config_v4_f32,
         config_updates={"torch_distributed": {}},
-        config_deletes=["torch_amp"],
         gpu_mem=32,
         num_processes=2,
+    )
+
+
+config_v4_f32 = dict_update_delete_deep(config_24gb_v4, ["torch_amp"])
+
+
+def train_exp(
+    name: str,
+    config: Dict[str, Any],
+    *,
+    config_updates: Optional[Dict[str, Any]] = None,
+    config_deletes: Optional[Sequence[str]] = None,
+    num_epochs: int = 2000,
+    gpu_mem: Optional[int] = 16,
+    num_processes: Optional[int] = None,
+    **kwargs,
+) -> ModelWithCheckpoints:
+    return _train_exp(
+        name,
+        config,
+        config_updates=config_updates,
+        config_deletes=config_deletes,
+        num_epochs=num_epochs,
+        gpu_mem=gpu_mem,
+        num_processes=num_processes,
+        **kwargs,
     )
