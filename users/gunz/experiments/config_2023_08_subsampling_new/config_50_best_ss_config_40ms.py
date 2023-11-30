@@ -791,7 +791,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_tri_from_di_sel_ft_constlr.update(smooth_fs_constlr_config)
     returnn_cfg_tri_from_di_sel_ft_constlr.update(import_tri_from_di_sel_config)
 
-    configs = [
+    single_state_full_sum_configs = [
         (returnn_cfg_mo_ft_constlr, returnn_cfg_mo, mo_ft_sys, "mono-fs-constlr"),
         (returnn_cfg_mo_ft_newbob, returnn_cfg_mo, mo_ft_sys, "mono-fs-newbob"),
         (returnn_cfg_di_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-constlr"),
@@ -803,8 +803,8 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         (returnn_cfg_tri_from_di_ft_constlr, returnn_cfg_tri_safe, di_ft_sys, "tri-fs-constlr-from-di"),
         (returnn_cfg_tri_from_di_sel_ft_constlr, returnn_cfg_tri_safe, di_ft_sys, "tri-sel-fs-constlr-from-di"),
     ]
-    keys = [f"fh-{name}" for _, _, _, name in configs]
-    for (returnn_config, _, sys, name), key in zip(configs, keys):
+    keys = [f"fh-{name}" for _, _, _, name in single_state_full_sum_configs]
+    for (returnn_config, _, sys, name), key in zip(single_state_full_sum_configs, keys):
         post_name = f"conf-{name}-zhou"
         print(f"bw {post_name}")
 
@@ -839,11 +839,11 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
 
     di_ft_from_mono_ft_config = copy.deepcopy(returnn_cfg_di_ft_constlr)
     di_ft_from_mono_ft_config.update(import_mono_fs_config)
-    second_stage_full_sum_configs = [
+    two_stage_full_sum_configs = [
         (di_ft_from_mono_ft_config, returnn_cfg_di, di_ft_sys, "di-fs-from-mono-fs-constlr"),
     ]
-    keys = [f"fh-{name}" for _, _, _, name in second_stage_full_sum_configs]
-    for (returnn_config, _, sys, name), key in zip(second_stage_full_sum_configs, keys):
+    keys = [f"fh-{name}" for _, _, _, name in two_stage_full_sum_configs]
+    for (returnn_config, _, sys, name), key in zip(two_stage_full_sum_configs, keys):
         post_name = f"conf-{name}-zhou"
         print(f"bw {post_name}")
 
@@ -863,7 +863,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             nn_train_args=train_args,
         )
 
-    configs = [*configs, *second_stage_full_sum_configs]
+    configs = [*single_state_full_sum_configs, *two_stage_full_sum_configs]
     for ((_, orig_returnn_config, sys, _), key), crp_k, ep in itertools.product(
         zip(configs, keys), ["dev-other"], fine_tune_keep_epochs
     ):
