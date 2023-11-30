@@ -1,10 +1,12 @@
-__all__ = ["FilterCorpusRemoveUnknownWordSegmentsJob"]
+__all__ = ["FilterCorpusRemoveUnknownWordSegmentsJob", "FilterTextJob"]
 
 import gzip
 import xml.etree.cElementTree as ET
 from itertools import compress
+from typing import List, Callable
 
 from i6_core.lib import corpus
+from i6_core.util import uopen
 
 from sisyphus import *
 
@@ -20,8 +22,8 @@ class FilterCorpusRemoveUnknownWordSegmentsJob(Job):
 
     def __init__(
         self,
-        bliss_corpus: tk.Path,
-        bliss_lexicon: tk.Path,
+        bliss_corpus: Path,
+        bliss_lexicon: Path,
         case_sensitive: bool = False,
         all_unknown: bool = True,
     ):
@@ -88,3 +90,53 @@ class FilterCorpusRemoveUnknownWordSegmentsJob(Job):
 
         c.filter_segments(unknown_filter)
         c.dump(self.out_corpus.get_path())
+
+
+# Adapted from Zoltán Tüske's mapRemoveFragSilNoise
+def es_filter(text):
+    wordMap = {
+        "[laughter]-": "[laughter]",
+        "[noise]-": "[noise]",
+        "[vocalized-noise]-": "[vocalized-noise]",
+        "s[laughter]": "[laughter]",
+        "<unk>": "",
+    }
+
+    text = text.strip()
+    words = text.split()
+    newwords = []
+    for c1, word in enumerate(words):
+        if word in wordMap:
+            word = wordMap[word]
+        if word == "":
+            continue
+        if word.startswith("[") or word.endswith("]"):
+            continue
+        if word.startswith("-") or word.endswith("-"):
+            continue
+        newwords.append(word)
+    text = " ".join(newwords)
+    return text + "\n"
+
+
+class FilterTextJob(Job):
+    """Filter a text file (i.e. corpus transcription file)"""
+
+    def __init__(self, text_file: Path, filter: Callable[[str], str] = es_filter, gzip: bool = False):
+        """
+        :param text_file:
+        :param gzip:
+        """
+        self.text_file = text_file
+        self.filter = filter
+        self.gzip = gzip
+
+        self.out_txt = self.output_path("filtered.txt" + (".gz" if gzip else ""))
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        with uopen(self.text_file, "rt") as in_f, uopen(self.out_txt.get_path(), "wt") as out_f:
+            for line in in_f:
+                out_f.write(self.filter(line))

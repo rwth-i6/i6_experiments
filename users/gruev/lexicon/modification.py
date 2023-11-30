@@ -14,14 +14,14 @@ class HandleSpecialLemmataInLexicon(Job):
     def __init__(
         self,
         bliss_lexicon: tk.Path,
-        symbol_filter: Optional[List[str]] = [],
+        blacklist: Optional[List[str]] = [],
     ):
         """
         :param tk.Path bliss_lexicon
-        :param Optional[List[str]] symbol_filter
+        :param Optional[List[str]] blacklist
         """
         self.bliss_lexicon = bliss_lexicon
-        self.symbol_filter = symbol_filter
+        self.blacklist = blacklist
         self.out_lexicon = self.output_path("lexicon.xml")
 
     def tasks(self):
@@ -40,7 +40,7 @@ class HandleSpecialLemmataInLexicon(Job):
         out_lexicon.phonemes.update(in_lexicon.phonemes)
 
         # Remove blacklisted phonemes
-        for symbol in self.symbol_filter:
+        for symbol in self.blacklist:
             out_lexicon.remove_phoneme(symbol)
 
         # Special lemmata
@@ -59,7 +59,7 @@ class HandleSpecialLemmataInLexicon(Job):
         out_lexicon.lemmata += [
             lemma
             for lemma in in_lexicon.lemmata
-            if not any(symbol in lemma.orth or symbol in lemma.phon for symbol in self.symbol_filter)
+            if not any(symbol in lemma.orth or symbol in lemma.phon for symbol in self.blacklist)
         ]
 
         write_xml(self.out_lexicon.get_path(), out_lexicon.to_xml())
