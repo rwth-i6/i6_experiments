@@ -824,21 +824,21 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             nn_train_args=train_args,
         )
 
-    di_from_mono_fs_train_job = mo_ft_sys.experiments["fh-mono-fs-constlr"]["train_job"]
-    import_di_from_mono_newbob_config = returnn.ReturnnConfig(
+    mono_fs_train_job = mo_ft_sys.experiments["fh-mono-fs-constlr"]["train_job"]
+    import_mono_fs_config = returnn.ReturnnConfig(
         config={
             "preload_from_files": {
                 "existing-model": {
                     "init_for_train": True,
                     "ignore_missing": True,
-                    "filename": di_from_mono_fs_train_job.out_checkpoints[fine_tune_keep_epochs[-1]],
+                    "filename": mono_fs_train_job.out_checkpoints[fine_tune_keep_epochs[-1]],
                 }
             },
         }
     )
 
     di_ft_from_mono_ft_config = copy.deepcopy(returnn_cfg_di_ft_constlr)
-    di_ft_from_mono_ft_config.update(import_di_from_mono_newbob_config)
+    di_ft_from_mono_ft_config.update(import_mono_fs_config)
     second_stage_full_sum_configs = [
         (di_ft_from_mono_ft_config, returnn_cfg_di, di_ft_sys, "di-fs-from-mono-fs-constlr"),
     ]
