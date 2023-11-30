@@ -613,6 +613,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     # ####################
     # FULL-SUM FINE TUNING
     # ####################
+
     batch_size_config = returnn.ReturnnConfig(config={"batch_size": 10_000})
     smooth_fs_constlr_config = returnn.ReturnnConfig(
         config={},
@@ -713,7 +714,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_tri_from_di_sel_ft_constlr.update(smooth_fs_constlr_config)
     returnn_cfg_tri_from_di_sel_ft_constlr.update(import_tri_from_di_sel_config)
 
-    single_state_full_sum_configs = [
+    configs = [
         (returnn_cfg_mo_ft_constlr, returnn_cfg_mo, mo_ft_sys, "mono-fs-constlr"),
         (returnn_cfg_mo_ft_newbob, returnn_cfg_mo, mo_ft_sys, "mono-fs-newbob"),
         (returnn_cfg_di_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-constlr"),
@@ -725,8 +726,8 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         (returnn_cfg_tri_from_di_ft_constlr, returnn_cfg_tri_safe, di_ft_sys, "tri-fs-constlr-from-di"),
         (returnn_cfg_tri_from_di_sel_ft_constlr, returnn_cfg_tri_safe, di_ft_sys, "tri-sel-fs-constlr-from-di"),
     ]
-    single_state_fs_keys = [f"fh-{name}" for _, _, _, name in single_state_full_sum_configs]
-    for (returnn_config, _, sys, name), key in zip(single_state_full_sum_configs, single_state_fs_keys):
+    keys = [f"fh-{name}" for _, _, _, name in configs]
+    for (returnn_config, _, sys, name), key in zip(configs, keys):
         post_name = f"conf-{name}-zhou"
         print(f"bw {post_name}")
 
@@ -745,17 +746,61 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             dev_corpus_key=s.crp_names["cvtrain"],
             nn_train_args=train_args,
         )
+
+    for ((_, orig_returnn_config, sys, _), key), crp_k, ep in itertools.product(
+        zip(configs, keys), ["dev-other"], fine_tune_keep_epochs
+    ):
+        sys.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+        if key.startswith("fh-mono"):
+            decode_monophone(
+                sys,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=orig_returnn_config,
+                epoch=ep,
+                prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
+                tune=ep == fine_tune_keep_epochs[-1],
+            )
+        elif key.startswith("fh-di"):
+            decode_diphone(
+                sys,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=orig_returnn_config,
+                epoch=ep,
+                prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
+                tune=ep == fine_tune_keep_epochs[-1],
+            )
+        elif key.startswith("fh-tri"):
+            decode_triphone(
+                sys,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=orig_returnn_config,
+                graph_config=orig_returnn_config,
+                epoch=ep,
+                prior_epoch_or_key="fh-tri",
+                tensor_config=TENSOR_CONFIG,
+                tune=ep == fine_tune_keep_epochs[-1],
+            )
+        else:
+            raise NotImplementedError("Cannot bw-fine-tune triphones")
+
+    # ##############################
+    # TWO-STAGE FULL-SUM FINE TUNING
+    # ##############################
 
     mono_fs_train_job = mo_ft_sys.experiments["fh-mono-fs-constlr"]["train_job"]
     import_mono_fs_config = import_config(mono_fs_train_job.out_checkpoints[fine_tune_keep_epochs[-1]])
 
     di_ft_from_mono_ft_config = copy.deepcopy(returnn_cfg_di_ft_constlr)
     di_ft_from_mono_ft_config.update(import_mono_fs_config)
-    two_stage_full_sum_configs = [
+    configs = [
         (di_ft_from_mono_ft_config, returnn_cfg_di, di_ft_sys, "di-fs-from-mono-fs-constlr"),
     ]
-    two_stage_fs_keys = [f"fh-{name}" for _, _, _, name in two_stage_full_sum_configs]
-    for (returnn_config, _, sys, name), key in zip(two_stage_full_sum_configs, two_stage_fs_keys):
+    keys = [f"fh-{name}" for _, _, _, name in configs]
+    for (returnn_config, _, sys, name), key in zip(configs, keys):
         post_name = f"conf-{name}-zhou"
         print(f"bw {post_name}")
 
@@ -775,8 +820,6 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             nn_train_args=train_args,
         )
 
-    configs = [*single_state_full_sum_configs, *two_stage_full_sum_configs]
-    keys = [*single_state_fs_keys, *two_stage_fs_keys]
     for ((_, orig_returnn_config, sys, _), key), crp_k, ep in itertools.product(
         zip(configs, keys), ["dev-other"], fine_tune_keep_epochs
     ):
