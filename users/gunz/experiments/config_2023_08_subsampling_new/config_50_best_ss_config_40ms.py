@@ -870,7 +870,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             # best config for diphone-fine-tune
             tdp_sil = (10, 10, "infinity", 20)
             params = dataclasses.replace(
-                sys.get_cart_params(key),
+                di_ft_sys.get_cart_params(key),
                 beam=20,
                 lm_scale=2.1,
                 tdp_scale=0.4,
