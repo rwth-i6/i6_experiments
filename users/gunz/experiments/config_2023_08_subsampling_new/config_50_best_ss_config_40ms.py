@@ -287,43 +287,13 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     )
 
     mono_train_job = s.experiments["fh-mono"]["train_job"]
-    import_mono_config = returnn.ReturnnConfig(
-        config={
-            "preload_from_files": {
-                "existing-model": {
-                    "init_for_train": True,
-                    "ignore_missing": True,
-                    "filename": mono_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
-                }
-            },
-        }
-    )
+    import_mono_config = import_config(mono_train_job.out_checkpoints[viterbi_keep_epochs[-1]])
 
     di_train_job = s.experiments["fh-di"]["train_job"]
-    import_di_config = returnn.ReturnnConfig(
-        config={
-            "preload_from_files": {
-                "existing-model": {
-                    "init_for_train": True,
-                    "ignore_missing": True,
-                    "filename": di_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
-                }
-            },
-        }
-    )
+    import_di_config = import_config(di_train_job.out_checkpoints[viterbi_keep_epochs[-1]])
 
     tri_train_job = s.experiments["fh-tri"]["train_job"]
-    import_tri_config = returnn.ReturnnConfig(
-        config={
-            "preload_from_files": {
-                "existing-model": {
-                    "init_for_train": True,
-                    "ignore_missing": True,
-                    "filename": tri_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
-                }
-            },
-        }
-    )
+    import_tri_config = import_config(tri_train_job.out_checkpoints[viterbi_keep_epochs[-1]])
 
     # #####################
     # FORCE-ALIGNED DIPHONE
@@ -424,17 +394,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         )
 
     di_fa_newbob_train_job = s.experiments["fh-di-fa-newbob"]["train_job"]
-    import_di_fa_newbob_config = returnn.ReturnnConfig(
-        config={
-            "preload_from_files": {
-                "existing-model": {
-                    "init_for_train": True,
-                    "ignore_missing": True,
-                    "filename": di_fa_newbob_train_job.out_checkpoints[viterbi_keep_epochs[-1]],
-                }
-            },
-        }
-    )
+    import_di_fa_newbob_config = import_config(di_fa_newbob_train_job.out_checkpoints[viterbi_keep_epochs[-1]])
 
     # ###############################
     # TWO STAGE MULTI STAGE TRAININGS
@@ -553,17 +513,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             raise NotImplementedError("Cannot decode multistage monophones")
 
     tri_from_di_train_job = s.experiments["fh-tri-from-di"]["train_job"]
-    import_tri_from_di_config = returnn.ReturnnConfig(
-        config={
-            "preload_from_files": {
-                "existing-model": {
-                    "init_for_train": True,
-                    "ignore_missing": True,
-                    "filename": tri_from_di_train_job.out_checkpoints[fine_tune_keep_epochs[-1]],
-                }
-            },
-        }
-    )
+    import_tri_from_di_config = import_config(tri_from_di_train_job.out_checkpoints[fine_tune_keep_epochs[-1]])
     tri_from_di_newbob_best_epoch_job = returnn.GetBestTFCheckpointJob(
         model_dir=tri_from_di_train_job.out_model_dir,
         learning_rates=SumScoresInLearningRatesFileJob(
@@ -571,33 +521,15 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         ).out_learning_rates,
         key="sum_score",
     )
-    import_tri_from_di_sel_config = returnn.ReturnnConfig(
-        config={
-            "preload_from_files": {
-                "existing-model": {
-                    "init_for_train": True,
-                    "ignore_missing": True,
-                    "filename": tri_from_di_newbob_best_epoch_job.out_checkpoint,
-                }
-            },
-        }
-    )
+    import_tri_from_di_sel_config = import_config(tri_from_di_newbob_best_epoch_job.out_checkpoint)
 
     # #################################
     # THREE STAGE MULTI STAGE TRAININGS
     # #################################
 
     di_from_mono_newbob_train_job = s.experiments["fh-di-from-mono"]["train_job"]
-    import_di_from_mono_newbob_config = returnn.ReturnnConfig(
-        config={
-            "preload_from_files": {
-                "existing-model": {
-                    "init_for_train": True,
-                    "ignore_missing": True,
-                    "filename": di_from_mono_newbob_train_job.out_checkpoints[fine_tune_keep_epochs[-1]],
-                }
-            },
-        }
+    import_di_from_mono_newbob_config = import_config(
+        di_from_mono_newbob_train_job.out_checkpoints[fine_tune_keep_epochs[-1]]
     )
     di_from_mono_newbob_best_epoch_job = returnn.GetBestTFCheckpointJob(
         model_dir=di_from_mono_newbob_train_job.out_model_dir,
@@ -606,17 +538,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         ).out_learning_rates,
         key="sum_score",
     )
-    import_di_from_mono_newbob_sel_epoch_config = returnn.ReturnnConfig(
-        config={
-            "preload_from_files": {
-                "existing-model": {
-                    "init_for_train": True,
-                    "ignore_missing": True,
-                    "filename": di_from_mono_newbob_best_epoch_job.out_checkpoint,
-                }
-            },
-        }
-    )
+    import_di_from_mono_newbob_sel_epoch_config = import_config(di_from_mono_newbob_best_epoch_job.out_checkpoint)
 
     tri_from_di_from_mono_cfg = copy.deepcopy(returnn_cfg_tri)
     tri_from_di_from_mono_cfg.config.pop("network", None)
@@ -825,17 +747,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         )
 
     mono_fs_train_job = mo_ft_sys.experiments["fh-mono-fs-constlr"]["train_job"]
-    import_mono_fs_config = returnn.ReturnnConfig(
-        config={
-            "preload_from_files": {
-                "existing-model": {
-                    "init_for_train": True,
-                    "ignore_missing": True,
-                    "filename": mono_fs_train_job.out_checkpoints[fine_tune_keep_epochs[-1]],
-                }
-            },
-        }
-    )
+    import_mono_fs_config = import_config(mono_fs_train_job.out_checkpoints[fine_tune_keep_epochs[-1]])
 
     di_ft_from_mono_ft_config = copy.deepcopy(returnn_cfg_di_ft_constlr)
     di_ft_from_mono_ft_config.update(import_mono_fs_config)
@@ -1282,6 +1194,20 @@ def force_align_diphone(
 
     return force_align(
         sys=sys, prior_config=prior_config, nn_pch_config=nn_pch_config, tying=RasrStateTying.diphone, **kwargs
+    )
+
+
+def import_config(ckpt: returnn.Checkpoint) -> returnn.ReturnnConfig:
+    return returnn.ReturnnConfig(
+        config={
+            "preload_from_files": {
+                "existing-model": {
+                    "init_for_train": True,
+                    "ignore_missing": True,
+                    "filename": ckpt,
+                },
+            },
+        }
     )
 
 
