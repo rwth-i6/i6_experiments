@@ -34,9 +34,9 @@ if TYPE_CHECKING:
 # E.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
 _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
 # /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb
-# original RETURNN training job: /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.ZhtaEElHqWlr
-# ? /work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.SAh74CLCNJQi
+# Main train (2035 subepochs): /work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.SAh74CLCNJQi
 # 15k batch size, accum grad 2 (1350 steps per epoch?)
+# (With batch size 40k (here default), I have usually 495 steps/epoch. Same accum grad 2.)
 # peak_lr = 0.9e-3 (1e-3 should also be fine), with Adam, optimizer_epsilon = 1e-08
 # phase1: peak_lr / 10 -> peak_lr (45%)
 # phase2: peak_lr -> peak_lr / 10 (45%)
@@ -44,7 +44,7 @@ _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.Bx
 # all linear decay and step-based
 # specaugment like my orig (same here, specaugorig), speed perturb same here.
 # weight decay: L2 1e-4 in some layers (not all): FF, depthwise conv, self-att, output, LSTM, readout
-# final from learning_rates file:
+# Final from learning_rates file:
 # 2035: EpochData(learningRate=<misleading>, error={
 # 'dev_error_ctc': 0.0520755184693418,
 # 'dev_error_output/output_prob': 0.035661241551042944,
@@ -59,7 +59,25 @@ _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.Bx
 # 'train_score_ctc': 0.21249712733341475,
 # 'train_score_output/output_prob': 0.20816428663741796,
 # }),
-# With batch size 40k (here default), I have usually 495 steps/epoch. Same accum grad 2.
+# Retrain RETURNN training job (600 subepochs): /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.ZhtaEElHqWlr
+# Epoch-wise LR:
+# Fixed for 20 subepochs: 1e-4
+# Linear(?) decay for remaining (?): 1e-4 to 1e-6
+# Final from learning_rates file:
+# 600: EpochData(learningRate=1e-06, error={
+# 'dev_error_ctc': 0.04999311020358747,
+# 'dev_error_output/output_prob': 0.03406881170076022,
+# 'dev_score_ctc': 0.2881619431223589,
+# 'dev_score_output/output_prob': 0.16851828029171323,
+# 'devtrain_error_ctc': 0.003611245977923651,
+# 'devtrain_error_output/output_prob': 0.004028583366881808,
+# 'devtrain_score_ctc': 0.014762402644778178,
+# 'devtrain_score_output/output_prob': 0.0458638666428664,
+# 'train_error_ctc': 0.051649620746772214,
+# 'train_error_output/output_prob': 0.03977601830532325,
+# 'train_score_ctc': 0.19722012590584306,
+# 'train_score_output/output_prob': 0.19768974342596793,
+# }),
 
 
 # The model gets raw features (16khz) and does feature extraction internally.
@@ -144,7 +162,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_24gb_v3,
         config_updates={"learning_rate": 0.001, "learning_rate_invsqrt_norm": 40_000},
     )
-    train_exp(
+    train_exp(  # 6.22 (vs base 7.01, so much better)
         "base-24gb-v3-lr1e_3-specaugorig",
         config_24gb_v3,
         config_updates={"learning_rate": 0.001},
