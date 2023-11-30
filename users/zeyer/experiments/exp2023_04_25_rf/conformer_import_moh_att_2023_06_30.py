@@ -231,7 +231,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
     train_exp("base-24gb-v4-posdrop01", config_24gb_v4, config_updates={"pos_emb_dropout": 0.1})
-    train_exp(
+    train_exp(  # 6.52 (vs base 7.07, so much better)
         "base-24gb-v4-pretrain-posdrop01-specaugorig",
         config_24gb_v4,
         config_updates={
