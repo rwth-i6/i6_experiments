@@ -2,6 +2,7 @@
 Experiments in RWTH ITC
 """
 
+from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence
 from .conformer_import_moh_att_2023_06_30 import train_exp as _train_exp, config_24gb_v4, _batch_size_factor
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_delete_deep
