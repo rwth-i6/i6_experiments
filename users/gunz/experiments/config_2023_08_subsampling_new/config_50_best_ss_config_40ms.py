@@ -792,15 +792,20 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 tune=ep == fine_tune_keep_epochs[-1],
             )
         elif key.startswith("fh-di"):
-            decode_diphone(
-                sys,
-                key=key,
-                crp_k=crp_k,
-                returnn_config=orig_returnn_config,
-                epoch=ep,
-                prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
-                tune=ep == fine_tune_keep_epochs[-1],
-            )
+            try:
+                decode_diphone(
+                    sys,
+                    key=key,
+                    crp_k=crp_k,
+                    returnn_config=orig_returnn_config,
+                    epoch=ep,
+                    prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
+                    tune=ep == fine_tune_keep_epochs[-1],
+                )
+            except Exception as e:
+                from IPython import embed
+                embed()
+                raise e
         elif key.startswith("fh-tri"):
             decode_triphone(
                 sys,
