@@ -178,7 +178,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     )
 
     train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)  # 7.07 (vs base 7.01, so worse?)
-    train_exp("base-24gb-v4", config_24gb_v4, fine_tune=[(2000, {"num_epochs": 200, "final_lr": 1e-6})])
+    train_exp(
+        "base-24gb-v4",
+        config_24gb_v4,
+        fine_tune=[
+            (2000, {"num_epochs": 200, "final_lr": 1e-6}),  # 6.84
+        ],
+    )
     train_exp(
         "base-24gb-v4-wdblacklist2",
         config_24gb_v4,
@@ -285,6 +291,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     train_exp("base-24gb-v5-mixup", config_24gb_v5, config_updates={"mixup": {}})
 
     train_exp("base-24gb-v6", config_24gb_v6)
+    train_exp(
+        "base-24gb-v6-lrlin1e_5_450k",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [450_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+    )
 
 
 _sis_prefix: Optional[str] = None
