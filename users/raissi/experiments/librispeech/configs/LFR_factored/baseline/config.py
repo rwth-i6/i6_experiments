@@ -45,22 +45,6 @@ CONF_CHUNKING_10MS = "400:200"  # divides cleanly by 2, 4, 8
 CONF_CHUNKING_30MS = "402:201"  # divides cleanly 3
 CONF_CHUNKING_60MS = "402:198"  # divides cleanly 6
 
-CONF_FOCAL_LOSS = 2.0
-CONF_LABEL_SMOOTHING = 0.0
-CONF_NUM_EPOCHS = 600
-TEST_EPOCH = 65
-
-CONF_SA_CONFIG = {
-    "max_reps_time": 20,
-    "min_reps_time": 0,
-    "max_len_time": 20,  # 200*0.05
-    "max_reps_feature": 1,
-    "min_reps_feature": 0,
-    "max_len_feature": 15,
-}
-
-L2 = 1e-6
-LABEL_SMOOTHING = 0.2
 
 CONF_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
     DecodingTensorMap.default(),
@@ -70,7 +54,9 @@ CONF_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
     out_right_context="right__output/output_batch_major",
     out_left_context="left__output/output_batch_major",
     out_center_state="center__output/output_batch_major",
+    out_joint_diphone="output/output_batch_major",
 )
+
 BLSTM_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
     CONF_FH_DECODING_TENSOR_CONFIG,
     in_encoder_output="concat_lstm_fwd_6_lstm_bwd_6/concat_sources/concat",

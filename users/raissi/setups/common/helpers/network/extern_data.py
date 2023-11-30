@@ -12,8 +12,7 @@ def get_extern_data_config(
     time_tag_name: typing.Optional[str],
     add_single_state_label: bool = False,
 ) -> typing.Dict[str, typing.Any]:
-    from IPython import embed
-    embed()
+
     conf = [
         ("classes", label_info.get_n_of_dense_classes(), True),
         ("centerState", label_info.get_n_state_classes(), True),
