@@ -725,8 +725,8 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         (returnn_cfg_tri_from_di_ft_constlr, returnn_cfg_tri_safe, di_ft_sys, "tri-fs-constlr-from-di"),
         (returnn_cfg_tri_from_di_sel_ft_constlr, returnn_cfg_tri_safe, di_ft_sys, "tri-sel-fs-constlr-from-di"),
     ]
-    keys = [f"fh-{name}" for _, _, _, name in single_state_full_sum_configs]
-    for (returnn_config, _, sys, name), key in zip(single_state_full_sum_configs, keys):
+    single_state_fs_keys = [f"fh-{name}" for _, _, _, name in single_state_full_sum_configs]
+    for (returnn_config, _, sys, name), key in zip(single_state_full_sum_configs, single_state_fs_keys):
         post_name = f"conf-{name}-zhou"
         print(f"bw {post_name}")
 
@@ -754,8 +754,8 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     two_stage_full_sum_configs = [
         (di_ft_from_mono_ft_config, returnn_cfg_di, di_ft_sys, "di-fs-from-mono-fs-constlr"),
     ]
-    keys = [f"fh-{name}" for _, _, _, name in two_stage_full_sum_configs]
-    for (returnn_config, _, sys, name), key in zip(two_stage_full_sum_configs, keys):
+    two_stage_fs_keys = [f"fh-{name}" for _, _, _, name in two_stage_full_sum_configs]
+    for (returnn_config, _, sys, name), key in zip(two_stage_full_sum_configs, two_stage_fs_keys):
         post_name = f"conf-{name}-zhou"
         print(f"bw {post_name}")
 
@@ -776,6 +776,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         )
 
     configs = [*single_state_full_sum_configs, *two_stage_full_sum_configs]
+    keys = [*single_state_fs_keys, *two_stage_fs_keys]
     for ((_, orig_returnn_config, sys, _), key), crp_k, ep in itertools.product(
         zip(configs, keys), ["dev-other"], fine_tune_keep_epochs
     ):
@@ -804,6 +805,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 )
             except Exception as e:
                 from IPython import embed
+
                 embed()
                 raise e
         elif key.startswith("fh-tri"):
