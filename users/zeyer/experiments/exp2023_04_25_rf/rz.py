@@ -11,7 +11,7 @@ def py():
         "base-24gb-v4-f32-bs20k-accgrad4",
         config_24gb_v4,
         config_updates={
-            "batch_size": 20_000 * _batch_size_factor,
+            "batch_size": 20_000 * _batch_size_factor,  # 30k gives OOM on the 16GB GPU
             "accum_grad_multiple_step": 4,
         },
         config_deletes=["torch_amp"],
@@ -35,26 +35,6 @@ def py():
         config_updates={
             "batch_size": 20_000 * _batch_size_factor,
             "accum_grad_multiple_step": 2,
-        },
-        config_deletes=["torch_amp"],
-        gpu_mem=16,
-    )
-    train_exp(
-        "base-24gb-v4-f32-bs30k-accgrad2",
-        config_24gb_v4,
-        config_updates={
-            "batch_size": 30_000 * _batch_size_factor,
-            "accum_grad_multiple_step": 2,
-        },
-        config_deletes=["torch_amp"],
-        gpu_mem=16,
-    )
-    train_exp(
-        "base-24gb-v4-f32-bs30k-accgrad1",
-        config_24gb_v4,
-        config_updates={
-            "batch_size": 30_000 * _batch_size_factor,
-            "accum_grad_multiple_step": 1,
         },
         config_deletes=["torch_amp"],
         gpu_mem=16,
