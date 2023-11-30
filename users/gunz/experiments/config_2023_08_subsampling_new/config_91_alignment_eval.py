@@ -53,6 +53,16 @@ def run():
     )
     tk.register_output(f"alignments/40ms-zhou-blstm/alignment-plots-plain", plots.out_plot_folder)
 
+    tse_tina_job = ComputeTinaTseJob(
+        allophones=tk.Path(ZHOU_ALLOPHONES),
+        alignment_bundle=tk.Path(ZHOU_SUBSAMPLED_ALIGNMENT, cached=True),
+        ref_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+        ref_alignment_bundle=tk.Path(ALIGN_GMM_MONO_10MS, cached=True),
+        ref_t_step=10 / 1000,
+        ss_factor=4,
+    )
+    tk.register_output(f"alignments/40ms-zhou-blstm/statistics/tse-tina", tse_tina_job.out_tse)
+
     scratch_data = PlotPhonemeDurationsJob(
         alignment_bundle_path=Path(SCRATCH_ALIGNMENT, cached=True),
         allophones_path=Path(
