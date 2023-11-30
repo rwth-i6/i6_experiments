@@ -1065,7 +1065,7 @@ def decode_triphone(
     if graph_config:
         s.set_graph_for_experiment(key=key, override_cfg=graph_config)
 
-    recognizer, recog_args = s.get_recognizer_and_args(
+    recognizer, recog_args_base = s.get_recognizer_and_args(
         key=key,
         context_type=PhoneticContext.triphone_forward,
         crp_corpus=crp_k,
@@ -1075,11 +1075,15 @@ def decode_triphone(
         set_batch_major_for_feature_scorer=True,
         lm_gc_simple_hash=True,
     )
+
     tdp_sil = (10, 10, "infinity", 20)
     recog_args = dataclasses.replace(
-        recog_args, lm_scale=2.5, tdp_scale=0.2, tdp_silence=tdp_sil, tdp_non_word=tdp_sil
+        recog_args_base,
+        lm_scale=2.5,
+        tdp_scale=0.2,
+        tdp_silence=tdp_sil,
+        tdp_non_word=tdp_sil,
     ).with_prior_scale(0.4, 0.2, 0.2)
-
     recognizer.recognize_count_lm(
         label_info=s.label_info,
         search_parameters=recog_args,
@@ -1090,12 +1094,13 @@ def decode_triphone(
     )
 
     if tune:
+        tune_args = recog_args_base.with_lm_scale(2.5).with_tdp_scale(0.2)
         best_config = recognizer.recognize_optimize_scales(
             label_info=s.label_info,
-            search_parameters=recog_args,
+            search_parameters=tune_args,
             num_encoder_output=512,
             altas_value=8,
-            tdp_sil=[recog_args.tdp_silence, (10, 10, "infinity", 20)],
+            tdp_sil=[tune_args.tdp_silence, (10, 10, "infinity", 20)],
             prior_scales=list(
                 itertools.product(
                     np.linspace(0.4, 0.8, 3),
