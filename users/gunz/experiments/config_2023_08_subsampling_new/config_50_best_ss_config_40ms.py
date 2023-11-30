@@ -803,12 +803,12 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         (di_ft_from_mono_ft_config, returnn_cfg_di, di_ft_sys, "di-fs-constlr-from-mono-fs-constlr"),
     ]
     keys = [f"fh-{name}" for _, _, _, name in configs]
-    for (returnn_config, _, sys, name), key in zip(configs, keys):
+    for (returnn_config, orig_returnn_cfg, sys, name), key in zip(configs, keys):
         post_name = f"conf-{name}-zhou"
         print(f"bw+ {post_name}")
 
         sys.set_experiment_dict(key, "bw", name, postfix_name=post_name)
-        sys.set_returnn_config_for_experiment(key, copy.deepcopy(returnn_config))
+        sys.set_returnn_config_for_experiment(key, copy.deepcopy(orig_returnn_cfg))
 
         train_args = {
             **s.initial_train_args,
