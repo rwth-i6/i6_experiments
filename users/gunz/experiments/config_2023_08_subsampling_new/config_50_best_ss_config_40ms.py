@@ -3325,7 +3325,7 @@ def dynamic_learning_rate(*, network, global_train_step, learning_rate, **kwargs
 # adapt one cycle LR for fine-tuning: half cycle constLR + half cycle decay + final decay
 def dynamic_learning_rate_fs(*, network, global_train_step, learning_rate, **kwargs):
     # -- need to be adjusted w.r.t. training -- #
-    constLR = 8e-5
+    constLR = 5e-5
     decayLR = 1e-5
     finalLR = 1e-6
     cycleEpoch = 135
