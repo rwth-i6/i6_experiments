@@ -172,6 +172,27 @@ class SearchParameters:
     ) -> "SearchParameters":
         return dataclasses.replace(self, prior_info=self.prior_info.with_scale(center=center, left=left, right=right))
 
+    def with_prior_files(self, other: "SearchParameters"):
+        return dataclasses.replace(
+            self,
+            prior_info=dataclasses.replace(
+                self.prior_info,
+                center_state_prior=dataclasses.replace(
+                    self.prior_info.center_state_prior, file=other.prior_info.center_state_prior.file
+                ),
+                left_context_prior=dataclasses.replace(
+                    self.prior_info.left_context_prior, file=other.prior_info.left_context_prior.file
+                )
+                if self.prior_info.left_context_prior is not None
+                else None,
+                right_context_prior=dataclasses.replace(
+                    self.prior_info.right_context_prior, file=other.prior_info.right_context_prior.file
+                )
+                if self.prior_info.right_context_prior is not None
+                else None,
+            ),
+        )
+
     def with_pron_scale(self, pron_scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, pron_scale=pron_scale)
 

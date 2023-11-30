@@ -1002,7 +1002,7 @@ def decode_diphone(
     search_params = [
         dataclasses.replace(s.get_cart_params(key), beam=20, lm_scale=2.5, tdp_scale=0.4).with_prior_scale(0.6)
         if params is None
-        else params
+        else params.with_prior_files(s.get_cart_params(key))  # ensure priors are set correctly
     ]
     if tune:
         base_cfg = search_params[-1]
