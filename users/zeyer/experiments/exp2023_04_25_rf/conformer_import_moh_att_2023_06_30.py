@@ -33,6 +33,34 @@ if TYPE_CHECKING:
 #   "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config")
 # E.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
 _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
+# /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb
+# original RETURNN training job: /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.ZhtaEElHqWlr
+# ? /work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.SAh74CLCNJQi
+# 15k batch size, accum grad 2 (1350 steps per epoch?)
+# peak_lr = 0.9e-3 (1e-3 should also be fine), with Adam, optimizer_epsilon = 1e-08
+# phase1: peak_lr / 10 -> peak_lr (45%)
+# phase2: peak_lr -> peak_lr / 10 (45%)
+# phase3: peak_lr / 10 -> 1e-6 (10%)
+# all linear decay and step-based
+# specaugment like my orig (same here, specaugorig), speed perturb same here.
+# weight decay: L2 1e-4 in some layers (not all): FF, depthwise conv, self-att, output, LSTM, readout
+# final from learning_rates file:
+# 2035: EpochData(learningRate=<misleading>, error={
+# 'dev_error_ctc': 0.0520755184693418,
+# 'dev_error_output/output_prob': 0.035661241551042944,
+# 'dev_score_ctc': 0.2796084385705723,
+# 'dev_score_output/output_prob': 0.1718613621694714,
+# 'devtrain_error_ctc': 0.005757552549708462,
+# 'devtrain_error_output/output_prob': 0.005408351877314902,
+# 'devtrain_score_ctc': 0.022935187616968285,
+# 'devtrain_score_output/output_prob': 0.05237826015574962,
+# 'train_error_ctc': 0.05592114304093772,
+# 'train_error_output/output_prob': 0.041970552995693494,
+# 'train_score_ctc': 0.21249712733341475,
+# 'train_score_output/output_prob': 0.20816428663741796,
+# }),
+# With batch size 40k (here default), I have usually 495 steps/epoch. Same accum grad 2.
+
 
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
