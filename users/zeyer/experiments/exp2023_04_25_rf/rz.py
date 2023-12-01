@@ -62,20 +62,6 @@ def py():
         num_processes=2,
     )
     train_exp(
-        "v6-f32-bs20k-accgrad1-mgpu4-wd1e-4-lrlin1e_5_220k",
-        config_v6_f32_bs20k,
-        config_updates={
-            "accum_grad_multiple_step": 1,
-            "torch_distributed": {},
-            "optimizer.weight_decay": 1e-4,
-            # bs15k steps/epoch: ~980, total num of steps for 500 epochs: ~490k
-            "learning_rate_piecewise_steps": [220_000, 440_000, 489_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-        },
-        num_processes=4,
-        num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
-    )
-    train_exp(
         "v4-f32-mgpu16",
         config_v4_f32,
         config_updates={"torch_distributed": {}},
@@ -88,6 +74,21 @@ def py():
         config_updates={"torch_distributed": {}},
         gpu_mem=32,
         num_processes=2,
+    )
+    train_exp(
+        "v6-f32-accgrad1-mgpu4-wd1e-4-lrlin1e_5_111k",
+        config_v6_f32,
+        config_updates={
+            "accum_grad_multiple_step": 1,
+            "torch_distributed": {},
+            "optimizer.weight_decay": 1e-4,
+            # bs15k steps/epoch: ~493, total num of steps for 500 epochs: ~247k
+            "learning_rate_piecewise_steps": [111_000, 222_000, 247_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+        gpu_mem=32,
+        num_processes=4,
+        num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
     )
 
 
