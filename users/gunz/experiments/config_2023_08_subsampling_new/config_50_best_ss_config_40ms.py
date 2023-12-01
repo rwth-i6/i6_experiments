@@ -872,20 +872,18 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         else:
             raise NotImplementedError("Cannot bw-fine-tune triphones")
 
+    key = "fh-di-fs-constlr"
+    # best config for diphone-fine-tune
+    tdp_sil = (10, 10, "infinity", 20)
+    params = dataclasses.replace(
+        di_ft_sys.get_cart_params(key),
+        beam=20,
+        lm_scale=2.1,
+        tdp_scale=0.4,
+        tdp_silence=tdp_sil,
+        tdp_non_word=tdp_sil,
+    ).with_prior_scale(0.6)
     for ep in [262, 275, 282, 294, 297, 298, 299]:
-        key = "fh-di-fs-constlr"
-
-        # best config for diphone-fine-tune
-        tdp_sil = (10, 10, "infinity", 20)
-        params = dataclasses.replace(
-            di_ft_sys.get_cart_params(key),
-            beam=20,
-            lm_scale=2.1,
-            tdp_scale=0.4,
-            tdp_silence=tdp_sil,
-            tdp_non_word=tdp_sil,
-        ).with_prior_scale(0.6)
-
         decode_diphone(
             di_ft_sys,
             key=key,
