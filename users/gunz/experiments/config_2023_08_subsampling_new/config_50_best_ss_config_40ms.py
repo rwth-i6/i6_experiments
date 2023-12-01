@@ -1074,6 +1074,7 @@ def decode_diphone(
             mem_rqmt=4 if not neural_lm else 8,
             gpu=neural_lm,
             rtf=2 if not neural_lm else 20,
+            remove_or_set_concurrency=5 if neural_lm else False,
         )
 
 
