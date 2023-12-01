@@ -897,6 +897,32 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             tune=False,
         )
 
+    # best config for diphone-fine-tune
+    tdp_sil = (10, 10, "infinity", 20)
+    params = dataclasses.replace(
+        di_ft_sys.get_cart_params(key),
+        beam=20,
+        lm_scale=2.126,
+        tdp_scale=0.4,
+        tdp_silence=tdp_sil,
+        tdp_non_word=tdp_sil,
+    ).with_prior_scale(0.6)
+    for crp_k, (neural, decoding_params) in itertools.product(
+        ["dev-clean", "dev-other", "test-clean", "test-other"],
+        [(False, params), (True, params.with_lm_scale(params.lm_scale + 0.5))],
+    ):
+        decode_diphone(
+            di_ft_sys,
+            key=key,
+            epoch=275,
+            crp_k=crp_k,
+            params=decoding_params,
+            prior_epoch=fine_tune_keep_epochs[-2],
+            returnn_config=returnn_cfg_di,
+            tune=False,
+            neural_lm=neural,
+        )
+
 
 def decode_monophone(
     s: fh_system.FactoredHybridSystem,
@@ -979,7 +1005,10 @@ def decode_diphone(
     prior_epoch: int,
     tune: bool,
     params: typing.Optional[SearchParameters] = None,
+    neural_lm: bool = False,
 ):
+    assert not (tune and neural_lm), "neural LM decodings should be done with tuned parameters"
+
     clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
 
     prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
@@ -1039,8 +1068,12 @@ def decode_diphone(
             opt_lm_am_scale=True,
             fix_tdp_non_word_tying=True,
             prior_epoch=prior_epoch,
-            rtf=2,
+            decode_trafo_lm=neural_lm,
+            recognize_only_trafo=neural_lm,
             cpu_rqmt=2,
+            mem_rqmt=4 if not neural_lm else 8,
+            gpu=neural_lm,
+            rtf=2 if not neural_lm else 20,
         )
 
 
