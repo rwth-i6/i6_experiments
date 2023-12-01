@@ -322,6 +322,19 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
     )
 
+    train_exp(
+        "tmp-dummy-test",
+        config_24gb_v6,
+        config_updates={"startup_callback": _tmp_dummy_startup_callback_exit, "dummy_test": 42},
+        gpu_mem=24,
+        num_epochs=1,
+        time_rqmt=1,
+    )
+
+
+def _tmp_dummy_startup_callback_exit(**_kwargs):
+    raise SystemExit("dummy test exit")
+
 
 _sis_prefix: Optional[str] = None
 
@@ -384,6 +397,7 @@ def train_exp(
     gpu_mem: Optional[int] = 24,
     num_processes: Optional[int] = None,
     fine_tune: Optional[Union[int, List[Tuple[int, Dict[str, Any]]]]] = None,
+    time_rqmt: Optional[int] = None,
 ) -> ModelWithCheckpoints:
     """
     Train experiment
@@ -410,6 +424,7 @@ def train_exp(
         gpu_mem=gpu_mem,
         num_processes=num_processes,
         distributed_launch_cmd="torchrun" if num_processes else "mpirun",
+        time_rqmt=time_rqmt,
     )
     recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
 

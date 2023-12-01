@@ -147,7 +147,8 @@ def train(
         cpu_rqmt=4 if (not num_processes or num_processes <= 4) else 3,
         horovod_num_processes=num_processes,  # legacy name but also applies for Torch
     ).items():
-        kwargs.setdefault(k, v)
+        if k not in kwargs or kwargs[k] is None:
+            kwargs[k] = v
     returnn_train_job = ReturnnTrainingJob(returnn_train_config, **kwargs)
     returnn_train_job.add_alias(prefix_name + "/train")
     if gpu_mem:
