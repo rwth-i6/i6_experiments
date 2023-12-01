@@ -792,10 +792,10 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     # ######################################
 
     mono_fs_train_job = mo_ft_sys.experiments["fh-mono-fs-constlr"]["train_job"]
-    import_mono_fs_config = import_config(mono_fs_train_job.out_checkpoints[fine_tune_keep_epochs[-1]])
+    import_mono_fs_constlr_config = import_config(mono_fs_train_job.out_checkpoints[fine_tune_keep_epochs[-1]])
 
     di_vit_from_mono_ft_config = copy.deepcopy(di_from_mono_cfg)
-    di_vit_from_mono_ft_config.update(import_mono_fs_config)
+    di_vit_from_mono_ft_config.update(import_mono_fs_constlr_config)
     di_ft_from_mono_ft_staged_net_config = returnn.ReturnnConfig(
         config={},
         staged_network_dict={
@@ -806,7 +806,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     di_ft_from_mono_ft_config = copy.deepcopy(returnn_cfg_di_ft_constlr)
     di_ft_from_mono_ft_config.config.pop("network", None)
     di_ft_from_mono_ft_config.update(di_ft_from_mono_ft_staged_net_config)
-    di_ft_from_mono_ft_config.update(import_mono_fs_config)
+    di_ft_from_mono_ft_config.update(import_mono_fs_constlr_config)
     configs = [
         (di_vit_from_mono_ft_config, returnn_cfg_di, s, "di-from-mono-fs-constlr"),
         (di_ft_from_mono_ft_config, returnn_cfg_di, di_ft_sys, "di-fs-constlr-from-mono-fs-constlr"),
