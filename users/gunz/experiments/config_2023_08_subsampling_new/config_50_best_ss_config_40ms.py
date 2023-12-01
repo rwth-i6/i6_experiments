@@ -679,7 +679,16 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_di_ft_newbob.update(batch_size_config)
     returnn_cfg_di_ft_newbob.update(newbob_lr_config)
     returnn_cfg_di_ft_newbob.update(import_di_config)
+    di_ft_from_mono_ft_staged_net_config = returnn.ReturnnConfig(
+        config={},
+        staged_network_dict={
+            1: {"#copy_param_mode": "subset", **returnn_cfg_mo_ft.config["network"]},
+            2: {"#copy_param_mode": "subset", **returnn_cfg_di_ft.config["network"]},
+        },
+    )
     returnn_cfg_di_from_mono_ft_constlr = copy.deepcopy(returnn_cfg_di_ft)
+    returnn_cfg_di_from_mono_ft_constlr.config.pop("network", None)
+    returnn_cfg_di_from_mono_ft_constlr.update(di_ft_from_mono_ft_staged_net_config)
     returnn_cfg_di_from_mono_ft_constlr.update(batch_size_config)
     returnn_cfg_di_from_mono_ft_constlr.update(constant_linear_decrease_lr_config)
     returnn_cfg_di_from_mono_ft_constlr.update(import_di_from_mono_newbob_config)
