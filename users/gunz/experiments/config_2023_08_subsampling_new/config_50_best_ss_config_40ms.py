@@ -679,16 +679,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_di_ft_newbob.update(batch_size_config)
     returnn_cfg_di_ft_newbob.update(newbob_lr_config)
     returnn_cfg_di_ft_newbob.update(import_di_config)
-    di_ft_from_mono_ft_staged_net_config = returnn.ReturnnConfig(
-        config={},
-        staged_network_dict={
-            1: {"#copy_param_mode": "subset", **returnn_cfg_mo_ft.config["network"]},
-            2: {"#copy_param_mode": "subset", **returnn_cfg_di_ft.config["network"]},
-        },
-    )
     returnn_cfg_di_from_mono_ft_constlr = copy.deepcopy(returnn_cfg_di_ft)
-    returnn_cfg_di_from_mono_ft_constlr.config.pop("network", None)
-    returnn_cfg_di_from_mono_ft_constlr.update(di_ft_from_mono_ft_staged_net_config)
     returnn_cfg_di_from_mono_ft_constlr.update(batch_size_config)
     returnn_cfg_di_from_mono_ft_constlr.update(constant_linear_decrease_lr_config)
     returnn_cfg_di_from_mono_ft_constlr.update(import_di_from_mono_newbob_config)
@@ -736,12 +727,12 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         (returnn_cfg_tri_from_di_sel_ft_constlr, returnn_cfg_tri_safe, di_ft_sys, "tri-sel-fs-constlr-from-di"),
     ]
     keys = [f"fh-{name}" for _, _, _, name in configs]
-    for (returnn_config, orig_config, sys, name), key in zip(configs, keys):
+    for (returnn_config, _, sys, name), key in zip(configs, keys):
         post_name = f"conf-{name}-zhou"
         print(f"bw {post_name}")
 
         sys.set_experiment_dict(key, "bw", name, postfix_name=post_name)
-        sys.set_returnn_config_for_experiment(key, copy.deepcopy(orig_config))
+        sys.set_returnn_config_for_experiment(key, copy.deepcopy(returnn_config))
 
         train_args = {
             **s.initial_train_args,
@@ -805,7 +796,16 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
 
     di_vit_from_mono_ft_config = copy.deepcopy(di_from_mono_cfg)
     di_vit_from_mono_ft_config.update(import_mono_fs_config)
+    di_ft_from_mono_ft_staged_net_config = returnn.ReturnnConfig(
+        config={},
+        staged_network_dict={
+            1: {"#copy_param_mode": "subset", **returnn_cfg_mo_ft_constlr.config["network"]},
+            2: {"#copy_param_mode": "subset", **returnn_cfg_di_ft_constlr.config["network"]},
+        },
+    )
     di_ft_from_mono_ft_config = copy.deepcopy(returnn_cfg_di_ft_constlr)
+    di_ft_from_mono_ft_config.config.pop("network", None)
+    di_ft_from_mono_ft_config.update(di_ft_from_mono_ft_staged_net_config)
     di_ft_from_mono_ft_config.update(import_mono_fs_config)
     configs = [
         (di_vit_from_mono_ft_config, returnn_cfg_di, s, "di-from-mono-fs-constlr"),
