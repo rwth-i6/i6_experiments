@@ -322,19 +322,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
     )
 
-    train_exp(
-        "tmp-dummy-test",
-        config_24gb_v6,
-        config_updates={"startup_callback": _tmp_dummy_startup_callback_exit, "dummy_test": 42},
-        gpu_mem=24,
-        num_epochs=1,
-        time_rqmt=1,
-    )
-
-
-def _tmp_dummy_startup_callback_exit(**_kwargs):
-    raise SystemExit("dummy test exit")
-
 
 _sis_prefix: Optional[str] = None
 
