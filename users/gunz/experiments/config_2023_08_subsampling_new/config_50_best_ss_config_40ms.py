@@ -294,6 +294,9 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     di_train_job = s.experiments["fh-di"]["train_job"]
     import_di_config = import_config(di_train_job.out_checkpoints[viterbi_keep_epochs[-1]])
 
+    di_sp_train_job = s.experiments["fh-di-sp"]["train_job"]
+    import_di_sp_config = import_config(di_sp_train_job.out_checkpoints[viterbi_keep_epochs[-1]])
+
     tri_train_job = s.experiments["fh-tri"]["train_job"]
     import_tri_config = import_config(tri_train_job.out_checkpoints[viterbi_keep_epochs[-1]])
 
@@ -681,6 +684,8 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_di_ft_newbob.update(batch_size_config)
     returnn_cfg_di_ft_newbob.update(newbob_lr_config)
     returnn_cfg_di_ft_newbob.update(import_di_config)
+    returnn_cfg_di_sp_ft = copy.deepcopy(returnn_cfg_di_ft_constlr)
+    returnn_cfg_di_sp_ft.update(import_di_sp_config)
     returnn_cfg_di_from_mono_ft_constlr = copy.deepcopy(returnn_cfg_di_ft)
     returnn_cfg_di_from_mono_ft_constlr.update(batch_size_config)
     returnn_cfg_di_from_mono_ft_constlr.update(constant_linear_decrease_lr_config)
@@ -722,6 +727,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         (returnn_cfg_di_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-constlr"),
         (returnn_cfg_di_ft_constlr_smooth, returnn_cfg_di, di_ft_sys, "di-fs-constlr-smooth"),
         (returnn_cfg_di_ft_newbob, returnn_cfg_di, di_ft_sys, "di-fs-newbob"),
+        (returnn_cfg_di_sp_ft, returnn_cfg_di, di_ft_sys, "di-fs-sp-constlr"),
         (returnn_cfg_di_from_mono_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-constlr-from-mono"),
         (returnn_cfg_di_from_mono_ft_constlr_smooth, returnn_cfg_di, di_ft_sys, "di-fs-constlr-smooth-from-mono"),
         (returnn_cfg_tri_ft_constlr, returnn_cfg_tri_safe, di_ft_sys, "tri-fs-constlr"),
