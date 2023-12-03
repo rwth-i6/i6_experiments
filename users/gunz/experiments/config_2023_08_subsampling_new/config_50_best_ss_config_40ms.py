@@ -915,7 +915,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     ).with_prior_scale(0.6)
     for crp_k, (neural, decoding_params) in itertools.product(
         ["dev-clean", "dev-other", "test-clean", "test-other"],
-        [(False, params), (True, params.with_lm_scale(params.lm_scale + 0.5))],
+        [(False, params), (True, params.with_lm_scale(3.6))],
     ):
         decode_diphone(
             di_ft_sys,
