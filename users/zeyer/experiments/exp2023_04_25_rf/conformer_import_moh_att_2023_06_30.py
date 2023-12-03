@@ -182,7 +182,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             ],
         },
     )
-    train_exp("base-24gb-v4-lr09e_3", config_24gb_v4, config_updates={"learning_rate": 0.0009})
+    train_exp("base-24gb-v4-lr09e_3", config_24gb_v4, config_updates={"learning_rate": 0.0009})  # 6.99 (vs base 7.07)
     train_exp(  # 7.46 (vs base 7.07, so worse)
         "base-24gb-v4-lrcos",
         config_24gb_v4,
@@ -232,7 +232,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_24gb_v4,
         config_updates={"pretrain_opts": {"steps": {4 * 500: {"num_layers": 8}, 8 * 500: {"num_layers": 2}}}},
     )
-    train_exp(  # 7.30 (vs base 7.07, so worse)
+    train_exp(  # 7.30 (vs base 7.07, so worse), much more overfitting
         "base-24gb-v4-pretrain",
         config_24gb_v4,
         config_updates={
@@ -241,7 +241,9 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             }
         },
     )
-    train_exp("base-24gb-v4-posdrop01", config_24gb_v4, config_updates={"pos_emb_dropout": 0.1})
+    train_exp(  # 7.02 (vs base 7.07) but dev-clean, test-other worse, unclear
+        "base-24gb-v4-posdrop01", config_24gb_v4, config_updates={"pos_emb_dropout": 0.1}
+    )
     train_exp(  # 6.52 (vs base 7.07, so much better)
         "base-24gb-v4-pretrain-posdrop01-specaugorig",
         config_24gb_v4,
@@ -581,6 +583,8 @@ config_24gb_v5 = dict_update_delete_deep(
 )
 
 config_24gb_v6 = dict_update_delete_deep(config_24gb_v5, ["pretrain_opts"])
+# TODO lrlin
+# TODO lr09e_3
 
 
 class MakeModel:
