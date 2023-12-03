@@ -184,7 +184,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     #     returnn_config=returnn_config, additive=True, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     # )
     configs = [returnn_cfg_mo, returnn_cfg_di, returnn_cfg_di_sil_p, returnn_cfg_tri]
-    names = ["mono", "di", "di-sp" "tri"]
+    names = ["mono", "di", "di-sp", "tri"]
     keys = [f"fh-{name}" for name in names]
 
     for cfg, name, key in zip(configs, names, keys):
