@@ -6,6 +6,7 @@ import math
 import typing
 from dataclasses import dataclass
 import itertools
+import textwrap
 
 import numpy as np
 import os
@@ -172,6 +173,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_di = get_diphone_network(
         returnn_config=returnn_config, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     )
+    returnn_cfg_di_sil_p = add_ce_silence_penalization(returnn_cfg_di)
     # returnn_cfg_di_add = get_diphone_network(
     #     returnn_config=returnn_config, additive=True, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     # )
@@ -181,8 +183,8 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     # returnn_cfg_tri_add = get_triphone_network(
     #     returnn_config=returnn_config, additive=True, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     # )
-    configs = [returnn_cfg_mo, returnn_cfg_di, returnn_cfg_tri]
-    names = ["mono", "di", "tri"]
+    configs = [returnn_cfg_mo, returnn_cfg_di, returnn_cfg_di_sil_p, returnn_cfg_tri]
+    names = ["mono", "di", "di-sp" "tri"]
     keys = [f"fh-{name}" for name in names]
 
     for cfg, name, key in zip(configs, names, keys):
@@ -1438,6 +1440,47 @@ def get_triphone_network(
     returnn_config = copy.deepcopy(returnn_config)
     returnn_config.config["network"] = network
     return returnn_config
+
+
+def add_ce_silence_penalization(
+    config: returnn.ReturnnConfig, loss_scale: float = 1.0, silence_id: int = 81
+) -> returnn.ReturnnConfig:
+    config = copy.deepcopy(config)
+
+    network = config.config["network"]
+    network["segmental_loss"] = {
+        "class": "eval",
+        "eval": "self.network.get_config().typed_value('segmental_loss')(source)",
+        "from": ["ce_loss", "mask_silence"],
+        "loss": "as_is",
+        "loss_opts": {"scale": loss_scale},
+    }
+    network["ce_loss"] = {
+        "class": "loss",
+        "from": "center-output",
+        "loss_": "ce",
+        "target_": "centerState",
+    }
+    network["mask_silence"] = {
+        "class": "compare",
+        "from": ["centerState"],
+        "kind": "not_equal",
+        "value": silence_id,
+    }
+    additional_epilog = textwrap.dedent(
+        """
+        def segmental_loss(source):
+            import tensorflow.compat.v1 as tf
+            loss = source(0, enforce_batch_major=True)
+            mask = source(1, enforce_batch_major=True)
+            return tf.where(mask, loss, tf.zeros_like(loss))
+        """
+    )
+
+    update_cfg = returnn.ReturnnConfig(config={}, python_epilog=additional_epilog)
+    config.update(update_cfg)
+
+    return config
 
 
 def get_conformer_config(
