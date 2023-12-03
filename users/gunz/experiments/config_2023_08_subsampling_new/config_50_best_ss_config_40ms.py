@@ -173,7 +173,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_di = get_diphone_network(
         returnn_config=returnn_config, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     )
-    returnn_cfg_di_sil_p = add_ce_silence_penalization(returnn_cfg_di)
+    returnn_cfg_di_sil_p = add_ce_silence_penalization(returnn_cfg_di, loss_scale=5.0)
     # returnn_cfg_di_add = get_diphone_network(
     #     returnn_config=returnn_config, additive=True, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     # )
@@ -1452,7 +1452,7 @@ def get_triphone_network(
 
 
 def add_ce_silence_penalization(
-    config: returnn.ReturnnConfig, loss_scale: float = 1.0, silence_id: int = 81
+    config: returnn.ReturnnConfig, loss_scale: float = 5.0, silence_id: int = 81
 ) -> returnn.ReturnnConfig:
     config = copy.deepcopy(config)
 
