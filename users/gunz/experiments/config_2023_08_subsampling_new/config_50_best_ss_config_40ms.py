@@ -170,11 +170,13 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_mo = get_monophone_network(
         returnn_config=returnn_config, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     )
-    returnn_cfg_mo_sil_p = add_ce_silence_penalization(returnn_cfg_mo, loss_scale=5.0)
+    returnn_cfg_mo_sil_p2 = add_ce_silence_penalization(returnn_cfg_mo, loss_scale=2.0)
+    returnn_cfg_mo_sil_p5 = add_ce_silence_penalization(returnn_cfg_mo, loss_scale=5.0)
     returnn_cfg_di = get_diphone_network(
         returnn_config=returnn_config, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     )
-    returnn_cfg_di_sil_p = add_ce_silence_penalization(returnn_cfg_di, loss_scale=5.0)
+    returnn_cfg_di_sil_p2 = add_ce_silence_penalization(returnn_cfg_di, loss_scale=2.0)
+    returnn_cfg_di_sil_p5 = add_ce_silence_penalization(returnn_cfg_di, loss_scale=5.0)
     # returnn_cfg_di_add = get_diphone_network(
     #     returnn_config=returnn_config, additive=True, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     # )
@@ -184,8 +186,16 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     # returnn_cfg_tri_add = get_triphone_network(
     #     returnn_config=returnn_config, additive=True, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     # )
-    configs = [returnn_cfg_mo, returnn_cfg_mo_sil_p, returnn_cfg_di, returnn_cfg_di_sil_p, returnn_cfg_tri]
-    names = ["mono", "mono-sp", "di", "di-sp", "tri"]
+    configs = [
+        returnn_cfg_mo,
+        returnn_cfg_mo_sil_p2,
+        returnn_cfg_mo_sil_p5,
+        returnn_cfg_di,
+        returnn_cfg_di_sil_p2,
+        returnn_cfg_di_sil_p5,
+        returnn_cfg_tri,
+    ]
+    names = ["mono", "mono-sp2", "mono-sp5", "di", "di-sp2", "di-sp5", "tri"]
     keys = [f"fh-{name}" for name in names]
 
     for cfg, name, key in zip(configs, names, keys):
