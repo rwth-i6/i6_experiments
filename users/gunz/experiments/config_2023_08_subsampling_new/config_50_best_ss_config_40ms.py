@@ -686,6 +686,8 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_di_ft_newbob.update(import_di_config)
     returnn_cfg_di_sp_ft = copy.deepcopy(returnn_cfg_di_ft_constlr)
     returnn_cfg_di_sp_ft.update(import_di_sp_config)
+    returnn_cfg_di_fa_ft = copy.deepcopy(returnn_cfg_di_ft_constlr)
+    returnn_cfg_di_fa_ft.update(import_di_fa_newbob_config)
     returnn_cfg_di_from_mono_ft_constlr = copy.deepcopy(returnn_cfg_di_ft)
     returnn_cfg_di_from_mono_ft_constlr.update(batch_size_config)
     returnn_cfg_di_from_mono_ft_constlr.update(constant_linear_decrease_lr_config)
@@ -728,6 +730,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         (returnn_cfg_di_ft_constlr_smooth, returnn_cfg_di, di_ft_sys, "di-fs-constlr-smooth"),
         (returnn_cfg_di_ft_newbob, returnn_cfg_di, di_ft_sys, "di-fs-newbob"),
         (returnn_cfg_di_sp_ft, returnn_cfg_di, di_ft_sys, "di-fs-sp-constlr"),
+        (returnn_cfg_di_fa_ft, returnn_cfg_di, di_ft_sys, "di-fs-fa-constlr"),
         (returnn_cfg_di_from_mono_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-constlr-from-mono"),
         (returnn_cfg_di_from_mono_ft_constlr_smooth, returnn_cfg_di, di_ft_sys, "di-fs-constlr-smooth-from-mono"),
         (returnn_cfg_tri_ft_constlr, returnn_cfg_tri_safe, di_ft_sys, "tri-fs-constlr"),
