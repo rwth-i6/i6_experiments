@@ -305,8 +305,8 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     di_train_job = s.experiments["fh-di"]["train_job"]
     import_di_config = import_config(di_train_job.out_checkpoints[viterbi_keep_epochs[-1]])
 
-    di_sp_train_job = s.experiments["fh-di-sp"]["train_job"]
-    import_di_sp_config = import_config(di_sp_train_job.out_checkpoints[viterbi_keep_epochs[-1]])
+    di_sp2_train_job = s.experiments["fh-di-sp2"]["train_job"]
+    import_di_sp2_config = import_config(di_sp2_train_job.out_checkpoints[viterbi_keep_epochs[-1]])
 
     tri_train_job = s.experiments["fh-tri"]["train_job"]
     import_tri_config = import_config(tri_train_job.out_checkpoints[viterbi_keep_epochs[-1]])
@@ -696,7 +696,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_di_ft_newbob.update(newbob_lr_config)
     returnn_cfg_di_ft_newbob.update(import_di_config)
     returnn_cfg_di_sp_ft = copy.deepcopy(returnn_cfg_di_ft_constlr)
-    returnn_cfg_di_sp_ft.update(import_di_sp_config)
+    returnn_cfg_di_sp_ft.update(import_di_sp2_config)
     returnn_cfg_di_fa_ft = copy.deepcopy(returnn_cfg_di_ft_constlr)
     returnn_cfg_di_fa_ft.update(import_di_fa_newbob_config)
     returnn_cfg_di_from_mono_ft_constlr = copy.deepcopy(returnn_cfg_di_ft)
