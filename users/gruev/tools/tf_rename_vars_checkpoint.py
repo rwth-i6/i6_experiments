@@ -46,11 +46,7 @@ def checkpoint_exists(path):
 # Simple update based on parsed rule pairs
 def update_variable_name(var_name, rules):
     for old, new in rules.items():
-        regex = re.compile(old)
-        match = regex.match(var_name)
-        if match:
-            groups = match.groups()
-            return new.format(*groups)
+        var_name = re.compile(old).sub(new, var_name)
     return var_name
 
 
@@ -73,6 +69,9 @@ def update_variable_names_in_checkpoint_file(checkpoint_path, output_path, rules
 
     # tf_compat.v1.logging.info("Reading and renaming checkpoint variables...")
     var_names = sorted(var_to_shape_map.keys())
+    for v in var_names:
+        print(update_variable_name(v, rules))
+
     with tf_compat.v1.variable_scope(tf_compat.v1.get_variable_scope(), reuse=tf_compat.v1.AUTO_REUSE):
         tf_vars = [
             tf_compat.v1.get_variable(
