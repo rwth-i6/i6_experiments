@@ -7,6 +7,7 @@ from i6_core.meta.system import CorpusObject
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from i6_core.returnn.config import CodeWrapper
 from i6_core.recognition import Hub5ScoreJob
+from i6_core.tools import CloneGitRepositoryJob
 from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00
 from i6_experiments.common.setups.rasr.util import RasrDataInput
 from i6_experiments.users.berger.recipe.lexicon.modification import DeleteEmptyOrthJob, MakeBlankLexiconJob
@@ -570,7 +571,7 @@ def run_test_mel():
     )
 
 
-def run_nn_args(nn_args, report_args_collection, report_name, dev_corpora):
+def run_nn_args(nn_args, report_args_collection, report_name, dev_corpora, returnn_root=None):
     returnn_configs = {}
     for exp in nn_args.returnn_training_configs:
         prior_config = copy.deepcopy(nn_args.returnn_training_configs[exp])
@@ -610,7 +611,7 @@ def run_nn_args(nn_args, report_args_collection, report_name, dev_corpora):
     score_info.score_kwargs = {"glm": dev_corpora["hub5e00"].glm, "sctk_binary_path": SCTK_BINARY_PATH}
 
     ctc_nn_system = TransducerSystem(
-        returnn_root=RETURNN_ROOT,
+        returnn_root=returnn_root or RETURNN_ROOT,
         returnn_python_exe=RETURNN_EXE,
         rasr_binary_path=RASR_BINARY_PATH,
         require_native_lstm=False,
@@ -718,7 +719,11 @@ def run_scf_baseline():
         "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
         "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
         "datasets": returnn_datasets,
-        "extra_args": {"accum_grad_multiple_step": 2},
+        "extra_args": {
+            "accum_grad_multiple_step": 2,
+            "watch_memory": True,
+            "conv_pad_seq_len_to_power": 1.5,
+        },
         "conformer_type": "wei",
         "specaug_old": {"max_feature": 15},
     }
@@ -748,7 +753,13 @@ def run_scf_baseline():
         num_epochs=450,
         prefix="conformer_bs2x5k_",
     )
-    run_nn_args(nn_args, report_args_collection, "report_scf_baseline.csv", dev_corpora)
+
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
+    ).out_repository
+    returnn_root.hash_overwrite = "returnn_conv_padding"
+    run_nn_args(nn_args, report_args_collection, "report_scf_baseline.csv", dev_corpora, returnn_root=returnn_root)
 
 
 def run_mel_audio_perturbation():
