@@ -3,6 +3,7 @@ __all__ = ["run", "run_single"]
 import copy
 import dataclasses
 import math
+import pprint
 import typing
 from dataclasses import dataclass
 import itertools
@@ -818,15 +819,30 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
 
     di_vit_from_mono_ft_config = copy.deepcopy(di_from_mono_cfg)
     di_vit_from_mono_ft_config.update(import_mono_fs_constlr_config)
-    di_ft_from_mono_ft_staged_net_config = returnn.ReturnnConfig(
-        config={},
-        staged_network_dict={
+    # classic staged network dicts do not work due to code-wrapped time tags
+    staged_dict_formatted = pprint.PrettyPrinter(indent=4, width=150).pformat(
+        {
             1: {"#copy_param_mode": "subset", **returnn_cfg_mo_ft_constlr.config["network"]},
             2: {"#copy_param_mode": "subset", **returnn_cfg_di_ft_constlr.config["network"]},
-        },
+        }
     )
+    staged_dict_indented = textwrap.indent(staged_dict_formatted, "  ")
+    net_dict_epilog_code = textwrap.dedent(
+        f"""
+        networks_dict = \
+          {staged_dict_indented[2:]}
+
+        def get_network(epoch, **kwargs):
+          for epoch_ in sorted(networks_dict.keys(), reverse=True):
+            if epoch_ <= epoch:
+              return networks_dict[epoch_]
+          assert False, \"Error, no networks found\"
+        """
+    )
+    di_ft_from_mono_ft_staged_net_config = returnn.ReturnnConfig(config={}, python_epilog=net_dict_epilog_code)
     di_ft_from_mono_ft_config = copy.deepcopy(returnn_cfg_di_ft_constlr)
     di_ft_from_mono_ft_config.config.pop("network", None)
+    di_ft_from_mono_ft_config.staged_network_dict = None
     di_ft_from_mono_ft_config.update(di_ft_from_mono_ft_staged_net_config)
     di_ft_from_mono_ft_config.update(import_mono_fs_constlr_config)
     configs = [
