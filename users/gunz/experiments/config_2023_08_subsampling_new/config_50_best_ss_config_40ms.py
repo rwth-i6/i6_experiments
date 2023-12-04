@@ -846,6 +846,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     di_ft_from_mono_ft_staged_net_config = returnn.ReturnnConfig(config={}, python_epilog=net_dict_formatted)
     di_ft_from_mono_ft_config = copy.deepcopy(returnn_cfg_di_ft_constlr)
     di_ft_from_mono_ft_config.config.pop("network", None)
+    di_ft_from_mono_ft_config.hash_full_python_code = False
     di_ft_from_mono_ft_config.staged_network_dict = None
     di_ft_from_mono_ft_config.update(di_ft_from_mono_ft_staged_net_config)
     di_ft_from_mono_ft_config.update(import_mono_fs_constlr_config)
