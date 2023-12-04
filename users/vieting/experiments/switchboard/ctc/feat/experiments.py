@@ -571,7 +571,7 @@ def run_test_mel():
     )
 
 
-def run_nn_args(nn_args, report_args_collection, report_name, dev_corpora, returnn_root=None):
+def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", returnn_root=None, recog_args=None):
     returnn_configs = {}
     for exp in nn_args.returnn_training_configs:
         prior_config = copy.deepcopy(nn_args.returnn_training_configs[exp])
@@ -584,26 +584,29 @@ def run_nn_args(nn_args, report_args_collection, report_name, dev_corpora, retur
         )
 
     recog_args = {
-        "lm_scales": [0.7],
-        "prior_scales": [0.3, 0.5],
-        "epochs": [300, 400, 450, "best"],
-        "lookahead_options": {"lm_lookahead_scale": 0.7},
-        "label_scorer_args": {
-            "use_prior": True,
-            "extra_args": {"blank_label_index": 0},
+        **{
+            "lm_scales": [0.7],
+            "prior_scales": [0.3, 0.5],
+            "epochs": [300, 400, 450, "best"],
+            "lookahead_options": {"lm_lookahead_scale": 0.7},
+            "label_scorer_args": {
+                "use_prior": True,
+                "extra_args": {"blank_label_index": 0},
+            },
+            "label_tree_args": {"skip_silence": True},
+            "search_parameters": {
+                "allow-blank-label": True,
+                "allow-label-loop": True,
+                "allow-label-recombination": True,
+                "allow-word-end-recombination": True,
+                "create-lattice": True,
+                "label-pruning": 11.2,
+                "label-pruning-limit": 100000,
+                "word-end-pruning": 0.5,
+                "word-end-pruning-limit": 10000,
+            },
         },
-        "label_tree_args": {"skip_silence": True},
-        "search_parameters": {
-            "allow-blank-label": True,
-            "allow-label-loop": True,
-            "allow-label-recombination": True,
-            "allow-word-end-recombination": True,
-            "create-lattice": True,
-            "label-pruning": 11.2,
-            "label-pruning-limit": 100000,
-            "word-end-pruning": 0.5,
-            "word-end-pruning-limit": 10000,
-        },
+        **(recog_args or {}),
     }
     score_info = ScorerInfo()
     score_info.ref_file = dev_corpora["hub5e00"].stm
@@ -751,6 +754,7 @@ def run_scf_baseline():
             ),
         },
         num_epochs=450,
+        evaluation_epochs=[350, 400, 450],
         prefix="conformer_bs2x5k_",
     )
 
@@ -759,7 +763,11 @@ def run_scf_baseline():
         commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
     ).out_repository
     returnn_root.hash_overwrite = "returnn_conv_padding"
-    run_nn_args(nn_args, report_args_collection, "report_scf_baseline.csv", dev_corpora, returnn_root=returnn_root)
+    report = run_nn_args(
+        nn_args, report_args_collection, dev_corpora, returnn_root=returnn_root,
+        recog_args={"epochs": [350, 400, 450, "best"]},
+    )
+    return report
 
 
 def run_mel_audio_perturbation():
