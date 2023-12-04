@@ -820,7 +820,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     di_vit_from_mono_ft_config = copy.deepcopy(di_from_mono_cfg)
     di_vit_from_mono_ft_config.update(import_mono_fs_constlr_config)
     # classic staged network dicts do not work due to code-wrapped time tags
-    staged_dict_formatted = pprint.PrettyPrinter(indent=4, width=150).pformat(
+    staged_dict_formatted = pprint.PrettyPrinter(indent=2, width=150).pformat(
         {
             1: {"#copy_param_mode": "subset", **returnn_cfg_mo_ft_constlr.config["network"]},
             2: {"#copy_param_mode": "subset", **returnn_cfg_di_ft_constlr.config["network"]},
