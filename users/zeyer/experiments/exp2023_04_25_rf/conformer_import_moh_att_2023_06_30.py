@@ -258,7 +258,9 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "specaugment_max_consecutive_feature_dims",
         ],
     )
-    train_exp("base-24gb-v4-attdropfixbc", config_24gb_v4, config_updates={"rf_att_dropout_broadcast": False})
+    train_exp(  # 7.02 (vs base 7.07)
+        "base-24gb-v4-attdropfixbc", config_24gb_v4, config_updates={"rf_att_dropout_broadcast": False}
+    )
     train_exp("base-24gb-v4-bs30k", config_24gb_v4, config_updates={"batch_size": 30_000 * _batch_size_factor})
     train_exp(
         "base-24gb-v4-bs30k-accgrad3",
@@ -323,6 +325,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         num_processes=4,  # multi-GPU
         num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
     )
+
+    # TODO pretrain with specaugment_steps=(0, 15k, 25k)?
 
 
 _sis_prefix: Optional[str] = None
