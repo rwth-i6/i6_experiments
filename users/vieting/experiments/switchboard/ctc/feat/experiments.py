@@ -565,7 +565,7 @@ def run_test_mel():
     report.delete_redundant_columns()
     report.delete_redundant_rows()
     tk.register_report(
-        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report.csv"),
+        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report_test_mel.csv"),
         values=report.get_values(),
         template=report.get_template(),
     )
@@ -651,11 +651,13 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
     report = ctc_nn_system.report
     report.delete_redundant_columns()
     report.delete_redundant_rows()
-    tk.register_report(
-        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, report_name),
-        values=report.get_values(),
-        template=report.get_template(),
-    )
+    if report_name:
+        tk.register_report(
+            os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, report_name),
+            values=report.get_values(),
+            template=report.get_template(),
+        )
+    return report
 
 
 def run_mel_baseline():
@@ -702,7 +704,8 @@ def run_mel_baseline():
         num_epochs=450,
         prefix="conformer_bs10k_",
     )
-    run_nn_args(nn_args, report_args_collection, "report_mel_baseline.csv", dev_corpora)
+    report = run_nn_args(nn_args, report_args_collection, dev_corpora)
+    return report
 
 
 def run_scf_baseline():
@@ -898,13 +901,27 @@ def run_mel_audio_perturbation():
         num_epochs=450,
         prefix="conformer_bs10k_",
     )
-    run_nn_args(nn_args, report_args_collection, "report_mel_audio_perturbation.csv", dev_corpora)
+    run_nn_args(nn_args, report_args_collection, dev_corpora, "report_mel_audio_perturbation.csv")
 
 
 def py():
     """
     called if the file is passed to sis manager, used to run all experiments (replacement for main)
     """
-    run_mel_baseline()
-    run_scf_baseline()
-    run_mel_audio_perturbation()
+    report_mel = run_mel_baseline()
+    report_scf = run_scf_baseline()
+
+    report_base = Report(
+        columns_start=["train_name", "wave_norm", "specaug", "lr", "batch_size"],
+        columns_end=["epoch", "recog_name", "lm", "optlm", "lm_scale", "prior_scale"],
+    )
+    report = Report.merge_reports([
+        report_base,
+        report_mel,
+        report_scf,
+    ])
+    tk.register_report(
+        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report.csv"),
+        values=report.get_values(),
+        template=report.get_template(),
+    )
