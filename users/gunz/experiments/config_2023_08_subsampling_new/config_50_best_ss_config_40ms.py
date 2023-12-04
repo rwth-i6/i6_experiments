@@ -831,7 +831,6 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         f"""
         networks_dict = \
           {staged_dict_indented[2:]}
-
         def get_network(epoch, **kwargs):
           for epoch_ in sorted(networks_dict.keys(), reverse=True):
             if epoch_ <= epoch:
