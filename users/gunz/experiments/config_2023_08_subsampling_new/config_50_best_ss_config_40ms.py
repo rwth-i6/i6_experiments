@@ -827,8 +827,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             2: {"#copy_param_mode": "subset", **returnn_cfg_di_ft_constlr.config["network"]},
         }
     )
-    net_dict_delayed = GetWrapper(net_dict).function(instanciate_delayed)
-    net_dict_formatted = delayed_ops.Delayed(
+    net_dict_formatted = delayed_ops.DelayedFormat(
         textwrap.dedent(
             """
             networks_dict = {!r}
@@ -838,8 +837,9 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                   return networks_dict[epoch_]
               assert False, \"Error, no networks found\"
             """
-        )
-    ).format(net_dict_delayed)
+        ),
+        GetWrapper(net_dict).function(instanciate_delayed),
+    )
     di_ft_from_mono_ft_staged_net_config = returnn.ReturnnConfig(config={}, python_epilog=net_dict_formatted)
     di_ft_from_mono_ft_config = copy.deepcopy(returnn_cfg_di_ft_constlr)
     di_ft_from_mono_ft_config.config.pop("network", None)
