@@ -1,6 +1,6 @@
-from sisyphus.delayed_ops import DelayedBase
+from sisyphus.delayed_ops import Delayed
 
 
-class GetWrapper(DelayedBase):
+class GetWrapper(Delayed):
     def get(self):
         return self.a
