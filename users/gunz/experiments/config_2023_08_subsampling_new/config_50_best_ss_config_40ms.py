@@ -18,6 +18,7 @@ from sisyphus import gs, tk
 # -------------------- Recipes --------------------
 
 from i6_core import corpus, lexicon, mm, rasr, returnn
+from i6_core.util import instanciate_delayed
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
@@ -821,10 +822,12 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     di_vit_from_mono_ft_config.update(import_mono_fs_constlr_config)
     # classic staged network dicts do not work due to code-wrapped time tags
     staged_dict_formatted = pprint.PrettyPrinter(indent=2, width=150).pformat(
-        {
-            1: {"#copy_param_mode": "subset", **returnn_cfg_mo_ft_constlr.config["network"]},
-            2: {"#copy_param_mode": "subset", **returnn_cfg_di_ft_constlr.config["network"]},
-        }
+        instanciate_delayed(
+            {
+                1: {"#copy_param_mode": "subset", **returnn_cfg_mo_ft_constlr.config["network"]},
+                2: {"#copy_param_mode": "subset", **returnn_cfg_di_ft_constlr.config["network"]},
+            }
+        )
     )
     staged_dict_indented = textwrap.indent(staged_dict_formatted, "  ")
     net_dict_epilog_code = textwrap.dedent(
