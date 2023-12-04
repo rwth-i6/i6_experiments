@@ -830,12 +830,11 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             )
         )
         .function(instanciate_delayed)
-        .function(repr)
     )
     net_dict_formatted = delayed_ops.Delayed(
         textwrap.dedent(
             """
-            networks_dict = {}
+            networks_dict = {!r}
             def get_network(epoch, **kwargs):
               for epoch_ in sorted(networks_dict.keys(), reverse=True):
                 if epoch_ <= epoch:
