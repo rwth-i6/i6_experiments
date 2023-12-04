@@ -894,8 +894,12 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         else:
             raise NotImplementedError("Cannot bw-fine-tune triphones")
 
-    key = "fh-di-fs-constlr"
+    ##############
+    # 6.0 DI MODEL
+    ##############
+
     # best config for diphone-fine-tune
+    key = "fh-di-fs-constlr"
     tdp_sil = (10, 10, "infinity", 20)
     params = dataclasses.replace(
         di_ft_sys.get_cart_params(key),
@@ -941,6 +945,41 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             returnn_config=returnn_cfg_di,
             tune=False,
             neural_lm=neural,
+        )
+
+    ##############
+    # 5.9 DI MODEL
+    ##############
+
+    # /u/mgunz/setups/2023-08--subsampling-new/output/50_best_ss_config_40ms/recog/di-fs-constlr-from-mono-from-bw-conf-di-fs-constlr-from-mono-zhou/ep300/lm-4gram/rp275-opt/dev-other/am01.00_lm2.233403010221315_prior00.60_tdp0.4_tdpspeechloop3.0_forward0.0_skipinfinity_exit0.0_tdpsilenceloop10_forward10_skipinfinity_exit20_tdpnonspeechloop10_forward10_skipinfinity_exit20_ps2.0_altas00.00_beam20_beamlimit100000.reports/sclite.dtl
+    # 15:Percent Total Error       =    5.9%   (3030)
+    #
+    # /u/mgunz/setups/2023-08--subsampling-new/output/50_best_ss_config_40ms/recog/di-fs-constlr-from-mono-from-bw-conf-di-fs-constlr-from-mono-zhou/ep300/lm-4gram/rp275-opt/dev-other/am01.00_lm1.881966025156_prior00.40_tdp0.4_tdpspeechloop3.0_forward0.0_skipinfinity_exit0.0_tdpsilenceloop10_forward10_skipinfinity_exit20_tdpnonspeechloop10_forward10_skipinfinity_exit20_ps2.0_altas00.00_beam20_beamlimit100000.reports/sclite.dtl
+    # 15:Percent Total Error       =    5.9%   (3031)
+
+    key = "fh-di-fs-constlr-from-mono"
+    tdp_sil = (10, 10, "infinity", 20)
+    params = [
+        dataclasses.replace(
+            di_ft_sys.get_cart_params(key),
+            beam=20,
+            lm_scale=lm,
+            tdp_scale=0.4,
+            tdp_silence=tdp_sil,
+            tdp_non_word=tdp_sil,
+        ).with_prior_scale(p_c)
+        for lm, p_c in [(2.23, 0.6), (1.88, 0.4)]
+    ]
+    for ep, params in itertools.product([275, 290, 292, 294, 296, 297, 298, 299, 300], params):
+        decode_diphone(
+            di_ft_sys,
+            key=key,
+            epoch=ep,
+            crp_k="dev-other",
+            params=params,
+            prior_epoch=fine_tune_keep_epochs[-2],
+            returnn_config=returnn_cfg_di,
+            tune=False,
         )
 
 
