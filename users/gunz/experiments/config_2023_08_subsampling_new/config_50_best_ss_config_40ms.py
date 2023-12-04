@@ -12,7 +12,7 @@ import numpy as np
 import os
 
 # -------------------- Sisyphus --------------------
-from sisyphus import gs, tk
+from sisyphus import delayed_ops, gs, tk
 
 # -------------------- Recipes --------------------
 
@@ -820,23 +820,31 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     di_vit_from_mono_ft_config = copy.deepcopy(di_from_mono_cfg)
     di_vit_from_mono_ft_config.update(import_mono_fs_constlr_config)
     # classic staged network dicts do not work due to code-wrapped time tags
-    staged_dict = instanciate_delayed(
-        {
-            1: {"#copy_param_mode": "subset", **returnn_cfg_mo_ft_constlr.config["network"]},
-            2: {"#copy_param_mode": "subset", **returnn_cfg_di_ft_constlr.config["network"]},
-        }
+    net_dict = (
+        delayed_ops.Delayed(
+            copy.deepcopy(  # instanciate-delayed
+                {
+                    1: {"#copy_param_mode": "subset", **returnn_cfg_mo_ft_constlr.config["network"]},
+                    2: {"#copy_param_mode": "subset", **returnn_cfg_di_ft_constlr.config["network"]},
+                }
+            )
+        )
+        .function(instanciate_delayed)
+        .function(repr)
     )
-    net_dict_epilog_code = textwrap.dedent(
-        f"""
-        networks_dict = {repr(staged_dict)}
-        def get_network(epoch, **kwargs):
-          for epoch_ in sorted(networks_dict.keys(), reverse=True):
-            if epoch_ <= epoch:
-              return networks_dict[epoch_]
-          assert False, \"Error, no networks found\"
-        """
-    )
-    di_ft_from_mono_ft_staged_net_config = returnn.ReturnnConfig(config={}, python_epilog=net_dict_epilog_code)
+    net_dict_formatted = delayed_ops.Delayed(
+        textwrap.dedent(
+            """
+            networks_dict = {}
+            def get_network(epoch, **kwargs):
+              for epoch_ in sorted(networks_dict.keys(), reverse=True):
+                if epoch_ <= epoch:
+                  return networks_dict[epoch_]
+              assert False, \"Error, no networks found\"
+            """
+        )
+    ).format(net_dict)
+    di_ft_from_mono_ft_staged_net_config = returnn.ReturnnConfig(config={}, python_epilog=net_dict_formatted)
     di_ft_from_mono_ft_config = copy.deepcopy(returnn_cfg_di_ft_constlr)
     di_ft_from_mono_ft_config.config.pop("network", None)
     di_ft_from_mono_ft_config.staged_network_dict = None
