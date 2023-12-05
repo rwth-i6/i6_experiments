@@ -708,6 +708,13 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_di_from_mono_ft_constlr_smooth = copy.deepcopy(returnn_cfg_di_from_mono_ft_constlr)
     returnn_cfg_di_from_mono_ft_constlr_smooth.update(smooth_fs_constlr_config)
 
+    tri_ft_sys = copy.deepcopy(s)
+    tri_ft_sys.lexicon_args["norm_pronunciation"] = False
+    tri_ft_sys._update_am_setting_for_all_crps(
+        train_tdp_type="heuristic",
+        eval_tdp_type="heuristic",
+        add_base_allophones=False,
+    )
     returnn_cfg_tri_ft = copy.deepcopy(returnn_cfg_tri)
     for layer in returnn_cfg_tri_ft.config["network"].values():
         if layer == "right-output":
@@ -719,14 +726,14 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         layer.pop("loss_opts", None)
     returnn_cfg_tri_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
         returnn_config=returnn_cfg_tri_ft,
-        label_info=di_ft_sys.label_info,
+        label_info=di_ft_sys.label_info,  # use diphone label info
         out_joint_score_layer="output",
         log_softmax=True,
         prepare_for_train=True,
         remove_triphone_outputs=False,
     )
     returnn_cfg_tri_ft = baum_welch.augment_for_fast_bw(
-        crp=di_ft_sys.crp[s.crp_names["train"]],
+        crp=di_ft_sys.crp[s.crp_names["train"]],  # use diphone label info
         from_output_layer="output",
         returnn_config=returnn_cfg_tri_ft,
         log_linear_scales=baum_welch.BwScales(label_posterior_scale=1.0, transition_scale=0.3),
@@ -754,9 +761,9 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         (returnn_cfg_di_fa_ft, returnn_cfg_di, di_ft_sys, "di-fs-fa-constlr"),
         (returnn_cfg_di_from_mono_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-constlr-from-mono"),
         (returnn_cfg_di_from_mono_ft_constlr_smooth, returnn_cfg_di, di_ft_sys, "di-fs-constlr-smooth-from-mono"),
-        (returnn_cfg_tri_ft_constlr, returnn_cfg_tri_safe, di_ft_sys, "tri-fs-constlr"),
-        (returnn_cfg_tri_from_di_ft_constlr, returnn_cfg_tri_safe, di_ft_sys, "tri-fs-constlr-from-di"),
-        (returnn_cfg_tri_from_di_sel_ft_constlr, returnn_cfg_tri_safe, di_ft_sys, "tri-sel-fs-constlr-from-di"),
+        (returnn_cfg_tri_ft_constlr, returnn_cfg_tri_safe, tri_ft_sys, "tri-fs-constlr"),
+        (returnn_cfg_tri_from_di_ft_constlr, returnn_cfg_tri_safe, tri_ft_sys, "tri-fs-constlr-from-di"),
+        (returnn_cfg_tri_from_di_sel_ft_constlr, returnn_cfg_tri_safe, tri_ft_sys, "tri-sel-fs-constlr-from-di"),
     ]
     keys = [f"fh-{name}" for _, _, _, name in configs]
     for (returnn_config, original_returnn_config, sys, name), key in zip(configs, keys):
