@@ -708,7 +708,15 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_di_from_mono_ft_constlr_smooth = copy.deepcopy(returnn_cfg_di_from_mono_ft_constlr)
     returnn_cfg_di_from_mono_ft_constlr_smooth.update(smooth_fs_constlr_config)
 
-    returnn_cfg_tri_ft = remove_label_pops_and_losses_from_returnn_config(returnn_cfg_tri)
+    returnn_cfg_tri_ft = copy.deepcopy(returnn_cfg_tri)
+    for layer in returnn_cfg_tri_ft.config["network"].values():
+        if layer == "right-output":
+            layer["loss_scale"] = 0.1
+            continue
+        layer.pop("target", None)
+        layer.pop("loss", None)
+        layer.pop("loss_scale", None)
+        layer.pop("loss_opts", None)
     returnn_cfg_tri_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
         returnn_config=returnn_cfg_tri_ft,
         label_info=di_ft_sys.label_info,
