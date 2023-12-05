@@ -52,7 +52,7 @@ def py():
         num_processes=2,
     )
     train_exp(
-        "v6-f32-bs20k-accgrad2-mgpu2-wd1e-4",
+        "v6-f32-bs20k-accgrad2-mgpu2-wd1e_4",
         config_v6_f32_bs20k,
         config_updates={
             "accum_grad_multiple_step": 2,
@@ -76,7 +76,7 @@ def py():
         num_processes=2,
     )
     train_exp(
-        "v6-f32-accgrad1-mgpu4-wd1e-4-lrlin1e_5_111k",
+        "v6-f32-accgrad1-mgpu4-wd1e_4-lrlin1e_5_111k",
         config_v6_f32,
         config_updates={
             "accum_grad_multiple_step": 1,

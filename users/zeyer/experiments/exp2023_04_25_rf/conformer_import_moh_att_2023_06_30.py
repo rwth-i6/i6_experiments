@@ -325,6 +325,44 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         num_processes=4,  # multi-GPU
         num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
     )
+    train_exp(
+        "v6-11gb-f32-bs15k-accgrad4-mgpu4-wd1e_4-lrlin1e_5_295k",
+        config_24gb_v6,
+        config_updates={
+            "batch_size": 15_000 * _batch_size_factor,
+            "accum_grad_multiple_step": 4,  # note: per single GPU
+            "torch_distributed": {},  # multi-GPU
+            "optimizer.weight_decay": 1e-4,
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 500 epochs: ~652k
+            "learning_rate_piecewise_steps": [295_000, 590_000, 652_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+        config_deletes=["torch_amp"],  # f32
+        gpu_mem=11,
+        num_processes=4,  # multi-GPU
+        num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
+    )
+    train_exp(
+        "v6-11gb-f32-bs15k-accgrad1-mgpu4-wd1e_4-lrlin1e_5_295k",
+        config_24gb_v6,
+        config_updates={
+            "batch_size": 15_000 * _batch_size_factor,
+            "accum_grad_multiple_step": 1,  # note: per single GPU
+            "torch_distributed": {},  # multi-GPU
+            "optimizer.weight_decay": 1e-4,
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 500 epochs: ~652k
+            "learning_rate_piecewise_steps": [295_000, 590_000, 652_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+        config_deletes=["torch_amp"],  # f32
+        gpu_mem=11,
+        num_processes=4,  # multi-GPU
+        num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
+    )
 
     # TODO pretrain with specaugment_steps=(0, 15k, 25k)?
 
