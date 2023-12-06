@@ -271,7 +271,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_24gb_v4,
         config_updates={"batch_size": 30_000 * _batch_size_factor, "accum_grad_multiple_step": 3},
     )
-    train_exp(
+    train_exp(  # 7.21, so nodropbc makes it worse
         "base-24gb-v4-bs30k-accgrad3-nodropbc",
         config_24gb_v4,
         config_updates={
