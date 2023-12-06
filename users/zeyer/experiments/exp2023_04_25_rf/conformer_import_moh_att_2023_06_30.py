@@ -316,9 +316,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "torch_distributed": {},  # multi-GPU
             "learning_rate": 1.0,
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 500 epochs: ~652k
-            "learning_rate_piecewise_steps": [295_000, 590_000, 652_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            **_cfg_lrlin1e_5_295k,  # total steps after 500 epochs: ~652k
         },
         config_deletes=["torch_amp"],  # f32
         gpu_mem=11,
@@ -335,9 +333,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "optimizer.weight_decay": 1e-4,
             "learning_rate": 1.0,
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 500 epochs: ~652k
-            "learning_rate_piecewise_steps": [295_000, 590_000, 652_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            **_cfg_lrlin1e_5_295k,  # total steps after 500 epochs: ~652k
         },
         config_deletes=["torch_amp"],  # f32
         gpu_mem=11,
@@ -354,9 +350,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "optimizer.weight_decay": 1e-4,
             "learning_rate": 1.0,
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 500 epochs: ~652k
-            "learning_rate_piecewise_steps": [295_000, 590_000, 652_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            **_cfg_lrlin1e_5_295k,  # total steps after 500 epochs: ~652k
         },
         config_deletes=["torch_amp"],  # f32
         gpu_mem=11,
@@ -373,9 +367,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "optimizer.weight_decay": 1e-4,
             "learning_rate": 1.0,
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 500 epochs: ~652k
-            "learning_rate_piecewise_steps": [295_000, 590_000, 652_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            **_cfg_lrlin1e_5_295k,  # total steps after 500 epochs: ~652k
         },
         config_deletes=["torch_amp"],  # f32
         gpu_mem=11,
@@ -392,9 +384,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "optimizer.weight_decay": 1e-4,
             "learning_rate": 1.0,
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 500 epochs: ~652k
-            "learning_rate_piecewise_steps": [295_000, 590_000, 652_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            **_cfg_lrlin1e_5_295k,  # total steps after 500 epochs: ~652k
         },
         config_deletes=["torch_amp"],  # f32
         gpu_mem=11,
@@ -411,9 +401,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "optimizer.weight_decay": 1e-4,
             "learning_rate": 1.0,
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 500 epochs: ~652k
-            "learning_rate_piecewise_steps": [295_000, 590_000, 652_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            **_cfg_lrlin1e_5_295k,
         },
         config_deletes=["torch_amp"],  # f32
         gpu_mem=11,
@@ -684,6 +672,12 @@ config_24gb_v5 = dict_update_delete_deep(
 config_24gb_v6 = dict_update_delete_deep(config_24gb_v5, ["pretrain_opts"])
 # TODO lrlin
 # TODO lr09e_3
+
+_cfg_lrlin1e_5_295k = {  # for bs15k, mgpu4
+    # total steps after 500 epochs: ~652k
+    "learning_rate_piecewise_steps": [295_000, 590_000, 652_000],
+    "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+}
 
 
 class MakeModel:
