@@ -296,42 +296,27 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     train_exp(
         "v6-11gb-f32-bs15k-accgrad4-mgpu2",
-        config_24gb_v6,
-        config_updates={
-            "batch_size": 15_000 * _batch_size_factor,  # ~1305 steps/epoch
-            "accum_grad_multiple_step": 4,
-            "torch_distributed": {},  # multi-GPU
-        },
-        config_deletes=["torch_amp"],  # f32
+        config_11gb_v6_f32_bs15k_accgrad4_mgpu,
         gpu_mem=11,
         num_processes=2,  # multi-GPU
     )
-
     train_exp(
         "v6-11gb-f32-bs15k-accgrad4-mgpu4-lrlin1e_5_295k",
-        config_24gb_v6,
+        config_11gb_v6_f32_bs15k_accgrad4_mgpu,
         config_updates={
-            "batch_size": 15_000 * _batch_size_factor,
-            "accum_grad_multiple_step": 4,  # note: per single GPU
-            "torch_distributed": {},  # multi-GPU
             **_cfg_lrlin1e_5_295k,  # total steps after 500 epochs: ~652k
         },
-        config_deletes=["torch_amp"],  # f32
         gpu_mem=11,
         num_processes=4,  # multi-GPU
         num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
     )
     train_exp(
         "v6-11gb-f32-bs15k-accgrad4-mgpu4-wd1e_4-lrlin1e_5_295k",
-        config_24gb_v6,
+        config_11gb_v6_f32_bs15k_accgrad4_mgpu,
         config_updates={
-            "batch_size": 15_000 * _batch_size_factor,
-            "accum_grad_multiple_step": 4,  # note: per single GPU
-            "torch_distributed": {},  # multi-GPU
             "optimizer.weight_decay": 1e-4,
             **_cfg_lrlin1e_5_295k,  # total steps after 500 epochs: ~652k
         },
-        config_deletes=["torch_amp"],  # f32
         gpu_mem=11,
         num_processes=4,  # multi-GPU
         num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
@@ -353,15 +338,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     )
     train_exp(
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg4-wd1e_4-lrlin1e_5_295k",
-        config_24gb_v6,
+        config_11gb_v6_f32_bs15k_accgrad4_mgpu,
         config_updates={
-            "batch_size": 15_000 * _batch_size_factor,
             "accum_grad_multiple_step": 1,  # note: per single GPU
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 4},  # multi-GPU
             "optimizer.weight_decay": 1e-4,
             **_cfg_lrlin1e_5_295k,  # total steps after 500 epochs: ~652k
         },
-        config_deletes=["torch_amp"],  # f32
         gpu_mem=11,
         num_processes=4,  # multi-GPU
         num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
@@ -668,6 +651,21 @@ _cfg_lrlin1e_5_295k = {  # for bs15k, mgpu4
     "learning_rate_piecewise_steps": [295_000, 590_000, 652_000],
     "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
 }
+
+config_11gb_v6_f32_bs15k_accgrad4_mgpu = dict_update_deep(
+    config_24gb_v6,
+    {
+        "batch_size": 15_000 * _batch_size_factor,  # ~1305 steps/epoch
+        "accum_grad_multiple_step": 4,
+        "torch_distributed": {},  # multi-GPU
+    },
+)
+config_11gb_v6_f32_bs15k_accgrad4_mgpu = dict_update_delete_deep(
+    config_11gb_v6_f32_bs15k_accgrad4_mgpu,
+    [
+        "torch_amp",  # f32
+    ],
+)
 
 
 class MakeModel:
