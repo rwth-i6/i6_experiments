@@ -297,7 +297,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     train_exp(
         "v6-11gb-f32-bs15k-accgrad4-mgpu2",
         config_11gb_v6_f32_bs15k_accgrad4_mgpu,
-        gpu_mem=11,
         num_processes=2,  # multi-GPU
     )
     train_exp(
@@ -306,7 +305,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_updates={
             **_cfg_lrlin1e_5_295k,  # total steps after 500 epochs: ~652k
         },
-        gpu_mem=11,
         num_processes=4,  # multi-GPU
         num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
     )
@@ -314,16 +312,10 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "v6-11gb-f32-bs15k-accgrad4-mgpu4-wd1e_4-lrlin1e_5_295k",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
         config_updates={"accum_grad_multiple_step": 4},
-        gpu_mem=11,
-        num_processes=4,  # multi-GPU
-        num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
     )
     train_exp(
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-wd1e_4-lrlin1e_5_295k",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
-        gpu_mem=11,
-        num_processes=4,  # multi-GPU
-        num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
     )
     train_exp(
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg4-wd1e_4-lrlin1e_5_295k",
@@ -331,9 +323,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_updates={
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 4},  # multi-GPU
         },
-        gpu_mem=11,
-        num_processes=4,  # multi-GPU
-        num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
     )
     train_exp(
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg10-wd1e_4-lrlin1e_5_295k",
@@ -341,9 +330,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_updates={
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 10},  # multi-GPU
         },
-        gpu_mem=11,
-        num_processes=4,  # multi-GPU
-        num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
     )
     train_exp(
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k",
@@ -351,9 +337,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_updates={
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},  # multi-GPU
         },
-        gpu_mem=11,
-        num_processes=4,  # multi-GPU
-        num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
     )
 
     # TODO pretrain with specaugment_steps=(0, 15k, 25k)?
@@ -433,8 +416,15 @@ def train_exp(
 
     prefix = _sis_prefix + "/" + name
     task = _get_ls_task()
+    config = config.copy()
     config = dict_update_deep(config, config_updates)
     config = dict_update_delete_deep(config, config_deletes)
+    if "__num_epochs" in config:
+        num_epochs = config.pop("__num_epochs")
+    if "__gpu_mem" in config:
+        gpu_mem = config.pop("__gpu_mem")
+    if "__num_processes" in config:
+        num_processes = config.pop("__num_processes")
 
     model_with_checkpoint = train(
         prefix,
@@ -632,6 +622,7 @@ config_11gb_v6_f32_bs15k_accgrad4_mgpu = dict_update_deep(
         "batch_size": 15_000 * _batch_size_factor,  # ~1305 steps/epoch
         "accum_grad_multiple_step": 4,  # per single GPU
         "torch_distributed": {},  # multi-GPU
+        "__gpu_mem": 11,
     },
 )
 config_11gb_v6_f32_bs15k_accgrad4_mgpu = dict_update_delete_deep(
@@ -651,6 +642,8 @@ config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k = dict_update_deep
     {
         "optimizer.weight_decay": 1e-4,
         **_cfg_lrlin1e_5_295k,
+        "__num_processes": 4,  # multi-GPU
+        "__num_epochs": 500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
     },
 )
 
