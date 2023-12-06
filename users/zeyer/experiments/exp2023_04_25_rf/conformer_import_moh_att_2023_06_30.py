@@ -314,8 +314,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "batch_size": 15_000 * _batch_size_factor,
             "accum_grad_multiple_step": 4,  # note: per single GPU
             "torch_distributed": {},  # multi-GPU
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
             **_cfg_lrlin1e_5_295k,  # total steps after 500 epochs: ~652k
         },
         config_deletes=["torch_amp"],  # f32
@@ -331,8 +329,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "accum_grad_multiple_step": 4,  # note: per single GPU
             "torch_distributed": {},  # multi-GPU
             "optimizer.weight_decay": 1e-4,
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
             **_cfg_lrlin1e_5_295k,  # total steps after 500 epochs: ~652k
         },
         config_deletes=["torch_amp"],  # f32
@@ -348,8 +344,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "accum_grad_multiple_step": 1,  # note: per single GPU
             "torch_distributed": {},  # multi-GPU
             "optimizer.weight_decay": 1e-4,
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
             **_cfg_lrlin1e_5_295k,  # total steps after 500 epochs: ~652k
         },
         config_deletes=["torch_amp"],  # f32
@@ -365,8 +359,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "accum_grad_multiple_step": 1,  # note: per single GPU
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 4},  # multi-GPU
             "optimizer.weight_decay": 1e-4,
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
             **_cfg_lrlin1e_5_295k,  # total steps after 500 epochs: ~652k
         },
         config_deletes=["torch_amp"],  # f32
@@ -382,8 +374,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "accum_grad_multiple_step": 1,  # note: per single GPU
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 10},  # multi-GPU
             "optimizer.weight_decay": 1e-4,
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
             **_cfg_lrlin1e_5_295k,  # total steps after 500 epochs: ~652k
         },
         config_deletes=["torch_amp"],  # f32
@@ -399,8 +389,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "accum_grad_multiple_step": 1,  # note: per single GPU
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},  # multi-GPU
             "optimizer.weight_decay": 1e-4,
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
             **_cfg_lrlin1e_5_295k,
         },
         config_deletes=["torch_amp"],  # f32
@@ -674,6 +662,8 @@ config_24gb_v6 = dict_update_delete_deep(config_24gb_v5, ["pretrain_opts"])
 # TODO lr09e_3
 
 _cfg_lrlin1e_5_295k = {  # for bs15k, mgpu4
+    "learning_rate": 1.0,
+    "dynamic_learning_rate": dyn_lr_piecewise_linear,
     # total steps after 500 epochs: ~652k
     "learning_rate_piecewise_steps": [295_000, 590_000, 652_000],
     "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
