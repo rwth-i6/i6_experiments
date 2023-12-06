@@ -172,11 +172,15 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             (2000, {"num_epochs": 200, "final_lr": 1e-6}),  # 6.84
         ],
     )
-    train_exp(
+    train_exp(  # 6.85 (vs base 7.07), so better, but maybe just because too less regularization in general
         "base-24gb-v4-wdblacklist2",
         config_24gb_v4,
         config_updates={
             "optimizer.weight_decay_modules_blacklist": [
+                # Difference to base-24gb-v4: weight decay also for LayerNorm and BatchNorm.
+                # The initial thought was that we maybe do it wrong, and it applies to the statistics as well.
+                # This is not the case, it only applies on the learnable parameters,
+                # and there it makes sense to apply weight decay.
                 "rf.Embedding",
                 "rf.LearnedRelativePositionalEncoding",
             ],
@@ -262,8 +266,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "base-24gb-v4-attdropfixbc", config_24gb_v4, config_updates={"rf_att_dropout_broadcast": False}
     )
     train_exp("base-24gb-v4-bs30k", config_24gb_v4, config_updates={"batch_size": 30_000 * _batch_size_factor})
-    train_exp(
-        "base-24gb-v4-bs30k-accgrad3",
+    train_exp(  # 7.19
+        "base-24gb-v4-bs30k-accgrad3",  # accgrad3 instead of (base) accgrad2
         config_24gb_v4,
         config_updates={"batch_size": 30_000 * _batch_size_factor, "accum_grad_multiple_step": 3},
     )
