@@ -48,7 +48,7 @@ TODO:
 - feature normalization?
 - param init. Linear is different
 - higher batch size / more grad accum, or schedule.
-  in the very beginning (warmup phase), we might need high batch size for convergence.
+  in the very beginning (warmup phase), we might need high batch size (grad accum) for convergence.
   but then, smaller batch size (bs30k) actually seem to converge faster initially?
   for finetuning at the end, we might want to have higher batch size again.
 - less regularization, augmentation in beginning, schedule (seems very important for convergence)
@@ -58,6 +58,7 @@ TODO:
 - mixup (port over TF code)
 
 - adamw vs adam? note that weight decay param needs to be retuned. adam needs another test.
+- Nadam? https://github.com/rwth-i6/returnn/issues/1440
 - weight decay? (also dependent on whether adam or adamw) adamw-wd1e_3 better?
 - weight decay only on selected layers/modules, like in TF, e.g. not so much on decoder
 - adam eps? 1e-16 is what we had in TF, maybe better? moh as 1e-8 though.

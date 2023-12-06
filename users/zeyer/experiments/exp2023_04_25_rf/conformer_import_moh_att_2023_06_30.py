@@ -518,13 +518,11 @@ config = dict(
     specaugment_steps=(10_000, 20_000, 40_000),
     # gradient_clip=0,
     # gradient_clip_global_norm = 1.0
-    # TODO check Nadam: https://github.com/rwth-i6/returnn/issues/1440
     optimizer={
         "class": "adamw",
         "epsilon": 1e-8,
         "weight_decay": 1e-6,
     },
-    # TODO grad accum scheduling, higher in beginning for better convergence?
     accum_grad_multiple_step=4,
     # gradient_noise=0.0,
     learning_rate=0.0025,
