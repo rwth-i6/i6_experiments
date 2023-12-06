@@ -743,31 +743,37 @@ def run_scf_baseline():
         "specaug_old": {"max_feature": 15},
     }
     feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+    lr_args = {
+        "peak_lr": 4e-4,
+        "start_lr": 1.325e-05,
+        "end_lr": 1e-5,
+        "increase_epochs": 180,
+        "decrease_epochs": 180,
+        "final_epochs": 0,
+    }
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
-            "scf_baseline": dict(
+            "bs2x5k_scf_baseline": dict(
                 returnn_args=returnn_args,
                 feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 180,
-                    "decrease_epochs": 180,
-                    "final_epochs": 0,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
+            "bs7k_scf_baseline": dict(
+                returnn_args={
+                    **returnn_args,
+                    "batch_size": 7000,
+                    "extra_args": {"watch_memory": True, "conv_pad_seq_len_to_power": 1.5},
                 },
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "wei_peak_4e-4_e450_cycle360",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
-                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "7k"},
             ),
         },
         num_epochs=450,
         evaluation_epochs=[350, 400, 450],
-        prefix="conformer_bs2x5k_",
+        prefix="conformer_",
     )
 
     returnn_root = CloneGitRepositoryJob(
