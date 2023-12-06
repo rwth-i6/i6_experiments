@@ -6,12 +6,16 @@ from __future__ import annotations
 from typing import Optional, Any, Dict, Sequence
 
 
-def dict_update_deep(d: Dict[str, Any], deep_updates: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def dict_update_deep(
+    d: Dict[str, Any], deep_updates: Optional[Dict[str, Any]], deep_deletes: Optional[Sequence[str]] = None
+) -> Dict[str, Any]:
     """
     :param d: dict to update
     :param deep_updates: might also contain "." in the key, for nested dicts
+    :param deep_deletes: might also contain "." in the key, for nested dicts
     :return: updated dict
     """
+    d = _dict_update_delete_deep(d, deep_deletes)
     if not deep_updates:
         return d
     d = d.copy()
@@ -25,7 +29,7 @@ def dict_update_deep(d: Dict[str, Any], deep_updates: Optional[Dict[str, Any]]) 
     return d
 
 
-def dict_update_delete_deep(d: Dict[str, Any], deep_deletes: Optional[Sequence[str]]) -> Dict[str, Any]:
+def _dict_update_delete_deep(d: Dict[str, Any], deep_deletes: Optional[Sequence[str]]) -> Dict[str, Any]:
     """
     :param d: dict to update (to delete from)
     :param deep_deletes: might also contain "." in the key, for nested dicts
@@ -38,7 +42,7 @@ def dict_update_delete_deep(d: Dict[str, Any], deep_deletes: Optional[Sequence[s
         assert isinstance(k, str)
         if "." in k:
             k1, k2 = k.split(".", 1)
-            d[k1] = dict_update_delete_deep(d[k1], [k2])
+            d[k1] = _dict_update_delete_deep(d[k1], [k2])
         else:
             del d[k]
     return d

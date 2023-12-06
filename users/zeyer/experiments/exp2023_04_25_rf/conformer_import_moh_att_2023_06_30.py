@@ -15,7 +15,7 @@ import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
-from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep, dict_update_delete_deep
+from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.lr_schedules.lin_warmup_invsqrt_decay import dyn_lr_lin_warmup_invsqrt_decay
 from i6_experiments.users.zeyer.lr_schedules.combine_eval import dyn_lr_combine_eval
 from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
@@ -417,8 +417,7 @@ def train_exp(
     prefix = _sis_prefix + "/" + name
     task = _get_ls_task()
     config = config.copy()
-    config = dict_update_deep(config, config_updates)
-    config = dict_update_delete_deep(config, config_deletes)
+    config = dict_update_deep(config, config_updates, config_deletes)
     if "__num_epochs" in config:
         num_epochs = config.pop("__num_epochs")
     if "__gpu_mem" in config:
@@ -594,9 +593,6 @@ config_24gb_v5 = dict_update_deep(
         ],
         "rf_att_dropout_broadcast": False,  # attdropfixbc
     },
-)
-config_24gb_v5 = dict_update_delete_deep(
-    config_24gb_v5,
     [
         # specaugorig
         "specaugment_num_spatial_mask_factor",
@@ -604,7 +600,7 @@ config_24gb_v5 = dict_update_delete_deep(
     ],
 )
 
-config_24gb_v6 = dict_update_delete_deep(config_24gb_v5, ["pretrain_opts"])
+config_24gb_v6 = dict_update_deep(config_24gb_v5, None, ["pretrain_opts"])
 
 _cfg_lrlin1e_5_295k = {  # for bs15k, mgpu4
     "learning_rate": 1.0,
@@ -622,9 +618,6 @@ config_11gb_v6_f32_bs15k_accgrad4_mgpu = dict_update_deep(
         "torch_distributed": {},  # multi-GPU
         "__gpu_mem": 11,
     },
-)
-config_11gb_v6_f32_bs15k_accgrad4_mgpu = dict_update_delete_deep(
-    config_11gb_v6_f32_bs15k_accgrad4_mgpu,
     [
         "torch_amp",  # f32
     ],

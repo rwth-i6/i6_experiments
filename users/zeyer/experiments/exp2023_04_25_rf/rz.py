@@ -10,7 +10,7 @@ from .conformer_import_moh_att_2023_06_30 import (
     config_24gb_v6,
     _batch_size_factor,
 )
-from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep, dict_update_delete_deep
+from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
@@ -92,14 +92,14 @@ def py():
     )
 
 
-config_v4_f32 = dict_update_delete_deep(config_24gb_v4, ["torch_amp"])
+config_v4_f32 = dict_update_deep(config_24gb_v4, None, ["torch_amp"])
 config_v4_f32_bs20k = dict_update_deep(
     config_v4_f32,
     {
         "batch_size": 20_000 * _batch_size_factor,  # 30k gives OOM on the 16GB GPU"
     },
 )
-config_v6_f32 = dict_update_delete_deep(config_24gb_v6, ["torch_amp"])
+config_v6_f32 = dict_update_deep(config_24gb_v6, None, ["torch_amp"])
 config_v6_f32_bs20k = dict_update_deep(
     config_v6_f32,
     {
