@@ -262,13 +262,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         return network
 
     # -------------------- Decoding --------------------
-    def _set_diphone_joint_state_tying(self):
-        # Joint diphone decoding will only work with diphone-dense state-tying
-        self.label_info = dataclasses.replace(self.label_info, state_tying=RasrStateTying.diphone)
-        for crp_k in self.crp_names.keys():
-            if "train" not in crp_k:
-                self._update_crp_am_setting_for_decoding(self.crp_names[crp_k])
-
     def _compute_returnn_rasr_priors(
         self,
         key: str,
@@ -280,7 +273,9 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         time_rqmt: Optional[int] = None,
         checkpoint: Optional[returnn.Checkpoint] = None,
     ):
-        self.set_graph_for_experiment(key)
+
+        if self.experiments[key]["graph"].get("inference", None) is None:
+            self.set_graph_for_experiment(key=key)
 
         model_checkpoint = (
             checkpoint
@@ -373,7 +368,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         time_rqmt: Union[int, float] = 12,
         checkpoint: Optional[returnn.Checkpoint] = None,
     ):
-        self.set_graph_for_experiment(key)
+        if self.experiments[key]["graph"].get("inference", None) is None:
+            self.set_graph_for_experiment(key)
 
         model_checkpoint = (
             checkpoint
@@ -423,7 +419,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         zero_weight: float = 1e-8,
         data_share: float = 0.3,
     ):
-        self.set_graph_for_experiment(key)
+        if self.experiments[key]["graph"].get("inference", None) is None:
+            self.set_graph_for_experiment(key)
 
         name = f"{self.experiments[key]['name']}/e{epoch}"
 
@@ -474,7 +471,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         via_hdf: bool = False,
         checkpoint: Optional[returnn.Checkpoint] = None,
     ):
-        self.set_graph_for_experiment(key)
+        if self.experiments[key]["graph"].get("inference", None) is None:
+            self.set_graph_for_experiment(key)
 
         name = f"{self.experiments[key]['name']}/e{epoch}"
 
@@ -553,7 +551,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         via_hdf: bool = False,
         checkpoint: Optional[returnn.Checkpoint] = None,
     ):
-        self.set_graph_for_experiment(key)
+        if self.experiments[key]["graph"].get("inference", None) is None:
+            self.set_graph_for_experiment(key)
 
         name = f"{self.experiments[key]['name']}/e{epoch}"
 
@@ -631,7 +630,9 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         self.experiments[key]["priors"] = p_info
 
-    def set_graph_for_experiment(self, key, override_cfg: Optional[returnn.ReturnnConfig] = None):
+    def set_graph_for_experiment(
+        self, key, override_cfg: Optional[returnn.ReturnnConfig] = None, graph_type_name: Optional[str] = None
+    ):
         config = copy.deepcopy(override_cfg if override_cfg is not None else self.experiments[key]["returnn_config"])
 
         name = self.experiments[key]["name"]
@@ -657,13 +658,15 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
 
         self.experiments[key]["graph"]["inference"] = infer_graph
-        tk.register_output(f"graphs/{name}-infer.pb", infer_graph)
+        if graph_type_name is None:
+            graph_type_name = "infer"
+        tk.register_output(f"graphs/{name}-{graph_type_name}.pb", infer_graph)
 
     def setup_returnn_config_and_graph_for_diphone_joint_decoding(
         self, key: str = None, returnn_config: returnn.ReturnnConfig = None
     ):
 
-        self._set_diphone_joint_state_tying()
+        self.set_diphone_joint_state_tying()
         if returnn_config is None:
             returnn_config = self.experiments[key]["returnn_config"]
         clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
@@ -689,13 +692,13 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             extra_dict_key="context",
             additional_python_prolog=context_time_tag,
         )
-        self.set_graph_for_experiment(key)
+        self.set_graph_for_experiment(key, graph_type_name="joint-infer")
 
     def setup_returnn_config_and_graph_for_diphone_joint_prior(
         self, key: str = None, returnn_config: returnn.ReturnnConfig = None
     ):
 
-        self._set_diphone_joint_state_tying()
+        self.set_diphone_joint_state_tying()
         if returnn_config is None:
             returnn_config = self.experiments[key]["returnn_config"]
         clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
@@ -720,7 +723,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             extra_dict_key="context",
             additional_python_prolog=context_time_tag,
         )
-        self.set_graph_for_experiment(key)
+        self.set_graph_for_experiment(key, graph_type_name="joint-prior")
 
     def get_recognizer_and_args(
         self,
@@ -730,7 +733,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         epoch: int,
         crp_corpus: str,
         recognizer_key: str = "base",
-        gpu=True,
+        model_path: Optional[tk.Path] = None,
+        gpu=False,
         is_multi_encoder_output=False,
         tf_library: Union[tk.Path, str, List[tk.Path], List[str], None] = None,
         dummy_mixtures: Optional[tk.Path] = None,
@@ -761,11 +765,12 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             dummy_mixtures = mm.CreateDummyMixturesJob(
                 self.label_info.get_n_of_dense_classes(),
                 self.initial_nn_args["num_input"],
-            ).out_mixtures  # gammatones
+            ).out_mixtures
 
         assert self.label_info.sil_id is not None
 
-        model_path = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        if model_path is None:
+            model_path = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
         recognizer = self.recognizers[recognizer_key](
             name=name,
             crp=self.crp[crp_corpus] if crp is None else crp,

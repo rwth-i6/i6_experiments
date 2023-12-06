@@ -106,7 +106,7 @@ class PriorInfo:
             right_context_prior=PriorConfig(file=output_dir.join_right("right-context.xml"), scale=0.0),
         )
 
-    def from_diiphone_job(cls, output_dir: Union[str, tk.Path]) -> "PriorInfo":
+    def from_diphone_job(cls, output_dir: Union[str, tk.Path]) -> "PriorInfo":
         """
         Initializes a PriorInfo instance with scale 0.0 from the output directory of
         a previously run/captured ComputeTriphoneForwardPriorsJob.
@@ -124,6 +124,7 @@ PosteriorScales = TypedDict(
         "left-context-scale": Float,
         "right-context-scale": Float,
         "center-state-scale": Float,
+        "joint-diphone-scale": Float,
     },
 )
 
@@ -133,6 +134,7 @@ def default_posterior_scales() -> PosteriorScales:
         "left-context-scale": 1.0,
         "right-context-scale": 1.0,
         "center-state-scale": 1.0,
+        "joint-diphone-scale": 1.0,
     }
 
 
@@ -184,17 +186,21 @@ class SearchParameters:
     def with_pron_scale(self, pron_scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, pron_scale=pron_scale)
 
-    def with_tdp_non_word(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
-        return dataclasses.replace(self, tdp_non_word=tdp)
-
     def with_tdp_scale(self, scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, tdp_scale=scale)
+
+    def with_tdp_speech(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
+        return dataclasses.replace(self, tdp_speech=tdp)
 
     def with_tdp_silence(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
         return dataclasses.replace(self, tdp_silence=tdp)
 
-    def with_tdp_speech(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
-        return dataclasses.replace(self, tdp_speech=tdp)
+    def with_tdp_non_word(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
+        return dataclasses.replace(self, tdp_non_word=tdp)
+
+    def with_posterior_scales(self, posterior_scales: PosteriorScales):
+        return dataclasses.replace(self, posterior_scales=posterior_scales)
+
 
     @classmethod
     def default_monophone(cls, *, priors: PriorInfo) -> "SearchParameters":

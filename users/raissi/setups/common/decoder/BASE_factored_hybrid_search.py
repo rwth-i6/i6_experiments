@@ -227,6 +227,7 @@ def get_nn_precomputed_feature_scorer(
     feature_scorer_type: RasrFeatureScorer,
     mixtures: tk.Path,
     prior_info: Union[PriorInfo, tk.Variable, DelayedBase],
+    posterior_scale: float = 1.0
 ):
 
     assert context_type in [PhoneticContext.monophone, PhoneticContext.joint_diphone]
@@ -235,6 +236,7 @@ def get_nn_precomputed_feature_scorer(
         check_prior_info(context_type=context_type, prior_info=prior_info)
 
     return feature_scorer_type.get_fs_class()(
+        scale=posterior_scale,
         prior_mixtures=mixtures,
         priori_scale=prior_info.diphone_prior.scale,
         prior_file=prior_info.diphone_prior.file,
@@ -942,7 +944,12 @@ class BASEFactoredHybridDecoder:
                 is_batch_major=self.set_batch_major_for_feature_scorer,
             )
         elif self.feature_scorer_type.is_nnprecomputed():
+            scale = 1.0
+            if search_parameters.posterior_scales is not None:
+                scale = search_parameters.posterior_scales["joint-diphone-scale"]
+                name += f'-Am{scale}'
             feature_scorer = get_nn_precomputed_feature_scorer(
+                posterior_scale=scale,
                 context_type=self.context_type,
                 feature_scorer_type=self.feature_scorer_type,
                 mixtures=self.mixtures,

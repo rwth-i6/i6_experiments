@@ -58,7 +58,11 @@ from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
     get_tdp_values,
 )
 
-from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo
+from i6_experiments.users.raissi.setups.common.data.factored_label import (
+    LabelInfo,
+    RasrStateTying
+)
+
 from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import BASEFactoredHybridDecoder
 from i6_experiments.users.raissi.setups.common.decoder.config import PriorInfo, PosteriorScales, SearchParameters
 from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
@@ -214,9 +218,10 @@ class BASEFactoredHybridSystem(NnSystem):
         self.crp_names["test"] = test_key
 
     def set_experiment_dict(self, key, alignment, context, postfix_name=""):
-        name = f"{context}-from-{alignment}"
+        prefix_name = f"{context}-from-{alignment}"
+        name = ("-").join([prefix_name, postfix_name]) if len(postfix_name) else prefix_name
         self.experiments[key] = {
-            "name": ("-").join([name, postfix_name]),
+            "name": name,
             "train_job": None,
             "graph": {"train": None, "inference": None},
             "returnn_config": None,
@@ -311,11 +316,21 @@ class BASEFactoredHybridSystem(NnSystem):
 
         return sys_in
 
+    def _get_crp_from_existing(
+        self, existing_crp: rasr.CommonRasrParameters, corpus_path: Path, segment_path: Path, prefix_name: str = None
+    ):
+        new_crp = copy.deepcopy(existing_crp)
+        new_crp.corpus_config.file = corpus_path
+        new_crp.corpus_config.segment.file = segment_path
+        new_crp.corpus_config.remove_corpus_name_prefix = f"{prefix_name}/"
+
+        return new_crp
+
     def _run_input_step(self, step_args):
         for corpus_key, corpus_type in step_args.corpus_type_mapping.items():
             if "train" in corpus_key:
                 self.train_key = corpus_key
-            if corpus_key not in self.train_corpora + self.dev_corpora + self.test_corpora:
+            if corpus_key not in self.train_corpora + self.cv_corpora + self.dev_corpora + self.test_corpora:
                 continue
             if "train" in corpus_key:
                 if self.train_key is None:
@@ -415,17 +430,44 @@ class BASEFactoredHybridSystem(NnSystem):
             crp.acoustic_model_config.hmm.states_per_phone = self.label_info.n_states_per_phone
             crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
 
+    def set_diphone_joint_state_tying(self):
+        # Joint diphone decoding will only work with diphone-dense state-tying
+        self.label_info = dataclasses.replace(self.label_info, state_tying=RasrStateTying.diphone)
+        for crp_k in self.crp_names.keys():
+            if "train" not in crp_k:
+                self._update_crp_am_setting_for_decoding(self.crp_names[crp_k])
+
     def _get_segment_file(self, corpus_path, remove_prefix=""):
         return corpus_recipe.SegmentCorpusJob(
             bliss_corpus=corpus_path,
             num_segments=1,
         ).out_single_segment_files[1]
 
-    def _get_merged_corpus_for_train(self, train_corpus, cv_corpus, name="loss-corpus"):
+    def _get_merged_corpus_for_corpora(self, corpora, name="loss-corpus"):
         merged_corpus_job = corpus_recipe.MergeCorporaJob(
-            [train_corpus, cv_corpus], name=name, merge_strategy=corpus_recipe.MergeStrategy.SUBCORPORA
+            corpora, name=name, merge_strategy=corpus_recipe.MergeStrategy.SUBCORPORA
         )
         return merged_corpus_job.out_merged_corpus
+
+    def _add_merged_cv_corpus(self, segment_list: Path):
+        corpus_key = ("_").join(self.cv_corpora)
+        cv_corpora_obj = [self.corpora[k] for k in self.cv_corpora]
+        prefix_name = "merged-cv"
+        merged_corpus = self._get_merged_corpus_for_corpora(cv_corpora_obj, name=prefix_name)
+        lexicon = s.crp[self.cv_corpora[0]].lexicon_config.file
+        rasr_data_input = RasrDataInput(
+            corpus_object=merged_corpus,
+            concurrent=1,
+            lexicon=lexicon,
+        )
+        self.add_corpus(corpus_key, data=rasr_data_input, add_lm=False)
+        joined_crp = self._get_crp_from_existing(
+            existing_crp=self.crp[self.train_key],
+            corpus_path=merged_corpus,
+            segment_path=segment_list,
+            prefix_name=prefix_name,
+        )
+        self.crp[corpus_key] = joined_crp
 
     def _get_prior_info_dict(self):
         prior_dict = {}
@@ -543,23 +585,30 @@ class BASEFactoredHybridSystem(NnSystem):
                     crp_key=self.crp_names[crp_k], tdp_type=types["eval"], add_base_allophones=add_base_allophones
                 )
 
-    def set_rasr_returnn_input_datas(self, input_key: str, is_cv_separate_from_train=False):
+    def set_rasr_returnn_input_datas(self, input_key: str, cv_corpus_key: str = None, is_cv_separate_from_train=False):
         for k in self.corpora.keys():
             assert self.inputs[k] is not None
             assert self.inputs[k][input_key] is not None
+        assert cv_corpus_key is None and not is_cv_separate_from_train, "define a corpus key for separate cv data"
 
+        configure_automata = False
         if self.training_criterion == TrainingCriterion.fullsum:
+            configure_automata = True
+
+        if is_cv_separate_from_train:
             (
                 nn_train_data_inputs,
                 nn_cv_data_inputs,
                 nn_devtrain_data_inputs,
-            ) = self.prepare_rasr_train_data_with_separate_cv(input_key, configure_rasr_automaton=True)
+            ) = self.prepare_rasr_train_data_with_separate_cv(
+                input_key, cv_corpus_key=cv_corpus_key, configure_rasr_automaton=configure_automata
+            )
         else:
-            if is_cv_separate_from_train:
-                f = self.prepare_rasr_train_data_with_separate_cv
-            else:
-                f = self.prepare_rasr_train_data_with_cv_from_train
-            nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs = f(input_key)
+            (
+                nn_train_data_inputs,
+                nn_cv_data_inputs,
+                nn_devtrain_data_inputs,
+            ) = self.prepare_rasr_train_data_with_cv_from_train(input_key)
 
         nn_dev_data_inputs = {
             self.crp_names["dev"]: self.inputs[self.crp_names["dev"]][input_key].as_returnn_rasr_data_input(),
@@ -583,9 +632,6 @@ class BASEFactoredHybridSystem(NnSystem):
 
     # ----- data preparation for train-----------------------------------------------------
     def prepare_rasr_train_data_with_cv_from_train(self, input_key: str, cv_num_segments: int = 100):
-        # from i6_experiments.common.datasets.librispeech.constants import num_segments
-        # ToDo: decide how you want to set the number of segments
-        print("WARNING: hardcoded number of segments")
 
         assert self.train_key is not None, "You did not specify the train_key"
         train_corpus_path = self.corpora[self.train_key].corpus_file
@@ -629,9 +675,7 @@ class BASEFactoredHybridSystem(NnSystem):
         cv_corpus = self.corpora[cv_corpus_key].corpus_file
 
         merged_name = "loss-corpus"
-        merged_corpus = self._get_merged_corpus_for_train(
-            train_corpus=train_corpus, cv_corpus=cv_corpus, name=merged_name
-        )
+        merged_corpus = self._get_merged_corpus_for_corpora(corpora=[train_corpus, cv_corpus], name=merged_name)
 
         # segments
         train_segments = self._get_segment_file(train_corpus)
@@ -641,11 +685,13 @@ class BASEFactoredHybridSystem(NnSystem):
         devtrain_segments = text.TailJob(train_segments, num_lines=1000, zip_output=False).out
 
         if configure_rasr_automaton:
-            crp_bw = copy.deepcopy(copy.deepcopy(self.crp[self.train_key]))
-            crp_bw.corpus_config.file = merged_corpus
-            crp_bw.corpus_config.segment.file = merged_segments
-            crp_bw.corpus_config.remove_corpus_name_prefix = f"{merged_name}/"
             self.crp_names["bw"] = f"{self.train_key}.bw"
+            crp_bw = self._get_crp_from_existing(
+                existing_crp=self.crp[self.train_key],
+                corpus_path=merged_corpus,
+                segment_path=merged_segments,
+                prefix_name=merged_name,
+            )
             self.crp[self.crp_names["bw"]] = crp_bw
 
         nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
@@ -1024,6 +1070,10 @@ class BASEFactoredHybridSystem(NnSystem):
             frame_rate_args = init_args["frr_info"] if "frr_info" in init_args else None
             label_info_args = init_args["label_info"] if "label_info" in init_args else None
             self.init_system(label_info_additional_args=label_info_args, frr_additional_args=frame_rate_args)
+            if len(self.cv_corpora) > 1:
+                assert "cv_info" in init_args, "please set the segment file for the cross validation data"
+                self._add_merged_cv_corpus(segment_list=init_args["cv_info"]["segment_list"])
+
         for eval_c in self.dev_corpora + self.test_corpora:
             stm_args = self.rasr_init_args.stm_args if self.rasr_init_args.stm_args is not None else {}
             self.create_stm_from_corpus(eval_c, **stm_args)
@@ -1035,7 +1085,7 @@ class BASEFactoredHybridSystem(NnSystem):
                 if step_args is None:
                     step_args = self.rasr_init_args.feature_extraction_args
                 step_args[self.nn_feature_type]["prefix"] = "features/"
-                for all_c in self.train_corpora + self.dev_corpora + self.test_corpora:
+                for all_c in self.train_corpora + self.cv_corpora + self.dev_corpora + self.test_corpora:
                     self.feature_caches[all_c] = {}
                     self.feature_bundles[all_c] = {}
                     self.feature_flows[all_c] = {}
