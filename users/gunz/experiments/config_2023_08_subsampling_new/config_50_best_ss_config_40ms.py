@@ -991,7 +991,6 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     # 15:Percent Total Error       =    5.9%   (3031)
 
     key = "fh-di-fs-constlr-from-mono"
-    tdp_sil = (10, 10, "infinity", 20)
     params = [
         dataclasses.replace(
             di_ft_sys.get_cart_params(key),
@@ -1002,6 +1001,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             tdp_non_word=tdp_sil,
         ).with_prior_scale(p_c)
         for lm, p_c in [(2.23, 0.6), (1.88, 0.4)]
+        for tdp_sil in [(10, 10, "infinity", 20), (0, 0, "infinity", 10)]
     ]
     for ep, params in itertools.product([275, 290, 292, 294, 296, 297, 298, 299, 300], params):
         decode_diphone(
