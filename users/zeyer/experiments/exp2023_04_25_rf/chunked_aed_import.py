@@ -388,7 +388,6 @@ class Model(rf.Module):
             forget_bias=0.0,  # the code above already adds it during conversion
         )
 
-        self.weight_feedback = rf.Linear(att_num_heads, enc_key_total_dim, with_bias=False)
         self.s_transformed = rf.Linear(self.s.out_dim, enc_key_total_dim, with_bias=False)
         self.energy = rf.Linear(enc_key_total_dim, att_num_heads, with_bias=False)
         self.readout_in = rf.Linear(
