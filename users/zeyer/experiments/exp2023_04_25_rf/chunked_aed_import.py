@@ -372,8 +372,6 @@ class Model(rf.Module):
         self.enc_ctx_dropout = 0.2
         self.enc_win_dim = Dim(name="enc_win_dim", dimension=5)
 
-        self.inv_fertility = rf.Linear(self.encoder.out_dim, att_num_heads, with_bias=False)
-
         self.target_embed = rf.Embedding(target_dim, Dim(name="target_embed", dimension=640))
         if config.float("embed_init_stddev", None):
             self.target_embed.weight.initial = rf.init.Normal(stddev=config.float("embed_init_stddev", 0.0))
@@ -450,17 +448,13 @@ class Model(rf.Module):
         # Encoder including convolutional frontend
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         enc_ctx = self.enc_ctx(enc)
-        inv_fertility = rf.sigmoid(self.inv_fertility(enc))
-        return dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility), enc_spatial_dim
+        return dict(enc=enc, enc_ctx=enc_ctx), enc_spatial_dim
 
     def decoder_default_initial_state(self, *, batch_dims: Sequence[Dim], enc_spatial_dim: Dim) -> rf.State:
         """Default initial state"""
         state = rf.State(
             s=self.s.default_initial_state(batch_dims=batch_dims),
             att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.encoder.out_dim]),
-            accum_att_weights=rf.zeros(
-                list(batch_dims) + [enc_spatial_dim, self.att_num_heads], feature_dim=self.att_num_heads
-            ),
         )
         state.att.feature_dim_axis = len(state.att.dims) - 1
         return state
@@ -484,7 +478,6 @@ class Model(rf.Module):
         *,
         enc: rf.Tensor,
         enc_ctx: rf.Tensor,
-        inv_fertility: rf.Tensor,
         enc_spatial_dim: Dim,
         input_embed: rf.Tensor,
         state: Optional[rf.State] = None,
@@ -501,12 +494,10 @@ class Model(rf.Module):
 
         s, state_.s = self.s(rf.concat_features(input_embed, prev_att), state=state.s, spatial_dim=single_step_dim)
 
-        weight_feedback = self.weight_feedback(state.accum_att_weights)
         s_transformed = self.s_transformed(s)
-        energy_in = enc_ctx + weight_feedback + s_transformed
+        energy_in = enc_ctx + s_transformed
         energy = self.energy(rf.tanh(energy_in))
         att_weights = rf.softmax(energy, axis=enc_spatial_dim)
-        state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5
         att0 = rf.dot(att_weights, enc, reduce=enc_spatial_dim, use_mask=False)
         att0.feature_dim = self.encoder.out_dim
         att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.encoder.out_dim))
