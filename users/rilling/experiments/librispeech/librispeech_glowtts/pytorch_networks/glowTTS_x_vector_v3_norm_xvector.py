@@ -475,9 +475,11 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     tags = list(np.array(tags)[indices.detach().cpu().numpy()])
 
     if not hasattr(run_ctx, "speaker_x_vectors"):
-        run_ctx.speaker_x_vectors = torch.load(
+        all_vectors = torch.load(
             "/work/asr3/rossenbach/rilling/sisyphus_work_dirs/glow_tts_asr_v2/i6_core/returnn/forward/ReturnnForwardJob.U6UwGhE7ENbp/output/output_pooled.hdf"
         )
+        all_vectors = torch.nn.functional.normalize(all_vectors)
+        run_ctx.speaker_x_vectors = all_vectors 
     speaker_x_vector = run_ctx.speaker_x_vectors[speaker_labels.detach().cpu().numpy(), :].squeeze(1)
     # print(f"phoneme shape: {phonemes.shape}")
     # print(f"phoneme length: {phonemes_len}")

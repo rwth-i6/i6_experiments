@@ -187,6 +187,7 @@ class WN(torch.nn.Module):
         n_channels_tensor = torch.IntTensor([self.hidden_channels])
 
         if g is not None:
+            breakpoint()
             g = self.cond_layer(g)
 
             if self.training and self.p_speaker_drop > 0:

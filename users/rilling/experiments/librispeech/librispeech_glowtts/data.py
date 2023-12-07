@@ -48,7 +48,7 @@ from returnn_common.datasets import Dataset, OggZipDataset, MetaDataset
 
 from .default_tools import MINI_RETURNN_ROOT, RETURNN_EXE
 
-DATA_PREFIX = "experiments/librispeech/tts_architecture/data/"
+DATA_PREFIX = "experiments/librispeech/data/tts"
 
 # -------------- Dataclasses for configuration and data passing -------------------
 

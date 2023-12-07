@@ -42,6 +42,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
         durations_forward=False,
         latent_space_forward=False,
         joint_data_forward=False,
+        train_data_forward=False,
         keep_epochs=None,
         skip_forward=False,
     ):
@@ -154,6 +155,28 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
                         returnn_exe=RETURNN_PYTORCH_EXE,
                         returnn_root=MINI_RETURNN_ROOT,
                         prefix=prefix + name + "_joint_data",
+                        target="spectrograms",
+                        
+                    )
+                    exp["forward_job_spec_joint_data"] = forward_job
+                
+                if train_data_forward:
+                    forward_config_train_data = get_forward_config(
+                        returnn_common_root=RETURNN_COMMON,
+                        forward_dataset=dataset,
+                        **args,
+                        forward_args=forward_args,
+                        pytorch_mode=True,
+                        target="spectrograms",
+                        train_data=True,
+                    )
+
+                    forward_job = glowTTS_forward(
+                        checkpoint=train_job.out_checkpoints[num_epochs],
+                        config=forward_config_train_data,
+                        returnn_exe=RETURNN_PYTORCH_EXE,
+                        returnn_root=MINI_RETURNN_ROOT,
+                        prefix=prefix + name + "_train_data",
                         target="spectrograms",
                         
                     )
@@ -617,6 +640,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
         durations_forward=True,
         latent_space_forward=True,
         joint_data_forward=True,
+        train_data_forward=True,
         keep_epochs={100},
     )
     experiments[net_module + "/enc192/200ep/long_cooldown/not_silence_preprocessed"] = exp_dict
@@ -911,6 +935,17 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
     exp_dict = run_exp(
         net_module + "/enc192/100ep/not_silence_preprocessed",
         train_args_x_vector_v3,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+    )
+
+    net_module = "glowTTS_x_vector_v3_norm_xvector"
+    train_args_x_vector_v3_norm_xvector = copy.deepcopy(train_args_x_vector_v3)
+    train_args_x_vector_v3_norm_xvector["network_module"] = net_module
+    exp_dict = run_exp(
+        net_module + "/enc192/100ep/not_silence_preprocessed",
+        train_args_x_vector_v3_norm_xvector,
         dataset=training_datasets,
         num_epochs=100,
         forward_args=forward_args,
