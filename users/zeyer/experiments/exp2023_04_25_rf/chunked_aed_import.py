@@ -334,7 +334,7 @@ class Model(rf.Module):
 
         from returnn.config import get_global_config
 
-        config = get_global_config()
+        config = get_global_config(return_empty_if_none=True)
 
         self.in_dim = in_dim
         self.encoder = ConformerEncoder(
