@@ -49,7 +49,7 @@ from returnn_common.datasets import Dataset, OggZipDataset, MetaDataset
 
 from .default_tools import MINI_RETURNN_ROOT, RETURNN_EXE, KENLM_BINARY_PATH
 
-DATA_PREFIX = "experiments/librispeech/librispeech_glow_asr/data_tts/"
+DATA_PREFIX = "experiments/librispeech/data/tts/"
 
 # -------------- Dataclasses for configuration and data passing -------------------
 

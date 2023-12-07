@@ -920,10 +920,9 @@ def glowASR(TTS_experiments: dict):
             )
 
     train_args_conformer_no_freeze_asr_data = copy.deepcopy(train_args_conformer_asr_data)
-    train_args_conformer_no_freeze_asr_data["network_module"] = "glowASR_conformer_no_freeze"
     train_args_conformer_no_freeze_asr_data["config"]["batch_size"] = 150 * 16000
     train_args_conformer_no_freeze_asr_data["config"]["accum_grad_multiple_step"] = 2
-
+    train_args_conformer_no_freeze_asr_data["network_module"] = "glowASR_conformer_no_freeze_spec_augment"
     run_exp(
         prefix_name + "conformer/asr_dataset/spec_augment/glow_enc192_200ep_not_silence_preprocessed_not_freezed",
         datasets=train_data_normal_ctc,
@@ -933,13 +932,50 @@ def glowASR(TTS_experiments: dict):
         num_epochs=250,
     )
 
+    train_args_conformer_no_freeze_asr_data_no_spec_augment = copy.deepcopy(train_args_conformer_no_freeze_asr_data)
+    train_args_conformer_no_freeze_asr_data_no_spec_augment["net_args"]["spec_augment"] = False
+    train_args_conformer_no_freeze_asr_data_no_spec_augment["network_module"] = "glowASR_conformer_no_freeze"
+    run_exp(
+        prefix_name + "conformer/asr_dataset/no_spec_augment/glow_enc192_200ep_not_silence_preprocessed_not_freezed",
+        datasets=train_data_normal_ctc,
+        train_args=train_args_conformer_no_freeze_asr_data_no_spec_augment,
+        search_args=default_search_args_asr,
+        large_gpu_training=False,
+        num_epochs=250,
+    )
+
     train_args_conformer_no_pretrained_asr_data = copy.deepcopy(train_args_conformer_no_freeze_asr_data)
     del train_args_conformer_no_pretrained_asr_data["config"]["preload_from_files"]
+    train_args_conformer_no_pretrained_asr_data["network_module"] = "glowASR_conformer_no_pretrained"
     run_exp(
-        prefix_name + "conformer/asr_dataset/spec_augment/glow_enc192_200ep_not_silence_preprocessed_not_pretrained",
+        prefix_name + "conformer/asr_dataset/spec_augment/glow_enc192_not_pretrained",
         datasets=train_data_normal_ctc,
         train_args=train_args_conformer_no_pretrained_asr_data,
         search_args=default_search_args_asr,
-        large_gpu_training=True,
+        large_gpu_training=False,
+        num_epochs=250,
+    )
+    train_args_conformer_no_pretrained_asr_data_no_spec_augment = copy.deepcopy(
+        train_args_conformer_no_pretrained_asr_data
+    )
+    train_args_conformer_no_pretrained_asr_data_no_spec_augment["net_args"]["spec_augment"] = False
+    train_args_conformer_no_pretrained_asr_data_no_spec_augment["network_module"] = "glowASR_conformer_no_freeze" # This is only because it takes the same file as "no_freeze" and we don't want to lose the hash of an already done experiment
+    run_exp(
+        prefix_name + "conformer/asr_dataset/no_spec_augment/glow_enc192_not_pretrained",
+        datasets=train_data_normal_ctc,
+        train_args=train_args_conformer_no_pretrained_asr_data_no_spec_augment,
+        search_args=default_search_args_asr,
+        large_gpu_training=False,
+        num_epochs=250,
+    )
+
+    train_args_conformer_no_pretrained_control = copy.deepcopy(train_args_conformer_no_pretrained_asr_data)
+    train_args_conformer_no_pretrained_control["network_module"] = "glowASR_conformer"
+    run_exp(
+        prefix_name + "conformer/asr_dataset/spec_augment/glow_enc192_not_pretrained_control",
+        datasets=train_data_normal_ctc,
+        train_args=train_args_conformer_no_pretrained_control,
+        search_args=default_search_args_asr,
+        large_gpu_training=False,
         num_epochs=250,
     )

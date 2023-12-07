@@ -250,15 +250,9 @@ class Model(nn.Module):
             log_mel_features, log_mel_features_len = self.feature_extraction(squeezed_audio, raw_audio_len)  # [B, T, F]
 
             audio_max_length = log_mel_features.size(1)
-        flow_in = log_mel_features.transpose(1,2) # [B, F, T]
-        flow_in, flow_in_length, flow_in_max_length = self.preprocess(flow_in, log_mel_features_len, audio_max_length)
-        mask = torch.unsqueeze(commons.sequence_mask(log_mel_features_len, flow_in.size(2)), 1).to(flow_in.dtype)
-        flow_out, _ = self.decoder(flow_in, mask, reverse=False) # [B, F, T]
 
-        spec_augment_in = flow_out.transpose(1,2) # [B, T, F]
-        mask = mask_tensor(spec_augment_in, flow_in_length)
+            spec_augment_in = log_mel_features
 
-        with torch.no_grad():
             if self.training and self.spec_augment:
                 audio_features_masked_2 = apply_spec_aug(
                     spec_augment_in,
@@ -270,8 +264,13 @@ class Model(nn.Module):
                 )
             else:
                 audio_features_masked_2 = spec_augment_in
+        flow_in = audio_features_masked_2.transpose(1,2) # [B, F, T]
+        flow_in, flow_in_length, flow_in_max_length = self.preprocess(flow_in, log_mel_features_len, audio_max_length)
+        mask = torch.unsqueeze(commons.sequence_mask(log_mel_features_len, flow_in.size(2)), 1).to(flow_in.dtype)
+        flow_out, _ = self.decoder(flow_in, mask, reverse=False) # [B, F, T]
 
-        conformer_in = audio_features_masked_2
+        conformer_in = flow_out.transpose(1,2) # [B, T, F]
+        mask = mask_tensor(conformer_in, flow_in_length)
         
         if self.layer_norm:
             conformer_in = torch.nn.functional.layer_norm(conformer_in, (conformer_in.size(-1),))

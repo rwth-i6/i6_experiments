@@ -13,7 +13,6 @@ def train_step(*, model: nn.Module, data, run_ctx, **kwargs):
         raw_audio_len=raw_audio_len,
     )
     transposed_logprobs = torch.permute(logprobs, (1, 0, 2))
-    # breakpoint()
     ctc_loss = nn.functional.ctc_loss(
         transposed_logprobs,
         phon_labels,

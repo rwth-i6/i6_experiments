@@ -258,18 +258,17 @@ class Model(nn.Module):
         spec_augment_in = flow_out.transpose(1,2) # [B, T, F]
         mask = mask_tensor(spec_augment_in, flow_in_length)
 
-        with torch.no_grad():
-            if self.training and self.spec_augment:
-                audio_features_masked_2 = apply_spec_aug(
-                    spec_augment_in,
-                    num_repeat_time=torch.max(log_mel_features_len).detach().cpu().numpy()
-                    // self.net_kwargs["repeat_per_num_frames"],
-                    max_dim_time=self.net_kwargs["max_dim_time"],
-                    num_repeat_feat=self.net_kwargs["num_repeat_feat"],
-                    max_dim_feat=self.net_kwargs["max_dim_feat"],
-                )
-            else:
-                audio_features_masked_2 = spec_augment_in
+        if self.training and self.spec_augment:
+            audio_features_masked_2 = apply_spec_aug(
+                spec_augment_in,
+                num_repeat_time=torch.max(log_mel_features_len).detach().cpu().numpy()
+                // self.net_kwargs["repeat_per_num_frames"],
+                max_dim_time=self.net_kwargs["max_dim_time"],
+                num_repeat_feat=self.net_kwargs["num_repeat_feat"],
+                max_dim_feat=self.net_kwargs["max_dim_feat"],
+            )
+        else:
+            audio_features_masked_2 = spec_augment_in
 
         conformer_in = audio_features_masked_2
         
