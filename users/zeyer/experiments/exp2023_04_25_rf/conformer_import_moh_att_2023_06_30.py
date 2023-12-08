@@ -1210,5 +1210,9 @@ def model_recog(
 # RecogDef API
 model_recog: RecogDef[Model]
 model_recog.output_with_beam = True
+# output_blank_label=blank is actually wrong for AED, but now we don't change it anymore
+# because it would change all recog hashes.
+# Also, it does not matter too much -- it will just cause an extra SearchRemoveLabelJob,
+# which will not have any effect here.
 model_recog.output_blank_label = "<blank>"
 model_recog.batch_size_dependent = False
