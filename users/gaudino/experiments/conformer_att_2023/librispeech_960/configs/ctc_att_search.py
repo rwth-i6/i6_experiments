@@ -1,6 +1,7 @@
 import copy, os
 
 import numpy
+from itertools import product
 
 from sisyphus import toolkit as tk
 
@@ -279,7 +280,7 @@ def run_ctc_att_search():
             if prior_scales:
                 import itertools
 
-                scales = itertools.product(lm_scales, prior_scales)
+                scales = product(lm_scales, prior_scales)
 
             for scale in scales:
                 lm_scale = scale[0]
@@ -864,12 +865,12 @@ def run_ctc_att_search():
     )
 
     # att only
-    for beam_size in [512]:
+    for beam_size in [12]:
         search_args = copy.deepcopy(oclr_args)
         search_args["beam_size"] = beam_size
-        search_args["batch_size"] = 1500 * 160
+        search_args["max_seqs"] = 1
         run_decoding(
-            exp_name=f"base_att_beam{beam_size}",
+            exp_name=f"base_att_beam{beam_size}_single_seq",
             train_data=train_data,
             checkpoint=train_job_avg_ckpt[
                 f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
@@ -877,7 +878,8 @@ def run_ctc_att_search():
             search_args={"beam_size": beam_size, **search_args},
             feature_extraction_net=log10_net_10ms,
             bpe_size=BPE_10K,
-            test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+            test_sets=["dev-other"],
+            # test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
             use_sclite=True,
             # att_scale=att_scale,
             # ctc_scale=ctc_scale,
@@ -924,7 +926,7 @@ def run_ctc_att_search():
     # debug("fixrepeat_v1", "/u/zeineldeen/debugging/trigg_att/out.txt")
 
     # TODO: two-pass joint decoding with CTC
-    for beam_size in [12]:
+    for beam_size in []:
         for ctc_scale in [0.01]:
             att_scale = 1.0
             run_decoding(
@@ -944,7 +946,7 @@ def run_ctc_att_search():
             )
 
     # TODO: two-pass joint decoding with CTC with LM
-    for beam_size in [32, 48, 64]:
+    for beam_size in []:
         for ctc_scale in [0.003]:
             for lm_scale in [0.4]:
                 # for lm_scale in [0.28, 0.3, 0.32, 0.35, 0.38, 0.4, 0.42]:
@@ -1480,16 +1482,16 @@ def run_ctc_att_search():
         )
 
     # ctc + att masking fix
-    for beam_size, scales, bsf in product([32], [(0.65, 0.35)], [40, 80]):
+    for beam_size, scales in product([32], [(0.65, 0.35)]):
             search_args = copy.deepcopy(oclr_args)
             search_args["beam_size"] = beam_size
             att_scale, ctc_scale = scales
-            search_args["batch_size"] = 20000 * bsf
+            search_args["max_seqs"] = 1
             search_args["decoder_args"] = CTCDecoderArgs(
                 add_att_dec=True, att_scale=att_scale, ctc_scale=ctc_scale, att_masking_fix=True
             )
             run_decoding(
-                exp_name=f"opts_ctc_{ctc_scale}_att_{att_scale}_beam{beam_size}_bsf{bsf}",
+                exp_name=f"opts_ctc_{ctc_scale}_att_{att_scale}_beam{beam_size}_single_seq",
                 train_data=train_data,
                 checkpoint=train_job_avg_ckpt[
                     f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
@@ -1497,8 +1499,8 @@ def run_ctc_att_search():
                 search_args=search_args,
                 feature_extraction_net=log10_net_10ms,
                 bpe_size=BPE_10K,
-                # test_sets=["dev-other"],
-                test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+                test_sets=["dev-other"],
+                # test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
                 remove_label={"<s>", "<blank>"},  # blanks are removed in the network
                 use_sclite=True,
             )
