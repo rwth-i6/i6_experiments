@@ -283,7 +283,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     train_exp("base-24gb-v5", config_24gb_v5)
     train_exp("base-24gb-v5-embInit1", config_24gb_v5, config_updates={"embed_init_stddev": 1.0})
-    train_exp("base-24gb-v5-mixup", config_24gb_v5, config_updates={"mixup": {}})
+    train_exp(
+        "base-24gb-v5-mixup",
+        config_24gb_v5,
+        config_updates={"mixup": {}},
+        # got GPU OOM in subepoch 1823... so play around here to fix this
+        post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # might be even faster?
+    )
 
     train_exp("base-24gb-v6", config_24gb_v6)
     train_exp(
@@ -403,6 +409,7 @@ def train_exp(
     *,
     config_updates: Optional[Dict[str, Any]] = None,
     config_deletes: Optional[Sequence[str]] = None,
+    post_config_updates: Optional[Dict[str, Any]] = None,
     num_epochs: int = 2000,
     gpu_mem: Optional[int] = 24,
     num_processes: Optional[int] = None,
@@ -433,7 +440,7 @@ def train_exp(
         prefix,
         task=task,
         config=config,
-        post_config=post_config,
+        post_config=dict_update_deep(post_config, post_config_updates),
         model_def=from_scratch_model_def,
         train_def=from_scratch_training,
         num_epochs=num_epochs,
