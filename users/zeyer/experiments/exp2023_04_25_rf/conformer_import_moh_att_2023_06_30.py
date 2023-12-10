@@ -283,7 +283,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     train_exp("base-24gb-v5", config_24gb_v5)
     train_exp("base-24gb-v5-embInit1", config_24gb_v5, config_updates={"embed_init_stddev": 1.0})
-    train_exp(
+    train_exp(  # 6.36
         "base-24gb-v5-mixup",
         config_24gb_v5,
         config_updates={"mixup": {}},
