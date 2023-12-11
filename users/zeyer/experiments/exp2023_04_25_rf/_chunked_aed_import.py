@@ -467,16 +467,19 @@ def test_import_forward():
         assert isinstance(new_out, Tensor), f"new_out: {new_out}, new_var_path: {new_var_path}"
         old_out = old_model_outputs_data[old_layer_name]
         assert old_out.batch_ndim == new_out.batch_ndim
-        mapped_axes = new_out.find_matching_dim_map(
-            old_out,
-            list(range(old_out.batch_ndim)),
-            is_equal_opts=dict(
-                allow_same_feature_dim=True,
-                allow_same_spatial_dim=True,
-                treat_feature_as_spatial=True,
-                allow_old_behavior=True,
-            ),
-        )
+        try:
+            mapped_axes = new_out.find_matching_dim_map(
+                old_out,
+                list(range(old_out.batch_ndim)),
+                is_equal_opts=dict(
+                    allow_same_feature_dim=True,
+                    allow_same_spatial_dim=True,
+                    treat_feature_as_spatial=True,
+                    allow_old_behavior=True,
+                ),
+            )
+        except Exception as exc:
+            raise Exception(f"cannot map {old_layer_name} {old_out} to {new_var_path} {new_out}") from exc
         out = new_out.copy_transpose([mapped_axes[i] for i in range(old_out.batch_ndim)])
         fetches["layer:" + old_layer_name] = out.raw_tensor
         for i, tag in enumerate(out.dim_tags):
