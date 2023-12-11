@@ -1,4 +1,5 @@
 import copy
+from dataclasses import dataclass
 from typing import Any, Iterable, Dict, List, Optional, Tuple, Union
 
 from sisyphus import tk
@@ -17,6 +18,16 @@ from i6_experiments.users.raissi.setups.common.data.factored_label import (
 from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
 
 DEFAULT_INIT = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)"
+
+@dataclass(frozen=True, eq=True)
+class LogLinearScales:
+    label_posterior_scale: float
+    transition_scale: float
+    label_prior_scale: Optional[float] = None
+
+    @classmethod
+    def default(cls) -> "LogLinearScales":
+        return cls(label_posterior_scale=0.3, label_prior_scale=None, transition_scale=0.3)
 
 Layer = Dict[str, Any]
 Network = Dict[str, Layer]
@@ -698,7 +709,7 @@ def remove_label_pops_and_losses_from_returnn_config(
 def add_fast_bw_layer(
     crp: rasr.CommonRasrParameters,
     returnn_config: returnn.ReturnnConfig,
-    log_linear_scales: Dict = None,
+    log_linear_scales: LogLinearScales,
     import_model: [tk.Path, str] = None,
     reference_layer: str = "center-output",
     label_prior: Optional[returnn.CodeWrapper] = None,
@@ -714,9 +725,7 @@ def add_fast_bw_layer(
     for t in transition_types:
         crp.acoustic_model_config.tdp[t].exit = 0.0
 
-    if log_linear_scales is None:
-        log_linear_scales = {"label_posterior_scale": 0.3, "transition_scale": 0.3}
-    if "label_prior_scale" in log_linear_scales:
+    if log_linear_scales.label_prior_scale is not None:
         assert prior is not None, "Hybrid HMM needs a transcription based prior for fullsum training"
 
     for attribute in ["loss", "loss_opts", "target"]:
@@ -737,8 +746,8 @@ def add_fast_bw_layer(
             "kind": "eval",
             "eval": "am_scale*( safe_log(source(0)) - (safe_log(source(1)) * prior_scale) )",
             "eval_locals": {
-                "am_scale": log_linear_scales["label_posterior_scale"],
-                "prior_scale": log_linear_scales["label_prior_scale"],
+                "am_scale": log_linear_scales.label_posterior_scale,
+                "prior_scale": log_linear_scales.label_prior_scale,
             },
             "from": [reference_layer, prior_name],
         }
@@ -749,7 +758,7 @@ def add_fast_bw_layer(
             "class": "combine",
             "kind": "eval",
             "eval": "am_scale*(safe_log(source(0)))",
-            "eval_locals": {"am_scale": log_linear_scales["label_posterior_scale"]},
+            "eval_locals": {"am_scale": log_linear_scales.label_posterior_scale},
             "from": [reference_layer],
         }
 
@@ -765,7 +774,7 @@ def add_fast_bw_layer(
         "class": "fast_bw",
         "align_target": "sprint",
         "from": inputs,
-        "tdp_scale": log_linear_scales["transition_scale"],
+        "tdp_scale": log_linear_scales.transition_scale,
     }
 
     if "chunking" in returnn_config.config:

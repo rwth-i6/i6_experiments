@@ -725,6 +725,39 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
         self.set_graph_for_experiment(key, graph_type_name="joint-prior")
 
+    def setup_returnn_config_and_graph_for_diphone_joint_training(
+        self, key: str, network: Dict
+    ):
+
+
+
+        context_size = self.label_info.n_contexts
+        context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
+            spatial_size=context_size,
+            feature_size=context_size,
+            spatial_dim_variable_name="__center_state_spatial",
+            feature_dim_variable_name="__center_state_feature",
+            context_type="L",
+        )
+
+        # used for decoding
+        decoding_returnn_config = net_helpers.diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=clean_returnn_config,
+            label_info=self.label_info,
+            out_joint_score_layer="output",
+            log_softmax=True,
+        )
+        self.reset_returnn_config_for_experiment(
+            key=key,
+            config_dict=decoding_returnn_config.config,
+            extra_dict_key="context",
+            additional_python_prolog=context_time_tag,
+        )
+
+
+
+
+
     def get_recognizer_and_args(
         self,
         key: str,

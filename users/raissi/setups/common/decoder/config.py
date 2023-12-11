@@ -173,6 +173,9 @@ class SearchParameters:
     def with_lm_scale(self, scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, lm_scale=scale)
 
+    def with_lm_lookahead_scale(self, scale: Float)-> "SearchParameters":
+        return dataclasses.replace(self, lm_lookahead_scale=scale)
+
     def with_prior_scale(
         self,
         center: Optional[Float] = None,
