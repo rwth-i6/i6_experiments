@@ -136,6 +136,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
 
     # for Peter
     crp = copy.deepcopy(s.crp[train_key])
+    crp.acoustic_model_config.hmm.states_per_phone = 1
     crp.acoustic_model_config.state_tying = rasr.RasrConfig()
     crp.acoustic_model_config.state_tying.type = "monophone"
     dump_st_job = lexicon.DumpStateTyingJob(crp=crp)
