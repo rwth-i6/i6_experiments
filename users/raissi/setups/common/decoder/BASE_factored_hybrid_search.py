@@ -931,7 +931,7 @@ class BASEFactoredHybridDecoder:
         if search_parameters.lm_lookahead_scale is not None:
             # Use 4gram for lookahead. The lookahead LM must not be too good.
             #
-            # Half the normal LM scale is a good value here.
+            # Half the normal LM scale is a good starting value.
 
             # To validate the assumption the original LM is a 4gram
             assert original_lm_config.language_model_config.type.lower() == "arpa"
