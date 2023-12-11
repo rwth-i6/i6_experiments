@@ -22,6 +22,7 @@ from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_outp
 # chunked_att_chunk-35_step-20_linDecay300_0.0002_decayPt0.3333333333333333_bs15000_accum2_winLeft0_endSliceStart0_endSlice20_memVariant1_memSize2_convCache2_useCachedKV_memSlice0-20_L0_C20_R15         2.44         6.38          2.66          6.28  avg
 # checkpoint: /u/zeineldeen/setups/ubuntu_22_setups/2023-06-14--streaming-conf/work/i6_core/returnn/training/AverageTFCheckpointsJob.5r6TB06ypiVq/output/model/average
 _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.5r6TB06ypiVq/output/model/average.index"
+_returnn_tf_cfg_abs_filename = os.path.dirname(__file__) + "/_chunked_aed_import_returnn_tf_config.py"
 _load_existing_ckpt_in_test = True
 
 _ParamMapping = {}  # type: Dict[str,str]  # used by map_param_func_v2
@@ -243,6 +244,13 @@ def map_param_func_v2(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
 
 # See comment below, use `py = test_import` to easily run this.
 def test_import_forward():
+    from returnn.util import debug, better_exchook
+
+    debug.install_lib_sig_segfault()
+    debug.install_native_signal_handler()
+    debug.init_faulthandler()
+    better_exchook.install()
+
     from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
     from pprint import pprint
 
@@ -262,7 +270,6 @@ def test_import_forward():
         "conformer_block_01_ffmod_2_res": (ConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
         "conformer_block_01": (ConformerEncoderLayer.__call__, 1, "inp", 0),
         "encoder": (Model.encode, 0, "enc", 0),
-        "inv_fertility": (Model.encode, 0, "inv_fertility", 0),
         "enc_ctx": (Model.encode, 0, "enc_ctx", 0),
         "output/prev:target_embed": (from_scratch_training, 0, "input_embeddings", -1),
         # Note: Some of these commented-out checks are not available anymore because we cleaned up the code.
@@ -275,10 +282,6 @@ def test_import_forward():
         "output/att": (Model.decode_logits, 0, "att", 0),
         "output/output_prob": (from_scratch_training, 0, "logits", 0),
     }
-
-    from i6_experiments.common.setups.returnn_common import serialization
-
-    exec(serialization.PythonEnlargeStackWorkaroundNonhashedCode.code)
 
     from returnn.datasets.util.vocabulary import Vocabulary
 
@@ -300,21 +303,20 @@ def test_import_forward():
     )
     target = Tensor("target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim)
 
-    from ._moh_att_2023_04_24_BxqgICRSGkgb_net_dict import net_dict
-
     num_layers = 12
 
     from returnn.config import Config
 
-    config = Config(
-        dict(
-            log_verbositiy=5,
-            network=net_dict,
-            extern_data={
+    config = Config()
+    config.load_file(_returnn_tf_cfg_abs_filename)
+    config.typed_dict.update(
+        {
+            "log_verbositiy": 5,
+            "extern_data": {
                 "audio_features": {"dim_tags": data.dims},
                 "bpe_labels": {"dim_tags": target.dims, "sparse_dim": target.sparse_dim},
             },
-        )
+        }
     )
 
     from returnn.tensor.utils import tensor_dict_fill_random_numpy_
@@ -380,16 +382,20 @@ def test_import_forward():
     rf.select_backend_torch()
 
     print("*** Convert old model to new model")
-    converter = ConvertTfCheckpointToRfPtJob(
-        checkpoint=Checkpoint(index_path=old_tf_ckpt_path),
-        make_model_func=_make_new_model,
-        map_func=map_param_func_v2,
-        epoch=1,
-        step=0,
-    )
-    converter._out_model_dir = tk.Path(ckpt_dir + "/new_model")
-    converter.out_checkpoint = tk.Path(ckpt_dir + "/new_model/checkpoint.pt")
-    converter.run()
+    if _load_existing_ckpt_in_test:
+        pt_ckpt = _get_pt_checkpoint_path(run_if_not_exists=True).get_path()
+    else:
+        converter = ConvertTfCheckpointToRfPtJob(
+            checkpoint=Checkpoint(index_path=old_tf_ckpt_path),
+            make_model_func=_make_new_model,
+            map_func=map_param_func_v2,
+            epoch=1,
+            step=0,
+        )
+        converter._out_model_dir = tk.Path(ckpt_dir + "/new_model")
+        converter.out_checkpoint = tk.Path(ckpt_dir + "/new_model/checkpoint.pt")
+        converter.run()
+        pt_ckpt = ckpt_dir + "/new_model/checkpoint.pt"
 
     print("*** Create new model")
     new_model = _make_new_model()
@@ -404,7 +410,7 @@ def test_import_forward():
 
     print("*** Load new model params from disk")
     pt_module = rf_module_to_pt_module(new_model)
-    checkpoint_state = torch.load(ckpt_dir + "/new_model/checkpoint.pt")
+    checkpoint_state = torch.load(pt_ckpt)
     pt_module.load_state_dict(checkpoint_state["model"])
 
     print("*** Forwarding with tracing ...")
@@ -700,8 +706,8 @@ def test_import_search():
 # `py` is the default sis config function name. so when running this directly, run the import test.
 # So you can just run:
 # `sis m recipe/i6_experiments/users/zeyer/experiments/....py`
-py = test_import_search
-# py = test_import_forward
+# py = test_import_search
+py = test_import_forward
 
 
 # Another way to start this:
@@ -713,4 +719,4 @@ if __name__ == "__main__":
         mod_name = mod_name[len("recipe.") :]
     mod_name += "." + os.path.basename(__file__)[: -len(".py")]
     map_param_func_v2.__module__ = mod_name
-    test_import_search()
+    py()
