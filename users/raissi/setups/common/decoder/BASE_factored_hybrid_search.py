@@ -785,6 +785,7 @@ class BASEFactoredHybridDecoder:
         rtf_cpu: Optional[float] = None,
         rtf_gpu: Optional[float] = None,
         create_lattice: bool = True,
+        adv_search_extra_config: Optional[rasr.RasrConfig] = None,
         remove_or_set_concurrency: Union[bool, int] = False,
     ) -> RecognitionJobs:
         if isinstance(search_parameters, SearchParameters):
@@ -901,6 +902,7 @@ class BASEFactoredHybridDecoder:
         ] = label_info.phoneme_state_classes.use_word_end()
 
         # lm config update
+        original_lm_config = search_crp.language_model_config
         if lm_config is not None:
             search_crp.language_model_config = lm_config
         search_crp.language_model_config.scale = search_parameters.lm_scale
@@ -917,13 +919,33 @@ class BASEFactoredHybridDecoder:
             is_count_based=True,
         )
 
+        adv_search_extra_config = (
+            copy.deepcopy(adv_search_extra_config)
+            if adv_search_extra_config is not None
+            else rasr.RasrConfig()
+        )
         if search_parameters.altas is not None:
-            adv_search_extra_config = rasr.RasrConfig()
             adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.acoustic_lookahead_temporal_approximation_scale = (
                 search_parameters.altas
             )
-        else:
-            adv_search_extra_config = None
+        if search_parameters.lm_lookahead_scale is not None:
+            # Use 4gram for lookahead. The lookahead LM must not be too good.
+            #
+            # Half the normal LM scale is a good starting value.
+
+            # To validate the assumption the original LM is a 4gram
+            assert original_lm_config.language_model_config.type.lower() == "arpa"
+
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.separate_lookahead_lm = True
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.lm_lookahead_scale = (
+                search_parameters.lm_lookahead_scale
+            )
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.file = (
+                original_lm_config.language_model_config.file
+            )
+            # TODO(future): Add LM image instead of file here.
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.scale = 1.0
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.type = "ARPA"
 
         if self.feature_scorer_type.is_factored():
             feature_scorer = get_factored_feature_scorer(

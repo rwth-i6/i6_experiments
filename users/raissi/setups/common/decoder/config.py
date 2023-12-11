@@ -155,6 +155,7 @@ class SearchParameters:
 
     add_all_allophones: bool = True
     altas: Optional[float] = None
+    lm_lookahead_scale: Optional[float] = None
     posterior_scales: Optional[PosteriorScales] = None
     silence_penalties: Optional[Tuple[Float, Float]] = None  # loop, fwd
     state_dependent_tdps: Optional[Union[str, tk.Path]] = None
