@@ -134,6 +134,14 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         eval_tdp_type="default",
     )
 
+    # for Peter
+    crp = copy.deepcopy(s.crp[train_key])
+    crp.acoustic_model_config.state_tying = rasr.RasrConfig()
+    crp.acoustic_model_config.state_tying.type = "monophone"
+    dump_st_job = lexicon.DumpStateTyingJob(crp=crp)
+    tk.register_output("state-tying-mono-peter", dump_st_job.out_state_tying)
+    return
+
     # ---------------------- returnn config---------------
     CONF_MODEL_DIM = 512
     PARTITION_EPOCHS = {"train": 20, "dev": 1}
