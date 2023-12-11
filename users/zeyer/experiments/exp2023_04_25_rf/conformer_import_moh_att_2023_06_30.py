@@ -88,6 +88,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     """run the exp"""
     _sis_setup_global_prefix(prefix_name)
 
+    # Moh:      dev-clean  2.27, dev-other  5.39, test-clean  2.41,  test-other  5.51
+    # RF recog: {"dev-clean": 2.25, "dev-other": 5.34, "test-clean": 2.42, "test-other": 5.56}
     _recog_imported()
 
     train_exp("from-scratch-train", config, gpu_mem=11)
