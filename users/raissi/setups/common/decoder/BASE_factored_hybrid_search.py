@@ -1,4 +1,4 @@
-__all__ = ["BASEFactoredHybridDecoder"]
+__all__ = ["BASEFactoredHybridDecoder", "BASEFactoredHybridAligner"]
 
 import copy
 import dataclasses
@@ -235,11 +235,16 @@ def get_nn_precomputed_feature_scorer(
     if isinstance(prior_info, PriorInfo):
         check_prior_info(context_type=context_type, prior_info=prior_info)
 
+    if context_type.is_joint_diphone():
+        prior = prior_info.diphone_prior
+    elif context_type.is_monophone():
+        prior = prior_info.center_state_prior
+
     return feature_scorer_type.get_fs_class()(
         scale=posterior_scale,
         prior_mixtures=mixtures,
-        priori_scale=prior_info.diphone_prior.scale,
-        prior_file=prior_info.diphone_prior.file,
+        priori_scale=prior.scale,
+        prior_file=prior.file,
     )
 
 
@@ -1218,12 +1223,13 @@ class BASEFactoredHybridDecoder:
         )
 
 
-class FactoredHybridAligner(BASEFactoredHybridDecoder):
+class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
     def __init__(
         self,
         name: str,
-        align_crp,
+        crp,
         context_type: PhoneticContext,
+        feature_scorer_type: RasrFeatureScorer,
         feature_path: Path,
         model_path: Path,
         graph: Path,
@@ -1233,13 +1239,15 @@ class FactoredHybridAligner(BASEFactoredHybridDecoder):
         tensor_map: Optional[Union[dict, DecodingTensorMap]] = None,
         is_multi_encoder_output=False,
         silence_id=40,
-        set_batch_major_for_feature_scorer=False,
+        set_batch_major_for_feature_scorer: bool = True,
     ):
-        super().__init(
-            self,
+
+
+        super().__init__(
             name=name,
-            crp=align_crp,
+            crp=crp,
             context_type=context_type,
+            feature_scorer_type=feature_scorer_type,
             feature_path=feature_path,
             model_path=model_path,
             graph=graph,
@@ -1250,32 +1258,124 @@ class FactoredHybridAligner(BASEFactoredHybridDecoder):
             tensor_map=tensor_map,
             is_multi_encoder_output=is_multi_encoder_output,
             silence_id=silence_id,
-            is_batch_major=set_batch_major_for_feature_scorer,
+            set_batch_major_for_feature_scorer=set_batch_major_for_feature_scorer,
         )
 
-        self.correct_transition_applicator()
 
-    def correct_transition_applicator(self):
+    def correct_transition_applicator(self, crp):
         # correct for the FSA bug
-        self.crp.acoustic_model_config.tdp.applicator_type = "corrected"
+        crp.acoustic_model_config.tdp.applicator_type = "corrected"
         # The exit penalty is on the lemma level and should not be applied for alignment
-        self.crp.acoustic_model_config.tdp["*"]["exit"] = 0.0
-        alignCrpself.crp.acoustic_model_config.tdp["silence"]["exit"] = 0.0
+        for tdp_type in ["*", "silence", "nonword-0", "nonword-1"]:
+            crp.acoustic_model_config.tdp[tdp_type]["exit"] = 0.0
 
-    def align(
+        return crp
+
+    def get_alignment_job(
         self,
-        *,
         label_info: LabelInfo,
         search_parameters: SearchParameters,
         num_encoder_output: int,
-        pre_path: Optional[str] = None,
-        add_sis_alias_and_output=True,
-        name_prefix: str = "",
-        is_min_duration=False,
-        use_estimated_tdps=False,
-        gpu: Optional[bool] = None,
-        mem_rqmt: Optional[int] = None,
+        pre_path: Optional[str] = 'alignments',
+        is_min_duration: bool = False,
+        use_estimated_tdps: bool = False,
+        crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
+        mem_rqmt: Optional[int] = 8,
+        gpu: Optional[bool] = False,
+        cpu: Optional[bool] = 2,
     ) -> mm.AlignmentJob:
+
+        if isinstance(search_parameters, SearchParameters):
+            assert len(search_parameters.tdp_speech) == 4
+            assert len(search_parameters.tdp_silence) == 4
+            assert not search_parameters.silence_penalties or len(search_parameters.silence_penalties) == 2
+            assert not search_parameters.transition_scales or len(search_parameters.transition_scales) == 2
+
+        name = self.name
+
+        align_crp = copy.deepcopy(self.crp)
+
+        if search_parameters.prior_info.left_context_prior is not None:
+            name += f"-prL{search_parameters.prior_info.left_context_prior.scale}"
+        if search_parameters.prior_info.center_state_prior is not None:
+            name += f"-prC{search_parameters.prior_info.center_state_prior.scale}"
+        if search_parameters.prior_info.right_context_prior is not None:
+            name += f"-prR{search_parameters.prior_info.right_context_prior.scale}"
+        if search_parameters.prior_info.diphone_prior is not None:
+            name += f"-prJ-C{search_parameters.prior_info.diphone_prior.scale}"
+        if search_parameters.we_pruning > 0.5:
+            name += f"-wep{search_parameters.we_pruning}"
+        if search_parameters.altas is not None:
+            name += f"-ALTAS{search_parameters.altas}"
+        if search_parameters.add_all_allophones:
+            name += "-allAllos"
+
+            name += f"-tdpScale-{search_parameters.tdp_scale}"
+            name += f"-spTdp-{format_tdp(search_parameters.tdp_speech[:3])}"
+            name += f"-silTdp-{format_tdp(search_parameters.tdp_silence[:3])}"
+            if (
+                not search_parameters.tdp_speech[2] == "infinity"
+                and not search_parameters.tdp_silence[2] == "infinity"
+            ):
+                name += "-withSkip"
+            if self.feature_scorer_type.is_factored():
+                if search_parameters.transition_scales is not None:
+                    loop_scale, forward_scale = search_parameters.transition_scales
+                    name += f"-loopScale-{loop_scale}"
+                    name += f"-fwdScale-{forward_scale}"
+                else:
+                    loop_scale = forward_scale = 1.0
+
+                if search_parameters.silence_penalties is not None:
+                    sil_loop_penalty, sil_fwd_penalty = search_parameters.silence_penalties
+                    name += f"-silLoopP-{sil_loop_penalty}"
+                    name += f"-silFwdP-{sil_fwd_penalty}"
+                else:
+                    sil_fwd_penalty = sil_loop_penalty = 0.0
+        else:
+            name += "-noTdp"
+
+        state_tying = align_crp.acoustic_model_config.state_tying.type
+
+        tdp_transition = (
+            search_parameters.tdp_speech if search_parameters.tdp_scale is not None else (0.0, 0.0, "infinity", 0.0)
+        )
+        tdp_silence = (
+            search_parameters.tdp_silence if search_parameters.tdp_scale is not None else (0.0, 0.0, "infinity", 0.0)
+        )
+        tdp_non_word = (
+            search_parameters.tdp_non_word
+            if search_parameters.tdp_non_word is not None
+            else (0.0, 0.0, "infinity", 0.0)
+        )
+
+        align_crp.acoustic_model_config = am.acoustic_model_config(
+            state_tying=state_tying,
+            states_per_phone=label_info.n_states_per_phone,
+            state_repetitions=1,
+            across_word_model=True,
+            early_recombination=False,
+            tdp_scale=search_parameters.tdp_scale,
+            tdp_transition=tdp_transition,
+            tdp_silence=tdp_silence,
+            tdp_nonword=tdp_non_word,
+            nonword_phones=search_parameters.non_word_phonemes,
+            tying_type="global-and-nonword",
+        )
+
+        align_crp.acoustic_model_config.allophones["add-all"] = search_parameters.add_all_allophones
+        align_crp.acoustic_model_config.allophones["add-from-lexicon"] = not search_parameters.add_all_allophones
+
+        align_crp.acoustic_model_config["state-tying"][
+            "use-boundary-classes"
+        ] = label_info.phoneme_state_classes.use_boundary()
+        align_crp.acoustic_model_config["state-tying"][
+            "use-word-end-classes"
+        ] = label_info.phoneme_state_classes.use_word_end()
+
+        if crp_update is not None:
+            crp_update(align_crp)
+
         if self.feature_scorer_type.is_factored():
             feature_scorer = get_factored_feature_scorer(
                 context_type=self.context_type,
@@ -1289,13 +1389,23 @@ class FactoredHybridAligner(BASEFactoredHybridDecoder):
                 num_label_contexts=label_info.n_contexts,
                 num_states_per_phone=label_info.n_states_per_phone,
                 num_encoder_output=num_encoder_output,
+                loop_scale=loop_scale,
+                forward_scale=forward_scale,
+                silence_loop_penalty=sil_loop_penalty,
+                silence_forward_penalty=sil_fwd_penalty,
                 use_estimated_tdps=use_estimated_tdps,
                 state_dependent_tdp_file=search_parameters.state_dependent_tdps,
                 is_min_duration=is_min_duration,
                 is_multi_encoder_output=self.is_multi_encoder_output,
+                is_batch_major=self.set_batch_major_for_feature_scorer,
             )
         elif self.feature_scorer_type.is_nnprecomputed():
+            scale = 1.0
+            if search_parameters.posterior_scales is not None:
+                scale = search_parameters.posterior_scales["joint-diphone-scale"]
+                name += f'-Am{scale}'
             feature_scorer = get_nn_precomputed_feature_scorer(
+                posterior_scale=scale,
                 context_type=self.context_type,
                 feature_scorer_type=self.feature_scorer_type,
                 mixtures=self.mixtures,
@@ -1303,3 +1413,30 @@ class FactoredHybridAligner(BASEFactoredHybridDecoder):
             )
         else:
             raise NotImplementedError
+
+        if search_parameters.tdp_scale is not None:
+            if (
+                    search_parameters.tdp_speech[-1] +
+                    search_parameters.tdp_silence[-1] +
+                    search_parameters.tdp_non_word[-1] > 0.0
+            ):
+                import warnings
+                warnings.warn("you planned to use exit penalty for alignment, we set this to zero")
+
+        align_crp = self.correct_transition_applicator(align_crp)
+
+
+
+        alignment = mm.AlignmentJob(
+            crp=align_crp,
+            feature_flow=self.feature_scorer_flow,
+            feature_scorer=feature_scorer,
+            use_gpu=gpu,
+            rtf=10,
+        )
+        alignment.rqmt["cpu"] = cpu
+        alignment.rqmt["mem"] = mem_rqmt
+        alignment.add_alias(f"alignments/align_{name}")
+        tk.register_output(f"{pre_path}/realignment-{self.name}", alignment.out_alignment_bundle)
+
+        return alignment

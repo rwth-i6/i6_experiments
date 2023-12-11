@@ -735,7 +735,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         recognizer_key: str = "base",
         model_path: Optional[tk.Path] = None,
         gpu=False,
-        is_multi_encoder_output=False,
+        is_multi_encoder_output = False,
+        set_batch_major_for_feature_scorer: bool = True,
         tf_library: Union[tk.Path, str, List[tk.Path], List[str], None] = None,
         dummy_mixtures: Optional[tk.Path] = None,
         lm_gc_simple_hash: Optional[bool] = None,
@@ -783,6 +784,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             eval_files=self.scorer_args[crp_corpus],
             tf_library=tf_library,
             is_multi_encoder_output=is_multi_encoder_output,
+            set_batch_major_for_feature_scorer=set_batch_major_for_feature_scorer,
             silence_id=self.label_info.sil_id,
             gpu=gpu,
             lm_gc_simple_hash=lm_gc_simple_hash
@@ -792,6 +794,73 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
 
         return recognizer, recog_args
+
+
+    def get_aligner(
+        self,
+        key: str,
+        context_type: PhoneticContext,
+        feature_scorer_type: RasrFeatureScorer,
+        epoch: int,
+        crp_corpus: str,
+        aligner_key: str = "base",
+        model_path: Optional[tk.Path] = None,
+        gpu: bool = False,
+        is_multi_encoder_output: bool = False,
+        set_batch_major_for_feature_scorer: bool = True,
+        tf_library: Union[tk.Path, str, List[tk.Path], List[str], None] = None,
+        dummy_mixtures: Optional[tk.Path] = None,
+        crp: Optional[rasr.RasrConfig] = None,
+        **aligner_kwargs,
+    ):
+        if context_type in [
+            PhoneticContext.mono_state_transition,
+            PhoneticContext.diphone_state_transition,
+            PhoneticContext.tri_state_transition,
+        ]:
+            name = f'{self.experiments[key]["name"]}-delta/e{epoch}/{crp_corpus}'
+        else:
+            name = f"{self.experiments[key]['name']}/e{epoch}/{crp_corpus}"
+
+        graph = self.experiments[key]["graph"].get("inference", None)
+        if graph is None:
+            self.set_graph_for_experiment(key=key)
+            graph = self.experiments[key]["graph"]["inference"]
+
+        p_info: PriorInfo = self.experiments[key].get("priors", None)
+        assert p_info is not None, "set priors first"
+
+        if dummy_mixtures is None:
+            dummy_mixtures = mm.CreateDummyMixturesJob(
+                self.label_info.get_n_of_dense_classes(),
+                self.initial_nn_args["num_input"],
+            ).out_mixtures
+
+        assert self.label_info.sil_id is not None
+
+        if model_path is None:
+            model_path = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        align_args = SearchParameters.default_for_ctx(context_type, priors=p_info)
+
+        aligner = self.aligners[aligner_key](
+            name=name,
+            crp=self.crp[crp_corpus] if crp is None else crp,
+            context_type=context_type,
+            feature_scorer_type=feature_scorer_type,
+            feature_path=self.feature_flows[crp_corpus],
+            model_path=model_path,
+            graph=graph,
+            mixtures=dummy_mixtures,
+            tf_library=tf_library,
+            is_multi_encoder_output=is_multi_encoder_output,
+            set_batch_major_for_feature_scorer=set_batch_major_for_feature_scorer,
+            silence_id=self.label_info.sil_id,
+            gpu=gpu,
+            **aligner_kwargs,
+        )
+
+        return aligner, align_args
+
 
     def run_decoding_for_cart(
         self,
@@ -900,3 +969,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 opt_only_lm_scale=only_lm_opt,
             )
             tk.register_output(f"optLM/{name}.onlyLmOpt{only_lm_opt}.optlm.txt", opt.out_log_file)
+
+
+
+

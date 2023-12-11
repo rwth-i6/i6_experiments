@@ -6,6 +6,7 @@ import itertools
 import sys
 from IPython import embed
 from enum import Enum
+import numpy as np
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
 
 # -------------------- Sisyphus --------------------
@@ -63,7 +64,11 @@ from i6_experiments.users.raissi.setups.common.data.factored_label import (
     RasrStateTying
 )
 
-from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import BASEFactoredHybridDecoder
+from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import (
+    BASEFactoredHybridDecoder,
+    BASEFactoredHybridAligner
+)
+
 from i6_experiments.users.raissi.setups.common.decoder.config import PriorInfo, PosteriorScales, SearchParameters
 from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
 from i6_experiments.users.raissi.setups.common.util.hdf import RasrFeaturesToHdf
@@ -188,7 +193,7 @@ class BASEFactoredHybridSystem(NnSystem):
             "rasr-returnn-costum": ReturnnRasrTrainingBWJob,
         }
         self.recognizers = {"base": BASEFactoredHybridDecoder}
-        self.aligners = {}
+        self.aligners = {"base": BASEFactoredHybridAligner}
         self.returnn_configs = {}
         self.graphs = {}
 
@@ -321,7 +326,6 @@ class BASEFactoredHybridSystem(NnSystem):
     ):
         new_crp = copy.deepcopy(existing_crp)
         new_crp.corpus_config.file = corpus_path
-        new_crp.corpus_config.segment.file = segment_path
         new_crp.corpus_config.remove_corpus_name_prefix = f"{prefix_name}/"
 
         return new_crp
@@ -345,6 +349,7 @@ class BASEFactoredHybridSystem(NnSystem):
                 corpus_key,
                 step_args.extract_features,
             )
+
 
     def _set_train_data(self, data_dict):
         for c_key, c_data in data_dict.items():
@@ -451,23 +456,43 @@ class BASEFactoredHybridSystem(NnSystem):
 
     def _add_merged_cv_corpus(self, segment_list: Path):
         corpus_key = ("_").join(self.cv_corpora)
-        cv_corpora_obj = [self.corpora[k] for k in self.cv_corpora]
+        reference_crp = self.crp[self.cv_corpora[0]]
+        cv_corpora_obj = [self.corpora[k].corpus_file for k in self.cv_corpora]
+        durations = np.sum([self.corpora[k].duration for k in self.cv_corpora])
         prefix_name = "merged-cv"
-        merged_corpus = self._get_merged_corpus_for_corpora(cv_corpora_obj, name=prefix_name)
-        lexicon = s.crp[self.cv_corpora[0]].lexicon_config.file
+        merged_corpus_all = self._get_merged_corpus_for_corpora(cv_corpora_obj, name=prefix_name)
+        merged_corpus = corpus_recipe.FilterCorpusBySegmentsJob(bliss_corpus=merged_corpus_all, segment_file=segment_list, invert_match=True).out_corpus
+
+
+        lexicon = {
+        "filename": reference_crp.lexicon_config.file,
+        "normalize_pronunciation": False,
+    }
+
+        from i6_core.meta.system import CorpusObject
+        corpus_object = CorpusObject()
+        corpus_object.corpus_file = merged_corpus
+        corpus_object.audio_format = "wav"
+        corpus_object.audio_dir = None
+        corpus_object.duration = durations
+
+        cv_segments = self._get_segment_file(merged_corpus)
+
         rasr_data_input = RasrDataInput(
-            corpus_object=merged_corpus,
+            corpus_object=corpus_object,
             concurrent=1,
             lexicon=lexicon,
         )
         self.add_corpus(corpus_key, data=rasr_data_input, add_lm=False)
         joined_crp = self._get_crp_from_existing(
-            existing_crp=self.crp[self.train_key],
+            existing_crp=reference_crp,
             corpus_path=merged_corpus,
-            segment_path=segment_list,
             prefix_name=prefix_name,
+            segment_path=cv_segments,
         )
+        joined_crp.concurrent = 1
         self.crp[corpus_key] = joined_crp
+        self.cv_corpora.append(corpus_key)
 
     def _get_prior_info_dict(self):
         prior_dict = {}
@@ -589,7 +614,7 @@ class BASEFactoredHybridSystem(NnSystem):
         for k in self.corpora.keys():
             assert self.inputs[k] is not None
             assert self.inputs[k][input_key] is not None
-        assert cv_corpus_key is None and not is_cv_separate_from_train, "define a corpus key for separate cv data"
+        assert cv_corpus_key is not None or not is_cv_separate_from_train, "define a corpus key for separate cv data"
 
         configure_automata = False
         if self.training_criterion == TrainingCriterion.fullsum:
@@ -1065,6 +1090,7 @@ class BASEFactoredHybridSystem(NnSystem):
 
     def run(self, steps: RasrSteps):
         # init args are the label info args
+
         if "init" in steps.get_step_names_as_list():
             init_args = steps.get_args_via_idx(0)
             frame_rate_args = init_args["frr_info"] if "frr_info" in init_args else None
@@ -1073,7 +1099,7 @@ class BASEFactoredHybridSystem(NnSystem):
             if len(self.cv_corpora) > 1:
                 assert "cv_info" in init_args, "please set the segment file for the cross validation data"
                 self._add_merged_cv_corpus(segment_list=init_args["cv_info"]["segment_list"])
-
+        all_corpora = self.train_corpora + self.cv_corpora + self.dev_corpora + self.test_corpora
         for eval_c in self.dev_corpora + self.test_corpora:
             stm_args = self.rasr_init_args.stm_args if self.rasr_init_args.stm_args is not None else {}
             self.create_stm_from_corpus(eval_c, **stm_args)
@@ -1085,12 +1111,12 @@ class BASEFactoredHybridSystem(NnSystem):
                 if step_args is None:
                     step_args = self.rasr_init_args.feature_extraction_args
                 step_args[self.nn_feature_type]["prefix"] = "features/"
-                for all_c in self.train_corpora + self.cv_corpora + self.dev_corpora + self.test_corpora:
+                for all_c in all_corpora:
                     self.feature_caches[all_c] = {}
                     self.feature_bundles[all_c] = {}
                     self.feature_flows[all_c] = {}
 
-                self.extract_features(step_args)
+                self.extract_features(step_args, corpus_list=all_corpora)
             # -----------Set alignments if needed-------
             # here you might one to align cv with a given aligner
             if step_name.startswith("alignment"):
@@ -1099,7 +1125,4 @@ class BASEFactoredHybridSystem(NnSystem):
                     self.alignments[c] = step_args[c]
             # ---------------Step Input ----------
             if step_name.startswith("input"):
-                if not len(step_args.extract_features):
-                    add_feature_to_extract(self.nn_feature_type)
-
                 self._run_input_step(step_args)
