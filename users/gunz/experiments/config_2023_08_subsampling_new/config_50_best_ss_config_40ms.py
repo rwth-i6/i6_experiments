@@ -134,16 +134,6 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         eval_tdp_type="default",
     )
 
-    # for Peter
-    for tying, n_st in itertools.product(["monophone", "monophone-eow"], [1, 3]):
-        crp = copy.deepcopy(s.crp[train_key])
-        crp.acoustic_model_config.hmm.states_per_phone = n_st
-        crp.acoustic_model_config.state_tying = rasr.RasrConfig()
-        crp.acoustic_model_config.state_tying.type = tying
-        dump_st_job = lexicon.DumpStateTyingJob(crp=crp)
-        tk.register_output(f"state-tying-mono-peter/{tying}-{n_st}", dump_st_job.out_state_tying)
-    return
-
     # ---------------------- returnn config---------------
     CONF_MODEL_DIM = 512
     PARTITION_EPOCHS = {"train": 20, "dev": 1}
