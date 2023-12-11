@@ -691,7 +691,10 @@ def model_recog(
     seq_targets = []
     seq_backrefs = []
     while True:
-        input_embed = model.target_embed(target)
+        if i == 0:
+            input_embed = rf.zeros(batch_dims_ + [model.target_embed.out_dim], feature_dim=model.target_embed.out_dim)
+        else:
+            input_embed = model.target_embed(target)
         step_out, decoder_state = model.loop_step(
             **enc_args,
             enc_spatial_dim=enc_spatial_dim,
