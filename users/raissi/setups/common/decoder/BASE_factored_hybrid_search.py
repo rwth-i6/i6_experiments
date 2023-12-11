@@ -933,6 +933,9 @@ class BASEFactoredHybridDecoder:
             #
             # Half the normal LM scale is a good value here.
 
+            # To validate the assumption the original LM is a 4gram
+            assert original_lm_config.language_model_config.type.lower() == "arpa"
+
             adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.separate_lookahead_lm = True
             adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.lm_lookahead_scale = (
                 search_parameters.lm_lookahead_scale
