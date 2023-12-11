@@ -7,20 +7,18 @@ __all__ = [
     "SearchParameters",
 ]
 
-import copy
+import dataclasses
 from dataclasses import dataclass
 import typing
 
 from sisyphus import tk
-from sisyphus.delayed_ops import Delayed
+from sisyphus.delayed_ops import DelayedBase
 
+from ...common.tdp import Float, TDP
 from ..factored import PhoneticContext
 
 
-Float = typing.Union[float, tk.Variable, Delayed]
-
-
-@dataclass
+@dataclass(eq=True, frozen=True)
 class PriorConfig:
     file: typing.Union[str, tk.Path, None]
     scale: Float
@@ -29,7 +27,7 @@ class PriorConfig:
         return PriorConfig(file=self.file, scale=scale)
 
 
-@dataclass
+@dataclass(eq=True, frozen=True)
 class PriorInfo:
     """
     Contains the prior XML file and scale for the left/right contexts and the
@@ -57,7 +55,8 @@ class PriorInfo:
 
         left = self.left_context_prior.with_scale(left) if self.left_context_prior is not None else None
         right = self.right_context_prior.with_scale(right) if self.right_context_prior is not None else None
-        return PriorInfo(
+        return dataclasses.replace(
+            self,
             center_state_prior=self.center_state_prior.with_scale(center),
             left_context_prior=left,
             right_context_prior=right,
@@ -68,6 +67,8 @@ class PriorInfo:
         """
         Initializes a PriorInfo instance with scale 0.0 from the output directory of
         a previously run/captured ComputeMonophonePriorsJob.
+
+        The directory needs to contain `center-state.xml`.
         """
 
         output_dir = tk.Path(output_dir) if isinstance(output_dir, str) else output_dir
@@ -80,6 +81,8 @@ class PriorInfo:
         """
         Initializes a PriorInfo instance with scale 0.0 from the output directory of
         a previously run/captured ComputeDiphonePriorsJob.
+
+        The directory needs to contain `center-state.xml` and `left-context.xml`.
         """
 
         output_dir = tk.Path(output_dir) if isinstance(output_dir, str) else output_dir
@@ -93,6 +96,8 @@ class PriorInfo:
         """
         Initializes a PriorInfo instance with scale 0.0 from the output directory of
         a previously run/captured ComputeTriphoneForwardPriorsJob.
+
+        The directory needs to contain `center-state.xml`, `left-context.xml` and `right-context.xml`.
         """
 
         output_dir = tk.Path(output_dir) if isinstance(output_dir, str) else output_dir
@@ -121,13 +126,13 @@ def default_posterior_scales() -> PosteriorScales:
     }
 
 
-TDP = typing.Union[Float, str]
+Int = typing.Union[int, tk.Variable, DelayedBase]
 
 
-@dataclass()
+@dataclass(eq=True, frozen=True)
 class SearchParameters:
     beam: Float
-    beam_limit: int
+    beam_limit: Int
     lm_scale: Float
     non_word_phonemes: str
     prior_info: PriorInfo
@@ -137,19 +142,27 @@ class SearchParameters:
     tdp_speech: typing.Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     tdp_non_word: typing.Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     we_pruning: Float
-    we_pruning_limit: int
+    we_pruning_limit: Int
 
     add_all_allophones: bool = True
     altas: typing.Optional[float] = None
+    lm_lookahead_scale: typing.Optional[float] = None
     posterior_scales: typing.Optional[PosteriorScales] = None
     silence_penalties: typing.Optional[typing.Tuple[Float, Float]] = None  # loop, fwd
     state_dependent_tdps: typing.Optional[typing.Union[str, tk.Path]] = None
     transition_scales: typing.Optional[typing.Tuple[Float, Float]] = None  # loop, fwd
 
+    def with_altas(self, altas: Float) -> "SearchParameters":
+        return dataclasses.replace(self, altas=altas)
+
+    def with_beam_limit(self, beam_limit: Int) -> "SearchParameters":
+        return dataclasses.replace(self, beam_limit=beam_limit)
+
+    def with_beam_size(self, beam: Float) -> "SearchParameters":
+        return dataclasses.replace(self, beam=beam)
+
     def with_lm_scale(self, scale: Float) -> "SearchParameters":
-        params = copy.copy(self)
-        params.lm_scale = scale
-        return params
+        return dataclasses.replace(self, lm_scale=scale)
 
     def with_prior_scale(
         self,
@@ -157,14 +170,43 @@ class SearchParameters:
         left: typing.Optional[Float] = None,
         right: typing.Optional[Float] = None,
     ) -> "SearchParameters":
-        params = copy.copy(self)
-        params.prior_info = params.prior_info.with_scale(center=center, left=left, right=right)
-        return params
+        return dataclasses.replace(self, prior_info=self.prior_info.with_scale(center=center, left=left, right=right))
+
+    def with_prior_files(self, other: "SearchParameters"):
+        return dataclasses.replace(
+            self,
+            prior_info=dataclasses.replace(
+                self.prior_info,
+                center_state_prior=dataclasses.replace(
+                    self.prior_info.center_state_prior, file=other.prior_info.center_state_prior.file
+                ),
+                left_context_prior=dataclasses.replace(
+                    self.prior_info.left_context_prior, file=other.prior_info.left_context_prior.file
+                )
+                if self.prior_info.left_context_prior is not None
+                else None,
+                right_context_prior=dataclasses.replace(
+                    self.prior_info.right_context_prior, file=other.prior_info.right_context_prior.file
+                )
+                if self.prior_info.right_context_prior is not None
+                else None,
+            ),
+        )
+
+    def with_pron_scale(self, pron_scale: Float) -> "SearchParameters":
+        return dataclasses.replace(self, pron_scale=pron_scale)
+
+    def with_tdp_non_word(self, tdp: typing.Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
+        return dataclasses.replace(self, tdp_non_word=tdp)
 
     def with_tdp_scale(self, scale: Float) -> "SearchParameters":
-        params = copy.copy(self)
-        params.tdp_scale = scale
-        return params
+        return dataclasses.replace(self, tdp_scale=scale)
+
+    def with_tdp_silence(self, tdp: typing.Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
+        return dataclasses.replace(self, tdp_silence=tdp)
+
+    def with_tdp_speech(self, tdp: typing.Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
+        return dataclasses.replace(self, tdp_speech=tdp)
 
     @classmethod
     def default_monophone(cls, *, priors: PriorInfo) -> "SearchParameters":
@@ -177,7 +219,7 @@ class SearchParameters:
             prior_info=priors.with_scale(0.2),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
             tdp_silence=(0.0, 3.0, "infinity", 20.0),
-            tdp_non_word=(0.0, 3.0, "inifinity", 20.0),
+            tdp_non_word=(0.0, 3.0, "infinity", 20.0),
             non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
             we_pruning_limit=10000,
@@ -194,7 +236,7 @@ class SearchParameters:
             prior_info=priors.with_scale(center=0.2, left=0.1),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
             tdp_silence=(0.0, 3.0, "infinity", 20.0),
-            tdp_non_word=(0.0, 3.0, "inifinity", 20.0),
+            tdp_non_word=(0.0, 3.0, "infinity", 20.0),
             non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
             we_pruning_limit=10000,
@@ -211,10 +253,19 @@ class SearchParameters:
             prior_info=priors.with_scale(center=0.2, left=0.1, right=0.1),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
             tdp_silence=(0.0, 3.0, "infinity", 20.0),
-            tdp_non_word=(0.0, 3.0, "inifinity", 20.0),
+            tdp_non_word=(0.0, 3.0, "infinity", 20.0),
             non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
             we_pruning_limit=10000,
+        )
+
+    @classmethod
+    def default_cart(cls, *, priors: PriorInfo) -> "SearchParameters":
+        return dataclasses.replace(
+            cls.default_triphone(priors=priors.with_scale(center=0.3)),
+            beam=16,
+            beam_limit=100_000,
+            lm_scale=12,
         )
 
     @classmethod

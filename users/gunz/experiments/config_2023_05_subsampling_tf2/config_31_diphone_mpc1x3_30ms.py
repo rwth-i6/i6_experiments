@@ -42,7 +42,6 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
-    ALIGN_30MS_BLSTM_V2,
     CONF_CHUNKING_30MS,
     CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
@@ -78,15 +77,12 @@ class Experiment:
     focal_loss: float = CONF_FOCAL_LOSS
 
 
-def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.List[typing.Tuple[tk.Path, str]]] = None):
+def run(returnn_root: tk.Path, alignments: typing.List[typing.Tuple[tk.Path, str]]):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    scratch_align_blstm_v2 = tk.Path(ALIGN_30MS_BLSTM_V2, cached=True)
-
-    alignments_to_run = ((scratch_align_blstm_v2, "30ms-B-v2"), *(additional_alignments or []))
     configs = [
         Experiment(
             alignment=a,
@@ -99,7 +95,7 @@ def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Lis
             tune_decoding=True,
             run_tdp_study=False,
         )
-        for a, a_name in alignments_to_run
+        for a, a_name in alignments
     ]
     for exp in configs:
         run_single(
@@ -389,7 +385,9 @@ def run_single(
             )
 
     if run_performance_study:
-        ep = 500
+        assert tune_decoding
+
+        ep = 600
         s.set_diphone_priors_returnn_rasr(
             key="fh",
             epoch=ep,
@@ -408,26 +406,19 @@ def run_single(
             set_batch_major_for_feature_scorer=True,
             lm_gc_simple_hash=True,
         )
-        recog_args = dataclasses.replace(
-            recog_args.with_prior_scale(0.4, 0.4),
-            altas=2,
-            beam=20,
-            lm_scale=round(recog_args.lm_scale / float(ss_factor), 2),
-            tdp_scale=0.2,
+        recog_args = dataclasses.replace(best_config, altas=2, beam=20)
+        jobs = recognizer.recognize_count_lm(
+            label_info=s.label_info,
+            search_parameters=recog_args,
+            num_encoder_output=conf_model_dim,
+            rerun_after_opt_lm=True,
+            calculate_stats=True,
+            pre_path="decoding-perf-eval",
+            name_override="best/4gram",
+            cpu_rqmt=2,
+            mem_rqmt=4,
         )
-        for create_lattice in [True, False]:
-            jobs = recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=recog_args,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=False,
-                calculate_stats=True,
-                pre_path="decoding-perf-eval" + ("-l" if create_lattice else ""),
-                cpu_rqmt=2,
-                mem_rqmt=4,
-                create_lattice=create_lattice,
-            )
-            jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+        jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if run_tdp_study:
         s.feature_flows["dev-other"].flags["cache_mode"] = "bundle"

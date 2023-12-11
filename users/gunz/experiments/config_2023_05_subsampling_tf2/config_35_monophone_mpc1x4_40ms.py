@@ -364,7 +364,9 @@ def run_single(
             )
 
     if run_performance_study:
-        ep = 500
+        assert tune_decoding
+
+        ep = 600
         s.set_mono_priors_returnn_rasr(
             key="fh",
             epoch=ep,
@@ -383,26 +385,20 @@ def run_single(
             set_batch_major_for_feature_scorer=True,
             lm_gc_simple_hash=True,
         )
-        recog_args = dataclasses.replace(
-            recog_args.with_prior_scale(0.6),
-            altas=2,
-            beam=22,
-            lm_scale=round(recog_args.lm_scale / float(ss_factor), 2),
-            tdp_scale=0.2,
+        recog_args = dataclasses.replace(best_config, altas=2, beam=22)
+
+        jobs = recognizer.recognize_count_lm(
+            label_info=s.label_info,
+            search_parameters=recog_args,
+            num_encoder_output=conf_model_dim,
+            rerun_after_opt_lm=True,
+            calculate_stats=True,
+            pre_path="decoding-perf-eval",
+            name_override="best/4gram",
+            cpu_rqmt=2,
+            mem_rqmt=4,
         )
-        for create_lattice in [True, False]:
-            jobs = recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=recog_args,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=False,
-                calculate_stats=True,
-                pre_path="decoding-perf-eval" + ("-l" if create_lattice else ""),
-                cpu_rqmt=2,
-                mem_rqmt=4,
-                create_lattice=create_lattice,
-            )
-            jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+        jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if run_tdp_study:
         base_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)

@@ -6,6 +6,8 @@ import itertools
 
 import os
 
+import numpy as np
+
 # -------------------- Sisyphus --------------------
 from sisyphus import gs, tk
 
@@ -257,7 +259,7 @@ def run_single(
         layer.pop("loss_scale", None)
         layer.pop("loss_opts", None)
 
-    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other", "dev-clean", "test-clean", "test-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
         s.recognize_cart(
@@ -268,7 +270,32 @@ def run_single(
             cart_tree_or_tying_config=cart_tree,
             log_softmax_returnn_config=decoding_config,
             params=s.get_cart_params(key="fh"),
-            opt_lm_am_scale=False,
+            opt_lm_am_scale=True,
         )
+
+    if n_cart_phones == 3:
+        for cfg in [
+            dataclasses.replace(s.get_cart_params(key="fh"), altas=a, beam=b, beam_limit=b_l)
+            for a, b, b_l in itertools.product(
+                [None, 2, 4, 6, 8, 10],
+                [12, 14, 16],
+                [int(v) for v in np.geomspace(250, 10_000, 10, dtype=int)],
+            )
+        ]:
+            job = s.recognize_cart(
+                key="fh",
+                epoch=max(keep_epochs),
+                crp_corpus="dev-other",
+                n_cart_out=n_cart_out,
+                cart_tree_or_tying_config=cart_tree,
+                log_softmax_returnn_config=decoding_config,
+                calculate_statistics=True,
+                params=cfg,
+                opt_lm_am_scale=False,
+                cpu_rqmt=2,
+                mem_rqmt=4,
+                rtf=2,
+            )
+            job.rqmt.update({"sbatch_args": ["-A", "rescale_speed", "-p", "rescale_amd"]})
 
     return s

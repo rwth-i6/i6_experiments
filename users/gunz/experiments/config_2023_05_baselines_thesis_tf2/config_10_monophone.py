@@ -2,6 +2,7 @@ __all__ = ["run", "run_single"]
 
 import copy
 import dataclasses
+import typing
 from dataclasses import dataclass
 from functools import cache
 import itertools
@@ -28,7 +29,7 @@ from ...setups.common.nn.specaugment import (
 )
 from ...setups.fh import system as fh_system
 from ...setups.fh.network import conformer
-from ...setups.fh.factored import PhoneticContext
+from ...setups.fh.factored import PhoneticContext, RasrStateTying
 from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
     augment_net_with_monophone_outputs,
@@ -76,8 +77,7 @@ class Experiment:
     focal_loss: float = CONF_FOCAL_LOSS
 
 
-@cache
-def run(returnn_root: tk.Path):
+def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.List[typing.Tuple[tk.Path, str]]] = None):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
@@ -108,7 +108,7 @@ def run(returnn_root: tk.Path):
             multitask=True,
             num_states_per_phone=3,
             run_performance_study=True,
-            tune_decoding=False,
+            tune_decoding=True,
         ),
         Experiment(
             alignment=scratch_align,
@@ -129,9 +129,23 @@ def run(returnn_root: tk.Path):
             lr="v13",
             multitask=True,
             num_states_per_phone=1,
-            run_performance_study=False,
+            run_performance_study=True,
             tune_decoding=False,
         ),
+        *(
+            Experiment(
+                alignment=a,
+                alignment_name=a_name,
+                dc_detection=False,
+                decode_all_corpora=False,
+                lr="v13",
+                multitask=True,
+                num_states_per_phone=3,
+                run_performance_study=False,
+                tune_decoding=True,
+            )
+            for (a, a_name) in (additional_alignments or [])
+        )
         # Experiment(
         #     alignment=scratch_align_daniel,
         #     alignment_name="scratch_daniel",
@@ -316,10 +330,6 @@ def run_single(
     )
 
     s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
-
-    exp_config = copy.deepcopy(returnn_config)
-    if not multitask:
-        exp_config.config["network"]["center-output"]["n_out"] = s.label_info.get_n_state_classes()
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
     train_args = {
@@ -333,25 +343,25 @@ def run_single(
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
-        on_2080=False,
+        on_2080=True,
     )
     prior_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
     if not multitask:
         prior_config.config["network"]["center-output"]["n_out"] = s.label_info.get_n_state_classes()
-    s.set_mono_priors_returnn_rasr(
-        key="fh",
-        epoch=keep_epochs[-2],
-        train_corpus_key=s.crp_names["train"],
-        dev_corpus_key=s.crp_names["cvtrain"],
-        smoothen=True,
-        returnn_config=prior_config,
-    )
 
     best_config = None
 
-    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+    for ep, crp_k in itertools.product(keep_epochs if "FF" in alignment_name else [max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
+        s.set_mono_priors_returnn_rasr(
+            key="fh",
+            epoch=min(ep, keep_epochs[-2]),
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=prior_config,
+        )
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.monophone,
@@ -362,6 +372,10 @@ def run_single(
             set_batch_major_for_feature_scorer=True,
         )
 
+        if num_states_per_phone == 1:
+            tdp_sp = recog_args.tdp_speech
+            recog_args = recog_args.with_tdp_speech((0, *tdp_sp[1:]))
+
         for cfg in [recog_args.with_prior_scale(0.6).with_tdp_scale(0.5)]:
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
@@ -371,7 +385,7 @@ def run_single(
                 calculate_stats=True,
             )
 
-        if tune_decoding:
+        if tune_decoding and ep == max(keep_epochs):
             best_config = recognizer.recognize_optimize_scales(
                 label_info=s.label_info,
                 search_parameters=recog_args,
@@ -389,30 +403,47 @@ def run_single(
             )
 
     if run_performance_study:
-        recognizer, recog_args = s.get_recognizer_and_args(
-            key="fh",
-            context_type=PhoneticContext.monophone,
-            crp_corpus="dev-other",
-            epoch=max(keep_epochs),
-            gpu=False,
-            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-            set_batch_major_for_feature_scorer=True,
-            lm_gc_simple_hash=True,
-        )
-        recog_args = dataclasses.replace(recog_args.with_prior_scale(0.4, 0.4), altas=2, beam=22)
-        for create_lattice in [True, False]:
-            jobs = recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=recog_args,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=False,
-                calculate_stats=True,
-                pre_path="decoding-perf-eval" + ("-l" if create_lattice else ""),
+        nn_precomputed_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+        nn_precomputed_returnn_config.config["network"]["center-output"] = {
+            **nn_precomputed_returnn_config.config["network"]["center-output"],
+            "class": "linear",
+            "activation": "log_softmax",
+            "register_as_extern_data": "center-output",
+        }
+
+        monophone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
+
+        tying_cfg = rasr.RasrConfig()
+        tying_cfg.type = "monophone-dense"
+
+        base_config = s.get_cart_params("fh")
+        for cfg in [
+            dataclasses.replace(
+                base_config.with_prior_scale(pC),
+                altas=a,
+                beam=b,
+                beam_limit=100_000,
+                lm_scale=4.0,
+                tdp_speech=(speech_loop, *base_config.tdp_speech[1:]),
+            )
+            for a, pC, b, speech_loop in itertools.product(
+                [None, 2, 4, 6, 8], [0.4, 0.6], [14, 16, 18], [0.0, 3.0] if num_states_per_phone == 1 else [3.0]
+            )
+        ]:
+            job = s.recognize_cart(
+                key="fh",
+                epoch=max(keep_epochs),
+                crp_corpus="dev-other",
+                n_cart_out=monophone_li.get_n_of_dense_classes(),
+                cart_tree_or_tying_config=tying_cfg,
+                params=cfg,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                calculate_statistics=True,
+                encoder_output_layer="center__output",
                 cpu_rqmt=2,
                 mem_rqmt=4,
-                create_lattice=create_lattice,
             )
-            jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+            job.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if decode_all_corpora:
         for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-clean", "dev-other", "test-clean", "test-other"]):
@@ -427,6 +458,10 @@ def run_single(
                 tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
                 set_batch_major_for_feature_scorer=True,
             )
+
+            if num_states_per_phone == 1:
+                tdp_sp = recog_args.tdp_speech
+                recog_args = recog_args.with_tdp_speech((0, *tdp_sp[1:]))
 
             cfgs = [recog_args.with_prior_scale(0.6).with_tdp_scale(0.5)]
 

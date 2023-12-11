@@ -3,23 +3,20 @@ __all__ = ["run", "run_single"]
 import copy
 import dataclasses
 import itertools
-import typing
 
-import numpy as np
 import os
 
 # -------------------- Sisyphus --------------------
 from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
-
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common import oclr, returnn_time_tag
-from ...setups.common.specaugment import (
+from ...setups.common.nn import oclr, returnn_time_tag
+from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
     summary as sa_summary,
@@ -27,7 +24,7 @@ from ...setups.common.specaugment import (
 )
 from ...setups.fh import system as fh_system
 from ...setups.fh.network import conformer
-from ...setups.fh.factored import PhonemeStateClasses, PhoneticContext, RasrStateTying
+from ...setups.fh.factored import PhonemeStateClasses, RasrStateTying
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
@@ -39,7 +36,6 @@ from .config import (
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
     CONF_SA_CONFIG,
-    FH_DECODING_TENSOR_CONFIG,
     RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
     RASR_ROOT_RS_RASR_GUNZ,
@@ -48,9 +44,9 @@ from .config import (
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_FH_GUNZ, "arch", gs.RASR_ARCH))
 RASR_BINARY_PATH.hash_override = "FH_RASR_PATH"
+RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
 
 RS_RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_RS_RASR_GUNZ, "arch", gs.RASR_ARCH))
-RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
 
 RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF15)
 RETURNN_PYTHON_EXE.hash_override = "FH_RETURNN_PYTHON_EXE"
@@ -83,6 +79,7 @@ def run(returnn_root: tk.Path):
             n_cart_phones=n_phones,
             n_cart_out=num_labels,
             lr=lr,
+            run_performance_study=n_phones == 3,
         )
 
 
@@ -99,6 +96,7 @@ def run_single(
     focal_loss: float = CONF_FOCAL_LOSS,
     dc_detection: bool = False,
     tune_decoding: bool = False,
+    run_performance_study: bool,
     lr: str = "v6",
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
@@ -126,6 +124,7 @@ def run_single(
         dev_data=dev_data_inputs,
         test_data=test_data_inputs,
     )
+    s.do_not_set_returnn_python_exe_for_graph_compiles = True
     s.train_key = train_key
     s.label_info = dataclasses.replace(
         s.label_info, state_tying=RasrStateTying.cart, phoneme_state_classes=PhonemeStateClasses.none
@@ -249,28 +248,45 @@ def run_single(
         output_layer_name="output",
     )
 
-    s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
+    decoding_config = copy.deepcopy(returnn_config)
+    decoding_config.config["network"]["output"]["class"] = "linear"
+    decoding_config.config["network"]["output"]["activation"] = "log_softmax"
+    decoding_config.config["extern_data"]["classes"].pop("same_dim_tags_as")
+    for layer in decoding_config.config["network"].values():
+        layer.pop("target", None)
+        layer.pop("loss", None)
+        layer.pop("loss_scale", None)
+        layer.pop("loss_opts", None)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
-        recognizer, recog_args = s.get_recognizer_and_args(
+        cfg = s.get_cart_params(key="fh")
+        s.recognize_cart(
             key="fh",
-            context_type=PhoneticContext.monophone,
-            crp_corpus=crp_k,
             epoch=ep,
-            gpu=False,
-            tensor_map=dataclasses.replace(
-                FH_DECODING_TENSOR_CONFIG,
-                in_encoder_output="output/output_batch_major",
-                in_seq_length="extern_data/placeholders/data/data_dim0_size",
-            ),
-            recompile_graph_for_feature_scorer=True,
+            crp_corpus=crp_k,
+            n_cart_out=n_cart_out,
+            cart_tree_or_tying_config=cart_tree,
+            log_softmax_returnn_config=decoding_config,
+            params=cfg,
+            opt_lm_am_scale=False,
         )
-        recognizer.recognize_count_lm(
-            label_info=s.label_info,
-            search_parameters=recog_args,
-            num_encoder_output=conf_model_dim,
-            rerun_after_opt_lm=True,
-            calculate_stats=True,
-        )
+
+        if run_performance_study:
+            previous_alias = gs.ALIAS_AND_OUTPUT_SUBDIR
+            for altas, beam in itertools.product([2, 4, 6, 8, 12], [10, 12, 14, 16]):
+                gs.ALIAS_AND_OUTPUT_SUBDIR = f"{previous_alias}_beam{beam}"
+                s.recognize_cart(
+                    key="fh",
+                    epoch=ep,
+                    crp_corpus=crp_k,
+                    n_cart_out=n_cart_out,
+                    cart_tree_or_tying_config=cart_tree,
+                    log_softmax_returnn_config=decoding_config,
+                    params=dataclasses.replace(cfg, altas=altas, beam=beam),
+                    gpu=True,
+                    calculate_statistics=True,
+                    rtf=0.3,
+                )
+            gs.ALIAS_AND_OUTPUT_SUBDIR = previous_alias
 
     return s

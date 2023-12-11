@@ -50,10 +50,12 @@ class AlignmentProcessor:
 
     def percent_silence_in(self, seg_name: str):
         alignment_states = self._get_alignment_states(seg_name)
+        if len(alignment_states) == 0:
+            return 0.0
         num_sil = sum((1 for st in alignment_states if self.sil_allophone in st.upper()))
         return num_sil / len(alignment_states)
 
-    def plot_segment(self, seg_name: str, show_labels: bool):
+    def plot_segment(self, seg_name: str, show_labels: bool, font_size: int = 10, show_title: bool = True):
         def get_next_segment(align, start, collapse_3state=False):
             assert start < len(align)
             allo_idx = align[start][1]
@@ -96,12 +98,16 @@ class AlignmentProcessor:
         def plot(viterbi_image, allophone_sequence, seq_tag, show_labels=True):
             import matplotlib.pyplot as plt
 
+            plt.rc("font", size=font_size)
+
             C, T = np.shape(viterbi_image)
 
             fig, ax = plt.subplots()
-            ax.set_title(f"Viterbi alignment of {seq_tag}")
+            if show_title:
+                ax.set_title(f"Viterbi alignment of\n{seq_tag}")
             ax.set_xlabel("Frame")
-            ax.xaxis.set_label_coords(0.98, -0.03)
+            ax.set_ylabel("Label")
+            # ax.xaxis.set_label_coords(0.98, -0.03)
             ax.set_xbound(0, T - 1)
             ax.set_ybound(-0.5, C - 0.5)
 

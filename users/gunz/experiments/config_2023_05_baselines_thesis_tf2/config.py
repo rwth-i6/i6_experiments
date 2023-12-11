@@ -74,5 +74,6 @@ BLSTM_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
 )
 MLP_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
     CONF_FH_DECODING_TENSOR_CONFIG,
+    in_seq_length="extern_data/placeholders/data/data_dim0_size",
     in_encoder_output="linear__6/activation/Relu",
 )

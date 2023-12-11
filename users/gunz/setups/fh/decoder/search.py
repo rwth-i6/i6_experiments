@@ -3,33 +3,26 @@ __all__ = ["DecodingTensorMap", "FHDecoder"]
 import copy
 import dataclasses
 from dataclasses import dataclass
+import itertools
+import numpy as np
 import typing
 
+import i6_core.corpus
 import i6_core.recognition as recog
-import i6_core.rasr as rasr
-import i6_core.am as am
-import i6_core.mm as mm
-from i6_core import returnn
+from i6_core import am, mm, rasr, returnn
+from i6_core.lm import CreateLmImageJob
 
 from sisyphus import tk
 from sisyphus.delayed_ops import Delayed, DelayedBase, DelayedJoin
 
 from ...common.decoder.rtf import ExtractSearchStatisticsJob
 from ...common.lm_config import TfRnnLmRasrConfig
+from ...common.tdp import TDP, format_tdp
 from ..factored import LabelInfo, PhoneticContext
 from ..rust_scorer import RecompileTfGraphJob
-from .config import Float, PosteriorScales, PriorInfo, SearchParameters
+from ..util.argmin import ComputeArgminJob
+from .config import PosteriorScales, PriorInfo, SearchParameters
 from .scorer import FactoredHybridFeatureScorer
-
-TDP = typing.Union[Float, str]
-
-
-def format_tdp_val(val) -> str:
-    return "inf" if val == "infinity" else f"{val}"
-
-
-def format_tdp(tdp) -> str:
-    return ",".join(format_tdp_val(v) for v in tdp)
 
 
 @dataclass(eq=True, frozen=True)
@@ -100,9 +93,11 @@ class DecodingTensorMap:
 
 @dataclass
 class RecognitionJobs:
-    lat2ctm: recog.LatticeToCtmJob
-    sclite: recog.ScliteJob
+    lat2ctm: typing.Optional[recog.LatticeToCtmJob]
+    sclite: typing.Optional[recog.ScliteJob]
     search: recog.AdvancedTreeSearchJob
+    search_crp: rasr.RasrConfig
+    search_feature_scorer: rasr.FeatureScorer
     search_stats: typing.Optional[ExtractSearchStatisticsJob]
 
 
@@ -125,6 +120,7 @@ def get_feature_scorer(
     state_dependent_tdp_file: typing.Optional[typing.Union[str, tk.Path]] = None,
     is_min_duration=False,
     is_multi_encoder_output=False,
+    set_is_batch_major=False,
 ):
     if isinstance(prior_info, PriorInfo):
         assert prior_info.center_state_prior is not None and prior_info.center_state_prior.file is not None
@@ -159,6 +155,7 @@ def get_feature_scorer(
         is_min_duration=is_min_duration,
         use_word_end_classes=label_info.phoneme_state_classes.use_word_end(),
         use_boundary_classes=label_info.phoneme_state_classes.use_boundary(),
+        set_is_batch_major=set_is_batch_major,
     )
 
 
@@ -185,6 +182,8 @@ class FHDecoder:
         recompile_graph_for_feature_scorer=False,
         in_graph_acoustic_scoring=False,
         corpus_duration: typing.Optional[float] = 5.12,  # dev-other
+        set_batch_major_for_feature_scorer=False,
+        lm_gc_simple_hash=False,
     ):
         assert not (recompile_graph_for_feature_scorer and in_graph_acoustic_scoring)
 
@@ -198,6 +197,10 @@ class FHDecoder:
         self.tdp = {}
         self.silence_id = silence_id
         self.corpus_duration = corpus_duration
+        self.set_batch_major = set_batch_major_for_feature_scorer
+        self.lm_gc_simple_hash = lm_gc_simple_hash
+
+        self.parallel = None
 
         self.tensor_map = (
             dataclasses.replace(DecodingTensorMap.default(), **tensor_map)
@@ -261,11 +264,11 @@ class FHDecoder:
 
         if nn_lm:
             rtf += 20
-            mem = 16.0
+            mem = 12.0
             if "eval" in self.name:
                 rtf *= 2
         else:
-            mem = 8
+            mem = 4
 
         return {"rtf": rtf, "mem": mem}
 
@@ -501,7 +504,7 @@ class FHDecoder:
         max_batch_size: int = 64,
         scale: typing.Optional[float] = None,
     ) -> rasr.RasrConfig:
-        assert self.library_path is not None
+        # assert self.library_path is not None
 
         trafo_config = rasr.RasrConfig()
 
@@ -627,6 +630,13 @@ class FHDecoder:
         gpu: typing.Optional[bool] = None,
         cpu_rqmt: typing.Optional[int] = None,
         mem_rqmt: typing.Optional[int] = None,
+        crp_update: typing.Optional[typing.Callable[[rasr.RasrConfig], typing.Any]] = None,
+        pre_path: str = "decoding",
+        rtf_cpu: float = 16,
+        rtf_gpu: float = 4,
+        lm_config: rasr.RasrConfig = None,
+        create_lattice: bool = True,
+        remove_or_set_concurrency: typing.Union[bool, int] = False,
     ) -> RecognitionJobs:
         return self.recognize(
             label_info=label_info,
@@ -646,8 +656,146 @@ class FHDecoder:
             name_override=name_override,
             name_prefix=name_prefix,
             is_nn_lm=False,
-            lm_config=None,
-            pre_path="",
+            lm_config=lm_config,
+            pre_path=pre_path,
+            crp_update=crp_update,
+            rtf_cpu=rtf_cpu,
+            rtf_gpu=rtf_gpu,
+            create_lattice=create_lattice,
+            remove_or_set_concurrency=remove_or_set_concurrency,
+        )
+
+    def recognize_optimize_scales(
+        self,
+        *,
+        label_info: LabelInfo,
+        num_encoder_output: int,
+        search_parameters: SearchParameters,
+        prior_scales: typing.Union[
+            typing.List[typing.Tuple[float]],  # center
+            typing.List[typing.Tuple[float, float]],  # center, left
+            typing.List[typing.Tuple[float, float, float]],  # center, left, right
+            np.ndarray,
+        ],
+        tdp_scales: typing.Union[typing.List[float], np.ndarray],
+        tdp_sil: typing.Optional[typing.List[typing.Tuple[TDP, TDP, TDP, TDP]]] = None,
+        tdp_speech: typing.Optional[typing.List[typing.Tuple[TDP, TDP, TDP, TDP]]] = None,
+        altas_value=14.0,
+        altas_beam=14.0,
+        keep_value=10,
+        gpu: typing.Optional[bool] = None,
+        cpu_rqmt: typing.Optional[int] = None,
+        mem_rqmt: typing.Optional[int] = None,
+        crp_update: typing.Optional[typing.Callable[[rasr.RasrConfig], typing.Any]] = None,
+        pre_path: str = "scales",
+        cpu_slow: bool = True,
+    ) -> SearchParameters:
+        assert len(prior_scales) > 0
+        assert len(tdp_scales) > 0
+
+        recog_args = dataclasses.replace(search_parameters, altas=altas_value, beam=altas_beam)
+
+        if isinstance(prior_scales, np.ndarray):
+            prior_scales = [(s,) for s in prior_scales] if prior_scales.ndim == 1 else [tuple(s) for s in prior_scales]
+
+        prior_scales = [tuple(round(p, 2) for p in priors) for priors in prior_scales]
+        prior_scales = [
+            (p, 0.0, 0.0)
+            if isinstance(p, float)
+            else (p[0], 0.0, 0.0)
+            if len(p) == 1
+            else (p[0], p[1], 0.0)
+            if len(p) == 2
+            else p
+            for p in prior_scales
+        ]
+        tdp_scales = [round(s, 2) for s in tdp_scales]
+        tdp_sil = tdp_sil if tdp_sil is not None else [recog_args.tdp_silence]
+        tdp_speech = tdp_speech if tdp_speech is not None else [recog_args.tdp_speech]
+
+        jobs = {
+            ((c, l, r), tdp, tdp_sl, tdp_sp): self.recognize_count_lm(
+                add_sis_alias_and_output=False,
+                calculate_stats=False,
+                cpu_rqmt=cpu_rqmt,
+                crp_update=crp_update,
+                gpu=gpu,
+                is_min_duration=False,
+                keep_value=keep_value,
+                label_info=label_info,
+                mem_rqmt=mem_rqmt,
+                name_override=f"{self.name}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{tdp_sl}-tdpSp{tdp_sp}",
+                num_encoder_output=num_encoder_output,
+                opt_lm_am=False,
+                rerun_after_opt_lm=False,
+                search_parameters=dataclasses.replace(
+                    recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_speech=tdp_sp
+                ).with_prior_scale(left=l, center=c, right=r),
+                remove_or_set_concurrency=False,
+            )
+            for ((c, l, r), tdp, tdp_sl, tdp_sp) in itertools.product(prior_scales, tdp_scales, tdp_sil, tdp_speech)
+        }
+        jobs_num_e = {k: v.sclite.out_num_errors for k, v in jobs.items()}
+
+        for ((c, l, r), tdp, tdp_sl, tdp_sp), recog_jobs in jobs.items():
+            if cpu_slow:
+                recog_jobs.search.update_rqmt("run", {"cpu_slow": True})
+
+            pre_name = f"{pre_path}/{self.name}/Lm{recog_args.lm_scale}-Pron{recog_args.pron_scale}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{format_tdp(tdp_sl)}-tdpSp{format_tdp(tdp_sp)}"
+
+            recog_jobs.lat2ctm.set_keep_value(keep_value)
+            recog_jobs.search.set_keep_value(keep_value)
+
+            recog_jobs.search.add_alias(pre_name)
+            tk.register_output(f"{pre_name}.err", recog_jobs.sclite.out_num_errors)
+            tk.register_output(f"{pre_name}.wer", recog_jobs.sclite.out_wer)
+
+        best_overall_wer = ComputeArgminJob({k: v.sclite.out_wer for k, v in jobs.items()})
+        best_overall_n = ComputeArgminJob(jobs_num_e)
+        tk.register_output(
+            f"scales-best/{self.name}/args",
+            best_overall_n.out_argmin,
+        )
+        tk.register_output(
+            f"scales-best/{self.name}/num_err",
+            best_overall_n.out_min,
+        )
+        tk.register_output(
+            f"scales-best/{self.name}/wer",
+            best_overall_wer.out_min,
+        )
+
+        # cannot destructure, need to use indices
+        best_priors = best_overall_n.out_argmin[0]
+        best_tdp_scale = best_overall_n.out_argmin[1]
+        best_tdp_sil = best_overall_n.out_argmin[2]
+        best_tdp_sp = best_overall_n.out_argmin[3]
+
+        def push_delayed_tuple(
+            argmin: DelayedBase,
+        ) -> typing.Tuple[DelayedBase, DelayedBase, DelayedBase, DelayedBase]:
+            return tuple(argmin[i] for i in range(4))
+
+        base_cfg = dataclasses.replace(
+            search_parameters,
+            tdp_scale=best_tdp_scale,
+            tdp_silence=push_delayed_tuple(best_tdp_sil),
+            tdp_speech=push_delayed_tuple(best_tdp_sp),
+        )
+
+        best_center_prior = best_priors[0]
+        if self.context_type.is_monophone():
+            return base_cfg.with_prior_scale(center=best_center_prior)
+
+        best_left_prior = best_priors[1]
+        if self.context_type.is_diphone():
+            return base_cfg.with_prior_scale(center=best_center_prior, left=best_left_prior)
+
+        best_right_prior = best_priors[2]
+        return base_cfg.with_prior_scale(
+            center=best_center_prior,
+            left=best_left_prior,
+            right=best_right_prior,
         )
 
     def recognize_ls_lstm_lm(
@@ -669,6 +817,7 @@ class FHDecoder:
         gpu: typing.Optional[bool] = None,
         cpu_rqmt: typing.Optional[int] = None,
         mem_rqmt: typing.Optional[int] = None,
+        crp_update: typing.Optional[typing.Callable[[rasr.RasrConfig], typing.Any]] = None,
     ) -> RecognitionJobs:
         return None  # buggy
 
@@ -692,6 +841,7 @@ class FHDecoder:
             rerun_after_opt_lm=rerun_after_opt_lm,
             search_parameters=search_parameters,
             use_estimated_tdps=use_estimated_tdps,
+            crp_update=crp_update,
         )
 
     def recognize_ls_trafo_lm(
@@ -713,6 +863,13 @@ class FHDecoder:
         gpu: typing.Optional[bool] = None,
         cpu_rqmt: typing.Optional[int] = None,
         mem_rqmt: typing.Optional[int] = None,
+        crp_update: typing.Optional[typing.Callable[[rasr.RasrConfig], typing.Any]] = None,
+        rtf_gpu: typing.Optional[float] = None,
+        rtf_cpu: typing.Optional[float] = None,
+        create_lattice: bool = True,
+        remove_or_set_concurrency: typing.Union[bool, int] = False,
+        lookahead_with_4gram: bool = False,
+        **kwargs,
     ) -> RecognitionJobs:
         return self.recognize(
             add_sis_alias_and_output=add_sis_alias_and_output,
@@ -734,6 +891,13 @@ class FHDecoder:
             rerun_after_opt_lm=rerun_after_opt_lm,
             search_parameters=search_parameters,
             use_estimated_tdps=use_estimated_tdps,
+            crp_update=crp_update,
+            rtf_cpu=rtf_cpu,
+            rtf_gpu=rtf_gpu,
+            create_lattice=create_lattice,
+            remove_or_set_concurrency=remove_or_set_concurrency,
+            lookahead_with_4gram=lookahead_with_4gram,
+            **kwargs,
         )
 
     def recognize(
@@ -759,8 +923,18 @@ class FHDecoder:
         use_estimated_tdps=False,
         mem_rqmt: typing.Optional[int] = None,
         cpu_rqmt: typing.Optional[int] = None,
+        crp_update: typing.Optional[typing.Callable[[rasr.RasrConfig], typing.Any]] = None,
+        rtf_cpu: typing.Optional[float] = None,
+        rtf_gpu: typing.Optional[float] = None,
+        create_lattice: bool = True,
+        remove_or_set_concurrency: typing.Union[bool, int] = False,
+        lookahead_with_4gram: bool = False,
     ) -> RecognitionJobs:
-        if isinstance(search_parameters, SearchParameters):
+        if (
+            isinstance(search_parameters, SearchParameters)
+            and isinstance(search_parameters.tdp_speech, tuple)
+            and isinstance(search_parameters.tdp_silence, tuple)
+        ):
             assert len(search_parameters.tdp_speech) == 4
             assert len(search_parameters.tdp_silence) == 4
             assert not search_parameters.silence_penalties or len(search_parameters.silence_penalties) == 2
@@ -821,9 +995,9 @@ class FHDecoder:
                     name += f"-silFwdP-{sil_fwd_penalty}"
 
             if (
-                search_parameters.tdp_speech[2] == "infinity"
+                name_override is None
+                and search_parameters.tdp_speech[2] == "infinity"
                 and search_parameters.tdp_silence[2] == "infinity"
-                and name_override is None
             ):
                 name += "-noSkip"
         else:
@@ -837,6 +1011,8 @@ class FHDecoder:
                 name += f"-ALTAS{search_parameters.altas}"
             if search_parameters.add_all_allophones:
                 name += "-allAllos"
+            if not create_lattice:
+                name += "-noLattice"
 
         state_tying = search_crp.acoustic_model_config.state_tying.type
 
@@ -866,15 +1042,17 @@ class FHDecoder:
             tying_type="global-and-nonword",
         )
 
-        search_crp.acoustic_model_config.allophones["add-all"] = search_parameters.add_all_allophones
-        search_crp.acoustic_model_config.allophones["add-from-lexicon"] = not search_parameters.add_all_allophones
+        search_crp.acoustic_model_config.allophones.add_all = search_parameters.add_all_allophones
+        search_crp.acoustic_model_config.allophones.add_from_lexicon = not search_parameters.add_all_allophones
 
-        search_crp.acoustic_model_config["state-tying"][
-            "use-boundary-classes"
-        ] = label_info.phoneme_state_classes.use_boundary()
-        search_crp.acoustic_model_config["state-tying"][
-            "use-word-end-classes"
-        ] = label_info.phoneme_state_classes.use_word_end()
+        search_crp.acoustic_model_config.state_tying.use_boundary_classes = (
+            label_info.phoneme_state_classes.use_boundary()
+        )
+        search_crp.acoustic_model_config.state_tying.use_word_end_classes = (
+            label_info.phoneme_state_classes.use_word_end()
+        )
+
+        orig_lm_config = search_crp.language_model_config
 
         # lm config update
         if lm_config is not None:
@@ -890,13 +1068,33 @@ class FHDecoder:
             is_count_based=True,
         )
 
+        adv_search_extra_config = None
+
         if search_parameters.altas is not None:
-            adv_search_extra_config = rasr.RasrConfig()
+            if adv_search_extra_config is None:
+                adv_search_extra_config = rasr.RasrConfig()
+
             adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.acoustic_lookahead_temporal_approximation_scale = (
                 search_parameters.altas
             )
-        else:
-            adv_search_extra_config = None
+        if lookahead_with_4gram:
+            assert self.search_crp.language_model_config.type.lower() == "arpa"
+
+            if adv_search_extra_config is None:
+                adv_search_extra_config = rasr.RasrConfig()
+
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.separate_lookahead_lm = True
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.lm_lookahead_scale = (
+                search_parameters.lm_lookahead_scale
+                if search_parameters.lm_lookahead_scale is not None
+                else search_parameters.lm_scale / 2
+            )
+            lm_img_job = CreateLmImageJob(self.search_crp)
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.image = (
+                lm_img_job.out_image
+            )
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.scale = 1.0
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.type = "ARPA"
 
         feature_scorer = get_feature_scorer(
             context_type=self.context_type,
@@ -917,7 +1115,9 @@ class FHDecoder:
             state_dependent_tdp_file=search_parameters.state_dependent_tdps,
             is_min_duration=is_min_duration,
             is_multi_encoder_output=self.is_multi_encoder_output,
+            set_is_batch_major=self.set_batch_major,
         )
+        self.feature_scorer = feature_scorer
 
         pre_path = (
             pre_path
@@ -927,21 +1127,47 @@ class FHDecoder:
             else "decoding"
         )
 
+        if crp_update is not None:
+            crp_update(search_crp)
+
+        use_gpu = gpu if gpu is not None else self.gpu
+
+        ts_args = {}
+        if self.parallel is not None:
+            ts_args["parallel"] = self.parallel
+
+        flow = self.featureScorerFlow
+
+        if remove_or_set_concurrency:
+            concurrent = max(int(remove_or_set_concurrency), 1)
+            search_crp.concurrent = concurrent
+
+            flow = copy.deepcopy(flow)
+            flow.flags["cache_mode"] = "bundle"
+
+            search_crp.segment_path = i6_core.corpus.SegmentCorpusJob(
+                search_crp.corpus_config.file, concurrent
+            ).out_segment_path
+
         search = recog.AdvancedTreeSearchJob(
             crp=search_crp,
-            feature_flow=self.featureScorerFlow,
+            feature_flow=flow,
             feature_scorer=feature_scorer,
             search_parameters=sp,
             lm_lookahead=True,
             eval_best_in_lattice=True,
-            use_gpu=gpu if gpu is not None else self.gpu,
-            rtf=rqms["rtf"],
+            use_gpu=use_gpu,
+            rtf=rtf_gpu if rtf_gpu is not None and use_gpu else rtf_cpu if rtf_cpu is not None else rqms["rtf"],
             mem=rqms["mem"] if mem_rqmt is None else mem_rqmt,
-            cpu=4 if cpu_rqmt is None else cpu_rqmt,
+            cpu=2 if cpu_rqmt is None else cpu_rqmt,
             model_combination_config=model_combination_config,
             model_combination_post_config=None,
             extra_config=adv_search_extra_config,
             extra_post_config=None,
+            lmgc_scorer=rasr.DiagonalMaximumScorer(self.mixtures) if self.lm_gc_simple_hash else None,
+            create_lattice=create_lattice,
+            separate_lm_image_gc_generation=True,
+            **ts_args,
         )
 
         if add_sis_alias_and_output:
@@ -951,13 +1177,26 @@ class FHDecoder:
             stat = ExtractSearchStatisticsJob(list(search.out_log_file.values()), self.corpus_duration)
 
             if add_sis_alias_and_output:
-                stat.add_alias(f"statistics/{name}")
-                tk.register_output(f"statistics/rtf/{name}.rtf", stat.decoding_rtf)
+                pre = f"{pre_path}-" if pre_path != "decoding" and pre_path != "decoding-gridsearch" else ""
+                stat.add_alias(f"{pre}statistics/{name}")
+                tk.register_output(f"{pre}statistics/rtf/{name}.rtf", stat.decoding_rtf)
+                tk.register_output(f"{pre}statistics/rtf/{name}.recognizer.rtf", stat.recognizer_rtf)
+                tk.register_output(f"{pre}statistics/rtf/{name}.stats", stat.ss_statistics)
         else:
             stat = None
 
         if keep_value is not None:
             search.keep_value(keep_value)
+
+        if not create_lattice:
+            return RecognitionJobs(
+                lat2ctm=None,
+                sclite=None,
+                search=search,
+                search_crp=search_crp,
+                search_feature_scorer=feature_scorer,
+                search_stats=stat,
+            )
 
         lat2ctm_extra_config = rasr.RasrConfig()
         lat2ctm_extra_config.flf_lattice_tool.network.to_lemma.links = "best"
@@ -1021,47 +1260,58 @@ class FHDecoder:
                     use_estimated_tdps=use_estimated_tdps,
                 )
 
-        return RecognitionJobs(lat2ctm=lat2ctm, sclite=scorer, search=search, search_stats=stat)
+        return RecognitionJobs(
+            lat2ctm=lat2ctm,
+            sclite=scorer,
+            search=search,
+            search_crp=search_crp,
+            search_feature_scorer=feature_scorer,
+            search_stats=stat,
+        )
 
     def align(
         self,
-        name,
-        crp,
-        rtf=10,
-        mem=8,
-        am_trainer_exe_path=None,
+        name: str,
+        crp: typing.Optional[rasr.CommonRasrParameters] = None,
+        feature_scorer: typing.Optional[rasr.FeatureScorer] = None,
+        feature_flow: typing.Optional[rasr.FlowNetwork] = None,
         default_tdp=True,
+        set_do_not_normalize_lemma_sequence_scores: bool = True,
+        set_no_tying_dense: bool = True,
+        rtf=4,
     ):
-        align_crp = copy.deepcopy(crp)
-        if am_trainer_exe_path is not None:
-            align_crp.acoustic_model_trainer_exe = am_trainer_exe_path
+        align_crp = copy.deepcopy(crp) if crp is not None else self.search_crp
 
         if default_tdp:
             v = (3.0, 0.0, "infinity", 0.0)
-            sv = (0.0, 3.0, "infinity", 0.0)
+            sv = (0.0, 3.0, "infinity", 3.0)
             keys = ["loop", "forward", "skip", "exit"]
             for i, k in enumerate(keys):
                 align_crp.acoustic_model_config.tdp["*"][k] = v[i]
                 align_crp.acoustic_model_config.tdp["silence"][k] = sv[i]
 
-        # make sure it is correct for the fh feature scorer scorer
-        align_crp.acoustic_model_config.state_tying.type = "no-tying-dense"
+        if set_no_tying_dense:
+            # make sure it is correct for the fh feature scorer scorer
+            align_crp.acoustic_model_config.state_tying.type = "no-tying-dense"
 
         # make sure the FSA is not buggy
         align_crp.acoustic_model_config["*"]["fix-allophone-context-at-word-boundaries"] = True
         align_crp.acoustic_model_config["*"]["transducer-builder-filter-out-invalid-allophones"] = True
         align_crp.acoustic_model_config["*"]["allow-for-silence-repetitions"] = False
         align_crp.acoustic_model_config["*"]["fix-tdp-leaving-epsilon-arc"] = True
+        if set_do_not_normalize_lemma_sequence_scores:
+            align_crp.acoustic_model_config["*"]["normalize-lemma-sequence-scores"] = False
 
         alignment = mm.AlignmentJob(
             crp=align_crp,
-            feature_flow=self.featureScorerFlow,
-            feature_scorer=self.feature_scorer,
+            feature_flow=feature_flow if feature_flow is not None else self.featureScorerFlow,
+            feature_scorer=feature_scorer if feature_scorer is not None else self.feature_scorer,
             use_gpu=self.gpu,
             rtf=rtf,
         )
-        alignment.rqmt["cpu"] = 2
-        alignment.rqmt["mem"] = 8
-        alignment.add_alias(f"alignments/align_{name}")
-        tk.register_output("alignments/realignment-{}".format(name), alignment.out_alignment_bundle)
+        alignment.update_rqmt("run", {"mem": 4})
+
+        alignment.add_alias(f"alignments/{name}")
+        tk.register_output(f"alignments/{name}", alignment.out_alignment_bundle)
+
         return alignment

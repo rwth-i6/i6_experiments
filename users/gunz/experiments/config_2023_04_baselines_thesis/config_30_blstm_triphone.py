@@ -1,8 +1,8 @@
 __all__ = ["run", "run_single"]
 
 import copy
+from dataclasses import dataclass
 import itertools
-import typing
 
 import numpy as np
 import os
@@ -17,17 +17,17 @@ import i6_core.returnn as returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common import oclr, returnn_time_tag
-from ...setups.common.specaugment import (
+from ...setups.common.nn import oclr, returnn_time_tag
+from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
     summary as sa_summary,
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
-from ...setups.fh.network import conformer
+from ...setups.fh.decoder.config import PriorInfo
 from ...setups.fh.factored import PhoneticContext
-from ...setups.fh.network import aux_loss, extern_data
+from ...setups.fh.network import extern_data
 from ...setups.fh.network.augment import (
     augment_net_with_monophone_outputs,
     augment_net_with_label_pops,
@@ -36,28 +36,43 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
+    BLSTM_FH_DECODING_TENSOR_CONFIG,
     CONF_CHUNKING,
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
     CONF_SA_CONFIG,
-    FH_DECODING_TENSOR_CONFIG,
+    FROM_SCRATCH_CV_INFO,
     L2,
     RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
-    RASR_ROOT_RS_RASR_GUNZ,
+    RASR_ROOT_BLSTM_COMPATIBLE_GUNZ,
     RETURNN_PYTHON_TF15,
+    SCRATCH_ALIGNMENT,
 )
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_FH_GUNZ, "arch", gs.RASR_ARCH))
 RASR_BINARY_PATH.hash_override = "FH_RASR_PATH"
-
-RS_RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_RS_RASR_GUNZ, "arch", gs.RASR_ARCH))
 RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
+
+BLSTM_FH_RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_BLSTM_COMPATIBLE_GUNZ, "arch", gs.RASR_ARCH))
+BLSTM_FH_RASR_BINARY_PATH.hash_overwrite = "BLSTM_FH_RASR_BINARY_PATH"
 
 RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF15)
 RETURNN_PYTHON_EXE.hash_override = "FH_RETURNN_PYTHON_EXE"
 
 train_key = "train-other-960"
+
+
+@dataclass(frozen=True)
+class Experiment:
+    alignment: tk.Path
+    alignment_name: str
+    lr: str
+    dc_detection: bool
+    tune_decoding: bool
+    own_priors: bool
+
+    focal_loss: float = CONF_FOCAL_LOSS
 
 
 def run(returnn_root: tk.Path):
@@ -66,20 +81,44 @@ def run(returnn_root: tk.Path):
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
+    scratch_align = tk.Path(SCRATCH_ALIGNMENT, cached=True)
     tri_gmm_align = tk.Path(RAISSI_ALIGNMENT, cached=True)
 
     configs = [
-        (CONF_FOCAL_LOSS, "GMMtri", tri_gmm_align, "v6"),
-        (CONF_FOCAL_LOSS, "GMMtri", tri_gmm_align, "v7"),
-    ]
-    for fl, a_name, a, lr in configs:
-        run_single(
-            alignment=a,
-            alignment_name=a_name,
-            focal_loss=fl,
-            returnn_root=returnn_root,
+        Experiment(
+            alignment=tri_gmm_align,
+            alignment_name="GMMtri",
+            dc_detection=False,
+            lr="v6",
+            own_priors=False,
             tune_decoding=False,
-            lr=lr,
+        ),
+        Experiment(
+            alignment=tri_gmm_align,
+            alignment_name="GMMtri",
+            dc_detection=False,
+            lr="v7",
+            own_priors=True,
+            tune_decoding=False,
+        ),
+        Experiment(
+            alignment=scratch_align,
+            alignment_name="scratch",
+            dc_detection=True,
+            lr="v7",
+            own_priors=False,
+            tune_decoding=False,
+        ),
+    ]
+    for exp in configs:
+        run_single(
+            alignment=exp.alignment,
+            alignment_name=exp.alignment_name,
+            focal_loss=exp.focal_loss,
+            returnn_root=returnn_root,
+            tune_decoding=exp.tune_decoding,
+            own_priors=exp.own_priors,
+            lr=exp.lr,
         )
 
 
@@ -92,6 +131,7 @@ def run_single(
     num_epochs: int = 600,
     focal_loss: float = CONF_FOCAL_LOSS,
     dc_detection: bool = False,
+    own_priors: bool = False,
     tune_decoding: bool = False,
     lr: str = "v6",
 ) -> fh_system.FactoredHybridSystem:
@@ -120,7 +160,10 @@ def run_single(
         dev_data=dev_data_inputs,
         test_data=test_data_inputs,
     )
+    s.do_not_set_returnn_python_exe_for_graph_compiles = True
     s.train_key = train_key
+    if alignment_name == "scratch":
+        s.cv_info = FROM_SCRATCH_CV_INFO
     s.run(steps)
 
     # *********** Preparation of data input for rasr-returnn training *****************
@@ -132,7 +175,7 @@ def run_single(
 
     s.set_crp_pairings()
     s.set_rasr_returnn_input_datas(
-        is_cv_separate_from_train=False,
+        is_cv_separate_from_train=alignment_name == "scratch",
         input_key="data_preparation",
         chunk_size=CONF_CHUNKING,
     )
@@ -345,24 +388,35 @@ def run_single(
         nn_train_args=train_args,
         on_2080=False,
     )
-    s.set_triphone_priors_returnn_rasr(
-        key="fh",
-        epoch=keep_epochs[-2],
-        train_corpus_key=s.crp_names["train"],
-        dev_corpus_key=s.crp_names["cvtrain"],
-    )
 
-    s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
+    if own_priors:
+        s.set_triphone_priors_returnn_rasr(
+            key="fh",
+            epoch=keep_epochs[-2],
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+        )
+    else:
+        s.set_graph_for_experiment("fh")
+        s.experiments["fh"]["priors"] = PriorInfo.from_triphone_job(
+            "/u/mgunz/gunz/kept-experiments/2022-07--baselines/priors/tri-from-GMMtri-conf-ph-3-dim-512-ep-600-cls-WE-lr-v6-sa-v1-bs-6144-fls-False-rp-epoch-550"
+        )
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+        s.set_binaries_for_crp(crp_k, BLSTM_FH_RASR_BINARY_PATH)
+        s.crp[crp_k].lm_util_exe = tk.Path(
+            "/u/mgunz/src/fh_rasr/arch/linux-x86_64-standard/lm-util.linux-x86_64-standard"
+        )
+
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.triphone_forward,
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,
-            tensor_map=FH_DECODING_TENSOR_CONFIG,
-            recompile_graph_for_feature_scorer=True,
+            tensor_map=BLSTM_FH_DECODING_TENSOR_CONFIG,
+            recompile_graph_for_feature_scorer=False,
+            tf_library=[s.native_lstm2_job.out_op],
         )
         recognizer.recognize_count_lm(
             label_info=s.label_info,
@@ -371,5 +425,28 @@ def run_single(
             rerun_after_opt_lm=True,
             calculate_stats=True,
         )
+
+        if tune_decoding:
+            best_config = recognizer.recognize_optimize_scales(
+                label_info=s.label_info,
+                search_parameters=recog_args,
+                num_encoder_output=conf_model_dim,
+                prior_scales=list(
+                    itertools.product(
+                        np.linspace(0.1, 0.5, 5),
+                        np.linspace(0.0, 0.4, 3),
+                        np.linspace(0.0, 0.2, 3),
+                    )
+                ),
+                tdp_scales=np.linspace(0.2, 0.6, 3),
+            )
+            recognizer.recognize_count_lm(
+                label_info=s.label_info,
+                search_parameters=best_config,
+                num_encoder_output=conf_model_dim,
+                rerun_after_opt_lm=True,
+                calculate_stats=True,
+                name_override="best/4gram",
+            )
 
     return s
