@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from typing import Optional, Any, Tuple, Dict, Sequence, List
 
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.conformer_import_moh_att_2023_06_30 import (
-    Model,
-)
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.search_functions import remove_blank_and_eos
 
 from returnn.tensor import Tensor, Dim
@@ -17,7 +14,7 @@ import torch
 
 def model_recog_ctc(
     *,
-    model: Model,
+    model,
     data: Tensor,
     data_spatial_dim: Dim,
     max_seq_len: Optional[int] = None,

@@ -7,8 +7,9 @@ from typing import Optional, Any, Tuple, Dict, Sequence, List
 import tree
 from itertools import product
 
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.lm_import_2023_11_09 import \
-    Ted2_Trafo_LM_Model
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.lm_import_2023_11_09 import (
+    Ted2_Trafo_LM_Model,
+)
 from sisyphus import tk
 
 from returnn.tensor import Tensor, Dim, single_step_dim
@@ -20,7 +21,7 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
     LSTM_LM_Model,
     MakeModel,
 )
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
+from i6_experiments.users.gaudino.model_interfaces import ModelDef, RecogDef, TrainDef
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog import (
     model_recog,
@@ -31,8 +32,15 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_dump import (
     model_recog_dump,
 )
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_forward import model_forward
-
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_ctc_greedy import (
+    model_recog_ctc,
+)
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_forward import (
+    model_forward,
+)
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_forward_time_sync import (
+    model_forward_time_sync,
+)
 
 
 import torch
@@ -109,6 +117,30 @@ def sis_run_with_prefix(prefix_name: str = None):
     model_args = {
         "add_lstm_lm": True,
     }
+
+    # att only
+    for beam_size in []:
+        recog_name = f"/single_seq_att_beam{beam_size}"
+        name = prefix_name + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "bsf": "ss",
+        }
+        dev_sets = ["dev-other"]  # only dev-other for testing
+        # dev_sets = None  # all
+        res, _ = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog,
+            dev_sets=dev_sets,
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            res.output,
+        )
 
     # att + lstm lm
     for lm_scale in [0.3, 0.33, 0.35]:
@@ -197,7 +229,7 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # check for search errors
     for scales in [(0.7, 0.3)]:
-        for beam_size in [12]:
+        for beam_size in []:
             att_scale, ctc_scale = scales
             name = (
                 prefix_name
@@ -250,60 +282,78 @@ def sis_run_with_prefix(prefix_name: str = None):
             )
 
     # ctc only decoding
-    if False:
-        search_args = {
-            "beam_size": 12,
-            "add_lstm_lm": False,
-        }
+    search_args = {
+        "bsf": "bsf160_1",
+    }
+    name = prefix_name + f"/bsf160_ctc_greedy"
+    dev_sets = ["dev-other"]  # only dev-other for testing
+    # dev_sets = None  # all
+    res, _ = recog_model(
+        task,
+        model_with_checkpoint,
+        model_recog_ctc,
+        dev_sets=dev_sets,
+        model_args=model_args,
+        search_args=search_args,
+        prefix_name=name,
+    )
+    tk.register_output(
+        name + f"/recog_results",
+        res.output,
+    )
 
-        dev_sets = ["dev-other"]  # only dev-other for testing
-        # dev_sets = None  # all
-        res, _ = recog_model(
-            task,
-            model_with_checkpoint,
-            model_recog_ctc,
-            dev_sets=dev_sets,
-            model_args=model_args,
-            search_args=search_args,
-            prefix_name=prefix_name,
-        )
-        tk.register_output(
+    # time sync decoding
+    for scales, beam_size in product([(0.65, 0.35, 0.3)], [12]):
+        att_scale, ctc_scale, prior_scale = scales
+        name = (
             prefix_name
-            # + f"/espnet_att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_beam{search_args['beam_size']}_maskEos"
-            + f"/ctc_greedy" + f"/recog_results",
-            res.output,
+            + f"/bsf160_timesync_att{att_scale}_ctc{ctc_scale}_prior{prior_scale}_beam{beam_size}"
         )
-
-    if False:
-        # time sync decoding
         search_args = {
-            "beam_size": 32,
-            "add_lstm_lm": False,
-            "length_normalization_exponent": 1.0,  # 0.0 for disabled
-            "mask_eos": True,
-            "att_scale": 0.65,
-            "ctc_scale": 0.35,
-            "rescore_w_ctc": False,
+            "beam_size": beam_size,
+            "att_scale": att_scale,
+            "ctc_scale": ctc_scale,
             "prior_corr": True,
-            "prior_scale": 0.3,
+            "prior_scale": prior_scale,
+            "bsf": "bsf160_1",
         }
 
         dev_sets = ["dev-other"]  # only dev-other for testing
         # dev_sets = None  # all
-        res, _ = recog_model(
+
+        # first recog
+        recog_res, recog_out = recog_model(
             task,
             model_with_checkpoint,
             model_recog_time_sync,
             dev_sets=dev_sets,
             model_args=model_args,
             search_args=search_args,
-            prefix_name=prefix_name,
+            prefix_name=name,
         )
         tk.register_output(
-            prefix_name
-            + f"/time_sync_att{search_args['att_scale']}_ctc{search_args['ctc_scale']}_prior{search_args['prior_scale']}_beam{search_args['beam_size']}_mask_eos"
-            + f"/recog_results",
-            res.output,
+            name + f"/recog_results",
+            recog_res.output,
+        )
+
+        # then forward
+        forward_out = forward_model(
+            task,
+            model_with_checkpoint,
+            model_forward_time_sync,
+            dev_sets=dev_sets,
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+        )
+
+        # TODO compute search errors
+        res = ComputeSearchErrorsJob(
+            forward_out.output, recog_out.output
+        ).out_search_errors
+        tk.register_output(
+            name + f"/search_errors",
+            res,
         )
 
 
@@ -764,8 +814,9 @@ from_scratch_model_def: ModelDef[Model]
 from_scratch_model_def.behavior_version = 16
 from_scratch_model_def.backend = "torch"
 from_scratch_model_def.batch_size_factor = (
-    40  # 160 # change batch size here - 20 for att_window - 40 for ctc_prefix
+    160 # change batch size here - 20 for att_window - 40 for ctc_prefix
 )
+from_scratch_model_def.max_seqs = 200 #1
 
 
 def from_scratch_training(

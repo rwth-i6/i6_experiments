@@ -616,7 +616,7 @@ def test_import_search():
         epoch=1,
         seq_list=[f"dev-other/116-288045-{i:04d}/116-288045-{i:04d}" for i in range(33)],
     )
-    batch_num_seqs = 1
+    batch_num_seqs = 2
     # batch_num_seqs = 10
     dataset.load_seqs(0, batch_num_seqs)
     batch = Batch()
@@ -651,21 +651,13 @@ def test_import_search():
 
     print("*** Create new model")
     search_args = {
-        "att_scale": 1.0,
-        "ctc_scale": 0.3,
         "beam_size": 12,
-        "use_ctc": True,
-        "mask_eos": True,
+    }
+    model_args = {
         "add_lstm_lm": True,
-        "lm_scale": 0.33,
-        "prior_corr": False,
-        "prior_scale": 0.2,
-        "length_normalization_exponent": 1.0,
-        # "window_margin": 10,
-        "rescore_w_ctc": False,
     }
     # returnn/torch/fonrtend/_backend 1635: sizes_raw = torch.reshape(sizes.raw_tensor, [batch_dim]).to('cpu')
-    new_model = MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers, search_args=search_args)
+    new_model = MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers, search_args=search_args, model_args=model_args)
 
     from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
 

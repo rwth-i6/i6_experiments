@@ -23,12 +23,13 @@ _ctc_prior_filename = "/u/luca.gaudino/debug/ctc/prior.txt"
 # _ctc_prior_filename = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZdcvhAOyWl95/output/prior.txt"
 
 
-def model_recog_time_sync(
+def model_forward_time_sync(
     *,
     model,
     data: Tensor,
     data_spatial_dim: Dim,
     max_seq_len: Optional[int] = None,
+    ground_truth: Tensor,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -45,7 +46,7 @@ def model_recog_time_sync(
     """
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    beam_size = model.search_args.get("beam_size", 12)
+    beam_size = 1
     length_normalization_exponent = model.search_args.get("length_normalization_exponent", 1.0)
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
@@ -60,8 +61,8 @@ def model_recog_time_sync(
     decoder_state = model.decoder_default_initial_state(
         batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
     )
-    if model.search_args.get("add_lstm_lm", False):
-        lm_state = model.lstm_lm.lm_default_initial_state(batch_dims=batch_dims_)
+    # if model.search_args.get("add_lstm_lm", False):
+    #     lm_state = model.lstm_lm.lm_default_initial_state(batch_dims=batch_dims_)
     initial_target = rf.constant(
         model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim_w_b
     )
@@ -98,8 +99,6 @@ def model_recog_time_sync(
         raw_tensor=ctc_out_raw,
     )
 
-    hlens = max_seq_len.raw_tensor
-
     # if model.search_args["use_ctc"]:
     #     # ctc prefix scorer espnet
     #     from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.espnet_ctc.ctc_prefix_score_espnet import (
@@ -130,33 +129,62 @@ def model_recog_time_sync(
     #     ctc_state = None
     enc_args.pop("ctc")
 
+    # viterbi alignment
+    from .two_pass import ctc_viterbi_one_seq
+    from returnn.frontend.tensor_array import TensorArray
+
+    ground_truth_raw = ground_truth.raw_tensor
+    viterbi_paths = None
+    hlens = max_seq_len.raw_tensor
+    max_hlens = hlens.max()
+
+    for i in range(batch_size):
+        unpad_mask = ground_truth_raw[i] != 0
+        best_path_raw, _ = ctc_viterbi_one_seq(
+            ctc_log_probs=ctc_out_raw[i],
+            seq=ground_truth_raw[i][unpad_mask],
+            t_max=hlens[i],
+            blank_idx=model.blank_idx,
+        )
+        best_path_raw_pad = torch.zeros(max_hlens - hlens[i], dtype=torch.int64)
+        best_path_raw = torch.cat([best_path_raw, best_path_raw_pad])
+        best_path = rf.Tensor(
+            f"best_path_{i}",
+            dims=[enc_spatial_dim],
+            dtype="int64",
+            raw_tensor=best_path_raw,
+        )
+        if viterbi_paths:
+            viterbi_paths.push_back(best_path)
+        else:
+            viterbi_paths = TensorArray(best_path)
+            viterbi_paths.push_back(best_path)
+
+    viterbi_paths = viterbi_paths.stack(axis=batch_size_dim)
+    viterbi_paths = rf.reshape(viterbi_paths, viterbi_paths.dims, batch_dims_ + [enc_spatial_dim])
+
     prev_decoder_state = decoder_state
     prev_target = initial_target
     prev_target_non_blank = initial_target
 
     eps = 1e-30
     i = 0
-    seq_targets = []
-    seq_backrefs = []
 
-    for i in range(torch.max(hlens)):
-        # gather prev non-blank targets and prev_decoder_state via backrefs
-        if i == 1:
-            prev_target = rf.gather(initial_target, indices=seq_backrefs[i - 1])
-        elif i > 1:
-            prev_target = rf.gather(seq_targets[i - 2], indices=seq_backrefs[i - 1])
+    while True:
+        if i > 1:
+            prev_target, slice_out_dim = rf.slice(viterbi_paths, axis=enc_spatial_dim, start=i-2, end=i-1)
+            prev_target = rf.copy_to_device(rf.squeeze(prev_target, slice_out_dim))
+            prev_target = rf.reshape(prev_target, prev_target.dims, target.dims)
 
         if i > 0:
-            prev_decoder_state = tree.map_structure(
-                lambda s: rf.gather(s, indices=seq_backrefs[i - 1]),
-                prev_decoder_state_all,
-            )
-            mask_combined_gather = rf.gather(mask_combined, indices=seq_backrefs[i - 1])
-            prev_target_non_blank_gather = rf.gather(
-                prev_target_non_blank, indices=seq_backrefs[i - 1]
-            )
+            # prev_decoder_state = tree.map_structure(
+            #     lambda s: rf.gather(s, indices=seq_backrefs[i - 1]),
+            #     prev_decoder_state_all,
+            # )
+            prev_mask_combined = mask_combined
+            prev_prev_target_non_blank = prev_target_non_blank
             prev_target_non_blank = rf.where(
-                mask_combined_gather, prev_target, prev_target_non_blank_gather
+                prev_mask_combined, prev_target, prev_prev_target_non_blank
             )
 
         mask_not_blank = rf.compare(target, "not_equal", model.blank_idx)
@@ -174,7 +202,7 @@ def model_recog_time_sync(
         target_1.sparse_dim = model.target_dim
 
         # set for next iteration
-        prev_decoder_state_all = decoder_state_1
+        prev_decoder_state = decoder_state_1
 
         input_embed = model.target_embed(target_1)
         step_out, decoder_state = model.loop_step(
@@ -251,20 +279,25 @@ def model_recog_time_sync(
         )
         seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
 
-        seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
-            seq_log_prob,
-            k_dim=Dim(beam_size, name=f"dec-step{i}-beam"),
-            axis=[beam_dim, model.target_dim_w_b],
-        )  # seq_log_prob, backrefs, target: Batch, Beam
-        seq_targets.append(target)
-        seq_backrefs.append(backrefs)
-        decoder_state = tree.map_structure(
-            lambda s: rf.gather(s, indices=backrefs), decoder_state
-        )
-        ended = rf.gather(ended, indices=backrefs)
-        out_seq_len = rf.gather(out_seq_len, indices=backrefs)
+        gt_slice, slice_out_dim = rf.slice(viterbi_paths, axis=enc_spatial_dim, start=i, end=i+1)
+        gt_slice = rf.copy_to_device(rf.squeeze(gt_slice, slice_out_dim))
+        seq_log_prob = rf.gather(seq_log_prob, indices=gt_slice, axis=seq_log_prob.dims[2])
+        target = rf.reshape(gt_slice, gt_slice.dims, target.dims)
 
-        # ended = rf.logical_or(ended, target == model.eos_idx)
+        # seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
+        #     seq_log_prob,
+        #     k_dim=Dim(beam_size, name=f"dec-step{i}-beam"),
+        #     axis=[beam_dim, model.target_dim_w_b],
+        # )  # seq_log_prob, backrefs, target: Batch, Beam
+        # seq_targets.append(target)
+        # seq_backrefs.append(backrefs)
+        # decoder_state = tree.map_structure(
+        #     lambda s: rf.gather(s, indices=backrefs), decoder_state
+        # )
+        # ended = rf.gather(ended, indices=backrefs)
+        # out_seq_len = rf.gather(out_seq_len, indices=backrefs)
+
+        ended = rf.logical_or(ended, target == model.eos_idx)
         ended = rf.logical_or(ended, rf.copy_to_device(i+1 >= max_seq_len))
         if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
             break
@@ -279,59 +312,20 @@ def model_recog_time_sync(
                 (i / (i - 1)) ** length_normalization_exponent,
                 1.0,
             )
+        i += 1
 
     if i > 0 and length_normalization_exponent != 0:
         seq_log_prob *= (1 / i) ** length_normalization_exponent
 
-    # Backtrack via backrefs, resolve beams.
-    seq_targets_ = []
-    indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
-    for backrefs, target in zip(
-        seq_backrefs[::-1], seq_targets[::-1]
-    ):  # [::-1] reverse
-        # indices: FinalBeam -> Beam
-        # backrefs: Beam -> PrevBeam
-        seq_targets_.insert(0, rf.gather(target, indices=indices))
-        indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
-
-    seq_targets__ = TensorArray(seq_targets_[0])
-    for target in seq_targets_:
-        seq_targets__ = seq_targets__.push_back(target)
-    out_spatial_dim = Dim(out_seq_len, name="out-spatial")
-    seq_targets = seq_targets__.stack(axis=out_spatial_dim)
-
-    hyps_raw = seq_targets.copy_transpose(
-        batch_dims + [beam_dim] + [out_spatial_dim]
-    ).raw_tensor
-
-    seq_targets, out_spatial_dim = remove_blank_and_eos(
-        hyps_raw,
-        max_seq_len.raw_tensor[0],
-        batch_dims,
-        beam_dim,
-        model.target_dim,
-        model.blank_idx,
-        model.eos_idx,
-    )
-
-    if model.search_args.get("rescore_w_ctc", False):
-        from .two_pass import rescore_w_ctc
-
-        seq_targets, seq_log_prob = rescore_w_ctc(
-            model,
-            seq_targets,
-            seq_log_prob,
-            ctc_out,
-            batch_size,
-            beam_size,
-            model.blank_idx,
-        )
+    out_spatial_dim = ground_truth.dims[1]
+    seq_targets = rf.reshape(ground_truth, ground_truth.dims, batch_dims_ + [out_spatial_dim])
 
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
+    # return seq_targets, seq_log_prob, viterbi_paths, out_spatial_dim, beam_dim
 
 
 # RecogDef API
-model_recog_time_sync: RecogDef[Model]
-model_recog_time_sync.output_with_beam = True
-model_recog_time_sync.output_blank_label = "<blank>"
-model_recog_time_sync.batch_size_dependent = False
+model_forward_time_sync: RecogDef[Model]
+model_forward_time_sync.output_with_beam = True
+model_forward_time_sync.output_blank_label = "<blank>"
+model_forward_time_sync.batch_size_dependent = False

@@ -50,7 +50,7 @@ def forward_model(
         recog_out = forward_dataset(dataset=dataset, model=model, recog_def=recog_def,
                                     search_post_config=search_post_config, search_mem_rqmt=search_mem_rqmt,
                                     recog_post_proc_funcs=task.recog_post_proc_funcs, model_args=model_args,
-                                    search_args=search_args)
+                                    search_args=search_args, prefix_name=prefix_name)
         # score_out = task.score_recog_output_func(dataset, recog_out)
         # outputs[name] = score_out
     return recog_out
@@ -66,6 +66,7 @@ def forward_dataset(
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     model_args: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
+    prefix_name: str,
 ) -> RecogOutput:
     """
     recog on the specific dataset
@@ -79,6 +80,7 @@ def forward_dataset(
         returnn_root=tools_paths.get_returnn_root(),
         mem_rqmt=search_mem_rqmt,
     )
+    forward_job.add_alias(prefix_name + "/forward_gt_job")
     res = forward_job.out_files[_v2_forward_out_filename]
 
     # if recog_def.output_blank_label:
@@ -149,7 +151,7 @@ def forward_config(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 1,
+                            "version": 2,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
@@ -171,7 +173,7 @@ def forward_config(
         dict(
             batching="sorted",
             batch_size=20000 * model_def.batch_size_factor,
-            max_seqs=200,
+            max_seqs=model_def.max_seqs,
         )
     )
 

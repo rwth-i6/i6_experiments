@@ -22,8 +22,18 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
     MakeModel,
     from_scratch_training,
 )
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog import model_recog
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_forward import model_forward
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog import (
+    model_recog,
+)
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_forward import (
+    model_forward,
+)
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_time_sync import (
+    model_recog_time_sync,
+)
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_forward_time_sync import (
+    model_forward_time_sync,
+)
 
 from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 
@@ -193,6 +203,7 @@ def find_search_errors():
         "beam_size": 12,
         "use_ctc": True,
         "mask_eos": True,
+        "length_normalization_exponent": 0.0,  # 0.0 for disabled
     }
     model_args = {
         "target_embed_dim": 640,
@@ -234,25 +245,48 @@ def find_search_errors():
     # normal search
     with torch.no_grad():
         with rf.set_default_device_ctx("cuda"):
-            seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
+            (
+                seq_targets,
+                seq_log_prob,
+                hyps_raw,
+                out_spatial_dim,
+                beam_dim,
+            ) = model_recog_time_sync(
                 model=new_model,
                 data=extern_data["audio_features"],
                 data_spatial_dim=time_dim,
             )
+            # seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
+            #     model=new_model,
+            #     data=extern_data["audio_features"],
+            #     data_spatial_dim=time_dim,
+            # )
     print(seq_targets, seq_targets.raw_tensor)  # seq_targets [T,Batch,Beam]
     print("Out spatial dim:", out_spatial_dim)
 
     # forward ground truth
     with torch.no_grad():
         with rf.set_default_device_ctx("cuda"):
-            seq_targets_gt, seq_log_prob_gt, _, _ = model_forward(
+            (
+                seq_targets_gt,
+                seq_log_prob_gt,
+                alignments_gt,
+                _,
+                _,
+            ) = model_forward_time_sync(
                 model=new_model,
                 data=extern_data["audio_features"],
                 data_spatial_dim=time_dim,
                 ground_truth=extern_data["bpe_labels"],
             )
-    print(seq_targets_gt, seq_targets.raw_tensor)
-    print(seq_log_prob_gt, seq_log_prob.raw_tensor)
+            # seq_targets_gt, seq_log_prob_gt, _, _ = model_forward(
+            #     model=new_model,
+            #     data=extern_data["audio_features"],
+            #     data_spatial_dim=time_dim,
+            #     ground_truth=extern_data["bpe_labels"],
+            # )
+    print(seq_targets_gt, seq_targets_gt.raw_tensor)
+    print(seq_log_prob_gt, seq_log_prob_gt.raw_tensor)
 
     num_search_errors = 0
     num_num_search_errors = 0
@@ -267,24 +301,42 @@ def find_search_errors():
         hyps = seq_targets.raw_tensor[:, batch_idx, :]
         scores = seq_log_prob.raw_tensor[batch_idx, :]
         hyps_len = seq_targets.dims[0].dyn_size_ext.raw_tensor[:, batch_idx]
-        hyp_len_gt = seq_targets_gt.dims[1].dyn_size_ext.raw_tensor[batch_idx] - 1
+        hyp_len_gt = seq_targets_gt.dims[2].dyn_size_ext.raw_tensor[batch_idx] - 1
         num_beam = hyps.shape[1]
         only_max = True
+        compare_alignments = True
         if only_max:
             max_score_idx = torch.argmax(scores)
             score = float(scores[max_score_idx])
             score_gt = float(seq_log_prob_gt.raw_tensor[batch_idx])
-            hyp_ids = hyps[: hyps_len[max_score_idx], max_score_idx].to('cpu')
-            hyp_gt_ids = seq_targets_gt.raw_tensor[batch_idx, : hyp_len_gt]
+            hyp_ids = hyps[: hyps_len[max_score_idx], max_score_idx].to("cpu")
+            hyp_gt_ids = seq_targets_gt.raw_tensor[batch_idx, :, :hyp_len_gt].squeeze()
             hyp_serialized = vocab_1.get_seq_labels(hyp_ids)
             hyp_gt_serialized = vocab_1.get_seq_labels(hyp_gt_ids)
+
             print(f"  ({score!r}, {hyp_serialized!r}),")
             print(f"  ({score_gt!r}, {hyp_gt_serialized!r}),\n")
-            if score_gt > score and (len(hyp_ids) != len(hyp_gt_ids) or not torch.all(hyp_ids == hyp_gt_ids)):
+            if score_gt > score and (
+                len(hyp_ids) != len(hyp_gt_ids) or not torch.all(hyp_ids == hyp_gt_ids)
+            ):
                 print(f"  {score_gt!r} > {score!r} Search Error!\n")
                 num_search_errors += 1
                 if math.isclose(score_gt, score):
                     num_num_search_errors += 1
+
+            if (
+                len(hyp_ids) == len(hyp_gt_ids)
+                and torch.all(hyp_ids == hyp_gt_ids)
+                and compare_alignments
+            ):
+                algn = hyps_raw[batch_idx, max_score_idx, :]
+                unpad_mask = (algn != 0).to('cpu')
+                algn = algn[unpad_mask]
+                algn_gt = alignments_gt.raw_tensor[batch_idx, :, :].squeeze()[unpad_mask]
+                print(f"  {algn!r},")
+                print(f"  {algn_gt!r},")
+                print(f"Alignments equal:  {torch.all(algn == algn_gt.to('cuda'))},\n")
+
             continue
         for i in range(num_beam):
             score = float(scores[i])
@@ -294,8 +346,6 @@ def find_search_errors():
 
     print("Total number of search errors: ", num_search_errors)
     print("Total number of numerical search errors: ", num_num_search_errors)
-
-
 
 
 # `py` is the default sis config function name. so when running this directly, run the import test.

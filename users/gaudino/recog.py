@@ -21,7 +21,7 @@ from i6_experiments.common.setups.returnn_common import serialization
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, ModelWithCheckpoint, ModelWithCheckpoints
+from i6_experiments.users.gaudino.model_interfaces import ModelDef, RecogDef, ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 
 if TYPE_CHECKING:
@@ -244,7 +244,7 @@ def search_config(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 1,
+                            "version": 2,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
@@ -329,7 +329,7 @@ def search_config_v2(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 2,
+                            "version": 3,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
@@ -351,7 +351,7 @@ def search_config_v2(
         dict(
             batching="sorted",
             batch_size=20000 * model_def.batch_size_factor,
-            max_seqs=200,
+            max_seqs=model_def.max_seqs,
         )
     )
 
@@ -468,6 +468,39 @@ def _returnn_v2_get_forward_callback():
         def finish(self):
             self.out_file.write("}\n")
             self.out_file.close()
+
+    return _ReturnnRecogV2ForwardCallbackIface()
+
+def _returnn_v2_get_dummy_forward_callback():
+    from returnn.tensor import Tensor, TensorDict
+    from returnn.forward_iface import ForwardCallbackIface
+
+    class _ReturnnRecogV2ForwardCallbackIface(ForwardCallbackIface):
+        def __init__(self):
+            self.out_file = None
+
+        def init(self, *, model):
+            pass
+
+
+
+        def process_seq(self, *, seq_tag: str, outputs: TensorDict):
+            hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
+            scores: Tensor = outputs["scores"]  # [beam]
+            assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
+            assert hyps.dims[1].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
+            hyps_len = hyps.dims[1].dyn_size_ext  # [beam]
+            assert hyps.raw_tensor.shape[:1] == hyps_len.raw_tensor.shape == scores.raw_tensor.shape  # (beam,)
+            num_beam = hyps.raw_tensor.shape[0]
+            # Consistent to old search task, list[(float,str)].
+            for i in range(num_beam):
+                score = float(scores.raw_tensor[i])
+                hyp_ids = hyps.raw_tensor[i, : hyps_len.raw_tensor[i]]
+                hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
+                # self.out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
+
+        def finish(self):
+            pass
 
     return _ReturnnRecogV2ForwardCallbackIface()
 

@@ -54,7 +54,7 @@ def test_convert_checkpoint():
     out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/baseline_w_trafo_lm_23_11_09"
 
     reader = CheckpointReader(_returnn_tf_ckpt_filename)
-    reader_lm = CheckpointReader(lm_path)
+    reader_lm = CheckpointReader(_ted2_lm_ckpt_filename)
 
     print("Input checkpoint:")
     print(reader.debug_string().decode("utf-8"))
@@ -67,7 +67,8 @@ def test_convert_checkpoint():
         "add_lstm_lm": False,
     }
     model_args = {
-        "target_embed_dim": 256
+        "target_embed_dim": 256,
+        "add_trafo_lm": True,
     }
     model = MakeModel(80, 1_057, model_args=model_args, search_args=search_args)()
     print("Created model:", model)
@@ -78,11 +79,18 @@ def test_convert_checkpoint():
         print(f"{name}: {param}")
     print()
 
+    breakpoint()
+
     for name, param in model.named_parameters():
         assert isinstance(name, str)
         assert isinstance(param, rf.Parameter)
 
-        value = map_param_func_v3(reader, name, param)
+
+        if name.startswith("lstm_lm."):
+            sub_name = name.removeprefix("lstm_lm.")
+            value = map_param_func_trafo_lm(reader_lm, sub_name, param)
+        else:
+            value = map_param_func_v3(reader, name, param)
         assert isinstance(value, numpy.ndarray)
         # noinspection PyProtectedMember
         param._raw_backend.set_parameter_initial_value(param, value)
@@ -126,6 +134,25 @@ def test_convert_checkpoint():
 
 _ParamMapping = {}  # type: Dict[str,str]
 
+def _add_params():
+    pass
+    # for layer_idx in range(4):
+    #     _ParamMapping.update(
+    #         {
+    #             f"lstm_{layer_idx}.ff_weight": f"lstm{layer_idx}/rec/W",
+    #             f"lstm_{layer_idx}.rec_weight": f"lstm{layer_idx}/rec/W_re",
+    #             f"lstm_{layer_idx}.bias": f"lstm{layer_idx}/rec/b",
+    #         }
+    #     )
+    #
+    # _ParamMapping.update(
+    #     {
+    #         "input.weight": "input/W",
+    #         "input_bias": "input/b",
+    #         "output.weight": "output/W",
+    #         "output.bias": "output/b",
+    #     }
+    # )
 
 def _add_params_conformer():
     # frontend
@@ -228,7 +255,7 @@ def _add_params_conformer():
 
 
 _add_params_conformer()
-
+_add_params()
 
 def map_param_func_v3(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
     """map params, TF to RF"""
@@ -300,6 +327,64 @@ def map_param_func_v3(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
         return value
 
     raise NotImplementedError(f"cannot map {name!r} {var}")
+
+
+def map_param_func_trafo_lm(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
+    """map params, TF to RF"""
+    from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
+    from i6_experiments.users.gaudino.convert import (
+        convert_params,
+    )
+    from i6_experiments.users.zeyer.returnn.convert.params import (
+        tf_to_rf_np as convert_params_tf_to_rf_np,
+    )
+
+    assert isinstance(reader, CheckpointReader)
+    assert isinstance(var, rf.Parameter)
+
+    tf_var_name = name.replace(".", "/")
+    if reader.has_tensor(tf_var_name):
+        return reader.get_tensor(tf_var_name)
+
+    if name in _ParamMapping:
+        var_name = _ParamMapping[name]
+        assert reader.has_tensor(var_name)
+        value = reader.get_tensor(var_name)
+        assert isinstance(value, numpy.ndarray)
+
+        if name.endswith(".ff_weight"):
+            print("Old ff:", value[0][0], value[0][2048], value[0][4096], value[0][6144])
+            value = convert_params.convert_tf_lstm_to_torch_lstm_ff(value)
+            print("Convert ff:", value[0][0], value[2048][0], value[4096][0], value[6144][0])
+
+        if name.endswith(".rec_weight"):
+            print("Old rec:", value[0][0], value[0][2048], value[0][4096], value[0][6144])
+            value = convert_params.convert_tf_lstm_to_torch_lstm_rec(value)
+            print("Convert rec:", value[0][0], value[2048][0], value[4096][0], value[6144][0])
+
+
+        if "lstm" in name and name.endswith(".bias"):
+            print("Old bias:", value[0], value[2048], value[4096], value[6144])
+            value = convert_params.convert_tf_lstm_to_torch_lstm_bias(
+                value
+            )
+            print("Convert bias:", value[0], value[2048], value[4096], value[6144])
+
+
+        if (name == "output.weight"):
+            # value = convert_params_np.convert_tf_lstm_to_native_lstm_ff(value)
+            value = value.transpose()
+
+        assert (
+            value.shape == var.batch_shape
+        ), f"new param {name} {var.batch_shape} vs ckpt param {var_name} {value.shape}"
+        assert (
+            value.dtype.name == var.dtype
+        ), f"new param {name} {var.dtype} vs ckpt param {var_name} {value.dtype}"
+        return value
+
+    raise NotImplementedError(f"cannot map {name!r} {var}")
+
 
 if __name__ == "__main__":
     test_convert_checkpoint()
