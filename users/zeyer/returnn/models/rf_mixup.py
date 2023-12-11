@@ -126,7 +126,7 @@ class Mixup(rf.Module):
         )  # [B_N']
         mixup_values *= mixup_scales_flat  # [B_N', T, F]
 
-        idx_b = rf.range_over_dims(batch_dims)  # [B] -> B
+        idx_b = rf.range_over_merged_dims(batch_dims)  # [B] -> B
         idx_b, _ = rf.masked_select(
             idx_b, mask=n_mask, dims=batch_dims + [num_mixup_dim], out_dim=num_mixup_flat_dim
         )  # [B_N'] -> B
