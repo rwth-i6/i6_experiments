@@ -1088,6 +1088,7 @@ def decode_diphone(
     epoch: int,
     prior_epoch: int,
     tune: bool,
+    tune_extremely: bool = False,
     params: typing.Optional[SearchParameters] = None,
     neural_lm: bool = False,
 ):
@@ -1125,6 +1126,9 @@ def decode_diphone(
         if params is None
         else params.with_prior_files(s.get_cart_params(key))  # ensure priors are set correctly
     ]
+    decoding_configs: typing.List[typing.Tuple[returnn.ReturnnConfig, typing.Union[bool, int], SearchParameters]] = [
+        (nn_pch_config, False, p) for p in search_params
+    ]
     if tune:
         base_cfg = search_params[-1]
         other_cfgs = [
@@ -1138,8 +1142,45 @@ def decode_diphone(
                 [base_cfg.tdp_silence, (10, 10, "infinity", 20)],
             )
         ]
-        search_params.extend(other_cfgs)
-    for cfg in search_params:
+        decoding_configs.extend([(nn_pch_config, False, cfg) for cfg in other_cfgs])
+    elif tune_extremely:
+
+        def apply_posterior_scales(
+            returnn_config: returnn.ReturnnConfig, p_c: float, p_l: float
+        ) -> returnn.ReturnnConfig:
+            if p_c == 1.0 and p_l == 1.0:
+                return returnn_config
+
+            returnn_config = copy.deepcopy(returnn_config)
+            if p_c != 1.0:
+                pass
+            if p_l != 1.0:
+                pass
+
+            return returnn_config
+
+        base_cfg = search_params[-1]
+        returnn_configs = [
+            apply_posterior_scales(nn_pch_config, p_c, p_l) for p_c, p_l in itertools.product([0.5, 1.0], [0.5, 1.0])
+        ]
+        other_cfgs = [
+            (
+                returnn_config,
+                base_cfg.with_prior_scale(round(p_c, 1))
+                .with_tdp_scale(round(tdp_s, 1))
+                .with_tdp_silence(tdp_silence)
+                .with_tdp_non_word(tdp_silence),
+            )
+            for returnn_config, p_c, tdp_s, tdp_silence in itertools.product(
+                returnn_configs,
+                np.linspace(0.2, 0.8, 4),
+                [0.1, *np.linspace(0.2, 0.8, 4)],
+                [base_cfg.tdp_silence, (10, 10, "infinity", 20)],
+            )
+        ]
+        decoding_configs.extend([(returnn_config, 1, cfg) for returnn_config, cfg in other_cfgs])
+
+    for returnn_config, concurrency, cfg in decoding_configs:
         s.recognize_cart(
             key=key,
             epoch=epoch,
@@ -1147,7 +1188,7 @@ def decode_diphone(
             n_cart_out=diphone_li.get_n_of_dense_classes(),
             cart_tree_or_tying_config=tying_cfg,
             params=cfg,
-            log_softmax_returnn_config=nn_pch_config,
+            log_softmax_returnn_config=returnn_config,
             calculate_statistics=True,
             opt_lm_am_scale=True,
             fix_tdp_non_word_tying=True,
@@ -1158,7 +1199,7 @@ def decode_diphone(
             mem_rqmt=4 if not neural_lm else 8,
             gpu=neural_lm,
             rtf=2 if not neural_lm else 20,
-            remove_or_set_concurrency=5 if neural_lm else False,
+            remove_or_set_concurrency=5 if neural_lm else concurrency,
         )
 
 
