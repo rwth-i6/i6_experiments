@@ -1091,6 +1091,9 @@ def decode_diphone(
 ):
     assert not (tune and neural_lm), "neural LM decodings should be done with tuned parameters"
 
+    if tune_extremely:
+        print(f"tuning {key}/{epoch} extremely")
+
     clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
 
     prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
