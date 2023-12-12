@@ -1,4 +1,5 @@
 from typing import List, Dict, Optional, Any
+import inspect
 
 
 class PerturbationFactor:
@@ -27,6 +28,7 @@ class WaveformPerturbation:
         sox_effects: Optional[List[List[str]]] = None,
         codecs: Optional[List[Dict[str, Any]]] = None,
         preemphasis: Optional[Dict[str, Any]] = None,
+        non_linearities: Optional[Dict[str, Any]] = None,
     ):
         """
         Initializes an instance of a class.
@@ -55,16 +57,23 @@ class WaveformPerturbation:
             - 'minimum' (float): The minimum preemphasis factor.
             - 'maximum' (float): The maximum preemphasis factor.
             Example: {"prob": 0.9, "minimum": 0.9, "maximum": 1.0}
+        :param non_linearity: A dictionary containing parameters for the non-linearity filter.
+            - 'prob' (float): The probability of applying the non-linearity filter.
+            - 'alpha' (float): The alpha value for the non-linearity filter.
         """
         import functools
+
         self._speed = PerturbationFactor(**speed) if speed else None
         self._tempo = PerturbationFactor(**tempo) if tempo else None
         self._sox_effects = sox_effects or []
         self._perturbations = []
+        self.non_linearities = non_linearities
         if preemphasis:
             self._perturbations.append(functools.partial(self.preemphasis, factor=PerturbationFactor(**preemphasis)))
         if codecs:
             self._perturbations.append(functools.partial(self.apply_codecs, codecs=codecs))
+        if non_linearities:
+            self._perturbations.append(functools.partial(self.non_linearity, non_linearities=non_linearities))
 
     def run(self, audio, sample_rate, random_state):
         import numpy as np
@@ -88,7 +97,7 @@ class WaveformPerturbation:
             speed = True
         if self._tempo is not None and random_state.random() < self._tempo.prob and not speed:
             factor = random_state.random() * (self._tempo.max - self._tempo.min) + self._tempo.min
-            tfm.tempo(factor)
+            tfm.stretch(factor)
         for effect in self._sox_effects:
             effect_name, *params = effect
             getattr(tfm, effect_name)(*params)
@@ -112,7 +121,7 @@ class WaveformPerturbation:
 
     @staticmethod
     def apply_codecs(audio, sample_rate, random_state, codecs):
-        import sox 
+        import sox
 
         tfm = sox.Transformer()
         for codec in codecs:
@@ -122,12 +131,25 @@ class WaveformPerturbation:
                     tfm.set_output_format(encoding="u-law")
                 else:
                     raise NotImplementedError(f"Codec {codec} not implemented.")
+        return tfm.build_array(input_array=audio, sample_rate_in=sample_rate)
+
+    @staticmethod
+    def non_linearity(audio, sample_rate, random_state, non_linearities):
+        import numpy as np
+
+        for non_lin in non_linearities:
+            if random_state.random() < non_lin["prob"]:
+                alpha = non_lin["alpha"]
+                audio = np.sign(audio) * np.abs(audio) ** (1 + alpha)
+                audio = audio.astype(np.float32)
         return audio
 
 
 def get_code_for_perturbation():
-    classes = ["from typing import List, Dict, Any, Optional"]
-    for cls_name, cls in list(globals().items()):
-        if isinstance(cls, type):
-            classes.append(cls)
-    return classes
+    class_sources = ["from typing import List, Dict, Any, Optional"]
+    for name, obj in globals().items():
+        if inspect.isclass(obj) and obj.__module__ == __name__:
+            # Get the source code of the class
+            class_source = inspect.getsource(obj)
+            class_sources.append(class_source)
+    return class_sources
