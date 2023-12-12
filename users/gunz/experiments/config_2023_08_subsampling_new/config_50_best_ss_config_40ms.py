@@ -732,6 +732,11 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         returnn_config=returnn_cfg_tri_ft,
         log_linear_scales=baum_welch.BwScales(label_posterior_scale=1.0, transition_scale=0.3),
     )
+    returnn_cfg_tri_ft.config["network"]["right-output"] = {
+        **returnn_cfg_tri_ft.config["network"]["right-output"],
+        "loss_scale": 0.01,
+        "target": "futureLabel",
+    }
     returnn_cfg_tri_ft_constlr = copy.deepcopy(returnn_cfg_tri_ft)
     returnn_cfg_tri_ft_constlr.update(batch_size_config)
     returnn_cfg_tri_ft_constlr.update(smooth_fs_constlr_config)
