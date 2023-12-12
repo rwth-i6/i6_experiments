@@ -862,7 +862,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     configs = [
         (di_vit_from_mono_ft_config, returnn_cfg_di, s, "di-from-mono-fs-constlr"),
         (di_ft_from_mono_ft_config, returnn_cfg_di, di_ft_sys, "di-fs-constlr-from-mono-fs-constlr"),
-        (di_ft_from_mono_scratch_config, returnn_cfg_di, di_ft_sys, "di-fs-constlr-from-mono-scratch-constlr"),
+        (di_ft_from_mono_scratch_config, returnn_cfg_di, di_ft_sys, "di-fs-constlr-from-mono-scratch-oclr"),
     ]
     keys = [f"fh-{name}" for _, _, _, name in configs]
     for (returnn_config, orig_returnn_cfg, sys, name), key in zip(configs, keys):
