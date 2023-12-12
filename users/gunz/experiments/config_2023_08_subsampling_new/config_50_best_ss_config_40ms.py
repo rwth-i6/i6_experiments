@@ -777,7 +777,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             nn_train_args=train_args,
         )
 
-    for ((_, orig_returnn_config, sys, _), key), crp_k, ep in itertools.product(
+    for ((_, orig_returnn_config, sys, name), key), crp_k, ep in itertools.product(
         zip(configs, keys), ["dev-other"], fine_tune_keep_epochs
     ):
         sys.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
@@ -801,6 +801,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 epoch=ep,
                 prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
                 tune=ep == fine_tune_keep_epochs[-1],
+                tune_extremely=ep == fine_tune_keep_epochs[-1] and name in ["di-fs-constlr-from-mono"],
             )
         elif key.startswith("fh-tri"):
             decode_triphone(
