@@ -710,14 +710,6 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         add_base_allophones=False,
     )
     returnn_cfg_tri_ft = copy.deepcopy(returnn_cfg_tri)
-    for layer in returnn_cfg_tri_ft.config["network"].values():
-        if layer == "right-output":
-            layer["loss_scale"] = 0.1
-            continue
-        layer.pop("target", None)
-        layer.pop("loss", None)
-        layer.pop("loss_scale", None)
-        layer.pop("loss_opts", None)
     returnn_cfg_tri_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
         returnn_config=returnn_cfg_tri_ft,
         label_info=di_ft_sys.label_info,  # use diphone label info
