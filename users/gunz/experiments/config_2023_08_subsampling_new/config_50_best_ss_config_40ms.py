@@ -909,7 +909,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 epoch=ep,
                 prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
                 tune=ep == fine_tune_keep_epochs[-1],
-                tune_extremely=ep == fine_tune_keep_epochs[-1] and name in ["di-fs-constlr-from-mono-fs-constlr"],
+                # tune_extremely=ep == fine_tune_keep_epochs[-1] and name in ["di-fs-constlr-from-mono-fs-constlr"],
             )
         elif key.startswith("fh-tri"):
             decode_triphone(
