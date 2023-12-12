@@ -1138,6 +1138,7 @@ class FactoredHybridSystem(NnSystem):
                 returnn_config=config,
                 share=data_share,
                 checkpoint=checkpoint,
+                time_rqmt=15 * data_share,
             )
             if via_hdf
             else self._compute_returnn_rasr_priors(
@@ -1147,7 +1148,7 @@ class FactoredHybridSystem(NnSystem):
                 dev_corpus_key=dev_corpus_key,
                 returnn_config=config,
                 share=data_share,
-                time_rqmt=4.9,
+                time_rqmt=15 * data_share,
                 checkpoint=checkpoint,
             )
         )
