@@ -1091,9 +1091,6 @@ def decode_diphone(
 ):
     assert not (tune and neural_lm), "neural LM decodings should be done with tuned parameters"
 
-    if tune_extremely:
-        print(f"tuning {key}/{epoch} extremely")
-
     clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
 
     prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
@@ -1131,21 +1128,7 @@ def decode_diphone(
         typing.Tuple[returnn.ReturnnConfig, SearchParameters, typing.Union[bool, int], str]
     ] = [(nn_pch_config, p, False, "") for p in search_params]
 
-    if tune:
-        base_cfg = search_params[-1]
-        other_cfgs = [
-            base_cfg.with_prior_scale(round(p_c, 1))
-            .with_tdp_scale(round(tdp_s, 1))
-            .with_tdp_silence(tdp_silence)
-            .with_tdp_non_word(tdp_silence)
-            for p_c, tdp_s, tdp_silence in itertools.product(
-                np.linspace(0.2, 0.8, 4),
-                [0.1, *np.linspace(0.2, 0.8, 4)],
-                [base_cfg.tdp_silence, (10, 10, "infinity", 20)],
-            )
-        ]
-        decoding_configs.extend([(nn_pch_config, cfg, False, "") for cfg in other_cfgs])
-    elif tune_extremely:
+    if tune_extremely:
 
         def apply_posterior_scales(
             returnn_config: returnn.ReturnnConfig, p_c: float, p_l: float
@@ -1204,6 +1187,22 @@ def decode_diphone(
             )
         ]
         decoding_configs.extend([(returnn_config, cfg, 1, name) for returnn_config, cfg, name in other_cfgs])
+
+        print(f"tuning {key}/{epoch} extremely with {len(decoding_configs)} distinct configurations")
+    elif tune:
+        base_cfg = search_params[-1]
+        other_cfgs = [
+            base_cfg.with_prior_scale(round(p_c, 1))
+            .with_tdp_scale(round(tdp_s, 1))
+            .with_tdp_silence(tdp_silence)
+            .with_tdp_non_word(tdp_silence)
+            for p_c, tdp_s, tdp_silence in itertools.product(
+                np.linspace(0.2, 0.8, 4),
+                [0.1, *np.linspace(0.2, 0.8, 4)],
+                [base_cfg.tdp_silence, (10, 10, "infinity", 20)],
+            )
+        ]
+        decoding_configs.extend([(nn_pch_config, cfg, False, "") for cfg in other_cfgs])
 
     for returnn_config, cfg, concurrency, name in decoding_configs:
         s.recognize_cart(
