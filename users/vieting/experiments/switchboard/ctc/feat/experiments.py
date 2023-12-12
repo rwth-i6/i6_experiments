@@ -47,6 +47,7 @@ def get_datasets(use_multi_proc_dataset=False, **kwargs):
         returnn_python_exe=RETURNN_EXE,
         **kwargs,
     )
+
     returnn_datasets = {
         "train": nn_train_data_inputs["switchboard.train"].get_data_dict()["datasets"]["ogg"],
         "dev": nn_cv_data_inputs["switchboard.cv"].get_data_dict()["datasets"]["ogg"],
@@ -54,6 +55,7 @@ def get_datasets(use_multi_proc_dataset=False, **kwargs):
             "devtrain": nn_devtrain_data_inputs["switchboard.devtrain"].get_data_dict()["datasets"]["ogg"],
         },
     }
+
     if use_multi_proc_dataset:
         returnn_datasets["train"] = {
             "class": "MultiProcDataset",
@@ -61,6 +63,7 @@ def get_datasets(use_multi_proc_dataset=False, **kwargs):
             "num_workers": 2,
             "buffer_size": 5,
         }
+
     lexicon = gmm_system.crp["switchboard"].lexicon_config.file
     lexicon = DeleteEmptyOrthJob(lexicon).out_lexicon
     rasr_loss_lexicon = MakeBlankLexiconJob(lexicon).out_lexicon
