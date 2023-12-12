@@ -4,47 +4,16 @@ Chunked Conformer encoder - based on original code
 
 
 from __future__ import annotations
-from typing import Optional, Union, Any, Tuple, List, Dict, Callable
+from typing import Optional, Union, Any, Tuple, Dict, Callable
 import copy as _copy
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 from returnn.util.basic import NotSpecified
 from returnn.frontend.encoder.base import ISeqDownsamplingEncoder
+from returnn.frontend.encoder.conformer import ConformerPositionwiseFeedForward, ConformerConvSubsample
 
 
-class ConformerPositionwiseFeedForward(rf.Module):
-    """
-    Conformer position-wise feedforward neural network layer
-        FF -> Activation -> Dropout -> FF
-    """
-
-    def __init__(self, out_dim: Dim, *, ff_dim: Dim, dropout: float, activation: Callable[[Tensor], Tensor]):
-        """
-        :param out_dim: output feature dimension
-        :param ff_dim: dimension of the feed-forward layers
-        :param dropout: dropout value
-        :param activation: activation function
-        """
-        super().__init__()
-
-        self.out_dim = out_dim
-        self.dropout = dropout
-        self.dropout_broadcast = rf.dropout_broadcast_default()
-        self.activation = activation
-
-        self.linear_ff = rf.Linear(out_dim, ff_dim)
-        self.linear_out = rf.Linear(ff_dim, out_dim)
-
-    def __call__(self, inp: Tensor) -> Tensor:
-        """forward"""
-        x_ff1 = self.linear_ff(inp)
-        x_act = self.activation(x_ff1)
-        x_drop = rf.dropout(x_act, self.dropout, axis=self.dropout_broadcast and self.linear_ff.out_dim)
-        x_ff2 = self.linear_out(x_drop)
-        return x_ff2
-
-
-class ConformerConvBlock(rf.Module):
+class ChunkedConformerConvBlock(rf.Module):
     """
     Conformer convolution block
         FF -> GLU -> depthwise conv -> BN -> Swish -> FF
@@ -77,93 +46,7 @@ class ConformerConvBlock(rf.Module):
         return x_conv2
 
 
-class ConformerConvSubsample(ISeqDownsamplingEncoder):
-    """
-    Conv 2D block with optional max-pooling or striding.
-
-    References:
-
-      https://github.com/espnet/espnet/blob/4138010fb66ad27a43e8bee48a4932829a0847ae/espnet/nets/pytorch_backend/transformer/subsampling.py#L162
-      https://github.com/rwth-i6/returnn-experiments/blob/5852e21f44d5450909dee29d89020f1b8d36aa68/2022-swb-conformer-hybrid-sat/table_1_and_2/reduced_dim.config#L226
-      (actually the latter is different...)
-
-    To get the ESPnet case, for example Conv2dSubsampling6, use these options
-    (out_dim is the model dim of the encoder)
-
-      out_dims=[out_dim, out_dim],  # ESPnet standard, but this might be too large
-      filter_sizes=[3, 5],
-      strides=[2, 3],
-      padding="valid",
-    """
-
-    def __init__(
-        self,
-        in_dim: Dim,
-        *,
-        out_dims: List[Dim],
-        filter_sizes: List[Union[int, Tuple[int, int]]],
-        strides: Optional[List[Union[int, Tuple[int, int]]]] = None,
-        pool_sizes: Optional[List[Tuple[int, int]]] = None,
-        activation: Callable[[Tensor], Tensor] = rf.relu,
-        padding: str = "same",
-    ):
-        """
-        :param out_dims: the number of output channels. last element is the output feature dimension
-        :param filter_sizes: a list of filter sizes for the conv layer
-        :param pool_sizes: a list of pooling factors applied after conv layer
-        :param activation: the activation function
-        :param padding: 'same' or 'valid'
-        """
-        super().__init__()
-
-        self.pool_sizes = pool_sizes
-        self.activation = activation
-
-        self.conv_layers: rf.ModuleList[rf.Conv2d] = rf.ModuleList()
-        if strides is None:
-            strides = [1] * len(out_dims)
-        assert len(out_dims) == len(filter_sizes) == len(strides) > 0
-        self._dummy_in_dim = Dim(1, name="dummy-input-feature-dim")
-        self.in_dim = in_dim
-        prev_out_dim = self._dummy_in_dim
-        second_spatial_dim = in_dim
-        for i, (filter_size, stride, out_dim) in enumerate(zip(filter_sizes, strides, out_dims)):
-            conv = rf.Conv2d(prev_out_dim, out_dim, filter_size=filter_size, strides=stride, padding=padding)
-            self.conv_layers.append(conv)
-            (second_spatial_dim,) = rf.make_conv_out_spatial_dims(
-                [second_spatial_dim], filter_size=conv.filter_size[1], strides=conv.strides[1], padding=padding
-            )
-            if self.pool_sizes and i < len(self.pool_sizes):
-                (second_spatial_dim,) = rf.make_conv_out_spatial_dims(
-                    [second_spatial_dim],
-                    filter_size=self.pool_sizes[i][1],
-                    strides=self.pool_sizes[i][1],
-                    padding="same",
-                )
-            prev_out_dim = out_dim
-        self._final_second_spatial_dim = second_spatial_dim
-        self.out_dim = second_spatial_dim * prev_out_dim
-
-    def __call__(self, source: Tensor, *, in_spatial_dim: Dim) -> Tuple[Tensor, Dim]:
-        """forward"""
-        assert self.in_dim in source.dims
-        in_spatial_dims = [in_spatial_dim, self.in_dim]
-        in_dim = self._dummy_in_dim
-        x = rf.expand_dim(source, dim=in_dim)
-        for i, conv_layer in enumerate(self.conv_layers):
-            x, in_spatial_dims = conv_layer(x, in_spatial_dims=in_spatial_dims)
-            in_dim = conv_layer.out_dim
-            x = self.activation(x)
-            if self.pool_sizes and i < len(self.pool_sizes):
-                x, in_spatial_dims = rf.pool2d(
-                    x, in_spatial_dims=in_spatial_dims, pool_size=self.pool_sizes[i], padding="same", mode="max"
-                )
-        x, in_spatial_dims[-1] = rf.replace_dim(x, out_dim=self._final_second_spatial_dim, in_dim=in_spatial_dims[-1])
-        out, _ = rf.merge_dims(x, dims=[self._final_second_spatial_dim, in_dim])
-        return out, in_spatial_dims[0]
-
-
-class ConformerEncoderLayer(rf.Module):
+class ChunkedConformerEncoderLayer(rf.Module):
     """
     Represents a conformer block
     """
@@ -224,7 +107,7 @@ class ConformerEncoderLayer(rf.Module):
             conv_norm = rf.BatchNorm(out_dim, **conv_norm_opts)
         elif isinstance(conv_norm, type):
             conv_norm = conv_norm(out_dim, **(conv_norm_opts or {}))
-        self.conv_block = ConformerConvBlock(out_dim=out_dim, kernel_size=conv_kernel_size, norm=conv_norm)
+        self.conv_block = ChunkedConformerConvBlock(out_dim=out_dim, kernel_size=conv_kernel_size, norm=conv_norm)
         self.conv_layer_norm = rf.LayerNorm(out_dim)
 
         if self_att is None or isinstance(self_att, type):
@@ -239,7 +122,7 @@ class ConformerEncoderLayer(rf.Module):
             if self_att_opts:
                 self_att_opts_.update(self_att_opts)
             if self_att is None:
-                self.self_att = rf.RelPosSelfAttention(**self_att_opts_)
+                self.self_att = ChunkedRelPosSelfAttention(**self_att_opts_)
             else:
                 self.self_att = self_att(**self_att_opts_)
         else:
@@ -248,7 +131,7 @@ class ConformerEncoderLayer(rf.Module):
 
         self.final_layer_norm = rf.LayerNorm(out_dim)
 
-    def __call__(self, inp: Tensor, *, spatial_dim: Dim) -> Tensor:
+    def __call__(self, inp: Tensor, *, spatial_dim: Dim, chunked_time_dim: Dim) -> Tensor:
         """forward"""
         # FFN
         x_ffn1_ln = self.ffn1_layer_norm(inp)
@@ -275,7 +158,7 @@ class ConformerEncoderLayer(rf.Module):
         return self.final_layer_norm(x_ffn2_out)
 
 
-class ConformerEncoder(ISeqDownsamplingEncoder):
+class ChunkedConformerEncoder(ISeqDownsamplingEncoder):
     """
     Represents Conformer encoder architecture
     """
@@ -295,7 +178,7 @@ class ConformerEncoder(ISeqDownsamplingEncoder):
         conv_norm: Union[rf.BatchNorm, type, Any] = NotSpecified,
         num_heads: int = 4,
         att_dropout: float = 0.1,
-        encoder_layer: Optional[Union[ConformerEncoderLayer, rf.Module, type, Any]] = None,
+        encoder_layer: Optional[Union[ChunkedConformerEncoderLayer, rf.Module, type, Any]] = None,
         encoder_layer_opts: Optional[Dict[str, Any]] = None,
     ):
         """
@@ -342,7 +225,7 @@ class ConformerEncoder(ISeqDownsamplingEncoder):
             if encoder_layer_opts:
                 encoder_layer_opts_.update(encoder_layer_opts)
             if not encoder_layer:
-                encoder_layer = ConformerEncoderLayer(**encoder_layer_opts_)
+                encoder_layer = ChunkedConformerEncoderLayer(**encoder_layer_opts_)
             elif isinstance(encoder_layer, type):
                 encoder_layer = encoder_layer(**encoder_layer_opts_)
             else:
@@ -366,3 +249,8 @@ class ConformerEncoder(ISeqDownsamplingEncoder):
         x = rf.dropout(x_linear, self.input_dropout, axis=self.dropout_broadcast and self.input_projection.out_dim)
         x = self.layers(x, spatial_dim=out_spatial_dim, collected_outputs=collected_outputs)
         return x, out_spatial_dim
+
+
+class ChunkedRelPosSelfAttention(rf.RelPosSelfAttention):
+    def __call__(self, *args, **kwargs):
+        pass  # TODO
