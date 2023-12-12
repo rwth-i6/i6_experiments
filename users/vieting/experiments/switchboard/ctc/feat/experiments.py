@@ -767,7 +767,10 @@ def run_scf_baseline():
     ).out_repository
     returnn_root.hash_overwrite = "returnn_conv_padding"
     report = run_nn_args(
-        nn_args, report_args_collection, dev_corpora, returnn_root=returnn_root,
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        returnn_root=returnn_root,
         recog_args={"epochs": [350, 400, 450, "best"]},
     )
     return report
@@ -915,11 +918,13 @@ def py():
         columns_start=["train_name", "wave_norm", "specaug", "lr", "batch_size"],
         columns_end=["epoch", "recog_name", "lm", "optlm", "lm_scale", "prior_scale"],
     )
-    report = Report.merge_reports([
-        report_base,
-        report_mel,
-        report_scf,
-    ])
+    report = Report.merge_reports(
+        [
+            report_base,
+            report_mel,
+            report_scf,
+        ]
+    )
     tk.register_report(
         os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report.csv"),
         values=report.get_values(),
