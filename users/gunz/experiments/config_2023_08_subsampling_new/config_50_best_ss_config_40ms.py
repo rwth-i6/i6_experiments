@@ -899,6 +899,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 epoch=ep,
                 prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
                 tune=ep == fine_tune_keep_epochs[-1],
+                tune_extremely=ep == fine_tune_keep_epochs[-1] and key in ["fh-di-fs-constlr-from-mono-fs-constlr"],
             )
         elif key.startswith("fh-tri"):
             decode_triphone(
@@ -1122,9 +1123,10 @@ def decode_diphone(
         if params is None
         else params.with_prior_files(s.get_cart_params(key))  # ensure priors are set correctly
     ]
-    decoding_configs: typing.List[typing.Tuple[returnn.ReturnnConfig, typing.Union[bool, int], SearchParameters]] = [
-        (nn_pch_config, False, p) for p in search_params
-    ]
+    decoding_configs: typing.List[
+        typing.Tuple[returnn.ReturnnConfig, SearchParameters, typing.Union[bool, int], str]
+    ] = [(nn_pch_config, p, False, "") for p in search_params]
+
     if tune:
         base_cfg = search_params[-1]
         other_cfgs = [
@@ -1138,7 +1140,7 @@ def decode_diphone(
                 [base_cfg.tdp_silence, (10, 10, "infinity", 20)],
             )
         ]
-        decoding_configs.extend([(nn_pch_config, False, cfg) for cfg in other_cfgs])
+        decoding_configs.extend([(nn_pch_config, cfg, False, "") for cfg in other_cfgs])
     elif tune_extremely:
 
         def apply_posterior_scales(
@@ -1147,36 +1149,59 @@ def decode_diphone(
             if p_c == 1.0 and p_l == 1.0:
                 return returnn_config
 
+            def apply_scale(returnn_config: returnn.ReturnnConfig, scale: float, layer: str):
+                net = returnn_config.config["network"]
+                new_name = f"{layer}_pre_scale"
+                net[new_name] = net[layer]
+                net[layer] = {
+                    "class": "eval",
+                    "eval": f"{scale} * source(0)"
+                    if net[layer].get("activation") == "log_softmax"
+                    else f"tf.math.pow(source(0), {scale})",
+                    "from": [new_name],
+                }
+
             returnn_config = copy.deepcopy(returnn_config)
             if p_c != 1.0:
-                pass
+                apply_scale(returnn_config, p_c, "center-output")
             if p_l != 1.0:
-                pass
+                apply_scale(returnn_config, p_l, "left-output")
 
             return returnn_config
 
         base_cfg = search_params[-1]
         returnn_configs = [
-            apply_posterior_scales(nn_pch_config, p_c, p_l) for p_c, p_l in itertools.product([0.5, 1.0], [0.5, 1.0])
+            (apply_posterior_scales(nn_pch_config, p_c, p_l), f"recog/{p_c}x{p_l}/")
+            for p_c, p_l in itertools.product([0.5, 1.0], [0.5, 1.0])
         ]
+        tdp_geom_values = [round(v, 1) for v in [0.0, *np.geomspace(3.0, 20.0, num=4)]]
+        additional_tdps = [
+            (0.0, p_f, "infinity", p_e) for p_f, p_e in itertools.product(tdp_geom_values, tdp_geom_values) if p_e > p_f
+        ]
+        silence_tdps = [base_cfg.tdp_silence, (10, 10, "infinity", 20), *additional_tdps]
         other_cfgs = [
             (
                 returnn_config,
-                base_cfg.with_prior_scale(round(p_c, 1))
-                .with_tdp_scale(round(tdp_s, 1))
-                .with_tdp_silence(tdp_silence)
-                .with_tdp_non_word(tdp_silence),
+                dataclasses.replace(
+                    base_cfg.with_prior_scale(round(p_c, 1)),
+                    altas=2,
+                    beam=20,
+                    tdp_scale=round(tdp_s, 1),
+                    tdp_silence=tdp_silence,
+                    tdp_non_word=tdp_silence,
+                ),
+                name,
             )
-            for returnn_config, p_c, tdp_s, tdp_silence in itertools.product(
+            for (returnn_config, name), p_c, tdp_s, tdp_silence in itertools.product(
                 returnn_configs,
                 np.linspace(0.2, 0.8, 4),
                 [0.1, *np.linspace(0.2, 0.8, 4)],
-                [base_cfg.tdp_silence, (10, 10, "infinity", 20)],
+                silence_tdps,
             )
         ]
-        decoding_configs.extend([(returnn_config, 1, cfg) for returnn_config, cfg in other_cfgs])
+        decoding_configs.extend([(returnn_config, cfg, 1, name) for returnn_config, cfg, name in other_cfgs])
 
-    for returnn_config, concurrency, cfg in decoding_configs:
+    for returnn_config, cfg, concurrency, name in decoding_configs:
         s.recognize_cart(
             key=key,
             epoch=epoch,
@@ -1195,6 +1220,7 @@ def decode_diphone(
             mem_rqmt=4 if not neural_lm else 8,
             gpu=neural_lm,
             rtf=2 if not neural_lm else 20,
+            alias_output_prefix=name,
             remove_or_set_concurrency=5 if neural_lm else concurrency,
         )
 
