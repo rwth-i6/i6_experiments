@@ -726,8 +726,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     )
     returnn_cfg_tri_ft.config["network"]["right-output"] = {
         **returnn_cfg_tri_ft.config["network"]["right-output"],
-        "loss_scale": 0.01,
-        "target": "futureLabel",
+        "register_as_extern_data": "right-output",
     }
     returnn_cfg_tri_ft_constlr = copy.deepcopy(returnn_cfg_tri_ft)
     returnn_cfg_tri_ft_constlr.update(batch_size_config)
