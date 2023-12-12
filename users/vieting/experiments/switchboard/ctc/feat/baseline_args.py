@@ -142,7 +142,7 @@ def get_returnn_config(
     extra_args: Optional[Dict[str, Any]] = None,
     staged_opts: Optional[Dict[int, Any]] = None,
     audio_perturbation: bool = False,
-    useMultiProcDataset: bool = False,
+    use_multi_proc_dataset: bool = False,
 ):
     base_config = {
         "extern_data": {
@@ -216,7 +216,7 @@ def get_returnn_config(
     if isinstance(batch_size, int):
         # If batch size is int, adapt to waveform. If it is dict, assume it is already correct.
         batch_size = {"classes": batch_size, "data": batch_size * sample_rate // 100}
-    if useMultiProcDataset:
+    if use_multi_proc_dataset:
         dataset = datasets["train"]["dataset"]["partition_epoch"]
     else:
         dataset = datasets["train"]["partition_epoch"]

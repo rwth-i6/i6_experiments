@@ -27,7 +27,7 @@ from .data import get_corpus_data_inputs_oggzip  # TODO: might be copied here fo
 from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT, RETURNN_EXE, SCTK_BINARY_PATH
 
 
-def get_datasets(useMultiProcDataset=False, **kwargs):
+def get_datasets(use_multi_proc_dataset=False, **kwargs):
     gmm_system = run_gmm_system_from_common()
 
     # TODO: get oggzip independent of GMM system
@@ -47,28 +47,20 @@ def get_datasets(useMultiProcDataset=False, **kwargs):
         returnn_python_exe=RETURNN_EXE,
         **kwargs,
     )
-    if useMultiProcDataset:
-        returnn_datasets = {
-            "train": {
-                "class": "MultiProcDataset",
-                "dataset": nn_train_data_inputs["switchboard.train"].get_data_dict()["datasets"]["ogg"],
-                "num_workers": 2,
-                "buffer_size": 5,
-            },
-            "dev": nn_cv_data_inputs["switchboard.cv"].get_data_dict()["datasets"]["ogg"],
-            "eval_datasets": {
-                "devtrain": nn_devtrain_data_inputs["switchboard.devtrain"].get_data_dict()["datasets"]["ogg"],
-            },
+    returnn_datasets = {
+        "train": nn_train_data_inputs["switchboard.train"].get_data_dict()["datasets"]["ogg"],
+        "dev": nn_cv_data_inputs["switchboard.cv"].get_data_dict()["datasets"]["ogg"],
+        "eval_datasets": {
+            "devtrain": nn_devtrain_data_inputs["switchboard.devtrain"].get_data_dict()["datasets"]["ogg"],
+        },
+    }
+    if use_multi_proc_dataset:
+        returnn_datasets["train"] = {
+            "class": "MultiProcDataset",
+            "dataset": nn_train_data_inputs["switchboard.train"].get_data_dict()["datasets"]["ogg"],
+            "num_workers": 2,
+            "buffer_size": 5,
         }
-    else:
-        returnn_datasets = {
-            "train": nn_train_data_inputs["switchboard.train"].get_data_dict()["datasets"]["ogg"],
-            "dev": nn_cv_data_inputs["switchboard.cv"].get_data_dict()["datasets"]["ogg"],
-            "eval_datasets": {
-                "devtrain": nn_devtrain_data_inputs["switchboard.devtrain"].get_data_dict()["datasets"]["ogg"],
-            },
-        }
-
     lexicon = gmm_system.crp["switchboard"].lexicon_config.file
     lexicon = DeleteEmptyOrthJob(lexicon).out_lexicon
     rasr_loss_lexicon = MakeBlankLexiconJob(lexicon).out_lexicon
@@ -739,9 +731,9 @@ def run_scf_baseline():
         "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
         "datasets": returnn_datasets,
         "extra_args": {
+            "accum_grad_multiple_step": 2,
             "watch_memory": True,
             "conv_pad_seq_len_to_power": 1.5,
-            "accum_grad_multiple_step": 2,
         },
         "conformer_type": "wei",
         "specaug_old": {"max_feature": 15},
@@ -806,7 +798,7 @@ def run_scf_audio_perturbation_gridsearch():
         rasr_loss_corpus_segments,
         rasr_loss_lexicon_path,
         dev_corpora,
-    ) = get_datasets(useMultiProcDataset=True, pre_process=CodeWrapper("audio_perturb_runner.run"))
+    ) = get_datasets(use_multi_proc_dataset=True, pre_process=CodeWrapper("audio_perturb_runner.run"))
     returnn_args = {
         "batch_size": 5000,
         "rasr_binary_path": RASR_BINARY_PATH,
@@ -817,7 +809,7 @@ def run_scf_audio_perturbation_gridsearch():
         "conformer_type": "wei",
         "specaug_old": {"max_feature": 15},
         "audio_perturbation": True,
-        "useMultiProcDataset": True,
+        "use_multi_proc_dataset": True,
     }
     feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
     lr_args = {
@@ -1136,11 +1128,13 @@ def py():
         columns_start=["train_name", "wave_norm", "specaug", "lr", "batch_size"],
         columns_end=["epoch", "recog_name", "lm", "optlm", "lm_scale", "prior_scale"],
     )
-    report = Report.merge_reports([
-        report_base,
-        report_mel,
-        report_scf,
-    ])
+    report = Report.merge_reports(
+        [
+            report_base,
+            report_mel,
+            report_scf,
+        ]
+    )
     tk.register_report(
         os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report.csv"),
         values=report.get_values(),
