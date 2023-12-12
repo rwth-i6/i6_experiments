@@ -1101,12 +1101,13 @@ def decode_diphone(
     )
     s.set_mono_priors_returnn_rasr(
         key=key,
-        epoch=prior_epoch,
+        epoch=epoch if tune_extremely else prior_epoch,
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         smoothen=True,
         returnn_config=prior_returnn_config,
         output_layer_name="output",
+        data_share=1.0 if tune_extremely else 1.0 / 3.0,
     )
 
     diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
