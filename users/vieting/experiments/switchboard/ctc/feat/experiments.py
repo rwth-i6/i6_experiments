@@ -739,14 +739,6 @@ def run_scf_baseline():
         "specaug_old": {"max_feature": 15},
     }
     feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
-    lr_args = {
-        "peak_lr": 4e-4,
-        "start_lr": 1.325e-05,
-        "end_lr": 1e-5,
-        "increase_epochs": 180,
-        "decrease_epochs": 180,
-        "final_epochs": 0,
-    }
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
