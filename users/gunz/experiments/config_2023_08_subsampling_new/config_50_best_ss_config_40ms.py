@@ -774,6 +774,69 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
 
     configs = [
         (returnn_cfg_mo_from_scratch, returnn_cfg_mo, mo_ft_sys, "mono-scratch-oclr"),
+    ]
+    keys = [f"fh-{name}" for _, _, _, name in configs]
+    for (returnn_config, original_returnn_config, sys, name), key in zip(configs, keys):
+        post_name = f"conf-{name}-zhou"
+        print(f"bw {post_name}")
+
+        sys.set_experiment_dict(key, "bw", name, postfix_name=post_name)
+        sys.set_returnn_config_for_experiment(key, copy.deepcopy(original_returnn_config))
+
+        train_args = {
+            **s.initial_train_args,
+            "num_epochs": viterbi_keep_epochs[-1],
+            "partition_epochs": PARTITION_EPOCHS,
+            "returnn_config": copy.deepcopy(returnn_config),
+        }
+        sys.returnn_rasr_training(
+            experiment_key=key,
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            nn_train_args=train_args,
+        )
+
+    for ((_, orig_returnn_config, sys, name), key), crp_k, ep in itertools.product(
+        zip(configs, keys), ["dev-other"], viterbi_keep_epochs
+    ):
+        sys.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+        if key.startswith("fh-mono"):
+            decode_monophone(
+                sys,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=orig_returnn_config,
+                epoch=ep,
+                prior_epoch=min(ep, viterbi_keep_epochs[-2]),
+                tune=ep == viterbi_keep_epochs[-1],
+            )
+        elif key.startswith("fh-di"):
+            decode_diphone(
+                sys,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=orig_returnn_config,
+                epoch=ep,
+                prior_epoch=min(ep, viterbi_keep_epochs[-2]),
+                tune=ep == viterbi_keep_epochs[-1],
+            )
+        elif key.startswith("fh-tri"):
+            decode_triphone(
+                sys,
+                key=key,
+                crp_k=crp_k,
+                returnn_config=orig_returnn_config,
+                graph_config=orig_returnn_config,
+                epoch=ep,
+                prior_epoch_or_key="fh-tri",
+                tensor_config=TENSOR_CONFIG,
+                tune=ep == viterbi_keep_epochs[-1],
+            )
+        else:
+            raise NotImplementedError("Cannot bw-fine-tune triphones")
+
+    configs = [
         (returnn_cfg_mo_ft_constlr, returnn_cfg_mo, mo_ft_sys, "mono-fs-constlr"),
         (returnn_cfg_mo_ft_newbob, returnn_cfg_mo, mo_ft_sys, "mono-fs-newbob"),
         (returnn_cfg_di_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-constlr"),
@@ -853,7 +916,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
 
     mono_scratch_oclr_train_job = mo_ft_sys.experiments["fh-mono-scratch-oclr"]["train_job"]
     import_mono_scratch_oclr_config = import_config(
-        mono_scratch_oclr_train_job.out_checkpoints[fine_tune_keep_epochs[-1]]
+        mono_scratch_oclr_train_job.out_checkpoints[viterbi_keep_epochs[-1]]
     )
     mono_fs_train_job = mo_ft_sys.experiments["fh-mono-fs-constlr"]["train_job"]
     import_mono_fs_constlr_config = import_config(mono_fs_train_job.out_checkpoints[fine_tune_keep_epochs[-1]])
