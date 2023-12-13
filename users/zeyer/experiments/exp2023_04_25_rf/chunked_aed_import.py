@@ -15,7 +15,7 @@ import hashlib
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
-from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
+from .chunked_conformer import ChunkedConformerEncoder, ConformerConvSubsample
 
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.lr_schedules.lin_warmup_invsqrt_decay import dyn_lr_lin_warmup_invsqrt_decay
@@ -318,6 +318,8 @@ class Model(rf.Module):
         blank_idx: int,
         eos_idx: int,
         bos_idx: int,
+        input_chunk_size_dim: Dim,
+        chunk_stride: int,
         enc_aux_logits: Sequence[int] = (),  # layers
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
         enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
@@ -337,7 +339,9 @@ class Model(rf.Module):
         config = get_global_config(return_empty_if_none=True)
 
         self.in_dim = in_dim
-        self.encoder = ConformerEncoder(
+        self.input_chunk_size_dim = input_chunk_size_dim
+        self.chunk_stride = chunk_stride
+        self.encoder = ChunkedConformerEncoder(
             in_dim,
             enc_model_dim,
             ff_dim=enc_ff_dim,
@@ -425,7 +429,7 @@ class Model(rf.Module):
         *,
         in_spatial_dim: Dim,
         collected_outputs: Optional[Dict[str, Tensor]] = None,
-    ) -> Tuple[Dict[str, Tensor], Dim]:
+    ) -> Tuple[Dict[str, Tensor], Dim, Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
         # log mel filterbank features
         source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
@@ -435,8 +439,11 @@ class Model(rf.Module):
             sampling_rate=16_000,
             log_base=math.exp(2.3026),  # almost 10.0 but not exactly...
         )
+
+        # Mixup
         if self._mixup:
             source = self._mixup(source, spatial_dim=in_spatial_dim)
+
         # SpecAugment
         source = rf.audio.specaugment(
             source,
@@ -444,21 +451,37 @@ class Model(rf.Module):
             feature_dim=self.in_dim,
             **self._specaugment_opts,
         )
-        # Encoder including convolutional frontend
-        enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
-        enc_ctx = self.enc_ctx(enc)
-        return dict(enc=enc, enc_ctx=enc_ctx), enc_spatial_dim
 
-    def decoder_default_initial_state(self, *, batch_dims: Sequence[Dim], enc_spatial_dim: Dim) -> rf.State:
+        # Chunk
+        source, chunked_time_dim = rf.window(
+            source,
+            spatial_dim=in_spatial_dim,
+            window_dim=self.input_chunk_size_dim,
+            window_left=0,
+            stride=self.chunk_stride,
+        )
+
+        # Encoder including convolutional frontend
+        enc, enc_spatial_dim = self.encoder(
+            source,
+            in_spatial_dim=self.input_chunk_size_dim,
+            chunked_time_dim=chunked_time_dim,
+            collected_outputs=collected_outputs,
+        )
+        enc_ctx = self.enc_ctx(enc)
+        return dict(enc=enc, enc_ctx=enc_ctx), enc_spatial_dim, chunked_time_dim
+
+    def decoder_default_initial_state(self, *, batch_dims: Sequence[Dim], chunked_time_dim: Dim) -> rf.State:
         """Default initial state"""
         state = rf.State(
             s=self.s.default_initial_state(batch_dims=batch_dims),
             att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.encoder.out_dim]),
+            chunk_idx=rf.zeros(batch_dims, dtype="int32", sparse_dim=chunked_time_dim) - 1,
         )
         state.att.feature_dim_axis = len(state.att.dims) - 1
         return state
 
-    def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
+    def loop_step_output_templates(self, *, batch_dims: List[Dim], chunked_time_dim: Dim) -> Dict[str, Tensor]:
         """loop step out"""
         return {
             "s": Tensor(
@@ -479,25 +502,30 @@ class Model(rf.Module):
         enc_ctx: rf.Tensor,
         enc_spatial_dim: Dim,
         input_embed: rf.Tensor,
-        state: Optional[rf.State] = None,
+        input_label: rf.Tensor,
+        state: rf.State,
     ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
         """step of the inner loop"""
-        if state is None:
-            batch_dims = enc.remaining_dims(
-                remove=(enc.feature_dim, enc_spatial_dim) if enc_spatial_dim != single_step_dim else (enc.feature_dim,)
-            )
-            state = self.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim)
         state_ = rf.State()
 
         prev_att = state.att
-
         s, state_.s = self.s(rf.concat_features(input_embed, prev_att), state=state.s, spatial_dim=single_step_dim)
 
+        prev_chunk_idx = state.chunk_idx
+        chunk_idx = rf.where(
+            rf.logical_or(input_label == self.bos_idx, input_label == self.blank_idx),
+            prev_chunk_idx + 1,
+            prev_chunk_idx,
+        )
+        state_.chunk_idx = chunk_idx
+        enc_ = rf.gather(enc, indices=chunk_idx)
+        enc_ctx_ = rf.gather(enc_ctx, indices=chunk_idx)
+
         s_transformed = self.s_transformed(s)
-        energy_in = enc_ctx + s_transformed
+        energy_in = enc_ctx_ + s_transformed
         energy = self.energy(rf.tanh(energy_in))
         att_weights = rf.softmax(energy, axis=enc_spatial_dim)
-        att0 = rf.dot(att_weights, enc, reduce=enc_spatial_dim, use_mask=False)
+        att0 = rf.dot(att_weights, enc_, reduce=enc_spatial_dim, use_mask=False)
         att0.feature_dim = self.encoder.out_dim
         att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.encoder.out_dim))
         state_.att = att
@@ -575,7 +603,9 @@ def from_scratch_training(
     assert not data.feature_dim  # raw audio
 
     collected_outputs = {}
-    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+    enc_args, enc_spatial_dim, chunked_time_dim = model.encode(
+        data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs
+    )
     if aux_loss_layers:
         for i, layer_idx in enumerate(aux_loss_layers):
             if layer_idx > len(model.encoder.layers):
@@ -604,23 +634,26 @@ def from_scratch_training(
     batch_dims = data.remaining_dims(data_spatial_dim)
     input_embeddings = model.target_embed(targets)
     input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
+    input_labels = rf.shift_right(targets, axis=targets_spatial_dim, pad_value=model.bos_idx)
 
-    def _body(input_embed: Tensor, state: rf.State):
+    def _body(x: Tuple[rf.Tensor, rf.Tensor], state: rf.State):
+        input_embed, input_label = x
         new_state = rf.State()
         loop_out_, new_state.decoder = model.loop_step(
             **enc_args,
             enc_spatial_dim=enc_spatial_dim,
             input_embed=input_embed,
+            input_label=input_label,
             state=state.decoder,
         )
         return loop_out_, new_state
 
     loop_out, _, _ = rf.scan(
         spatial_dim=targets_spatial_dim,
-        xs=input_embeddings,
-        ys=model.loop_step_output_templates(batch_dims=batch_dims),
+        xs=(input_embeddings, input_labels),
+        ys=model.loop_step_output_templates(batch_dims=batch_dims, chunked_time_dim=chunked_time_dim),
         initial=rf.State(
-            decoder=model.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim),
+            decoder=model.decoder_default_initial_state(batch_dims=batch_dims, chunked_time_dim=chunked_time_dim),
         ),
         body=_body,
     )
@@ -668,7 +701,7 @@ def model_recog(
         final beam_dim
     """
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    enc_args, enc_spatial_dim, chunked_time_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12
     length_normalization_exponent = 1.0  # TODO none here?
     if max_seq_len is None:
@@ -681,7 +714,7 @@ def model_recog(
     # Initial state.
     beam_dim = Dim(1, name="initial-beam")
     batch_dims_ = [beam_dim] + batch_dims
-    decoder_state = model.decoder_default_initial_state(batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+    decoder_state = model.decoder_default_initial_state(batch_dims=batch_dims_, chunked_time_dim=chunked_time_dim)
     target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
     ended = rf.constant(False, dims=batch_dims_)
     out_seq_len = rf.constant(0, dims=batch_dims_)
@@ -699,6 +732,7 @@ def model_recog(
             **enc_args,
             enc_spatial_dim=enc_spatial_dim,
             input_embed=input_embed,
+            input_label=target,
             state=decoder_state,
         )
         logits = model.decode_logits(input_embed=input_embed, **step_out)

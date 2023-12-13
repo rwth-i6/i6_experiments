@@ -251,24 +251,25 @@ def test_import_forward():
     debug.init_faulthandler()
     better_exchook.install()
 
-    from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
+    from .chunked_conformer import ChunkedConformerEncoder, ChunkedConformerEncoderLayer, ConformerConvSubsample
     from pprint import pprint
 
     # Pick some layers to check outputs for equality.
     # See the func tracing logic below, entries in captured_tensors.
     # RETURNN layer name -> trace point in RF/PT model forwarding.
     _layer_mapping = {
-        "source": (Model.encode, 0, "source", -1),
-        "conv_merged": (ConformerEncoder.__call__, 0, "x_subsample", 0),
-        "source_linear": (ConformerEncoder.__call__, 0, "x_linear", 0),
-        "conformer_block_01_ffmod_1_drop2": (ConformerEncoderLayer.__call__, 0, "x_ffn1", 0),
-        "conformer_block_01_ffmod_1_res": (ConformerEncoderLayer.__call__, 0, "x_ffn1_out", 0),
-        "conformer_block_01_self_att_ln": (ConformerEncoderLayer.__call__, 0, "x_mhsa_ln", 0),
-        "conformer_block_01_self_att_linear": (ConformerEncoderLayer.__call__, 0, "x_mhsa", 0),
-        "conformer_block_01_self_att_res": (ConformerEncoderLayer.__call__, 0, "x_mhsa_out", 0),
-        "conformer_block_01_conv_mod_res": (ConformerEncoderLayer.__call__, 0, "x_conv_out", 0),
-        "conformer_block_01_ffmod_2_res": (ConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
-        "conformer_block_01": (ConformerEncoderLayer.__call__, 1, "inp", 0),
+        "source": (Model.encode, 0, "source", -2),
+        "_input_chunked": (Model.encode, 0, "source", -1),
+        "conv_merged": (ChunkedConformerEncoder.__call__, 0, "x_subsample", 0),
+        "source_linear": (ChunkedConformerEncoder.__call__, 0, "x_linear", 0),
+        "conformer_block_01_ffmod_1_drop2": (ChunkedConformerEncoderLayer.__call__, 0, "x_ffn1", 0),
+        "conformer_block_01_ffmod_1_res": (ChunkedConformerEncoderLayer.__call__, 0, "x_ffn1_out", 0),
+        "conformer_block_01_self_att_ln": (ChunkedConformerEncoderLayer.__call__, 0, "x_mhsa_ln", 0),
+        "conformer_block_01_self_att_linear": (ChunkedConformerEncoderLayer.__call__, 0, "x_mhsa", 0),
+        "conformer_block_01_self_att_res": (ChunkedConformerEncoderLayer.__call__, 0, "x_mhsa_out", 0),
+        "conformer_block_01_conv_mod_res": (ChunkedConformerEncoderLayer.__call__, 0, "x_conv_out", 0),
+        "conformer_block_01_ffmod_2_res": (ChunkedConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
+        "conformer_block_01": (ChunkedConformerEncoderLayer.__call__, 1, "inp", 0),
         "encoder": (Model.encode, 0, "enc", 0),
         "enc_ctx": (Model.encode, 0, "enc_ctx", 0),
         "output/prev:target_embed": (from_scratch_training, 0, "input_embeddings", -1),
@@ -366,6 +367,8 @@ def test_import_forward():
         for old_layer_name, _ in _layer_mapping.items():
             layer = net.get_layer(old_layer_name)
             out = layer.output.copy_as_batch_major()
+            if out.batch and out.batch.base:
+                out = _tf_split_batch(out)
             old_model_outputs_data[old_layer_name] = out
             fetches["layer:" + old_layer_name] = out.placeholder
             for i, tag in enumerate(out.dim_tags):
@@ -377,7 +380,13 @@ def test_import_forward():
         old_model_outputs_fetch = session.run(fetches, feed_dict=feed_dict)
 
     def _make_new_model():
-        return MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
+        return MakeModel.make_model(
+            in_dim,
+            target_dim,
+            num_enc_layers=num_layers,
+            chunk_stride=120,
+            input_chunk_size_dim=config.typed_dict["input_chunk_size_dim"],
+        )
 
     rf.select_backend_torch()
 
@@ -418,8 +427,8 @@ def test_import_forward():
     funcs_to_trace_list = [
         Model.encode,
         Model.decode_logits,
-        ConformerEncoder.__call__,
-        ConformerEncoderLayer.__call__,
+        ChunkedConformerEncoder.__call__,
+        ChunkedConformerEncoderLayer.__call__,
         ConformerConvSubsample.__call__,
         from_scratch_training,
     ]
@@ -713,6 +722,27 @@ def test_import_search():
                 data_spatial_dim=time_dim,
             )
     print(seq_targets, seq_targets.raw_tensor)
+
+
+def _tf_split_batch(x: Tensor) -> Tensor:
+    import tensorflow as tf
+    from returnn.tf.util.data import BatchInfo
+
+    x = x.copy_as_batch_major()
+    batch_base = x.batch.get_global_base()
+    dims = []
+    for batch_virt_dim in x.batch.virtual_dims:
+        if isinstance(batch_virt_dim, BatchInfo.GlobalBatchDim):
+            dims.append(batch_base.batch_dim_tag)
+        elif isinstance(batch_virt_dim, BatchInfo.PaddedDim):
+            dims.append(batch_virt_dim.dim_tag)
+        else:
+            raise TypeError(f"{x} split batch: not handled {batch_virt_dim} ({type(batch_virt_dim)})")
+    dims.extend(x.dims[1:])
+    out = Tensor(x.name, dims=dims, dtype=x.dtype, sparse_dim=x.sparse_dim, feature_dim=x.feature_dim)
+    out.raw_tensor = tf.reshape(x.raw_tensor, [d.get_dim_value() for d in dims])
+    print(f"TF: split batch on {x} to {out}")
+    return out
 
 
 # `py` is the default sis config function name. so when running this directly, run the import test.

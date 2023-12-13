@@ -6,8 +6,8 @@ chunked_att_chunk-35_step-20_linDecay300_0.0002_decayPt0.3333333333333333_bs1500
 - chunk-35
 - step-20
 - winLeft0
-- endSliceStart0
-- endSlice20
+- endSliceStart0 -> end_slice_start = 0
+- endSlice20 -> end_slice_size = 20
 - memVariant1
 - memSize2 -> ConformerMemoryVariantOpts mem_size = 2
 - convCache2 -> ConformerMemoryVariantOpts conv_cache_size = 2
