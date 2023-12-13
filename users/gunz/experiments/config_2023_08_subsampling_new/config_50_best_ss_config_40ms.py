@@ -1206,8 +1206,6 @@ def decode_diphone(
                 returnn_config,
                 dataclasses.replace(
                     base_cfg.with_prior_scale(round(p_c, 1)),
-                    altas=2,
-                    beam=20,
                     tdp_scale=round(tdp_s, 1),
                     tdp_silence=tdp_silence,
                     tdp_non_word=tdp_silence,
