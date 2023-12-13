@@ -27,7 +27,7 @@ class WaveformPerturbation:
         sox_effects: Optional[List[List[str]]] = None,
         codecs: Optional[List[Dict[str, Any]]] = None,
         preemphasis: Optional[Dict[str, Any]] = None,
-        non_linearities: Optional[Dict[str, Any]] = None,
+        non_linearity: Optional[Dict[str, Any]] = None,
     ):
         """
         Initializes an instance of a class.
@@ -66,13 +66,13 @@ class WaveformPerturbation:
         self._tempo = PerturbationFactor(**tempo) if tempo else None
         self._sox_effects = sox_effects or []
         self._perturbations = []
-        self.non_linearities = non_linearities
+        self.non_linearity = non_linearity
         if preemphasis:
             self._perturbations.append(functools.partial(self.preemphasis, factor=PerturbationFactor(**preemphasis)))
         if codecs:
             self._perturbations.append(functools.partial(self.apply_codecs, codecs=codecs))
-        if non_linearities:
-            self._perturbations.append(functools.partial(self.non_linearity, factor=PerturbationFactor(**non_linearities)))
+        if non_linearity:
+            self._perturbations.append(functools.partial(self.non_linearity_function, factor=PerturbationFactor(**non_linearity)))
 
     def run(self, audio, sample_rate, random_state):
         import numpy as np
@@ -133,7 +133,7 @@ class WaveformPerturbation:
         return tfm.build_array(input_array=audio, sample_rate_in=sample_rate)
 
     @staticmethod
-    def non_linearity(audio, sample_rate, random_state, factor):
+    def non_linearity_function(audio, sample_rate, random_state, factor):
         import numpy as np
 
         if random_state.random() < factor.prob:
