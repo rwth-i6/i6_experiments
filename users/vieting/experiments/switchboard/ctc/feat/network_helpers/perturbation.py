@@ -1,5 +1,4 @@
 from typing import List, Dict, Optional, Any
-import inspect
 
 
 class PerturbationFactor:
@@ -73,7 +72,7 @@ class WaveformPerturbation:
         if codecs:
             self._perturbations.append(functools.partial(self.apply_codecs, codecs=codecs))
         if non_linearities:
-            self._perturbations.append(functools.partial(self.non_linearity, non_linearities=non_linearities))
+            self._perturbations.append(functools.partial(self.non_linearity, factor=PerturbationFactor(**non_linearities)))
 
     def run(self, audio, sample_rate, random_state):
         import numpy as np
@@ -134,22 +133,19 @@ class WaveformPerturbation:
         return tfm.build_array(input_array=audio, sample_rate_in=sample_rate)
 
     @staticmethod
-    def non_linearity(audio, sample_rate, random_state, non_linearities):
+    def non_linearity(audio, sample_rate, random_state, factor):
         import numpy as np
 
-        for non_lin in non_linearities:
-            if random_state.random() < non_lin["prob"]:
-                alpha = non_lin["alpha"]
-                audio = np.sign(audio) * np.abs(audio) ** (1 + alpha)
-                audio = audio.astype(np.float32)
+        if random_state.random() < factor.prob:
+            alpha = random_state.random() * (factor.max - factor.min) + factor.min
+            audio = np.sign(audio) * np.abs(audio) ** (1 + alpha)
+            audio = audio.astype(np.float32)
         return audio
 
 
 def get_code_for_perturbation():
-    class_sources = ["from typing import List, Dict, Any, Optional"]
-    for name, obj in globals().items():
-        if inspect.isclass(obj) and obj.__module__ == __name__:
-            # Get the source code of the class
-            class_source = inspect.getsource(obj)
-            class_sources.append(class_source)
-    return class_sources
+    classes = ["from typing import List, Dict, Any, Optional"]
+    for cls_name, cls in list(globals().items()):
+        if isinstance(cls, type):
+            classes.append(cls)
+    return classes
