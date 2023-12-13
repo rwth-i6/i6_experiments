@@ -219,8 +219,12 @@ def map_param_func_v2(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
     raise NotImplementedError(f"cannot map {name!r} {var}")
 
 
-# See comment below, use `py = test_import` to easily run this.
+# See comment below, use `py = test_import_forward` to easily run this.
 def test_import_forward():
+    from returnn.util import better_exchook
+
+    better_exchook.install()
+
     from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
     from pprint import pprint
 
@@ -355,6 +359,7 @@ def test_import_forward():
     def _make_new_model():
         return MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
 
+    _make_new_model.__module__ = "<dummy-main>"  # avoid error with hashing
     rf.select_backend_torch()
 
     print("*** Convert old model to new model")
@@ -439,7 +444,16 @@ def test_import_forward():
         assert isinstance(new_out, Tensor), f"new_out: {new_out}, new_var_path: {new_var_path}"
         old_out = old_model_outputs_data[old_layer_name]
         assert old_out.batch_ndim == new_out.batch_ndim
-        mapped_axes = new_out.find_matching_dim_map(old_out, list(range(old_out.batch_ndim)))
+        mapped_axes = new_out.find_matching_dim_map(
+            old_out,
+            list(range(old_out.batch_ndim)),
+            is_equal_opts=dict(
+                allow_same_feature_dim=True,
+                allow_same_spatial_dim=True,
+                treat_feature_as_spatial=True,
+                allow_old_behavior=True,
+            ),
+        )
         out = new_out.copy_transpose([mapped_axes[i] for i in range(old_out.batch_ndim)])
         fetches["layer:" + old_layer_name] = out.raw_tensor
         for i, tag in enumerate(out.dim_tags):
@@ -676,8 +690,8 @@ def test_import_search():
 # `py` is the default sis config function name. so when running this directly, run the import test.
 # So you can just run:
 # `sis m recipe/i6_experiments/users/zeyer/experiments/....py`
-py = test_import_search
-# py = test_import_forward
+# py = test_import_search
+py = test_import_forward
 
 
 if __name__ == "__main__":
@@ -686,4 +700,4 @@ if __name__ == "__main__":
         mod_name = mod_name[len("recipe.") :]
     mod_name += "." + os.path.basename(__file__)[: -len(".py")]
     map_param_func_v2.__module__ = mod_name
-    test_import_search()
+    py()
