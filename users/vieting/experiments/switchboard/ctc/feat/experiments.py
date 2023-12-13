@@ -816,57 +816,57 @@ def run_scf_audio_perturbation_gridsearch():
         "final_epochs": 0,
     }
 
-    speeds = [
-        {"prob": 0.6, "minimum": 0.9, "maximum": 1.1},
-        {"prob": 0.6, "minimum": 0.8, "maximum": 1.2},
-        {"prob": 0.6, "minimum": 0.7, "maximum": 1.3},
-        {"prob": 0.5, "minimum": 0.9, "maximum": 1.1},
-        {"prob": 0.5, "minimum": 0.8, "maximum": 1.2},
-        {"prob": 0.5, "minimum": 0.7, "maximum": 1.3},
-        {"prob": 0.4, "minimum": 0.9, "maximum": 1.1},
-        {"prob": 0.4, "minimum": 0.8, "maximum": 1.2},
-        {"prob": 0.4, "minimum": 0.7, "maximum": 1.3},
-    ]
-
-    tempos = [
-        {"prob": 0.4, "minimum": 0.9, "maximum": 1.1},
-        {"prob": 0.4, "minimum": 0.8, "maximum": 1.2},
-        {"prob": 0.4, "minimum": 0.7, "maximum": 1.3},
-        {"prob": 0.5, "minimum": 0.9, "maximum": 1.1},
-        {"prob": 0.5, "minimum": 0.8, "maximum": 1.2},
-        {"prob": 0.5, "minimum": 0.7, "maximum": 1.3},
-        {"prob": 0.6, "minimum": 0.9, "maximum": 1.1},
-        {"prob": 0.6, "minimum": 0.8, "maximum": 1.2},
-        {"prob": 0.6, "minimum": 0.7, "maximum": 1.3},
-    ]
-    preemphases = [
-        {"prob": 0.9, "minimum": 0.9, "maximum": 1.0},
-        {"prob": 0.9, "minimum": 0.8, "maximum": 1.0},
-        {"prob": 0.8, "minimum": 0.9, "maximum": 1.0},
-        {"prob": 0.8, "minimum": 0.8, "maximum": 1.0},
-    ]
-    codecs = [
-        {"encoding": "ULAW", "prob": 0.4},
-        {"encoding": "ULAW", "prob": 0.6},
-    ]
-    non_linearities = [
-        {"prob": 0.4, "alpha": 0.2},
-        {"prob": 0.4, "alpha": 0.4},
-        {"prob": 0.6, "alpha": 0.2},
-        {"prob": 0.6, "alpha": 0.4},
+    perturbation_args = [
+        {'speeds': {'prob': 0.6, 'minimum': 0.8, 'maximum': 1.2}},
+        {'speeds': {'prob': 0.6, 'minimum': 0.7, 'maximum': 1.3}},
+        {'speeds': {'prob': 0.5, 'minimum': 0.9, 'maximum': 1.1}},
+        {'speeds': {'prob': 0.5, 'minimum': 0.8, 'maximum': 1.2}},
+        {'speeds': {'prob': 0.5, 'minimum': 0.7, 'maximum': 1.3}},
+        {'speeds': {'prob': 0.4, 'minimum': 0.9, 'maximum': 1.1}},
+        {'speeds': {'prob': 0.4, 'minimum': 0.8, 'maximum': 1.2}},
+        {'speeds': {'prob': 0.4, 'minimum': 0.7, 'maximum': 1.3}},
+        {'tempos': {'prob': 0.4, 'minimum': 0.9, 'maximum': 1.1}},
+        {'tempos': {'prob': 0.4, 'minimum': 0.8, 'maximum': 1.2}},
+        {'tempos': {'prob': 0.4, 'minimum': 0.7, 'maximum': 1.3}},
+        {'tempos': {'prob': 0.5, 'minimum': 0.9, 'maximum': 1.1}},
+        {'tempos': {'prob': 0.5, 'minimum': 0.8, 'maximum': 1.2}},
+        {'tempos': {'prob': 0.5, 'minimum': 0.7, 'maximum': 1.3}},
+        {'tempos': {'prob': 0.6, 'minimum': 0.9, 'maximum': 1.1}},
+        {'tempos': {'prob': 0.6, 'minimum': 0.8, 'maximum': 1.2}},
+        {'tempos': {'prob': 0.6, 'minimum': 0.7, 'maximum': 1.3}},
+        {'preemphases': {'prob': 0.9, 'minimum': 0.9, 'maximum': 1.0}},
+        {'preemphases': {'prob': 0.9, 'minimum': 0.8, 'maximum': 1.0}},
+        {'preemphases': {'prob': 0.8, 'minimum': 0.9, 'maximum': 1.0}},
+        {'preemphases': {'prob': 0.8, 'minimum': 0.8, 'maximum': 1.0}},
+        {'codecs': {'encoding': 'ULAW', 'prob': 0.4}},
+        {'codecs': {'encoding': 'ULAW', 'prob': 0.6}},
+        {'non_linearities': {'prob': 0.4,  'minimum': 0.1, 'maximum': 0.3}},
+        {'non_linearities': {'prob': 0.4,  'minimum': 0.2, 'maximum': 0.4}},
+        {'non_linearities': {'prob': 0.6,  'minimum': 0.1, 'maximum': 0.3}},
+        {'non_linearities': {'prob': 0.6,  'minimum': 0.2, 'maximum': 0.4}},
     ]
 
     nn_base_args = {}
 
-    for speed in speeds:
-        key_suffix = f"speed_{speed['prob']}_{speed['minimum']}_{speed['maximum']}"
+    for args in perturbation_args:
+        arg_key = list(args.keys())[0]
+        arg_values = list(args.values())[0]
+
+        # Construct key_suffix and report_values
+        if 'minimum' in arg_values and 'maximum' in arg_values:
+            key_suffix = f"{arg_key}_{arg_values['prob']}_{arg_values['minimum']}_{arg_values['maximum']}_"
+            report_values = f"{arg_key}: '{arg_values['prob']}_{arg_values['minimum']}_{arg_values['maximum']}'"
+        else:
+            key_suffix = f"{arg_key}_{arg_values['prob']}_"
+            report_values = f"{arg_key}: '{arg_values['prob']}'"
+
+        # Construct the key and report_args
         key = f"scf_bs2x5k_perturb_{key_suffix}"
-        audio_perturb_args = {"speed": speed}
-        report_args = {"speed": f"{speed['prob']}_{speed['minimum']}_{speed['maximum']}"}
+        report_args = {key: report_values}
         nn_base_args[key] = dict(
             returnn_args={
                 "extra_args": {
-                    "audio_perturb_args": audio_perturb_args,
+                    "audio_perturb_args": args,
                     "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
                     "conv_pad_seq_len_to_power": 1.5,
                     "watch_memory": True,
@@ -877,87 +877,7 @@ def run_scf_audio_perturbation_gridsearch():
             feature_args=feature_args,
             lr_args=lr_args,
             report_args=report_args,
-        )
-
-    for tempo in tempos:
-        key_suffix = f"tempo_{tempo['prob']}_{tempo['minimum']}_{tempo['maximum']}"
-        key = f"scf_bs2x5k_perturb_{key_suffix}"
-        audio_perturb_args = {"tempo": tempo}
-        report_args = {"tempo": f"{tempo['prob']}_{tempo['minimum']}_{tempo['maximum']}"}
-        nn_base_args[key] = dict(
-            returnn_args={
-                "extra_args": {
-                    "audio_perturb_args": audio_perturb_args,
-                    "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
-                    "conv_pad_seq_len_to_power": 1.5,
-                    "accum_grad_multiple_step": 2,
-                },
-                **returnn_args,
-            },
-            feature_args=feature_args,
-            lr_args=lr_args,
-            report_args=report_args,
-        )
-
-    for preemphasis in preemphases:
-        key_suffix = f"preemphasis_{preemphasis['prob']}_{preemphasis['minimum']}_{preemphasis['maximum']}"
-        key = f"scf_bs2x5k_perturb_{key_suffix}"
-        audio_perturb_args = {"preemphasis": preemphasis}
-        report_args["preemphasis"] = f"{preemphasis['prob']}_{preemphasis['minimum']}_{preemphasis['maximum']}"
-        nn_base_args[key] = dict(
-            returnn_args={
-                "extra_args": {
-                    "audio_perturb_args": audio_perturb_args,
-                    "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
-                    "conv_pad_seq_len_to_power": 1.5,
-                    "accum_grad_multiple_step": 2,
-                },
-                **returnn_args,
-            },
-            feature_args=feature_args,
-            lr_args=lr_args,
-            report_args=report_args,
-        )
-
-    for codec in codecs:
-        key_suffix = f"codec_wav_{codec['encoding'].lower()}_{codec['prob']}"
-        key = f"scf_bs2x5k_perturb_{key_suffix}"
-        audio_perturb_args = {"codecs": [codec]}
-        report_args["codec"] = f"wav_{codec['encoding'].lower()}_{codec['prob']}"
-        nn_base_args[key] = dict(
-            returnn_args={
-                "extra_args": {
-                    "audio_perturb_args": audio_perturb_args,
-                    "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
-                    "conv_pad_seq_len_to_power": 1.5,
-                    "accum_grad_multiple_step": 2,
-                },
-                **returnn_args,
-            },
-            feature_args=feature_args,
-            lr_args=lr_args,
-            report_args=report_args,
-        )
-
-    for non_linearity in non_linearities:
-        key_suffix = f"non_linearity_{non_linearity['prob']}_{non_linearity['alpha']}"
-        key = f"scf_bs2x5k_perturb_{key_suffix}"
-        audio_perturb_args = {"non_linearities": [non_linearity]}
-        report_args["non_linearity"] = f"{non_linearity['prob']}_{non_linearity['alpha']}"
-        nn_base_args[key] = dict(
-            returnn_args={
-                "extra_args": {
-                    "audio_perturb_args": audio_perturb_args,
-                    "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
-                    "conv_pad_seq_len_to_power": 1.5,
-                    "accum_grad_multiple_step": 2,
-                },
-                **returnn_args,
-            },
-            feature_args=feature_args,
-            lr_args=lr_args,
-            report_args=report_args,
-        )
+        )    
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args=nn_base_args,
