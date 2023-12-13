@@ -1266,7 +1266,7 @@ def decode_diphone(
             calculate_statistics=True,
             opt_lm_am_scale=True,
             fix_tdp_non_word_tying=True,
-            prior_epoch=prior_epoch,
+            prior_epoch=epoch if tune_extremely else prior_epoch,
             decode_trafo_lm=neural_lm,
             recognize_only_trafo=neural_lm,
             cpu_rqmt=2,
