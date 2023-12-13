@@ -838,8 +838,8 @@ def run_scf_audio_perturbation_gridsearch():
         {'preemphasis': {'prob': 0.9, 'minimum': 0.8, 'maximum': 1.0}},
         {'preemphasis': {'prob': 0.8, 'minimum': 0.9, 'maximum': 1.0}},
         {'preemphasis': {'prob': 0.8, 'minimum': 0.8, 'maximum': 1.0}},
-        {'codecs': {'encoding': 'ULAW', 'prob': 0.4}},
-        {'codecs': {'encoding': 'ULAW', 'prob': 0.6}},
+        {'codecs': [{'encoding': 'ULAW', 'prob': 0.4}]},
+        {'codecs': [{"encoding": 'ULAW', 'prob': 0.6}]},
         {'non_linearity': {'prob': 0.4,  'minimum': 0.1, 'maximum': 0.3}},
         {'non_linearity': {'prob': 0.4,  'minimum': 0.2, 'maximum': 0.4}},
         {'non_linearity': {'prob': 0.6,  'minimum': 0.1, 'maximum': 0.3}},
@@ -852,13 +852,13 @@ def run_scf_audio_perturbation_gridsearch():
         arg_key = list(args.keys())[0]
         arg_values = list(args.values())[0]
 
-        # Construct key_suffix and report_values
-        if 'minimum' in arg_values and 'maximum' in arg_values:
+        # Check if arg_values is a dictionary (has 'minimum' and 'maximum') or a list (like 'codecs')
+        if isinstance(arg_values, dict):
             key_suffix = f"{arg_key}_{arg_values['prob']}_{arg_values['minimum']}_{arg_values['maximum']}_"
             report_values = f"{arg_key}: '{arg_values['prob']}_{arg_values['minimum']}_{arg_values['maximum']}'"
-        else:
-            key_suffix = f"{arg_key}_{arg_values['prob']}_"
-            report_values = f"{arg_key}: '{arg_values['prob']}'"
+        elif isinstance(arg_values, list):
+            key_suffix = f"{arg_key}_{arg_values[0]['encoding']}_{arg_values[0]['prob']}_"
+            report_values = f"{arg_key} (encoding: {arg_values[0]['encoding']}): '{arg_values[0]['prob']}'"
 
         # Construct the key and report_args
         key = f"scf_bs2x5k_perturb_{key_suffix}"
