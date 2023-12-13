@@ -1162,16 +1162,25 @@ def decode_diphone(
             if p_c == 1.0 and p_l == 1.0:
                 return returnn_config
 
-            def apply_scale(returnn_config: returnn.ReturnnConfig, scale: float, layer: str):
+            def apply_scale(returnn_config: returnn.ReturnnConfig, scale: float, output_layer_name: str):
                 net = returnn_config.config["network"]
-                new_name = f"{layer}_pre_scale"
-                net[new_name] = net[layer]
-                net[layer] = {
+                scale_name = f"{output_layer_name}_scaled"
+
+                for layer in returnn_config.config["network"].values():
+                    if "from" not in layer:
+                        continue
+                    layer["from"] = (
+                        scale_name
+                        if layer["from"] == output_layer_name
+                        else [scale_name if f == output_layer_name else f for f in layer["from"]]
+                    )
+
+                net[scale_name] = {
                     "class": "eval",
                     "eval": f"{scale} * source(0)"
-                    if net[layer].get("activation") == "log_softmax"
+                    if net[output_layer_name].get("activation") == "log_softmax"
                     else f"tf.math.pow(source(0), {scale})",
-                    "from": [new_name],
+                    "from": [output_layer_name],
                 }
 
             returnn_config = copy.deepcopy(returnn_config)
