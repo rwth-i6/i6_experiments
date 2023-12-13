@@ -69,7 +69,7 @@ def make_conformer_fullsum_ctc_model(
 
     from_list = ["data"]
 
-    from_list = add_specaug_layer(network, **specaug_args)
+    from_list = add_specaug_layer(network, from_list=from_list, **specaug_args)
     python_code += get_specaug_funcs()
 
     from_list = add_initial_conv(network, from_list, **vgg_args)

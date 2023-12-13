@@ -86,9 +86,7 @@ def py():
 
     train_corpus_path = swb_gmm_system.corpora[train_key].corpus_file
 
-    all_segments = corpus_recipe.SegmentCorpusJob(
-        train_corpus_path, 1
-    ).out_single_segment_files[1]
+    all_segments = corpus_recipe.SegmentCorpusJob(train_corpus_path, 1).out_single_segment_files[1]
 
     splitted_segments_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
         all_segments, {"train": 1 - cv_size, "cv": cv_size}
@@ -99,9 +97,7 @@ def py():
     #     train_segments, num_lines=1000, zip_output=False
     # ).out
 
-    nn_train_data = swb_gmm_system.outputs[train_key][
-        "final"
-    ].as_returnn_rasr_data_input(shuffle_data=True)
+    nn_train_data = swb_gmm_system.outputs[train_key]["final"].as_returnn_rasr_data_input(shuffle_data=True)
     nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
     nn_train_data_inputs = {f"{train_key}.train": nn_train_data}
 
@@ -123,12 +119,8 @@ def py():
 
     # ********** Hybrid System **********
 
-    train_blstm_net, train_python_code = make_blstm_hybrid_model(
-        num_outputs=num_classes
-    )
-    recog_blstm_net, recog_python_code = make_blstm_hybrid_recog_model(
-        num_outputs=num_classes
-    )
+    train_blstm_net, train_python_code = make_blstm_hybrid_model(num_outputs=num_classes)
+    recog_blstm_net, recog_python_code = make_blstm_hybrid_recog_model(num_outputs=num_classes)
 
     train_networks = {"BLSTM_hybrid": train_blstm_net}
     recog_networks = {"BLSTM_hybrid": recog_blstm_net}

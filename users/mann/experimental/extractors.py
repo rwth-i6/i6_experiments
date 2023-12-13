@@ -7,7 +7,7 @@ import re
 import gzip
 import json
 
-import tabulate as tab
+# import tabulate as tab
 import xml.etree.ElementTree as ET
 import numpy as np
 from xml.dom import minidom

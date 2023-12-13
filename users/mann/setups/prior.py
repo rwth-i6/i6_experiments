@@ -11,7 +11,7 @@ from i6_experiments.users.mann.experimental.statistics import (
     ApplyStateTyingToAllophoneStats
 )
 from i6_core.corpus.transform import ApplyLexiconToCorpusJob
-from i6_experiments.users.mann.setups.reports import DescValueReport, SimpleValueReport
+# from i6_experiments.users.mann.setups.reports import DescValueReport, SimpleValueReport
 from i6_experiments.users.mann.setups.state_tying import Allophone
 from i6_core.util import uopen, get_val, instanciate_delayed
 
@@ -391,7 +391,7 @@ class PriorSystemV2(PriorSystem):
         )
 
         transcribe_job = ApplyLexiconToCorpusJob(
-            self.system.csp["train"].corpus_config.file,
+            self.system.crp["train"].corpus_config.file,
             lexicon_w_we.out_lexicon,
         )
 
@@ -415,3 +415,44 @@ class PriorSystemV2(PriorSystem):
             "xml": prior_job.out_prior_xml_file,
             "png": prior_job.out_prior_png_file
         }
+
+def get_prior_from_transcription_v2(
+    crp,
+    total_frames,
+    num_classes,
+    epsilon=1e-12,
+    lemma_end_probability=0.0,
+
+):
+    from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
+    from i6_core.lexicon.allophones import DumpStateTyingJob
+    lexicon_w_we = AddEowPhonemesToLexiconJob(
+        crp.lexicon_config.file,
+        boundary_marker=" #", # the prepended space is important
+    )
+
+    transcribe_job = ApplyLexiconToCorpusJob(
+        crp.corpus_config.file,
+        lexicon_w_we.out_lexicon,
+    )
+
+    count_phonemes = AllophoneCounts(
+        transcribe_job.out_corpus,
+        lemma_end_probability=lemma_end_probability,
+    )
+
+    state_tying_file = DumpStateTyingJob(crp).out_state_tying
+
+    prior_job = PriorFromTranscriptionCounts(
+        count_phonemes.counts,
+        count_phonemes.total,
+        state_tying_file,
+        num_frames=total_frames,
+        eps=epsilon,
+    )
+
+    return {
+        "txt": prior_job.out_prior_txt_file,
+        "xml": prior_job.out_prior_xml_file,
+        "png": prior_job.out_prior_png_file
+    }

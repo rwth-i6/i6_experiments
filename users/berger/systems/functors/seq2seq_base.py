@@ -7,6 +7,7 @@ from i6_experiments.users.berger.util import lru_cache_with_signature
 from sisyphus import tk
 
 from .rasr_base import RasrFunctor
+from ..dataclasses import FeatureType
 
 
 class Seq2SeqFunctor(RasrFunctor, ABC):
@@ -34,13 +35,14 @@ class Seq2SeqFunctor(RasrFunctor, ABC):
         base_feature_flow: rasr.FlowNetwork,
         tf_graph: tk.Path,
         checkpoint: returnn.Checkpoint,
+        feature_type: FeatureType = FeatureType.SAMPLES
     ) -> rasr.FlowNetwork:
         if custom_rasr.LabelScorer.need_tf_flow(label_scorer.scorer_type):
             feature_flow = self._make_tf_feature_flow(base_feature_flow, tf_graph, checkpoint)
         else:
             feature_flow = copy.deepcopy(base_feature_flow)
             feature_flow.config = feature_flow.config or rasr.RasrConfig()
-            feature_flow.config.main_port_name = "samples"
+            feature_flow.config.main_port_name = "samples" if feature_type == FeatureType.SAMPLES else "features"
             label_scorer.set_input_config()
             label_scorer.set_loader_config(self._make_model_loader_config(tf_graph, checkpoint))
 

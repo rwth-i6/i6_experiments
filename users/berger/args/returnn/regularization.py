@@ -16,14 +16,8 @@ def get_chunking_config(
     assert isinstance(chunking_factors, Dict)
     return {
         "chunking": (
-            {
-                key: base_chunk_size // factor
-                for key, factor in chunking_factors.items()
-            },
-            {
-                key: base_chunk_size // (2 * factor)
-                for key, factor in chunking_factors.items()
-            },
+            {key: base_chunk_size // factor for key, factor in chunking_factors.items()},
+            {key: base_chunk_size // (2 * factor) for key, factor in chunking_factors.items()},
         )
     }
 
@@ -37,7 +31,7 @@ def get_base_regularization_config(
     grad_clip_global_norm: Optional[float] = None,
     **kwargs,
 ) -> Dict[str, Any]:
-    result = {"batch_size": batch_size, "max_seqs": max_seqs}
+    result: Dict[str, Any] = {"batch_size": batch_size, "max_seqs": max_seqs}
     if grad_noise is not None:
         result["gradient_noise"] = grad_noise
     if grad_clip is not None:

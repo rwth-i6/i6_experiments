@@ -2,7 +2,7 @@ from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from sisyphus import tk, gs
 
 from .config_01_conformer_ctc_pt import py as py_01
-from .config_01a_conformer_ctc_pt_tuning import py as py_01a
+# from .config_01a_conformer_ctc_pt_tuning import py as py_01a
 
 
 def main() -> SummaryReport:
@@ -65,7 +65,7 @@ def main() -> SummaryReport:
     summary_report = SummaryReport()
 
     summary_report.merge_report(py_01(), update_structure=True)
-    summary_report.merge_report(py_01a(), update_structure=True)
+    # summary_report.merge_report(py_01a(), update_structure=True)
 
     tk.register_report("summary.report", summary_report)
 

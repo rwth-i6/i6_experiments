@@ -20,7 +20,7 @@ from sisyphus import gs, tk
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 num_outputs = 79
-num_subepochs = 150
+num_subepochs = 250
 
 tools = copy.deepcopy(default_tools_v2)
 
@@ -40,7 +40,7 @@ def returnn_config_generator(
     am_args: dict,
 ) -> ReturnnConfig:
     if variant == ConfigVariant.TRAIN or variant == ConfigVariant.PRIOR:
-        net_dict, extra_python = ctc_model.make_i6models_conformer_fullsum_ctc_model(
+        net_dict, extra_python = ctc_model.make_conformer_fullsum_ctc_model(
             num_outputs=num_outputs,
             specaug_args={
                 "max_time_num": 1,
@@ -48,14 +48,8 @@ def returnn_config_generator(
                 "max_feature_num": 5,
                 "max_feature": 5,
             },
-            vgg_args={
-                "linear_size": 512,
-            },
             conformer_args={
-                "num_blocks": 12,
-                "size": 512,
-                "conv_filter_size": 31,
-                "num_att_heads": 8,
+                "l2": 0.0001,
             },
             output_args={
                 "rasr_binary_path": tools.rasr_binary_path,
@@ -66,17 +60,8 @@ def returnn_config_generator(
             },
         )
     else:
-        net_dict, extra_python = ctc_model.make_i6models_conformer_ctc_recog_model(
+        net_dict, extra_python = ctc_model.make_conformer_ctc_recog_model(
             num_outputs=num_outputs,
-            vgg_args={
-                "linear_size": 512,
-            },
-            conformer_args={
-                "num_blocks": 12,
-                "size": 512,
-                "conv_filter_size": 31,
-                "num_att_heads": 8,
-            },
         )
 
     returnn_config = get_returnn_config(
@@ -94,10 +79,11 @@ def returnn_config_generator(
         # extern_data_kwargs={"dtype": "int16" if train else "float32"},
         backend=Backend.TENSORFLOW,
         grad_noise=0.0,
-        grad_clip=100.0,
+        grad_clip=0.0,
         schedule=LearningRateSchedules.OCLR,
         initial_lr=1e-05,
-        peak_lr=3e-04,
+        peak_lr=4e-04,
+        cycle_epoch=100,
         final_lr=1e-05,
         batch_size=10000,
         use_chunking=False,
@@ -150,9 +136,9 @@ def run_exp() -> SummaryReport:
     train_step_args = exp_args.get_ctc_train_step_args(num_epochs=num_subepochs)
     recog_step_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
-        epochs=[40, 80, num_subepochs],
-        prior_scales=[0.4],
-        lm_scales=[0.7],
+        epochs=[160, 240, 250],
+        prior_scales=[0.3, 0.5, 0.9],
+        lm_scales=[0.7, 1.1, 1.4, 2.0],
         feature_type=FeatureType.GAMMATONE,
     )
 

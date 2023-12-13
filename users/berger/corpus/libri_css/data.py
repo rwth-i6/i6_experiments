@@ -214,12 +214,38 @@ def get_hdf_files(
     }
 
 
+def split_session0_dev(corpus_path: tk.Path) -> Tuple[tk.Path, tk.Path]:
+    all_segments = corpus.SegmentCorpusJob(corpus_path, 1).out_single_segment_files
+
+    dev_segments = corpus.FilterSegmentsByRegexJob(
+        all_segments,
+        ".*session0.*",
+        invert_match=True,
+    ).out_single_segment_files
+    dev_corpus_filtered = corpus.FilterCorpusBySegmentsJob(
+        corpus_path,
+        list(dev_segments.values()),
+    ).out_corpus
+
+    eval_segments = corpus.FilterSegmentsByRegexJob(
+        all_segments,
+        ".*session0.*",
+        invert_match=False,
+    ).out_single_segment_files
+    eval_corpus_filtered = corpus.FilterCorpusBySegmentsJob(
+        corpus_path,
+        list(eval_segments.values()),
+    ).out_corpus
+
+    return dev_corpus_filtered, eval_corpus_filtered
+
+
 def get_eval_corpus_object_dict() -> Dict[str, CorpusObject]:
     corpus_object_dict = {}
 
     for name, job_type, job_kwargs in [
         (
-            "libri_css_tfgridnet_v1",
+            "libri_css_tfgridnet",
             EnhancedEvalDataToBlissCorpusJob,
             {
                 "json_database": tk.Path(
@@ -231,7 +257,7 @@ def get_eval_corpus_object_dict() -> Dict[str, CorpusObject]:
             },
         ),
         (
-            "segmented_libri_css_tfgridnet_v1",
+            "segmented_libri_css_tfgridnet",
             EnhancedSegmentedEvalDataToBlissCorpusJob,
             {
                 "json_database": tk.Path(
@@ -248,7 +274,7 @@ def get_eval_corpus_object_dict() -> Dict[str, CorpusObject]:
             },
         ),
         (
-            "libri_css_blstm_v1",
+            "libri_css_blstm",
             EnhancedEvalDataToBlissCorpusJob,
             {
                 "json_database": tk.Path(
@@ -260,7 +286,7 @@ def get_eval_corpus_object_dict() -> Dict[str, CorpusObject]:
             },
         ),
         (
-            "segmented_libri_css_blstm_v1",
+            "segmented_libri_css_blstm",
             EnhancedSegmentedEvalDataToBlissCorpusJob,
             {
                 "json_database": tk.Path(
@@ -296,15 +322,35 @@ def get_eval_corpus_object_dict() -> Dict[str, CorpusObject]:
         libri_css_bliss_prim = corpus.MergeCorporaJob(sub_corpora_prim, "libricss").out_merged_corpus
         libri_css_bliss_sec = corpus.MergeCorporaJob(sub_corpora_sec, "libricss").out_merged_corpus
         libri_css_bliss_mix = corpus.MergeCorporaJob(sub_corpora_mix, "libricss").out_merged_corpus
-        tk.register_output(f"data/{name}_prim.xml.gz", libri_css_bliss_prim)
-        tk.register_output(f"data/{name}_sec.xml.gz", libri_css_bliss_sec)
-        tk.register_output(f"data/{name}_mix.xml.gz", libri_css_bliss_mix)
 
-        corpus_object_dict[name] = SeparatedCorpusObject(
-            primary_corpus_file=libri_css_bliss_prim,
-            secondary_corpus_file=libri_css_bliss_sec,
-            mix_corpus_file=libri_css_bliss_mix,
-            duration=11.0,
+        libri_css_bliss_prim_dev, libri_css_bliss_prim_eval = split_session0_dev(libri_css_bliss_prim)
+        libri_css_bliss_sec_dev, libri_css_bliss_sec_eval = split_session0_dev(libri_css_bliss_sec)
+        libri_css_bliss_mix_dev, libri_css_bliss_mix_eval = split_session0_dev(libri_css_bliss_mix)
+
+        dev_name = f"{name}_dev_v1"
+        eval_name = f"{name}_eval_v1"
+
+        tk.register_output(f"data/{dev_name}_prim.xml.gz", libri_css_bliss_prim_dev)
+        tk.register_output(f"data/{dev_name}_sec.xml.gz", libri_css_bliss_sec_dev)
+        tk.register_output(f"data/{dev_name}_mix.xml.gz", libri_css_bliss_mix_dev)
+
+        tk.register_output(f"data/{eval_name}_prim.xml.gz", libri_css_bliss_prim_eval)
+        tk.register_output(f"data/{eval_name}_sec.xml.gz", libri_css_bliss_sec_eval)
+        tk.register_output(f"data/{eval_name}_mix.xml.gz", libri_css_bliss_mix_eval)
+
+        corpus_object_dict[dev_name] = SeparatedCorpusObject(
+            primary_corpus_file=libri_css_bliss_prim_dev,
+            secondary_corpus_file=libri_css_bliss_sec_dev,
+            mix_corpus_file=libri_css_bliss_mix_dev,
+            duration=11.0,  # ToDo: incorrect duration
+            audio_format="wav",
+        )
+
+        corpus_object_dict[eval_name] = SeparatedCorpusObject(
+            primary_corpus_file=libri_css_bliss_prim_eval,
+            secondary_corpus_file=libri_css_bliss_sec_eval,
+            mix_corpus_file=libri_css_bliss_mix_eval,
+            duration=11.0,  # ToDo: incorrect duration
             audio_format="wav",
         )
 

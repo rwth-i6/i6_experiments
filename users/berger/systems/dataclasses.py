@@ -91,8 +91,11 @@ class ConfigVariant(Enum):
 
 class FeatureType(Enum):
     SAMPLES = auto()
-    GAMMATONE = auto()
-    CONCAT_GAMMATONE = auto()
+    GAMMATONE_8K = auto()
+    GAMMATONE_CACHED_8K = auto()
+    GAMMATONE_16K = auto()
+    GAMMATONE_CACHED_16K = auto()
+    CONCAT_GAMMATONE_16K = auto()
 
 
 @dataclass
@@ -115,7 +118,8 @@ class ReturnnConfigs(Generic[types.ConfigType]):
 class CustomStepKwargs:
     train_step_kwargs: dict = field(default_factory=dict)
     align_step_kwargs: dict = field(default_factory=dict)
-    recog_step_kwargs: dict = field(default_factory=dict)
+    dev_recog_step_kwargs: dict = field(default_factory=dict)
+    test_recog_step_kwargs: dict = field(default_factory=dict)
 
 
 class SummaryKey(Enum):

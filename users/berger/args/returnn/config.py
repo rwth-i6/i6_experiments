@@ -20,6 +20,7 @@ def get_base_config(backend: Backend) -> Dict[str, Any]:
         result["use_tensorflow"] = True
     elif backend == Backend.PYTORCH:
         result["backend"] = "torch"
+        result["use_lovely_tensors"] = True
     else:
         raise NotImplementedError
     return result
@@ -41,7 +42,9 @@ def get_extern_data_config(
     return {"extern_data": result}
 
 
-def get_base_post_config(keep_last_n: Optional[int] = None, keep_best_n: Optional[int] = None, keep: Optional[List[int]] = None, **kwargs) -> Dict[str, Any]:
+def get_base_post_config(
+    keep_last_n: Optional[int] = None, keep_best_n: Optional[int] = None, keep: Optional[List[int]] = None, **kwargs
+) -> Dict[str, Any]:
     if keep_last_n is None and keep_best_n is None and keep is None:
         post_config = {"cleanup_old_models": True}
     else:

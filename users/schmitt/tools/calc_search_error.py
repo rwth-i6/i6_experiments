@@ -69,13 +69,6 @@ def dump(ref_dataset, search_dataset, blank_idx, label_name, model_type, max_seg
 
   while ref_dataset.is_less_than_num_seqs(seq_idx) and seq_idx <= float("inf"):
     assert ref_dataset.get_tag(seq_idx) == search_dataset.get_tag(seq_idx)
-    # if seq_idx % 1000 == 0:
-    #   complete_frac = ref_dataset.get_complete_frac(seq_idx)
-    #   print("Progress: %.02f" % (complete_frac * 100))
-
-    # if ref_dataset.get_tag(seq_idx) != "switchboard-1/sw02184A/sw2184A-ms98-a-0084":
-    #   seq_idx += 1
-    #   continue
 
     ref_out = rnn.engine.run_single(dataset=ref_dataset, seq_idx=seq_idx, output_dict=output_dict)
     ref_dataset.load_seqs(seq_idx, seq_idx + 1)
@@ -84,11 +77,15 @@ def dump(ref_dataset, search_dataset, blank_idx, label_name, model_type, max_seg
     search_dataset.load_seqs(seq_idx, seq_idx + 1)
     search_labels = search_dataset.get_data(seq_idx, label_name)
     if model_type.startswith("seg") and len(search_labels[search_labels != blank_idx]) == 0:
+      # in this case, the found seq just contains blanks and we just skip the seq
       only_blanks += 1
       seq_idx += 1
       continue
 
     if model_type.startswith("seg") and max_seg_len != -1:
+      # in this case, the search was done with a maximum allowed segment size
+      # if the reference seq contains segments which are longer, we need to skip bc the model had no way of finding
+      # this segment during search
       label_positions = np.where(ref_labels != blank_idx)[0]
       label_positions_zero_prepend = np.concatenate([np.array([0]), label_positions])
       label_positions_len_append = np.concatenate([label_positions, np.array([len(ref_labels) - 1])])
@@ -97,16 +94,6 @@ def dump(ref_dataset, search_dataset, blank_idx, label_name, model_type, max_seg
         num_over_max_seg_len += 1
         seq_idx += 1
         continue
-
-
-    print("WORKS UNTIL SEARCH OUT")
-    print("REF KEYS: ", ref_dataset.get_data_keys())
-    print("SEARCH KEYS: ", search_dataset.get_data_keys())
-    ref_align = ref_dataset.get_data(seq_idx, label_name)
-    print("REF ALIGN: ", ref_align)
-    search_align = search_dataset.get_data(seq_idx, label_name)
-    print("SEARCH ALIGN: ", search_align)
-    search_out = rnn.engine.run_single(dataset=search_dataset, seq_idx=seq_idx, output_dict=output_dict)
 
     if model_type == "seg":
       # get log probs for labels, blank and emit
@@ -299,7 +286,8 @@ def dump(ref_dataset, search_dataset, blank_idx, label_name, model_type, max_seg
 
     if list(search_labels_non_blank) == list(ref_labels_non_blank):
       if search_output_log_prob < ref_output_log_prob:
-        # in this case, a search error occurred
+        # in this case, the found alignment is worse than the ref alignment but the non-blank labels are the same
+        # so we do not count this as search errors
         with open("search_error_log", "a") as f:
           f.write("SEQ IDX: %s \n" % seq_idx)
           f.write("TAG: %s \n" % ref_dataset.get_tag(seq_idx))
@@ -311,10 +299,10 @@ def dump(ref_dataset, search_dataset, blank_idx, label_name, model_type, max_seg
           f.write("-----------------------------\n\n")
         num_search_errors_seg_bounds += 1
     else:
-      # in this case, the sequences are different
+      # in this case, the non-blank labels are different
       num_diff_seqs += 1
       if search_output_log_prob < ref_output_log_prob:
-        # in this case, a search error occurred
+        # if the found seq is now worse than the ref seq, we have a search error
         with open("search_error_log", "a") as f:
           f.write("SEQ IDX: %s \n" % seq_idx)
           f.write("TAG: %s \n" % ref_dataset.get_tag(seq_idx))

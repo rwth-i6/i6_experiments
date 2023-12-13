@@ -433,7 +433,7 @@ def train_step(*, model: Model, data, run_ctx, **_kwargs):
     run_ctx.mark_as_loss(name="CE", loss=loss)
 
 
-def export_trace(*, model: Model, model_filename: str):
+def export_trace(*, model: Model, args, f: str):
     model.export_mode = True
     dummy_data = torch.randn(1, 30, 50, device="cpu")
     dummy_data_len = torch.ones((1,), dtype=torch.int32) * 30
@@ -444,7 +444,7 @@ def export_trace(*, model: Model, model_filename: str):
     onnx_export(
         scripted_model,
         (dummy_data, dummy_data_len),
-        f=model_filename,
+        f=f,
         verbose=True,
         input_names=["data", "data_len"],
         output_names=["classes"],

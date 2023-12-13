@@ -89,14 +89,6 @@ def run(returnn_root: tk.Path):
             run_performance_study=True,
             tune_decoding=False,
         ),
-        # Experiment(
-        #     alignment=scratch_align_daniel,
-        #     alignment_name="scratch_daniel",
-        #     dc_detection=True,
-        #     lr="v13",
-        #     run_performance_study=False,
-        #     tune_decoding=False,
-        # ),
     ]
     for exp in configs:
         run_single(
@@ -269,7 +261,11 @@ def run_single(
         },
     )
     returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
-        returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=False
+        returnn_config=returnn_config,
+        label_info=s.label_info,
+        out_joint_score_layer="output",
+        log_softmax=True,
+        prepare_for_train=True,
     )
     returnn_config.config["network"]["output"] = {
         **returnn_config.config["network"]["output"],
@@ -278,7 +274,6 @@ def run_single(
         "loss_opts": {
             "focal_loss_factor": CONF_FOCAL_LOSS,
             "label_smoothing": CONF_LABEL_SMOOTHING,
-            "use_fused": True,
         },
     }
 
@@ -296,20 +291,9 @@ def run_single(
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
-        on_2080=False,
     )
     # Joint softmax is memory hungry
-    train_job.rqmt["mem"] = 16
-
-    s.set_mono_priors_returnn_rasr(
-        "fh",
-        train_corpus_key=s.crp_names["train"],
-        dev_corpus_key=s.crp_names["cvtrain"],
-        epoch=keep_epochs[-2],
-        output_layer_name="output",
-        smoothen=True,
-        returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config, except_layers=["pastLabel"]),
-    )
+    train_job.rqmt["mem"] = 12
 
     nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
         returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=True
@@ -319,8 +303,20 @@ def run_single(
     tying_cfg = rasr.RasrConfig()
     tying_cfg.type = "diphone-dense"
 
-    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+    for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+        s.set_mono_priors_returnn_rasr(
+            "fh",
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            epoch=min(ep, keep_epochs[-2]),
+            output_layer_name="output",
+            smoothen=True,
+            returnn_config=remove_label_pops_and_losses_from_returnn_config(
+                returnn_config, except_layers=["pastLabel"]
+            ),
+        )
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
@@ -343,23 +339,21 @@ def run_single(
             )
 
     if run_performance_study:
-        recog_args = dataclasses.replace(recog_args.with_prior_scale(0.4, 0.4), altas=2, beam=20, tdp_scale=0.4)
+        recog_args = dataclasses.replace(recog_args.with_prior_scale(0.6), altas=2, beam=20, tdp_scale=0.4)
 
-        for create_lattice in [True, False]:
-            s.recognize_cart(
-                key="fh",
-                epoch=max(keep_epochs),
-                crp_corpus="dev-other",
-                n_cart_out=s.label_info.get_n_state_classes() * s.label_info.n_contexts,
-                cart_tree_or_tying_config=tying_cfg,
-                params=recog_args,
-                log_softmax_returnn_config=nn_precomputed_returnn_config,
-                calculate_statistics=True,
-                cpu_rqmt=2,
-                mem_rqmt=4,
-                alias_output_prefix="perf-eval" + ("-no-lattice" if not create_lattice else ""),
-                search_rqmt_update={"sbatch_args": ["-w", "cn-30"]},
-                create_lattice=create_lattice,
-            )
+        s.recognize_cart(
+            key="fh",
+            epoch=max(keep_epochs),
+            crp_corpus="dev-other",
+            n_cart_out=s.label_info.get_n_state_classes() * s.label_info.n_contexts,
+            cart_tree_or_tying_config=tying_cfg,
+            params=recog_args,
+            log_softmax_returnn_config=nn_precomputed_returnn_config,
+            calculate_statistics=True,
+            cpu_rqmt=2,
+            mem_rqmt=4,
+            alias_output_prefix="perf-eval/",
+            search_rqmt_update={"sbatch_args": ["-w", "cn-30"]},
+        )
 
     return s

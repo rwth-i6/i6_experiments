@@ -18,7 +18,13 @@ from sisyphus import gs, tk
 from i6_core import corpus, lexicon, rasr, returnn
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.analysis import PlotPhonemeDurationsJob, PlotViterbiAlignmentsJob
+from ...setups.common.analysis import (
+    ComputeSilencePercentageJob,
+    ComputeWordLevelTimestampErrorJob,
+    PlotPhonemeDurationsJob,
+    PlotViterbiAlignmentsJob,
+)
+from ...setups.common.analysis.tse_tina import ComputeTinaTseJob
 from ...setups.common.nn import baum_welch, oclr
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
@@ -34,9 +40,11 @@ from ...setups.fh.network.augment import (
 )
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
+from ..config_2023_08_subsampling_new.config import ALIGN_GMM_TRI_ALLOPHONES
 from .config import (
     CONF_CHUNKING,
     CONF_SA_CONFIG,
+    GMM_TRI_ALIGNMENT,
     MLP_FH_DECODING_TENSOR_CONFIG,
     RASR_ARCH,
     RASR_ROOT_NO_TF,
@@ -54,11 +62,13 @@ train_key = "train-other-960"
 @dataclass(frozen=True, eq=True)
 class Experiment:
     alignment_name: str
+    all_data: bool
     bw_label_scale: float
     context_window_size: int
     lr: str
     model_dim: int
     output_time_step: float
+    w_init: typing.Optional[str]
 
 
 def run(returnn_root: tk.Path):
@@ -72,12 +82,33 @@ def run(returnn_root: tk.Path):
     configs = [
         Experiment(
             alignment_name="scratch",
+            all_data=False,
             bw_label_scale=0.3,
             context_window_size=15,
             lr="v8",
             model_dim=model_dim,
             output_time_step=10 / 1000,
+            w_init=augment.DEFAULT_INIT,
         ),
+        # Experiment(
+        #     alignment_name="scratch",
+        #     all_data=True,
+        #     bw_label_scale=0.3,
+        #     context_window_size=15,
+        #     lr="v8",
+        #     model_dim=model_dim,
+        #     output_time_step=10 / 1000,
+        #     w_init=augment.DEFAULT_INIT,
+        # ),
+        # Experiment(
+        #     alignment_name="scratch",
+        #     bw_label_scale=0.3,
+        #     context_window_size=15,
+        #     lr="v8",
+        #     model_dim=model_dim,
+        #     output_time_step=10 / 1000,
+        #     w_init="glorot_uniform",
+        # ),
     ]
     experiments = {
         exp: run_single(
@@ -86,8 +117,10 @@ def run(returnn_root: tk.Path):
             context_window_size=exp.context_window_size,
             lr=exp.lr,
             model_dim=exp.model_dim,
-            returnn_root=returnn_root,
             output_time_step=exp.output_time_step,
+            returnn_root=returnn_root,
+            all_data=exp.all_data,
+            w_init=exp.w_init,
         )
         for exp in configs
     }
@@ -104,11 +137,15 @@ def run_single(
     returnn_root: tk.Path,
     output_time_step: float,
     model_dim: int,
+    w_init: typing.Optional[str],
+    all_data: bool,
     num_epochs: int = 600,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"mlp-1-lr:{lr}-dx:{output_time_step/(10/1000)}-d:{model_dim}-bw:{bw_label_scale}"
+    name = f"mlp-1-lr:{lr}-dx:{output_time_step/(10/1000)}-d:{model_dim}-bw:{bw_label_scale}-w:{'default' if w_init == augment.DEFAULT_INIT else w_init}"
+    if all_data:
+        name += "-all"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -133,7 +170,9 @@ def run_single(
         test_data=test_data_inputs,
     )
 
-    s.label_info = dataclasses.replace(s.label_info, n_states_per_phone=1, state_tying=RasrStateTying.monophone)
+    if all_data:
+        s.cv_num_segments = 1  # must be > 0
+    s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
     s.lexicon_args["norm_pronunciation"] = False
     s.lm_gc_simple_hash = True
     s.train_key = train_key
@@ -182,7 +221,7 @@ def run_single(
             "activation": "relu",
             "from": "window-merged",
             "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
+            "forward_weights_init": w_init,
             "L2": 0.0001,
             "n_out": model_dim,
         },
@@ -191,7 +230,7 @@ def run_single(
             "activation": "relu",
             "from": "linear-1",
             "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
+            "forward_weights_init": w_init,
             "L2": 0.0001,
             "n_out": model_dim,
         },
@@ -200,7 +239,7 @@ def run_single(
             "activation": "relu",
             "from": "linear-2",
             "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
+            "forward_weights_init": w_init,
             "L2": 0.0001,
             "n_out": model_dim,
         },
@@ -209,7 +248,7 @@ def run_single(
             "activation": "relu",
             "from": "linear-3",
             "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
+            "forward_weights_init": w_init,
             "L2": 0.0001,
             "n_out": model_dim,
         },
@@ -218,7 +257,7 @@ def run_single(
             "activation": "relu",
             "from": "linear-4",
             "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
+            "forward_weights_init": w_init,
             "L2": 0.0001,
             "n_out": model_dim,
         },
@@ -227,7 +266,7 @@ def run_single(
             "activation": "relu",
             "from": "linear-5",
             "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
+            "forward_weights_init": w_init,
             "L2": 0.0001,
             "n_out": model_dim,
         },
@@ -259,7 +298,7 @@ def run_single(
         "update_on_device": True,
         "optimizer": {"class": "nadam"},
         "optimizer_epsilon": 1e-8,
-        "gradient_clip": 10,
+        "gradient_clip": 20,
         "gradient_noise": 0.0,
         "network": network,
         "extern_data": {"data": {"dim": 50}},
@@ -294,7 +333,7 @@ def run_single(
     train_cfg = baum_welch.augment_for_fast_bw(
         crp=s.crp[s.crp_names["train"]],
         log_linear_scales=baum_welch.BwScales(
-            label_posterior_scale=bw_label_scale, label_prior_scale=None, transition_scale=bw_label_scale
+            label_posterior_scale=bw_label_scale, label_prior_scale=None, transition_scale=0.1
         ),
         returnn_config=returnn_config,
     )
@@ -306,12 +345,12 @@ def run_single(
         "partition_epochs": partition_epochs,
         "returnn_config": copy.deepcopy(train_cfg),
     }
-    s.returnn_rasr_training(
+    train_j = s.returnn_rasr_training(
         experiment_key="fh",
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
-        on_2080=False,
+        on_2080=True,
         include_alignment=False,
     )
 
@@ -376,7 +415,7 @@ def run_single(
         set_batch_major_for_feature_scorer=False,
         lm_gc_simple_hash=True,
     )
-    sil_tdp = (*recog_args.tdp_silence[:3], 3.0)
+    sil_tdp = (*recog_args.tdp_silence[:3], 0.0)
     align_cfg = (
         recog_args.with_prior_scale(0.6).with_tdp_scale(tdp_scale).with_tdp_silence(sil_tdp).with_tdp_non_word(sil_tdp)
     )
@@ -397,8 +436,9 @@ def run_single(
     crp.concurrent = 300
     crp.segment_path = corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, crp.concurrent).out_segment_path
 
+    a_name = f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}"
     a_job = recognizer.align(
-        f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
+        a_name,
         crp=crp,
         feature_scorer=align_search_jobs.search_feature_scorer,
         default_tdp=True,
@@ -406,25 +446,71 @@ def run_single(
     )
 
     allophones = lexicon.StoreAllophonesJob(crp)
-    tk.register_output(f"allophones/{name}/allophones", allophones.out_allophone_file)
+    tk.register_output(f"allophones/{a_name}/allophones", allophones.out_allophone_file)
 
     plots = PlotViterbiAlignmentsJob(
         alignment_bundle_path=a_job.out_alignment_bundle,
         allophones_path=allophones.out_allophone_file,
-        segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
+        segments=[
+            "train-other-960/2920-156224-0013/2920-156224-0013",
+            "train-other-960/2498-134786-0003/2498-134786-0003",
+            "train-other-960/6178-86034-0008/6178-86034-0008",
+            "train-other-960/5983-39669-0034/5983-39669-0034",
+        ],
+        font_size=25,
         show_labels=False,
         monophone=True,
     )
-    tk.register_output(f"alignments/{name}/alignment-plots", plots.out_plot_folder)
+    tk.register_output(f"alignments/{a_name}/alignment-plots", plots.out_plot_folder)
+    plots = PlotViterbiAlignmentsJob(
+        alignment_bundle_path=a_job.out_alignment_bundle,
+        allophones_path=allophones.out_allophone_file,
+        segments=[
+            "train-other-960/2920-156224-0013/2920-156224-0013",
+            "train-other-960/2498-134786-0003/2498-134786-0003",
+            "train-other-960/6178-86034-0008/6178-86034-0008",
+            "train-other-960/5983-39669-0034/5983-39669-0034",
+        ],
+        font_size=25,
+        show_labels=False,
+        show_title=False,
+        monophone=True,
+    )
+    tk.register_output(f"alignments/{a_name}/alignment-plots-plain", plots.out_plot_folder)
 
     phoneme_durs = PlotPhonemeDurationsJob(
         alignment_bundle_path=a_job.out_alignment_bundle,
         allophones_path=allophones.out_allophone_file,
         time_step_s=10 / 1000,
     )
-    tk.register_output(f"alignments/{name}/statistics/plots", phoneme_durs.out_plot_folder)
-    tk.register_output(f"alignments/{name}/statistics/means", phoneme_durs.out_means)
-    tk.register_output(f"alignments/{name}/statistics/variances", phoneme_durs.out_vars)
+    tk.register_output(f"alignments/{a_name}/statistics/plots", phoneme_durs.out_plot_folder)
+    tk.register_output(f"alignments/{a_name}/statistics/means", phoneme_durs.out_means)
+    tk.register_output(f"alignments/{a_name}/statistics/variances", phoneme_durs.out_vars)
+
+    tse_w_job = ComputeWordLevelTimestampErrorJob(
+        allophones=allophones.out_allophone_file,
+        alignment=a_job.out_alignment_bundle,
+        t_step=output_time_step,
+        reference_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+        reference_alignment=tk.Path(GMM_TRI_ALIGNMENT, cached=True),
+        reference_t_step=10 / 1000,
+    )
+    tse_w_job.add_alias(f"tse-w/{a_name}/tse")
+    tk.register_output(f"alignments/{a_name}/statistics/tse-w", tse_w_job.out_tse)
+
+    tse_tina_job = ComputeTinaTseJob(
+        allophones=allophones.out_allophone_file,
+        alignment_bundle=a_job.out_alignment_bundle,
+        ref_allophones=tk.Path(ALIGN_GMM_TRI_ALLOPHONES),
+        ref_alignment_bundle=tk.Path(GMM_TRI_ALIGNMENT, cached=True),
+        ref_t_step=10 / 1000,
+        ss_factor=int(output_time_step / (10 / 1000)),
+    )
+    tse_tina_job.add_alias(f"tse-tina/{a_name}/tse")
+    tk.register_output(f"alignments/{a_name}/statistics/tse-tina", tse_tina_job.out_tse)
+
+    tse_w_job = ComputeSilencePercentageJob(a_job.out_alignment_bundle, allophones.out_allophone_file)
+    tk.register_output(f"alignments/{a_name}/statistics/sil", tse_w_job.out_percent_sil)
 
     s.experiments["fh"]["alignment_job"] = a_job
 

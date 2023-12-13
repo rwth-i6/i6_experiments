@@ -5,6 +5,7 @@ from typing import Union, Optional
 
 from i6_core import features, rasr, recognition, returnn
 from i6_experiments.users.berger.args.jobs.rasr_init_args import (
+    get_feature_extraction_args_8kHz,
     get_feature_extraction_args_16kHz,
 )
 from i6_experiments.users.berger.recipe import returnn as custom_returnn
@@ -94,8 +95,11 @@ class RasrFunctor(ABC):
     ):
         return {
             feature_type.SAMPLES: self._make_base_sample_feature_flow,
-            feature_type.GAMMATONE: self._make_base_gt_feature_flow,
-            feature_type.CONCAT_GAMMATONE: self._make_concatenated_gt_feature_flow,
+            feature_type.GAMMATONE_8K: self._make_base_gt_feature_flow_8k,
+            feature_type.GAMMATONE_CACHED_8K: self._make_base_cached_gt_feature_flow_8k,
+            feature_type.GAMMATONE_16K: self._make_base_gt_feature_flow_16k,
+            feature_type.GAMMATONE_CACHED_16K: self._make_base_cached_gt_feature_flow_16k,
+            feature_type.CONCAT_GAMMATONE_16K: self._make_cached_concatenated_gt_feature_flow_16k,
         }[feature_type](corpus_info=corpus_info, **kwargs)
 
     def _make_base_sample_feature_flow(self, corpus_info: dataclasses.CorpusInfo, **kwargs):
@@ -109,7 +113,33 @@ class RasrFunctor(ABC):
         args.update(kwargs)
         return features.samples_flow(**args)
 
-    def _make_base_gt_feature_flow(self, corpus_info: dataclasses.CorpusInfo, **kwargs):
+    def _make_base_gt_feature_flow_8k(self, corpus_info: dataclasses.CorpusInfo, **_):
+        gt_options = copy.deepcopy(get_feature_extraction_args_8kHz()["gt"]["gt_options"])
+        audio_format = corpus_info.crp.audio_format
+        gt_options["samples_options"]["audio_format"] = audio_format
+        gt_options["add_features_output"] = True
+        return features.gammatone_flow(**gt_options)
+
+    def _make_base_cached_gt_feature_flow_8k(self, corpus_info: dataclasses.CorpusInfo, **_):
+        gt_job = features.GammatoneJob(crp=corpus_info.crp, **get_feature_extraction_args_8kHz()["gt"])
+        feature_path = rasr.FlagDependentFlowAttribute(
+            "cache_mode",
+            {
+                "task_dependent": gt_job.out_feature_path["gt"],
+            },
+        )
+        return features.basic_cache_flow(
+            cache_files=feature_path,
+        )
+
+    def _make_base_gt_feature_flow_16k(self, corpus_info: dataclasses.CorpusInfo, **_):
+        gt_options = copy.deepcopy(get_feature_extraction_args_16kHz()["gt"]["gt_options"])
+        audio_format = corpus_info.crp.audio_format
+        gt_options["samples_options"]["audio_format"] = audio_format
+        gt_options["add_features_output"] = True
+        return features.gammatone_flow(**gt_options)
+
+    def _make_base_cached_gt_feature_flow_16k(self, corpus_info: dataclasses.CorpusInfo, **_):
         gt_job = features.GammatoneJob(crp=corpus_info.crp, **get_feature_extraction_args_16kHz()["gt"])
         feature_path = rasr.FlagDependentFlowAttribute(
             "cache_mode",
@@ -121,7 +151,7 @@ class RasrFunctor(ABC):
             cache_files=feature_path,
         )
 
-    def _make_concatenated_gt_feature_flow(self, corpus_info: dataclasses.CorpusInfo, **kwargs):
+    def _make_cached_concatenated_gt_feature_flow_16k(self, corpus_info: dataclasses.CorpusInfo, **_):
         # TODO: why does this assert fail?
         # assert isinstance(corpus_info.data.corpus_object, SeparatedCorpusObject)
         crp_prim = corpus_info.crp
@@ -272,7 +302,8 @@ class RasrFunctor(ABC):
 
         onnx_flow.config = rasr.RasrConfig()  # type: ignore
         onnx_flow.config[onnx_fwd].io_map.features = "data"
-        onnx_flow.config[onnx_fwd].io_map.features_size = "data_len"
+        # TODO: enable dynamically when needed
+        # onnx_flow.config[onnx_fwd].io_map.features_size = "data_len"
         onnx_flow.config[onnx_fwd].io_map.output = "classes"
 
         onnx_flow.config[onnx_fwd].session.file = onnx_model

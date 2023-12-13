@@ -34,9 +34,7 @@ def make_lstm_lm_model(
 
     output_args.setdefault("target", "data")
 
-    add_softmax_output(
-        network, from_list=from_list, num_outputs=num_outputs, **output_args
-    )
+    add_softmax_output(network, from_list=from_list, num_outputs=num_outputs, **output_args)
 
     return network
 

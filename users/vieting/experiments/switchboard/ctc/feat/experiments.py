@@ -7,6 +7,7 @@ from i6_core.meta.system import CorpusObject
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from i6_core.returnn.config import CodeWrapper
 from i6_core.recognition import Hub5ScoreJob
+from i6_core.tools import CloneGitRepositoryJob
 from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00
 from i6_experiments.common.setups.rasr.util import RasrDataInput
 from i6_experiments.users.berger.recipe.lexicon.modification import DeleteEmptyOrthJob, MakeBlankLexiconJob
@@ -564,13 +565,13 @@ def run_test_mel():
     report.delete_redundant_columns()
     report.delete_redundant_rows()
     tk.register_report(
-        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report.csv"),
+        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report_test_mel.csv"),
         values=report.get_values(),
         template=report.get_template(),
     )
 
 
-def run_nn_args(nn_args, report_args_collection, report_name, dev_corpora):
+def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", returnn_root=None, recog_args=None):
     returnn_configs = {}
     for exp in nn_args.returnn_training_configs:
         prior_config = copy.deepcopy(nn_args.returnn_training_configs[exp])
@@ -583,26 +584,29 @@ def run_nn_args(nn_args, report_args_collection, report_name, dev_corpora):
         )
 
     recog_args = {
-        "lm_scales": [0.7],
-        "prior_scales": [0.3, 0.5],
-        "epochs": [300, 400, 450, "best"],
-        "lookahead_options": {"lm_lookahead_scale": 0.7},
-        "label_scorer_args": {
-            "use_prior": True,
-            "extra_args": {"blank_label_index": 0},
+        **{
+            "lm_scales": [0.7],
+            "prior_scales": [0.3, 0.5],
+            "epochs": [300, 400, 450, "best"],
+            "lookahead_options": {"lm_lookahead_scale": 0.7},
+            "label_scorer_args": {
+                "use_prior": True,
+                "extra_args": {"blank_label_index": 0},
+            },
+            "label_tree_args": {"skip_silence": True},
+            "search_parameters": {
+                "allow-blank-label": True,
+                "allow-label-loop": True,
+                "allow-label-recombination": True,
+                "allow-word-end-recombination": True,
+                "create-lattice": True,
+                "label-pruning": 11.2,
+                "label-pruning-limit": 100000,
+                "word-end-pruning": 0.5,
+                "word-end-pruning-limit": 10000,
+            },
         },
-        "label_tree_args": {"skip_silence": True},
-        "search_parameters": {
-            "allow-blank-label": True,
-            "allow-label-loop": True,
-            "allow-label-recombination": True,
-            "allow-word-end-recombination": True,
-            "create-lattice": True,
-            "label-pruning": 11.2,
-            "label-pruning-limit": 100000,
-            "word-end-pruning": 0.5,
-            "word-end-pruning-limit": 10000,
-        },
+        **(recog_args or {}),
     }
     score_info = ScorerInfo()
     score_info.ref_file = dev_corpora["hub5e00"].stm
@@ -610,7 +614,7 @@ def run_nn_args(nn_args, report_args_collection, report_name, dev_corpora):
     score_info.score_kwargs = {"glm": dev_corpora["hub5e00"].glm, "sctk_binary_path": SCTK_BINARY_PATH}
 
     ctc_nn_system = TransducerSystem(
-        returnn_root=RETURNN_ROOT,
+        returnn_root=returnn_root or RETURNN_ROOT,
         returnn_python_exe=RETURNN_EXE,
         rasr_binary_path=RASR_BINARY_PATH,
         require_native_lstm=False,
@@ -647,11 +651,13 @@ def run_nn_args(nn_args, report_args_collection, report_name, dev_corpora):
     report = ctc_nn_system.report
     report.delete_redundant_columns()
     report.delete_redundant_rows()
-    tk.register_report(
-        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, report_name),
-        values=report.get_values(),
-        template=report.get_template(),
-    )
+    if report_name:
+        tk.register_report(
+            os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, report_name),
+            values=report.get_values(),
+            template=report.get_template(),
+        )
+    return report
 
 
 def run_mel_baseline():
@@ -698,7 +704,8 @@ def run_mel_baseline():
         num_epochs=450,
         prefix="conformer_bs10k_",
     )
-    run_nn_args(nn_args, report_args_collection, "report_mel_baseline.csv", dev_corpora)
+    report = run_nn_args(nn_args, report_args_collection, dev_corpora)
+    return report
 
 
 def run_scf_baseline():
@@ -718,7 +725,13 @@ def run_scf_baseline():
         "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
         "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
         "datasets": returnn_datasets,
-        "extra_args": {"accum_grad_multiple_step": 2},
+        "extra_args": {
+            "accum_grad_multiple_step": 2,
+            "watch_memory": True,
+            "conv_pad_seq_len_to_power": 1.5,
+        },
+        "conformer_type": "wei",
+        "specaug_old": {"max_feature": 15},
     }
     feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
 
@@ -744,9 +757,23 @@ def run_scf_baseline():
             ),
         },
         num_epochs=450,
+        evaluation_epochs=[350, 400, 450],
         prefix="conformer_bs2x5k_",
     )
-    run_nn_args(nn_args, report_args_collection, "report_scf_baseline.csv", dev_corpora)
+
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
+    ).out_repository
+    returnn_root.hash_overwrite = "returnn_conv_padding"
+    report = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        returnn_root=returnn_root,
+        recog_args={"epochs": [350, 400, 450, "best"]},
+    )
+    return report
 
 
 def run_mel_audio_perturbation():
@@ -877,13 +904,29 @@ def run_mel_audio_perturbation():
         num_epochs=450,
         prefix="conformer_bs10k_",
     )
-    run_nn_args(nn_args, report_args_collection, "report_mel_audio_perturbation.csv", dev_corpora)
+    run_nn_args(nn_args, report_args_collection, dev_corpora, "report_mel_audio_perturbation.csv")
 
 
 def py():
     """
     called if the file is passed to sis manager, used to run all experiments (replacement for main)
     """
-    run_mel_baseline()
-    run_scf_baseline()
-    run_mel_audio_perturbation()
+    report_mel = run_mel_baseline()
+    report_scf = run_scf_baseline()
+
+    report_base = Report(
+        columns_start=["train_name", "wave_norm", "specaug", "lr", "batch_size"],
+        columns_end=["epoch", "recog_name", "lm", "optlm", "lm_scale", "prior_scale"],
+    )
+    report = Report.merge_reports(
+        [
+            report_base,
+            report_mel,
+            report_scf,
+        ]
+    )
+    tk.register_report(
+        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report.csv"),
+        values=report.get_values(),
+        template=report.get_template(),
+    )

@@ -38,9 +38,7 @@ stm_file = "/u/corpora/speech/hub5e_00/xml/hub5e_00.stm"
 glm_file = "/u/corpora/speech/hub5e_00/xml/glm"
 
 # Subset of hub5e-00 with OOV words removed
-cv_segments = tk.Path(
-    "/work/asr4/berger/dependencies/switchboard/segments/hub5e-00.reduced"
-)
+cv_segments = tk.Path("/work/asr4/berger/dependencies/switchboard/segments/hub5e-00.reduced")
 
 f_name = "gt"
 
@@ -65,9 +63,7 @@ def run_exp(**kwargs):
 
     # ********** Init args **********
 
-    train_data_inputs, dev_data_inputs, test_data_inputs = get_data_inputs(
-        delete_empty_orth=True
-    )
+    train_data_inputs, dev_data_inputs, test_data_inputs = get_data_inputs(delete_empty_orth=True)
 
     # rename dev corpus to train corpus name
     # dev_data_inputs[dev_key].corpus_object.corpus_file = corpus_recipe.MergeCorporaJob(
@@ -148,9 +144,8 @@ def run_exp(**kwargs):
             am_args=am_args,
             shuffle_data=False,
             concurrent=10,
-        )
+        ),
     }
-
 
     # ********** Transducer System **********
 
@@ -303,7 +298,6 @@ def py():
                 lm_scales=[0.7, 0.8, 0.9],
                 prior_scales=[0.3, 0.4, 0.5],
             )
-
 
     # OCLR
     if True:

@@ -21,7 +21,7 @@ from i6_experiments.common.setups.returnn_common import serialization
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, ModelWithCheckpoint, ModelWithCheckpoints
+from i6_experiments.users.gaudino.model_interfaces import ModelDef, RecogDef, ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 
 if TYPE_CHECKING:
@@ -108,7 +108,9 @@ def recog_model(
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
     dev_sets: Optional[Collection[str]] = None,
+    model_args: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
+    prefix_name: str,
 ) -> ScoreResultCollection:
     """recog"""
     if dev_sets is not None:
@@ -118,18 +120,20 @@ def recog_model(
         if dev_sets is not None:
             if name not in dev_sets:
                 continue
-        recog_out = search_dataset(
+        recog_out, forward_job_out = search_dataset(
             dataset=dataset,
             model=model,
             recog_def=recog_def,
             search_post_config=search_post_config,
             search_mem_rqmt=search_mem_rqmt,
             recog_post_proc_funcs=task.recog_post_proc_funcs,
+            model_args=model_args,
             search_args=search_args,
+            prefix_name=prefix_name,
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[name] = score_out
-    return task.collect_score_results_func(outputs)
+    return task.collect_score_results_func(outputs), forward_job_out
 
 
 def search_dataset(
@@ -140,7 +144,9 @@ def search_dataset(
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
+    model_args: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
+    prefix_name: str,
 ) -> RecogOutput:
     """
     recog on the specific dataset
@@ -161,14 +167,21 @@ def search_dataset(
         forward_job = ReturnnForwardJobV2(
             model_checkpoint=model.checkpoint,
             returnn_config=search_config_v2(
-                dataset, model.definition, recog_def, post_config=search_post_config, search_args=search_args
+                dataset,
+                model.definition,
+                recog_def,
+                post_config=search_post_config,
+                model_args=model_args,
+                search_args=search_args,
             ),
             output_files=[_v2_forward_out_filename],
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
             returnn_root=tools_paths.get_returnn_root(),
             mem_rqmt=search_mem_rqmt,
         )
+        forward_job.add_alias(prefix_name + "/forward_job")
         res = forward_job.out_files[_v2_forward_out_filename]
+        forward_job_out = res
     if recog_def.output_blank_label:
         res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
     for f in recog_post_proc_funcs:  # for example BPE to words
@@ -178,7 +191,7 @@ def search_dataset(
         #   It's not clear whether this is helpful in general.
         #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
-    return RecogOutput(output=res)
+    return RecogOutput(output=res), RecogOutput(output=forward_job_out)
 
 
 # Those are applied for both training, recog and potential others.
@@ -224,14 +237,14 @@ def search_config(
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
-                    serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
-                    serialization.Import(recog_def, "_recog_def", ignore_import_as_for_hash=True),
-                    serialization.Import(_returnn_get_network, "get_network", use_for_hash=False),
+                    serialization.Import(model_def, import_as="_model_def", ignore_import_as_for_hash=True),
+                    serialization.Import(recog_def, import_as="_recog_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_get_network, import_as="get_network", use_for_hash=False),
                     serialization.ExplicitHash(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 1,
+                            "version": 2,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
@@ -277,6 +290,7 @@ def search_config_v2(
     *,
     post_config: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
+    model_args: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
     returnn_recog_config_dict = dict(
         backend=model_def.backend,
@@ -295,6 +309,7 @@ def search_config_v2(
 
     returnn_recog_config_dict.update({
         "search_args": search_args,
+        "model_args": model_args,
     })
 
     returnn_recog_config = ReturnnConfig(
@@ -305,16 +320,16 @@ def search_config_v2(
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
-                    serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
-                    serialization.Import(_returnn_v2_get_model, "get_model"),
-                    serialization.Import(recog_def, "_recog_def", ignore_import_as_for_hash=True),
-                    serialization.Import(_returnn_v2_forward_step, "forward_step"),
-                    serialization.Import(_returnn_v2_get_forward_callback, "forward_callback"),
+                    serialization.Import(model_def, import_as="_model_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_v2_get_model, import_as="get_model"),
+                    serialization.Import(recog_def, import_as="_recog_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_v2_forward_step, import_as="forward_step"),
+                    serialization.Import(_returnn_v2_get_forward_callback, import_as="forward_callback"),
                     serialization.ExplicitHash(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 1,
+                            "version": 3,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
@@ -336,7 +351,7 @@ def search_config_v2(
         dict(
             batching="sorted",
             batch_size=20000 * model_def.batch_size_factor,
-            max_seqs=200,
+            max_seqs=model_def.max_seqs,
         )
     )
 
@@ -390,8 +405,9 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
     assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
 
     model_def = config.typed_value("_model_def")
+    model_args = config.typed_value("model_args")
     search_args = config.typed_value("search_args")
-    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim, search_args=search_args)
+    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim, model_args=model_args, search_args=search_args)
     return model
 
 
@@ -452,6 +468,39 @@ def _returnn_v2_get_forward_callback():
         def finish(self):
             self.out_file.write("}\n")
             self.out_file.close()
+
+    return _ReturnnRecogV2ForwardCallbackIface()
+
+def _returnn_v2_get_dummy_forward_callback():
+    from returnn.tensor import Tensor, TensorDict
+    from returnn.forward_iface import ForwardCallbackIface
+
+    class _ReturnnRecogV2ForwardCallbackIface(ForwardCallbackIface):
+        def __init__(self):
+            self.out_file = None
+
+        def init(self, *, model):
+            pass
+
+
+
+        def process_seq(self, *, seq_tag: str, outputs: TensorDict):
+            hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
+            scores: Tensor = outputs["scores"]  # [beam]
+            assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
+            assert hyps.dims[1].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
+            hyps_len = hyps.dims[1].dyn_size_ext  # [beam]
+            assert hyps.raw_tensor.shape[:1] == hyps_len.raw_tensor.shape == scores.raw_tensor.shape  # (beam,)
+            num_beam = hyps.raw_tensor.shape[0]
+            # Consistent to old search task, list[(float,str)].
+            for i in range(num_beam):
+                score = float(scores.raw_tensor[i])
+                hyp_ids = hyps.raw_tensor[i, : hyps_len.raw_tensor[i]]
+                hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
+                # self.out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
+
+        def finish(self):
+            pass
 
     return _ReturnnRecogV2ForwardCallbackIface()
 

@@ -86,17 +86,13 @@ class OptunaCompileTFGraphJob(Job):
             yield Task("run", resume="run", mini_task=True)
 
     def create_files(self):
-        self.returnn_config = self.optuna_returnn_config.generate_config(
-            self.trial.get()
-        )
+        self.returnn_config = self.optuna_returnn_config.generate_config(self.trial.get())
         self.returnn_config.write(self.out_returnn_config.get_path())
 
     def run(self):
         args = [
             tk.uncached_path(self.returnn_python_exe),
-            os.path.join(
-                tk.uncached_path(self.returnn_root), "tools/compile_tf_graph.py"
-            ),
+            os.path.join(tk.uncached_path(self.returnn_root), "tools/compile_tf_graph.py"),
             self.out_returnn_config.get_path(),
             f"--train={self.train}",
             f"--eval={self.eval}",
@@ -139,12 +135,8 @@ class OptunaCompileTFGraphJob(Job):
         del c["optuna_returnn_config"]
         c.update(
             {
-                "returnn_config_generator": inspect.getsource(
-                    kwargs["optuna_returnn_config"].config_generator
-                ),
-                "returnn_config_generator_kwargs": list(
-                    sorted(kwargs["optuna_returnn_config"].config_kwargs)
-                ),
+                "returnn_config_generator": inspect.getsource(kwargs["optuna_returnn_config"].config_generator),
+                "returnn_config_generator_kwargs": list(sorted(kwargs["optuna_returnn_config"].config_kwargs)),
             }
         )
         return super().hash(c)

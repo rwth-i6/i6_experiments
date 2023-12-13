@@ -185,6 +185,7 @@ def conformer_baseline():
         prior_type_name=None,
         coverage_scale=None,
         coverage_threshold=None,
+        coverage_update="sum",
         **kwargs,
     ):
         assert lm_type in ["lstm", "trafo"], "lm type should be lstm or trafo"
@@ -297,7 +298,10 @@ def conformer_baseline():
                     assert isinstance(search_args["decoder_args"], RNNDecoderArgs)
                     search_args["decoder_args"].coverage_scale = coverage_scale
                     search_args["decoder_args"].coverage_threshold = coverage_threshold
+                    search_args["decoder_args"].coverage_update = coverage_update
                     lm_desc += f"_coverage-thre{coverage_threshold}-scale{coverage_scale}"
+                    if coverage_update != "sum":
+                        lm_desc += f"-{coverage_update}"
 
                 name = f"{exp_name}/recog-{lm_type}-lm/ep-{epoch}/{lm_desc}/{test_set}"
 
@@ -463,13 +467,15 @@ def conformer_baseline():
         args,
         num_epochs=20,
         lr=8e-4,
-        time_rqmt=4,
+        time_rqmt=8,
         l2=1e-4,
         name="mini_lstm",
         w_drop=False,
         use_dec_state=False,
         use_ffn=False,
         ffn_opts=None,
+        att_ctx_constraint_loss=None,
+        att_ctx_constraint_loss_scale=0.0,
         **kwargs,
     ):
         if not w_drop:
@@ -535,6 +541,103 @@ def conformer_baseline():
             }
         else:
             # Mini-LSTM + FF
+
+            if att_ctx_constraint_loss_scale:
+                # copy original context vector
+                returnn_config.config["network"]["output"]["unit"]["original_att"] = copy.deepcopy(
+                    returnn_config.config["network"]["output"]["unit"]["att"]
+                )
+                returnn_config.config["network"]["output"]["unit"]["original_att"]["from"] = "original_att0"
+
+                # copy original subnetwork to compute original attention vector
+                layer_names = [
+                    "energy",
+                    "energy_in",
+                    "energy_tanh",
+                    "s",
+                    "s_transformed",
+                    "accum_att_weights",
+                    "att_weights",
+                    "att0",
+                    "weight_feedback",
+                ]
+                subnet_unit = copy.deepcopy(returnn_config.config["network"]["output"]["unit"])
+                for k in subnet_unit.keys():
+                    if k in layer_names:
+                        # special case
+                        if k == "att0":
+                            returnn_config.config["network"]["output"]["unit"]["original_att0"] = copy.deepcopy(
+                                subnet_unit[k]
+                            )
+                            returnn_config.config["network"]["output"]["unit"]["original_att0"][
+                                "weights"
+                            ] = "original_att_weights"
+                            continue
+
+                        from_list = copy.deepcopy(subnet_unit[k]["from"])
+                        if isinstance(from_list, str):
+                            from_list = [from_list]
+                        new_from_list = []
+                        for e in from_list:
+                            name = e
+                            with_prev = False
+                            if "prev:" in name:
+                                name = name[len("prev:") :]
+                                with_prev = True
+
+                            if name in layer_names or name == "att":
+                                new_from_list.append(("prev:" if with_prev else "") + "original_" + name)
+                            else:
+                                new_from_list.append(e)
+                        l = copy.deepcopy(subnet_unit[k])
+                        l["from"] = new_from_list
+                        returnn_config.config["network"]["output"]["unit"]["original_{}".format(k)] = l
+
+                if att_ctx_constraint_loss == "mse":
+                    loss_name = "att_loss"
+                    returnn_config.config["network"]["output"]["unit"]["se_loss"] = {
+                        "class": "eval",
+                        "eval": "(source(0) - source(1)) ** 2",
+                        "from": ["original_att", "att"],
+                    }
+                    returnn_config.config["network"]["output"]["unit"]["att_loss"] = {
+                        "class": "reduce",
+                        "mode": "mean",
+                        "axis": "F",
+                        "from": "se_loss",
+                        "loss": "as_is",
+                        "loss_scale": att_ctx_constraint_loss_scale,
+                    }
+                elif att_ctx_constraint_loss.startswith("cos"):
+                    # https://www.tensorflow.org/api_docs/python/tf/keras/losses/CosineSimilarity
+                    # loss = -sum(l2_norm(y_true) * l2_norm(y_pred))
+                    loss_name = "cos_loss"
+                    returnn_config.config["network"]["output"]["unit"]["norm_mult"] = {
+                        "class": "eval",
+                        "eval": "tf.linalg.l2_normalize(source(0)) * tf.linalg.l2_normalize(source(1))",
+                        "from": ["original_att", "att"],
+                    }
+                    returnn_config.config["network"]["output"]["unit"]["cos_loss0"] = {
+                        "class": "reduce",
+                        "mode": "sum",
+                        "axis": "F",
+                        "from": "norm_mult",
+                    }
+                    if att_constraints_loss == "cos":
+                        eval_str = "-source(0)"
+                    elif att_constraints_loss == "cos_v2":
+                        eval_str = "1 - source(0)"
+                    else:
+                        raise ValueError(f"Unknown att_ctx_constraint_loss {att_ctx_constraint_loss}")
+                    returnn_config.config["network"]["output"]["unit"]["cos_loss"] = {
+                        "class": "eval",
+                        "eval": eval_str,
+                        "from": "cos_loss0",
+                        "loss": "as_is",
+                        "loss_scale": att_ctx_constraint_loss_scale,
+                    }
+                else:
+                    raise ValueError(f"Unknown att_ctx_constraint_loss {att_ctx_constraint_loss}")
 
             returnn_config.config["network"]["output"]["unit"]["att_lstm"] = {
                 "class": "rec",
@@ -723,20 +826,21 @@ def conformer_baseline():
     # Wo LM with best: 2.28/5.63/2.48/5.71
     # Wo LM with avg:  2.28/5.60/2.48/5.75
     name = "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009"
-    train_j, train_data = run_exp(name, train_args=oclr_args, num_epochs=2035)
+    run_exp(name, train_args=oclr_args, num_epochs=2035)
 
-    for ep in [150 * 100]:
-        args = copy.deepcopy(oclr_args)
-        args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
-        args["oclr_opts"]["total_ep"] = ep
-        del args["oclr_opts"]["learning_rates"]
-        args["decoder_args"].use_zoneout_output = True
-        args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-        run_exp(name, train_args=args, num_epochs=ep)
+    # for ep in [150 * 100]:
+    #     args = copy.deepcopy(oclr_args)
+    #     args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
+    #     args["oclr_opts"]["total_ep"] = ep
+    #     del args["oclr_opts"]["learning_rates"]
+    #     args["decoder_args"].use_zoneout_output = True
+    #     args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+    #     run_exp(name, train_args=args, num_epochs=ep)
 
     # Att baseline with avg checkpoint: 2.27/5.39/2.41/5.51
     retrain_args = copy.deepcopy(oclr_args)
-    retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[name]
+    best_global_att_avg_ckpt = train_job_avg_ckpt[name]
+    retrain_args["retrain_checkpoint"] = best_global_att_avg_ckpt
     retrain_args["learning_rates_list"] = [1e-4] * 20 + list(numpy.linspace(1e-4, 1e-6, 580))
     retrain_args["lr_decay"] = 0.95
     train_j, train_data = run_exp(
@@ -745,167 +849,71 @@ def conformer_baseline():
         num_epochs=600,
     )
 
-    # model trained for 635 epochs (base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peakLR0.0009):
-    # best: 2.7/6.64/2.92/6.71
-    # avg: 2.69/6.66/2.88/6.65
-    args = copy.deepcopy(oclr_args)
-    args["oclr_opts"]["cycle_ep"] = 285
-    args["oclr_opts"]["total_ep"] = 635
-    run_exp("base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009", train_args=args, num_epochs=635)
+    for att_constraints_loss in ["mse"]:
+        for att_constraint_scale in [0.05]:
+            mini_lstm_j = train_mini_lstm(
+                exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                checkpoint=best_global_att_avg_ckpt,
+                args=oclr_args,
+                num_epochs=40,
+                w_drop=True,
+                att_ctx_constraint_loss=att_constraints_loss,
+                att_ctx_constraint_loss_scale=att_constraint_scale,
+                name=f"mini_lstm_{att_constraints_loss}Loss{att_constraint_scale}",
+            )
 
-    # TODO: conv first
-    args = copy.deepcopy(oclr_args)
-    args["oclr_opts"]["cycle_ep"] = 285
-    args["oclr_opts"]["total_ep"] = 635
-    args["encoder_args"].convolution_first = True
-    run_exp(
-        "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_convFirst", train_args=args, num_epochs=635
-    )
+            for beam_size in [84]:
+                for lm_scale in [0.54]:
+                    for prior_scale in [0.4]:
+                        for cov_scale in [0.01, 0.02, 0.03]:
+                            for cov_thre in [0.14, 0.15, 0.2, 0.3]:
+                                run_lm_fusion(
+                                    lm_type="trafo",
+                                    exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                                    epoch="avg",
+                                    test_set_names=["dev-other"],
+                                    lm_scales=[lm_scale],
+                                    prior_scales=[prior_scale],
+                                    prior_type="mini_lstm",
+                                    prior_type_name=f"mini_lstm_{att_constraints_loss}Loss{att_constraint_scale}",
+                                    mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score_output/output_prob"),
+                                    train_job=train_j,
+                                    train_data=train_data,
+                                    feature_net=log10_net_10ms,
+                                    args=oclr_args,
+                                    beam_size=beam_size,
+                                    batch_size=1000 * 160,
+                                    bpe_size=BPE_10K,
+                                    use_sclite=True,
+                                    coverage_scale=cov_scale,
+                                    coverage_threshold=cov_thre,
+                                    coverage_update="max",
+                                )
 
-    # TODO: fixed zoneout
-    # args = copy.deepcopy(oclr_args)
-    # args["oclr_opts"]["cycle_ep"] = 285
-    # args["oclr_opts"]["total_ep"] = 635
-    # args["decoder_args"].use_zoneout_output = True
-    # run_exp(
-    #     "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_fixedZoneout",
-    #     train_args=args,
-    #     num_epochs=635,
-    # )
-    # retrain_args = copy.deepcopy(oclr_args)
-    # retrain_args["oclr_opts"]["cycle_ep"] = 285
-    # retrain_args["oclr_opts"]["total_ep"] = 635
-    # retrain_args["oclr_opts"]["peak_lr"] = 8e-4
-    # retrain_args["decoder_args"].use_zoneout_output = True
-    # retrain_args["allow_lr_scheduling_for_retrain"] = True
-    # run_exp(
-    #     "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0008_fixedZoneout_retrain1",
-    #     train_args=retrain_args,
-    #     num_epochs=635,
-    #     gpu_mem=24,
-    # )
-
-    args = copy.deepcopy(oclr_args)
-    args["oclr_opts"]["cycle_ep"] = 915
-    args["oclr_opts"]["total_ep"] = 2035
-    args["decoder_args"].use_zoneout_output = True
-    run_exp(
-        "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_fixedZoneout",
-        train_args=args,
-        num_epochs=2035,
-        gpu_mem=24,
-    )
-
-    # TODO: better pretrain
-    # for ep in [635, 2035]:
-    #     args = copy.deepcopy(oclr_args)
-    #     cycle_ep = int(0.45 * ep)
-    #     args["oclr_opts"]["cycle_ep"] = cycle_ep
-    #     args["oclr_opts"]["total_ep"] = ep
-    #     args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-    #     run_exp(
-    #         f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc{cycle_ep}_ep{ep}_peak0.0009_woDepthwiseRed",
-    #         train_args=args,
-    #         num_epochs=ep,
-    #     )
-
-    for ep in [635]:
-        args = copy.deepcopy(oclr_args)
-        cycle_ep = int(0.45 * ep)
-        args["oclr_opts"]["cycle_ep"] = cycle_ep
-        args["oclr_opts"]["total_ep"] = ep
-        args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-        args["decoder_args"].use_zoneout_output = True
-        run_exp(
-            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc{cycle_ep}_ep{ep}_peak0.0009_woDepthwiseRed_fixedZoneout",
-            train_args=args,
-            num_epochs=ep,
-        )
-
-    # TODO: causal conformer
-    # for with_ctc in [True, False]:
-    #     args = copy.deepcopy(oclr_args)
-    #     args["oclr_opts"]["cycle_ep"] = 285
-    #     args["oclr_opts"]["total_ep"] = 635
-    #     args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-    #     args["encoder_args"].use_causal_layers = True
-    #     args["encoder_args"].with_ctc = with_ctc
-    #     name = "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_woDepthwiseRed_causal"
-    #     if with_ctc is False:
-    #         name += "_noCTC"
-    #     run_exp(name, train_args=args, num_epochs=635)
-
-    # TODO: causal conformer with grad clipping
-    # for grad_clip in [10, 25, 50, 100, 200]:
-    #     args = copy.deepcopy(oclr_args)
-    #     args["oclr_opts"]["cycle_ep"] = 285
-    #     args["oclr_opts"]["total_ep"] = 635
-    #     args["encoder_args"].use_causal_layers = True
-    #
-    #     args["batch_size"] = args["batch_size"] * 2
-    #     args["pretrain_opts"]["initial_batch_size"] = args["pretrain_opts"]["initial_batch_size"] * 2
-    #     args["accum_grad"] = 1
-    #
-    #     args["gradient_clip"] = grad_clip
-    #
-    #     name = f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_causal_gradClip{grad_clip}_bs2"
-    #     run_exp(name, train_args=args, num_epochs=635, gpu_mem=24)
-
-    # TODO: causal conformer with grad clipping
-    # for depthwise_red in [False]:
-    #     for grad_clip in [5, 10, 25, 50, 100, 150, 200]:
-    #         args = copy.deepcopy(oclr_args)
-    #         args["oclr_opts"]["cycle_ep"] = 285
-    #         args["oclr_opts"]["total_ep"] = 635
-    #         args["encoder_args"].use_causal_layers = True
-    #         args["gradient_clip"] = grad_clip
-    #         name = f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_causal_gradClip{grad_clip}_bs1"
-    #
-    #         if not depthwise_red:
-    #             args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-    #             name += "_wo_depthwiseRed"
-    #
-    #         run_exp(name, train_args=args, num_epochs=635, gpu_mem=11)
-
-    args = copy.deepcopy(oclr_args)
-    args["accum_grad"] = 1
-    args["batch_size"] = 30_000 * 160
-    args["pretrain_opts"]["initial_batch_size"] = args["pretrain_opts"]["initial_batch_size"] * 2
-    run_exp(
-        "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_bs30k_gpu24g",
-        train_args=args,
-        num_epochs=2035,
-        gpu_mem=24,
-    )
-
-    for num_blocks in [16, 20]:
-        args = copy.deepcopy(oclr_args)
-        bs_inc_factor = 2 if num_blocks < 16 else 1
-
-        args["oclr_opts"]["n_step"] = 661 if bs_inc_factor == 2 else 1350
-        args["encoder_args"].num_blocks = num_blocks
-
-        # double batch size
-        args["accum_grad"] = 1 if bs_inc_factor == 2 else 2
-        args["batch_size"] = args["batch_size"] * bs_inc_factor
-        args["pretrain_opts"]["initial_batch_size"] = args["pretrain_opts"]["initial_batch_size"] * bs_inc_factor
-
-        args["oclr_opts"]["cycle_ep"] = 900
-        args["oclr_opts"]["total_ep"] = 2000
-
-        name = f"base_conf_{num_blocks}l_lstm_1l_conv6_OCLR_sqrdReLU_cyc900_ep2000_steps661_peak0.0009_bs{args['batch_size'] // 160}_accum{args['accum_grad']}_woConvRed_gpu24g"
-
-        args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]  # more stable
-        if num_blocks > 16:
-            args["pretrain_reps"] = 6
-            name += "_reps6"
-
-        train_j, train_data = run_exp(
-            name,
-            train_args=args,
-            num_epochs=2000,
-            gpu_mem=24,
-        )
+            # best recog model:
+            # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_0.0001/recog-trafo-lm/ep-avg/lm-scale-0.54-prior-0.4-mini_lstm_mseLoss0.05-beam-84_coverage-thre0.1-scale0.2
+            # dev-other/test-other: 3.64/4.18
+            # run_lm_fusion(
+            #     lm_type="trafo",
+            #     exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+            #     epoch="avg",
+            #     test_set_names=["test-other"],
+            #     lm_scales=[0.54],
+            #     prior_scales=[0.4],
+            #     prior_type="mini_lstm",
+            #     prior_type_name=f"mini_lstm_{att_constraints_loss}Loss{att_constraint_scale}",
+            #     mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score_output/output_prob"),
+            #     train_job=train_j,
+            #     train_data=train_data,
+            #     feature_net=log10_net_10ms,
+            #     args=oclr_args,
+            #     beam_size=84,
+            #     batch_size=1000 * 160,
+            #     bpe_size=BPE_10K,
+            #     coverage_scale=0.2,
+            #     coverage_threshold=0.1,
+            #     use_sclite=True,
+            # )
 
     # ------------------------------------- #
 

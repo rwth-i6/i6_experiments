@@ -9,12 +9,14 @@ from typing import Optional, Set, TextIO
 import os
 import subprocess
 import copy
+import time
 
 from sisyphus import gs, tk, Job, Task
 from i6_core.returnn.training import Checkpoint
 from i6_core.returnn.config import ReturnnConfig
 import i6_core.util as util
 import returnn.config
+from returnn.util.math import next_power_of_two
 
 
 class ReturnnInitModelJob(Job):
@@ -188,7 +190,21 @@ def get_relevant_epochs_from_training_learning_rate_scores(
     nan = float("nan")
     inf = float("inf")
 
-    scores_str = open(scores_and_learning_rates.get_path()).read()
+    retries = 0
+    while True:
+        try:
+            scores_str = open(scores_and_learning_rates.get_path()).read()
+        except FileNotFoundError:
+            scores_str = None
+        if not scores_str:
+            retries += 1
+            if retries > 10:
+                raise Exception(f"Failed to read {scores_and_learning_rates}")
+            print(f"Waiting for {scores_and_learning_rates}, try {retries}...", file=log_stream)
+            time.sleep(3)
+            continue
+        break
+
     scores = eval(scores_str, {"EpochData": EpochData, "nan": nan, "inf": inf})
     assert isinstance(scores, dict)
     all_epochs = sorted(scores.keys())
@@ -229,6 +245,7 @@ def _chkpt_exists(*, model_dir: tk.Path, model_name: str = "epoch", epoch: int) 
     possible_fns = [
         "%s/%s.%03d.index" % (model_dir.get_path(), model_name, epoch),
         "%s/%s.pretrain.%03d.index" % (model_dir.get_path(), model_name, epoch),
+        "%s/%s.%03d.pt" % (model_dir.get_path(), model_name, epoch),
     ]
     for fn in possible_fns:
         if os.path.exists(fn):
@@ -256,7 +273,7 @@ def default_returnn_keep_epochs(num_epochs: int) -> Set[int]:
         keep_every = 40
         keep_doubles_of = 10
     else:
-        keep_every = 80
+        keep_every = 80 * next_power_of_two(1 + num_epochs // 240)
         keep_doubles_of = 20
     for i in count(1):
         n = keep_every * i

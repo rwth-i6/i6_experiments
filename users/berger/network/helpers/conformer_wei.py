@@ -18,7 +18,7 @@ def add_ff_module(
     dropout: float = 0.1,
     l2: float = 5e-06,
     reuse_from_name: Optional[str] = None,
-    ff_half_res_add: bool = False,
+    ff_half_res_add: bool = True,
     **kwargs,
 ) -> str:
     network.update(
@@ -27,38 +27,34 @@ def add_ff_module(
                 "class": "copy",
                 "from": from_list,
             },
+            f"{name}_ln": {
+                "class": "layer_norm",
+                "from": f"{name}_input",
+            },
             f"{name}_ff_1": {
                 "class": "linear",
-                "from": f"{name}_input",
+                "from": f"{name}_ln",
                 "n_out": size * 4,
                 "activation": "swish",
-                "forward_weights_init": get_variance_scaling_init(),
+                # "forward_weights_init": get_variance_scaling_init(),
                 "L2": l2,
-            },
-            f"{name}_dropout_1": {
-                "class": "dropout",
-                "from": f"{name}_ff_1",
-                "dropout": dropout,
             },
             f"{name}_ff_2": {
                 "class": "linear",
-                "from": f"{name}_dropout_1",
+                "activation": None,
+                "from": f"{name}_ff_1",
                 "n_out": size,
                 "L2": l2,
-                "forward_weights_init": get_variance_scaling_init(),
+                # "forward_weights_init": get_variance_scaling_init(),
                 "dropout": dropout,
             },
-            f"{name}_dropout_2": {
+            f"{name}_dropout": {
                 "class": "copy",
                 "from": f"{name}_ff_2",
                 "dropout": dropout,
             },
             f"{name}_res_add": {
-                "from": [f"{name}_dropout_2", f"{name}_input"],
-            },
-            f"{name}_ln": {
-                "class": "layer_norm",
-                "from": f"{name}_res_add",
+                "from": [f"{name}_dropout", f"{name}_input"],
             },
         }
     )
@@ -82,7 +78,7 @@ def add_ff_module(
         for suffix in ["_ff_1", "_ff_2"]:
             network[name + suffix]["reuse_params"] = reuse_from_name + suffix
 
-    return f"{name}_ln"
+    return f"{name}_res_add"
 
 
 def add_mhsa_module(
@@ -104,30 +100,35 @@ def add_mhsa_module(
                 "class": "copy",
                 "from": from_list,
             },
+            f"{name}_ln": {
+                "class": "layer_norm",
+                "from": f"{name}_input",
+            },
             f"{name}_rel_pos_enc": {
                 "class": "relative_positional_encoding",
-                "from": f"{name}_input",
-                "n_out": 64,
+                "from": f"{name}_ln",
+                "n_out": size // num_att_heads,
                 "clipping": clipping,
-                "forward_weights_init": get_variance_scaling_init(),
+                # "forward_weights_init": get_variance_scaling_init(),
             },
             f"{name}_self_attention": {
                 "class": "self_attention",
-                "from": f"{name}_input",
+                "from": f"{name}_ln",
                 "n_out": size,
                 "num_heads": num_att_heads,
                 "total_key_dim": size,
                 "key_shift": f"{name}_rel_pos_enc",
                 "attention_dropout": dropout,
-                "forward_weights_init": get_variance_scaling_init(),
+                # "forward_weights_init": get_variance_scaling_init(),
             },
             f"{name}_att_linear": {
                 "class": "linear",
+                "activation": None,
                 "from": f"{name}_self_attention",
                 "n_out": size,
                 "L2": l2,
                 "with_bias": False,
-                "forward_weights_init": get_variance_scaling_init(),
+                # "forward_weights_init": get_variance_scaling_init(),
             },
             f"{name}_dropout": {
                 "class": "copy",
@@ -135,11 +136,7 @@ def add_mhsa_module(
                 "dropout": dropout,
             },
             f"{name}_res_add": {
-                "from": [f"{name}_att_linear", f"{name}_input"],
-            },
-            f"{name}_ln": {
-                "class": "layer_norm",
-                "from": f"{name}_res_add",
+                "from": [f"{name}_dropout", f"{name}_input"],
             },
         }
     )
@@ -163,7 +160,7 @@ def add_mhsa_module(
         for suffix in ["_rel_pos_enc", "_self_attention", "_att_linear"]:
             network[name + suffix]["reuse_params"] = reuse_from_name + suffix
 
-    return f"{name}_ln"
+    return f"{name}_res_add"
 
 
 def add_conv_module(
@@ -185,21 +182,27 @@ def add_conv_module(
                 "class": "copy",
                 "from": from_list,
             },
+            f"{name}_ln": {
+                "class": "layer_norm",
+                "from": f"{name}_input",
+            },
             f"{name}_pointwise_conv_1": {
                 "class": "linear",
-                "from": f"{name}_input",
+                "activation": None,
+                "from": f"{name}_ln",
                 "n_out": size * 2,
                 "L2": l2,
-                "forward_weights_init": get_variance_scaling_init(),
+                # "forward_weights_init": get_variance_scaling_init(),
             },
             f"{name}_glu": {
                 "class": "gating",
                 "from": f"{name}_pointwise_conv_1",
-                "activation": "identity",
+                "activation": None,
                 "gate_activation": "sigmoid",
             },
             f"{name}_depthwise_conv": {
                 "class": "conv",
+                "activation": None,
                 "from": f"{name}_glu",
                 "n_out": size,
                 "filter_size": (conv_filter_size,),
@@ -207,7 +210,7 @@ def add_conv_module(
                 "groups": size,
                 "with_bias": True,
                 "L2": l2,
-                "forward_weights_init": get_variance_scaling_init(),
+                # "forward_weights_init": get_variance_scaling_init(),
             },
         }
     )
@@ -238,10 +241,11 @@ def add_conv_module(
             },
             f"{name}_pointwise_conv_2": {
                 "class": "linear",
+                "activation": None,
                 "from": f"{name}_swish",
                 "n_out": size,
                 "L2": l2,
-                "forward_weights_init": get_variance_scaling_init(),
+                # "forward_weights_init": get_variance_scaling_init(),
             },
             f"{name}_dropout": {
                 "class": "copy",
@@ -250,10 +254,6 @@ def add_conv_module(
             },
             f"{name}_res_add": {
                 "from": [f"{name}_dropout", f"{name}_input"],
-            },
-            f"{name}_ln": {
-                "class": "layer_norm",
-                "from": f"{name}_res_add",
             },
         }
     )
@@ -277,7 +277,7 @@ def add_conv_module(
         for suffix in ["_pointwise_conv_1", "_depthwise_conv", "_pointwise_conv_2"]:
             network[name + suffix]["reuse_params"] = reuse_from_name + suffix
 
-    return f"{name}_ln"
+    return f"{name}_res_add"
 
 
 def add_conformer_block(
@@ -323,7 +323,7 @@ def add_conformer_block(
 
     out_name = f"{name}_output"
     network[out_name] = {
-        "class": "copy",
+        "class": "layer_norm",
         "from": from_list,
     }
 
@@ -380,31 +380,27 @@ def add_initial_conv(
     for idx, (n_out, filter, stride) in enumerate(zip(conv_outputs, conv_filters, conv_strides), start=1):
         network[f"{name}_conv_{idx}"] = {
             "class": "conv",
+            "activation": "swish",
             "from": from_name,
             "n_out": n_out,
             "filter_size": (filter, filter),
-            "strides": (stride, 1),
             "with_bias": True,
             "padding": "same",
-            "forward_weights_init": get_variance_scaling_init(),
             "L2": 0.01,
         }
+        if stride != 1:
+            network[f"{name}_conv_{idx}"]["strides"] = (stride, 1)
+
         from_name = f"{name}_conv_{idx}"
 
-        network[f"{name}_swish_{idx}"] = {
-            "class": "activation",
-            "from": from_name,
-            "activation": "swish",
-        }
-        from_name = f"{name}_swish_{idx}"
-
-        if len(max_pool) >= idx:
+        if len(max_pool) >= idx and max_pool[idx - 1] != 1:
             network[f"{name}_pool_{idx}"] = {
                 "class": "pool",
                 "from": from_name,
                 "mode": "max",
                 "pool_size": (1, max_pool[idx - 1]),
                 "padding": "same",
+                "trainable": False,
             }
             from_name = f"{name}_pool_{idx}"
 
@@ -416,11 +412,11 @@ def add_initial_conv(
 
     network[f"{name}_linear"] = {
         "class": "linear",
+        "activation": None,
         "from": f"{name}_merge_dims",
         "n_out": linear_size,
         "with_bias": False,
-        "forward_weights_init": get_variance_scaling_init(),
-        "L2": 5e-06,
+        "L2": 1e-04,
     }
 
     network[f"{name}_dropout"] = {
@@ -429,13 +425,8 @@ def add_initial_conv(
         "dropout": dropout,
     }
 
-    network[f"{name}_ln"] = {
-        "class": "layer_norm",
-        "from": f"{name}_dropout",
-    }
-
     if reuse_from_name:
         for suffix in [f"_conv_{idx}" for idx in range(1, len(conv_outputs) + 1)] + ["_linear"]:
             network[name + suffix]["reuse_params"] = reuse_from_name + suffix
 
-    return f"{name}_ln"
+    return f"{name}_dropout"

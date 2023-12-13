@@ -3,9 +3,10 @@ import itertools
 from typing import Dict, List, Tuple, Union
 
 from i6_core import returnn
+from i6_core.lexicon import AddEowPhonemesToLexiconJob
 from i6_experiments.users.berger.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import mm
-from recipe.i6_core.lexicon.allophones import DumpStateTyingJob, StoreAllophonesJob
+from i6_core.lexicon.allophones import DumpStateTyingJob, StoreAllophonesJob
 from sisyphus import tk
 
 from ... import dataclasses
@@ -32,6 +33,7 @@ class Seq2SeqAlignmentFunctor(
         label_scorer_args: Dict = {},
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
         flow_args: Dict = {},
+        register_output: bool = False,
         **kwargs,
     ) -> Union[Dict[Tuple[float, types.EpochType], dataclasses.AlignmentData], dataclasses.AlignmentData,]:
         result = {}
@@ -94,10 +96,11 @@ class Seq2SeqAlignmentFunctor(
             align.set_vis_name(f"Alignment {path}")
             align.add_alias(path)
 
-            tk.register_output(
-                f"{path}.alignment.cache.bundle",
-                align.out_alignment_bundle,
-            )
+            if register_output:
+                tk.register_output(
+                    f"{path}.alignment.cache.bundle",
+                    align.out_alignment_bundle,
+                )
         if len(result) == 1:
             result = next(iter(result.values()))
         return result

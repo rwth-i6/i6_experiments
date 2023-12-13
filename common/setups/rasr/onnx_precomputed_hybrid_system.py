@@ -35,7 +35,7 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
         rtf: int,
         mem: int,
         nn_prior: bool,
-        epochs: Optional[List[int, str]] = None,
+        epochs: Optional[List[Union[int, str]]] = None,
         train_job: Optional[Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob]] = None,
         needs_features_size: bool = True,
         acoustic_mixture_path: Optional[tk.Path] = None,
@@ -87,7 +87,7 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                     io_map=io_map,
                     cpu=kwargs.get("cpu", 1),
                 )
-                flow = add_fwd_flow_to_base_flow(feature_flow, onnx_flow, fwd_input_name="onnx-fwd-input")
+                flow = add_fwd_flow_to_base_flow(feature_flow, onnx_flow)
 
                 if nn_prior:
                     raise NotImplementedError

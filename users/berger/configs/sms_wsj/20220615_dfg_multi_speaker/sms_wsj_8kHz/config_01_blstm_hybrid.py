@@ -167,25 +167,19 @@ def run_exp(alignments: Dict[str, Any], cart_file: tk.Path, **kwargs) -> Summary
     )
 
     nn_steps = rasr_util.RasrSteps()
-    nn_steps.add_step(
-        "extract", {"feature_key": f_name, **init_args.feature_extraction_args}
-    )
+    nn_steps.add_step("extract", {"feature_key": f_name, **init_args.feature_extraction_args})
     nn_steps.add_step("nn", nn_args)
     nn_steps.add_step("nn_recog", nn_args)
     sms_wsj_hybrid_system.run(nn_steps)
 
     summary_report = sms_wsj_hybrid_system.get_summary_report()
 
-    tk.register_report(
-        f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summaries/{name}.report", summary_report
-    )
+    tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summaries/{name}.report", summary_report)
 
     return summary_report
 
 
-def py(
-    alignments: Optional[Dict[str, Any]] = None, cart_file: Optional[tk.Path] = None
-) -> SummaryReport:
+def py(alignments: Optional[Dict[str, Any]] = None, cart_file: Optional[tk.Path] = None) -> SummaryReport:
     if alignments is None or cart_file is None:
         gmm_outputs = run_gmm()
         alignments = alignments or {
@@ -193,10 +187,7 @@ def py(
             dev_key: gmm_outputs[f"{dev_key}_speechsource"].alignments,
         }
         cart_file = (
-            cart_file
-            or gmm_outputs[
-                train_key.replace("sms_", "")
-            ].crp.acoustic_model_config.state_tying.file,
+            cart_file or gmm_outputs[train_key.replace("sms_", "")].crp.acoustic_model_config.state_tying.file,
         )
 
     run_exp_partial = partial(run_exp, alignments, cart_file)

@@ -1,6 +1,5 @@
 __all__ = [
     "RasrDataInput",
-    "ReturnnRasrTrainingArgs",
     "ReturnnRasrDataInput",
     "AllophoneLabeling",
     "OggZipRasrCacheDataInput",
@@ -14,7 +13,7 @@ __all__ = [
 
 import copy
 from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, TypedDict, Union
 
 from sisyphus import tk
 from sisyphus.delayed_ops import DelayedFormat, DelayedBase
@@ -26,38 +25,14 @@ import i6_core.returnn as returnn
 from i6_core.returnn.hdf import BlissToPcmHDFJob, RasrAlignmentDumpHDFJob
 from i6_core.util import MultiPath
 
+from .training import ReturnnRasrTrainingArgs
+
 RasrCacheTypes = Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute, rasr.FlowNetwork]
 
 
 @dataclass(frozen=True)
 class RasrDataInput:
     features: RasrCacheTypes
-
-
-@dataclass(frozen=True)
-class ReturnnRasrTrainingArgs:
-    """
-    Options for writing a RASR training config. See `ReturnnRasrTrainingJob`.
-    Most of them may be disregarded, i.e. the defaults can be left untouched.
-
-    :param partition_epochs: if >1, split the full dataset into multiple sub-epochs
-    :param num_classes: number of classes
-    :param disregarded_classes: path to file with list of disregarded classes
-    :param class_label_file: path to file with class labels
-    :param buffer_size: buffer size for data loading
-    :param extra_rasr_config: extra RASR config
-    :param extra_rasr_post_config: extra RASR post config
-    :param use_python_control: whether to use python control, usually True
-    """
-
-    partition_epochs: Optional[int] = None
-    num_classes: Optional[int] = None
-    disregarded_classes: Optional[tk.Path] = None
-    class_label_file: Optional[tk.Path] = None
-    buffer_size: int = 200 * 1024
-    extra_rasr_config: Optional[rasr.RasrConfig] = None
-    extra_rasr_post_config: Optional[rasr.RasrConfig] = None
-    use_python_control: bool = True
 
 
 class ReturnnRasrDataInput:

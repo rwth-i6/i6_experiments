@@ -485,12 +485,12 @@ class attention_for_hybrid:
 
         if self.conv_args:
             for name in [
-                "conv0_0",
-                "conv0_1",
-                "conv0p",
-                "conv1_0",
-                "conv1_1",
-                "conv1p",
+                f"{prefix}conv0_0",
+                f"{prefix}conv0_1",
+                f"{prefix}conv0p",
+                f"{prefix}conv1_0",
+                f"{prefix}conv1_1",
+                f"{prefix}conv1p",
             ]:
                 if self.conv_args.get(name, None):
                     self.network[name].update(self.conv_args.pop(name))

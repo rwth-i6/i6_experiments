@@ -46,13 +46,9 @@ def py():
     )
 
     # Subset of hub5e-00 with OOV words removed
-    dev_segments = tk.Path(
-        "/work/asr4/berger/dependencies/switchboard/segments/hub5e-00.reduced"
-    )
+    dev_segments = tk.Path("/work/asr4/berger/dependencies/switchboard/segments/hub5e-00.reduced")
 
-    allophone_file = tk.Path(
-        "/work/asr4/berger/dependencies/switchboard/allophones/tuske_allophones"
-    )
+    allophone_file = tk.Path("/work/asr4/berger/dependencies/switchboard/allophones/tuske_allophones")
 
     f_name = "gt"
 
@@ -148,9 +144,7 @@ def py():
     nn_data_inputs["test"] = {}
 
     # Allophone correction, TODO also for training? -> simpler
-    nn_data_inputs["dev"][
-        dev_key
-    ].crp.acoustic_model_config.allophones.add_from_lexicon = False
+    nn_data_inputs["dev"][dev_key].crp.acoustic_model_config.allophones.add_from_lexicon = False
     nn_data_inputs["dev"][dev_key].crp.acoustic_model_config.allophones.add_all = True
 
     # ********** Hybrid System **********

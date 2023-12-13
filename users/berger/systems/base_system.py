@@ -32,9 +32,7 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
         self._base_crp.set_executables(rasr_binary_path=tool_paths.rasr_binary_path)
 
         # exp-name mapped to ReturnnConfigs collection
-        self._returnn_configs: Dict[
-            str, dataclasses.ReturnnConfigs[types.ConfigType]
-        ] = {}
+        self._returnn_configs: Dict[str, dataclasses.ReturnnConfigs[types.ConfigType]] = {}
 
         # exp-name mapped to CustomStepKwargs collection
         self._custom_step_kwargs: Dict[str, dataclasses.CustomStepKwargs] = {}
@@ -121,9 +119,7 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
     ) -> dataclasses.ScorerInfo:
         if stm_path is None:
             stm_path = corpus.CorpusToStmJob(corpus_file, **stm_kwargs).out_stm_path
-        return dataclasses.ScorerInfo(
-            ref_file=stm_path, job_type=scorer_type, score_kwargs=score_kwargs
-        )
+        return dataclasses.ScorerInfo(ref_file=stm_path, job_type=scorer_type, score_kwargs=score_kwargs)
 
     def setup_scoring(
         self,
@@ -131,7 +127,7 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
         scorer_type: types.ScoreJobType = recognition.ScliteJob,
         stm_kwargs: Dict = {},
         score_kwargs: Dict = {},
-        stm_path: Optional[tk.Path] = None,
+        stm_paths: Optional[Dict[str, tk.Path]] = None,
     ) -> None:
         if scoring_corpora is None:
             scoring_corpora = {}
@@ -139,6 +135,8 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
                 corpus_file = self._corpus_info[key].data.corpus_object.corpus_file
                 assert corpus_file is not None
                 scoring_corpora[key] = corpus_file
+        if stm_paths is None:
+            stm_paths = {}
         for key, corpus_file in scoring_corpora.items():
             if key not in self._corpus_info:
                 continue
@@ -147,7 +145,7 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
                 stm_kwargs=stm_kwargs,
                 scorer_type=scorer_type,
                 score_kwargs=score_kwargs,
-                stm_path=stm_path,
+                stm_path=stm_paths.get(key, None),
             )
             self._corpus_info[key].scorer = scorer
 
@@ -156,15 +154,9 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
     def run_train_step(self, **kwargs) -> None:
         for train_exp_name, configs in self._returnn_configs.items():
             mod_kwargs = copy.deepcopy(kwargs)
-            mod_kwargs.update(
-                self._custom_step_kwargs[train_exp_name].train_step_kwargs
-            )
-            named_train_config = dataclasses.NamedConfig(
-                train_exp_name, configs.train_config
-            )
-            self._train_jobs[train_exp_name] = self._functors.train(
-                train_config=named_train_config, **mod_kwargs
-            )
+            mod_kwargs.update(self._custom_step_kwargs[train_exp_name].train_step_kwargs)
+            named_train_config = dataclasses.NamedConfig(train_exp_name, configs.train_config)
+            self._train_jobs[train_exp_name] = self._functors.train(train_config=named_train_config, **mod_kwargs)
 
     def run_recogs_for_corpora(
         self,
@@ -178,9 +170,7 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
         for c_key in corpora:
             named_corpus = dataclasses.NamedCorpusInfo(c_key, self._corpus_info[c_key])
             for recog_exp_name, recog_config in returnn_configs.recog_configs.items():
-                named_recog_config = dataclasses.NamedConfig(
-                    recog_exp_name, recog_config
-                )
+                named_recog_config = dataclasses.NamedConfig(recog_exp_name, recog_config)
                 recog_results = self._functors.recognize(
                     train_job=named_train_job,
                     prior_config=returnn_configs.prior_config,
@@ -193,35 +183,25 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
     def run_dev_recog_step(self, **kwargs) -> None:
         for train_exp_name in self._returnn_configs.keys():
             mod_kwargs = copy.deepcopy(kwargs)
-            mod_kwargs.update(
-                self._custom_step_kwargs[train_exp_name].recog_step_kwargs
-            )
+            mod_kwargs.update(self._custom_step_kwargs[train_exp_name].dev_recog_step_kwargs)
             self.run_recogs_for_corpora(self._dev_corpora, train_exp_name, **mod_kwargs)
 
     def run_test_recog_step(self, **kwargs) -> None:
         for train_exp_name in self._returnn_configs.keys():
             mod_kwargs = copy.deepcopy(kwargs)
-            mod_kwargs.update(
-                self._custom_step_kwargs[train_exp_name].recog_step_kwargs
-            )
-            self.run_recogs_for_corpora(
-                self._test_corpora, train_exp_name, **mod_kwargs
-            )
+            mod_kwargs.update(self._custom_step_kwargs[train_exp_name].test_recog_step_kwargs)
+            self.run_recogs_for_corpora(self._test_corpora, train_exp_name, **mod_kwargs)
 
     def run_align_step(self, **kwargs) -> Dict:
         results = {}
         for train_exp_name in self._returnn_configs.keys():
             mod_kwargs = copy.deepcopy(kwargs)
-            mod_kwargs.update(
-                self._custom_step_kwargs[train_exp_name].align_step_kwargs
-            )
+            mod_kwargs.update(self._custom_step_kwargs[train_exp_name].align_step_kwargs)
             train_job = self._train_jobs[train_exp_name]
             named_train_job = dataclasses.NamedTrainJob(train_exp_name, train_job)
             exp_results = {}
             for c_key in self._align_corpora:
-                named_corpus = dataclasses.NamedCorpusInfo(
-                    c_key, self._corpus_info[c_key]
-                )
+                named_corpus = dataclasses.NamedCorpusInfo(c_key, self._corpus_info[c_key])
                 prior_config = self._returnn_configs[train_exp_name].prior_config
                 align_config = self._returnn_configs[train_exp_name].align_config
                 exp_results[c_key] = self._functors.align(

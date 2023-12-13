@@ -56,9 +56,7 @@ def run_exp(**kwargs):
 
     am_args = {
         "state_tying": "cart",
-        "state_tying_file": tk.Path(
-            "/work/asr4/berger/dependencies/sms_wsj/cart/cart.tree.xml.gz"
-        ),
+        "state_tying_file": tk.Path("/work/asr4/berger/dependencies/sms_wsj/cart/cart.tree.xml.gz"),
     }
 
     # ********** GMM System **********
@@ -167,9 +165,7 @@ def run_exp(**kwargs):
             "mem_rqmt": 6.0,
         },
         recog_args={
-            "epochs": [num_subepochs]
-            if kwargs.get("recog_final_epoch_only", False)
-            else None,
+            "epochs": [num_subepochs] if kwargs.get("recog_final_epoch_only", False) else None,
             "lm_scales": kwargs.get("lm_scales", [16.0]),
             "prior_scales": kwargs.get("prior_scales", [0.7]),
             "use_gpu": False,

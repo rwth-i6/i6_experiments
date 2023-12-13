@@ -7,7 +7,6 @@ from sisyphus import Job, Task, Path
 from i6_core.lib import corpus
 from i6_core.lib.hdf import get_returnn_simple_hdf_writer
 from i6_core.lib.rasr_cache import FileArchiveBundle
-from lazy_dataset.database import JsonDatabase
 
 
 def zip_strict(*args):
@@ -46,6 +45,7 @@ class EnhancedMeetingDataToBlissCorpusJob(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
+        from lazy_dataset.database import JsonDatabase
         db = JsonDatabase(self.json_database.get())
         ds = db.get_dataset(self.dataset_name)
 
@@ -62,14 +62,7 @@ class EnhancedMeetingDataToBlissCorpusJob(Job):
                     int(os.path.basename(r.audio).split("_")[-1].strip(".wav")) == channel
                 ), f"wav files should end on '_<channel>.wav'. For channel {channel}, got {r.audio}"
 
-                for (
-                    segment_id,
-                    speaker_id,
-                    transcription,
-                    num_samples,
-                    offset,
-                    channel_alignment,
-                ) in zip_strict(
+                for (segment_id, speaker_id, transcription, num_samples, offset, channel_alignment,) in zip_strict(
                     range(len(ex["speaker_id"])),
                     ex["speaker_id"],
                     ex.get("kaldi_transcription") or ex["transcription"],
@@ -131,6 +124,7 @@ class EnhancedMeetingDataToSplitBlissCorporaJob(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
+        from lazy_dataset.database import JsonDatabase
         db = JsonDatabase(self.json_database.get())
         ds = db.get_dataset(self.dataset_name)
 
@@ -165,14 +159,7 @@ class EnhancedMeetingDataToSplitBlissCorporaJob(Job):
                     r.audio = audio
                     rec.append(r)
 
-            for (
-                segment_id,
-                speaker_id,
-                transcription,
-                num_samples,
-                offset,
-                channel_alignment,
-            ) in zip_strict(
+            for (segment_id, speaker_id, transcription, num_samples, offset, channel_alignment,) in zip_strict(
                 range(len(ex["speaker_id"])),
                 ex["speaker_id"],
                 ex.get("kaldi_transcription") or ex["transcription"],
@@ -217,6 +204,7 @@ class EnhancedEvalDataToBlissCorpusJob(EnhancedMeetingDataToSplitBlissCorporaJob
     """
 
     def run(self):
+        from lazy_dataset.database import JsonDatabase
         db = JsonDatabase(self.json_database.get())
         ds = db.get_dataset(self.dataset_name)
 
@@ -273,6 +261,7 @@ class EnhancedSegmentedEvalDataToBlissCorpusJob(EnhancedMeetingDataToSplitBlissC
         self.segment_audio_path_mapping = segment_audio_path_mapping
 
     def run(self):
+        from lazy_dataset.database import JsonDatabase
         db = JsonDatabase(self.json_database.get())
         ds = db.get_dataset(self.dataset_name)
 
@@ -378,6 +367,7 @@ class EnhancedMeetingDataRasrAlignmentPadAndDumpHDFJob(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
+        from lazy_dataset.database import JsonDatabase
         state_tying = dict(
             (k, int(v)) for l in open(self.state_tying_file.get_path()) for k, v in [l.strip().split()[0:2]]
         )
@@ -401,13 +391,7 @@ class EnhancedMeetingDataRasrAlignmentPadAndDumpHDFJob(Job):
 
         for ex in ds:
             for channel, wav_file in enumerate(ex["audio_path"]["enhanced"]):
-                for (
-                    segment_id,
-                    source_id,
-                    num_samples,
-                    offset,
-                    channel_alignment,
-                ) in zip_strict(
+                for (segment_id, source_id, num_samples, offset, channel_alignment,) in zip_strict(
                     range(len(ex["source_id"])),
                     ex["source_id"],
                     ex["num_samples"]["original_source"],

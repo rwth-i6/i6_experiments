@@ -2,6 +2,7 @@ __all__ = ["run", "run_single"]
 
 import copy
 import dataclasses
+import typing
 from dataclasses import dataclass
 import itertools
 
@@ -10,6 +11,7 @@ import os
 
 # -------------------- Sisyphus --------------------
 from sisyphus import gs, tk
+from sisyphus.delayed_ops import DelayedFallback
 
 # -------------------- Recipes --------------------
 
@@ -25,6 +27,7 @@ from ...setups.common.nn.specaugment import (
     summary as sa_summary,
     transform as sa_transform,
 )
+from ...setups.common.power_consumption import WritePowerConsumptionScriptJob
 from ...setups.fh import system as fh_system
 from ...setups.fh.decoder.config import PriorInfo
 from ...setups.fh.network import conformer
@@ -70,6 +73,7 @@ class Experiment:
     lr: str
     dc_detection: bool
     decode_all_corpora: bool
+    n_states_per_phone: int
     own_priors: bool
     run_performance_study: bool
     tune_decoding: bool
@@ -77,7 +81,7 @@ class Experiment:
     focal_loss: float = CONF_FOCAL_LOSS
 
 
-def run(returnn_root: tk.Path):
+def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.List[typing.Tuple[tk.Path, str]]] = None):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
@@ -94,6 +98,7 @@ def run(returnn_root: tk.Path):
             dc_detection=False,
             decode_all_corpora=False,
             lr="v13",
+            n_states_per_phone=3,
             own_priors=False,
             run_performance_study=False,
             tune_decoding=False,
@@ -102,12 +107,38 @@ def run(returnn_root: tk.Path):
             alignment=scratch_align,
             alignment_name="scratch",
             dc_detection=False,
-            decode_all_corpora=False,
+            decode_all_corpora=True,
             lr="v13",
+            n_states_per_phone=3,
             own_priors=True,
             run_performance_study=True,
             tune_decoding=True,
         ),
+        Experiment(
+            alignment=scratch_align,
+            alignment_name="scratch",
+            dc_detection=False,
+            decode_all_corpora=False,
+            lr="v13",
+            n_states_per_phone=1,
+            own_priors=True,
+            run_performance_study=True,
+            tune_decoding=True,
+        ),
+        *(
+            Experiment(
+                alignment=a,
+                alignment_name=a_name,
+                dc_detection=False,
+                decode_all_corpora=False,
+                lr="v13",
+                n_states_per_phone=3,
+                own_priors=True,
+                run_performance_study=False,
+                tune_decoding=True,
+            )
+            for a, a_name in (additional_alignments or [])
+        )
         # Experiment(
         #     alignment=scratch_align_daniel,
         #     alignment_name="scratch_daniel",
@@ -127,6 +158,7 @@ def run(returnn_root: tk.Path):
             decode_all_corpora=exp.decode_all_corpora,
             focal_loss=exp.focal_loss,
             lr=exp.lr,
+            n_states_per_phone=exp.n_states_per_phone,
             own_priors=exp.own_priors,
             returnn_root=returnn_root,
             run_performance_study=exp.run_performance_study,
@@ -142,6 +174,7 @@ def run_single(
     decode_all_corpora: bool,
     focal_loss: float,
     lr: str,
+    n_states_per_phone: int,
     own_priors: bool,
     returnn_root: tk.Path,
     run_performance_study: bool,
@@ -151,7 +184,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-3-a:{alignment_name}-lr:{lr}-fl:{focal_loss}"
+    name = f"conf-3-a:{alignment_name}-lr:{lr}-fl:{focal_loss}-n:{n_states_per_phone}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -174,10 +207,13 @@ def run_single(
         dev_data=dev_data_inputs,
         test_data=test_data_inputs,
     )
+
     s.train_key = train_key
     if alignment_name == "scratch_daniel":
         s.cv_info = FROM_SCRATCH_CV_INFO
     s.lm_gc_simple_hash = True
+    s.label_info = dataclasses.replace(s.label_info, n_states_per_phone=n_states_per_phone)
+
     s.run(steps)
 
     # *********** Preparation of data input for rasr-returnn training *****************
@@ -267,7 +303,7 @@ def run_single(
             **extern_data.get_extern_data_config(label_info=s.label_info, time_tag_name=time_tag_name),
         },
     }
-    keep_epochs = [300, 550, num_epochs]
+    keep_epochs = [300, 500, 550, num_epochs]
     base_post_config = {
         "cleanup_old_models": {
             "keep_best_n": 3,
@@ -306,10 +342,10 @@ def run_single(
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
-        on_2080=False,
+        on_2080=True,
     )
 
-    if own_priors:
+    if own_priors or n_states_per_phone != 3:
         s.set_triphone_priors_returnn_rasr(
             key="fh",
             epoch=keep_epochs[-2],
@@ -328,8 +364,27 @@ def run_single(
         s.experiments["fh"]["priors"] = smoothen_priors(prior_info)
 
     best_config = None
-    for ep, crp_k in itertools.product([300, max(keep_epochs)], ["dev-other"]):
+    eps = [500, max(keep_epochs)] if n_states_per_phone == 1 or "FF" in alignment_name else [max(keep_epochs)]
+    for ep, crp_k in itertools.product(eps, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+        if own_priors or n_states_per_phone != 3:
+            s.set_triphone_priors_returnn_rasr(
+                key="fh",
+                epoch=min(ep, keep_epochs[-2]),
+                train_corpus_key=s.crp_names["train"],
+                dev_corpus_key=s.crp_names["cvtrain"],
+                smoothen=True,
+                returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+            )
+        else:
+            s.set_graph_for_experiment("fh")
+            prior_info = PriorInfo.from_triphone_job(
+                "/u/mgunz/gunz/kept-experiments/2023-02--from-scratch-daniel/priors/tri-from-scratch-conf-ph-3-dim-512-ep-60-cls-WE-lr-v6-sa-v1-bs-6144-epoch-575"
+                if alignment_name == "scratch_daniel"
+                else "/u/mgunz/gunz/kept-experiments/2022-07--baselines/priors/tri-from-GMMtri-conf-ph-3-dim-512-ep-600-cls-WE-lr-v6-sa-v1-bs-6144-fls-False-rp-epoch-550"
+            )
+            s.experiments["fh"]["priors"] = smoothen_priors(prior_info)
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
@@ -340,6 +395,11 @@ def run_single(
             tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
             set_batch_major_for_feature_scorer=True,
         )
+
+        if n_states_per_phone == 1:
+            tdp_sp = recog_args.tdp_speech
+            recog_args = recog_args.with_tdp_speech((0, *tdp_sp[1:]))
+
         for cfg in [recog_args, recog_args.with_prior_scale(0.4, 0.4, 0.2).with_tdp_scale(0.6)]:
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
@@ -347,22 +407,22 @@ def run_single(
                 num_encoder_output=conf_model_dim,
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
-                rtf_cpu=50,
+                rtf_cpu=80,
             )
 
-        if tune_decoding:
+        if ep == max(keep_epochs) and tune_decoding:
             best_config = recognizer.recognize_optimize_scales(
                 label_info=s.label_info,
                 search_parameters=recog_args,
                 num_encoder_output=conf_model_dim,
                 prior_scales=list(
                     itertools.product(
-                        np.linspace(0.1, 0.5, 5),
-                        np.linspace(0.0, 0.4, 3),
-                        np.linspace(0.0, 0.2, 3),
+                        np.linspace(0.4, 0.8, 3),
+                        np.linspace(0.2, 0.8, 4),
+                        np.linspace(0.2, 0.8, 4),
                     )
                 ),
-                tdp_scales=np.linspace(0.2, 0.6, 3),
+                tdp_scales=[0.1, *np.linspace(0.2, 0.6, 3)],
             )
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
@@ -371,51 +431,126 @@ def run_single(
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
                 name_override="best/4gram",
-                rtf_cpu=50,
+                rtf_cpu=80,
             )
 
-        if False and run_performance_study:
-            for altas, beam in itertools.product([2, 4, 6, 8, 12], [10, 12, 14, 16]):
-                recognizer.recognize_count_lm(
-                    calculate_stats=True,
-                    gpu=True,
-                    label_info=s.label_info,
-                    name_override=f"altas{altas}-beam{beam}",
-                    num_encoder_output=conf_model_dim,
-                    opt_lm_am=False,
-                    pre_path="decoding-perf",
-                    search_parameters=dataclasses.replace(recog_args, altas=altas, beam=beam),
-                    rtf_gpu=4,
-                )
+            if alignment_name == "scratch":
+                base_cfg = best_config.with_beam_limit(100_000)
+                base_cfgs = [
+                    ("base", base_cfg),
+                    ("all-zero", base_cfg.with_prior_scale(center=0, left=0, right=0)),
+                    (
+                        "only-center",
+                        base_cfg.with_prior_scale(center=base_cfg.prior_info.center_state_prior.scale, left=0, right=0),
+                    ),
+                    (
+                        "only-left-right",
+                        base_cfg.with_prior_scale(
+                            center=0,
+                            left=base_cfg.prior_info.left_context_prior.scale,
+                            right=base_cfg.prior_info.right_context_prior.scale,
+                        ),
+                    ),
+                    (
+                        "only-center-right",
+                        base_cfg.with_prior_scale(
+                            left=0,
+                            center=base_cfg.prior_info.center_state_prior.scale,
+                            right=base_cfg.prior_info.right_context_prior.scale,
+                        ),
+                    ),
+                    (
+                        "only-center-left",
+                        base_cfg.with_prior_scale(
+                            right=0,
+                            center=base_cfg.prior_info.center_state_prior.scale,
+                            left=base_cfg.prior_info.left_context_prior.scale,
+                        ),
+                    ),
+                ]
+                cfgs = [
+                    *base_cfgs,
+                    *((f"{name}-tdpScale0", cfg.with_tdp_scale(0)) for name, cfg in base_cfgs),
+                    *(
+                        (
+                            f"{name}-tdpZero",
+                            cfg.with_tdp_speech((0, 0, "infinity", 0)).with_tdp_silence(
+                                (0, 0, "infinity", cfg.tdp_silence[-1])
+                            ),
+                        )
+                        for name, cfg in base_cfgs
+                    ),
+                ]
 
-    if run_performance_study:
-        recognizer, recog_args = s.get_recognizer_and_args(
-            key="fh",
-            context_type=PhoneticContext.triphone_forward,
-            crp_corpus="dev-other",
-            epoch=max(keep_epochs),
-            gpu=False,
-            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-            set_batch_major_for_feature_scorer=True,
-            lm_gc_simple_hash=True,
-        )
-        recog_args = dataclasses.replace(recog_args.with_prior_scale(0.4, 0.4, 0.2), altas=4, beam=14)
-        for create_lattice in [True, False]:
-            jobs = recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=recog_args,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=False,
-                calculate_stats=True,
-                pre_path="decoding-perf-eval" + ("-l" if create_lattice else ""),
-                cpu_rqmt=2,
-                mem_rqmt=4,
-                create_lattice=create_lattice,
-            )
-            jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+                for name, cfg in cfgs:
+                    jobs = recognizer.recognize_count_lm(
+                        label_info=s.label_info,
+                        search_parameters=cfg,
+                        num_encoder_output=conf_model_dim,
+                        rerun_after_opt_lm=False,
+                        calculate_stats=True,
+                        name_override=f"icassp/4gram/{name}",
+                        rtf_cpu=80,
+                    )
+
+            if run_performance_study:
+                lm_scale = 10.85 if n_states_per_phone == 3 else 7.85
+
+                power_consumption_script = WritePowerConsumptionScriptJob(s.crp["dev-other"].flf_tool_exe)
+
+                def set_power_exe(crp):
+                    crp.flf_tool_exe = power_consumption_script.out_script
+
+                for altas, beam, b_l in itertools.product(
+                    [None, 2, 4, 6],
+                    [12, 14, 16],
+                    [
+                        int(v)
+                        for v in (
+                            *np.geomspace(250, 1000, 4, dtype=int)[:-1],
+                            *np.geomspace(1000, 10000, 10, dtype=int)[:7],
+                        )
+                    ],
+                ):
+                    nice = (
+                        f"--nice={100 + int(2 * (20 - np.log(b_l)))}"
+                        if b_l < 100_000
+                        else "--nice=500"
+                        if n_states_per_phone < 3
+                        else "--nice=100"
+                    )
+
+                    jobs = recognizer.recognize_count_lm(
+                        calculate_stats=True,
+                        gpu=False,
+                        label_info=s.label_info,
+                        name_override=f"altas{altas}-beam{beam}-beamlimit{b_l}",
+                        num_encoder_output=conf_model_dim,
+                        opt_lm_am=False,
+                        pre_path="decoding-perf-single-core",
+                        search_parameters=dataclasses.replace(
+                            best_config,
+                            altas=altas,
+                            beam=beam,
+                            beam_limit=b_l,
+                            lm_scale=lm_scale,
+                        ),
+                        cpu_rqmt=2,
+                        mem_rqmt=4,
+                        rtf_cpu=8 if altas is not None else 12,
+                        crp_update=set_power_exe,
+                        remove_or_set_concurrency=12,
+                    )
+                    jobs.search.rqmt.update(
+                        {"sbatch_args": [v for v in ["-A", "rescale_speed", "-p", "rescale_amd", nice] if v]}
+                    )
 
     if decode_all_corpora:
-        for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-clean", "dev-other", "test-clean", "test-other"]):
+        assert tune_decoding
+
+        for ep, crp_k in itertools.product(
+            [596, max(keep_epochs)], ["dev-clean", "dev-other", "test-clean", "test-other"]
+        ):
             s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
             recognizer, recog_args = s.get_recognizer_and_args(
@@ -428,51 +563,78 @@ def run_single(
                 set_batch_major_for_feature_scorer=True,
             )
 
-            cfgs = [
-                cfg
-                for cfg in [
-                    recog_args,
-                    recog_args.with_prior_scale(0.4, 0.4, 0.2).with_tdp_scale(0.6),
-                    # best_config,
-                ]
-                if cfg is not None
-            ]
-
-            for cfg in cfgs:
+            for lm in [best_config.lm_scale, 11.3]:
                 recognizer.recognize_count_lm(
                     label_info=s.label_info,
-                    search_parameters=cfg,
+                    search_parameters=best_config.with_lm_scale(lm),
                     num_encoder_output=conf_model_dim,
-                    rerun_after_opt_lm=False,
+                    rerun_after_opt_lm=True,
                     calculate_stats=True,
+                    name_override=f"best/4gram-lm{lm}",
+                    rtf_cpu=80,
+                )
+            for lm, la_4gram in itertools.product([best_config.lm_scale + 2, 12.4], [True, False]):
+                if la_4gram and (lm != 13.0 or ep != 600):
+                    continue
+
+                recognizer.recognize_ls_trafo_lm(
+                    calculate_stats=True,
+                    label_info=s.label_info,
+                    num_encoder_output=conf_model_dim,
+                    opt_lm_am=True,
+                    name_override=f"best-lm{lm}-la4gram{la_4gram}",
+                    search_parameters=dataclasses.replace(best_config, beam=18, beam_limit=100_000, lm_scale=lm),
+                    cpu_rqmt=2,
+                    mem_rqmt=8,
+                    rtf_gpu=30,
+                    gpu=True,
+                    remove_or_set_concurrency=5,
+                    lookahead_with_4gram=la_4gram,
                 )
 
-            generic_lstm_base_op = returnn.CompileNativeOpJob(
-                "LstmGenericBase",
-                returnn_root=returnn_root,
-                returnn_python_exe=RETURNN_PYTHON_EXE,
-            )
-            generic_lstm_base_op.rqmt = {"cpu": 1, "mem": 4, "time": 0.5}
+        kept_epochs = [
+            550,
+            562,
+            563,
+            573,
+            576,
+            577,
+            578,
+            579,
+            585,
+            586,
+            588,
+            589,
+            590,
+            594,
+            595,
+            596,
+            597,
+            598,
+            599,
+            600,
+        ]
+        for ep in kept_epochs:
             recognizer, recog_args = s.get_recognizer_and_args(
                 key="fh",
                 context_type=PhoneticContext.triphone_forward,
-                crp_corpus=crp_k,
+                crp_corpus="dev-other",
                 epoch=ep,
-                gpu=True,
+                gpu=False,
                 tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
                 set_batch_major_for_feature_scorer=True,
-                tf_library=[generic_lstm_base_op.out_op, generic_lstm_base_op.out_grad_op],
             )
-
-            for cfg in cfgs:
-                recognizer.recognize_ls_trafo_lm(
-                    label_info=s.label_info,
-                    search_parameters=cfg.with_lm_scale(cfg.lm_scale + 2.0),
-                    num_encoder_output=conf_model_dim,
-                    rerun_after_opt_lm=False,
-                    calculate_stats=True,
-                    rtf_gpu=24,
-                    gpu=True,
-                )
+            lm = 11.3
+            jobs = recognizer.recognize_count_lm(
+                label_info=s.label_info,
+                search_parameters=best_config.with_lm_scale(lm),
+                num_encoder_output=conf_model_dim,
+                rerun_after_opt_lm=False,
+                calculate_stats=True,
+                name_override=f"best/4gram-lm{lm}",
+                rtf_cpu=80,
+            )
+            nice_val = int(600 - ep)
+            jobs.search.rqmt.update({"sbatch_args": [f"--nice={nice_val}"]})
 
     return s

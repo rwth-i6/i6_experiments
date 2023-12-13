@@ -1,7 +1,5 @@
-from returnn.tensor.tensor_dict import TensorDict
-import returnn.frontend as rf
 import torch
-
+from returnn.tensor.tensor_dict import TensorDict
 
 def forward_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     audio_features = extern_data["data"].raw_tensor
@@ -12,4 +10,5 @@ def forward_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
         audio_features_len=audio_features_len.to("cuda"),
     )  # [B, T, F]
 
+    import returnn.frontend as rf
     rf.get_run_ctx().mark_as_output(log_probs, name="log_probs")

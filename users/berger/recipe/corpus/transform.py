@@ -20,9 +20,7 @@ class ReplaceUnknownWordsJob(Job):
         with uopen(self.lexicon_file, "rt") as f:
             lex_root = ET.parse(f)
 
-        vocabulary = set(
-            [o.text.strip() if o.text else "" for o in lex_root.findall(".//orth")]
-        )
+        vocabulary = set([o.text.strip() if o.text else "" for o in lex_root.findall(".//orth")])
 
         corpus = Corpus()
         corpus.load(self.corpus_file.get_path())
@@ -30,12 +28,7 @@ class ReplaceUnknownWordsJob(Job):
         def replace_func(sc):
             for rec in sc.recordings:
                 for seg in rec.segments:
-                    seg.orth = " ".join(
-                        [
-                            w if w in vocabulary else self.unknown_token
-                            for w in seg.orth.split()
-                        ]
-                    )
+                    seg.orth = " ".join([w if w in vocabulary else self.unknown_token for w in seg.orth.split()])
             for ssc in sc.subcorpora:
                 replace_func(ssc)
 

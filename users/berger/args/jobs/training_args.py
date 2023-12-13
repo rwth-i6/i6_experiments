@@ -11,7 +11,7 @@ def get_base_training_args(
     cpu_rqmt: int = 3,
     partition_epochs: int = 1,
     use_python_control: bool = False,
-    **kwargs
+    **kwargs,
 ) -> Dict[str, Any]:
     result = {
         "log_verbosity": log_verbosity,

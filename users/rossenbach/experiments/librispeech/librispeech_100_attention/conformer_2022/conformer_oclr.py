@@ -34,16 +34,18 @@ def conformer_oclr():
     conformer_enc_args = ConformerEncoderArgs(
         num_blocks=12, input_layer='conv-6-fixed', att_num_heads=8, ff_dim=2048, enc_key_dim=512, conv_kernel_size=32,
         pos_enc='rel', dropout=0.1, att_dropout=0.1, l2=0.0001)
-
+    
     apply_fairseq_init_to_conformer_encoder(conformer_enc_args)
     conformer_enc_args.ctc_loss_scale = 1.0
-
     conformer_enc_args.batch_norm_opts = {
         'momentum': 0.1,
         'epsilon': 1e-3,
         'update_sample_only_in_training': True,
         'delay_sample_update': True
     }
+
+    conformer_enc_lstmpre_args = copy.deepcopy(conformer_enc_args)
+    conformer_enc_lstmpre_args.input_layer = "lstm-6"
 
     rnn_dec_args = RNNDecoderArgs()
     training_args = {}
@@ -122,9 +124,15 @@ def conformer_oclr():
 
         return train_job
 
-    prefix_group = prefix_name + "/" + "tf_feature_conformer_12l_lstm_1l_oclrv1"
+    prefix_group = prefix_name + "/" + "tf_feature_conformer_12l_lstm_1l_convpre_oclrv1"
     exp_args = copy.deepcopy(training_args)
     exp_args["learning_rates"] = list(np.linspace(8e-5, 8e-4, 90)) + list(np.linspace(8e-4, 8e-5, 90)) + list(np.linspace(8e-5, 1e-6, 20))
     train_job_base = run_exp_v2(prefix_group + "/" + "epoch_based",
                                 datasets=training_datasets_speedperturbed, train_args=exp_args, report=report, num_epochs=200)
 
+    prefix_group = prefix_name + "/" + "tf_feature_conformer_12l_lstm_1l_lstmpre_oclrv1"
+    exp_args = copy.deepcopy(training_args)
+    exp_args["encoder_args"] = conformer_enc_lstmpre_args
+    exp_args["learning_rates"] = list(np.linspace(8e-5, 8e-4, 90)) + list(np.linspace(8e-4, 8e-5, 90)) + list(np.linspace(8e-5, 1e-6, 20))
+    train_job_base = run_exp_v2(prefix_group + "/" + "epoch_based",
+                                datasets=training_datasets_speedperturbed, train_args=exp_args, report=report, num_epochs=200)

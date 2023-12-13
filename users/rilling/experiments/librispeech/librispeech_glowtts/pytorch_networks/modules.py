@@ -14,7 +14,7 @@ class Conv1DBlock(torch.nn.Module):
     Will pad to the same output length
     """
 
-    def __init__(self, in_size, out_size, filter_size, p_dropout):
+    def __init__(self, in_size, out_size, filter_size, p_dropout, norm="layer"):
         """
         :param in_size: input feature size
         :param out_size: output feature size
@@ -24,8 +24,7 @@ class Conv1DBlock(torch.nn.Module):
         super().__init__()
         assert filter_size % 2 == 1, "Only odd filter sizes allowed"
         self.conv = nn.Conv1d(in_size, out_size, filter_size, padding=filter_size // 2)
-        # self.bn = nn.BatchNorm1d(num_features=out_size)
-        self.ln = LayerNorm(channels=out_size)
+        self.ln = LayerNorm(channels=out_size)            
         self.p_dropout = p_dropout
 
     def forward(self, x_with_mask):
@@ -39,6 +38,41 @@ class Conv1DBlock(torch.nn.Module):
         x = self.ln(x) # Layer normalization
         x = nn.functional.dropout(x, p=self.p_dropout, training=self.training)
         return (x, x_mask)
+    
+class Conv1DBlockBN(torch.nn.Module):
+    """
+    A 1D-Convolution with ReLU, batch-norm and non-broadcasted dropout
+    Will pad to the same output length
+
+    Extended with xavier_init
+    """
+
+    def __init__(self, in_size, out_size, filter_size, dropout):
+        """
+        :param in_size: input feature size
+        :param out_size: output feature size
+        :param filter_size: filter size
+        :param dropout: dropout probability
+        """
+        super().__init__()
+        assert filter_size % 2 == 1, "Only odd filter sizes allowed"
+        self.conv = nn.Conv1d(in_size, out_size, filter_size, padding=filter_size // 2)
+        self.bn = nn.BatchNorm1d(num_features=out_size)
+        self.dropout = dropout
+
+        nn.init.xavier_normal_(self.conv.weight)
+
+    def forward(self, x):
+        """
+        :param x: [B, F_in, T]
+        :return: [B, F_out, T]
+        """
+        x = self.conv(x)
+        x = nn.functional.relu(x)
+        # TODO: does not consider masking!
+        x = self.bn(x)
+        x = nn.functional.dropout(x, p=self.dropout, training=self.training)
+        return x
 
 class LayerNorm(nn.Module):
   def __init__(self, channels, eps=1e-4):

@@ -1,14 +1,20 @@
-from returnn.tensor.tensor_dict import TensorDict
-import returnn.frontend as rf
 import torch
-
+from returnn.tensor.tensor_dict import TensorDict
 
 def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     audio_features = extern_data["data"].raw_tensor
-    audio_features_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
+    assert extern_data["data"].dims[1].dyn_size_ext is not None
 
+    audio_features_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
+    assert audio_features_len is not None
+
+    assert extern_data["targets"].raw_tensor is not None
     targets = extern_data["targets"].raw_tensor.long()
-    targets_len = extern_data["targets"].dims[1].dyn_size_ext.raw_tensor
+
+    targets_len_rf = extern_data["targets"].dims[1].dyn_size_ext
+    assert targets_len_rf is not None
+    targets_len = targets_len_rf.raw_tensor
+    assert targets_len is not None
 
     model.train()
 
@@ -30,6 +36,8 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
         zero_infinity=True,
     )
 
-    loss /= torch.sum(sequence_lengths)
-
-    rf.get_run_ctx().mark_as_loss(name="CTC", loss=loss)
+    from returnn.tensor import batch_dim
+    import returnn.frontend as rf
+    rf.get_run_ctx().mark_as_loss(
+        name="CTC", loss=loss, custom_inv_norm_factor=rf.reduce_sum(targets_len_rf, axis=batch_dim)
+    )

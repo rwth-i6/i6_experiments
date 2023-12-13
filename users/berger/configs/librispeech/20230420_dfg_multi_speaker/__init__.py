@@ -8,7 +8,6 @@ from .config_02_blstm_hybrid_mixed_inputs_joint import py as py_02
 def main() -> SummaryReport:
     summary_report = SummaryReport()
 
-    
     summary_report.merge_report(py_01()[0], update_structure=True, collapse_rows=True)
     summary_report.merge_report(py_02(), collapse_rows=True)
 

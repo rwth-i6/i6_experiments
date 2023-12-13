@@ -28,7 +28,6 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
-from ...setups.fh.decoder.config import PriorInfo
 from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network import aux_loss, extern_data
@@ -39,11 +38,9 @@ from ...setups.fh.network.augment import (
     augment_net_with_triphone_outputs,
     remove_label_pops_and_losses_from_returnn_config,
 )
-from ...setups.fh.priors import smoothen_priors
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
-    ALIGN_30MS_BLSTM_V2,
     CONF_CHUNKING_30MS,
     CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
@@ -79,28 +76,29 @@ class Experiment:
     focal_loss: float = CONF_FOCAL_LOSS
 
 
-def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.List[typing.Tuple[tk.Path, str]]] = None):
+def run(
+    returnn_root: tk.Path,
+    alignments: typing.List[typing.Tuple[tk.Path, str, bool]],
+):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    scratch_align_blstm_v2 = tk.Path(ALIGN_30MS_BLSTM_V2, cached=True)
-
-    alignments_to_run = ((scratch_align_blstm_v2, "30ms-B-v2"), *(additional_alignments or []))
     configs = [
         Experiment(
             alignment=a,
             alignment_name=a_name,
-            batch_size=12500,
+            batch_size=bs,
             dc_detection=False,
             decode_all_corpora=False,
-            lr="v13",
+            lr=lr,
             own_priors=True,
-            run_performance_study=False,
-            tune_decoding=True,
+            run_performance_study=a_name == "30ms-FF-v8" and lr == "v13",
+            tune_decoding=i == 0,
         )
-        for a, a_name in alignments_to_run
+        for i, (a, a_name, run_additional_lrs) in enumerate(alignments)
+        for bs, lr in [(12500, "v13"), *((15000, f"v{lr}") for lr in range(13, 17 + 1) if i > 0 and run_additional_lrs)]
     ]
     for exp in configs:
         run_single(
@@ -138,7 +136,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-3-a:{alignment_name}-lr:{lr}-fl:{focal_loss}"
+    name = f"conf-3-a:{alignment_name}-lr:{lr}-bs:{batch_size}-fl:{focal_loss}"
     print(f"fh {name}")
 
     ss_factor = 3
@@ -311,23 +309,14 @@ def run_single(
     for ep, crp_k in itertools.product([300, 550, max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
-        if own_priors:
-            s.set_triphone_priors_returnn_rasr(
-                key="fh",
-                epoch=min(ep, 550),
-                train_corpus_key=s.crp_names["train"],
-                dev_corpus_key=s.crp_names["cvtrain"],
-                smoothen=True,
-                returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-            )
-        else:
-            s.set_graph_for_experiment("fh")
-            prior_info = PriorInfo.from_triphone_job(
-                "/u/mgunz/gunz/kept-experiments/2023-02--from-scratch-daniel/priors/tri-from-scratch-conf-ph-3-dim-512-ep-60-cls-WE-lr-v6-sa-v1-bs-6144-epoch-575"
-                if alignment_name == "scratch_daniel"
-                else "/u/mgunz/gunz/kept-experiments/2022-07--baselines/priors/tri-from-GMMtri-conf-ph-3-dim-512-ep-600-cls-WE-lr-v6-sa-v1-bs-6144-fls-False-rp-epoch-550"
-            )
-            s.experiments["fh"]["priors"] = smoothen_priors(prior_info)
+        s.set_triphone_priors_returnn_rasr(
+            key="fh",
+            epoch=min(ep, 550),
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+        )
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
@@ -398,7 +387,9 @@ def run_single(
             )
 
     if run_performance_study:
-        ep = 550
+        assert tune_decoding
+
+        ep = 600
         s.set_triphone_priors_returnn_rasr(
             key="fh",
             epoch=ep,
@@ -417,26 +408,19 @@ def run_single(
             set_batch_major_for_feature_scorer=True,
             lm_gc_simple_hash=True,
         )
-        recog_args = dataclasses.replace(
-            recog_args.with_prior_scale(0.4, 0.4, 0.2),
-            altas=4,
-            beam=14,
-            lm_scale=round(recog_args.lm_scale / float(ss_factor), 2),
-            tdp_scale=0.2,
+        recog_args = dataclasses.replace(best_config, altas=4, beam=14)
+        jobs = recognizer.recognize_count_lm(
+            label_info=s.label_info,
+            search_parameters=recog_args,
+            num_encoder_output=conf_model_dim,
+            rerun_after_opt_lm=True,
+            calculate_stats=True,
+            pre_path="decoding-perf-eval",
+            name_override="best/4gram",
+            cpu_rqmt=2,
+            mem_rqmt=4,
         )
-        for create_lattice in [True, False]:
-            jobs = recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=recog_args,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=False,
-                calculate_stats=True,
-                pre_path="decoding-perf-eval" + ("-l" if create_lattice else ""),
-                cpu_rqmt=2,
-                mem_rqmt=4,
-                create_lattice=create_lattice,
-            )
-            jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+        jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if decode_all_corpora:
         assert False, "this is broken r/n"

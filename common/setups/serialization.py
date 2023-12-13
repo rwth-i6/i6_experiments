@@ -3,17 +3,18 @@ Helper code for serializing any data, e.g. for ReturnnConfig.
 """
 
 from __future__ import annotations
-from typing import Any, Dict, Union, Optional, List
-from types import FunctionType
+
 import string
 import sys
 import textwrap
-
-from sisyphus import tk
-from sisyphus.hash import sis_hash_helper, short_hash
-from sisyphus.delayed_ops import DelayedBase
+from types import FunctionType
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from i6_core.util import uopen, instanciate_delayed
+from sisyphus import tk
+from sisyphus.delayed_ops import DelayedBase
+from sisyphus.hash import short_hash, sis_hash_helper
+from sisyphus.tools import try_get
 
 
 class SerializerObject(DelayedBase):
@@ -127,6 +128,11 @@ class Import(SerializerObject):
         if self.import_as and not self.ignore_import_as_for_hash:
             return sis_hash_helper({"code_object": self.code_object, "import_as": self.import_as})
         return sis_hash_helper(self.code_object)
+
+    def __hash__(self):
+        if self.import_as and not self.ignore_import_as_for_hash:
+            return hash({"code_object": self.code_object, "import_as": self.import_as})
+        return hash(self.code_object)
 
 
 class PartialImport(Import):
@@ -346,6 +352,58 @@ class ExplicitHash(SerializerObject):
 
     def _sis_hash(self):
         return sis_hash_helper(self.hash)
+
+
+class Call(SerializerObject):
+    """
+    SerializerObject that serializes the call of a callable with given arguments.
+    The return values of the call are optionally assigned to variables of a given name.
+    Example:
+    Call(callable_name="range", kwargs=[("start", 1), ("stop", 10)], return_assign_variables="number_range")
+    ->
+    number_range = range(start=1, stop=10)
+    """
+
+    def __init__(
+        self,
+        callable_name: str,
+        kwargs: Optional[List[Tuple[str, Union[str, DelayedBase]]]] = None,
+        unhashed_kwargs: Optional[List[Tuple[str, Union[str, DelayedBase]]]] = None,
+        return_assign_variables: Optional[Union[str, List[str]]] = None,
+    ) -> None:
+        """
+        :param callable_name: Name of the callable for which the call is serialized.
+        :param args: Optional list of positional arguments provided to the call.
+        :param kwargs: Optional list of keyword arguments provided to the call in the form of key-value tuples.
+        :param return_assign_variables: Optional name or list of variable names that the return value(s) of the call are assigned to.
+        """
+        self.callable_name = callable_name
+        self.kwargs = kwargs or []
+        self.unhashed_kwargs = unhashed_kwargs or []
+        self.return_assign_variables = return_assign_variables
+
+        if isinstance(self.return_assign_variables, str):
+            self.return_assign_variables = [self.return_assign_variables]
+
+    def get(self) -> str:
+        # Variable assignment
+        return_assign_str = ""
+        if self.return_assign_variables is not None:
+            return_assign_str = ", ".join(self.return_assign_variables) + " = "
+
+        # kwargs
+        kwargs_str_list = [f"{key}={try_get(val)}" for key, val in self.kwargs + self.unhashed_kwargs]
+
+        # full call
+        return f"{return_assign_str}{self.callable_name}({', '.join(kwargs_str_list)})"
+
+    def _sis_hash(self):
+        h = {
+            "callable_name": self.callable_name,
+            "kwargs": self.kwargs,
+            "return_assign_variables": self.return_assign_variables,
+        }
+        return sis_hash_helper(h)
 
 
 PythonEnlargeStackWorkaroundNonhashedCode = NonhashedCode(

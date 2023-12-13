@@ -13,7 +13,6 @@ from i6_experiments.users.berger.network.helpers.conformer import (
 )
 from i6_experiments.users.berger.network.helpers.mlp import add_feed_forward_stack
 from i6_experiments.users.berger.network.helpers.output import add_softmax_output
-from returnn.tf.util.data import batch_dim
 
 
 def add_output(
@@ -86,15 +85,10 @@ def make_conformer_hybrid_dual_output_model(
 
     output_args.setdefault("initializer", get_variance_scaling_init())
 
-    use_mixed_input = (
-        conformer_mix_args.get("num_blocks", 1) > 0
-        or conformer_01_mix_args.get("num_blocks", 1) > 0
-    )
+    use_mixed_input = conformer_mix_args.get("num_blocks", 1) > 0 or conformer_01_mix_args.get("num_blocks", 1) > 0
 
     # *** Sep features ***
-    from_list, dim_tags = add_speech_separation(
-        network, from_list="data", trainable=not freeze_separator
-    )
+    from_list, dim_tags = add_speech_separation(network, from_list="data", trainable=not freeze_separator)
     sep_features, python_code = add_gt_feature_extraction(
         network, from_list=from_list, name="gt_sep", padding=(80, 0), **gt_args
     )
@@ -139,9 +133,10 @@ def make_conformer_hybrid_dual_output_model(
 
     # *** Auxiliary loss ***
     for block, scale in aux_loss_01_blocks:
+        from returnn.tf.util.data import batch_dim
         network[f"conformer_01_block_{block}_split"] = {
             "class": "split_dims",
-            "from": blocks[block-1],
+            "from": blocks[block - 1],
             "axis": "B",
             "dims": (batch_dim, dim_tags["speaker"]),
         }
@@ -176,13 +171,10 @@ def make_conformer_hybrid_dual_output_model(
         mix_features, _ = add_gt_feature_extraction(
             network, from_list="data", name="gt_mix", padding=(80, 0), **gt_args
         )
-        from_list = add_initial_conv(
-            network, "vgg_conv_mix", from_list=mix_features, **init_conv_args
-        )
+        from_list = add_initial_conv(network, "vgg_conv_mix", from_list=mix_features, **init_conv_args)
 
-        enc_mix, _ = add_conformer_stack(
-            network, from_list=from_list, name="conformer_mix", **conformer_mix_args
-        )
+        enc_mix, _ = add_conformer_stack(network, from_list=from_list, name="conformer_mix", **conformer_mix_args)
+        # from returnn.tf.util.data import batch_dim
         # network["encoder_01_split_dim"] = {
         #     "class": "split_dims",
         #     "from": enc_01,
@@ -239,9 +231,10 @@ def make_conformer_hybrid_dual_output_model(
 
         # *** Auxiliary loss ***
         for block, scale in aux_loss_01_mix_blocks:
+            from returnn.tf.util.data import batch_dim
             network[f"conformer_01_mix_block_{block}_split"] = {
                 "class": "split_dims",
-                "from": blocks[block-1],
+                "from": blocks[block - 1],
                 "axis": "B",
                 "dims": (batch_dim, dim_tags["speaker"]),
             }
@@ -272,6 +265,7 @@ def make_conformer_hybrid_dual_output_model(
                 )
 
     # *** Final loss ***
+    from returnn.tf.util.data import batch_dim
     network[f"conformer_output_split"] = {
         "class": "split_dims",
         "from": enc_01,
@@ -331,19 +325,13 @@ def make_conformer_hybrid_dual_output_recog_model(
     python_code = []
 
     if use_mixed_input:
-        mix_features, python_code = add_gt_feature_extraction(
-            network, from_list="data", name="gt_mix", **gt_args
-        )
+        mix_features, python_code = add_gt_feature_extraction(network, from_list="data", name="gt_mix", **gt_args)
 
     from_list, dim_tags = add_speech_separation(network, from_list="data")
 
-    network["speech_separator"]["subnetwork"]["separated_stft_pit"]["subnetwork"][
-        "output"
-    ]["position"] = speaker_idx
+    network["speech_separator"]["subnetwork"]["separated_stft_pit"]["subnetwork"]["output"]["position"] = speaker_idx
 
-    sep_features, python_code = add_gt_feature_extraction(
-        network, from_list=from_list, name="gt_sep", **gt_args
-    )
+    sep_features, python_code = add_gt_feature_extraction(network, from_list=from_list, name="gt_sep", **gt_args)
 
     network["squeeze_sep_features"] = {
         "class": "squeeze",
@@ -351,22 +339,14 @@ def make_conformer_hybrid_dual_output_recog_model(
         "axis": "auto",
     }
 
-    from_list = add_initial_conv(
-        network, "vgg_conv_01", from_list="squeeze_sep_features", **init_conv_args
-    )
+    from_list = add_initial_conv(network, "vgg_conv_01", from_list="squeeze_sep_features", **init_conv_args)
 
-    enc_01, _ = add_conformer_stack(
-        network, from_list=from_list, name="conformer_01", **conformer_01_args
-    )
+    enc_01, _ = add_conformer_stack(network, from_list=from_list, name="conformer_01", **conformer_01_args)
 
     if use_mixed_input:
-        from_list = add_initial_conv(
-            network, "vgg_conv_mix", from_list=mix_features, **init_conv_args
-        )
+        from_list = add_initial_conv(network, "vgg_conv_mix", from_list=mix_features, **init_conv_args)
 
-        enc_mix, _ = add_conformer_stack(
-            network, from_list=from_list, name="conformer_mix", **conformer_mix_args
-        )
+        enc_mix, _ = add_conformer_stack(network, from_list=from_list, name="conformer_mix", **conformer_mix_args)
 
         network["encoder_01_mix_input"] = {
             "class": "combine",

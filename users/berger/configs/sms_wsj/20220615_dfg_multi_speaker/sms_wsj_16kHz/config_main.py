@@ -22,17 +22,13 @@ def py() -> SummaryReport:
     }
     cart_file = gmm_outputs["train_si284"].crp.acoustic_model_config.state_tying.file
 
-    summary_report.merge_report(
-        py_01_hybrid(alignments, cart_file), update_structure=True, collapse_rows=False
-    )
+    summary_report.merge_report(py_01_hybrid(alignments, cart_file), update_structure=True, collapse_rows=False)
     _, summary = py_02_ctc()
     summary_report.merge_report(summary, collapse_rows=False)
 
     alignments, _ = py_02_ctc_clean()
     alignments = {
-        key.replace("_speechsource", ""): alignment
-        for key, alignment in alignments.items()
-        if "speechsource" in key
+        key.replace("_speechsource", ""): alignment for key, alignment in alignments.items() if "speechsource" in key
     }
     summary_report.merge_report(py_03_transducer(alignments), collapse_rows=False)
     summary_report.merge_report(py_04_ctc_bpe(), collapse_rows=False)

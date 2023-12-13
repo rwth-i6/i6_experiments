@@ -52,6 +52,7 @@ train_job_best_epoch = {}
 BPE_10K = 10000
 BPE_5K = 5000
 BPE_1K = 1000
+BPE_500 = 500
 
 # train:
 # ------
@@ -266,6 +267,7 @@ def conformer_baseline():
             returnn_root=RETURNN_ROOT,
             mem_rqmt=mem_rqmt,
             time_rqmt=time_rqmt,
+            use_sclite=True,
         )
 
     def run_lm_fusion(
@@ -446,11 +448,12 @@ def conformer_baseline():
             returnn_exe=RETURNN_CPU_EXE,
             returnn_root=RETURNN_ROOT,
             num_average=num_avg,
+            key=kwargs.get("avg_key", "dev_score_output/output_prob"),
         )
         if num_avg == 4:  # TODO: just for now to not break hashes
             train_job_avg_ckpt[exp_name] = averaged_checkpoint
 
-        best_checkpoint = get_best_checkpoint(train_job)
+        best_checkpoint = get_best_checkpoint(train_job, key=kwargs.get("avg_key", "dev_score_output/output_prob"))
         train_job_best_epoch[exp_name] = best_checkpoint
 
         if recog_epochs is None:
@@ -940,7 +943,7 @@ def conformer_baseline():
     #             )
 
     # --------------------- V1 ---------------------
-    def get_base_v1_args(lr, ep, enc_drop=0.1, pretrain_reps=3):
+    def get_base_v1_args(lr, ep, enc_drop=0.1, pretrain_reps=3, use_legacy_stats=True):
         #  base_bpe1000_peakLR0.0008_ep200_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.1_woDepthConvPre
         # Average ckpt: 8.19/7.64 (50 epochs)
         # - Epoch-based OCLR with peak LR 8e-4
@@ -957,7 +960,11 @@ def conformer_baseline():
             + list(numpy.linspace(lr, lr / 10, cyc_ep))
             + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
         )
-        base_v1_args["global_stats"] = {"mean": global_mean, "stddev": global_std}
+        base_v1_args["global_stats"] = {
+            "mean": global_mean,
+            "stddev": global_std,
+            "use_legacy_version": use_legacy_stats,
+        }
         base_v1_args["pretrain_reps"] = pretrain_reps
         base_v1_args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
         base_v1_args["encoder_args"].dropout = enc_drop
@@ -967,73 +974,10 @@ def conformer_baseline():
         exp_name = f"base_bpe1000_peakLR{lr}_ep{ep}_globalNorm_epochOCLR_pre{pretrain_reps}_fixZoneout_encDrop{enc_drop}_woDepthConvPre"
         return base_v1_args, exp_name
 
-    # baseline v1
-    # WERs: 8.2/7.6
-    base_v1_args, exp_name = get_base_v1_args(8e-4, 50 * 4)
-    # run_exp(
-    #     exp_name,
-    #     base_v1_args,
-    #     num_epochs=50 * 4,
-    #     epoch_wise_filter=None,
-    #     bpe_size=BPE_1K,
-    #     partition_epoch=4,
-    #     devtrain_subset=3000,
-    # )
-
-    # monotonic att weights loss
-    # for scale in [1e-3, 5e-3, 1e-2]:
-    #     args, exp_name = get_base_v1_args(8e-4, 50 * 4)
-    #     args["decoder_args"].monotonic_att_weights_loss_scale = scale
-    #     run_exp(
-    #         exp_name + f"_monotonicAttLoss{scale}",
-    #         args,
-    #         num_epochs=50 * 4,
-    #         epoch_wise_filter=None,
-    #         bpe_size=BPE_1K,
-    #         partition_epoch=4,
-    #     )
-
-    # for scale in [1e-1, 1e-2]:
-    #     args, exp_name = get_base_v1_args(8e-4, 50 * 4)
-    #     args["decoder_args"].att_weights_variance_loss_scale = scale
-    #     run_exp(
-    #         exp_name + f"_attWeightsVarLoss{scale}",
-    #         args,
-    #         num_epochs=50 * 4,
-    #         epoch_wise_filter=None,
-    #         bpe_size=BPE_1K,
-    #         partition_epoch=4,
-    #     )
-
-    # TODO: longer training with more regularization
-    # TODO: embed dropout?
     for num_blocks in [12]:
         for ep in [100 * 4]:
             for lr in [8e-4]:
-                for weight_drop in [0.1]:
-                    for enc_drop in [0.1, 0.15, 0.2]:
-                        base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
-                        args = copy.deepcopy(base_v1_args)
-
-                        args["encoder_args"].num_blocks = num_blocks
-                        args["encoder_args"].mhsa_weight_dropout = weight_drop
-                        args["encoder_args"].ff_weight_dropout = weight_drop
-                        args["encoder_args"].conv_weight_dropout = weight_drop
-
-                        name = exp_name + f"_weightDrop{weight_drop}_numBlocks{num_blocks}"
-                        run_exp(
-                            name,
-                            args,
-                            num_epochs=ep,
-                            epoch_wise_filter=None,
-                            bpe_size=BPE_1K,
-                            partition_epoch=4,
-                        )
-
-    for num_blocks in [12]:
-        for ep in [100 * 4]:
-            for lr in [8e-4]:
-                for target_embed_dim in [256, 640]:  # 640 is used by default
+                for target_embed_dim in [256]:  # 640 is used by default
                     for att_drop in [0.0]:
                         for weight_drop in [0.1]:
                             for enc_drop in [0.15]:
@@ -1051,7 +995,7 @@ def conformer_baseline():
                                     exp_name
                                     + f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
                                 )
-                                run_exp(
+                                _, train_data = run_exp(
                                     name,
                                     args,
                                     num_epochs=ep,
@@ -1059,56 +1003,144 @@ def conformer_baseline():
                                     bpe_size=BPE_1K,
                                     partition_epoch=4,
                                 )
+
+                                recog_datasets_tuples = get_test_dataset_tuples(bpe_size=BPE_1K)
+
+                                # baseline: 7.41/6.85
+                                # dev_coverage0.03_0.11_max/wer  7.34
+                                # test_coverage0.03_0.11_max/wer 6.85
+                                for test_set in ["test"]:
+                                    for cov_update in ["max"]:
+                                        for cov_scale in [0.03, 0.04]:
+                                            for cov_thre in [0.11, 0.13]:
+                                                search_args = copy.deepcopy(args)
+                                                search_args["decoder_args"].coverage_scale = cov_scale
+                                                search_args["decoder_args"].coverage_threshold = cov_thre
+                                                name_ = f"/average_4/{test_set}_coverage{cov_scale}_{cov_thre}"
+                                                if cov_update == "max":
+                                                    name_ += "_max"
+                                                    search_args["decoder_args"].coverage_update = "max"
+                                                run_single_search(
+                                                    exp_name=name + name_,
+                                                    train_data=train_data,
+                                                    search_args=search_args,
+                                                    checkpoint=train_job_avg_ckpt[name],
+                                                    feature_extraction_net=log10_net_10ms,
+                                                    recog_dataset=recog_datasets_tuples[test_set][0],
+                                                    recog_ref=recog_datasets_tuples[test_set][1],
+                                                    recog_bliss=recog_datasets_tuples[test_set][2],
+                                                )
+
+                                # TODO: only CTC
+                                only_ctc_args = copy.deepcopy(args)
+                                only_ctc_args["decoder_args"].ce_loss_scale = 0.0
+                                _, train_data = run_exp(
+                                    name + "_onlyCTC",
+                                    only_ctc_args,
+                                    num_epochs=ep,
+                                    epoch_wise_filter=None,
+                                    bpe_size=BPE_1K,
+                                    partition_epoch=4,
+                                    search_args={"ctc_decode": True, "ctc_blank_idx": 1057, **only_ctc_args},
+                                    avg_key="dev_score_ctc",
+                                )
+
+                                # TODO: scale CTC
+                                scale_ctc_args = copy.deepcopy(args)
+                                scale_ctc_args["encoder_args"].ctc_loss_scale = 0.3 / 0.7  # AED scale is 1.0
+                                _, train_data = run_exp(
+                                    name + "_ctcScale0.3",
+                                    scale_ctc_args,
+                                    num_epochs=ep,
+                                    epoch_wise_filter=None,
+                                    bpe_size=BPE_1K,
+                                    partition_epoch=4,
+                                )
+
+                                # TODO: more specaug
+                                # specaug_args = copy.deepcopy(args)
+                                # specaug_args["specaug_str_func_opts"] = {
+                                #     "max_time_num": 80,  # more time masking
+                                #     "max_time_dim": 20,
+                                #     "min_num_add_factor": 1,  # more masking
+                                #     "freq_dim_factor": 5,
+                                # }
+                                # _, train_data = run_exp(
+                                #     name + "_specAugV1a",
+                                #     specaug_args,
+                                #     num_epochs=ep,
+                                #     epoch_wise_filter=None,
+                                #     bpe_size=BPE_1K,
+                                #     partition_epoch=4,
+                                # )
+
+                                # TODO: l2 on MHSA
+                                mhsa_l2_args = copy.deepcopy(args)
+                                mhsa_l2_args["encoder_args"].self_att_l2 = 1e-4
+                                _, train_data = run_exp(
+                                    name + "_mhsaL2",
+                                    mhsa_l2_args,
+                                    num_epochs=ep,
+                                    epoch_wise_filter=None,
+                                    bpe_size=BPE_1K,
+                                    partition_epoch=4,
+                                )
+
+                                # TODO: grad clip 5
+                                grad_clip_args = copy.deepcopy(args)
+                                grad_clip_args["gradient_clip_global_norm"] = 5
+                                _, train_data = run_exp(
+                                    name + "_gradClipNorm5",
+                                    grad_clip_args,
+                                    num_epochs=ep,
+                                    epoch_wise_filter=None,
+                                    bpe_size=BPE_1K,
+                                    partition_epoch=4,
+                                )
+
+                                # for with_ctc in [True]:
+                                #     no_pretrain = copy.deepcopy(args)
+                                #     no_pretrain["with_pretrain"] = False
+                                #     no_pretrain["specaug_str_func_opts"] = {
+                                #         "version": 2,
+                                #         "step0": 6_000,
+                                #         "step1": 8_000,
+                                #         "step2": 10_000,
+                                #         "max_time_num": 100,
+                                #         "max_time_dim": 20,
+                                #         "min_num_add_factor": 0,
+                                #         "freq_dim_factor": 5,
+                                #     }
+                                #     no_pretrain["encoder_args"].with_ctc = with_ctc
+                                #     _, train_data = run_exp(
+                                #         name + "_noPretrain" + ("_noCTC" if with_ctc is False else ""),
+                                #         no_pretrain,
+                                #         num_epochs=ep,
+                                #         epoch_wise_filter=None,
+                                #         bpe_size=BPE_1K,
+                                #         partition_epoch=4,
+                                #     )
+
                                 # TODO: retrain
                                 # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12
                                 # 7.4     6.85  avg
-                                if target_embed_dim == 256 and att_drop == 0.0:
-                                    # long-form speech recognition
-                                    for num in [2, 3, 4, 5, 6, 7, 8, 9, 10]:
-                                        search_args = {}
-                                        if num >= 5:
-                                            search_args["max_seqs"] = 1  # o.w OOM
-                                        run_exp(
-                                            name,
-                                            args,
-                                            num_epochs=ep,
-                                            epoch_wise_filter=None,
-                                            bpe_size=BPE_1K,
-                                            partition_epoch=4,
-                                            concat_recog_opts={
-                                                "num": num,
-                                                "corpus_names": ["dev", "test"],
-                                                "checkpoint": "avg",
-                                                "search_args": search_args,
-                                            },
-                                        )
-
-                                    for dec_att_drop in [0.1]:
-                                        for weight_drop in [0.15]:
-                                            for lr in [8e-4]:
-                                                retrain_args = copy.deepcopy(args)
-                                                retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[name]
-                                                retrain_args["learning_rates_list"] = [lr] * 8 + list(
-                                                    numpy.linspace(lr, 1e-6, 200 - 8)
-                                                )
-                                                retrain_args["decoder_args"].att_dropout = dec_att_drop
-                                                retrain_args["encoder_args"].dropout = 0.2
-                                                retrain_args["encoder_args"].dropout_in = 0.2
-                                                retrain_args["encoder_args"].att_dropout = 0.2
-
-                                                retrain_args["encoder_args"].mhsa_weight_dropout = weight_drop
-                                                retrain_args["encoder_args"].ff_weight_dropout = weight_drop
-                                                retrain_args["encoder_args"].conv_weight_dropout = weight_drop
-
-                                                retrain_name = (
-                                                    exp_name
-                                                    + f"_weightDrop{weight_drop}_decAttDrop{dec_att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
-                                                )
-                                                run_exp(
-                                                    retrain_name + f"_retrain1_lr{lr}_ep200",
-                                                    retrain_args,
-                                                    num_epochs=200,
-                                                    epoch_wise_filter=None,
-                                                    bpe_size=BPE_1K,
-                                                    partition_epoch=4,
-                                                )
+                                # if target_embed_dim == 256 and att_drop == 0.0:
+                                #     # long-form speech recognition
+                                #     for num in [2, 3, 4, 5, 6, 7, 8, 9, 10]:
+                                #         search_args = {}
+                                #         if num >= 5:
+                                #             search_args["max_seqs"] = 1  # o.w OOM
+                                #         run_exp(
+                                #             name,
+                                #             args,
+                                #             num_epochs=ep,
+                                #             epoch_wise_filter=None,
+                                #             bpe_size=BPE_1K,
+                                #             partition_epoch=4,
+                                #             concat_recog_opts={
+                                #                 "num": num,
+                                #                 "corpus_names": ["dev", "test"],
+                                #                 "checkpoint": "avg",
+                                #                 "search_args": search_args,
+                                #             },
+                                #         )

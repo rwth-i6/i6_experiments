@@ -2,9 +2,7 @@ from abc import ABC
 
 
 class CartQuestions(ABC):
-    def __init__(
-        self, max_leaves: int = 9001, min_obs: int = 1000, add_unknown: bool = True
-    ):
+    def __init__(self, max_leaves: int = 9001, min_obs: int = 1000, add_unknown: bool = True):
         self.max_leaves = max_leaves
         self.min_obs = min_obs
         self.boundary = "#"

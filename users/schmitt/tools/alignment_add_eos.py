@@ -44,8 +44,6 @@ def dump(hdf_dataset_in, hdf_dataset_out, blank_idx, eos_idx):
     if seq_idx % 1000 == 0:
       print("\n\n" + str(seq_idx) + "\n\n")
 
-    print("DATA: ", data)
-
     if data[-1] != blank_idx:
       num_last_frame_label += 1
       i = 0
@@ -67,9 +65,6 @@ def dump(hdf_dataset_in, hdf_dataset_out, blank_idx, eos_idx):
       data[-1] = eos_idx
 
     keep_tags.append(hdf_dataset_in.get_tag(seq_idx))
-    print("NEW DATA: ", data)
-    print("\n")
-    #
     seq_len = hdf_dataset_in.get_seq_length(seq_idx)["data"]
     tag = hdf_dataset_in.get_tag(seq_idx)
 
@@ -133,7 +128,7 @@ def main(argv):
   """
   arg_parser = argparse.ArgumentParser(description='Move segment boundaries such that they indicate the center of the segments.')
   arg_parser.add_argument('align_path')
-  arg_parser.add_argument('--segment_file')
+  arg_parser.add_argument('--segment_file', default=None)
   arg_parser.add_argument('--blank_idx', type=int)
   arg_parser.add_argument('--eos_idx', type=int)
   arg_parser.add_argument("--returnn_root", help="path to returnn root")

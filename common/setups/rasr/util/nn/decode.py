@@ -37,52 +37,30 @@ class LatticeToCtmArgs(TypedDict):
     fill_empty_segments: Optional[bool]
 
 
-class NnRecogArgs(TypedDict):
-    acoustic_mixture_path: Optional[tk.Path]
-    checkpoints: Optional[Dict[int, returnn.Checkpoint]]
-    create_lattice: Optional[bool]
-    epochs: Optional[List[int]]
-    eval_best_in_lattice: Optional[bool]
-    eval_single_best: Optional[bool]
-    feature_flow_key: str
-    lattice_to_ctm_kwargs: Optional[LatticeToCtmArgs]
-    lm_lookahead: bool
-    lm_scales: List[float]
-    lookahead_options: Optional[LookaheadOptions]
-    mem: int
-    name: str
-    optimize_am_lm_scale: bool
-    parallelize_conversion: Optional[bool]
-    prior_scales: List[float]
-    pronunciation_scales: List[float]
-    returnn_config: Optional[returnn.ReturnnConfig]
-    rtf: int
-    search_parameters: Optional[SearchParameters]
-    use_gpu: Optional[bool]
-
-
 @dataclass()
 class NnRecogArgs:
     name: str
     returnn_config: returnn.ReturnnConfig
-    checkpoints: Dict[int, returnn.Checkpoint]
-    acoustic_mixture_path: tk.Path
+    checkpoints: Dict[int, Union[returnn.Checkpoint, returnn.PtCheckpoint]]
+    acoustic_mixture_path: Optional[tk.Path]
     prior_scales: List[float]
     pronunciation_scales: List[float]
     lm_scales: List[float]
     optimize_am_lm_scale: bool
     feature_flow_key: str
-    search_parameters: Dict
+    search_parameters: Optional[Union[Dict, SearchParameters]]
     lm_lookahead: bool
-    lattice_to_ctm_kwargs: Dict
+    lattice_to_ctm_kwargs: Optional[Union[Dict, LatticeToCtmArgs]]
     parallelize_conversion: bool
     rtf: int
     mem: int
+    use_gpu: Optional[bool]
     lookahead_options: Optional[Dict] = None
     epochs: Optional[List[int]] = None
     native_ops: Optional[List[str]] = None
+    create_lattice: Optional[bool] = True
+    eval_best_in_lattice: Optional[bool] = True
+    eval_single_best: Optional[bool] = True
 
-
-# TODO merge the two NnRecogArgs
 
 KeyedRecogArgsType = Dict[str, Union[Dict[str, Any], NnRecogArgs]]

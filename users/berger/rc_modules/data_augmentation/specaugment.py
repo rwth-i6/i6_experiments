@@ -1,6 +1,7 @@
 from returnn_common import nn
 from returnn_common.asr.specaugment import random_mask_v2, _mask_v2
 
+
 def legacy_specaugment(
     x: nn.Tensor,
     *,
@@ -49,4 +50,3 @@ def legacy_specaugment(
         cond.true = x_masked
         cond.false = x
     return cond.result
-

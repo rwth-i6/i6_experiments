@@ -63,8 +63,7 @@ class Seq2SeqAlignmentJob(rasr.RasrCommand, Job):
 
         self.out_log_file = self.log_file_output_path("alignment", crp, True)
         self.out_single_alignment_caches = dict(
-            (i, self.output_path("alignment.cache.%d" % i, cached=True))
-            for i in range(1, self.concurrent + 1)
+            (i, self.output_path("alignment.cache.%d" % i, cached=True)) for i in range(1, self.concurrent + 1)
         )
         self.out_alignment_path = util.MultiOutputPath(
             self,
@@ -72,14 +71,11 @@ class Seq2SeqAlignmentJob(rasr.RasrCommand, Job):
             self.out_single_alignment_caches,
             cached=True,
         )
-        self.out_alignment_bundle = self.output_path(
-            "alignment.cache.bundle", cached=True
-        )
+        self.out_alignment_bundle = self.output_path("alignment.cache.bundle", cached=True)
 
         if self.word_boundaries:
             self.single_word_boundary_caches = dict(
-                (i, self.output_path("word_boundary.cache.%d" % i, cached=True))
-                for i in range(1, self.concurrent + 1)
+                (i, self.output_path("word_boundary.cache.%d" % i, cached=True)) for i in range(1, self.concurrent + 1)
             )
             self.word_boundary_path = util.MultiOutputPath(
                 self,
@@ -87,9 +83,7 @@ class Seq2SeqAlignmentJob(rasr.RasrCommand, Job):
                 self.single_word_boundary_caches,
                 cached=True,
             )
-            self.word_boundary_bundle = self.output_path(
-                "word_boundary.cache.bundle", cached=True
-            )
+            self.word_boundary_bundle = self.output_path("word_boundary.cache.bundle", cached=True)
 
         self.rqmt = {
             "time": max(rtf * crp.corpus_duration / crp.concurrent, 0.5),
@@ -106,13 +100,9 @@ class Seq2SeqAlignmentJob(rasr.RasrCommand, Job):
     def create_files(self):
         self.write_config(self.config, self.post_config, "alignment.config")
         self.alignment_flow.write_to_file("alignment.flow")
-        util.write_paths_to_file(
-            self.out_alignment_bundle, self.out_single_alignment_caches.values()
-        )
+        util.write_paths_to_file(self.out_alignment_bundle, self.out_single_alignment_caches.values())
         if self.word_boundaries:
-            util.write_paths_to_file(
-                self.word_boundary_bundle, self.single_word_boundary_caches.values()
-            )
+            util.write_paths_to_file(self.word_boundary_bundle, self.single_word_boundary_caches.values())
         extra_code = 'export TF_DEVICE="{0}"'.format("gpu" if self.use_gpu else "cpu")
         self.write_run_script(self.exe, "alignment.config", extra_code=extra_code)
 
@@ -145,7 +135,7 @@ class Seq2SeqAlignmentJob(rasr.RasrCommand, Job):
         align_node_options,
         extra_config,
         extra_post_config,
-        **kwargs
+        **kwargs,
     ):
         """
         :param recipe.rasr.csp.CommonSprintParameters csp:
@@ -181,18 +171,14 @@ class Seq2SeqAlignmentJob(rasr.RasrCommand, Job):
                 % node
             )
 
-        config, post_config = rasr.build_config_from_mapping(
-            crp, mapping, parallelize=True
-        )
+        config, post_config = rasr.build_config_from_mapping(crp, mapping, parallelize=True)
 
         # alignment options for the flow nodes
         alignopt = {}
         if alignment_options is not None:
             alignopt.update(alignment_options)
         for node in alignment_flow.get_node_names_by_filter(align_node):
-            node_config = config.acoustic_model_trainer.aligning_feature_extractor.feature_extraction[
-                node
-            ]
+            node_config = config.acoustic_model_trainer.aligning_feature_extractor.feature_extraction[node]
             # alignment node option
             for k, v in align_node_options.items():
                 node_config[k] = v
@@ -210,9 +196,7 @@ class Seq2SeqAlignmentJob(rasr.RasrCommand, Job):
         )
 
         config.action = "dry"
-        config.acoustic_model_trainer.aligning_feature_extractor.feature_extraction.file = (
-            "alignment.flow"
-        )
+        config.acoustic_model_trainer.aligning_feature_extractor.feature_extraction.file = "alignment.flow"
         post_config["*"].allow_overwrite = True
 
         config._update(extra_config)
@@ -231,6 +215,4 @@ class Seq2SeqAlignmentJob(rasr.RasrCommand, Job):
         rasr_exe = kwargs["rasr_exe"]
         if rasr_exe is None:
             rasr_exe = kwargs["crp"].acoustic_model_trainer_exe
-        return super().hash(
-            {"config": config, "alignment_flow": alignment_flow, "exe": rasr_exe}
-        )
+        return super().hash({"config": config, "alignment_flow": alignment_flow, "exe": rasr_exe})

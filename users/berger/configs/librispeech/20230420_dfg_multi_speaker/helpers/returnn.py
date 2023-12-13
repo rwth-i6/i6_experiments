@@ -3,24 +3,18 @@ RETURNN-related helpers
 """
 from typing import Any
 from i6_core.returnn import ReturnnConfig, CodeWrapper
-from returnn_common.nn.naming import ReturnnDimTagsProxy
 
 
 def serialize_dim_tags(config: ReturnnConfig) -> ReturnnConfig:
     """
     Serialize dim tags in a given RETURNN config.
     """
+    from returnn_common.nn.naming import ReturnnDimTagsProxy
     dim_tags_proxy = ReturnnDimTagsProxy()
-    config_serialized = dim_tags_proxy.collect_dim_tags_and_transform_config(
-        config.config
-    )
+    config_serialized = dim_tags_proxy.collect_dim_tags_and_transform_config(config.config)
     if dim_tags_proxy.py_code_str():
-        config.config["network"] = _replace_proxies_by_code_wrappers(
-            config_serialized["network"]
-        )
-        config.config["extern_data"] = _replace_proxies_by_code_wrappers(
-            config_serialized["extern_data"]
-        )
+        config.config["network"] = _replace_proxies_by_code_wrappers(config_serialized["network"])
+        config.config["extern_data"] = _replace_proxies_by_code_wrappers(config_serialized["extern_data"])
         python_prolog_ext = (
             "from returnn.tf.util.data import Dim, batch_dim, single_step_dim, SpatialDim, FeatureDim\n\n"
             + dim_tags_proxy.py_code_str()
@@ -45,6 +39,7 @@ def _replace_proxies_by_code_wrappers(obj: Any) -> Any:
     because the parent attribute contains a set which again contains the original object which leads to recursion errors.
     We could fix this in ReturnnDimTagsProxy.DimRefProxy, but for now just replace them with a CodeWrapper.
     """
+    from returnn_common.nn.naming import ReturnnDimTagsProxy
     if isinstance(obj, (ReturnnDimTagsProxy.SetProxy, ReturnnDimTagsProxy.DimRefProxy)):
         return CodeWrapper(str(obj))
     elif isinstance(obj, dict):

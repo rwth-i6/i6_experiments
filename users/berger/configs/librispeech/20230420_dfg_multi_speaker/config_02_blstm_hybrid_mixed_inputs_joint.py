@@ -63,9 +63,7 @@ scoring_test_keys = "sms_test_eval92"
 
 am_args = {
     "state_tying": "cart",
-    "state_tying_file": tk.Path(
-        "/work/asr4/berger/dependencies/librispeech/cart/cart-12001.xml.gz"
-    ),
+    "state_tying_file": tk.Path("/work/asr4/berger/dependencies/librispeech/cart/cart-12001.xml.gz"),
 }
 
 assert tools.returnn_python_exe is not None
@@ -95,11 +93,7 @@ def speaker_returnn_config_generator(
     num_context_layers = kwargs.get("num_context_layers", 0)
     if num_combine_layers:
         if train:
-            (
-                net,
-                python_code,
-                dim_tags,
-            ) = net_construct.make_blstm_hybrid_dual_output_combine_enc_model(
+            (net, python_code, dim_tags,) = net_construct.make_blstm_hybrid_dual_output_combine_enc_model(
                 num_outputs=num_classes,
                 gt_args={
                     "sample_rate": 16000,
@@ -110,17 +104,11 @@ def speaker_returnn_config_generator(
                 blstm_01_mix_args={"num_layers": num_01_mix_layers, "size": 400},
                 blstm_combine_args={"num_layers": num_combine_layers, "size": 800},
                 aux_loss_01_layers=[(num_01_layers, 0.3)] if num_mix_layers else [],
-                aux_loss_01_mix_layers=[(num_01_mix_layers, 0.3)]
-                if num_01_mix_layers
-                else [],
+                aux_loss_01_mix_layers=[(num_01_mix_layers, 0.3)] if num_01_mix_layers else [],
                 freeze_separator=False,
             )
         else:
-            (
-                net,
-                python_code,
-                dim_tags,
-            ) = net_construct.make_blstm_hybrid_dual_output_combine_enc_recog_model(
+            (net, python_code, dim_tags,) = net_construct.make_blstm_hybrid_dual_output_combine_enc_recog_model(
                 num_outputs=num_classes,
                 speaker_idx=speaker_idx,
                 gt_args={"sample_rate": 16000},
@@ -131,11 +119,7 @@ def speaker_returnn_config_generator(
             )
     elif num_context_layers:
         if train:
-            (
-                net,
-                python_code,
-                dim_tags,
-            ) = net_construct.make_blstm_hybrid_dual_output_soft_context_model(
+            (net, python_code, dim_tags,) = net_construct.make_blstm_hybrid_dual_output_soft_context_model(
                 num_outputs=num_classes,
                 gt_args={
                     "sample_rate": 16000,
@@ -152,11 +136,7 @@ def speaker_returnn_config_generator(
                 freeze_separator=False,
             )
         else:
-            (
-                net,
-                python_code,
-                dim_tags,
-            ) = net_construct.make_blstm_hybrid_dual_output_soft_context_recog_model(
+            (net, python_code, dim_tags,) = net_construct.make_blstm_hybrid_dual_output_soft_context_recog_model(
                 num_outputs=num_classes,
                 speaker_idx=speaker_idx,
                 gt_args={"sample_rate": 16000},
@@ -168,11 +148,7 @@ def speaker_returnn_config_generator(
             )
     else:
         if train:
-            (
-                net,
-                python_code,
-                dim_tags,
-            ) = net_construct.make_blstm_hybrid_dual_output_model(
+            (net, python_code, dim_tags,) = net_construct.make_blstm_hybrid_dual_output_model(
                 num_outputs=num_classes,
                 gt_args={
                     "sample_rate": 16000,
@@ -181,18 +157,12 @@ def speaker_returnn_config_generator(
                 blstm_01_args={"num_layers": num_01_layers, "size": 400},
                 blstm_mix_args={"num_layers": num_mix_layers, "size": 400},
                 blstm_01_mix_args={"num_layers": num_01_mix_layers, "size": 400},
-                aux_loss_01_layers=[(num_01_layers, 0.3)]
-                if num_01_layers and num_01_mix_layers
-                else [],
+                aux_loss_01_layers=[(num_01_layers, 0.3)] if num_01_layers and num_01_mix_layers else [],
                 aux_loss_01_mix_layers=[],
                 freeze_separator=False,
             )
         else:
-            (
-                net,
-                python_code,
-                dim_tags,
-            ) = net_construct.make_blstm_hybrid_dual_output_recog_model(
+            (net, python_code, dim_tags,) = net_construct.make_blstm_hybrid_dual_output_recog_model(
                 num_outputs=num_classes,
                 speaker_idx=speaker_idx,
                 gt_args={"sample_rate": 16000},
@@ -309,9 +279,7 @@ def returnn_config_generator(
     **kwargs,
 ) -> DualSpeakerReturnnConfig:
     if train:
-        return DualSpeakerReturnnConfig(
-            speaker_returnn_config_generator(train, 0, **kwargs)
-        )
+        return DualSpeakerReturnnConfig(speaker_returnn_config_generator(train, 0, **kwargs))
     return DualSpeakerReturnnConfig(
         speaker_returnn_config_generator(train, 0, **kwargs),
         speaker_returnn_config_generator(train, 1, **kwargs),
@@ -328,9 +296,7 @@ def run_exp(am_checkpoints: Dict[str, tk.Path]) -> SummaryReport:
         corpus_data=sms_data.data_inputs,
         am_args=am_args,
     )
-    system.setup_scoring(
-        scoring_corpora=sms_data.scoring_corpora, score_kwargs={"sort_files": True}
-    )
+    system.setup_scoring(scoring_corpora=sms_data.scoring_corpora, score_kwargs={"sort_files": True})
 
     base_config_kwargs = {
         "train_data_config": sms_data.train_data_config,
@@ -366,9 +332,7 @@ def run_exp(am_checkpoints: Dict[str, tk.Path]) -> SummaryReport:
             **exp_config,
             **base_config_kwargs,
         )
-        recog_returnn_config = returnn_config_generator(
-            train=False, **exp_config, **base_config_kwargs
-        )
+        recog_returnn_config = returnn_config_generator(train=False, **exp_config, **base_config_kwargs)
         returnn_configs = ReturnnConfigs(
             train_config=train_returnn_config,
             recog_configs={"recog": recog_returnn_config},
@@ -381,9 +345,7 @@ def run_exp(am_checkpoints: Dict[str, tk.Path]) -> SummaryReport:
         gpu_mem_rqmt=24,
         mem_rqmt=16,
     )
-    recog_args = exp_args.get_hybrid_recog_step_args(
-        num_classes=sms_data.num_classes, epochs=[40, 80, "best"]
-    )
+    recog_args = exp_args.get_hybrid_recog_step_args(num_classes=sms_data.num_classes, epochs=[40, 80, "best"])
 
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)

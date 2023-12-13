@@ -4,17 +4,16 @@ import copy
 
 import i6_core.returnn as returnn
 
-from i6_experiments.users.raissi.common.data.factored_label import (
-    LabelInfo,
-    PhoneticContext
-)
+from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo, PhoneticContext
 
-from i6_experiments.users.raissi.common.helpers.network.augment import (
+from i6_experiments.users.raissi.setups.common.helpers.network.augment import (
     augment_net_with_monophone_outputs,
     augment_net_with_diphone_outputs,
     augment_net_with_triphone_outputs,
     Network,
 )
+
+from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
 
 
 def add_intermediate_loss(
@@ -23,42 +22,47 @@ def add_intermediate_loss(
     label_info: LabelInfo,
     context: PhoneticContext,
     time_tag_name: str,
+    frame_rate_reduction_ratio_info: FrameRateReductionRatioinfo,
     *,
     at_layer: int = 6,
     scale: float = 0.5,
     center_state_only: bool = False,
     final_ctx_type: PhoneticContext = PhoneticContext.triphone_forward,
     focal_loss_factor: float = 2.0,
-    label_smoothing: float = 0.2,
+    label_smoothing: float = 0.0,
     l2: float = 0.0,
+    upsampling: bool = True,
 ) -> Network:
-    assert (
-        f"aux_{at_layer}_ff1" in network
-    ), "network needs to be built w/ CART intermediate loss to add FH intermediate loss (upsampling)"
-
     network = copy.deepcopy(network)
-
-    network.pop(f"aux_{at_layer}_ff1", None)
-    network.pop(f"aux_{at_layer}_ff2", None)
-    network.pop(f"aux_{at_layer}_output_prob", None)
-    aux_length = network.pop(f"aux_{at_layer}_length_masked")
-
-    input_layer = f"aux_{at_layer:03d}_length_masked"
     prefix = f"aux_{at_layer:03d}_"
 
-    network[input_layer] = {
-        "class": "slice_nd",
-        "from": aux_length["from"],
-        "start": 0,
-        "size": returnn.CodeWrapper(time_tag_name),
-        "axis": "T",
-    }
+    old_ff1_layer = network.pop(f"aux_{at_layer}_ff1", None)
+    network.pop(f"aux_{at_layer}_ff2", None)
+    network.pop(f"aux_{at_layer}_output_prob", None)
+
+    if upsampling:
+        assert (
+            old_ff1_layer is not None
+        ), "network needs to be built w/ CART intermediate loss to add FH intermediate loss (upsampling)"
+
+        aux_length = network.pop(f"aux_{at_layer}_length_masked")
+        input_layer = f"aux_{at_layer:03d}_length_masked"
+        network[input_layer] = {
+            "class": "slice_nd",
+            "from": aux_length["from"],
+            "start": 0,
+            "size": returnn.CodeWrapper(time_tag_name),
+            "axis": "T",
+        }
+    else:
+        input_layer = f"enc_{at_layer:03d}"
 
     network = augment_net_with_monophone_outputs(
         network,
         label_info=label_info,
         add_mlps=True,
         final_ctx_type=final_ctx_type,
+        frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info,
         encoder_output_len=encoder_output_len,
         encoder_output_layer=input_layer,
         focal_loss_factor=focal_loss_factor,
@@ -75,6 +79,7 @@ def add_intermediate_loss(
         network = augment_net_with_diphone_outputs(
             network,
             encoder_output_len=encoder_output_len,
+            frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info,
             label_smoothing=label_smoothing,
             l2=l2,
             ph_emb_size=label_info.ph_emb_size,

@@ -38,9 +38,7 @@ train_key = "sms_train_si284"
 dev_key = "sms_cv_dev93"
 test_key = "sms_test_eval92"
 
-cv_segments = tk.Path(
-    "/work/asr4/berger/dependencies/sms_wsj/segments/sms_cv_dev93_16kHz.reduced"
-)
+cv_segments = tk.Path("/work/asr4/berger/dependencies/sms_wsj/segments/sms_cv_dev93_16kHz.reduced")
 
 frequency = 8
 
@@ -73,7 +71,9 @@ def run_exp(**kwargs):
         recog_lex_name="nab-64k",
         delete_empty_orth=True,
     )
-    test_data_inputs[test_key].corpus_object.corpus_file = tk.Path("/work/asr4/berger/dependencies/sms_wsj/corpus/8kHz/peter_sms_test_eval92.xml.gz")
+    test_data_inputs[test_key].corpus_object.corpus_file = tk.Path(
+        "/work/asr4/berger/dependencies/sms_wsj/corpus/8kHz/peter_sms_test_eval92.xml.gz"
+    )
 
     # initialize feature system and extract features
     init_args = get_init_args(
@@ -119,9 +119,9 @@ def run_exp(**kwargs):
         )
     }
 
-    nn_data_inputs["cv"][f"{train_key}.cv"].crp.lexicon_config.file = nn_data_inputs[
-        "train"
-    ][f"{train_key}.train"].crp.lexicon_config.file
+    nn_data_inputs["cv"][f"{train_key}.cv"].crp.lexicon_config.file = nn_data_inputs["train"][
+        f"{train_key}.train"
+    ].crp.lexicon_config.file
 
     nn_data_inputs["dev"] = {
         dev_key: get_returnn_rasr_data_input(
@@ -162,9 +162,9 @@ def run_exp(**kwargs):
             concurrent=1,
         ),
     }
-    nn_data_inputs["align"][f"{train_key}.cv"].crp.lexicon_config.file = nn_data_inputs[
-        "align"
-    ][f"{train_key}.train"].crp.lexicon_config.file
+    nn_data_inputs["align"][f"{train_key}.cv"].crp.lexicon_config.file = nn_data_inputs["align"][
+        f"{train_key}.train"
+    ].crp.lexicon_config.file
 
     # ********** Transducer System **********
 
@@ -258,9 +258,7 @@ def run_exp(**kwargs):
             "mem_rqmt": 6.0,
         },
         recog_args={
-            "epochs": [num_subepochs]
-            if kwargs.get("recog_final_only", False)
-            else None,
+            "epochs": [num_subepochs] if kwargs.get("recog_final_only", False) else None,
             "lm_scales": kwargs.get("lm_scales", [1.4]),
             "prior_scales": kwargs.get("prior_scales", [0.8]),
             "use_gpu": False,

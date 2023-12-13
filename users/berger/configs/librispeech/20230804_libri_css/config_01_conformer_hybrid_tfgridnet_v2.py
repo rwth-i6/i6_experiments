@@ -23,12 +23,14 @@ from i6_experiments.users.berger.systems.dataclasses import (
     CustomStepKwargs,
     FeatureType,
     ReturnnConfigs,
+    SummaryKey,
 )
 from i6_experiments.users.berger.systems.functors.rasr_base import LatticeProcessingType
 from i6_experiments.users.berger.systems.returnn_legacy_system import (
     ReturnnLegacySystem,
 )
 from i6_experiments.users.berger.util import default_tools_v2
+from i6_experiments.users.berger.args.jobs.recognition_args import get_atr_search_parameters
 
 
 # ********** Settings **********
@@ -105,9 +107,13 @@ def returnn_config_generator(
                 "min_reps_time": 0,
             },
             use_secondary_audio=kwargs.get("sec_audio", False),
-            use_prim_identity_init=kwargs.get("use_prim_identity_init", False),
+            use_comb_init=kwargs.get("use_comb_init", False),
+            sep_comb_diag=kwargs.get("sep_comb_diag", 0.9),
+            mix_comb_diag=kwargs.get("mix_comb_diag", 0.1),
+            comb_noise=kwargs.get("comb_noise", 0.01),
             emulate_single_speaker=kwargs.get("emulate_single_speaker", False),
         )
+
     else:
         net_dict, extra_python = conformer_hybrid_dualchannel.make_conformer_hybrid_dualchannel_recog_model(
             use_secondary_audio=kwargs.get("sec_audio", False),
@@ -132,9 +138,9 @@ def returnn_config_generator(
         grad_noise=0.0,
         grad_clip=0.0,
         schedule=LearningRateSchedules.OCLR,
-        initial_lr=1.1074e-5,
-        peak_lr=3e-04,
-        final_lr=1e-06,
+        initial_lr=kwargs.get("lr", 1.1074e-5),
+        peak_lr=kwargs.get("lr", 3e-04),
+        final_lr=kwargs.get("lr", 1e-06),
         batch_size=12000 if variant == ConfigVariant.TRAIN else 4000,
         use_chunking=False,
         extra_config=extra_config,
@@ -164,11 +170,13 @@ def run_exp() -> SummaryReport:
 
     data_per_lm = {}
 
-    for lm_name in ["4gram"]:  # , "kazuki_transformer"]:
+    for lm_name in ["4gram", "kazuki_transformer"]:
         data_per_lm[lm_name] = get_hybrid_data(
             train_key="enhanced_tfgridnet_v1",
-            dev_keys=["segmented_libri_css_tfgridnet_v1"],
-            test_keys=["libri_css_tfgridnet_v1"],
+            dev_keys=["segmented_libri_css_tfgridnet_dev_v1", "segmented_libri_css_tfgridnet_eval_v1"]
+            if lm_name == "4gram"
+            else [],
+            test_keys=["segmented_libri_css_tfgridnet_eval_v1"] if lm_name == "kazuki_transformer" else [],
             gmm_system=gmm_system,
             returnn_root=tools.returnn_root,
             returnn_python_exe=tools.returnn_python_exe,
@@ -193,38 +201,70 @@ def run_exp() -> SummaryReport:
         data_input.lexicon.filename = tk.Path(
             "/work/asr4/raissi/setups/librispeech/960-ls/work/i6_core/g2p/convert/G2POutputToBlissLexiconJob.JOqKFQpjp04H/output/oov.lexicon.gz"
         )
+    for key in data.test_keys:
+        data.data_inputs[key].lexicon.filename = tk.Path(
+            "/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/lexicon/modification/MergeLexiconJob.z54fVoMlr0md/output/lexicon.xml.gz"
+        )
 
     # ********** Step args **********
 
     train_args = exp_args.get_hybrid_train_step_args(num_epochs=600, gpu_mem_rqmt=24)
-    dev_recog_args = exp_args.get_hybrid_recog_step_args(
+    dev_recog_args = [
+        exp_args.get_hybrid_recog_step_args(
+            num_classes=num_outputs,
+            epochs=[600],  # [20, 40, 80, 160, 240, 320, 400, 480, 560, 600],
+            prior_scales=[0.3],
+            pronunciation_scales=[6.0],
+            lm_scales=[10.0],
+            feature_type=FeatureType.CONCAT_GAMMATONE,
+            lattice_processing_type=LatticeProcessingType.MultiChannelMultiSegment,
+            search_parameters={"word-end-pruning-limit": 15000},
+            mem=16,
+            rtf=50,
+        ),
+        exp_args.get_hybrid_recog_step_args(
+            num_classes=num_outputs,
+            epochs=[600],  # [20, 40, 80, 160, 240, 320, 400, 480, 560, 600],
+            prior_scales=[0.8],
+            pronunciation_scales=[6.0],
+            lm_scales=[11.0],
+            feature_type=FeatureType.CONCAT_GAMMATONE,
+            lattice_processing_type=LatticeProcessingType.MultiChannelMultiSegment,
+            search_parameters={"word-end-pruning-limit": 15000},
+            mem=16,
+            rtf=50,
+        ),
+    ]
+    test_recog_args = exp_args.get_hybrid_recog_step_args(
         num_classes=num_outputs,
-        epochs=[20, 40, 80, 160, 240, 320, 400, 480, 560, 600],
-        prior_scales=[0.8],
-        pronunciation_scales=[6.0],
-        lm_scales=[11.0],
+        epochs=[600],  # [20, 40, 80, 160, 240, 320, 400, 480, 560, 600],
+        prior_scales=[0.2],
+        pronunciation_scales=[2.0],
+        lm_scales=[9.3],
+        search_parameters=get_atr_search_parameters(bp=16.0, bpl=100_000, wep=0.5, wepl=25_000),
         feature_type=FeatureType.CONCAT_GAMMATONE,
         lattice_processing_type=LatticeProcessingType.MultiChannelMultiSegment,
-        search_parameters={"word-end-pruning-limit": 15000},
+        use_gpu=True,
         mem=16,
-        rtf=50,
-    )
-    exp_args.get_hybrid_recog_step_args(
-        num_classes=num_outputs,
-        epochs=[20, 40, 80, 160, 240, 320, 400, 480, 560, 600],
-        prior_scales=[0.8],
-        pronunciation_scales=[6.0],
-        lm_scales=[11.0],
-        feature_type=FeatureType.CONCAT_GAMMATONE,
-        lattice_processing_type=LatticeProcessingType.MultiChannel,
-        search_parameters={"word-end-pruning-limit": 15000},
-        mem=64,
         rtf=50,
     )
 
     # ********** System **********
 
-    system = ReturnnLegacySystem(tools)
+    system = ReturnnLegacySystem(
+        tools,
+        summary_keys=[
+            SummaryKey.TRAIN_NAME,
+            SummaryKey.CORPUS,
+            SummaryKey.EPOCH,
+            SummaryKey.PRIOR,
+            SummaryKey.LM,
+            SummaryKey.WER,
+            SummaryKey.SUB,
+            SummaryKey.INS,
+            SummaryKey.DEL,
+        ],
+    )
 
     system.init_corpora(
         dev_keys=data.dev_keys,
@@ -243,32 +283,82 @@ def run_exp() -> SummaryReport:
                 hash_overwrite="MEET_EVAL_EXE",
             )
         },
-        stm_path=tk.Path(
-            "/work/asr4/vieting/setups/converse/data/ref_libri_css.stm",
-            hash_overwrite="libri_css_stm",
-        ),
+        stm_paths={
+            **{
+                key: tk.Path(
+                    "/work/asr4/vieting/setups/converse/data/ref_libri_css_dev.stm",
+                    hash_overwrite="libri_css_stm_dev",
+                )
+                for key in data.dev_keys + data.test_keys
+                if "dev" in key
+            },
+            **{
+                key: tk.Path(
+                    "/work/asr4/vieting/setups/converse/data/ref_libri_css_test.stm",
+                    hash_overwrite="libri_css_stm_test",
+                )
+                for key in data.dev_keys + data.test_keys
+                if "eval" in key
+            },
+        },
     )
 
     # ********** Returnn Configs **********
 
     system.add_experiment_configs(
-        "tfgridnet_conformer_6prim_6mix_6mas_init",
+        # f"tfgridnet_6prim_6mix_6mas_init_sep-{sep_diag:.1f}_mix-{mix_diag:.1f}_noise-{noise}",
+        "tfgridnet_6prim_6mix_6mas_init",
         get_returnn_config_collection(
             data.train_data_config,
             data.cv_data_config,
             sec_audio=False,
             model_init=True,
-            use_prim_identity_init=True,
             num_subepochs=300,
+            use_comb_init=True,
+            sep_comb_diag=0.9,
+            mix_comb_diag=0.1,
+            comb_noise=0.01,
         ),
         custom_step_kwargs=CustomStepKwargs(
             train_step_kwargs=exp_args.get_hybrid_train_step_args(num_epochs=300, gpu_mem_rqmt=24),
-            recog_step_kwargs={"epochs": [20, 40, 80, 160, 240, 300]},
+            dev_recog_step_kwargs={
+                "epochs": [20],
+            },
+            test_recog_step_kwargs={
+                "epochs": [20],
+                "prior_scales": [0.2, 0.3],
+                "lm_scales": [9.3, 13.0],
+            },
+        ),
+    )
+
+    system.add_experiment_configs(
+        "tfgridnet_6prim_6mix_6mas_init_notrain",
+        get_returnn_config_collection(
+            data.train_data_config,
+            data.cv_data_config,
+            sec_audio=False,
+            model_init=True,
+            num_subepochs=1,
+            use_comb_init=True,
+            sep_comb_diag=0.9,
+            mix_comb_diag=0.1,
+            lr=0.0,
+            comb_noise=0.01,
+        ),
+        custom_step_kwargs=CustomStepKwargs(
+            train_step_kwargs=exp_args.get_hybrid_train_step_args(num_epochs=1, gpu_mem_rqmt=24),
+            dev_recog_step_kwargs={
+                "epochs": [1],
+            },
+            test_recog_step_kwargs={
+                "epochs": [],
+            },
         ),
     )
 
     # system.add_experiment_configs(
-    #     "tfgridnet_conformer_6prim_6sec_6mas_init",
+    #     "tfgridnet_6prim_6sec_6mas_init",
     #     get_returnn_config_collection(
     #         data.train_data_config,
     #         data.cv_data_config,
@@ -279,18 +369,26 @@ def run_exp() -> SummaryReport:
     # )
 
     system.add_experiment_configs(
-        "tfgridnet_conformer_6prim_6mix_6mas_scratch",
+        "tfgridnet_6prim_6mix_6mas_scratch",
         get_returnn_config_collection(
             data.train_data_config,
             data.cv_data_config,
             sec_audio=False,
             model_init=False,
-            use_prim_identity_init=False,
+            custom_step_kwargs=CustomStepKwargs(
+                train_step_kwargs=exp_args.get_hybrid_train_step_args(num_epochs=1, gpu_mem_rqmt=24),
+                dev_recog_step_kwargs={
+                    "epochs": [480, 560, 600],
+                },
+                test_recog_step_kwargs={
+                    "epochs": [],
+                },
+            ),
         ),
     )
 
     # system.add_experiment_configs(
-    #     "tfgridnet_conformer_6prim_6sec_6mas_scratch",
+    #     "tfgridnet_6prim_6sec_6mas_scratch",
     #     get_returnn_config_collection(
     #         data.train_data_config,
     #         data.cv_data_config,
@@ -300,20 +398,20 @@ def run_exp() -> SummaryReport:
     #     ),
     # )
 
-    system.add_experiment_configs(
-        "tfgridnet_conformer_12prim_init",
-        get_returnn_config_collection(
-            data.train_data_config,
-            data.cv_data_config,
-            sec_audio=False,
-            model_init=True,
-            emulate_single_speaker=True,
-        ),
-        custom_step_kwargs=CustomStepKwargs(train_step_kwargs={"gpu_mem_rqmt": 11}),
-    )
+    # system.add_experiment_configs(
+    #     "tfgridnet_12prim_init",
+    #     get_returnn_config_collection(
+    #         data.train_data_config,
+    #         data.cv_data_config,
+    #         sec_audio=False,
+    #         model_init=True,
+    #         emulate_single_speaker=True,
+    #     ),
+    #     custom_step_kwargs=CustomStepKwargs(train_step_kwargs={"gpu_mem_rqmt": 11}),
+    # )
 
     system.add_experiment_configs(
-        "tfgridnet_conformer_12prim_init_short",
+        "tfgridnet_12prim_init_short",
         get_returnn_config_collection(
             data.train_data_config,
             data.cv_data_config,
@@ -324,12 +422,17 @@ def run_exp() -> SummaryReport:
         ),
         custom_step_kwargs=CustomStepKwargs(
             train_step_kwargs=exp_args.get_hybrid_train_step_args(num_epochs=300, gpu_mem_rqmt=11),
-            recog_step_kwargs={"epochs": [20, 40, 80, 160, 240, 300]},
+            dev_recog_step_kwargs={"epochs": [20]},
+            test_recog_step_kwargs={
+                "epochs": [20],
+                "prior_scales": [0.3],
+                "lm_scales": [13.0],
+            },
         ),
     )
 
     # system.add_experiment_configs(
-    #     "tfgridnet_conformer_12prim_scratch",
+    #     "tfgridnet_12prim_scratch",
     #     get_returnn_config_collection(
     #         data.train_data_config,
     #         data.cv_data_config,
@@ -341,8 +444,10 @@ def run_exp() -> SummaryReport:
     # )
 
     system.run_train_step(**train_args)
-    system.run_dev_recog_step(**dev_recog_args)
-    # system.run_test_recog_step(**test_recog_args)
+    for recog_args in dev_recog_args:
+        system.run_dev_recog_step(**recog_args)
+
+    system.run_test_recog_step(**test_recog_args)
 
     assert system.summary_report
     return system.summary_report

@@ -226,15 +226,9 @@ def get_monophone_args(
         allow_zero_weights_extra_config = rasr.RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
-        monophone_training_args["align_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        monophone_training_args["accumulate_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        monophone_training_args["split_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
+        monophone_training_args["align_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        monophone_training_args["accumulate_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        monophone_training_args["split_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
         monophone_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
@@ -260,7 +254,9 @@ def get_cart_args(
     add_unknown: bool = True,
 ):
     cart_questions_class = FoldedCartQuestions(
-        max_leaves=max_leaves, min_obs=min_obs, add_unknown=add_unknown,
+        max_leaves=max_leaves,
+        min_obs=min_obs,
+        add_unknown=add_unknown,
     )
 
     cart_questions = cart.PythonCartQuestions(
@@ -283,7 +279,8 @@ def get_cart_args(
     }
 
     return rasr_util.GmmCartArgs(
-        cart_questions=cart_questions, cart_lda_args=cart_lda_args,
+        cart_questions=cart_questions,
+        cart_lda_args=cart_lda_args,
     )
 
 
@@ -335,15 +332,9 @@ def get_triphone_args(
         allow_zero_weights_extra_config = rasr.RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
-        triphone_training_args["align_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        triphone_training_args["accumulate_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        triphone_training_args["split_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
+        triphone_training_args["align_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        triphone_training_args["accumulate_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        triphone_training_args["split_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
         triphone_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
@@ -422,15 +413,9 @@ def get_vtln_args(
         allow_zero_weights_extra_config = rasr.RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
-        vtln_training_args["train"]["align_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        vtln_training_args["train"]["accumulate_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        vtln_training_args["train"]["split_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
+        vtln_training_args["train"]["align_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        vtln_training_args["train"]["accumulate_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        vtln_training_args["train"]["split_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
         vtln_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
@@ -510,15 +495,9 @@ def get_sat_args(
         allow_zero_weights_extra_config = rasr.RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
-        sat_training_args["align_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        sat_training_args["accumulate_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        sat_training_args["split_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
+        sat_training_args["align_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        sat_training_args["accumulate_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        sat_training_args["split_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
         sat_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
@@ -597,15 +576,9 @@ def get_vtln_sat_args(
         allow_zero_weights_extra_config = rasr.RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
-        vtln_sat_training_args["align_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        vtln_sat_training_args["accumulate_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        vtln_sat_training_args["split_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
+        vtln_sat_training_args["align_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        vtln_sat_training_args["accumulate_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        vtln_sat_training_args["split_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
         vtln_sat_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
@@ -641,7 +614,8 @@ def get_data_inputs(
     use_eval_data_subset: bool = False,
 ):
     corpus_object_dict = lbs_dataset.get_corpus_object_dict(
-        audio_format="wav", output_prefix="corpora",
+        audio_format="wav",
+        output_prefix="corpora",
     )
 
     lm = {
@@ -659,8 +633,8 @@ def get_data_inputs(
     }
 
     lexicon = {
-        'filename': lbs_dataset.get_bliss_lexicon(),
-        'normalize_pronunciation': False,
+        "filename": lbs_dataset.get_bliss_lexicon(),
+        "normalize_pronunciation": False,
     }
 
     train_data_inputs = {}
@@ -668,12 +642,12 @@ def get_data_inputs(
     test_data_inputs = {}
 
     train_data_inputs[train_corpus] = rasr_util.RasrDataInput(
-        corpus_object=corpus_object_dict[train_corpus], concurrent=300, lexicon=train_lexicon,
+        corpus_object=corpus_object_dict[train_corpus],
+        concurrent=300,
+        lexicon=train_lexicon,
     )
 
-    dev_corpus_keys = (
-        ["dev-other"] if use_eval_data_subset else ["dev-clean", "dev-other"]
-    )
+    dev_corpus_keys = ["dev-other"] if use_eval_data_subset else ["dev-clean", "dev-other"]
     test_corpus_keys = [] if use_eval_data_subset else ["test-clean", "test-other"]
 
     for dev_key in dev_corpus_keys:

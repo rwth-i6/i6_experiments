@@ -54,6 +54,8 @@ def get_hybrid_data(
 
     partition = {
         "enhanced_tfgridnet_v1": 40,
+        "enhanced_tfgridnet_v2": 40,
+        "enhanced_blstm_v2": 40,
         "enhanced_blstm_v1": 40,
     }
 

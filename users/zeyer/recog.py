@@ -22,7 +22,8 @@ from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, ModelWithCheckpoint, ModelWithCheckpoints
+from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef
+from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 
 if TYPE_CHECKING:
@@ -221,9 +222,9 @@ def search_config(
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
-                    serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
-                    serialization.Import(recog_def, "_recog_def", ignore_import_as_for_hash=True),
-                    serialization.Import(_returnn_get_network, "get_network", use_for_hash=False),
+                    serialization.Import(model_def, import_as="_model_def", ignore_import_as_for_hash=True),
+                    serialization.Import(recog_def, import_as="_recog_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_get_network, import_as="get_network", use_for_hash=False),
                     serialization.ExplicitHash(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
@@ -244,6 +245,9 @@ def search_config(
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # flat_net_construction=True,
+            torch_log_memory_usage=True,
+            watch_memory=True,
+            use_lovely_tensors=True,
         ),
         sort_config=False,
     )
@@ -305,11 +309,11 @@ def search_config_v2(
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
-                    serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
-                    serialization.Import(_returnn_v2_get_model, "get_model"),
-                    serialization.Import(recog_def, "_recog_def", ignore_import_as_for_hash=True),
-                    serialization.Import(_returnn_v2_forward_step, "forward_step"),
-                    serialization.Import(_returnn_v2_get_forward_callback, "forward_callback"),
+                    serialization.Import(model_def, import_as="_model_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_v2_get_model, import_as="get_model"),
+                    serialization.Import(recog_def, import_as="_recog_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_v2_forward_step, import_as="forward_step"),
+                    serialization.Import(_returnn_v2_get_forward_callback, import_as="forward_callback"),
                     serialization.ExplicitHash(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,

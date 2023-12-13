@@ -1,12 +1,8 @@
-__all__ = [
-    "get_final_output",
-    "get_init_args",
-    "get_data_inputs",
-    "get_diphone_cart_args"
-]
+__all__ = ["get_final_output", "get_init_args", "get_data_inputs", "get_diphone_cart_args"]
 
 from typing import Dict, Optional, Union
 from IPython import embed
+
 # -------------------- Sisyphus --------------------
 
 from sisyphus import tk
@@ -155,15 +151,14 @@ def get_init_args(
     )
 
 
-
-
 def get_data_inputs(
     train_corpus,
-    add_unknown_phoneme_and_mapping = True,
+    add_unknown_phoneme_and_mapping=True,
     use_eval_data_subset: bool = False,
 ):
     corpus_object_dict = lbs_dataset.get_corpus_object_dict(
-        audio_format="wav", output_prefix="corpora",
+        audio_format="wav",
+        output_prefix="corpora",
     )
 
     lm = {
@@ -181,8 +176,8 @@ def get_data_inputs(
     }
 
     lexicon = {
-        'filename': lbs_dataset.get_bliss_lexicon(),
-        'normalize_pronunciation': False,
+        "filename": lbs_dataset.get_bliss_lexicon(),
+        "normalize_pronunciation": False,
     }
 
     train_data_inputs = {}
@@ -190,12 +185,12 @@ def get_data_inputs(
     test_data_inputs = {}
 
     train_data_inputs[train_corpus] = rasr_util.RasrDataInput(
-        corpus_object=corpus_object_dict[train_corpus], concurrent=300, lexicon=train_lexicon,
+        corpus_object=corpus_object_dict[train_corpus],
+        concurrent=300,
+        lexicon=train_lexicon,
     )
 
-    dev_corpus_keys = (
-        ["dev-other"] if use_eval_data_subset else ["dev-clean", "dev-other"]
-    )
+    dev_corpus_keys = ["dev-other"] if use_eval_data_subset else ["dev-clean", "dev-other"]
     test_corpus_keys = [] if use_eval_data_subset else ["test-clean", "test-other"]
 
     for dev_key in dev_corpus_keys:
@@ -217,9 +212,6 @@ def get_data_inputs(
     return train_data_inputs, dev_data_inputs, test_data_inputs
 
 
-
-
-
 def get_final_output(train_corpus, name="final"):
     output_args = rasr_util.OutputArgs(name)
     output_args.define_corpus_type(train_corpus, "train")
@@ -230,10 +222,7 @@ def get_final_output(train_corpus, name="final"):
 
     output_args.add_feature_to_extract("gt")
 
-
     return output_args
-
-
 
 
 def get_diphone_cart_args(
@@ -243,7 +232,7 @@ def get_diphone_cart_args(
     hmm_states: int = 3,
     feature_flow: str = "mfcc+deriv+norm",
     add_unknown: bool = False,
-    n_phones = 3,
+    n_phones=3,
 ):
     """
 
@@ -256,18 +245,11 @@ def get_diphone_cart_args(
     :return:
     """
 
-    CartQuestions = (
-        CartQuestionsWithStress if use_stress_marker else CartQuestionsWithoutStress
-    )
-
+    CartQuestions = CartQuestionsWithStress if use_stress_marker else CartQuestionsWithoutStress
 
     cart_questions_class = CartQuestions(
-        max_leaves=max_leaves,
-        min_obs=min_obs,
-        add_unknown=add_unknown,
-        n_phones=n_phones
+        max_leaves=max_leaves, min_obs=min_obs, add_unknown=add_unknown, n_phones=n_phones
     )
-
 
     cart_questions = cart.PythonCartQuestions(
         phonemes=cart_questions_class.phonemes_boundary_special,

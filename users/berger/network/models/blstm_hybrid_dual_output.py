@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union, TYPE_CHECKING
 from i6_core.returnn.config import CodeWrapper
 from i6_experiments.users.berger.network.helpers.blstm import add_blstm_stack
 from i6_experiments.users.berger.network.helpers.feature_extraction import (
@@ -7,10 +7,11 @@ from i6_experiments.users.berger.network.helpers.feature_extraction import (
 from i6_experiments.users.berger.network.helpers.speech_separation import (
     add_speech_separation,
 )
-from returnn.tf.util.data import Dim
 from i6_experiments.users.berger.network.helpers.mlp import add_feed_forward_stack
 from i6_experiments.users.berger.network.helpers.output import add_softmax_output
-from returnn.tf.util.data import FeatureDim, batch_dim
+
+if TYPE_CHECKING:
+    from returnn.tf.util.data import Dim
 
 
 def make_blstm_hybrid_dual_output_model(
@@ -42,10 +43,7 @@ def make_blstm_hybrid_dual_output_model(
         network, from_list=from_list, name="gt_sep", padding=(padding, 0), **gt_args
     )
 
-    use_mixed_input = (
-        blstm_mix_args.get("num_layers", 1) > 0
-        or blstm_01_mix_args.get("num_layers", 1) > 0
-    )
+    use_mixed_input = blstm_mix_args.get("num_layers", 1) > 0 or blstm_01_mix_args.get("num_layers", 1) > 0
     if use_mixed_input:
         mix_features, python_code = add_gt_feature_extraction(
             network, from_list="data", name="gt_mix", padding=(padding, 0), **gt_args
@@ -57,9 +55,7 @@ def make_blstm_hybrid_dual_output_model(
         "axes": ["B", dim_tags["speaker"]],
     }
 
-    enc_01, layers = add_blstm_stack(
-        network, from_list=sep_features, name="lstm_01", **blstm_01_args
-    )
+    enc_01, layers = add_blstm_stack(network, from_list=sep_features, name="lstm_01", **blstm_01_args)
 
     for layer, scale in aux_loss_01_layers:
         network[f"aux_01_{layer}_merge"] = {
@@ -78,9 +74,7 @@ def make_blstm_hybrid_dual_output_model(
         )
 
     if use_mixed_input:
-        enc_mix, _ = add_blstm_stack(
-            network, from_list=mix_features, name="lstm_mix", **blstm_mix_args
-        )
+        enc_mix, _ = add_blstm_stack(network, from_list=mix_features, name="lstm_mix", **blstm_mix_args)
 
         network["encoder_mix"] = {
             "class": "copy",
@@ -102,9 +96,7 @@ def make_blstm_hybrid_dual_output_model(
                 "axis": "auto",
             }
 
-            if blstm_01_args.get("num_layers", 1) and blstm_mix_args.get(
-                "num_layers", 1
-            ):
+            if blstm_01_args.get("num_layers", 1) and blstm_mix_args.get("num_layers", 1):
                 network[f"encoder_{speaker_idx}+mix_input"] = {
                     "class": "combine",
                     "from": [f"encoder_{speaker_idx}_squeeze", enc_mix],
@@ -115,10 +107,8 @@ def make_blstm_hybrid_dual_output_model(
                     "class": "copy",
                     "from": [f"encoder_{speaker_idx}_squeeze", enc_mix],
                 }
-
-        dim_tags["enc_01_mix_input_feature"] = FeatureDim(
-            "enc_01_mix_input_feature_dim", None
-        )
+        from returnn.tf.util.data import FeatureDim
+        dim_tags["enc_01_mix_input_feature"] = FeatureDim("enc_01_mix_input_feature_dim", None)
         network["encoder_01+mix_input"] = {
             "class": "split_dims",
             "from": ["encoder_0+mix_input", "encoder_1+mix_input"],
@@ -178,31 +168,20 @@ def make_blstm_hybrid_dual_output_recog_model(
 
     from_list = "data"
 
-    use_mixed_input = (
-        blstm_mix_args.get("num_layers", 1) > 0
-        or blstm_01_mix_args.get("num_layers", 1) > 0
-    )
+    use_mixed_input = blstm_mix_args.get("num_layers", 1) > 0 or blstm_01_mix_args.get("num_layers", 1) > 0
     if use_mixed_input:
-        mix_features, python_code = add_gt_feature_extraction(
-            network, from_list=from_list, name="gt_mix", **gt_args
-        )
+        mix_features, python_code = add_gt_feature_extraction(network, from_list=from_list, name="gt_mix", **gt_args)
 
     if gt_args.get("sample_rate", 8000) == 8000:
         frame_size = 512
     else:
         frame_size = 1024
 
-    from_list, dim_tags = add_speech_separation(
-        network, frame_size=frame_size, from_list=from_list
-    )
+    from_list, dim_tags = add_speech_separation(network, frame_size=frame_size, from_list=from_list)
 
-    network["speech_separator"]["subnetwork"]["separated_stft_pit"]["subnetwork"][
-        "output"
-    ]["position"] = speaker_idx
+    network["speech_separator"]["subnetwork"]["separated_stft_pit"]["subnetwork"]["output"]["position"] = speaker_idx
 
-    sep_features, python_code = add_gt_feature_extraction(
-        network, from_list=from_list, name="gt_sep", **gt_args
-    )
+    sep_features, python_code = add_gt_feature_extraction(network, from_list=from_list, name="gt_sep", **gt_args)
 
     network["squeeze_sep_features"] = {
         "class": "squeeze",
@@ -210,14 +189,10 @@ def make_blstm_hybrid_dual_output_recog_model(
         "axis": "auto",
     }
 
-    enc_01, _ = add_blstm_stack(
-        network, from_list="squeeze_sep_features", name="lstm_01", **blstm_01_args
-    )
+    enc_01, _ = add_blstm_stack(network, from_list="squeeze_sep_features", name="lstm_01", **blstm_01_args)
 
     if use_mixed_input:
-        enc_mix, _ = add_blstm_stack(
-            network, from_list=mix_features, name="lstm_mix", **blstm_mix_args
-        )
+        enc_mix, _ = add_blstm_stack(network, from_list=mix_features, name="lstm_mix", **blstm_mix_args)
         network["encoder_01"] = {
             "class": "copy",
             "from": enc_01,
@@ -289,10 +264,7 @@ def make_blstm_hybrid_dual_output_combine_enc_model(
         network, from_list=from_list, name="gt_sep", padding=(padding, 0), **gt_args
     )
 
-    use_mixed_input = (
-        blstm_mix_args.get("num_layers", 1) > 0
-        or blstm_combine_args.get("num_layers", 1) > 0
-    )
+    use_mixed_input = blstm_mix_args.get("num_layers", 1) > 0 or blstm_combine_args.get("num_layers", 1) > 0
     assert use_mixed_input
 
     mix_features, python_code = add_gt_feature_extraction(
@@ -318,9 +290,7 @@ def make_blstm_hybrid_dual_output_combine_enc_model(
             "axis": "auto",
         }
 
-    enc_01, layers = add_blstm_stack(
-        network, from_list=sep_features, name="lstm_01", **blstm_01_args
-    )
+    enc_01, layers = add_blstm_stack(network, from_list=sep_features, name="lstm_01", **blstm_01_args)
 
     for layer, scale in aux_loss_01_layers:
         network[f"aux_01_{layer}_merge"] = {
@@ -338,9 +308,7 @@ def make_blstm_hybrid_dual_output_combine_enc_model(
             **output_args,
         )
 
-    enc_mix, _ = add_blstm_stack(
-        network, from_list=mix_features, name="lstm_mix", **blstm_mix_args
-    )
+    enc_mix, _ = add_blstm_stack(network, from_list=mix_features, name="lstm_mix", **blstm_mix_args)
 
     network["encoder_mix"] = {
         "class": "copy",
@@ -370,9 +338,8 @@ def make_blstm_hybrid_dual_output_combine_enc_model(
                 "kind": "add",
             }
 
-        dim_tags["enc_01_mix_input_feature"] = FeatureDim(
-            "enc_01_mix_input_feature_dim", None
-        )
+        from returnn.tf.util.data import FeatureDim
+        dim_tags["enc_01_mix_input_feature"] = FeatureDim("enc_01_mix_input_feature_dim", None)
         network["encoder_01+mix_input"] = {
             "class": "split_dims",
             "from": ["encoder_0+mix_input", "encoder_1+mix_input"],
@@ -465,48 +432,33 @@ def make_blstm_hybrid_dual_output_combine_enc_recog_model(
 
     from_list = "data"
 
-    use_mixed_input = (
-        blstm_mix_args.get("num_layers", 1) > 0
-        or blstm_combine_args.get("num_layers", 1) > 0
-    )
+    use_mixed_input = blstm_mix_args.get("num_layers", 1) > 0 or blstm_combine_args.get("num_layers", 1) > 0
     assert use_mixed_input
 
-    mix_features, python_code = add_gt_feature_extraction(
-        network, from_list=from_list, name="gt_mix", **gt_args
-    )
+    mix_features, python_code = add_gt_feature_extraction(network, from_list=from_list, name="gt_mix", **gt_args)
 
     if gt_args.get("sample_rate", 8000) == 8000:
         frame_size = 512
     else:
         frame_size = 1024
 
-    from_list, dim_tags = add_speech_separation(
-        network, frame_size=frame_size, from_list=from_list
-    )
+    from_list, dim_tags = add_speech_separation(network, frame_size=frame_size, from_list=from_list)
 
-    network["speech_separator"]["subnetwork"]["separated_stft_pit"]["subnetwork"][
-        "default_permutation"
-    ] = {
+    network["speech_separator"]["subnetwork"]["separated_stft_pit"]["subnetwork"]["default_permutation"] = {
         "class": "constant",
         "value": CodeWrapper("np.array([0, 1])"),
         "shape": (dim_tags["speaker"],),
     }
 
-    network["speech_separator"]["subnetwork"]["separated_stft_pit"]["subnetwork"][
-        "output"
-    ]["position"] = "default_permutation"
+    network["speech_separator"]["subnetwork"]["separated_stft_pit"]["subnetwork"]["output"][
+        "position"
+    ] = "default_permutation"
 
-    sep_features, python_code = add_gt_feature_extraction(
-        network, from_list=from_list, name="gt_sep", **gt_args
-    )
+    sep_features, python_code = add_gt_feature_extraction(network, from_list=from_list, name="gt_sep", **gt_args)
 
-    enc_01, _ = add_blstm_stack(
-        network, from_list=sep_features, name="lstm_01", **blstm_01_args
-    )
+    enc_01, _ = add_blstm_stack(network, from_list=sep_features, name="lstm_01", **blstm_01_args)
 
-    enc_mix, _ = add_blstm_stack(
-        network, from_list=mix_features, name="lstm_mix", **blstm_mix_args
-    )
+    enc_mix, _ = add_blstm_stack(network, from_list=mix_features, name="lstm_mix", **blstm_mix_args)
 
     network["encoder_mix"] = {
         "class": "copy",
@@ -536,9 +488,8 @@ def make_blstm_hybrid_dual_output_combine_enc_recog_model(
                 "kind": "add",
             }
 
-        dim_tags["enc_01_mix_input_feature"] = FeatureDim(
-            "enc_01_mix_input_feature_dim", None
-        )
+        from returnn.tf.util.data import FeatureDim
+        dim_tags["enc_01_mix_input_feature"] = FeatureDim("enc_01_mix_input_feature_dim", None)
         network["encoder_01+mix_input"] = {
             "class": "split_dims",
             "from": ["encoder_0+mix_input", "encoder_1+mix_input"],
@@ -630,10 +581,7 @@ def make_blstm_hybrid_dual_output_soft_context_model(
         network, from_list=from_list, name="gt_sep", padding=(padding, 0), **gt_args
     )
 
-    use_mixed_input = (
-        blstm_mix_args.get("num_layers", 1) > 0
-        or blstm_01_mix_args.get("num_layers", 1) > 0
-    )
+    use_mixed_input = blstm_mix_args.get("num_layers", 1) > 0 or blstm_01_mix_args.get("num_layers", 1) > 0
     if use_mixed_input:
         mix_features, python_code = add_gt_feature_extraction(
             network, from_list="data", name="gt_mix", padding=(padding, 0), **gt_args
@@ -645,9 +593,7 @@ def make_blstm_hybrid_dual_output_soft_context_model(
         "axes": ["B", dim_tags["speaker"]],
     }
 
-    enc_01, layers = add_blstm_stack(
-        network, from_list=sep_features, name="lstm_01", **blstm_01_args
-    )
+    enc_01, layers = add_blstm_stack(network, from_list=sep_features, name="lstm_01", **blstm_01_args)
 
     for layer, scale in aux_loss_01_layers:
         network[f"aux_01_{layer}_merge"] = {
@@ -666,9 +612,7 @@ def make_blstm_hybrid_dual_output_soft_context_model(
         )
 
     if use_mixed_input:
-        enc_mix, _ = add_blstm_stack(
-            network, from_list=mix_features, name="lstm_mix", **blstm_mix_args
-        )
+        enc_mix, _ = add_blstm_stack(network, from_list=mix_features, name="lstm_mix", **blstm_mix_args)
 
         network["encoder_mix"] = {
             "class": "copy",
@@ -690,9 +634,7 @@ def make_blstm_hybrid_dual_output_soft_context_model(
                 "axis": "auto",
             }
 
-            if blstm_01_args.get("num_layers", 1) and blstm_mix_args.get(
-                "num_layers", 1
-            ):
+            if blstm_01_args.get("num_layers", 1) and blstm_mix_args.get("num_layers", 1):
                 network[f"encoder_{speaker_idx}+mix_input"] = {
                     "class": "combine",
                     "from": [f"encoder_{speaker_idx}_squeeze", enc_mix],
@@ -704,9 +646,8 @@ def make_blstm_hybrid_dual_output_soft_context_model(
                     "from": [f"encoder_{speaker_idx}_squeeze", enc_mix],
                 }
 
-        dim_tags["enc_01_mix_input_feature"] = FeatureDim(
-            "enc_01_mix_input_feature_dim", None
-        )
+        from returnn.tf.util.data import FeatureDim
+        dim_tags["enc_01_mix_input_feature"] = FeatureDim("enc_01_mix_input_feature_dim", None)
         network["encoder_01+mix_input"] = {
             "class": "split_dims",
             "from": ["encoder_0+mix_input", "encoder_1+mix_input"],
@@ -762,6 +703,7 @@ def make_blstm_hybrid_dual_output_soft_context_model(
     else:
         context_layer = "output_softmax"
 
+    from returnn.tf.util.data import batch_dim
     network["output_split"] = {
         "class": "split_dims",
         "from": context_layer,
@@ -825,48 +767,33 @@ def make_blstm_hybrid_dual_output_soft_context_recog_model(
 
     from_list = "data"
 
-    use_mixed_input = (
-        blstm_mix_args.get("num_layers", 1) > 0
-        or blstm_01_mix_args.get("num_layers", 1) > 0
-    )
+    use_mixed_input = blstm_mix_args.get("num_layers", 1) > 0 or blstm_01_mix_args.get("num_layers", 1) > 0
     if use_mixed_input:
-        mix_features, python_code = add_gt_feature_extraction(
-            network, from_list=from_list, name="gt_mix", **gt_args
-        )
+        mix_features, python_code = add_gt_feature_extraction(network, from_list=from_list, name="gt_mix", **gt_args)
 
     if gt_args.get("sample_rate", 8000) == 8000:
         frame_size = 512
     else:
         frame_size = 1024
 
-    from_list, dim_tags = add_speech_separation(
-        network, frame_size=frame_size, from_list=from_list
-    )
+    from_list, dim_tags = add_speech_separation(network, frame_size=frame_size, from_list=from_list)
 
-    network["speech_separator"]["subnetwork"]["separated_stft_pit"]["subnetwork"][
-        "default_permutation"
-    ] = {
+    network["speech_separator"]["subnetwork"]["separated_stft_pit"]["subnetwork"]["default_permutation"] = {
         "class": "constant",
         "value": CodeWrapper("np.array([0, 1])"),
         "shape": (dim_tags["speaker"],),
     }
 
-    network["speech_separator"]["subnetwork"]["separated_stft_pit"]["subnetwork"][
-        "output"
-    ]["position"] = "default_permutation"
+    network["speech_separator"]["subnetwork"]["separated_stft_pit"]["subnetwork"]["output"][
+        "position"
+    ] = "default_permutation"
 
-    sep_features, python_code = add_gt_feature_extraction(
-        network, from_list=from_list, name="gt_sep", **gt_args
-    )
+    sep_features, python_code = add_gt_feature_extraction(network, from_list=from_list, name="gt_sep", **gt_args)
 
-    enc_01, _ = add_blstm_stack(
-        network, from_list=sep_features, name="lstm_01", **blstm_01_args
-    )
+    enc_01, _ = add_blstm_stack(network, from_list=sep_features, name="lstm_01", **blstm_01_args)
 
     if use_mixed_input:
-        enc_mix, _ = add_blstm_stack(
-            network, from_list=mix_features, name="lstm_mix", **blstm_mix_args
-        )
+        enc_mix, _ = add_blstm_stack(network, from_list=mix_features, name="lstm_mix", **blstm_mix_args)
         network["encoder_01"] = {
             "class": "copy",
             "from": enc_01,
@@ -893,9 +820,7 @@ def make_blstm_hybrid_dual_output_soft_context_recog_model(
                 "axis": "auto",
             }
 
-            if blstm_01_args.get("num_layers", 1) and blstm_mix_args.get(
-                "num_layers", 1
-            ):
+            if blstm_01_args.get("num_layers", 1) and blstm_mix_args.get("num_layers", 1):
                 network[f"encoder_{s}+mix_input"] = {
                     "class": "combine",
                     "from": [f"encoder_{s}_squeeze", enc_mix],
@@ -907,9 +832,8 @@ def make_blstm_hybrid_dual_output_soft_context_recog_model(
                     "from": [f"encoder_{s}_squeeze", enc_mix],
                 }
 
-        dim_tags["enc_01_mix_input_feature"] = FeatureDim(
-            "enc_01_mix_input_feature_dim", None
-        )
+        from returnn.tf.util.data import FeatureDim
+        dim_tags["enc_01_mix_input_feature"] = FeatureDim("enc_01_mix_input_feature_dim", None)
         network["encoder_01+mix_input"] = {
             "class": "split_dims",
             "from": ["encoder_0+mix_input", "encoder_1+mix_input"],

@@ -38,9 +38,7 @@ train_key = "train_si284"
 dev_key = "cv_dev93"
 test_key = "test_eval92"
 
-cv_segments = tk.Path(
-    "/work/asr4/berger/dependencies/sms_wsj/segments/cv_dev93_16kHz.reduced"
-)
+cv_segments = tk.Path("/work/asr4/berger/dependencies/sms_wsj/segments/cv_dev93_16kHz.reduced")
 
 frequency = 16
 
@@ -116,9 +114,9 @@ def run_exp(**kwargs):
         )
     }
 
-    nn_data_inputs["cv"][f"{train_key}.cv"].crp.lexicon_config.file = nn_data_inputs[
-        "train"
-    ][f"{train_key}.train"].crp.lexicon_config.file
+    nn_data_inputs["cv"][f"{train_key}.cv"].crp.lexicon_config.file = nn_data_inputs["train"][
+        f"{train_key}.train"
+    ].crp.lexicon_config.file
 
     nn_data_inputs["dev"] = {
         dev_key: get_returnn_rasr_data_input(
@@ -159,10 +157,9 @@ def run_exp(**kwargs):
             concurrent=1,
         ),
     }
-    nn_data_inputs["align"][f"{train_key}.cv"].crp.lexicon_config.file = nn_data_inputs[
-        "align"
-    ][f"{train_key}.train"].crp.lexicon_config.file
-
+    nn_data_inputs["align"][f"{train_key}.cv"].crp.lexicon_config.file = nn_data_inputs["align"][
+        f"{train_key}.train"
+    ].crp.lexicon_config.file
 
     # ********** Transducer System **********
 

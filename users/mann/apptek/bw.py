@@ -13,7 +13,11 @@ from i6_core.rasr import (
     RasrConfig,
 )
 from i6_core.meta import CorpusObject
-from i6_core.am import acoustic_model_config
+from i6_core.am import (
+    acoustic_model_config,
+    get_align_config_and_crp_for_corrected_applicator
+)
+from i6_core.am.config import TdpValues
 
 _DEBUG = False
 
@@ -133,7 +137,7 @@ def make_crp(
     silence_fwd_probability: float = 1/40,
 ):
     crp = CommonRasrParameters()
-    crp_add_default_output(crp)
+    crp_add_default_output(crp, unbuffered=True)
 
     # set corpus
     corpus_object = CorpusObject()
@@ -145,20 +149,29 @@ def make_crp(
     crp.lexicon_config.file = bliss_lexicon
     crp.lexicon_config.normalize_pronunciation = False
 
+    lprob = lambda p: -np.log(p) if p is not None else 0.0
+    lcprob = lambda p: -np.log(1 - p) if p is not None else 0.0
+
+    speech_tdps = TdpValues(
+        loop=lcprob(speech_fwd_probability),
+        forward=lprob(speech_fwd_probability),
+        skip="infinity",
+        exit=0.0,
+    )
+
+    silence_tdps = TdpValues(
+        loop=lcprob(silence_fwd_probability),
+        forward=lprob(silence_fwd_probability),
+        skip="infinity", exit=0.0
+    )
+
     # set acoustic model config
     crp.acoustic_model_config = acoustic_model_config(
         state_tying=state_tying["type"],
-        tdp_transition=(
-            -np.log(1 - speech_fwd_probability),
-            -np.log(speech_fwd_probability),
-            "infinity", 0.0
-        ),
-        tdp_silence=(
-            -np.log(1 - silence_fwd_probability),
-            -np.log(silence_fwd_probability),
-            "infinity", 0.0
-        )
+        tdp_transition=speech_tdps,
+        tdp_silence=silence_tdps,
     )
+    crp, _ = get_align_config_and_crp_for_corrected_applicator(crp)
     crp.acoustic_model_config.state_tying.file = state_tying.get("file", None)
     if "extra_config" in state_tying:
         crp.acoustic_model_config.state_tying._update(state_tying["extra_config"])
@@ -180,9 +193,6 @@ def make_fastbw_rasr_config(
         speech_fwd_probability=speech_fwd_probability,
         silence_fwd_probability=silence_fwd_probability,
     )
-    crp.acoustic_model_config.fix_allophone_context_at_word_boundaries = True
-    crp.acoustic_model_config.transducer_builder_filter_out_invalid_allophones = True
-    crp.acoustic_model_config.applicator_type = "corrected"
 
     if _DEBUG:
         crp.acoustic_model_config.fix_tdp_leaving_epsilon_arc = True
@@ -215,8 +225,8 @@ def add_bw_loss(
     nn_rasr_trainer_exe: tk.Path,
 	state_tying: dict,
     num_classes: int,
-	speech_fwd_probability: float = 1/3,
-	silence_fwd_probability: float = 1/40,
+	speech_fwd_probability: Optional[float] = 1/3,
+	silence_fwd_probability: Optional[float] = 1/40,
 	reuse_bw_alignment: bool = True,
     remove_mask_layers: bool = True, 
 ):
@@ -318,6 +328,7 @@ def add_uniform_pretrain(
     num_pretrain_epochs: int,
     learning_rate_copy: bool = False,
     pretrain_learning_rate: Optional[float] = None,
+    full_hash: bool = False,
 ):
     new_config = ReturnnConfig(
         config={
@@ -329,8 +340,8 @@ def add_uniform_pretrain(
                 "construction_algo": CodeWrapper(uniform_label_pretrain_construction_algo.__name__)
             }
         },
-        python_prolog=(make_uniform_label_posterior_net, uniform_label_pretrain_construction_algo)
-
+        python_prolog=(make_uniform_label_posterior_net, uniform_label_pretrain_construction_algo),
+        hash_full_python_code=full_hash,
     )
     if pretrain_learning_rate:
         new_config.config["pretrain_learning_rate"] = pretrain_learning_rate
@@ -341,5 +352,4 @@ def add_uniform_pretrain(
         new_config.config["learning_rates"] = lrs[:num_pretrain_epochs] + lrs
 
     returnn_config.update(new_config)
-
     return returnn_config

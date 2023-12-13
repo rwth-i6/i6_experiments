@@ -48,6 +48,7 @@ def get_encoder_args(
     kernel_size,
     dropout=0.1,
     emb_dropout=0.0,
+    initialization=DEFAULT_INIT,
     **kwargs,
 ):
 
@@ -67,7 +68,7 @@ def get_encoder_args(
         "conv_post_dropout": dropout,
         "ff_activation_dropout": dropout,
         "ff_post_dropout": dropout,
-        "initialization": DEFAULT_INIT,
+        "initialization": initialization,
         "ff_activation": "swish",
         "end_layernorm": False,
     }

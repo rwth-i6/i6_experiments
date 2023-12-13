@@ -7,9 +7,7 @@ from sisyphus import gs, tk
 import i6_core.rasr as rasr
 from i6_experiments.users.berger.args.experiments import ctc as exp_args
 from i6_experiments.users.berger.args.returnn.config import get_returnn_config, Backend
-from i6_experiments.users.berger.args.returnn.learning_rates import (
-    LearningRateSchedules,
-)
+from i6_experiments.users.berger.args.returnn.learning_rates import LearningRateSchedules, Optimizers
 from i6_experiments.users.berger.corpus.tedlium2.ctc_data import get_tedlium2_pytorch_data
 from i6_experiments.users.berger.pytorch.models import conformer_ctc
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
@@ -18,6 +16,9 @@ from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
 from i6_experiments.users.berger.util import default_tools_v2
+from i6_models.assemblies.conformer import ConformerBlockV1Config, ConformerEncoderV1, ConformerEncoderV1Config
+from i6_models.config import ModuleFactoryV1
+from i6_models.parts.conformer import ConformerMHSAV1Config
 
 # ********** Settings **********
 
@@ -50,16 +51,18 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
         num_inputs=50,
         num_outputs=num_outputs,
         target="targets",
-        extra_python=[conformer_ctc.get_serializer(model_config, variant=variant)],
+        extra_python=[conformer_ctc.get_serializer(model_config, variant=variant, in_dim=50)],
         extern_data_config=True,
         backend=Backend.PYTORCH,
         grad_noise=0.0,
-        grad_clip=100.0,
+        grad_clip=0.0,
+        optimizer=Optimizers.AdamW,
         schedule=LearningRateSchedules.OCLR,
-        initial_lr=0.00009841782102456363,
-        peak_lr=0.0009841782102456363,
-        final_lr=1e-06,
-        batch_size=10000,
+        max_seqs=60,
+        initial_lr=2.2e-05,
+        peak_lr=2.2e-04,
+        final_lr=1e-08,
+        batch_size=36000,
         use_chunking=False,
         extra_config=extra_config,
     )
@@ -86,16 +89,17 @@ def run_exp() -> SummaryReport:
         returnn_python_exe=tools.returnn_python_exe,
         rasr_binary_path=tools.rasr_binary_path,
         augmented_lexicon=True,
+        feature_type=FeatureType.GAMMATONE,
     )
 
     # ********** Step args **********
 
-    train_args = exp_args.get_ctc_train_step_args(num_epochs=num_subepochs)
+    train_args = exp_args.get_ctc_train_step_args(num_epochs=num_subepochs, gpu_mem_rqmt=24)
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
-        epochs=[40, 80, 160, 240, num_subepochs],
-        prior_scales=[0.3, 0.4],
-        lm_scales=[0.5, 0.7, 0.9],
+        epochs=[40, 80, 160, 240, 250, "best"],
+        prior_scales=[0.5],
+        lm_scales=[1.1],
         feature_type=FeatureType.GAMMATONE,
     )
 

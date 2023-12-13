@@ -16,6 +16,8 @@ def augment_to_joint_diphone_softmax(
     center_state_softmax_layer: str = "center-output",
     left_context_softmax_layer: str = "left-output",
     encoder_output_layer: str = "encoder-output",
+    prepare_for_train: bool = False,
+    remove_triphone_outputs: bool = True,
 ) -> returnn.ReturnnConfig:
     """
     Assumes a diphone FH model and expands the model to calculate the scores for the joint
@@ -23,6 +25,8 @@ def augment_to_joint_diphone_softmax(
 
     The output layer contains normalized (log) acoustic scores.
     """
+
+    assert not prepare_for_train or log_softmax, "training preparation implies log-softmax"
 
     returnn_config = copy.deepcopy(returnn_config)
 
@@ -55,9 +59,10 @@ def augment_to_joint_diphone_softmax(
 
     network = returnn_config.config["network"]
 
-    for k in ["linear1-triphone", "linear2-triphone", "right-output"]:
-        # reduce error surface, remove all triphone-related stuff
-        network.pop(k, None)
+    if remove_triphone_outputs:
+        for k in ["linear1-triphone", "linear2-triphone", "right-output"]:
+            # reduce error surface, remove all triphone-related stuff
+            network.pop(k, None)
     for layer in network.values():
         layer.pop("target", None)
         layer.pop("loss", None)
@@ -123,6 +128,21 @@ def augment_to_joint_diphone_softmax(
         "keep_order": True,
         "from": f"{out_joint_score_layer}_scores",
     }
+
+    if prepare_for_train:
+        # To train numerically stable RETURNN needs a softmax activation at the end.
+        #
+        # Here we're using the fact that softmax(log_softmax(x)) = x to add a softmax
+        # layer w/o actually running two softmaxes on top of each other.
+
+        assert log_softmax
+
+        network[f"{out_joint_score_layer}_merged"] = network[out_joint_score_layer]
+        network[out_joint_score_layer] = {
+            "class": "activation",
+            "activation": "softmax",
+            "from": f"{out_joint_score_layer}_merged",
+        }
 
     network[out_joint_score_layer]["register_as_extern_data"] = out_joint_score_layer
 

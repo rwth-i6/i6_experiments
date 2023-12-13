@@ -185,7 +185,7 @@ class LibrispeechOggZip(DatasetConfig):
         self.train_epoch_wise_filter = train_epoch_wise_filter
         self.eval_subset = eval_subset
 
-    def get_extern_data(self) -> Dict[str, Dict[str]]:
+    def get_extern_data(self) -> Dict[str, Dict[str, Any]]:
         """
         Get extern data
         """
@@ -210,10 +210,10 @@ class LibrispeechOggZip(DatasetConfig):
 
         return opts
 
-    def get_train_dataset(self) -> Dict[str]:
+    def get_train_dataset(self) -> Dict[str, Any]:
         return self.get_dataset("train", training=True)
 
-    def get_eval_datasets(self) -> Dict[str, Dict[str]]:
+    def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
         return {
             "dev": self.get_dataset("dev", subset=self.eval_subset),
             "devtrain": self.get_dataset("train", subset=self.eval_subset),

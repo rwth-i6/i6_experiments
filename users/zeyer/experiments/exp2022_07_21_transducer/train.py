@@ -13,15 +13,8 @@ from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn_common import serialization
 from returnn_common import nn
 
-from i6_experiments.users.zeyer.model_interfaces import (
-    ModelWithCheckpoints,
-    Checkpoint,
-    AlignmentCollection,
-    ModelT,
-    ModelDef,
-    TrainDef,
-    FramewiseTrainDef,
-)
+from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, TrainDef, FramewiseTrainDef
+from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint, AlignmentCollection
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.recog import SharedPostConfig
 

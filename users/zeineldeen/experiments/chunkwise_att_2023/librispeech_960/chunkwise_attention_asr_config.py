@@ -19,7 +19,7 @@ from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder impo
 from i6_experiments.users.zeineldeen.models.asr.decoder.conformer_decoder import (
     ConformerDecoder,
 )
-from i6_experiments.users.zeineldeen.models.lm.external_lm_decoder import (
+from i6_experiments.users.zeineldeen.models.lm.external_lm_decoder_v2 import (
     ExternalLMDecoder,
 )
 
@@ -137,6 +137,9 @@ def transform(data, network, max_time_dim={max_time_dim}, freq_dim_factor={freq_
 
 
 def load_qkv_mats(name, shape, reader):
+    if not name.startswith("conformer_block_"):
+        return None
+
     idx = name.split("_")[2]
     qkv_tensor = reader.get_tensor("conformer_block_%s_self_att/QKV" % idx)
     num_heads = enc_att_num_heads_dim.dimension
@@ -635,6 +638,15 @@ def create_config(
     conf_mem_opts=None,
     gpu_mem=11,
     remove_att_ctx_from_dec_state=False,
+    use_curr_enc_for_dec_state=False,
+    lm_mask_layer_name=None,
+    ilm_mask_layer_name=None,
+    eos_cond_layer_name=None,
+    handle_eos_for_ilm=False,
+    renorm_wo_eos=False,
+    asr_eos_no_scale=False,
+    eos_asr_lm_scales=None,
+    mask_always_eos_for_ilm=True,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -898,20 +910,15 @@ def create_config(
         else:
             raise ValueError(f"invalid chunk_level: {chunk_level!r}")
 
-        # if encoder_args["with_ctc"]:
-        #     if chunk_size != chunk_step:
-        #         conformer_encoder.network["ctc_encoder"] = {"class": "time_unchunking", "from": "encoder"}
-        #     else:
-        #         # no overlap so just concat the chunks
+        # if not dump_ctc_dataset and not dump_ctc and not dump_alignments_dataset:
+        #     if encoder_args["with_ctc"]:
         #         conformer_encoder.network["ctc_encoder"] = {
-        #             "class": "merge_dims",
+        #             "class": "fold",
         #             "from": "encoder",  # [B,C,W,D]
-        #             "axes": [chunked_time_dim, chunk_size_dim],  # [C, W]
-        #             "keep_order": True,
+        #             "in_spatial_dim": chunked_time_dim,  # C
+        #             "window_dim": chunk_size_dim,  # W
         #         }  # [B,C*W,D]
-        #
-        #     conformer_encoder.network["ctc"]["from"] = "ctc_encoder"
-
+        #         conformer_encoder.network["ctc"]["from"] = "ctc_encoder"
     else:
         conformer_encoder = encoder_type(**encoder_args)
         conformer_encoder.create_network()
@@ -933,22 +940,18 @@ def create_config(
         if decoder_args["full_sum_simple_approx"] and is_recog:
             decoder_args["full_sum_simple_approx"] = False
             decoder_args["masked_computation_blank_idx"] = eoc_idx
-    elif chunk_size:
+    elif chunk_size and not dump_ctc_dataset and not dump_ctc and not dump_alignments_dataset:
         # chunked encoder and non-chunked decoder so we need to merge encoder chunks
-        # assert "encoder_" not in conformer_encoder.network
-        conformer_encoder.network["encoder_"] = copy.deepcopy(conformer_encoder.network["encoder"])
-        if chunk_size == chunk_step:
-            conformer_encoder.network["encoder"] = {
-                "class": "merge_dims",
-                "from": "encoder_",  # [B,C,W,D]
-                "axes": [chunked_time_dim, chunk_size_dim],  # [C, W]
-                "keep_order": True,
-            }  # [B,C*W,D]
-            if encoder_args["with_ctc"]:
-                conformer_encoder.network["ctc"]["from"] = "encoder"
-        else:
-            # TODO: average overlapped chunks
-            raise NotImplementedError("chunk_size != chunk_step not implemented yet")
+        assert "encoder_fold_inp" not in conformer_encoder.network
+        conformer_encoder.network["encoder_fold_inp"] = copy.deepcopy(conformer_encoder.network["encoder"])
+        conformer_encoder.network["encoder"] = {
+            "class": "fold",
+            "from": "encoder_fold_inp",  # [B,C,W,D]
+            "in_spatial_dim": chunked_time_dim,  # C
+            "window_dim": chunk_size_dim,  # W
+        }  # [B,C*W,D]
+        if encoder_args["with_ctc"]:
+            conformer_encoder.network["ctc"]["from"] = "encoder"
 
     transformer_decoder = decoder_type(base_model=conformer_encoder, **decoder_args)
     if not dump_ctc_dataset:
@@ -968,6 +971,14 @@ def create_config(
             beam_size=beam_size,
             dec_type=dec_type,
             length_normalization=decoder_args["length_normalization"],
+            mask_layer_name=lm_mask_layer_name,
+            ilm_mask_layer_name=ilm_mask_layer_name,
+            eos_cond_layer_name=eos_cond_layer_name,
+            handle_eos_for_ilm=handle_eos_for_ilm,
+            renorm_wo_eos=renorm_wo_eos,
+            asr_eos_no_scale=asr_eos_no_scale,
+            eos_asr_lm_scales=eos_asr_lm_scales,
+            mask_always_eos_for_ilm=mask_always_eos_for_ilm,
         )
         transformer_decoder.create_network()
 
@@ -982,6 +993,16 @@ def create_config(
         exp_config["network"].update(feature_extraction_net)
         if global_stats:
             add_global_stats_norm(global_stats, exp_config["network"])
+
+    if ext_lm_opts:
+        if lm_mask_layer_name:
+            exp_config["network"]["output"]["unit"][lm_mask_layer_name] = {
+                "class": "compare",
+                "from": "output",
+                "kind": "not_equal",
+                "value": 0,
+                "initial_output": True,
+            }
 
     # if chunked_time_dim:
     #   exp_config['network']["_check_alignment"] = {
@@ -1055,13 +1076,32 @@ def create_config(
         retrain_checkpoint_opts = {}
         retrain_checkpoint_opts["custom_missing_load_func"] = load_params_v2
         # TODO: hacky way for now
-        exp_config["network"]["output"]["unit"]["s_wo_att"] = copy.deepcopy(exp_config["network"]["output"]["unit"]["s"])
+        exp_config["network"]["output"]["unit"]["s_wo_att"] = copy.deepcopy(
+            exp_config["network"]["output"]["unit"]["s"]
+        )
         exp_config["network"]["output"]["unit"].pop("s", None)
 
         # change inputs
         exp_config["network"]["output"]["unit"]["s_wo_att"]["from"] = "prev:target_embed"  # remove prev:att
         exp_config["network"]["output"]["unit"]["s_transformed"]["from"] = "s_wo_att"
         exp_config["network"]["output"]["unit"]["readout_in"]["from"][0] = "s_wo_att"
+    elif use_curr_enc_for_dec_state:
+        assert chunk_size == 1
+        assert retrain_checkpoint_opts is None
+        retrain_checkpoint_opts = {}
+        exp_config["network"]["output"]["unit"]["enc_h_t_"] = {
+            "class": "gather",
+            "from": "base:encoder_full_seq",  # [B,C,1,D]
+            "position": "chunk_idx",
+            "axis": chunked_time_dim,
+        }  # [B,1,D]
+        exp_config["network"]["output"]["unit"]["enc_h_t"] = {
+            "class": "squeeze",
+            "from": "enc_h_t_",
+            "axis": chunk_size_dim,
+        }  # [B,D]
+        # change inputs
+        exp_config["network"]["output"]["unit"]["s"]["from"] = ["prev:target_embed", "enc_h_t"]
 
     if retrain_checkpoint is not None:
         if retrain_checkpoint_opts:

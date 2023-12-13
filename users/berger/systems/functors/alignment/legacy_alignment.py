@@ -28,6 +28,7 @@ class LegacyAlignmentFunctor(
         prior_args: Dict = {},
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
         flow_args: Dict = {},
+        register_output: bool = False,
         **kwargs,
     ) -> None:
         crp = copy.deepcopy(align_corpus.corpus_info.crp)
@@ -77,7 +78,8 @@ class LegacyAlignmentFunctor(
             align.set_vis_name(f"Alignment {path}")
             align.add_alias(path)
 
-            tk.register_output(
-                f"{path}.alignment.cache.bundle",
-                align.out_alignment_bundle,
-            )
+            if register_output:
+                tk.register_output(
+                    f"{path}.alignment.cache.bundle",
+                    align.out_alignment_bundle,
+                )

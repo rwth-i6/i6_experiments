@@ -104,7 +104,7 @@ class RasrConfigBuilder:
     return RasrConfigBuilder._write_config(config=config, post_config=post_config)
 
   @staticmethod
-  def get_feature_extraction_config(segment_path: Path, feature_cache_path: Path, corpus_path: Path) -> Path:
+  def get_feature_extraction_config(segment_path: Optional[Path], feature_cache_path: Path, corpus_path: Path) -> Path:
     crp = CommonRasrParameters()
 
     misc_config = RasrConfig()
@@ -171,11 +171,13 @@ class RasrConfigBuilder:
           segment_path: Path,
           lexicon_path: Path,
           feature_cache_path: Path,
+          feature_extraction_file: Path | str,
           label_file_path: Path,
           meta_graph_path: Path,
           simple_beam_search: bool,
           blank_label_index: int,
           reduction_factors: int,
+          reduction_subtrahend: int,
           start_label_index: int,
           blank_update_history: bool,
           loop_update_history: bool,
@@ -220,8 +222,7 @@ class RasrConfigBuilder:
     recognizer_config.add_confidence_score = False
     recognizer_config.apply_non_word_closure_filter = False
     recognizer_config.apply_posterior_pruning = False
-    recognizer_config.feature_extraction.file = Path(
-      "/u/schmitt/experiments/transducer/config/rasr-configs/feature.flow")
+    recognizer_config.feature_extraction.file = feature_extraction_file
     recognizer_config.feature_extraction.feature_cache.path = feature_cache_path
     recognizer_config.links = "evaluator archive-writer"
     recognizer_config.pronunciation_scale = 1.0
@@ -243,6 +244,7 @@ class RasrConfigBuilder:
     recognizer_config.label_scorer.label_scorer_type = label_scorer_type
     recognizer_config.label_scorer.max_batch_size = max_batch_size
     recognizer_config.label_scorer.reduction_factors = reduction_factors
+    recognizer_config.label_scorer.reduction_subtrahend = reduction_subtrahend
     recognizer_config.label_scorer.scale = 1.0
     recognizer_config.label_scorer.start_label_index = start_label_index
     recognizer_config.label_scorer.transform_output_negate = True

@@ -29,8 +29,55 @@ from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_feature_s
 )
 
 
+def get_feature_scorer(context_type, context_mapper, featureScorerConfig, mixtures, silence_id,
+    prior_info, posterior_scales=None, num_label_contexts=47, num_states_per_phone=3, num_encoder_output=1024,
+    loop_scale=1.0, forward_scale=1.0, silence_loop_penalty=0.0, silence_forward_penalty=0.0,
+    use_estimated_tdps=False, state_dependent_tdp_file=None,
+    is_min_duration=False, use_word_end_classes=False, use_boundary_classes=False, is_multi_encoder_output=False):
+
+    #WIP for different contexts: check consistency within the passed data
+    if context_type.value in [context_mapper.get_enum(i) for i in [1, 7]]:
+        assert prior_info['center-state-prior']['file'] is not None
+        if not prior_info['center-state-prior']['scale']:
+            print('You are setting prior scale equale to zero, are you sure?')
 
 
+    elif context_type.value in [context_mapper.get_enum(i) for i in [2, 8]]:
+        assert prior_info['center-state-prior']['file'] is not None
+        assert prior_info['left-context-prior']['file'] is not None
+        if not prior_info['center-state-prior']['scale']:
+            print('You are setting center prior scale equale to zero, are you sure?')
+        if not prior_info['left-context-prior']['scale']:
+            print('You are setting left context prior scale equale to zero, are you sure?')
+
+    else:
+        print("Not Implemented")
+        assert(False)
+
+    return FactoredHybridFeatureScorer(
+        featureScorerConfig,
+        prior_mixtures=mixtures,
+        context_type=context_type.value,
+        prior_info=prior_info,
+        num_states_per_phone=num_states_per_phone,
+        num_label_contexts=num_label_contexts,
+        silence_id=silence_id,
+        num_encoder_output=num_encoder_output,
+        posterior_scales=posterior_scales,
+        is_multi_encoder_output=is_multi_encoder_output,
+        loop_scale=loop_scale,
+        forward_scale=forward_scale,
+        silence_loop_penalty=silence_loop_penalty,
+        silence_forward_penalty=silence_forward_penalty,
+        use_estimated_tdps=use_estimated_tdps,
+        state_dependent_tdp_file=state_dependent_tdp_file,
+        is_min_duration=is_min_duration,
+        use_word_end_classes=use_word_end_classes,
+        use_boundary_classes=use_boundary_classes
+    )
+
+
+"""
 def get_feature_scorer(context_type, context_mapper, featureScorerConfig, mixtures,
     prior_info, silence_id, posterior_scales=None, num_label_contexts=47, num_states_per_phone=3, num_encoder_output=1024,
     loop_scale=1.0, forward_scale=1.0, silence_loop_penalty=0.0, silence_forward_penalty=0.0,
@@ -66,6 +113,7 @@ def get_feature_scorer(context_type, context_mapper, featureScorerConfig, mixtur
     else:
         print("Not Implemented")
         assert(False)
+"""
 
 
 class FHDecoder:
@@ -326,9 +374,9 @@ class FHDecoder:
             fsTfConfig.output_map.info_0.tensor_name = ("-").join(
                 [self.tm["center"], self.output_string]
             )
-            fsTfConfig.output_map.info_1.param_name = "context-posteriors"
+            fsTfConfig.output_map.info_1.param_name = "left-context-posteriors"
             fsTfConfig.output_map.info_1.tensor_name = ("-").join(
-                [self.tm["context"], self.output_string]
+                [self.tm["left"], self.output_string]
             )
             if self.context_type.value == self.context_mapper.get_enum(8):
                 fsTfConfig.output_map.info_2.param_name = "delta-posteriors"
@@ -549,7 +597,7 @@ class FHDecoder:
                            addAllAllos=True,
                            tdpScale=1.0, tdpExit=0.0, tdpNonword=20.0, silExit=20.0, tdpSkip=30.0, spLoop=3.0, spFwd=0.0, silLoop=0.0, silFwd=3.0,
                            beam=20.0, beamLimit=400000, wePruning=0.5, wePruningLimit=10000, pronScale=3.0, altas=None,
-                           runOptJob=False, onlyLmOpt=True, calculateStat=False, keep_value=12,
+                           use_boundary_classes=False, onlyLmOpt=True, calculateStat=False, keep_value=12,
     ):
 
         if posteriorScales is None:
@@ -697,7 +745,7 @@ class FHDecoder:
         scorer = recog.ScliteJob(**sKwrgs)
         tk.register_output(f"{prepath}{name}.wer", scorer.out_report_dir)
 
-        if beam > 15.0:
+        if beam > 15.0 and altas is None:
             opt = recog.OptimizeAMandLMScaleJob(
                 crp=searchCrp,
                 lattice_cache=search.out_lattice_bundle,

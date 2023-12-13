@@ -13,10 +13,10 @@ import numpy as np
 import tensorflow as tf
 
 
-def hdf_dataset_init(dim: int):
+def hdf_dataset_init(dim: int, output_path: str):
   import returnn.datasets.hdf as hdf_dataset_mod
   return hdf_dataset_mod.SimpleHDFWriter(
-    filename="out_hdf_align", dim=dim, ndim=1)
+    filename=output_path, dim=dim, ndim=1)
 
 
 def hdf_dataset_insert_seq(seq_len, tag, data, out_dataset):
@@ -244,6 +244,7 @@ def main(argv):
   arg_parser.add_argument('--align2_hdf_path')
   arg_parser.add_argument('--label_name')
   arg_parser.add_argument('--blank_idx', type=int)
+  arg_parser.add_argument('--output_path')
   arg_parser.add_argument("--returnn_root", help="path to returnn root")
   args = arg_parser.parse_args(argv[1:])
   sys.path.insert(0, args.returnn_root)
@@ -259,7 +260,7 @@ def main(argv):
     label_name=args.label_name,
     align1_hdf_path=args.align1_hdf_path,
     align2_hdf_path=args.align2_hdf_path)
-  out_dataset = hdf_dataset_init(dim=align1_dataset.get_data_dim(args.label_name))
+  out_dataset = hdf_dataset_init(dim=align1_dataset.get_data_dim(args.label_name), output_path=args.output_path)
   try:
     dump_new_dataset(
       align1_dataset=align1_dataset,

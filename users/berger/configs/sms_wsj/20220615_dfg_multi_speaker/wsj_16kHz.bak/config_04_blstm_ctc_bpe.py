@@ -121,9 +121,7 @@ def run_exp(**kwargs) -> None:
         mini_task=True,
     ).out  # Remove <s> and </s> tokens
 
-    subword_nmt_repo = CloneGitRepositoryJob(
-        "https://github.com/albertz/subword-nmt.git"
-    ).out_repository
+    subword_nmt_repo = CloneGitRepositoryJob("https://github.com/albertz/subword-nmt.git").out_repository
 
     bpe_size = kwargs.get("bpe_size", 500)
     train_bpe_job = ReturnnTrainBpeJob(
@@ -432,16 +430,12 @@ def run_exp(**kwargs) -> None:
             "mem_rqmt": 6.0,
         },
         recog_args={
-            "epochs": [num_subepochs]
-            if kwargs.get("recog_final_only", False)
-            else None,
+            "epochs": [num_subepochs] if kwargs.get("recog_final_only", False) else None,
             "prior_scales": kwargs.get("prior_scales", None),
             "log_prob_layer": output_name,
         },
         test_recog_args={
-            "epochs": [num_subepochs]
-            if kwargs.get("recog_final_only", False)
-            else None,
+            "epochs": [num_subepochs] if kwargs.get("recog_final_only", False) else None,
             "prior_scales": kwargs.get("prior_scales", None),
             "log_prob_layer": output_name,
         },
@@ -520,9 +514,7 @@ def py() -> None:
         for pool in [[2, 2, 2], [1, 2, 3], [1, 3, 3], [1, 2, 4], [1, 2, 5]]:
             for bp in [0.6]:
                 for lm in [1.1]:
-                    name_suffix = (
-                        f"newbob_bpe-100_pool-{'-'.join([str(f) for f in pool])}"
-                    )
+                    name_suffix = f"newbob_bpe-100_pool-{'-'.join([str(f) for f in pool])}"
                     recog_name = f"bp-{bp}_lm-{lm}"
                     run_exp(
                         name_suffix=name_suffix,

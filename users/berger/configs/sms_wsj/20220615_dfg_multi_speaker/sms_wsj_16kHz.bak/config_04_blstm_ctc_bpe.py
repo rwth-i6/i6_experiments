@@ -97,9 +97,7 @@ def run_exp(**kwargs) -> None:
     feature_system.run(["extract"])
 
     train_corpus_object = train_data_inputs[train_key].corpus_object
-    train_corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(
-        train_corpus_object.corpus_file
-    ).out_corpus_file
+    train_corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(train_corpus_object.corpus_file).out_corpus_file
 
     # ********** Data inputs **********
 
@@ -126,13 +124,9 @@ def run_exp(**kwargs) -> None:
     }
 
     dev_corpus_object = dev_data_inputs[dev_key].corpus_object
-    dev_corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(
-        dev_corpus_object.corpus_file
-    ).out_corpus_file
+    dev_corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(dev_corpus_object.corpus_file).out_corpus_file
     test_corpus_object = test_data_inputs[test_key].corpus_object
-    test_corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(
-        test_corpus_object.corpus_file
-    ).out_corpus_file
+    test_corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(test_corpus_object.corpus_file).out_corpus_file
 
     nn_data_inputs["dev"] = {
         dev_key: get_returnn_rasr_data_input(
@@ -169,9 +163,7 @@ def run_exp(**kwargs) -> None:
         mini_task=True,
     ).out  # Remove <s> and </s> tokens
 
-    subword_nmt_repo = CloneGitRepositoryJob(
-        "https://github.com/albertz/subword-nmt.git"
-    ).out_repository
+    subword_nmt_repo = CloneGitRepositoryJob("https://github.com/albertz/subword-nmt.git").out_repository
 
     bpe_size = kwargs.get("bpe_size", 500)
     train_bpe_job = ReturnnTrainBpeJob(
@@ -532,9 +524,7 @@ def py() -> None:
         for pool in [[2, 2, 2], [1, 2, 3], [1, 3, 3], [1, 2, 4], [1, 2, 5]]:
             for bp in [0.6]:
                 for lm in [1.1]:
-                    name_suffix = (
-                        f"newbob_bpe-100_pool-{'-'.join([str(f) for f in pool])}"
-                    )
+                    name_suffix = f"newbob_bpe-100_pool-{'-'.join([str(f) for f in pool])}"
                     recog_name = f"bp-{bp}_lm-{lm}"
                     run_exp(
                         name_suffix=name_suffix,

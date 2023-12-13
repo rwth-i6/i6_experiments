@@ -5,8 +5,8 @@ from sisyphus import tk
 from dataclasses import asdict
 
 from .data import build_training_dataset
-from .config import get_training_config, get_forward_config, get_pt_raw_forward_config, get_pt_forward_config, get_pt_raw_search_config
-from .pipeline import ctc_training, ctc_forward, ctc_search
+from .config import get_training_config, get_forward_config, get_pt_raw_forward_config, get_pt_forward_config, get_pt_raw_forward_config_v2, get_pt_raw_prior_config
+from .pipeline import ctc_training, ctc_forward, ctc_search, compute_prior
 from ..data import get_tts_log_mel_datastream
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import DBMelFilterbankOptions
@@ -234,7 +234,7 @@ def get_pytorch_raw_ctc_alignment():
     prefix = "experiments/librispeech/tts_architecture/ctc_aligner/pytorch/"
     training_datasets = build_training_dataset(silence_preprocessed=True, raw_audio=True)
 
-    def run_exp(name, params, net_module, config, use_custom_engine=False, debug=False, v2=False, num_epochs=100):
+    def run_exp(name, params, net_module, config, use_custom_engine=False, debug=False, v2=False, num_epochs=100, with_prior=0.0):
         aligner_config = get_training_config(
             returnn_common_root=RETURNN_COMMON,
             training_datasets=training_datasets,
@@ -246,14 +246,6 @@ def get_pytorch_raw_ctc_alignment():
             pytorch_mode=True,
             v2_mode=v2,
         )  # implicit reconstruction loss
-        forward_config = get_pt_raw_forward_config(
-            returnn_common_root=RETURNN_COMMON,
-            forward_dataset=training_datasets.joint,
-            datastreams=training_datasets.datastreams,
-            network_module=net_module,
-            net_args=params,
-            debug=debug,
-        )
         train_job = ctc_training(
             config=aligner_config,
             returnn_exe=RETURNN_PYTORCH_EXE,
@@ -261,13 +253,50 @@ def get_pytorch_raw_ctc_alignment():
             prefix=prefix + name,
             num_epochs=num_epochs,
         )
-        duration_hdf = ctc_forward(
-            checkpoint=train_job.out_checkpoints[num_epochs],
-            config=forward_config,
-            returnn_exe=RETURNN_PYTORCH_EXE,
-            returnn_root=MINI_RETURNN_ROOT,
-            prefix=prefix + name
+        prior_config = get_pt_raw_prior_config(
+            training_dataset=training_datasets,
+            network_module=net_module,
+            net_args=params,
+            debug=debug,
         )
+        if with_prior > 0:
+            prior = compute_prior(
+                prefix_name=prefix + name,
+                returnn_config=prior_config,
+                checkpoint=train_job.out_checkpoints[num_epochs],
+                returnn_exe=RETURNN_PYTORCH_EXE,
+                returnn_root=MINI_RETURNN_ROOT,
+            )
+            forward_config = get_pt_raw_forward_config_v2(
+                forward_dataset=training_datasets.joint,
+                network_module=net_module,
+                net_args=params,
+                init_args={"prior_file": prior, "prior_scale": with_prior},
+                debug=debug,
+            )
+            duration_hdf = ctc_forward(
+                checkpoint=train_job.out_checkpoints[num_epochs],
+                config=forward_config,
+                returnn_exe=RETURNN_PYTORCH_EXE,
+                returnn_root=MINI_RETURNN_ROOT,
+                prefix=prefix + name
+            )
+        else:
+            forward_config = get_pt_raw_forward_config(
+                returnn_common_root=RETURNN_COMMON,
+                forward_dataset=training_datasets.joint,
+                datastreams=training_datasets.datastreams,
+                network_module=net_module,
+                net_args=params,
+                debug=debug,
+            )
+            duration_hdf = ctc_forward(
+                checkpoint=train_job.out_checkpoints[num_epochs],
+                config=forward_config,
+                returnn_exe=RETURNN_PYTORCH_EXE,
+                returnn_root=MINI_RETURNN_ROOT,
+                prefix=prefix + name
+            )
         # if v2:
         #     from ..data import get_text_lexicon
         #     search_config = get_pt_raw_search_config(
@@ -567,8 +596,177 @@ def get_pytorch_raw_ctc_alignment():
     local_config = copy.deepcopy(config)
     local_config["optimizer"] = {"class": "adam", "epsilon": 1e-8}
     duration_hdf = run_exp(net_module + "_conv384_drop05_spkemb64_dec512", params, net_module, local_config, debug=True, v2=True)
-    add_duration(net_module + "_conv_384_drop_05_spkemb64_dec512", duration_hdf)
+    add_duration(net_module + "_conv384_drop05_spkemb64_dec512", duration_hdf)
 
     # ---------------------------------
+
+    ##################################
+
+    net_module = "ctc_aligner_tts_fe_v4"
+
+    from ..pytorch_networks.ctc_aligner_tts_fe_v4 import TTSPredictorConfig, Config
+
+    model_config = Config(
+        conv_hidden_size=256,
+        lstm_size=512,
+        speaker_embedding_size=256,
+        dropout=0.35,
+        final_dropout=0.35,
+        tts_loss_from_epoch=3,
+        target_size=training_datasets.datastreams["phonemes"].vocab_size,
+        feature_extraction_config=fe_config,
+        tts_predictor_config=TTSPredictorConfig(
+            hidden_dim=512,
+            speaker_embedding_size=256,
+            dropout=0.0,
+        )
+    )
+
+    params = {
+        "config": asdict(model_config)
+    }
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adam", "epsilon": 1e-8}
+    duration_hdf = run_exp(net_module + "_tfstyle_v1", params, net_module, local_config, debug=True,
+                           v2=True)
+    add_duration(net_module + "_tfstyle_v1", duration_hdf)
+    
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adamw", "epsilon": 1e-8, "weight_decay": 1e-4}
+    duration_hdf = run_exp(net_module + "_tfstyle_v1_adamw", params, net_module, local_config, debug=True,
+                           v2=True)
+    add_duration(net_module + "_tfstyle_v1_adamw", duration_hdf)
+    
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adamw", "epsilon": 1e-13,}
+    duration_hdf = run_exp(net_module + "_tfstyle_v1_adam_eps", params, net_module, local_config, debug=True,
+                           v2=True)
+    add_duration(net_module + "_tfstyle_v1_adam_eps", duration_hdf)
+
+    # ---------------------------------
+
+    ##################################
+
+    ##################################
+
+    net_module = "ctc_aligner_tts_fe_v5"
+
+    from ..pytorch_networks.ctc_aligner_tts_fe_v5 import TTSPredictorConfig, Config
+
+    model_config = Config(
+        conv_hidden_size=256,
+        lstm_size=512,
+        speaker_embedding_size=256,
+        dropout=0.35,
+        final_dropout=0.35,
+        tts_loss_from_epoch=3,
+        target_size=training_datasets.datastreams["phonemes"].vocab_size,
+        feature_extraction_config=fe_config,
+        tts_predictor_config=TTSPredictorConfig(
+            hidden_dim=512,
+            speaker_embedding_size=256,
+            dropout=0.0,
+        )
+    )
+
+    params = {
+        "config": asdict(model_config)
+    }
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adam", "epsilon": 1e-8}
+    duration_hdf = run_exp(net_module + "_tfstyle_v2", params, net_module, local_config, debug=True,
+                           v2=True)
+    add_duration(net_module + "_tfstyle_v2", duration_hdf)
+
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adamw", "epsilon": 1e-8, "weight_decay": 1e-4}
+    duration_hdf = run_exp(net_module + "_tfstyle_v2_adamw", params, net_module, local_config, debug=True,
+                           v2=True)
+    add_duration(net_module + "_tfstyle_v2_adamw", duration_hdf)
+
+    # ---------------------------------
+
+    ##################################
+    
+    ##################################
+
+    net_module = "ctc_aligner_tts_fe_v6"
+
+    from ..pytorch_networks.ctc_aligner_tts_fe_v6 import TTSPredictorConfig, Config
+
+    model_config = Config(
+        conv_hidden_size=256,
+        lstm_size=512,
+        speaker_embedding_size=256,
+        dropout=0.35,
+        final_dropout=0.35,
+        tts_loss_from_epoch=3,
+        target_size=training_datasets.datastreams["phonemes"].vocab_size,
+        feature_extraction_config=fe_config,
+        tts_predictor_config=TTSPredictorConfig(
+            hidden_dim=512,
+            speaker_embedding_size=256,
+            dropout=0.0,
+        )
+    )
+
+    params = {
+        "config": asdict(model_config)
+    }
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adam", "epsilon": 1e-16}
+    local_config["accum_grad_multiple_step"] = 2
+    local_config["batch_size"] = 28000 * samples_per_frame
+    duration_hdf = run_exp(net_module + "_tfstyle_v2", params, net_module, local_config, debug=True,
+                           v2=True)
+    add_duration(net_module + "_tfstyle_v2", duration_hdf)
+
+    local_config_adamw = copy.deepcopy(local_config)
+    local_config_adamw["optimizer"] = {"class": "adamw", "epsilon": 1e-8, "weight_decay": 1e-4}
+    duration_hdf = run_exp(net_module + "_tfstyle_v2_adamw", params, net_module, local_config_adamw, debug=True,
+                           v2=True)
+    add_duration(net_module + "_tfstyle_v2_adamw", duration_hdf)
+
+    # ---------------------------------
+
+    ##################################
+    
+    
+    net_module = "ctc_aligner_tts_fe_v7"
+
+    from ..pytorch_networks.ctc_aligner_tts_fe_v6 import TTSPredictorConfig, Config
+
+    model_config = Config(
+        conv_hidden_size=256,
+        lstm_size=512,
+        speaker_embedding_size=256,
+        dropout=0.35,
+        final_dropout=0.35,
+        tts_loss_from_epoch=3,
+        target_size=training_datasets.datastreams["phonemes"].vocab_size,
+        feature_extraction_config=fe_config,
+        tts_predictor_config=TTSPredictorConfig(
+            hidden_dim=512,
+            speaker_embedding_size=256,
+            dropout=0.0,
+        )
+    )
+
+    params = {
+        "config": asdict(model_config)
+    }
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adamw", "epsilon": 1e-8, "weight_decay": 1e-4}
+    local_config["accum_grad_multiple_step"] = 2
+    local_config["batch_size"] = 28000 * samples_per_frame
+    duration_hdf = run_exp(net_module + "_tfstyle_v2", params, net_module, local_config, debug=True,
+                           v2=True)
+    add_duration(net_module + "_tfstyle_v2", duration_hdf)
+    
+    duration_hdf = run_exp(net_module + "_tfstyle_v2_prior0.3", params, net_module, local_config, debug=True,
+                           v2=True, with_prior=0.3)
+    add_duration(net_module + "_tfstyle_v2_prior0.3", duration_hdf)
+
+
 
     ##################################

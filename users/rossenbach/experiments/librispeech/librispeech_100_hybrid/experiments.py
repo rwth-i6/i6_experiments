@@ -7,6 +7,10 @@ from i6_experiments.common.setups.rasr.util import RasrSteps
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
 from i6_experiments.common.baselines.librispeech.default_tools import RASR_BINARY_PATH
 
+#from onnxruntime import quantization
+
+#quantization.quantize_static()
+
 
 from .data import get_corpus_data_inputs
 from .configs.legacy_baseline import get_nn_args, get_feature_extraction_args
@@ -239,10 +243,12 @@ def run_hybrid_jxu():
 
     # ******************** NN System ********************
 
+    from i6_experiments.common.setups.rasr.onnx_precomputed_hybrid_system import OnnxPrecomputedHybridSystem
+
     # image only, so just python3
     returnn_exe = tk.Path("/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
     returnn_root_experimental = tk.Path("/u/rossenbach/src/NoReturnn", hash_overwrite="LIBRISPEECH_DEFAULT_NORETURNN_ROOT")
-    lbs_nn_system = PyTorchOnnxHybridSystemV2(returnn_root=returnn_root_experimental, returnn_python_exe=returnn_exe,
+    lbs_nn_system = OnnxPrecomputedHybridSystem(returnn_root=returnn_root_experimental, returnn_python_exe=returnn_exe,
                                  rasr_arch="linux-x86_64-standard", rasr_binary_path=RASR_BINARY_PATH_APPTEK_APPTAINER)
     lbs_nn_system.init_system(
         rasr_init_args=rasr_init_args,
@@ -283,10 +289,13 @@ def run_hybrid_jxu_mainline():
 
     # ******************** NN System ********************
 
+    from i6_experiments.common.setups.rasr.onnx_precomputed_hybrid_system import OnnxPrecomputedHybridSystem
+
     # image only, so just python3
     returnn_exe = tk.Path("/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
-    returnn_root_experimental = tk.Path("/u/jxu/setups/librispeech-100/2023-06-10--torch-model/tools/20230620-returnn", hash_overwrite="LIBRISPEECH_DEFAULT_NORETURNN_ROOT")
-    lbs_nn_system = PyTorchOnnxHybridSystemV2(returnn_root=returnn_root_experimental, returnn_python_exe=returnn_exe,
+    returnn_special = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn", commit="2fe1a3ac64004cc9df325e7a9f5b9d96e327fe41").out_repository
+    returnn_special.hash_overwrite = "LIBRISPEECH_DEFAULT_NORETURNN_ROOT"
+    lbs_nn_system = OnnxPrecomputedHybridSystem(returnn_root=returnn_special, returnn_python_exe=returnn_exe,
                                  rasr_arch="linux-x86_64-standard", rasr_binary_path=RASR_BINARY_PATH_APPTEK_APPTAINER)
     lbs_nn_system.init_system(
         rasr_init_args=rasr_init_args,

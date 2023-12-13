@@ -4,6 +4,7 @@ import typing
 from enum import Enum
 
 from .get_network_args import get_encoder_args, get_network_args
+from .layers import DEFAULT_INIT
 from .transformer_network import attention_for_hybrid
 
 INT_LOSS_LAYER = 6
@@ -33,6 +34,7 @@ def get_best_model_config(
     upsample_by_transposed_conv: bool = True,
     feature_stacking_size: int = 3,
     specaug_as_data: bool = False,
+    weights_init: str = DEFAULT_INIT,
     conf_args: typing.Optional[typing.Any] = None,
 ) -> attention_for_hybrid:
     if int_loss_at_layer is None:
@@ -58,11 +60,10 @@ def get_best_model_config(
         32,
         0.1,
         0.0,
-        **{
-            "relative_pe": True,
-            "clipping": clipping,
-            "layer_norm_instead_of_batch_norm": True,
-        },
+        clipping=clipping,
+        layer_norm_instead_of_batch_norm=True,
+        relative_pe=True,
+        initialization=weights_init,
     )
 
     args = {

@@ -2,10 +2,9 @@ __all__ = ["get_best_model_config"]
 
 import typing
 
-from i6_core import returnn
-
 from ...common.conformer import attention_for_hybrid
 from ...common.conformer.best_conformer import get_best_model_config as get_cfg, Size
+from ...common.conformer.layers import DEFAULT_INIT
 
 
 def get_best_model_config(
@@ -23,6 +22,7 @@ def get_best_model_config(
     upsample_by_transposed_conv: bool = True,
     feature_stacking_size: int = 3,
     specaug_as_data: bool = False,
+    weights_init: str = DEFAULT_INIT,
     conf_args: typing.Optional[typing.Any] = None,
 ) -> attention_for_hybrid:
     conformer_net = get_cfg(
@@ -39,6 +39,7 @@ def get_best_model_config(
         feature_stacking_size=feature_stacking_size,
         specaug_as_data=specaug_as_data,
         conf_args=conf_args,
+        weights_init=weights_init,
     )
 
     if not leave_cart_output:

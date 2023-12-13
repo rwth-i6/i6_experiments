@@ -119,12 +119,8 @@ class TransducerSystem(NnSystem):
             rasr_binary_path=rasr_binary_path,
             blas_lib=blas_lib,
         )
-        rasr_python_home = rasr_python_home or (
-            gs.RASR_PYTHON_HOME if hasattr(gs, "RASR_PYTHON_HOME") else None
-        )
-        rasr_python_exe = rasr_python_exe or (
-            gs.RASR_PYTHON_EXE if hasattr(gs, "RASR_PYTHON_EXE") else None
-        )
+        rasr_python_home = rasr_python_home or (gs.RASR_PYTHON_HOME if hasattr(gs, "RASR_PYTHON_HOME") else None)
+        rasr_python_exe = rasr_python_exe or (gs.RASR_PYTHON_EXE if hasattr(gs, "RASR_PYTHON_EXE") else None)
         # assert rasr_python_home
         # assert rasr_python_exe
         self.crp["base"].python_home = rasr_python_home
@@ -169,9 +165,7 @@ class TransducerSystem(NnSystem):
     def get_summary_report(self) -> SummaryReport:
         return self.summary_report
 
-    def make_model_loader_config(
-        self, tf_graph: tk.Path, tf_checkpoint: Checkpoint
-    ) -> RasrConfig:
+    def make_model_loader_config(self, tf_graph: tk.Path, tf_checkpoint: Checkpoint) -> RasrConfig:
         loader_config = rasr.RasrConfig()
         # DO NOT USE BLAS ON I6, THIS WILL SLOW DOWN RECOGNITION ON OPTERON MACHNIES BY FACTOR 4
         native_op = (
@@ -218,10 +212,7 @@ class TransducerSystem(NnSystem):
             prior_file = self.prior_files[name][epoch]
         else:  # Compute prior
             assert (
-                train_corpus_key
-                and cv_corpus_key
-                and train_returnn_config
-                and checkpoint
+                train_corpus_key and cv_corpus_key and train_returnn_config and checkpoint
             ), "Must provide arguments for prior computation"
             prior_file = self.returnn_rasr_compute_priors(
                 name=f"{name}-ep{epoch}",
@@ -240,12 +231,8 @@ class TransducerSystem(NnSystem):
     def autoregressive_decoding(label_scorer_type: str) -> bool:
         return label_scorer_type != "precomputed-log-posterior"
 
-    def make_tf_graph(
-        self, name: str, returnn_config: ReturnnConfig, label_scorer_type: str
-    ) -> tk.Path:
-        rec_step_by_step = (
-            "output" if self.autoregressive_decoding(label_scorer_type) else None
-        )
+    def make_tf_graph(self, name: str, returnn_config: ReturnnConfig, label_scorer_type: str) -> tk.Path:
+        rec_step_by_step = "output" if self.autoregressive_decoding(label_scorer_type) else None
         rec_json_info = bool(rec_step_by_step)
         graph_compile_job = self.jobs["general"].setdefault(
             f"{name}_compile",
@@ -279,14 +266,8 @@ class TransducerSystem(NnSystem):
 
         tf_flow.config = rasr.RasrConfig()
         tf_flow.config[tf_fwd].input_map.info_0.param_name = "features"
-        tf_flow.config[
-            tf_fwd
-        ].input_map.info_0.tensor_name = "extern_data/placeholders/data/data"
-        tf_flow.config[
-            tf_fwd
-        ].input_map.info_0.seq_length_tensor_name = (
-            "extern_data/placeholders/data/data_dim0_size"
-        )
+        tf_flow.config[tf_fwd].input_map.info_0.tensor_name = "extern_data/placeholders/data/data"
+        tf_flow.config[tf_fwd].input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/data/data_dim0_size"
 
         tf_flow.config[tf_fwd].output_map.info_0.param_name = "log-posteriors"
         tf_flow.config[tf_fwd].output_map.info_0.tensor_name = output_tensor_name
@@ -326,9 +307,7 @@ class TransducerSystem(NnSystem):
                 "concat",
                 attr={"timestamp-port": "features"},
             )
-            tf_feature_flow.link(
-                tf_mapping[tf_flow.get_output_links("features").pop()], concat + ":tf"
-            )
+            tf_feature_flow.link(tf_mapping[tf_flow.get_output_links("features").pop()], concat + ":tf")
             tf_feature_flow.link(
                 base_mapping[feature_flow.get_output_links("features").pop()],
                 concat + ":features",
@@ -412,17 +391,13 @@ class TransducerSystem(NnSystem):
         cv_corpus_key: str,
         name: str,
     ) -> None:
-        self.tf_nn_checkpoints[
-            f"{train_corpus_key}_{cv_corpus_key}_{name}"
-        ] = train_job.out_checkpoints
+        self.tf_nn_checkpoints[f"{train_corpus_key}_{cv_corpus_key}_{name}"] = train_job.out_checkpoints
         train_job.add_alias(f"train_nn/{train_corpus_key}_{cv_corpus_key}/{name}")
         tk.register_output(
             f"train_nn/{train_corpus_key}_{cv_corpus_key}/{name}_learning_rate.png",
             train_job.out_plot_lr,
         )
-        best_checkpoint_job = GetBestCheckpointJob(
-            train_job.out_model_dir, train_job.out_learning_rates
-        )
+        best_checkpoint_job = GetBestCheckpointJob(train_job.out_model_dir, train_job.out_learning_rates)
         self.best_checkpoints[f"{train_corpus_key}_{cv_corpus_key}_{name}"] = (
             best_checkpoint_job.out_epoch,
             best_checkpoint_job.out_checkpoint,
@@ -449,9 +424,7 @@ class TransducerSystem(NnSystem):
         test_data = test_data or {}
         align_data = align_data or {}
 
-        self._assert_corpus_name_unique(
-            train_data, cv_data, dev_data, test_data, align_data
-        )
+        self._assert_corpus_name_unique(train_data, cv_data, dev_data, test_data, align_data)
 
         self.train_input_data = train_data
         self.cv_input_data = cv_data
@@ -481,9 +454,7 @@ class TransducerSystem(NnSystem):
 
         self.train_cv_align_pairing = train_cv_align_pairing or [
             (trn_cv[0], trn_cv[1], al_c)
-            for trn_cv, al_c in itertools.product(
-                self.train_cv_pairing, self.align_corpora
-            )
+            for trn_cv, al_c in itertools.product(self.train_cv_pairing, self.align_corpora)
         ]
 
         for pairing in self.train_cv_pairing:
@@ -565,9 +536,7 @@ class TransducerSystem(NnSystem):
                 {
                     "use_python_control": True,
                     "additional_rasr_config_files": {"rasr.loss": loss_config},
-                    "additional_rasr_post_config_files": {
-                        "rasr.loss": loss_post_config
-                    },
+                    "additional_rasr_post_config_files": {"rasr.loss": loss_post_config},
                 }
             )
 
@@ -671,14 +640,10 @@ class TransducerSystem(NnSystem):
                 **lattice_to_ctm_kwargs,
             ),
         )
-        self.ctm_files[recognition_corpus_key][
-            f"recog_{exp_name}"
-        ] = lat2ctm.out_ctm_file
+        self.ctm_files[recognition_corpus_key][f"recog_{exp_name}"] = lat2ctm.out_ctm_file
 
         scorer_kwargs = copy.deepcopy(self.scorer_args[recognition_corpus_key])
-        scorer_kwargs[
-            self.scorer_hyp_arg[recognition_corpus_key]
-        ] = lat2ctm.out_ctm_file
+        scorer_kwargs[self.scorer_hyp_arg[recognition_corpus_key]] = lat2ctm.out_ctm_file
         scorer = self.jobs[recognition_corpus_key].setdefault(
             f"scorer_{exp_name}",
             self.scorers[recognition_corpus_key](**scorer_kwargs),
@@ -707,9 +672,7 @@ class TransducerSystem(NnSystem):
         )
 
         scorer_kwargs = copy.deepcopy(self.scorer_args[recognition_corpus_key])
-        scorer_kwargs[
-            self.scorer_hyp_arg[recognition_corpus_key]
-        ] = word2ctm.out_ctm_file
+        scorer_kwargs[self.scorer_hyp_arg[recognition_corpus_key]] = word2ctm.out_ctm_file
         scorer = self.jobs[recognition_corpus_key].setdefault(
             f"scorer_{exp_name}",
             self.scorers[recognition_corpus_key](**scorer_kwargs),
@@ -718,9 +681,7 @@ class TransducerSystem(NnSystem):
 
         return scorer
 
-    def nn_recognition(
-        self, search_type: SearchTypes = SearchTypes.GenericSeq2SeqSearch, **kwargs
-    ) -> None:
+    def nn_recognition(self, search_type: SearchTypes = SearchTypes.GenericSeq2SeqSearch, **kwargs) -> None:
         try:
             return {
                 SearchTypes.GenericSeq2SeqSearch: self.lss_nn_recognition,
@@ -728,9 +689,7 @@ class TransducerSystem(NnSystem):
                 SearchTypes.ReturnnSearch: self.returnn_nn_recognition,
             }[search_type](**kwargs)
         except KeyError as ke:
-            raise NotImplementedError(
-                f"Search type {search_type} is not supported."
-            ) from ke
+            raise NotImplementedError(f"Search type {search_type} is not supported.") from ke
 
     def returnn_nn_recognition(
         self,
@@ -776,8 +735,7 @@ class TransducerSystem(NnSystem):
                     )
                     modified_recog_returnn_config.python_epilog.append(
                         DelayedFormat(
-                            "def get_prior_vector():"
-                            '    return np.loadtxt("{}", dtype=np.float32)',
+                            "def get_prior_vector():" '    return np.loadtxt("{}", dtype=np.float32)',
                             prior_file,
                         )
                     )
@@ -874,9 +832,7 @@ class TransducerSystem(NnSystem):
 
             epochs = epochs or list(checkpoints.keys())
 
-            for pron, lm, prior, epoch in itertools.product(
-                pronunciation_scales, lm_scales, prior_scales, epochs
-            ):
+            for pron, lm, prior, epoch in itertools.product(pronunciation_scales, lm_scales, prior_scales, epochs):
                 assert epoch in checkpoints.keys()
                 prior_file = None
                 if prior != 0:
@@ -891,14 +847,10 @@ class TransducerSystem(NnSystem):
                     )
 
                 num_inputs = train_returnn_config.get("num_inputs", 0)
-                num_classes = train_returnn_config.get("num_outputs", {"classes": 0})[
-                    "classes"
-                ]
+                num_classes = train_returnn_config.get("num_outputs", {"classes": 0})["classes"]
                 if isinstance(num_classes, list):
                     num_classes = num_classes[0]
-                acoustic_mixture_path = CreateDummyMixturesJob(
-                    num_classes, num_inputs
-                ).out_mixtures
+                acoustic_mixture_path = CreateDummyMixturesJob(num_classes, num_inputs).out_mixtures
 
                 feature_scorer = rasr.PrecomputedHybridFeatureScorer(
                     prior_mixtures=acoustic_mixture_path,
@@ -988,9 +940,7 @@ class TransducerSystem(NnSystem):
         with tk.block(name):
             recog_crp = self.crp[recognition_corpus_key]
 
-            tf_graph = self.make_tf_graph(
-                base_key, recog_returnn_config, label_scorer_type
-            )
+            tf_graph = self.make_tf_graph(base_key, recog_returnn_config, label_scorer_type)
 
             if "lexicon_config" not in label_tree_args:
                 if not recog_lexicon:
@@ -1011,9 +961,7 @@ class TransducerSystem(NnSystem):
 
                 modified_label_tree_args["lexicon_config"] = {
                     "filename": recog_lexicon,
-                    "normalize_pronunciation": self.crp[
-                        recognition_corpus_key
-                    ].lexicon_config.normalize_pronunciation,
+                    "normalize_pronunciation": self.crp[recognition_corpus_key].lexicon_config.normalize_pronunciation,
                 }
 
             label_tree = LabelTree(label_unit, **modified_label_tree_args)
@@ -1072,20 +1020,14 @@ class TransducerSystem(NnSystem):
 
                 modified_label_scorer_args["prior_scale"] = prior
 
-                label_scorer = LabelScorer(
-                    label_scorer_type, **modified_label_scorer_args
-                )
+                label_scorer = LabelScorer(label_scorer_type, **modified_label_scorer_args)
 
                 if label_scorer.need_tf_flow(label_scorer_type):
-                    feature_flow = self.make_tf_feature_flow(
-                        base_feature_flow, tf_graph, tf_checkpoint
-                    )
+                    feature_flow = self.make_tf_feature_flow(base_feature_flow, tf_graph, tf_checkpoint)
                 else:
                     feature_flow = base_feature_flow
                     label_scorer.set_input_config()
-                    label_scorer.set_loader_config(
-                        self.make_model_loader_config(tf_graph, tf_checkpoint)
-                    )
+                    label_scorer.set_loader_config(self.make_model_loader_config(tf_graph, tf_checkpoint))
 
                 lookahead_options["scale"] = lm
 
@@ -1156,9 +1098,7 @@ class TransducerSystem(NnSystem):
             # add vocab file
             if label_unit == "phoneme" and "label_file" not in label_scorer_args:
                 state_tying_file = (
-                    self.jobs[corpus_key]
-                    .setdefault("dump_state_tying", DumpStateTyingJob(crp))
-                    .out_state_tying
+                    self.jobs[corpus_key].setdefault("dump_state_tying", DumpStateTyingJob(crp)).out_state_tying
                 )
                 modified_label_scorer_args["label_file"] = (
                     self.jobs[corpus_key]
@@ -1194,20 +1134,14 @@ class TransducerSystem(NnSystem):
                     )
                 modified_label_scorer_args["prior_scale"] = prior
 
-                label_scorer = LabelScorer(
-                    label_scorer_type, **modified_label_scorer_args
-                )
+                label_scorer = LabelScorer(label_scorer_type, **modified_label_scorer_args)
 
                 if label_scorer.need_tf_flow(label_scorer_type):
-                    feature_flow = self.make_tf_feature_flow(
-                        base_feature_flow, tf_graph, tf_checkpoint
-                    )
+                    feature_flow = self.make_tf_feature_flow(base_feature_flow, tf_graph, tf_checkpoint)
                 else:
                     feature_flow = base_feature_flow
                     label_scorer.set_input_config()
-                    label_scorer.set_loader_config(
-                        self.make_model_loader_config(tf_graph, tf_checkpoint)
-                    )
+                    label_scorer.set_loader_config(self.make_model_loader_config(tf_graph, tf_checkpoint))
 
                 exp_name = f"{corpus_key}-e{epoch:03d}"
                 align_job = self.jobs[corpus_key].setdefault(
@@ -1242,11 +1176,7 @@ class TransducerSystem(NnSystem):
         for pairing in self.train_cv_pairing:
             trn_c = pairing[0]
             cv_c = pairing[1]
-            name_list = (
-                [pairing[2]]
-                if len(pairing) >= 3
-                else list(step_args.returnn_training_configs.keys())
-            )
+            name_list = [pairing[2]] if len(pairing) >= 3 else list(step_args.returnn_training_configs.keys())
 
             for name in name_list:
                 returnn_train_job = self.returnn_rasr_training(
@@ -1268,9 +1198,7 @@ class TransducerSystem(NnSystem):
                             train_corpus_key=trn_c,
                             cv_corpus_key=cv_c,
                             recognition_corpus_key=dev_c,
-                            train_returnn_config=step_args.returnn_training_configs[
-                                name
-                            ],
+                            train_returnn_config=step_args.returnn_training_configs[name],
                             recog_returnn_config=recog_returnn_config,
                             checkpoints=returnn_train_job.out_checkpoints,
                             prior_args=step_args.prior_args,
@@ -1281,11 +1209,7 @@ class TransducerSystem(NnSystem):
         for pairing in self.train_cv_pairing:
             trn_c = pairing[0]
             cv_c = pairing[1]
-            name_list = (
-                [pairing[2]]
-                if len(pairing) >= 3
-                else list(step_args.returnn_training_configs.keys())
-            )
+            name_list = [pairing[2]] if len(pairing) >= 3 else list(step_args.returnn_training_configs.keys())
 
             for name in name_list:
                 recog_returnn_config = step_args.returnn_recognition_configs.get(
@@ -1299,13 +1223,9 @@ class TransducerSystem(NnSystem):
                             train_corpus_key=trn_c,
                             cv_corpus_key=cv_c,
                             recognition_corpus_key=eval_c,
-                            train_returnn_config=step_args.returnn_training_configs[
-                                name
-                            ],
+                            train_returnn_config=step_args.returnn_training_configs[name],
                             recog_returnn_config=recog_returnn_config,
-                            checkpoints=self.tf_nn_checkpoints[
-                                f"{trn_c}_{cv_c}_{name}"
-                            ],
+                            checkpoints=self.tf_nn_checkpoints[f"{trn_c}_{cv_c}_{name}"],
                             prior_args=step_args.prior_args,
                             **recog_args,
                         )
@@ -1315,11 +1235,7 @@ class TransducerSystem(NnSystem):
             trn_c = pairing[0]
             cv_c = pairing[1]
             al_c = pairing[2]
-            name_list = (
-                [pairing[3]]
-                if len(pairing) >= 4
-                else list(step_args.returnn_training_configs.keys())
-            )
+            name_list = [pairing[3]] if len(pairing) >= 4 else list(step_args.returnn_training_configs.keys())
 
             for name in name_list:
                 recog_returnn_config = step_args.returnn_recognition_configs.get(
@@ -1337,16 +1253,12 @@ class TransducerSystem(NnSystem):
 
     def run(self, steps: RasrSteps) -> None:
         if "init" in steps.get_step_names_as_list():
-            print(
-                "init needs to be run manually. provide: gmm_args, {train,dev,test}_inputs"
-            )
+            print("init needs to be run manually. provide: gmm_args, {train,dev,test}_inputs")
             sys.exit(-1)
 
         for trn_c in self.train_corpora:
             self.store_allophones(trn_c)
-            tk.register_output(
-                f"allophones/{trn_c}/allophones", self.allophone_files["base"]
-            )
+            tk.register_output(f"allophones/{trn_c}/allophones", self.allophone_files["base"])
 
             state_tying_job = DumpStateTyingJob(self.crp[trn_c])
             tk.register_output(
@@ -1356,11 +1268,7 @@ class TransducerSystem(NnSystem):
 
         for eval_c in self.dev_corpora + self.test_corpora:
             if eval_c not in self.stm_files:
-                stm_args = (
-                    self.rasr_init_args.stm_args
-                    if self.rasr_init_args.stm_args is not None
-                    else {}
-                )
+                stm_args = self.rasr_init_args.stm_args if self.rasr_init_args.stm_args is not None else {}
                 self.create_stm_from_corpus(eval_c, **stm_args)
             self._set_scorer_for_corpus(eval_c)
 
@@ -1373,11 +1281,7 @@ class TransducerSystem(NnSystem):
                 else:
                     feature_key = step_args.pop("feature_key", "gt")
                 corpora = set(
-                    self.train_corpora
-                    + self.cv_corpora
-                    + self.dev_corpora
-                    + self.test_corpora
-                    + self.align_corpora
+                    self.train_corpora + self.cv_corpora + self.dev_corpora + self.test_corpora + self.align_corpora
                 )
                 for all_c in corpora:
                     self.feature_caches[all_c] = {}
@@ -1388,9 +1292,7 @@ class TransducerSystem(NnSystem):
 
                 for all_c in corpora:
                     self.feature_caches[all_c] = self.feature_caches[all_c][feature_key]
-                    self.feature_bundles[all_c] = self.feature_bundles[all_c][
-                        feature_key
-                    ]
+                    self.feature_bundles[all_c] = self.feature_bundles[all_c][feature_key]
                     self.feature_flows[all_c] = self.feature_flows[all_c][feature_key]
 
             # ---------- NN Training ----------

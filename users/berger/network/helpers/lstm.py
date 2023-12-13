@@ -60,8 +60,6 @@ def add_lstm_stack(
         pool = None
         if max_pool is not None and len(max_pool) > layer_idx:
             pool = max_pool[layer_idx]
-        from_list = add_lstm_layer(
-            network, f"{name}_{layer_idx + 1}", from_list, max_pool=pool, **kwargs
-        )
+        from_list = add_lstm_layer(network, f"{name}_{layer_idx + 1}", from_list, max_pool=pool, **kwargs)
 
     return from_list

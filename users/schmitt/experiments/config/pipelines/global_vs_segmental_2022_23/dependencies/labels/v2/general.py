@@ -4,10 +4,12 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from sisyphus import *
 
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Dict, Tuple
 
 
 class LabelDefinition(ABC):
+  def __init__(self):
+    self.hdf_targets = {}
   @property
   @abstractmethod
   def alias(self) -> str:
@@ -15,27 +17,27 @@ class LabelDefinition(ABC):
 
   @property
   @abstractmethod
-  def stm_paths(self) -> str:
+  def stm_paths(self) -> Dict:
     pass
 
   @property
   @abstractmethod
-  def stm_jobs(self) -> str:
+  def stm_jobs(self) -> Dict:
     pass
 
   @property
   @abstractmethod
-  def corpus_keys(self) -> str:
+  def corpus_keys(self) -> Tuple:
     pass
 
   @property
   @abstractmethod
-  def oggzip_paths(self) -> str:
+  def oggzip_paths(self) -> Dict:
     pass
 
   @property
   @abstractmethod
-  def segment_paths(self) -> str:
+  def segment_paths(self) -> Dict:
     pass
 
   @property
@@ -65,9 +67,17 @@ class SegmentalLabelDefinition(LabelDefinition):
   def rasr_format_paths(self) -> RasrFormats:
     pass
 
+  @property
+  def alignment_paths(self) -> Dict[str, Path]:
+    return {}
+
 
 class GlobalLabelDefinition(LabelDefinition):
   @property
   @abstractmethod
   def model_hyperparameters(self) -> GlobalModelHyperparameters:
     pass
+
+  @property
+  def label_paths(self) -> Dict[str, Path]:
+    return {}

@@ -7,6 +7,7 @@ def add_joint_ctc_att_subnet(
     net,
     att_scale,
     ctc_scale,
+    ctc_prior_scale,
     beam_size=12,
     remove_eos=False,
     renorm_after_remove_eos=False,
@@ -449,7 +450,7 @@ def add_joint_ctc_att_subnet(
             net["output"]["unit"]["att_log_scores_"]["from"] = "att_scores_wo_eos"
 
 
-def add_filter_blank_and_merge_labels_layers(net):
+def add_filter_blank_and_merge_labels_layers(net, blank_idx):
     """
     Add layers to filter out blank and merge repeated labels of a CTC output sequence.
     :param dict net: network dict
@@ -459,7 +460,7 @@ def add_filter_blank_and_merge_labels_layers(net):
     net["out_best"] = {
         "class": "reinterpret_data",
         "from": "out_best_",
-        "set_sparse_dim": 10025,
+        "set_sparse_dim": blank_idx,  # here we always assume that blank is the last label thus its index is V
     }
     # shift to the right to create a boolean mask later where it is true if the previous label is equal
     net["shift_right"] = {
@@ -483,13 +484,19 @@ def add_filter_blank_and_merge_labels_layers(net):
     net["non_blank_mask"] = {
         "class": "compare",
         "from": "out_best_time_reinterpret",
-        "value": 10025,
+        "value": blank_idx,
+        "kind": "not_equal",
+    }
+    net["non_eos_mask"] = {
+        "class": "compare",
+        "from": "out_best_time_reinterpret",
+        "value": 0,
         "kind": "not_equal",
     }
     net["out_best_mask"] = {
         "class": "combine",
         "kind": "logical_and",
-        "from": ["unique_mask", "non_blank_mask"],
+        "from": ["unique_mask", "non_blank_mask", "non_eos_mask"],
     }
     net["out_best_wo_blank"] = {
         "class": "masked_computation",
@@ -507,7 +514,7 @@ def add_filter_blank_and_merge_labels_layers(net):
     }
 
 
-def create_ctc_greedy_decoder(net):
+def create_ctc_decoder(net, beam_size, ctc_prior_scale, remove_eos=False):
     """
     Create a greedy decoder for CTC.
 
@@ -516,8 +523,30 @@ def create_ctc_greedy_decoder(net):
 
     # time-sync search
     assert net["output"]["class"] == "rec"
-    net["output"]["from"] = "ctc"  # [B,T,V+1]
+
+    if ctc_prior_scale:
+        assert "ctc_log_prior" in net, "ctc log prior layer is not added to network?"
+        net["ctc_log_prior_scaled"] = {
+            "class": "eval",
+            "from": "ctc_log_prior",
+            "eval": f"{ctc_prior_scale} * source(0)",
+        }
+        net["ctc_prior_scaled"] = {"class": "activation", "activation": "safe_exp", "from": "ctc_log_prior_scaled"}
+        net["ctc_w_prior"] = {"class": "combine", "kind": "truediv", "from": ["ctc", "ctc_prior_scaled"]}
+
+    net["output"]["from"] = "ctc_w_prior" if ctc_prior_scale else "ctc"  # [B,T,V+1]
     net["output"]["target"] = "bpe_labels_w_blank"
+
+    if remove_eos:
+        net["vocab_arange"] = {"class": "range_in_axis", "axis": "F", "from": "ctc"}  # 0...V
+        net["ctc_eos_mask"] = {"class": "compare", "from": "vocab_arange", "value": 0, "kind": "not_equal"}
+        net["ctc_wo_eos"] = {
+            "class": "switch",
+            "condition": "ctc_eos_mask",
+            "true_from": "ctc_w_prior" if ctc_prior_scale else "ctc",
+            "false_from": 1e-20,
+        }
+        net["output"]["from"] = "ctc_wo_eos"
 
     # used for label-sync search
     net["output"]["unit"].pop("end", None)
@@ -527,9 +556,10 @@ def create_ctc_greedy_decoder(net):
     net["output"]["unit"]["output"] = {
         "class": "choice",
         "target": "bpe_labels_w_blank",
-        "beam_size": 1,
+        "beam_size": beam_size,
         "from": "data:source",
         "initial_output": 0,
+        "length_normalization": False,
     }
 
 
@@ -546,15 +576,26 @@ def update_tensor_entry(source, **kwargs):
     return tf.tensor_scatter_nd_update(tensor, indices, updates)
 
 
-def add_ctc_forced_align_for_rescore(net):
+def add_ctc_forced_align_for_rescore(net, ctc_prior_scale):
     beam = net["output"]["unit"]["output"]["beam_size"]
     net["extra.search:output"] = copy.deepcopy(net["output"])  # use search in forward
     net["decision"]["from"] = "extra.search:output"
     del net["output"]  # set to ctc scores later and this will be dumped
     net["extra.search:output"]["register_as_extern_data"] = "att_nbest"
+
+    if ctc_prior_scale:
+        assert "ctc_log_prior" in net, "ctc log prior layer is not added to network?"
+        net["ctc_log_prior_scaled"] = {
+            "class": "eval",
+            "from": "ctc_log_prior",
+            "eval": f"{ctc_prior_scale} * source(0)",
+        }
+        net["ctc_prior_scaled"] = {"class": "activation", "activation": "safe_exp", "from": "ctc_log_prior_scaled"}
+        net["ctc_w_prior"] = {"class": "combine", "kind": "truediv", "from": ["ctc", "ctc_prior_scaled"]}
+
     net["ctc_align"] = {
         "class": "forced_align",
-        "from": "ctc",
+        "from": "ctc_w_prior" if ctc_prior_scale else "ctc",
         "input_type": "prob",
         "topology": "ctc",
         "align_target": "data:att_nbest",  # [B*Beam,T]
@@ -562,10 +603,6 @@ def add_ctc_forced_align_for_rescore(net):
     }
     net["ctc_scores_"] = {"class": "copy", "from": "ctc_align/scores"}  # [B*Beam]
     net["ctc_scores"] = {"class": "split_dims", "from": "ctc_scores_", "axis": "B", "dims": (-1, beam)}  # [B,Beam]
-    # net["att_beam_scores_"] = {"class": "choice_get_beam_scores", "from": "extra.search:output"}  # [B*Beam]
-    # net["att_beam_scores"] = {"class": "split_batch_beam", "from": "att_beam_scores_"}  # [B,Beam]
-    # net["comb_att_ctc"] = {"class": "combine", "kind": "add", "from": ["ctc_scores", "att_beam_scores"]}  # [B,Beam]
-    # net["comb_att_ctc_scores"] = {"class": "expand_dims", "from": "comb_att_ctc", "axis": "t"}  # [B,Beam,1|T]
     net["output"] = {"class": "expand_dims", "from": "ctc_scores", "axis": "t"}  # [B,Beam,1|T]
 
 
@@ -587,7 +624,8 @@ def rescore_att_ctc_search(
     time_rqmt,
     att_scale,
     ctc_scale,
-    use_sclite=False,
+    ctc_prior_scale,
+    use_sclite=True,
     rescore_with_ctc: bool = True,
     remove_label: Optional[Union[str, Set[str]]] = None,
 ):
@@ -617,6 +655,8 @@ def rescore_att_ctc_search(
 
     att_config = copy.deepcopy(returnn_config)
     att_config.config["search_output_layer"] = "output"  # n-best list
+    beam = att_config.config["network"]["output"]["unit"]["output"]["beam_size"]
+    att_config.config["batch_size"] = int(att_config.config["batch_size"] * (0.5 if beam > 64 else 1.0))
     search_job = ReturnnSearchJobV2(
         search_data=recognition_dataset.as_returnn_opts(),
         model_checkpoint=checkpoint,
@@ -630,7 +670,7 @@ def rescore_att_ctc_search(
     search_job.add_alias(prefix_name + "/search_job")
 
     ctc_search_config = copy.deepcopy(returnn_config)
-    add_ctc_forced_align_for_rescore(ctc_search_config.config["network"])
+    add_ctc_forced_align_for_rescore(ctc_search_config.config["network"], ctc_prior_scale)
     ctc_search_config.config["need_data"] = True
     ctc_search_config.config["target"] = "bpe_labels"
     beam = ctc_search_config.config["network"]["extra.search:output"]["unit"]["output"]["beam_size"]
@@ -652,15 +692,15 @@ def rescore_att_ctc_search(
     hdf_scores = forward_job.out_hdf_files["output.hdf"]
     tk.register_output(prefix_name + "/search_job/hdf_scores", hdf_scores)
 
-    if remove_label:
-        from i6_core.returnn.search import SearchRemoveLabelJob
-
-        search_bpe = SearchRemoveLabelJob(search_bpe, remove_label=remove_label, output_gzip=True).out_search_results
-
     search_bpe = SearchTakeBestRescore(
         search_bpe, hdf_scores, scale1=att_scale, scale2=ctc_scale
     ).out_best_search_results
     tk.register_output(prefix_name + "/search_job/comb_search_bpe", search_bpe)
+
+    if remove_label:
+        from i6_core.returnn.search import SearchRemoveLabelJob
+
+        search_bpe = SearchRemoveLabelJob(search_bpe, remove_label=remove_label, output_gzip=True).out_search_results
 
     search_words = SearchBPEtoWordsJob(search_bpe).out_word_search_results
     tk.register_output(prefix_name + "/search_job/comb_search_words", search_words)

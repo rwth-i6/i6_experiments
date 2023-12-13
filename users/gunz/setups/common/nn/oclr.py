@@ -1,5 +1,6 @@
 __all__ = ["get_oclr_config"]
 
+import math
 import typing
 
 
@@ -71,7 +72,7 @@ def get_oclr_config(num_epochs: int, *, schedule: str = "v6") -> typing.Dict[str
     def oclr_cfg(lrate: float):
         n = int((num_epochs // 10) * 9)
         n_rest = num_epochs - n
-        lrates = get_learning_rates(lrate=lrate, increase=n // 2, decay=n // 2)
+        lrates = get_learning_rates(lrate=lrate, increase=n // 2, decay=math.ceil(n / 2))
         lrates += list(np.linspace(lrates[-1], min([*lrates, 1e-6]), n_rest))
 
         assert len(lrates) == num_epochs

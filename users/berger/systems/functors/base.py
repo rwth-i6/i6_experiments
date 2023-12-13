@@ -8,9 +8,7 @@ from sisyphus import tk
 
 class TrainFunctor(Generic[types.TrainJobType, types.ConfigType]):
     @abstractmethod
-    def __call__(
-        self, train_config: dataclasses.NamedConfig[types.ConfigType], **kwargs
-    ) -> types.TrainJobType:
+    def __call__(self, train_config: dataclasses.NamedConfig[types.ConfigType], **kwargs) -> types.TrainJobType:
         pass
 
 

@@ -120,9 +120,7 @@ class GenerateLabelFileFromStateTyingJob(Job):
             for v, idx in sorted(vocab_dict.items()):
                 f.write(f"{v} {idx}\n")
 
-        assert (
-            len(set(vocab_dict.values())) == max_id + 1
-        ), "expected number of classes %d" % (max_id + 1)
+        assert len(set(vocab_dict.values())) == max_id + 1, "expected number of classes %d" % (max_id + 1)
 
 
 class GenerateLabelFileFromStateTyingJobV2(Job):

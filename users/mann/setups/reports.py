@@ -5,16 +5,37 @@ from sisyphus.delayed_ops import DelayedBase
 import os
 import tabulate as tab
 
-print("tabulate  version: ", tab.__version__)
+class ReportMinimumError(Exception):
+    pass
+
+class ReportMinimum:
+    """
+    Class to wrap around a collection of values to later report their minimum.
+    Useful for e.g. reporting only the minimum WER for recognition tuning.
+    """
+    def __init__(self, variables, filter_non_ready=False):
+        self.vars = variables
+        self.filter_non_ready = filter_non_ready
+    
+    def get(self):
+        try:
+            if self.filter_non_ready:
+                return min(var.get() for var in self.vars if var.is_set())
+            return min(var.get() for var in self.vars)
+        except ValueError:
+            raise ReportMinimumError("No minimum found")
+        
 
 def maybe_get(var):
     try:
         return var.get()
-    except (VariableNotSet, FileNotFoundError):
+    except (VariableNotSet, FileNotFoundError, ReportMinimumError):
         return ""
     # return var.get() if var.is_set() else ""
 
-def eval_tree(o, f=maybe_get, condition=lambda x: isinstance(x, DelayedBase)):
+eval_types = (DelayedBase, ReportMinimum)
+
+def eval_tree(o, f=maybe_get, condition=lambda x: isinstance(x, eval_types)):
     """
     Recursively traverses a structure and calls .get() on all
     existing Delayed Operations, especially Variables in the structure

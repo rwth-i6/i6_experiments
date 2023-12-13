@@ -10,26 +10,30 @@ from i6_experiments.common.helpers.g2p import G2PBasedOovAugmenter
 
 
 @lru_cache()
-def _get_special_lemma_lexicon(add_unknown_phoneme_and_mapping: bool = True) -> lexicon.Lexicon:
+def _get_special_lemma_lexicon(
+    add_unknown_phoneme_and_mapping: bool = True, add_silence: bool = True
+) -> lexicon.Lexicon:
     """
     Generate the special lemmas for LibriSpeech
 
     Librispeech uses silence, sentence begin/end and unknown, but no other special tokens.
 
     :param bool add_unknown_phoneme_and_mapping: add [UNKNOWN] as phoneme, otherwise add only the lemma without it
+    :param bool add_silence: add [SILENCE] phoneme and lemma, otherwise do not include it at all (e.g. for CTC setups)
     :return: the lexicon with special lemmas and phonemes
     :rtype: lexicon.Lexicon
     """
     lex = lexicon.Lexicon()
-    lex.add_lemma(
-        lexicon.Lemma(
-            orth=["[SILENCE]", ""],
-            phon=["[SILENCE]"],
-            synt=[],
-            special="silence",
-            eval=[[]],
+    if add_silence:
+        lex.add_lemma(
+            lexicon.Lemma(
+                orth=["[SILENCE]", ""],
+                phon=["[SILENCE]"],
+                synt=[],
+                special="silence",
+                eval=[[]],
+            )
         )
-    )
     lex.add_lemma(lexicon.Lemma(orth=["[SENTENCE-BEGIN]"], synt=["<s>"], special="sentence-begin"))
     lex.add_lemma(lexicon.Lemma(orth=["[SENTENCE-END]"], synt=["</s>"], special="sentence-end"))
     if add_unknown_phoneme_and_mapping:
@@ -50,7 +54,8 @@ def _get_special_lemma_lexicon(add_unknown_phoneme_and_mapping: bool = True) -> 
             )
         )
 
-    lex.add_phoneme("[SILENCE]", variation="none")
+    if add_silence:
+        lex.add_phoneme("[SILENCE]", variation="none")
     if add_unknown_phoneme_and_mapping:
         lex.add_phoneme("[UNKNOWN]", variation="none")
     return lex
@@ -98,6 +103,7 @@ def _get_raw_bliss_lexicon(
 def get_bliss_lexicon(
     use_stress_marker=False,
     add_unknown_phoneme_and_mapping=True,
+    add_silence=True,
     output_prefix="datasets",
 ):
     """
@@ -127,7 +133,10 @@ def get_bliss_lexicon(
         ),
     )
 
-    static_lexicon = _get_special_lemma_lexicon(add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping)
+    static_lexicon = _get_special_lemma_lexicon(
+        add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
+        add_silence=add_silence,
+    )
     static_lexicon_job = WriteLexiconJob(static_lexicon, sort_phonemes=True, sort_lemmata=False)
 
     raw_librispeech_lexicon = _get_raw_bliss_lexicon(use_stress_marker=use_stress_marker, alias_path=alias_path)
@@ -151,6 +160,7 @@ def get_bliss_lexicon(
 def get_g2p_augmented_bliss_lexicon_dict(
     use_stress_marker=False,
     add_unknown_phoneme_and_mapping=True,
+    add_silence=True,
     output_prefix="datasets",
 ):
     """
@@ -160,9 +170,9 @@ def get_g2p_augmented_bliss_lexicon_dict(
 
     :param bool use_stress_marker: uses phoneme symbols with stress markers
     :param bool add_unknown_phoneme_and_mapping: add [UNKNOWN] as phoneme, otherwise add only the lemma without it
+    :param bool add_silence: include [SILENCE] phoneme and lemma (this is the default).
+        Can be disabled for e.g. CTC/Transducer setups without silence modelling.
     :param str output_prefix:
-    :param g2p_train_args:
-    :param g2p_apply_args:
     :return: dictionary of Paths to augmented bliss_lexicon
     :rtype: dict[str, Path]
     """
@@ -181,6 +191,7 @@ def get_g2p_augmented_bliss_lexicon_dict(
         use_stress_marker=use_stress_marker,
         output_prefix=output_prefix,
         add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
+        add_silence=add_silence,
     )
     current_bliss_lexicon = original_bliss_lexicon
 

@@ -47,9 +47,7 @@ def run():
         mfcc_cepstrum_options=mfcc_cepstrum_options,
         gt_options_extra_args=gt_options_extra_args,
     )
-    mono_args = lbs_setups.get_monophone_args(
-        train_align_iter=90, allow_zero_weights=True
-    )
+    mono_args = lbs_setups.get_monophone_args(train_align_iter=90, allow_zero_weights=True)
 
     cart_args = lbs_setups.get_cart_args()
     tri_args = lbs_setups.get_triphone_args()
