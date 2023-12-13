@@ -1226,10 +1226,10 @@ def decode_diphone(
             for p_c, p_l in itertools.product([0.5, 1.0], [0.5, 1.0])
         ]
         tdp_geom_values = [round(v, 1) for v in [0.0, *np.geomspace(3.0, 20.0, num=4)]]
-        additional_tdps = [
+        additional_silence_tdps = [
             (0.0, p_f, "infinity", p_e) for p_f, p_e in itertools.product(tdp_geom_values, tdp_geom_values) if p_e > p_f
         ]
-        silence_tdps = [base_cfg.tdp_silence, (10, 10, "infinity", 20), *additional_tdps]
+        silence_tdps = [base_cfg.tdp_silence, (10, 10, "infinity", 20), *additional_silence_tdps]
         other_cfgs = [
             (
                 returnn_config,
