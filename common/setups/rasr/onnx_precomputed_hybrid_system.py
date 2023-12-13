@@ -87,7 +87,7 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                     io_map=io_map,
                     cpu=kwargs.get("cpu", 1),
                 )
-                flow = add_fwd_flow_to_base_flow(feature_flow, onnx_flow, fwd_input_name="onnx-fwd-input")
+                flow = add_fwd_flow_to_base_flow(feature_flow, onnx_flow)
 
                 if nn_prior:
                     raise NotImplementedError
