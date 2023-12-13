@@ -1,5 +1,23 @@
 """
-Chunked Conformer encoder - based on original code
+Chunked Conformer encoder - adapted from original RF Conformer code
+
+Moh base example config:
+chunked_att_chunk-35_step-20_linDecay300_0.0002_decayPt0.3333333333333333_bs15000_accum2_winLeft0_endSliceStart0_endSlice20_memVariant1_memSize2_convCache2_useCachedKV_memSlice0-20_L0_C20_R15
+- chunk-35
+- step-20
+- winLeft0
+- endSliceStart0
+- endSlice20
+- memVariant1
+- memSize2 -> ConformerMemoryVariantOpts mem_size = 2
+- convCache2 -> ConformerMemoryVariantOpts conv_cache_size = 2
+- useCachedKV -> use_cached_prev_kv
+- memSlice0-20 -> mem_slice_start, mem_slice_size
+- L0
+- C20
+- R15
+
+See code i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder.ConformerEncoder._self_att_v2.
 """
 
 
@@ -19,11 +37,12 @@ class ChunkedConformerConvBlock(rf.Module):
         FF -> GLU -> depthwise conv -> BN -> Swish -> FF
     """
 
-    def __init__(self, out_dim: Dim, *, kernel_size: int, norm: Union[rf.BatchNorm, Any]):
+    def __init__(self, out_dim: Dim, *, kernel_size: int, norm: Union[rf.BatchNorm, Any], chunk_history: int):
         """
         :param out_dim: output feature dimension
         :param kernel_size: kernel size of depthwise convolution
         :param norm: Batch norm originally
+        :param chunk_history:
         """
         super().__init__()
         self.out_dim = out_dim
@@ -34,12 +53,22 @@ class ChunkedConformerConvBlock(rf.Module):
         )
         self.positionwise_conv2 = rf.Linear(out_dim, out_dim)
         self.norm = norm
+        self.chunk_history = chunk_history
 
-    def __call__(self, inp: Tensor, *, spatial_dim: Dim) -> Tensor:
+    def __call__(self, inp: Tensor, *, spatial_dim: Dim, chunked_time_dim: Dim) -> Tensor:
         """forward"""
         x_conv1 = self.positionwise_conv1(inp)
         x_act, _ = rf.gating(x_conv1)
-        x_depthwise_conv, _ = self.depthwise_conv(x_act, in_spatial_dim=spatial_dim)
+        x_act, ext_spatial_dim = _mem_chunks(
+            x_act, spatial_dim=spatial_dim, chunked_time_dim=chunked_time_dim, mem_size=self.chunk_history
+        )
+        x_depthwise_conv, _ = self.depthwise_conv(x_act, in_spatial_dim=ext_spatial_dim)
+        x_depthwise_conv, _ = rf.slice(
+            x_depthwise_conv,
+            axis=ext_spatial_dim,
+            start=self.chunk_history * spatial_dim.get_dim_value_tensor(),
+            out_dim=spatial_dim,
+        )
         x_normed = self.norm(x_depthwise_conv)
         x_swish = rf.swish(x_normed)
         x_conv2 = self.positionwise_conv2(x_swish)
@@ -55,6 +84,7 @@ class ChunkedConformerEncoderLayer(rf.Module):
         self,
         out_dim: Dim = Dim(512, name="conformer-enc-default-out-dim"),
         *,
+        chunk_history: int = 2,
         ff_dim: Dim = NotSpecified,
         ff_activation: Callable[[Tensor], Tensor] = rf.swish,
         dropout: float = 0.1,
@@ -88,6 +118,7 @@ class ChunkedConformerEncoderLayer(rf.Module):
         self.dropout = dropout
         self.dropout_broadcast = rf.dropout_broadcast_default()
         self.out_dim = out_dim
+        self.chunk_history = chunk_history
 
         if ff_dim is None:
             ff_dim = 4 * out_dim
@@ -107,7 +138,9 @@ class ChunkedConformerEncoderLayer(rf.Module):
             conv_norm = rf.BatchNorm(out_dim, **conv_norm_opts)
         elif isinstance(conv_norm, type):
             conv_norm = conv_norm(out_dim, **(conv_norm_opts or {}))
-        self.conv_block = ChunkedConformerConvBlock(out_dim=out_dim, kernel_size=conv_kernel_size, norm=conv_norm)
+        self.conv_block = ChunkedConformerConvBlock(
+            out_dim=out_dim, kernel_size=conv_kernel_size, norm=conv_norm, chunk_history=chunk_history
+        )
         self.conv_layer_norm = rf.LayerNorm(out_dim)
 
         if self_att is None or isinstance(self_att, type):
@@ -122,7 +155,7 @@ class ChunkedConformerEncoderLayer(rf.Module):
             if self_att_opts:
                 self_att_opts_.update(self_att_opts)
             if self_att is None:
-                self.self_att = ChunkedRelPosSelfAttention(**self_att_opts_)
+                self.self_att = ChunkedRelPosSelfAttention(chunk_history=chunk_history, **self_att_opts_)
             else:
                 self.self_att = self_att(**self_att_opts_)
         else:
@@ -140,13 +173,13 @@ class ChunkedConformerEncoderLayer(rf.Module):
 
         # MHSA
         x_mhsa_ln = self.self_att_layer_norm(x_ffn1_out)
-        x_mhsa = self.self_att(x_mhsa_ln, axis=spatial_dim)
+        x_mhsa = self.self_att(x_mhsa_ln, axis=spatial_dim, chunked_time_dim=chunked_time_dim)
         x_mhsa = rf.dropout(x_mhsa, self.dropout, axis=self.dropout_broadcast and self.out_dim)
         x_mhsa_out = x_mhsa + x_ffn1_out
 
         # Conv
         x_conv_ln = self.conv_layer_norm(x_mhsa_out)
-        x_conv = self.conv_block(x_conv_ln, spatial_dim=spatial_dim)
+        x_conv = self.conv_block(x_conv_ln, spatial_dim=spatial_dim, chunked_time_dim=chunked_time_dim)
         x_conv_out = rf.dropout(x_conv, self.dropout, axis=self.dropout_broadcast and self.out_dim) + x_mhsa_out
 
         # FFN
@@ -158,7 +191,7 @@ class ChunkedConformerEncoderLayer(rf.Module):
         return self.final_layer_norm(x_ffn2_out)
 
 
-class ChunkedConformerEncoder(ISeqDownsamplingEncoder):
+class ChunkedConformerEncoder(rf.Module):
     """
     Represents Conformer encoder architecture
     """
@@ -238,6 +271,7 @@ class ChunkedConformerEncoder(ISeqDownsamplingEncoder):
         source: Tensor,
         *,
         in_spatial_dim: Dim,
+        chunked_time_dim: Dim,
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[Tensor, Dim]:
         """forward"""
@@ -247,10 +281,86 @@ class ChunkedConformerEncoder(ISeqDownsamplingEncoder):
             x_subsample, out_spatial_dim = source, in_spatial_dim
         x_linear = self.input_projection(x_subsample)
         x = rf.dropout(x_linear, self.input_dropout, axis=self.dropout_broadcast and self.input_projection.out_dim)
-        x = self.layers(x, spatial_dim=out_spatial_dim, collected_outputs=collected_outputs)
+        x = self.layers(
+            x, spatial_dim=out_spatial_dim, chunked_time_dim=chunked_time_dim, collected_outputs=collected_outputs
+        )
         return x, out_spatial_dim
 
 
 class ChunkedRelPosSelfAttention(rf.RelPosSelfAttention):
-    def __call__(self, *args, **kwargs):
-        pass  # TODO
+    def __init__(self, *, chunk_history: int, **kwargs):
+        super().__init__(**kwargs)
+        self.chunk_history = chunk_history
+
+    def __call__(self, source: Tensor, *, axis: Dim, chunked_time_dim: Dim, **_kwargs) -> Tensor:
+        """forward"""
+        q, k, v = self.forward_qkv(source)
+        hist_dim = Dim(None, name=f"{axis.description}:kv")
+        k, _ = rf.replace_dim(k, in_dim=axis, out_dim=hist_dim)
+        v, _ = rf.replace_dim(v, in_dim=axis, out_dim=hist_dim)
+        k, hist_dim_ = _mem_chunks(
+            k,
+            spatial_dim=hist_dim,
+            chunked_time_dim=chunked_time_dim,
+            mem_size=self.chunk_history,
+        )
+        v, _ = _mem_chunks(
+            v,
+            spatial_dim=hist_dim,
+            chunked_time_dim=chunked_time_dim,
+            mem_size=self.chunk_history,
+            out_spatial_dim=hist_dim_,
+        )
+        q_with_bias_u = (q + self.pos_bias_u) if self.pos_bias_u is not None else q  # (batch, head, time1, d_k)
+        q_with_bias_v = (q + self.pos_bias_v) if self.pos_bias_v is not None else q  # (batch, head, time1, d_k)
+
+        if self.learned_pos_emb is not None:
+            pos_emb, pos_emb_spatial_dim = self.learned_pos_emb(query_spatial_dim=axis, key_value_spatial_dim=hist_dim_)
+        else:
+            pos_emb, pos_emb_spatial_dim = rf.relative_positional_encoding(
+                query_spatial_dim=axis, key_value_spatial_dim=hist_dim_, feat_dim=self.pos_emb_feat_dim
+            )
+        if self.pos_emb_dropout:
+            pos_emb = rf.dropout(pos_emb, self.pos_emb_dropout)
+        if self.linear_pos is not None:
+            pos_emb = self.linear_pos(pos_emb)
+        if self.separate_pos_emb_per_head:
+            pos_emb = rf.split_dims(pos_emb, axis=self.key_dim_total, dims=(self.num_heads, self.key_dim_per_head))
+        # pos_emb: (head, 2*time1-1, d_k)
+
+        # compute attention score
+        # first compute matrix a and matrix c
+        # as described in https://arxiv.org/abs/1901.02860 Section 3.3
+        # (batch, head, time1, time2)
+        matrix_ac = rf.matmul(q_with_bias_u, k, reduce=self.key_dim_per_head)
+
+        # compute matrix b and matrix d
+        # (batch, head, time1, 2*time1-1)
+        matrix_bd = rf.matmul(q_with_bias_v, pos_emb, reduce=self.key_dim_per_head)
+        matrix_bd = self._rel_shift(matrix_bd, axis, pos_emb_spatial_dim, hist_dim_)  # TODO fix...
+
+        scores = matrix_ac + matrix_bd  # (batch, head, time1, time2)
+        scores *= self.key_dim_per_head.dimension**-0.5
+        att_weights = rf.softmax(scores, axis=hist_dim_)
+        att_weights = rf.dropout(att_weights, self.att_dropout, axis=self.att_dropout_broadcast and hist_dim_)
+        # Masking not needed because softmax should already have masked,
+        # so we have 0.0 att weights for padded frames.
+        att = rf.matmul(att_weights, v, reduce=hist_dim_, use_mask=False)
+        output, _ = rf.merge_dims(att, dims=(self.num_heads, self.value_dim_per_head), out_dim=self.value_dim_total)
+        if self.proj:
+            output = self.proj(output)
+        return output
+
+
+def _mem_chunks(
+    source: rf.Tensor, *, spatial_dim: Dim, chunked_time_dim: Dim, mem_size: int, out_spatial_dim: Optional[Dim] = None
+) -> Tuple[Tensor, Dim]:
+    """
+    :return: concatenated prev chunks, concatenated spatial dim
+    """
+    concats = []
+    for shift_amount in range(mem_size, 0, -1):
+        shifted = rf.shift_right(source, axis=chunked_time_dim, amount=shift_amount, pad_value=0.0)
+        concats.append((shifted, spatial_dim))
+    concats.append((source, spatial_dim))
+    return rf.concat(*concats, out_dim=out_spatial_dim)
