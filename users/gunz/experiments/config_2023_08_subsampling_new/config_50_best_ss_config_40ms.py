@@ -1202,6 +1202,8 @@ def decode_diphone(
                         scale_name
                         if layer["from"] == output_layer_name
                         else [scale_name if f == output_layer_name else f for f in layer["from"]]
+                        if isinstance(layer["from"], list)
+                        else layer["from"]
                     )
 
                 net[scale_name] = {
