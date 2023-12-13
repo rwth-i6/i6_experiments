@@ -169,16 +169,37 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     )
     returnn_config.update(update_config)
 
+    peak_lr_7e4_config = returnn.ReturnnConfig(
+        config={},
+        python_epilog=[
+            dynamic_learning_rate_7e4,
+            "dynamic_learning_rate = dynamic_learning_rate_7e4",
+        ],
+    )
+    peak_lr_9e4_config = returnn.ReturnnConfig(
+        config={},
+        python_epilog=[
+            dynamic_learning_rate_9e4,
+            "dynamic_learning_rate = dynamic_learning_rate_9e4",
+        ],
+    )
+
     returnn_cfg_mo = get_monophone_network(
         returnn_config=returnn_config, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     )
-    returnn_cfg_mo_sil_p2 = add_ce_silence_penalization(returnn_cfg_mo, loss_scale=2.0)
     returnn_cfg_mo_sil_p5 = add_ce_silence_penalization(returnn_cfg_mo, loss_scale=5.0)
+    returnn_cfg_mo_sil_p5_7e4 = copy.deepcopy(returnn_cfg_mo_sil_p5)
+    returnn_cfg_mo_sil_p5_7e4.update(peak_lr_7e4_config)
+    returnn_cfg_mo_sil_p5_9e4 = copy.deepcopy(returnn_cfg_mo_sil_p5)
+    returnn_cfg_mo_sil_p5_9e4.update(peak_lr_9e4_config)
     returnn_cfg_di = get_diphone_network(
         returnn_config=returnn_config, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     )
-    returnn_cfg_di_sil_p2 = add_ce_silence_penalization(returnn_cfg_di, loss_scale=2.0)
     returnn_cfg_di_sil_p5 = add_ce_silence_penalization(returnn_cfg_di, loss_scale=5.0)
+    returnn_cfg_di_sil_p5_7e4 = copy.deepcopy(returnn_cfg_di_sil_p5)
+    returnn_cfg_di_sil_p5_7e4.update(peak_lr_7e4_config)
+    returnn_cfg_di_sil_p5_9e4 = copy.deepcopy(returnn_cfg_di_sil_p5)
+    returnn_cfg_di_sil_p5_9e4.update(peak_lr_9e4_config)
     # returnn_cfg_di_add = get_diphone_network(
     #     returnn_config=returnn_config, additive=True, conf_model_dim=CONF_MODEL_DIM, l2=ZHOU_L2, label_info=s.label_info
     # )
@@ -190,14 +211,22 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     # )
     configs = [
         returnn_cfg_mo,
-        returnn_cfg_mo_sil_p2,
-        returnn_cfg_mo_sil_p5,
+        returnn_cfg_mo_sil_p5_7e4,
+        returnn_cfg_mo_sil_p5_9e4,
         returnn_cfg_di,
-        returnn_cfg_di_sil_p2,
-        returnn_cfg_di_sil_p5,
+        returnn_cfg_di_sil_p5_7e4,
+        returnn_cfg_di_sil_p5_9e4,
         returnn_cfg_tri,
     ]
-    names = ["mono", "mono-sp2", "mono-sp5", "di", "di-sp2", "di-sp5", "tri"]
+    names = [
+        "mono",
+        "mono-sp5-7e4",
+        "mono-sp5-9e4",
+        "di",
+        "di-sp5-7e4",
+        "di-sp5-9e4",
+        "tri",
+    ]
     keys = [f"fh-{name}" for name in names]
 
     for cfg, name, key in zip(configs, names, keys):
@@ -3600,6 +3629,66 @@ def dynamic_learning_rate(*, network, global_train_step, learning_rate, **kwargs
     # -- need to be adjusted w.r.t. training -- #
     initialLR = 8e-5
     peakLR = 8e-4
+    finalLR = 1e-6
+    cycleEpoch = 180
+    totalEpoch = 400
+    nStep = 2420  # steps/epoch depending on batch_size
+
+    # -- derived -- #
+    steps = cycleEpoch * nStep
+    stepSize = (peakLR - initialLR) / steps
+    steps2 = (totalEpoch - 2 * cycleEpoch) * nStep
+    stepSize2 = (initialLR - finalLR) / steps2
+
+    import tensorflow as tf
+
+    n = tf.cast(global_train_step, tf.float32)
+    return tf.where(
+        global_train_step <= steps,
+        initialLR + stepSize * n,
+        tf.where(
+            global_train_step <= 2 * steps,
+            peakLR - stepSize * (n - steps),
+            tf.maximum(initialLR - stepSize2 * (n - 2 * steps), finalLR),
+        ),
+    )
+
+
+# one cycle LR: triangular linear w.r.t. iterations(steps)
+def dynamic_learning_rate_7e4(*, network, global_train_step, learning_rate, **kwargs):
+    # -- need to be adjusted w.r.t. training -- #
+    initialLR = 8e-5
+    peakLR = 7e-4
+    finalLR = 1e-6
+    cycleEpoch = 180
+    totalEpoch = 400
+    nStep = 2420  # steps/epoch depending on batch_size
+
+    # -- derived -- #
+    steps = cycleEpoch * nStep
+    stepSize = (peakLR - initialLR) / steps
+    steps2 = (totalEpoch - 2 * cycleEpoch) * nStep
+    stepSize2 = (initialLR - finalLR) / steps2
+
+    import tensorflow as tf
+
+    n = tf.cast(global_train_step, tf.float32)
+    return tf.where(
+        global_train_step <= steps,
+        initialLR + stepSize * n,
+        tf.where(
+            global_train_step <= 2 * steps,
+            peakLR - stepSize * (n - steps),
+            tf.maximum(initialLR - stepSize2 * (n - 2 * steps), finalLR),
+        ),
+    )
+
+
+# one cycle LR: triangular linear w.r.t. iterations(steps)
+def dynamic_learning_rate_9e4(*, network, global_train_step, learning_rate, **kwargs):
+    # -- need to be adjusted w.r.t. training -- #
+    initialLR = 8e-5
+    peakLR = 9e-4
     finalLR = 1e-6
     cycleEpoch = 180
     totalEpoch = 400
