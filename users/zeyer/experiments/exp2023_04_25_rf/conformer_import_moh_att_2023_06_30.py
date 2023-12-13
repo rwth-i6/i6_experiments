@@ -167,7 +167,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     )
 
     train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)  # 7.07 (vs base 7.01, so worse?)
-    train_exp(
+    train_exp(  # 7.07
         "base-24gb-v4",
         config_24gb_v4,
         fine_tune=[
@@ -284,9 +284,9 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
-    train_exp("base-24gb-v5", config_24gb_v5)
-    train_exp("base-24gb-v5-embInit1", config_24gb_v5, config_updates={"embed_init_stddev": 1.0})
-    train_exp(  # 6.36
+    train_exp("base-24gb-v5", config_24gb_v5)  # 6.35
+    train_exp("base-24gb-v5-embInit1", config_24gb_v5, config_updates={"embed_init_stddev": 1.0})  # 6.51
+    train_exp(  # 6.36, no effect at all?
         "base-24gb-v5-mixup",
         config_24gb_v5,
         config_updates={"mixup": {}},
@@ -294,7 +294,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # might be even faster?
     )
 
-    train_exp("base-24gb-v6", config_24gb_v6)
+    train_exp("base-24gb-v6", config_24gb_v6)  # 6.30
     train_exp(
         "base-24gb-v6-lrlin1e_5_450k",
         config_24gb_v6,
@@ -312,7 +312,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_11gb_v6_f32_bs15k_accgrad4_mgpu,
         num_processes=2,  # multi-GPU
     )
-    train_exp(
+    train_exp(  # 5.44
         "v6-11gb-f32-bs15k-accgrad4-mgpu4-lrlin1e_5_295k",
         config_11gb_v6_f32_bs15k_accgrad4_mgpu,
         config_updates={
