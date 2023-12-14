@@ -287,7 +287,7 @@ def test_import_forward():
         # "output/energy": (from_scratch_training, 0, "energy", 0),
         # "output/att_weights": (from_scratch_training, 0, "att_weights", 0),
         "output/att": (Model.decode_logits, 0, "att", 0),
-        "output/output_prob": (from_scratch_training, 0, "logits", 0),
+        "output/output_prob": (from_scratch_training, 0, "logits", 0),  # we rewrite that to logits below
     }
 
     from returnn.datasets.util.vocabulary import Vocabulary
@@ -347,6 +347,9 @@ def test_import_forward():
     )  # raw sample level
     extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
     extern_data.reset_content()
+
+    # Make it logits, because that is what we compare and expect.
+    config.typed_dict["network"]["output"]["unit"]["output_prob"].update({"class": "linear", "activation": None})
 
     tf1 = tf.compat.v1
     with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
@@ -435,7 +438,7 @@ def test_import_forward():
 
     print("*** Forwarding with tracing ...")
 
-    funcs_to_trace_list = [func for (func, _, _, _) in _layer_mapping.values()]
+    funcs_to_trace_list = [func for (func, *_) in _layer_mapping.values()]
     code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
     captured_tensors = {}  # func -> (list of calls) -> tensor local name -> (list of versions) -> tensor
 
