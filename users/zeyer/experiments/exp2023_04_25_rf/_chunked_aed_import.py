@@ -343,8 +343,15 @@ def test_import_forward():
     extern_data = TensorDict()
     extern_data.update(config.typed_dict["extern_data"], auto_convert=True)
     tensor_dict_fill_random_numpy_(
-        extern_data, dyn_dim_max_sizes={time_dim: 2000}, dyn_dim_min_sizes={time_dim: 1000}
+        extern_data,
+        dyn_dim_max_sizes={target_spatial_dim: 20, time_dim: 100_000},
+        dyn_dim_min_sizes={target_spatial_dim: 10, time_dim: 10_000},
     )  # raw sample level
+    extern_data.data["audio_features"].raw_tensor *= 0.1  # raw audio samples are usually a bit smaller
+    # Make sure we have some end-of-chunk (EOC, blank) labels in it.
+    extern_data.data["bpe_labels"].raw_tensor[0, 2] = target_dim.vocab.eos_label_id
+    extern_data.data["bpe_labels"].raw_tensor[0, 6] = target_dim.vocab.eos_label_id
+    extern_data.data["bpe_labels"].raw_tensor[1, 3] = target_dim.vocab.eos_label_id
     extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
     extern_data.reset_content()
 

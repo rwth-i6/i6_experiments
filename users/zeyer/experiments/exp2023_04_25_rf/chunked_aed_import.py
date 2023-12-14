@@ -298,7 +298,7 @@ class MakeModel:
                 ff_activation=lambda x: rf.relu(x) ** 2.0,
             ),
             target_dim=target_dim,
-            blank_idx=target_dim.dimension,
+            blank_idx=_get_eos_idx(target_dim),
             bos_idx=_get_bos_idx(target_dim),
             eos_idx=_get_eos_idx(target_dim),
             **extra,
@@ -527,8 +527,8 @@ class Model(rf.Module):
             prev_chunk_idx,
         )
         state_.chunk_idx = chunk_idx
-        enc_ = rf.gather(enc, indices=chunk_idx)
-        enc_ctx_ = rf.gather(enc_ctx, indices=chunk_idx)
+        enc_ = rf.gather(enc, indices=chunk_idx, clip_to_valid=True)
+        enc_ctx_ = rf.gather(enc_ctx, indices=chunk_idx, clip_to_valid=True)
 
         s_transformed = self.s_transformed(s)
         energy_in = enc_ctx_ + s_transformed
@@ -763,7 +763,12 @@ def model_recog(
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         i += 1
 
-        ended = rf.logical_or(ended, target == model.eos_idx)  # TODO fix ending condition
+        ended = rf.logical_or(
+            ended,
+            rf.logical_and(
+                target == model.blank_idx, decoder_state.chunk_idx == chunked_time_dim.get_size_tensor() - 1
+            ),
+        )
         ended = rf.logical_or(ended, rf.copy_to_device(i >= max_seq_len))
         if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
             break
