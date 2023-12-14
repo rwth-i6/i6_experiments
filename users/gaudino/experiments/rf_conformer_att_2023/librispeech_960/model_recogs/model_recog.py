@@ -157,6 +157,10 @@ def model_recog(
                 label_log_prob + model.search_args["lm_scale"] * lstm_log_prob
             )
 
+        if model.search_args.get("add_trafo_lm", False):
+            trafo_lm_out = model.trafo_lm.loop_step(target, batch_dims_)
+            breakpoint()
+
         if model.search_args.get("use_ctc", False):
             # add ctc espnet
             ctc_prefix_scores, ctc_state = ctc_prefix_scorer(

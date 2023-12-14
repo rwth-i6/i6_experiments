@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Optional, Any, Tuple, Dict, Sequence, List
 import tree
-from returnn.tensor import Tensor, Dim, single_step_dim
+from returnn.tensor import Tensor, Dim, single_step_dim, batch_dim
 import returnn.frontend as rf
 from typing import Optional, Union, Any, Tuple, List, Dict, Callable
 import copy as _copy
@@ -28,7 +28,7 @@ class TrafoLMLayer(rf.Module):
         conv_norm: Union[rf.BatchNorm, type, Any] = NotSpecified,
         conv_norm_opts: Optional[Dict[str, Any]] = None,
         num_heads: int = 12,
-        self_att: Optional[Union[rf.RelPosSelfAttention, rf.Module, type, Any]] = None,
+        # self_att: Optional[Union[rf.RelPosSelfAttention, rf.Module, type, Any]] = None,
         self_att_opts: Optional[Dict[str, Any]] = None,
         att_dropout: float = 0.0,
     ):
@@ -60,32 +60,34 @@ class TrafoLMLayer(rf.Module):
         self.ff_conv2 = rf.Linear(ff_dim, out_dim)
         self.ff_activation = ff_activation
 
-        if self_att is None or isinstance(self_att, type):
-            self_att_opts_ = dict(
-                in_dim=out_dim,
-                proj_dim=out_dim,
-                key_dim_total=out_dim,
-                value_dim_total=out_dim,
-                num_heads=num_heads,
-                att_dropout=att_dropout,
-            )
-            if self_att_opts:
-                self_att_opts_.update(self_att_opts)
-            if self_att is None:
-                self.self_att = rf.SelfAttention(**self_att_opts_)
-            else:
-                self.self_att = self_att(**self_att_opts_)
-        else:
-            self.self_att = self_att
-        self.self_att_lin = rf.Linear(out_dim, out_dim)
+        self_att_opts_ = dict(
+            in_dim=out_dim,
+            proj_dim=None,
+            key_dim_total=out_dim,
+            value_dim_total=out_dim,
+            num_heads=num_heads,
+            att_dropout=att_dropout,
+            with_bias=False,
+        )
+        if self_att_opts:
+            self_att_opts_.update(self_att_opts)
+
+        self.self_att = rf.CausalSelfAttention(**self_att_opts_)
+        self.self_att_state = None
+
+        self.self_att_lin = rf.Linear(out_dim, out_dim, with_bias=False)
         self.self_att_layer_norm = rf.LayerNorm(out_dim)
 
-    def __call__(self, inp: Tensor, *, spatial_dim: Dim) -> Tensor:
+    def __call__(self, inp: Tensor, *, spatial_dim: Dim, batch_dims: Sequence[Dim]) -> Tensor:
         """forward"""
+
+        if self.self_att_state is None:
+            self.self_att_state = self.self_att.default_initial_state(batch_dims=batch_dims)
 
         # MHSA
         x_mhsa_ln = self.self_att_layer_norm(inp)
-        x_mhsa = self.self_att(x_mhsa_ln, axis=spatial_dim)
+        x_mhsa, new_state = self.self_att(x_mhsa_ln, axis=single_step_dim, state=self.self_att_state)
+        self.self_att_state = new_state
         x_mhsa = self.self_att_lin(x_mhsa)
         x_mhsa = rf.dropout(x_mhsa, axis=self.out_dim, drop_prob=self.dropout)
         x_mhsa_out = x_mhsa + inp
@@ -117,17 +119,22 @@ class Ted2_Trafo_LM_Model(rf.Module):
         search_args: Optional[Dict[str, Any]] = None,
     ):
         super(Ted2_Trafo_LM_Model, self).__init__()
+
         self.in_dim = in_dim
+        self.target_dim = target_dim
+        self.layer_out_dim = layer_out_dim
+        self.layer_ff_dim = layer_ff_dim
+        self.embed_dim = embed_dim
         self.num_layers = num_layers
 
         self.target_embed_raw = rf.Embedding(in_dim, embed_dim)
-        self.target_embed_with_pos = rf.LearnedRelativePositionalEncoding(
-            self.target_embed_raw.out_dim
-        )
+        # self.target_embed_with_pos = rf.LearnedRelativePositionalEncoding(
+        #     self.target_embed_raw.out_dim
+        # ) # TODO move to step
 
         # self.target_embed = rf.Dropout -> called in step
         self.target_embed_lin = rf.Linear(
-            self.target_embed_with_pos.feat_dim, layer_out_dim.dimension
+            self.target_embed_raw.out_dim, layer_out_dim , with_bias=False
         )
 
         trafo_layer_opts_ = dict(
@@ -150,26 +157,29 @@ class Ted2_Trafo_LM_Model(rf.Module):
     def loop_step(
         self,
         prev_target,
-        prev_state,
+        batch_dims = None,
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ):
         """loop step"""
         # lm_state = rf.State()
 
+        breakpoint()
         target_embed_raw = self.target_embed_raw(prev_target)
-        target_embed_with_pos, pos_emb_spatial_dim = self.target_embed_with_pos(
-            target_embed_raw
-        )
+        # target_embed_with_pos, pos_emb_spatial_dim = self.target_embed_with_pos(
+        #     target_embed_raw
+        # )
+        # target_embed_with_pos =  target_embed_raw + rf.relative_positional_encoding() TODO
 
-        target_embed = rf.dropout(target_embed_with_pos, 0.0)
+        target_embed = rf.dropout(target_embed_raw, 0.0)
 
         target_embed_lin = self.target_embed_lin(target_embed)
 
-        out_spatial_dim = pos_emb_spatial_dim
+        out_spatial_dim = self.layer_out_dim
 
         x = self.layers(
             target_embed_lin,
             spatial_dim=out_spatial_dim,
+            batch_dims=batch_dims,
             collected_outputs=collected_outputs,
         )
 

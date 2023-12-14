@@ -51,7 +51,7 @@ def test_convert_checkpoint():
     import torch
     import numpy
 
-    out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/baseline_w_trafo_lm_23_11_09"
+    out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/baseline_w_trafo_lm_23_12_13"
 
     reader = CheckpointReader(_returnn_tf_ckpt_filename)
     reader_lm = CheckpointReader(_ted2_lm_ckpt_filename)
@@ -68,7 +68,7 @@ def test_convert_checkpoint():
     }
     model_args = {
         "target_embed_dim": 256,
-        "add_trafo_lm": True,
+        "add_ted2_trafo_lm": True,
     }
     model = MakeModel(80, 1_057, model_args=model_args, search_args=search_args)()
     print("Created model:", model)
@@ -79,15 +79,13 @@ def test_convert_checkpoint():
         print(f"{name}: {param}")
     print()
 
-    breakpoint()
 
     for name, param in model.named_parameters():
         assert isinstance(name, str)
         assert isinstance(param, rf.Parameter)
 
-
-        if name.startswith("lstm_lm."):
-            sub_name = name.removeprefix("lstm_lm.")
+        if name.startswith("trafo_lm."):
+            sub_name = name.removeprefix("trafo_lm.")
             value = map_param_func_trafo_lm(reader_lm, sub_name, param)
         else:
             value = map_param_func_v3(reader, name, param)
@@ -109,7 +107,9 @@ def test_convert_checkpoint():
 
     pt_model = rf_module_to_pt_module(model)
 
-    save_model = False
+    breakpoint()
+    save_model = True
+
     if save_model:
         os.makedirs(out_dir, exist_ok=True)
         filename = out_dir + "/" + ckpt_name + ".pt"
@@ -135,24 +135,34 @@ def test_convert_checkpoint():
 _ParamMapping = {}  # type: Dict[str,str]
 
 def _add_params():
-    pass
-    # for layer_idx in range(4):
-    #     _ParamMapping.update(
-    #         {
-    #             f"lstm_{layer_idx}.ff_weight": f"lstm{layer_idx}/rec/W",
-    #             f"lstm_{layer_idx}.rec_weight": f"lstm{layer_idx}/rec/W_re",
-    #             f"lstm_{layer_idx}.bias": f"lstm{layer_idx}/rec/b",
-    #         }
-    #     )
-    #
-    # _ParamMapping.update(
-    #     {
-    #         "input.weight": "input/W",
-    #         "input_bias": "input/b",
-    #         "output.weight": "output/W",
-    #         "output.bias": "output/b",
-    #     }
-    # )
+    for layer_idx in range(30):
+        _ParamMapping.update(
+            {
+                f"layers.{layer_idx}.ff_conv1.weight": f"dec_{layer_idx}_ff_conv1/W",
+                f"layers.{layer_idx}.ff_conv1.bias": f"dec_{layer_idx}_ff_conv1/b",
+                f"layers.{layer_idx}.ff_conv2.weight": f"dec_{layer_idx}_ff_conv2/W",
+                f"layers.{layer_idx}.ff_conv2.bias": f"dec_{layer_idx}_ff_conv2/b",
+
+                f"layers.{layer_idx}.ff_layer_norm.scale": f"dec_{layer_idx}_ff_laynorm/scale",
+                f"layers.{layer_idx}.ff_layer_norm.bias": f"dec_{layer_idx}_ff_laynorm/bias",
+
+                f"layers.{layer_idx}.self_att.qkv.weight": f"dec_{layer_idx}_self_att_att/QKV",
+                f"layers.{layer_idx}.self_att_lin.weight": f"dec_{layer_idx}_self_att_lin/W",
+                f"layers.{layer_idx}.self_att_layer_norm.scale": f"dec_{layer_idx}_self_att_laynorm/bias",
+                f"layers.{layer_idx}.self_att_layer_norm.bias": f"dec_{layer_idx}_self_att_laynorm/scale",
+            }
+        )
+
+    _ParamMapping.update(
+        {
+            "decoder.scale": "decoder/scale",
+            "decoder.bias": "decoder/bias",
+            "output.weight": "output/W",
+            "output.bias": "output/b",
+            "target_embed_lin.weight": "target_embed_lin/W",
+            "target_embed_raw.weight": "target_embed_raw/W",
+        }
+    )
 
 def _add_params_conformer():
     # frontend
@@ -347,33 +357,35 @@ def map_param_func_trafo_lm(reader, name: str, var: rf.Parameter) -> numpy.ndarr
         return reader.get_tensor(tf_var_name)
 
     if name in _ParamMapping:
-        var_name = _ParamMapping[name]
-        assert reader.has_tensor(var_name)
+        var_name = "output/rec/" + _ParamMapping[name]
+        assert reader.has_tensor(var_name), f"missing {var_name}"
         value = reader.get_tensor(var_name)
         assert isinstance(value, numpy.ndarray)
 
-        if name.endswith(".ff_weight"):
-            print("Old ff:", value[0][0], value[0][2048], value[0][4096], value[0][6144])
-            value = convert_params.convert_tf_lstm_to_torch_lstm_ff(value)
-            print("Convert ff:", value[0][0], value[2048][0], value[4096][0], value[6144][0])
-
-        if name.endswith(".rec_weight"):
-            print("Old rec:", value[0][0], value[0][2048], value[0][4096], value[0][6144])
-            value = convert_params.convert_tf_lstm_to_torch_lstm_rec(value)
-            print("Convert rec:", value[0][0], value[2048][0], value[4096][0], value[6144][0])
 
 
-        if "lstm" in name and name.endswith(".bias"):
-            print("Old bias:", value[0], value[2048], value[4096], value[6144])
-            value = convert_params.convert_tf_lstm_to_torch_lstm_bias(
-                value
-            )
-            print("Convert bias:", value[0], value[2048], value[4096], value[6144])
-
-
-        if (name == "output.weight"):
-            # value = convert_params_np.convert_tf_lstm_to_native_lstm_ff(value)
-            value = value.transpose()
+        # if name.endswith(".ff_weight"):
+        #     print("Old ff:", value[0][0], value[0][2048], value[0][4096], value[0][6144])
+        #     value = convert_params.convert_tf_lstm_to_torch_lstm_ff(value)
+        #     print("Convert ff:", value[0][0], value[2048][0], value[4096][0], value[6144][0])
+        #
+        # if name.endswith(".rec_weight"):
+        #     print("Old rec:", value[0][0], value[0][2048], value[0][4096], value[0][6144])
+        #     value = convert_params.convert_tf_lstm_to_torch_lstm_rec(value)
+        #     print("Convert rec:", value[0][0], value[2048][0], value[4096][0], value[6144][0])
+        #
+        #
+        # if "lstm" in name and name.endswith(".bias"):
+        #     print("Old bias:", value[0], value[2048], value[4096], value[6144])
+        #     value = convert_params.convert_tf_lstm_to_torch_lstm_bias(
+        #         value
+        #     )
+        #     print("Convert bias:", value[0], value[2048], value[4096], value[6144])
+        #
+        #
+        # if (name == "output.weight"):
+        #     # value = convert_params_np.convert_tf_lstm_to_native_lstm_ff(value)
+        #     value = value.transpose()
 
         assert (
             value.shape == var.batch_shape

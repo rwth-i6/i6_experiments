@@ -50,6 +50,7 @@ import numpy
 # E.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
 _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
 _torch_ckpt_filename = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/baseline_23_10_19/average.pt"
+_torch_ckpt_filename_w_trafo_lm = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/baseline_w_trafo_lm_23_12_11/average.pt"
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
 
@@ -95,20 +96,23 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # att + ctc decoding
     new_chkpt_path = tk.Path(
-        _torch_ckpt_filename, hash_overwrite="torch_ckpt"
+        _torch_ckpt_filename_w_trafo_lm, hash_overwrite="torch_ckpt"
     )
     new_chkpt = PtCheckpoint(new_chkpt_path)
     model_with_checkpoint = ModelWithCheckpoint(
         definition=from_scratch_model_def, checkpoint=new_chkpt
     )
     model_args = {
-        "target_embed_dim": 256
+        "target_embed_dim": 256,
+        "add_ted2_trafo_lm": True,
     }
 
     # att only
-    for beam_size in [12, 14, 32]:
+    for beam_size in [12]:
+        lm_scale = 0.3
         search_args = {
             "beam_size": beam_size,
+            "lm_scale": lm_scale
         }
 
         dev_sets = ["dev"]  # only dev-other for testing
@@ -124,7 +128,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         )
         tk.register_output(
             prefix_name
-            + f"/bsf40_att_beam{beam_size}_2"
+            + f"/bsf40_att_trafo_lm{lm_scale}_beam{beam_size}"
             + f"/recog_results",
             res.output,
         )
