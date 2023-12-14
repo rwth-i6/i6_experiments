@@ -133,7 +133,7 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
             output_files=["prior.txt", "prior.xml", "prior.png"],
         )
         nn_prior_job.add_alias("extract_nn_prior/" + name + "/epoch_" + str(epoch))
-        prior_file = nn_prior_job.out_files["prior.txt"]
+        prior_file = nn_prior_job.out_files["prior.xml"]
         return prior_file, prior_config
 
     def nn_recognition(
