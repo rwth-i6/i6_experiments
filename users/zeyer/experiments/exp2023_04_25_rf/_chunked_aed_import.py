@@ -251,7 +251,12 @@ def test_import_forward():
     debug.init_faulthandler()
     better_exchook.install()
 
-    from .chunked_conformer import ChunkedConformerEncoder, ChunkedConformerEncoderLayer, ConformerConvSubsample
+    from .chunked_conformer import (
+        ChunkedConformerEncoder,
+        ChunkedConformerEncoderLayer,
+        ChunkedRelPosSelfAttention,
+        _mem_chunks,
+    )
     from pprint import pprint
 
     # Pick some layers to check outputs for equality.
@@ -265,6 +270,7 @@ def test_import_forward():
         "conformer_block_01_ffmod_1_drop2": (ChunkedConformerEncoderLayer.__call__, 0, "x_ffn1", 0),
         "conformer_block_01_ffmod_1_res": (ChunkedConformerEncoderLayer.__call__, 0, "x_ffn1_out", 0),
         "conformer_block_01_self_att_ln": (ChunkedConformerEncoderLayer.__call__, 0, "x_mhsa_ln", 0),
+        # "conformer_block_01_self_att_ln_K_H": (ChunkedRelPosSelfAttention.__call__, 0, "k", 0),
         "conformer_block_01_self_att_linear": (ChunkedConformerEncoderLayer.__call__, 0, "x_mhsa", 0),
         "conformer_block_01_self_att_res": (ChunkedConformerEncoderLayer.__call__, 0, "x_mhsa_out", 0),
         "conformer_block_01_conv_mod_res": (ChunkedConformerEncoderLayer.__call__, 0, "x_conv_out", 0),
@@ -429,14 +435,7 @@ def test_import_forward():
 
     print("*** Forwarding with tracing ...")
 
-    funcs_to_trace_list = [
-        Model.encode,
-        Model.decode_logits,
-        ChunkedConformerEncoder.__call__,
-        ChunkedConformerEncoderLayer.__call__,
-        ConformerConvSubsample.__call__,
-        from_scratch_training,
-    ]
+    funcs_to_trace_list = [func for (func, _, _, _) in _layer_mapping.values()]
     code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
     captured_tensors = {}  # func -> (list of calls) -> tensor local name -> (list of versions) -> tensor
 

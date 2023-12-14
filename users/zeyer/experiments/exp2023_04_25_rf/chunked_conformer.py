@@ -348,11 +348,40 @@ class ChunkedRelPosSelfAttention(rf.RelPosSelfAttention):
         q_with_bias_u = (q + self.pos_bias_u) if self.pos_bias_u is not None else q  # (batch, head, time1, d_k)
         q_with_bias_v = (q + self.pos_bias_v) if self.pos_bias_v is not None else q  # (batch, head, time1, d_k)
 
+        # TODO actually wrong...! but wrong just like in orig cfg? should be end_chunk_size_dim?
+        query_offset = self.chunk_history * axis.dimension
+
+        if True:  # inefficient but simpler
+            pos_emb = self.learned_pos_emb.full_matrix(
+                query_spatial_dim=axis, key_value_spatial_dim=hist_dim_, query_offset=query_offset
+            )
+
+            matrix_ac = rf.matmul(q_with_bias_u, k, reduce=self.key_dim_per_head)  # (batch, head, time1, time2)
+            matrix_bd = rf.matmul(q_with_bias_v, pos_emb, reduce=self.key_dim_per_head)  # (batch, head, time1, time2)
+
+            scores = matrix_ac + matrix_bd  # (batch, head, time1, time2)
+            scores *= self.key_dim_per_head.dimension**-0.5
+
+            att_weights = rf.softmax(scores, axis=hist_dim_)
+            att_weights = rf.dropout(att_weights, self.att_dropout, axis=self.att_dropout_broadcast and hist_dim_)
+            # Masking not needed because softmax should already have masked,
+            # so we have 0.0 att weights for padded frames.
+            att = rf.matmul(att_weights, v, reduce=hist_dim_, use_mask=False)
+            output, _ = rf.merge_dims(att, dims=(self.num_heads, self.value_dim_per_head), out_dim=self.value_dim_total)
+            if self.proj:
+                output = self.proj(output)
+            return output
+
         if self.learned_pos_emb is not None:
-            pos_emb, pos_emb_spatial_dim = self.learned_pos_emb(query_spatial_dim=axis, key_value_spatial_dim=hist_dim_)
+            pos_emb, pos_emb_spatial_dim = self.learned_pos_emb(
+                query_spatial_dim=axis, key_value_spatial_dim=hist_dim_, query_offset=query_offset
+            )
         else:
             pos_emb, pos_emb_spatial_dim = rf.relative_positional_encoding(
-                query_spatial_dim=axis, key_value_spatial_dim=hist_dim_, feat_dim=self.pos_emb_feat_dim
+                query_spatial_dim=axis,
+                key_value_spatial_dim=hist_dim_,
+                feat_dim=self.pos_emb_feat_dim,
+                query_offset=query_offset,
             )
         if self.pos_emb_dropout:
             pos_emb = rf.dropout(pos_emb, self.pos_emb_dropout)
