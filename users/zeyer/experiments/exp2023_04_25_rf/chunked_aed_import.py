@@ -298,7 +298,7 @@ class MakeModel:
                 ff_activation=lambda x: rf.relu(x) ** 2.0,
             ),
             target_dim=target_dim,
-            blank_idx=_get_eos_idx(target_dim),
+            blank_idx=_get_eos_idx(target_dim),  # blank is end-of-chunk (EOC) which is end-of-sequence (EOS)
             bos_idx=_get_bos_idx(target_dim),
             eos_idx=_get_eos_idx(target_dim),
             **extra,
