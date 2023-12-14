@@ -637,10 +637,10 @@ def add_length_model_pos_probs(
         "start": "segment_starts"
       },
       # get the final length model probs by adding the emit log prob with the cum blank log probs
-      "label_sync_pos_prob0": {
+      "label_sync_pos_log_prob0": {
         "class": "eval",
         "from": ["blank_log_prob_cum_sum", "emit_log_prob"],
-        "eval": "tf.math.exp(source(0) + source(1))"
+        "eval": "source(0) + source(1)"
       },
       # set the prob for the invalid positions to 0.0
       "label_sync_pos_valid_start_idx": {
@@ -650,7 +650,7 @@ def add_length_model_pos_probs(
       },
       "label_sync_pos_range": {
         "class": "range_in_axis",
-        "from": "label_sync_pos_prob0",
+        "from": "label_sync_pos_log_prob0",
         "axis": att_t_dim_tag
       },
       "label_sync_pos_valid_mask": {
@@ -658,19 +658,32 @@ def add_length_model_pos_probs(
         "from": ["label_sync_pos_range", "label_sync_pos_valid_start_idx"],
         "kind": "greater_equal"
       },
-      "label_sync_pos_prob": {
+      "label_sync_pos_log_prob": {
         "class": "switch",
         "condition": "label_sync_pos_valid_mask",
-        "true_from": "label_sync_pos_prob0",
+        "true_from": "label_sync_pos_log_prob0",
         "false_from": CodeWrapper('float("-inf")')
       },
-      # normalize with softmax
-      "label_sync_pos_prob_norm": {
-        "class": "softmax_over_spatial",
-        "from": "label_sync_pos_prob",
-        "axis": att_t_dim_tag,
-      },
     })
+
+    if use_normalization:
+      # normalize with softmax
+      network[rec_layer_name]["unit"].update({
+        "label_sync_pos_prob": {
+          "class": "softmax_over_spatial",
+          "from": "label_sync_pos_log_prob",
+          "axis": att_t_dim_tag
+        }
+      })
+    else:
+      # just use exp without normalization
+      network[rec_layer_name]["unit"].update({
+        "label_sync_pos_prob": {
+          "class": "activation",
+          "from": "label_sync_pos_log_prob",
+          "activation": "exp"
+        }
+      })
   else:
     assert rec_layer_name == "output"
     network["length_model_probs"] = {
@@ -800,10 +813,10 @@ def add_length_model_pos_probs(
         "start": "segment_starts"
       },
       # get the final length model probs by adding the emit log prob with the cum blank log probs
-      "label_sync_pos_prob0": {
+      "label_sync_pos_log_prob0": {
         "class": "eval",
         "from": ["blank_log_prob_cum_sum", "accum_emit_log_prob"],
-        "eval": "tf.math.exp(source(0) + source(1))"
+        "eval": "source(0) + source(1)"
       },
       # set the prob for the invalid positions to 0.0
       "label_sync_pos_valid_start_idx": {
@@ -813,7 +826,7 @@ def add_length_model_pos_probs(
       },
       "label_sync_pos_range": {
         "class": "range_in_axis",
-        "from": "label_sync_pos_prob0",
+        "from": "label_sync_pos_log_prob0",
         "axis": att_t_dim_tag
       },
       "label_sync_pos_valid_mask": {
@@ -821,19 +834,32 @@ def add_length_model_pos_probs(
         "from": ["label_sync_pos_range", "label_sync_pos_valid_start_idx"],
         "kind": "greater_equal"
       },
-      "label_sync_pos_prob": {
+      "label_sync_pos_log_prob": {
         "class": "switch",
         "condition": "label_sync_pos_valid_mask",
-        "true_from": "label_sync_pos_prob0",
+        "true_from": "label_sync_pos_log_prob0",
         "false_from": CodeWrapper('float("-inf")')
       },
-      # normalize with softmax
-      "label_sync_pos_prob_norm": {
-        "class": "softmax_over_spatial",
-        "from": "label_sync_pos_prob",
-        "axis": att_t_dim_tag,
-      },
     })
+
+    if use_normalization:
+      # normalize with softmax
+      network[rec_layer_name]["unit"].update({
+        "label_sync_pos_prob": {
+          "class": "softmax_over_spatial",
+          "from": "label_sync_pos_log_prob",
+          "axis": att_t_dim_tag
+        }
+      })
+    else:
+      # just use exp without normalization
+      network[rec_layer_name]["unit"].update({
+        "label_sync_pos_prob": {
+          "class": "activation",
+          "from": "label_sync_pos_log_prob",
+          "activation": "exp"
+        }
+      })
 
 def add_att_weight_interpolation(
         network: Dict, rec_layer_name: str, interpolation_layer_name: str, interpolation_scale: float):
