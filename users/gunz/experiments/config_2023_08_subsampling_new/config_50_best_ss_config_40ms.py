@@ -1298,10 +1298,11 @@ def decode_diphone(
             return returnn_config
 
         base_cfg = search_params[-1]
-        returnn_configs = [
-            (apply_posterior_scales(nn_pch_config, p_c, p_l), f"recog/{p_c}x{p_l}/")
-            for p_c, p_l in itertools.product([0.5, 1.0], [0.5, 1.0])
-        ]
+        # returnn_configs = [
+        #     (apply_posterior_scales(nn_pch_config, p_c, p_l), f"recog/{p_c}x{p_l}/")
+        #     for p_c, p_l in itertools.product([0.5, 1.0], [0.5, 1.0])
+        # ]
+        returnn_configs = [nn_pch_config, ""]
         tdp_geom_values = [round(v, 1) for v in [0.0, *np.geomspace(3.0, 20.0, num=4)]]
         additional_silence_tdps = [
             (0.0, p_f, "infinity", p_e) for p_f, p_e in itertools.product(tdp_geom_values, tdp_geom_values) if p_e > p_f
