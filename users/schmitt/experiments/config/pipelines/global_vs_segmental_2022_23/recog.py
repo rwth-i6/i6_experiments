@@ -29,6 +29,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
 from i6_experiments.users.schmitt.rasr.recognition import RASRDecodingJobParallel
 from i6_experiments.users.schmitt.rasr.convert import RASRLatticeToCTMJob, ConvertCTMBPEToWordsJob
+from i6_experiments.users.schmitt.alignment.alignment import AlignmentRemoveAllBlankSeqsJob
 
 
 class DecodingExperiment(ABC):
@@ -156,10 +157,33 @@ class ReturnnDecodingExperimentV2(DecodingExperiment):
       eval_mode=False
     )
     forward_search_job.add_alias("%s/analysis/forward_recog_dump_seq" % self.alias)
+    search_hdf = forward_search_job.out_default_hdf
+    search_not_all_blank_segments = None
+
+    # remove the alignments, which only consist of blank labels because this leads to errors in the following Forward jobs
+    # temporarily, only do this for selected models to avoid unnecessarily restarting completed jobs
+    for variant in [
+      "no_label_feedback",
+      "non_blank_ctx",
+      "linear_layer",
+      "couple_length_and_label_model",
+      "use_label_model_state",
+      "chunking",
+    ]:
+      if variant in self.alias:
+        remove_all_blank_seqs_job = AlignmentRemoveAllBlankSeqsJob(
+          hdf_align_path=forward_search_job.out_default_hdf,
+          blank_idx=self.config_builder.variant_params["dependencies"].model_hyperparameters.blank_idx,
+          returnn_root=RETURNN_ROOT,
+          returnn_python_exe=self.config_builder.variant_params["returnn_python_exe"],
+        )
+        search_hdf = remove_all_blank_seqs_job.out_align
+        search_not_all_blank_segments = remove_all_blank_seqs_job.out_segment_file
+        break
 
     for hdf_alias, hdf_targets in zip(
             ["ground_truth", "search"],
-            [ground_truth_hdf, forward_search_job.out_default_hdf]
+            [ground_truth_hdf, search_hdf]
     ):
       dump_att_weights(
         self.config_builder,
@@ -179,9 +203,10 @@ class ReturnnDecodingExperimentV2(DecodingExperiment):
       variant_params=self.config_builder.variant_params,
       checkpoint=self.checkpoint,
       ground_truth_hdf_targets=ground_truth_hdf,
-      search_hdf_targets=forward_search_job.out_default_hdf,
+      search_hdf_targets=search_hdf,
       corpus_key=self.corpus_key,
       alias=self.alias,
+      segment_file=search_not_all_blank_segments,
     )
 
 

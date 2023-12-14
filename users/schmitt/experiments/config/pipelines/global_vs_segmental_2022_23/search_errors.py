@@ -11,7 +11,7 @@ from i6_core.returnn.training import Checkpoint
 
 from sisyphus import Path, tk
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 
 def calc_search_errors(
@@ -22,6 +22,7 @@ def calc_search_errors(
         search_hdf_targets: Path,
         corpus_key: str,
         alias: str,
+        segment_file: Optional[Path] = None,
 ):
   forward_jobs = {}
 
@@ -40,6 +41,10 @@ def calc_search_errors(
       "hdf_targets": {corpus_key: search_hdf_targets}
     },
   }  # type: Dict[str, Any]
+
+  if segment_file:
+    dump_scores_opts_ground_truth["dataset_opts"]["segment_paths"] = {corpus_key: segment_file}
+    dump_scores_opts_search["dataset_opts"]["segment_paths"] = {corpus_key: segment_file}
 
   if isinstance(config_builder, SegmentalConfigBuilder):
     dump_scores_opts_ground_truth["use_train_net"] = True
