@@ -17,7 +17,7 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
   for win_size in win_size_list:
     for n_epochs in n_epochs_list:
       for concat_num in concat_num_list:
-        alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_concat_recognition/win-size-%d_%d-epochs" % (
+        alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align/concat_recognition/win-size-%d_%d-epochs" % (
           default_import_model_name, win_size, n_epochs
         )
 

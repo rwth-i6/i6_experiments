@@ -15,5 +15,5 @@ def run_exps():
   global_att.glob_att_import_global_concat_recog()
   global_att.center_window_att_import_global_do_label_sync_search()
   global_att.center_window_att_import_global_do_label_sync_search(
-    win_size_list=(128,), n_epochs_list=(10, 100), weight_feedback_list=(True,), center_window_use_eos=True
+    win_size_list=(1, 5, 9, 33, 129,), n_epochs_list=(10,), weight_feedback_list=(True,), center_window_use_eos=True
   )

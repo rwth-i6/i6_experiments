@@ -14,28 +14,33 @@ def center_window_att_import_global_global_ctc_align_pos_pred_att_weight_interpo
         n_epochs_list: Tuple[int, ...] = (10,),
         const_lr_list: Tuple[float, ...] = (1e-4,),
         pos_pred_scale_list: Tuple[float, ...] = (.5,),
+        use_normalization_list: Tuple[bool, ...] = (True,),
 ):
   for win_size in win_size_list:
     for n_epochs in n_epochs_list:
       for const_lr in const_lr_list:
-        for gauss_scale in pos_pred_scale_list:
-          alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_pos_pred_att_weight_interpolation/win-size-%d_%d-epochs_%f-const-lr/pos_pred_scale-%f" % (
-            default_import_model_name, win_size, n_epochs, const_lr, gauss_scale
-          )
+        for pos_pred_scale in pos_pred_scale_list:
+          for use_normalization in use_normalization_list:
+            alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align/couple_length_and_label_model/pos_pred_att_weight_interpolation/win-size-%d_%d-epochs_%f-const-lr/%s/pos_pred_scale-%f" % (
+              default_import_model_name, win_size, n_epochs, const_lr, "w-normalization" if use_normalization else "wo-normalization", pos_pred_scale
+            )
 
-          config_builder = get_center_window_att_config_builder(
-            win_size=win_size,
-            use_weight_feedback=True,
-            pos_pred_att_weight_interpolation_opts={"pos_pred_scale": gauss_scale},
-            length_model_opts={"use_embedding": False, "layer_class": "lstm"},
-          )
+            config_builder = get_center_window_att_config_builder(
+              win_size=win_size,
+              use_weight_feedback=True,
+              pos_pred_att_weight_interpolation_opts={
+                "pos_pred_scale": pos_pred_scale, "use_normalization": use_normalization
+              },
+              length_model_opts={"use_embedding": False, "layer_class": "lstm"},
+              use_old_global_att_to_seg_att_maker=False,
+            )
 
-          standard_train_recog_center_window_att_import_global(
-            config_builder=config_builder,
-            alias=alias,
-            n_epochs=n_epochs,
-            const_lr=const_lr
-          )
+            standard_train_recog_center_window_att_import_global(
+              config_builder=config_builder,
+              alias=alias,
+              n_epochs=n_epochs,
+              const_lr=const_lr
+            )
 
 
 def center_window_att_import_global_global_ctc_align_expected_position_aux_loss(
@@ -43,46 +48,50 @@ def center_window_att_import_global_global_ctc_align_expected_position_aux_loss(
         n_epochs_list: Tuple[int, ...] = (10,),
         const_lr_list: Tuple[float, ...] = (1e-4,),
         loss_scale_list: Tuple[float, ...] = (1.,),
+        use_normalization_list: Tuple[bool, ...] = (True,),
 ):
   for win_size in win_size_list:
     for n_epochs in n_epochs_list:
       for const_lr in const_lr_list:
         for loss_scale in loss_scale_list:
-          alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_expected_position_aux_loss/win-size-%d_%d-epochs_%f-const-lr/loss_scale-%f" % (
-            default_import_model_name, win_size, n_epochs, const_lr, loss_scale
-          )
+          for use_normalization in use_normalization_list:
+            alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align/couple_length_and_label_model/expected_position_aux_loss/win-size-%d_%d-epochs_%f-const-lr/%s/loss_scale-%f" % (
+              default_import_model_name, win_size, n_epochs, const_lr, "w-normalization" if use_normalization else "wo-normalization", loss_scale
+            )
 
-          train_config_builder = get_center_window_att_config_builder(
-            win_size=win_size,
-            use_weight_feedback=True,
-            expected_position_aux_loss_opts={"loss_scale": loss_scale},
-            length_model_opts={"use_embedding": False, "layer_class": "lstm"},
-          )
-          train_exp = SegmentalTrainExperiment(
-            config_builder=train_config_builder,
-            alias=alias,
-            n_epochs=n_epochs,
-            import_model_train_epoch1=external_checkpoints[default_import_model_name],
-            align_targets=ctc_aligns.global_att_ctc_align.ctc_alignments,
-            lr_opts={
-              "type": "const_then_linear",
-              "const_lr": const_lr,
-              "const_frac": 1 / 3,
-              "final_lr": 1e-6,
-              "num_epochs": n_epochs
-            },
-          )
-          checkpoints, model_dir, learning_rates = train_exp.run_train()
+            train_config_builder = get_center_window_att_config_builder(
+              win_size=win_size,
+              use_weight_feedback=True,
+              expected_position_aux_loss_opts={"loss_scale": loss_scale, "use_normalization": use_normalization},
+              length_model_opts={"use_embedding": False, "layer_class": "lstm"},
+              use_old_global_att_to_seg_att_maker=False,
+            )
+            train_exp = SegmentalTrainExperiment(
+              config_builder=train_config_builder,
+              alias=alias,
+              n_epochs=n_epochs,
+              import_model_train_epoch1=external_checkpoints[default_import_model_name],
+              align_targets=ctc_aligns.global_att_ctc_align.ctc_alignments,
+              lr_opts={
+                "type": "const_then_linear",
+                "const_lr": const_lr,
+                "const_frac": 1 / 3,
+                "final_lr": 1e-6,
+                "num_epochs": n_epochs
+              },
+            )
+            checkpoints, model_dir, learning_rates = train_exp.run_train()
 
-          recog_config_builder = get_center_window_att_config_builder(
-            win_size=win_size,
-            use_weight_feedback=True,
-            length_model_opts={"use_embedding": False, "layer_class": "lstm"},
-          )
-          recog_center_window_att_import_global(
-            alias=alias,
-            config_builder=recog_config_builder,
-            checkpoint=checkpoints[n_epochs],
-            analyse=True,
-            search_corpus_key="dev-other"
-          )
+            recog_config_builder = get_center_window_att_config_builder(
+              win_size=win_size,
+              use_weight_feedback=True,
+              length_model_opts={"use_embedding": False, "layer_class": "lstm"},
+              use_old_global_att_to_seg_att_maker=False,
+            )
+            recog_center_window_att_import_global(
+              alias=alias,
+              config_builder=recog_config_builder,
+              checkpoint=checkpoints[n_epochs],
+              analyse=True,
+              search_corpus_key="dev-other"
+            )

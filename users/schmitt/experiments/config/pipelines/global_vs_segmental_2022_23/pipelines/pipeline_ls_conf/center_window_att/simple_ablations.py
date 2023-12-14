@@ -23,7 +23,7 @@ def center_window_att_import_global_global_ctc_align_baseline(
   for win_size in win_size_list:
     for n_epochs in n_epochs_list:
       for const_lr in const_lr_list:
-        alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_baseline/win-size-%d_%d-epochs_%f-const-lr" % (
+        alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align/simple_ablations/win-size-%d_%d-epochs_%f-const-lr" % (
           default_import_model_name, win_size, n_epochs, const_lr
         )
         config_builder = get_center_window_att_config_builder(
@@ -48,7 +48,7 @@ def center_window_att_import_global_global_ctc_align_no_weight_feedback(
   for win_size in win_size_list:
     for n_epochs in n_epochs_list:
       for const_lr in const_lr_list:
-        alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_no_weight_feedback/win-size-%d_%d-epochs_%f-const-lr/%s" % (
+        alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align/simple_ablations/no_weight_feedback/win-size-%d_%d-epochs_%f-const-lr/%s" % (
           default_import_model_name, win_size, n_epochs, const_lr, "old_seg_att_maker" if use_old_global_att_to_seg_att_maker else "new_seg_att_maker"
         )
         config_builder = get_center_window_att_config_builder(
@@ -73,7 +73,7 @@ def center_window_att_import_global_global_ctc_align_only_train_length_model(
   for win_size in win_size_list:
     for n_epochs in n_epochs_list:
       for const_lr in const_lr_list:
-        alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_only_train_length_model/win-size-%d_%d-epochs_%f-const-lr" % (
+        alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align/simple_ablations/only_train_length_model/win-size-%d_%d-epochs_%f-const-lr" % (
           default_import_model_name, win_size, n_epochs, const_lr
         )
         config_builder = get_center_window_att_config_builder(
@@ -116,7 +116,7 @@ def center_window_att_import_global_global_ctc_align_no_weight_feedback_rasr_rec
   for win_size in win_size_list:
     for n_epochs in n_epochs_list:
       for const_lr in const_lr_list:
-        alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align/win-size-%d_%d-epochs_%f-const-lr" % (
+        alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align/simple_ablations/rasr_recog/win-size-%d_%d-epochs_%f-const-lr" % (
           default_import_model_name, win_size, n_epochs, const_lr
         )
         config_builder = get_center_window_att_config_builder(

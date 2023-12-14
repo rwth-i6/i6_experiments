@@ -10,7 +10,7 @@ def center_window_att_import_global_global_ctc_align_no_finetuning(
         win_size_list: Tuple[int, ...] = (128,),
 ):
   for win_size in win_size_list:
-    alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_no_finetuning/win-size-%d" % (
+    alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align/no_finetuning/random_init_length_model/win-size-%d" % (
       default_import_model_name, win_size
     )
     config_builder = get_center_window_att_config_builder(
@@ -32,7 +32,7 @@ def center_window_att_import_global_global_ctc_align_no_finetuning_no_length_mod
         win_size_list: Tuple[int, ...] = (128,),
 ):
   for win_size in win_size_list:
-    alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_no_finetuning_no_length_model/win-size-%d" % (
+    alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align/no_finetuning/no_length_model/win-size-%d" % (
       default_import_model_name, win_size
     )
     config_builder = get_center_window_att_config_builder(
@@ -56,7 +56,7 @@ def center_window_att_import_global_global_ctc_align_no_finetuning_no_length_mod
 ):
   for win_size in win_size_list:
     for blank_penalty in (0.01, 0.05, 0.1, 0.2, 0.3, 0.4):
-      alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_no_finetuning_no_length_model_blank_penalty/win-size-%d_penalty-%f" % (
+      alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align/no_finetuning/no_length_model_blank_penalty/win-size-%d_penalty-%f" % (
         default_import_model_name, win_size, blank_penalty
       )
       config_builder = get_center_window_att_config_builder(

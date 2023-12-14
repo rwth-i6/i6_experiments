@@ -21,7 +21,7 @@ def center_window_att_import_global_global_ctc_align_att_weight_penalty_recog(
                 0.005, #0.01, 0.02, 0.03, 0.04, 0.05
         ):
           for exp_weight in (2.0,):
-            alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_att_weight_penalty_recog/win-size-%d_%d-epochs_%f-const-lr/mult-weight-%f_exp-weight-%f" % (
+            alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align/att_weight_penalty/penalty_only_in_recog/win-size-%d_%d-epochs_%f-const-lr/mult-weight-%f_exp-weight-%f" % (
               default_import_model_name, win_size, n_epochs, const_lr, mult_weight, exp_weight
             )
 
@@ -91,7 +91,7 @@ def center_window_att_import_global_global_ctc_align_att_weight_penalty_train(
         for mult_weight in mult_weight_list:
           for exp_weight in exp_weight_list:
             for loss_scale in loss_scale_list:
-              alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_att_weight_penalty_train/win-size-%d_%d-epochs_%f-const-lr/mult-weight-%f_exp-weight-%f/loss-scale-%f" % (
+              alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align/att_weight_penalty/penalty_in_train/win-size-%d_%d-epochs_%f-const-lr/mult-weight-%f_exp-weight-%f/loss-scale-%f" % (
                 default_import_model_name, win_size, n_epochs, const_lr, mult_weight, exp_weight, loss_scale
               )
 

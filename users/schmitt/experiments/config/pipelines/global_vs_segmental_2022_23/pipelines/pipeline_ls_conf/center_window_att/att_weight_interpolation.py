@@ -23,7 +23,7 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
         for std in std_list:
           for gauss_scale in gauss_scale_list:
             for dist_type in dist_type_list:
-              alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_gaussian_att_weight_interpolation/win-size-%d_%d-epochs_%f-const-lr/%s/std-%f_scale-%f" % (
+              alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align/att_weight_interpolation/win-size-%d_%d-epochs_%f-const-lr/%s/std-%f_scale-%f" % (
                 default_import_model_name, win_size, n_epochs, const_lr, dist_type, std, gauss_scale
               )
 
@@ -53,14 +53,15 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
       for const_lr in const_lr_list:
         for std in std_list:
           for gauss_scale in gauss_scale_list:
-            alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align_gaussian_att_weight_interpolation_plus_att_weight_recog_penalty/win-size-%d_%d-epochs_%f-const-lr/std-%f_gauss_scale-%f" % (
-              default_import_model_name, win_size, n_epochs, const_lr, std, gauss_scale
+            dist_type = "gauss_double_exp_clipped"
+            alias = "models/ls_conformer/import_%s/center-window_att_global_ctc_align/att_weight_interpolation_plus_att_weight_recog_penalty/win-size-%d_%d-epochs_%f-const-lr/%s/std-%f_gauss_scale-%f" % (
+              default_import_model_name, win_size, n_epochs, const_lr, dist_type, std, gauss_scale
             )
 
             train_config_builder = get_center_window_att_config_builder(
               win_size=win_size,
               use_weight_feedback=True,
-              gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale, "dist_type": "gauss_double_exp_clipped"}
+              gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale, "dist_type": dist_type}
             )
             train_exp = SegmentalTrainExperiment(
               config_builder=train_config_builder,
