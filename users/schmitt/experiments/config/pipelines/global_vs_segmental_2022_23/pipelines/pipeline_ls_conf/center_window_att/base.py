@@ -43,7 +43,9 @@ def get_center_window_att_config_builder(
   variant_params["network"]["search_remove_eos"] = search_remove_eos
 
   if length_model_opts:
-    variant_params["network"]["length_model_opts"] = copy.deepcopy(length_model_opts)
+    # make sure that we do not add any params which are not present in the defaults
+    assert set(length_model_opts.keys()).issubset(set(variant_params["network"]["length_model_opts"].keys()))
+    variant_params["network"]["length_model_opts"].update(length_model_opts)
 
   config_builder = LibrispeechConformerSegmentalAttentionConfigBuilder(
     dependencies=variant_params["dependencies"],
@@ -130,6 +132,8 @@ def standard_train_recog_center_window_att_import_global(
         alias: str,
         n_epochs: int,
         const_lr: float,
+        chunking_opts: Optional[Dict[str, int]] = None,
+        att_weight_seq_tags: Optional[List[str]] = None,
 ):
   train_exp = SegmentalTrainExperiment(
     config_builder=config_builder,
@@ -144,6 +148,7 @@ def standard_train_recog_center_window_att_import_global(
       "final_lr": 1e-6,
       "num_epochs": n_epochs
     },
+    chunking_opts=chunking_opts,
   )
   checkpoints, model_dir, learning_rates = train_exp.run_train()
 
@@ -152,5 +157,6 @@ def standard_train_recog_center_window_att_import_global(
     config_builder=config_builder,
     checkpoint=checkpoints[n_epochs],
     analyse=True,
-    search_corpus_key="dev-other"
+    search_corpus_key="dev-other",
+    att_weight_seq_tags=att_weight_seq_tags,
   )

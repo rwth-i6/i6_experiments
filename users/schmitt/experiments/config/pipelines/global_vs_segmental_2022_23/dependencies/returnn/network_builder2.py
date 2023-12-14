@@ -450,7 +450,7 @@ def get_output_log_prob(output_prob_layer_name: str):
   }
 
 
-def add_center_positions(network: Dict):
+def add_center_positions(network: Dict, segment_lens_starts_layer_name: str):
   """
   For center-window models, add a layer returning the center position of the windows.
   This is defined as "segment_starts1" + "segment_lens1".
@@ -460,7 +460,7 @@ def add_center_positions(network: Dict):
   :param network:
   :return:
   """
-  network["output"]["unit"].update({
+  network[segment_lens_starts_layer_name]["unit"].update({
     "center_positions": {
       "class": "eval",
       "from": ["segment_starts1", "segment_lens1"],
@@ -473,7 +473,7 @@ def add_center_positions(network: Dict):
     network.update({
       "center_positions_masked": {
         "class": "masked_computation",
-        "from": "output/center_positions",
+        "from": "%s/center_positions" % segment_lens_starts_layer_name,
         "mask": "is_label",
         "unit": {"class": "copy", "from": "data"},
       },
@@ -546,8 +546,10 @@ def add_att_weights_center_of_gravity(network: Dict, rec_layer_name: str, att_t_
 def add_length_model_pos_probs(
         network: Dict,
         rec_layer_name: str,
+        use_normalization: bool,
         att_t_dim_tag: CodeWrapper,
-        blank_log_prob_dim_tag: CodeWrapper
+        blank_log_prob_dim_tag: CodeWrapper,
+        segment_lens_starts_layer_name: str,
 ):
   """
   For segmental models, add a layer which, for each frame in a segment, computes the length model probability of this
@@ -559,11 +561,11 @@ def add_length_model_pos_probs(
   """
   # for now, this is only implemented for the case that the length model is independent of alignment/label context
   # otherwise this cannot be implemented in an efficient way
-  if network["output"]["unit"]["s"]["from"] != ["am"]:
+  if network["output"]["unit"]["s_length_model"]["from"] != ["am"]:
     raise NotImplementedError
 
-  add_abs_segment_positions(network, rec_layer_name)
-  add_center_positions(network)
+  add_abs_segment_positions(network, rec_layer_name, att_t_dim_tag_code_wrapper=att_t_dim_tag)
+  add_center_positions(network, segment_lens_starts_layer_name=segment_lens_starts_layer_name)
 
   network["output"]["unit"]["blank_log_prob"]["is_output_layer"] = True
   network["output"]["unit"]["emit_log_prob"]["is_output_layer"] = True
@@ -712,7 +714,7 @@ def add_length_model_pos_probs(
         "emit_prob0": {
           "activation": None,
           "class": "linear",
-          "from": "s",
+          "from": "s_length_model",
           "n_out": 1,
           "name_scope": "/output/rec/emit_prob0"
         },
@@ -720,7 +722,7 @@ def add_length_model_pos_probs(
           "class": "copy",
           "from": "am"
         },
-        "s": {
+        "s_length_model": {
           "L2": 0.0001,
           "class": "rec",
           "dropout": 0.3,
@@ -728,7 +730,7 @@ def add_length_model_pos_probs(
           "n_out": 128,
           "unit": "nativelstm2",
           "unit_opts": {"rec_weight_dropout": 0.3},
-          "name_scope": "/output/rec/s/rec"
+          "name_scope": "/output/rec/s_length_model/rec"
         },
       }
     }
@@ -745,7 +747,6 @@ def add_length_model_pos_probs(
       "axis": "t"
     }
     del network[rec_layer_name]["unit"]["emit_prob0"]
-    del network[rec_layer_name]["unit"]["s"]
     network[rec_layer_name]["unit"].update({
       # get all the blank log probs from the prev center pos to the second last frame of the segment
       "accum_blank_log_prob_size": {

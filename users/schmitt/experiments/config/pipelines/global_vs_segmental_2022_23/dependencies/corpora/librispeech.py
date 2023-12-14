@@ -48,6 +48,7 @@ class LibrispeechCorpora:
         self.corpus_paths_wav[key], returnn_python_exe=RETURNN_EXE_NEW, returnn_root=RETURNN_CURRENT_ROOT
       ) for key in self.corpus_paths_wav
     }
+    tk.register_output("dev-other-wav-oggzip", self.oggzip_paths_wav["dev-other"].out_ogg_zip)
 
     self.stm_jobs = {
       "dev-other": CorpusToStmJob(self.corpus_paths["dev-other"]),
