@@ -464,6 +464,9 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     di_from_mono_cfg.update(di_from_mono_staged_net_cfg)
     di_from_mono_cfg.update(newbob_lr_config)
     di_from_mono_cfg.update(import_mono_config)
+    zero_lr_first_epoch_cfg = returnn.ReturnnConfig(config={"learning_rates": [1e-8, 1e-3]})
+    di_from_mono_fixed_lr_cfg = copy.deepcopy(di_from_mono_cfg)
+    di_from_mono_fixed_lr_cfg.update(zero_lr_first_epoch_cfg)
     tri_from_mono_staged_net_cfg = returnn.ReturnnConfig(
         config={"copy_param_mode": "subset"},
         staged_network_dict={
@@ -503,6 +506,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
 
     configs = [
         (di_from_mono_cfg, returnn_cfg_di, "di-from-mono"),
+        (di_from_mono_fixed_lr_cfg, returnn_cfg_di, "di-from-mono-fixedlr"),
         (tri_from_mono_cfg, returnn_cfg_tri, "tri-from-mono"),
         (tri_from_di_cfg, returnn_cfg_tri, "tri-from-di"),
         (tri_from_di_fa_cfg, returnn_cfg_tri, "tri-from-di-fa-newbob"),
@@ -574,6 +578,10 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
 
     di_from_mono_newbob_train_job = s.experiments["fh-di-from-mono"]["train_job"]
     import_di_from_mono_newbob_config = import_config(
+        di_from_mono_newbob_train_job.out_checkpoints[fine_tune_keep_epochs[-1]]
+    )
+    di_from_mono_fixedlr_newbob_train_job = s.experiments["fh-di-from-mono-fixedlr"]["train_job"]
+    import_di_from_mono_fixedlr_newbob_config = import_config(
         di_from_mono_newbob_train_job.out_checkpoints[fine_tune_keep_epochs[-1]]
     )
     di_from_mono_newbob_best_epoch_job = returnn.GetBestTFCheckpointJob(
@@ -732,6 +740,8 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     returnn_cfg_di_from_mono_ft_constlr.update(batch_size_config)
     returnn_cfg_di_from_mono_ft_constlr.update(constant_linear_decrease_lr_config)
     returnn_cfg_di_from_mono_ft_constlr.update(import_di_from_mono_newbob_config)
+    returnn_cfg_di_from_mono_fixedlr_ft_constlr = copy.deepcopy(returnn_cfg_di_from_mono_ft_constlr)
+    returnn_cfg_di_from_mono_fixedlr_ft_constlr.update(import_di_from_mono_fixedlr_newbob_config)
 
     tri_ft_sys = copy.deepcopy(s)
     tri_ft_sys.lexicon_args["norm_pronunciation"] = False
@@ -844,6 +854,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         # (returnn_cfg_di_sp_ft, returnn_cfg_di, di_ft_sys, "di-fs-sp-constlr"),
         (returnn_cfg_di_fa_ft, returnn_cfg_di, di_ft_sys, "di-fs-fa-constlr"),
         (returnn_cfg_di_from_mono_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-constlr-from-mono"),
+        (returnn_cfg_di_from_mono_fixedlr_ft_constlr, returnn_cfg_di, di_ft_sys, "di-fs-constlr-from-mono-fixedlr"),
         (returnn_cfg_tri_ft_constlr, returnn_cfg_tri_safe, tri_ft_sys, "tri-fs-constlr"),
         (returnn_cfg_tri_from_di_ft_constlr, returnn_cfg_tri_safe, tri_ft_sys, "tri-fs-constlr-from-di"),
         (returnn_cfg_tri_from_di_sel_ft_constlr, returnn_cfg_tri_safe, tri_ft_sys, "tri-sel-fs-constlr-from-di"),
@@ -893,7 +904,8 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
                 epoch=ep,
                 prior_epoch=min(ep, fine_tune_keep_epochs[-2]),
                 tune=ep == fine_tune_keep_epochs[-1],
-                tune_extremely=ep == fine_tune_keep_epochs[-1] and name in ["di-fs-constlr-from-mono"],
+                tune_extremely=ep == fine_tune_keep_epochs[-1]
+                and name in ["di-fs-constlr-from-mono", "di-fs-constlr-from-mono-fixedlr"],
             )
         elif key.startswith("fh-tri"):
             decode_triphone(
