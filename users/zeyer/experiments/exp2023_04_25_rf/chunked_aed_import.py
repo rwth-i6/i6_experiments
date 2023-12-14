@@ -766,7 +766,9 @@ def model_recog(
         ended = rf.logical_or(
             ended,
             rf.logical_and(
-                target == model.blank_idx, decoder_state.chunk_idx == chunked_time_dim.get_size_tensor() - 1
+                target == model.blank_idx,
+                decoder_state.chunk_idx
+                == chunked_time_dim.get_dyn_size_ext_for_device(decoder_state.chunk_idx.device) - 1,
             ),
         )
         ended = rf.logical_or(ended, rf.copy_to_device(i >= max_seq_len))
