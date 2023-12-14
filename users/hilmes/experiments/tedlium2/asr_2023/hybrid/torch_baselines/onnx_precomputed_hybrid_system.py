@@ -225,7 +225,8 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                     lmgc_scorer = rasr.GMMFeatureScorer(tmp_acoustic_mixture_path)
                     scorer = rasr.PrecomputedHybridFeatureScorer(
                         prior_mixtures=tmp_acoustic_mixture_path,
-                        priori_scale=prior_file,
+                        prior_file=prior_file,
+                        priori_scale=prior
                     )
                 else:
                     assert acoustic_mixture_path is not None, "need mixtures if no nn prior is computed"
