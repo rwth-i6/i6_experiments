@@ -705,7 +705,15 @@ def test_import_search():
     print(pt_checkpoint_path)
 
     print("*** Create new model")
-    new_model = MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
+    new_model = MakeModel.make_model(
+        in_dim,
+        target_dim,
+        num_enc_layers=num_layers,
+        chunk_stride=120,
+        chunk_history=2,
+        input_chunk_size_dim=Dim(210, name="input-chunk-size"),
+        end_chunk_size_dim=Dim(20, name="sliced-chunk-size"),
+    )
 
     from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
 
@@ -762,8 +770,8 @@ def _tf_split_batch(x: Tensor) -> Tensor:
 # `py` is the default sis config function name. so when running this directly, run the import test.
 # So you can just run:
 # `sis m recipe/i6_experiments/users/zeyer/experiments/....py`
-# py = test_import_search
-py = test_import_forward
+py = test_import_search
+# py = test_import_forward
 
 
 # Another way to start this:
