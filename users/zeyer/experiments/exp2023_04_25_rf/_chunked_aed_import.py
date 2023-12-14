@@ -270,7 +270,7 @@ def test_import_forward():
         "conformer_block_01_conv_mod_res": (ChunkedConformerEncoderLayer.__call__, 0, "x_conv_out", 0),
         "conformer_block_01_ffmod_2_res": (ChunkedConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
         "conformer_block_01": (ChunkedConformerEncoderLayer.__call__, 1, "inp", 0),
-        "encoder": (Model.encode, 0, "enc", 0),
+        "encoder": (Model.encode, 0, "enc", -1),
         "enc_ctx": (Model.encode, 0, "enc_ctx", 0),
         "output/prev:target_embed": (from_scratch_training, 0, "input_embeddings", -1),
         # Note: Some of these commented-out checks are not available anymore because we cleaned up the code.
@@ -323,6 +323,7 @@ def test_import_forward():
     from returnn.tensor.utils import tensor_dict_fill_random_numpy_
     from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
     from returnn.tf.network import TFNetwork
+    from returnn.tf.util import basic as tf_util
     import tensorflow as tf
     import numpy.testing
     import tempfile
@@ -343,7 +344,8 @@ def test_import_forward():
 
     tf1 = tf.compat.v1
     with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
-        net = TFNetwork(config=config, train_flag=True)
+        train_flag = tf_util.get_global_train_flag_placeholder()
+        net = TFNetwork(config=config, train_flag=train_flag)
         net.construct_from_dict(config.typed_dict["network"])
         if _load_existing_ckpt_in_test:
             ckpt_path = _get_tf_checkpoint_path()
@@ -362,6 +364,7 @@ def test_import_forward():
         extern_data_tf_raw_dict = net.extern_data.as_raw_tensor_dict()
         assert set(extern_data_tf_raw_dict.keys()) == set(extern_data_numpy_raw_dict.keys())
         feed_dict = {extern_data_tf_raw_dict[k]: extern_data_numpy_raw_dict[k] for k in extern_data_numpy_raw_dict}
+        feed_dict[train_flag] = False
         fetches = net.get_fetches_dict()
         old_model_outputs_data = {}
         for old_layer_name, _ in _layer_mapping.items():
@@ -385,7 +388,9 @@ def test_import_forward():
             target_dim,
             num_enc_layers=num_layers,
             chunk_stride=120,
+            chunk_history=2,
             input_chunk_size_dim=config.typed_dict["input_chunk_size_dim"],
+            end_chunk_size_dim=config.typed_dict["sliced_chunk_size_dim"],
         )
 
     rf.select_backend_torch()

@@ -320,6 +320,8 @@ class Model(rf.Module):
         bos_idx: int,
         input_chunk_size_dim: Dim,
         chunk_stride: int,
+        chunk_history: int,
+        end_chunk_size_dim: Dim,
         enc_aux_logits: Sequence[int] = (),  # layers
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
         enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
@@ -341,6 +343,8 @@ class Model(rf.Module):
         self.in_dim = in_dim
         self.input_chunk_size_dim = input_chunk_size_dim
         self.chunk_stride = chunk_stride
+        self.chunk_history = chunk_history
+        self.end_chunk_size_dim = end_chunk_size_dim
         self.encoder = ChunkedConformerEncoder(
             in_dim,
             enc_model_dim,
@@ -357,6 +361,8 @@ class Model(rf.Module):
             num_heads=enc_att_num_heads,
             dropout=enc_dropout,
             att_dropout=enc_att_dropout,
+            chunk_history=chunk_history,
+            end_chunk_size_dim=end_chunk_size_dim,
         )
 
         self.target_dim = target_dim
@@ -468,6 +474,9 @@ class Model(rf.Module):
             chunked_time_dim=chunked_time_dim,
             collected_outputs=collected_outputs,
         )
+
+        enc, enc_spatial_dim = rf.slice(enc, axis=enc_spatial_dim, size=self.end_chunk_size_dim)
+
         enc_ctx = self.enc_ctx(enc)
         return dict(enc=enc, enc_ctx=enc_ctx), enc_spatial_dim, chunked_time_dim
 
