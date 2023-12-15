@@ -36,6 +36,7 @@ def recog_training_exp(
     model: ModelWithCheckpoints,
     recog_def: RecogDef,
     *,
+    search_config: Dict[str, Any] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
     exclude_epochs: Collection[int] = (),
@@ -44,7 +45,13 @@ def recog_training_exp(
     summarize_job = GetBestRecogTrainExp(
         exp=model,
         recog_and_score_func=_RecogAndScoreFunc(
-            prefix_name, task, model, recog_def, search_post_config=search_post_config, search_mem_rqmt=search_mem_rqmt
+            prefix_name,
+            task,
+            model,
+            recog_def,
+            search_config=search_config,
+            search_post_config=search_post_config,
+            search_mem_rqmt=search_mem_rqmt,
         ),
         main_measure_lower_is_better=task.main_measure_type.lower_is_better,
         exclude_epochs=exclude_epochs,
@@ -62,6 +69,7 @@ class _RecogAndScoreFunc:
         model: ModelWithCheckpoints,
         recog_def: RecogDef,
         *,
+        search_config: Optional[Dict[str, Any]] = None,
         search_post_config: Optional[Dict[str, Any]] = None,
         search_mem_rqmt: Union[int, float] = 6,
     ):
@@ -70,6 +78,7 @@ class _RecogAndScoreFunc:
         self.task = task
         self.model = model
         self.recog_def = recog_def
+        self.search_config = search_config
         self.search_post_config = search_post_config
         self.search_mem_rqmt = search_mem_rqmt
 
@@ -79,6 +88,7 @@ class _RecogAndScoreFunc:
             self.task,
             model_with_checkpoint,
             self.recog_def,
+            config=self.search_config,
             search_post_config=self.search_post_config,
             search_mem_rqmt=self.search_mem_rqmt,
         )
@@ -93,6 +103,8 @@ class _RecogAndScoreFunc:
         del d["prefix_name"]
         del d["search_post_config"]
         del d["search_mem_rqmt"]
+        if not self.search_config:
+            del d["search_config"]  # compat
         # Not the whole task object is relevant but only some minimal parts.
         task = d.pop("task")
         assert isinstance(task, Task)

@@ -178,7 +178,13 @@ def train_exp(
         distributed_launch_cmd="torchrun" if num_processes else "mpirun",
         time_rqmt=time_rqmt,
     )
-    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog_v2)
+    recog_training_exp(
+        prefix,
+        task,
+        model_with_checkpoint,
+        recog_def=model_recog_v2,
+        search_config={"chunk_opts": config["chunk_opts"]},
+    )
 
     if fine_tune:
         if isinstance(fine_tune, int):
