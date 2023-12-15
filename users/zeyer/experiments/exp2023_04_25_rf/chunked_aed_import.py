@@ -47,7 +47,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     """run the exp"""
     _sis_setup_global_prefix(prefix_name)
 
-    _recog_imported()
+    _recog_imported()  # {"dev-clean": 2.44, "dev-other": 6.38, "test-clean": 2.66, "test-other": 6.33}
 
     # train_exp("from-scratch-train", config_24gb)
 
