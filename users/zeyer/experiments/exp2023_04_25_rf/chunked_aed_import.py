@@ -48,16 +48,25 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     _sis_setup_global_prefix(prefix_name)
 
     _recog_imported()  # {"dev-clean": 2.44, "dev-other": 6.38, "test-clean": 2.66, "test-other": 6.33}
+    # recog default opts:
+    #     chunk_opts=dict(
+    #         chunk_stride=120,
+    #         chunk_history=2,
+    #         input_chunk_size=210,
+    #         end_chunk_size=20,
+    #     ),
 
-    train_exp("chunk-bs15k", config_24gb)
-
+    train_exp("chunk-C20-R15-H2-bs15k", config_24gb)
+    train_exp("chunk-C20-R15-H2-bs22k", config_24gb, config_updates=_cfg_bs22k)
     train_exp(
-        "chunk-bs22k",
+        "chunk-C10-R5-H4-bs22k",
         config_24gb,
         config_updates={
-            "batch_size": 22_000 * _batch_size_factor,
-            # total steps after 2000 epochs: bs15k: ~2608k, bs30k: ~1305k, est: bs22k: ~2000k
-            "learning_rate_piecewise_steps": [900_000, 1_800_000, 1_999_000],
+            "chunk_opts.chunk_stride": 60,
+            "chunk_opts.chunk_history": 4,
+            "chunk_opts.input_chunk_size": 90,
+            "chunk_opts.end_chunk_size": 10,
+            **_cfg_bs22k,
         },
     )
 
@@ -277,6 +286,12 @@ post_config = dict(
     cleanup_old_models=dict(keep_last_n=5),
     torch_dataloader_opts=dict(num_workers=1),
 )
+
+_cfg_bs22k = {
+    "batch_size": 22_000 * _batch_size_factor,
+    # total steps after 2000 epochs: bs15k: ~2608k, bs30k: ~1305k, est: bs22k: ~2000k
+    "learning_rate_piecewise_steps": [900_000, 1_800_000, 1_999_000],
+}
 
 
 class MakeModel:
