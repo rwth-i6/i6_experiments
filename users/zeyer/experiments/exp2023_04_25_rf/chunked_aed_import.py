@@ -109,7 +109,7 @@ def _recog(name: str, model_with_checkpoint: ModelWithCheckpoint, config: Option
 
     task = _get_ls_task()
 
-    res = recog_model(task, model_with_checkpoint, model_recog, config=config)
+    res = recog_model(task, model_with_checkpoint, model_recog_v2, config=config)
     tk.register_output(_sis_prefix + "/" + name, res.output)
 
 
@@ -159,7 +159,7 @@ def train_exp(
         distributed_launch_cmd="torchrun" if num_processes else "mpirun",
         time_rqmt=time_rqmt,
     )
-    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
+    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog_v2)
 
     if fine_tune:
         if isinstance(fine_tune, int):
@@ -207,7 +207,7 @@ def train_exp(
                 gpu_mem=gpu_mem,
             )
             # _recog(name + suffix + "/recog/last", finetune_model_with_ckpt.get_last_fixed_epoch())
-            recog_training_exp(prefix + suffix, task, finetune_model_with_ckpt, recog_def=model_recog)
+            recog_training_exp(prefix + suffix, task, finetune_model_with_ckpt, recog_def=model_recog_v2)
 
     return model_with_checkpoint
 
@@ -725,7 +725,7 @@ from_scratch_training: TrainDef[Model]
 from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
 
 
-def model_recog(
+def model_recog_v2(
     *,
     model: Model,
     data: Tensor,
@@ -745,12 +745,16 @@ def model_recog(
         out_spatial_dim,
         final beam_dim
     """
+    from returnn.config import get_global_config
+
+    config = get_global_config(return_empty_if_none=True)
+
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim, chunked_time_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    beam_size = 12
-    length_normalization_exponent = 1.0  # TODO none here?
+    beam_size = config.int("beam_size", 12)
+    length_normalization_exponent = config.float("length_normalization_exponent", 0.0)
     if max_seq_len is None:
-        max_seq_len = enc_spatial_dim.get_size_tensor()
+        max_seq_len = enc_spatial_dim.get_size_tensor() * chunked_time_dim.get_size_tensor()
     else:
         max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
     print("** max seq len:", max_seq_len.raw_tensor)

@@ -14,7 +14,7 @@ from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpoi
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, batch_dim, TensorDict
 
-from .chunked_aed_import import Model, MakeModel, from_scratch_training, model_recog
+from .chunked_aed_import import Model, MakeModel, from_scratch_training, model_recog_v2
 from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 
 # libri: C=20, R=15:
@@ -738,7 +738,7 @@ def test_import_search():
 
     with torch.no_grad():
         with rf.set_default_device_ctx("cuda"):
-            seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
+            seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog_v2(
                 model=new_model,
                 data=extern_data["audio_features"],
                 data_spatial_dim=time_dim,
