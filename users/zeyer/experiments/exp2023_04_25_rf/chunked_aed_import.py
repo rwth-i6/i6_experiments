@@ -846,7 +846,7 @@ def model_recog(
 # RecogDef API
 model_recog: RecogDef[Model]
 model_recog.output_with_beam = True
-model_recog.output_blank_label = "<eos>"
+model_recog.output_blank_label = "<S>"  # EOC
 model_recog.batch_size_dependent = False
 
 
