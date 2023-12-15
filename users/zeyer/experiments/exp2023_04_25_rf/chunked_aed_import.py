@@ -662,10 +662,11 @@ def from_scratch_training(
                 continue
             linear = getattr(model, f"enc_aux_logits_{layer_idx}")
             aux_logits = linear(collected_outputs[str(layer_idx - 1)])
+            aux_logits, enc_spatial_dim_ = rf.merge_dims(aux_logits, dims=(chunked_time_dim, enc_spatial_dim))
             aux_loss = rf.ctc_loss(
                 logits=aux_logits,
                 targets=targets,
-                input_spatial_dim=enc_spatial_dim,
+                input_spatial_dim=enc_spatial_dim_,
                 targets_spatial_dim=targets_spatial_dim,
                 blank_index=model.blank_idx,
             )
