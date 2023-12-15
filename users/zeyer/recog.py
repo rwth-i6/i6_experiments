@@ -107,6 +107,7 @@ def recog_model(
     model: ModelWithCheckpoint,
     recog_def: RecogDef,
     *,
+    config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
     dev_sets: Optional[Collection[str]] = None,
@@ -123,6 +124,7 @@ def recog_model(
             dataset=dataset,
             model=model,
             recog_def=recog_def,
+            config=config,
             search_post_config=search_post_config,
             search_mem_rqmt=search_mem_rqmt,
             recog_post_proc_funcs=task.recog_post_proc_funcs,
@@ -137,6 +139,7 @@ def search_dataset(
     dataset: DatasetConfig,
     model: ModelWithCheckpoint,
     recog_def: RecogDef,
+    config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
@@ -148,7 +151,9 @@ def search_dataset(
         search_job = ReturnnSearchJobV2(
             search_data=dataset.get_main_dataset(),
             model_checkpoint=model.checkpoint,
-            returnn_config=search_config(dataset, model.definition, recog_def, post_config=search_post_config),
+            returnn_config=search_config(
+                dataset, model.definition, recog_def, config=config, post_config=search_post_config
+            ),
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
             returnn_root=tools_paths.get_returnn_root(),
             output_gzip=True,
@@ -159,7 +164,9 @@ def search_dataset(
     else:
         forward_job = ReturnnForwardJobV2(
             model_checkpoint=model.checkpoint,
-            returnn_config=search_config_v2(dataset, model.definition, recog_def, post_config=search_post_config),
+            returnn_config=search_config_v2(
+                dataset, model.definition, recog_def, config=config, post_config=search_post_config
+            ),
             output_files=[_v2_forward_out_filename],
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
             returnn_root=tools_paths.get_returnn_root(),
@@ -193,6 +200,7 @@ def search_config(
     model_def: ModelDef,
     recog_def: RecogDef,
     *,
+    config: Optional[Dict[str, Any]] = None,
     post_config: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
     """
@@ -205,6 +213,7 @@ def search_config(
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
         dev=dataset.get_main_dataset(),
+        **(config or {}),
     )
 
     extern_data_raw = dataset.get_extern_data()
@@ -276,6 +285,7 @@ def search_config_v2(
     model_def: ModelDef,
     recog_def: RecogDef,
     *,
+    config: Optional[Dict[str, Any]] = None,
     post_config: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
     """
@@ -292,6 +302,7 @@ def search_config_v2(
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
         forward_data=dataset.get_main_dataset(),
+        **(config or {}),
     )
 
     extern_data_raw = dataset.get_extern_data()

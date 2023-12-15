@@ -66,7 +66,7 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
 
 def _recog_imported():
     from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
-    from ._moh_att_2023_06_30_import import map_param_func_v2
+    from ._chunked_aed_import import map_param_func_v2
     from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
     from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
@@ -89,16 +89,27 @@ def _recog_imported():
     new_chkpt = PtCheckpoint(new_chkpt_path)
     model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
 
-    _recog("recog_results", model_with_checkpoint)
+    _recog(
+        "recog_results",
+        model_with_checkpoint,
+        config={
+            "chunk_opts": dict(
+                chunk_stride=120,
+                chunk_history=2,
+                input_chunk_size=210,
+                end_chunk_size=20,
+            )
+        },
+    )
 
 
-def _recog(name: str, model_with_checkpoint: ModelWithCheckpoint):
+def _recog(name: str, model_with_checkpoint: ModelWithCheckpoint, config: Optional[Dict[str, Any]] = None):
     from sisyphus import tk
     from i6_experiments.users.zeyer.recog import recog_model
 
     task = _get_ls_task()
 
-    res = recog_model(task, model_with_checkpoint, model_recog)
+    res = recog_model(task, model_with_checkpoint, model_recog, config=config)
     tk.register_output(_sis_prefix + "/" + name, res.output)
 
 
@@ -271,7 +282,28 @@ class MakeModel:
             [str(i) for i in range(target_dim.dimension)], eos_label=self.eos_label
         )
 
-        return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers)
+        from returnn.config import get_global_config
+
+        config = get_global_config(return_empty_if_none=True)
+
+        return self.make_model(
+            in_dim,
+            target_dim,
+            num_enc_layers=self.num_enc_layers,
+            **_transform_chunk_opts(
+                config.typed_value(
+                    "chunk_opts",
+                    dict(
+                        # defaults. usually we would set the chunk_opts, but e.g. for importing the params,
+                        # it does not matter.
+                        chunk_stride=120,
+                        chunk_history=2,
+                        input_chunk_size=210,
+                        end_chunk_size=20,
+                    ),
+                )
+            ),
+        )
 
     @classmethod
     def make_model(
@@ -585,7 +617,11 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
     return MakeModel.make_model(
-        in_dim, target_dim, enc_aux_logits=enc_aux_logits or (), pos_emb_dropout=pos_emb_dropout
+        in_dim,
+        target_dim,
+        enc_aux_logits=enc_aux_logits or (),
+        pos_emb_dropout=pos_emb_dropout,
+        **_transform_chunk_opts(config.typed_value("chunk_opts")),
     )
 
 
@@ -812,3 +848,15 @@ model_recog: RecogDef[Model]
 model_recog.output_with_beam = True
 model_recog.output_blank_label = "<eos>"
 model_recog.batch_size_dependent = False
+
+
+def _transform_chunk_opts(opts: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not opts:
+        opts = {}
+    else:
+        opts = opts.copy()
+    if "input_chunk_size" in opts and "input_chunk_size_dim" not in opts:
+        opts["input_chunk_size_dim"] = Dim(opts.pop("input_chunk_size"), name="input-chunk-size")
+    if "end_chunk_size" in opts and "end_chunk_size_dim" not in opts:
+        opts["end_chunk_size_dim"] = Dim(opts.pop("end_chunk_size"), name="sliced-chunk-size")
+    return opts
