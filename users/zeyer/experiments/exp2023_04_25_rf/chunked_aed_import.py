@@ -49,7 +49,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     _recog_imported()  # {"dev-clean": 2.44, "dev-other": 6.38, "test-clean": 2.66, "test-other": 6.33}
 
-    train_exp("chunk", config_24gb)
+    train_exp("chunk-bs15k", config_24gb)
+
+    train_exp(
+        "chunk-bs22k",
+        config_24gb,
+        config_updates={
+            "batch_size": 22_000 * _batch_size_factor,
+            # total steps after 2000 epochs: bs15k: ~2608k, bs30k: ~1305k, est: bs22k: ~2000k
+            "learning_rate_piecewise_steps": [900_000, 1_800_000, 1_999_000],
+        },
+    )
 
 
 _sis_prefix: Optional[str] = None
