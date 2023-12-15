@@ -848,10 +848,10 @@ def model_recog_v2(
 
 
 # RecogDef API
-model_recog: RecogDef[Model]
-model_recog.output_with_beam = True
-model_recog.output_blank_label = "<s>"  # EOC
-model_recog.batch_size_dependent = False
+model_recog_v2: RecogDef[Model]
+model_recog_v2.output_with_beam = True
+model_recog_v2.output_blank_label = "<s>"  # EOC
+model_recog_v2.batch_size_dependent = False
 
 
 def _transform_chunk_opts(opts: Optional[Dict[str, Any]]) -> Dict[str, Any]:
