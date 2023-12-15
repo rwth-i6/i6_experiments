@@ -235,7 +235,7 @@ config_24gb = dict(
     batching="laplace:.1000",
     torch_amp="bfloat16",
     grad_scaler=None,
-    batch_size=40_000 * _batch_size_factor,
+    batch_size=30_000 * _batch_size_factor,
     accum_grad_multiple_step=2,
     max_seqs=200,
     max_seq_length_default_target=75,
@@ -252,8 +252,8 @@ config_24gb = dict(
     gradient_clip_global_norm=5.0,
     learning_rate=1.0,
     dynamic_learning_rate=dyn_lr_piecewise_linear,
-    # total steps after 2000 epochs: 982.312
-    learning_rate_piecewise_steps=[450_000, 900_000, 982_000],
+    # total steps after 2000 epochs: 1.305.182
+    learning_rate_piecewise_steps=[600_000, 1_200_000, 1_350_000],
     learning_rate_piecewise_values=[1e-5, 1e-3, 1e-5, 1e-6],
     aux_loss_layers=[4, 8],
     chunk_opts=dict(
