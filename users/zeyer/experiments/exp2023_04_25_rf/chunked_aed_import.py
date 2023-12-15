@@ -472,7 +472,7 @@ class Model(rf.Module):
         *,
         in_spatial_dim: Dim,
         collected_outputs: Optional[Dict[str, Tensor]] = None,
-    ) -> Tuple[Dict[str, Tensor], Dim, Dim]:
+    ) -> Tuple[Dict[str, Tensor], Dim, Dim, Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
         # log mel filterbank features
         source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
@@ -512,10 +512,10 @@ class Model(rf.Module):
             collected_outputs=collected_outputs,
         )
 
-        enc, enc_spatial_dim = rf.slice(enc, axis=enc_spatial_dim, size=self.end_chunk_size_dim)
+        enc, enc_spatial_dim_ = rf.slice(enc, axis=enc_spatial_dim, size=self.end_chunk_size_dim)
 
         enc_ctx = self.enc_ctx(enc)
-        return dict(enc=enc, enc_ctx=enc_ctx), enc_spatial_dim, chunked_time_dim
+        return dict(enc=enc, enc_ctx=enc_ctx), enc_spatial_dim_, enc_spatial_dim, chunked_time_dim
 
     def decoder_default_initial_state(self, *, batch_dims: Sequence[Dim], chunked_time_dim: Dim) -> rf.State:
         """Default initial state"""
@@ -653,7 +653,7 @@ def from_scratch_training(
     assert not data.feature_dim  # raw audio
 
     collected_outputs = {}
-    enc_args, enc_spatial_dim, chunked_time_dim = model.encode(
+    enc_args, enc_spatial_dim, aux_enc_spatial_dim, chunked_time_dim = model.encode(
         data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs
     )
     if aux_loss_layers:
@@ -662,6 +662,7 @@ def from_scratch_training(
                 continue
             linear = getattr(model, f"enc_aux_logits_{layer_idx}")
             aux_logits = linear(collected_outputs[str(layer_idx - 1)])
+            aux_logits, _ = rf.slice(aux_logits, axis=aux_enc_spatial_dim, size=model.end_chunk_size_dim)
             aux_logits, enc_spatial_dim_ = rf.merge_dims(aux_logits, dims=(chunked_time_dim, enc_spatial_dim))
             aux_loss = rf.ctc_loss(
                 logits=aux_logits,
@@ -756,7 +757,9 @@ def model_recog_v2(
     config = get_global_config(return_empty_if_none=True)
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-    enc_args, enc_spatial_dim, chunked_time_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    enc_args, enc_spatial_dim, aux_enc_spatial_dim, chunked_time_dim = model.encode(
+        data, in_spatial_dim=data_spatial_dim
+    )
     beam_size = config.int("beam_size", 12)
     length_normalization_exponent = config.float("length_normalization_exponent", 0.0)
     if max_seq_len is None:
