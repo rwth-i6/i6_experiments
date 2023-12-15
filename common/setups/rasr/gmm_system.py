@@ -1407,6 +1407,10 @@ class GmmSystem(RasrSystem):
 
             # ---------- Forced Alignment ----------
             if step_name.startswith("forced_align"):
+                corpus_keys = step_args.pop("corpus_keys", None)
+                assert "corpus_keys" not in step_args.keys() or "train_corpus_keys" not in step_args.keys(), "Please define either corpus_keys or train_corpus_keys, but not both."
+                if corpus_keys:
+                    step_args["train_corpus_keys"] = corpus_keys
                 self.run_forced_align_step(step_args)
 
             # ---------- Only Recognition ----------
