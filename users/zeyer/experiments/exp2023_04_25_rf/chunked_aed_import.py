@@ -18,7 +18,7 @@ from returnn.frontend.tensor_array import TensorArray
 from .chunked_conformer import ChunkedConformerEncoder, ConformerConvSubsample
 
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
-from i6_experiments.users.zeyer.lr_schedules.lin_warmup_invsqrt_decay import dyn_lr_lin_warmup_invsqrt_decay
+from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
@@ -49,7 +49,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     _recog_imported()  # {"dev-clean": 2.44, "dev-other": 6.38, "test-clean": 2.66, "test-other": 6.33}
 
-    # train_exp("from-scratch-train", config_24gb)
+    train_exp("chunk", config_24gb)
 
 
 _sis_prefix: Optional[str] = None
@@ -230,7 +230,7 @@ py = sis_run_with_prefix  # if run directly via `sis m ...`
 
 _batch_size_factor = 160
 
-config_24g = dict(
+config_24gb = dict(
     __gpu_mem=24,
     batching="laplace:.1000",
     torch_amp="bfloat16",
@@ -250,18 +250,23 @@ config_24g = dict(
         ],
     },
     gradient_clip_global_norm=5.0,
-    learning_rate=0.001,
-    dynamic_learning_rate=dyn_lr_lin_warmup_invsqrt_decay,
-    learning_rate_warmup_steps=20_000,
-    learning_rate_invsqrt_norm=20_000,
+    learning_rate=1.0,
+    dynamic_learning_rate=dyn_lr_piecewise_linear,
+    # total steps after 2000 epochs: 982.312
+    learning_rate_piecewise_steps=[450_000, 900_000, 982_000],
+    learning_rate_piecewise_values=[1e-5, 1e-3, 1e-5, 1e-6],
     aux_loss_layers=[4, 8],
+    chunk_opts=dict(
+        chunk_stride=120,
+        chunk_history=2,
+        input_chunk_size=210,
+        end_chunk_size=20,
+    ),
 )
 post_config = dict(
     cleanup_old_models=dict(keep_last_n=5),
     torch_dataloader_opts=dict(num_workers=1),
 )
-
-# TODO lrlin
 
 
 class MakeModel:
