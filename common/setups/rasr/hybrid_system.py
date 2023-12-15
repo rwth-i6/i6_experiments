@@ -375,7 +375,6 @@ class HybridSystem(NnSystem):
         use_epoch_for_compile=False,
         forward_output_layer="output",
         native_ops: Optional[List[str]] = None,
-        acoustic_mixture_path: Optional[tk.Path] = None,
         **kwargs,
     ):
         with tk.block(f"{name}_recognition"):
