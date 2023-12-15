@@ -661,9 +661,10 @@ def from_scratch_training(
             if layer_idx > len(model.encoder.layers):
                 continue
             linear = getattr(model, f"enc_aux_logits_{layer_idx}")
-            aux_logits = linear(collected_outputs[str(layer_idx - 1)])
-            aux_logits, _ = rf.slice(aux_logits, axis=aux_enc_spatial_dim, size=model.end_chunk_size_dim)
-            aux_logits, enc_spatial_dim_ = rf.merge_dims(aux_logits, dims=(chunked_time_dim, enc_spatial_dim))
+            aux_enc: Tensor = collected_outputs[str(layer_idx - 1)]
+            aux_enc, _ = rf.slice(aux_enc, axis=aux_enc_spatial_dim, size=model.end_chunk_size_dim)
+            aux_enc, enc_spatial_dim_ = rf.merge_dims(aux_enc, dims=(chunked_time_dim, enc_spatial_dim))
+            aux_logits = linear(aux_enc)
             aux_loss = rf.ctc_loss(
                 logits=aux_logits,
                 targets=targets,
