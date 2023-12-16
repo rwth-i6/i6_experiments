@@ -1758,3 +1758,20 @@ def run_ctc_att_search():
                 remove_label={"<s>", "<blank>"},  # blanks are removed in the network
                 use_sclite=True,
             )
+
+    # try blank collapse atanas
+    search_args = copy.deepcopy(oclr_args)
+    search_args["decoder_args"] = CTCDecoderArgs(blank_collapse=True)
+    run_decoding(
+        exp_name=f"ctc_greedy_blank_collapse",
+        train_data=train_data,
+        checkpoint=train_job_avg_ckpt[
+            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+        ],
+        search_args=search_args,
+        feature_extraction_net=log10_net_10ms,
+        bpe_size=BPE_10K,
+        test_sets=["dev-other"],
+        remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+        use_sclite=True,
+    )
