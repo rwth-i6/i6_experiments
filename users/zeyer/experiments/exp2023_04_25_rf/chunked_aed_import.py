@@ -291,7 +291,9 @@ config_24gb = dict(
 post_config = dict(
     cleanup_old_models=dict(keep_last_n=5),
     torch_dataloader_opts=dict(num_workers=1),
+    # https://github.com/rwth-i6/returnn/issues/1478
     reset_dev_memory_caches=True,
+    PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True",
 )
 
 _cfg_bs22k = {
