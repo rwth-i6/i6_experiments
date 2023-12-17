@@ -56,19 +56,19 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #         end_chunk_size=20,
     #     ),
 
-    train_exp("chunk-C20-R15-H2-bs15k", config_24gb)
+    # train_exp("chunk-C20-R15-H2-bs15k", config_24gb)
     train_exp("chunk-C20-R15-H2-bs22k", config_24gb, config_updates=_cfg_bs22k)
-    train_exp(
-        "chunk-C10-R5-H4-bs22k",
-        config_24gb,
-        config_updates={
-            "chunk_opts.chunk_stride": 60,
-            "chunk_opts.chunk_history": 4,
-            "chunk_opts.input_chunk_size": 90,
-            "chunk_opts.end_chunk_size": 10,
-            **_cfg_bs22k,
-        },
-    )
+    # train_exp(
+    #     "chunk-C10-R5-H4-bs22k",
+    #     config_24gb,
+    #     config_updates={
+    #         "chunk_opts.chunk_stride": 60,
+    #         "chunk_opts.chunk_history": 4,
+    #         "chunk_opts.input_chunk_size": 90,
+    #         "chunk_opts.end_chunk_size": 10,
+    #         **_cfg_bs22k,
+    #     },
+    # )
 
 
 _sis_prefix: Optional[str] = None
