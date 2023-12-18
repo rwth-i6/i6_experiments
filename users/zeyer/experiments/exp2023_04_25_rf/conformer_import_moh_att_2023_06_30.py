@@ -209,7 +209,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "learning_rate_piecewise_values": [0.0, 1e-3, 1e-5, 1e-6],
         },
     )
-    train_exp(
+    train_exp(  # 5.9
         "base-24gb-v4-lrlin1e_5_450k",
         config_24gb_v4,
         config_updates={
@@ -303,6 +303,50 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
             # total steps after 2000 epochs: 982.312
             "learning_rate_piecewise_steps": [450_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+    )
+    train_exp(  # 5.44
+        "base-24gb-v6-lrlin1e_5_600k",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+    )
+    train_exp(
+        "base-24gb-v6-lrlin1e_5_100k",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [100_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+    )
+    train_exp(
+        "base-24gb-v6-lrlin1e_5_50k",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [50_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+    )
+    train_exp(
+        "base-24gb-v6-lrlin1e_5_20k",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [20_000, 900_000, 982_000],
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
         },
     )
