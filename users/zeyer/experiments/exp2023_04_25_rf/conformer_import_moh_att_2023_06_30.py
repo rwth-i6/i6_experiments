@@ -101,22 +101,22 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_deletes=["torch_amp"],
     )
 
-    train_exp("base-24gb-v2-lr1e_3", config_24gb_v2, config_updates={"learning_rate": 0.001})  # dev-other 7.44
+    train_exp("base-24gb-v2-lr1e_3", config_24gb_v2, config_updates={"learning_rate": 1e-3})  # dev-other 7.44
     train_exp(  # dev-other 7.24
-        "base-24gb-v2-lr1e_3-nogradscaler", config_24gb_v2, config_updates={"learning_rate": 0.001, "grad_scaler": None}
+        "base-24gb-v2-lr1e_3-nogradscaler", config_24gb_v2, config_updates={"learning_rate": 1e-3, "grad_scaler": None}
     )
 
     # base-24gb-v3: diverges at later point
     train_exp(  # 7.01, slightly better than baseline.
         "base-24gb-v3-lr1e_3-wd1e_3",
         config_24gb_v3,
-        config_updates={"learning_rate": 0.001, "optimizer.weight_decay": 0.001},
+        config_updates={"learning_rate": 1e-3, "optimizer.weight_decay": 1e-3},
     )
     train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})  # 7.56
     train_exp(  # dev-other 7.01 (epoch 1964)
         "base-24gb-v3-lr1e_3",
         config_24gb_v3,
-        config_updates={"learning_rate": 0.001},
+        config_updates={"learning_rate": 1e-3},
         fine_tune=[
             # (ep 1280 itself is dev-other 7.34)
             (1280, {"num_epochs": 50}),  # 7.22
@@ -149,12 +149,12 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     train_exp(  # dev/test-other 6.89,7.39 (overfitting on dev? base: dev/test 7.01,7.23). unclear...
         "base-24gb-v3-lr1e_3-lrdecnorm40k",
         config_24gb_v3,
-        config_updates={"learning_rate": 0.001, "learning_rate_invsqrt_norm": 40_000},
+        config_updates={"learning_rate": 1e-3, "learning_rate_invsqrt_norm": 40_000},
     )
     train_exp(  # 6.22 (vs base 7.01, so much better)
         "base-24gb-v3-lr1e_3-specaugorig",
         config_24gb_v3,
-        config_updates={"learning_rate": 0.001},
+        config_updates={"learning_rate": 1e-3},
         config_deletes=[
             "specaugment_num_spatial_mask_factor",
             "specaugment_max_consecutive_feature_dims",
@@ -163,7 +163,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     train_exp(  # 8.21 (vs base 7.01, so lossscalesF is worse)
         "base-24gb-v3-lr1e_3-lossscalesF",
         config_24gb_v3,
-        config_updates={"learning_rate": 0.001, "aux_loss_scales": [0.1, 0.2], "aed_loss_scale": 0.7},
+        config_updates={"learning_rate": 1e-3, "aux_loss_scales": [0.1, 0.2], "aed_loss_scale": 0.7},
     )
 
     train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)  # 7.07 (vs base 7.01, so worse?)
@@ -188,7 +188,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             ],
         },
     )
-    train_exp("base-24gb-v4-lr09e_3", config_24gb_v4, config_updates={"learning_rate": 0.0009})  # 6.99 (vs base 7.07)
+    train_exp("base-24gb-v4-lr09e_3", config_24gb_v4, config_updates={"learning_rate": 0.9e-3})  # 6.99 (vs base 7.07)
     train_exp(  # 7.46 (vs base 7.07, so worse)
         "base-24gb-v4-lrcos",
         config_24gb_v4,
@@ -295,6 +295,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     )
 
     train_exp("base-24gb-v6", config_24gb_v6)  # 6.30
+    train_exp("base-24gb-v6-warmup100k", config_24gb_v6, config_updates={"learning_rate_warmup_steps": 100_000})
     train_exp(  # 5.44
         "base-24gb-v6-lrlin1e_5_450k",
         config_24gb_v6,
@@ -630,7 +631,7 @@ config = dict(
     },
     accum_grad_multiple_step=4,
     # gradient_noise=0.0,
-    learning_rate=0.0025,
+    learning_rate=2.5e-3,
     dynamic_learning_rate=dyn_lr_lin_warmup_invsqrt_decay,
     learning_rate_warmup_steps=40_000,
     learning_rate_invsqrt_norm=40_000,
@@ -647,7 +648,7 @@ config_24gb.update(
         torch_amp="bfloat16",
         batch_size=40_000 * _batch_size_factor,
         accum_grad_multiple_step=2,
-        learning_rate=0.002,
+        learning_rate=2e-3,
         learning_rate_warmup_steps=20_000,
         learning_rate_invsqrt_norm=20_000,
         specaugment_steps=(5_000, 15_000, 25_000),
@@ -667,7 +668,7 @@ config_24gb_v2 = dict_update_deep(
 config_24gb_v3 = config_24gb_v2.copy()
 config_24gb_v3.update(
     dict(
-        learning_rate=0.0025,
+        learning_rate=2.5e-3,
         grad_scaler=None,
         gradient_clip_global_norm=5.0,
     )
@@ -676,7 +677,7 @@ config_24gb_v3.update(
 config_24gb_v4 = dict_update_deep(
     config_24gb_v3,
     {
-        "learning_rate": 0.001,
+        "learning_rate": 1e-3,
         "optimizer.weight_decay_modules_blacklist": [
             "rf.BatchNorm",  # unclear if really good
             "rf.LayerNorm",  # unclear if really good
