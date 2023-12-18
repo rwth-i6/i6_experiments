@@ -348,10 +348,41 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     )
     train_exp(  # 5.53, so better than p10?
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k",
+        # "460": {"dev-clean": 2.37, "dev-other": 5.53, "test-clean": 2.6, "test-other": 5.72},
         # "500": {"dev-clean": 2.36, "dev-other": 5.58, "test-clean": 2.58, "test-other": 5.74}
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
         config_updates={
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},  # multi-GPU
+        },
+    )
+    train_exp(
+        "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-run2",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "torch_distributed": {"reduce_type": "param", "param_sync_step": 100, "run": 2},  # multi-GPU
+        },
+    )
+    train_exp(
+        "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-run3",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "torch_distributed": {"reduce_type": "param", "param_sync_step": 100, "run": 3},  # multi-GPU
+        },
+    )
+    train_exp(
+        "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-lrlin1e_5_295k",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "optimizer.weight_decay": 1e-6,
+            "torch_distributed": {"reduce_type": "param", "param_sync_step": 100, "run": 2},  # multi-GPU
+        },
+    )
+    train_exp(
+        "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_5-lrlin1e_5_295k",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "optimizer.weight_decay": 1e-5,
+            "torch_distributed": {"reduce_type": "param", "param_sync_step": 100, "run": 2},  # multi-GPU
         },
     )
     train_exp(
