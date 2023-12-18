@@ -37,9 +37,14 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     train_exp("chunk-C20-R15-H2-bs22k", config_24gb, config_updates=_cfg_bs22k)
 
     train_exp(
-        "chunk-C20-R15-H2-11gb-f32-bs10k-wrongLr-accgrad1-mgpu4-p100",
+        "chunk-C20-R15-H2-11gb-f32-bs8k-wrongLr-accgrad1-mgpu4-p100",
         config_24gb,
-        config_updates={"__gpu_mem": 11, "batch_size": 10_000 * _batch_size_factor, **_cfg_accgrad1_mgpu4_p100},
+        config_updates={
+            "__gpu_mem": 11,
+            "batch_size": 8_000 * _batch_size_factor,
+            **_cfg_accgrad1_mgpu4_p100,
+            "learning_rate_piecewise_steps": [295_000, 590_000, 652_000],  # TODO...
+        },
         config_deletes=["torch_amp"],  # f32
     )
 
