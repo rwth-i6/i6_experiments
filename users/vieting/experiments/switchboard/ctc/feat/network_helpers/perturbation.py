@@ -58,7 +58,8 @@ class WaveformPerturbation:
             Example: {"prob": 0.9, "minimum": 0.9, "maximum": 1.0}
         :param non_linearity: A dictionary containing parameters for the non-linearity filter.
             - 'prob' (float): The probability of applying the non-linearity filter.
-            - 'alpha' (float): The alpha value for the non-linearity filter.
+            - 'minimum' (float): The minimum non-linearity exponent.
+            - 'maximum' (float): The maximum non-linearity exponent.
         """
         import functools
 
@@ -138,7 +139,7 @@ class WaveformPerturbation:
 
         if random_state.random() < factor.prob:
             alpha = random_state.random() * (factor.max - factor.min) + factor.min
-            audio = np.sign(audio) * np.abs(audio) ** (1 + alpha)
+            audio = np.sign(audio) * np.abs(audio) ** (alpha)
             audio = audio.astype(np.float32)
         return audio
 
