@@ -37,9 +37,9 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     train_exp("chunk-C20-R15-H2-bs22k", config_24gb, config_updates=_cfg_bs22k)
 
     train_exp(
-        "chunk-C20-R15-H2-11gb-f32-bs15k-accgrad1-mgpu4-p100",
+        "chunk-C20-R15-H2-11gb-f32-bs10k-wrongLr-accgrad1-mgpu4-p100",
         config_24gb,
-        config_updates={"__gpu_mem": 11, **_cfg_accgrad1_mgpu4_p100},
+        config_updates={"__gpu_mem": 11, "batch_size": 10_000 * _batch_size_factor, **_cfg_accgrad1_mgpu4_p100},
         config_deletes=["torch_amp"],  # f32
     )
 
@@ -249,7 +249,6 @@ _cfg_accgrad1_mgpu4_p100 = {
     "__num_epochs": 500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
     "accum_grad_multiple_step": 1,
     "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},  # multi-GPU
-    **_cfg_lrlin1e_5_295k,
 }
 
 
