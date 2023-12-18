@@ -306,7 +306,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
         },
     )
-    train_exp(  # 5.44
+    train_exp(
         "base-24gb-v6-lrlin1e_5_600k",
         config_24gb_v6,
         config_updates={
