@@ -139,7 +139,7 @@ class WaveformPerturbation:
 
         if random_state.random() < factor.prob:
             alpha = random_state.random() * (factor.max - factor.min) + factor.min
-            audio = np.sign(audio) * np.abs(audio) ** (alpha)
+            audio = np.sign(audio) * np.abs(audio) ** alpha
             audio = audio.astype(np.float32)
         return audio
 
