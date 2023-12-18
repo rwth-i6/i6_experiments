@@ -856,18 +856,18 @@ def run_scf_audio_perturbation():
         """
 
         key_string = ""
-        report_values = {}
+        report_dict = {}
 
         for key, value in args.items():
 
             if key in ["speed", "tempo", "preemphasis", "non_linearity"]:
                 key_component = f"{key}_{value['prob']}_{value['minimum']}_{value['maximum']}"
                 key_string += key_component
-                report_values[key] = f"{value['prob']}_{value['minimum']}_{value['maximum']}"
+                report_dict[key] = f"{value['prob']}_{value['minimum']}_{value['maximum']}"
             elif key == "codecs":
                 codecs_str = "_".join([f"{codec['encoding']}_{codec['prob']}" for codec in value])
                 key_string += f"{key}_{codecs_str}_"
-                report_values[key] = codecs_str
+                report_dict[key] = codecs_str
             else:
                 raise ValueError(f"Unknown argument name: {key}")
 
