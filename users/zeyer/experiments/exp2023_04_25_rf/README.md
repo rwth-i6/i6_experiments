@@ -3,6 +3,7 @@
   Mostly done now, we get almost same speed as TF?
 * [Check older experiments on Conformer](../exp2022_07_21_transducer/exp_fs_base/README.md),
   example: conformer_ln_pre10_d384_h6_blstmf2_fix245_wdro_specaugweia_attdrop01_posdrop01_aux48ff_mhsapinit05_lsxx01
+* ESPnet example: https://github.com/espnet/espnet/blob/master/egs2/librispeech/asr1/conf/tuning/train_asr_conformer10_hop_length160.yaml
 
 Reference:
 
@@ -93,3 +94,8 @@ TODO model changes:
 - QK Norm (as in QK Norm paper with L2 norm, or as in Scaling ViT paper with LayerNorm)
 - Transformer decoder, probably makes training more stable, reaches better WER without ext LM/ILM
 - Chunked AED
+- LayerNorm no bias
+- check Zipformer, ScaledAdam, etc
+- check E-Branchformer
+- flash attention
+
