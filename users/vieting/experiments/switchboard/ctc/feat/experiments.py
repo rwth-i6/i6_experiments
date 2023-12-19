@@ -832,10 +832,10 @@ def run_scf_audio_perturbation():
         {"preemphasis": {"prob": 1.0, "minimum": 1.0, "maximum": 1.0}},
         {"codecs": [{"encoding": "ULAW", "prob": 0.4}]},
         {"codecs": [{"encoding": "ULAW", "prob": 0.6}]},
-        {"non_linearity": {"prob": 0.4, "minimum": -0.1, "maximum": 0.1}},
-        {"non_linearity": {"prob": 0.4, "minimum": -0.2, "maximum": 0.2}},
-        {"non_linearity": {"prob": 0.6, "minimum": -0.1, "maximum": 0.1}},
-        {"non_linearity": {"prob": 0.6, "minimum": -0.2, "maximum": 0.2}},
+        {"non_linearity": {"prob": 0.4, "minimum": 0.9, "maximum": 1.1}},
+        {"non_linearity": {"prob": 0.4, "minimum": 0.8, "maximum": 1.2}},
+        {"non_linearity": {"prob": 0.6, "minimum": 0.9, "maximum": 1.1}},
+        {"non_linearity": {"prob": 0.6, "minimum": 0.8, "maximum": 1.2}},
     ]
 
     def process_args(args: Dict[str, Any]):
