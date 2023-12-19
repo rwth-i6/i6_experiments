@@ -4,59 +4,10 @@ Config for pre-training experiments on LibriSpeech using wav2vec 2.0.
 import os.path
 
 from sisyphus import tk
-import i6_core.datasets.librispeech as librispeech
-from i6_core.audio.encoding import BlissChangeEncodingJob
 from i6_core.tools.git import CloneGitRepositoryJob
-from i6_experiments.users.engler.fairseq.training import FairseqHydraConfig, FairseqHydraTrainingJob
-from i6_experiments.users.dierkes.preprocessing.wav2vec import FairseqAudioManifestCreationJob
+from i6_core.fairseq.training import FairseqHydraConfig, FairseqHydraTrainingJob
 from .fairseq import SetupFairseqJob
-
-
-def get_manifest(valid_percent=0.001, audio_format="ogg", output_prefix="datasets"):
-    assert audio_format in ["ogg", "wav"], f"audio format not implemented: '{audio_format}'"
-    audio_dirs = {}
-
-    output_prefix = os.path.join(output_prefix, "LibriSpeech")
-
-    download_metadata_job = librispeech.DownloadLibriSpeechMetadataJob()
-    download_metadata_job.add_alias(os.path.join(output_prefix, "download", "metadata_job"))
-    for corpus_name in ["train-clean-100", "train-clean-360", "train-other-500"]:
-        download_corpus_job = librispeech.DownloadLibriSpeechCorpusJob(corpus_key=corpus_name)
-        download_corpus_job.add_alias(os.path.join(output_prefix, "download", corpus_name))
-        create_bliss_corpus_job = librispeech.LibriSpeechCreateBlissCorpusJob(
-            corpus_folder=download_corpus_job.out_corpus_folder,
-            speaker_metadata=download_metadata_job.out_speakers,
-        )
-        create_bliss_corpus_job.add_alias(os.path.join(output_prefix, "create_bliss", corpus_name))
-        audio_format_options = {
-            "wav": {
-                "output_format": "wav",
-                "codec": "pcm_s16le",
-            },
-            "ogg": {"output_format": "ogg", "codec": "libvorbis"},
-        }
-        bliss_change_encoding_job = BlissChangeEncodingJob(
-            corpus_file=create_bliss_corpus_job.out_corpus,
-            sample_rate=16000,
-            **audio_format_options[audio_format],
-        )
-        bliss_change_encoding_job.add_alias(
-            os.path.join(
-                output_prefix,
-                "%s_conversion" % audio_format,
-                corpus_name,
-            )
-        )
-        audio_dirs[corpus_name] = bliss_change_encoding_job.out_audio_folder
-
-    manifest_creation_job = FairseqAudioManifestCreationJob(
-        audio_dir_path=list(audio_dirs.values()),
-        file_extension=audio_format,
-        valid_percent=valid_percent,
-    )
-    manifest_creation_job.rqmt["time"] = 4
-    manifest = manifest_creation_job.out_manifest_path
-    return manifest
+from .config_01_fairseq_main import get_fairseq_args
 
 
 def get_alignment_hdf():
@@ -67,16 +18,46 @@ def get_alignment_hdf():
     returnn_root.hash_overwrite = "TEDLIUM_HYBRID_RETURNN_ROOT"
     from i6_core.returnn.hdf import RasrAlignmentDumpHDFJob
     alignment_caches = [tk.Path(
-        f"/work/asr4/vieting/setups/librispeech/dependencies/alignments/monophone_10ms_phmm/alignment.cache.{idx}",
-        hash_overwrite=f"ls960_monophone_10ms_phmm_alignment_{idx}",
-    ) for idx in range(1, 301)]
+        "/work/asr4/vieting/setups/librispeech/dependencies/alignments/monophone_10ms_gmm_fix/output/"
+        f"alignment.cache.{idx}",
+        hash_overwrite=f"ls960_monophone_10ms_gmm_fix_alignment_{idx}",
+    ) for idx in range(1, 201)]
     allophone_file = tk.Path(
-        "/work/asr4/vieting/setups/librispeech/dependencies/alignments/monophone_10ms_phmm/allophones",
-        hash_overwrite="ls960_monophone_10ms_phmm_allophones",
+        "/work/asr4/vieting/setups/librispeech/dependencies/alignments/monophone_10ms_gmm_fix/dependencies/"
+        "StoreAllophonesJob.68JjXthmrl8y/output/allophones",
+        hash_overwrite="ls960_monophone_10ms_gmm_fix_allophones",
     )
+    # import i6_core.am as am
+    # import i6_core.rasr as rasr
+    # from i6_core.lexicon.allophones import DumpStateTyingJob
+    # from i6_experiments.common.datasets.librispeech import get_bliss_lexicon
+    # from i6_experiments.common.baselines.tedlium2.default_tools import RASR_BINARY_PATH
+    # crp = rasr.CommonRasrParameters()
+    # rasr.crp_add_default_output(crp)
+    # am_args = {
+    #     "state_tying": "monophone",
+    #     "states_per_phone": 1,
+    #     "state_repetitions": 1,
+    #     "across_word_model": True,
+    #     "early_recombination": False,
+    #     "tdp_scale": 1.0,
+    #     "tdp_transition": (3.0, 0.0, "infinity", 0.0),  # loop, forward, skip, exit
+    #     "tdp_silence": (0.0, 3.0, "infinity", 20.0),
+    #     "tying_type": "global",
+    #     "nonword_phones": "",
+    # }
+    # crp.acoustic_model_config = am.acoustic_model_config(**am_args)
+    # crp.acoustic_model_config.allophones.add_from_lexicon = False
+    # crp.acoustic_model_config.allophones.add_from_file = allophone_file
+    # crp.allophone_tool_exe = RASR_BINARY_PATH + "/allophone-tool.linux-x86_64-standard"
+    # crp.lexicon_config = rasr.RasrConfig()
+    # crp.lexicon_config.file = get_bliss_lexicon()
+    # crp.lexicon_config.normalize_pronunciation = False
+    # state_tying_file = DumpStateTyingJob(crp).out_state_tying
     state_tying_file = tk.Path(
-        "/work/asr4/vieting/setups/librispeech/dependencies/alignments/monophone_10ms_phmm/state_tying/monophone-1-fix",
-        hash_overwrite="ls960_monophone_10ms_phmm_state_tying_monophone_1",
+        "/work/asr4/vieting/setups/librispeech/dependencies/alignments/monophone_10ms_gmm_fix/dependencies/"
+        "state-tying-map-to-single-state",
+        hash_overwrite="ls960_monophone_10ms_gmm_state_tying_monophone_1",
     )
     job = RasrAlignmentDumpHDFJob(
         alignment_caches=alignment_caches,
@@ -97,120 +78,22 @@ def get_fairseq_root():
     return fairseq_root
 
 
-def get_fairseq_args(num_gpus=1, alignment=None):
-    # create wav2vec manifest for training
-    manifest = get_manifest()
-
-    # Set training and model parameters
-    sample_rate = 16000
-    fairseq_args = {
-        "common": {
-            "fp16": True,
-            "log_format": "json",
-            "log_interval": 200,
-        },
-        "checkpoint": {
-            "no_epoch_checkpoints": False,
-            "save_interval": 25,
-            "save_dir": "output/checkpoints",
-            "restore_file": "checkpoint_last.pt",
-        },
-        "task": {
-            "_name": "audio_pretraining",
-            "data": manifest,
-            "max_sample_size": 20 * sample_rate,  # max 20s, length of one crop in batch
-            "min_sample_size": 2 * sample_rate,  # 2s of minimal length
-            "sample_rate": sample_rate,
-            "normalize": True,  # TODO: False in fairseq
-        },
-        "dataset": {
-            "num_workers": 6,
-            "max_tokens": 1400000,  # length of tokens in one batch
-            "skip_invalid_size_inputs_valid_test": True,
-        },
-        "distributed_training": {
-            "distributed_world_size": num_gpus,
-            "ddp_backend": "legacy_ddp"
-        },
-        "criterion": {
-            "_name": "wav2vec",
-            "infonce": True,
-            "log_keys": ["prob_perplexity", "code_perplexity", "temp"],
-            "loss_weights": [0.1, 10]
-        },
-        "optimization": {
-            "max_epoch": 1000,
-            "max_update": 400000,
-            "lr": [0.0005],
-            "update_freq": [64 // num_gpus]
-        },
-        "optimizer": {
-            "_name": "adam",
-            "adam_betas": "(0.9,0.98)",
-            "adam_eps": "1e-06",
-            "weight_decay": 0.01,
-        },
-        "lr_scheduler": {
-            "_name": "polynomial_decay",
-            "warmup_updates": 32000,
-        },
-        "model": {
-            "_name": "wav2vec2",
-            "quantize_targets": True,
-            "final_dim": 256,
-            "encoder_layerdrop": 0.05,
-            "dropout_input": 0.1,
-            "dropout_features": 0.1,
-            "feature_grad_mult": 0.1,
-            "encoder_embed_dim": 768,
-        }
-    }
-    if alignment is not None:
-        fairseq_args["task"]["alignment"] = alignment
-    return fairseq_args
-
-
-def run_fairseq_pretraining():
-    prefix_name = "experiments/librispeech/librispeech_960_pretraining/wav2vec2/"
-    # run pre-training
-    exp_name = "base"
-    fairseq_args = get_fairseq_args(num_gpus=8)
-    fairseq_config = FairseqHydraConfig(fairseq_args)
-    fairseq_root = get_fairseq_root()
-    job = FairseqHydraTrainingJob(
-        fairseq_config,
-        max_epoch=300,
-        save_interval=25,
-        time_rqmt=120,
-        mem_rqmt=8,
-        cpu_rqmt=2,
-        gpu_rqmt=8,
-        fairseq_root=fairseq_root,
-        use_cache_manager=False,
-    )
-    job.add_alias(os.path.join(prefix_name, exp_name, "pretraining"))
-    tk.register_output(f"{prefix_name}/{exp_name}/pretraining/scores.png", job.out_plot_se)
-    return job
-
-
 def run_fairseq_pretraining_informed():
     prefix_name = "experiments/librispeech/librispeech_960_pretraining/wav2vec2/"
     # run pre-training
     exp_name = "monophone1"
     alignment = get_alignment_hdf()
-    fairseq_args = get_fairseq_args(num_gpus=8, alignment=alignment)
+    fairseq_args = get_fairseq_args(num_gpus=8)
+    fairseq_args["task"]["alignment"] = alignment
     fairseq_config = FairseqHydraConfig(fairseq_args)
     fairseq_root = get_fairseq_root()
     job = FairseqHydraTrainingJob(
         fairseq_config,
-        max_epoch=300,
         save_interval=25,
-        time_rqmt=120,
-        mem_rqmt=8,
-        cpu_rqmt=2,
-        gpu_rqmt=8,
+        max_epoch=300,
+        max_update=400000,
         fairseq_root=fairseq_root,
-        use_cache_manager=False,
+        rqmt={"time": 120, "mem": 8, "cpu": 2, "gpu": 8},
     )
     job.add_alias(os.path.join(prefix_name, exp_name, "pretraining"))
     tk.register_output(f"{prefix_name}/{exp_name}/pretraining/scores.png", job.out_plot_se)
@@ -218,4 +101,4 @@ def run_fairseq_pretraining_informed():
 
 
 def py():
-    run_fairseq_pretraining()
+    run_fairseq_pretraining_informed()
