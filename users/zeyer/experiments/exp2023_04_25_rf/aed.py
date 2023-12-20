@@ -301,6 +301,7 @@ class Model(rf.Module):
         )
         self.decoder = TransformerDecoder(
             num_layers=num_dec_layers,
+            encoder_dim=enc_model_dim,
             vocab_dim=target_dim,
             model_dim=dec_model_dim,
         )
