@@ -66,6 +66,8 @@ class FairseqHydraTrainingJob(Job):
     Train a Fairseq model using fairseq-hydra-train
     """
 
+    __sis_hash_exclude__ = {"gpu_mem_rqmt": 11}
+
     def __init__(
         self,
         fairseq_hydra_config,
