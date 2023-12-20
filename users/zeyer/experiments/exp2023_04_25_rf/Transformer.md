@@ -17,7 +17,7 @@ Decoder:
 - nanoGPT: https://github.com/karpathy/nanoGPT/blob/master/model.py
   - no bias for layernorm and linears
 - 'gpt2': dict(n_layer=12, n_head=12, n_embd=768),  # 124M params
-- GPT: use GELU in FF
+- GPT: use GELU activation in FF
 - GPT: block_size 1024 (relevant because learnable pos enc for all pos)
 - GPT: learnable abs pos enc
 - GPT: no bias in softmax
@@ -39,6 +39,8 @@ Decoder:
 - sometimes sliding window attention (supported also by Flash attention)
 
 - T5 style layer norm: No bias and no subtraction of mean
+
+- Conformer uses Swish (Silu) activation in FF
 
 Via https://huggingface.co/transformers/v3.5.1/_modules/transformers/modeling_t5.html:
 
