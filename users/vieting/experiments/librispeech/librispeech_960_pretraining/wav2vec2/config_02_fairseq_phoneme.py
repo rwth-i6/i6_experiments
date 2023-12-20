@@ -68,7 +68,8 @@ def run_fairseq_pretraining_informed():
     # run pre-training
     exp_name = "monophone1"
     alignment = get_alignment_hdf()
-    fairseq_args = get_fairseq_args(num_gpus=8)
+    num_gpus = 8
+    fairseq_args = get_fairseq_args(num_gpus=num_gpus)
     fairseq_args["task"]["alignment"] = alignment
     fairseq_config = FairseqHydraConfig(fairseq_args)
     fairseq_root = get_fairseq_root()
@@ -78,7 +79,7 @@ def run_fairseq_pretraining_informed():
         max_epoch=300,
         max_update=400000,
         fairseq_root=fairseq_root,
-        rqmt={"time": 120, "mem": 8, "cpu": 2, "gpu": 8},
+        rqmt={"time": 120, "mem": 8, "cpu": 2, "gpu": num_gpus},
     )
     job.add_alias(os.path.join(prefix_name, exp_name, "pretraining"))
     tk.register_output(f"{prefix_name}/{exp_name}/pretraining/scores.png", job.out_plot_se)
