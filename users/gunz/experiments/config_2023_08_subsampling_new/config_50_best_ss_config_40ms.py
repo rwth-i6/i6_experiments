@@ -582,7 +582,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     )
     di_from_mono_fixedlr_newbob_train_job = s.experiments["fh-di-from-mono-fixedlr"]["train_job"]
     import_di_from_mono_fixedlr_newbob_config = import_config(
-        di_from_mono_newbob_train_job.out_checkpoints[fine_tune_keep_epochs[-1]]
+        di_from_mono_fixedlr_newbob_train_job.out_checkpoints[fine_tune_keep_epochs[-1]]
     )
     di_from_mono_newbob_best_epoch_job = returnn.GetBestTFCheckpointJob(
         model_dir=di_from_mono_newbob_train_job.out_model_dir,
