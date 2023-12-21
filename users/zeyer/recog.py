@@ -463,14 +463,17 @@ def _returnn_v2_get_forward_callback():
             scores: Tensor = outputs["scores"]  # [beam]
             assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
             assert hyps.dims[1].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
-            hyps_len = hyps.dims[1].dyn_size_ext  # [beam]
+            # AED/Transducer etc will have hyps len depending on beam -- however, CTC will not.
+            hyps_len = hyps.dims[1].dyn_size_ext  # [beam] or []
             assert hyps.raw_tensor.shape[:1] == hyps_len.raw_tensor.shape == scores.raw_tensor.shape  # (beam,)
             num_beam = hyps.raw_tensor.shape[0]
             # Consistent to old search task, list[(float,str)].
             self.out_file.write(f"{seq_tag!r}: [\n")
             for i in range(num_beam):
                 score = float(scores.raw_tensor[i])
-                hyp_ids = hyps.raw_tensor[i, : hyps_len.raw_tensor[i]]
+                hyp_ids = hyps.raw_tensor[
+                    i, : hyps_len.raw_tensor[i] if hyps_len.raw_tensor.shape else hyps_len.raw_tensor
+                ]
                 hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
                 self.out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
             self.out_file.write("],\n")
