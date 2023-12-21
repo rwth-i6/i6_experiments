@@ -623,7 +623,7 @@ def model_recog_v2(
         label_log_prob = label_log_probs_ta[i]
         # Filter out finished beams
         label_log_prob = rf.where(
-            i < enc_spatial_dim_.get_size_tensor(),
+            rf.copy_to_device(i < enc_spatial_dim_.get_size_tensor()),
             label_log_prob,
             rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
         )
