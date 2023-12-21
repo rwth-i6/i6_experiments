@@ -654,7 +654,6 @@ def model_recog_v2(
     out_spatial_dim = enc_spatial_dim_
     seq_targets = seq_targets__.stack(axis=out_spatial_dim)
 
-    assert model.blank_idx == model.target_dim.dimension  # added at the end
     vocab_labels = list(model.target_dim.vocab.labels)
     if model.wb_target_dim.dimension > model.target_dim.dimension:
         vocab_labels += ["<blank>"]
