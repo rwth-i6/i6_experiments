@@ -321,6 +321,9 @@ class MakeModel:
                 ff_activation=lambda x: rf.relu(x) ** 2.0,
             ),
             target_dim=target_dim,
+            # TODO we do not set wb_target_dim, but we should set it to target_dim.
+            #   Currently it would use target_dim+1, which is incorrect, as we reuse EOS here for blank.
+            #   It's not so critical, though.
             blank_idx=_get_eos_idx(target_dim),  # blank is end-of-chunk (EOC) which is end-of-sequence (EOS)
             bos_idx=_get_bos_idx(target_dim),
             eos_idx=_get_eos_idx(target_dim),
