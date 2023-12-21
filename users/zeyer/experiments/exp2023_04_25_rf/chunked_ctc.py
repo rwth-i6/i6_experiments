@@ -670,7 +670,7 @@ def model_recog_v2(
 # RecogDef API
 model_recog_v2: RecogDef[Model]
 model_recog_v2.output_with_beam = True
-model_recog_v2.output_blank_label = "<s>"  # EOC
+model_recog_v2.output_blank_label = "<blank>"  # EOC
 model_recog_v2.batch_size_dependent = False
 
 
