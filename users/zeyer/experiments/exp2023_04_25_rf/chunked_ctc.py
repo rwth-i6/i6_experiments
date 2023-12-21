@@ -606,6 +606,7 @@ def model_recog_v2(
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc, enc_spatial_dim, chunked_time_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    print("encoded:", enc, enc_spatial_dim, chunked_time_dim)
     enc, _ = rf.slice(enc, axis=enc_spatial_dim, size=model.end_chunk_size_dim)
     enc, enc_spatial_dim_ = rf.merge_dims(enc, dims=(chunked_time_dim, model.end_chunk_size_dim))
     logits = model.logits(enc)
@@ -666,6 +667,7 @@ def model_recog_v2(
         vocab_labels, user_defined_symbols={"<blank>": model.blank_idx}
     )
 
+    print("out:", seq_targets, seq_log_prob, out_spatial_dim, beam_dim)
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 
 
