@@ -592,7 +592,9 @@ def model_recog(
         )  # seq_log_prob, backrefs, target: Batch, Beam
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
-        decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), decoder_state)
+        decoder_state = tree.map_structure(
+            lambda s: rf.gather(s, indices=backrefs) if isinstance(s, Tensor) else s, decoder_state
+        )
         ended = rf.gather(ended, indices=backrefs)
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         i += 1
