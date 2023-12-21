@@ -465,7 +465,9 @@ def _returnn_v2_get_forward_callback():
             assert hyps.dims[1].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
             # AED/Transducer etc will have hyps len depending on beam -- however, CTC will not.
             hyps_len = hyps.dims[1].dyn_size_ext  # [beam] or []
-            assert hyps.raw_tensor.shape[:1] == hyps_len.raw_tensor.shape == scores.raw_tensor.shape  # (beam,)
+            assert hyps.raw_tensor.shape[:1] == scores.raw_tensor.shape  # (beam,)
+            if hyps_len.raw_tensor.shape:
+                assert scores.raw_tensor.shape == hyps_len.raw_tensor.shape  # (beam,)
             num_beam = hyps.raw_tensor.shape[0]
             # Consistent to old search task, list[(float,str)].
             self.out_file.write(f"{seq_tag!r}: [\n")
