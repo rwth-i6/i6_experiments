@@ -4,6 +4,7 @@ Attention-based encoder-decoder (AED) experiments
 
 from __future__ import annotations
 
+import functools
 from typing import TYPE_CHECKING, Optional, Any, Union, Tuple, Dict, Sequence, List
 import tree
 import math
@@ -592,9 +593,7 @@ def model_recog(
         )  # seq_log_prob, backrefs, target: Batch, Beam
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
-        decoder_state = tree.map_structure(
-            lambda s: rf.gather(s, indices=backrefs) if isinstance(s, Tensor) else s, decoder_state
-        )
+        decoder_state = tree.map_structure(functools.partial(_gather_backrefs, backrefs=backrefs), decoder_state)
         ended = rf.gather(ended, indices=backrefs)
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         i += 1
@@ -634,6 +633,17 @@ def model_recog(
     seq_targets = seq_targets__.stack(axis=out_spatial_dim)
 
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
+
+
+def _gather_backrefs(s, *, backrefs: Tensor):
+    if isinstance(s, Tensor):
+        if backrefs.sparse_dim in s.dims:
+            return rf.gather(s, indices=backrefs)  # really the default case
+        return s  # e.g. scalar or so, independent from beam
+    if isinstance(s, Dim):
+        assert s.dimension or backrefs not in s.dyn_size_ext.dims  # currently not supported, also not expected
+        return s
+    raise TypeError(f"_gather_backrefs: unexpected type ({type(s)})")
 
 
 # RecogDef API
