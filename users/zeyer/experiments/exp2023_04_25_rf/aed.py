@@ -52,6 +52,15 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},  # multi-GPU
         },
     )
+    train_exp(
+        "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_100k",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},  # multi-GPU
+            # total steps after 500 epochs: ~652k
+            "learning_rate_piecewise_steps": [100_000, 590_000, 652_000],
+        },
+    )
 
     # TODO pretrain with specaugment_steps=(0, 15k, 25k)?
 
