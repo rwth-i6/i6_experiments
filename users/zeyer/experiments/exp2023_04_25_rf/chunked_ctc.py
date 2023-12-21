@@ -596,6 +596,7 @@ def model_recog_v2(
         final beam_dim
     """
     from returnn.config import get_global_config
+    from returnn.datasets.util.vocabulary import Vocabulary
     from returnn.frontend.tensor_array import TensorArray
 
     config = get_global_config(return_empty_if_none=True)
@@ -652,6 +653,16 @@ def model_recog_v2(
         seq_targets__ = seq_targets__.push_back(target)
     out_spatial_dim = enc_spatial_dim_
     seq_targets = seq_targets__.stack(axis=out_spatial_dim)
+
+    assert model.blank_idx == model.target_dim.dimension  # added at the end
+    vocab_labels = list(model.target_dim.vocab.labels)
+    if model.wb_target_dim.dimension > model.target_dim.dimension:
+        vocab_labels += ["<blank>"]
+    assert len(vocab_labels) == model.wb_target_dim.dimension, f"{model.target_dim} vs {model.wb_target_dim}?"
+    vocab_labels[model.blank_idx] = "<blank>"
+    seq_targets.sparse_dim.vocab = Vocabulary.create_vocab_from_labels(
+        vocab_labels, user_defined_symbols={"<blank>": model.blank_idx}
+    )
 
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 
