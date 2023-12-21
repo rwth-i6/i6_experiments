@@ -400,6 +400,7 @@ class Model(rf.Module):
 
         if not wb_target_dim:
             wb_target_dim = target_dim + 1
+        self.wb_target_dim = wb_target_dim
         for i in enc_aux_logits:
             setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
         self.logits = rf.Linear(self.encoder.out_dim, wb_target_dim)  # final
@@ -604,7 +605,7 @@ def model_recog_v2(
     enc, _ = rf.slice(enc, axis=enc_spatial_dim, size=model.end_chunk_size_dim)
     enc, enc_spatial_dim_ = rf.merge_dims(enc, dims=(chunked_time_dim, model.end_chunk_size_dim))
     logits = model.logits(enc)
-    label_log_probs = rf.log_softmax(logits, axis=model.target_dim)
+    label_log_probs = rf.log_softmax(logits, axis=model.wb_target_dim)
     label_log_probs_ta = TensorArray.unstack(label_log_probs, axis=enc_spatial_dim_)
 
     beam_size = config.int("beam_size", 12)
@@ -624,11 +625,11 @@ def model_recog_v2(
         label_log_prob = rf.where(
             i < enc_spatial_dim_.get_size_tensor(),
             label_log_prob,
-            rf.sparse_to_dense(model.blank_idx, axis=model.target_dim, label_value=0.0, other_value=-1.0e30),
+            rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
         )
         seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
         seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
-            seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{i}-beam"), axis=[beam_dim, model.target_dim]
+            seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{i}-beam"), axis=[beam_dim, model.wb_target_dim]
         )  # seq_log_prob, backrefs, target: Batch, Beam
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
