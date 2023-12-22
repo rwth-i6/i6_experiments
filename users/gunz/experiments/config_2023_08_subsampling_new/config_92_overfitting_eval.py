@@ -20,10 +20,10 @@ class ReturnnEvalJob(returnn.ReturnnForwardJob):
 
         self.out_score_file = self.output_path("scores")
 
-    def create_files(self):
+    def create_files(self, *args, **kwargs):
         self.returnn_config.config["eval_output_file"] = self.out_score_file
 
-        super().create_files()
+        super().create_files(*args, **kwargs)
 
 
 def eval_dev_other_score(
