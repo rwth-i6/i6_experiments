@@ -398,6 +398,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_updates={
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},  # multi-GPU
         },
+        model_avg=True,
     )
     train_exp(
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-run2",
@@ -510,6 +511,7 @@ def train_exp(
     num_processes: Optional[int] = None,
     fine_tune: Optional[Union[int, List[Tuple[int, Dict[str, Any]]]]] = None,
     time_rqmt: Optional[int] = None,
+    model_avg: bool = False,
 ) -> ModelWithCheckpoints:
     """
     Train experiment
@@ -544,7 +546,7 @@ def train_exp(
         distributed_launch_cmd="torchrun" if num_processes else "mpirun",
         time_rqmt=time_rqmt,
     )
-    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
+    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog, model_avg=model_avg)
 
     if fine_tune:
         if isinstance(fine_tune, int):

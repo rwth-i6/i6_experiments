@@ -42,25 +42,32 @@ def recog_training_exp(
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
     exclude_epochs: Collection[int] = (),
+    model_avg: bool = False,
 ):
     """recog on all relevant epochs"""
+    recog_and_score_func = _RecogAndScoreFunc(
+        prefix_name,
+        task,
+        model,
+        recog_def,
+        search_config=search_config,
+        search_post_config=search_post_config,
+        search_mem_rqmt=search_mem_rqmt,
+    )
     summarize_job = GetBestRecogTrainExp(
         exp=model,
-        recog_and_score_func=_RecogAndScoreFunc(
-            prefix_name,
-            task,
-            model,
-            recog_def,
-            search_config=search_config,
-            search_post_config=search_post_config,
-            search_mem_rqmt=search_mem_rqmt,
-        ),
+        recog_and_score_func=recog_and_score_func,
         main_measure_lower_is_better=task.main_measure_type.lower_is_better,
         exclude_epochs=exclude_epochs,
     )
     summarize_job.add_alias(prefix_name + "/train-summarize")
     tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
     tk.register_output(prefix_name + "/recog_results_all_epochs", summarize_job.out_results_all_epochs_json)
+    if model_avg:
+        model_avg_res_job = GetTorchAvgModelResult(
+            exp=model, recog_and_score_func=recog_and_score_func, exclude_epochs=exclude_epochs
+        )
+        tk.register_output(prefix_name + "/recog_results_model_avg", model_avg_res_job.out_results)
 
 
 class _RecogAndScoreFunc:
@@ -84,8 +91,13 @@ class _RecogAndScoreFunc:
         self.search_post_config = search_post_config
         self.search_mem_rqmt = search_mem_rqmt
 
-    def __call__(self, epoch: int) -> ScoreResultCollection:
-        model_with_checkpoint = self.model.get_epoch(epoch)
+    def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> ScoreResultCollection:
+        if isinstance(epoch_or_ckpt, int):
+            model_with_checkpoint = self.model.get_epoch(epoch_or_ckpt)
+        elif isinstance(epoch_or_ckpt, PtCheckpoint):
+            model_with_checkpoint = ModelWithCheckpoint(definition=self.model.definition, checkpoint=epoch_or_ckpt)
+        else:
+            raise TypeError(f"{self} unexpected type {type(epoch_or_ckpt)}")
         res = recog_model(
             self.task,
             model_with_checkpoint,
@@ -94,7 +106,8 @@ class _RecogAndScoreFunc:
             search_post_config=self.search_post_config,
             search_mem_rqmt=self.search_mem_rqmt,
         )
-        tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch:03}", res.output)
+        if isinstance(epoch_or_ckpt, int):
+            tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}", res.output)
         return res
 
     def _sis_hash(self) -> bytes:
