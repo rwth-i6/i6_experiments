@@ -777,7 +777,7 @@ class AverageTorchCheckpointsJob(sisyphus.Job):
 
         self.out_checkpoint = PtCheckpoint(self.output_path("model/average.pt"))
 
-        self.rqmt = {"cpu": 1, "time": 0.5, "mem": 2 * len(self.checkpoints)}
+        self.rqmt = {"cpu": 1, "time": 0.5, "mem": 5}
 
     def tasks(self):
         yield sisyphus.Task("run", rqmt=self.rqmt)
