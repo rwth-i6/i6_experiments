@@ -659,6 +659,7 @@ class GetTorchAvgModelResult(sisyphus.Job):
         self.out_results = self.output_path("results.json")
         self.out_main_measure_value = self.output_path("main_measure_value.json")
         self.res = ScoreResultCollection(main_measure_value=self.out_main_measure_value, output=self.out_results)
+        self.out_merged_epochs_list = self.output_path("merged_epochs_list.json")
         self._in_checkpoints: Dict[int, PtCheckpoint] = {}
         self._in_avg_checkpoint: Optional[PtCheckpoint] = None
         self._scores_output: Optional[ScoreResultCollection] = None
@@ -748,6 +749,9 @@ class GetTorchAvgModelResult(sisyphus.Job):
         # Currently assume a hardlink is always possible.
         os.makedirs(os.path.dirname(self.out_avg_checkpoint.path.get_path()), exist_ok=True)
         os.link(self._in_avg_checkpoint.path.get_path(), self.out_avg_checkpoint.path.get_path())
+
+        with open(self.out_merged_epochs_list.get_path(), "w") as f:
+            f.write("[%s]\n" % ", ".join(str(ep) for ep in sorted(self._in_checkpoints.keys())))
 
 
 class AverageTorchCheckpointsJob(sisyphus.Job):
