@@ -28,7 +28,7 @@ class ReturnnEvalJob(returnn.ReturnnForwardJob):
     @classmethod
     def hash(cls, *args, **kwargs):
         d = {
-            "returnn_config": super().create_returnn_config(**kwargs),
+            "returnn_config": super().create_returnn_config(*args, **kwargs),
             "returnn_python_exe": kwargs["returnn_python_exe"],
             "returnn_root": kwargs["returnn_root"],
         }
