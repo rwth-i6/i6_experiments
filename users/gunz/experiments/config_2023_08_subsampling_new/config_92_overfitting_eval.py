@@ -71,7 +71,6 @@ def eval_dev_other_score(
 
     feature_path = rasr.FlagDependentFlowAttribute("cache_mode", {"bundle": FEATURE_PATH})
     feature_flow = features.basic_cache_flow(feature_path)
-    feature_flow.flags = {"cache_mode": "bundle"}
     flow = returnn.ReturnnRasrTrainingJob.create_flow(feature_flow=feature_flow, alignment=ALIGNMENT_PATH)
     flow_write_job = rasr.WriteFlowNetworkJob(flow)
 
