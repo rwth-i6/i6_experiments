@@ -13,7 +13,7 @@ from sisyphus import tk
 from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
-from i6_core.returnn.training import PtCheckpoint
+from i6_core.returnn.training import ReturnnTrainingJob, PtCheckpoint
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, SearchTakeBestJob
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from returnn_common import nn
@@ -665,6 +665,16 @@ class GetTorchAvgModelResult(sisyphus.Job):
         self.last_epoch = exp.last_fixed_epoch_idx
         self.first_epoch = int(exp.last_fixed_epoch_idx * (1 - end_fraction))
         for epoch in exp.fixed_epochs:
+            self._add_recog(epoch)
+        # exp.fixed_epochs does not cover keep_last_n (intentionally, it does not want to cover too much),
+        # but for the model average, we want to consider those as well.
+        training_job = getattr(exp.scores_and_learning_rates, "owner")
+        assert isinstance(training_job, ReturnnTrainingJob)
+        cleanup_old_models = training_job.returnn_config.post_config.get("cleanup_old_models", None)
+        keep_last_n = cleanup_old_models.get("keep_last_n", None) if isinstance(cleanup_old_models, dict) else None
+        if keep_last_n is None:
+            keep_last_n = 2  # default
+        for epoch in range(self.last_epoch - keep_last_n + 1, self.last_epoch + 1):
             self._add_recog(epoch)
         self.update()
 

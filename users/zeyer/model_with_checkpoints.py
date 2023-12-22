@@ -85,6 +85,8 @@ class ModelWithCheckpoints:
 
         # Get the kept epochs, but maybe restrict it when all are kept.
         # The last epoch is always kept.
+        # Via keep_last_n, some more would be kept, but we don't consider them here
+        # because we don't want to do too many recognition jobs.
         fixed_kept_epochs = {num_epochs}
         # Get the user defined keep_epochs.
         cleanup_old_models = training_job.returnn_config.post_config.get("cleanup_old_models", None)
