@@ -6,11 +6,13 @@ from sisyphus import tk, Path
 from sisyphus.delayed_ops import DelayedFormat
 
 ALIGNMENT_PATH = Path(
-    "/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/dev-eval-subset/AlignmentJob.PzEwoG5YbNUb/output/alignment.cache.bundle"
+    "/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/dev-eval-subset/AlignmentJob.PzEwoG5YbNUb/output/alignment.cache.bundle",
+    cached=True,
 )
 CORPUS_PATH = Path("/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/dev-eval-subset/corpus.xml")
 FEATURE_PATH = Path(
-    "/work/asr4/raissi/setups/librispeech/960-ls/2023-01--system_paper/work/i6_core/features/extraction/FeatureExtractionJob.Gammatone.gXcFN7bQQqYf/output/gt.cache.bundle"
+    "/work/asr4/raissi/setups/librispeech/960-ls/2023-01--system_paper/work/i6_core/features/extraction/FeatureExtractionJob.Gammatone.gXcFN7bQQqYf/output/gt.cache.bundle",
+    cached=True,
 )
 SEGMENT_PATH = Path("/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/dev-eval-subset/segments.1")
 
