@@ -1,4 +1,5 @@
 import copy
+from typing import List, Optional
 
 from i6_core import features, rasr, returnn
 from sisyphus import tk, Path
@@ -17,8 +18,8 @@ SEGMENT_PATH = Path("/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/dev-ev
 class ReturnnEvalJob(returnn.ReturnnForwardJob):
     def __init__(
         self,
-        model_checkpoint: Optional[Checkpoint],
-        returnn_config: ReturnnConfig,
+        model_checkpoint: Optional[returnn.Checkpoint],
+        returnn_config: returnn.ReturnnConfig,
         returnn_python_exe: tk.Path,
         returnn_root: tk.Path,
         hdf_outputs: Optional[List[str]] = None,
