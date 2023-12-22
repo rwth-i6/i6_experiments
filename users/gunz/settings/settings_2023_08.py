@@ -133,6 +133,8 @@ def worker_wrapper(job, task_name, call):
         "MakeJob",
         "OptimizeAMandLMScaleJob",
         "ReturnnComputePriorJobV2",
+        "ReturnnEvalJob",
+        "ReturnnForwardJob",
         "ReturnnRasrComputePriorJob",
         "ReturnnRasrComputePriorJobV2",
         "ReturnnRasrTrainingJob",

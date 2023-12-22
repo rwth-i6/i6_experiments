@@ -44,7 +44,6 @@ from ...setups.fh.network.augment import (
     augment_net_with_label_pops,
     remove_label_pops_and_losses_from_returnn_config,
 )
-from ...setups.fh.util.pipeline_helpers import get_tdp_values
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from ..config_2023_05_baselines_thesis_tf2.config import SCRATCH_ALIGNMENT
@@ -61,6 +60,7 @@ from .config import (
     RASR_ROOT_TF2,
     RETURNN_PYTHON,
 )
+from .config_92_overfitting_eval import eval_dev_other_score
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_NO_TF, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH")
 RASR_TF_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_TF2, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH_TF2")
@@ -338,6 +338,16 @@ def run_single(
         nn_train_args=train_args,
         on_2080=True,
     )
+
+    if alignment_name == "10ms-FF":
+        eval_dev_other_score(
+            name=f"40ms-from-{alignment_name}",
+            crp=s.crp[s.crp_names["train"]],
+            ckpt=viterbi_train_j.out_checkpoints[num_epochs],
+            returnn_config=returnn_config,
+            returnn_python_exe=s.returnn_python_exe,
+            returnn_root=s.returnn_root,
+        )
 
     for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
