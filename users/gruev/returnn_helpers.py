@@ -75,9 +75,7 @@ def add_slice_layer(network, name, from_layers, axis="F", start=None, end=None, 
     return network, name
 
 
-def add_shift_layer(
-    network, name, from_layers, axis="T", amount=1, pad=True, pad_value=None, **kwargs
-):
+def add_shift_layer(network, name, from_layers, axis="T", amount=1, pad=True, pad_value=None, **kwargs):
     network[name] = {
         "class": "shift_axis",
         "from": from_layers,
@@ -132,22 +130,21 @@ def add_mask_layer(network, name, from_layers, mask, unit={"class": "copy"}, **k
 
 
 def add_reinterpret_data_layer(network, name, fromList, size_base=None, **kwargs):
-    network[name] = { 
-        "class": "reinterpret_data",
-        "from": fromList
-    }
-    if kwargs.get('loss', None) is not None:
+    network[name] = {"class": "reinterpret_data", "from": fromList}
+
+    # opts
+    if kwargs.get("loss", None) is not None:
         network = add_loss_to_layer(network, name, **kwargs)
     if size_base is not None:
-        network[name]['size_base'] = size_base
-    if kwargs.get('enforce_batch_major', False):
-        network[name]['enforce_batch_major'] = True
-    if kwargs.get('enforce_time_major', False):
-        network[name]['enforce_time_major'] = True
-    if kwargs.get('set_sparse', None) is not None:
-        network[name]['set_sparse'] = kwargs.get('set_sparse', None)
-    if kwargs.get('set_sparse_dim', None) is not None:
-        network[name]['set_sparse_dim'] = kwargs.get('set_sparse_dim', None)
-    if kwargs.get('is_output', False):
-        network[name]['is_output_layer'] = True
+        network[name]["size_base"] = size_base
+    if kwargs.get("enforce_batch_major", False):
+        network[name]["enforce_batch_major"] = True
+    if kwargs.get("enforce_time_major", False):
+        network[name]["enforce_time_major"] = True
+    if kwargs.get("set_sparse", None) is not None:
+        network[name]["set_sparse"] = kwargs.get("set_sparse", None)
+    if kwargs.get("set_sparse_dim", None) is not None:
+        network[name]["set_sparse_dim"] = kwargs.get("set_sparse_dim", None)
+    if kwargs.get("is_output", False):
+        network[name]["is_output_layer"] = True
     return network, name
