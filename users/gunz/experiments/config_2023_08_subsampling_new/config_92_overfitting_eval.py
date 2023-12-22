@@ -97,7 +97,7 @@ def eval_dev_other_score(
                 "nn-trainer",
             ),
             "sprintConfigStr": DelayedFormat(
-                "--config={}, --*.LOGFILE=nn-trainer.eval.log, --*.TASK=1",
+                "--config={} --*.LOGFILE=nn-trainer.eval.log --*.TASK=1",
                 rasr_config_write_job.out_config,
             ),
             "partitionEpoch": 1,
