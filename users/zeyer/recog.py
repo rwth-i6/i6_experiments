@@ -662,6 +662,8 @@ class GetTorchAvgModelResult(sisyphus.Job):
         self._in_checkpoints: Dict[int, PtCheckpoint] = {}
         self._in_avg_checkpoint: Optional[PtCheckpoint] = None
         self._scores_output: Optional[ScoreResultCollection] = None
+        self.last_epoch = exp.last_fixed_epoch_idx
+        self.first_epoch = int(exp.last_fixed_epoch_idx * (1 - end_fraction))
         for epoch in exp.fixed_epochs:
             self._add_recog(epoch)
         self.update()
@@ -699,6 +701,8 @@ class GetTorchAvgModelResult(sisyphus.Job):
             self._make_output()
 
     def _add_recog(self, epoch: int):
+        if epoch < self.first_epoch:
+            return
         if epoch in self.exclude_epochs:
             return
         if epoch in self._in_checkpoints:
@@ -732,6 +736,7 @@ class GetTorchAvgModelResult(sisyphus.Job):
         shutil.copy(self._scores_output.output.get_path(), self.out_results.get_path())
         # We don't want to copy the checkpoint if we can avoid it.
         # Currently assume a hardlink is always possible.
+        os.makedirs(os.path.dirname(self.out_avg_checkpoint.path.get_path()), exist_ok=True)
         os.link(self._in_avg_checkpoint.path.get_path(), self.out_avg_checkpoint.path.get_path())
 
 
