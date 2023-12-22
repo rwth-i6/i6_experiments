@@ -14,6 +14,7 @@ FEATURE_PATH = Path(
     "/work/asr4/raissi/setups/librispeech/960-ls/2023-01--system_paper/work/i6_core/features/extraction/FeatureExtractionJob.Gammatone.gXcFN7bQQqYf/output/gt.cache.bundle",
     cached=True,
 )
+LEX_PATH = Path("/work/asr3/raissi/shared_workspaces/gunz/dependencies/alignments/ls-960/scratch/dev-eval-subset/lexicon.xml.gz")
 SEGMENT_PATH = Path("/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/dev-eval-subset/segments.1")
 
 
@@ -67,6 +68,7 @@ def eval_dev_other_score(
 ) -> ReturnnEvalJob:
     crp = copy.deepcopy(crp)
     crp.corpus_config.file = CORPUS_PATH
+    crp.lexicon_config.file = LEX_PATH
     crp.segment_path = SEGMENT_PATH
 
     feature_path = rasr.FlagDependentFlowAttribute("cache_mode", {"bundle": FEATURE_PATH})
