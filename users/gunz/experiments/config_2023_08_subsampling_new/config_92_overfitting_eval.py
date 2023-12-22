@@ -15,8 +15,34 @@ SEGMENT_PATH = Path("/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/dev-ev
 
 
 class ReturnnEvalJob(returnn.ReturnnForwardJob):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        model_checkpoint: Optional[Checkpoint],
+        returnn_config: ReturnnConfig,
+        returnn_python_exe: tk.Path,
+        returnn_root: tk.Path,
+        hdf_outputs: Optional[List[str]] = None,
+        eval_mode: bool = False,
+        *,  # args below are keyword only
+        log_verbosity: int = 5,
+        device: str = "gpu",
+        time_rqmt: float = 4,
+        mem_rqmt: float = 4,
+        cpu_rqmt: int = 2,
+    ):
+        super().__init__(
+            model_checkpoint=model_checkpoint,
+            returnn_config=returnn_config,
+            returnn_python_exe=returnn_python_exe,
+            returnn_root=returnn_root,
+            hdf_outputs=hdf_outputs,
+            eval_mode=eval_mode,
+            log_verbosity=log_verbosity,
+            device=device,
+            time_rqmt=time_rqmt,
+            mem_rqmt=mem_rqmt,
+            cpu_rqmt=cpu_rqmt,
+        )
 
         self.out_score_file = self.output_path("scores")
 
