@@ -638,15 +638,20 @@ class GetTorchAvgModelResult(sisyphus.Job):
         exp: ModelWithCheckpoints,
         *,
         recog_and_score_func: Callable[[PtCheckpoint], ScoreResultCollection],
-        train_scores_n_best: int = 2,
-        end_fraction: float = 0.05,
+        end_fraction: float = 0.1,
+        train_scores_n_best: int = 4,
+        include_fixed_epochs: bool = False,
+        include_last_n: int = 0,
         exclude_epochs: Collection[int] = (),
     ):
         """
         :param exp: model, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
         :param recog_and_score_func: epoch -> scores. called in graph proc
-        :param check_train_scores_n_best: check train scores for N best checkpoints (per each measure)
         :param end_fraction: takes the last models, e.g. 0.05 means, if last epoch is 500, take only from epochs 450-500
+        :param train_scores_n_best: take best N via dev scores from train job (per each measure) (if in end_fraction)
+        :param include_fixed_epochs: consider all `keep` epochs (but only if inside end_fraction)
+        :param include_last_n: make sure less or equal to keep_last_n (only those inside end_fraction)
+        :param exclude_epochs:
         """
         super(GetTorchAvgModelResult, self).__init__()
         self.exp = exp
@@ -665,17 +670,10 @@ class GetTorchAvgModelResult(sisyphus.Job):
         self._scores_output: Optional[ScoreResultCollection] = None
         self.last_epoch = exp.last_fixed_epoch_idx
         self.first_epoch = int(exp.last_fixed_epoch_idx * (1 - end_fraction))
-        for epoch in exp.fixed_epochs:
-            self._add_recog(epoch)
-        # exp.fixed_epochs does not cover keep_last_n (intentionally, it does not want to cover too much),
-        # but for the model average, we want to consider those as well.
-        training_job = exp.scores_and_learning_rates.creator
-        assert isinstance(training_job, ReturnnTrainingJob)
-        cleanup_old_models = training_job.returnn_config.post_config.get("cleanup_old_models", None)
-        keep_last_n = cleanup_old_models.get("keep_last_n", None) if isinstance(cleanup_old_models, dict) else None
-        if keep_last_n is None:
-            keep_last_n = 2  # default
-        for epoch in range(self.last_epoch - keep_last_n + 1, self.last_epoch + 1):
+        if include_fixed_epochs:
+            for epoch in exp.fixed_epochs:
+                self._add_recog(epoch)
+        for epoch in range(self.last_epoch - include_last_n + 1, self.last_epoch + 1):
             self._add_recog(epoch)
         self.update()
 
