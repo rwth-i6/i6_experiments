@@ -668,7 +668,7 @@ class GetTorchAvgModelResult(sisyphus.Job):
             self._add_recog(epoch)
         # exp.fixed_epochs does not cover keep_last_n (intentionally, it does not want to cover too much),
         # but for the model average, we want to consider those as well.
-        training_job = getattr(exp.scores_and_learning_rates, "owner")
+        training_job = exp.scores_and_learning_rates.creator
         assert isinstance(training_job, ReturnnTrainingJob)
         cleanup_old_models = training_job.returnn_config.post_config.get("cleanup_old_models", None)
         keep_last_n = cleanup_old_models.get("keep_last_n", None) if isinstance(cleanup_old_models, dict) else None
