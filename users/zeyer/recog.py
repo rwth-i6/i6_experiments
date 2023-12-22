@@ -641,7 +641,7 @@ class GetTorchAvgModelResult(sisyphus.Job):
         end_fraction: float = 0.1,
         train_scores_n_best: int = 4,
         include_fixed_epochs: bool = False,
-        include_last_n: int = 0,
+        include_last_n: Optional[int] = None,
         exclude_epochs: Collection[int] = (),
     ):
         """
@@ -650,7 +650,8 @@ class GetTorchAvgModelResult(sisyphus.Job):
         :param end_fraction: takes the last models, e.g. 0.05 means, if last epoch is 500, take only from epochs 450-500
         :param train_scores_n_best: take best N via dev scores from train job (per each measure) (if in end_fraction)
         :param include_fixed_epochs: consider all `keep` epochs (but only if inside end_fraction)
-        :param include_last_n: make sure less or equal to keep_last_n (only those inside end_fraction)
+        :param include_last_n: make sure less or equal to keep_last_n (only those inside end_fraction).
+            If None, determine automatically from returnn config.
         :param exclude_epochs:
         """
         super(GetTorchAvgModelResult, self).__init__()
@@ -673,9 +674,23 @@ class GetTorchAvgModelResult(sisyphus.Job):
         if include_fixed_epochs:
             for epoch in exp.fixed_epochs:
                 self._add_recog(epoch)
+        if include_last_n is None:
+            include_last_n = self._get_keep_last_n_from_learning_rate_file(exp.scores_and_learning_rates)
         for epoch in range(self.last_epoch - include_last_n + 1, self.last_epoch + 1):
             self._add_recog(epoch)
         self.update()
+
+    @staticmethod
+    def _get_keep_last_n_from_learning_rate_file(lr_file: tk.Path) -> int:
+        # exp.fixed_epochs does not cover keep_last_n (intentionally, it does not want to cover too much),
+        # but for the model average, we want to consider those as well.
+        training_job = lr_file.creator
+        assert isinstance(training_job, ReturnnTrainingJob)
+        cleanup_old_models = training_job.returnn_config.post_config.get("cleanup_old_models", None)
+        keep_last_n = cleanup_old_models.get("keep_last_n", None) if isinstance(cleanup_old_models, dict) else None
+        if keep_last_n is None:
+            keep_last_n = 2  # default
+        return keep_last_n
 
     def update(self):
         """
