@@ -763,7 +763,7 @@ class AverageTorchCheckpointsJob(sisyphus.Job):
         self.rqmt = {"cpu": 1, "time": 0.5, "mem": 2 * len(self.checkpoints)}
 
     def tasks(self):
-        yield Task("run", rqmt=self.rqmt)
+        yield sisyphus.Task("run", rqmt=self.rqmt)
 
     def run(self):
         os.makedirs(os.path.dirname(self.out_checkpoint.path.get_path()), exist_ok=True)
