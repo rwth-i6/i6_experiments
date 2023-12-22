@@ -29,6 +29,10 @@ def blank_collapse(network, softmax_layer, blank_threshold, blank_idx, apply_log
     network, audio_lengths = layers.add_length_layer(
         network, "audio_lengths", blank_mask, axis="T"
     )
+    # # NOTE: for RASR integration
+    # network, print_audio_lengths = layers.add_print_layer(
+    #     network, "print_audio_lengths", audio_lengths
+    # )
     # computes a range [0, ..., max(audio_lengths)-1], output_dims=[T,]
     network, audio_lengths_range = layers.add_range_from_length_layer(
         network, "audio_lengths_range", audio_lengths
@@ -102,5 +106,8 @@ def blank_collapse(network, softmax_layer, blank_threshold, blank_idx, apply_log
 
     ### BLANK COLLAPSE
     network, blank_collapse = layers.add_mask_layer(
-        network, "output", softmax_layer, mask=blank_mask_final
+        network, "blank_collapse", softmax_layer, mask=blank_mask_final, 
+    )
+    network, blank_collapse_reinterpret = layers.add_reinterpret_data_layer(
+        network, "blank_collapse_reinterpret", blank_collapse, enforce_batch_major=True, is_output=True,
     )

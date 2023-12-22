@@ -129,3 +129,25 @@ def add_mask_layer(network, name, from_layers, mask, unit={"class": "copy"}, **k
     if kwargs.get("is_output", False):
         network[name]["is_output_layer"] = True
     return network, name
+
+
+def add_reinterpret_data_layer(network, name, fromList, size_base=None, **kwargs):
+    network[name] = { 
+        "class": "reinterpret_data",
+        "from": fromList
+    }
+    if kwargs.get('loss', None) is not None:
+        network = add_loss_to_layer(network, name, **kwargs)
+    if size_base is not None:
+        network[name]['size_base'] = size_base
+    if kwargs.get('enforce_batch_major', False):
+        network[name]['enforce_batch_major'] = True
+    if kwargs.get('enforce_time_major', False):
+        network[name]['enforce_time_major'] = True
+    if kwargs.get('set_sparse', None) is not None:
+        network[name]['set_sparse'] = kwargs.get('set_sparse', None)
+    if kwargs.get('set_sparse_dim', None) is not None:
+        network[name]['set_sparse_dim'] = kwargs.get('set_sparse_dim', None)
+    if kwargs.get('is_output', False):
+        network[name]['is_output_layer'] = True
+    return network, name
