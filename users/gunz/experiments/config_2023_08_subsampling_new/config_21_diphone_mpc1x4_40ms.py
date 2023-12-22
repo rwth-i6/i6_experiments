@@ -16,16 +16,10 @@ from sisyphus import gs, tk
 # -------------------- Recipes --------------------
 
 
-from i6_core import corpus, lexicon, rasr, returnn
+from i6_core import rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.analysis import (
-    ComputeSilencePercentageJob,
-    ComputeTimestampErrorJob,
-    ComputeWordLevelTimestampErrorJob,
-    PlotViterbiAlignmentsJob,
-)
 from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
 from ...setups.common.nn.chunking import subsample_chunking
 from ...setups.common.nn.specaugment import (
@@ -49,8 +43,6 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
-    ALIGN_GMM_TRI_10MS,
-    ALIGN_GMM_TRI_ALLOPHONES,
     CONF_CHUNKING_10MS,
     CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
@@ -62,6 +54,7 @@ from .config import (
     RASR_ROOT_TF2,
     RETURNN_PYTHON,
 )
+from .config_92_overfitting_eval import eval_dev_other_score
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_NO_TF, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH")
 RASR_TF_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_TF2, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH_TF2")
@@ -370,6 +363,16 @@ def run_single(
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
     )
+
+    if alignment_name == "40ms-FF-v8" and chunking == CONF_CHUNKING_10MS and label_smoothing == CONF_LABEL_SMOOTHING:
+        eval_dev_other_score(
+            name=f"40ms-from-{alignment_name}",
+            crp=s.crp[s.crp_names["train"]],
+            ckpt=viterbi_train_j.out_checkpoints[num_epochs],
+            returnn_config=returnn_config,
+            returnn_python_exe=s.returnn_python_exe,
+            returnn_root=s.returnn_root,
+        )
 
     for ep, crp_k in itertools.product([300, 400, 500, 550, 600], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)

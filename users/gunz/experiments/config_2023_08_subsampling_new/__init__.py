@@ -601,6 +601,24 @@ def the_plan():
     )
 
 
+def overfit_eval():
+    from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new import (
+        config_21_diphone_mpc1x4_40ms,
+        config_21e_diphone_pp_mpc1x4_40ms,
+    )
+
+    returnn_root = _clone_returnn_safe()
+
+    phmm_40ms_ffnn_a = get_40ms_linear_a()
+    config_21_diphone_mpc1x4_40ms.run(
+        returnn_root=returnn_root,
+        alignment=phmm_40ms_ffnn_a,
+        a_name="40ms-FF-v8",
+    )
+
+    config_21e_diphone_pp_mpc1x4_40ms.run(returnn_root=returnn_root)
+
+
 def best_10ms():
     from i6_experiments.users.gunz.experiments.config_2023_08_subsampling_new import (
         config_50b_best_ss_config_10ms,
