@@ -5,6 +5,7 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 from __future__ import annotations
 
 import os
+import subprocess
 from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable
 
 import sisyphus
@@ -12,6 +13,7 @@ from sisyphus import tk
 from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
+from i6_core.returnn.training import PtCheckpoint
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, SearchTakeBestJob
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from returnn_common import nn
@@ -604,3 +606,160 @@ class GetBestRecogTrainExp(sisyphus.Job):
                 f.write(f'  "{epoch}": {json.dumps(res)}')
                 count += 1
             f.write("\n}\n")
+
+
+class GetTorchAvgModelResult(sisyphus.Job):
+    """
+    Collect all info from recogs.
+    The output is a JSON dict with the format::
+
+        {
+            'best_scores': {...}  (ScoreResultCollection)
+            'best_epoch': int,  (sub-epoch by RETURNN)
+            ...  (other meta info)
+        }
+    """
+
+    def __init__(
+        self,
+        exp: ModelWithCheckpoints,
+        *,
+        recog_and_score_func: Callable[[PtCheckpoint], ScoreResultCollection],
+        train_scores_n_best: int = 2,
+        end_fraction: float = 0.05,
+        exclude_epochs: Collection[int] = (),
+    ):
+        """
+        :param exp: model, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
+        :param recog_and_score_func: epoch -> scores. called in graph proc
+        :param check_train_scores_n_best: check train scores for N best checkpoints (per each measure)
+        :param end_fraction: takes the last models, e.g. 0.05 means, if last epoch is 500, take only from epochs 450-500
+        """
+        super(GetTorchAvgModelResult, self).__init__()
+        self.exp = exp
+        self.recog_and_score_func = recog_and_score_func
+        self.train_scores_n_best = train_scores_n_best
+        self.end_fraction = end_fraction
+        self.exclude_epochs = exclude_epochs
+        self._update_checked_relevant_epochs = False
+        self.out_avg_checkpoint = PtCheckpoint(self.output_path("model/average.pt"))
+        self.out_results = self.output_path("results.json")
+        self.out_main_measure_value = self.output_path("main_measure_value.json")
+        self.res = ScoreResultCollection(main_measure_value=self.out_main_measure_value, output=self.out_results)
+        self._in_checkpoints: Dict[int, PtCheckpoint] = {}
+        self._in_avg_checkpoint: Optional[PtCheckpoint] = None
+        self._scores_output: Optional[ScoreResultCollection] = None
+        for epoch in exp.fixed_epochs:
+            self._add_recog(epoch)
+        self.update()
+
+    def update(self):
+        """
+        This is run when all inputs have become available,
+        and we can potentially add further inputs.
+        The exp (ModelWithCheckpoints) includes a ref to scores_and_learning_rates
+        which is only available when the training job finished,
+        thus this is only run at the very end.
+
+        Note that this is thus called multiple times,
+        once scores_and_learning_rates becomes available,
+        and then once the further recogs become available.
+        However, only want to check for relevant checkpoints once.
+        """
+        if not self._update_checked_relevant_epochs and self.exp.scores_and_learning_rates.available():
+            from datetime import datetime
+
+            log_filename = tk.Path("update.log", self).get_path()
+            os.makedirs(os.path.dirname(log_filename), exist_ok=True)
+            with open(log_filename, "a") as log_stream:
+                log_stream.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                log_stream.write(": get_relevant_epochs_from_training_learning_rate_scores\n")
+                for epoch in get_relevant_epochs_from_training_learning_rate_scores(
+                    model_dir=self.exp.model_dir,
+                    model_name=self.exp.model_name,
+                    scores_and_learning_rates=self.exp.scores_and_learning_rates,
+                    n_best=self.train_scores_n_best,
+                    log_stream=log_stream,
+                ):
+                    self._add_recog(epoch)
+            self._update_checked_relevant_epochs = True
+            self._make_output()
+
+    def _add_recog(self, epoch: int):
+        if epoch in self.exclude_epochs:
+            return
+        if epoch in self._in_checkpoints:
+            return
+        self._in_checkpoints[epoch] = self.exp.get_epoch(epoch).checkpoint
+
+    def _make_output(self):
+        in_checkpoints = [ckpt for epoch, ckpt in sorted(self._in_checkpoints.items())]
+        in_avg_checkpoint = AverageTorchCheckpointsJob(
+            checkpoints=in_checkpoints,
+            returnn_python_exe=tools_paths.get_returnn_python_exe(),
+            returnn_root=tools_paths.get_returnn_root(),
+        ).out_checkpoint
+        self._in_avg_checkpoint = in_avg_checkpoint
+        self.add_input(in_avg_checkpoint.path)
+        res = self.recog_and_score_func(in_avg_checkpoint)
+        assert isinstance(res, ScoreResultCollection)
+        self.add_input(res.main_measure_value)
+        self.add_input(res.output)
+        self._scores_output = res
+
+    def tasks(self) -> Iterator[sisyphus.Task]:
+        """tasks"""
+        yield sisyphus.Task("run", mini_task=True)
+
+    def run(self):
+        """run"""
+        import shutil
+
+        shutil.copy(self._scores_output.main_measure_value.get_path(), self.out_main_measure_value.get_path())
+        shutil.copy(self._scores_output.output.get_path(), self.out_results.get_path())
+        # We don't want to copy the checkpoint if we can avoid it.
+        # Currently assume a hardlink is always possible.
+        os.link(self._in_avg_checkpoint.path.get_path(), self.out_avg_checkpoint.path.get_path())
+
+
+class AverageTorchCheckpointsJob(sisyphus.Job):
+    """
+    average Torch model checkpoints
+
+    TODO move this to i6_core
+    """
+
+    def __init__(
+        self,
+        *,
+        checkpoints: Sequence[Union[tk.Path, PtCheckpoint]],
+        returnn_python_exe: tk.Path,
+        returnn_root: tk.Path,
+    ):
+        """
+        :param checkpoints: input checkpoints
+        :param returnn_python_exe: file path to the executable for running returnn (python binary or .sh)
+        :param returnn_root: file path to the RETURNN repository root folder
+        """
+        self.checkpoints = [ckpt if isinstance(ckpt, PtCheckpoint) else PtCheckpoint(ckpt) for ckpt in checkpoints]
+        self.returnn_python_exe = returnn_python_exe
+        self.returnn_root = returnn_root
+
+        self.out_checkpoint = PtCheckpoint(self.output_path("model/average.pt"))
+
+        self.rqmt = {"cpu": 1, "time": 0.5, "mem": 2 * len(self.checkpoints)}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        os.makedirs(os.path.dirname(self.out_checkpoint.path.get_path()), exist_ok=True)
+        args = [
+            self.returnn_python_exe.get_path(),
+            os.path.join(self.returnn_root.get_path(), "tools/torch_avg_checkpoints.py"),
+            "--checkpoints",
+            *[ckpt.path.get_path() for ckpt in self.checkpoints],
+            "--output_path",
+            self.out_checkpoint.path.get_path(),
+        ]
+        subprocess.check_call(args)
