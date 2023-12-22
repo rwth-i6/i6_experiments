@@ -25,6 +25,16 @@ class ReturnnEvalJob(returnn.ReturnnForwardJob):
 
         super().create_files(*args, **kwargs)
 
+    @classmethod
+    def hash(cls, *args, **kwargs):
+        d = {
+            "returnn_config": super().create_returnn_config(**kwargs),
+            "returnn_python_exe": kwargs["returnn_python_exe"],
+            "returnn_root": kwargs["returnn_root"],
+        }
+
+        return super().hash(d)
+
 
 def eval_dev_other_score(
     *,
