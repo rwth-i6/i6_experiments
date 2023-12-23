@@ -639,9 +639,9 @@ class GetTorchAvgModelResult(sisyphus.Job):
         *,
         recog_and_score_func: Callable[[PtCheckpoint], ScoreResultCollection],
         end_fraction: float = 0.1,
-        train_scores_n_best: Optional[int] = None,
+        train_scores_n_best: Optional[int] = 2,
         include_fixed_epochs: bool = False,
-        include_last_n: Optional[int] = None,
+        include_last_n: Optional[int] = 2,
         exclude_epochs: Collection[int] = (),
     ):
         """
