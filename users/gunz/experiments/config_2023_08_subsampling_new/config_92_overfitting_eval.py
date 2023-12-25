@@ -78,6 +78,7 @@ def eval_dev_other_score_40ms(*args, **kwargs) -> ReturnnEvalJob:
         add_all_allos=False,
         alignment_path=ALIGNMENT_PATH_40MS,
         n_states_per_phone=1,
+        reduce_target_factor=4,
         **kwargs,
     )
 
@@ -93,6 +94,7 @@ def eval_dev_other_score(
     add_all_allos: bool,
     alignment_path: tk.Path,
     n_states_per_phone: int,
+    reduce_target_factor: Optional[int] = None,
     device: str = "cpu",
 ) -> ReturnnEvalJob:
     crp = copy.deepcopy(crp)
@@ -137,6 +139,8 @@ def eval_dev_other_score(
         ),
         "partitionEpoch": 1,
     }
+    if reduce_target_factor:
+        dset_config["reduce_target_factor"] = reduce_target_factor
     returnn_config.config = {**returnn_config.config, "dev": dset_config}
 
     job = ReturnnEvalJob(
