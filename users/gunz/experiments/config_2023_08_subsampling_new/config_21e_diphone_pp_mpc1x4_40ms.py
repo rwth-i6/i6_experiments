@@ -60,7 +60,7 @@ from .config import (
     RASR_ROOT_TF2,
     RETURNN_PYTHON,
 )
-from .config_92_overfitting_eval import eval_dev_other_score_10ms
+from .config_92_overfitting_eval import eval_dev_other_score_10ms_blstm, eval_dev_other_score_10ms_ffnn
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_NO_TF, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH")
 RASR_TF_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_TF2, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH_TF2")
@@ -339,8 +339,17 @@ def run_single(
         on_2080=True,
     )
 
-    if alignment_name == "10ms-FF":
-        eval_dev_other_score_10ms(
+    if "10ms-B" in alignment_name:
+        eval_dev_other_score_10ms_blstm(
+            name=f"40ms-from-{alignment_name}",
+            crp=s.crp[s.crp_names["train"]],
+            ckpt=viterbi_train_j.out_checkpoints[num_epochs],
+            returnn_config=returnn_config,
+            returnn_python_exe=s.returnn_python_exe,
+            returnn_root=s.returnn_root,
+        )
+    elif "10ms-FF" in alignment_name:
+        eval_dev_other_score_10ms_ffnn(
             name=f"40ms-from-{alignment_name}",
             crp=s.crp[s.crp_names["train"]],
             ckpt=viterbi_train_j.out_checkpoints[num_epochs],

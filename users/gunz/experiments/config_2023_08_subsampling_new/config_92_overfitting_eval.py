@@ -5,23 +5,27 @@ from i6_core import features, rasr, returnn
 from sisyphus import tk, Path
 from sisyphus.delayed_ops import DelayedFormat
 
-ALIGNMENT_PATH_10MS = Path(
-    "/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/10ms-dev-eval-subset/AlignmentJob.PzEwoG5YbNUb/output/alignment.cache.bundle",
+ALIGNMENT_PATH_10MS_BLSTM = Path(
+    "/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/10ms-blstm-dev-eval-subset/AlignmentJob.PzEwoG5YbNUb/output/alignment.cache.bundle",
     cached=True,
 )
-ALIGNMENT_PATH_40MS = Path(
-    "/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/40ms-dev-eval-subset/AlignmentJob.sZ5qa544Xsus/output/alignment.cache.bundle",
+ALIGNMENT_PATH_10MS_FFNN = Path(
+    "/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/10ms-ffnn-dev-eval-subset/AlignmentJob.PzEwoG5YbNUb/output/alignment.cache.bundle",
     cached=True,
 )
-CORPUS_PATH = Path("/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/10ms-dev-eval-subset/corpus.xml")
+ALIGNMENT_PATH_40MS_FFNN = Path(
+    "/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/40ms-ffnn-dev-eval-subset/AlignmentJob.sZ5qa544Xsus/output/alignment.cache.bundle",
+    cached=True,
+)
+CORPUS_PATH = Path("/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/10ms-blstm-dev-eval-subset/corpus.xml")
 FEATURE_PATH = Path(
     "/work/asr4/raissi/setups/librispeech/960-ls/2023-01--system_paper/work/i6_core/features/extraction/FeatureExtractionJob.Gammatone.gXcFN7bQQqYf/output/gt.cache.bundle",
     cached=True,
 )
 LEX_PATH = Path(
-    "/work/asr3/raissi/shared_workspaces/gunz/dependencies/alignments/ls-960/scratch/10ms-dev-eval-subset/lexicon.xml.gz"
+    "/work/asr3/raissi/shared_workspaces/gunz/dependencies/alignments/ls-960/scratch/10ms-blstm-dev-eval-subset/lexicon.xml.gz"
 )
-SEGMENT_PATH = Path("/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/10ms-dev-eval-subset/segments.1")
+SEGMENT_PATH = Path("/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/10ms-blstm-dev-eval-subset/segments.1")
 
 
 class ReturnnEvalJob(returnn.ReturnnForwardJob):
@@ -62,11 +66,20 @@ class ReturnnEvalJob(returnn.ReturnnForwardJob):
         super().create_files(*args, **kwargs)
 
 
-def eval_dev_other_score_10ms(*args, **kwargs) -> ReturnnEvalJob:
+def eval_dev_other_score_10ms_blstm(*args, **kwargs) -> ReturnnEvalJob:
     return eval_dev_other_score(
         *args,
         add_all_allos=True,
-        alignment_path=ALIGNMENT_PATH_10MS,
+        alignment_path=ALIGNMENT_PATH_10MS_BLSTM,
+        **kwargs,
+    )
+
+
+def eval_dev_other_score_10ms_ffnn(*args, **kwargs) -> ReturnnEvalJob:
+    return eval_dev_other_score(
+        *args,
+        add_all_allos=True,
+        alignment_path=ALIGNMENT_PATH_10MS_FFNN,
         **kwargs,
     )
 
@@ -75,7 +88,7 @@ def eval_dev_other_score_40ms(*args, **kwargs) -> ReturnnEvalJob:
     return eval_dev_other_score(
         *args,
         add_all_allos=False,
-        alignment_path=ALIGNMENT_PATH_40MS,
+        alignment_path=ALIGNMENT_PATH_40MS_FFNN,
         reduce_target_factor=4,
         **kwargs,
     )
