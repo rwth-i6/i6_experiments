@@ -149,6 +149,7 @@ def eval_dev_other_score(
         returnn_root=returnn_root,
         eval_mode=True,
         device=device,
+        log_verbosity=3,
         cpu_rqmt=4,
         time_rqmt=24,
     )
