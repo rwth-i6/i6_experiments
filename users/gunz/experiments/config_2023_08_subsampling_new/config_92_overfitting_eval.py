@@ -67,7 +67,6 @@ def eval_dev_other_score_10ms(*args, **kwargs) -> ReturnnEvalJob:
         *args,
         add_all_allos=True,
         alignment_path=ALIGNMENT_PATH_10MS,
-        n_states_per_phone=3,
         **kwargs,
     )
 
@@ -77,7 +76,6 @@ def eval_dev_other_score_40ms(*args, **kwargs) -> ReturnnEvalJob:
         *args,
         add_all_allos=False,
         alignment_path=ALIGNMENT_PATH_40MS,
-        n_states_per_phone=1,
         reduce_target_factor=4,
         **kwargs,
     )
@@ -93,7 +91,7 @@ def eval_dev_other_score(
     returnn_root: tk.Path,
     add_all_allos: bool,
     alignment_path: tk.Path,
-    n_states_per_phone: int,
+    n_states_per_phone: int = 1,
     reduce_target_factor: Optional[int] = None,
     device: str = "cpu",
 ) -> ReturnnEvalJob:
