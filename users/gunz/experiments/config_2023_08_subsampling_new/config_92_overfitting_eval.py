@@ -10,7 +10,7 @@ ALIGNMENT_PATH_10MS_BLSTM = Path(
     cached=True,
 )
 ALIGNMENT_PATH_10MS_FFNN = Path(
-    "/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/10ms-ffnn-dev-eval-subset/AlignmentJob.PzEwoG5YbNUb/output/alignment.cache.bundle",
+    "/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/10ms-ffnn-dev-eval-subset/AlignmentJob.sZ5qa544Xsus/output/alignment.cache.bundle",
     cached=True,
 )
 ALIGNMENT_PATH_40MS_FFNN = Path(
