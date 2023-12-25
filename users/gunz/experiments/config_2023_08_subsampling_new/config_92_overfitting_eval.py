@@ -65,6 +65,7 @@ class ReturnnEvalJob(returnn.ReturnnForwardJob):
 def eval_dev_other_score_10ms(*args, **kwargs) -> ReturnnEvalJob:
     return eval_dev_other_score(
         *args,
+        add_all_allos=True,
         alignment_path=ALIGNMENT_PATH_10MS,
         n_states_per_phone=3,
         **kwargs,
@@ -74,6 +75,7 @@ def eval_dev_other_score_10ms(*args, **kwargs) -> ReturnnEvalJob:
 def eval_dev_other_score_40ms(*args, **kwargs) -> ReturnnEvalJob:
     return eval_dev_other_score(
         *args,
+        add_all_allos=False,
         alignment_path=ALIGNMENT_PATH_40MS,
         n_states_per_phone=1,
         **kwargs,
@@ -88,6 +90,7 @@ def eval_dev_other_score(
     returnn_config: returnn.ReturnnConfig,
     returnn_python_exe: tk.Path,
     returnn_root: tk.Path,
+    add_all_allos: bool,
     alignment_path: tk.Path,
     n_states_per_phone: int,
     device: str = "cpu",
@@ -97,6 +100,10 @@ def eval_dev_other_score(
     crp.corpus_config.file = CORPUS_PATH
     crp.lexicon_config.file = LEX_PATH
     crp.segment_path = SEGMENT_PATH
+
+    if add_all_allos:
+        crp.acoustic_model_config.allophones.add_all = add_all_allos
+        crp.acoustic_model_config.allophones.add_from_lexicon = not add_all_allos
 
     feature_path = rasr.FlagDependentFlowAttribute("cache_mode", {"bundle": FEATURE_PATH})
     feature_flow = features.basic_cache_flow(feature_path)
@@ -118,21 +125,19 @@ def eval_dev_other_score(
     rasr_config_write_job = rasr.WriteRasrConfigJob(rasr_config, rasr_post_config)
 
     returnn_config = copy.deepcopy(returnn_config)
-    returnn_config.config = {
-        **returnn_config.config,
-        "eval": {
-            "class": "ExternSprintDataset",
-            "sprintTrainerExecPath": rasr.RasrCommand.select_exe(
-                crp.nn_trainer_exe,
-                "nn-trainer",
-            ),
-            "sprintConfigStr": DelayedFormat(
-                "--config={} --*.LOGFILE=nn-trainer.eval.log --*.TASK=1",
-                rasr_config_write_job.out_config,
-            ),
-            "partitionEpoch": 1,
-        },
+    dset_config = {
+        "class": "ExternSprintDataset",
+        "sprintTrainerExecPath": rasr.RasrCommand.select_exe(
+            crp.nn_trainer_exe,
+            "nn-trainer",
+        ),
+        "sprintConfigStr": DelayedFormat(
+            "--config={} --*.LOGFILE=nn-trainer.eval.log --*.TASK=1",
+            rasr_config_write_job.out_config,
+        ),
+        "partitionEpoch": 1,
     }
+    returnn_config.config = {**returnn_config.config, "dev": dset_config}
 
     job = ReturnnEvalJob(
         model_checkpoint=ckpt,
