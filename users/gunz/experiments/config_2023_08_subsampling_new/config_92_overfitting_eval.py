@@ -67,6 +67,7 @@ def eval_dev_other_score(
     device: str = "cpu",
 ) -> ReturnnEvalJob:
     crp = copy.deepcopy(crp)
+    crp.acoustic_model_config.hmm.states_per_phone = 3
     crp.corpus_config.file = CORPUS_PATH
     crp.lexicon_config.file = LEX_PATH
     crp.segment_path = SEGMENT_PATH
