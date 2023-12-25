@@ -5,17 +5,23 @@ from i6_core import features, rasr, returnn
 from sisyphus import tk, Path
 from sisyphus.delayed_ops import DelayedFormat
 
-ALIGNMENT_PATH = Path(
-    "/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/dev-eval-subset/AlignmentJob.PzEwoG5YbNUb/output/alignment.cache.bundle",
+ALIGNMENT_PATH_10MS = Path(
+    "/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/10ms-dev-eval-subset/AlignmentJob.PzEwoG5YbNUb/output/alignment.cache.bundle",
     cached=True,
 )
-CORPUS_PATH = Path("/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/dev-eval-subset/corpus.xml")
+ALIGNMENT_PATH_40MS = Path(
+    "/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/40ms-dev-eval-subset/AlignmentJob.sZ5qa544Xsus/output/alignment.cache.bundle",
+    cached=True,
+)
+CORPUS_PATH = Path("/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/10ms-dev-eval-subset/corpus.xml")
 FEATURE_PATH = Path(
     "/work/asr4/raissi/setups/librispeech/960-ls/2023-01--system_paper/work/i6_core/features/extraction/FeatureExtractionJob.Gammatone.gXcFN7bQQqYf/output/gt.cache.bundle",
     cached=True,
 )
-LEX_PATH = Path("/work/asr3/raissi/shared_workspaces/gunz/dependencies/alignments/ls-960/scratch/dev-eval-subset/lexicon.xml.gz")
-SEGMENT_PATH = Path("/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/dev-eval-subset/segments.1")
+LEX_PATH = Path(
+    "/work/asr3/raissi/shared_workspaces/gunz/dependencies/alignments/ls-960/scratch/10ms-dev-eval-subset/lexicon.xml.gz"
+)
+SEGMENT_PATH = Path("/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/10ms-dev-eval-subset/segments.1")
 
 
 class ReturnnEvalJob(returnn.ReturnnForwardJob):
@@ -56,6 +62,24 @@ class ReturnnEvalJob(returnn.ReturnnForwardJob):
         super().create_files(*args, **kwargs)
 
 
+def eval_dev_other_score_10ms(*args, **kwargs) -> ReturnnEvalJob:
+    return eval_dev_other_score(
+        *args,
+        alignment_path=ALIGNMENT_PATH_10MS,
+        n_states_per_phone=3,
+        **kwargs,
+    )
+
+
+def eval_dev_other_score_40ms(*args, **kwargs) -> ReturnnEvalJob:
+    return eval_dev_other_score(
+        *args,
+        alignment_path=ALIGNMENT_PATH_40MS,
+        n_states_per_phone=1,
+        **kwargs,
+    )
+
+
 def eval_dev_other_score(
     *,
     name: str,
@@ -64,22 +88,24 @@ def eval_dev_other_score(
     returnn_config: returnn.ReturnnConfig,
     returnn_python_exe: tk.Path,
     returnn_root: tk.Path,
+    alignment_path: tk.Path,
+    n_states_per_phone: int,
     device: str = "cpu",
 ) -> ReturnnEvalJob:
     crp = copy.deepcopy(crp)
-    crp.acoustic_model_config.hmm.states_per_phone = 3
+    crp.acoustic_model_config.hmm.states_per_phone = n_staes_per_phone
     crp.corpus_config.file = CORPUS_PATH
     crp.lexicon_config.file = LEX_PATH
     crp.segment_path = SEGMENT_PATH
 
     feature_path = rasr.FlagDependentFlowAttribute("cache_mode", {"bundle": FEATURE_PATH})
     feature_flow = features.basic_cache_flow(feature_path)
-    flow = returnn.ReturnnRasrTrainingJob.create_flow(feature_flow=feature_flow, alignment=ALIGNMENT_PATH)
+    flow = returnn.ReturnnRasrTrainingJob.create_flow(feature_flow=feature_flow, alignment=alignment_path)
     flow_write_job = rasr.WriteFlowNetworkJob(flow)
 
     rasr_config, rasr_post_config = returnn.ReturnnRasrTrainingJob.create_config(
         crp=crp,
-        alignment=ALIGNMENT_PATH,
+        alignment=alignment_path,
         num_classes=None,
         buffer_size=200 * 1024,
         disregarded_classes=None,

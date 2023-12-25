@@ -54,7 +54,7 @@ from .config import (
     RASR_ROOT_TF2,
     RETURNN_PYTHON,
 )
-from .config_92_overfitting_eval import eval_dev_other_score
+from .config_92_overfitting_eval import eval_dev_other_score_40ms
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_NO_TF, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH")
 RASR_TF_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_TF2, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH_TF2")
@@ -365,7 +365,7 @@ def run_single(
     )
 
     if alignment_name == "40ms-FF-v8" and chunking == CONF_CHUNKING_10MS and label_smoothing == CONF_LABEL_SMOOTHING:
-        eval_dev_other_score(
+        eval_dev_other_score_40ms(
             name=f"40ms-from-{alignment_name}",
             crp=s.crp[s.crp_names["train"]],
             ckpt=viterbi_train_j.out_checkpoints[num_epochs],
