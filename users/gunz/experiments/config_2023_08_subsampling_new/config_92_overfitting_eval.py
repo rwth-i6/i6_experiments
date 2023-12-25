@@ -140,6 +140,7 @@ def eval_dev_other_score(
     if reduce_target_factor:
         dset_config["reduce_target_factor"] = reduce_target_factor
     returnn_config.config = {**returnn_config.config, "dev": dset_config}
+    returnn_config.config.pop("train", None)
 
     job = ReturnnEvalJob(
         model_checkpoint=ckpt,
