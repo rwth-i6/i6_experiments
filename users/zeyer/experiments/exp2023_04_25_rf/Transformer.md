@@ -55,3 +55,12 @@ Via https://huggingface.co/transformers/v3.5.1/_modules/transformers/modeling_t5
     module.o.weight.data.normal_(mean=0.0, std=factor * ((n_heads * d_kv) ** -0.5))
 
 - multi-query attention (Shazeer, 2019)
+
+- training recipe for large scale (huge amount of data) language modeling
+  (via Lucas@Google, https://twitter.com/giffmana/status/1739754033194086733)
+  AdamW with beta=(0.9,0.95), weight decay 0.1, no dropout, grad clip 1
+  LR schedule: linear warmup, cos decay to 1e-5
+  RMSNorm instead of LayerNorm
+  no bias terms in Linear
+  huge batch size? growing batch size?
+  (example: Mamba paper: https://arxiv.org/pdf/2312.00752.pdf)
