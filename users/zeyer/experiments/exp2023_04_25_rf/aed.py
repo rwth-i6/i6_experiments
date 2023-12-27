@@ -45,14 +45,14 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
-    train_exp(
+    train_exp(  # 5.64
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
         config_updates={
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},  # multi-GPU
         },
     )
-    train_exp(
+    train_exp(  # 5.84, overfits more
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_100k",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
         config_updates={
