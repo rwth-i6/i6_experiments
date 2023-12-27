@@ -326,6 +326,7 @@ class BASEFactoredHybridSystem(NnSystem):
     ):
         new_crp = copy.deepcopy(existing_crp)
         new_crp.corpus_config.file = corpus_path
+        new_crp.corpus_config.segments.file = segment_path
         new_crp.corpus_config.remove_corpus_name_prefix = f"{prefix_name}/"
 
         return new_crp
@@ -442,7 +443,7 @@ class BASEFactoredHybridSystem(NnSystem):
             if "train" not in crp_k:
                 self._update_crp_am_setting_for_decoding(self.crp_names[crp_k])
 
-    def _get_segment_file(self, corpus_path, remove_prefix=""):
+    def _get_segment_file(self, corpus_path):
         return corpus_recipe.SegmentCorpusJob(
             bliss_corpus=corpus_path,
             num_segments=1,
@@ -455,13 +456,14 @@ class BASEFactoredHybridSystem(NnSystem):
         return merged_corpus_job.out_merged_corpus
 
     def _add_merged_cv_corpus(self, segment_list: Path):
-        corpus_key = ("_").join(self.cv_corpora)
+        corpus_key = self.cv_no_train_key = ("_").join(self.cv_corpora)
         reference_crp = self.crp[self.cv_corpora[0]]
         cv_corpora_obj = [self.corpora[k].corpus_file for k in self.cv_corpora]
         durations = np.sum([self.corpora[k].duration for k in self.cv_corpora])
-        prefix_name = "merged-cv"
-        merged_corpus_all = self._get_merged_corpus_for_corpora(cv_corpora_obj, name=prefix_name)
-        merged_corpus = corpus_recipe.FilterCorpusBySegmentsJob(bliss_corpus=merged_corpus_all, segment_file=segment_list, invert_match=True).out_corpus
+        merged_corpus_all = corpus_recipe.MergeCorporaJob(
+            cv_corpora_obj, name=corpus_key, merge_strategy=corpus_recipe.MergeStrategy.FLAT
+        ).out_merged_corpus
+        merged_corpus = corpus_recipe.FilterCorpusBySegmentsJob(bliss_corpus=merged_corpus_all, segment_file=segment_list, delete_empty_recordings=True).out_corpus
 
 
         lexicon = {
@@ -487,10 +489,12 @@ class BASEFactoredHybridSystem(NnSystem):
         joined_crp = self._get_crp_from_existing(
             existing_crp=reference_crp,
             corpus_path=merged_corpus,
-            prefix_name=prefix_name,
             segment_path=cv_segments,
+            prefix_name="",
         )
         joined_crp.concurrent = 1
+        joined_crp.segment_path = cv_segments
+
         self.crp[corpus_key] = joined_crp
         self.cv_corpora.append(corpus_key)
 
@@ -705,7 +709,7 @@ class BASEFactoredHybridSystem(NnSystem):
         # segments
         train_segments = self._get_segment_file(train_corpus)
         cv_segments = self._get_segment_file(cv_corpus)
-        merged_segments = self._get_segment_file(merged_corpus, remove_prefix=merged_name)
+        merged_segments = self._get_segment_file(merged_corpus)
 
         devtrain_segments = text.TailJob(train_segments, num_lines=1000, zip_output=False).out
 

@@ -176,18 +176,18 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
     ):
         # this is not a returnn config, but the dict params
         assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
-        config["extern_data"] = {
-            "data": {
-                "dim": self.initial_nn_args["num_input"],
-                "same_dim_tags_as": {"T": returnn.CodeWrapper(self.frame_rate_reduction_ratio_info.time_tag_name)},
-            }
-        }
-        config["python_prolog"] = {
-            "numpy": "import numpy as np",
-            "time": self.frame_rate_reduction_ratio_info.get_time_tag_prolog_for_returnn_config(),
-        }
 
         if self.training_criterion != TrainingCriterion.fullsum:
+            config["extern_data"] = {
+                "data": {
+                    "dim": self.initial_nn_args["num_input"],
+                    "same_dim_tags_as": {"T": returnn.CodeWrapper(self.frame_rate_reduction_ratio_info.time_tag_name)},
+                }
+            }
+            config["python_prolog"] = {
+                "numpy": "import numpy as np",
+                "time": self.frame_rate_reduction_ratio_info.get_time_tag_prolog_for_returnn_config(),
+            }
             label_time_tag = None
             if self.frame_rate_reduction_ratio_info.factor == 1:
                 label_time_tag = self.frame_rate_reduction_ratio_info.time_tag_name
@@ -211,6 +211,10 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
     def get_blstm_network(self, **kwargs):
         # this is without any loss and output layers
         network = encoder_archs.blstm.blstm_network(**kwargs)
+
+        if self.frame_rate_reduction_ratio_info.factor != 1:
+            assert not self.frame_rate_reduction_ratio_info.factor % 2, "Only even number is supported here"
+            encoder_archs.blstm.add_subsmapling_via_max_pooling(network_dict=network, pool_factor=self.frame_rate_reduction_ratio_info.factor // 2)
         if self.training_criterion != TrainingCriterion.fullsum:
             network = net_helpers.augment.augment_net_with_label_pops(
                 network,
@@ -680,7 +684,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
 
         # used for decoding
-        decoding_returnn_config = net_helpers.diphone_joint_output.augment_to_joint_diphone_softmax(
+        decoding_returnn_config = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax(
             returnn_config=clean_returnn_config,
             label_info=self.label_info,
             out_joint_score_layer="output",
@@ -711,7 +715,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             context_type="L",
         )
         # used for decoding
-        prior_returnn_config = net_helpers.diphone_joint_output.augment_to_joint_diphone_softmax(
+        prior_returnn_config = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax(
             returnn_config=clean_returnn_config,
             label_info=self.label_info,
             out_joint_score_layer="output",
@@ -741,7 +745,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
 
         # used for decoding
-        decoding_returnn_config = net_helpers.diphone_joint_output.augment_to_joint_diphone_softmax(
+        decoding_returnn_config = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax(
             returnn_config=clean_returnn_config,
             label_info=self.label_info,
             out_joint_score_layer="output",
@@ -838,6 +842,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         crp_corpus: str,
         aligner_key: str = "base",
         model_path: Optional[tk.Path] = None,
+        feature_path: Optional[tk.Path] = None,
         gpu: bool = False,
         is_multi_encoder_output: bool = False,
         set_batch_major_for_feature_scorer: bool = True,
@@ -873,14 +878,17 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         if model_path is None:
             model_path = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        if feature_path is None:
+            feature_path = self.feature_flows[crp_corpus]
         align_args = SearchParameters.default_for_ctx(context_type, priors=p_info)
+
 
         aligner = self.aligners[aligner_key](
             name=name,
             crp=self.crp[crp_corpus] if crp is None else crp,
             context_type=context_type,
             feature_scorer_type=feature_scorer_type,
-            feature_path=self.feature_flows[crp_corpus],
+            feature_path=feature_path,
             model_path=model_path,
             graph=graph,
             mixtures=dummy_mixtures,

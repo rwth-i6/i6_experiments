@@ -347,7 +347,7 @@ class BASEFactoredHybridDecoder:
 
         return {"rtf": rtf, "mem": mem}
 
-    def get_lookahead_options(scale=1.0, hlimit=-1, clow=0, chigh=500):
+    def get_lookahead_options(self, scale=1.0, hlimit=1, clow=2000, chigh=3000):
         lmla_options = {
             "scale": scale,
             "history_limit": hlimit,
@@ -731,6 +731,7 @@ class BASEFactoredHybridDecoder:
         rtf_gpu: Optional[float] = None,
         rtf_cpu: Optional[float] = None,
         create_lattice: bool = True,
+        adv_search_extra_config: Optional[rasr.RasrConfig] = None,
     ) -> RecognitionJobs:
         return self.recognize(
             add_sis_alias_and_output=add_sis_alias_and_output,
@@ -756,6 +757,7 @@ class BASEFactoredHybridDecoder:
             rtf_cpu=rtf_cpu,
             rtf_gpu=rtf_gpu,
             create_lattice=create_lattice,
+            adv_search_extra_config=adv_search_extra_config,
         )
 
     def recognize(
@@ -919,6 +921,8 @@ class BASEFactoredHybridDecoder:
             is_count_based=True,
         )
 
+        la_options = self.get_lookahead_options()
+
         adv_search_extra_config = (
             copy.deepcopy(adv_search_extra_config)
             if adv_search_extra_config is not None
@@ -929,6 +933,7 @@ class BASEFactoredHybridDecoder:
                 search_parameters.altas
             )
         if search_parameters.lm_lookahead_scale is not None:
+            name += f"-lh{search_parameters.lm_lookahead_scale}"
             # Use 4gram for lookahead. The lookahead LM must not be too good.
             #
             # Half the normal LM scale is a good starting value.
@@ -946,6 +951,10 @@ class BASEFactoredHybridDecoder:
             # TODO(future): Add LM image instead of file here.
             adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.scale = 1.0
             adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.type = "ARPA"
+
+        if search_parameters.lm_lookahead_history_limit > 1:
+            la_options["history_limit"] = search_parameters.lm_lookahead_history_limit
+            name += f"-lhHisLim{search_parameters.lm_lookahead_history_limit}"
 
         if self.feature_scorer_type.is_factored():
             feature_scorer = get_factored_feature_scorer(
@@ -999,6 +1008,7 @@ class BASEFactoredHybridDecoder:
             feature_scorer=feature_scorer,
             search_parameters=sp,
             lm_lookahead=True,
+            lookahead_options=la_options,
             eval_best_in_lattice=True,
             use_gpu=gpu if gpu is not None else self.gpu,
             rtf=rtf_gpu if rtf_gpu is not None and gpu else rtf_cpu if rtf_cpu is not None else rqms["rtf"],
@@ -1327,6 +1337,8 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
             name += f"-prJ-C{search_parameters.prior_info.diphone_prior.scale}"
         if search_parameters.we_pruning > 0.5:
             name += f"-wep{search_parameters.we_pruning}"
+        if search_parameters.we_pruning_limit < 50000:
+            name += f"-welim{search_parameters.we_pruning_limit}"
         if search_parameters.altas is not None:
             name += f"-ALTAS{search_parameters.altas}"
         if search_parameters.add_all_allophones:

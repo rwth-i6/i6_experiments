@@ -156,6 +156,7 @@ class SearchParameters:
     add_all_allophones: bool = True
     altas: Optional[float] = None
     lm_lookahead_scale: Optional[float] = None
+    lm_lookahead_history_limit: Int = 1
     posterior_scales: Optional[PosteriorScales] = None
     silence_penalties: Optional[Tuple[Float, Float]] = None  # loop, fwd
     state_dependent_tdps: Optional[Union[str, tk.Path]] = None
@@ -170,11 +171,21 @@ class SearchParameters:
     def with_beam_size(self, beam: Float) -> "SearchParameters":
         return dataclasses.replace(self, beam=beam)
 
+    def with_we_pruning(self, we_pruning: Int) -> "SearchParameters":
+        return dataclasses.replace(self, we_pruning=we_pruning)
+
+    def with_we_pruning_limit(self, we_pruning_limit: Float) -> "SearchParameters":
+        return dataclasses.replace(self, we_pruning_limit=we_pruning_limit)
+
     def with_lm_scale(self, scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, lm_scale=scale)
 
     def with_lm_lookahead_scale(self, scale: Float)-> "SearchParameters":
         return dataclasses.replace(self, lm_lookahead_scale=scale)
+
+    def with_lm_lookahead_history_limit(self, history_limit: Int)-> "SearchParameters":
+        return dataclasses.replace(self, lm_lookahead_history_limit=history_limit)
+
 
     def with_prior_scale(
         self,
