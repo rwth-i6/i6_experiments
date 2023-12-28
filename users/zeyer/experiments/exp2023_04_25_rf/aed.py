@@ -4,6 +4,7 @@ Attention-based encoder-decoder (AED) experiments
 
 from __future__ import annotations
 
+import copy
 import functools
 from typing import TYPE_CHECKING, Optional, Any, Union, Tuple, Dict, Sequence, List
 import tree
@@ -18,11 +19,14 @@ from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
+from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
+
 from .configs import *
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
+    from i6_experiments.users.zeyer.datasets.task import Task
 
 
 # The model gets raw features (16khz) and does feature extraction internally.
@@ -69,6 +73,15 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_100k-mixup",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
         config_updates={"mixup": {}},
+    )
+
+    train_exp(
+        "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_100k-speedpertV2",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
+        config_updates={
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+        },
     )
 
     # TODO...
@@ -139,6 +152,10 @@ def train_exp(
         gpu_mem = config.pop("__gpu_mem")
     if "__num_processes" in config:
         num_processes = config.pop("__num_processes")
+    if "__train_audio_preprocess" in config:
+        task: Task = copy.copy(task)
+        task.train_dataset = copy.copy(task.train_dataset)
+        task.train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
 
     model_with_checkpoint = train(
         prefix,
