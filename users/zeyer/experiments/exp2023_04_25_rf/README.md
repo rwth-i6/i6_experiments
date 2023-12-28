@@ -62,6 +62,7 @@ TODO:
 - Nadam? https://github.com/rwth-i6/returnn/issues/1440
 - weight decay? (also dependent on whether adam or adamw) adamw-wd1e_3 better?
 - weight decay only on selected layers/modules, like in TF, e.g. not so much on decoder
+- weight decay higher (0.1?) in decoder (Trafo decoder) only
 - adam eps? 1e-16 is what we had in TF, maybe better? moh as 1e-8 though.
 - try CTC only
 - CTC is incorrectly trained with EOS label at end - fix?
