@@ -139,6 +139,19 @@ config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k = dict_update_deep
         "__num_epochs": 500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
     },
 )
+config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k = dict_update_deep(
+    config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
+    {
+        "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},  # multi-GPU
+    },
+)
+config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k = dict_update_deep(
+    config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+    {
+        # total steps after 500 epochs: ~652k
+        "learning_rate_piecewise_steps": [100_000, 590_000, 652_000],
+    },
+)
 
 # TODO lrlin
 # TODO lr09e_3
