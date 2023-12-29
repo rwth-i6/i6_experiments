@@ -23,7 +23,7 @@ class SequentialLayerDrop(rf.Sequential):
             drop_probs = rf.random_uniform([num_layers_dim])
             for i, (name, module) in enumerate(self.items()):
                 x = rf.cond(
-                    drop_probs[i] >= self.layer_drop,
+                    rf.gather(drop_probs, indices=i, axis=num_layers_dim) >= self.layer_drop,
                     lambda: module(x, **kwargs),
                     lambda: x,
                 )
