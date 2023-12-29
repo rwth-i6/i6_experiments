@@ -19,6 +19,7 @@ from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
+from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 
 from .configs import *
@@ -87,6 +88,12 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         },
+    )
+
+    train_exp(
+        "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_100k-layerdrop01",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
+        config_updates={"enc_layer_drop": 0.1, "dec_layer_drop": 0.1},
     )
 
     # TODO...
@@ -324,13 +331,23 @@ class Model(rf.Module):
         att_dropout: float = 0.1,
         enc_dropout: float = 0.1,
         enc_att_dropout: float = 0.1,
-        l2: float = 0.0001,
     ):
         super(Model, self).__init__()
 
         from returnn.config import get_global_config
 
         config = get_global_config(return_empty_if_none=True)
+
+        enc_layer_drop = config.float("enc_layer_drop", 0.0)
+        if enc_layer_drop:
+            enc_sequential = functools.partial(SequentialLayerDrop, layer_drop=enc_layer_drop)
+        else:
+            enc_sequential = rf.Sequential
+        dec_layer_drop = config.float("dec_layer_drop", 0.0)
+        if dec_layer_drop:
+            dec_sequential = functools.partial(SequentialLayerDrop, layer_drop=dec_layer_drop)
+        else:
+            dec_sequential = rf.Sequential
 
         self.in_dim = in_dim
         self.encoder = ConformerEncoder(
@@ -349,12 +366,14 @@ class Model(rf.Module):
             num_heads=enc_att_num_heads,
             dropout=enc_dropout,
             att_dropout=enc_att_dropout,
+            sequential=enc_sequential,
         )
         self.decoder = TransformerDecoder(
             num_layers=num_dec_layers,
             encoder_dim=enc_model_dim,
             vocab_dim=target_dim,
             model_dim=dec_model_dim,
+            sequential=dec_sequential,
         )
 
         self.target_dim = target_dim
