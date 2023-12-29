@@ -64,3 +64,6 @@ Via https://huggingface.co/transformers/v3.5.1/_modules/transformers/modeling_t5
   no bias terms in Linear
   huge batch size? growing batch size?
   (example: Mamba paper: https://arxiv.org/pdf/2312.00752.pdf)
+
+- μParam
+- see recent Apple paper?
