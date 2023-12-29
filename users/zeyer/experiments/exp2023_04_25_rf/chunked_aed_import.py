@@ -57,7 +57,10 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     ),
 
     # train_exp("chunk-C20-R15-H2-bs15k", config_24gb)
-    train_exp("chunk-C20-R15-H2-bs22k", config_24gb, config_updates=_cfg_bs22k)
+
+    # most reasonable? but training is broken, needs alignment, or on-the-fly align...
+    # train_exp("chunk-C20-R15-H2-bs22k", config_24gb, config_updates=_cfg_bs22k)
+
     # train_exp(
     #     "chunk-C10-R5-H4-bs22k",
     #     config_24gb,
