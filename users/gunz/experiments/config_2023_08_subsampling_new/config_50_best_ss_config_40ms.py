@@ -498,6 +498,8 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     tri_from_di_cfg.update(tri_from_di_staged_net_cfg)
     tri_from_di_cfg.update(newbob_lr_config)
     tri_from_di_cfg.update(import_di_config)
+    tri_from_di_fixed_lr_cfg = copy.deepcopy(tri_from_di_cfg)
+    tri_from_di_fixed_lr_cfg.update(zero_lr_first_epoch_cfg)
     tri_from_di_fa_cfg = copy.deepcopy(returnn_cfg_tri)
     tri_from_di_fa_cfg.config.pop("network", None)
     tri_from_di_fa_cfg.update(tri_from_di_staged_net_cfg)
@@ -509,6 +511,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         (di_from_mono_fixed_lr_cfg, returnn_cfg_di, "di-from-mono-fixedlr"),
         (tri_from_mono_cfg, returnn_cfg_tri, "tri-from-mono"),
         (tri_from_di_cfg, returnn_cfg_tri, "tri-from-di"),
+        (tri_from_di_fixed_lr_cfg, returnn_cfg_tri, "tri-from-di-fixedlr"),
         (tri_from_di_fa_cfg, returnn_cfg_tri, "tri-from-di-fa-newbob"),
     ]
     keys = [f"fh-{name}" for _, _, name in configs]
