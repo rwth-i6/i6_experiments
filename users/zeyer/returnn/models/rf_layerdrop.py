@@ -20,7 +20,7 @@ class SequentialLayerDrop(rf.Sequential):
         def _layer_drop_call():
             x = inp
             num_layers_dim = Dim(len(self), name="num_layers")
-            drop_probs = rf.random_uniform([num_layers_dim])
+            drop_probs = rf.random_uniform([num_layers_dim], device="cpu")
             for i, (name, module) in enumerate(self.items()):
                 x = rf.cond(
                     rf.gather(drop_probs, indices=i, axis=num_layers_dim) >= self.layer_drop,
