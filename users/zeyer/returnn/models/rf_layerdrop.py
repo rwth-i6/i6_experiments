@@ -32,6 +32,6 @@ class SequentialLayerDrop(rf.Sequential):
             return x
 
         def _no_layer_drop_call():
-            return super()(inp, collected_outputs=collected_outputs, **kwargs)
+            return super().__call__(inp, collected_outputs=collected_outputs, **kwargs)
 
         return rf.cond(rf.get_run_ctx().train_flag, _layer_drop_call, _no_layer_drop_call)
