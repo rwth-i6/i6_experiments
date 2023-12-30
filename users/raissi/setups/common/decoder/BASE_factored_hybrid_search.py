@@ -227,7 +227,7 @@ def get_nn_precomputed_feature_scorer(
     feature_scorer_type: RasrFeatureScorer,
     mixtures: tk.Path,
     prior_info: Union[PriorInfo, tk.Variable, DelayedBase],
-    posterior_scale: float = 1.0
+    posterior_scale: float = 1.0,
 ):
 
     assert context_type in [PhoneticContext.monophone, PhoneticContext.joint_diphone]
@@ -924,9 +924,7 @@ class BASEFactoredHybridDecoder:
         la_options = self.get_lookahead_options()
 
         adv_search_extra_config = (
-            copy.deepcopy(adv_search_extra_config)
-            if adv_search_extra_config is not None
-            else rasr.RasrConfig()
+            copy.deepcopy(adv_search_extra_config) if adv_search_extra_config is not None else rasr.RasrConfig()
         )
         if search_parameters.altas is not None:
             adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.acoustic_lookahead_temporal_approximation_scale = (
@@ -983,7 +981,7 @@ class BASEFactoredHybridDecoder:
             scale = 1.0
             if search_parameters.posterior_scales is not None:
                 scale = search_parameters.posterior_scales["joint-diphone-scale"]
-                name += f'-Am{scale}'
+                name += f"-Am{scale}"
             feature_scorer = get_nn_precomputed_feature_scorer(
                 posterior_scale=scale,
                 context_type=self.context_type,
@@ -1274,7 +1272,6 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
         set_batch_major_for_feature_scorer: bool = True,
     ):
 
-
         super().__init__(
             name=name,
             crp=crp,
@@ -1293,7 +1290,6 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
             set_batch_major_for_feature_scorer=set_batch_major_for_feature_scorer,
         )
 
-
     def correct_transition_applicator(self, crp):
         # correct for the FSA bug
         crp.acoustic_model_config.tdp.applicator_type = "corrected"
@@ -1308,7 +1304,7 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
         label_info: LabelInfo,
         search_parameters: SearchParameters,
         num_encoder_output: int,
-        pre_path: Optional[str] = 'alignments',
+        pre_path: Optional[str] = "alignments",
         is_min_duration: bool = False,
         use_estimated_tdps: bool = False,
         crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
@@ -1347,10 +1343,7 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
             name += f"-tdpScale-{search_parameters.tdp_scale}"
             name += f"-spTdp-{format_tdp(search_parameters.tdp_speech[:3])}"
             name += f"-silTdp-{format_tdp(search_parameters.tdp_silence[:3])}"
-            if (
-                not search_parameters.tdp_speech[2] == "infinity"
-                and not search_parameters.tdp_silence[2] == "infinity"
-            ):
+            if not search_parameters.tdp_speech[2] == "infinity" and not search_parameters.tdp_silence[2] == "infinity":
                 name += "-withSkip"
             if self.feature_scorer_type.is_factored():
                 if search_parameters.transition_scales is not None:
@@ -1437,7 +1430,7 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
             scale = 1.0
             if search_parameters.posterior_scales is not None:
                 scale = search_parameters.posterior_scales["joint-diphone-scale"]
-                name += f'-Am{scale}'
+                name += f"-Am{scale}"
             feature_scorer = get_nn_precomputed_feature_scorer(
                 posterior_scale=scale,
                 context_type=self.context_type,
@@ -1450,16 +1443,16 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
 
         if search_parameters.tdp_scale is not None:
             if (
-                    search_parameters.tdp_speech[-1] +
-                    search_parameters.tdp_silence[-1] +
-                    search_parameters.tdp_non_word[-1] > 0.0
+                search_parameters.tdp_speech[-1]
+                + search_parameters.tdp_silence[-1]
+                + search_parameters.tdp_non_word[-1]
+                > 0.0
             ):
                 import warnings
+
                 warnings.warn("you planned to use exit penalty for alignment, we set this to zero")
 
         align_crp = self.correct_transition_applicator(align_crp)
-
-
 
         alignment = mm.AlignmentJob(
             crp=align_crp,

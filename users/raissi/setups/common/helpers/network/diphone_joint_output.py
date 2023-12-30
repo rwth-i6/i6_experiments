@@ -1,5 +1,4 @@
-__all__ = ["augment_returnn_config_to_joint_diphone_softmax",
-           "get_prolog_augment_network_to_joint_diphone_softmax"]
+__all__ = ["augment_returnn_config_to_joint_diphone_softmax", "get_prolog_augment_network_to_joint_diphone_softmax"]
 
 import copy
 from textwrap import dedent
@@ -19,7 +18,7 @@ def augment_returnn_config_to_joint_diphone_softmax(
     left_context_softmax_layer: str = "left-output",
     encoder_output_layer: str = "encoder-output",
     prepare_for_train: bool = False,
-    keep_right_context: bool = False
+    keep_right_context: bool = False,
 ) -> returnn.ReturnnConfig:
     """
     Assumes a diphone FH model and expands the model to calculate the scores for the joint
@@ -47,23 +46,20 @@ def augment_returnn_config_to_joint_diphone_softmax(
     }
 
     dim_prolog, network = get_prolog_augment_network_to_joint_diphone_softmax(
-        network= returnn_config.config["network"],
-        label_info = label_info,
+        network=returnn_config.config["network"],
+        label_info=label_info,
         out_joint_score_layer=out_joint_score_layer,
         log_softmax=log_softmax,
         center_state_softmax_layer=center_state_softmax_layer,
         left_context_softmax_layer=left_context_softmax_layer,
         encoder_output_layer=encoder_output_layer,
-        prepare_for_train=prepare_for_train
-)
-
-
+        prepare_for_train=prepare_for_train,
+    )
 
     update_cfg = returnn.ReturnnConfig({}, python_prolog=dim_prolog)
     returnn_config.update(update_cfg)
 
     return returnn_config
-
 
 
 def get_prolog_augment_network_to_joint_diphone_softmax(
@@ -82,7 +78,8 @@ def get_prolog_augment_network_to_joint_diphone_softmax(
         feature_size=label_info.n_contexts,
         context_type="L",
         spatial_dim_variable_name="__center_state_spatial",
-        feature_dim_variable_name="__center_state_feature")
+        feature_dim_variable_name="__center_state_feature",
+    )
 
     if not keep_right_context:
         for k in ["linear1-triphone", "linear2-triphone", "right-output"]:
@@ -172,7 +169,3 @@ def get_prolog_augment_network_to_joint_diphone_softmax(
     network[out_joint_score_layer]["register_as_extern_data"] = out_joint_score_layer
 
     return dim_prolog, network
-
-
-
-

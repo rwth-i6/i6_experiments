@@ -1,6 +1,9 @@
 import i6_core.rasr as rasr
 
-def correct_rasr_FSA_bug(crp: rasr.CommonRasrParameters, apply_lemma_exit_penalty: bool =  True)-> rasr.CommonRasrParameters:
+
+def correct_rasr_FSA_bug(
+    crp: rasr.CommonRasrParameters, apply_lemma_exit_penalty: bool = True
+) -> rasr.CommonRasrParameters:
     """
     apply_lemma_exit_penalty: if set to False it, an additional lemma level exit penalty would be added to finial model FSA
                               this is not correct conceptually, since the word sequence is given and the training criterion

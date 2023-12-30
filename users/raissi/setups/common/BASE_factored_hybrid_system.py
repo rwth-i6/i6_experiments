@@ -59,20 +59,18 @@ from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
     get_tdp_values,
 )
 
-from i6_experiments.users.raissi.setups.common.data.factored_label import (
-    LabelInfo,
-    RasrStateTying
-)
+from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo, RasrStateTying
 
 from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import (
     BASEFactoredHybridDecoder,
-    BASEFactoredHybridAligner
+    BASEFactoredHybridAligner,
 )
 
 from i6_experiments.users.raissi.setups.common.decoder.config import PriorInfo, PosteriorScales, SearchParameters
 from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
 from i6_experiments.users.raissi.setups.common.util.hdf import RasrFeaturesToHdf
 from i6_experiments.users.raissi.costum.returnn.rasr_returnn_bw import ReturnnRasrTrainingBWJob
+from i6_experiments.users.raissi.costum.corpus.segments import SegmentCorpusNoPrefixJob
 
 # -------------------- Init --------------------
 
@@ -351,7 +349,6 @@ class BASEFactoredHybridSystem(NnSystem):
                 step_args.extract_features,
             )
 
-
     def _set_train_data(self, data_dict):
         for c_key, c_data in data_dict.items():
             self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
@@ -443,15 +440,19 @@ class BASEFactoredHybridSystem(NnSystem):
             if "train" not in crp_k:
                 self._update_crp_am_setting_for_decoding(self.crp_names[crp_k])
 
-    def _get_segment_file(self, corpus_path):
-        return corpus_recipe.SegmentCorpusJob(
+    def _get_segment_file(self, corpus_path, remove_prefix=None):
+        if remove_prefix is not None:
+            j = SegmentCorpusNoPrefixJob(bliss_corpus=corpus_path, num_segments=1, remove_prefix=remove_prefix)
+        else:
+            j = corpus_recipe.SegmentCorpusJob(
             bliss_corpus=corpus_path,
             num_segments=1,
-        ).out_single_segment_files[1]
+        )
+        return j.out_single_segment_files[1]
 
-    def _get_merged_corpus_for_corpora(self, corpora, name="loss-corpus"):
+    def _get_merged_corpus_for_corpora(self, corpora, name="loss-corpus", strategy=corpus_recipe.MergeStrategy.SUBCORPORA):
         merged_corpus_job = corpus_recipe.MergeCorporaJob(
-            corpora, name=name, merge_strategy=corpus_recipe.MergeStrategy.SUBCORPORA
+            corpora, name=name, merge_strategy=strategy
         )
         return merged_corpus_job.out_merged_corpus
 
@@ -463,15 +464,17 @@ class BASEFactoredHybridSystem(NnSystem):
         merged_corpus_all = corpus_recipe.MergeCorporaJob(
             cv_corpora_obj, name=corpus_key, merge_strategy=corpus_recipe.MergeStrategy.FLAT
         ).out_merged_corpus
-        merged_corpus = corpus_recipe.FilterCorpusBySegmentsJob(bliss_corpus=merged_corpus_all, segment_file=segment_list, delete_empty_recordings=True).out_corpus
-
+        merged_corpus = corpus_recipe.FilterCorpusBySegmentsJob(
+            bliss_corpus=merged_corpus_all, segment_file=segment_list, delete_empty_recordings=True
+        ).out_corpus
 
         lexicon = {
-        "filename": reference_crp.lexicon_config.file,
-        "normalize_pronunciation": False,
-    }
+            "filename": reference_crp.lexicon_config.file,
+            "normalize_pronunciation": False,
+        }
 
         from i6_core.meta.system import CorpusObject
+
         corpus_object = CorpusObject()
         corpus_object.corpus_file = merged_corpus
         corpus_object.audio_format = "wav"
@@ -704,12 +707,14 @@ class BASEFactoredHybridSystem(NnSystem):
         cv_corpus = self.corpora[cv_corpus_key].corpus_file
 
         merged_name = "loss-corpus"
-        merged_corpus = self._get_merged_corpus_for_corpora(corpora=[train_corpus, cv_corpus], name=merged_name)
+        merged_corpus = self._get_merged_corpus_for_corpora(corpora=[train_corpus, cv_corpus],
+                                                            name=merged_name)
+                                                            #strategy=corpus_recipe.MergeStrategy.FLAT)
 
         # segments
         train_segments = self._get_segment_file(train_corpus)
         cv_segments = self._get_segment_file(cv_corpus)
-        merged_segments = self._get_segment_file(merged_corpus)
+        merged_segments = self._get_segment_file(merged_corpus, remove_prefix=f'{merged_name}/')
 
         devtrain_segments = text.TailJob(train_segments, num_lines=1000, zip_output=False).out
 

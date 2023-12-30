@@ -20,6 +20,7 @@ from i6_experiments.users.raissi.setups.common.helpers.align.FSA import correct_
 
 DEFAULT_INIT = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)"
 
+
 @dataclass(frozen=True, eq=True)
 class LogLinearScales:
     label_posterior_scale: float
@@ -29,6 +30,7 @@ class LogLinearScales:
     @classmethod
     def default(cls) -> "LogLinearScales":
         return cls(label_posterior_scale=0.3, label_prior_scale=None, transition_scale=0.3)
+
 
 Layer = Dict[str, Any]
 Network = Dict[str, Layer]
@@ -267,7 +269,11 @@ def augment_net_with_monophone_outputs(
     assert not add_mlps or final_ctx_type is not None
 
     network = copy.copy(shared_network)
-    center_target, center_dim = ("singleStateCenter", label_info.get_n_single_state_classes()) if frame_rate_reduction_ratio_info.single_state_alignment else ("centerState", label_info.get_n_state_classes())
+    center_target, center_dim = (
+        ("singleStateCenter", label_info.get_n_single_state_classes())
+        if frame_rate_reduction_ratio_info.single_state_alignment
+        else ("centerState", label_info.get_n_state_classes())
+    )
 
     loss_opts = {}
     if focal_loss_factor > 0.0:
@@ -621,9 +627,11 @@ def augment_with_triphone_embeds(
     copy_net=True,
 ) -> Network:
     network = copy.deepcopy(shared_network) if copy_net else shared_network
-    center_target, center_dim = ("singleStateCenter",
-                                 label_info.get_n_single_state_classes()) if frame_rate_reduction_ratio_info.single_state_alignment else (
-    "centerState", label_info.get_n_state_classes())
+    center_target, center_dim = (
+        ("singleStateCenter", label_info.get_n_single_state_classes())
+        if frame_rate_reduction_ratio_info.single_state_alignment
+        else ("centerState", label_info.get_n_state_classes())
+    )
 
     network["pastEmbed"] = get_embedding_layer(source="pastLabel", dim=ph_emb_size, l2=l2)
     network["currentState"] = get_embedding_layer(source=center_target, dim=st_emb_size, l2=l2)
@@ -679,7 +687,6 @@ def remove_label_pops_and_losses(network: Network, except_layers: Optional[Itera
     for center_target in ["centerState", "singleStateCenter"]:
         if center_target in network:
             network.pop(center_target, None)
-
 
     for layer in network.values():
         layer.pop("target", None)
@@ -826,19 +833,21 @@ def add_fast_bw_layer_to_returnn_config(
     extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
 ) -> returnn.ReturnnConfig:
 
-    returnn_config.config["network"] = add_fast_bw_layer_to_network(crp=crp,
-                                                                    network=returnn_config.config["network"],
-                                                                    log_linear_scales=log_linear_scales,
-                                                                    reference_layer=reference_layer,
-                                                                    label_prior=label_prior,
-                                                                    extra_rasr_config=extra_rasr_config,
-                                                                    extra_rasr_post_config=extra_rasr_post_config)
+    returnn_config.config["network"] = add_fast_bw_layer_to_network(
+        crp=crp,
+        network=returnn_config.config["network"],
+        log_linear_scales=log_linear_scales,
+        reference_layer=reference_layer,
+        label_prior=label_prior,
+        extra_rasr_config=extra_rasr_config,
+        extra_rasr_post_config=extra_rasr_post_config,
+    )
 
     if "chunking" in returnn_config.config:
         del returnn_config.config["chunking"]
     if "pretrain" in returnn_config.config and import_model is not None:
         del returnn_config.config["pretrain"]
 
-    #ToDo: handel the import model part
+    # ToDo: handel the import model part
 
     return returnn_config

@@ -180,12 +180,11 @@ class SearchParameters:
     def with_lm_scale(self, scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, lm_scale=scale)
 
-    def with_lm_lookahead_scale(self, scale: Float)-> "SearchParameters":
+    def with_lm_lookahead_scale(self, scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, lm_lookahead_scale=scale)
 
-    def with_lm_lookahead_history_limit(self, history_limit: Int)-> "SearchParameters":
+    def with_lm_lookahead_history_limit(self, history_limit: Int) -> "SearchParameters":
         return dataclasses.replace(self, lm_lookahead_history_limit=history_limit)
-
 
     def with_prior_scale(
         self,
@@ -215,7 +214,6 @@ class SearchParameters:
 
     def with_posterior_scales(self, posterior_scales: PosteriorScales):
         return dataclasses.replace(self, posterior_scales=posterior_scales)
-
 
     @classmethod
     def default_monophone(cls, *, priors: PriorInfo) -> "SearchParameters":

@@ -212,15 +212,20 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         # this is without any loss and output layers
         network = encoder_archs.blstm.blstm_network(**kwargs)
 
+
         if self.frame_rate_reduction_ratio_info.factor != 1:
             assert not self.frame_rate_reduction_ratio_info.factor % 2, "Only even number is supported here"
-            encoder_archs.blstm.add_subsmapling_via_max_pooling(network_dict=network, pool_factor=self.frame_rate_reduction_ratio_info.factor // 2)
+            network = encoder_archs.blstm.add_subsmapling_via_max_pooling(
+                network_dict=network, pool_factor=self.frame_rate_reduction_ratio_info.factor // 2
+            )
+
         if self.training_criterion != TrainingCriterion.fullsum:
             network = net_helpers.augment.augment_net_with_label_pops(
                 network,
                 label_info=self.label_info,
                 frame_rate_reduction_ratio_info=self.frame_rate_reduction_ratio_info,
             )
+
 
         return network
 
@@ -729,11 +734,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
         self.set_graph_for_experiment(key, graph_type_name="joint-prior")
 
-    def setup_returnn_config_and_graph_for_diphone_joint_training(
-        self, key: str, network: Dict
-    ):
-
-
+    def setup_returnn_config_and_graph_for_diphone_joint_training(self, key: str, network: Dict):
 
         context_size = self.label_info.n_contexts
         context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
@@ -758,10 +759,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             additional_python_prolog=context_time_tag,
         )
 
-
-
-
-
     def get_recognizer_and_args(
         self,
         key: str,
@@ -772,7 +769,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         recognizer_key: str = "base",
         model_path: Optional[tk.Path] = None,
         gpu=False,
-        is_multi_encoder_output = False,
+        is_multi_encoder_output=False,
         set_batch_major_for_feature_scorer: bool = True,
         tf_library: Union[tk.Path, str, List[tk.Path], List[str], None] = None,
         dummy_mixtures: Optional[tk.Path] = None,
@@ -832,7 +829,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         return recognizer, recog_args
 
-
     def get_aligner(
         self,
         key: str,
@@ -882,7 +878,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             feature_path = self.feature_flows[crp_corpus]
         align_args = SearchParameters.default_for_ctx(context_type, priors=p_info)
 
-
         aligner = self.aligners[aligner_key](
             name=name,
             crp=self.crp[crp_corpus] if crp is None else crp,
@@ -901,7 +896,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
 
         return aligner, align_args
-
 
     def run_decoding_for_cart(
         self,
@@ -1010,7 +1004,3 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 opt_only_lm_scale=only_lm_opt,
             )
             tk.register_output(f"optLM/{name}.onlyLmOpt{only_lm_opt}.optlm.txt", opt.out_log_file)
-
-
-
-

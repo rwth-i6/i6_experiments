@@ -21,6 +21,7 @@ def get_base_returnn_dict(debug=False):
 
     return base
 
+
 def get_base_returnn_dict_v2(debug=False):
 
     params = get_base_returnn_dict(debug=debug)
