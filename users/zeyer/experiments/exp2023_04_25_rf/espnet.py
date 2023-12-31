@@ -32,16 +32,22 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     """run the exp"""
     _sis_setup_global_prefix(prefix_name)
 
-    # TODO ...
     train_exp(
-        "base-e-branchformer-wrongLr",
-        # config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        "v6-24gb-bs30k-wd1e_6-EBranchformer-wrongLr",
         config_24gb_v6,
         config_updates={
             "batch_size": 30_000 * _batch_size_factor,
             "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
         },
-        # time_rqmt=1,  # testing
+    )
+
+    train_exp(
+        "v6-11gb-f32-bs12k-accgrad1-mgpu4-pavg100-wd1e_4-EBranchformer-wrongLr",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "batch_size": 12_000 * _batch_size_factor,
+            "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
+        },
     )
 
 
