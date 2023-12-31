@@ -32,10 +32,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     _sis_setup_global_prefix(prefix_name)
 
     # TODO ...
-    # train_exp(
-    #    "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k",
-    #    config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
-    # )
+    train_exp(
+        "base-e-branchformer",
+        # config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        config_24gb_v6,
+        config_updates={"espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml"},
+        time_rqmt=1,  # testing
+    )
 
 
 _sis_prefix: Optional[str] = None
@@ -183,9 +186,10 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPne
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
-    config_file = f"{espnet_repo_root_dir}/egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml"
+    espnet_config_file = config.value("espnet_config", None)
+    assert espnet_config_file
     parser = ASRTask.get_parser()
-    args = parser.parse_args(["--config", config_file])
+    args = parser.parse_args(["--config", espnet_repo_root_dir + "/" + espnet_config_file])
     args.token_list = target_dim.vocab.labels
 
     model = ASRTask.build_model(args)
@@ -203,70 +207,19 @@ def from_scratch_training(
     *, model: ESPnetASRModel, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim
 ):
     """Function is run within RETURNN."""
-    from returnn.config import get_global_config
-
-    config = get_global_config()  # noqa
-    aux_loss_layers = config.typed_value("aux_loss_layers")
-    aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
-    aed_loss_scale = config.float("aed_loss_scale", 1.0)
-    use_normalized_loss = config.bool("use_normalized_loss", True)
-
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
     assert not data.feature_dim  # raw audio
 
-    collected_outputs = {}
-    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
-    if aux_loss_layers:
-        for i, layer_idx in enumerate(aux_loss_layers):
-            if layer_idx > len(model.encoder.layers):
-                continue
-            linear = getattr(model, f"enc_aux_logits_{layer_idx}")
-            aux_logits = linear(collected_outputs[str(layer_idx - 1)])
-            aux_loss = rf.ctc_loss(
-                logits=aux_logits,
-                targets=targets,
-                input_spatial_dim=enc_spatial_dim,
-                targets_spatial_dim=targets_spatial_dim,
-                blank_index=model.blank_idx,
-            )
-            aux_loss.mark_as_loss(
-                f"ctc_{layer_idx}",
-                scale=aux_loss_scales[i],
-                custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
-                use_normalized_loss=use_normalized_loss,
-            )
-            # decoded, decoded_spatial_dim = rf.ctc_greedy_decode(aux_logits, in_spatial_dim=enc_spatial_dim)
-            # error = rf.edit_distance(
-            #     a=decoded, a_spatial_dim=decoded_spatial_dim, b=targets, b_spatial_dim=targets_spatial_dim
-            # )
-            # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor())
-
-    batch_dims = data.remaining_dims(data_spatial_dim)
-    input_labels = rf.shift_right(targets, axis=targets_spatial_dim, pad_value=model.bos_idx)
-
-    logits, _ = model.decoder(
-        input_labels,
-        spatial_dim=targets_spatial_dim,
-        encoder=enc,
-        state=model.decoder.default_initial_state(batch_dims=batch_dims),
+    loss, stats, weight = model(
+        speech=data.raw_tensor,
+        speech_lengths=data_spatial_dim.dyn_size,
+        text=targets.raw_tensor,
+        text_lengths=targets_spatial_dim.dyn_size,
     )
-
-    logits_packed, pack_dim = rf.pack_padded(logits, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False)
-    targets_packed, _ = rf.pack_padded(
-        targets, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim
-    )
-
-    log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
-    log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
-    loss = rf.cross_entropy(
-        target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
-    )
-    loss.mark_as_loss("ce", scale=aed_loss_scale, use_normalized_loss=use_normalized_loss)
-
-    best = rf.reduce_argmax(logits_packed, axis=model.target_dim)
-    frame_error = best != targets_packed
-    frame_error.mark_as_loss(name="fer", as_error=True)
+    rf.get_run_ctx().mark_as_loss(loss, "total")
+    for k, v in stats.items():
+        rf.get_run_ctx().mark_as_loss(v, k, as_error=True)
 
 
 from_scratch_training: TrainDef[ESPnetASRModel]
