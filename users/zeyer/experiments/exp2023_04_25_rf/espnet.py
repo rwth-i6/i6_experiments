@@ -43,7 +43,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     train_exp(
         "v6-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_4-EBranchformer-wrongLr",
-        config_11gb_v6_f32_bs10k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         config_updates={
             "batch_size": 10_000 * _batch_size_factor,
             "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
