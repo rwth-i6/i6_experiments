@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 import copy
 import functools
+import sys
 from typing import TYPE_CHECKING, Optional, Any, Tuple, Dict, Sequence
 
 import tree
@@ -163,6 +164,7 @@ def _get_eos_idx(target_dim: Dim) -> int:
 
 def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPnetASRModel:
     """Function is run within RETURNN."""
+    import returnn
     from returnn.config import get_global_config
 
     in_dim, epoch  # noqa
@@ -173,6 +175,9 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPne
     # https://github.com/espnet/espnet/blob/master/espnet2/bin/asr_train.py
     # https://github.com/espnet/espnet/blob/master/espnet2/tasks/asr.py
     # https://github.com/espnet/espnet/blob/master/espnet2/tasks/abs_task.py
+
+    tools_dir = os.path.dirname(os.path.dirname(os.path.abspath(returnn.__file__)))
+    sys.path.append(tools_dir + "/espnet")
 
     import espnet2
 
