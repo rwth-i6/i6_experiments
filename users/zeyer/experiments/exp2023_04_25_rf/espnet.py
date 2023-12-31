@@ -7,23 +7,13 @@ from __future__ import annotations
 import os
 import copy
 import functools
-from typing import TYPE_CHECKING, Optional, Any, Union, Tuple, Dict, Sequence, List
+from typing import TYPE_CHECKING, Optional, Any, Tuple, Dict, Sequence
 
-import torch.nn
 import tree
-import math
-import numpy as np
-import hashlib
-import contextlib
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
-from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
-from returnn.frontend.decoder.transformer import TransformerDecoder
-
-from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
-from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 
 from .configs import *
 
@@ -31,7 +21,7 @@ if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
     from i6_experiments.users.zeyer.datasets.task import Task
-
+    from espnet2.asr.espnet_model import ESPnetASRModel
 
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
@@ -168,12 +158,12 @@ def _get_eos_idx(target_dim: Dim) -> int:
     return eos_idx
 
 
-def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> torch.nn.Module:
+def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPnetASRModel:
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
 
     in_dim, epoch  # noqa
-    config = get_global_config()  # noqa
+    config = get_global_config(return_empty_if_none=True)  # noqa
 
     # Load some train yaml file for model def.
     # References:
@@ -186,8 +176,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> torch
     espnet_repo_root_dir = os.path.dirname(os.path.dirname(os.path.abspath(espnet2.__file__)))
 
     from espnet2.tasks.asr import ASRTask
-    import yaml
-    import argparse
+    from espnet2.asr.espnet_model import ESPnetASRModel
 
     enc_aux_logits = config.typed_value("aux_loss_layers")
     pos_emb_dropout = config.float("pos_emb_dropout", 0.0)
@@ -195,21 +184,23 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> torch
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
     config_file = f"{espnet_repo_root_dir}/egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml"
-    with open(config_file, "r", encoding="utf-8") as f:
-        args = yaml.safe_load(f)
-    args = argparse.Namespace(**args)
+    parser = ASRTask.get_parser()
+    args = parser.parse_args(["--config", config_file])
+    args.token_list = target_dim.vocab.labels
+
     model = ASRTask.build_model(args)
+    assert isinstance(model, ESPnetASRModel)
     return model
 
 
-from_scratch_model_def: ModelDef[Model]
+from_scratch_model_def: ModelDef[ESPnetASRModel]
 from_scratch_model_def.behavior_version = 16
 from_scratch_model_def.backend = "torch"
 from_scratch_model_def.batch_size_factor = _batch_size_factor
 
 
 def from_scratch_training(
-    *, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim
+    *, model: ESPnetASRModel, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim
 ):
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
@@ -278,13 +269,13 @@ def from_scratch_training(
     frame_error.mark_as_loss(name="fer", as_error=True)
 
 
-from_scratch_training: TrainDef[Model]
+from_scratch_training: TrainDef[ESPnetASRModel]
 from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
 
 
 def model_recog(
     *,
-    model: Model,
+    model: ESPnetASRModel,
     data: Tensor,
     data_spatial_dim: Dim,
     max_seq_len: Optional[int] = None,
@@ -399,7 +390,7 @@ def _gather_backrefs(s, *, backrefs: Tensor):
 
 
 # RecogDef API
-model_recog: RecogDef[Model]
+model_recog: RecogDef[ESPnetASRModel]
 model_recog.output_with_beam = True
 model_recog.output_blank_label = None
 model_recog.batch_size_dependent = False
