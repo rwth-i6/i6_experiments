@@ -237,6 +237,7 @@ def from_scratch_training(
         text=targets.raw_tensor.to(torch.int64),
         text_lengths=targets_spatial_dim.dyn_size,
     )
+    # TODO the following is correct for CE and CTC, but not correct for CER and probably others, need to check...
     # ESPnet usually does divide the loss by num seqs (batch dim) but not by seq length.
     custom_inv_norm_factor = targets_spatial_dim.get_size_tensor()
     custom_inv_norm_factor = rf.cast(custom_inv_norm_factor, "float32")
