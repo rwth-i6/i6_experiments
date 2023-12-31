@@ -34,11 +34,14 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     # TODO ...
     train_exp(
-        "base-e-branchformer",
+        "base-e-branchformer-wrongLr",
         # config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         config_24gb_v6,
-        config_updates={"espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml"},
-        time_rqmt=1,  # testing
+        config_updates={
+            "batch_size": 30_000 * _batch_size_factor,
+            "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
+        },
+        # time_rqmt=1,  # testing
     )
 
 
@@ -172,11 +175,14 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPne
 
     # Load some train yaml file for model def.
     # References:
+    # https://github.com/espnet/espnet/blob/master/egs2/librispeech/asr1/run.sh
+    # https://github.com/espnet/espnet/blob/master/egs2/TEMPLATE/asr1/asr.sh
     # https://github.com/espnet/espnet/blob/master/espnet2/bin/asr_train.py
     # https://github.com/espnet/espnet/blob/master/espnet2/tasks/asr.py
     # https://github.com/espnet/espnet/blob/master/espnet2/tasks/abs_task.py
 
-    tools_dir = os.path.dirname(os.path.dirname(os.path.abspath(returnn.__file__)))
+    tools_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(returnn.__file__))))
+    print("tools dir:", tools_dir)
     sys.path.append(tools_dir + "/espnet")
 
     import espnet2
@@ -212,6 +218,9 @@ def from_scratch_training(
     *, model: ESPnetASRModel, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim
 ):
     """Function is run within RETURNN."""
+    import torch
+    import returnn.frontend as rf
+
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
     assert not data.feature_dim  # raw audio
@@ -219,12 +228,17 @@ def from_scratch_training(
     loss, stats, weight = model(
         speech=data.raw_tensor,
         speech_lengths=data_spatial_dim.dyn_size,
-        text=targets.raw_tensor,
+        text=targets.raw_tensor.to(torch.int64),
         text_lengths=targets_spatial_dim.dyn_size,
     )
-    rf.get_run_ctx().mark_as_loss(loss, "total")
+    # ESPnet usually does divide the loss by num seqs (batch dim) but not by seq length.
+    custom_inv_norm_factor = targets_spatial_dim.get_size_tensor()
+    custom_inv_norm_factor = rf.cast(custom_inv_norm_factor, "float32")
+    custom_inv_norm_factor /= rf.cast(custom_inv_norm_factor.dims[0].get_dim_value_tensor(), "float32")
+    rf.get_run_ctx().mark_as_loss(loss, "total", custom_inv_norm_factor=custom_inv_norm_factor)
     for k, v in stats.items():
-        rf.get_run_ctx().mark_as_loss(v, k, as_error=True)
+        if v is not None:
+            rf.get_run_ctx().mark_as_loss(v, k, as_error=True, custom_inv_norm_factor=custom_inv_norm_factor)
 
 
 from_scratch_training: TrainDef[ESPnetASRModel]
