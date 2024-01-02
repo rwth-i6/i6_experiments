@@ -1243,9 +1243,6 @@ def decode_diphone(
         if params is None
         else params.with_prior_files(s.get_cart_params(key))  # ensure priors are set correctly
     ]
-    decoding_configs: typing.List[
-        typing.Tuple[returnn.ReturnnConfig, SearchParameters, typing.Union[bool, int], str]
-    ] = [(nn_pch_config, p, False, "") for p in search_params]
 
     if tune:
         base_cfg = search_params[-1]
@@ -1260,81 +1257,9 @@ def decode_diphone(
                 [base_cfg.tdp_silence, (10, 10, "infinity", 20)],
             )
         ]
-        decoding_configs.extend([(nn_pch_config, cfg, False, "") for cfg in other_cfgs])
+        search_params.extend(other_cfgs)
 
-    if tune_extremely:
-
-        def apply_posterior_scales(
-            returnn_config: returnn.ReturnnConfig, p_c: float, p_l: float
-        ) -> returnn.ReturnnConfig:
-            if p_c == 1.0 and p_l == 1.0:
-                return returnn_config
-
-            def apply_scale(returnn_config: returnn.ReturnnConfig, scale: float, output_layer_name: str):
-                net = returnn_config.config["network"]
-                scale_name = f"{output_layer_name}_scaled"
-
-                for layer in returnn_config.config["network"].values():
-                    if "from" not in layer:
-                        continue
-                    layer["from"] = (
-                        scale_name
-                        if layer["from"] == output_layer_name
-                        else [scale_name if f == output_layer_name else f for f in layer["from"]]
-                        if isinstance(layer["from"], list)
-                        else layer["from"]
-                    )
-
-                net[scale_name] = {
-                    "class": "eval",
-                    "eval": f"{scale} * source(0)"
-                    if net[output_layer_name].get("activation") == "log_softmax"
-                    else f"tf.math.pow(source(0), {scale})",
-                    "from": [output_layer_name],
-                }
-
-            returnn_config = copy.deepcopy(returnn_config)
-            if p_c != 1.0:
-                apply_scale(returnn_config, p_c, "center-output")
-            if p_l != 1.0:
-                apply_scale(returnn_config, p_l, "left-output")
-
-            return returnn_config
-
-        base_cfg = search_params[-1]
-        # returnn_configs = [
-        #     (apply_posterior_scales(nn_pch_config, p_c, p_l), f"recog/{p_c}x{p_l}/")
-        #     for p_c, p_l in itertools.product([0.5, 1.0], [0.5, 1.0])
-        # ]
-        returnn_configs = [(nn_pch_config, "")]
-        tdp_geom_values = [round(v, 1) for v in [0.0, *np.geomspace(3.0, 20.0, num=4)]]
-        additional_silence_tdps = [
-            (0.0, p_f, "infinity", p_e) for p_f, p_e in itertools.product(tdp_geom_values, tdp_geom_values) if p_e > p_f
-        ]
-        silence_tdps = [base_cfg.tdp_silence, (10, 10, "infinity", 20), *additional_silence_tdps]
-        other_cfgs = [
-            (
-                returnn_config,
-                dataclasses.replace(
-                    base_cfg.with_prior_scale(round(p_c, 1)),
-                    tdp_scale=round(tdp_s, 1),
-                    tdp_silence=tdp_silence,
-                    tdp_non_word=tdp_silence,
-                ),
-                name,
-            )
-            for (returnn_config, name), p_c, tdp_s, tdp_silence in itertools.product(
-                returnn_configs,
-                np.linspace(0.2, 0.8, 4),
-                [0.1, *np.linspace(0.2, 0.8, 4)],
-                silence_tdps,
-            )
-        ]
-        decoding_configs.extend([(returnn_config, cfg, 1, name) for returnn_config, cfg, name in other_cfgs])
-
-        print(f"tuning {key}/{epoch} extremely with {len(decoding_configs)} distinct configurations")
-
-    for returnn_config, cfg, concurrency, name in decoding_configs:
+    for cfg in search_params:
         s.recognize_cart(
             key=key,
             epoch=epoch,
@@ -1342,7 +1267,7 @@ def decode_diphone(
             n_cart_out=diphone_li.get_n_of_dense_classes(),
             cart_tree_or_tying_config=tying_cfg,
             params=cfg,
-            log_softmax_returnn_config=returnn_config,
+            log_softmax_returnn_config=nn_pch_config,
             calculate_statistics=True,
             opt_lm_am_scale=True,
             fix_tdp_non_word_tying=True,
@@ -1353,8 +1278,61 @@ def decode_diphone(
             mem_rqmt=4 if not neural_lm else 8,
             gpu=neural_lm,
             rtf=2 if not neural_lm else 20,
-            alias_output_prefix=name,
-            remove_or_set_concurrency=5 if neural_lm else concurrency,
+            remove_or_set_concurrency=5 if neural_lm else False,
+        )
+
+    if not tune_extremely:
+        return
+
+    base_cfg = search_params[0]
+    tdp_geom_values = [round(v, 1) for v in [0.0, *np.geomspace(3.0, 20.0, num=4)]]
+    additional_silence_tdps = [
+        (p_l, p_f, "infinity", p_e)
+        for p_l, p_f, p_e in itertools.product(tdp_geom_values, tdp_geom_values)
+        if p_e > p_f and p_e > p_l and p_e > 0
+    ]
+    silence_tdps = [base_cfg.tdp_silence, (10, 10, "infinity", 20), *additional_silence_tdps]
+    extreme_configs = [
+        dataclasses.replace(
+            base_cfg.with_prior_scale(round(p_c, 1)),
+            am_scale=am,
+            pron_scale=pron,
+            normalize_pronunciation=am != 1.0,
+            tdp_scale=round(tdp_s, 1),
+            tdp_silence=tdp_silence,
+            tdp_non_word=tdp_silence,
+        )
+        for am, pron, p_c, tdp_s, tdp_silence in itertools.product(
+            [round(v, 1) for v in np.geomspace(0.1, 2.0, num=4, dtype=np.float32)],
+            [round(v, 1) for v in np.geomspace(0.1, 2.0, num=4, dtype=np.float32)],
+            [0.4, 0.6],
+            [0.1, 0.2, 0.4],
+            silence_tdps,
+        )
+    ]
+
+    print(f"tuning {key}/{epoch} extremely with {len(extreme_configs)} distinct configurations")
+
+    for cfg in search_params:
+        s.recognize_cart(
+            key=key,
+            epoch=epoch,
+            crp_corpus=crp_k,
+            n_cart_out=diphone_li.get_n_of_dense_classes(),
+            cart_tree_or_tying_config=tying_cfg,
+            params=cfg,
+            log_softmax_returnn_config=nn_pch_config,
+            calculate_statistics=True,
+            opt_lm_am_scale=True,
+            fix_tdp_non_word_tying=True,
+            prior_epoch=epoch if tune_extremely else prior_epoch,
+            decode_trafo_lm=neural_lm,
+            recognize_only_trafo=neural_lm,
+            cpu_rqmt=2,
+            mem_rqmt=4 if not neural_lm else 8,
+            gpu=neural_lm,
+            rtf=2 if not neural_lm else 20,
+            remove_or_set_concurrency=5 if neural_lm else False,
         )
 
 

@@ -1658,6 +1658,8 @@ class FactoredHybridSystem(NnSystem):
         if fix_tdp_non_word_tying:
             crp.acoustic_model_config.tdp.nonword_phones = params.non_word_phonemes
             crp.acoustic_model_config.tdp.tying_type = "global-and-nonword"
+        if params.normalize_pronunciation is not None:
+            crp.lexicon_config.normalize_pronunciation = params.normalize_pronunciation
 
         if crp_update is not None:
             crp_update(crp)
@@ -1788,7 +1790,7 @@ class FactoredHybridSystem(NnSystem):
                 crp_corpus: [
                     DevRecognitionParameters(
                         altas=[params.altas] if params.altas is not None else None,
-                        am_scales=[1],
+                        am_scales=[params.am_scale],
                         lm_scales=[params.lm_scale, params.lm_scale + 1]
                         if decode_trafo_lm and not recognize_only_trafo
                         else [params.lm_scale],
