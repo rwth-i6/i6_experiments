@@ -1296,7 +1296,7 @@ def decode_diphone(
         dataclasses.replace(
             base_cfg.with_prior_scale(round(p_c, 1)),
             am_scale=am,
-            normalize_pronunciation=am != 1.0,
+            normalize_pronunciation=bool(am != 1.0),  # suppress np boolean
             lm_scale=1.9 if p_c <= 0.4 else 2.3,
             pron_scale=pron,
             tdp_scale=round(tdp_s, 1),
