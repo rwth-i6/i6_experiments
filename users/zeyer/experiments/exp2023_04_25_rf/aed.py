@@ -102,6 +102,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_updates={"aux_loss_layers": [12]},
     )
 
+    train_exp(
+        "v6-nenc17-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_4-wrongLr-lrlin1e_5_100k-aux17",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
+        config_updates={
+            # TODO fix LR...
+            "batch_size": 10_000 * _batch_size_factor,
+            "num_enc_layers": 17,
+            "aux_loss_layers": [17],
+        },
+    )
+
     # TODO...
     #   - more specaug?
     #   - more speed pert?
@@ -480,10 +491,15 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model
     config = get_global_config()  # noqa
     enc_aux_logits = config.typed_value("aux_loss_layers")
     pos_emb_dropout = config.float("pos_emb_dropout", 0.0)
+    num_enc_layers = config.int("num_enc_layers", 12)
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
     return MakeModel.make_model(
-        in_dim, target_dim, enc_aux_logits=enc_aux_logits or (), pos_emb_dropout=pos_emb_dropout
+        in_dim,
+        target_dim,
+        num_enc_layers=num_enc_layers,
+        enc_aux_logits=enc_aux_logits or (),
+        pos_emb_dropout=pos_emb_dropout,
     )
 
 
