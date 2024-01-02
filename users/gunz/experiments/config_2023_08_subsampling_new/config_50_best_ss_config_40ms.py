@@ -1314,7 +1314,7 @@ def decode_diphone(
 
     print(f"tuning {key}/{epoch} extremely with {len(extreme_configs)} distinct configurations")
 
-    for cfg in search_params:
+    for cfg in extreme_configs:
         s.recognize_cart(
             key=key,
             epoch=epoch,
