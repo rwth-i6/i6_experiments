@@ -242,13 +242,13 @@ def from_scratch_training(
     # ESPnet usually does divide the loss by num seqs (batch dim) but not by seq length.
     custom_inv_norm_factor = targets_spatial_dim.get_size_tensor()
     custom_inv_norm_factor = rf.cast(custom_inv_norm_factor, "float32")
-    custom_inv_norm_factor /= rf.cast(custom_inv_norm_factor.dims[0].get_dim_value_tensor(), "float32")
+    batch_dim_value = custom_inv_norm_factor.dims[0].get_dim_value_tensor()
+    custom_inv_norm_factor /= rf.cast(batch_dim_value, "float32")
     rf.get_run_ctx().mark_as_loss(loss, "total", custom_inv_norm_factor=custom_inv_norm_factor)
     for k, v in stats.items():
         if v is not None:
-            rf.get_run_ctx().mark_as_loss(
-                v, k, as_error=True, custom_inv_norm_factor=custom_inv_norm_factor if k.startswith("loss") else None
-            )
+            v *= batch_dim_value  # RETURNN does the normalization
+            rf.get_run_ctx().mark_as_loss(v, k, as_error=True)
 
 
 from_scratch_training: TrainDef[ESPnetASRModel]
