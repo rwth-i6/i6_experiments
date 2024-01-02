@@ -1324,7 +1324,7 @@ def decode_diphone(
             params=cfg,
             log_softmax_returnn_config=nn_pch_config,
             calculate_statistics=True,
-            opt_lm_am_scale=True,
+            opt_lm_am_scale=False,
             fix_tdp_non_word_tying=True,
             prior_epoch=epoch if tune_extremely else prior_epoch,
             decode_trafo_lm=neural_lm,
