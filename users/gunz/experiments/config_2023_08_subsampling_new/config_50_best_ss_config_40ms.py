@@ -1208,7 +1208,7 @@ def decode_diphone(
     params: typing.Optional[SearchParameters] = None,
     neural_lm: bool = False,
 ):
-    assert not (tune and neural_lm), "neural LM decodings should be done with tuned parameters"
+    assert not ((tune or tune_extremely) and neural_lm), "neural LM decodings should be done with tuned parameters"
 
     clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
 
@@ -1244,7 +1244,7 @@ def decode_diphone(
         else params.with_prior_files(s.get_cart_params(key))  # ensure priors are set correctly
     ]
 
-    if tune:
+    if tune or tune_extremely:
         base_cfg = search_params[-1]
         other_cfgs = [
             base_cfg.with_prior_scale(round(p_c, 1))
