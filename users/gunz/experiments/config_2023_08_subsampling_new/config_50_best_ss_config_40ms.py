@@ -1306,8 +1306,8 @@ def decode_diphone(
         for am, pron, p_c, tdp_s, tdp_silence in itertools.product(
             sorted([round(v, 1) for v in [1.2, *np.geomspace(0.1, 2.0, num=4)]]),
             sorted([round(v, 1) for v in [1.2, *np.geomspace(0.1, 2.0, num=4)]]),
-            [0.4, 0.6],
-            [0.1, 0.2, 0.4],
+            [round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
+            [0.1, 0.2, 0.4, 0.6],
             silence_tdps,
         )
     ]
