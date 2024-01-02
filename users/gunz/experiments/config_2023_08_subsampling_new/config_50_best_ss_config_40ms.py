@@ -1291,7 +1291,7 @@ def decode_diphone(
         for p_l, p_f, p_e in itertools.product(tdp_geom_values, tdp_geom_values, tdp_geom_values)
         if p_e > p_l >= p_f and p_e > 0
     ]
-    silence_tdps = [base_cfg.tdp_silence, (10, 10, "infinity", 20), *additional_silence_tdps]
+    silence_tdps = [base_cfg.tdp_silence, (10, 10, "infinity", 20)]
     extreme_configs = [
         dataclasses.replace(
             base_cfg.with_prior_scale(round(p_c, 1)),
@@ -1304,8 +1304,8 @@ def decode_diphone(
             tdp_non_word=tdp_silence,
         )
         for am, pron, p_c, tdp_s, tdp_silence in itertools.product(
-            [round(v, 1) for v in np.geomspace(0.1, 2.0, num=4, dtype=float)],
-            [round(v, 1) for v in np.geomspace(0.1, 2.0, num=4, dtype=float)],
+            sorted([round(v, 1) for v in [1.2, *np.geomspace(0.1, 2.0, num=4)]]),
+            sorted([round(v, 1) for v in [1.2, *np.geomspace(0.1, 2.0, num=4)]]),
             [0.4, 0.6],
             [0.1, 0.2, 0.4],
             silence_tdps,
