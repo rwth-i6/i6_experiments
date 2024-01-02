@@ -246,7 +246,9 @@ def from_scratch_training(
     rf.get_run_ctx().mark_as_loss(loss, "total", custom_inv_norm_factor=custom_inv_norm_factor)
     for k, v in stats.items():
         if v is not None:
-            rf.get_run_ctx().mark_as_loss(v, k, as_error=True)
+            rf.get_run_ctx().mark_as_loss(
+                v, k, as_error=True, custom_inv_norm_factor=custom_inv_norm_factor if k.startswith("loss") else None
+            )
 
 
 from_scratch_training: TrainDef[ESPnetASRModel]
