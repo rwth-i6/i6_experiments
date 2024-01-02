@@ -103,13 +103,26 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     )
 
     train_exp(
-        "v6-nenc17-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_4-wrongLr-lrlin1e_5_100k-aux17",
+        "v6-nenc17-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_443k-aux17",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
         config_updates={
-            # TODO fix LR...
+            # ~1973 steps/epoch, total steps after 500 epochs: ~986k
+            "learning_rate_piecewise_steps": [443_000, 887_000, 986_000],
             "batch_size": 10_000 * _batch_size_factor,
             "num_enc_layers": 17,
             "aux_loss_layers": [17],
+        },
+    )
+
+    train_exp(
+        "v6-nenc17-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_443k-aux12_17",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
+        config_updates={
+            # ~1973 steps/epoch, total steps after 500 epochs: ~986k
+            "learning_rate_piecewise_steps": [443_000, 887_000, 986_000],
+            "batch_size": 10_000 * _batch_size_factor,
+            "num_enc_layers": 17,
+            "aux_loss_layers": [12, 17],
         },
     )
 
