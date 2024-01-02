@@ -59,7 +59,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
     )
 
-    train_exp(
+    train_exp(  # 5.73, but 6.99 on test-other, how can that be so different?
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_3-lrlin1e_5_100k",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
         config_updates={"optimizer.weight_decay": 1e-3},

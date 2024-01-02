@@ -351,10 +351,11 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
-    train_exp(
+    train_exp(  # 6.11
         "v6-11gb-f32-bs15k-accgrad4-mgpu2",
         config_11gb_v6_f32_bs15k_accgrad4_mgpu,
         num_processes=2,  # multi-GPU
+        model_avg=True,
     )
     train_exp(  # 5.44
         "v6-11gb-f32-bs15k-accgrad4-mgpu4-lrlin1e_5_295k",
