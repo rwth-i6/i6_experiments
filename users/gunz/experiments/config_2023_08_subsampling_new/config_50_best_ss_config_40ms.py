@@ -881,7 +881,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             train_corpus_key=s.crp_names["train"],
             dev_corpus_key=s.crp_names["cvtrain"],
             nn_train_args=train_args,
-            # on_2080=True,  # broken GPUs
+            on_2080=True,  # broken GPUs
         )
 
     for ((_, orig_returnn_config, sys, name), key), crp_k, ep in itertools.product(
