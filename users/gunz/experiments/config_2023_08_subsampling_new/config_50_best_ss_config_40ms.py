@@ -1304,8 +1304,8 @@ def decode_diphone(
             tdp_non_word=tdp_silence,
         )
         for am, pron, p_c, tdp_s, tdp_silence in itertools.product(
-            [round(v, 1) for v in np.geomspace(0.1, 2.0, num=4, dtype=np.float32)],
-            [round(v, 1) for v in np.geomspace(0.1, 2.0, num=4, dtype=np.float32)],
+            [round(v, 1) for v in np.geomspace(0.1, 2.0, num=4, dtype=float)],
+            [round(v, 1) for v in np.geomspace(0.1, 2.0, num=4, dtype=float)],
             [0.4, 0.6],
             [0.1, 0.2, 0.4],
             silence_tdps,
