@@ -13,7 +13,7 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
         allophone_file: Path,
         sample_rate: int,
         sil_allophone: str = "[SILENCE]",
-        n_tasks: int = 1,
+        n_tasks: int = 20,
     ):
         assert sample_rate > 0
         assert n_tasks > 0
@@ -31,9 +31,7 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
         self.out_ratio_skipped = self.output_var("ratio_skipped")
 
     def tasks(self) -> Iterator[Task]:
-        yield Task(
-            "run", args=list(range(len(self.out_total_per_task))), rqmt={"cpu": 1, "time": 1, "mem": 6}, mini_task=True
-        )
+        yield Task("run", args=list(range(len(self.out_total_per_task))), rqmt={"cpu": 1, "time": 1, "mem": 6})
         yield Task("merge", mini_task=True)
 
     def run(self, i: int):
@@ -49,31 +47,24 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
         total_skipped = 0
 
         for segment in segs:
-            alignment = [s.split(".")[0] for s in processor._get_alignment_states(segment)]
-
             idx = 0
             cur = None
             with_running_index = []
-            for state in alignment:
+
+            # split off state ID, add running index
+            for hmm_state in processor.get_alignment_states(segment):
+                state = hmm_state.split(".")[0]
                 if state != cur:
                     idx += 1
                     cur = state
                 with_running_index.append(f"{state}.{idx}")
 
+            # measure how many phones remain after sampling
             after_slice = len(set(with_running_index[:: self.sample_rate]))
             num_skipped = idx - after_slice
 
             total_skipped += num_skipped
             total_phones += idx
-
-            print("\n".join(with_running_index))
-            print("----")
-            print("\n".join(with_running_index[:: self.sample_rate]))
-            print(after_slice)
-            print(num_skipped)
-            print(idx)
-
-            break
 
         self.out_total_per_task[i].set(total_phones)
         self.out_skipped_per_task[i].set(total_skipped)

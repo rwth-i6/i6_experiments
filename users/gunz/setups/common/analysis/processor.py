@@ -36,8 +36,15 @@ class AlignmentProcessor:
 
         logging.info(f"files={', '.join(self.segments[:3])}")
 
-    def get_alignment_states(self, seg_name: str) -> str:
-        return " ".join(self._get_alignment_states(seg_name))
+    def get_alignment_states(self, seg_name: str) -> List[str]:
+        alignment = self.alignment_bundle.read(seg_name, "align")
+        alignment_states = [f"{self.alignment_bundle.files[seg_name].allophones[t[1]]}.{t[2]:d}" for t in alignment]
+        if self.monophone:
+            alignment_states = [AllophoneState.from_alignment_state(st).to_mono() for st in alignment_states]
+        return alignment_states
+
+    def get_alignment_state_string(self, seg_name: str) -> str:
+        return " ".join(self.get_alignment_states(seg_name))
 
     def get_raw_alignment_ids(self, seg_name: str) -> List[int]:
         alignment = self.alignment_bundle.read(seg_name, "align")
@@ -49,7 +56,7 @@ class AlignmentProcessor:
         return sum(sil_per_s) / len(sil_per_s)
 
     def percent_silence_in(self, seg_name: str):
-        alignment_states = self._get_alignment_states(seg_name)
+        alignment_states = self.get_alignment_states(seg_name)
         if len(alignment_states) == 0:
             return 0.0
         num_sil = sum((1 for st in alignment_states if self.sil_allophone in st.upper()))
@@ -132,13 +139,6 @@ class AlignmentProcessor:
         fig, ax = plot(img, sequence, seg_name, show_labels=show_labels)
 
         return fig, ax, img, sequence, seg_name
-
-    def _get_alignment_states(self, seg_name: str) -> List[str]:
-        alignment = self.alignment_bundle.read(seg_name, "align")
-        alignment_states = [f"{self.alignment_bundle.files[seg_name].allophones[t[1]]}.{t[2]:d}" for t in alignment]
-        if self.monophone:
-            alignment_states = [AllophoneState.from_alignment_state(st).to_mono() for st in alignment_states]
-        return alignment_states
 
 
 class CorpusProcessor:
