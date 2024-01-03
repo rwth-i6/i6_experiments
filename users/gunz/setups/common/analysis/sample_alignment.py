@@ -8,7 +8,12 @@ from .processor import AlignmentProcessor
 
 class ComputeAlignmentSamplingStatisticsJob(Job):
     def __init__(
-        self, alignment_bundle: Path, allophone_file: Path, sample_rate: int, sil_allophone: str = "[SILENCE]", n_tasks: int = 20,
+        self,
+        alignment_bundle: Path,
+        allophone_file: Path,
+        sample_rate: int,
+        sil_allophone: str = "[SILENCE]",
+        n_tasks: int = 20,
     ):
         assert sample_rate > 0
 
