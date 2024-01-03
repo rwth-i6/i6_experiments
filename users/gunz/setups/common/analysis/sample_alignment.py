@@ -13,7 +13,7 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
         allophone_file: Path,
         sample_rate: int,
         sil_allophone: str = "[SILENCE]",
-        n_tasks: int = 20,
+        n_tasks: int = 1,
     ):
         assert sample_rate > 0
         assert n_tasks > 0
@@ -63,6 +63,14 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
 
             total_skipped += num_skipped
             total_phones += idx
+
+            print(alignment)
+            print(with_running_index)
+            print(after_slice)
+            print(num_skipped)
+            print(idx)
+
+            break
 
         self.out_total_per_task[i].set(total_phones)
         self.out_skipped_per_task[i].set(total_skipped)
