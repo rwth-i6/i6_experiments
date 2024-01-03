@@ -16,6 +16,7 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
         n_tasks: int = 20,
     ):
         assert sample_rate > 0
+        assert n_tasks > 0
 
         self.alignment_bundle = alignment_bundle
         self.allophone_file = allophone_file
