@@ -21,7 +21,7 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
         self.out_ratio_skipped = self.output_var("ratio_skipped")
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", rqmt={"cpu": 1, "time": 1, "mem": 2})
+        yield Task("run", rqmt={"cpu": 1, "time": 1, "mem": 6})
 
     def run(self):
         processor = AlignmentProcessor(
