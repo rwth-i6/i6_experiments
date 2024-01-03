@@ -13,7 +13,7 @@ from sisyphus import tk
 from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
-from i6_core.returnn.training import ReturnnTrainingJob, PtCheckpoint
+from i6_core.returnn.training import ReturnnTrainingJob, PtCheckpoint, AverageTorchCheckpointsJob
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, SearchTakeBestJob
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from returnn_common import nn
@@ -780,46 +780,3 @@ class GetTorchAvgModelResult(sisyphus.Job):
 
         with open(self.out_merged_epochs_list.get_path(), "w") as f:
             f.write("[%s]\n" % ", ".join(str(ep) for ep in sorted(self._in_checkpoints.keys())))
-
-
-class AverageTorchCheckpointsJob(sisyphus.Job):
-    """
-    average Torch model checkpoints
-
-    TODO move this to i6_core
-    """
-
-    def __init__(
-        self,
-        *,
-        checkpoints: Sequence[Union[tk.Path, PtCheckpoint]],
-        returnn_python_exe: tk.Path,
-        returnn_root: tk.Path,
-    ):
-        """
-        :param checkpoints: input checkpoints
-        :param returnn_python_exe: file path to the executable for running returnn (python binary or .sh)
-        :param returnn_root: file path to the RETURNN repository root folder
-        """
-        self.checkpoints = [ckpt if isinstance(ckpt, PtCheckpoint) else PtCheckpoint(ckpt) for ckpt in checkpoints]
-        self.returnn_python_exe = returnn_python_exe
-        self.returnn_root = returnn_root
-
-        self.out_checkpoint = PtCheckpoint(self.output_path("model/average.pt"))
-
-        self.rqmt = {"cpu": 1, "time": 0.5, "mem": 5}
-
-    def tasks(self):
-        yield sisyphus.Task("run", rqmt=self.rqmt)
-
-    def run(self):
-        os.makedirs(os.path.dirname(self.out_checkpoint.path.get_path()), exist_ok=True)
-        args = [
-            self.returnn_python_exe.get_path(),
-            os.path.join(self.returnn_root.get_path(), "tools/torch_avg_checkpoints.py"),
-            "--checkpoints",
-            *[ckpt.path.get_path() for ckpt in self.checkpoints],
-            "--output_path",
-            self.out_checkpoint.path.get_path(),
-        ]
-        subprocess.check_call(args)
