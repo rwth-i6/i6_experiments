@@ -1,6 +1,4 @@
-import dataclasses
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass(eq=True, frozen=True)

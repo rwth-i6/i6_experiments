@@ -3,6 +3,7 @@ import os
 from sisyphus import gs, tk, Path
 
 from ...setups.common.analysis import (
+    ComputeAlignmentSamplingStatisticsJob,
     ComputeSilencePercentageJob,
     ComputeTimestampErrorJob,
     ComputeWordLevelTimestampErrorJob,
@@ -83,6 +84,18 @@ def run():
     tk.register_output(f"alignments/10ms-scratch-blstm/statistics/plots", scratch_data.out_plot_folder)
     tk.register_output(f"alignments/10ms-scratch-blstm/statistics/means", scratch_data.out_means)
     tk.register_output(f"alignments/10ms-scratch-blstm/statistics/variances", scratch_data.out_vars)
+
+    for n in [3, 4]:
+        sampled = ComputeAlignmentSamplingStatisticsJob(
+            alignment_bundle=Path(SCRATCH_ALIGNMENT, cached=True),
+            allophone_file=Path(
+                "/work/asr3/raissi/shared_workspaces/gunz/2023-05--subsampling-tf2/i6_core/lexicon/allophones/StoreAllophonesJob.Qa3bLX1BHz42/output/allophones"
+            ),
+            sample_rate=n,
+        )
+        tk.register_output(f"alignments/10ms-scratch-blstm/statistics/sample-{n}x/total", sampled.out_total_phones)
+        tk.register_output(f"alignments/10ms-scratch-blstm/statistics/sample-{n}x/skipped", sampled.out_total_skipped)
+        tk.register_output(f"alignments/10ms-scratch-blstm/statistics/sample-{n}x/ratio", sampled.out_ratio_skipped)
 
     plots = PlotViterbiAlignmentsJob(
         alignment_bundle_path=Path(SCRATCH_ALIGNMENT, cached=True),
