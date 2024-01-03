@@ -5,7 +5,6 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 from __future__ import annotations
 
 import os
-import subprocess
 from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable
 
 import sisyphus
