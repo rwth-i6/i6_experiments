@@ -31,7 +31,9 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
         self.out_ratio_skipped = self.output_var("ratio_skipped")
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", args=list(range(len(self.out_total_per_task))), rqmt={"cpu": 1, "time": 1, "mem": 6}, mini_task=True)
+        yield Task(
+            "run", args=list(range(len(self.out_total_per_task))), rqmt={"cpu": 1, "time": 1, "mem": 6}, mini_task=True
+        )
         yield Task("merge", mini_task=True)
 
     def run(self, i: int):
@@ -64,8 +66,9 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
             total_skipped += num_skipped
             total_phones += idx
 
-            print(alignment)
-            print(with_running_index)
+            print("\n".join(with_running_index))
+            print("----")
+            print("\n".join(with_running_index[:: self.sample_rate]))
             print(after_slice)
             print(num_skipped)
             print(idx)
