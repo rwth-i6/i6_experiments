@@ -1042,7 +1042,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     # best config for diphone-fine-tune
     key = "fh-di-fs-constlr"
     tdp_sil = (10, 10, "infinity", 20)
-    params = dataclasses.replace(
+    params_4gram = dataclasses.replace(
         di_ft_sys.get_cart_params(key),
         beam=20,
         lm_scale=2.1,
@@ -1056,7 +1056,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             key=key,
             epoch=ep,
             crp_k="dev-other",
-            params=params,
+            params=params_4gram,
             prior_epoch=fine_tune_keep_epochs[-2],
             returnn_config=returnn_cfg_di,
             tune=False,
@@ -1064,7 +1064,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
 
     # best config for diphone-fine-tune
     tdp_sil = (10, 10, "infinity", 20)
-    params = dataclasses.replace(
+    params_4gram = dataclasses.replace(
         di_ft_sys.get_cart_params(key),
         beam=20,
         lm_scale=2.126,
@@ -1074,7 +1074,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     ).with_prior_scale(0.6)
     for crp_k, (neural, decoding_params) in itertools.product(
         ["dev-clean", "dev-other", "test-clean", "test-other"],
-        [(False, params), (True, params.with_lm_scale(3.6))],
+        [(False, params_4gram), (True, params_4gram.with_lm_scale(3.6))],
     ):
         decode_diphone(
             di_ft_sys,
@@ -1097,30 +1097,50 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     #
     # /u/mgunz/setups/2023-08--subsampling-new/output/50_best_ss_config_40ms/recog/di-fs-constlr-from-mono-from-bw-conf-di-fs-constlr-from-mono-zhou/ep300/lm-4gram/rp275-opt/dev-other/am01.00_lm1.881966025156_prior00.40_tdp0.4_tdpspeechloop3.0_forward0.0_skipinfinity_exit0.0_tdpsilenceloop10_forward10_skipinfinity_exit20_tdpnonspeechloop10_forward10_skipinfinity_exit20_ps2.0_altas00.00_beam20_beamlimit100000.reports/sclite.dtl
     # 15:Percent Total Error       =    5.9%   (3031)
+    #
+    # /work/asr4/raissi/setups/librispeech/960-ls/2023-12--LFR/output/tune_decode/tune-lm/diphone-from-full-sum/e300/dev-other/Beam24.0-Lm2.0-Pron1.5-prJ-C0.6-allAllos-tdpScale-0.1-spTdp-13.0,0.0,inf,0.0-silTdp-13.0,0.0,inf,20.0.wer/sclite.dtl
+    # 15:Percent Total Error       =    5.9%   (2995)
 
     key = "fh-di-fs-constlr-from-mono"
-    params = [
-        dataclasses.replace(
-            di_ft_sys.get_cart_params(key),
-            beam=20,
-            lm_scale=lm,
-            tdp_scale=0.4,
-            tdp_silence=tdp_sil,
-            tdp_non_word=tdp_sil,
-        ).with_prior_scale(p_c)
-        for lm, p_c in [(2.23, 0.6), (1.88, 0.4)]
-        for tdp_sil in [(10, 10, "infinity", 20), (0, 0, "infinity", 10)]
-    ]
-    for ep, params in itertools.product([275, 290, 292, 294, 296, 297, 298, 299, 300], params):
+    tuned_sil_tdp_tina = (13.0, 0.0, "infinity", 20.0)
+    tuned_sp_tdp_tina = (13.0, 0.0, "infinity", 20.0)
+    shared_params = dataclasses.replace(
+        di_ft_sys.get_cart_params(key),
+        beam=24,
+        lm_scale=2.0,
+        normalize_pronunciation=True,
+        tdp_scale=0.1,
+        tdp_speech=tuned_sp_tdp_tina,
+        tdp_silence=tuned_sil_tdp_tina,
+        tdp_non_word=tuned_sil_tdp_tina,
+    ).with_prior_scale(0.6)
+    params_4gram = dataclasses.replace(shared_params, pron_scale=1.5)
+    params_neural = dataclasses.replace(
+        shared_params,
+        am_scale=0.7,
+        beam=22,
+        beam_limit=500_000,
+        lm_lookahead_scale=shared_params.lm_scale / 2,
+        pron_scale=0.3,
+        we_pruning=0.8,
+        we_pruning_limit=2000,
+    )
+    for crp_k, (params, neural) in itertools.product(
+        ["dev-other"],
+        [(params_4gram, False), (params_neural, True)],
+    ):
         decode_diphone(
             di_ft_sys,
             key=key,
-            epoch=ep,
-            crp_k="dev-other",
+            epoch=fine_tune_keep_epochs[-1],
+            crp_k=crp_k,
             params=params,
-            prior_epoch=fine_tune_keep_epochs[-2],
+            prior_epoch=fine_tune_keep_epochs[-1],
             returnn_config=returnn_cfg_di,
+            fix_respect_add_all_allophones=True,
+            neural_lm=neural,
             tune=False,
+            use_full_prior_share=True,
         )
 
 
@@ -1204,9 +1224,11 @@ def decode_diphone(
     epoch: int,
     prior_epoch: int,
     tune: bool,
-    tune_extremely: bool = False,
-    params: typing.Optional[SearchParameters] = None,
+    fix_respect_add_all_allophones: bool = False,
     neural_lm: bool = False,
+    params: typing.Optional[SearchParameters] = None,
+    tune_extremely: bool = False,
+    use_full_prior_share: bool = False,
 ):
     assert not ((tune or tune_extremely) and neural_lm), "neural LM decodings should be done with tuned parameters"
 
@@ -1226,7 +1248,7 @@ def decode_diphone(
         smoothen=True,
         returnn_config=prior_returnn_config,
         output_layer_name="output",
-        data_share=1.0 if tune_extremely else 1.0 / 3.0,
+        data_share=1.0 if tune_extremely or use_full_prior_share else 1.0 / 3.0,
     )
 
     diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
@@ -1279,6 +1301,7 @@ def decode_diphone(
             gpu=neural_lm,
             rtf=2 if not neural_lm else 20,
             remove_or_set_concurrency=5 if neural_lm else False,
+            fix_respect_add_all_allophones=fix_respect_add_all_allophones,
         )
 
     if not tune_extremely:
@@ -1335,6 +1358,7 @@ def decode_diphone(
             gpu=neural_lm,
             rtf=2 if not neural_lm else 20,
             remove_or_set_concurrency=5 if neural_lm else 1,
+            fix_respect_add_all_allophones=fix_respect_add_all_allophones,
         )
 
 
