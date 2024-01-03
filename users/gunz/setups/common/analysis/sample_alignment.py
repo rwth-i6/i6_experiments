@@ -47,7 +47,7 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
         total_skipped = 0
 
         for segment in segs:
-            alignment = [s.split(".")[0] for s in processor.get_alignment_states(segment)]
+            alignment = [s.split(".")[0] for s in processor._get_alignment_states(segment)]
 
             idx = 0
             cur = None
