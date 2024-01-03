@@ -31,7 +31,7 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
         self.out_ratio_skipped = self.output_var("ratio_skipped")
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", args=list(range(len(self.out_total_per_task))), rqmt={"cpu": 1, "time": 1, "mem": 6})
+        yield Task("run", args=list(range(len(self.out_total_per_task))), rqmt={"cpu": 1, "time": 1, "mem": 6}, mini_task=True)
         yield Task("merge", mini_task=True)
 
     def run(self, i: int):
