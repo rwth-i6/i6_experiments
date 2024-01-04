@@ -4,6 +4,7 @@ shared across several setups here in this directory.
 """
 
 from __future__ import annotations
+from typing import Any, Dict
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.lr_schedules.lin_warmup_invsqrt_decay import dyn_lr_lin_warmup_invsqrt_decay
 from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
@@ -104,13 +105,30 @@ config_24gb_v5 = dict_update_deep(
 
 config_24gb_v6 = dict_update_deep(config_24gb_v5, None, ["pretrain_opts"])
 
-_cfg_lrlin1e_5_295k = {  # for bs15k, mgpu4
-    "learning_rate": 1.0,
-    "dynamic_learning_rate": dyn_lr_piecewise_linear,
-    # total steps after 500 epochs: ~652k
-    "learning_rate_piecewise_steps": [295_000, 590_000, 652_000],
-    "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+
+# By batch size (in k) and num (sub)epochs.
+_lrlin_oclr_steps_by_bs_nep = {
+    (8, 500): [558_000, 1_117_000, 1_242_000],  # ~2485steps/ep, 500 eps -> 1.242k steps in total
+    (15, 500): [295_000, 590_000, 652_000],  # total steps after 500 epochs: ~652k
+    (40, 2000): [450_000, 900_000, 982_000],  # total steps after 2000 epochs: 982.312
 }
+
+
+def _get_cfg_lrlin_oclr_by_bs_nep(bs_feat: int, n_ep: int) -> Dict[str, Any]:
+    """
+    :param bs_feat: batch size for features (not including _batch_size_factor)
+    :param n_ep: num epochs
+    """
+    return {
+        "batch_size": bs_feat * _batch_size_factor,
+        "learning_rate": 1.0,
+        "dynamic_learning_rate": dyn_lr_piecewise_linear,
+        "learning_rate_piecewise_steps": _lrlin_oclr_steps_by_bs_nep[(bs_feat // 1000, n_ep)],
+        "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    }
+
+
+_cfg_lrlin1e_5_295k = _get_cfg_lrlin_oclr_by_bs_nep(15_000, 500)
 
 config_11gb_v6_f32_bs15k_accgrad4_mgpu = dict_update_deep(
     config_24gb_v6,
