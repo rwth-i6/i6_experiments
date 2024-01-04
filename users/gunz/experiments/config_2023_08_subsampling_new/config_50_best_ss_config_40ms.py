@@ -1126,7 +1126,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
         we_pruning_limit=2000,
     )
     for crp_k, (params, neural) in itertools.product(
-        ["dev-other"],
+        ["dev-other", "test-other"],
         [(params_4gram, False), (params_neural, True)],
     ):
         decode_diphone(
