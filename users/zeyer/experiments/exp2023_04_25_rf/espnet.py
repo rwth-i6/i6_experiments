@@ -111,6 +111,18 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
+    train_exp(
+        "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-dynGradAccumV1a",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(8_000, 500),
+            "torch_distributed.sync_on_cpu": True,  # https://github.com/rwth-i6/returnn/issues/1482
+            "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
+            "espnet_fixed_sos_eos": True,
+            "accum_grad_multiple_step": _dyn_accum_grad_multiple_step_v1a,
+        },
+    )
+
 
 _sis_prefix: Optional[str] = None
 
@@ -226,6 +238,14 @@ def _dyn_accum_grad_multiple_step(*, epoch: int, global_train_step: int, **_kwar
     if global_train_step <= 10_000:
         return 4
     if global_train_step <= 50_000:
+        return 2
+    return 1
+
+
+def _dyn_accum_grad_multiple_step_v1a(*, epoch: int, global_train_step: int, **_kwargs) -> int:
+    if global_train_step <= 20_000:
+        return 4
+    if global_train_step <= 100_000:
         return 2
     return 1
 
