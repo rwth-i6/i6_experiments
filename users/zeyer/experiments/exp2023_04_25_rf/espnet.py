@@ -89,12 +89,24 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # )
 
     train_exp(
+        "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-brokenEos-dynGradAccumV2",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(8_000, 500),
+            "torch_distributed.sync_on_cpu": True,  # https://github.com/rwth-i6/returnn/issues/1482
+            "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
+            "accum_grad_multiple_step": _dyn_accum_grad_multiple_step_v2,
+        },
+    )
+
+    train_exp(
         "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-dynGradAccumV2",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(8_000, 500),
             "torch_distributed.sync_on_cpu": True,  # https://github.com/rwth-i6/returnn/issues/1482
             "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
+            "espnet_fixed_sos_eos": True,
             "accum_grad_multiple_step": _dyn_accum_grad_multiple_step_v2,
         },
     )
@@ -279,6 +291,9 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPne
     parser = ASRTask.get_parser()
     args = parser.parse_args(["--config", espnet_repo_root_dir + "/" + espnet_config_file])
     args.token_list = target_dim.vocab.labels
+    if config.bool("espnet_fixed_sos_eos", False):
+        args.model_conf["sym_sos"] = target_dim.vocab.labels[_get_bos_idx(target_dim)]
+        args.model_conf["sym_eos"] = target_dim.vocab.labels[_get_eos_idx(target_dim)]
 
     model = ASRTask.build_model(args)
     assert isinstance(model, ESPnetASRModel)
