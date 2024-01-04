@@ -294,9 +294,18 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPne
     if config.bool("espnet_fixed_sos_eos", False):
         args.model_conf["sym_sos"] = target_dim.vocab.labels[_get_bos_idx(target_dim)]
         args.model_conf["sym_eos"] = target_dim.vocab.labels[_get_eos_idx(target_dim)]
+    if config.bool("espnet_fixed_blank", False):
+        # args.model_conf["sym_blank"] = target_dim.vocab.labels[]
+        pass  # TODO...?
 
     model = ASRTask.build_model(args)
     assert isinstance(model, ESPnetASRModel)
+    print("Target dim:", target_dim)
+    print("Vocab size:", model.vocab_size)
+    print("Vocab:", target_dim.vocab.labels[:5], "...", target_dim.vocab.labels[-5:])
+    print("Ignore:", model.ignore_id)
+    print("Blank:", model.blank_id)
+    print("SOS/EOS:", model.sos, model.eos)
     return model
 
 
