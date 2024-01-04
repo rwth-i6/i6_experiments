@@ -16,7 +16,7 @@ from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
 from .configs import *
-from .configs import _batch_size_factor, _cfg_lrlin1e_5_295k
+from .configs import _batch_size_factor, _cfg_lrlin1e_5_295k, _get_cfg_lrlin_oclr_by_bs_nep
 from i6_experiments.users.zeyer.lr_schedules.combine_eval import dyn_lr_combine_eval
 
 if TYPE_CHECKING:
@@ -209,15 +209,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
     train_exp(  # 5.9
-        "base-24gb-v4-lrlin1e_5_450k",
-        config_24gb_v4,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [450_000, 900_000, 982_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-        },
+        "base-24gb-v4-lrlin1e_5_450k", config_24gb_v4, config_updates=_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000)
     )
     # gn01 ("gradient_noise": 0.1), does not converge? that was with old RETURNN, gn after grad clip
     # gn01 before grad clip (new RETURNN) also does not converge.
@@ -296,15 +288,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     train_exp("base-24gb-v6", config_24gb_v6)  # 6.30
     train_exp("base-24gb-v6-warmup100k", config_24gb_v6, config_updates={"learning_rate_warmup_steps": 100_000})
     train_exp(  # 5.44
-        "base-24gb-v6-lrlin1e_5_450k",
-        config_24gb_v6,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [450_000, 900_000, 982_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-        },
+        "base-24gb-v6-lrlin1e_5_450k", config_24gb_v6, config_updates=_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000)
     )
     train_exp(
         "base-24gb-v6-lrlin1e_5_600k",
