@@ -1103,7 +1103,7 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
 
     key = "fh-di-fs-constlr-from-mono"
     tuned_sil_tdp_tina = (13.0, 0.0, "infinity", 20.0)
-    tuned_sp_tdp_tina = (13.0, 0.0, "infinity", 20.0)
+    tuned_sp_tdp_tina = (13.0, 0.0, "infinity", 0.0)
     shared_params = dataclasses.replace(
         di_ft_sys.get_cart_params(key),
         beam=24,
@@ -1296,11 +1296,11 @@ def decode_diphone(
             prior_epoch=epoch if tune_extremely else prior_epoch,
             decode_trafo_lm=neural_lm,
             recognize_only_trafo=neural_lm,
-            cpu_rqmt=2 if not neural_lm else 8,
+            cpu_rqmt=2,
             mem_rqmt=4 if not neural_lm else 8,
-            gpu=False,
+            gpu=neural_lm,
             rtf=2 if not neural_lm else 20,
-            remove_or_set_concurrency=5 if neural_lm else False,
+            remove_or_set_concurrency=False,
             fix_respect_add_all_allophones=fix_respect_add_all_allophones,
         )
 
@@ -1353,11 +1353,11 @@ def decode_diphone(
             prior_epoch=epoch if tune_extremely else prior_epoch,
             decode_trafo_lm=neural_lm,
             recognize_only_trafo=neural_lm,
-            cpu_rqmt=2 if not neural_lm else 8,
+            cpu_rqmt=2,
             mem_rqmt=4 if not neural_lm else 8,
-            gpu=False,
+            gpu=neural_lm,
             rtf=2 if not neural_lm else 20,
-            remove_or_set_concurrency=5 if neural_lm else 1,
+            remove_or_set_concurrency=False,
             fix_respect_add_all_allophones=fix_respect_add_all_allophones,
         )
 
