@@ -34,13 +34,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     _sis_setup_global_prefix(prefix_name)
 
     train_exp(
-        "v6-24gb-bs30k-wd1e_6-EBranchformer-extraEos-wrongLr",
+        "v6-24gb-bs30k-wd1e_6-lrlin1e_5_587k-EBranchformer",
         config_24gb_v6,
         config_updates={
-            "batch_size": 30_000 * _batch_size_factor,
+            **_get_cfg_lrlin_oclr_by_bs_nep(30_000, 2000),
             "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
+            "espnet_fixed_sos_eos": True,
         },
-        with_eos_postfix=True,  # old broken...
     )
 
     train_exp(
