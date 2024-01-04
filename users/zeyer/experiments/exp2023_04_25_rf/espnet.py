@@ -51,6 +51,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
+    train_exp(
+        "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-EBranchformer-wrongLr-testDynGradAccum",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "batch_size": 8_000 * _batch_size_factor,
+            "torch_distributed.sync_on_cpu": True,  # https://github.com/rwth-i6/returnn/issues/1482
+            "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
+            "accum_grad_multiple_step": _dyn_accum_grad_multiple_step,
+        },
+    )
+
 
 _sis_prefix: Optional[str] = None
 
@@ -170,6 +181,14 @@ def _get_eos_idx(target_dim: Dim) -> int:
     else:
         raise Exception(f"cannot determine eos_idx from vocab {target_dim.vocab}")
     return eos_idx
+
+
+def _dyn_accum_grad_multiple_step(*, epoch: int, global_train_step: int, **_kwargs) -> int:
+    if global_train_step <= 10_000:
+        return 4
+    if global_train_step <= 50_000:
+        return 2
+    return 1
 
 
 def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPnetASRModel:
