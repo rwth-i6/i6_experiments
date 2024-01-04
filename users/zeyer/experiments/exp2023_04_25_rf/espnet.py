@@ -17,6 +17,7 @@ import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 
 from .configs import *
+from .configs import _get_cfg_lrlin_oclr_by_bs_nep
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
@@ -66,9 +67,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-testDynGradAccumV2",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         config_updates={
-            "batch_size": 8_000 * _batch_size_factor,
-            # ~2485steps/ep, 500 eps -> 1.242k steps in total
-            "learning_rate_piecewise_steps": [558_000, 1_117_000, 1_242_000],
+            **_get_cfg_lrlin_oclr_by_bs_nep(8_000, 500),
             "torch_distributed.sync_on_cpu": True,  # https://github.com/rwth-i6/returnn/issues/1482
             "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
             "accum_grad_multiple_step": _dyn_accum_grad_multiple_step_v2,
@@ -80,9 +79,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-ncclError",
     #     config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
     #     config_updates={
-    #         "batch_size": 8_000 * _batch_size_factor,
-    #         # ~2485steps/ep, 500 eps -> 1.242k steps in total
-    #         "learning_rate_piecewise_steps": [558_000, 1_117_000, 1_242_000],
+    #         **_get_cfg_lrlin_oclr_by_bs_nep(8_000, 500),
     #         "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
     #     },
     # )
