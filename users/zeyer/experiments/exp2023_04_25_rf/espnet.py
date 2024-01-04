@@ -75,16 +75,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
-    train_exp(
-        "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-ncclError",
-        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
-        config_updates={
-            "batch_size": 8_000 * _batch_size_factor,
-            # ~2485steps/ep, 500 eps -> 1.242k steps in total
-            "learning_rate_piecewise_steps": [558_000, 1_117_000, 1_242_000],
-            "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
-        },
-    )
+    # uncomment this to get the CUDA OOM error in dist.all_reduce: https://github.com/rwth-i6/returnn/issues/1482
+    # train_exp(
+    #     "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-ncclError",
+    #     config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+    #     config_updates={
+    #         "batch_size": 8_000 * _batch_size_factor,
+    #         # ~2485steps/ep, 500 eps -> 1.242k steps in total
+    #         "learning_rate_piecewise_steps": [558_000, 1_117_000, 1_242_000],
+    #         "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
+    #     },
+    # )
 
 
 _sis_prefix: Optional[str] = None
