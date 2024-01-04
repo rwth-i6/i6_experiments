@@ -107,10 +107,13 @@ config_24gb_v6 = dict_update_deep(config_24gb_v5, None, ["pretrain_opts"])
 
 
 # By batch size (in k) and num (sub)epochs.
+# 500 subepochs is usually for multi-GPU with 4 GPUs,
+# i.e. the same as single-GPU 2000 subepochs.
 _lrlin_oclr_steps_by_bs_nep = {
     (8, 500): [558_000, 1_117_000, 1_242_000],  # ~2485steps/ep, 500 eps -> 1.242k steps in total
     (10, 500): [443_000, 887_000, 986_000],  # ~1973 steps/epoch, total steps after 500 epochs: ~986k
     (15, 500): [295_000, 590_000, 652_000],  # total steps after 500 epochs: ~652k
+    (30, 2000): [587_000, 1_174_000, 1_305_000],  # total steps: 1.305.182
     (40, 2000): [450_000, 900_000, 982_000],  # total steps after 2000 epochs: 982.312
 }
 
