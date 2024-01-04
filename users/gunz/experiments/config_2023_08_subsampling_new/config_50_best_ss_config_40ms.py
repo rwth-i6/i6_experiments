@@ -1100,6 +1100,9 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
     #
     # /work/asr4/raissi/setups/librispeech/960-ls/2023-12--LFR/output/tune_decode/tune-lm/diphone-from-full-sum/e300/dev-other/Beam24.0-Lm2.0-Pron1.5-prJ-C0.6-allAllos-tdpScale-0.1-spTdp-13.0,0.0,inf,0.0-silTdp-13.0,0.0,inf,20.0.wer/sclite.dtl
     # 15:Percent Total Error       =    5.9%   (2995)
+    #
+    # /work/asr4/raissi/setups/librispeech/960-ls/2023-12--LFR/output/neural_decode/decoding-eugen-trafo-lm/diphone-from-full-sum/e300/dev-other/Beam22.0-Lm2.0-Pron0.3-prJ-C0.6-wep0.8-allAllos-tdpScale-0.1-spTdp-13.0,0.0,inf,0.0-silTdp-13.0,0.0,inf,20.0-lh1.0-Am0.7.wer/sclite.dtl
+    # 15:Percent Total Error       =    4.1%   (2098)
 
     key = "fh-di-fs-constlr-from-mono"
     tuned_sil_tdp_tina = (13.0, 0.0, "infinity", 20.0)
@@ -1291,7 +1294,7 @@ def decode_diphone(
             params=cfg,
             log_softmax_returnn_config=nn_pch_config,
             calculate_statistics=True,
-            opt_lm_am_scale=True,
+            opt_lm_am_scale="test" not in crp_k,
             fix_tdp_non_word_tying=True,
             prior_epoch=epoch if tune_extremely else prior_epoch,
             decode_trafo_lm=neural_lm,
