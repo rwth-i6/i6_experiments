@@ -34,26 +34,28 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     _sis_setup_global_prefix(prefix_name)
 
     train_exp(
-        "v6-24gb-bs30k-wd1e_6-EBranchformer-wrongLr",
+        "v6-24gb-bs30k-wd1e_6-EBranchformer-extraEos-wrongLr",
         config_24gb_v6,
         config_updates={
             "batch_size": 30_000 * _batch_size_factor,
             "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
         },
+        with_eos_postfix=True,  # old broken...
     )
 
     train_exp(
-        "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-EBranchformer-wrongLr",
+        "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-EBranchformer-extraEos-wrongLr",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         config_updates={
             "batch_size": 8_000 * _batch_size_factor,
             "torch_distributed.sync_on_cpu": True,  # https://github.com/rwth-i6/returnn/issues/1482
             "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
         },
+        with_eos_postfix=True,  # old broken...
     )
 
     train_exp(
-        "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-EBranchformer-wrongLr-testDynGradAccum",
+        "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-EBranchformer-extraEos-wrongLr-dynGradAccum",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         config_updates={
             "batch_size": 8_000 * _batch_size_factor,
@@ -61,10 +63,11 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
             "accum_grad_multiple_step": _dyn_accum_grad_multiple_step,
         },
+        with_eos_postfix=True,  # old broken...
     )
 
     train_exp(
-        "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-testDynGradAccumV2",
+        "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-extraEos-dynGradAccumV2",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(8_000, 500),
@@ -72,6 +75,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
             "accum_grad_multiple_step": _dyn_accum_grad_multiple_step_v2,
         },
+        with_eos_postfix=True,  # old broken...
     )
 
     # uncomment this to get the CUDA OOM error in dist.all_reduce: https://github.com/rwth-i6/returnn/issues/1482
@@ -83,6 +87,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #         "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
     #     },
     # )
+
+    train_exp(
+        "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-dynGradAccumV2",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(8_000, 500),
+            "torch_distributed.sync_on_cpu": True,  # https://github.com/rwth-i6/returnn/issues/1482
+            "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
+            "accum_grad_multiple_step": _dyn_accum_grad_multiple_step_v2,
+        },
+    )
 
 
 _sis_prefix: Optional[str] = None
@@ -97,16 +112,6 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
     _sis_prefix = prefix_name
 
 
-def _recog(name: str, model_with_checkpoint: ModelWithCheckpoint):
-    from sisyphus import tk
-    from i6_experiments.users.zeyer.recog import recog_model
-
-    task = _get_ls_task()
-
-    res = recog_model(task, model_with_checkpoint, model_recog)
-    tk.register_output(_sis_prefix + "/" + name, res.output)
-
-
 # noinspection PyShadowingNames
 def train_exp(
     name: str,
@@ -119,6 +124,7 @@ def train_exp(
     gpu_mem: Optional[int] = 24,
     num_processes: Optional[int] = None,
     time_rqmt: Optional[int] = None,  # set this to 1 or below to get the fast test queue
+    with_eos_postfix: bool = False,
 ) -> ModelWithCheckpoints:
     """
     Train experiment
@@ -130,7 +136,7 @@ def train_exp(
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
-    task = _get_ls_task()
+    task = _get_ls_task(with_eos_postfix=with_eos_postfix)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     if "__num_epochs" in config:
@@ -162,18 +168,17 @@ def train_exp(
     return model_with_checkpoint
 
 
-_ls_task = None
+_ls_task: Dict[bool, Task] = {}  # with_eos_postfix -> Task
 
 
-def _get_ls_task():
-    global _ls_task
-    if _ls_task:
-        return _ls_task
+def _get_ls_task(*, with_eos_postfix: bool = False):
+    if with_eos_postfix in _ls_task:
+        return _ls_task[with_eos_postfix]
 
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_bpe10k_raw
 
-    _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
-    return _ls_task
+    _ls_task[with_eos_postfix] = get_librispeech_task_bpe10k_raw(with_eos_postfix=with_eos_postfix)
+    return _ls_task[with_eos_postfix]
 
 
 py = sis_run_with_prefix  # if run directly via `sis m ...`
