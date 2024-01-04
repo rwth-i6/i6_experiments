@@ -62,6 +62,30 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
+    train_exp(
+        "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-testDynGradAccumV2",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "batch_size": 8_000 * _batch_size_factor,
+            # ~2485steps/ep, 500 eps -> 1.242k steps in total
+            "learning_rate_piecewise_steps": [558_000, 1_117_000, 1_242_000],
+            "torch_distributed.sync_on_cpu": True,  # https://github.com/rwth-i6/returnn/issues/1482
+            "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
+            "accum_grad_multiple_step": _dyn_accum_grad_multiple_step_v2,
+        },
+    )
+
+    train_exp(
+        "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-ncclError",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "batch_size": 8_000 * _batch_size_factor,
+            # ~2485steps/ep, 500 eps -> 1.242k steps in total
+            "learning_rate_piecewise_steps": [558_000, 1_117_000, 1_242_000],
+            "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
+        },
+    )
+
 
 _sis_prefix: Optional[str] = None
 
@@ -189,6 +213,30 @@ def _dyn_accum_grad_multiple_step(*, epoch: int, global_train_step: int, **_kwar
     if global_train_step <= 50_000:
         return 2
     return 1
+
+
+def _dyn_accum_grad_multiple_step_v2(*, epoch: int, global_train_step: int, **_kwargs) -> int:
+    # Schedule:
+    # start low (to get from random init somewhere more sensible fast),
+    # increase to almost 100 (to get it to convergence),
+    # decay again (to get faster convergence),
+    # and then maybe at the very end increase again (for finetuning).
+    # Assume ~1.242k steps in total.
+
+    steps = [50_000, 100_000, 1_100_000, 1_242_000]
+    values = [1, 100, 1, 1, 10]
+    assert len(steps) + 1 == len(values)
+
+    last_step = 0
+    for i, step in enumerate(steps):
+        assert step > last_step
+        assert global_train_step >= last_step
+        if global_train_step < step:
+            factor = (global_train_step + 1 - last_step) / (step - last_step)
+            return int(values[i + 1] * factor + values[i] * (1 - factor))
+        last_step = step
+
+    return values[-1]
 
 
 def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPnetASRModel:
