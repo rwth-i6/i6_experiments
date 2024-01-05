@@ -45,6 +45,20 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
     )
+    train_exp(
+        "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        config_updates={"optimizer.weight_decay": 1e-2},
+    )
+    train_exp(
+        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "behavior_version": 20,  # new Trafo decoder defaults
+            "optimizer.weight_decay": 1e-2,
+        },
+    )
+
     train_exp(  # 5.84, overfits more
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_100k",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
@@ -60,7 +74,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
         config_updates={"optimizer.weight_decay": 1e-2},
     )
-    train_exp(
+    train_exp(  # 6.36, too aggressive
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_1-lrlin1e_5_100k",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
         config_updates={"optimizer.weight_decay": 1e-1},
@@ -83,7 +97,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     # TODO speedpertV2 + wd 1e-2 (or 1e-1?)
 
-    train_exp(
+    train_exp(  # 5.89, way reduced overfitting, maybe too aggressive?
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_100k-layerdrop01",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
         config_updates={"enc_layer_drop": 0.1, "dec_layer_drop": 0.1},
@@ -99,6 +113,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "v6-nenc17-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_443k-aux17",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
         config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),
+            "num_enc_layers": 17,
+            "aux_loss_layers": [17],
+        },
+    )
+
+    train_exp(
+        "v6-bhv20-nenc17-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_443k-aux17",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
+        config_updates={
+            "behavior_version": 20,  # new Trafo decoder defaults
             **_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),
             "num_enc_layers": 17,
             "aux_loss_layers": [17],
