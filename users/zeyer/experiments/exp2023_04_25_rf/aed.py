@@ -111,7 +111,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     )
 
     train_exp(
-        "v6-bhv20-nenc17-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_443k-aux17-dynAccGradV3",
+        "v6-bhv20-nenc17-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_443k-aux17-dynGradAccumV3",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         config_updates={
             "behavior_version": 20,  # new Trafo decoder defaults
