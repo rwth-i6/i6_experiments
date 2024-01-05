@@ -1,5 +1,10 @@
 Decoder:
 
+- factor on input embedding?
+  - Our RETURNN TF recipe always used `embed_weight = self.EncValueTotalDim**0.5`.
+  - ESPnet: `PositionalEncoding` scales the input via `xscale = sqrt(self.d_model)`.
+  - NanoGPT: No sinusodial encodings but trainable, no scale, but trainable are initialized with same scale as emb.
+
 - ESPnet decoder: https://github.com/espnet/espnet/blob/master/espnet/nets/pytorch_backend/transformer/decoder.py
 - ESPnet example: https://github.com/espnet/espnet/blob/master/egs2/librispeech/asr1/conf/tuning/train_asr_conformer10_hop_length160.yaml
 - ESPnet common settings:
