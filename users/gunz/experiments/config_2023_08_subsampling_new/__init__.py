@@ -303,6 +303,7 @@ def the_plan():
         config_11b_diphone_fs1x3_30ms,
         config_20_monophone_mpc1x4_40ms,
         config_20c_monophone_ls_mpc1x4_40ms,
+        config_20d_monophone_pp_mpc1x4_40ms,
         config_21_diphone_mpc1x4_40ms,
         config_21b_diphone_multi_mpc1x4_40ms,
         config_21e_diphone_pp_mpc1x4_40ms,
@@ -589,6 +590,7 @@ def the_plan():
         a_name="40ms-FF-v8",
     )
 
+    config_20d_monophone_pp_mpc1x4_40ms.run(returnn_root=returnn_root)
     pp_configs = config_21e_diphone_pp_mpc1x4_40ms.run(returnn_root=returnn_root)
     config_22e_triphone_pp_mpc1x4_40ms.run(returnn_root=returnn_root)
 
