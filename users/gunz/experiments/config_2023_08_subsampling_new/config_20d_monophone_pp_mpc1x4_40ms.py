@@ -392,8 +392,8 @@ def run_single(
                 num_encoder_output=conf_model_dim,
                 tdp_speech=[(3, 0, "infinity", 0)],
                 tdp_sil=[(3, 10, "infinity", 10), (0, 3, "infinity", 20)],
-                prior_scales=[round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
-                tdp_scales=[round(v, 1) for v in np.linspace(0.2, 0.6, 3)],
+                prior_scales=np.linspace(0.0, 0.8, 9),
+                tdp_scales=[0.2, 0.4, 0.6],
             )
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
