@@ -52,7 +52,7 @@ def train(
 
     returnn_train_config_dict: Dict[str, Any] = dict(
         backend=model_def.backend,
-        behavior_version=config.get("behavior_version") or model_def.behavior_version,
+        behavior_version=model_def.behavior_version,
         # dataset
         default_input=task.train_dataset.get_default_input(),
         target=task.train_dataset.get_default_target(),
@@ -60,8 +60,8 @@ def train(
         eval_datasets=mp_ds_utils.multi_proc_eval_datasets_opts(task.train_dataset.get_eval_datasets()),
         learning_rate_control_error_measure=train_def.learning_rate_control_error_measure,
         newbob_multi_num_epochs=task.train_epoch_split,
-        **config,
     )
+    returnn_train_config_dict.update(config)
 
     max_seq_length_default_target = returnn_train_config_dict.pop("max_seq_length_default_target", None)
     if max_seq_length_default_target is not None:
