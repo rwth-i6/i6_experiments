@@ -21,6 +21,7 @@ from returnn.frontend.decoder.transformer import TransformerDecoder
 
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
+from i6_experiments.users.zeyer.accum_grad_schedules.piecewise_linear import dyn_accum_grad_piecewise_linear
 
 from .configs import *
 from .configs import _get_cfg_lrlin_oclr_by_bs_nep
@@ -110,33 +111,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     )
 
     train_exp(
-        "v6-nenc17-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_443k-aux17",
-        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),
-            "num_enc_layers": 17,
-            "aux_loss_layers": [17],
-        },
-    )
-
-    train_exp(
-        "v6-bhv20-nenc17-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_443k-aux17",
-        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
+        "v6-bhv20-nenc17-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_443k-aux17-dynAccGradV3",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         config_updates={
             "behavior_version": 20,  # new Trafo decoder defaults
             **_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),
             "num_enc_layers": 17,
             "aux_loss_layers": [17],
-        },
-    )
-
-    train_exp(
-        "v6-nenc17-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_443k-aux12_17",
-        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),
-            "num_enc_layers": 17,
-            "aux_loss_layers": [12, 17],
+            "accum_grad_multiple_step": dyn_accum_grad_piecewise_linear,
+            "accum_grad_piecewise_steps": [20_000, 100_000, 200_000],
+            "accum_grad_piecewise_values": [4, 4, 2, 1],
         },
     )
 
