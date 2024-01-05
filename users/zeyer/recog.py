@@ -23,7 +23,7 @@ from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef
+from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, serialize_model_def
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 
@@ -308,7 +308,7 @@ def search_config(
 
 def search_config_v2(
     dataset: DatasetConfig,
-    model_def: ModelDef,
+    model_def: Union[ModelDef, ModelDefWithCfg],
     recog_def: RecogDef,
     *,
     config: Optional[Dict[str, Any]] = None,
@@ -328,8 +328,11 @@ def search_config_v2(
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
         forward_data=dataset.get_main_dataset(),
-        **(config or {}),
     )
+    if config:
+        returnn_recog_config_dict.update(config)
+    if isinstance(model_def, ModelDefWithCfg):
+        returnn_recog_config_dict.update(model_def.config)
 
     extern_data_raw = dataset.get_extern_data()
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
@@ -346,7 +349,7 @@ def search_config_v2(
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
-                    serialization.Import(model_def, import_as="_model_def", ignore_import_as_for_hash=True),
+                    *serialize_model_def(model_def),
                     serialization.Import(_returnn_v2_get_model, import_as="get_model"),
                     serialization.Import(recog_def, import_as="_recog_def", ignore_import_as_for_hash=True),
                     serialization.Import(_returnn_v2_forward_step, import_as="forward_step"),

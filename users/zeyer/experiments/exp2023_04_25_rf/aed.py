@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import copy
 import functools
-from typing import TYPE_CHECKING, Optional, Any, Union, Tuple, Dict, Sequence, List
+from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, List
 import tree
 import math
 import numpy as np
@@ -19,6 +19,7 @@ from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
+from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, TrainDef
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 from i6_experiments.users.zeyer.accum_grad_schedules.piecewise_linear import dyn_accum_grad_piecewise_linear
@@ -27,7 +28,6 @@ from .configs import *
 from .configs import _get_cfg_lrlin_oclr_by_bs_nep
 
 if TYPE_CHECKING:
-    from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
     from i6_experiments.users.zeyer.datasets.task import Task
 
@@ -54,8 +54,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     train_exp(
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        model_config={"behavior_version": 20},  # new Trafo decoder defaults
         config_updates={
-            "behavior_version": 20,  # new Trafo decoder defaults
             "optimizer.weight_decay": 1e-2,
         },
     )
@@ -113,8 +113,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     train_exp(
         "v6-bhv20-nenc17-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_443k-aux17-dynGradAccumV3",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        model_config={"behavior_version": 20},  # new Trafo decoder defaults
         config_updates={
-            "behavior_version": 20,  # new Trafo decoder defaults
             **_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),
             "num_enc_layers": 17,
             "aux_loss_layers": [17],
@@ -164,6 +164,7 @@ def train_exp(
     name: str,
     config: Dict[str, Any],
     *,
+    model_config: Optional[Dict[str, Any]] = None,
     config_updates: Optional[Dict[str, Any]] = None,
     config_deletes: Optional[Sequence[str]] = None,
     post_config_updates: Optional[Dict[str, Any]] = None,
@@ -197,12 +198,15 @@ def train_exp(
         task.train_dataset = copy.copy(task.train_dataset)
         task.train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
 
+    model_def = from_scratch_model_def
+    if model_config:
+        model_def = ModelDefWithCfg(model_def, model_config)
     model_with_checkpoint = train(
         prefix,
         task=task,
         config=config,
         post_config=dict_update_deep(post_config, post_config_updates),
-        model_def=from_scratch_model_def,
+        model_def=model_def,
         train_def=from_scratch_training,
         num_epochs=num_epochs,
         gpu_mem=gpu_mem,
@@ -252,7 +256,7 @@ def train_exp(
                 task=task,
                 config=config_,
                 post_config=post_config,
-                model_def=from_scratch_model_def,
+                model_def=model_def,
                 train_def=from_scratch_training,
                 num_epochs=num_epochs_,
                 gpu_mem=gpu_mem,

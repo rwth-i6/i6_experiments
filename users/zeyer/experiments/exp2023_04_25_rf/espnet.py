@@ -8,7 +8,7 @@ import os
 import copy
 import functools
 import sys
-from typing import TYPE_CHECKING, Optional, Any, Tuple, Dict, Sequence
+from typing import TYPE_CHECKING, Optional, Tuple, Sequence
 
 import tree
 
@@ -16,11 +16,12 @@ from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 
+from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef, ModelDefWithCfg
+
 from .configs import *
 from .configs import _get_cfg_lrlin_oclr_by_bs_nep
 
 if TYPE_CHECKING:
-    from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
     from i6_experiments.users.zeyer.datasets.task import Task
     from espnet2.asr.espnet_model import ESPnetASRModel
@@ -36,10 +37,12 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     train_exp(
         "v6-24gb-bs30k-wd1e_6-lrlin1e_5_587k-EBranchformer",
         config_24gb_v6,
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(30_000, 2000),
+        {
             "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
             "espnet_fixed_sos_eos": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(30_000, 2000),
         },
     )
 
@@ -56,11 +59,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     train_exp(
         "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-dynGradAccumV2",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        {
+            "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
+            "espnet_fixed_sos_eos": True,
+        },
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(8_000, 500),
             "torch_distributed.sync_on_cpu": True,  # https://github.com/rwth-i6/returnn/issues/1482
-            "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
-            "espnet_fixed_sos_eos": True,
             "accum_grad_multiple_step": _dyn_accum_grad_multiple_step_v2,
         },
     )
@@ -68,11 +73,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     train_exp(
         "v6-11gb-f32-bs8k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-dynGradAccumV1a",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        {
+            "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
+            "espnet_fixed_sos_eos": True,
+        },
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(8_000, 500),
             "torch_distributed.sync_on_cpu": True,  # https://github.com/rwth-i6/returnn/issues/1482
-            "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
-            "espnet_fixed_sos_eos": True,
             "accum_grad_multiple_step": _dyn_accum_grad_multiple_step_v1a,
         },
     )
@@ -94,6 +101,7 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
 def train_exp(
     name: str,
     config: Dict[str, Any],
+    model_config: Dict[str, Any],
     *,
     config_updates: Optional[Dict[str, Any]] = None,
     config_deletes: Optional[Sequence[str]] = None,
@@ -133,7 +141,7 @@ def train_exp(
         task=task,
         config=config,
         post_config=dict_update_deep(post_config, post_config_updates),
-        model_def=from_scratch_model_def,
+        model_def=ModelDefWithCfg(from_scratch_model_def, model_config),
         train_def=from_scratch_training,
         num_epochs=num_epochs,
         gpu_mem=gpu_mem,
@@ -272,6 +280,21 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPne
         # args.model_conf["sym_blank"] = target_dim.vocab.labels[]
         pass  # TODO...?
 
+    # TODO any of these relevant?
+    #             --use_preprocessor true \
+    #             --bpemodel "${bpemodel}" \
+    #             --token_type "${token_type}" \
+    #             --token_list "${token_list}" \
+    #             --non_linguistic_symbols "${nlsyms_txt}" \
+    #             --cleaner "${cleaner}" \
+    #             --g2p "${g2p}" \
+    #             --valid_data_path_and_name_and_type "${_asr_valid_dir}/${_scp},speech,${_type}" \
+    #             --valid_shape_file "${asr_stats_dir}/valid/speech_shape" \
+    #             --resume true \
+    #             ${pretrained_model:+--init_param $pretrained_model} \
+    #             --ignore_init_mismatch ${ignore_init_mismatch} \
+    #             --fold_length "${_fold_length}" \
+
     model = ASRTask.build_model(args)
     assert isinstance(model, ESPnetASRModel)
     print("Target dim:", target_dim)
@@ -342,6 +365,13 @@ def model_recog(
         out_spatial_dim,
         final beam_dim
     """
+    # References:
+    # https://github.com/espnet/espnet/blob/master/egs2/librispeech/asr1/run.sh
+    # https://github.com/espnet/espnet/blob/master/egs2/TEMPLATE/asr1/asr.sh
+    # https://github.com/espnet/espnet/blob/master/espnet2/bin/asr_inference.py
+    # https://github.com/espnet/espnet/blob/master/espnet2/tasks/asr.py
+    # https://github.com/espnet/espnet/blob/master/espnet2/tasks/abs_task.py
+
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12

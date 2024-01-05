@@ -3,14 +3,13 @@ helpers for training
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional, Dict, Any, Sequence
-
+from typing import TYPE_CHECKING, Optional, Union, Dict, Any, Sequence
+from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef, serialize_model_def
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
     from i6_experiments.common.setups import serialization
     from i6_experiments.users.zeyer.datasets.task import Task
-    from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, TrainDef
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
 
 
@@ -21,7 +20,7 @@ def train(
     config: Dict[str, Any],
     post_config: Optional[Dict[str, Any]] = None,
     epilog: Sequence[serialization.SerializerObject] = (),
-    model_def: ModelDef[ModelT],
+    model_def: Union[ModelDefWithCfg, ModelDef[ModelT]],
     train_def: TrainDef[ModelT],
     init_params: Optional[Checkpoint] = None,
     extra_hash: Any = None,
@@ -62,6 +61,8 @@ def train(
         newbob_multi_num_epochs=task.train_epoch_split,
     )
     returnn_train_config_dict.update(config)
+    if isinstance(model_def, ModelDefWithCfg):
+        returnn_train_config_dict.update(model_def.config)
 
     max_seq_length_default_target = returnn_train_config_dict.pop("max_seq_length_default_target", None)
     if max_seq_length_default_target is not None:
@@ -87,7 +88,7 @@ def train(
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
-                    serialization.Import(model_def, import_as="_model_def", ignore_import_as_for_hash=True),
+                    *serialize_model_def(model_def),
                     serialization.Import(_returnn_v2_get_model, import_as="get_model"),
                     serialization.Import(train_def, import_as="_train_def", ignore_import_as_for_hash=True),
                     serialization.Import(_returnn_v2_train_step, import_as="train_step"),

@@ -3,14 +3,24 @@ Generic interfaces to define models, training and recognition.
 """
 
 from __future__ import annotations
-from typing import Protocol, TypeVar, Optional
-from returnn.tensor import Tensor, Dim
-from returnn_common import nn as _nn
 
 # For backwards compatibility with code importing from here.
 from .model_with_checkpoints import *  # noqa
 
-ModelT = TypeVar("ModelT", bound=_nn.Module)
+from typing import TYPE_CHECKING, Optional, Any, Union, List, Protocol, TypeVar
+
+if TYPE_CHECKING:
+    from returnn.tensor import Tensor, Dim
+    import returnn.frontend as _rf
+    from returnn_common import nn as _rc_nn
+    import torch
+
+    ModelT = TypeVar("ModelT", bound=Union[torch.nn.Module, _rf.Module, _rc_nn.Module])
+else:
+    ModelT = TypeVar("ModelT")
+
+if TYPE_CHECKING:
+    from i6_experiments.common.setups import serialization
 
 
 class ModelDef(Protocol[ModelT]):
@@ -25,6 +35,20 @@ class ModelDef(Protocol[ModelT]):
     # Version 2 (i.e. attrib might not be available in all cases):
     backend: Optional[str] = None
     batch_size_factor: int  # according to some arbitrary reference point
+
+
+class ModelDefWithCfg:
+    """extended ModelDef"""
+
+    def __init__(self, model_def: ModelDef[ModelT], config: Dict[str, Any]):
+        self.model_def = model_def
+        self.behavior_version = model_def.behavior_version
+        self.backend = model_def.backend
+        self.batch_size_factor = model_def.batch_size_factor
+        self.config = config
+
+    def __call__(self, **kwargs) -> ModelT:
+        return self.model_def(**kwargs)
 
 
 class TrainDef(Protocol[ModelT]):
@@ -97,3 +121,14 @@ class RecogDef(Protocol[ModelT]):
     # If you set this here to True,
     # it makes the hash dependent on the batch size.
     batch_size_dependent: bool
+
+
+def serialize_model_def(model_def: ModelDef, *, import_as: str = "_model_def") -> List[serialization.SerializerObject]:
+    """
+    serialize
+    """
+    from i6_experiments.common.setups import serialization
+
+    if isinstance(model_def, ModelDefWithCfg):
+        model_def = model_def.model_def
+    return [serialization.Import(model_def, import_as=import_as, ignore_import_as_for_hash=True)]
