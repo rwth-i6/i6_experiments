@@ -1159,6 +1159,26 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             tune=False,
             use_full_prior_share=True,
         )
+    for p_c, tdp_s in itertools.product([0.4, 0.6, 0.8], [0.1, 0.4]):
+        decode_diphone(
+            di_ft_sys,
+            key=key,
+            epoch=fine_tune_keep_epochs[-1],
+            crp_k="dev-other",
+            params=dataclasses.replace(
+                params_neural.with_prior_scale(p_c),
+                am_scale=1.0,
+                normalize_pronunciation=True,
+                pron_scale=2.0,
+                tdp_scale=tdp_s,
+            ),
+            prior_epoch=fine_tune_keep_epochs[-1],
+            returnn_config=returnn_cfg_di,
+            fix_respect_add_all_allophones=True,
+            neural_lm=True,
+            tune=False,
+            use_full_prior_share=True,
+        )
 
 
 def decode_monophone(
