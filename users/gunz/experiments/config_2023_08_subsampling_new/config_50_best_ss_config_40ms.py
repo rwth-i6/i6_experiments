@@ -1365,7 +1365,7 @@ def decode_diphone(
             tdp_non_word=tdp_silence,
         )
         for am, pron, p_c, tdp_s, tdp_silence in itertools.product(
-            [0.1, 0.3, 0.7, 1.0],
+            [0.7, 1.0],
             sorted([round(v, 1) for v in [1.2, *np.geomspace(0.1, 2.0, num=4)]]),
             [round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
             [0.1, 0.2, 0.4, 0.6],
