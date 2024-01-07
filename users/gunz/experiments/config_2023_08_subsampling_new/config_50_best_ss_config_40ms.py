@@ -1180,6 +1180,33 @@ def run_single(returnn_root: tk.Path, exp: Experiment):
             use_full_prior_share=True,
         )
 
+    # /u/mgunz/setups/2023-08--subsampling-new/output/50_best_ss_config_40ms/recog/di-fs-constlr-from-mono-from-bw-conf-di-fs-constlr-from-mono-zhou/ep300/lm-eugen-trafo/
+    # rp300-opt/dev-other/am01.00_lm3.0253477823440384_prior00.60_tdp0.1_tdpspeechloop13.0_forward0.0_skipinfinity_exit0.0_tdpsilenceloop13.0_forward0.0_skipinfinity_exit20.0_tdpnonspeechloop13.0_forward0.0_skipinfinity_exit20.0_ps2.0_altas00.00_beam22_beamlimit500000.reports/sclite.dtl
+    # 15:Percent Total Error       =    4.2%   (2131)
+    for la_scale in [1.0, 1.5]:
+        decode_diphone(
+            di_ft_sys,
+            key=key,
+            epoch=fine_tune_keep_epochs[-1],
+            crp_k="test-other",
+            params=dataclasses.replace(
+                params_neural.with_prior_scale(0.6),
+                am_scale=1.0,
+                normalize_pronunciation=True,
+                lm_scale=3.0,
+                lm_lookahead_scale=la_scale,
+                pron_scale=2.0,
+                tdp_scale=0.1,
+            ),
+            prior_epoch=fine_tune_keep_epochs[-1],
+            returnn_config=returnn_cfg_di,
+            fix_respect_add_all_allophones=True,
+            neural_lm=True,
+            tune=False,
+            use_full_prior_share=True,
+            alias_output_prefix=f"la-{la_scale}" if la_scale != 1.5 else "",
+        )
+
 
 def decode_monophone(
     s: fh_system.FactoredHybridSystem,
@@ -1266,6 +1293,7 @@ def decode_diphone(
     params: typing.Optional[SearchParameters] = None,
     tune_extremely: bool = False,
     use_full_prior_share: bool = False,
+    alias_output_prefix: str = "",
 ):
     assert not ((tune or tune_extremely) and neural_lm), "neural LM decodings should be done with tuned parameters"
 
@@ -1339,6 +1367,7 @@ def decode_diphone(
             rtf=2 if not neural_lm else 20,
             remove_or_set_concurrency=False,
             fix_respect_add_all_allophones=fix_respect_add_all_allophones,
+            alias_output_prefix=alias_output_prefix,
         )
 
     if not tune_extremely:
@@ -1396,6 +1425,7 @@ def decode_diphone(
             rtf=2 if not neural_lm else 20,
             remove_or_set_concurrency=1,
             fix_respect_add_all_allophones=fix_respect_add_all_allophones,
+            alias_output_prefix=alias_output_prefix,
         )
 
 
