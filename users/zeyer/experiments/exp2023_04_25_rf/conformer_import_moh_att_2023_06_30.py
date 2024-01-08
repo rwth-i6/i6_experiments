@@ -287,6 +287,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     train_exp("base-24gb-v6", config_24gb_v6)  # 6.30
     train_exp("base-24gb-v6-warmup100k", config_24gb_v6, config_updates={"learning_rate_warmup_steps": 100_000})
+    # "best_scores": {"dev-clean": 2.31, "dev-other": 5.44, "test-clean": 2.64, "test-other": 5.74}, "best_epoch": 1941
     train_exp(  # 5.44
         "base-24gb-v6-lrlin1e_5_450k", config_24gb_v6, config_updates=_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000)
     )
