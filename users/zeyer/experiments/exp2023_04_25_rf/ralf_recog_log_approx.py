@@ -151,4 +151,5 @@ def lstm_model_recog(
 # RecogDef API
 lstm_model_recog: RecogDef[LstmModel]
 lstm_model_recog.output_with_beam = True
+lstm_model_recog.output_blank_label = None
 lstm_model_recog.batch_size_dependent = False
