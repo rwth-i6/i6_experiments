@@ -29,6 +29,7 @@ def py():
     _sis_prefix = get_prefix_for_config(__file__)
 
     recog("lstm", "baseline", {})
+    recog("lstm", "greedy", {"beam_size": 1})
 
 
 _models_by_type: Dict[str, ModelWithCheckpoint] = {}
@@ -76,10 +77,13 @@ def lstm_model_recog(
         out_spatial_dim,
         final beam_dim
     """
+    from returnn.config import get_global_config
+
+    config = get_global_config()
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    beam_size = 12
-    length_normalization_exponent = 1.0
+    beam_size = config.int("beam_size", 12)
+    length_normalization_exponent = config.float("length_normalization_exponent", 1.0)
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
     else:
