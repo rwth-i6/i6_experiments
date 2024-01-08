@@ -109,6 +109,12 @@ config_24gb_v6 = dict_update_deep(config_24gb_v5, None, ["pretrain_opts"])
 # By batch size (in k) and num (sub)epochs.
 # 500 subepochs is usually for multi-GPU with 4 GPUs,
 # i.e. the same as single-GPU 2000 subepochs.
+# If the dict is missing some entry,
+# unfortunately there is currently no good automatic way to get the number.
+# I just run some setup with some arbitrary LR scheduling (calling it "wrongLr"),
+# or maybe with sqrt-decay, and then look at the stats (steps/ep, or total num steps),
+# and give some estimates for the steps here, i.e. 45%, 90%, almost 100%,
+# making sure the last number is slightly below the real total number of steps.
 _lrlin_oclr_steps_by_bs_nep = {
     (8, 500): [558_000, 1_117_000, 1_242_000],  # ~2485steps/ep, 500 eps -> 1.242k steps in total
     (10, 500): [443_000, 887_000, 986_000],  # ~1973 steps/epoch, total steps after 500 epochs: ~986k
@@ -127,6 +133,7 @@ def _get_cfg_lrlin_oclr_by_bs_nep(bs_feat: int, n_ep: int) -> Dict[str, Any]:
         "batch_size": bs_feat * _batch_size_factor,
         "learning_rate": 1.0,
         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+        # If the dict has no entry for the bs_feat,n_ep combination, see above.
         "learning_rate_piecewise_steps": _lrlin_oclr_steps_by_bs_nep[(bs_feat // 1000, n_ep)],
         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
     }
