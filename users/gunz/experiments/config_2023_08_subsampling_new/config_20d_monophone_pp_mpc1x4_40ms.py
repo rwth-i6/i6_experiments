@@ -339,7 +339,7 @@ def run_single(
             train_corpus_key=s.crp_names["train"],
             dev_corpus_key=s.crp_names["cvtrain"],
             smoothen=True,
-            returnn_config=returnn_config,
+            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
         )
 
         recognizer, recog_args = s.get_recognizer_and_args(
