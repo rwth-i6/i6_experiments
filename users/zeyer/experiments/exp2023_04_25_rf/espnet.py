@@ -372,6 +372,12 @@ def model_recog(
     # https://github.com/espnet/espnet/blob/master/espnet2/tasks/asr.py
     # https://github.com/espnet/espnet/blob/master/espnet2/tasks/abs_task.py
 
+    from espnet2.bin.asr_inference import Speech2Text
+
+    from returnn.util.better_exchook import debug_shell
+
+    # debug_shell(locals(), globals())
+
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12
