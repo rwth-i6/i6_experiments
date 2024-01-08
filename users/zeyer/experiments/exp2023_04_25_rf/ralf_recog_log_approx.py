@@ -4,7 +4,7 @@ Try alpha=1 first.
 """
 
 from __future__ import annotations
-from typing import Optional, Tuple
+from typing import Optional, Any, Tuple, Dict
 import tree
 
 from returnn.tensor import Tensor, Dim
@@ -13,29 +13,47 @@ from returnn.frontend.tensor_array import TensorArray
 
 from sisyphus import tk
 from i6_experiments.users.zeyer.recog import recog_model
-from i6_experiments.users.zeyer.model_interfaces import RecogDef
+from i6_experiments.users.zeyer.model_interfaces import RecogDef, ModelWithCheckpoint
 
+from .configs import config_24gb_v6, _get_cfg_lrlin_oclr_by_bs_nep
 from .conformer_import_moh_att_2023_06_30 import train_exp as lstm_train_exp, Model as LstmModel, _get_ls_task
-
 
 _sis_prefix: Optional[str] = None
 
 
 def py():
-    from .configs import config_24gb_v6, _get_cfg_lrlin_oclr_by_bs_nep
     from .sis_setup import get_prefix_for_config
 
     global _sis_prefix
 
-    task = _get_ls_task()
     _sis_prefix = get_prefix_for_config(__file__)
 
-    # "best_scores": {"dev-clean": 2.31, "dev-other": 5.44, "test-clean": 2.64, "test-other": 5.74}, "best_epoch": 1941
-    lstm_model = lstm_train_exp(
-        "base-24gb-v6-lrlin1e_5_450k", config_24gb_v6, config_updates=_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000)
-    ).get_epoch(1941)
+    recog("lstm", "baseline", {})
 
-    tk.register_output(_sis_prefix + "/lstm_baseline", recog_model(task, lstm_model, recog_def=lstm_model_recog).output)
+
+_models_by_type: Dict[str, ModelWithCheckpoint] = {}
+
+
+def _get_model(model_type: str) -> ModelWithCheckpoint:
+    if model_type in _models_by_type:
+        return _models_by_type[model_type]
+    if model_type == "lstm":
+        # {"dev-clean": 2.31, "dev-other": 5.44, "test-clean": 2.64, "test-other": 5.74}, "best_epoch": 1941
+        lstm_model = lstm_train_exp(
+            "base-24gb-v6-lrlin1e_5_450k", config_24gb_v6, config_updates=_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000)
+        ).get_epoch(1941)
+        _models_by_type[model_type] = lstm_model
+    else:
+        raise ValueError(f"not handled: model type {model_type!r}")
+    return _models_by_type[model_type]
+
+
+def recog(model_type: str, name: str, config: Dict[str, Any]):
+    task = _get_ls_task()
+    tk.register_output(
+        f"{_sis_prefix}/{model_type}_{name}",
+        recog_model(task, _get_model(model_type), recog_def=lstm_model_recog, config=config).output,
+    )
 
 
 def lstm_model_recog(
