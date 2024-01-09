@@ -65,11 +65,12 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
                 with_running_index.append(f"{state}.{idx}")
 
             # measure how many phones remain after sampling
-            after_slice = len(set(with_running_index[:: self.sample_rate]))
+            unique_phs = set(with_running_index[:: self.sample_rate])
+            after_slice = len(unique_phs)
             num_skipped = idx - after_slice
 
             if num_skipped > 0:
-                segment_with_sampling.append(segment)
+                segment_with_sampling.append((segment, set(with_running_index) - unique_phs))
 
             total_skipped += num_skipped
             total_phones += idx
