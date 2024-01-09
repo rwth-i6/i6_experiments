@@ -430,12 +430,14 @@ def model_recog(
     )
 
     speech = data.raw_tensor  # [B, Nsamples]
+    print("Speech shape:", speech.shape)
     lengths = data_spatial_dim.dyn_size  # [B]
     batch = {"speech": speech, "speech_lengths": lengths}
     logging.info("speech length: " + str(speech.size(1)))
 
     # Encoder forward (batched)
     enc, enc_olens = asr_model.encode(**batch)
+    print("Encoded shape:", enc.shape)
 
     batch_dim = data.dims[0]
     batch_size = speech.size(0)
@@ -453,8 +455,8 @@ def model_recog(
         nbest_hyps: List[Hypothesis] = beam_search(
             x=enc[i, : enc_olens[i]], maxlenratio=maxlenratio, minlenratio=minlenratio
         )
-        print(nbest_hyps)
-        assert len(nbest_hyps) == beam_size
+        print("best:", " ".join(token_list[v] for v in nbest_hyps[0].yseq))
+        assert len(nbest_hyps) == beam_size, f"got {len(nbest_hyps)} hyps, expected beam size {beam_size}"
         for j, hyp in enumerate(nbest_hyps):
             hyp: Hypothesis
             olens[i, j] = hyp.yseq.size(0)
