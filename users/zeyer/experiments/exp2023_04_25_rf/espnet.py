@@ -377,7 +377,7 @@ def model_recog(
     # ctc_weight: 0.3
     # lm_weight: 0.6
 
-    beam_size = 60
+    beam_size = 12  # like RETURNN, not 60 for now...
     ctc_weight = 0.3
     lm_weight = 0.6  # not used currently...
     ngram_weight = 0.9  # not used currently...
@@ -468,6 +468,14 @@ def model_recog(
         for j in range(beam_size):
             outputs_t[i, j, : olens[i, j]] = outputs[i][j]
     seq_targets = Tensor("outputs", [batch_dim, beam_dim, out_spatial_dim], "int32", raw_tensor=outputs_t)
+
+    from returnn.datasets.util.vocabulary import Vocabulary
+
+    target_dim = Dim(name="target", dimension=len(token_list), kind=Dim.Types.Feature)
+    target_dim.vocab = Vocabulary.create_vocab_from_labels(
+        [str(i) for i in range(target_dim.dimension)], eos_label=model.eos
+    )
+    seq_targets.sparse_dim = target_dim
 
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 
