@@ -25,10 +25,14 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
 
         self.out_skipped_per_task = [self.output_var(f"skipped_{i}") for i in range(n_tasks)]
         self.out_total_per_task = [self.output_var(f"total_{i}") for i in range(n_tasks)]
+        self.out_segments_with_sampling_per_task = [
+            self.output_var(f"segments_with_sampling_{i}") for i in range(n_tasks)
+        ]
 
         self.out_total_phones = self.output_var("total_phones")
         self.out_total_skipped = self.output_var("total_skipped")
         self.out_ratio_skipped = self.output_var("ratio_skipped")
+        self.out_segments_with_sampling = self.output_var("segments_with_sampling")
 
     def tasks(self) -> Iterator[Task]:
         yield Task("run", args=list(range(len(self.out_total_per_task))), rqmt={"cpu": 1, "time": 1, "mem": 6})
@@ -45,6 +49,7 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
 
         total_phones = 0
         total_skipped = 0
+        segment_with_sampling = []
 
         for segment in segs:
             idx = 0
@@ -63,11 +68,15 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
             after_slice = len(set(with_running_index[:: self.sample_rate]))
             num_skipped = idx - after_slice
 
+            if num_skipped > 0:
+                segment_with_sampling.append(segment)
+
             total_skipped += num_skipped
             total_phones += idx
 
         self.out_total_per_task[i].set(total_phones)
         self.out_skipped_per_task[i].set(total_skipped)
+        self.out_segments_with_sampling_per_task[i].set(segment_with_sampling)
 
     def merge(self):
         total_phones = sum((v.get() for v in self.out_total_per_task))
@@ -76,3 +85,4 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
         self.out_total_phones.set(total_phones)
         self.out_total_skipped.set(total_skipped)
         self.out_ratio_skipped.set(total_skipped / total_phones)
+        self.out_segments_with_sampling.set([s for var in self.out_segments_with_sampling.values() for s in var.get()])

@@ -96,6 +96,9 @@ def run():
         tk.register_output(f"alignments/10ms-scratch-blstm/statistics/sample-{n}x/total", sampled.out_total_phones)
         tk.register_output(f"alignments/10ms-scratch-blstm/statistics/sample-{n}x/skipped", sampled.out_total_skipped)
         tk.register_output(f"alignments/10ms-scratch-blstm/statistics/sample-{n}x/ratio", sampled.out_ratio_skipped)
+        tk.register_output(
+            f"alignments/10ms-scratch-blstm/statistics/sample-{n}x/segments", sampled.out_segments_with_sampling
+        )
 
     plots = PlotViterbiAlignmentsJob(
         alignment_bundle_path=Path(SCRATCH_ALIGNMENT, cached=True),
