@@ -430,14 +430,14 @@ def model_recog(
     )
 
     speech = data.raw_tensor  # [B, Nsamples]
-    print("Speech shape:", speech.shape)
+    print("Speech shape:", speech.shape, "device:", speech.device)
     lengths = data_spatial_dim.dyn_size  # [B]
     batch = {"speech": speech, "speech_lengths": lengths}
     logging.info("speech length: " + str(speech.size(1)))
 
     # Encoder forward (batched)
     enc, enc_olens = asr_model.encode(**batch)
-    print("Encoded shape:", enc.shape)
+    print("Encoded shape:", enc.shape, "device:", enc.device)
 
     batch_dim = data.dims[0]
     batch_size = speech.size(0)
