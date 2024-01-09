@@ -118,6 +118,7 @@ def train(
             torch_log_memory_usage=True,
             watch_memory=True,
             use_lovely_tensors=True,
+            use_train_proc_manager=True,
         ),
         sort_config=False,
     )
