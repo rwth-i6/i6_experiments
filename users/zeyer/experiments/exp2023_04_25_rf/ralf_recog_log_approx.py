@@ -30,6 +30,13 @@ def py():
 
     recog("lstm", "baseline", {})
     recog("lstm", "greedy", {"beam_size": 1})
+    for beam_size in [1, 2, 4, 8, 12, 24, 32]:
+        for length_norm in [0.0, 0.5, 1.0, 1.5]:
+            recog(
+                "lstm",
+                f"beam{beam_size}-ln{length_norm}",
+                {"beam_size": beam_size, "length_normalization_exponent": length_norm},
+            )
 
 
 _models_by_type: Dict[str, ModelWithCheckpoint] = {}
