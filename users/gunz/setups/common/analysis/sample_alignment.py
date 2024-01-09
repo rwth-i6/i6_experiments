@@ -86,4 +86,4 @@ class ComputeAlignmentSamplingStatisticsJob(Job):
         self.out_total_phones.set(total_phones)
         self.out_total_skipped.set(total_skipped)
         self.out_ratio_skipped.set(total_skipped / total_phones)
-        self.out_segments_with_sampling.set([s for var in self.out_segments_with_sampling.values() for s in var.get()])
+        self.out_segments_with_sampling.set([s for var in self.out_segments_with_sampling_per_task for s in var.get()])
