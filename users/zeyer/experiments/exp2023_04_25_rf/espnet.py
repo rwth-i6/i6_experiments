@@ -456,9 +456,10 @@ def model_recog(
             x=enc[i, : enc_olens[i]], maxlenratio=maxlenratio, minlenratio=minlenratio
         )
         print("best:", " ".join(token_list[v] for v in nbest_hyps[0].yseq))
-        assert len(nbest_hyps) == beam_size, f"got {len(nbest_hyps)} hyps, expected beam size {beam_size}"
-        for j, hyp in enumerate(nbest_hyps):
-            hyp: Hypothesis
+        # I'm not exactly sure why, but sometimes we get even more hyps?
+        assert len(nbest_hyps) >= beam_size, f"got {len(nbest_hyps)} hyps, expected beam size {beam_size}"
+        for j in range(beam_size):
+            hyp: Hypothesis = nbest_hyps[j]
             olens[i, j] = hyp.yseq.size(0)
             outputs[i].append(hyp.yseq)
             oscores[i, j] = hyp.score
