@@ -1136,6 +1136,7 @@ def py():
     """
     report_mel = run_mel_baseline()
     report_scf = run_scf_baseline()
+    report_scf_specaug_sort = run_scf_specaug_sort()
 
     report_base = Report(
         columns_start=["train_name", "wave_norm", "specaug", "lr", "batch_size"],
@@ -1146,6 +1147,7 @@ def py():
             report_base,
             report_mel,
             report_scf,
+            report_scf_specaug_sort,
         ]
     )
     tk.register_report(
