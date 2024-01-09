@@ -37,6 +37,8 @@ def py():
                 f"beam{beam_size}-ln{length_norm}",
                 {"beam_size": beam_size, "length_normalization_exponent": length_norm},
             )
+    recog("lstm", "greedy-alpha1", {"beam_size": 1, "alpha": 1})
+    recog("lstm", "beam4-ln0-alpha1", {"beam_size": 4, "length_normalization_exponent": 0.0, "alpha": 1})
 
 
 _models_by_type: Dict[str, ModelWithCheckpoint] = {}
@@ -59,7 +61,7 @@ def _get_model(model_type: str) -> ModelWithCheckpoint:
 def recog(model_type: str, name: str, config: Dict[str, Any]):
     task = _get_ls_task()
     tk.register_output(
-        f"{_sis_prefix}/{model_type}_{name}",
+        f"{_sis_prefix}/{model_type}-{name}",
         recog_model(task, _get_model(model_type), recog_def=lstm_model_recog, config=config).output,
     )
 
@@ -89,8 +91,11 @@ def lstm_model_recog(
     config = get_global_config()
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+
     beam_size = config.int("beam_size", 12)
     length_normalization_exponent = config.float("length_normalization_exponent", 1.0)
+    alpha = config.float("alpha", 0.0)
+
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
     else:
@@ -123,6 +128,8 @@ def lstm_model_recog(
         )
         logits = model.decode_logits(input_embed=input_embed, **step_out)
         label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
+        if alpha:
+            label_log_prob = (rf.exp(label_log_prob) ** alpha - 1.0) / alpha
         # Filter out finished beams
         label_log_prob = rf.where(
             ended,
