@@ -6,15 +6,12 @@ from __future__ import annotations
 
 import os
 import copy
-import functools
 import sys
-from typing import TYPE_CHECKING, Optional, Tuple, Sequence
+import logging
+from typing import TYPE_CHECKING, Optional, Sequence, Tuple, List
 
-import tree
-
-from returnn.tensor import Tensor, Dim, single_step_dim
+from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
-from returnn.frontend.tensor_array import TensorArray
 
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef, ModelDefWithCfg
 
@@ -22,7 +19,7 @@ from .configs import *
 from .configs import _get_cfg_lrlin_oclr_by_bs_nep
 
 if TYPE_CHECKING:
-    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
+    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
     from i6_experiments.users.zeyer.datasets.task import Task
     from espnet2.asr.espnet_model import ESPnetASRModel
 
@@ -350,7 +347,6 @@ def model_recog(
     model: ESPnetASRModel,
     data: Tensor,
     data_spatial_dim: Dim,
-    max_seq_len: Optional[int] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -365,6 +361,10 @@ def model_recog(
         out_spatial_dim,
         final beam_dim
     """
+    if data.feature_dim and data.feature_dim.dimension == 1:
+        data = rf.squeeze(data, axis=data.feature_dim)
+    assert not data.feature_dim  # raw audio
+
     # References:
     # https://github.com/espnet/espnet/blob/master/egs2/librispeech/asr1/run.sh
     # https://github.com/espnet/espnet/blob/master/egs2/TEMPLATE/asr1/asr.sh
@@ -372,93 +372,100 @@ def model_recog(
     # https://github.com/espnet/espnet/blob/master/espnet2/tasks/asr.py
     # https://github.com/espnet/espnet/blob/master/espnet2/tasks/abs_task.py
 
-    from espnet2.bin.asr_inference import Speech2Text
+    # decode_asr.yaml:
+    # beam_size: 60
+    # ctc_weight: 0.3
+    # lm_weight: 0.6
 
-    from returnn.util.better_exchook import debug_shell
+    beam_size = 60
+    ctc_weight = 0.3
+    lm_weight = 0.6  # not used currently...
+    ngram_weight = 0.9  # not used currently...
+    penalty = 0.0
+    normalize_length = False
+    maxlenratio = 0.0
+    minlenratio = 0.0
 
-    # debug_shell(locals(), globals())
+    # Partly taking code from espnet2.bin.asr_inference.Speech2Text.
 
-    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    beam_size = 12
-    length_normalization_exponent = 1.0
-    if max_seq_len is None:
-        max_seq_len = enc_spatial_dim.get_size_tensor()
-    else:
-        max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
-    print("** max seq len:", max_seq_len.raw_tensor)
+    import torch
+    from espnet.nets.scorers.ctc import CTCPrefixScorer
+    from espnet.nets.scorers.length_bonus import LengthBonus
+    from espnet.nets.scorer_interface import BatchScorerInterface
+    from espnet.nets.batch_beam_search import BatchBeamSearch
+    from espnet.nets.beam_search import Hypothesis
 
-    # Eager-mode implementation of beam search.
-    # Initial state.
-    beam_dim = Dim(1, name="initial-beam")
-    batch_dims_ = [beam_dim] + batch_dims
-    decoder_state = model.decoder.default_initial_state(batch_dims=batch_dims_)
-    target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
-    ended = rf.constant(False, dims=batch_dims_)
-    out_seq_len = rf.constant(0, dims=batch_dims_)
-    seq_log_prob = rf.constant(0.0, dims=batch_dims_)
+    scorers = {}
+    asr_model = model
+    decoder = asr_model.decoder
 
-    i = 0
-    seq_targets = []
-    seq_backrefs = []
-    while True:
-        logits, decoder_state = model.decoder(
-            target,
-            spatial_dim=single_step_dim,
-            encoder=enc,
-            state=decoder_state,
+    ctc = CTCPrefixScorer(ctc=asr_model.ctc, eos=asr_model.eos)
+    token_list = asr_model.token_list
+    scorers.update(
+        decoder=decoder,
+        ctc=ctc,
+        length_bonus=LengthBonus(len(token_list)),
+    )
+
+    weights = dict(
+        decoder=1.0 - ctc_weight,
+        ctc=ctc_weight,
+        lm=lm_weight,
+        ngram=ngram_weight,
+        length_bonus=penalty,
+    )
+
+    assert all(isinstance(v, BatchScorerInterface) for k, v in scorers.items()), f"non-batch scorers: {scorers}"
+
+    beam_search = BatchBeamSearch(
+        beam_size=beam_size,
+        weights=weights,
+        scorers=scorers,
+        sos=asr_model.sos,
+        eos=asr_model.eos,
+        vocab_size=len(token_list),
+        token_list=token_list,
+        pre_beam_score_key=None if ctc_weight == 1.0 else "full",
+        normalize_length=normalize_length,
+    )
+
+    speech = data.raw_tensor  # [B, Nsamples]
+    lengths = data_spatial_dim.dyn_size  # [B]
+    batch = {"speech": speech, "speech_lengths": lengths}
+    logging.info("speech length: " + str(speech.size(1)))
+
+    # Encoder forward (batched)
+    enc, enc_olens = asr_model.encode(**batch)
+
+    batch_dim = data.dims[0]
+    batch_size = speech.size(0)
+    beam_dim = Dim(beam_size, name="beam")
+    olens = torch.zeros([batch_size, beam_size], dtype=torch.int32)
+    out_spatial_dim = Dim(Tensor("out_spatial", [batch_dim, beam_dim], "int32", raw_tensor=olens))
+    outputs = [[] for _ in range(batch_size)]
+    oscores = torch.zeros([batch_size, beam_size], dtype=torch.float32)
+    seq_log_prob = Tensor("scores", [batch_dim, beam_dim], "float32", raw_tensor=oscores)
+
+    # BatchBeamSearch is misleading: It still only operates on a single sequence,
+    # but just handles all hypotheses in a batched way.
+    # So we must iterate over all the sequences here from the input.
+    for i in range(batch_size):
+        nbest_hyps: List[Hypothesis] = beam_search(
+            x=enc[i, : enc_olens[i]], maxlenratio=maxlenratio, minlenratio=minlenratio
         )
-        label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
-        # Filter out finished beams
-        label_log_prob = rf.where(
-            ended,
-            rf.sparse_to_dense(model.eos_idx, axis=model.target_dim, label_value=0.0, other_value=-1.0e30),
-            label_log_prob,
-        )
-        seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
-        seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
-            seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{i}-beam"), axis=[beam_dim, model.target_dim]
-        )  # seq_log_prob, backrefs, target: Batch, Beam
-        seq_targets.append(target)
-        seq_backrefs.append(backrefs)
-        decoder_state = tree.map_structure(functools.partial(_gather_backrefs, backrefs=backrefs), decoder_state)
-        ended = rf.gather(ended, indices=backrefs)
-        out_seq_len = rf.gather(out_seq_len, indices=backrefs)
-        i += 1
+        print(nbest_hyps)
+        assert len(nbest_hyps) == beam_size
+        for j, hyp in enumerate(nbest_hyps):
+            hyp: Hypothesis
+            olens[i, j] = hyp.yseq.size(0)
+            outputs[i].append(hyp.yseq)
+            oscores[i, j] = hyp.score
 
-        ended = rf.logical_or(ended, target == model.eos_idx)
-        ended = rf.logical_or(ended, rf.copy_to_device(i >= max_seq_len))
-        if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
-            break
-        out_seq_len = out_seq_len + rf.where(ended, 0, 1)
-
-        if i > 1 and length_normalization_exponent != 0:
-            # Length-normalized scores, so we evaluate score_t/len.
-            # If seq ended, score_i/i == score_{i-1}/(i-1), thus score_i = score_{i-1}*(i/(i-1))
-            # Because we count with EOS symbol, shifted by one.
-            seq_log_prob *= rf.where(
-                ended,
-                (i / (i - 1)) ** length_normalization_exponent,
-                1.0,
-            )
-
-    if i > 0 and length_normalization_exponent != 0:
-        seq_log_prob *= (1 / i) ** length_normalization_exponent
-
-    # Backtrack via backrefs, resolve beams.
-    seq_targets_ = []
-    indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
-    for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
-        # indices: FinalBeam -> Beam
-        # backrefs: Beam -> PrevBeam
-        seq_targets_.insert(0, rf.gather(target, indices=indices))
-        indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
-
-    seq_targets__ = TensorArray(seq_targets_[0])
-    for target in seq_targets_:
-        seq_targets__ = seq_targets__.push_back(target)
-    out_spatial_dim = Dim(out_seq_len, name="out-spatial")
-    seq_targets = seq_targets__.stack(axis=out_spatial_dim)
+    outputs_t = torch.zeros([batch_size, beam_size, torch.max(olens)], dtype=torch.int32)
+    for i in range(batch_size):
+        for j in range(beam_size):
+            outputs_t[i, j, : olens[i, j]] = outputs[i][j]
+    seq_targets = Tensor("outputs", [batch_dim, beam_dim, out_spatial_dim], "int32", raw_tensor=outputs_t)
 
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 
