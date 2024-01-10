@@ -146,6 +146,10 @@ def main():
     fairseq_args = get_fairseq_args(num_gpus=8)
     fairseq_config = FairseqHydraConfig(fairseq_args)
     fairseq_root = get_fairseq_root()
+    fairseq_python_exe = tk.Path(
+        "/home/pv653172/setups/librispeech/20230328_wav2vec2/dependencies/python_launcher.sh",
+        hash_overwrite="itc_python_launcher_py310_torch",
+    )
     job = FairseqHydraTrainingJob(
         fairseq_config,
         max_epoch=300,
@@ -155,6 +159,7 @@ def main():
         cpu_rqmt=2,
         gpu_rqmt=8,
         fairseq_root=fairseq_root,
+        fairseq_python_exe=fairseq_python_exe,
         use_cache_manager=False,
     )
     job.add_alias(os.path.join(prefix_name, exp_name, "pretraining"))
