@@ -146,7 +146,13 @@ def train_exp(
         distributed_launch_cmd="torchrun" if num_processes else "mpirun",
         time_rqmt=time_rqmt,
     )
-    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
+    recog_training_exp(
+        prefix,
+        task,
+        model_with_checkpoint,
+        recog_def=model_recog,
+        search_config={"maxlenratio": "auto", "num_epochs": num_epochs},
+    )
 
     return model_with_checkpoint
 
@@ -300,6 +306,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPne
     print("Ignore:", model.ignore_id)
     print("Blank:", model.blank_id)
     print("SOS/EOS:", model.sos, model.eos)
+    model.returnn_epoch = epoch
     return model
 
 
@@ -361,6 +368,13 @@ def model_recog(
         out_spatial_dim,
         final beam_dim
     """
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    epoch = model.returnn_epoch
+    num_epochs = config.int("num_epochs", None)
+    finished = epoch / num_epochs if num_epochs else 1.0
+
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
     assert not data.feature_dim  # raw audio
@@ -377,13 +391,24 @@ def model_recog(
     # ctc_weight: 0.3
     # lm_weight: 0.6
 
-    beam_size = 12  # like RETURNN, not 60 for now...
+    beam_size = config.int("beam_size", 12)  # like RETURNN, not 60 for now...
     ctc_weight = 0.3
     lm_weight = 0.6  # not used currently...
     ngram_weight = 0.9  # not used currently...
     penalty = 0.0
     normalize_length = False
-    maxlenratio = 0.0
+    if config.value("maxlenratio", None) == "auto":
+        if finished <= 0.2:
+            # It's still early in training, so the model might be very bad,
+            # potentially causing many repetitions,
+            # so very long sequences (if we just use maxlenratio=0),
+            # which can be very slow (https://github.com/espnet/espnet/discussions/5619).
+            # Thus, restrict the max len.
+            maxlenratio = max(0.1, finished)
+        else:
+            maxlenratio = 0.0
+    else:
+        maxlenratio = config.float("maxlenratio", 0.0)
     minlenratio = 0.0
 
     # Partly taking code from espnet2.bin.asr_inference.Speech2Text.
