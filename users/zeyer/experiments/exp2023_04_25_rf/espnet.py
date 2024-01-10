@@ -151,7 +151,7 @@ def train_exp(
         task,
         model_with_checkpoint,
         recog_def=model_recog,
-        search_config={"maxlenratio": "auto", "num_epochs": num_epochs},
+        search_config={"search_version": 2, "maxlenratio": "auto", "num_epochs": num_epochs},
     )
 
     return model_with_checkpoint
@@ -374,6 +374,8 @@ def model_recog(
     epoch = model.returnn_epoch
     num_epochs = config.int("num_epochs", None)
     finished = epoch / num_epochs if num_epochs else 1.0
+    search_version = config.int("search_version", 0)
+    assert search_version >= 2, f"search version {search_version} unsupported, likely there was a bug earlier..."
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
@@ -498,23 +500,10 @@ def model_recog(
     from returnn.datasets.util.vocabulary import Vocabulary
 
     target_dim = Dim(name="target", dimension=len(token_list), kind=Dim.Types.Feature)
-    target_dim.vocab = Vocabulary.create_vocab_from_labels(
-        [str(i) for i in range(target_dim.dimension)], eos_label=model.eos
-    )
+    target_dim.vocab = Vocabulary.create_vocab_from_labels(token_list, eos_label=model.eos)
     seq_targets.sparse_dim = target_dim
 
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
-
-
-def _gather_backrefs(s, *, backrefs: Tensor):
-    if isinstance(s, Tensor):
-        if backrefs.sparse_dim in s.dims:
-            return rf.gather(s, indices=backrefs)  # really the default case
-        return s  # e.g. scalar or so, independent from beam
-    if isinstance(s, Dim):
-        assert s.dimension or backrefs not in s.dyn_size_ext.dims  # currently not supported, also not expected
-        return s
-    raise TypeError(f"_gather_backrefs: unexpected type ({type(s)})")
 
 
 # RecogDef API
