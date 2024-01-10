@@ -283,6 +283,7 @@ def search_config(
             torch_log_memory_usage=True,
             watch_memory=True,
             use_lovely_tensors=True,
+            forward_auto_split_batch_on_oom=True,
         ),
         sort_config=False,
     )
