@@ -618,6 +618,7 @@ def create_config(
     mixup_aug_opts=None,
     enable_mixup_in_pretrain=True,
     seq_train_opts=None,
+    horovod_params=None,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -992,6 +993,9 @@ def create_config(
             add_min_wer(net=exp_config["network"], **opts)
         elif seq_train_type == "double_softmax":
             add_double_softmax(net=exp_config["network"], **opts)
+
+    if horovod_params:
+        exp_config.update(horovod_params)
 
     returnn_config = ReturnnConfig(
         exp_config,
