@@ -5,7 +5,7 @@ import tree
 from functools import partial
 
 
-from returnn.tensor import Tensor, Dim
+from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 
@@ -60,8 +60,11 @@ def model_recog_time_sync(
     decoder_state = model.decoder_default_initial_state(
         batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
     )
-    if model.search_args.get("add_lstm_lm", False):
-        lm_state = model.lstm_lm.lm_default_initial_state(batch_dims=batch_dims_)
+
+    if model.search_args.get("add_trafo_lm", False):
+        trafo_lm_state = model.trafo_lm.default_initial_state(batch_dims=batch_dims_)
+        prev_trafo_lm_state = trafo_lm_state
+
     initial_target = rf.constant(
         model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim_w_b
     )
@@ -139,6 +142,19 @@ def model_recog_time_sync(
     seq_targets = []
     seq_backrefs = []
 
+    def trafo_lm_state_func(backrefs, s):
+        if type(s) == Dim:
+            return s
+        else:
+            return rf.gather(s, indices=backrefs)
+
+    # def trafo_lm_state_func_bp(backrefs, s):
+    #     if type(s) == Dim:
+    #         return s
+    #     else:
+    #         breakpoint()
+    #         return rf.gather(s, indices=backrefs)
+
     for i in range(torch.max(hlens)):
         # gather prev non-blank targets and prev_decoder_state via backrefs
         if i == 1:
@@ -176,6 +192,38 @@ def model_recog_time_sync(
         # set for next iteration
         prev_decoder_state_all = decoder_state_1
 
+        # handle trafo lm state
+        if model.search_args.get("add_trafo_lm", False) and i>0:
+            prev_pos = prev_trafo_lm_state_all["pos"]
+            prev_trafo_lm_state_all.pop("pos")
+
+            if i > 1:
+                prev_trafo_lm_state = tree.map_structure(
+                    partial(trafo_lm_state_func, seq_backrefs[i-1]), prev_trafo_lm_state_all
+                )
+            else:
+                prev_trafo_lm_state = prev_trafo_lm_state_all
+
+
+        pos = trafo_lm_state["pos"]
+        trafo_lm_state.pop("pos")
+        def trafo_lm_state_mask_func(s, prev_s):
+            if i > 0:
+                breakpoint()
+            if type(s) == Dim:
+                return s
+            return rf.where(mask_combined, s, prev_s)
+        trafo_lm_state_1 = tree.map_structure(
+            trafo_lm_state_mask_func,
+            trafo_lm_state,
+            prev_trafo_lm_state,
+        )
+        if i>0:
+            trafo_lm_state_1["pos"] = rf.where(mask_combined, pos, prev_pos)
+        else:
+            trafo_lm_state_1["pos"] = pos
+        prev_trafo_lm_state_all = trafo_lm_state_1
+
         input_embed = model.target_embed(target_1)
         step_out, decoder_state = model.loop_step(
             **enc_args,
@@ -203,6 +251,16 @@ def model_recog_time_sync(
             ctc_out_raw_step[:, :, :blank_index] * model.search_args.get("ctc_scale", 0.0)
             + att_label_log_prob.raw_tensor
         )
+
+        if model.search_args.get("add_trafo_lm", False):
+            trafo_lm_out = model.trafo_lm(target_1, state=trafo_lm_state_1, spatial_dim=single_step_dim)
+            trafo_lm_state = trafo_lm_out["state"]
+            # breakpoint()
+            trafo_log_prob = rf.log_softmax(trafo_lm_out["output"], axis=model.target_dim)
+            if i > 0:
+                label_log_prob_non_blank = (
+                    label_log_prob_non_blank + model.search_args["lm_scale"] * trafo_log_prob.raw_tensor
+                )
 
         blank_log_prob = ctc_out_raw_step[:, :, blank_index]
 
@@ -261,6 +319,14 @@ def model_recog_time_sync(
         decoder_state = tree.map_structure(
             lambda s: rf.gather(s, indices=backrefs), decoder_state
         )
+        if model.search_args.get("add_trafo_lm", False):
+            pos = trafo_lm_state["pos"]
+            trafo_lm_state.pop("pos")
+            trafo_lm_state = tree.map_structure(
+                partial(trafo_lm_state_func, backrefs), trafo_lm_state
+            )
+            trafo_lm_state["pos"] = pos
+
         ended = rf.gather(ended, indices=backrefs)
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
 

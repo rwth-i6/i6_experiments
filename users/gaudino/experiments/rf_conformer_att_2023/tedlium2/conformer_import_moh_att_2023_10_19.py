@@ -50,7 +50,7 @@ import numpy
 # E.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
 _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
 _torch_ckpt_filename = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/baseline_23_10_19/average.pt"
-_torch_ckpt_filename_w_trafo_lm = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/baseline_w_trafo_lm_23_12_11/average.pt"
+_torch_ckpt_filename_w_trafo_lm = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/baseline_w_trafo_lm_23_12_28/average.pt"
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
 
@@ -109,26 +109,32 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # att only
     for beam_size in [12]:
-        lm_scale = 0.3
+        lm_scale = 0.1
         search_args = {
             "beam_size": beam_size,
-            "lm_scale": lm_scale
+            "lm_scale": lm_scale,
+            "add_trafo_lm": False,
+            "bsf": "bsf160",
         }
 
         dev_sets = ["dev"]  # only dev-other for testing
         # dev_sets = None  # all
-        res = recog_model(
+        name = (
+            prefix_name
+            + f"/bsf160_att_beam{beam_size}"
+            # + f"/bsf40_att_trafo_lm{lm_scale}_beam{beam_size}"
+        )
+        res, _ = recog_model(
             task,
             model_with_checkpoint,
             model_recog,
             dev_sets=dev_sets,
             model_args=model_args,
             search_args=search_args,
-            prefix_name=prefix_name,
+            prefix_name=name,
         )
         tk.register_output(
-            prefix_name
-            + f"/bsf40_att_trafo_lm{lm_scale}_beam{beam_size}"
+            name
             + f"/recog_results",
             res.output,
         )

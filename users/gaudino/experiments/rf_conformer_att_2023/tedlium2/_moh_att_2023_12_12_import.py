@@ -181,13 +181,21 @@ def test_import_search():
 
     print("*** Convert old model to new model")
     # pt_checkpoint_path = _get_pt_checkpoint_path()
-    pt_checkpoint_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/baseline_w_trafo_lm_23_12_13/average.pt"
+    pt_checkpoint_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/baseline_w_trafo_lm_23_12_28/average.pt"
     print(pt_checkpoint_path)
 
     print("*** Create new model")
     search_args = {
+        "beam_size": 1,
+        "att_scale": 0.0,
+        "ctc_scale": 0.9,
+        "add_trafo_lm": True,
+        "lm_scale": 0.1,
+    }
+    search_args = {
         "beam_size": 12,
         "add_trafo_lm": True,
+        "lm_scale": 0.1,
     }
     model_args = {
         "add_ted2_trafo_lm": True,
@@ -244,8 +252,12 @@ def test_import_search():
     print(seq_targets, seq_targets.raw_tensor) # seq_targets [T,Batch,Beam]
     print("Out spatial dim:", out_spatial_dim)
 
+
     # serialize output
-    vocab_1 = Vocabulary("/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.Jc3xHSQQbXD9/output/bpe.vocab", eos_label=0)
+    # vocab_1 = Vocabulary("/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.Jc3xHSQQbXD9/output/bpe.vocab", eos_label=0) # librispeech
+    # does not work due to encoding of environment
+    # vocab_1 = Vocabulary("/u/michel/setups/2023-08-09--librispeech_mohammad/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.Jc3xHSQQbXD9/output/bpe.vocab", eos_label=0) # tedlium2
+    vocab_1 = dataset.datasets['zip_dataset'].targets
     for batch_idx in range(batch_dim.get_dim_value()):
         # process seq
         hyps = seq_targets.raw_tensor[:, batch_idx, :]

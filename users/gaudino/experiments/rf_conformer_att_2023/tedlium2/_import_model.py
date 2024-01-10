@@ -51,7 +51,7 @@ def test_convert_checkpoint():
     import torch
     import numpy
 
-    out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/baseline_w_trafo_lm_23_12_13"
+    out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/baseline_w_trafo_lm_23_12_28"
 
     reader = CheckpointReader(_returnn_tf_ckpt_filename)
     reader_lm = CheckpointReader(_ted2_lm_ckpt_filename)
@@ -107,7 +107,6 @@ def test_convert_checkpoint():
 
     pt_model = rf_module_to_pt_module(model)
 
-    breakpoint()
     save_model = True
 
     if save_model:
@@ -148,8 +147,8 @@ def _add_params():
 
                 f"layers.{layer_idx}.self_att.qkv.weight": f"dec_{layer_idx}_self_att_att/QKV",
                 f"layers.{layer_idx}.self_att_lin.weight": f"dec_{layer_idx}_self_att_lin/W",
-                f"layers.{layer_idx}.self_att_layer_norm.scale": f"dec_{layer_idx}_self_att_laynorm/bias",
-                f"layers.{layer_idx}.self_att_layer_norm.bias": f"dec_{layer_idx}_self_att_laynorm/scale",
+                f"layers.{layer_idx}.self_att_layer_norm.scale": f"dec_{layer_idx}_self_att_laynorm/scale",
+                f"layers.{layer_idx}.self_att_layer_norm.bias": f"dec_{layer_idx}_self_att_laynorm/bias",
             }
         )
 
