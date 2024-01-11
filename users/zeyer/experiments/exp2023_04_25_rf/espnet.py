@@ -515,5 +515,5 @@ def model_recog(
 # RecogDef API
 model_recog: RecogDef[ESPnetASRModel]
 model_recog.output_with_beam = True
-model_recog.output_blank_label = None
+model_recog.output_blank_label = "<s>"
 model_recog.batch_size_dependent = False
