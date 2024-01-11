@@ -151,7 +151,7 @@ def train_exp(
         task,
         model_with_checkpoint,
         recog_def=model_recog,
-        search_config={"search_version": 2, "maxlenratio": "auto", "num_epochs": num_epochs},
+        search_config={"search_version": 3, "num_epochs": num_epochs},
     )
 
     return model_with_checkpoint
@@ -376,6 +376,12 @@ def model_recog(
     finished = epoch / num_epochs if num_epochs else 1.0
     search_version = config.int("search_version", 0)
     assert search_version >= 2, f"search version {search_version} unsupported, likely there was a bug earlier..."
+
+    import os
+
+    if search_version >= 3:
+        os.environ["RETURNN_FIX_BLANK"] = "1"
+        # TODO later, we need to check the ESPnet version here somehow...?
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
