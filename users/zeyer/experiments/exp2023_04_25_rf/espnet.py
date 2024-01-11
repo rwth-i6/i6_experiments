@@ -151,7 +151,7 @@ def train_exp(
         task,
         model_with_checkpoint,
         recog_def=model_recog,
-        search_config={"search_version": 3, "num_epochs": num_epochs},
+        search_config={"search_version": 4, "num_epochs": num_epochs},
     )
 
     return model_with_checkpoint
@@ -371,9 +371,6 @@ def model_recog(
     from returnn.config import get_global_config
 
     config = get_global_config()
-    epoch = model.returnn_epoch
-    num_epochs = config.int("num_epochs", None)
-    finished = epoch / num_epochs if num_epochs else 1.0
     search_version = config.int("search_version", 0)
     assert search_version >= 2, f"search version {search_version} unsupported, likely there was a bug earlier..."
 
@@ -405,18 +402,7 @@ def model_recog(
     ngram_weight = 0.9  # not used currently...
     penalty = 0.0
     normalize_length = False
-    if config.value("maxlenratio", None) == "auto":
-        if finished <= 0.2:
-            # It's still early in training, so the model might be very bad,
-            # potentially causing many repetitions,
-            # so very long sequences (if we just use maxlenratio=0),
-            # which can be very slow (https://github.com/espnet/espnet/discussions/5619).
-            # Thus, restrict the max len.
-            maxlenratio = max(0.1, finished)
-        else:
-            maxlenratio = 0.0
-    else:
-        maxlenratio = config.float("maxlenratio", 0.0)
+    maxlenratio = config.float("maxlenratio", 0.0)
     minlenratio = 0.0
 
     # Partly taking code from espnet2.bin.asr_inference.Speech2Text.
@@ -491,8 +477,9 @@ def model_recog(
         print("best:", " ".join(token_list[v] for v in nbest_hyps[0].yseq))
         # I'm not exactly sure why, but sometimes we get even more hyps?
         # And then also sometimes, we get less hyps?
+        very_bad_score = min(-1e32, nbest_hyps[-1].score - 1)  # not -inf because of serialization issues
         while len(nbest_hyps) < beam_size:
-            nbest_hyps.append(Hypothesis(score=float("-inf"), yseq=torch.zeros(0, dtype=torch.int32)))
+            nbest_hyps.append(Hypothesis(score=very_bad_score, yseq=torch.zeros(0, dtype=torch.int32)))
         for j in range(beam_size):
             hyp: Hypothesis = nbest_hyps[j]
             olens[i, j] = hyp.yseq.size(0)
