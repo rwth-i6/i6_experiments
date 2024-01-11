@@ -490,7 +490,9 @@ def model_recog(
         )
         print("best:", " ".join(token_list[v] for v in nbest_hyps[0].yseq))
         # I'm not exactly sure why, but sometimes we get even more hyps?
-        assert len(nbest_hyps) >= beam_size, f"got {len(nbest_hyps)} hyps, expected beam size {beam_size}"
+        # And then also sometimes, we get less hyps?
+        while len(nbest_hyps) < beam_size:
+            nbest_hyps.append(Hypothesis(score=float("-inf"), yseq=torch.zeros(0, dtype=torch.int32)))
         for j in range(beam_size):
             hyp: Hypothesis = nbest_hyps[j]
             olens[i, j] = hyp.yseq.size(0)
