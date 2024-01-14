@@ -112,11 +112,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     train_exp(
         "v6-bhv20-nenc17-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_443k-aux17-dynGradAccumV3",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
-        model_config={"behavior_version": 20},  # new Trafo decoder defaults
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),
+        model_config={
+            "behavior_version": 20,  # new Trafo decoder defaults
             "num_enc_layers": 17,
             "aux_loss_layers": [17],
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),
             "accum_grad_multiple_step": dyn_accum_grad_piecewise_linear,
             "accum_grad_piecewise_steps": [20_000, 100_000, 200_000],
             "accum_grad_piecewise_values": [4, 4, 2, 1],
