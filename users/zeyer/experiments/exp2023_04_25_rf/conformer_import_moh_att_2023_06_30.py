@@ -318,6 +318,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "learning_rate_piecewise_steps": [100_000, 900_000, 982_000],
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
         },
+        # OOM in ep 582
+        post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
     )
     train_exp(
         "base-24gb-v6-lrlin1e_5_50k",
