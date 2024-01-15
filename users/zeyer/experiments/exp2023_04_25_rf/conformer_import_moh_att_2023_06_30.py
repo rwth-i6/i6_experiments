@@ -297,7 +297,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     train_exp(  # 5.44
         "base-24gb-v6-lrlin1e_5_450k", config_24gb_v6, config_updates=_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000)
     )
-    train_exp(
+    train_exp(  # 5.41
         "base-24gb-v6-lrlin1e_5_600k",
         config_24gb_v6,
         config_updates={
