@@ -192,8 +192,6 @@ class Ted2_Trafo_LM_Model(rf.Module):
         new_state.pos = state.pos + (1 if spatial_dim == single_step_dim else spatial_dim.get_size_tensor())
         for layer_name, layer in self.layers.items():
             layer: TrafoLMLayer  # or similar
-            if layer_name == "1":
-                breakpoint()
             decoded, new_state[layer_name] = layer(
                 decoded, spatial_dim=spatial_dim, state=state[layer_name]
             )

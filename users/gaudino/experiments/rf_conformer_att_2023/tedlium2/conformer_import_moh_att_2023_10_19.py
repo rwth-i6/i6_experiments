@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Optional, Any, Tuple, Dict, Sequence, List
 import tree
+from itertools import product
 
 from sisyphus import tk
 
@@ -138,6 +139,73 @@ def sis_run_with_prefix(prefix_name: str = None):
             + f"/recog_results",
             res.output,
         )
+
+    # att + ctc opts
+    for scales, beam_size in product([(0.65, 0.35, 0.3)], [6,12,32]):
+        att_scale, ctc_scale, prior_scale = scales
+        name = (
+                prefix_name
+                + f"/bsf40_timesync_att{att_scale}_ctc{ctc_scale}_beam{beam_size}"
+        )
+        search_args = {
+            "beam_size": beam_size,
+            "att_scale": att_scale,
+            "ctc_scale": ctc_scale,
+            "bsf": "bsf40_1",
+        }
+
+        dev_sets = ["dev"]  # only dev for testing
+        # dev_sets = None  # all
+
+        # first recog
+        recog_res, recog_out = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog_time_sync,
+            dev_sets=dev_sets,
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            recog_res.output,
+        )
+
+    # ctc + trafo lm
+    for scales, beam_size in product([(1.0, 0.1, 0.0), (1.0, 0.3, 0.0)], [1,2,6,12]):
+        ctc_scale, lm_scale, prior_scale = scales
+        name = (
+                prefix_name
+                + f"/bsf40_ctc{ctc_scale}_trafolm{lm_scale}_beam{beam_size}"
+        )
+        search_args = {
+            "beam_size": beam_size,
+            "att_scale": 0.0,
+            "ctc_scale": ctc_scale,
+            "add_trafo_lm": True,
+            "lm_scale": lm_scale,
+            "bsf": "bsf40_1",
+        }
+
+        dev_sets = ["dev"]  # only dev for testing
+        # dev_sets = None  # all
+
+        # first recog
+        recog_res, recog_out = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog_time_sync,
+            dev_sets=dev_sets,
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            recog_res.output,
+        )
+
 
     # # att + espnet ctc prefix scorer
     # for scales in [(0.7,0.3), (0.65,0.35), (0.75,0.25)]:

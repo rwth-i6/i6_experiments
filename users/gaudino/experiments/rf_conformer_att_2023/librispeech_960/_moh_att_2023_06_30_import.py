@@ -614,9 +614,10 @@ def test_import_search():
     dataset = init_dataset(search_data_opts)
     dataset.init_seq_order(
         epoch=1,
-        seq_list=[f"dev-other/116-288045-{i:04d}/116-288045-{i:04d}" for i in range(33)],
+        seq_list=["dev-other/5543-27761-0074/5543-27761-0074"],
+        # seq_list=[f"dev-other/116-288045-{i:04d}/116-288045-{i:04d}" for i in range(33)],
     )
-    batch_num_seqs = 2
+    batch_num_seqs = 1
     # batch_num_seqs = 10
     dataset.load_seqs(0, batch_num_seqs)
     batch = Batch()
@@ -650,9 +651,20 @@ def test_import_search():
     print(pt_checkpoint_path)
 
     print("*** Create new model")
-    search_args = {
-        "beam_size": 12,
+    ctc_only = False
+    time_sync = True
+    time_sync_search_args = {
+        "beam_size": 2,
+        "att_scale": 0.65,
+        "ctc_scale": 0.35,
+        "mask_eos": False,
     }
+    search_args = {
+        "beam_size": 2,
+    }
+    if time_sync:
+        search_args = time_sync_search_args
+
     model_args = {
         "add_lstm_lm": True,
     }
@@ -684,8 +696,6 @@ def test_import_search():
     with torch.no_grad():
         with rf.set_default_device_ctx("cuda"):
             # manually switch between different decoders
-            ctc_only = False
-            time_sync = False
             if ctc_only:
                 seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog_ctc(
                     model=new_model,

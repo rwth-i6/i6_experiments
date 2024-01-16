@@ -303,19 +303,20 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
 
     # time sync decoding
-    for scales, beam_size in product([(0.65, 0.35, 0.3)], [12]):
+    for scales, beam_size in product([(0.65, 0.35, 0.3)], [32]):
         att_scale, ctc_scale, prior_scale = scales
         name = (
             prefix_name
-            + f"/bsf160_timesync_att{att_scale}_ctc{ctc_scale}_prior{prior_scale}_beam{beam_size}"
+            + f"/bsf40_timesync_fix_att{att_scale}_ctc{ctc_scale}_prior{prior_scale}_beam{beam_size}"
         )
         search_args = {
             "beam_size": beam_size,
             "att_scale": att_scale,
             "ctc_scale": ctc_scale,
             "prior_corr": True,
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
             "prior_scale": prior_scale,
-            "bsf": "bsf160_1",
+            "bsf": "bsf40_1",
         }
 
         dev_sets = ["dev-other"]  # only dev-other for testing
@@ -336,25 +337,27 @@ def sis_run_with_prefix(prefix_name: str = None):
             recog_res.output,
         )
 
-        # then forward
-        forward_out = forward_model(
-            task,
-            model_with_checkpoint,
-            model_forward_time_sync,
-            dev_sets=dev_sets,
-            model_args=model_args,
-            search_args=search_args,
-            prefix_name=name,
-        )
+        compute_search_errors = False
+        if compute_search_errors:
+            # then forward
+            forward_out = forward_model(
+                task,
+                model_with_checkpoint,
+                model_forward_time_sync,
+                dev_sets=dev_sets,
+                model_args=model_args,
+                search_args=search_args,
+                prefix_name=name,
+            )
 
-        # TODO compute search errors
-        res = ComputeSearchErrorsJob(
-            forward_out.output, recog_out.output
-        ).out_search_errors
-        tk.register_output(
-            name + f"/search_errors",
-            res,
-        )
+            # TODO compute search errors
+            res = ComputeSearchErrorsJob(
+                forward_out.output, recog_out.output
+            ).out_search_errors
+            tk.register_output(
+                name + f"/search_errors",
+                res,
+            )
 
 
 py = sis_run_with_prefix  # if run directly via `sis m ...`
@@ -764,7 +767,7 @@ class Model(rf.Module):
         readout = rf.reduce_out(
             readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim
         )
-        readout = rf.dropout(readout, drop_prob=0.3, axis=readout.feature_dim)
+        readout = rf.dropout(readout, drop_prob=0.3, axis=readout.feature_dim) # why is this here?
         logits = self.output_prob(readout)
         return logits
 
@@ -814,7 +817,7 @@ from_scratch_model_def: ModelDef[Model]
 from_scratch_model_def.behavior_version = 16
 from_scratch_model_def.backend = "torch"
 from_scratch_model_def.batch_size_factor = (
-    160 # change batch size here - 20 for att_window - 40 for ctc_prefix
+    40 # change batch size here - 20 for att_window - 40 for ctc_prefix
 )
 from_scratch_model_def.max_seqs = 200 #1
 

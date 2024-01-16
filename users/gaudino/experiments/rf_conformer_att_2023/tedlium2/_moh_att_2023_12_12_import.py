@@ -148,10 +148,10 @@ def test_import_search():
     dataset = init_dataset(search_data_opts)
     dataset.init_seq_order(
         epoch=1,
-        seq_list=["TED-LIUM-realease2/BlaiseAguerayArcas_2007/22"],
-        # seq_list=[f"TED-LIUM-realease2/AlGore_2009/{i}" for i in range(1,34)],
+        # seq_list=["TED-LIUM-realease2/BlaiseAguerayArcas_2007/22"],
+        seq_list=[f"TED-LIUM-realease2/AlGore_2009/{i}" for i in range(1,34)],
     )
-    batch_num_seqs = 1
+    batch_num_seqs = 2
     # batch_num_seqs = 10
     dataset.load_seqs(0, batch_num_seqs)
     batch = Batch()
@@ -185,10 +185,12 @@ def test_import_search():
     print(pt_checkpoint_path)
 
     print("*** Create new model")
-    search_args = {
-        "beam_size": 1,
-        "att_scale": 0.0,
-        "ctc_scale": 0.9,
+    ctc_only = False
+    time_sync = True
+    time_sync_search_args = {
+        "beam_size": 12,
+        "att_scale": 0.65,
+        "ctc_scale": 0.3,
         "add_trafo_lm": True,
         "lm_scale": 0.1,
     }
@@ -197,6 +199,8 @@ def test_import_search():
         "add_trafo_lm": True,
         "lm_scale": 0.1,
     }
+    if time_sync:
+        search_args = time_sync_search_args
     model_args = {
         "add_ted2_trafo_lm": True,
         "target_embed_dim": 256,
@@ -229,8 +233,6 @@ def test_import_search():
     with torch.no_grad():
         with rf.set_default_device_ctx("cuda"):
             # manually switch between different decoders
-            ctc_only = False
-            time_sync = False
             if ctc_only:
                 seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog_ctc(
                     model=new_model,
