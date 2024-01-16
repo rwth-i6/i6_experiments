@@ -48,12 +48,33 @@ u22_rasr_path_onnxtorch = tk.Path(
     hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TORCHONNX",
 )
 
+u22_rasr_path_tf = tk.Path(
+    get_rasr_binary_path("/work/tools22/users/raissi/rasr/rasr_tf2.14"),
+    hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF214",
+)
+
+u22_rasr_path_tf_test = tk.Path(
+    get_rasr_binary_path("/work/tools22/users/raissi/rasr/rasr_tf2.14"),
+    hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2",
+)
+
 u22_rasr_path_ted_common = tk.Path(
     get_rasr_binary_path("/work/tools22/users/raissi/rasr/rasr_pytorch-onnx"),
     hash_overwrite="TEDLIUM2_DEFAULT_RASR_BINARY_PATH",
 )
 
-u22_RASR_BINARY_PATHS = {"ONNX-TORCH": u22_rasr_path_onnxtorch, "TED-COMMON": u22_rasr_path_ted_common}
+u22_RASR_BINARY_PATHS = {
+    "ONNX-TORCH": u22_rasr_path_onnxtorch,
+    "TED-COMMON": u22_rasr_path_ted_common,
+    "TF": u22_rasr_path_tf,
+    "TF-TEST": u22_rasr_path_tf_test,
+}
+
+u22_returnn_launcher_tf2 = tk.Path(
+    "/u/raissi/bin/apptainer-launchers/u22/TF/returnn_tf2.14_apptainer_u22_launcher.sh",
+    hash_overwrite="GENERIC_RETURNN_LAUNCHER_TF214",
+)
+U22_RETURNN_LAUNCHERS = {"TF2": u22_returnn_launcher_tf2}
 
 # common
 RETURNN_ROOT = tk.Path("/work/tools/users/raissi/returnn_versions/conformer", hash_overwrite="CONFORMER_RETURNN_ROOT")
@@ -84,14 +105,21 @@ u16_default_tools = ToolPaths(
 )
 
 
-u16_default_tools = ToolPaths(
-    returnn_root=RETURNN_ROOT,
-    returnn_python_exe=U16_RETURNN_LAUNCHERS["TF2"],
-    rasr_binary_path=U16_RASR_BINARY_PATHS["TF2"],
-)
-
 u16_default_tools_ted = ToolPaths(
     returnn_root=RETURNN_ROOT,
     returnn_python_exe=U16_RETURNN_LAUNCHERS["TF2"],
     rasr_binary_path=U16_RASR_BINARY_PATHS["TED_COMMON"],
+)
+
+
+u22_tools_tf = ToolPaths(
+    returnn_root=RETURNN_ROOT_TORCH,
+    returnn_python_exe=U22_RETURNN_LAUNCHERS["TF2"],
+    rasr_binary_path=u22_RASR_BINARY_PATHS["TF"],
+)
+
+u22_tools_tf_test = ToolPaths(
+    returnn_root=RETURNN_ROOT,
+    returnn_python_exe=U22_RETURNN_LAUNCHERS["TF2"],
+    rasr_binary_path=u22_RASR_BINARY_PATHS["TF-TEST"],
 )

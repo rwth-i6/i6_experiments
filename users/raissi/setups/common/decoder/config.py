@@ -162,6 +162,9 @@ class SearchParameters:
     state_dependent_tdps: Optional[Union[str, tk.Path]] = None
     transition_scales: Optional[Tuple[Float, Float]] = None  # loop, fwd
 
+    def with_add_all_allophones(self, add_all: bool):
+        return dataclasses.replace(self, add_all_allophones=add_all)
+
     def with_altas(self, altas: Float) -> "SearchParameters":
         return dataclasses.replace(self, altas=altas)
 
@@ -283,17 +286,121 @@ class SearchParameters:
             we_pruning_limit=10000,
         )
 
-    @classmethod
-    def default_cart(cls, *, priors: PriorInfo) -> "SearchParameters":
-        return dataclasses.replace(
-            cls.default_triphone(priors=priors.with_scale(center=0.3)),
-            beam=16,
-            beam_limit=100_000,
-            lm_scale=12,
-        )
 
     @classmethod
     def default_for_ctx(cls, context: PhoneticContext, priors: PriorInfo) -> "SearchParameters":
+        if context == PhoneticContext.monophone:
+            return cls.default_monophone(priors=priors)
+        elif context == PhoneticContext.diphone:
+            return cls.default_diphone(priors=priors)
+        elif context == PhoneticContext.triphone_forward:
+            return cls.default_triphone(priors=priors)
+        elif context == PhoneticContext.joint_diphone:
+            return cls.default_joint_diphone(priors=priors)
+
+        else:
+            raise NotImplementedError(f"unimplemented context {context}")
+
+
+
+@dataclass(eq=True, frozen=True)
+class AlignmentParameters:
+    prior_info: PriorInfo
+    pron_scale: Float
+    tdp_scale: Optional[Float]
+    tdp_silence: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
+    tdp_speech: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
+    tdp_non_word: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
+    non_word_phonemes: str
+
+    add_all_allophones: bool = False
+    posterior_scales: Optional[PosteriorScales] = None
+    silence_penalties: Optional[Tuple[Float, Float]] = None  # loop, fwd for FH FS
+    state_dependent_tdps: Optional[Union[str, tk.Path]] = None
+    transition_scales: Optional[Tuple[Float, Float]] = None  # loop, fwd for FH FS
+
+    def with_add_all_allophones(self, add_all: bool):
+        return dataclasses.replace(self, add_all_allophones=add_all)
+
+    def with_prior_scale(
+        self,
+        center: Optional[Float] = None,
+        left: Optional[Float] = None,
+        right: Optional[Float] = None,
+        diphone: Optional[Float] = None,
+    ) -> "AlignmentParameters":
+        return dataclasses.replace(
+            self, prior_info=self.prior_info.with_scale(center=center, left=left, right=right, diphone=diphone)
+        )
+
+    def with_pron_scale(self, pron_scale: Float) -> "AlignmentParameters":
+        return dataclasses.replace(self, pron_scale=pron_scale)
+
+    def with_tdp_scale(self, scale: Float) -> "AlignmentParameters":
+        return dataclasses.replace(self, tdp_scale=scale)
+
+    def with_tdp_speech(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "AlignmentParameters":
+        return dataclasses.replace(self, tdp_speech=tdp)
+
+    def with_tdp_silence(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "AlignmentParameters":
+        return dataclasses.replace(self, tdp_silence=tdp)
+
+    def with_tdp_non_word(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "AlignmentParameters":
+        return dataclasses.replace(self, tdp_non_word=tdp)
+
+    def with_posterior_scales(self, posterior_scales: PosteriorScales):
+        return dataclasses.replace(self, posterior_scales=posterior_scales)
+
+    @classmethod
+    def default_monophone(cls, *, priors: PriorInfo) -> "AlignmentParameters":
+        return cls(
+            tdp_scale=0.4,
+            pron_scale=2.0,
+            prior_info=priors.with_scale(0.2),
+            tdp_speech=(3.0, 0.0, "infinity", 0.0),
+            tdp_silence=(0.0, 3.0, "infinity", 0.0),
+            tdp_non_word=(0.0, 3.0, "infinity", 0.0),
+            non_word_phonemes="[UNKNOWN]",
+        )
+
+    @classmethod
+    def default_diphone(cls, *, priors: PriorInfo) -> "AlignmentParameters":
+        return cls(
+            tdp_scale=0.4,
+            pron_scale=2.0,
+            prior_info=priors.with_scale(center=0.2, left=0.1),
+            tdp_speech=(3.0, 0.0, "infinity", 0.0),
+            tdp_silence=(0.0, 3.0, "infinity", 0.0),
+            tdp_non_word=(0.0, 3.0, "infinity", 0.0),
+            non_word_phonemes="[UNKNOWN]",
+        )
+
+    @classmethod
+    def default_triphone(cls, *, priors: PriorInfo) -> "AlignmentParameters":
+        return cls(
+            tdp_scale=0.6,
+            pron_scale=2.0,
+            prior_info=priors.with_scale(center=0.2, left=0.1, right=0.1),
+            tdp_speech=(3.0, 0.0, "infinity", 0.0),
+            tdp_silence=(0.0, 3.0, "infinity", 0.0),
+            tdp_non_word=(0.0, 3.0, "infinity", 0.0),
+            non_word_phonemes="[UNKNOWN]",
+        )
+
+    @classmethod
+    def default_joint_diphone(cls, *, priors: PriorInfo) -> "AlignmentParameters":
+        return cls(
+            tdp_scale=0.4,
+            pron_scale=2.0,
+            prior_info=priors.with_scale(diphone=0.4),
+            tdp_speech=(3.0, 0.0, "infinity", 0.0),
+            tdp_silence=(0.0, 3.0, "infinity", 0.0),
+            tdp_non_word=(0.0, 3.0, "infinity", 0.0),
+            non_word_phonemes="[UNKNOWN]",
+        )
+
+    @classmethod
+    def default_for_ctx(cls, context: PhoneticContext, priors: PriorInfo) -> "AlignmentParameters":
         if context == PhoneticContext.monophone:
             return cls.default_monophone(priors=priors)
         elif context == PhoneticContext.diphone:

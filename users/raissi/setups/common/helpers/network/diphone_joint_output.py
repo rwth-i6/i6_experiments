@@ -8,6 +8,8 @@ from i6_core import returnn
 from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo
 from i6_experiments.users.raissi.setups.common.helpers.network.augment import Network
 
+from i6_experiments.users.raissi.setups.common.helpers.train.returnn_time_tag import get_context_dim_tag_prolog
+
 
 def augment_returnn_config_to_joint_diphone_softmax(
     returnn_config: returnn.ReturnnConfig,
@@ -54,6 +56,7 @@ def augment_returnn_config_to_joint_diphone_softmax(
         left_context_softmax_layer=left_context_softmax_layer,
         encoder_output_layer=encoder_output_layer,
         prepare_for_train=prepare_for_train,
+        keep_right_context=keep_right_context
     )
 
     update_cfg = returnn.ReturnnConfig({}, python_prolog=dim_prolog)
@@ -71,6 +74,7 @@ def get_prolog_augment_network_to_joint_diphone_softmax(
     left_context_softmax_layer: str = "left-output",
     encoder_output_layer: str = "encoder-output",
     prepare_for_train: bool = False,
+    keep_right_context: bool = False,
 ) -> Network:
 
     dim_prolog, c_spatial_dim, c_range_dim = get_context_dim_tag_prolog(

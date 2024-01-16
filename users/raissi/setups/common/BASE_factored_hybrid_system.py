@@ -59,19 +59,29 @@ from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
     get_tdp_values,
 )
 
-from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo, RasrStateTying
+from i6_experiments.users.raissi.setups.common.data.factored_label import (
+    LabelInfo,
+    PhoneticContext,
+    RasrStateTying,
+)
 
 from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import (
     BASEFactoredHybridDecoder,
     BASEFactoredHybridAligner,
 )
 
-from i6_experiments.users.raissi.setups.common.decoder.config import PriorInfo, PosteriorScales, SearchParameters
+from i6_experiments.users.raissi.setups.common.decoder.config import (
+    PriorInfo,
+    PriorConfig,
+    PosteriorScales,
+    SearchParameters,
+    AlignmentParameters,
+)
+
 from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
 from i6_experiments.users.raissi.setups.common.util.hdf import RasrFeaturesToHdf
 from i6_experiments.users.raissi.costum.returnn.rasr_returnn_bw import ReturnnRasrTrainingBWJob
 from i6_experiments.users.raissi.costum.corpus.segments import SegmentCorpusNoPrefixJob
-
 # -------------------- Init --------------------
 
 Path = tk.setup_path(__package__)
@@ -199,7 +209,7 @@ class BASEFactoredHybridSystem(NnSystem):
         self.native_lstm2_path: Optional[tk.Path] = None
 
         # keys when you have different dev and test sets
-        self.train_key = None  # "train-baseline"
+        self.train_key = None
 
     def set_crp_pairings(self, dev_key, test_key):
         # have a dict of crp_names so that you can refer to your data as you want
@@ -207,7 +217,7 @@ class BASEFactoredHybridSystem(NnSystem):
         if self.train_key is None:
             self.train_key = [k for k in keys if "train" in k][0]
             print("WARNING: train key was None, it has been set to self.train_key")
-        all_names = ["train", "cvtrain", "devtrain"]
+        all_names = ["train", "cvtrain", "devtrain", "align"]
         all_names.extend([n for n in keys if n != self.train_key])
         self.crp_names = dict()
         for k in all_names:
@@ -217,6 +227,9 @@ class BASEFactoredHybridSystem(NnSystem):
                 self._add_feature_and_alignment_for_crp_with_existing_crp(
                     existing_crp_key=self.train_key, new_crp_key=crp_n
                 )
+            if "align" in k:
+                self.crp_names["align.train"] = f"{self.train_key}.{k}"
+
         self.crp_names["dev"] = dev_key
         self.crp_names["test"] = test_key
 
@@ -284,15 +297,6 @@ class BASEFactoredHybridSystem(NnSystem):
         self.feature_flows[new_crp_key] = {
             self.nn_feature_type: self.feature_flows[existing_crp_key][self.nn_feature_type]
         }
-
-    def _set_native_lstm_path(self):
-        compile_native_op_job = returnn.CompileNativeOpJob(
-            "NativeLstm2",
-            returnn_root=self.returnn_root,
-            returnn_python_exe=returnn_python_exe,
-            blas_lib=None,
-        )
-        self.native_lstm2_path = compile_native_op_job.out_op
 
     def _get_system_input(
         self,
@@ -383,7 +387,7 @@ class BASEFactoredHybridSystem(NnSystem):
             for type in ["*", "silence"]:
                 crp.acoustic_model_config["tdp"][type][ele] = tdp_values[type][ind]
 
-        if self.label_info.state_tying == "cart":
+        if self.label_info.state_tying == RasrStateTying.cart:
             crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
             assert (
                 self.label_info.state_tying_file is not None
@@ -401,7 +405,7 @@ class BASEFactoredHybridSystem(NnSystem):
             if "train" in crp_key:
                 crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
             else:
-                crp.acoustic_model_config.state_tying.type = "no-tying-dense"  # for correct tree of dependency
+                crp.acoustic_model_config.state_tying.type = RasrStateTying.triphone  # for correct tree of dependency
 
         crp.acoustic_model_config.allophones.add_all = self.lexicon_args["add_all_allophones"]
         crp.acoustic_model_config.allophones.add_from_lexicon = not self.lexicon_args["add_all_allophones"]
@@ -413,10 +417,10 @@ class BASEFactoredHybridSystem(NnSystem):
     def _update_crp_am_setting_for_decoding(self, crp_key):
         # Here the idea is to be able to do decoding with different tying or FSA structure (e.g. min. dur.)
         # ToDo handle min duration not on the model/fs level but rasr?
-        assert "train" not in crp_key, "Call this function only with decoding crps"
+        assert "train" not in crp_key or "align" in crp_key, "Call this function only with decoding crps"
         crp = self.crp[crp_key]
 
-        if self.label_info.state_tying == "cart":
+        if self.label_info.state_tying == RasrStateTying.cart:
             crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
             assert (
                 self.label_info.state_tying_file is not None
@@ -433,11 +437,11 @@ class BASEFactoredHybridSystem(NnSystem):
             crp.acoustic_model_config.hmm.states_per_phone = self.label_info.n_states_per_phone
             crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
 
-    def set_diphone_joint_state_tying(self):
-        # Joint diphone decoding will only work with diphone-dense state-tying
-        self.label_info = dataclasses.replace(self.label_info, state_tying=RasrStateTying.diphone)
+    def set_state_tying_for_decoder_fsa(self, state_tying: RasrStateTying = RasrStateTying.diphone):
+        # the default decoding state tying is no-tying-dense, unless nn_precomputed feature scorer is used
+        self.label_info = dataclasses.replace(self.label_info, state_tying=state_tying)
         for crp_k in self.crp_names.keys():
-            if "train" not in crp_k:
+            if "train" not in self.crp_names[crp_k] or "align" in self.crp_names[crp_k]:
                 self._update_crp_am_setting_for_decoding(self.crp_names[crp_k])
 
     def _get_segment_file(self, corpus_path, remove_prefix=None):
@@ -445,15 +449,15 @@ class BASEFactoredHybridSystem(NnSystem):
             j = SegmentCorpusNoPrefixJob(bliss_corpus=corpus_path, num_segments=1, remove_prefix=remove_prefix)
         else:
             j = corpus_recipe.SegmentCorpusJob(
-            bliss_corpus=corpus_path,
-            num_segments=1,
-        )
+                bliss_corpus=corpus_path,
+                num_segments=1,
+            )
         return j.out_single_segment_files[1]
 
-    def _get_merged_corpus_for_corpora(self, corpora, name="loss-corpus", strategy=corpus_recipe.MergeStrategy.SUBCORPORA):
-        merged_corpus_job = corpus_recipe.MergeCorporaJob(
-            corpora, name=name, merge_strategy=strategy
-        )
+    def _get_merged_corpus_for_corpora(
+        self, corpora, name="loss-corpus", strategy=corpus_recipe.MergeStrategy.SUBCORPORA
+    ):
+        merged_corpus_job = corpus_recipe.MergeCorporaJob(corpora, name=name, merge_strategy=strategy)
         return merged_corpus_job.out_merged_corpus
 
     def _add_merged_cv_corpus(self, segment_list: Path):
@@ -539,33 +543,26 @@ class BASEFactoredHybridSystem(NnSystem):
 
         return config
 
-    def _delete_mlps(self, returnn_config, keys=None, source=None):
-        # source is either a string or a tupe
-        if source is None:
-            source = ["encoder-output"]
-        elif isinstance(source, tuple):
-            source = list(source)
-        else:
-            source = [source]
-
-        returnn_cfg = copy.deepcopy(returnn_config)
-        if keys is None:
-            keys = ["left", "center", "right"]
-        for l in list(returnn_cfg.config["network"].keys()):
-            if "linear" in l:
-                del returnn_cfg.config["network"][l]
-        for o in keys:
-            returnn_cfg.config["network"][f"{o}-output"]["from"] = source
-        return returnn_cfg
+    def _set_native_lstm_path(self, search_numpy_blas=True, blas_lib=None):
+        compile_native_op_job = returnn.CompileNativeOpJob(
+            "NativeLstm2",
+            returnn_root=self.returnn_root,
+            returnn_python_exe=self.returnn_python_exe,
+            blas_lib=blas_lib,
+            search_numpy_blas=search_numpy_blas,
+        )
+        self.native_lstm2_path = compile_native_op_job.out_op
 
     def set_local_flf_tool_for_decoding(self, path=None):
         self.csp["base"].flf_tool_exe = path
 
     # --------------------- Init procedure -----------------
-    def init_system(self, label_info_additional_args=None, frr_additional_args=None):
+    def init_system(self, label_info_additional_args=None, frr_additional_args=None, native_lstm_compilation_args=None):
 
         if self.native_lstm2_path is None:
-            self._set_native_lstm_path()
+            if native_lstm_compilation_args is None:
+                native_lstm_compilation_args = {}
+            self._set_native_lstm_path(**native_lstm_compilation_args)
 
         if label_info_additional_args is not None:
             self.label_info = dataclasses.replace(self.label_info, **label_info_additional_args)
@@ -626,6 +623,8 @@ class BASEFactoredHybridSystem(NnSystem):
         configure_automata = False
         if self.training_criterion == TrainingCriterion.fullsum:
             configure_automata = True
+        # get the train data for alignment before you changed any setting
+        nn_train_align_data = copy.deepcopy(self.inputs[self.train_key][input_key].as_returnn_rasr_data_input())
 
         if is_cv_separate_from_train:
             (
@@ -641,6 +640,8 @@ class BASEFactoredHybridSystem(NnSystem):
                 nn_cv_data_inputs,
                 nn_devtrain_data_inputs,
             ) = self.prepare_rasr_train_data_with_cv_from_train(input_key)
+
+        nn_train_data_inputs[self.crp_names["align.train"]] = nn_train_align_data
 
         nn_dev_data_inputs = {
             self.crp_names["dev"]: self.inputs[self.crp_names["dev"]][input_key].as_returnn_rasr_data_input(),
@@ -707,14 +708,13 @@ class BASEFactoredHybridSystem(NnSystem):
         cv_corpus = self.corpora[cv_corpus_key].corpus_file
 
         merged_name = "loss-corpus"
-        merged_corpus = self._get_merged_corpus_for_corpora(corpora=[train_corpus, cv_corpus],
-                                                            name=merged_name)
-                                                            #strategy=corpus_recipe.MergeStrategy.FLAT)
+        merged_corpus = self._get_merged_corpus_for_corpora(corpora=[train_corpus, cv_corpus], name=merged_name)
+        # strategy=corpus_recipe.MergeStrategy.FLAT)
 
         # segments
         train_segments = self._get_segment_file(train_corpus)
         cv_segments = self._get_segment_file(cv_corpus)
-        merged_segments = self._get_segment_file(merged_corpus, remove_prefix=f'{merged_name}/')
+        merged_segments = self._get_segment_file(merged_corpus, remove_prefix=f"{merged_name}/")
 
         devtrain_segments = text.TailJob(train_segments, num_lines=1000, zip_output=False).out
 
@@ -756,7 +756,11 @@ class BASEFactoredHybridSystem(NnSystem):
         return old_to_update
 
     def get_config_with_standard_prolog_and_epilog(
-        self, config: Dict, prolog_additional_str: str = None, epilog_additional_str: str = None
+        self,
+        config: Dict,
+        prolog_additional_str: str  = None,
+        epilog_additional_str: str  = None,
+        add_extern_data_for_fullsum = False,
     ):
         # this is not a returnn config, but the dict params
         assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
@@ -771,7 +775,7 @@ class BASEFactoredHybridSystem(NnSystem):
             "time": self.frame_rate_reduction_ratio_info.get_time_tag_prolog_for_returnn_config(),
         }
 
-        if self.training_criterion != TrainingCriterion.fullsum:
+        if self.training_criterion != TrainingCriterion.fullsum or add_extern_data_for_fullsum:
             label_time_tag = None
             if self.frame_rate_reduction_ratio_info.factor == 1:
                 label_time_tag = self.frame_rate_reduction_ratio_info.time_tag_name
@@ -797,6 +801,46 @@ class BASEFactoredHybridSystem(NnSystem):
 
         if epilog_additional_str is not None:
             config["python_epilog"]["str"] = epilog_additional_str
+
+        return config
+
+    def get_config_with_legacy_prolog_and_epilog(
+        self,
+        config: Dict,
+        prolog_additional_str: str = None,
+        epilog_additional_str: str = None,
+        add_extern_data_for_fullsum=False,
+    ):
+        # this is not a returnn config, but the dict params
+        assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
+
+        if self.training_criterion != TrainingCriterion.fullsum or add_extern_data_for_fullsum:
+            config["extern_data"] = {
+                "data": {
+                    "dim": self.initial_nn_args["num_input"],
+                    "same_dim_tags_as": {"T": returnn.CodeWrapper(self.frame_rate_reduction_ratio_info.time_tag_name)},
+                }
+            }
+            config["python_prolog"] = {
+                "numpy": "import numpy as np",
+                "time": self.frame_rate_reduction_ratio_info.get_time_tag_prolog_for_returnn_config(),
+            }
+            label_time_tag = None
+            if self.frame_rate_reduction_ratio_info.factor == 1:
+                label_time_tag = self.frame_rate_reduction_ratio_info.time_tag_name
+            config["extern_data"].update(
+                **net_helpers.extern_data.get_extern_data_config(
+                    label_info=self.label_info,
+                    time_tag_name=label_time_tag,
+                    add_single_state_label=self.frame_rate_reduction_ratio_info.single_state_alignment,
+                )
+            )
+
+        if prolog_additional_str is not None:
+            config["python_prolog"]["str"] = prolog_additional_str
+
+        if epilog_additional_str is not None:
+            config["python_epilog"] = {"str": epilog_additional_str}
 
         return config
 
@@ -1095,6 +1139,32 @@ class BASEFactoredHybridSystem(NnSystem):
 
         return hdf_job
 
+    # -----------------------Decoding --------------------------
+
+    def get_parameters_for_decoder(self, context_type: PhoneticContext, prior_info: PriorInfo)-> Union[SearchParameters, AlignmentParameters]:
+        parameters = SearchParameters.default_for_ctx(context_type, priors=prior_info)
+        if self.frame_rate_reduction_ratio_info.factor > 2:
+            sp_tdp = (10.0, 0.0, 'infinity', 0.0)
+            sil_tdp = (10.0, 0.0, 'infinity', 20.0)
+            parameters = (
+                parameters.with_tdp_speech(sp_tdp)
+                .with_tdp_silence(sil_tdp)
+            )
+
+        return parameters
+
+    def get_parameters_for_aligner(self, context_type: PhoneticContext, prior_info: PriorInfo) -> Union[
+        SearchParameters, AlignmentParameters]:
+        parameters = AlignmentParameters.default_for_ctx(context_type, priors=prior_info)
+        if self.frame_rate_reduction_ratio_info.factor > 2:
+            sp_tdp = (10.0, 0.0, 'infinity', 0.0)
+            sil_tdp = (10.0, 0.0, 'infinity', 0.0)
+            parameters = (
+                parameters.with_tdp_speech(sp_tdp)
+                .with_tdp_silence(sil_tdp)
+            )
+
+        return parameters
     # -------------------- run setup  --------------------
 
     def run(self, steps: RasrSteps):
@@ -1104,7 +1174,14 @@ class BASEFactoredHybridSystem(NnSystem):
             init_args = steps.get_args_via_idx(0)
             frame_rate_args = init_args["frr_info"] if "frr_info" in init_args else None
             label_info_args = init_args["label_info"] if "label_info" in init_args else None
-            self.init_system(label_info_additional_args=label_info_args, frr_additional_args=frame_rate_args)
+            native_lstm_compilation_args = (
+                init_args["native_lstm"] if "native_lstm" in init_args else None
+            )
+            self.init_system(
+                label_info_additional_args=label_info_args,
+                frr_additional_args=frame_rate_args,
+                native_lstm_compilation_args=native_lstm_compilation_args,
+            )
             if len(self.cv_corpora) > 1:
                 assert "cv_info" in init_args, "please set the segment file for the cross validation data"
                 self._add_merged_cv_corpus(segment_list=init_args["cv_info"]["segment_list"])

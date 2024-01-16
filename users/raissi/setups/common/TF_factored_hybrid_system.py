@@ -78,6 +78,7 @@ from i6_experiments.users.raissi.setups.common.decoder.config import (
     PriorConfig,
     PosteriorScales,
     SearchParameters,
+    AlignmentParameters,
 )
 
 # -------------------- Init --------------------
@@ -147,16 +148,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         self.graphs = {}
         # inference related
         self.native_lstm2_path: Optional[tk.Path] = None
-
-    def _set_native_lstm_path(self):
-        compile_native_op_job = returnn.CompileNativeOpJob(
-            "NativeLstm2",
-            returnn_root=self.returnn_root,
-            returnn_python_exe=self.returnn_python_exe,
-            blas_lib=None,
-        )
-        self.native_lstm2_path = compile_native_op_job.out_op
-
     # -------------------- External helpers --------------------
     def get_model_checkpoint(self, model_job, epoch):
         return model_job.out_checkpoints[epoch]
@@ -168,50 +159,11 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         self.csp["base"].flf_tool_exe = path
 
     # -------------------------------------------- Training --------------------------------------------------------
-    def get_config_with_legacy_prolog_and_epilog(
-        self,
-        config: Dict,
-        prolog_additional_str: str = None,
-        epilog_additional_str: str = None,
-    ):
-        # this is not a returnn config, but the dict params
-        assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
-
-        if self.training_criterion != TrainingCriterion.fullsum:
-            config["extern_data"] = {
-                "data": {
-                    "dim": self.initial_nn_args["num_input"],
-                    "same_dim_tags_as": {"T": returnn.CodeWrapper(self.frame_rate_reduction_ratio_info.time_tag_name)},
-                }
-            }
-            config["python_prolog"] = {
-                "numpy": "import numpy as np",
-                "time": self.frame_rate_reduction_ratio_info.get_time_tag_prolog_for_returnn_config(),
-            }
-            label_time_tag = None
-            if self.frame_rate_reduction_ratio_info.factor == 1:
-                label_time_tag = self.frame_rate_reduction_ratio_info.time_tag_name
-            config["extern_data"].update(
-                **net_helpers.extern_data.get_extern_data_config(
-                    label_info=self.label_info,
-                    time_tag_name=label_time_tag,
-                    add_single_state_label=self.frame_rate_reduction_ratio_info.single_state_alignment,
-                )
-            )
-
-        if prolog_additional_str is not None:
-            config["python_prolog"]["str"] = prolog_additional_str
-
-        if epilog_additional_str is not None:
-            config["python_epilog"] = {"str": epilog_additional_str}
-
-        return config
 
     # -------------encoder architectures -------------------------------
     def get_blstm_network(self, **kwargs):
         # this is without any loss and output layers
         network = encoder_archs.blstm.blstm_network(**kwargs)
-
 
         if self.frame_rate_reduction_ratio_info.factor != 1:
             assert not self.frame_rate_reduction_ratio_info.factor % 2, "Only even number is supported here"
@@ -225,7 +177,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 label_info=self.label_info,
                 frame_rate_reduction_ratio_info=self.frame_rate_reduction_ratio_info,
             )
-
 
         return network
 
@@ -337,26 +288,17 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             if isinstance(train_data.features, tk.Path):
                 feature_flow.flags = {"cache_mode": "bundle"}
 
-        if isinstance(train_data.alignments, rasr.FlagDependentFlowAttribute):
-            alignments = copy.deepcopy(train_data.alignments)
-            net = rasr.FlowNetwork()
-            net.flags = {"cache_mode": "bundle"}
-            alignments = alignments.get(net)
-        elif isinstance(train_data.alignments, (MultiPath, MultiOutputPath)):
-            raise NotImplementedError
-        elif isinstance(train_data.alignments, tk.Path):
-            alignments = train_data.alignments
-        else:
-            raise NotImplementedError
-
         assert isinstance(returnn_config, returnn.ReturnnConfig)
+        if "num_outputs" in returnn_config.config:
+            if "classes" in returnn_config.config["num_outputs"]:
+                del returnn_config.config["num_outputs"]["classes"]
 
         prior_job = returnn.ReturnnRasrComputePriorJobV2(
             train_crp=train_crp,
-            dev_crp=dev_crp,
+            dev_crp=train_crp,
             model_checkpoint=model_checkpoint,
             feature_flow=feature_flow,
-            alignment=alignments,
+            alignment=None,
             returnn_config=returnn_config,
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe,
@@ -671,43 +613,65 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             graph_type_name = "infer"
         tk.register_output(f"graphs/{name}-{graph_type_name}.pb", infer_graph)
 
-    def setup_returnn_config_and_graph_for_diphone_joint_decoding(
-        self, key: str = None, returnn_config: returnn.ReturnnConfig = None
+    def setup_returnn_config_and_graph_for_precomputed_decoding(
+        self,
+        key: str = None,
+        returnn_config: returnn.ReturnnConfig = None,
+        state_tying: RasrStateTying = RasrStateTying.diphone,
+        out_layer_name: str = None,
     ):
 
-        self.set_diphone_joint_state_tying()
+        assert state_tying in [
+            RasrStateTying.monophone,
+            RasrStateTying.diphone,
+        ], "triphone state tying not possible in precomputed feature scorer due to memory constraint"
+        self.set_state_tying_for_decoder_fsa(state_tying=state_tying)
+        if out_layer_name is None:
+            out_layer_name = "output" if state_tying == RasrStateTying.diphone else "center-output"
+
         if returnn_config is None:
             returnn_config = self.experiments[key]["returnn_config"]
-        clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
-        context_size = self.label_info.n_contexts
-        context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
-            spatial_size=context_size,
-            feature_size=context_size,
-            spatial_dim_variable_name="__center_state_spatial",
-            feature_dim_variable_name="__center_state_feature",
-            context_type="L",
-        )
 
-        # used for decoding
-        decoding_returnn_config = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax(
-            returnn_config=clean_returnn_config,
-            label_info=self.label_info,
-            out_joint_score_layer="output",
-            log_softmax=True,
-        )
+        if state_tying == RasrStateTying.diphone:
+            clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
+            context_size = self.label_info.n_contexts
+            context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
+                spatial_size=context_size,
+                feature_size=context_size,
+                spatial_dim_variable_name="__center_state_spatial",
+                feature_dim_variable_name="__center_state_feature",
+                context_type="L",
+            )
+
+            # used for decoding
+            decoding_returnn_config = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax(
+                returnn_config=clean_returnn_config,
+                label_info=self.label_info,
+                out_joint_score_layer="output",
+                log_softmax=True,
+            )
+        elif state_tying == RasrStateTying.monophone:
+            decoding_returnn_config = copy.deepcopy(returnn_config)
+            context_time_tag = None
+            decoding_returnn_config.config["network"][out_layer_name] = {
+                **decoding_returnn_config.config["network"][out_layer_name],
+                "class": "linear",
+                "activation": "log_softmax",
+            }
+
         self.reset_returnn_config_for_experiment(
             key=key,
             config_dict=decoding_returnn_config.config,
             extra_dict_key="context",
             additional_python_prolog=context_time_tag,
         )
-        self.set_graph_for_experiment(key, graph_type_name="joint-infer")
+        self.set_graph_for_experiment(key, graph_type_name="precomputed-infer")
 
     def setup_returnn_config_and_graph_for_diphone_joint_prior(
         self, key: str = None, returnn_config: returnn.ReturnnConfig = None
     ):
 
-        self.set_diphone_joint_state_tying()
+        self.set_state_tying_for_decoder_fsa()
         if returnn_config is None:
             returnn_config = self.experiments[key]["returnn_config"]
         clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
@@ -786,15 +750,24 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         else:
             name = f"{self.experiments[key]['name']}/e{epoch}/{crp_corpus}"
 
+        p_info: PriorInfo = self.experiments[key].get("priors", None)
+        assert p_info is not None, "set priors first"
+
+        if (
+            feature_scorer_type == RasrFeatureScorer.nn_precomputed
+            and self.experiments[key]["returnn_config"] is not None
+        ):
+
+            self.setup_returnn_config_and_graph_for_precomputed_decoding(
+                key=key, state_tying=self.label_info.state_tying
+            )
+
         graph = self.experiments[key]["graph"].get("inference", None)
         if graph is None:
             self.set_graph_for_experiment(key=key)
             graph = self.experiments[key]["graph"]["inference"]
 
-        p_info: PriorInfo = self.experiments[key].get("priors", None)
-        assert p_info is not None, "set priors first"
-
-        recog_args = SearchParameters.default_for_ctx(context_type, priors=p_info)
+        recog_args = self.get_parameters_for_decoder(context_type=context_type, prior_info=p_info)
 
         if dummy_mixtures is None:
             dummy_mixtures = mm.CreateDummyMixturesJob(
@@ -829,7 +802,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         return recognizer, recog_args
 
-    def get_aligner(
+    def get_aligner_and_args(
         self,
         key: str,
         context_type: PhoneticContext,
@@ -856,6 +829,16 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         else:
             name = f"{self.experiments[key]['name']}/e{epoch}/{crp_corpus}"
 
+        if (
+            feature_scorer_type == RasrFeatureScorer.nn_precomputed
+            and self.experiments[key]["returnn_config"] is not None
+        ):
+
+            self.setup_returnn_config_and_graph_for_precomputed_decoding(
+                key=key, state_tying=self.label_info.state_tying
+            )
+
+
         graph = self.experiments[key]["graph"].get("inference", None)
         if graph is None:
             self.set_graph_for_experiment(key=key)
@@ -876,7 +859,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             model_path = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
         if feature_path is None:
             feature_path = self.feature_flows[crp_corpus]
-        align_args = SearchParameters.default_for_ctx(context_type, priors=p_info)
+
+        align_args = self.get_parameters_for_aligner(context_type=context_type, prior_info=p_info)
 
         aligner = self.aligners[aligner_key](
             name=name,
