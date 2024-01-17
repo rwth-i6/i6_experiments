@@ -91,7 +91,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_updates={"optimizer.weight_decay": 1e-1},
     )
 
-    train_exp(  # 5.9
+    train_exp(  # 5.9 (vs 5.84)
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_100k-mixup",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
         config_updates={"mixup": {}},
@@ -106,10 +106,15 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
-    train_exp(  # 5.89, way reduced overfitting, maybe too aggressive?
+    train_exp(  # 5.89 (vs 5.84), way reduced overfitting, maybe too aggressive?
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_100k-layerdrop01",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
         config_updates={"enc_layer_drop": 0.1, "dec_layer_drop": 0.1},
+    )
+    train_exp(
+        "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_100k-layerdrop005",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
+        config_updates={"enc_layer_drop": 0.05, "dec_layer_drop": 0.05},
     )
 
     train_exp(
