@@ -116,6 +116,8 @@ config_24gb_v6 = dict_update_deep(config_24gb_v5, None, ["pretrain_opts"])
 # and give some estimates for the steps here, i.e. 45%, 90%, almost 100%,
 # making sure the last number is slightly below the real total number of steps.
 _lrlin_oclr_steps_by_bs_nep = {
+    (8, 125): [139_000, 279_000, 310_000],  # ~2485steps/ep, 125 eps -> 310k steps in total
+    (8, 250): [279_000, 558_000, 621_000],  # ~2485steps/ep, 250 eps -> 621k steps in total
     (8, 500): [558_000, 1_117_000, 1_242_000],  # ~2485steps/ep, 500 eps -> 1.242k steps in total
     (10, 500): [443_000, 887_000, 986_000],  # ~1973 steps/epoch, total steps after 500 epochs: ~986k
     (15, 500): [295_000, 590_000, 652_000],  # total steps after 500 epochs: ~652k
@@ -130,6 +132,7 @@ def _get_cfg_lrlin_oclr_by_bs_nep(bs_feat: int, n_ep: int) -> Dict[str, Any]:
     :param n_ep: num epochs
     """
     return {
+        "__num_epochs": n_ep,
         "batch_size": bs_feat * _batch_size_factor,
         "learning_rate": 1.0,
         "dynamic_learning_rate": dyn_lr_piecewise_linear,
