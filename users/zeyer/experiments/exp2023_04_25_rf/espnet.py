@@ -276,12 +276,9 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPne
     parser = ASRTask.get_parser()
     args = parser.parse_args(["--config", espnet_repo_root_dir + "/" + espnet_config_file])
     args.token_list = target_dim.vocab.labels
-    if config.bool("espnet_fixed_sos_eos", False):
-        args.model_conf["sym_sos"] = target_dim.vocab.labels[_get_bos_idx(target_dim)]
-        args.model_conf["sym_eos"] = target_dim.vocab.labels[_get_eos_idx(target_dim)]
-    if config.bool("espnet_fixed_blank", False):
-        # args.model_conf["sym_blank"] = target_dim.vocab.labels[]
-        pass  # TODO...?
+    assert config.bool("espnet_fixed_sos_eos", False)
+    args.model_conf["sym_sos"] = target_dim.vocab.labels[_get_bos_idx(target_dim)]
+    args.model_conf["sym_eos"] = target_dim.vocab.labels[_get_eos_idx(target_dim)]
 
     # TODO any of these relevant?
     #             --use_preprocessor true \
