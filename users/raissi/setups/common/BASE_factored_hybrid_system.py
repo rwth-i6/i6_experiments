@@ -108,6 +108,7 @@ class Experiment(TypedDict, total=False):
     prior_job: Optional[returnn.ReturnnRasrComputePriorJobV2]
     returnn_config: Optional[returnn.ReturnnConfig]
     train_job: Optional[returnn.ReturnnRasrTrainingJob]
+    align_job: Optional[mm.AlignmentJob]
 
 
 # -------------------- Systems --------------------
