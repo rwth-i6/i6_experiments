@@ -93,124 +93,124 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     train_exp("from-scratch-train", config, gpu_mem=11)
 
-    train_exp(  # dev-other 7.6
-        "base-24gb-bs30k-f32",
-        config_24gb,
-        config_updates={"batch_size": 30_000 * _batch_size_factor},
-        config_deletes=["torch_amp"],
-    )
+    # train_exp(  # dev-other 7.6
+    #     "base-24gb-bs30k-f32",
+    #     config_24gb,
+    #     config_updates={"batch_size": 30_000 * _batch_size_factor},
+    #     config_deletes=["torch_amp"],
+    # )
 
-    train_exp("base-24gb-v2-lr1e_3", config_24gb_v2, config_updates={"learning_rate": 1e-3})  # dev-other 7.44
-    train_exp(  # dev-other 7.24
-        "base-24gb-v2-lr1e_3-nogradscaler", config_24gb_v2, config_updates={"learning_rate": 1e-3, "grad_scaler": None}
-    )
+    # train_exp("base-24gb-v2-lr1e_3", config_24gb_v2, config_updates={"learning_rate": 1e-3})  # dev-other 7.44
+    # train_exp(  # dev-other 7.24
+    #     "base-24gb-v2-lr1e_3-nogradscaler", config_24gb_v2, config_updates={"learning_rate": 1e-3, "grad_scaler": None}
+    # )
 
     # base-24gb-v3: diverges at later point
-    train_exp(  # 7.01, slightly better than baseline.
-        "base-24gb-v3-lr1e_3-wd1e_3",
-        config_24gb_v3,
-        config_updates={"learning_rate": 1e-3, "optimizer.weight_decay": 1e-3},
-    )
-    train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})  # 7.56
-    train_exp(  # dev-other 7.01 (epoch 1964)
-        "base-24gb-v3-lr1e_3",
-        config_24gb_v3,
-        config_updates={"learning_rate": 1e-3},
-        fine_tune=[
-            # (ep 1280 itself is dev-other 7.34)
-            (1280, {"num_epochs": 50}),  # 7.22
-            (1280, {"num_epochs": 100}),  # 7.08
-            (1280, {"num_epochs": 200}),  # 7.03
-            # (ep 2000 is 7.03, 7.31)
-            (2000, {"num_epochs": 100}),  # 6.93, 7.12
-            (2000, {"num_epochs": 200}),  # dev-other 6.84, test-other 7.06
-            (2000, {"num_epochs": 200, "final_lr": 1e-6}),  # dev-other* 6.83, test-other 7.10
-            (2000, {"num_epochs": 200, "lr_decay_type": "linspace"}),  # 6.95, 7.11
-            (2000, {"num_epochs": 200, "lr_decay_type": "linspace", "final_lr": 1e-6}),  # dev-ot 6.94, test-other* 7.01
-            (
-                2000,
-                {
-                    "num_epochs": 200,
-                    "_lr_decay_type": "L3_5_150_L7_50",  # dev-other 6.89, test-other 7.20
-                    "learning_rates": list(np.linspace(1e-3, 1e-5, num=150)) + list(np.linspace(1e-5, 1e-7, num=50)),
-                },
-            ),
-            (
-                2000,
-                {
-                    "num_epochs": 200,
-                    "_lr_decay_type": "L3_5_180_L6_20",  # dev-other 6.87, test-other 7.12
-                    "learning_rates": list(np.linspace(1e-3, 1e-5, num=180)) + list(np.linspace(1e-5, 1e-6, num=20)),
-                },
-            ),
-        ],
-    )
-    train_exp(  # dev/test-other 6.89,7.39 (overfitting on dev? base: dev/test 7.01,7.23). unclear...
-        "base-24gb-v3-lr1e_3-lrdecnorm40k",
-        config_24gb_v3,
-        config_updates={"learning_rate": 1e-3, "learning_rate_invsqrt_norm": 40_000},
-    )
-    train_exp(  # 6.22 (vs base 7.01, so much better)
-        "base-24gb-v3-lr1e_3-specaugorig",
-        config_24gb_v3,
-        config_updates={"learning_rate": 1e-3},
-        config_deletes=[
-            "specaugment_num_spatial_mask_factor",
-            "specaugment_max_consecutive_feature_dims",
-        ],
-    )
-    train_exp(  # 8.21 (vs base 7.01, so lossscalesF is worse)
-        "base-24gb-v3-lr1e_3-lossscalesF",
-        config_24gb_v3,
-        config_updates={"learning_rate": 1e-3, "aux_loss_scales": [0.1, 0.2], "aed_loss_scale": 0.7},
-    )
+    # train_exp(  # 7.01, slightly better than baseline.
+    #     "base-24gb-v3-lr1e_3-wd1e_3",
+    #     config_24gb_v3,
+    #     config_updates={"learning_rate": 1e-3, "optimizer.weight_decay": 1e-3},
+    # )
+    # train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})  # 7.56
+    # train_exp(  # dev-other 7.01 (epoch 1964)
+    #     "base-24gb-v3-lr1e_3",
+    #     config_24gb_v3,
+    #     config_updates={"learning_rate": 1e-3},
+    #     fine_tune=[
+    #         # (ep 1280 itself is dev-other 7.34)
+    #         (1280, {"num_epochs": 50}),  # 7.22
+    #         (1280, {"num_epochs": 100}),  # 7.08
+    #         (1280, {"num_epochs": 200}),  # 7.03
+    #         # (ep 2000 is 7.03, 7.31)
+    #         (2000, {"num_epochs": 100}),  # 6.93, 7.12
+    #         (2000, {"num_epochs": 200}),  # dev-other 6.84, test-other 7.06
+    #         (2000, {"num_epochs": 200, "final_lr": 1e-6}),  # dev-other* 6.83, test-other 7.10
+    #         (2000, {"num_epochs": 200, "lr_decay_type": "linspace"}),  # 6.95, 7.11
+    #         (2000, {"num_epochs": 200, "lr_decay_type": "linspace", "final_lr": 1e-6}),  # dev-ot 6.94, test-other* 7.01
+    #         (
+    #             2000,
+    #             {
+    #                 "num_epochs": 200,
+    #                 "_lr_decay_type": "L3_5_150_L7_50",  # dev-other 6.89, test-other 7.20
+    #                 "learning_rates": list(np.linspace(1e-3, 1e-5, num=150)) + list(np.linspace(1e-5, 1e-7, num=50)),
+    #             },
+    #         ),
+    #         (
+    #             2000,
+    #             {
+    #                 "num_epochs": 200,
+    #                 "_lr_decay_type": "L3_5_180_L6_20",  # dev-other 6.87, test-other 7.12
+    #                 "learning_rates": list(np.linspace(1e-3, 1e-5, num=180)) + list(np.linspace(1e-5, 1e-6, num=20)),
+    #             },
+    #         ),
+    #     ],
+    # )
+    # train_exp(  # dev/test-other 6.89,7.39 (overfitting on dev? base: dev/test 7.01,7.23). unclear...
+    #     "base-24gb-v3-lr1e_3-lrdecnorm40k",
+    #     config_24gb_v3,
+    #     config_updates={"learning_rate": 1e-3, "learning_rate_invsqrt_norm": 40_000},
+    # )
+    # train_exp(  # 6.22 (vs base 7.01, so much better)
+    #     "base-24gb-v3-lr1e_3-specaugorig",
+    #     config_24gb_v3,
+    #     config_updates={"learning_rate": 1e-3},
+    #     config_deletes=[
+    #         "specaugment_num_spatial_mask_factor",
+    #         "specaugment_max_consecutive_feature_dims",
+    #     ],
+    # )
+    # train_exp(  # 8.21 (vs base 7.01, so lossscalesF is worse)
+    #     "base-24gb-v3-lr1e_3-lossscalesF",
+    #     config_24gb_v3,
+    #     config_updates={"learning_rate": 1e-3, "aux_loss_scales": [0.1, 0.2], "aed_loss_scale": 0.7},
+    # )
 
-    train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)  # 7.07 (vs base 7.01, so worse?)
-    train_exp(  # 7.07
-        "base-24gb-v4",
-        config_24gb_v4,
-        fine_tune=[
-            (2000, {"num_epochs": 200, "final_lr": 1e-6}),  # 6.84
-        ],
-    )
-    train_exp(  # 6.85 (vs base 7.07), so better, but maybe just because too less regularization in general
-        "base-24gb-v4-wdblacklist2",
-        config_24gb_v4,
-        config_updates={
-            "optimizer.weight_decay_modules_blacklist": [
-                # Difference to base-24gb-v4: weight decay also for LayerNorm and BatchNorm.
-                # The initial thought was that we maybe do it wrong, and it applies to the statistics as well.
-                # This is not the case, it only applies on the learnable parameters,
-                # and there it makes sense to apply weight decay.
-                "rf.Embedding",
-                "rf.LearnedRelativePositionalEncoding",
-            ],
-        },
-    )
-    train_exp("base-24gb-v4-lr09e_3", config_24gb_v4, config_updates={"learning_rate": 0.9e-3})  # 6.99 (vs base 7.07)
-    train_exp(  # 7.46 (vs base 7.07, so worse)
-        "base-24gb-v4-lrcos",
-        config_24gb_v4,
-        config_updates={
-            "dynamic_learning_rate": dyn_lr_combine_eval,
-            "learning_rate_eval": "orig * (np.cos(global_train_step / 10_000 * 2 * np.pi) * 0.49995 + 0.50005)",
-            "learning_rate_eval_locals": {"orig": dyn_lr_lin_warmup_invsqrt_decay},
-        },
-    )
-    train_exp(  # 6.48 (vs base 7.07, so much better, but this is already with fine-tuning included here)
-        "base-24gb-v4-lrlin",
-        config_24gb_v4,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [20_000, 900_000, 982_000],
-            "learning_rate_piecewise_values": [0.0, 1e-3, 1e-5, 1e-6],
-        },
-    )
-    train_exp(  # 5.9
-        "base-24gb-v4-lrlin1e_5_450k", config_24gb_v4, config_updates=_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000)
-    )
+    # train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)  # 7.07 (vs base 7.01, so worse?)
+    # train_exp(  # 7.07
+    #     "base-24gb-v4",
+    #     config_24gb_v4,
+    #     fine_tune=[
+    #         (2000, {"num_epochs": 200, "final_lr": 1e-6}),  # 6.84
+    #     ],
+    # )
+    # train_exp(  # 6.85 (vs base 7.07), so better, but maybe just because too less regularization in general
+    #     "base-24gb-v4-wdblacklist2",
+    #     config_24gb_v4,
+    #     config_updates={
+    #         "optimizer.weight_decay_modules_blacklist": [
+    #             # Difference to base-24gb-v4: weight decay also for LayerNorm and BatchNorm.
+    #             # The initial thought was that we maybe do it wrong, and it applies to the statistics as well.
+    #             # This is not the case, it only applies on the learnable parameters,
+    #             # and there it makes sense to apply weight decay.
+    #             "rf.Embedding",
+    #             "rf.LearnedRelativePositionalEncoding",
+    #         ],
+    #     },
+    # )
+    # train_exp("base-24gb-v4-lr09e_3", config_24gb_v4, config_updates={"learning_rate": 0.9e-3})  # 6.99 (vs base 7.07)
+    # train_exp(  # 7.46 (vs base 7.07, so worse)
+    #     "base-24gb-v4-lrcos",
+    #     config_24gb_v4,
+    #     config_updates={
+    #         "dynamic_learning_rate": dyn_lr_combine_eval,
+    #         "learning_rate_eval": "orig * (np.cos(global_train_step / 10_000 * 2 * np.pi) * 0.49995 + 0.50005)",
+    #         "learning_rate_eval_locals": {"orig": dyn_lr_lin_warmup_invsqrt_decay},
+    #     },
+    # )
+    # train_exp(  # 6.48 (vs base 7.07, so much better, but this is already with fine-tuning included here)
+    #     "base-24gb-v4-lrlin",
+    #     config_24gb_v4,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [20_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [0.0, 1e-3, 1e-5, 1e-6],
+    #     },
+    # )
+    # train_exp(  # 5.9
+    #     "base-24gb-v4-lrlin1e_5_450k", config_24gb_v4, config_updates=_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000)
+    # )
     # gn01 ("gradient_noise": 0.1), does not converge? that was with old RETURNN, gn after grad clip
     # gn01 before grad clip (new RETURNN) also does not converge.
     # train_exp(
