@@ -372,13 +372,10 @@ def model_recog(
 
     config = get_global_config()
     search_version = config.int("search_version", 0)
-    assert search_version >= 2, f"search version {search_version} unsupported, likely there was a bug earlier..."
-
-    import os
-
-    if search_version >= 3:
-        os.environ["RETURNN_FIX_BLANK"] = "1"
-        # TODO later, we need to check the ESPnet version here somehow...?
+    assert search_version >= 3, f"search version {search_version} unsupported, likely there was a bug earlier..."
+    # version 3 was setting RETURNN_FIX_BLANK to have ESPnet blank fixed.
+    #   But now this has been merged in ESPnet. https://github.com/espnet/espnet/pull/5620
+    #   We maybe should check for the right ESPnet version... Look out for unusual long recognized seqs.
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
