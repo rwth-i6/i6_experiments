@@ -9,6 +9,9 @@ def speed_pert_librosa_config(audio: np.ndarray, sample_rate: int, random_state:
     """
     Speed perturbation, configurable via RETURNN config.
 
+    Options ``speed_pert_prob`` and ``speed_pert_discrete_values`` in the config.
+    See code below.
+
     :param audio: shape (audio_len,)
     :param sample_rate: e.g. 16_000
     :param random_state:
@@ -29,7 +32,7 @@ def speed_pert_librosa_config(audio: np.ndarray, sample_rate: int, random_state:
     # Prob will be renormalized, so does not need to sum to 1.
     discrete_values: Dict[float, float] = config.typed_value("speed_pert_discrete_values")
     if isinstance(discrete_values, (tuple, list)):
-        discrete_values = {k: 1 for k in discrete_values}
+        discrete_values = {k: 1 for k in discrete_values}  # evenly distributed, all the same prob
     assert (
         isinstance(discrete_values, dict)
         and discrete_values
@@ -42,6 +45,12 @@ def speed_pert_librosa_config(audio: np.ndarray, sample_rate: int, random_state:
     discrete_values_ = [(k, v / prob_sum) for k, v in discrete_values.items()]
     i = random_state.choice(len(discrete_values_), p=[v for k, v in discrete_values_])
 
+    # Note: We multiply by the sample rate.
+    # E.g. a factor 2 means, we get twice as many samples per second,
+    # but then we use the audio as if it would be with the original sample rate,
+    # meaning that one second before corresponds to two seconds now.
+    # I.e. factor 2 makes it twice as slow, or the audio twice as long.
+    # Vice versa, factor 0.5 makes it twice as fast, or the audio half the length.
     new_sample_rate = int(sample_rate * discrete_values_[i][0])
     if new_sample_rate != sample_rate:
         audio = librosa.core.resample(audio, orig_sr=sample_rate, target_sr=new_sample_rate, res_type="kaiser_fast")
