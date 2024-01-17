@@ -86,7 +86,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_updates={"mixup": {}},
     )
 
-    train_exp(  # 5.80
+    train_exp(  # 5.80 (vs 5.84)
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_100k-speedpertV2",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
         config_updates={
@@ -94,8 +94,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         },
     )
-
-    # TODO speedpertV2 + wd 1e-2 (or 1e-1?)
 
     train_exp(  # 5.89, way reduced overfitting, maybe too aggressive?
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_100k-layerdrop01",
