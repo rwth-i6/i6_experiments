@@ -126,7 +126,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_updates={
             "__num_processes": None,
             **_get_cfg_lrlin_oclr_by_bs_nep(8_000, 500),
-            "torch_distributed.sync_on_cpu": True,  # https://github.com/rwth-i6/returnn/issues/1482
             "accum_grad_multiple_step": dyn_accum_grad_piecewise_linear,
             "accum_grad_piecewise_steps": [50_000, 100_000, 1_100_000, 1_242_000],
             "accum_grad_piecewise_values": [1, 100, 1, 1, 10],
