@@ -9,7 +9,7 @@ from typing import Optional
 import torch
 
 
-def generate(
+def generate_random_speech_like_audio(
     batch_size: int,
     num_frames: int,
     *,
