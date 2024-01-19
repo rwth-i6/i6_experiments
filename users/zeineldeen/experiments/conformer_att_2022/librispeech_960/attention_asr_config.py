@@ -628,7 +628,8 @@ def create_config(
     if not is_recog:
         exp_config["train"] = training_datasets.train.as_returnn_opts()
         exp_config["dev"] = training_datasets.cv.as_returnn_opts()
-        exp_config["eval_datasets"] = {"devtrain": training_datasets.devtrain.as_returnn_opts()}
+        if training_datasets.devtrain:
+            exp_config["eval_datasets"] = {"devtrain": training_datasets.devtrain.as_returnn_opts()}
 
     target = "bpe_labels"
 
