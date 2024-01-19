@@ -13,10 +13,15 @@ Where the following paper were mentioned:
 
 """
 
-
+from __future__ import annotations
+from typing import TYPE_CHECKING, Any, Dict
 import time
 
 from .aed import from_scratch_model_def, Model, from_scratch_training
+
+if TYPE_CHECKING:
+    import torch
+    from returnn.tensor import Dim
 
 
 def test():
@@ -49,6 +54,25 @@ def test():
     rf.set_default_device("cuda")
     print(f"GPU memory usage (allocated model): {util.human_bytes_size(torch.cuda.memory_allocated(dev))}")
 
+    train_input_kwargs = _generate_dummy_train_input_kwargs(dev=dev, target_dim=target_dim)
+
+    # TODO how to setup hooks?
+
+    start_time = time.time()
+    rf.init_train_step_run_ctx(train_flag=False)
+    pt_model.eval()
+    with torch.no_grad():
+        from_scratch_training(model=model, **train_input_kwargs)
+    print("One train forward step, duration:", util.hms_fraction(time.time() - start_time), "sec")
+    print(f"GPU peak memory allocated: {util.human_bytes_size(torch.cuda.max_memory_allocated(dev))}")
+
+    for name, loss in rf.get_run_ctx().losses.items():
+        print(f"Loss {name}: {loss.get_mean_loss().raw_tensor.item()}")
+
+
+def _generate_dummy_train_input_kwargs(*, dev: torch.device, target_dim: Dim) -> Dict[str, Any]:
+    import torch
+    from returnn.tensor import Tensor, Dim, batch_dim
     from i6_experiments.users.zeyer.audio.torch.random_speech_like import generate_random_speech_like_audio
 
     batch_size = 20
@@ -57,7 +81,7 @@ def test():
     duration = 10.0
     num_frames = int(duration * sample_rate)
     print(
-        f"Using dummy batch of size {batch_size * num_frames} raw frames,"
+        f"Using dummy batch of size {batch_size * num_frames} raw frames"
         f" ({batch_size * num_frames * 100 // sample_rate} 10ms frames)"
     )
     audio_raw = generate_random_speech_like_audio(batch_size, num_frames, samples_per_sec=sample_rate)
@@ -69,27 +93,11 @@ def test():
     targets_len = int(duration * 3)
     targets_lens_raw = torch.tensor([targets_len] * batch_size, dtype=torch.int32)
     targets_spatial_dim = Dim(Tensor("targets_len", [batch_dim], dtype="int32", raw_tensor=targets_lens_raw))
-    targets_raw = torch.randint(
-        0, model.target_dim.dimension, size=(batch_size, targets_len), dtype=torch.int32, device=dev
-    )
+    targets_raw = torch.randint(0, target_dim.dimension, size=(batch_size, targets_len), dtype=torch.int32, device=dev)
     targets = Tensor(
-        "targets", [batch_dim, targets_spatial_dim], dtype="int32", sparse_dim=model.target_dim, raw_tensor=targets_raw
+        "targets", [batch_dim, targets_spatial_dim], dtype="int32", sparse_dim=target_dim, raw_tensor=targets_raw
     )
 
-    start_time = time.time()
-    rf.init_train_step_run_ctx(train_flag=False)
-    pt_model.eval()
-    with torch.no_grad():
-        # TODO how to setup hooks?
-        from_scratch_training(
-            model=model,
-            data=audio,
-            data_spatial_dim=audio_spatial_dim,
-            targets=targets,
-            targets_spatial_dim=targets_spatial_dim,
-        )
-    print("One train forward step, duration:", util.hms_fraction(time.time() - start_time), "sec")
-    print(f"GPU peak memory allocated: {util.human_bytes_size(torch.cuda.max_memory_allocated(dev))}")
-
-    for name, loss in rf.get_run_ctx().losses.items():
-        print(f"Loss {name}: {loss.get_mean_loss().raw_tensor.item()}")
+    return dict(
+        data=audio, data_spatial_dim=audio_spatial_dim, targets=targets, targets_spatial_dim=targets_spatial_dim
+    )
