@@ -114,16 +114,16 @@ def sis_run_with_prefix(prefix_name: str = None):
         search_args = {
             "beam_size": beam_size,
             "lm_scale": lm_scale,
-            "add_trafo_lm": False,
-            "bsf": "bsf160",
+            "add_trafo_lm": True,
+            "bsf": "bsf40_1",
         }
 
         dev_sets = ["dev"]  # only dev-other for testing
         # dev_sets = None  # all
         name = (
             prefix_name
-            + f"/bsf160_att_beam{beam_size}"
-            # + f"/bsf40_att_trafo_lm{lm_scale}_beam{beam_size}"
+            # + f"/bsf160_att_beam{beam_size}"
+            + f"/bsf40_att_trafo_lm{lm_scale}_beam{beam_size}_fix"
         )
         res, _ = recog_model(
             task,
@@ -173,11 +173,11 @@ def sis_run_with_prefix(prefix_name: str = None):
         )
 
     # ctc + trafo lm
-    for scales, beam_size in product([(1.0, 0.1, 0.0), (1.0, 0.3, 0.0)], [1,2,6,12]):
+    for scales, beam_size in product([(1.0, 0.1, 0.0), (1.0, 0.3, 0.0)], [6, 12]):
         ctc_scale, lm_scale, prior_scale = scales
         name = (
                 prefix_name
-                + f"/bsf40_ctc{ctc_scale}_trafolm{lm_scale}_beam{beam_size}"
+                + f"/single_seq_ctc{ctc_scale}_trafolm{lm_scale}_beam{beam_size}"
         )
         search_args = {
             "beam_size": beam_size,
@@ -185,7 +185,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             "ctc_scale": ctc_scale,
             "add_trafo_lm": True,
             "lm_scale": lm_scale,
-            "bsf": "bsf40_1",
+            "bsf": "bsf40_3",
         }
 
         dev_sets = ["dev"]  # only dev for testing

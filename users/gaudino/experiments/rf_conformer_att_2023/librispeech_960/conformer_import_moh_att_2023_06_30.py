@@ -819,7 +819,7 @@ from_scratch_model_def.backend = "torch"
 from_scratch_model_def.batch_size_factor = (
     40 # change batch size here - 20 for att_window - 40 for ctc_prefix
 )
-from_scratch_model_def.max_seqs = 200 #1
+from_scratch_model_def.max_seqs = 1 # 200 # 1
 
 
 def from_scratch_training(

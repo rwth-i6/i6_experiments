@@ -70,7 +70,8 @@ class TrafoLMLayer(rf.Module):
             num_heads=num_heads,
             att_dropout=att_dropout,
             with_bias=False,
-            att_left_only=True,
+            att_left_only=False,
+            # att_left_only=True,
         )
         if self_att_opts:
             self_att_opts_.update(self_att_opts)
@@ -192,6 +193,8 @@ class Ted2_Trafo_LM_Model(rf.Module):
         new_state.pos = state.pos + (1 if spatial_dim == single_step_dim else spatial_dim.get_size_tensor())
         for layer_name, layer in self.layers.items():
             layer: TrafoLMLayer  # or similar
+            # if layer_name in ["0"]: # "0"
+            #     breakpoint()
             decoded, new_state[layer_name] = layer(
                 decoded, spatial_dim=spatial_dim, state=state[layer_name]
             )

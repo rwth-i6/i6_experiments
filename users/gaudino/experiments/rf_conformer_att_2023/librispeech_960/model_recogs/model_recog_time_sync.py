@@ -66,17 +66,23 @@ def model_recog_time_sync(
     batch_num_seq = batch_dims[0].get_size_tensor().raw_tensor
     curr_beam_size = beam_dim.get_size_tensor().raw_tensor
 
+    # TODO: implement trafo lm more efficiently
+    # if model.search_args.get("add_trafo_lm", False):
+    #     batch_dims_trafo_lm = [Dim(1, name="dummy_batch_dim")] + [beam_dim]
+    #     trafo_lm_state = rf.State()
+    #     for k in range(batch_num_seq):
+    #         trafo_lm_state[f"batch_{k}"] = rf.State()
+    #         for i in range(curr_beam_size):
+    #             trafo_lm_state[f"batch_{k}"][
+    #                 f"beam_{i}"
+    #             ] = model.trafo_lm.default_initial_state(batch_dims=batch_dims_trafo_lm)
+    #     prev_trafo_lm_state = trafo_lm_state
+    #     prev_trafo_lm_state_all = trafo_lm_state
+
     if model.search_args.get("add_trafo_lm", False):
-        batch_dims_trafo_lm = [Dim(1, name="dummy_batch_dim")] + [beam_dim]
-        trafo_lm_state = rf.State()
-        for k in range(batch_num_seq):
-            trafo_lm_state[f"batch_{k}"] = rf.State()
-            for i in range(curr_beam_size):
-                trafo_lm_state[f"batch_{k}"][
-                    f"beam_{i}"
-                ] = model.trafo_lm.default_initial_state(batch_dims=batch_dims_trafo_lm)
+        trafo_lm_state = model.trafo_lm.default_initial_state(batch_dims=batch_dims_)
         prev_trafo_lm_state = trafo_lm_state
-        prev_trafo_lm_state_all = trafo_lm_state
+        prev_trafo_lm_state_all = prev_trafo_lm_state
 
     initial_target = rf.constant(
         model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim_w_b
@@ -101,7 +107,9 @@ def model_recog_time_sync(
     )  # [B,T,V+1]
 
     if model.search_args.get("prior_corr", False):
-        ctc_log_prior = numpy.loadtxt(model.search_args.get("ctc_prior_file", None), dtype="float32")
+        ctc_log_prior = numpy.loadtxt(
+            model.search_args.get("ctc_prior_file", None), dtype="float32"
+        )
         ctc_out_raw = ctc_out_raw - (
             torch.tensor(ctc_log_prior)
             .repeat(ctc_out_raw.shape[0], ctc_out_raw.shape[1], 1)
@@ -157,6 +165,12 @@ def model_recog_time_sync(
     seq_targets = []
     seq_backrefs = []
 
+    def trafo_lm_state_func(backrefs, s):
+        if type(s) == Dim:
+            return s
+        else:
+            return rf.gather(s, indices=backrefs)
+
     for i in range(torch.max(hlens)):
         # gather prev non-blank targets and prev_decoder_state via backrefs
         if i == 1:
@@ -195,37 +209,143 @@ def model_recog_time_sync(
         prev_decoder_state_all = decoder_state_1
 
         # handle trafo lm state
-        if model.search_args.get("add_trafo_lm", False):
+        # if model.search_args.get("add_trafo_lm", False):
+        #     if i > 1:
+        #         prev_seq_backrefs_raw = seq_backrefs[i - 1].raw_tensor
+        #         for k in range(batch_num_seq):
+        #             for j in range(curr_beam_size):
+        #                 prev_trafo_lm_state[f"batch_{k}"][
+        #                     f"beam_{j}"
+        #                 ] = prev_trafo_lm_state_all[f"batch_{k}"][
+        #                     f"beam_{prev_seq_backrefs_raw[k][j]}"
+        #                 ]
+        #     else:
+        #         prev_trafo_lm_state = prev_trafo_lm_state_all
+        #
+        #     if i > 0:
+        #         trafo_lm_state_1 = rf.State()
+        #         mask_combined_raw = mask_combined.raw_tensor
+        #         for k in range(batch_num_seq):
+        #             trafo_lm_state_1[f"batch_{k}"] = rf.State()
+        #             for j in range(curr_beam_size):
+        #                 trafo_lm_state_1[f"batch_{k}"][f"beam_{j}"] = (
+        #                     trafo_lm_state[f"batch_{k}"][f"beam_{j}"]
+        #                     if mask_combined_raw[k][j]
+        #                     else prev_trafo_lm_state[f"batch_{k}"][f"beam_{j}"]
+        #                 )
+        #     else:
+        #         trafo_lm_state_1 = trafo_lm_state
+        #     prev_trafo_lm_state_all = trafo_lm_state_1
+
+        # handle trafo lm state
+        if model.search_args.get("add_trafo_lm", False) and i > 0:
+            prev_pos = prev_trafo_lm_state_all["pos"]
+            prev_trafo_lm_state_all.pop("pos")
+
             if i > 1:
-                prev_seq_backrefs_raw = seq_backrefs[i - 1].raw_tensor
-                for k in range(batch_num_seq):
-                    for j in range(curr_beam_size):
-                        prev_trafo_lm_state[f"batch_{k}"][
-                            f"beam_{j}"
-                        ] = prev_trafo_lm_state_all[f"batch_{k}"][
-                            f"beam_{prev_seq_backrefs_raw[k][j]}"
-                        ]
+                prev_trafo_lm_state = tree.map_structure(
+                    partial(trafo_lm_state_func, seq_backrefs[i - 1]),
+                    prev_trafo_lm_state_all,
+                )
             else:
                 prev_trafo_lm_state = prev_trafo_lm_state_all
 
-            if i > 0:
-                trafo_lm_state_1 = rf.State()
-                mask_combined_raw = mask_combined.raw_tensor
-                for k in range(batch_num_seq):
-                    trafo_lm_state_1[f"batch_{k}"] = rf.State()
-                    for j in range(curr_beam_size):
-                        trafo_lm_state_1[f"batch_{k}"][f"beam_{j}"] = (
-                            trafo_lm_state[f"batch_{k}"][f"beam_{j}"]
-                            if mask_combined_raw[k][j]
-                            else prev_trafo_lm_state[f"batch_{k}"][f"beam_{j}"]
-                        )
+            # shift hist of prev_trafo_lm_state
+            for lay in range(model.trafo_lm.num_layers):
+                lay = str(lay)
+                old_accum_axis = prev_trafo_lm_state[lay]["self_att"]["accum_axis"]
+                new_accum_axis = trafo_lm_state[lay]["self_att"]["accum_axis"]
+                k_accum = prev_trafo_lm_state[lay]["self_att"]["k_accum"]
+
+                fill_value = rf.full(
+                    dims=list(k_accum.dims[:2])
+                    # + [Dim(1, name="accum_step_dim")]
+                    + list(k_accum.dims[-2:]),
+                    fill_value=1e-30,
+                )
+
+                k_accum_shifted, hist_dim = rf.cum_concat_step(
+                    fill_value, prev_accum=k_accum, axis=old_accum_axis
+                )
+                v_accum_shifted, _ = rf.cum_concat_step(
+                    fill_value,
+                    prev_accum=prev_trafo_lm_state[str(lay)]["self_att"]["v_accum"],
+                    out_spatial_dim=hist_dim,
+                    axis=old_accum_axis,
+                )
+
+                if i == 1:
+                    k_accum_shifted_raw = k_accum_shifted.raw_tensor.repeat(
+                        (1, beam_size, 1, 1, 1)
+                    )
+                    k_accum_shifted = rf.Tensor(
+                        name="k_accum_shifted",
+                        dims=(batch_size_dim, beam_dim) + k_accum_shifted.dims[2:],
+                        dtype="float32",
+                        raw_tensor=k_accum_shifted_raw,
+                    )
+                    v_accum_shifted_raw = v_accum_shifted.raw_tensor.repeat(
+                        (1, beam_size, 1, 1, 1)
+                    )
+                    v_accum_shifted = rf.Tensor(
+                        name="v_accum_shifted",
+                        dims=(batch_size_dim, beam_dim) + v_accum_shifted.dims[2:],
+                        dtype="float32",
+                        raw_tensor=v_accum_shifted_raw,
+                    )
+
+                prev_trafo_lm_state[lay]["self_att"]["k_accum"] = k_accum_shifted
+                prev_trafo_lm_state[lay]["self_att"]["v_accum"] = v_accum_shifted
+                prev_trafo_lm_state[lay]["self_att"]["accum_axis"] = new_accum_axis
+
+            # TODO: squeeze k_accum and v_accum at some point because of OOM
+
+            pos = trafo_lm_state["pos"]
+            trafo_lm_state.pop("pos")
+
+            def trafo_lm_state_mask_func(s, prev_s):
+                # if i > 0:
+                #     breakpoint()
+                if type(s) == Dim:
+                    return s
+                return rf.where(mask_combined, s, prev_s)
+
+            trafo_lm_state_1 = tree.map_structure(
+                trafo_lm_state_mask_func,
+                trafo_lm_state,
+                prev_trafo_lm_state,
+            )
+            if i == 1:
+                trafo_lm_state_1["pos"] = rf.where(
+                    rf.copy_to_device(mask_combined, "cpu"), pos, prev_pos
+                )
+            elif i > 1:
+                pos_temp = pos.copy_template_replace_dim_tag(1, mask_combined.dims[1])
+                pos_temp.raw_tensor = pos.raw_tensor
+                pos = pos_temp
+
+                prev_pos_temp = prev_pos.copy_template_replace_dim_tag(
+                    1, mask_combined.dims[1]
+                )
+                prev_pos_temp.raw_tensor = prev_pos.raw_tensor
+                prev_pos = prev_pos_temp
+
+                trafo_lm_state_1["pos"] = rf.where(
+                    rf.copy_to_device(mask_combined, "cpu"), pos, prev_pos
+                )
             else:
-                trafo_lm_state_1 = trafo_lm_state
+                trafo_lm_state_1["pos"] = pos
+            prev_trafo_lm_state_all = trafo_lm_state_1
+        elif model.search_args.get("add_trafo_lm", False) and i == 0:
+            trafo_lm_state_1 = trafo_lm_state
             prev_trafo_lm_state_all = trafo_lm_state_1
 
         # fixed: before it was computed at step 0
         if i == 0:
-            input_embed = rf.zeros(batch_dims_ + [model.target_embed.out_dim], feature_dim=model.target_embed.out_dim)
+            input_embed = rf.zeros(
+                batch_dims_ + [model.target_embed.out_dim],
+                feature_dim=model.target_embed.out_dim,
+            )
         else:
             input_embed = model.target_embed(target_1)
 
@@ -255,58 +375,64 @@ def model_recog_time_sync(
 
         # renormalize ctc_out_raw_step
         ctc_non_blank = ctc_out_raw_step[:, :, :blank_index]
-        ctc_non_blank = ctc_non_blank - torch.logsumexp(ctc_non_blank, dim=2, keepdim=True)
+        ctc_non_blank = ctc_non_blank - torch.logsumexp(
+            ctc_non_blank, dim=2, keepdim=True
+        )
 
         label_log_prob_non_blank = (
-            ctc_non_blank
-            * model.search_args.get("ctc_scale", 0.0)
+            ctc_non_blank * model.search_args.get("ctc_scale", 0.0)
             + att_label_log_prob.raw_tensor
         )
 
         if model.search_args.get("add_trafo_lm", False):
-            trafo_lm_out = {}
-            target_1_raw = target_1.raw_tensor
+            # trafo_lm_out = {}
+            # target_1_raw = target_1.raw_tensor
+            #
+            # for k in range(batch_num_seq):
+            #     trafo_lm_out[k] = {}
+            #     trafo_lm_out[k]["output"] = []
+            #     for j in range(curr_beam_size):
+            #         # modify target
+            #         target_1_get_raw = torch.reshape(target_1_raw[k][j], (1, 1))
+            #         target_1_get = rf.Tensor(
+            #             name="target_1_get",
+            #             dims=batch_dims_trafo_lm,
+            #             dtype="int64",
+            #             raw_tensor=target_1_get_raw.to(torch.int64),
+            #         )
+            #         target_1_get.sparse_dim = model.target_dim
+            #         trafo_lm_out[k][j] = model.trafo_lm(
+            #             target_1_get,
+            #             state=trafo_lm_state_1[f"batch_{k}"][f"beam_{j}"],
+            #             spatial_dim=single_step_dim,
+            #         )
+            #         trafo_lm_state[f"batch_{k}"][f"beam_{j}"] = trafo_lm_out[k][j]["state"]
+            #
+            #     # rejoint beams for lm output
+            #     trafo_lm_out[k]["output"] = torch.cat(
+            #         [trafo_lm_out[k][j]["output"].raw_tensor for j in range(curr_beam_size)],
+            #         dim=1,
+            #     )
+            # # rejoin batch
+            # trafo_lm_out["output"] = torch.cat(
+            #     [trafo_lm_out[k]["output"] for k in range(batch_num_seq)],
+            #     dim=0,
+            # )
+            #
+            # trafo_lm_out_rf = rf.Tensor(
+            #     name="trafo_lm_out",
+            #     dims=(batch_size_dim, beam_dim, model.target_dim),
+            #     dtype="float32",
+            #     raw_tensor=trafo_lm_out["output"],
+            # )
 
-            for k in range(batch_num_seq):
-                trafo_lm_out[k] = {}
-                trafo_lm_out[k]["output"] = []
-                for j in range(curr_beam_size):
-                    # modify target
-                    target_1_get_raw = torch.reshape(target_1_raw[k][j], (1, 1))
-                    target_1_get = rf.Tensor(
-                        name="target_1_get",
-                        dims=batch_dims_trafo_lm,
-                        dtype="int64",
-                        raw_tensor=target_1_get_raw.to(torch.int64),
-                    )
-                    target_1_get.sparse_dim = model.target_dim
-                    trafo_lm_out[k][j] = model.trafo_lm(
-                        target_1_get,
-                        state=trafo_lm_state_1[f"batch_{k}"][f"beam_{j}"],
-                        spatial_dim=single_step_dim,
-                    )
-                    trafo_lm_state[f"batch_{k}"][f"beam_{j}"] = trafo_lm_out[k][j]["state"]
-
-                # rejoint beams for lm output
-                trafo_lm_out[k]["output"] = torch.cat(
-                    [trafo_lm_out[k][j]["output"].raw_tensor for j in range(curr_beam_size)],
-                    dim=1,
-                )
-            # rejoin batch
-            trafo_lm_out["output"] = torch.cat(
-                [trafo_lm_out[k]["output"] for k in range(batch_num_seq)],
-                dim=0,
+            trafo_lm_out = model.trafo_lm(
+                target_1, state=trafo_lm_state_1, spatial_dim=single_step_dim
             )
-
-            trafo_lm_out_rf = rf.Tensor(
-                name="trafo_lm_out",
-                dims=(batch_size_dim, beam_dim, model.target_dim),
-                dtype="float32",
-                raw_tensor=trafo_lm_out["output"],
-            )
+            trafo_lm_state = trafo_lm_out["state"]
 
             trafo_log_prob = rf.log_softmax(
-                trafo_lm_out_rf, axis=model.target_dim
+                trafo_lm_out["output"], axis=model.target_dim
             )
             if i > 0:
                 label_log_prob_non_blank = (
@@ -373,11 +499,19 @@ def model_recog_time_sync(
         decoder_state = tree.map_structure(
             lambda s: rf.gather(s, indices=backrefs), decoder_state
         )
+        # if model.search_args.get("add_trafo_lm", False):
+        #     trafo_lm_state_copy = trafo_lm_state
+        #     for k in range(batch_num_seq):
+        #         for j in range(curr_beam_size):
+        #             trafo_lm_state[f"batch_{k}"][f"beam_{j}"] = trafo_lm_state_copy[f"batch_{k}"][f"beam_{backrefs.raw_tensor[k][j]}"]
         if model.search_args.get("add_trafo_lm", False):
-            trafo_lm_state_copy = trafo_lm_state
-            for k in range(batch_num_seq):
-                for j in range(curr_beam_size):
-                    trafo_lm_state[f"batch_{k}"][f"beam_{j}"] = trafo_lm_state_copy[f"batch_{k}"][f"beam_{backrefs.raw_tensor[k][j]}"]
+            pos = trafo_lm_state["pos"]
+            trafo_lm_state.pop("pos")
+            trafo_lm_state = tree.map_structure(
+                partial(trafo_lm_state_func, backrefs), trafo_lm_state
+            )
+            # TODO: maybe gather pos too ?
+            trafo_lm_state["pos"] = pos
 
         ended = rf.gather(ended, indices=backrefs)
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)

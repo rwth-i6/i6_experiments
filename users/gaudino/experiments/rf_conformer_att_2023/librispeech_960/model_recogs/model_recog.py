@@ -168,7 +168,6 @@ def model_recog(
         if model.search_args.get("add_trafo_lm", False):
             trafo_lm_out = model.trafo_lm(target, state=trafo_lm_state, spatial_dim=single_step_dim)
             trafo_lm_state = trafo_lm_out["state"]
-            breakpoint()
             trafo_log_prob = rf.log_softmax(trafo_lm_out["output"], axis=model.target_dim)
             if i > 0:
                 label_log_prob = (

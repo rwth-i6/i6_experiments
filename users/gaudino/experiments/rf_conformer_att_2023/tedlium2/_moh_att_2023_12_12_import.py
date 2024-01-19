@@ -148,10 +148,10 @@ def test_import_search():
     dataset = init_dataset(search_data_opts)
     dataset.init_seq_order(
         epoch=1,
-        # seq_list=["TED-LIUM-realease2/BlaiseAguerayArcas_2007/22"],
-        seq_list=[f"TED-LIUM-realease2/AlGore_2009/{i}" for i in range(1,34)],
+        seq_list=["TED-LIUM-realease2/BlaiseAguerayArcas_2007/22"],
+        # seq_list=[f"TED-LIUM-realease2/AlGore_2009/{i}" for i in range(1,34)],
     )
-    batch_num_seqs = 2
+    batch_num_seqs = 1
     # batch_num_seqs = 10
     dataset.load_seqs(0, batch_num_seqs)
     batch = Batch()
@@ -189,15 +189,16 @@ def test_import_search():
     time_sync = True
     time_sync_search_args = {
         "beam_size": 12,
-        "att_scale": 0.65,
-        "ctc_scale": 0.3,
+        "att_scale": 0.0,
+        "ctc_scale": 1.0,
         "add_trafo_lm": True,
-        "lm_scale": 0.1,
+        "lm_scale": 0.5,
     }
     search_args = {
-        "beam_size": 12,
+        "beam_size": 1,
         "add_trafo_lm": True,
-        "lm_scale": 0.1,
+        "att_scale": 1.0,
+        "lm_scale": 1.0,
     }
     if time_sync:
         search_args = time_sync_search_args
