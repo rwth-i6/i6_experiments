@@ -293,9 +293,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         # OOM in ep 523
         post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
     )
-    # "best_scores": {"dev-clean": 2.31, "dev-other": 5.44, "test-clean": 2.64, "test-other": 5.74}, "best_epoch": 1941
-    train_exp(  # 5.44
-        "base-24gb-v6-lrlin1e_5_450k", config_24gb_v6, config_updates=_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000)
+    train_exp(
+        "base-24gb-v6-lrlin1e_5_800k",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [800_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
     )
     train_exp(  # 5.41
         "base-24gb-v6-lrlin1e_5_600k",
@@ -307,6 +314,10 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
         },
+    )
+    # "best_scores": {"dev-clean": 2.31, "dev-other": 5.44, "test-clean": 2.64, "test-other": 5.74}, "best_epoch": 1941
+    train_exp(  # 5.44
+        "base-24gb-v6-lrlin1e_5_450k", config_24gb_v6, config_updates=_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000)
     )
     train_exp(
         "base-24gb-v6-lrlin1e_5_100k",
