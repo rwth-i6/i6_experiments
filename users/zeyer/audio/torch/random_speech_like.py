@@ -5,7 +5,7 @@ Based on: https://github.com/albertz/playground/blob/master/create-random-speech
 """
 
 
-from typing import Optional, Any, Dict
+from typing import Optional, Union, Any, Dict
 import torch
 from returnn.tensor import Tensor, Dim, batch_dim
 
@@ -75,7 +75,12 @@ def _integrate_rnd_frequencies(
 
 
 def generate_dummy_train_input_kwargs(
-    *, batch_size: int = 20, duration_secs: float = 10.0, sample_rate: int = 16_000, dev: torch.device, target_dim: Dim
+    *,
+    batch_size: int = 20,
+    duration_secs: float = 10.0,
+    sample_rate: int = 16_000,
+    dev: Optional[Union[torch.device, str]] = None,
+    target_dim: Dim,
 ) -> Dict[str, Any]:
     batch_dim.dyn_size_ext = Tensor("batch", [], dtype="int32", raw_tensor=torch.tensor(batch_size, dtype=torch.int32))
     num_frames = int(duration_secs * sample_rate)

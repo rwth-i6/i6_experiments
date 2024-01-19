@@ -32,7 +32,6 @@ def test():
     from returnn.datasets.util.vocabulary import Vocabulary
     import returnn.frontend as rf
     from returnn.tensor import Dim
-    from returnn.torch.frontend.bridge import rf_module_to_pt_module
     from i6_experiments.users.zeyer.audio.torch.random_speech_like import generate_dummy_train_input_kwargs
 
     better_exchook.install()
@@ -45,19 +44,17 @@ def test():
     model: Model = from_scratch_model_def(epoch=1, in_dim=Dim(1, name="in"), target_dim=target_dim)
     print("Num model parameters:", util.human_size(sum(p.num_elements() for p in model.parameters())))
 
-    pt_model = rf_module_to_pt_module(model)
     dev = torch.device("cuda")
-    pt_model.to(dev)
     rf.set_default_device("cuda")
+    model.to(device=rf.get_default_device())
     print(f"GPU memory usage (allocated model): {util.human_bytes_size(torch.cuda.memory_allocated(dev))}")
 
-    train_input_kwargs = generate_dummy_train_input_kwargs(dev=dev, target_dim=target_dim)
+    train_input_kwargs = generate_dummy_train_input_kwargs(dev=rf.get_default_device(), target_dim=target_dim)
 
     # TODO how to setup hooks?
 
     start_time = time.time()
     rf.init_train_step_run_ctx(train_flag=False)
-    pt_model.eval()
     with torch.no_grad():
         from_scratch_training(model=model, **train_input_kwargs)
     print("One train forward step, duration:", util.hms_fraction(time.time() - start_time), "sec")
