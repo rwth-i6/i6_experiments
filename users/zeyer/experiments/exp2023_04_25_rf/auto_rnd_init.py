@@ -44,10 +44,10 @@ def test():
     model: Model = from_scratch_model_def(epoch=1, in_dim=Dim(1, name="in"), target_dim=target_dim)
     print("Num model parameters:", util.human_size(sum(p.num_elements() for p in model.parameters())))
 
-    dev = torch.device("cuda")
     rf.set_default_device("cuda")
     model.to(device=rf.get_default_device())
-    print(f"GPU memory usage (allocated model): {util.human_bytes_size(torch.cuda.memory_allocated(dev))}")
+    pt_dev = torch.device(rf.get_default_device())
+    print(f"GPU memory usage (allocated model): {util.human_bytes_size(torch.cuda.memory_allocated(pt_dev))}")
 
     train_input_kwargs = generate_dummy_train_input_kwargs(dev=rf.get_default_device(), target_dim=target_dim)
 
@@ -58,7 +58,7 @@ def test():
     with torch.no_grad():
         from_scratch_training(model=model, **train_input_kwargs)
     print("One train forward step, duration:", util.hms_fraction(time.time() - start_time), "sec")
-    print(f"GPU peak memory allocated: {util.human_bytes_size(torch.cuda.max_memory_allocated(dev))}")
+    print(f"GPU peak memory allocated: {util.human_bytes_size(torch.cuda.max_memory_allocated(pt_dev))}")
 
     for name, loss in rf.get_run_ctx().losses.items():
         print(f"Loss {name}: {loss.get_mean_loss().raw_tensor.item()}")
