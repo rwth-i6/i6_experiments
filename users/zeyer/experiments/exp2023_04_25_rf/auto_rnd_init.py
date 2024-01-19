@@ -32,8 +32,9 @@ def test():
     from returnn.config import get_global_config
     from returnn.datasets.util.vocabulary import Vocabulary
     import returnn.frontend as rf
-    from returnn.tensor import Tensor, Dim, batch_dim
+    from returnn.tensor import Dim
     from returnn.torch.frontend.bridge import rf_module_to_pt_module
+    from i6_experiments.users.zeyer.audio.torch.random_speech_like import generate_dummy_train_input_kwargs
 
     better_exchook.install()
     config = get_global_config(auto_create=True)
@@ -54,7 +55,7 @@ def test():
     rf.set_default_device("cuda")
     print(f"GPU memory usage (allocated model): {util.human_bytes_size(torch.cuda.memory_allocated(dev))}")
 
-    train_input_kwargs = _generate_dummy_train_input_kwargs(dev=dev, target_dim=target_dim)
+    train_input_kwargs = generate_dummy_train_input_kwargs(dev=dev, target_dim=target_dim)
 
     # TODO how to setup hooks?
 
@@ -68,36 +69,3 @@ def test():
 
     for name, loss in rf.get_run_ctx().losses.items():
         print(f"Loss {name}: {loss.get_mean_loss().raw_tensor.item()}")
-
-
-def _generate_dummy_train_input_kwargs(*, dev: torch.device, target_dim: Dim) -> Dict[str, Any]:
-    import torch
-    from returnn.tensor import Tensor, Dim, batch_dim
-    from i6_experiments.users.zeyer.audio.torch.random_speech_like import generate_random_speech_like_audio
-
-    batch_size = 20
-    batch_dim.dyn_size_ext = Tensor("batch", [], dtype="int32", raw_tensor=torch.tensor(batch_size, dtype=torch.int32))
-    sample_rate = 16_000
-    duration = 10.0
-    num_frames = int(duration * sample_rate)
-    print(
-        f"Using dummy batch of size {batch_size * num_frames} raw frames"
-        f" ({batch_size * num_frames * 100 // sample_rate} 10ms frames)"
-    )
-    audio_raw = generate_random_speech_like_audio(batch_size, num_frames, samples_per_sec=sample_rate)
-    audio_raw = audio_raw.to(dev)
-    audio_lens_raw = torch.tensor([num_frames] * batch_size, dtype=torch.int32)
-    audio_spatial_dim = Dim(Tensor("time", [batch_dim], dtype="int32", raw_tensor=audio_lens_raw))
-    audio = Tensor("audio", [batch_dim, audio_spatial_dim], dtype="float32", raw_tensor=audio_raw)
-
-    targets_len = int(duration * 3)
-    targets_lens_raw = torch.tensor([targets_len] * batch_size, dtype=torch.int32)
-    targets_spatial_dim = Dim(Tensor("targets_len", [batch_dim], dtype="int32", raw_tensor=targets_lens_raw))
-    targets_raw = torch.randint(0, target_dim.dimension, size=(batch_size, targets_len), dtype=torch.int32, device=dev)
-    targets = Tensor(
-        "targets", [batch_dim, targets_spatial_dim], dtype="int32", sparse_dim=target_dim, raw_tensor=targets_raw
-    )
-
-    return dict(
-        data=audio, data_spatial_dim=audio_spatial_dim, targets=targets, targets_spatial_dim=targets_spatial_dim
-    )
