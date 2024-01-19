@@ -334,7 +334,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         # OOM in ep 758
         post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
     )
-    train_exp(
+    train_exp(  # 5.87
         "base-24gb-v6-lrlin1e_5_20k",
         config_24gb_v6,
         config_updates={
