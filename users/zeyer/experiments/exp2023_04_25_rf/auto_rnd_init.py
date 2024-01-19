@@ -72,6 +72,7 @@ def test():
 
     start_time = time.time()
     rf.init_train_step_run_ctx(train_flag=False)
+    # TODO how to setup hooks?
     from_scratch_training(
         model=model,
         data=audio,
