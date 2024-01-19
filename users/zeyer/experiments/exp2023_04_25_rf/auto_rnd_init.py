@@ -14,7 +14,7 @@ Where the following paper were mentioned:
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING
 import time
 
 from .aed import from_scratch_model_def, Model, from_scratch_training
@@ -29,7 +29,6 @@ def test():
     import returnn.__main__
     from returnn.util import better_exchook
     from returnn.util import basic as util
-    from returnn.config import get_global_config
     from returnn.datasets.util.vocabulary import Vocabulary
     import returnn.frontend as rf
     from returnn.tensor import Dim
@@ -37,13 +36,10 @@ def test():
     from i6_experiments.users.zeyer.audio.torch.random_speech_like import generate_dummy_train_input_kwargs
 
     better_exchook.install()
-    config = get_global_config(auto_create=True)
-    config.update({"behavior_version": 20, "backend": "torch", "use_lovely_tensors": True})
-    util.BehaviorVersion.set(config.int("behavior_version", 0))
-    returnn.__main__.config = config
-    returnn.__main__.init_backend_engine()
+    returnn.__main__.init_backend_engine(
+        config_opts={"behavior_version": 20, "backend": "torch", "use_lovely_tensors": True}
+    )
 
-    rf.select_backend_torch()
     target_dim = Dim(1000, name="targets")
     target_dim.vocab = Vocabulary.create_vocab_from_labels([str(i) for i in range(target_dim.dimension)], eos_label=0)
     model: Model = from_scratch_model_def(epoch=1, in_dim=Dim(1, name="in"), target_dim=target_dim)
