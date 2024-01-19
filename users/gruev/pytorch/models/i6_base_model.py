@@ -168,7 +168,7 @@ def search_init_hook(run_ctx, **kwargs):
     import subprocess
 
     arpa_lm = kwargs.get("arpa_lm", None)
-    lm = subprocess.check_output(["cf", arpa_lm]).decode().strip() if arpa_lm is not None else None
+    lm = subprocess.check_output(["cf", arpa_lm]).decode().strip() if arpa_lm else None
 
     # Get labels directly, no need to load the vocab file
     labels = run_ctx.engine.forward_dataset.datasets["zip_dataset"].targets.labels
@@ -210,6 +210,9 @@ def search_step(*, model: ConformerCTCModel, data, run_ctx, **kwargs):
     audio_features = audio_features[indices, :, :]
 
     log_probs_list, audio_features_len = model(audio_features, audio_features_len)
+
+    from IPython import embed
+    embed()
 
     # see also model.forward()
     log_probs = log_probs_list[0]
