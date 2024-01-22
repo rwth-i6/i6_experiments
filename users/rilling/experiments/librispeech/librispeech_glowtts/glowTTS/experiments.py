@@ -156,10 +156,9 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
                         returnn_root=MINI_RETURNN_ROOT,
                         prefix=prefix + name + "_joint_data",
                         target="spectrograms",
-                        
                     )
                     exp["forward_job_spec_joint_data"] = forward_job
-                
+
                 if train_data_forward:
                     forward_config_train_data = get_forward_config(
                         returnn_common_root=RETURNN_COMMON,
@@ -178,7 +177,6 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
                         returnn_root=MINI_RETURNN_ROOT,
                         prefix=prefix + name + "_train_data",
                         target="spectrograms",
-                        
                     )
                     exp["forward_job_spec_train_data"] = forward_job
 
@@ -491,6 +489,8 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
         further_training=True,
         spectrogram_foward=True,
     )
+    experiments[net_module + "/enc768/200ep/not_silence_preprocessed"] = exp_dict
+
     exp_dict = run_exp(
         net_module + "/enc768/with_sigma/silence_preprocessed",
         train_args_silence,
@@ -929,7 +929,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
     )
 
     net_module = "glowTTS_x_vector_v3"
-    train_args_x_vector_v3 = copy.deepcopy(train_args_alternative_lr)#
+    train_args_x_vector_v3 = copy.deepcopy(train_args_alternative_lr)  #
     train_args_x_vector_v3["net_args"]["gin_channels"] = 512  # Size of speaker embeddings from trained X-Vector
     train_args_x_vector_v3["network_module"] = net_module
     exp_dict = run_exp(
@@ -946,6 +946,63 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
     exp_dict = run_exp(
         net_module + "/enc192/100ep/not_silence_preprocessed",
         train_args_x_vector_v3_norm_xvector,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+    )
+
+    train_args_x_vector_v3_norm_xvector_768fc = copy.deepcopy(train_args_x_vector_v3_norm_xvector)
+    train_args_x_vector_v3_norm_xvector_768fc["net_args"]["filter_channels"] = 768
+    exp_dict = run_exp(
+        net_module + "/enc768/100ep/not_silence_preprocessed",
+        train_args_x_vector_v3_norm_xvector_768fc,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+    )
+
+    net_module = "glowTTS_x_vector_v3"
+    train_args_x_vector_v3_768fc = copy.deepcopy(train_args_x_vector_v3_norm_xvector)
+    train_args_x_vector_v3_768fc["net_args"]["filter_channels"] = 768
+    train_args_x_vector_v3_768fc["network_module"] = net_module
+    exp_dict = run_exp(
+        net_module + "/enc768/100ep/not_silence_preprocessed",
+        train_args_x_vector_v3_768fc,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+    )
+
+    net_module = "glowTTS_x_vector"
+    train_args_x_vector_768fc = copy.deepcopy(train_args_x_vector)
+    train_args_x_vector_768fc["net_args"]["filter_channels"] = 768
+    train_args_x_vector_768fc["network_module"] = net_module
+    exp_dict = run_exp(
+        net_module + "/enc768/100ep/not_silence_preprocessed",
+        train_args_x_vector_768fc,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+    )
+    experiments[net_module + "/enc768/100ep/not_silence_preprocessed"] = exp_dict
+
+    #  ============================== DDI ActNorm ==============================
+    net_module = "glowTTS_ddi_actnorm"
+    train_args_ddi_actnorm = copy.deepcopy(train_args_alternative_lr)
+    train_args_ddi_actnorm["network_module"] = net_module
+    exp_dict = run_exp(
+        net_module + "/enc192/100ep/not_silence_preprocessed/LR_scheduled",
+        train_args_ddi_actnorm,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+    )
+    train_args_ddi_actnorm_lin_lr = copy.deepcopy(train_args_ddi_actnorm)
+    train_args_ddi_actnorm_lin_lr["config"]["learning_rate"] = 1e-4
+    del train_args_ddi_actnorm_lin_lr["config"]["learning_rates"]
+    exp_dict = run_exp(
+        net_module + "/enc192/100ep/not_silence_preprocessed/LR_constant",
+        train_args_ddi_actnorm_lin_lr,
         dataset=training_datasets,
         num_epochs=100,
         forward_args=forward_args,
