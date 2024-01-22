@@ -1,8 +1,15 @@
 import numpy as np
 import torch
-from .core import maximum_path_c
-
-
+try:
+    from .core import maximum_path_c
+except:
+    import subprocess
+    import sys
+    import os 
+    dir = os.path.realpath(os.path.dirname(__file__))
+    subprocess.call([sys.executable, "setup.py", "build_ext", "--inplace"], cwd=dir)
+    from .core import maximum_path_c
+    
 def maximum_path(value, mask):
     """Cython optimised version.
     value: [b, t_x, t_y]

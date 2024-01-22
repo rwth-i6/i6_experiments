@@ -72,7 +72,6 @@ def forward_finish_hook(run_ctx, **kwargs):
 def forward_step(*, model, data, run_ctx, **kwargs):
     raw_audio = data["raw_audio"]  # [B, T', F]
     raw_audio_len = data["raw_audio:size1"]  # [B]
-
     logprobs, audio_features_len = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,

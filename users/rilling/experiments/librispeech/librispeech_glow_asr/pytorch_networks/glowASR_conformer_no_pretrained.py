@@ -31,9 +31,9 @@ from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwa
 from i6_models.parts.conformer.mhsa import ConformerMHSAV1Config
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
-from .i6modelsV1_VGG4LayerActFrontendV1_v4_cfg import ModelConfig
+from ..i6modelsV1_VGG4LayerActFrontendV1_v4_cfg import ModelConfig
 
-from .i6modelsV1_VGG4LayerActFrontendV1_v4_cfg import \
+from ..i6modelsV1_VGG4LayerActFrontendV1_v4_cfg import \
         SpecaugConfig, VGG4LayerActFrontendV1Config_mod, ModelConfig
 
 

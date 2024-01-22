@@ -19,24 +19,6 @@ from torchaudio.functional import mask_along_axis
 
 from i6_models.parts.blstm import BlstmEncoderV1, BlstmEncoderV1Config
 
-
-from i6_models.parts.conformer.norm import LayerNormNC
-from i6_models.assemblies.conformer.conformer_v1 import ConformerEncoderV1Config
-from i6_models.assemblies.conformer.conformer_v1 import ConformerBlockV1Config, ConformerEncoderV1
-from i6_models.config import ModuleFactoryV1
-from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
-
-from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config
-from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwardV1Config
-from i6_models.parts.conformer.mhsa import ConformerMHSAV1Config
-from i6_models.primitives.specaugment import specaugment_v1_by_length
-from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
-from ..i6modelsV1_VGG4LayerActFrontendV1_v4_cfg import ModelConfig
-
-from ..i6modelsV1_VGG4LayerActFrontendV1_v4_cfg import \
-        SpecaugConfig, VGG4LayerActFrontendV1Config_mod, ModelConfig
-
-
 from returnn.torch.context import get_run_ctx
 
 from .shared.configs import DbMelFeatureExtractionConfig
@@ -49,7 +31,7 @@ from .shared import commons
 from .shared import attentions
 from .monotonic_align import maximum_path
 
-from .shared.forward import forward_init_hook, forward_step, forward_finish_hook, prior_init_hook, prior_finish_hook, prior_step
+from .shared.forward import forward_init_hook, forward_step, forward_finish_hook, prior_step, prior_init_hook, prior_finish_hook
 from .shared.train import train_step
 
 from IPython import embed
@@ -81,10 +63,12 @@ class Model(nn.Module):
         window_size: int = 4,
         block_length: int = None,
         hidden_channels_dec: int = None,
+        final_hidden_channels=80,
+        final_n_layers=1,
         label_target_size=None,
+        subsampling_factor=4,
+        dropout_around_blstm = False,
         spec_augment = False,
-        layer_norm = False,
-        batch_norm = False,
         **kwargs,
     ):
         """_summary_
@@ -126,9 +110,9 @@ class Model(nn.Module):
         self.window_size = window_size
         self.block_length = block_length
         self.hidden_channels_dec = hidden_channels_dec
+        self.subsampling_factor = subsampling_factor
+        self.dropout_around_blstm = dropout_around_blstm
         self.spec_augment = spec_augment
-        self.layer_norm = layer_norm
-        self.batch_norm = batch_norm
 
         self.net_kwargs = {
             "repeat_per_num_frames": 100,
@@ -164,84 +148,16 @@ class Model(nn.Module):
             gin_channels=gin_channels,
         )
 
-        specaug_config = SpecaugConfig(
-            repeat_per_n_frames=25,
-            max_dim_time=20,
-            max_dim_feat=16,
-            num_repeat_feat=5,
-        )
-        frontend_config = VGG4LayerActFrontendV1Config(
-            in_features=80,
-            conv1_channels=32,
-            conv2_channels=64,
-            conv3_channels=64,
-            conv4_channels=32,
-            conv_kernel_size=(3, 3),
-            conv_padding=None,
-            pool1_kernel_size=(2, 1),
-            pool1_stride=(2, 1),
-            pool1_padding=None,
-            pool2_kernel_size=(2, 1),
-            pool2_stride=(2, 1),
-            pool2_padding=None,
-            out_features=384,
-            activation=nn.ReLU(),
-        )
-        model_config = ModelConfig(
-            frontend_config=frontend_config,
-            specaug_config=specaug_config,
-            label_target_size=self.n_vocab,
-            conformer_size=384,
-            num_layers=12,
-            num_heads=4,
-            ff_dim=1536,
-            att_weights_dropout=0.2,
-            conv_dropout=0.2,
-            ff_dropout=0.2,
-            mhsa_dropout=0.2,
-            conv_kernel_size=31,
-            final_dropout=0.2,
-            specauc_start_epoch=1
-        )
-        self.cfg = model_config
-        frontend_config = self.cfg.frontend_config
-        conformer_size = self.cfg.conformer_size
-        conformer_config = ConformerEncoderV1Config(
-            num_layers=self.cfg.num_layers,
-            frontend=ModuleFactoryV1(module_class=VGG4LayerActFrontendV1, cfg=frontend_config),
-            block_cfg=ConformerBlockV1Config(
-                ff_cfg=ConformerPositionwiseFeedForwardV1Config(
-                    input_dim=conformer_size,
-                    hidden_dim=self.cfg.ff_dim,
-                    dropout=self.cfg.ff_dropout,
-                    activation=nn.functional.silu,
-                ),
-                mhsa_cfg=ConformerMHSAV1Config(
-                    input_dim=conformer_size,
-                    num_att_heads=self.cfg.num_heads,
-                    att_weights_dropout=self.cfg.att_weights_dropout,
-                    dropout=self.cfg.mhsa_dropout,
-                ),
-                conv_cfg=ConformerConvolutionV1Config(
-                    channels=conformer_size, kernel_size=self.cfg.conv_kernel_size, dropout=self.cfg.conv_dropout, activation=nn.functional.silu,
-                    norm=LayerNormNC(conformer_size)
-                ),
-            ),
-        )
+        blstm_config = BlstmEncoderV1Config(num_layers=final_n_layers, input_dim=self.out_channels*self.subsampling_factor, hidden_dim=final_hidden_channels, dropout=p_dropout, enforce_sorted=False)
 
-        if self.layer_norm:
-            print("Using Layer Norm after Flow...")
-
-        if self.batch_norm:
-            print("Using Batch Norm after Flow...")
-            self.bn = nn.BatchNorm1d(self.out_channels)
-        else:
-            self.bn = None
-
-        self.conformer = ConformerEncoderV1(cfg=conformer_config)
-        self.final_linear = nn.Linear(conformer_size, self.cfg.label_target_size + 1)  # + CTC blank
-        self.final_dropout = nn.Dropout(p=self.cfg.final_dropout)
-        self.specaug_start_epoch = self.cfg.specauc_start_epoch
+        # self.final = FinalLinear(
+        #     out_channels, final_hidden_channels, self.label_target_size + 1, n_layers=final_n_layers
+        # )
+        self.final = BlstmEncoderV1(blstm_config)
+        self.final_linear = nn.Linear(2*final_hidden_channels, self.label_target_size + 1)  # + CTC blank
+        if(self.dropout_around_blstm):
+            self.drop_after_flow = nn.Dropout(p_dropout)
+            self.drop_after_blstm = nn.Dropout(p_dropout)
 
 
     def forward(self, raw_audio, raw_audio_len):
@@ -249,16 +165,7 @@ class Model(nn.Module):
             squeezed_audio = torch.squeeze(raw_audio)
             log_mel_features, log_mel_features_len = self.feature_extraction(squeezed_audio, raw_audio_len)  # [B, T, F]
 
-            audio_max_length = log_mel_features.size(1)
-        flow_in = log_mel_features.transpose(1,2) # [B, F, T]
-        flow_in, flow_in_length, flow_in_max_length = self.preprocess(flow_in, log_mel_features_len, audio_max_length)
-        mask = torch.unsqueeze(commons.sequence_mask(log_mel_features_len, flow_in.size(2)), 1).to(flow_in.dtype)
-        flow_out, _ = self.decoder(flow_in, mask, reverse=False) # [B, F, T]
-
-        spec_augment_in = flow_out.transpose(1,2) # [B, T, F]
-        mask = mask_tensor(spec_augment_in, flow_in_length)
-
-        with torch.no_grad():
+            spec_augment_in = log_mel_features
             if self.training and self.spec_augment:
                 audio_features_masked_2 = apply_spec_aug(
                     spec_augment_in,
@@ -270,21 +177,28 @@ class Model(nn.Module):
                 )
             else:
                 audio_features_masked_2 = spec_augment_in
+        flow_in = audio_features_masked_2
+        audio_max_length = log_mel_features.size(1)
 
-        conformer_in = audio_features_masked_2
-        
-        if self.layer_norm:
-            conformer_in = torch.nn.functional.layer_norm(conformer_in, (conformer_in.size(-1),))
-        elif self.bn is not None:
-            conformer_in = self.bn(conformer_in.transpose(1,2)).transpose(1,2)
-        
-        conformer_out, out_mask = self.conformer(conformer_in, mask)
-        conformer_out = self.final_dropout(conformer_out)
-        logits = self.final_linear(conformer_out)
+        flow_in = flow_in.transpose(1, 2)  # [B, F, T]
+        flow_in, flow_in_length, flow_in_max_length = self.preprocess(flow_in, log_mel_features_len, audio_max_length)
+        mask = torch.unsqueeze(commons.sequence_mask(log_mel_features_len, flow_in.size(2)), 1).to(flow_in.dtype)
 
+        flow_out, _ = self.decoder(flow_in, mask, reverse=False) # [B, F, T]
+
+        if (self.dropout_around_blstm):
+            flow_out = self.drop_after_flow(flow_out)
+
+        blstm_in, mask = commons.channel_squeeze(flow_out, mask, self.subsampling_factor) # frame stacking for subsampling is equivalent to the channel squeezing operation in glowTTS
+        blstm_in_length = flow_in_length // 4
+
+        blstm_out = self.final(blstm_in.transpose(1,2), blstm_in_length) # [B, T, F]
+        if (self.dropout_around_blstm):
+            blstm_out = self.drop_after_blstm(blstm_out)
+        logits = self.final_linear(blstm_out)
         log_probs = torch.log_softmax(logits, dim=2)
-
-        return log_probs, torch.sum(out_mask, dim=1)
+        
+        return log_probs, blstm_in_length
 
     def preprocess(self, y, y_lengths, y_max_length):
         if y_max_length is not None:

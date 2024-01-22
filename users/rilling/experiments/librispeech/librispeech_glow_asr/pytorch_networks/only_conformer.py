@@ -31,10 +31,9 @@ from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwa
 from i6_models.parts.conformer.mhsa import ConformerMHSAV1Config
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
-from .i6modelsV1_VGG4LayerActFrontendV1_v4_cfg import ModelConfig
+from ..i6modelsV1_VGG4LayerActFrontendV1_v4_cfg import ModelConfig
 
-from .i6modelsV1_VGG4LayerActFrontendV1_v4_cfg import \
-        SpecaugConfig, VGG4LayerActFrontendV1Config_mod, ModelConfig
+from ..i6modelsV1_VGG4LayerActFrontendV1_v4_cfg import SpecaugConfig, VGG4LayerActFrontendV1Config_mod, ModelConfig
 
 
 from returnn.torch.context import get_run_ctx
@@ -49,10 +48,18 @@ from .shared import commons
 from .shared import attentions
 from .monotonic_align import maximum_path
 
-from .shared.forward import forward_init_hook, forward_step, forward_finish_hook, prior_init_hook, prior_finish_hook, prior_step
+from .shared.forward import (
+    forward_init_hook,
+    forward_step,
+    forward_finish_hook,
+    prior_init_hook,
+    prior_finish_hook,
+    prior_step,
+)
 from .shared.train import train_step
 
 from IPython import embed
+
 
 class Model(nn.Module):
     """
@@ -82,7 +89,8 @@ class Model(nn.Module):
         block_length: int = None,
         hidden_channels_dec: int = None,
         label_target_size=None,
-        spec_augment = False,
+        spec_augment=False,
+        conformer_model_config: ModelConfig = None,
         **kwargs,
     ):
         """_summary_
@@ -146,59 +154,62 @@ class Model(nn.Module):
         else:
             self.label_target_size = label_target_size
 
-        self.decoder = modules.Flow(
-            out_channels,
-            hidden_channels_dec or hidden_channels,
-            kernel_size_dec,
-            dilation_rate,
-            n_blocks_dec,
-            n_block_layers,
-            p_dropout=p_dropout_flow,
-            n_split=n_split,
-            n_sqz=n_sqz,
-            sigmoid_scale=sigmoid_scale,
-            gin_channels=gin_channels,
-        )
+        if conformer_model_config is None:
+            self.decoder = modules.Flow(
+                out_channels,
+                hidden_channels_dec or hidden_channels,
+                kernel_size_dec,
+                dilation_rate,
+                n_blocks_dec,
+                n_block_layers,
+                p_dropout=p_dropout_flow,
+                n_split=n_split,
+                n_sqz=n_sqz,
+                sigmoid_scale=sigmoid_scale,
+                gin_channels=gin_channels,
+            )
+            specaug_config = SpecaugConfig(
+                repeat_per_n_frames=25,
+                max_dim_time=20,
+                max_dim_feat=16,
+                num_repeat_feat=5,
+            )
+            frontend_config = VGG4LayerActFrontendV1Config(
+                in_features=80,
+                conv1_channels=32,
+                conv2_channels=64,
+                conv3_channels=64,
+                conv4_channels=32,
+                conv_kernel_size=(3, 3),
+                conv_padding=None,
+                pool1_kernel_size=(2, 1),
+                pool1_stride=(2, 1),
+                pool1_padding=None,
+                pool2_kernel_size=(2, 1),
+                pool2_stride=(2, 1),
+                pool2_padding=None,
+                out_features=384,
+                activation=nn.ReLU(),
+            )
+            model_config = ModelConfig(
+                frontend_config=frontend_config,
+                specaug_config=specaug_config,
+                label_target_size=self.n_vocab,
+                conformer_size=384,
+                num_layers=12,
+                num_heads=4,
+                ff_dim=1536,
+                att_weights_dropout=0.2,
+                conv_dropout=0.2,
+                ff_dropout=0.2,
+                mhsa_dropout=0.2,
+                conv_kernel_size=31,
+                final_dropout=0.2,
+                specauc_start_epoch=1,
+            )
+        else:
+            model_config = ModelConfig.from_dict(conformer_model_config)
 
-        specaug_config = SpecaugConfig(
-            repeat_per_n_frames=25,
-            max_dim_time=20,
-            max_dim_feat=16,
-            num_repeat_feat=5,
-        )
-        frontend_config = VGG4LayerActFrontendV1Config(
-            in_features=80,
-            conv1_channels=32,
-            conv2_channels=64,
-            conv3_channels=64,
-            conv4_channels=32,
-            conv_kernel_size=(3, 3),
-            conv_padding=None,
-            pool1_kernel_size=(2, 1),
-            pool1_stride=(2, 1),
-            pool1_padding=None,
-            pool2_kernel_size=(2, 1),
-            pool2_stride=(2, 1),
-            pool2_padding=None,
-            out_features=384,
-            activation=nn.ReLU(),
-        )
-        model_config = ModelConfig(
-            frontend_config=frontend_config,
-            specaug_config=specaug_config,
-            label_target_size=self.n_vocab,
-            conformer_size=384,
-            num_layers=12,
-            num_heads=4,
-            ff_dim=1536,
-            att_weights_dropout=0.2,
-            conv_dropout=0.2,
-            ff_dropout=0.2,
-            mhsa_dropout=0.2,
-            conv_kernel_size=31,
-            final_dropout=0.2,
-            specauc_start_epoch=1
-        )
         self.cfg = model_config
         frontend_config = self.cfg.frontend_config
         conformer_size = self.cfg.conformer_size
@@ -219,8 +230,11 @@ class Model(nn.Module):
                     dropout=self.cfg.mhsa_dropout,
                 ),
                 conv_cfg=ConformerConvolutionV1Config(
-                    channels=conformer_size, kernel_size=self.cfg.conv_kernel_size, dropout=self.cfg.conv_dropout, activation=nn.functional.silu,
-                    norm=LayerNormNC(conformer_size)
+                    channels=conformer_size,
+                    kernel_size=self.cfg.conv_kernel_size,
+                    dropout=self.cfg.conv_dropout,
+                    activation=nn.functional.silu,
+                    norm=LayerNormNC(conformer_size),
                 ),
             ),
         )
@@ -229,7 +243,6 @@ class Model(nn.Module):
         self.final_linear = nn.Linear(conformer_size, self.cfg.label_target_size + 1)  # + CTC blank
         self.final_dropout = nn.Dropout(p=self.cfg.final_dropout)
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
-
 
     def forward(self, raw_audio, raw_audio_len):
         with torch.no_grad():
@@ -242,8 +255,7 @@ class Model(nn.Module):
             # mask = torch.unsqueeze(commons.sequence_mask(log_mel_features_len, flow_in.size(2)), 1).to(flow_in.dtype)
             # flow_out, _ = self.decoder(flow_in, mask, reverse=False) # [B, F, T]
 
-            spec_augment_in = log_mel_features # [B, T, F]
-
+            spec_augment_in = log_mel_features  # [B, T, F]
             if self.training and self.spec_augment:
                 audio_features_masked_2 = apply_spec_aug(
                     spec_augment_in,
@@ -259,7 +271,7 @@ class Model(nn.Module):
         # conformer_in = torch.nn.functional.layer_norm(audio_features_masked_2, (audio_features_masked_2.size(-1),))
         conformer_in = audio_features_masked_2
         mask = mask_tensor(conformer_in, log_mel_features_len)
-        
+
         conformer_out, out_mask = self.conformer(conformer_in, mask)
         conformer_out = self.final_dropout(conformer_out)
         logits = self.final_linear(conformer_out)
@@ -277,4 +289,3 @@ class Model(nn.Module):
 
     def store_inverse(self):
         self.decoder.store_inverse()
-
