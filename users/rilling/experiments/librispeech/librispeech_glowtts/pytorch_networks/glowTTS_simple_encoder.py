@@ -513,7 +513,7 @@ def forward_init_hook(run_ctx, **kwargs):
 
     generator = Generator(h).to(run_ctx.device)
 
-    state_dict_g = load_checkpoint("/work/asr3/rossenbach/schuemann/vocoder/cp_libri_full/g_01080000", run_ctx.device)
+    state_dict_g = load_checkpoint("/work/asr3/rossenbach/rilling/vocoder/univnet/glow_finetuning/g_01080000", run_ctx.device)
     generator.load_state_dict(state_dict_g["generator"])
 
     run_ctx.generator = generator

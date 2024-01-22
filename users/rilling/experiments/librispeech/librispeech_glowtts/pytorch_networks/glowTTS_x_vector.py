@@ -455,7 +455,9 @@ class Model(nn.Module):
         else:
             y, y_lengths = (None, None)
 
-        if g is not None:
+        assert (not gen) or (gen and (g is not None)), "Generating speech without given speaker embedding is not supported!"
+
+        if not gen:
             with torch.no_grad():
                 _, _, g = self.x_vector(y, y_lengths)
 
@@ -598,11 +600,14 @@ def forward_init_hook(run_ctx, **kwargs):
 
     generator = Generator(h).to(run_ctx.device)
 
-    state_dict_g = load_checkpoint("/work/asr3/rossenbach/schuemann/vocoder/cp_libri_full/g_01080000", run_ctx.device)
+    state_dict_g = load_checkpoint("/work/asr3/rossenbach/rilling/vocoder/univnet/glow_finetuning/g_01080000", run_ctx.device)
     generator.load_state_dict(state_dict_g["generator"])
 
     run_ctx.generator = generator
 
+    run_ctx.speaker_x_vectors = torch.load(
+        "/work/asr3/rossenbach/rilling/sisyphus_work_dirs/glow_tts_asr_v2/i6_core/returnn/forward/ReturnnForwardJob.U6UwGhE7ENbp/output/output_pooled.hdf"
+    )
 
 def forward_finish_hook(run_ctx, **kwargs):
     pass
@@ -619,10 +624,12 @@ def forward_step(*, model: Model, data, run_ctx, **kwargs):
 
     tags = data["seq_tag"]
 
+    speaker_x_vector = run_ctx.speaker_x_vectors[speaker_labels.detach().cpu().numpy(), :].squeeze(1)
+
     (log_mels, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(
         phonemes,
         phonemes_len,
-        g=speaker_labels,
+        g=speaker_x_vector.to(run_ctx.device),
         gen=True,
         noise_scale=kwargs["noise_scale"],
         length_scale=kwargs["length_scale"],
