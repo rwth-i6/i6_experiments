@@ -16,7 +16,8 @@ from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio imp
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.base import Datastream
 from i6_experiments.users.rossenbach.datasets.librispeech import get_mixed_cv_segments
 
-from returnn_common.datasets import Dataset, OggZipDataset, MetaDataset
+# from returnn_common.datasets import Dataset, OggZipDataset, MetaDataset
+from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset, MetaDataset
 
 from ..default_tools import MINI_RETURNN_ROOT, RETURNN_EXE
 

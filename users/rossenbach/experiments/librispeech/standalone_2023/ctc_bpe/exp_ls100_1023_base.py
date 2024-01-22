@@ -204,64 +204,68 @@ def conformer_baseline():
             
             
     # from here on onwards, use default AdamW with same OCLR
-    train_args_adamw_02 = {
-        "config": {
-            "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
-            "learning_rates": list(np.linspace(1e-5, 1e-3, 150)) + list(np.linspace(1e-3, 1e-6, 150)),
-            #############
-            "batch_size": 200 * 16000,
-            "max_seq_length": {"audio_features": 35 * 16000},
-            "accum_grad_multiple_step": 2,
-        },
-    }
+    # train_args_adamw_02 = {
+    #     "config": {
+    #         "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
+    #         "learning_rates": list(np.linspace(1e-5, 1e-3, 150)) + list(np.linspace(1e-3, 1e-6, 150)),
+    #         #############
+    #         "batch_size": 200 * 16000,
+    #         "max_seq_length": {"audio_features": 35 * 16000},
+    #         "accum_grad_multiple_step": 2,
+    #     },
+    # }
     
-    model_config_smaller = ModelConfig(
-        feature_extraction_config=fe_config,
-        frontend_config=frontend_config,
-        specaug_config=specaug_config,
-        label_target_size=vocab_size_without_blank,
-        conformer_size=384,
-        num_layers=12,
-        num_heads=4,
-        ff_dim=384,
-        att_weights_dropout=0.2,
-        conv_dropout=0.2,
-        ff_dropout=0.2,
-        mhsa_dropout=0.2,
-        conv_kernel_size=9,
-        final_dropout=0.2,
-        specauc_start_epoch=1,
-    )
-    
-    train_args = {
-        **copy.deepcopy(train_args_adamw_02),
-        "network_module": "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6",
-        "net_args": {"model_config_dict": asdict(model_config_smaller)},
-    }
-    for lm_weight in [1.6, 1.8, 2.0, 2.2]:
-        for prior_scale in [0.3, 0.5]:
-            search_args = {
-                **default_search_args,
-                "lm_weight": lm_weight,
-                "prior_scale": prior_scale,
-            }
-            run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_peaknorm_smaller_decay1e-2/lm%.1f_prior%.2f_bs1024_th14" % (
-                    lm_weight, prior_scale),
-                datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+    # model_config_smaller = ModelConfig(
+    #     feature_extraction_config=fe_config,
+    #     frontend_config=frontend_config,
+    #     specaug_config=specaug_config,
+    #     label_target_size=vocab_size_without_blank,
+    #     conformer_size=384,
+    #     num_layers=12,
+    #     num_heads=4,
+    #     ff_dim=384,
+    #     att_weights_dropout=0.2,
+    #     conv_dropout=0.2,
+    #     ff_dropout=0.2,
+    #     mhsa_dropout=0.2,
+    #     conv_kernel_size=9,
+    #     final_dropout=0.2,
+    #     specauc_start_epoch=1,
+    # )
+    #
+    # train_args = {
+    #     **copy.deepcopy(train_args_adamw_02),
+    #     "network_module": "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6",
+    #     "net_args": {"model_config_dict": asdict(model_config_smaller)},
+    # }
 
-    model_config_smaller_start11 = copy.deepcopy(model_config_smaller)
-    model_config_smaller_start11.specauc_start_epoch = 11
-    train_args_start11 = copy.deepcopy(train_args)
-    train_args_start11["net_args"]["model_config_dict"] = asdict(model_config_smaller_start11)
-    for lm_weight in [1.6, 1.8, 2.0, 2.2]:
-        for prior_scale in [0.3, 0.5]:
-            search_args = {
-                **default_search_args,
-                "lm_weight": lm_weight,
-                "prior_scale": prior_scale,
-            }
-            run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_peaknorm_smaller_decay1e-2_start11/lm%.1f_prior%.2f_bs1024_th14" % (
-                    lm_weight, prior_scale),
-                datasets=train_data, train_args=train_args_start11, search_args=search_args, with_prior=True)
+    # Diverged
+
+    # for lm_weight in [1.6, 1.8, 2.0, 2.2]:
+    #     for prior_scale in [0.3, 0.5]:
+    #         search_args = {
+    #             **default_search_args,
+    #             "lm_weight": lm_weight,
+    #             "prior_scale": prior_scale,
+    #         }
+    #         run_exp(
+    #             prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_peaknorm_smaller_decay1e-2/lm%.1f_prior%.2f_bs1024_th14" % (
+    #                 lm_weight, prior_scale),
+    #             datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+
+    # This one was worse than the baseline 16.5 -> 17.9
+    # model_config_smaller_start11 = copy.deepcopy(model_config_smaller)
+    # model_config_smaller_start11.specauc_start_epoch = 11
+    # train_args_start11 = copy.deepcopy(train_args)
+    # train_args_start11["net_args"]["model_config_dict"] = asdict(model_config_smaller_start11)
+    # for lm_weight in [1.6, 1.8, 2.0, 2.2]:
+    #     for prior_scale in [0.3, 0.5]:
+    #         search_args = {
+    #             **default_search_args,
+    #             "lm_weight": lm_weight,
+    #             "prior_scale": prior_scale,
+    #         }
+    #         run_exp(
+    #             prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_peaknorm_smaller_decay1e-2_start11/lm%.1f_prior%.2f_bs1024_th14" % (
+    #                 lm_weight, prior_scale),
+    #             datasets=train_data, train_args=train_args_start11, search_args=search_args, with_prior=True)

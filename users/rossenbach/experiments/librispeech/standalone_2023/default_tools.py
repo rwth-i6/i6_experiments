@@ -4,7 +4,9 @@ from i6_core.tools.git import CloneGitRepositoryJob
 
 # python from apptainer
 RETURNN_EXE = tk.Path("/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
-MINI_RETURNN_ROOT = tk.Path("/u/rossenbach/src/NoReturnn", hash_overwrite="LIBRISPEECH_DEFAULT_RETURNN_ROOT")
+# MINI_RETURNN_ROOT = tk.Path("/u/rossenbach/src/NoReturnn", hash_overwrite="LIBRISPEECH_DEFAULT_RETURNN_ROOT")
+MINI_RETURNN_ROOT = CloneGitRepositoryJob("https://github.com/JackTemaki/MiniReturnn", commit="1ccdcb77414cb062b4fe69f051238d01022e2b15").out_repository
+MINI_RETURNN_ROOT.hash_overwrite="LIBRISPEECH_DEFAULT_RETURNN_ROOT"
 
 from i6_experiments.common.tools.sctk import compile_sctk
 
