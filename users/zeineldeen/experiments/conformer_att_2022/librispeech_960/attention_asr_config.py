@@ -846,8 +846,12 @@ def create_config(
         else:
             raise ValueError("Invalid speed_pert_version")
 
-    if feature_extraction_net and global_stats:
-        add_global_stats_norm(global_stats, exp_config["network"])
+    if feature_extraction_net:
+        if global_stats:
+            add_global_stats_norm(global_stats, exp_config["network"])
+        else:
+            # use per-seq norm
+            add_per_seq_norm(exp_config["network"])
 
     if mixup_aug_opts:
         add_mixup_layers(
@@ -878,6 +882,8 @@ def create_config(
                     net.update(feature_extraction_net)
                     if global_stats:
                         add_global_stats_norm(global_stats, net)
+                    else:
+                        add_per_seq_norm(net)
                 if mixup_aug_opts and enable_mixup_in_pretrain:
                     add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog)
                     net_as_str = "from returnn.config import get_global_config\n"
@@ -1009,6 +1015,11 @@ def create_config(
     )
 
     return returnn_config
+
+
+def add_per_seq_norm(net):
+    net["log10_"] = copy.deepcopy(net["log10"])
+    net["log10"] = {"class": "norm", "from": "log10_", "axis": "T"}
 
 
 def add_global_stats_norm(global_stats, net):
