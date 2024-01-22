@@ -211,7 +211,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             network = net_helpers.augment.augment_net_with_label_pops(
                 network, label_info=self.label_info, frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info
             )
-            if frame_rate_reduction_ratio_info.factor > 1:
+            if frame_rate_reduction_ratio_info.factor > 1 and frame_rate_reduction_ratio_info.single_state_alignment:
                 network["slice_classes"] = {
                     "class": "slice",
                     "from": network["classes_"]["from"],

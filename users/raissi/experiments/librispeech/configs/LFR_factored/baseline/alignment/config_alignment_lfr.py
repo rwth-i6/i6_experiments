@@ -72,7 +72,7 @@ def get_system(key, lr=4e-4, num_epochs=None, am_scale=1.0, tdp_scale=0.1):
     label_info_init_args = {
         "ph_emb_size": 0,
         "st_emb_size": 0,
-        "state_tying": RasrStateTying.monophone,
+        "state_tying": 'monophone-dense',#RasrStateTying.monophone,
         "n_states_per_phone": 1
     }
     init_args_system = {
@@ -174,6 +174,7 @@ def get_system(key, lr=4e-4, num_epochs=None, am_scale=1.0, tdp_scale=0.1):
         returnn_config=s.experiments[key]["returnn_config"],
         log_linear_scales=log_linear_scales
     )
+
     s.experiments[key]["returnn_config"] = bw_augmented_returnn_config
 
     s.returnn_rasr_training_fullsum(
@@ -182,6 +183,8 @@ def get_system(key, lr=4e-4, num_epochs=None, am_scale=1.0, tdp_scale=0.1):
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
     )
+
+    s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
 
     return_config_dict_infer = s.get_config_with_legacy_prolog_and_epilog(
         config=s.experiments[key]["returnn_config"].config,
@@ -194,10 +197,10 @@ def get_system(key, lr=4e-4, num_epochs=None, am_scale=1.0, tdp_scale=0.1):
 
     s.set_single_prior_returnn_rasr(
         key=key,
-        epoch=450,
+        epoch=400,
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
-        data_share=0.3,
+        data_share=0.1,
         context_type=PhoneticContext.monophone,
         smoothen=True,
         output_layer_name="center-output"

@@ -40,3 +40,7 @@ default_sa_args = SpecAugmentParams()
 # no chunking for full-sum
 default_blstm_fullsum = GeneralNetworkParams(l2=1e-4, use_multi_task=False, add_mlps=False)
 default_conformer_viterbi = GeneralNetworkParams(chunking="400:200", l2=1e-6, specaug_args=asdict(default_sa_args))
+
+frameshift40_conformer_viterbi = GeneralNetworkParams(
+    l2=1e-6, chunking="400:200", specaug_args=asdict(default_sa_args), frame_rate_reduction_ratio_factor=4
+)
