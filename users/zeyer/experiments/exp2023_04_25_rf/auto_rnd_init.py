@@ -31,7 +31,7 @@ def test():
     from returnn.util import basic as util
     from returnn.datasets.util.vocabulary import Vocabulary
     import returnn.frontend as rf
-    from returnn.tensor import Dim
+    from returnn.tensor import Tensor, Dim
     from i6_experiments.users.zeyer.audio.torch.random_speech_like import generate_dummy_train_input_kwargs
 
     better_exchook.install()
@@ -51,7 +51,23 @@ def test():
 
     train_input_kwargs = generate_dummy_train_input_kwargs(dev=rf.get_default_device(), target_dim=target_dim)
 
-    # TODO how to setup hooks?
+    _mod_id_to_name = {}
+
+    def _hook(mod, args, kwargs, result):
+        name = _mod_id_to_name[id(mod)]
+        (x,) = args
+        x: Tensor
+        y: Tensor = result
+        mean, var = rf.moments(x, axis=x.dims)
+        stddev = rf.sqrt(var)
+        print("*", name, "mean:")
+        # TODO rescale...
+        return y
+
+    for name, mod in model.named_modules():
+        if isinstance(mod, rf.Linear):
+            mod.register_forward_hook(_hook)
+            _mod_id_to_name[id(mod)] = name
 
     start_time = time.time()
     rf.init_train_step_run_ctx(train_flag=False)
