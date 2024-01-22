@@ -28,6 +28,7 @@ def get_serializer(
     net_args: Dict[str, Any],
     use_custom_engine=False,
     forward=False,
+    training_args={},
     forward_args={},
     debug=False,
     target="audio",
@@ -35,13 +36,19 @@ def get_serializer(
 ) -> TorchCollection:
     package = PACKAGE + ".pytorch_networks"
 
+    sisyphus_dependencies = ExternalImport(
+        tk.Path("/u/lukas.rilling/github/sisyphus", hash_overwrite="SISYPHUS_ROOT")
+    )
     pytorch_model_import = Import(code_object_path=package + ".%s.Model" % network_module)
-    pytorch_train_step = Import(code_object_path=package + ".%s.train_step" % network_module)
+    pytorch_train_step = Import(code_object_path=package + ".%s.train_step" % network_module) 
+    if (training_args):
+        pytorch_train_step = PartialImport(code_object_path=package + ".%s.train_step" % network_module, hashed_arguments=training_args, unhashed_package_root=PACKAGE, unhashed_arguments={})
     pytorch_model = PyTorchModel(
         model_class_name=pytorch_model_import.object_name,
         model_kwargs=net_args,
     )
     serializer_objects = [
+        sisyphus_dependencies,
         pytorch_model_import,
         pytorch_train_step,
         pytorch_model,
@@ -63,7 +70,7 @@ def get_serializer(
             finish_hook = Import(
                 code_object_path=package + ".%s.forward_finish_hook" % network_module, unhashed_package_root=PACKAGE
             )
-            serializer_objects.extend([vocoder_dependencies, forward_step, init_hook, finish_hook])
+            serializer_objects.extend([vocoder_dependencies, sisyphus_dependencies, forward_step, init_hook, finish_hook])
         elif target == "spectrograms":
             forward_step = PartialImport(
                 code_object_path=package + ".%s.forward_step_spectrograms" % network_module,
@@ -122,15 +129,15 @@ def get_serializer(
             )
             serializer_objects.extend([forward_step, init_hook, finish_hook])
         elif target == "text":
-            forward_step = PartialImport(
+            forward_step = Import(
                 code_object_path=package + ".%s.search_step" % network_module,
                 unhashed_package_root=PACKAGE,
-                hashed_arguments=forward_args or {},
-                unhashed_arguments={},
                 import_as="forward_step",
             )
-            init_hook = Import(
+            init_hook = PartialImport(
                 code_object_path=package + ".%s.search_init_hook" % network_module,
+                hashed_arguments=forward_args or {},
+                unhashed_arguments={},
                 unhashed_package_root=PACKAGE,
                 import_as="forward_init_hook",
             )
@@ -140,6 +147,25 @@ def get_serializer(
                 import_as="forward_finish_hook",
             )
             serializer_objects.extend([forward_step, init_hook, finish_hook])
+        elif target == "xvector":
+            forward_step = PartialImport(
+                code_object_path=package + ".%s.forward_step_xvector" % network_module,
+                unhashed_package_root=PACKAGE,
+                hashed_arguments=forward_args or {},
+                unhashed_arguments={},
+                import_as="forward_step",
+            )
+            init_hook = Import(
+                code_object_path=package + ".%s.forward_init_hook_xvector" % network_module,
+                unhashed_package_root=PACKAGE,
+                import_as="forward_init_hook",
+            )
+            finish_hook = Import(
+                code_object_path=package + ".%s.forward_finish_hook_xvector" % network_module,
+                unhashed_package_root=PACKAGE,
+                import_as="forward_finish_hook",
+            )
+            serializer_objects.extend([forward_step, init_hook, finish_hook]) 
     if use_custom_engine:
         pytorch_engine = Import(
             code_object_path=package + ".%s.CustomEngine" % network_module, unhashed_package_root=PACKAGE

@@ -4,7 +4,7 @@ from typing import Tuple
 
 from librosa import filters
 
-from ..feature_config import DbMelFeatureExtractionConfig
+from .configs import DbMelFeatureExtractionConfig
 
 
 class DbMelFeatureExtraction(nn.Module):

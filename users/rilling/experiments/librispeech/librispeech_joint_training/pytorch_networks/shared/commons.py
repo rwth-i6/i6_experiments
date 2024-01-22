@@ -56,14 +56,28 @@ def duration_loss(logw, logw_, lengths):
 
 
 @torch.jit.script
-def fused_add_tanh_sigmoid_multiply(input_a, input_b, n_channels):
+def fused_add_tanh_sigmoid_multiply(input_a, input_b, n_channels, debug_name: str="None"):
     n_channels_int = n_channels[0]
     in_act = input_a + input_b
     t_act = torch.tanh(in_act[:, :n_channels_int, :])
     s_act = torch.sigmoid(in_act[:, n_channels_int:, :])
     acts = t_act * s_act
+
+    # if (debug_name != "None"):
+    #     torch.save(in_act, f"{debug_name}_in_act.pkl")
+    #     torch.save(t_act, f"{debug_name}_t_act.pkl")
+    #     torch.save(s_act, f"{debug_name}_s_act.pkl")
+    #     torch.save(acts, f"{debug_name}_acts.pkl")
     return acts
 
+def fused_add_tanh_sigmoid_multiply_no_jit(input_a, input_b, n_channels, debug_name: str="None"):
+    n_channels_int = n_channels[0]
+    in_act = input_a + input_b
+    t_act = torch.tanh(in_act[:, :n_channels_int, :])
+    s_act = torch.sigmoid(in_act[:, n_channels_int:, :])
+    acts = t_act * s_act
+
+    return acts
 
 def convert_pad_shape(pad_shape):
     l = pad_shape[::-1]

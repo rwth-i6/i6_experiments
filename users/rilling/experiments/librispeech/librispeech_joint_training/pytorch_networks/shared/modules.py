@@ -4,9 +4,38 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from .commons import fused_add_tanh_sigmoid_multiply
+from .commons import fused_add_tanh_sigmoid_multiply, fused_add_tanh_sigmoid_multiply_no_jit
 
-from IPython import embed
+from . import commons
+from . import attentions
+
+
+class LinearBlock(torch.nn.Module):
+    def __init__(self, in_size, out_size, p_dropout):
+        """
+        :param in_size: input feature size
+        :param out_size: output feature size
+        :param filter_size: filter size
+        :param p_dropout: dropout probability
+        """
+        super().__init__()
+        self.lin = nn.Linear(in_size, out_size)
+        self.norm = nn.LayerNorm(out_size)
+        # self.norm = nn.BatchNorm1d(num_features=out_size)
+        self.p_dropout = p_dropout
+
+    def forward(self, x):
+        """
+        :param x: [B, F_in, T]
+        :return: [B, F_out, T]
+        """
+        x = self.lin(x)
+        # x = x.transpose(1,2)
+        x = self.norm(x)
+        # x = x.transpose(1,2)
+        x = nn.functional.relu(x)
+        x = nn.functional.dropout(x, p=self.p_dropout, training=self.training)
+        return x
 
 
 class Conv1DBlock(torch.nn.Module):
@@ -39,42 +68,6 @@ class Conv1DBlock(torch.nn.Module):
         x = self.ln(x)  # Layer normalization
         x = nn.functional.dropout(x, p=self.p_dropout, training=self.training)
         return (x, x_mask)
-
-
-class Conv1DBlockBN(torch.nn.Module):
-    """
-    A 1D-Convolution with ReLU, batch-norm and non-broadcasted dropout
-    Will pad to the same output length
-
-    Extended with xavier_init
-    """
-
-    def __init__(self, in_size, out_size, filter_size, dropout):
-        """
-        :param in_size: input feature size
-        :param out_size: output feature size
-        :param filter_size: filter size
-        :param dropout: dropout probability
-        """
-        super().__init__()
-        assert filter_size % 2 == 1, "Only odd filter sizes allowed"
-        self.conv = nn.Conv1d(in_size, out_size, filter_size, padding=filter_size // 2)
-        self.bn = nn.BatchNorm1d(num_features=out_size)
-        self.dropout = dropout
-
-        nn.init.xavier_normal_(self.conv.weight)
-
-    def forward(self, x):
-        """
-        :param x: [B, F_in, T]
-        :return: [B, F_out, T]
-        """
-        x = self.conv(x)
-        x = nn.functional.relu(x)
-        # TODO: does not consider masking!
-        x = self.bn(x)
-        x = nn.functional.dropout(x, p=self.dropout, training=self.training)
-        return x
 
 
 class LayerNorm(nn.Module):
@@ -132,17 +125,7 @@ class ConvReluNorm(nn.Module):
 
 
 class WN(torch.nn.Module):
-    def __init__(
-        self,
-        in_channels,
-        hidden_channels,
-        kernel_size,
-        dilation_rate,
-        n_layers,
-        gin_channels=0,
-        p_dropout=0,
-        p_speaker_drop=0,
-    ):
+    def __init__(self, in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels=0, p_dropout=0, use_jit=True):
         super(WN, self).__init__()
         assert kernel_size % 2 == 1
         assert hidden_channels % 2 == 0
@@ -153,7 +136,7 @@ class WN(torch.nn.Module):
         self.n_layers = n_layers
         self.gin_channels = gin_channels
         self.p_dropout = p_dropout
-        self.p_speaker_drop = p_speaker_drop
+        self.use_jit = use_jit
 
         self.in_layers = torch.nn.ModuleList()
         self.res_skip_layers = torch.nn.ModuleList()
@@ -188,25 +171,27 @@ class WN(torch.nn.Module):
 
         if g is not None:
             g = self.cond_layer(g)
-
-            if self.training and self.p_speaker_drop > 0:
-                g_mask = torch.bernoulli(torch.full((g.shape[0], 1, g.shape[2]), 1 - self.p_speaker_drop).float()).to(
-                    g.device
-                )
-                g = g * g_mask
-
         for i in range(self.n_layers):
             x_in = self.in_layers[i](x)
             x_in = self.drop(x_in)
+
             if g is not None:
                 cond_offset = i * 2 * self.hidden_channels
                 g_l = g[:, cond_offset : cond_offset + 2 * self.hidden_channels, :]
             else:
                 g_l = torch.zeros_like(x_in)
 
-            acts = fused_add_tanh_sigmoid_multiply(x_in, g_l, n_channels_tensor)
+            # if "debug_name" in kwargs:
+            #     debug_name = kwargs["debug_name"]
+            # else:
+            #     debug_name = "None"
+            if self.use_jit:
+                acts = fused_add_tanh_sigmoid_multiply(x_in, g_l, n_channels_tensor)
+            else:
+                acts = fused_add_tanh_sigmoid_multiply_no_jit(x_in, g_l, n_channels_tensor)
 
             res_skip_acts = self.res_skip_layers[i](acts)
+
             if i < self.n_layers - 1:
                 x = (x + res_skip_acts[:, : self.hidden_channels, :]) * x_mask
                 output = output + res_skip_acts[:, self.hidden_channels :, :]
@@ -382,3 +367,146 @@ class InvConvNear(nn.Module):
 
     def store_inverse(self):
         self.weight_inv = torch.inverse(self.weight.float()).to(dtype=self.weight.dtype)
+
+
+class FinalLinear(nn.Module):
+    def __init__(self, in_size, hidden_size, target_size, n_layers=1, p_dropout=0.01):
+        super().__init__()
+        self.in_size = in_size
+        self.hidden_size = hidden_size
+        self.target_size = target_size
+        self.n_layers = n_layers
+        self.p_dropout = p_dropout
+
+        self.layers = nn.ModuleList()
+
+        self.layers.append(LinearBlock(self.in_size, self.hidden_size, self.p_dropout))
+
+        for i in range(1, n_layers - 1):
+            self.layers.append(LinearBlock(self.hidden_size, self.hidden_size, self.p_dropout))
+
+        self.layers.append(LinearBlock(self.hidden_size, self.target_size, self.p_dropout))
+
+    def forward(self, x):
+        for l in self.layers:
+            x = l(x)
+
+        return x
+
+
+class FinalConvolutional(nn.Module):
+    def __init__(
+        self, in_channels, hidden_channels, target_channels, kernel_size=3, padding=1, n_layers=1, p_dropout=0.1
+    ):
+        super().__init__()
+        self.in_channels = in_channels
+        self.hidden_channels = hidden_channels
+        self.target_channels = target_channels
+        self.kernel_size = kernel_size
+        self.padding = padding
+        self.n_layers = n_layers
+        self.p_dropout = p_dropout
+
+        self.layers = nn.ModuleList()
+
+        self.layers.append(Conv1DBlock(self.in_channels, self.hidden_channels, self.kernel_size, p_dropout=p_dropout))
+
+        for _ in range(1, n_layers - 1):
+            self.layers.append(
+                Conv1DBlock(self.hidden_channels, self.hidden_channels, self.kernel_size, p_dropout=p_dropout)
+            )
+
+        self.layers.append(Conv1DBlock(self.in_channels, self.hidden_channels, self.kernel_size, p_dropout=p_dropout))
+
+    def forward(self, x):
+        for l in self.layers:
+            x = l(x)
+
+        return x
+
+
+class Flow(nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        hidden_channels,
+        kernel_size,
+        dilation_rate,
+        n_blocks,
+        n_layers,
+        p_dropout=0.0,
+        n_split=4,
+        n_sqz=2,
+        sigmoid_scale=False,
+        gin_channels=0,
+    ):
+        """Flow-based decoder model
+
+        Args:
+            in_channels (int): Number of incoming channels
+            hidden_channels (int): Number of hidden channels
+            kernel_size (int): Kernel Size for convolutions in coupling blocks
+            dilation_rate (float): Dilation Rate to define dilation in convolutions of coupling block
+            n_blocks (int): Number of coupling blocks
+            n_layers (int): Number of layers in CNN of the coupling blocks
+            p_dropout (float, optional): Dropout probability for CNN in coupling blocks. Defaults to 0..
+            n_split (int, optional): Number of splits for the 1x1 convolution for flows in the decoder. Defaults to 4.
+            n_sqz (int, optional): Squeeze. Defaults to 1.
+            sigmoid_scale (bool, optional): Boolean to define if log probs in coupling layers should be rescaled using sigmoid. Defaults to False.
+            gin_channels (int, optional): Number of speaker embedding channels. Defaults to 0.
+        """
+        super().__init__()
+
+        self.in_channels = in_channels
+        self.hidden_channels = hidden_channels
+        self.kernel_size = kernel_size
+        self.dilation_rate = dilation_rate
+        self.n_blocks = n_blocks
+        self.n_layers = n_layers
+        self.p_dropout = p_dropout
+        self.n_split = n_split
+        self.n_sqz = n_sqz
+        self.sigmoid_scale = sigmoid_scale
+        self.gin_channels = gin_channels
+
+        self.flows = nn.ModuleList()
+
+        for b in range(n_blocks):
+            self.flows.append(ActNorm(channels=in_channels * n_sqz))
+            self.flows.append(InvConvNear(channels=in_channels * n_sqz, n_split=n_split))
+            self.flows.append(
+                attentions.CouplingBlock(
+                    in_channels * n_sqz,
+                    hidden_channels,
+                    kernel_size=kernel_size,
+                    dilation_rate=dilation_rate,
+                    n_layers=n_layers,
+                    gin_channels=gin_channels,
+                    p_dropout=p_dropout,
+                    sigmoid_scale=sigmoid_scale,
+                )
+            )
+
+    def forward(self, x, x_mask, g=None, reverse=False):
+        if not reverse:
+            flows = self.flows
+            logdet_tot = 0
+        else:
+            flows = reversed(self.flows)
+            logdet_tot = None
+
+        if self.n_sqz > 1:
+            x, x_mask = commons.channel_squeeze(x, x_mask, self.n_sqz)
+        for f in flows:
+            if not reverse:
+                x, logdet = f(x, x_mask, g=g, reverse=reverse)
+                logdet_tot += logdet
+            else:
+                x, logdet = f(x, x_mask, g=g, reverse=reverse)
+        if self.n_sqz > 1:
+            x, x_mask = commons.channel_unsqueeze(x, x_mask, self.n_sqz)
+        return x, logdet_tot
+
+    def store_inverse(self):
+        for f in self.flows:
+            f.store_inverse()

@@ -17,8 +17,10 @@ def get_training_config(
     net_args: Dict[str, Any],
     config: Dict[str, Any],
     debug: bool = False,
+    training_args: Dict[str, Any]={},
     use_custom_engine=False,
     keep_epochs: set = None,
+    use_speaker_labels_in_dev: bool = False
 ):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_aligner
@@ -39,7 +41,10 @@ def get_training_config(
     base_config = {
         #############
         "train": training_datasets.train.as_returnn_opts(),
-        "dev": training_datasets.cv.as_returnn_opts(),
+        "dev": training_datasets.cv.as_returnn_opts() if not use_speaker_labels_in_dev else training_datasets.devtrain.as_returnn_opts(),
+        "eval_datasets": {
+            "devtrain": training_datasets.devtrain.as_returnn_opts()
+        } if not use_speaker_labels_in_dev else {}
     }
     config = {**base_config, **copy.deepcopy(config)}
 
@@ -48,6 +53,7 @@ def get_training_config(
         datastreams=training_datasets.datastreams,
         network_module=network_module,
         net_args=net_args,
+        training_args=training_args,
         debug=debug,
         use_custom_engine=use_custom_engine,
     )
@@ -113,8 +119,9 @@ def get_forward_config(
     base_config = {
         "behavior_version": 16,
         "forward_use_search": True,
+        "batch_size": 100 * 16000,
         #############
-        "forward": forward_dataset.cv.as_returnn_opts()
+        "forward": forward_dataset.devtrain.as_returnn_opts()
         if not (train_data or joint_data)
         else (forward_dataset.joint.as_returnn_opts() if joint_data else forward_dataset.train.as_returnn_opts()),
     }

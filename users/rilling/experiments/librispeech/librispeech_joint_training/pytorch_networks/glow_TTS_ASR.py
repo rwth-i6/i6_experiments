@@ -616,36 +616,32 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     audio_features = audio_features[indices, :, :]
     phonemes = data["phonemes"][indices, :]  # [B, T] (sparse)
     phonemes_len = data["phonemes:size1"][indices]  # [B, T]
+    phonemes_eow = data["phonemes_eow"][indices, :] # [B, T]
+    phonemes_eow_len = data["phonemes_eow:size1"][indices]
     speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
     tags = list(np.array(tags)[indices.detach().cpu().numpy()])
 
-    # print(f"phoneme shape: {phonemes.shape}")
-    # print(f"phoneme length: {phonemes_len}")
-    # print(f"audio_feature shape: {audio_features.shape}")
-    # print(f"audio_feature length: {audio_features_len}")
     (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), y_lengths, (attn, logw, logw_), (logprobs, ctc_input_length) = model(
         phonemes, phonemes_len, audio_features, audio_features_len, speaker_labels
     )
-    # embed()
-
     l_mle = commons.mle_loss(z, z_m, z_logs, logdet, z_mask)
     l_dp = commons.duration_loss(logw, logw_, phonemes_len)
 
     transposed_logprobs = torch.permute(logprobs, (1, 0, 2))
-    # breakpoint()
     l_ctc = nn.functional.ctc_loss(
         transposed_logprobs,
-        phonemes,
+        phonemes_eow,
         input_lengths=ctc_input_length,
-        target_lengths=phonemes_len,
+        target_lengths=phonemes_eow_len,
         blank=model.n_vocab,
         reduction="sum",
         zero_infinity=True,
     )
-    num_phonemes = torch.sum(phonemes_len)
 
     run_ctx.mark_as_loss(name="mle", loss=l_mle)
     run_ctx.mark_as_loss(name="dp", loss=l_dp)
+
+    num_phonemes = torch.sum(phonemes_eow_len)
     run_ctx.mark_as_loss(name="ctc", loss=l_ctc, inv_norm_factor=num_phonemes)
 
 
@@ -700,7 +696,7 @@ def forward_init_hook(run_ctx, **kwargs):
 
     generator = Generator(h).to(run_ctx.device)
 
-    state_dict_g = load_checkpoint("/work/asr3/rossenbach/schuemann/vocoder/cp_libri_full/g_01080000", run_ctx.device)
+    state_dict_g = load_checkpoint("/work/asr3/rossenbach/rilling/vocoder/univnet/glow_finetuning/g_01080000", run_ctx.device)
     generator.load_state_dict(state_dict_g["generator"])
 
     run_ctx.generator = generator

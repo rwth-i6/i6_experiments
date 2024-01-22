@@ -55,8 +55,7 @@ def forward(
         mem_rqmt=20,
     )
 
-    if target == "spectrogram" and joint_data:
-        last_forward_job.rqmt["gpu_mem"] = 24
+    # last_forward_job.rqmt["gpu_mem"] = 24
 
     forward_prefix = prefix + "/forward"
 

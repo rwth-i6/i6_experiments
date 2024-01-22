@@ -51,7 +51,7 @@ class Encoder(nn.Module):
 
 
 class CouplingBlock(nn.Module):
-  def __init__(self, in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels=0, p_dropout=0, sigmoid_scale=False, p_speaker_drop=0):
+  def __init__(self, in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels=0, p_dropout=0, sigmoid_scale=False, logs_epsilon=False, use_jit=True):
     super().__init__()
     self.in_channels = in_channels
     self.hidden_channels = hidden_channels
@@ -61,6 +61,7 @@ class CouplingBlock(nn.Module):
     self.gin_channels = gin_channels
     self.p_dropout = p_dropout
     self.sigmoid_scale = sigmoid_scale
+    self.logs_epsilon = logs_epsilon
 
     start = torch.nn.Conv1d(in_channels//2, hidden_channels, 1)
     start = torch.nn.utils.weight_norm(start)
@@ -72,10 +73,14 @@ class CouplingBlock(nn.Module):
     end.bias.data.zero_()
     self.end = end
 
-    self.wn = modules.WN(in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels, p_dropout, p_speaker_drop)
+    self.wn = modules.WN(in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels, p_dropout, use_jit)
 
 
   def forward(self, x, x_mask=None, reverse=False, g=None, **kwargs):
+    # if "debug_name" in kwargs:
+    #   debug_name = kwargs["debug_name"]
+    # else:
+    #   debug_name = None
     b, c, t = x.size()
     if x_mask is None:
       x_mask = 1
@@ -92,10 +97,12 @@ class CouplingBlock(nn.Module):
       logs = torch.log(1e-6 + torch.sigmoid(logs + 2))
 
     if reverse:
-      z_1 = (x_1 - m) * torch.exp(-logs) * x_mask
+      s = torch.exp(-logs) if not self.logs_epsilon else 1 / (torch.exp(logs) + 1e-6)
+      z_1 = (x_1 - m) * s * x_mask
       logdet = None
     else:
-      z_1 = (m + torch.exp(logs) * x_1) * x_mask
+      s = torch.exp(logs) if not self.logs_epsilon else torch.exp(logs) + 1e-6
+      z_1 = (m + s * x_1) * x_mask
       logdet = torch.sum(logs * x_mask, [1, 2])
 
     z = torch.cat([z_0, z_1], 1)
