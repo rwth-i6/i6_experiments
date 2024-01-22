@@ -1148,7 +1148,7 @@ def conformer_baseline():
                         {"lr": 1e-3},
                         {"lr": 1e-3, "initial_lr": 4e-4},  # higher initial LR
                         {"lr": 1e-3, "cyc1_factor": 0.5, "cyc2_factor": 0.5},  # no fine-tuning
-                        {"lr": 1e-3, "cyc1_factor": 0.2, "cyc2_factor": 0.7},  # shorted warmup
+                        {"lr": 1e-3, "cyc1_factor": 0.2, "cyc2_factor": 0.7},  # shorter warmup
                     ]:
                         args, name = get_base_v2_args(
                             ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts=lr_opts
