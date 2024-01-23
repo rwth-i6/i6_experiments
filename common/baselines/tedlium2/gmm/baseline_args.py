@@ -323,7 +323,7 @@ def get_sat_args():
         "iters": [8, 9, 10],
         "feature_flow": "uncached_mfcc+context+lda",
         "pronunciation_scales": [0.0],
-        "lm_scales": [25, 20, 8.0],
+        "lm_scales": [8.0, 20.0, 25.0],
         "lm_lookahead": True,
         "lookahead_options": None,
         "create_lattice": True,
