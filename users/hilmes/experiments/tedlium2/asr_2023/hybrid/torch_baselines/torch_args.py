@@ -228,7 +228,7 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **n
             "quantize": [10, 25, 100, 500, 1000, 5000],
             "training_whitelist": [
                 "torch_jj_config2",
-                "torch_jj_config2_large",
+                #"torch_jj_config2_large",
                 # "torch_transparent_attention_baseline"
                 #"torch_conformer_baseline",
                 #"torch_jj_config",
@@ -268,8 +268,9 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **n
                 "torch_jj_config2",
             ],
         },
-
     }
+    from .old_torch_recog_args import speed
+    recognition_args.update(speed)
     test_recognition_args = None
 
     nn_args = HybridArgs(
@@ -414,7 +415,10 @@ def get_pytorch_returnn_configs(
     package = PACKAGE
     pytorch_package = package + ".pytorch_networks"
 
-    def construct_from_net_kwargs(base_config, net_kwargs, explicit_hash=None, models_commit="75e03f37ac74d3d0c7358d29bb9b71dcec1bf120"):
+    def construct_from_net_kwargs(base_config, net_kwargs, explicit_hash=None, models_commit="75e03f37ac74d3d0c7358d29bb9b71dcec1bf120", grad_acc=None):
+        if grad_acc is not None:
+            base_config = copy.deepcopy(base_config)
+            base_config["accum_grad_multiple_step"] = grad_acc
         model_type = net_kwargs.pop("model_type")
         pytorch_model_import = Import(package + ".pytorch_networks.%s.Model" % model_type)
         pytorch_train_step = Import(package + ".pytorch_networks.%s.train_step" % model_type)
@@ -472,101 +476,101 @@ def get_pytorch_returnn_configs(
     smaller_config["accum_grad_multiple_step"] = 2
 
     return {
-        "torch_conformer_baseline": construct_from_net_kwargs(
-            medium_lchunk_config, {"model_type": "conformer_baseline"}
-        ),
+        # "torch_conformer_baseline": construct_from_net_kwargs(
+        #     medium_lchunk_config, {"model_type": "conformer_baseline"}
+        # ),
         # "torch_conformer_no_cast": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "conformer2"}),
         # "torch_conformer_new": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "conformer3"}),
-        "torch_conformer_chunk_400_200": construct_from_net_kwargs(
-            chunk_400_200_config, {"model_type": "conformer_baseline"}
-        ),
-        "torch_conformer_chunk_500_250": construct_from_net_kwargs(
-            chunk_500_250_config, {"model_type": "conformer_baseline"}
-        ),
-        "torch_conformer_kernel_7": construct_from_net_kwargs(
-            medium_lchunk_config, {"model_type": "conformer_baseline", "conv_kernel_size": 7}
-        ),
-        "torch_conformer_kernel_9": construct_from_net_kwargs(
-            medium_lchunk_config, {"model_type": "conformer_baseline", "conv_kernel_size": 9}
-        ),
-        "torch_conformer_heads_6": construct_from_net_kwargs(
-            medium_lchunk_config, {"model_type": "conformer_baseline", "att_heads": 6}
-        ),
-        "torch_conformer_ff_dim_1536": construct_from_net_kwargs(
-            medium_lchunk_config, {"model_type": "conformer_baseline", "ff_dim": 1536}
-        ),
-        "torch_conformer_more_spec": construct_from_net_kwargs(
-            batch_12k_config,
-            {
-                "model_type": "conformer_baseline",
-                "spec_num_time": 15,
-                "spec_max_time": 20,
-                "spec_num_feat": 5,
-                "spec_max_feat": 16,
-            },
-        ),
-        "torch_conformer_batch_12": construct_from_net_kwargs(batch_12k_config, {"model_type": "conformer_baseline"}),
-        "torch_conformer_batch_10": construct_from_net_kwargs(batch_10k_config, {"model_type": "conformer_baseline"}),
-        "torch_blstm_paper_baseline": construct_from_net_kwargs(wei_lstm_config, {"model_type": "blstm"}),
+        # "torch_conformer_chunk_400_200": construct_from_net_kwargs(
+        #     chunk_400_200_config, {"model_type": "conformer_baseline"}
+        # ),
+        # "torch_conformer_chunk_500_250": construct_from_net_kwargs(
+        #     chunk_500_250_config, {"model_type": "conformer_baseline"}
+        # ),
+        # "torch_conformer_kernel_7": construct_from_net_kwargs(
+        #     medium_lchunk_config, {"model_type": "conformer_baseline", "conv_kernel_size": 7}
+        # ),
+        # "torch_conformer_kernel_9": construct_from_net_kwargs(
+        #     medium_lchunk_config, {"model_type": "conformer_baseline", "conv_kernel_size": 9}
+        # ),
+        # "torch_conformer_heads_6": construct_from_net_kwargs(
+        #     medium_lchunk_config, {"model_type": "conformer_baseline", "att_heads": 6}
+        # ),
+        # "torch_conformer_ff_dim_1536": construct_from_net_kwargs(
+        #     medium_lchunk_config, {"model_type": "conformer_baseline", "ff_dim": 1536}
+        # ),
+        # "torch_conformer_more_spec": construct_from_net_kwargs(
+        #     batch_12k_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "spec_num_time": 15,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #     },
+        # ),
+        # "torch_conformer_batch_12": construct_from_net_kwargs(batch_12k_config, {"model_type": "conformer_baseline"}),
+        # "torch_conformer_batch_10": construct_from_net_kwargs(batch_10k_config, {"model_type": "conformer_baseline"}),
+        # "torch_blstm_paper_baseline": construct_from_net_kwargs(wei_lstm_config, {"model_type": "blstm"}),
         # "torch_blstm_baseline": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm"}),
         # "torch_blstm_baseline2": construct_from_net_kwargs(smaller_config, {"model_type": "blstm"}),
-        "torch_blstm_baseline": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm"}),
-        "torch_conformer_better": construct_from_net_kwargs(
-            batch_10k_chunk_400_config, {"model_type": "conformer_baseline", "conv_kernel_size": 7, "att_heads": 6}
-        ),
-        "torch_conformer_better_500": construct_from_net_kwargs(
-            batch_10k_chunk_500_config, {"model_type": "conformer_baseline", "conv_kernel_size": 7, "att_heads": 6}
-        ),
-        "torch_conformer_better_12k_400": construct_from_net_kwargs(
-            batch_12k_chunk_400_config, {"model_type": "conformer_baseline", "conv_kernel_size": 7, "att_heads": 6}
-        ),
-        "torch_jj_config": construct_from_net_kwargs(
-            jj_config,
-            {
-                "model_type": "conformer_baseline",
-                "att_heads": 6,
-                "conv_kernel_size": 9,
-                "pool_1_stride": (3, 1),
-                "ff_dim": 1536,
-                "upsample_kernel": 3,
-                "upsample_stride": 3,
-                "upsample_padding": 0,
-                "spec_num_time": 20,
-                "spec_max_time": 20,
-                "spec_num_feat": 5,
-                "spec_max_feat": 16,
-            },
-        ),
-        "torch_jj_default_spec": construct_from_net_kwargs(
-            jj_config,
-            {
-                "model_type": "conformer_baseline",
-                "att_heads": 6,
-                "conv_kernel_size": 9,
-                "pool_1_stride": (3, 1),
-                "ff_dim": 1536,
-                "upsample_kernel": 3,
-                "upsample_stride": 3,
-                "upsample_padding": 0,
-            },
-        ),
-        "torch_jj_larger_chunk": construct_from_net_kwargs(
-            jj_larger_chunk,
-            {
-                "model_type": "conformer_baseline",
-                "att_heads": 6,
-                "conv_kernel_size": 9,
-                "pool_1_stride": (3, 1),
-                "ff_dim": 1536,
-                "upsample_kernel": 3,
-                "upsample_stride": 3,
-                "upsample_padding": 0,
-                "spec_num_time": 20,
-                "spec_max_time": 20,
-                "spec_num_feat": 5,
-                "spec_max_feat": 16,
-            },
-        ),
+        # "torch_blstm_baseline": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm"}),
+        # "torch_conformer_better": construct_from_net_kwargs(
+        #     batch_10k_chunk_400_config, {"model_type": "conformer_baseline", "conv_kernel_size": 7, "att_heads": 6}
+        # ),
+        # "torch_conformer_better_500": construct_from_net_kwargs(
+        #     batch_10k_chunk_500_config, {"model_type": "conformer_baseline", "conv_kernel_size": 7, "att_heads": 6}
+        # ),
+        # "torch_conformer_better_12k_400": construct_from_net_kwargs(
+        #     batch_12k_chunk_400_config, {"model_type": "conformer_baseline", "conv_kernel_size": 7, "att_heads": 6}
+        # ),
+        # "torch_jj_config": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 9,
+        #         "pool_1_stride": (3, 1),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #     },
+        # ),
+        # "torch_jj_default_spec": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 9,
+        #         "pool_1_stride": (3, 1),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #     },
+        # ),
+        # "torch_jj_larger_chunk": construct_from_net_kwargs(
+        #     jj_larger_chunk,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 9,
+        #         "pool_1_stride": (3, 1),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #     },
+        # ),
         "torch_jj_config2": construct_from_net_kwargs(
             jj_config,
             {
@@ -584,23 +588,113 @@ def get_pytorch_returnn_configs(
                 "spec_max_feat": 16,
             },
         ),
-        "torch_jj_config3": construct_from_net_kwargs(
-            jj_config,
-            {
-                "model_type": "conformer_baseline",
-                "att_heads": 6,
-                "conv_kernel_size": 11,
-                "pool_1_stride": (3, 1),
-                "ff_dim": 1536,
-                "upsample_kernel": 3,
-                "upsample_stride": 3,
-                "upsample_padding": 0,
-                "spec_num_time": 20,
-                "spec_max_time": 20,
-                "spec_num_feat": 5,
-                "spec_max_feat": 16,
-            },
-        ),
+        # "torch_grad_acc_2": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 7,
+        #         "pool_1_stride": (3, 1),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #     },
+        #     grad_acc=2
+        # ),
+        # "torch_grad_acc_3": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 7,
+        #         "pool_1_stride": (3, 1),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #     },
+        #     grad_acc=3
+        # ),
+        # "torch_grad_acc_5": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 7,
+        #         "pool_1_stride": (3, 1),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #     },
+        #     grad_acc=5
+        # ),
+        # "torch_grad_acc_10": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 7,
+        #         "pool_1_stride": (3, 1),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #     },
+        #     grad_acc=10
+        # ),
+        # "torch_grad_acc_25": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 7,
+        #         "pool_1_stride": (3, 1),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #     },
+        #     grad_acc=25
+        # ),
+        # "torch_jj_config3": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 11,
+        #         "pool_1_stride": (3, 1),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #     },
+        # ),
         "torch_jj_config2_large": construct_from_net_kwargs(
             jj_config,
             {
@@ -619,129 +713,269 @@ def get_pytorch_returnn_configs(
                 "conformer_size": 512,
             },
         ),
-        "torch_jj_config2_larger": construct_from_net_kwargs(
+        # "torch_jj_config2_larger": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 12,
+        #         "conv_kernel_size": 13,
+        #         "pool_1_stride": (3, 1),
+        #         "ff_dim": 3072,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #         "conformer_size": 768,
+        #     },
+        # ),
+        # "torch_jj_config_ker_31": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 31,
+        #         "pool_1_stride": (3, 1),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #     },
+        # ),
+        # "torch_jj_config_ker_19": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 19,
+        #         "pool_1_stride": (3, 1),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #     },
+        # ),
+        # "torch_jj_config_ker_25": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 25,
+        #         "pool_1_stride": (3, 1),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #     },
+        # ),
+        # "torch_transparent_attention_baseline": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_transparent_att",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 7,
+        #         "pool_1_stride": (3, 1),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        # ),
+        # "torch_transparent_attention_baseline_larger": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_transparent_att",
+        #         "att_heads": 12,
+        #         "conv_kernel_size": 13,
+        #         "pool_1_stride": (3, 1),
+        #         "ff_dim": 3072,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #         "conformer_size": 768,
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        # ),
+        # "torch_transparent_attention_baseline_large": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_transparent_att",
+        #         "att_heads": 8,
+        #         "conv_kernel_size": 9,
+        #         "pool_1_stride": (3, 1),
+        #         "ff_dim": 2048,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #         "conformer_size": 512,
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        # ),
+        # "torch_sub4_21": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 7,
+        #         "pool_1_stride": (2, 1),
+        #         "pool_2_stride": (2, 1),
+        #         "pool_1_kernel_size": (2, 1),
+        #         "pool_2_kernel_size": (2, 1),
+        #         "pool_1_padding": (1, 0),
+        #         "pool_2_padding": (1, 0),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 4,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #         "linear_input_dim": 2560,
+        #     },
+        # ),
+        # "torch_sub4_1": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 7,
+        #         "pool_1_stride": (4, 1),
+        #         "pool_2_stride": None,
+        #         "pool_1_kernel_size": (4, 1),
+        #         #"pool_2_kernel_size": (2, 1),
+        #         "pool_1_padding": (2, 0),
+        #         #"pool_2_padding": (1, 0),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 4,
+        #         "upsample_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #         "linear_input_dim": 1280,
+        #     },
+        # ),
+        "torch_sub4_12": construct_from_net_kwargs(
             jj_config,
             {
                 "model_type": "conformer_baseline",
-                "att_heads": 12,
-                "conv_kernel_size": 13,
-                "pool_1_stride": (3, 1),
-                "ff_dim": 3072,
-                "upsample_kernel": 3,
-                "upsample_stride": 3,
-                "upsample_padding": 0,
-                "spec_num_time": 20,
-                "spec_max_time": 20,
-                "spec_num_feat": 5,
-                "spec_max_feat": 16,
-                "conformer_size": 768,
-            },
-        ),
-        "torch_jj_config_ker_31": construct_from_net_kwargs(
-            jj_config,
-            {
-                "model_type": "conformer_baseline",
-                "att_heads": 6,
-                "conv_kernel_size": 31,
-                "pool_1_stride": (3, 1),
-                "ff_dim": 1536,
-                "upsample_kernel": 3,
-                "upsample_stride": 3,
-                "upsample_padding": 0,
-                "spec_num_time": 20,
-                "spec_max_time": 20,
-                "spec_num_feat": 5,
-                "spec_max_feat": 16,
-            },
-        ),
-        "torch_jj_config_ker_19": construct_from_net_kwargs(
-            jj_config,
-            {
-                "model_type": "conformer_baseline",
-                "att_heads": 6,
-                "conv_kernel_size": 19,
-                "pool_1_stride": (3, 1),
-                "ff_dim": 1536,
-                "upsample_kernel": 3,
-                "upsample_stride": 3,
-                "upsample_padding": 0,
-                "spec_num_time": 20,
-                "spec_max_time": 20,
-                "spec_num_feat": 5,
-                "spec_max_feat": 16,
-            },
-        ),
-        "torch_jj_config_ker_25": construct_from_net_kwargs(
-            jj_config,
-            {
-                "model_type": "conformer_baseline",
-                "att_heads": 6,
-                "conv_kernel_size": 25,
-                "pool_1_stride": (3, 1),
-                "ff_dim": 1536,
-                "upsample_kernel": 3,
-                "upsample_stride": 3,
-                "upsample_padding": 0,
-                "spec_num_time": 20,
-                "spec_max_time": 20,
-                "spec_num_feat": 5,
-                "spec_max_feat": 16,
-            },
-        ),
-        "torch_transparent_attention_baseline": construct_from_net_kwargs(
-            jj_config,
-            {
-                "model_type": "conformer_transparent_att",
                 "att_heads": 6,
                 "conv_kernel_size": 7,
-                "pool_1_stride": (3, 1),
+                "pool_1_stride": (2, 1),
+                "pool_2_stride": (2, 1),
+                "pool_1_kernel_size": (2, 1),
+                "pool_2_kernel_size": (1, 2),
+                "pool_1_padding": (1, 0),
+                "pool_2_padding": None,
                 "ff_dim": 1536,
                 "upsample_kernel": 3,
-                "upsample_stride": 3,
+                "upsample_stride": 4,
                 "upsample_padding": 0,
                 "spec_num_time": 20,
                 "spec_max_time": 20,
                 "spec_num_feat": 5,
                 "spec_max_feat": 16,
+                "linear_input_dim": 2528,
             },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
         ),
-        "torch_transparent_attention_baseline_larger": construct_from_net_kwargs(
-            jj_config,
-            {
-                "model_type": "conformer_transparent_att",
-                "att_heads": 12,
-                "conv_kernel_size": 13,
-                "pool_1_stride": (3, 1),
-                "ff_dim": 3072,
-                "upsample_kernel": 3,
-                "upsample_stride": 3,
-                "upsample_padding": 0,
-                "spec_num_time": 20,
-                "spec_max_time": 20,
-                "spec_num_feat": 5,
-                "spec_max_feat": 16,
-                "conformer_size": 768,
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-        ),
-        "torch_transparent_attention_baseline_large": construct_from_net_kwargs(
-            jj_config,
-            {
-                "model_type": "conformer_transparent_att",
-                "att_heads": 8,
-                "conv_kernel_size": 9,
-                "pool_1_stride": (3, 1),
-                "ff_dim": 2048,
-                "upsample_kernel": 3,
-                "upsample_stride": 3,
-                "upsample_padding": 0,
-                "spec_num_time": 20,
-                "spec_max_time": 20,
-                "spec_num_feat": 5,
-                "spec_max_feat": 16,
-                "conformer_size": 512,
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-        ),
+        # did not converge, instant loss on NaN
+        # "torch_sub3": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 7,
+        #         "pool_1_stride": None,
+        #         "pool_2_stride": (3, 1),
+        #         "pool_1_kernel_size": (1, 1),
+        #         "pool_2_kernel_size": (3, 1),
+        #         "pool_1_padding": None,
+        #         "pool_2_padding": (1, 0),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "upsample_out_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #         "linear_input_dim": 2560,
+        #     },
+        # ),
+        # "torch_sub3_2121": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 7,
+        #         "pool_1_stride": None,
+        #         "pool_2_stride": (3, 1),
+        #         "pool_1_kernel_size": (1, 1),
+        #         "pool_2_kernel_size": (2, 1),
+        #         "pool_1_padding": None,
+        #         "pool_2_padding": (1, 0),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 3,
+        #         "upsample_padding": 0,
+        #         "upsample_out_padding": 0,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #         "linear_input_dim": 2560,
+        #     },
+        # ),
+        # "torch_sub4": construct_from_net_kwargs(
+        #     jj_config,
+        #     {
+        #         "model_type": "conformer_baseline",
+        #         "att_heads": 6,
+        #         "conv_kernel_size": 7,
+        #         "pool_1_stride": (2, 1),
+        #         "pool_2_stride": (2, 1),
+        #         "pool_1_kernel_size": (1, 2),
+        #         "pool_2_kernel_size": (1, 2),
+        #         "ff_dim": 1536,
+        #         "upsample_kernel": 3,
+        #         "upsample_stride": 4,
+        #         "upsample_padding": 0,
+        #         "upsample_out_padding": 1,
+        #         "spec_num_time": 20,
+        #         "spec_max_time": 20,
+        #         "spec_num_feat": 5,
+        #         "spec_max_feat": 16,
+        #         "linear_input_dim": 2496,
+        #     },
+        # ),
     }

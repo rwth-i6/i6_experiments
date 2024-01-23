@@ -11,9 +11,9 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import PyTorchMo
 
 # from i6_experiments.common.baselines.tedlium2.default_tools import PACKAGE
 
-
 def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **net_kwargs):
-    evaluation_epochs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] + list(range(10, num_epochs + 1, 10))
+#    evaluation_epochs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] + list(range(10, num_epochs + 1, 10))
+    evaluation_epochs = list(range(10, num_epochs + 1, 10))
 
     batch_size = 20000
     returnn_configs = get_pytorch_returnn_configs(
@@ -73,17 +73,17 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **n
         "tune": {
             "epochs": evaluation_epochs + ["best"],
             "feature_flow_key": "fb",
-            "prior_scales": [0.5, 0.7, 0.9],
+            "prior_scales": [0.9, 1.0, 1.1],
             "pronunciation_scales": [0.0],
-            "lm_scales": [10.0, 15.0],
+            "lm_scales": [10.0],
             "lm_lookahead": True,
             "lookahead_options": None,
             "create_lattice": True,
             "eval_single_best": True,
             "eval_best_in_lattice": True,
             "search_parameters": {
-                "beam-pruning": 16.0,
-                "beam-pruning-limit": 100000,
+                "beam-pruning": 14.0,
+                "beam-pruning-limit": 10000,
                 "word-end-pruning": 0.5,
                 "word-end-pruning-limit": 15000,
             },
@@ -99,9 +99,8 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **n
             "parallelize_conversion": True,
             "needs_features_size": False,
             "training_whitelist": [
-                "torch_whisper_v2_medium_en_tune_last_0_0001_split_10_acc_20",
-                "torch_whisper_v2_medium_en_tune_last_0_00005_split_10",
-                "torch_whisper_v2_medium_en_tune_last_0_0001_split_10"
+                "torch_whisper_v2_medium_en_tune_last_0_0001_split_10",
+                "torch_whisper_v2_medium_en_tune_last_0_0001_split_10_acc_50"
             ],
         },
         # "quant": {
@@ -200,10 +199,6 @@ def get_pytorch_returnn_configs(
     whisper_config["batch_size"] = batch_size
     whisper_config["max_seqs"] = 50
 
-    whisper_08 = copy.deepcopy(whisper_config)
-    whisper_08["learning_rate"] = 0.0008
-    whisper_06 = copy.deepcopy(whisper_config)
-    whisper_06["learning_rate"] = 0.0006
     whisper_04 = copy.deepcopy(whisper_config)
     whisper_04["learning_rate"] = 0.0004
     whisper_02 = copy.deepcopy(whisper_config)
@@ -219,21 +214,27 @@ def get_pytorch_returnn_configs(
     whisper_04_less = copy.deepcopy(whisper_04)
     whisper_04_less["max_seqs"] = 10
 
-    whisper_04_less_acc_5 = copy.deepcopy(whisper_04_less)
-    whisper_04_less_acc_5["accum_grad_multiple_step"] = 5
-    whisper_less_acc_5 = copy.deepcopy(whisper_less_seqs)
-    whisper_less_acc_5["accum_grad_multiple_step"] = 5
-
-    whisper_first_10 = copy.deepcopy(whisper_config)
-    whisper_first_10_post = None
-    if not recognition:
-        whisper_first_10_post = copy.deepcopy(base_post_config)
-        whisper_first_10_post["cleanup_old_models"] = {
-            "keep_last_n": 5,
-            "keep_best_n": 5,
-            "keep": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] + evaluation_epochs,
-        }
-    whisper_first_10["max_seqs"] = 10
+    whisper_jj = copy.deepcopy(whisper_config)
+    peak_lr = 7e-4
+    if num_epochs is None:
+        num_epochs = 250
+    import numpy as np
+    whisper_jj["learning_rates"] = (
+        list(np.linspace(peak_lr / 10, peak_lr, (num_epochs - 30) // 2))
+        + list(np.linspace(peak_lr, peak_lr / 10, (num_epochs - 30) // 2))
+        + list(np.linspace(peak_lr / 10, 1e-8, 30))
+    )
+    del whisper_jj["learning_rate"]
+    whisper_keep_peak = copy.deepcopy(whisper_config)
+    peak_lr = 7e-4
+    if num_epochs is None:
+        num_epochs = 250
+    import numpy as np
+    whisper_keep_peak["learning_rates"] = (
+        list(np.linspace(peak_lr / 10, peak_lr, (num_epochs - 30) // 2))
+        + [peak_lr] * 30
+        + list(np.linspace(peak_lr, 1e-8, (num_epochs - 30) // 2))
+    )
 
     # those are hashed
     PACKAGE = __package__
@@ -248,15 +249,19 @@ def get_pytorch_returnn_configs(
         post_config: Optional[Dict] = None,
         max_seqs: Optional[int] = None,
         grad_acc: Optional[int] = None,
+        learning_rate: Optional[float] = None,
+        debug=False,
     ):
         if post_config is None:
             post_config = base_post_config
-        if max_seqs is not None or grad_acc is not None:
+        if any(x is not None for x in [max_seqs, grad_acc, learning_rate]):
             base_config = copy.deepcopy(base_config)
             if max_seqs is not None:
                 base_config["max_seqs"] = max_seqs
             if grad_acc is not None:
                 base_config["accum_grad_multiple_step"] = grad_acc
+            if learning_rate is not None:
+                base_config["learning_rate"] = learning_rate
         model_type = net_kwargs.pop("model_type")
         pytorch_model_import = Import(package + ".pytorch_networks.%s.Model" % model_type)
         pytorch_train_step = Import(package + ".pytorch_networks.%s.train_step" % model_type)
@@ -273,7 +278,10 @@ def get_pytorch_returnn_configs(
             pytorch_export = Import(package + ".pytorch_networks.%s.export" % model_type)
             serializer_objects.append(pytorch_export)
 
-            prior_computation = Import(package + ".pytorch_networks.prior.whisper_prior.forward_step")
+            if "hubert" in model_type:
+                prior_computation = Import(package + ".pytorch_networks.prior.basic.forward_step")
+            else:
+                prior_computation = Import(package + ".pytorch_networks.prior.whisper_prior.forward_step")
             serializer_objects.append(prior_computation)
             prior_computation = Import(
                 package + ".pytorch_networks.prior.prior_callback.ComputePriorCallback", import_as="forward_callback"
@@ -310,240 +318,389 @@ def get_pytorch_returnn_configs(
         return returnn_config
 
     return {
-        "torch_whisper_large_tune_1_a50": construct_from_net_kwargs(
-            whisper_less_seqs,
+        # "torch_whisper_large_tune_1_a100": construct_from_net_kwargs(  # 6.6
+        #     whisper_less_seqs,
+        #     {
+        #         "model_type": "whisper_tune",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "large",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     grad_acc=100,
+        #     max_seqs=1,
+        # ),
+        # "torch_whisper_large_tune_1_a20": construct_from_net_kwargs(  # 7.0
+        #     whisper_less_seqs,
+        #     {
+        #         "model_type": "whisper_tune",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "large",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     grad_acc=20,
+        #     max_seqs=1,
+        # ),
+        # "torch_whisper_base_en_tune_last_0_0004_a20": construct_from_net_kwargs( # 7.3
+        #     whisper_config,
+        #     {
+        #         "model_type": "whisper_tune",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "base.en",
+        #     },
+        #     grad_acc=20,
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     learning_rate=0.0004,
+        #     max_seqs=10
+        # ),
+        # "torch_whisper_base_en_tune_last_0_0004_a50": construct_from_net_kwargs( # 7.0
+        #     whisper_04_less,
+        #     {
+        #         "model_type": "whisper_tune",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "base.en",
+        #     },
+        #     grad_acc=50,
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        # ),
+        # "torch_whisper_v2_large_tune_last_0_0004_split_10_a20": construct_from_net_kwargs( # 6.7
+        #     whisper_04,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "large-v2",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=2,
+        #     grad_acc=20
+        # ),
+        # "torch_whisper_v2_large_tune_last_0_0004_split_10_a50": construct_from_net_kwargs(  # 6.4
+        #     whisper_04,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "large-v2",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=2,
+        #     grad_acc=50
+        # ),
+        # "torch_whisper_v2_large_tune_last_0_0004_split_10_a100": construct_from_net_kwargs(  # 5.8
+        #     whisper_04,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "large-v2",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=2,
+        #     grad_acc=100
+        # ),
+        # "torch_whisper_v2_medium_en_tune_last_0_0004_split_10_a20": construct_from_net_kwargs(  # 6.3
+        #     whisper_04_less,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "medium.en",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=3,
+        #     grad_acc=20
+        # ),
+        # "torch_whisper_v2_medium_en_tune_last_0_0004_split_10_a50": construct_from_net_kwargs(  # 5.9
+        #     whisper_04_less,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "medium.en",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=3,
+        #     grad_acc=50
+        # ),
+        # "torch_whisper_v2_medium_en_tune_last_0_0001_split_10": construct_from_net_kwargs(  # 6.1
+        #     whisper_01,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "medium.en",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=3,
+        # ),
+        # "torch_whisper_v2_medium_en_tune_last_0_00005_split_10": construct_from_net_kwargs(  # 6.0
+        #     whisper_005,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "medium.en",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=3,
+        # ),
+        # "torch_whisper_v2_medium_en_tune_last_0_00005_split_10_a20": construct_from_net_kwargs(  # 5.9
+        #     whisper_005,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "medium.en",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=3,
+        #     grad_acc=20
+        # ),
+        # "torch_whisper_v2_medium_en_tune_last_0_0001_split_10_acc_20": construct_from_net_kwargs(  # 5.9
+        #     whisper_01,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "medium.en",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=3,
+        #     grad_acc=20
+        # ),
+        # "torch_whisper_v2_medium_en_tune_last_0_0001_split_10_acc_50": construct_from_net_kwargs(  # 5.7
+        #     whisper_01,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "medium.en",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=3,
+        #     grad_acc=50
+        # ),
+        # "torch_whisper_v2_medium_en_tune_last_jj_split_10_acc_50": construct_from_net_kwargs(  # 5.9
+        #     whisper_jj,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "medium.en",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=3,
+        #     grad_acc=50
+        # ),
+        # "torch_whisper_v2_medium_en_tune_last_jjlr_split_10_acc_50": construct_from_net_kwargs(  # 5.9
+        #     whisper_jj,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "medium.en",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=3,
+        #     grad_acc=50
+        # ),
+        # "torch_whisper_v3_medium_en_tune_last_jjlr_split_10_acc_50": construct_from_net_kwargs(  # 9.7
+        #     whisper_jj,
+        #     {
+        #         "model_type": "whisper_tune_v3",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "medium.en",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=3,
+        #     grad_acc=50
+        # ),
+        # "torch_whisper_v3_medium_en_tune_last6_jjlr_split_10_acc_50": construct_from_net_kwargs(  # 9.2
+        #     whisper_jj,
+        #     {
+        #         "model_type": "whisper_tune_v3",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 6,
+        #         "split_seq": True,
+        #         "whisper_model": "medium.en",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=3,
+        #     grad_acc=50
+        # ),
+       "torch_whisper_v3_medium_en_tune_first12_jjlr_split_10_acc_50": construct_from_net_kwargs(
+            whisper_jj,
             {
-                "model_type": "whisper_tune",
+                "model_type": "whisper_tune_v3",
                 "just_encoder": True,
-                "finetune_whisper": 1,
+                "finetune_whisper": [x for x in range(12)],
                 "split_seq": True,
-                "whisper_model": "large",
+                "whisper_model": "medium.en",
             },
             models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            grad_acc=50,
-            max_seqs=2,
-        ),
-        "torch_whisper_large_tune_1_a20": construct_from_net_kwargs(
-            whisper_less_seqs,
-            {
-                "model_type": "whisper_tune",
-                "just_encoder": True,
-                "finetune_whisper": 1,
-                "split_seq": True,
-                "whisper_model": "large",
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            grad_acc=20,
-            max_seqs=2,
-        ),
-        "torch_whisper_base_en_tune_last_0_0004_a20": construct_from_net_kwargs(
-            whisper_04_less,
-            {
-                "model_type": "whisper_tune",
-                "just_encoder": True,
-                "finetune_whisper": 1,
-                "split_seq": True,
-                "whisper_model": "base.en",
-            },
-            grad_acc=20,
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-        ),
-        "torch_whisper_base_en_tune_last_0_0004_a50": construct_from_net_kwargs(
-            whisper_04_less,
-            {
-                "model_type": "whisper_tune",
-                "just_encoder": True,
-                "finetune_whisper": 1,
-                "split_seq": True,
-                "whisper_model": "base.en",
-            },
-            grad_acc=50,
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-        ),
-        "torch_whisper_v2_large_tune_last_0_0004_split_10_a20": construct_from_net_kwargs(
-            whisper_04,
-            {
-                "model_type": "whisper_tune_v2",
-                "just_encoder": True,
-                "finetune_whisper": 1,
-                "split_seq": True,
-                "whisper_model": "large-v2",
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            post_config=whisper_first_10_post,
-            max_seqs=2,
-            grad_acc=20
-        ),
-        "torch_whisper_v2_large_tune_last_0_0004_split_10_a50": construct_from_net_kwargs(
-            whisper_04,
-            {
-                "model_type": "whisper_tune_v2",
-                "just_encoder": True,
-                "finetune_whisper": 1,
-                "split_seq": True,
-                "whisper_model": "large-v2",
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            post_config=whisper_first_10_post,
-            max_seqs=2,
+            post_config=base_post_config,
+            max_seqs=3,
             grad_acc=50
         ),
-        "torch_whisper_v2_large_tune_last_0_0004_split_10_a100": construct_from_net_kwargs(
-            whisper_04,
+       "torch_whisper_v3_medium_en_tune_last12_jjlr_split_10_acc_50": construct_from_net_kwargs(
+            whisper_jj,
             {
-                "model_type": "whisper_tune_v2",
+                "model_type": "whisper_tune_v3",
                 "just_encoder": True,
-                "finetune_whisper": 1,
-                "split_seq": True,
-                "whisper_model": "large-v2",
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            post_config=whisper_first_10_post,
-            max_seqs=2,
-            grad_acc=100
-        ),
-        "torch_whisper_v2_medium_en_tune_last_0_0004_split_10_a20": construct_from_net_kwargs(
-            whisper_04_less,
-            {
-                "model_type": "whisper_tune_v2",
-                "just_encoder": True,
-                "finetune_whisper": 1,
+                "finetune_whisper": 12,
                 "split_seq": True,
                 "whisper_model": "medium.en",
             },
             models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            post_config=whisper_first_10_post,
-            max_seqs=3,
-            grad_acc=20
-        ),
-        "torch_whisper_v2_medium_en_tune_last_0_0004_split_10_a50": construct_from_net_kwargs(
-            whisper_04_less,
-            {
-                "model_type": "whisper_tune_v2",
-                "just_encoder": True,
-                "finetune_whisper": 1,
-                "split_seq": True,
-                "whisper_model": "medium.en",
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            post_config=whisper_first_10_post,
+            post_config=base_post_config,
             max_seqs=3,
             grad_acc=50
         ),
-        "torch_whisper_v2_medium_en_tune_last_0_0001_split_10": construct_from_net_kwargs(  # BIG!
-            whisper_01,
-            {
-                "model_type": "whisper_tune_v2",
-                "just_encoder": True,
-                "finetune_whisper": 1,
-                "split_seq": True,
-                "whisper_model": "medium.en",
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            post_config=whisper_first_10_post,
-            max_seqs=3,
-        ),
-        "torch_whisper_v2_medium_en_tune_last_0_00005_split_10": construct_from_net_kwargs(
-            whisper_005,
-            {
-                "model_type": "whisper_tune_v2",
-                "just_encoder": True,
-                "finetune_whisper": 1,
-                "split_seq": True,
-                "whisper_model": "medium.en",
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            post_config=whisper_first_10_post,
-            max_seqs=3,
-        ),
-        "torch_whisper_v2_medium_en_tune_last_0_00005_split_10_a20": construct_from_net_kwargs(
-            whisper_005,
-            {
-                "model_type": "whisper_tune_v2",
-                "just_encoder": True,
-                "finetune_whisper": 1,
-                "split_seq": True,
-                "whisper_model": "medium.en",
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            post_config=whisper_first_10_post,
-            max_seqs=3,
-            grad_acc=20
-        ),
-        "torch_whisper_v2_medium_en_tune_last_0_0001_split_10_acc_20": construct_from_net_kwargs(  # BIG! To Tune
-            whisper_01,
-            {
-                "model_type": "whisper_tune_v2",
-                "just_encoder": True,
-                "finetune_whisper": 1,
-                "split_seq": True,
-                "whisper_model": "medium.en",
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            post_config=whisper_first_10_post,
-            max_seqs=3,
-            grad_acc=20
-        ),
-        "torch_whisper_v2_medium_en_tune_last_0_0001_split_10_acc_50": construct_from_net_kwargs(
-            whisper_01,
-            {
-                "model_type": "whisper_tune_v2",
-                "just_encoder": True,
-                "finetune_whisper": 1,
-                "split_seq": True,
-                "whisper_model": "medium.en",
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            post_config=whisper_first_10_post,
-            max_seqs=3,
-            grad_acc=50
-        ),
-        "torch_whisper_v2_base_en_tune_2_0_0004_a20": construct_from_net_kwargs(
-            whisper_04_less,
-            {
-                "model_type": "whisper_tune_v2",
-                "just_encoder": True,
-                "finetune_whisper": 2,
-                "split_seq": True,
-                "whisper_model": "base.en",
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            grad_acc=20
-        ),
-        "torch_whisper_v2_base_en_tune_2_0_0004_a50": construct_from_net_kwargs(
-            whisper_04_less,
-            {
-                "model_type": "whisper_tune_v2",
-                "just_encoder": True,
-                "finetune_whisper": 2,
-                "split_seq": True,
-                "whisper_model": "base.en",
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            grad_acc=50
-        ),
-        "torch_hubert_large": construct_from_net_kwargs(
-            whisper_02,
-            {
-                "model_type": "hubert_tune",
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            max_seqs=3,
-            grad_acc=20,
-        ),
-        "torch_whisper_v2_base_en_tune_2_04_acc_20": construct_from_net_kwargs(
-            whisper_04_less_acc_5,
-            {
-                "model_type": "whisper_tune_v2",
-                "just_encoder": True,
-                "finetune_whisper": 2,
-                "split_seq": True,
-                "whisper_model": "base.en",
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            grad_acc=20
-        ),
+        # "torch_whisper_v3_medium_en_tune_last_0_0001_split_10_acc_50": construct_from_net_kwargs(  # 9.6
+        #     whisper_01,
+        #     {
+        #         "model_type": "whisper_tune_v3",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "medium.en",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=3,
+        #     grad_acc=50
+        # ),
+        # "torch_whisper_v3_medium_en_tune_2_0_0001_split_10_acc_50": construct_from_net_kwargs(  # 9.6
+        #     whisper_01,
+        #     {
+        #         "model_type": "whisper_tune_v3",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 2,
+        #         "split_seq": True,
+        #         "whisper_model": "medium.en",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=3,
+        #     grad_acc=50
+        # ),
+        # "torch_whisper_v2_medium_en_tune_last_0_0001_split_10_acc_50_0.2": construct_from_net_kwargs(  # 5.8
+        #     whisper_01,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "medium.en",
+        #         "dropout": 0.2,
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=3,
+        #     grad_acc=50,
+        # ),
+        # "torch_whisper_v2_medium_en_tune_last_0_0001_split_10_acc_50_0.5": construct_from_net_kwargs(  # 5.8
+        #     whisper_01,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "medium.en",
+        #         "dropout": 0.5,
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=3,
+        #     grad_acc=50,
+        # ),
+        # "torch_whisper_v2_medium_tune_last_0_0001_split_10_acc_50": construct_from_net_kwargs(  # 6.2
+        #     whisper_01,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 1,
+        #         "split_seq": True,
+        #         "whisper_model": "medium",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     post_config=base_post_config,
+        #     max_seqs=3,
+        #     grad_acc=50
+        # ),
+        # "torch_whisper_v2_base_en_tune_2_0_0004_a20": construct_from_net_kwargs( # 7.3
+        #     whisper_04_less,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 2,
+        #         "split_seq": True,
+        #         "whisper_model": "base.en",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     grad_acc=20
+        # ),
+        # "torch_whisper_v2_base_en_tune_2_04_acc_20": construct_from_net_kwargs(  # 6.9
+        #     whisper_04_less,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 2,
+        #         "split_seq": True,
+        #         "whisper_model": "base.en",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     grad_acc=20,
+        # ),
         # DEPRECATED EXPs might not directly run anymore
+        # "torch_whisper_v2_base_en_tune_2_0_0004_a50": construct_from_net_kwargs(
+        #     whisper_04_less,
+        #     {
+        #         "model_type": "whisper_tune_v2",
+        #         "just_encoder": True,
+        #         "finetune_whisper": 2,
+        #         "split_seq": True,
+        #         "whisper_model": "base.en",
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     grad_acc=50
+        # ),
         # "torch_whisper_base_en_tune_3": construct_from_net_kwargs(
         #     whisper_less_seqs,
         #     {
@@ -714,4 +871,58 @@ def get_pytorch_returnn_configs(
         #     },
         #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
         # ),
+        **{f"torch_whisper_v3_medium_en_tune_{x}_jjlr_split_10_acc_50": construct_from_net_kwargs(
+            whisper_jj,
+            {
+                "model_type": "whisper_tune_v3",
+                "just_encoder": True,
+                "finetune_whisper": [x],
+                "split_seq": True,
+                "whisper_model": "medium.en",
+            },
+            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+            post_config=base_post_config,
+            max_seqs=3,
+            grad_acc=50
+        ) for x in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]},
+        **{f"torch_whisper_v3_medium_en_tune_{x}_keep7e4_split_10_acc_50": construct_from_net_kwargs(
+            whisper_keep_peak,
+            {
+                "model_type": "whisper_tune_v3",
+                "just_encoder": True,
+                "finetune_whisper": x if isinstance(x, list) else [x],
+                "split_seq": True,
+                "whisper_model": "medium.en",
+            },
+            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+            post_config=base_post_config,
+            max_seqs=3,
+            grad_acc=50
+        ) for x in [[0, 1, 2, 3, 4, 5, 6, 7, 8]]},
+        **{f"torch_whisper_v2_medium_en_tune_{x}_01r_split_10_acc_50": construct_from_net_kwargs(
+            whisper_01,
+            {
+                "model_type": "whisper_tune_v2",
+                "just_encoder": True,
+                "finetune_whisper": [x],
+                "split_seq": True,
+                "whisper_model": "medium.en",
+            },
+            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+            post_config=base_post_config,
+            max_seqs=3,
+            grad_acc=50
+        ) for x in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]},
+        #
+        **{f"torch_hubert_large_tune_{x}_jjlr_50": construct_from_net_kwargs(
+            whisper_jj,
+            {
+                "model_type": "hubert_tune",
+                "hubert_model": "large-ls960-ft",
+                "finetune_layer": x,
+            },
+            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+            max_seqs=2,
+            grad_acc=50,
+        ) for x in [[0, 1, 2, 3, 4, 5, 6, 7]]},
     }

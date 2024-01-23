@@ -5,11 +5,10 @@ from i6_core.tools.git import CloneGitRepositoryJob
 from i6_core.features import FilterbankJob
 
 from i6_experiments.common.setups.rasr.util import RasrSteps
-from i6_experiments.common.baselines.tedlium2.default_tools import RASR_BINARY_PATH
 
 from i6_experiments.common.baselines.tedlium2.hybrid.data import get_corpus_data_inputs
 from i6_experiments.common.baselines.tedlium2.hybrid.baseline_args import get_log_mel_feature_extraction_args
-from i6_experiments.users.hilmes.experiments.tedlium2.asr_2023.hybrid.torch_baselines.torch_args import get_nn_args
+from i6_experiments.users.hilmes.experiments.tedlium2.asr_2023.hybrid.torch_baselines.whisper_args_v2 import get_nn_args
 from i6_experiments.users.hilmes.modules.pytorch_onnx_hybrid_system import PyTorchOnnxHybridSystem
 
 
@@ -19,11 +18,11 @@ def run_gmm_system():
     )
 
     system = run_tedlium2_common_baseline()
-    return copy.deepcopy(system)
+    return system
 
 
-def run_tedlium2_torch_conformer():
-    prefix = "experiments/tedlium2/hybrid/conformer_baseline"
+def run_tedlium2_torch_whisper():
+    prefix = "experiments/tedlium2/hybrid/whisper_v2"
     gs.ALIAS_AND_OUTPUT_SUBDIR = prefix
 
     gmm_system = run_gmm_system()
@@ -37,13 +36,12 @@ def run_tedlium2_torch_conformer():
         nn_dev_data_inputs,
         nn_test_data_inputs,
     ) = get_corpus_data_inputs(
-        gmm_system, rasr_init_args.feature_extraction_args["fb"], FilterbankJob, alias_prefix=prefix, fix_dev_set=True
+        gmm_system, rasr_init_args.feature_extraction_args["fb"], FilterbankJob, alias_prefix=prefix
     )
-    nn_args = get_nn_args(num_epochs=250)
     steps = RasrSteps()
     steps.add_step("extract", rasr_init_args.feature_extraction_args)
     gmm_system.run(steps)
-    nn_dev_data_inputs["dev"].feature_flow = gmm_system.feature_flows["dev"]
+    nn_args = get_nn_args(num_epochs=250)
 
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
@@ -64,8 +62,9 @@ def run_tedlium2_torch_conformer():
 
     returnn_root = CloneGitRepositoryJob(
         "https://github.com/rwth-i6/returnn",
-        commit="0963d5b0ad55145a092c1de9bba100c94ee8600c",
+        commit="bd7cbbc5cb9efa018547e3179795b0416b61c236",
     ).out_repository
+    returnn_root.hash_overwrite = "TEDLIUM_RETURNN_UPDATEABLE_COMMIT"
 
     tedlium_nn_system = PyTorchOnnxHybridSystem(
         returnn_root=returnn_root,

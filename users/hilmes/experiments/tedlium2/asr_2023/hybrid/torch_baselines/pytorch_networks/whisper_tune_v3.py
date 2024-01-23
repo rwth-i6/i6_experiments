@@ -1,3 +1,6 @@
+"""
+Like v2 but changes to grad layer choices.
+"""
 import torch
 from torch import nn
 import whisper
@@ -103,9 +106,10 @@ class Model(nn.Module):
 
         self.whisper_name = kwargs.pop("whisper_model", "base")
         self.just_encoder = kwargs.pop("just_encoder", False)
-        self.finetune_whisper = kwargs.pop("finetune_whisper", 0)
+        self.finetune_whisper = kwargs.pop("finetune_whisper", None)  # select specific layers to be finetuned
         self.split_seq = kwargs.pop("split_seq", True)
         self.dropout = kwargs.pop("dropout", 0.0)
+        self.keep_layers = kwargs.pop("keep_layers", None)  # if int the last layer to be kept, if list selects right layers
 
         if self.just_encoder:
             with open(f"/work/asr4/hilmes/debug/whisper/{self.whisper_name}.pt", "rb") as f:
@@ -113,7 +117,7 @@ class Model(nn.Module):
                 checkpoint = torch.load(f, map_location=device)
                 dims = whisper.ModelDimensions(**checkpoint["dims"])
             self.whisper = Whisper(dims, self.dropout)
-            if epoch == 1:
+            if epoch == 1 and step == 0:
                 model_dict = self.whisper.state_dict()
                 print(model_dict.keys())
                 pretrained_dict = {k: v for k, v in checkpoint["model_state_dict"].items() if k in model_dict}
@@ -121,27 +125,45 @@ class Model(nn.Module):
                 self.whisper.load_state_dict(pretrained_dict)
         else:
             raise NotImplementedError
+        if self.keep_layers is not None:
+            if isinstance(self.keep_layers, list):
+                layer_ls = nn.ModuleList()
+                for num in self.keep_layers:
+                    layer_ls.append(self.whisper.encoder.blocks[num])
+                for layer, num in zip(layer_ls, self.keep_layers):
+                    assert layer == self.whisper.encoder.blocks[num], "Wrong layers were picked"
+            elif isinstance(self.keep_layers, int):
+                self.whisper.encoder.blocks = self.whisper.encoder.blocks[:self.keep_layers+1]
+                print(self.whisper.encoder.blocks)
+            else:
+                raise NotImplementedError
+        elif self.finetune_whisper is not None:
+            for param in self.whisper.parameters():
+                param.requires_grad_(False)
+            if isinstance(self.finetune_whisper, list):
+                for layer_num in self.finetune_whisper:
+                    for name, param in self.whisper.encoder.blocks[layer_num].named_parameters():
+                        param.requires_grad_(True)
+            elif isinstance(self.finetune_whisper, int):
+                for layer_num in range(1, self.finetune_whisper + 1):
+                    for name, param in self.whisper.encoder.blocks[-layer_num].named_parameters():
+                        param.requires_grad_(True)
+            else:
+                raise NotImplementedError
+        for name, param in self.whisper.encoder.blocks.named_parameters():
+            if param.requires_grad:
+                print(name)
 
         self.upsampling_layer = torch.nn.ConvTranspose1d(
             in_channels=self.whisper.dims.n_audio_state, out_channels=512, kernel_size=5, stride=2, padding=1
         )
         self.final_layer = nn.Linear(512, 9001)
 
-
     def forward(self, audio_mel_features: torch.Tensor):
         # TODO: SpecAugment
-        for param in self.whisper.parameters():
-              param.requires_grad_(False)
-        if self.finetune_whisper is not False:  # legacy compatibility for now
-            if isinstance(self.finetune_whisper, list):
-                for layer_num in self.finetune_whisper:
-                    for name, param in self.whisper.encoder.blocks[layer_num].named_parameters():
-                        param.requires_grad_(True)
-            if isinstance(self.finetune_whisper, int):
-                for layer_num in range(self.finetune_whisper):
-                    for param in self.whisper.encoder.blocks[-layer_num].parameters():
-                        param.requires_grad_(True)
         trans_audio_mel_features = torch.transpose(audio_mel_features, 1, 2)
+        assert any(
+            param.requires_grad for param in self.whisper.encoder.parameters()) or not self.finetune_whisper, "No layers are being fine-tuned"
         if self.split_seq:
             pad_widths = [(0, 0)] * trans_audio_mel_features.ndim
             pad_widths[-1] = (0, 2 * N_FRAMES - trans_audio_mel_features.shape[-1])
