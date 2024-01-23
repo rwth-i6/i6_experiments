@@ -180,7 +180,7 @@ def get_corpus_data_inputs(
     allophone_labeling = AllophoneLabeling(
         silence_phone="[SILENCE]",
         allophone_file=gmm_system.allophone_files["train"],
-        state_tying_file=gmm_system.jobs["train"]["state_tying"].out_state_tying,
+        state_tying_file=gmm_system.jobs["train"]["state_tying_gmm_out"].out_state_tying,
     )
 
     forced_align_args = ForcedAlignmentArgs(
