@@ -1,0 +1,106 @@
+diff --git a/returnn/tensor/_tensor_extra.py b/returnn/tensor/_tensor_extra.py
+index ead00655..9c977c42 100644
+--- a/returnn/tensor/_tensor_extra.py
++++ b/returnn/tensor/_tensor_extra.py
+@@ -340,10 +340,10 @@ class _TensorMixin(_TensorMixinBase):
+                     if not ignore_placeholder:
+                         if tag.dyn_size_ext.placeholder is None:
+                             tag.complete_dyn_size()
+-                        if self.placeholder is not None:
+-                            assert (
+-                                tag.dyn_size_ext.placeholder is not None
+-                            ), "%s sanity_check: dynamic dim %s value unknown" % (self, tag)
++                        # if self.placeholder is not None:
++                        #     assert (
++                        #         tag.dyn_size_ext.placeholder is not None
++                        #     ), "%s sanity_check: dynamic dim %s value unknown" % (self, tag)
+                 assert tag.is_dim_known()
+ 
+     def get_runtime_sanity_check_op(self: Tensor):
+diff --git a/returnn/tf/layers/basic.py b/returnn/tf/layers/basic.py
+index 0d9adee7..0f016a1b 100644
+--- a/returnn/tf/layers/basic.py
++++ b/returnn/tf/layers/basic.py
+@@ -2094,6 +2094,7 @@ class LinearLayer(_ConcatInputLayer):
+         forward_weights_init="glorot_uniform",
+         bias_init=0.0,
+         use_transposed_weights=False,
++        safe_embedding=False,
+         **kwargs,
+     ):
+         """
+@@ -2166,8 +2167,14 @@ class LinearLayer(_ConcatInputLayer):
+             ndim = x.get_shape().ndims
+ 
+             if self.input_data.sparse:
+-                # Maybe optionally we could also use tf.contrib.layers.safe_embedding_lookup_sparse().
+-                x = tf.nn.embedding_lookup(weights, to_int32_64(x))
++                if safe_embedding:
++                    x = to_int32_64(x)
++                    valid = tf.cast(tf.less(x, n_in), tf.int32)
++                    x = tf.nn.embedding_lookup(weights, x * valid)
++                    x = x * tf.cast(tf.expand_dims(valid, -1), tf.float32)
++                else:
++                    # Maybe optionally we could also use tf.contrib.layers.safe_embedding_lookup_sparse().
++                    x = tf.nn.embedding_lookup(weights, to_int32_64(x))
+                 ndim += 1
+             elif self.input_data.feature_dim_axis == self.input_data.batch_ndim - 1:
+                 x = dot(x, weights_, transpose_b=self.use_transposed_weights)
+diff --git a/returnn/tf/layers/rec.py b/returnn/tf/layers/rec.py
+index 644d865c..0004986e 100644
+--- a/returnn/tf/layers/rec.py
++++ b/returnn/tf/layers/rec.py
+@@ -9741,7 +9741,7 @@ class UnmaskLayer(LayerBase):
+     layer_class = "unmask"
+     recurrent = True
+ 
+-    def __init__(self, mask, **kwargs):
++    def __init__(self, mask, skip_initial=False, **kwargs):
+         """
+         :param LayerBase mask: the same as as used for :class:`MaskedComputationLayer`.
+           Outside loop: [B,T] or [T,B], original T. Inside loop, just [B].
+@@ -9771,7 +9771,7 @@ class UnmaskLayer(LayerBase):
+             initial = src_layer.get_rec_initial_output(
+                 batch_dim=batch_dim, rec_layer=rec_parent_layer, **src_layer_opts
+             )  # [B,D']
+-            if self.network.is_inside_rec_layer():
++            if self.network.is_inside_rec_layer() or not skip_initial:
+                 # This UnmaskLayer is inside the rec loop but the source is outside
+                 # (or at least does not have a time dim).
+                 # The RecLayer will not unroll the source when the dim tag do not match, i.e. when it is masked.
+@@ -9806,10 +9806,13 @@ class UnmaskLayer(LayerBase):
+                 mask_out = mask_out.copy_as_time_major()
+                 mask_t = mask_out.placeholder  # [T,B], e.g. [1,0,1] (ignoring batch-dim for example)
+                 idxs = tf.cumsum(tf.cast(mask_t, tf.int32), axis=mask_out.time_dim_axis)  # [T,B], e.g. [1,1,2]
+-                initial_wt = tf.expand_dims(initial, axis=0)  # add time axis
+-                src_t = concat_with_opt_broadcast(
+-                    [initial_wt, src.placeholder], allow_broadcast=[True, False], axis=0, name="concat_in_time"
+-                )  # [T'+1,B,D']
++                if skip_initial:
++                    src_t = src.placeholder
++                else:
++                    initial_wt = tf.expand_dims(initial, axis=0)  # add time axis
++                    src_t = concat_with_opt_broadcast(
++                        [initial_wt, src.placeholder], allow_broadcast=[True, False], axis=0, name="concat_in_time"
++                    )  # [T'+1,B,D']
+                 idxs_nd = nd_indices(idxs, batch_axis=src.batch_dim_axis)  # [T,B,2]
+                 y = tf.gather_nd(src_t, idxs_nd)  # [T,B,D']
+                 self.output.placeholder = y
+diff --git a/tools/compile_tf_graph.py b/tools/compile_tf_graph.py
+index 5fd668a3..f4bdf093 100755
+--- a/tools/compile_tf_graph.py
++++ b/tools/compile_tf_graph.py
+@@ -1000,10 +1000,10 @@ class RecStepByStepLayer(RecLayer):
+                 info["stochastic_vars"][name] = {"choice_state_var": "stochastic_var_choice_%s" % name}
+             decoder_input_vars_coll.append(rec_layer.state_vars["stochastic_var_choice_%s" % name].var)
+ 
+-        update_ops_coll = tf_compat.v1.get_collection_ref("update_ops")
+-        update_ops_coll.append(cell.delayed_state_update_op)
++        decoder_update_ops_coll = tf_compat.v1.get_collection_ref("decoder_update_ops")
++        decoder_update_ops_coll.append(cell.delayed_state_update_op)
+         # Based on the decoder state, encoder, and choices, calculate the next state.
+-        tf_compat.v1.get_collection_ref("post_update_ops")  # leave empty; merged with last decode op
++        tf_compat.v1.get_collection_ref("decoder_post_update_ops")  # leave empty; merged with last decode op
+         state_vars_coll = tf_compat.v1.get_collection_ref(CollectionKeys.STATE_VARS)
+         for name, var in sorted(rec_layer.state_vars.items()):
+             assert isinstance(name, str)
