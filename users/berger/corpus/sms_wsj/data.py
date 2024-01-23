@@ -1,5 +1,6 @@
 import re
 from typing import Dict, Generator, Iterable, List, Optional, Tuple
+from i6_core.audio.encoding import BlissChangeEncodingJob
 from i6_core.corpus.filter import FilterCorpusRemoveUnknownWordSegmentsJob
 from i6_core.text.label.subword_nmt.train import ReturnnTrainBpeJob
 from i6_core.tools.git import CloneGitRepositoryJob
@@ -19,8 +20,6 @@ from i6_core.meta.system import CorpusObject
 from i6_core.lib.corpus import Corpus
 from i6_core.lib.lexicon import Lexicon
 from i6_core.util import uopen, write_xml
-
-from returnn.datasets.lm import english_cleaners
 
 
 dep_dir = "/work/asr4/berger/dependencies/sms_wsj"
@@ -45,6 +44,7 @@ def process_string(s: str) -> str:
 
 
 def lm_cleaning(s: str) -> str:
+    from returnn.datasets.lm import english_cleaners
     remove_regexes = [
         re.compile(expr)
         for expr in [
@@ -290,6 +290,21 @@ def get_corpus_object_dict():
         corpus_object.audio_dir = j.out_audio_folder
         corpus_object.audio_format = j.output_format
 
+    for name in [
+        "train_si284",
+        "cv_dev93",
+        "test_eval92",
+    ]:
+        corpus_object, _ = corpus_object_dict[f"{name}_16kHz"]
+        j = BlissChangeEncodingJob(
+            corpus_file=corpus_object.corpus_file,
+            sample_rate=16000,
+            output_format="wav",
+        )
+        corpus_object.corpus_file = j.out_corpus
+        corpus_object.audio_dir = j.out_audio_folder
+        corpus_object.audio_format = "wav"
+
     return corpus_object_dict
 
 
@@ -299,7 +314,7 @@ def get_data_inputs(
     dev_keys: List[str] = ["cv_dev93"],
     test_keys: List[str] = ["test_eval92"],
     freq: int = 16,
-    lm_name: str = "5k_3gram",
+    lm_name: str = "64k_3gram",
     recog_lex_name: str = "nab-64k",
     ctc_lexicon: bool = False,
     preprocessing: bool = True,
@@ -326,7 +341,7 @@ def get_data_inputs(
         "64k_3gram": "lm-64k.lm.gz",
     }[lm_name]
 
-    lm = helpers.ArpaLMData(scale=10, filename=tk.Path(f"/work/speech/wsj/lm/recognition/{filename}"))
+    lm = helpers.ArpaLMData(scale=10, filename=tk.Path(f"/u/corpora/language/wsj/results/{filename}"))
 
     train_lexicon_path = tk.Path(f"{dep_dir}/lexicon/wsj01-train.lexicon.gz")
     if preprocessing:

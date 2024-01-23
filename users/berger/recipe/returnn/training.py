@@ -1,12 +1,29 @@
-__all__ = ["GetBestEpochJob", "GetBestCheckpointJob"]
+__all__ = ["Backend", "get_backend", "GetBestEpochJob", "GetBestCheckpointJob"]
 
+from enum import Enum, auto
 import os
 import shutil
 from typing import Dict, Generator, Optional
+from i6_core.returnn.config import ReturnnConfig
 
 from sisyphus import Job, Task, tk
 
-from i6_core.returnn.training import Checkpoint
+from i6_core.returnn.training import Checkpoint, PtCheckpoint
+
+
+class Backend(Enum):
+    TENSORFLOW = auto()
+    PYTORCH = auto()
+
+
+def get_backend(returnn_config: ReturnnConfig) -> Backend:
+    if returnn_config.get("use_tensorflow", False):
+        return Backend.TENSORFLOW
+    if returnn_config.get("backend", None) == "tensorflow":
+        return Backend.TENSORFLOW
+    if returnn_config.get("backend", None) == "torch":
+        return Backend.PYTORCH
+    raise NotImplementedError
 
 
 class GetBestEpochJob(Job):
@@ -51,9 +68,13 @@ class GetBestEpochJob(Job):
             "dev_score_output",
             "dev_score",
             "dev_error",
+            "dev_loss",
             "train_score_output",
             "train_score",
             "train_error",
+            "train_loss",
+            "score",
+            "loss",
         ]:
             for key in score_keys:
                 if pattern in key:
@@ -64,6 +85,7 @@ class GetBestEpochJob(Job):
 
     def run(self) -> None:
         inf_score = 1e99
+
         # this has to be defined in order for "eval" to work
         def EpochData(learningRate, error) -> dict:
             return {"learningRate": learningRate, "error": error}
@@ -91,15 +113,22 @@ class GetBestCheckpointJob(GetBestEpochJob):
     deleted in case that the training folder is removed.
     """
 
-    def __init__(self, model_dir: tk.Path, *args, **kwargs):
+    def __init__(self, model_dir: tk.Path, backend: Backend = Backend.TENSORFLOW, *args, **kwargs):
         """
 
         :param Path model_dir: model_dir output from a RETURNNTrainingJob
         """
         super().__init__(*args, **kwargs)
         self.model_dir = model_dir
+        self.backend = backend
         self.out_model_dir = self.output_path("model", directory=True)
-        self.out_checkpoint = Checkpoint(self.output_path("model/checkpoint.index"))
+
+        if backend == Backend.TENSORFLOW:
+            self.out_checkpoint = Checkpoint(self.output_path("model/checkpoint.index"))
+        elif backend == Backend.PYTORCH:
+            self.out_checkpoint = PtCheckpoint(self.output_path("model/checkpoint.pt"))
+        else:
+            raise NotImplementedError(f"Backend {backend} not supported by GetBestCheckpointJob")
 
     def tasks(self) -> Generator[Task, None, None]:
         yield Task("run", mini_task=True)
@@ -109,11 +138,13 @@ class GetBestCheckpointJob(GetBestEpochJob):
 
         base_name = f"epoch.{self.out_epoch.get():03d}"
 
-        for suffix in [
-            "index",
-            "meta",
-            "data-00000-of-00001",
-        ]:
+        suffixes = []
+        if self.backend == Backend.TENSORFLOW:
+            suffixes = ["index", "meta", "data-00000-of-00001"]
+        elif self.backend == Backend.PYTORCH:
+            suffixes = ["pt"]
+
+        for suffix in suffixes:
             try:
                 os.link(
                     os.path.join(self.model_dir.get_path(), f"{base_name}.{suffix}"),

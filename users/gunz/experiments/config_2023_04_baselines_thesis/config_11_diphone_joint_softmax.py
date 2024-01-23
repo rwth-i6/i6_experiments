@@ -1,6 +1,7 @@
 __all__ = ["run", "run_single"]
 
 import copy
+import dataclasses
 from dataclasses import dataclass
 import itertools
 
@@ -24,6 +25,7 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
+from ...setups.fh.decoder.config import PriorConfig, PriorInfo
 from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network import aux_loss, diphone_joint_output, extern_data
@@ -32,6 +34,7 @@ from ...setups.fh.network.augment import (
     augment_net_with_monophone_outputs,
     augment_net_with_label_pops,
 )
+from ...setups.fh.priors import scale_priors, smoothen_priors
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
@@ -42,7 +45,6 @@ from .config import (
     CONF_SA_CONFIG,
     FROM_SCRATCH_CV_INFO,
     L2,
-    RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
     RASR_ROOT_RS_RASR_GUNZ,
     RETURNN_PYTHON_TF15,
@@ -80,17 +82,8 @@ def run(returnn_root: tk.Path):
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
     scratch_align = tk.Path(SCRATCH_ALIGNMENT, cached=True)
-    tri_gmm_align = tk.Path(RAISSI_ALIGNMENT, cached=True)
 
     configs = [
-        Experiment(
-            alignment=tri_gmm_align,
-            alignment_name="GMMtri",
-            dc_detection=False,
-            lr="v7",
-            run_performance_study=True,
-            tune_decoding=True,
-        ),
         Experiment(
             alignment=scratch_align,
             alignment_name="scratch",
@@ -293,17 +286,20 @@ def run_single(
         returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=False
     )
     s.set_mono_priors_returnn_rasr(
-        key="fh",
-        epoch=keep_epochs[-2],
+        "fh",
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
-        output_layer_name="output",
+        epoch=keep_epochs[-2],
         returnn_config=prior_returnn_config,
+        output_layer_name="output",
+        smoothen=True,
     )
 
     nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
         returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=True
     )
+    s.set_graph_for_experiment("fh", override_cfg=nn_precomputed_returnn_config)
+
     tying_cfg = rasr.RasrConfig()
     tying_cfg.type = "diphone-no-tying-dense"
 
@@ -319,7 +315,13 @@ def run_single(
             tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
             recompile_graph_for_feature_scorer=True,
         )
-        for cfg in [recog_args, recog_args.with_prior_scale(0.2, 0.1).with_tdp_scale(0.4)]:
+        for cfg in [
+            recog_args,
+            recog_args.with_prior_scale(0.2).with_tdp_scale(0.4),
+            recog_args.with_prior_scale(0.4).with_tdp_scale(0.4),
+            recog_args.with_prior_scale(0.6).with_tdp_scale(0.4),
+            recog_args.with_prior_scale(0.8).with_tdp_scale(0.4),
+        ]:
             s.recognize_cart(
                 key="fh",
                 epoch=ep,
@@ -328,6 +330,7 @@ def run_single(
                 cart_tree_or_tying_config=tying_cfg,
                 params=cfg,
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
+                calculate_statistics=True,
             )
 
     return s

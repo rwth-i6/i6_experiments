@@ -9,7 +9,7 @@ from ..task import Task
 from ..score_results import RecogOutput, ScoreResult, ScoreResultCollection, MeasureType
 
 
-def get_switchboard_task_bpe1k(*, bpe_sample: float = 0.) -> Task:
+def get_switchboard_task_bpe1k(*, bpe_sample: float = 0.0) -> Task:
     """
     Switchboard
     """
@@ -35,10 +35,8 @@ def get_switchboard_task_bpe1k(*, bpe_sample: float = 0.) -> Task:
         train_epoch_split=train_epoch_split,
         dev_dataset=dev_dataset,
         eval_datasets=eval_datasets,
-
         main_measure_type=MeasureType(short_name="WER%"),
         main_measure_name="hub5e_00",
-
         score_recog_output_func=score,
         recog_post_proc_funcs=[_bpe_to_words],
     )
@@ -46,13 +44,14 @@ def get_switchboard_task_bpe1k(*, bpe_sample: float = 0.) -> Task:
 
 def _bpe_to_words(bpe: RecogOutput) -> RecogOutput:
     """BPE to words"""
-    words = SearchBPEtoWordsJob(bpe.output).out_word_search_results
+    words = SearchBPEtoWordsJob(bpe.output, output_gzip=True).out_word_search_results
     return RecogOutput(output=words)
 
 
 def _compare_old_new():
     # Now that we have the new datasets interface, check that we get the same hash.
     from sisyphus.hash import short_hash
+
     task = get_switchboard_task_bpe1k()
     # dataset in training
     config = dict(

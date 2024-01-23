@@ -18,7 +18,8 @@ from i6_experiments.common.setups.returnn_common import serialization
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.datasets.task import Task, DatasetConfig
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, ModelWithCheckpoint, ModelWithCheckpoints
+from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef
+from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.recog import GetBestRecogTrainExp
 from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
 from ..model import config_code
@@ -36,16 +37,16 @@ def broken_sis_run_with_prefix(prefix_name: str):
     recog_training_exp(prefix_name, task, model)
 
 
-def train(prefix_name: str,
-          *,
-          task: Task,
-          num_epochs: int = 150,
-          extra_hash: Any,
-          ) -> ModelWithCheckpoints:
+def train(
+    prefix_name: str,
+    *,
+    task: Task,
+    num_epochs: int = 150,
+    extra_hash: Any,
+) -> ModelWithCheckpoints:
     """train"""
     returnn_train_config_dict = dict(
         use_tensorflow=True,
-
         # dataset
         default_input=task.train_dataset.get_default_input(),
         target=task.train_dataset.get_default_target(),
@@ -55,21 +56,22 @@ def train(prefix_name: str,
 
     returnn_train_config = ReturnnConfig(
         returnn_train_config_dict,
-        python_epilog=[serialization.Collection(
-            [
-                serialization.NonhashedCode(
-                    nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(
-                        task.train_dataset.get_extern_data())),
-                serialization.ExplicitHash({
-                    "version": 1,
-                    "extra": extra_hash
-                }),
-                serialization.PythonEnlargeStackWorkaroundNonhashedCode,
-                serialization.PythonCacheManagerFunctionNonhashedCode,
-                PythonLoadOrigConfigNonhashedCode,
-                serialization.PythonModelineNonhashedCode,
-            ]
-        )],
+        python_epilog=[
+            serialization.Collection(
+                [
+                    serialization.NonhashedCode(
+                        nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(
+                            task.train_dataset.get_extern_data()
+                        )
+                    ),
+                    serialization.ExplicitHash({"version": 1, "extra": extra_hash}),
+                    serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+                    serialization.PythonCacheManagerFunctionNonhashedCode,
+                    PythonLoadOrigConfigNonhashedCode,
+                    serialization.PythonModelineNonhashedCode,
+                ]
+            )
+        ],
         post_config=dict(  # not hashed
             log_batch_size=True,
             tf_log_memory_usage=True,
@@ -84,15 +86,13 @@ def train(prefix_name: str,
     )
 
     returnn_train_job = ReturnnTrainingJob(
-        returnn_train_config,
-        log_verbosity=5, num_epochs=num_epochs,
-        time_rqmt=80, mem_rqmt=15, cpu_rqmt=4)
+        returnn_train_config, log_verbosity=5, num_epochs=num_epochs, time_rqmt=80, mem_rqmt=15, cpu_rqmt=4
+    )
     returnn_train_job.add_alias(prefix_name + "/train")
 
     return ModelWithCheckpoints.from_training_job(
-        definition=None,
-        training_job=returnn_train_job,
-        num_pretrain_epochs=num_epochs)
+        definition=None, training_job=returnn_train_job, num_pretrain_epochs=num_epochs
+    )
 
 
 class _RecogDef:
@@ -109,7 +109,8 @@ def recog_training_exp(prefix_name: str, task: Task, model: ModelWithCheckpoints
     summarize_job = GetBestRecogTrainExp(
         exp=model,
         recog_and_score_func=_RecogAndScoreFunc(prefix_name, task, model, recog_def),
-        main_measure_lower_is_better=task.main_measure_type.lower_is_better)
+        main_measure_lower_is_better=task.main_measure_type.lower_is_better,
+    )
     tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
     tk.register_output(prefix_name + "/recog_results_all_epochs", summarize_job.out_results_all_epochs_json)
 
@@ -133,16 +134,18 @@ def recog_model(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> 
     outputs = {}
     for name, dataset in task.eval_datasets.items():
         recog_out = search_dataset(
-            dataset=dataset, model=model, recog_def=recog_def,
-            recog_post_proc_funcs=task.recog_post_proc_funcs)
+            dataset=dataset, model=model, recog_def=recog_def, recog_post_proc_funcs=task.recog_post_proc_funcs
+        )
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[name] = score_out
     return task.collect_score_results_func(outputs)
 
 
 def search_dataset(
-    dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def: RecogDef,
-    recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = ()
+    dataset: DatasetConfig,
+    model: ModelWithCheckpoint,
+    recog_def: RecogDef,
+    recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
 ) -> RecogOutput:
     """
     recog on the specific dataset
@@ -174,7 +177,6 @@ def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogD
 
     returnn_recog_config_dict = dict(
         use_tensorflow=True,
-
         # dataset
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
@@ -183,20 +185,24 @@ def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogD
 
     returnn_recog_config = ReturnnConfig(
         config=returnn_recog_config_dict,
-        python_epilog=[serialization.Collection(
-            [
-                serialization.NonhashedCode(
-                    nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(
-                        dataset.get_extern_data())),
-                serialization.ExplicitHash({
-                    "version": 1,
-                }),
-                serialization.PythonEnlargeStackWorkaroundNonhashedCode,
-                serialization.PythonCacheManagerFunctionNonhashedCode,
-                PythonLoadOrigConfigNonhashedCode,
-                serialization.PythonModelineNonhashedCode,
-            ]
-        )],
+        python_epilog=[
+            serialization.Collection(
+                [
+                    serialization.NonhashedCode(
+                        nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(dataset.get_extern_data())
+                    ),
+                    serialization.ExplicitHash(
+                        {
+                            "version": 1,
+                        }
+                    ),
+                    serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+                    serialization.PythonCacheManagerFunctionNonhashedCode,
+                    PythonLoadOrigConfigNonhashedCode,
+                    serialization.PythonModelineNonhashedCode,
+                ]
+            )
+        ],
         post_config=dict(  # not hashed
             log_batch_size=True,
             tf_log_memory_usage=True,
@@ -208,11 +214,13 @@ def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogD
         sort_config=False,
     )
 
-    (returnn_recog_config.config if recog_def.batch_size_dependent else returnn_recog_config.post_config).update(dict(
-        batching="sorted",
-        batch_size=20000,
-        max_seqs=200,
-    ))
+    (returnn_recog_config.config if recog_def.batch_size_dependent else returnn_recog_config.post_config).update(
+        dict(
+            batching="sorted",
+            batch_size=20000,
+            max_seqs=200,
+        )
+    )
 
     return returnn_recog_config
 

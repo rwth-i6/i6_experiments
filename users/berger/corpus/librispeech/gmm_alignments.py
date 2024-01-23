@@ -11,17 +11,13 @@ from sisyphus import tk
 def get_alignment_hdf(returnn_root: tk.Path) -> List[tk.Path]:
     gmm_system = run_librispeech_960_common_baseline()
 
-    state_tying_job = DumpStateTyingJob(
-        gmm_system.outputs["train-other-960"]["final"].crp
-    )
+    state_tying_job = DumpStateTyingJob(gmm_system.outputs["train-other-960"]["final"].crp)
     allophone_file = gmm_system.outputs["train-other-960"][
         "final"
     ].crp.acoustic_model_post_config.allophones.add_from_file  # type: ignore
     train_align_job = RasrAlignmentDumpHDFJob(
         alignment_caches=list(
-            gmm_system.outputs["train-other-960"][
-                "final"
-            ].alignments.hidden_paths.values()  # type: ignore
+            gmm_system.outputs["train-other-960"]["final"].alignments.hidden_paths.values()  # type: ignore
         ),
         state_tying_file=state_tying_job.out_state_tying,
         allophone_file=allophone_file,

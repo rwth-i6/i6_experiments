@@ -81,6 +81,9 @@ class DbMelFeatureExtraction(nn.Module):
             pad_mode="constant",
             return_complex=True,
         )) ** 2
+        if len(S.size()) == 2:
+            # For some reason torch.stft "eats" batch sizes of 1, so we need to add it again if needed
+            S = torch.unsqueeze(S, 0)
         melspec = torch.einsum("...ft,mf->...mt", S, self.mel_basis)
         melspec = 20 * torch.log10(torch.max(self.min_amp, melspec))
         feature_data = torch.transpose(melspec, 1, 2)
@@ -229,7 +232,6 @@ class Model(torch.nn.Module):
 def train_step(*, model: Model, data, run_ctx, **kwargs):
 
     audio_features = data["audio_features"]  # [B, T, F]
-
     audio_features_len = data["audio_features:size1"]  # [B]
 
     # perform local length sorting for more efficient packing
@@ -372,6 +374,7 @@ def forward_init_hook(run_ctx, **kwargs):
     # the default output of the ReturnnForwardJob
     from returnn.datasets.hdf import SimpleHDFWriter
     run_ctx.hdf_writer = SimpleHDFWriter("output.hdf", dim=None, ndim=1)
+    run_ctx.recognition_file = open("recog.txt", "wt")
     run_ctx.pool = multiprocessing.Pool(8)
 
 
@@ -380,7 +383,6 @@ def forward_finish_hook(run_ctx, **kwargs):
 
 
 def forward_step(*, model: Model, data, run_ctx, **kwargs):
-    tags = data["seq_tag"]
     audio_features = data["audio_features"]  # [B, T, F]
     audio_features_len = data["audio_features:size1"]  # [B]
 
@@ -391,6 +393,8 @@ def forward_step(*, model: Model, data, run_ctx, **kwargs):
     phonemes = data["phonemes"][indices, :]  # [B, T] (sparse)
     phonemes_len = data["phonemes:size1"][indices]  # [B, T]
     speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
+
+    tags = [data["seq_tag"][i] for i in list(indices.cpu().numpy())]
 
     logprobs, audio_features_len = model(
         audio_features=audio_features,
@@ -414,3 +418,49 @@ def forward_step(*, model: Model, data, run_ctx, **kwargs):
         assert total_sum == feat_len
         assert len(duration) == phon_len
         run_ctx.hdf_writer.insert_batch(numpy.asarray([duration]), [len(duration)], [tag])
+        
+        
+def search_init_hook(run_ctx, text_lexicon, **kwargs):
+    # we are storing durations, but call it output.hdf to match
+    # the default output of the ReturnnForwardJob
+    from torchaudio.models.decoder import ctc_decoder
+    run_ctx.recognition_file = open("recog.txt", "wt")
+    labels = run_ctx.engine.forward_dataset.datasets["audio"].targets.labels
+    run_ctx.ctc_decoder = ctc_decoder(
+        lexicon=text_lexicon,
+        tokens=labels + ["[SILENCE]"],
+        # lm_dict="/u/corpora/speech/LibriSpeech/lexicon/librispeech-lexicon.txt",
+        lm="/u/corpora/speech/LibriSpeech/lm/4-gram.arpa.gz",
+        blank_token="[blank]",
+        sil_token="[SILENCE]",
+        unk_word="[UNKNOWN]"
+    )
+
+def search_finish_hook(run_ctx, **kwargs):
+    run_ctx.hdf_writer.close()
+
+
+def search_step(*, model: Model, data, run_ctx, **kwargs):
+    audio_features = data["audio_features"]  # [B, T, F]
+    audio_features_len = data["audio_features:size1"]  # [B]
+
+    # perform local length sorting for more efficient packing
+    audio_features_len, indices = torch.sort(audio_features_len, descending=True)
+
+    audio_features = audio_features[indices, :, :]
+    phonemes = data["phonemes"][indices, :]  # [B, T] (sparse)
+    phonemes_len = data["phonemes:size1"][indices]  # [B, T]
+    speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
+
+    tags = [data["seq_tag"][i] for i in list(indices.cpu().numpy())]
+
+    logprobs, audio_features_len = model(
+        audio_features=audio_features,
+        audio_features_len=audio_features_len,
+        speaker_labels=speaker_labels,
+    )
+
+    hypothesis = run_ctx.ctc_decoder(logprobs, audio_features_len)
+    from IPython import embed
+    embed()
+

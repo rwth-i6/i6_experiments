@@ -15,9 +15,7 @@ def check_engine_limits(current_rqmt, task):
     i6 support for gpu_mem
     """
     current_rqmt["time"] = min(168, current_rqmt.get("time", 2))
-    if current_rqmt.get("gpu", 0) > 0 and "-p" not in current_rqmt.get(
-        "sbatch_args", []
-    ):
+    if current_rqmt.get("gpu", 0) > 0 and "-p" not in current_rqmt.get("sbatch_args", []):
         if current_rqmt.get("gpu_mem", 0) > 11:
             current_rqmt["sbatch_args"] = ["-p", "gpu_24gb"]
         else:
@@ -42,9 +40,7 @@ def engine():
     return EngineSelector(
         engines={
             "short": LocalEngine(cpus=4, mem=8),
-            "long": SimpleLinuxUtilityForResourceManagementEngine(
-                default_rqmt=default_rqmt
-            ),
+            "long": SimpleLinuxUtilityForResourceManagementEngine(default_rqmt=default_rqmt),
         },
         default_engine="long",
     )
@@ -72,10 +68,14 @@ def worker_wrapper(job, task_name, call):
         "AlignmentJob",
         "Seq2SeqAlignmentJob",
         "EstimateMixturesJob",
+        "EstimateCMLLRJob",
+        "DumpStateTyingJob",
+        "StoreAllophonesJob",
+        "FeatureExtractionJob",
     }
     if type(job).__name__ not in wrapped_jobs:
         return call
-    binds = ["/work/asr4", "/work/asr3", "/work/common"]
+    binds = ["/work/asr4", "/work/asr3", "/work/common", "/u/corpora"]
     ts = {t.name(): t for t in job.tasks()}
     t = ts[task_name]
 
@@ -105,6 +105,7 @@ SIS_COMMAND = ["/u/berger/software/env/python3.10_sisyphus/bin/python", sys.argv
 WAIT_PERIOD_CACHE = 1  # stopping to wait for actionable jobs to appear
 WAIT_PERIOD_JOB_FS_SYNC = 1  # finishing a job
 
+JOB_AUTO_CLEANUP = False
 JOB_CLEANUP_KEEP_WORK = True
 JOB_FINAL_LOG = "finished.tar.gz"
 
@@ -112,8 +113,8 @@ SHOW_JOB_TARGETS = False
 SHOW_VIS_NAME_IN_MANAGER = False
 PRINT_ERROR = False
 
-G2P_PATH = "/u/beck/dev/g2p/release/lib/python/g2p.py"
-G2P_PYTHON = "/u/beck/programs/python/2.7.10/bin/python2"
+# G2P_PATH = "/u/beck/dev/g2p/release/lib/python/g2p.py"
+# G2P_PYTHON = "/u/beck/programs/python/2.7.10/bin/python2"
 SCTK_PATH = "/u/beck/programs/sctk-2.4.0/bin/"
 
 # BLAS_LIB = "/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so"
@@ -123,7 +124,7 @@ DEFAULT_ENVIRONMENT_SET["LD_LIBRARY_PATH"] = ":".join(
         "/usr/local/lib/tensorflow/",
         "/usr/local/lib/python3.8/dist-packages/tensorflow/",
         "/usr/local/lib/python3.8/dist-packages/scipy/.libs",
-        "/usr/local/lob/python3.8/dist-packages/numpy.libs",
+        "/usr/local/lib/python3.8/dist-packages/numpy.libs",
         "/usr/local/cuda/extras/CUPTI/lib64",
         "/usr/local/cuda/compat/lib",
         "/usr/local/nvidia/lib",

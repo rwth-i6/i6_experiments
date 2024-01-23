@@ -27,6 +27,8 @@ def calc_segment_stats_with_sil(blank_idx, sil_idx):
   map_non_sil_seg_len_to_count = Counter()
   map_sil_seg_len_to_count = Counter()
 
+  max_seq_len = 0
+
   while dataset.is_less_than_num_seqs(seq_idx):
     num_seqs += 1
     # progress indication
@@ -36,17 +38,20 @@ def calc_segment_stats_with_sil(blank_idx, sil_idx):
     dataset.load_seqs(seq_idx, seq_idx + 1)
     data = dataset.get_data(seq_idx, "data")
 
-    if data[-1] == blank_idx:
-      print("LAST IDX IS BLANK!")
-      print(data)
-      print(dataset.get_tag(seq_idx))
-      print("------------------------")
+    # if data[-1] == blank_idx:
+    #   print("LAST IDX IS BLANK!")
+    #   print(data)
+    #   print(dataset.get_tag(seq_idx))
+    #   print("------------------------")
 
     # find non-blanks and silence
     non_blank_idxs = np.where(data != blank_idx)[0]
     sil_idxs = np.where(data == sil_idx)[0]
 
     non_blank_data = data[data != blank_idx]
+
+    if len(data) > max_seq_len:
+      max_seq_len = len(data)
 
     # count number of segments and number of blank frames
     num_label_segs += len(non_blank_idxs) - len(sil_idxs)
@@ -71,35 +76,35 @@ def calc_segment_stats_with_sil(blank_idx, sil_idx):
           if seg_len > max_seg_len:
             max_seg_len = seg_len
 
-          if seg_len > 20:
-            print("SEQ WITH SEG LEN OVER 20:\n")
-            print(data)
-            print(dataset.get_tag(seq_idx))
-            print("-------------------------------")
-
-          if seg_len > 30:
-            print("SEQ WITH SEG LEN OVER 30:\n")
-            print(data)
-            print(dataset.get_tag(seq_idx))
-            print("-------------------------------")
-
-          if seg_len > 40:
-            print("SEQ WITH SEG LEN OVER 40:\n")
-            print(data)
-            print(dataset.get_tag(seq_idx))
-            print("-------------------------------")
-
-          if seg_len > 60:
-            print("SEQ WITH SEG LEN OVER 60:\n")
-            print(data)
-            print(dataset.get_tag(seq_idx))
-            print("-------------------------------")
-
-          if seg_len > 80:
-            print("SEQ WITH SEG LEN OVER 80:\n")
-            print(data)
-            print(dataset.get_tag(seq_idx))
-            print("-------------------------------")
+          # if seg_len > 20:
+          #   print("SEQ WITH SEG LEN OVER 20:\n")
+          #   print(data)
+          #   print(dataset.get_tag(seq_idx))
+          #   print("-------------------------------")
+          #
+          # if seg_len > 30:
+          #   print("SEQ WITH SEG LEN OVER 30:\n")
+          #   print(data)
+          #   print(dataset.get_tag(seq_idx))
+          #   print("-------------------------------")
+          #
+          # if seg_len > 40:
+          #   print("SEQ WITH SEG LEN OVER 40:\n")
+          #   print(data)
+          #   print(dataset.get_tag(seq_idx))
+          #   print("-------------------------------")
+          #
+          # if seg_len > 60:
+          #   print("SEQ WITH SEG LEN OVER 60:\n")
+          #   print(data)
+          #   print(dataset.get_tag(seq_idx))
+          #   print("-------------------------------")
+          #
+          # if seg_len > 80:
+          #   print("SEQ WITH SEG LEN OVER 80:\n")
+          #   print(data)
+          #   print(dataset.get_tag(seq_idx))
+          #   print("-------------------------------")
 
           label_dependent_seg_lens.update({non_blank_data[i]: seg_len})
           label_dependent_num_segs.update([non_blank_data[i]])
@@ -139,6 +144,14 @@ def calc_segment_stats_with_sil(blank_idx, sil_idx):
 
   mean_seq_len = (num_blank_frames + num_sil_segs + num_label_segs) / num_seqs
 
+  num_segments_shorter2 = sum([count for seg_len, count in map_non_sil_seg_len_to_count.items() if seg_len < 2])
+  num_segments_shorter4 = sum([count for seg_len, count in map_non_sil_seg_len_to_count.items() if seg_len < 4])
+  num_segments_shorter8 = sum([count for seg_len, count in map_non_sil_seg_len_to_count.items() if seg_len < 8])
+  num_segments_shorter16 = sum([count for seg_len, count in map_non_sil_seg_len_to_count.items() if seg_len < 16])
+  num_segments_shorter32 = sum([count for seg_len, count in map_non_sil_seg_len_to_count.items() if seg_len < 32])
+  num_segments_shorter64 = sum([count for seg_len, count in map_non_sil_seg_len_to_count.items() if seg_len < 64])
+  num_segments_shorter128 = sum([count for seg_len, count in map_non_sil_seg_len_to_count.items() if seg_len < 128])
+
   filename = "statistics"
   with open(filename, "w+") as f:
     f.write("Segment statistics: \n\n")
@@ -160,12 +173,21 @@ def calc_segment_stats_with_sil(blank_idx, sil_idx):
     f.write("\t\tMean length per segment: %f \n" % mean_label_len)
     f.write("\t\tMean length per sequence: %f \n" % mean_total_label_len)
     f.write("\t\tNum segments: %f \n" % num_label_segs)
+    f.write("\t\tPercent segments shorter than x frames: \n")
+    f.write("\t\tx = 2: %f \n" % (num_segments_shorter2 / num_label_segs))
+    f.write("\t\tx = 4: %f \n" % (num_segments_shorter4 / num_label_segs))
+    f.write("\t\tx = 8: %f \n" % (num_segments_shorter8 / num_label_segs))
+    f.write("\t\tx = 16: %f \n" % (num_segments_shorter16 / num_label_segs))
+    f.write("\t\tx = 32: %f \n" % (num_segments_shorter32 / num_label_segs))
+    f.write("\t\tx = 64: %f \n" % (num_segments_shorter64 / num_label_segs))
+    f.write("\t\tx = 128: %f \n" % (num_segments_shorter128 / num_label_segs))
     f.write("\n")
     f.write("Overall maximum segment length: %d \n" % max_seg_len)
     f.write("\n")
     f.write("\n")
     f.write("Sequence statistics: \n\n")
     f.write("\tMean length: %f \n" % mean_seq_len)
+    f.write("\tMax length: %f \n" % max_seq_len)
     f.write("\tNum sequences: %f \n" % num_seqs)
 
   filename = "mean_non_sil_len"
@@ -188,50 +210,6 @@ def calc_segment_stats_with_sil(blank_idx, sil_idx):
     ax.axvline(q, color="r")
   plt.savefig("non_sil_histogram.pdf")
   plt.close()
-
-  # plot histograms non-sil segment lens > 12
-  hist_data = [item for seg_len, count in map_non_sil_seg_len_to_count.items() for item in [seg_len] * count if seg_len >= 12]
-  if len(hist_data) > 0:
-    plt.hist(hist_data, bins=30, range=(10, 50))
-    ax = plt.gca()
-    quantiles = [np.quantile(hist_data, q) for q in [.90, .95, .99]]
-    for n, q in zip([90, 95, 99], quantiles):
-      # write quantiles to file
-      with open("percentile_%s" % n, "w+") as f:
-        f.write(str(q))
-      ax.axvline(q, color="r")
-    plt.savefig("non_sil_histogram_over_11.pdf")
-    plt.close()
-
-  # plot histograms non-sil segment lens > 30
-  hist_data = [item for seg_len, count in map_non_sil_seg_len_to_count.items() for item in [seg_len] * count if
-               seg_len >= 30]
-  if len(hist_data) > 0:
-    plt.hist(hist_data, bins=30, range=(30, 100))
-    ax = plt.gca()
-    quantiles = [np.quantile(hist_data, q) for q in [.90, .95, .99]]
-    for n, q in zip([90, 95, 99], quantiles):
-      # write quantiles to file
-      with open("percentile_%s" % n, "w+") as f:
-        f.write(str(q))
-      ax.axvline(q, color="r")
-    plt.savefig("non_sil_histogram_over_29.pdf")
-    plt.close()
-
-  # plot histograms non-sil segment lens > 80
-  hist_data = [item for seg_len, count in map_non_sil_seg_len_to_count.items() for item in [seg_len] * count if
-               seg_len >= 80]
-  if len(hist_data) > 0:
-    plt.hist(hist_data, bins=30, range=(80, 150))
-    ax = plt.gca()
-    quantiles = [np.quantile(hist_data, q) for q in [.90, .95, .99]]
-    for n, q in zip([90, 95, 99], quantiles):
-      # write quantiles to file
-      with open("percentile_%s" % n, "w+") as f:
-        f.write(str(q))
-      ax.axvline(q, color="r")
-    plt.savefig("non_sil_histogram_over_80.pdf")
-    plt.close()
 
   # plot histograms sil segment lens
   hist_data = [item for seg_len, count in map_sil_seg_len_to_count.items() for item in [seg_len] * count]

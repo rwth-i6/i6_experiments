@@ -1,0 +1,380 @@
+Hello, experiment: /u/schmitt/experiments/segmental_models_2021_22_pycharm/recipe/i6_experiments/users/schmitt/experiments/config/pipelines/global_vs_segmental_2022_23/demos/demo_center_window_weight_feedback_3
+RETURNN starting up, version 1.20230719.100821+git.9f1e99e2, date/time 2023-07-19-10-10-28 (UTC+0200), pid 196864, cwd /u/schmitt/src/returnn_new/tests, Python /work/asr3/zeyer/schmitt/venvs/returnn_torch/bin/python3
+RETURNN command line options: ['/u/schmitt/experiments/segmental_models_2021_22_pycharm/recipe/i6_experiments/users/schmitt/experiments/config/pipelines/global_vs_segmental_2022_23/demos/demo_center_window_weight_feedback_3.py']
+Hostname: zink
+TensorFlow: 2.12.0 (v2.12.0-rc1-12-g0db597d0d75) (<site-package> in /work/asr3/zeyer/schmitt/venvs/returnn_torch/lib/python3.10/site-packages/tensorflow)
+Use num_threads=1 (but min 2) via OMP_NUM_THREADS.
+Setup TF inter and intra global thread pools, num_threads 2, session opts {'log_device_placement': False, 'device_count': {'GPU': 0}, 'intra_op_parallelism_threads': 2, 'inter_op_parallelism_threads': 2}.
+CUDA_VISIBLE_DEVICES is not set.
+Collecting TensorFlow device list...
+Local devices available to TensorFlow:
+  1/1: name: "/device:CPU:0"
+       device_type: "CPU"
+       memory_limit: 268435456
+       locality {
+       }
+       incarnation: 16342708538316541021
+       xla_global_id: -1
+Train data:
+  input: 20 x 1
+  output: {'classes': (5, 1), 'data': (20, 2)}
+  DummyDatasetMultipleSequenceLength, sequences: 10, frames: unknown
+Dev data:
+  DummyDatasetMultipleSequenceLength, sequences: 1, frames: unknown
+Device not set explicitly, and no GPU found.
+Learning-rate-control: no file specified, not saving history (no proper restart possible)
+Update config key 'batch_size' for epoch 1: 5000 -> 3600000
+Setup TF session with options {'log_device_placement': False, 'device_count': {'GPU': 0}} ...
+layer /'data:classes': [B,T|'time:var:extern_data:classes'[B]] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+layer /'data:data': [B,T|'time:var:extern_data:data'[B],F|F'feature:data'(20)] float32
+layer /'encoder': [B,T|'time:var:extern_data:data'[B],F|F'feature:data'(20)] float32
+layer /'existing_alignment': [B,T|'time:var:extern_data:data'[B]] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+layer /'is_label': [B,T|'time:var:extern_data:data'[B]] bool
+layer /'const1': [B] int32
+layer /'const0': [B] int32
+layer /'emit_ground_truth0': [B,T|'time:var:extern_data:data'[B]] int32
+layer /'emit_ground_truth': [B,T|'time:var:extern_data:data'[B]] int32 sparse_dim=Dim{F'emit_ground_truth_output:sparse-dim'(2)}
+layer /'label_ground_truth_masked0': [T|'label_ground_truth_masked0:masked:time'[B],B] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+layer /'label_ground_truth_masked': [B,T|'label_ground_truth_masked0:masked:time'[B]] int32 sparse_dim=Dim{F'label_ground_truth_masked:set-sparse-dim'(4)}
+layer /'labels_with_blank_ground_truth': [B,T|'time:var:extern_data:data'[B]] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+layer /'data:targetb': [B,T|'time:var:extern_data:data'[B]] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+layer /'output': [T|'time:var:extern_data:data'[B],B] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+Rec layer 'output' (search False, train 'globals/train_flag:0') sub net:
+  Input layers moved out of loop: (#: 2)
+    output
+    output_emit
+  Output layers moved out of loop: (#: 19)
+    segment_lens
+    segment_ends
+    seq_end_too_far
+    segment_ends1
+    seq_lens
+    segment_starts
+    seq_start_too_far
+    segment_starts2
+    segment_lens1
+    segment_lens0
+    const1
+    emit_blank_prob
+    emit_blank_log_prob
+    blank_log_prob
+    emit_log_prob
+    emit_prob0
+    s
+    am
+    prev_out_embed
+  Layers in loop: (#: 2)
+    segment_starts1
+    :i
+  Unused layers: (#: 0)
+    None
+layer /output(rec-subnet-input)/'data:targetb': [B,T|'time:var:extern_data:data'[B]] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+layer /output(rec-subnet-input)/'output': [B,T|'time:var:extern_data:data'[B]] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+layer /output(rec-subnet-input)/'output_emit': [B,T|'time:var:extern_data:data'[B]] bool
+layer /output(rec-subnet)/'prev:output_emit': [B] bool
+layer /output(rec-subnet)/'segment_starts1': [B] int32
+layer /output(rec-subnet-output)/'data:source': [B,T|'time:var:extern_data:data'[B],F|F'feature:data'(20)] float32
+layer /output(rec-subnet-output)/'am': [B,T|'time:var:extern_data:data'[B],F|F'feature:data'(20)] float32
+layer /output(rec-subnet-output)/'prev:output': [T|'time:var:extern_data:data'[B],B] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+layer /output(rec-subnet-output)/'prev_out_embed': [T|'time:var:extern_data:data'[B],B,F|F'prev_out_embed:feature-dense'(128)] float32
+layer /output(rec-subnet-output)/'s': [T|'time:var:extern_data:data'[B],B,F|F's:rnn_cell_feat'(128)] float32
+layer /output(rec-subnet-output)/'emit_prob0': [T|'time:var:extern_data:data'[B],B,F|F'emit_prob0:feature-dense'(1)] float32
+layer /output(rec-subnet-output)/'segment_starts1': [T|'time:var:extern_data:data'[B],B] int32
+layer /output(rec-subnet-output)/':i': [T|'time:var:extern_data:data'[B]] int32
+layer /output(rec-subnet-output)/'segment_lens0': [T|'time:var:extern_data:data'[B],B] int32
+layer /output(rec-subnet-output)/'const1': [] int32
+layer /output(rec-subnet-output)/'segment_lens1': [T|'time:var:extern_data:data'[B],B] int32
+layer /output(rec-subnet-output)/'segment_ends1': [T|'time:var:extern_data:data'[B],B] int32
+layer /output(rec-subnet-output)/'seq_lens': [B] int32
+layer /output(rec-subnet-output)/'seq_end_too_far': [T|'time:var:extern_data:data'[B],B] bool
+layer /output(rec-subnet-output)/'segment_ends': [T|'time:var:extern_data:data'[B],B] int32
+layer /output(rec-subnet-output)/'segment_starts2': [T|'time:var:extern_data:data'[B],B] int32
+layer /output(rec-subnet-output)/'seq_start_too_far': [T|'time:var:extern_data:data'[B],B] bool
+layer /output(rec-subnet-output)/'segment_starts': [T|'time:var:extern_data:data'[B],B] int32
+layer /output(rec-subnet-output)/'segment_lens': [T|'time:var:extern_data:data'[B],B] int32
+layer /output(rec-subnet-output)/'blank_log_prob': [T|'time:var:extern_data:data'[B],B,F|F'emit_prob0:feature-dense'(1)] float32
+layer /output(rec-subnet-output)/'emit_log_prob': [T|'time:var:extern_data:data'[B],B,F|F'emit_prob0:feature-dense'(1)] float32
+layer /output(rec-subnet-output)/'emit_blank_log_prob': [T|'time:var:extern_data:data'[B],B,F|F'2*(emit_prob0:feature-dense)'(2)] float32
+layer /output(rec-subnet-output)/'data:emit_ground_truth': [B,T|'time:var:extern_data:data'[B]] int32 sparse_dim=Dim{F'emit_ground_truth_output:sparse-dim'(2)}
+layer /output(rec-subnet-output)/'emit_blank_prob': [T|'time:var:extern_data:data'[B],B,F|F'2*(emit_prob0:feature-dense)'(2)] float32
+layer /'segment_lens_masked': [T|'segment_lens_masked:masked:time'[B],B] int32
+layer /'segment_starts_masked': [T|'segment_starts_masked:masked:time'[B],B] int32
+layer /'data:label_ground_truth': [B,T|'label_ground_truth_masked0:masked:time'[B]] int32 sparse_dim=Dim{F'label_ground_truth_masked:set-sparse-dim'(4)}
+layer /'data:segment_starts_masked': [T|'segment_starts_masked:masked:time'[B],B] int32
+layer /'data:segment_lens_masked': [T|'segment_lens_masked:masked:time'[B],B] int32
+layer /'initial_seq_lens': [B] int32
+layer /'initial_seq_lens_range': [T|'initial_seq_lens_range_input_len'[B]] int32
+layer /'initial_output_layer': [B,T|'initial_seq_lens_range_input_len'[B]] float32
+layer /'inv_fertility': [B,T|'time:var:extern_data:data'[B],F|F'inv_fertility:feature-dense'(1)] float32
+layer /'label_model': [T|'label_ground_truth_masked0:masked:time'[B],B] int32 sparse_dim=Dim{F'label_ground_truth_masked:set-sparse-dim'(4)}
+Rec layer 'label_model' (search False, train 'globals/train_flag:0') sub net:
+  Input layers moved out of loop: (#: 3)
+    output
+    target_embed0
+    target_embed
+  Output layers moved out of loop: (#: 3)
+    output_prob
+    readout
+    readout_in
+  Layers in loop: (#: 24)
+    lm
+    att
+    att0
+    att_val
+    segments
+    segment_starts
+    :i
+    segment_lens
+    att_weights
+    energy
+    energy_tanh
+    energy_in
+    att_ctx
+    weight_feedback
+    accum_att_weights_scattered
+    overlap_accum_weights
+    accum_att_weights
+    inv_fertility
+    overlap_start
+    overlap_len
+    overlap_mask
+    overlap_len0
+    overlap_range
+    lm_transformed
+  Unused layers: (#: 1)
+    att_weights_squeezed
+layer /label_model(rec-subnet-input)/'data:label_ground_truth': [B,T|'label_ground_truth_masked0:masked:time'[B]] int32 sparse_dim=Dim{F'label_ground_truth_masked:set-sparse-dim'(4)}
+layer /label_model(rec-subnet-input)/'output': [B,T|'label_ground_truth_masked0:masked:time'[B]] int32 sparse_dim=Dim{F'label_ground_truth_masked:set-sparse-dim'(4)}
+layer /label_model(rec-subnet-input)/'target_embed0': [B,T|'label_ground_truth_masked0:masked:time'[B],F|F'target_embed0:feature-dense'(640)] float32
+layer /label_model(rec-subnet-input)/'target_embed': [B,T|'label_ground_truth_masked0:masked:time'[B],F|F'target_embed0:feature-dense'(640)] float32
+Exception creating layer /'label_model' of class RecLayer with opts:
+{'_name': 'label_model',
+ '_network': <TFNetwork '' train=<tf.Tensor 'globals/train_flag:0' shape=() dtype=bool>>,
+ '_target_layers': {'label_ground_truth': <SourceLayer 'data:label_ground_truth' out_type=Tensor{[B,T|'label_ground_truth_masked0:masked:time'[B]], dtype='int32', sparse_dim=Dim{F'label_ground_truth_masked:set-sparse-dim'(4)}, available_for_inference=False}>},
+ 'axis': Dim{'label_ground_truth_masked0:masked:time'[B]},
+ 'is_output_layer': True,
+ 'n_out': <class 'returnn.util.basic.NotSpecified'>,
+ 'name': 'label_model',
+ 'name_scope': 'output/rec',
+ 'network': <TFNetwork '' train=<tf.Tensor 'globals/train_flag:0' shape=() dtype=bool>>,
+ 'output': Tensor{'label_model_output', [T|'label_ground_truth_masked0:masked:time'[B],B], dtype='int32', sparse_dim=Dim{F'label_ground_truth_masked:set-sparse-dim'(4)}},
+ 'sources': [],
+ 'target': 'label_ground_truth',
+ 'unit': <_SubnetworkRecCell '/label_model(rec-subnet)'>}
+Unhandled exception <class 'ValueError'> in thread <_MainThread(MainThread, started 140501529501696)>, proc 196864.
+
+Thread current, main, <_MainThread(MainThread, started 140501529501696)>:
+(Excluded thread.)
+
+That were all threads.
+[31;1mEXCEPTION[0m
+[34mTraceback (most recent call last):[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/[0m[36;1mrnn.py[0m[36m"[0m, [34mline[0m [35m11[0m, [34min[0m <module>
+    [34mline:[0m main[34m([0m[34m)[0m
+    [34mlocals:[0m
+      main [34;1m=[0m [34m<local>[0m [34m<[0mfunction main at 0x7fc90ac152d0[34m>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/[0m[36;1m__main__.py[0m[36m"[0m, [34mline[0m [35m625[0m, [34min[0m main
+    [34mline:[0m execute_main_task[34m([0m[34m)[0m
+    [34mlocals:[0m
+      execute_main_task [34;1m=[0m [34m<global>[0m [34m<[0mfunction execute_main_task at 0x7fc90ac151b0[34m>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/[0m[36;1m__main__.py[0m[36m"[0m, [34mline[0m [35m434[0m, [34min[0m execute_main_task
+    [34mline:[0m engine[34m.[0minit_train_from_config[34m([0mconfig[34m,[0m train_data[34m,[0m dev_data[34m,[0m eval_data[34m)[0m
+    [34mlocals:[0m
+      engine [34;1m=[0m [34m<global>[0m [34m<[0mreturnn[34m.[0mtf[34m.[0mengine[34m.[0mEngine object at 0x7fc8cf6d3d30[34m>[0m
+      engine[34;1m.[0minit_train_from_config [34;1m=[0m [34m<global>[0m [34m<[0mbound method Engine[34m.[0minit_train_from_config of [34m<[0mreturnn[34m.[0mtf[34m.[0mengine[34m.[0mEngine object at 0x7fc8cf6d3d30[34m>[0m[34m>[0m
+      config [34;1m=[0m [34m<global>[0m [34m<[0mreturnn[34m.[0mconfig[34m.[0mConfig object at 0x7fc90adce740[34m>[0m
+      train_data [34;1m=[0m [34m<global>[0m [34m<[0mDummyDatasetMultipleSequenceLength [36m'train'[0m epoch[34m=[0m[34mNone[0m[34m>[0m
+      dev_data [34;1m=[0m [34m<global>[0m [34m<[0mDummyDatasetMultipleSequenceLength [36m'dev'[0m epoch[34m=[0m[34mNone[0m[34m>[0m
+      eval_data [34;1m=[0m [34m<global>[0m [34mNone[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mengine.py[0m[36m"[0m, [34mline[0m [35m1149[0m, [34min[0m Engine.init_train_from_config
+    [34mline:[0m self[34m.[0minit_network_from_config[34m([0mconfig[34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mreturnn[34m.[0mtf[34m.[0mengine[34m.[0mEngine object at 0x7fc8cf6d3d30[34m>[0m
+      self[34;1m.[0minit_network_from_config [34;1m=[0m [34m<local>[0m [34m<[0mbound method Engine[34m.[0minit_network_from_config of [34m<[0mreturnn[34m.[0mtf[34m.[0mengine[34m.[0mEngine object at 0x7fc8cf6d3d30[34m>[0m[34m>[0m
+      config [34;1m=[0m [34m<local>[0m [34m<[0mreturnn[34m.[0mconfig[34m.[0mConfig object at 0x7fc90adce740[34m>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mengine.py[0m[36m"[0m, [34mline[0m [35m1234[0m, [34min[0m Engine.init_network_from_config
+    [34mline:[0m self[34m.[0m_init_network[34m([0mnet_desc[34m=[0mnet_dict[34m,[0m epoch[34m=[0mself[34m.[0mepoch[34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mreturnn[34m.[0mtf[34m.[0mengine[34m.[0mEngine object at 0x7fc8cf6d3d30[34m>[0m
+      self[34;1m.[0m_init_network [34;1m=[0m [34m<local>[0m [34m<[0mbound method Engine[34m.[0m_init_network of [34m<[0mreturnn[34m.[0mtf[34m.[0mengine[34m.[0mEngine object at 0x7fc8cf6d3d30[34m>[0m[34m>[0m
+      net_desc [34;1m=[0m [34m<not found>[0m
+      net_dict [34;1m=[0m [34m<local>[0m [34m{[0m[36m'source0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'split_dims'[0m[34m,[0m [36m'axis'[0m[34m:[0m [36m'F'[0m[34m,[0m [36m'dims'[0m[34m:[0m [34m([0m[34m-[0m1[34m,[0m 1[34m)[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'data:data'[0m[34m}[0m[34m,[0m [36m'conv0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'conv'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'source0'[0m[34m,[0m [36m'padding'[0m[34m:[0m [36m'same'[0m[34m,[0m [36m'filter_size'[0m[34m:[0m [34m([0m3[34m,[0m 3[34m)[0m[34m,[0m [36m'n_out'[0m[34m:[0m 32[34m,[0m [36m'activation'[0m[34m:[0m [36m'relu'[0m[34m,[0m [36m'with_bias'[0m[34m:[0m [34mTrue[0m[34m}[0m[34m,[0m [36m'conv0p'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'pool'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'conv0'[0m[34m,[0m [36m'pool_size'[0m[34m:[0m [34m([0m1[34m,[0m 2[34m)[0m[34m,[0m ..., len [34m=[0m 105
+      epoch [34;1m=[0m [34m<local>[0m [34mNone[0m
+      self[34;1m.[0mepoch [34;1m=[0m [34m<local>[0m 1
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mengine.py[0m[36m"[0m, [34mline[0m [35m1429[0m, [34min[0m Engine._init_network
+    [34mline:[0m self[34m.[0mnetwork[34m,[0m self[34m.[0mupdater [34m=[0m self[34m.[0mcreate_network[34m([0m
+              config[34m=[0mself[34m.[0mconfig[34m,[0m
+              extern_data[34m=[0mextern_data[34m,[0m
+              rnd_seed[34m=[0mnet_random_seed[34m,[0m
+              train_flag[34m=[0mtrain_flag[34m,[0m
+              eval_flag[34m=[0mself[34m.[0muse_eval_flag[34m,[0m
+              search_flag[34m=[0mself[34m.[0muse_search_flag[34m,[0m
+              initial_learning_rate[34m=[0mgetattr[34m([0mself[34m,[0m [36m"initial_learning_rate"[0m[34m,[0m [34mNone[0m[34m)[0m[34m,[0m
+              net_dict[34m=[0mnet_desc[34m,[0m
+          [34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mreturnn[34m.[0mtf[34m.[0mengine[34m.[0mEngine object at 0x7fc8cf6d3d30[34m>[0m
+      self[34;1m.[0mnetwork [34;1m=[0m [34m<local>[0m [34mNone[0m
+      self[34;1m.[0mupdater [34;1m=[0m [34m<local>[0m [34mNone[0m
+      self[34;1m.[0mcreate_network [34;1m=[0m [34m<local>[0m [34m<[0mbound method Engine[34m.[0mcreate_network of [34m<[0m[34mclass[0m [36m'returnn.tf.engine.Engine'[0m[34m>[0m[34m>[0m
+      config [34;1m=[0m [34m<not found>[0m
+      self[34;1m.[0mconfig [34;1m=[0m [34m<local>[0m [34m<[0mreturnn[34m.[0mconfig[34m.[0mConfig object at 0x7fc90adce740[34m>[0m
+      extern_data [34;1m=[0m [34m<local>[0m [34m<[0mExternData data[34m=[0m[34m{[0m[36m'data'[0m[34m:[0m Tensor[34m{[0m[36m'data'[0m[34m,[0m [34m[[0mB[34m,[0mT[34m|[0m[36m'time:var:extern_data:data'[0m[34m[[0mB[34m][0m[34m,[0mF[34m|[0mF[36m'[0mfeature:data'[34m([0m20[34m)[0m[34m][0m[34m}[0m[34m,[0m [36m'classes'[0m[34m:[0m Tensor[34m{[0m[36m'classes'[0m[34m,[0m [34m[[0mB[34m,[0mT[34m|[0m[36m'time:var:extern_data:classes'[0m[34m[[0mB[34m][0m[34m][0m[34m,[0m dtype[34m=[0m[36m'int32'[0m[34m,[0m sparse_dim[34m=[0mDim[34m{[0mF[36m'[0mclasses:sparse-dim'[34m([0m5[34m)[0m[34m}[0m[34m,[0m available_for_inference[34m=[0m[34mFalse[0m[34m}[0m[34m,[0m [36m'emit_ground_truth'[0m[34m:[0m Tensor[34m{[0m[36m'emit_gr[0m...
+      rnd_seed [34;1m=[0m [34m<not found>[0m
+      net_random_seed [34;1m=[0m [34m<local>[0m 1
+      train_flag [34;1m=[0m [34m<local>[0m [34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m
+      eval_flag [34;1m=[0m [34m<not found>[0m
+      self[34;1m.[0muse_eval_flag [34;1m=[0m [34m<local>[0m [34mTrue[0m
+      search_flag [34;1m=[0m [34m<not found>[0m
+      self[34;1m.[0muse_search_flag [34;1m=[0m [34m<local>[0m [34mFalse[0m
+      initial_learning_rate [34;1m=[0m [34m<not found>[0m
+      getattr [34;1m=[0m [34m<builtin>[0m [34m<[0mbuilt[34m-[0m[34min[0m function getattr[34m>[0m
+      net_dict [34;1m=[0m [34m<not found>[0m
+      net_desc [34;1m=[0m [34m<local>[0m [34m{[0m[36m'source0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'split_dims'[0m[34m,[0m [36m'axis'[0m[34m:[0m [36m'F'[0m[34m,[0m [36m'dims'[0m[34m:[0m [34m([0m[34m-[0m1[34m,[0m 1[34m)[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'data:data'[0m[34m}[0m[34m,[0m [36m'conv0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'conv'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'source0'[0m[34m,[0m [36m'padding'[0m[34m:[0m [36m'same'[0m[34m,[0m [36m'filter_size'[0m[34m:[0m [34m([0m3[34m,[0m 3[34m)[0m[34m,[0m [36m'n_out'[0m[34m:[0m 32[34m,[0m [36m'activation'[0m[34m:[0m [36m'relu'[0m[34m,[0m [36m'with_bias'[0m[34m:[0m [34mTrue[0m[34m}[0m[34m,[0m [36m'conv0p'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'pool'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'conv0'[0m[34m,[0m [36m'pool_size'[0m[34m:[0m [34m([0m1[34m,[0m 2[34m)[0m[34m,[0m ..., len [34m=[0m 105
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mengine.py[0m[36m"[0m, [34mline[0m [35m1479[0m, [34min[0m Engine.create_network
+    [34mline:[0m network[34m.[0mconstruct_from_dict[34m([0mnet_dict[34m)[0m
+    [34mlocals:[0m
+      network [34;1m=[0m [34m<local>[0m [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m
+      network[34;1m.[0mconstruct_from_dict [34;1m=[0m [34m<local>[0m [34m<[0mbound method TFNetwork[34m.[0mconstruct_from_dict of [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m[34m>[0m
+      net_dict [34;1m=[0m [34m<local>[0m [34m{[0m[36m'source0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'split_dims'[0m[34m,[0m [36m'axis'[0m[34m:[0m [36m'F'[0m[34m,[0m [36m'dims'[0m[34m:[0m [34m([0m[34m-[0m1[34m,[0m 1[34m)[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'data:data'[0m[34m}[0m[34m,[0m [36m'conv0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'conv'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'source0'[0m[34m,[0m [36m'padding'[0m[34m:[0m [36m'same'[0m[34m,[0m [36m'filter_size'[0m[34m:[0m [34m([0m3[34m,[0m 3[34m)[0m[34m,[0m [36m'n_out'[0m[34m:[0m 32[34m,[0m [36m'activation'[0m[34m:[0m [36m'relu'[0m[34m,[0m [36m'with_bias'[0m[34m:[0m [34mTrue[0m[34m}[0m[34m,[0m [36m'conv0p'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'pool'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'conv0'[0m[34m,[0m [36m'pool_size'[0m[34m:[0m [34m([0m1[34m,[0m 2[34m)[0m[34m,[0m ..., len [34m=[0m 105
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mnetwork.py[0m[36m"[0m, [34mline[0m [35m819[0m, [34min[0m TFNetwork.construct_from_dict
+    [34mline:[0m self[34m.[0mconstruct_layer[34m([0mnet_dict[34m,[0m name[34m,[0m get_layer[34m=[0mget_layer[34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m
+      self[34;1m.[0mconstruct_layer [34;1m=[0m [34m<local>[0m [34m<[0mbound method TFNetwork[34m.[0mconstruct_layer of [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m[34m>[0m
+      net_dict [34;1m=[0m [34m<local>[0m [34m{[0m[36m'source0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'split_dims'[0m[34m,[0m [36m'axis'[0m[34m:[0m [36m'F'[0m[34m,[0m [36m'dims'[0m[34m:[0m [34m([0m[34m-[0m1[34m,[0m 1[34m)[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'data:data'[0m[34m}[0m[34m,[0m [36m'conv0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'conv'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'source0'[0m[34m,[0m [36m'padding'[0m[34m:[0m [36m'same'[0m[34m,[0m [36m'filter_size'[0m[34m:[0m [34m([0m3[34m,[0m 3[34m)[0m[34m,[0m [36m'n_out'[0m[34m:[0m 32[34m,[0m [36m'activation'[0m[34m:[0m [36m'relu'[0m[34m,[0m [36m'with_bias'[0m[34m:[0m [34mTrue[0m[34m}[0m[34m,[0m [36m'conv0p'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'pool'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'conv0'[0m[34m,[0m [36m'pool_size'[0m[34m:[0m [34m([0m1[34m,[0m 2[34m)[0m[34m,[0m ..., len [34m=[0m 105
+      name [34;1m=[0m [34m<local>[0m [36m'label_model'[0m, len [34m=[0m 11
+      get_layer [34;1m=[0m [34m<local>[0m [34mNone[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mnetwork.py[0m[36m"[0m, [34mline[0m [35m1200[0m, [34min[0m TFNetwork.construct_layer
+    [34mline:[0m [34mreturn[0m add_layer[34m([0mname[34m=[0mname_with_prefix[34m,[0m layer_class[34m=[0mlayer_class[34m,[0m [34m*[0m[34m*[0mlayer_desc[34m)[0m
+    [34mlocals:[0m
+      add_layer [34;1m=[0m [34m<local>[0m [34m<[0mbound method TFNetwork[34m.[0madd_layer of [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m[34m>[0m
+      name [34;1m=[0m [34m<local>[0m [36m'label_model'[0m, len [34m=[0m 11
+      name_with_prefix [34;1m=[0m [34m<local>[0m [36m'label_model'[0m, len [34m=[0m 11
+      layer_class [34;1m=[0m [34m<local>[0m [34m<[0m[34mclass[0m [36m'returnn.tf.layers.rec.RecLayer'[0m[34m>[0m
+      layer_desc [34;1m=[0m [34m<local>[0m [34m{[0m[36m'target'[0m[34m:[0m [36m'label_ground_truth'[0m[34m,[0m [36m'name_scope'[0m[34m:[0m [36m'output/rec'[0m[34m,[0m [36m'is_output_layer'[0m[34m:[0m [34mTrue[0m[34m,[0m [36m'_network'[0m[34m:[0m [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m[34m,[0m [36m'_name'[0m[34m:[0m [36m'label_model'[0m[34m,[0m [36m'n_out'[0m[34m:[0m [34m<[0m[34mclass[0m [36m'returnn.util.basic.NotSpecified'[0m[34m>[0m[34m,[0m [36m'sources'[0m[34m:[0m [34m[[0m[34m][0m[34m,[0m [36m'_target_layers'[0m[34m:[0m [34m{[0m[36m'label_groun[0m..., len [34m=[0m 10
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mnetwork.py[0m[36m"[0m, [34mline[0m [35m1396[0m, [34min[0m TFNetwork.add_layer
+    [34mline:[0m layer [34m=[0m self[34m.[0m_create_layer[34m([0mname[34m=[0mname[34m,[0m layer_class[34m=[0mlayer_class[34m,[0m [34m*[0m[34m*[0mlayer_desc[34m)[0m
+    [34mlocals:[0m
+      layer [34;1m=[0m [34m<not found>[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m
+      self[34;1m.[0m_create_layer [34;1m=[0m [34m<local>[0m [34m<[0mbound method TFNetwork[34m.[0m_create_layer of [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m[34m>[0m
+      name [34;1m=[0m [34m<local>[0m [36m'label_model'[0m, len [34m=[0m 11
+      layer_class [34;1m=[0m [34m<local>[0m [34m<[0m[34mclass[0m [36m'returnn.tf.layers.rec.RecLayer'[0m[34m>[0m
+      layer_desc [34;1m=[0m [34m<local>[0m [34m{[0m[36m'target'[0m[34m:[0m [36m'label_ground_truth'[0m[34m,[0m [36m'name_scope'[0m[34m:[0m [36m'output/rec'[0m[34m,[0m [36m'is_output_layer'[0m[34m:[0m [34mTrue[0m[34m,[0m [36m'_network'[0m[34m:[0m [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m[34m,[0m [36m'_name'[0m[34m:[0m [36m'label_model'[0m[34m,[0m [36m'n_out'[0m[34m:[0m [34m<[0m[34mclass[0m [36m'returnn.util.basic.NotSpecified'[0m[34m>[0m[34m,[0m [36m'sources'[0m[34m:[0m [34m[[0m[34m][0m[34m,[0m [36m'_target_layers'[0m[34m:[0m [34m{[0m[36m'label_groun[0m..., len [34m=[0m 10
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mnetwork.py[0m[36m"[0m, [34mline[0m [35m1291[0m, [34min[0m TFNetwork._create_layer
+    [34mline:[0m layer [34m=[0m layer_class[34m([0m[34m*[0m[34m*[0mlayer_desc[34m)[0m
+    [34mlocals:[0m
+      layer [34;1m=[0m [34m<not found>[0m
+      layer_class [34;1m=[0m [34m<local>[0m [34m<[0m[34mclass[0m [36m'returnn.tf.layers.rec.RecLayer'[0m[34m>[0m
+      layer_desc [34;1m=[0m [34m<local>[0m [34m{[0m[36m'target'[0m[34m:[0m [36m'label_ground_truth'[0m[34m,[0m [36m'name_scope'[0m[34m:[0m [36m'output/rec'[0m[34m,[0m [36m'is_output_layer'[0m[34m:[0m [34mTrue[0m[34m,[0m [36m'_network'[0m[34m:[0m [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m[34m,[0m [36m'_name'[0m[34m:[0m [36m'label_model'[0m[34m,[0m [36m'n_out'[0m[34m:[0m [34m<[0m[34mclass[0m [36m'returnn.util.basic.NotSpecified'[0m[34m>[0m[34m,[0m [36m'sources'[0m[34m:[0m [34m[[0m[34m][0m[34m,[0m [36m'_target_layers'[0m[34m:[0m [34m{[0m[36m'label_groun[0m..., len [34m=[0m 13
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mrec.py[0m[36m"[0m, [34mline[0m [35m296[0m, [34min[0m RecLayer.__init__
+    [34mline:[0m y [34m=[0m self[34m.[0m_get_output_subnet_unit[34m([0mself[34m.[0mcell[34m)[0m
+    [34mlocals:[0m
+      y [34;1m=[0m [34m<not found>[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mRecLayer [36m'label_model'[0m out_type[34m=[0mTensor[34m{[0m[34m[[0mT[34m|[0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m,[0mB[34m][0m[34m,[0m dtype[34m=[0m[36m'int32'[0m[34m,[0m sparse_dim[34m=[0mDim[34m{[0mF[36m'[0mlabel_ground_truth_masked:set-sparse-dim'[34m([0m4[34m)[0m[34m}[0m[34m}[0m[34m>[0m
+      self[34;1m.[0m_get_output_subnet_unit [34;1m=[0m [34m<local>[0m [34m<[0mbound method RecLayer[34m.[0m_get_output_subnet_unit of [34m<[0mRecLayer [36m'label_model'[0m out_type[34m=[0mTensor[34m{[0m[34m[[0mT[34m|[0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m,[0mB[34m][0m[34m,[0m dtype[34m=[0m[36m'int32'[0m[34m,[0m sparse_dim[34m=[0mDim[34m{[0mF[36m'[0mlabel_ground_truth_masked:set-sparse-dim'[34m([0m4[34m)[0m[34m}[0m[34m}[0m[34m>[0m[34m>[0m
+      self[34;1m.[0mcell [34;1m=[0m [34m<local>[0m [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mrec.py[0m[36m"[0m, [34mline[0m [35m1275[0m, [34min[0m RecLayer._get_output_subnet_unit
+    [34mline:[0m output [34m=[0m cell[34m.[0mget_output[34m([0m[34m)[0m
+    [34mlocals:[0m
+      output [34;1m=[0m [34m<not found>[0m
+      cell [34;1m=[0m [34m<local>[0m [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m
+      cell[34;1m.[0mget_output [34;1m=[0m [34m<local>[0m [34m<[0mbound method _SubnetworkRecCell[34m.[0mget_output of [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m[34m>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mrec.py[0m[36m"[0m, [34mline[0m [35m3443[0m, [34min[0m _SubnetworkRecCell.get_output
+    [34mline:[0m final_loop_vars [34m=[0m self[34m.[0m_while_loop[34m([0m
+              cond[34m=[0mcond[34m,[0m body[34m=[0mbody[34m,[0m loop_vars[34m=[0minit_loop_vars[34m,[0m shape_invariants[34m=[0mshape_invariants
+          [34m)[0m
+    [34mlocals:[0m
+      final_loop_vars [34;1m=[0m [34m<not found>[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m
+      self[34;1m.[0m_while_loop [34;1m=[0m [34m<local>[0m [34m<[0mbound method _SubnetworkRecCell[34m.[0m_while_loop of [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m[34m>[0m
+      cond [34;1m=[0m [34m<local>[0m [34m<[0mfunction _SubnetworkRecCell[34m.[0mget_output[34m.[0m[34m<[0mlocals[34m>[0m[34m.[0mcond at 0x7fc8c428dea0[34m>[0m
+      body [34;1m=[0m [34m<local>[0m [34m<[0mfunction _SubnetworkRecCell[34m.[0mget_output[34m.[0m[34m<[0mlocals[34m>[0m[34m.[0mbody at 0x7fc8c428de10[34m>[0m
+      loop_vars [34;1m=[0m [34m<not found>[0m
+      init_loop_vars [34;1m=[0m [34m<local>[0m [34m([0m[34m<[0mtf[34m.[0mTensor [36m'output/rec/initial_i_1:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mint32[34m>[0m[34m,[0m [34m([0m[34m[[0m[34m<[0mtf[34m.[0mTensor [36m'output/rec/accum_att_weights/ExpandDims:0'[0m shape[34m=[0m[34m([0m1[34m,[0m ?[34m,[0m ?[34m)[0m dtype[34m=[0mfloat32[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensor [36m'output/rec/att/init_att_zeros:0'[0m shape[34m=[0m[34m([0m?[34m,[0m 20[34m)[0m dtype[34m=[0mfloat32[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensor [36m'output/rec/segment_lens/init_segment_lens_const/constant_wi[0m...
+      shape_invariants [34;1m=[0m [34m<local>[0m [34m([0mTensorShape[34m([0m[34m[[0m[34m][0m[34m)[0m[34m,[0m [34m([0m[34m[[0mTensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Dimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Dimension[34m([0m1[34m)[0m[34m][0m[34m)[0m[34m,[0m TensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Dimension[34m([0m20[34m)[0m[34m][0m[34m)[0m[34m,[0m TensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m][0m[34m)[0m[34m,[0m TensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m][0m[34m)[0m[34m][0m[34m,[0m [34m[[0m[34m[[0mLSTMStateTuple[34m([0mc[34m=[0mTensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Dimension[34m([0m1024[34m)[0m[34m][0m[34m)[0m[34m,[0m h[34m=[0mTensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Di..., _[34m[[0m0[34m][0m[34m:[0m [34m{[0mlen [34m=[0m 0[34m}[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mrec.py[0m[36m"[0m, [34mline[0m [35m2529[0m, [34min[0m _SubnetworkRecCell._while_loop
+    [34mline:[0m [34mreturn[0m tf[34m.[0mwhile_loop[34m([0m
+              cond[34m=[0mcond[34m,[0m
+              body[34m=[0mbody[34m,[0m
+              loop_vars[34m=[0mloop_vars[34m,[0m
+              shape_invariants[34m=[0mshape_invariants[34m,[0m
+              back_prop[34m=[0mself[34m.[0mparent_rec_layer[34m.[0mback_prop[34m,[0m
+          [34m)[0m
+    [34mlocals:[0m
+      tf [34;1m=[0m [34m<global>[0m [34m<[0mmodule [36m'tensorflow'[0m [34mfrom[0m [36m'/work/asr3/zeyer/schmitt/venvs/returnn_torch/lib/python3.10/site-packages/tensorflow/__init__.py'[0m[34m>[0m
+      tf[34;1m.[0mwhile_loop [34;1m=[0m [34m<global>[0m [34m<[0mfunction while_loop_v2 at 0x7fc8cf7f7f40[34m>[0m
+      cond [34;1m=[0m [34m<local>[0m [34m<[0mfunction _SubnetworkRecCell[34m.[0mget_output[34m.[0m[34m<[0mlocals[34m>[0m[34m.[0mcond at 0x7fc8c428dea0[34m>[0m
+      body [34;1m=[0m [34m<local>[0m [34m<[0mfunction _SubnetworkRecCell[34m.[0mget_output[34m.[0m[34m<[0mlocals[34m>[0m[34m.[0mbody at 0x7fc8c428de10[34m>[0m
+      loop_vars [34;1m=[0m [34m<local>[0m [34m([0m[34m<[0mtf[34m.[0mTensor [36m'output/rec/initial_i_1:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mint32[34m>[0m[34m,[0m [34m([0m[34m[[0m[34m<[0mtf[34m.[0mTensor [36m'output/rec/accum_att_weights/ExpandDims:0'[0m shape[34m=[0m[34m([0m1[34m,[0m ?[34m,[0m ?[34m)[0m dtype[34m=[0mfloat32[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensor [36m'output/rec/att/init_att_zeros:0'[0m shape[34m=[0m[34m([0m?[34m,[0m 20[34m)[0m dtype[34m=[0mfloat32[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensor [36m'output/rec/segment_lens/init_segment_lens_const/constant_wi[0m...
+      shape_invariants [34;1m=[0m [34m<local>[0m [34m([0mTensorShape[34m([0m[34m[[0m[34m][0m[34m)[0m[34m,[0m [34m([0m[34m[[0mTensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Dimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Dimension[34m([0m1[34m)[0m[34m][0m[34m)[0m[34m,[0m TensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Dimension[34m([0m20[34m)[0m[34m][0m[34m)[0m[34m,[0m TensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m][0m[34m)[0m[34m,[0m TensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m][0m[34m)[0m[34m][0m[34m,[0m [34m[[0m[34m[[0mLSTMStateTuple[34m([0mc[34m=[0mTensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Dimension[34m([0m1024[34m)[0m[34m][0m[34m)[0m[34m,[0m h[34m=[0mTensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Di..., _[34m[[0m0[34m][0m[34m:[0m [34m{[0mlen [34m=[0m 0[34m}[0m
+      back_prop [34;1m=[0m [34m<not found>[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m
+      self[34;1m.[0mparent_rec_layer [34;1m=[0m [34m<local>[0m [34m<[0mRecLayer [36m'label_model'[0m out_type[34m=[0mTensor[34m{[0m[34m[[0mT[34m|[0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m,[0mB[34m][0m[34m,[0m dtype[34m=[0m[36m'int32'[0m[34m,[0m sparse_dim[34m=[0mDim[34m{[0mF[36m'[0mlabel_ground_truth_masked:set-sparse-dim'[34m([0m4[34m)[0m[34m}[0m[34m}[0m[34m>[0m
+      self[34;1m.[0mparent_rec_layer[34;1m.[0mback_prop [34;1m=[0m [34m<local>[0m [34mTrue[0m
+  [34;1mFile[0m [36m"/work/asr3/zeyer/schmitt/venvs/returnn_torch/lib/python3.10/site-packages/tensorflow/python/util/[0m[36;1mdeprecation.py[0m[36m"[0m, [34mline[0m [35m648[0m, [34min[0m set_optimizer_jit
+    [34mline:[0m [34mreturn[0m func[34m([0m[34m*[0margs[34m,[0m [34m*[0m[34m*[0mkwargs[34m)[0m
+    [34mlocals:[0m
+      func [34;1m=[0m [34m<local>[0m [34m<[0mfunction while_loop_v2 at 0x7fc8cf7f7eb0[34m>[0m
+      args [34;1m=[0m [34m<local>[0m [34m([0m[34m)[0m
+      kwargs [34;1m=[0m [34m<local>[0m [34m{[0m[36m'cond'[0m[34m:[0m [34m<[0mfunction _SubnetworkRecCell[34m.[0mget_output[34m.[0m[34m<[0mlocals[34m>[0m[34m.[0mcond at 0x7fc8c428dea0[34m>[0m[34m,[0m [36m'body'[0m[34m:[0m [34m<[0mfunction _SubnetworkRecCell[34m.[0mget_output[34m.[0m[34m<[0mlocals[34m>[0m[34m.[0mbody at 0x7fc8c428de10[34m>[0m[34m,[0m [36m'loop_vars'[0m[34m:[0m [34m([0m[34m<[0mtf[34m.[0mTensor [36m'output/rec/initial_i_1:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mint32[34m>[0m[34m,[0m [34m([0m[34m[[0m[34m<[0mtf[34m.[0mTensor [36m'output/rec/accum_att_weights/ExpandDims:0'[0m ...
+  [34;1mFile[0m [36m"/work/asr3/zeyer/schmitt/venvs/returnn_torch/lib/python3.10/site-packages/tensorflow/python/ops/[0m[36;1mcontrol_flow_ops.py[0m[36m"[0m, [34mline[0m [35m2574[0m, [34min[0m while_loop_v2
+    [34mline:[0m [34mreturn[0m while_loop[34m([0m
+              cond[34m=[0mcond[34m,[0m
+              body[34m=[0mbody[34m,[0m
+              loop_vars[34m=[0mloop_vars[34m,[0m
+              shape_invariants[34m=[0mshape_invariants[34m,[0m
+              parallel_iterations[34m=[0mparallel_iterations[34m,[0m
+              back_prop[34m=[0mback_prop[34m,[0m
+              swap_memory[34m=[0mswap_memory[34m,[0m
+              name[34m=[0mname[34m,[0m
+              maximum_iterations[34m=[0mmaximum_iterations[34m,[0m
+              return_same_structure[34m=[0m[34mTrue[0m[34m)[0m
+    [34mlocals:[0m
+      while_loop [34;1m=[0m [34m<global>[0m [34m<[0mfunction while_loop at 0x7fc8cf7f6dd0[34m>[0m
+      cond [34;1m=[0m [34m<local>[0m [34m<[0mfunction _SubnetworkRecCell[34m.[0mget_output[34m.[0m[34m<[0mlocals[34m>[0m[34m.[0mcond at 0x7fc8c428dea0[34m>[0m
+      body [34;1m=[0m [34m<local>[0m [34m<[0mfunction _SubnetworkRecCell[34m.[0mget_output[34m.[0m[34m<[0mlocals[34m>[0m[34m.[0mbody at 0x7fc8c428de10[34m>[0m
+      loop_vars [34;1m=[0m [34m<local>[0m [34m([0m[34m<[0mtf[34m.[0mTensor [36m'output/rec/initial_i_1:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mint32[34m>[0m[34m,[0m [34m([0m[34m[[0m[34m<[0mtf[34m.[0mTensor [36m'output/rec/accum_att_weights/ExpandDims:0'[0m shape[34m=[0m[34m([0m1[34m,[0m ?[34m,[0m ?[34m)[0m dtype[34m=[0mfloat32[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensor [36m'output/rec/att/init_att_zeros:0'[0m shape[34m=[0m[34m([0m?[34m,[0m 20[34m)[0m dtype[34m=[0mfloat32[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensor [36m'output/rec/segment_lens/init_segment_lens_const/constant_wi[0m...
+      shape_invariants [34;1m=[0m [34m<local>[0m [34m([0mTensorShape[34m([0m[34m[[0m[34m][0m[34m)[0m[34m,[0m [34m([0m[34m[[0mTensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Dimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Dimension[34m([0m1[34m)[0m[34m][0m[34m)[0m[34m,[0m TensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Dimension[34m([0m20[34m)[0m[34m][0m[34m)[0m[34m,[0m TensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m][0m[34m)[0m[34m,[0m TensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m][0m[34m)[0m[34m][0m[34m,[0m [34m[[0m[34m[[0mLSTMStateTuple[34m([0mc[34m=[0mTensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Dimension[34m([0m1024[34m)[0m[34m][0m[34m)[0m[34m,[0m h[34m=[0mTensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Di..., _[34m[[0m0[34m][0m[34m:[0m [34m{[0mlen [34m=[0m 0[34m}[0m
+      parallel_iterations [34;1m=[0m [34m<local>[0m 10
+      back_prop [34;1m=[0m [34m<local>[0m [34mTrue[0m
+      swap_memory [34;1m=[0m [34m<local>[0m [34mFalse[0m
+      name [34;1m=[0m [34m<local>[0m [34mNone[0m
+      maximum_iterations [34;1m=[0m [34m<local>[0m [34mNone[0m
+      return_same_structure [34;1m=[0m [34m<not found>[0m
+  [34;1mFile[0m [36m"/work/asr3/zeyer/schmitt/venvs/returnn_torch/lib/python3.10/site-packages/tensorflow/python/ops/[0m[36;1mcontrol_flow_ops.py[0m[36m"[0m, [34mline[0m [35m2853[0m, [34min[0m while_loop
+    [34mline:[0m result [34m=[0m loop_context[34m.[0mBuildLoop[34m([0mcond[34m,[0m body[34m,[0m loop_vars[34m,[0m shape_invariants[34m,[0m
+                                          return_same_structure[34m)[0m
+    [34mlocals:[0m
+      result [34;1m=[0m [34m<not found>[0m
+      loop_context [34;1m=[0m [34m<local>[0m [34m<[0mtensorflow[34m.[0mpython[34m.[0mops[34m.[0mcontrol_flow_ops[34m.[0mWhileContext object at 0x7fc8c41e6470[34m>[0m
+      loop_context[34;1m.[0mBuildLoop [34;1m=[0m [34m<local>[0m [34m<[0mbound method WhileContext[34m.[0mBuildLoop of [34m<[0mtensorflow[34m.[0mpython[34m.[0mops[34m.[0mcontrol_flow_ops[34m.[0mWhileContext object at 0x7fc8c41e6470[34m>[0m[34m>[0m
+      cond [34;1m=[0m [34m<local>[0m [34m<[0mfunction _SubnetworkRecCell[34m.[0mget_output[34m.[0m[34m<[0mlocals[34m>[0m[34m.[0mcond at 0x7fc8c428dea0[34m>[0m
+      body [34;1m=[0m [34m<local>[0m [34m<[0mfunction _SubnetworkRecCell[34m.[0mget_output[34m.[0m[34m<[0mlocals[34m>[0m[34m.[0mbody at 0x7fc8c428de10[34m>[0m
+      loop_vars [34;1m=[0m [34m<local>[0m [34m([0m[34m<[0mtf[34m.[0mTensor [36m'output/rec/initial_i_1:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mint32[34m>[0m[34m,[0m [34m([0m[34m[[0m[34m<[0mtf[34m.[0mTensor [36m'output/rec/accum_att_weights/ExpandDims:0'[0m shape[34m=[0m[34m([0m1[34m,[0m ?[34m,[0m ?[34m)[0m dtype[34m=[0mfloat32[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensor [36m'output/rec/att/init_att_zeros:0'[0m shape[34m=[0m[34m([0m?[34m,[0m 20[34m)[0m dtype[34m=[0mfloat32[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensor [36m'output/rec/segment_lens/init_segment_lens_const/constant_wi[0m...
+      shape_invariants [34;1m=[0m [34m<local>[0m [34m([0mTensorShape[34m([0m[34m[[0m[34m][0m[34m)[0m[34m,[0m [34m([0m[34m[[0mTensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Dimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Dimension[34m([0m1[34m)[0m[34m][0m[34m)[0m[34m,[0m TensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Dimension[34m([0m20[34m)[0m[34m][0m[34m)[0m[34m,[0m TensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m][0m[34m)[0m[34m,[0m TensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m][0m[34m)[0m[34m][0m[34m,[0m [34m[[0m[34m[[0mLSTMStateTuple[34m([0mc[34m=[0mTensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Dimension[34m([0m1024[34m)[0m[34m][0m[34m)[0m[34m,[0m h[34m=[0mTensorShape[34m([0m[34m[[0mDimension[34m([0m[34mNone[0m[34m)[0m[34m,[0m Di..., _[34m[[0m0[34m][0m[34m:[0m [34m{[0mlen [34m=[0m 0[34m}[0m
+      return_same_structure [34;1m=[0m [34m<local>[0m [34mTrue[0m
+  [34;1mFile[0m [36m"/work/asr3/zeyer/schmitt/venvs/returnn_torch/lib/python3.10/site-packages/tensorflow/python/ops/[0m[36;1mcontrol_flow_ops.py[0m[36m"[0m, [34mline[0m [35m2307[0m, [34min[0m WhileContext.BuildLoop
+    [34mline:[0m original_body_result[34m,[0m exit_vars [34m=[0m self[34m.[0m_BuildLoop[34m([0m
+              pred[34m,[0m body[34m,[0m flat_orig_loop_vars[34m,[0m flat_loop_vars[34m,[0m
+              loop_vars_signature[34m)[0m
+    [34mlocals:[0m
+      original_body_result [34;1m=[0m [34m<not found>[0m
+      exit_vars [34;1m=[0m [34m<not found>[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mtensorflow[34m.[0mpython[34m.[0mops[34m.[0mcontrol_flow_ops[34m.[0mWhileContext object at 0x7fc8c41e6470[34m>[0m
+      self[34;1m.[0m_BuildLoop [34;1m=[0m [34m<local>[0m [34m<[0mbound method WhileContext[34m.[0m_BuildLoop of [34m<[0mtensorflow[34m.[0mpython[34m.[0mops[34m.[0mcontrol_flow_ops[34m.[0mWhileContext object at 0x7fc8c41e6470[34m>[0m[34m>[0m
+      pred [34;1m=[0m [34m<local>[0m [34m<[0mfunction _SubnetworkRecCell[34m.[0mget_output[34m.[0m[34m<[0mlocals[34m>[0m[34m.[0mcond at 0x7fc8c428dea0[34m>[0m
+      body [34;1m=[0m [34m<local>[0m [34m<[0mfunction _SubnetworkRecCell[34m.[0mget_output[34m.[0m[34m<[0mlocals[34m>[0m[34m.[0mbody at 0x7fc8c428de10[34m>[0m
+      flat_orig_loop_vars [34;1m=[0m [34m<local>[0m [34m[[0m[34m<[0mtf[34m.[0mTensor [36m'output/rec/initial_i_1:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mint32[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensor [36m'output/rec/accum_att_weights/ExpandDims:0'[0m shape[34m=[0m[34m([0m1[34m,[0m ?[34m,[0m ?[34m)[0m dtype[34m=[0mfloat32[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensor [36m'output/rec/att/init_att_zeros:0'[0m shape[34m=[0m[34m([0m?[34m,[0m 20[34m)[0m dtype[34m=[0mfloat32[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensor [36m'output/rec/segment_lens/init_segment_lens_const/constant_with[0m..., len [34m=[0m 9
+      flat_loop_vars [34;1m=[0m [34m<local>[0m [34m[[0m[34m<[0mtf[34m.[0mTensor [36m'output/rec/initial_i_1:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mint32[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensor [36m'output/rec/accum_att_weights/ExpandDims:0'[0m shape[34m=[0m[34m([0m1[34m,[0m ?[34m,[0m ?[34m)[0m dtype[34m=[0mfloat32[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensor [36m'output/rec/att/init_att_zeros:0'[0m shape[34m=[0m[34m([0m?[34m,[0m 20[34m)[0m dtype[34m=[0mfloat32[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensor [36m'output/rec/segment_lens/init_segment_lens_const/constant_with[0m..., len [34m=[0m 9
+      loop_vars_signature [34;1m=[0m [34m<local>[0m [34m([0mTensorSpec[34m([0mshape[34m=[0m[34m([0m[34m)[0m[34m,[0m dtype[34m=[0mtf[34m.[0mint32[34m,[0m name[34m=[0m[34mNone[0m[34m)[0m[34m,[0m [34m([0m[34m[[0mTensorSpec[34m([0mshape[34m=[0m[34m([0m?[34m,[0m ?[34m,[0m 1[34m)[0m[34m,[0m dtype[34m=[0mtf[34m.[0mfloat32[34m,[0m name[34m=[0m[34mNone[0m[34m)[0m[34m,[0m TensorSpec[34m([0mshape[34m=[0m[34m([0m?[34m,[0m 20[34m)[0m[34m,[0m dtype[34m=[0mtf[34m.[0mfloat32[34m,[0m name[34m=[0m[34mNone[0m[34m)[0m[34m,[0m TensorSpec[34m([0mshape[34m=[0m[34m([0m?[34m,[0m[34m)[0m[34m,[0m dtype[34m=[0mtf[34m.[0mint32[34m,[0m name[34m=[0m[34mNone[0m[34m)[0m[34m,[0m TensorSpec[34m([0mshape[34m=[0m[34m([0m?[34m,[0m[34m)[0m[34m,[0m dtype[34m=[0mtf[34m.[0mint32[34m,[0m name[34m=[0m[34mNone[0m[34m)[0m[34m][0m[34m,[0m [34m[[0m[34m[[0mLSTMStateTuple[34m([0mc[34m=[0mTensorSpe...
+  [34;1mFile[0m [36m"/work/asr3/zeyer/schmitt/venvs/returnn_torch/lib/python3.10/site-packages/tensorflow/python/ops/[0m[36;1mcontrol_flow_ops.py[0m[36m"[0m, [34mline[0m [35m2168[0m, [34min[0m WhileContext._BuildLoop
+    [34mline:[0m [34mraise[0m ValueError[34m([0m
+              f[36m"[0mThe shape invariant specified for {real_var.name} is not "
+              [36m"compatible with the initial shape of the loop variable. It "[0m
+              f[36m"[0menters the loop with shape {real_var.get_shape()}, but the "
+              f[36m"[0mspecified shape invariant is {shape_invariant}."[34m)[0m
+    [34mlocals:[0m
+      ValueError [34;1m=[0m [34m<builtin>[0m [34m<[0m[34mclass[0m [36m'ValueError'[0m[34m>[0m
+[31mValueError[0m: The shape invariant specified for output/rec/accum_att_weights/ExpandDims:0 is not compatible with the initial shape of the loop variable. It enters the loop with shape (1, ?, ?), but the specified shape invariant is (?, ?, 1).

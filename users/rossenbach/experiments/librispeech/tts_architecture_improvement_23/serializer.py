@@ -1,6 +1,6 @@
 import copy
 from sisyphus import tk
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from i6_experiments.common.setups.returnn_common.serialization import (
     Collection,
@@ -111,6 +111,170 @@ def get_pytorch_serializer(
         )
         finish_hook = Import(
             package + ".%s.forward_finish_hook" % network_module
+        )
+        serializer_objects.extend(
+            [forward_step, init_hook, finish_hook]
+        )
+    if use_custom_engine:
+        pytorch_engine = Import(
+            package + ".%s.CustomEngine" % network_module
+        )
+        serializer_objects.append(pytorch_engine)
+    serializer = TorchCollection(
+        serializer_objects=serializer_objects,
+        make_local_package_copy=not debug,
+        packages={
+            package,
+        },
+    )
+
+    return serializer
+
+
+from i6_experiments.users.rossenbach.common_setups.returnn.serializer import Import as ImportV2, PartialImport
+
+
+def get_pytorch_serializer_v2(
+        network_module: str,
+        net_args: Dict[str, Any],
+        use_custom_engine=False,
+        forward=False,
+        search=False,
+        debug=False,
+        **kwargs
+) -> TorchCollection:
+
+    package = PACKAGE + ".pytorch_networks"
+
+    pytorch_model_import = PartialImport(
+        code_object_path=package + ".%s.Model" % network_module,
+        unhashed_package_root=PACKAGE,
+        hashed_arguments=net_args,
+        unhashed_arguments={},
+        import_as="get_model",
+    )
+    pytorch_train_step = ImportV2(
+        code_object_path=package + ".%s.train_step" % network_module,
+        unhashed_package_root=PACKAGE
+    )
+
+    serializer_objects = [
+        pytorch_model_import,
+        pytorch_train_step,
+    ]
+    if forward:
+        forward_step = Import(
+            package + ".%s.forward_step" % network_module
+        )
+        init_hook = Import(
+            package + ".%s.forward_init_hook" % network_module
+        )
+        finish_hook = Import(
+            package + ".%s.forward_finish_hook" % network_module
+        )
+        serializer_objects.extend(
+            [forward_step, init_hook, finish_hook]
+        )
+    elif search:
+        # Just a hack to test the phoneme-based recognition
+        forward_step = Import(
+            package + ".%s.search_step" % network_module,
+            import_as="forward_step"
+        )
+        init_hook = PartialImport(
+            code_object_path=package + ".%s.search_init_hook" % network_module,
+            unhashed_package_root=PACKAGE,
+            hashed_arguments=kwargs["search_args"],
+            unhashed_arguments={},
+            import_as="forward_init_hook",
+            )
+        finish_hook = Import(
+            package + ".%s.search_finish_hook" % network_module,
+            import_as="forward_init_hook"
+        )
+        serializer_objects.extend(
+            [forward_step, init_hook, finish_hook]
+        )
+    if use_custom_engine:
+        pytorch_engine = Import(
+            package + ".%s.CustomEngine" % network_module
+        )
+        serializer_objects.append(pytorch_engine)
+    serializer = TorchCollection(
+        serializer_objects=serializer_objects,
+        make_local_package_copy=not debug,
+        packages={
+            package,
+        },
+    )
+
+    return serializer
+
+def get_pytorch_serializer_v3(
+        network_module: str,
+        net_args: Dict[str, Any],
+        init_args: Optional[Dict[str, Any]] = None,
+        use_custom_engine=False,
+        forward=False,
+        prior=False,
+        debug=False,
+        **kwargs
+) -> TorchCollection:
+
+    package = PACKAGE + ".pytorch_networks"
+
+    pytorch_model_import = PartialImport(
+        code_object_path=package + ".%s.Model" % network_module,
+        unhashed_package_root=PACKAGE,
+        hashed_arguments=net_args,
+        unhashed_arguments={},
+        import_as="get_model",
+    )
+    pytorch_train_step = ImportV2(
+        code_object_path=package + ".%s.train_step" % network_module,
+        unhashed_package_root=PACKAGE
+    )
+
+    serializer_objects = [
+        pytorch_model_import,
+        pytorch_train_step,
+    ]
+    if forward:
+        forward_step = Import(
+            package + ".%s.forward_step" % network_module,
+            unhashed_package_root=PACKAGE,
+        )
+        init_hook = PartialImport(
+            code_object_path=package + ".%s.forward_init_hook" % network_module,
+            unhashed_package_root=PACKAGE,
+            hashed_arguments=init_args or {},
+            unhashed_arguments={},
+        )
+        finish_hook = Import(
+            package + ".%s.forward_finish_hook" % network_module,
+            unhashed_package_root=PACKAGE,
+        )
+        serializer_objects.extend(
+            [forward_step, init_hook, finish_hook]
+        )
+    elif prior:
+        # Just a hack to test the phoneme-based recognition
+        forward_step = Import(
+            package + ".%s.prior_step" % network_module,
+            unhashed_package_root=PACKAGE,
+            import_as="forward_step"
+        )
+        init_hook = PartialImport(
+            code_object_path=package + ".%s.prior_init_hook" % network_module,
+            unhashed_package_root=PACKAGE,
+            hashed_arguments=init_args or {},
+            unhashed_arguments={},
+            import_as="forward_init_hook",
+            )
+        finish_hook = Import(
+            package + ".%s.prior_finish_hook" % network_module,
+            unhashed_package_root=PACKAGE,
+            import_as="forward_finish_hook"
         )
         serializer_objects.extend(
             [forward_step, init_hook, finish_hook]

@@ -4,6 +4,7 @@ import typing
 from enum import Enum
 
 from .get_network_args import get_encoder_args, get_network_args
+from .layers import DEFAULT_INIT
 from .transformer_network import attention_for_hybrid
 
 INT_LOSS_LAYER = 6
@@ -32,6 +33,9 @@ def get_best_model_config(
     time_tag_name: typing.Optional[str] = None,
     upsample_by_transposed_conv: bool = True,
     feature_stacking_size: int = 3,
+    specaug_as_data: bool = False,
+    weights_init: str = DEFAULT_INIT,
+    conf_args: typing.Optional[typing.Any] = None,
 ) -> attention_for_hybrid:
     if int_loss_at_layer is None:
         int_loss_at_layer = INT_LOSS_LAYER
@@ -56,11 +60,10 @@ def get_best_model_config(
         32,
         0.1,
         0.0,
-        **{
-            "relative_pe": True,
-            "clipping": clipping,
-            "layer_norm_instead_of_batch_norm": True,
-        },
+        clipping=clipping,
+        layer_norm_instead_of_batch_norm=True,
+        relative_pe=True,
+        initialization=weights_init,
     )
 
     args = {
@@ -71,12 +74,15 @@ def get_best_model_config(
         "feature_stacking": True,
         "feature_stacking_window": [feature_stacking_size - 1, 0],
         "feature_stacking_stride": feature_stacking_size,
+        "spec_aug_as_data": specaug_as_data,
         "transposed_conv": upsample_by_transposed_conv,
         "transposed_conv_args": {
             "time_tag_name": time_tag_name,
         },
     }
 
+    if conf_args is not None:
+        args.update(conf_args)
     if focal_loss_factor is not None:
         args["focal_loss_factor"] = focal_loss_factor
 

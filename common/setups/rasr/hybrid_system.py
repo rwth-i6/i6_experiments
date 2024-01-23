@@ -46,10 +46,24 @@ Path = tk.setup_path(__package__)
 from i6_core.report.report import _Report_Type
 
 
+
 def hybrid_report_format(report: _Report_Type) -> str:
-    out = [(recog, str(report[recog])) for recog in report]
+    extra_ls = ["kazuki", "quant_min_max", "kaldi_small", "quant_entropy"]
+    out = [(recog, str(report[recog])) for recog in report if not any(extra in recog for extra in extra_ls)]
     out = sorted(out, key=lambda x: float(x[1]))
+    best_ls = [out[0]]
+    for extra in extra_ls:
+        out2 = [(recog, str(report[recog])) for recog in report if extra in recog]
+        out2 = sorted(out2, key=lambda x: float(x[1]))
+        if len(out2) > 0:
+            out.append((extra, ""))
+            out.extend(out2)
+            best_ls.append(out2[0])
+    best_ls = sorted(best_ls, key=lambda x: float(x[1]))
+    out.append(("Best Results", ""))
+    out.extend(best_ls)
     return "\n".join([f"{pair[0]}:  {str(pair[1])}" for pair in out])
+
 
 
 class HybridSystem(NnSystem):
@@ -589,18 +603,17 @@ class HybridSystem(NnSystem):
                     for job_name in self.jobs[c]:
                         if "scorer" not in job_name:
                             continue
-                        if name not in job_name:
+                        if not name == job_name.split("-")[1]:
                             continue
-                        if "scorer" in job_name:
-                            scorer = self.jobs[c][job_name]
-                            if scorer.out_wer:
-                                results[job_name] = scorer.out_wer
-
+                        scorer = self.jobs[c][job_name]
+                        if scorer.out_wer:
+                            results[job_name] = scorer.out_wer
+                tk.register_report(f"reports/{name.replace('/', '_')}", values=results)
                 report = GenerateReportStringJob(report_values=results, report_template=hybrid_report_format)
-                report.add_alias(name + "/report_job")
+                report.add_alias(f"report/report_{name}")
                 mail = MailJob(report.out_report, send_contents=True, subject=name)
-                mail.add_alias(name + "/mail_job")
-                tk.register_output(name + "/mail", mail.out_status)
+                mail.add_alias(f"report/mail_{name}")
+                tk.register_output("mail/" + name, mail.out_status)
 
     def run_nn_recog_step(self, step_args: NnRecogArgs):
         for eval_c in self.dev_corpora + self.test_corpora:

@@ -1,14 +1,13 @@
-from typing import Dict, Any, Optional, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 import i6_core.returnn as returnn
-from i6_core.returnn import CodeWrapper
 import i6_experiments.users.berger.args.returnn.learning_rates as learning_rates
 import i6_experiments.users.berger.args.returnn.regularization as regularization
+from i6_experiments.users.berger.recipe.returnn.training import Backend
 
 
-def get_base_config() -> Dict[str, Any]:
-    return {
-        "use_tensorflow": True,
+def get_base_config(backend: Backend) -> Dict[str, Any]:
+    result = {
         "debug_print_layer_output_template": True,
         "log_batch_size": True,
         "tf_log_memory_usage": True,
@@ -17,23 +16,46 @@ def get_base_config() -> Dict[str, Any]:
         "window": 1,
         "update_on_device": True,
     }
+    if backend == Backend.TENSORFLOW:
+        result["use_tensorflow"] = True
+    elif backend == Backend.PYTORCH:
+        result["backend"] = "torch"
+        result["use_lovely_tensors"] = True
+    else:
+        raise NotImplementedError
+    return result
 
 
 def get_extern_data_config(
-    num_inputs: int,
-    num_outputs: int,
-    target: str = "classes",
+    num_inputs: Optional[int],
+    num_outputs: Optional[int],
+    extern_data_kwargs: Dict = {},
+    extern_target_kwargs: Dict = {},
+    target: Optional[str] = "classes",
+    **kwargs,
 ) -> Dict[str, Any]:
-    return {
-        "extern_data": {
-            "data": {"dim": num_inputs},
-            target: {"dim": num_outputs, "sparse": True},
-        }
-    }
+    result = {}
+    if num_inputs is not None:
+        result["data"] = {"dim": num_inputs, **extern_data_kwargs}
+    if num_outputs is not None and target is not None:
+        result[target] = {"dim": num_outputs, "sparse": True, **extern_target_kwargs}
+    return {"extern_data": result}
 
 
-def get_base_post_config(**kwargs) -> Dict[str, Any]:
-    post_config = {"cleanup_old_models": True}
+def get_base_post_config(
+    keep_last_n: Optional[int] = None, keep_best_n: Optional[int] = None, keep: Optional[List[int]] = None, **kwargs
+) -> Dict[str, Any]:
+    if keep_last_n is None and keep_best_n is None and keep is None:
+        post_config = {"cleanup_old_models": True}
+    else:
+        cleanup_opts = {}
+        if keep_last_n is not None:
+            cleanup_opts["keep_last_n"] = keep_last_n
+        if keep_best_n is not None:
+            cleanup_opts["keep_best_n"] = keep_best_n
+        if keep is not None:
+            cleanup_opts["keep"] = keep
+        post_config = {"cleanup_old_models": cleanup_opts}
     return post_config
 
 
@@ -44,6 +66,7 @@ def get_network_config(network: Dict) -> Dict[str, Dict]:
 def get_returnn_config(
     network: Optional[Dict] = None,
     *,
+    backend: Backend = Backend.TENSORFLOW,
     target: Optional[str] = "classes",
     num_inputs: Optional[int] = None,
     num_outputs: Optional[int] = None,
@@ -63,10 +86,10 @@ def get_returnn_config(
     if num_outputs is not None:
         config_dict["num_outputs"] = {target: num_outputs}
     if extern_data_config:
-        assert num_inputs and num_outputs
-        assert target
-        config_dict.update(get_extern_data_config(num_inputs, num_outputs, target))
-    config_dict.update(get_base_config())
+        config_dict.update(
+            get_extern_data_config(num_inputs=num_inputs, num_outputs=num_outputs, target=target, **kwargs)
+        )
+    config_dict.update(get_base_config(backend))
 
     if network:
         config_dict.update(get_network_config(network))

@@ -3,11 +3,13 @@ from sisyphus import *
 from i6_core.util import create_executable
 from i6_core.rasr.config import build_config_from_mapping
 from i6_core.rasr.command import RasrCommand
+from i6_core.rasr.flow import FlowNetwork
 from i6_core import util
 
 import subprocess
 import tempfile
 import shutil
+from typing import Optional
 
 
 class RASRDecodingJob(Job):
@@ -72,11 +74,22 @@ class RASRDecodingJob(Job):
 
 
 class RASRDecodingJobParallel(RasrCommand, Job):
-  def __init__(self, rasr_exe_path, flf_lattice_tool_config, crp, model_checkpoint, dump_best_trace,
-               time_rqmt=1, mem_rqmt=2, use_gpu=True):
+  def __init__(
+          self,
+          rasr_exe_path,
+          flf_lattice_tool_config,
+          crp,
+          model_checkpoint,
+          dump_best_trace,
+          time_rqmt=1,
+          mem_rqmt=2,
+          use_gpu=True,
+          feature_flow: Optional[FlowNetwork] = None,
+  ):
     self.crp = crp
     self.rasr_exe_path = rasr_exe_path
     self.flf_lattice_tool_config = flf_lattice_tool_config
+    self.feature_flow = feature_flow
     self.model_checkpoint = model_checkpoint
     self.dump_best_trace = dump_best_trace
 
@@ -130,6 +143,8 @@ class RASRDecodingJobParallel(RasrCommand, Job):
       config.flf_lattice_tool.channels.alignment.unbuffered = False
 
     RasrCommand.write_config(config, post_config, "rasr.config")
+    if self.feature_flow is not None:
+      self.feature_flow.write_to_file("feature.flow")
     util.write_paths_to_file(
       self.out_lattice_bundle, self.out_single_lattice_caches.values()
     )

@@ -1,8 +1,13 @@
 import copy, os
 
 import numpy
+from itertools import product
 
+from sisyphus import toolkit as tk
+
+from i6_core.returnn.training import Checkpoint
 from i6_experiments.users.gaudino.experiments.conformer_att_2023.librispeech_960.attention_asr_config import (
+    CTCDecoderArgs,
     create_config,
     ConformerEncoderArgs,
     TransformerDecoderArgs,
@@ -18,8 +23,8 @@ from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_
     build_training_datasets,
     build_test_dataset,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.default_tools import (
-    RETURNN_EXE,
+from i6_experiments.users.gaudino.experiments.conformer_att_2023.librispeech_960.default_tools import (
+    # RETURNN_EXE,
     RETURNN_ROOT,
     RETURNN_CPU_EXE,
 )
@@ -44,6 +49,10 @@ from i6_experiments.users.rossenbach.experiments.librispeech.kazuki_lm.experimen
     ZeineldeenLM,
 )
 
+from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.search_helpers import (
+    rescore_att_ctc_search,
+)
+
 train_jobs_map = {}  # dict[str, ReturnnTrainJob]
 train_job_avg_ckpt = {}
 train_job_best_epoch = {}
@@ -64,7 +73,9 @@ lstm_lm_opts_map = {
     BPE_10K: lstm_10k_lm_opts,
 }
 
-trafo_lm_net = TransformerLM(source="prev:output", num_layers=24, vocab_size=10025, use_as_ext_lm=True)
+trafo_lm_net = TransformerLM(
+    source="prev:output", num_layers=24, vocab_size=10025, emb_cpu_lookup=False, use_as_ext_lm=True
+)
 trafo_lm_net.create_network()
 trafo_10k_lm_opts = {
     "lm_subnet": trafo_lm_net.network.get_net(),
@@ -91,6 +102,9 @@ trafo_lm_opts_map = {
     BPE_10K: trafo_10k_lm_opts,
     # BPE_5K: trafo_5k_lm_opts,
 }
+
+new_prior_file = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt"
+old_prior_file = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZdcvhAOyWl95/output/prior.txt"
 
 
 # ----------------------------------------------------------- #
@@ -146,6 +160,7 @@ def run_ctc_att_search():
         recog_bliss,
         mem_rqmt: float = 8,
         time_rqmt: float = 4,
+        two_pass_rescore=False,
         **kwargs,
     ):
         exp_prefix = os.path.join(prefix_name, exp_name)
@@ -155,19 +170,37 @@ def run_ctc_att_search():
             feature_extraction_net=feature_extraction_net,
             is_recog=True,
         )
-        search_single(
-            exp_prefix,
-            returnn_search_config,
-            checkpoint,
-            recognition_dataset=recog_dataset,
-            recognition_reference=recog_ref,
-            recognition_bliss_corpus=recog_bliss,
-            returnn_exe=RETURNN_CPU_EXE,
-            returnn_root=RETURNN_ROOT,
-            mem_rqmt=mem_rqmt,
-            time_rqmt=time_rqmt,
-            **kwargs,
-        )
+        if two_pass_rescore:
+            assert "att_scale" in kwargs and "ctc_scale" in kwargs, "rescore requires scales."
+            rescore_att_ctc_search(
+                exp_prefix,
+                returnn_search_config,
+                checkpoint,
+                recognition_dataset=recog_dataset,
+                recognition_reference=recog_ref,
+                recognition_bliss_corpus=recog_bliss,
+                returnn_exe=RETURNN_CPU_EXE,
+                returnn_root=RETURNN_ROOT,
+                mem_rqmt=mem_rqmt,
+                time_rqmt=time_rqmt,
+                **kwargs,  # pass scales here
+            )
+        else:
+            kwargs.pop("att_scale", None)
+            kwargs.pop("ctc_scale", None)
+            search_single(
+                exp_prefix,
+                returnn_search_config,
+                checkpoint,
+                recognition_dataset=recog_dataset,
+                recognition_reference=recog_ref,
+                recognition_bliss_corpus=recog_bliss,
+                returnn_exe=RETURNN_CPU_EXE,
+                returnn_root=RETURNN_ROOT,
+                mem_rqmt=mem_rqmt,
+                time_rqmt=time_rqmt,
+                **kwargs,
+            )
 
     def run_lm_fusion(
         lm_type,
@@ -204,8 +237,14 @@ def run_ctc_att_search():
             search_checkpoint = train_job_avg_ckpt[exp_name]
         elif epoch == "best":
             search_checkpoint = train_job_best_epoch[exp_name]
+        elif isinstance(epoch, Checkpoint):
+            search_checkpoint = epoch
+            assert "ckpt_name" in kwargs
+            epoch = kwargs["ckpt_name"]
         else:
-            assert isinstance(epoch, int), "epoch must be either a defined integer or a string in {avg, best}."
+            assert isinstance(
+                epoch, int
+            ), "epoch must be either a defined integer or a `Checkpoint` instance or a string in {avg, best}."
             search_checkpoint = train_job.out_checkpoints[epoch]
 
         ext_lm_opts = lstm_lm_opts_map[bpe_size] if lm_type == "lstm" else trafo_lm_opts_map[bpe_size]
@@ -241,7 +280,7 @@ def run_ctc_att_search():
             if prior_scales:
                 import itertools
 
-                scales = itertools.product(lm_scales, prior_scales)
+                scales = product(lm_scales, prior_scales)
 
             for scale in scales:
                 lm_scale = scale[0]
@@ -316,6 +355,9 @@ def run_ctc_att_search():
                     recog_ref=test_dataset_tuples[test_set][1],
                     recog_bliss=test_dataset_tuples[test_set][2],
                     time_rqmt=kwargs.get("time_rqmt", time_rqmt),
+                    two_pass_rescore=kwargs.get("two_pass_rescore", False),
+                    att_scale=kwargs.get("att_scale", 1.0),
+                    ctc_scale=kwargs.get("ctc_scale", 1.0),
                 )
 
     def run_decoding(
@@ -328,6 +370,7 @@ def run_ctc_att_search():
         test_sets: list,
         time_rqmt: float = 1.0,
         remove_label=None,
+        two_pass_rescore=False,
         **kwargs,
     ):
         test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
@@ -343,8 +386,37 @@ def run_ctc_att_search():
                 recog_bliss=test_dataset_tuples[test_set][2],
                 time_rqmt=time_rqmt,
                 remove_label=remove_label,
+                two_pass_rescore=two_pass_rescore,
                 **kwargs,
             )
+
+    def compute_ctc_prior(prior_exp_name, train_args, model_ckpt, bpe_size):
+        exp_prefix = os.path.join(prefix_name, prior_exp_name)
+        ctc_prior_train_data = build_training_datasets(
+            bpe_size=bpe_size,
+            use_raw_features=True,
+            epoch_wise_filter=None,
+            link_speed_perturbation=False,
+            partition_epoch=1,
+            seq_ordering="laplace:.1000",
+        )
+        returnn_config = create_config(
+            training_datasets=ctc_prior_train_data,
+            **train_args,
+            feature_extraction_net=log10_net_10ms,
+        )
+        returnn_config.config["network"]["output"] = {"class": "copy", "from": "ctc"}
+        returnn_config.config["max_seq_length"] = -1
+        from i6_core.returnn.extract_prior import ReturnnComputePriorJobV2
+
+        prior_j = ReturnnComputePriorJobV2(
+            model_checkpoint=model_ckpt,
+            returnn_config=returnn_config,
+            returnn_python_exe=RETURNN_CPU_EXE,
+            returnn_root=RETURNN_ROOT,
+        )
+        tk.register_output(exp_prefix + "/priors/ctc_prior_fix", prior_j.out_prior_txt_file)
+        return prior_j.out_prior_txt_file
 
     def run_search(
         exp_name,
@@ -770,7 +842,14 @@ def run_ctc_att_search():
         num_epochs=600,
     )
 
-    # 2.86/6.7/3.07/6.96
+    prior_args = copy.deepcopy(retrain_args)
+    prior_args["decoder_args"] = CTCDecoderArgs(hash_override_version=1)
+    prior_file = compute_ctc_prior(
+        name + f"_retrain1_const20_linDecay580_{1e-4}", prior_args, train_job_avg_ckpt[name], bpe_size=BPE_10K
+    )  # TODO: fix
+    # print(prior_file)
+
+    2.86 / 6.7 / 3.07 / 6.96
     run_decoding(
         exp_name="test_ctc_greedy_best",
         train_data=train_data,
@@ -785,62 +864,914 @@ def run_ctc_att_search():
         use_sclite=True,
     )
 
-    for only_scale_comb in [False, True]:
-        for scale_outside in [False, True]:
-            for comb_score_version in [1, 2, 3]:
-                for beam_size in [8, 12, 32, 64]:
-                    for scale in [(1.5, 1.0), (1.0, 0.9), (1.0, 0.8), (1.0, 0.7)]:
-                        if isinstance(scale, tuple):
-                            att_scale, ctc_scale = scale
-                        else:
-                            assert isinstance(scale, float)
-                            att_scale = scale
-                            ctc_scale = 1.0 - scale
+    for bsf in [40, 80, 160]:
+        search_args = copy.deepcopy(oclr_args)
+        search_args["decoder_args"] = CTCDecoderArgs()
+        search_args["batch_size"] = bsf * 20000
+        run_decoding(
+            exp_name=f"ctc_greedy_bsf{bsf}",
+            train_data=train_data,
+            checkpoint=train_job_avg_ckpt[
+                f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+            ],
+            search_args=search_args,
+            feature_extraction_net=log10_net_10ms,
+            bpe_size=BPE_10K,
+            test_sets=["dev-other"],
+            remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+            use_sclite=True,
+        )
 
-                        exp_name = f"joint_att_ctc_attScale{att_scale}_ctcScale{ctc_scale}_beam{beam_size}_combScoreV{comb_score_version}_fixRepeat"
-                        if only_scale_comb:
-                            exp_name += "_onlyScaleComb"
-                        if scale_outside:
-                            exp_name += "_scaleOutside"
-                        joint_decode_args = {
-                            "att_scale": att_scale,
-                            "ctc_scale": ctc_scale,
-                            "beam_size": beam_size,
-                            "comb_score_version": comb_score_version,
-                            "only_scale_comb": only_scale_comb,
-                            "scale_outside": scale_outside,
-                        }
-                        run_decoding(
-                            exp_name=exp_name,
-                            train_data=train_data,
-                            checkpoint=train_job_avg_ckpt[
-                                f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
-                            ],
-                            search_args={
-                                "joint_ctc_att_decode_args": joint_decode_args,
-                                "batch_size": 10_000 * 160 if beam_size <= 128 else 15_000 * 160,
-                                **oclr_args,
-                            },
-                            feature_extraction_net=log10_net_10ms,
-                            bpe_size=BPE_10K,
-                            test_sets=["dev-other"],
-                            remove_label={"<s>", "<blank>"},  # blanks are removed in the network
-                            use_sclite=True,
-                            time_rqmt=1.0 if beam_size <= 128 else 1.5,
-                        )
+    search_args["max_seqs"] = 1
+    run_decoding(
+        exp_name=f"ctc_greedy_single_seq",
+        train_data=train_data,
+        checkpoint=train_job_avg_ckpt[
+            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+        ],
+        search_args=search_args,
+        feature_extraction_net=log10_net_10ms,
+        bpe_size=BPE_10K,
+        test_sets=["dev-other"],
+        remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+        use_sclite=True,
+    )
 
-    def debug(name, search_bpe_path):
-        from i6_core.returnn.search import SearchRemoveLabelJob
-        from i6_core.returnn.search import SearchBPEtoWordsJob, ReturnnComputeWERJob
-        import sisyphus.toolkit as tk
+    # att only
+    for beam_size in [12]:
+        for bsf in [40, 80, 160]:
+            search_args = copy.deepcopy(oclr_args)
+            search_args["beam_size"] = beam_size
+            # search_args["max_seqs"] = 1
+            search_args["batch_size"] = bsf * 20000
+            run_decoding(
+                exp_name=f"base_att_beam{beam_size}_bsf{bsf}",
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args={"beam_size": beam_size, **search_args},
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-other"],
+                # test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+                use_sclite=True,
+                # att_scale=att_scale,
+                # ctc_scale=ctc_scale,
+                # two_pass_rescore=True,  # two-pass rescoring
+                time_rqmt=5.0,
+            )
 
-        assert isinstance(search_bpe_path, str)
-        search_bpe_path = tk.Path(search_bpe_path, hash_overwrite=name)
-        recognition_reference = tk.Path("/u/zeineldeen/debugging/trigg_att/refs.py")
-        search_bpe = SearchRemoveLabelJob(search_bpe_path, remove_label="<s>", output_gzip=True).out_search_results
-        search_words = SearchBPEtoWordsJob(search_bpe).out_word_search_results
-        tk.register_output(f"ctc_att_search/debug/{name}_words", search_words)
-        wer = ReturnnComputeWERJob(search_words, recognition_reference).out_wer
-        tk.register_output(f"ctc_att_search/debug/{name}_wer", wer)
+    # att + lm
+    for beam_size in [24]:
+        for lm_scale in [0.33]:
+            att_scale = 1.0
+            run_lm_fusion(
+                args=oclr_args,
+                lm_type="lstm",
+                exp_name=f"att{att_scale}_lstmlm{lm_scale}_beam{beam_size}",
+                train_data=train_data,
+                train_job=train_j,
+                feature_net=log10_net_10ms,
+                epoch=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                ckpt_name="avg",
+                lm_scales=[lm_scale],
+                beam_size=beam_size,
+                bpe_size=BPE_10K,
+                test_set_names=["dev-clean", "dev-other", "test-clean", "test-other"],
+                use_sclite=True,
+            )
 
+    # def debug(name, search_bpe_path):
+    #     from i6_core.returnn.search import SearchRemoveLabelJob
+    #     from i6_core.returnn.search import SearchBPEtoWordsJob, ReturnnComputeWERJob
+    #     import sisyphus.toolkit as tk
+    #
+    #     assert isinstance(search_bpe_path, str)
+    #     search_bpe_path = tk.Path(search_bpe_path, hash_overwrite=name)
+    #     recognition_reference = tk.Path("/u/zeineldeen/debugging/trigg_att/refs.py")
+    #     search_bpe = SearchRemoveLabelJob(search_bpe_path, remove_label="<s>", output_gzip=True).out_search_results
+    #     search_words = SearchBPEtoWordsJob(search_bpe).out_word_search_results
+    #     tk.register_output(f"ctc_att_search/debug/{name}_words", search_words)
+    #     wer = ReturnnComputeWERJob(search_words, recognition_reference).out_wer
+    #     tk.register_output(f"ctc_att_search/debug/{name}_wer", wer)
+    #
     # debug("fixrepeat_v1", "/u/zeineldeen/debugging/trigg_att/out.txt")
+
+    # TODO: two-pass joint decoding with CTC
+    for beam_size in []:
+        for ctc_scale in [0.01]:
+            att_scale = 1.0
+            run_decoding(
+                exp_name=f"two_pass_ctcRescore_{att_scale}_{ctc_scale}_beam{beam_size}",
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args={"beam_size": beam_size, **oclr_args},
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+                use_sclite=True,
+                att_scale=att_scale,
+                ctc_scale=ctc_scale,
+                two_pass_rescore=True,  # two-pass rescoring
+            )
+
+    # TODO: two-pass joint decoding with CTC with LM
+    for beam_size in []:
+        for ctc_scale in [0.003]:
+            for lm_scale in [0.4]:
+                # for lm_scale in [0.28, 0.3, 0.32, 0.35, 0.38, 0.4, 0.42]:
+                att_scale = 1.0
+                run_lm_fusion(
+                    args=oclr_args,
+                    lm_type="lstm",
+                    exp_name=f"two_pass_ctcRescore_{att_scale}_{ctc_scale}_lstmLM{lm_scale}_beam{beam_size}",
+                    train_data=train_data,
+                    train_job=train_j,
+                    feature_net=log10_net_10ms,
+                    epoch=train_job_avg_ckpt[
+                        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                    ],
+                    ckpt_name="avg",
+                    lm_scales=[lm_scale],
+                    beam_size=beam_size,
+                    bpe_size=BPE_10K,
+                    test_set_names=["dev-other"],
+                    # test_set_names=["dev-clean", "dev-other", "test-clean", "test-other"],
+                    use_sclite=True,
+                    att_scale=att_scale,
+                    ctc_scale=ctc_scale,
+                    two_pass_rescore=True,  # two-pass rescoring
+                )
+
+    # ctc + lm
+    for beam_size in []:
+        for lm_type in ["lstm"]:  # "trafo" "lstm"
+            for scale in [(0.5, 1)]:
+                search_args = copy.deepcopy(oclr_args)
+                search_args["beam_size"] = beam_size
+                lm_scale, ctc_scale = scale
+
+                if lm_scale > 0:
+                    ext_lm_opts = lstm_lm_opts_map[BPE_10K] if lm_type == "lstm" else trafo_lm_opts_map[BPE_10K]
+
+                    time_rqmt = 1.0
+
+                    if lm_type == "lstm":
+                        if beam_size > 128:
+                            search_args["batch_size"] = 4000 * 160
+
+                    if lm_type == "trafo":
+                        search_args["batch_size"] = 4000 * 160 if beam_size <= 32 else 2000 * 160
+                        time_rqmt = 2
+                        if beam_size > 50:
+                            time_rqmt = 3
+                    search_args["decoder_args"] = CTCDecoderArgs(
+                        add_ext_lm=True,
+                        lm_type=lm_type,
+                        ext_lm_opts=ext_lm_opts,
+                        lm_scale=lm_scale,
+                        ctc_scale=ctc_scale,
+                    )
+                    run_decoding(
+                        exp_name=f"ctc_{ctc_scale}_{lm_type}lm_{lm_scale}_beam{beam_size}",
+                        train_data=train_data,
+                        checkpoint=train_job_avg_ckpt[
+                            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                        ],
+                        search_args=search_args,
+                        feature_extraction_net=log10_net_10ms,
+                        bpe_size=BPE_10K,
+                        test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+                        time_rqmt=time_rqmt,
+                        remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                        use_sclite=True,
+                    )
+                else:
+                    search_args["decoder_args"] = CTCDecoderArgs()
+                    run_decoding(
+                        exp_name="ctc_decoder_greedy_best_dummy",
+                        train_data=train_data,
+                        checkpoint=train_job_avg_ckpt[
+                            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                        ],
+                        search_args=search_args,
+                        feature_extraction_net=log10_net_10ms,
+                        bpe_size=BPE_10K,
+                        test_sets=["dev-other"],
+                        remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                        use_sclite=True,
+                    )
+
+    # ctc + att
+    for beam_size in []:
+        for scale in [(1, 0.1)]:
+            search_args = copy.deepcopy(oclr_args)
+            search_args["beam_size"] = beam_size
+            att_scale, ctc_scale = scale
+
+            search_args["decoder_args"] = CTCDecoderArgs(add_att_dec=True, att_scale=att_scale, ctc_scale=ctc_scale)
+            run_decoding(
+                exp_name=f"ctc_{ctc_scale}_att_{att_scale}_beam{beam_size}",
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args=search_args,
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-other"],
+                remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                use_sclite=True,
+            )
+
+    # ctc + att + lstmlm
+    for beam_size in []:
+        for scale in [(0.3, 1, 0)]:
+            search_args = copy.deepcopy(oclr_args)
+            search_args["beam_size"] = beam_size
+            lm_scale, att_scale, ctc_scale = scale
+            lm_type = "lstm"
+            ext_lm_opts = lstm_lm_opts_map[BPE_10K]
+
+            time_rqmt = 1.0
+
+            if lm_type == "lstm":
+                if beam_size > 128:
+                    search_args["batch_size"] = 4000 * 160
+
+            search_args["decoder_args"] = CTCDecoderArgs(
+                add_ext_lm=True,
+                lm_type=lm_type,
+                ext_lm_opts=ext_lm_opts,
+                lm_scale=lm_scale,
+                add_att_dec=True,
+                att_scale=att_scale,
+                ctc_scale=ctc_scale,
+            )
+            run_decoding(
+                exp_name=f"ctc_{ctc_scale}_{lm_type}_{lm_scale}_att_{att_scale}_beam{beam_size}_blankScale_0.5",
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args=search_args,
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-other"],
+                time_rqmt=time_rqmt,
+                remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                use_sclite=True,
+            )
+
+    # att + trafo lm
+    beam_size = 12
+    lm_scale = 0.3
+    run_lm_fusion(
+        args=oclr_args,
+        lm_type="trafo",
+        exp_name=f"att_trafo_lm_{lm_scale}_beam{beam_size}",
+        train_data=train_data,
+        train_job=train_j,
+        feature_net=log10_net_10ms,
+        epoch=train_job_avg_ckpt[
+            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+        ],
+        ckpt_name="avg",
+        lm_scales=[lm_scale],
+        beam_size=beam_size,
+        bpe_size=BPE_10K,
+        test_set_names=["dev-other"],
+        use_sclite=True,
+    )
+
+    # TODO: one-pass joint decoding with CTC
+
+    for comb_score_version in [2]:
+        for beam_size in []:
+            for scale in [(0.3, 1.0)]:
+                att_scale, ctc_scale = scale
+                exp_name = f"joint_att_ctc_attScale{att_scale}_ctcScale{ctc_scale}_beam{beam_size}_combScoreV{comb_score_version}_fixRepeat"
+                joint_decode_args = {
+                    "att_scale": att_scale,
+                    "ctc_scale": ctc_scale,
+                    "beam_size": beam_size,
+                    "comb_score_version": comb_score_version,
+                    "only_scale_comb": False,
+                    "scale_outside": False,
+                }
+                run_decoding(
+                    exp_name=exp_name,
+                    train_data=train_data,
+                    checkpoint=train_job_avg_ckpt[
+                        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                    ],
+                    search_args={
+                        "joint_ctc_att_decode_args": joint_decode_args,
+                        "batch_size": 10_000 * 160 if beam_size <= 128 else 15_000 * 160,
+                        **oclr_args,
+                    },
+                    feature_extraction_net=log10_net_10ms,
+                    bpe_size=BPE_10K,
+                    test_sets=["dev-other"],
+                    remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                    use_sclite=True,
+                    time_rqmt=1.0 if beam_size <= 128 else 1.5,
+                )
+
+    # test blank scale
+    for mode in ["greedy", "att", "lstm_lm"]:
+        search_args = copy.deepcopy(oclr_args)
+        if mode == "greedy":
+            for blank_scale in []:
+                search_args["decoder_args"] = CTCDecoderArgs(blank_prob_scale=blank_scale)
+                search_args["beam_size"] = 12
+                run_decoding(
+                    exp_name=f"ctc_greedy_blankScale_{blank_scale}",
+                    train_data=train_data,
+                    checkpoint=train_job_avg_ckpt[
+                        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                    ],
+                    search_args=search_args,
+                    feature_extraction_net=log10_net_10ms,
+                    bpe_size=BPE_10K,
+                    test_sets=["dev-other"],
+                    remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                    use_sclite=True,
+                )
+        if mode == "att":
+            for blank_scale in []:
+                att_scale, ctc_scale = (0.3, 1.0)
+                exp_name = f"ctc_decoder_attScale{att_scale}_ctcScale{ctc_scale}_beam_12_blankScale_{blank_scale}"
+                search_args = copy.deepcopy(oclr_args)
+                search_args["beam_size"] = 12
+                search_args["decoder_args"] = CTCDecoderArgs(
+                    add_att_dec=True, att_scale=att_scale, ctc_scale=ctc_scale, blank_prob_scale=blank_scale
+                )
+                run_decoding(
+                    exp_name=exp_name,
+                    train_data=train_data,
+                    checkpoint=train_job_avg_ckpt[
+                        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                    ],
+                    search_args=search_args,
+                    feature_extraction_net=log10_net_10ms,
+                    bpe_size=BPE_10K,
+                    test_sets=["dev-other"],
+                    remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                    use_sclite=True,
+                    time_rqmt=1.0 if beam_size <= 128 else 1.5,
+                )
+        if mode == "lstm_lm":
+            for lm_scale in []:
+                ctc_scale = 1.0
+                lm_type = "lstm"
+                ext_lm_opts = lstm_lm_opts_map[BPE_10K]
+                time_rqmt = 1.0
+                beam_size = 55
+                blank_scale = 1.0
+
+                search_args["decoder_args"] = CTCDecoderArgs(
+                    add_ext_lm=True,
+                    lm_type=lm_type,
+                    ext_lm_opts=ext_lm_opts,
+                    lm_scale=lm_scale,
+                    ctc_scale=ctc_scale,
+                    blank_prob_scale=blank_scale,
+                )
+                search_args["beam_size"] = beam_size
+                run_decoding(
+                    exp_name=f"ctc_{ctc_scale}_{lm_type}_{lm_scale}_beam_{beam_size}_blankScale_{blank_scale}",
+                    train_data=train_data,
+                    checkpoint=train_job_avg_ckpt[
+                        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                    ],
+                    search_args=search_args,
+                    feature_extraction_net=log10_net_10ms,
+                    bpe_size=BPE_10K,
+                    test_sets=["dev-other"],
+                    time_rqmt=time_rqmt,
+                    remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                    use_sclite=True,
+                )
+
+    # test prior correction
+    for mode in ["greedy", "att", "lstm_lm"]:
+        prior_corr_args = copy.deepcopy(oclr_args)
+        prior_corr_args[
+            "ctc_log_prior_file"
+        ] = new_prior_file
+        if mode == "greedy":
+            for prior_scale in []:
+                search_args = copy.deepcopy(prior_corr_args)
+                search_args["decoder_args"] = CTCDecoderArgs(ctc_prior_correction=True, prior_scale=prior_scale)
+
+                search_args["beam_size"] = 12
+                run_decoding(
+                    exp_name=f"ctc_greedy_prior_correction_{prior_scale}",
+                    train_data=train_data,
+                    checkpoint=train_job_avg_ckpt[
+                        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                    ],
+                    search_args=search_args,
+                    feature_extraction_net=log10_net_10ms,
+                    bpe_size=BPE_10K,
+                    test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+                    remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                    use_sclite=True,
+                )
+        if mode == "att":
+            for prior_scale in []:
+                att_scale, ctc_scale = (0.65, 0.35)
+                exp_name = (
+                    f"ctc_decoder_attScale{att_scale}_ctcScale{ctc_scale}_beam_32_priorScale_{prior_scale}_maskfix"
+                )
+                search_args = copy.deepcopy(prior_corr_args)
+                search_args["beam_size"] = 32
+                search_args["decoder_args"] = CTCDecoderArgs(
+                    add_att_dec=True,
+                    att_scale=att_scale,
+                    ctc_scale=ctc_scale,
+                    ctc_prior_correction=True,
+                    prior_scale=prior_scale,
+                    att_masking_fix=True,
+                )
+                run_decoding(
+                    exp_name=exp_name,
+                    train_data=train_data,
+                    checkpoint=train_job_avg_ckpt[
+                        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                    ],
+                    search_args=search_args,
+                    feature_extraction_net=log10_net_10ms,
+                    bpe_size=BPE_10K,
+                    test_sets=["dev-other"],
+                    remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                    use_sclite=True,
+                    time_rqmt=1.0 if beam_size <= 128 else 1.5,
+                )
+        if mode == "lstm_lm":
+            for prior_scale in [0.3]:  # 0.3
+                lm_scale, ctc_scale = (0.5, 1.0)
+                lm_type = "lstm"
+                ext_lm_opts = lstm_lm_opts_map[BPE_10K]
+                time_rqmt = 1.0
+                beam_size = 55
+                search_args = copy.deepcopy(prior_corr_args)
+                search_args["decoder_args"] = CTCDecoderArgs(
+                    add_ext_lm=True,
+                    lm_type=lm_type,
+                    ext_lm_opts=ext_lm_opts,
+                    lm_scale=lm_scale,
+                    ctc_scale=ctc_scale,
+                    ctc_prior_correction=True,
+                    prior_scale=prior_scale,
+                )
+                search_args["beam_size"] = beam_size
+                run_decoding(
+                    exp_name=f"ctc_{ctc_scale}_{lm_type}_{lm_scale}_beam_{beam_size}_prior_new_{prior_scale}_renorm",
+                    train_data=train_data,
+                    checkpoint=train_job_avg_ckpt[
+                        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                    ],
+                    search_args=search_args,
+                    feature_extraction_net=log10_net_10ms,
+                    bpe_size=BPE_10K,
+                    test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+                    time_rqmt=time_rqmt,
+                    remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                    use_sclite=True,
+                )
+
+    # test logits instead of log probs
+    for mode in []:
+        # for mode in ["greedy", "att", "lstm_lm"]:
+        if mode == "greedy":
+            search_args = copy.deepcopy(oclr_args)
+            search_args["decoder_args"] = CTCDecoderArgs(logits=True)
+            search_args["beam_size"] = 12
+            run_decoding(
+                exp_name=f"ctc_greedy_logits",
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args=search_args,
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-other"],
+                remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                use_sclite=True,
+            )
+        if mode == "att":
+            att_scale, ctc_scale = (0.3, 1.0)
+            exp_name = f"ctc_decoder_attScale{att_scale}_ctcScale{ctc_scale}_beam_12_logits"
+            search_args = copy.deepcopy(oclr_args)
+            search_args["beam_size"] = 12
+            search_args["decoder_args"] = CTCDecoderArgs(
+                add_att_dec=True,
+                att_scale=att_scale,
+                ctc_scale=ctc_scale,
+                logits=True,
+            )
+            run_decoding(
+                exp_name=exp_name,
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args=search_args,
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-other"],
+                remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                use_sclite=True,
+                time_rqmt=1.0 if beam_size <= 128 else 1.5,
+            )
+        if mode == "lstm_lm":
+            lm_scale, ctc_scale = (0.5, 1.0)
+            lm_type = "lstm"
+            ext_lm_opts = lstm_lm_opts_map[BPE_10K]
+            time_rqmt = 1.0
+            beam_size = 55
+            search_args = copy.deepcopy(oclr_args)
+            search_args["decoder_args"] = CTCDecoderArgs(
+                add_ext_lm=True,
+                lm_type=lm_type,
+                ext_lm_opts=ext_lm_opts,
+                lm_scale=lm_scale,
+                ctc_scale=ctc_scale,
+                logits=True,
+            )
+            search_args["beam_size"] = beam_size
+            run_decoding(
+                exp_name=f"ctc_{ctc_scale}_{lm_type}_{lm_scale}_beam_{beam_size}_logits",
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args=search_args,
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-other"],
+                time_rqmt=time_rqmt,
+                remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                use_sclite=True,
+            )
+
+    # test remove_eos
+    for mode in []:  # ["greedy", "att", "lstm_lm"]
+        if mode == "greedy":
+            search_args = copy.deepcopy(oclr_args)
+            search_args["decoder_args"] = CTCDecoderArgs(remove_eos=True, add_eos_to_blank=True)
+            search_args["beam_size"] = 12
+            run_decoding(
+                exp_name=f"ctc_greedy_no_eos_1",
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args=search_args,
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-other"],
+                remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                use_sclite=True,
+            )
+        if mode == "att":
+            att_scale, ctc_scale = (0.3, 1.0)
+            exp_name = f"ctc_decoder_attScale{att_scale}_ctcScale{ctc_scale}_beam12_no_eos_pb"
+            search_args = copy.deepcopy(oclr_args)
+            search_args["beam_size"] = 12
+            search_args["decoder_args"] = CTCDecoderArgs(
+                add_att_dec=True, att_scale=att_scale, ctc_scale=ctc_scale, remove_eos=True, add_eos_to_blank=True
+            )
+            run_decoding(
+                exp_name=exp_name,
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args=search_args,
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-other"],
+                remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                use_sclite=True,
+                time_rqmt=1.0 if beam_size <= 128 else 1.5,
+            )
+        if mode == "lstm_lm":
+            lm_scale, ctc_scale = (0.5, 1.0)
+            lm_type = "lstm"
+            ext_lm_opts = lstm_lm_opts_map[BPE_10K]
+            time_rqmt = 1.0
+            beam_size = 55
+            search_args = copy.deepcopy(oclr_args)
+            search_args["decoder_args"] = CTCDecoderArgs(
+                add_ext_lm=True,
+                lm_type=lm_type,
+                ext_lm_opts=ext_lm_opts,
+                lm_scale=lm_scale,
+                ctc_scale=ctc_scale,
+                remove_eos=True,
+                add_eos_to_blank=True,
+            )
+            search_args["beam_size"] = beam_size
+            run_decoding(
+                exp_name=f"ctc_{ctc_scale}_{lm_type}_{lm_scale}_beam_{beam_size}_no_eos_pb",
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args=search_args,
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-other"],
+                time_rqmt=time_rqmt,
+                remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                use_sclite=True,
+            )
+
+    # test ctc_beam_search_decoder_tf
+    if False:
+        search_args["decoder_args"] = CTCDecoderArgs(ctc_beam_search_tf=True)
+        search_args["beam_size"] = 6
+        search_args["batch_size"] = 7500 * 160
+        run_decoding(
+            exp_name=f"ctc_beam_search_tf_beam_6",
+            train_data=train_data,
+            checkpoint=train_job_avg_ckpt[
+                f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+            ],
+            search_args=search_args,
+            feature_extraction_net=log10_net_10ms,
+            bpe_size=BPE_10K,
+            time_rqmt=6.0,
+            test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+            remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+            use_sclite=True,
+        )
+
+    # ctc + att masking fix
+    for beam_size, scales in product([32], [(0.65, 0.35)]):
+        for bsf in [40, 80, 160]:
+            search_args = copy.deepcopy(oclr_args)
+            search_args["beam_size"] = beam_size
+            att_scale, ctc_scale = scales
+            # search_args["max_seqs"] = 1
+            search_args["batch_size"] = bsf * 20000
+            search_args["decoder_args"] = CTCDecoderArgs(
+                add_att_dec=True, att_scale=att_scale, ctc_scale=ctc_scale, att_masking_fix=True
+            )
+            run_decoding(
+                exp_name=f"opts_ctc_{ctc_scale}_att_{att_scale}_beam{beam_size}_bsf{bsf}",
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args=search_args,
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-other"],
+                # test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+                remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                use_sclite=True,
+            )
+
+    # ctc + att masking fix worse model
+    for beam_size in [32]:
+        for scale in [(0.65, 0.35)]:
+            search_args = copy.deepcopy(oclr_args)
+            search_args["beam_size"] = beam_size
+
+            att_scale, ctc_scale = scale
+
+            search_args["decoder_args"] = CTCDecoderArgs(
+                add_att_dec=True, att_scale=att_scale, ctc_scale=ctc_scale, att_masking_fix=True
+            )
+            run_decoding(
+                exp_name=f"ctc_{ctc_scale}_att_{att_scale}_beam{beam_size}_worse_cpt",
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009"
+                ],
+                search_args=search_args,
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                # test_sets=["dev-other"],
+                test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+                remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                use_sclite=True,
+            )
+
+    # ctc + att masking fix large beam
+    for beam_size in [256]:
+        for scale in [(0.65, 0.35), (0.67, 0.33), (0.63, 0.37)]:
+            search_args = copy.deepcopy(oclr_args)
+            search_args["beam_size"] = beam_size
+            search_args["batch_size"] = 3000 * 160
+            att_scale, ctc_scale = scale
+
+            search_args["decoder_args"] = CTCDecoderArgs(
+                add_att_dec=True, att_scale=att_scale, ctc_scale=ctc_scale, att_masking_fix=True
+            )
+            run_decoding(
+                exp_name=f"ctc_{ctc_scale}_att_{att_scale}_beam{beam_size}_masking_fix",
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args=search_args,
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-other"],
+                # test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+                remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                use_sclite=True,
+                time_rqmt=3.0,
+            )
+
+    # ctc + att masking fix large beam
+    for beam_size in [512]:
+        for scale in [(0.65, 0.35)]:
+            search_args = copy.deepcopy(oclr_args)
+            search_args["beam_size"] = beam_size
+            search_args["batch_size"] = 1500 * 160
+            att_scale, ctc_scale = scale
+
+            search_args["decoder_args"] = CTCDecoderArgs(
+                add_att_dec=True, att_scale=att_scale, ctc_scale=ctc_scale, att_masking_fix=True
+            )
+            run_decoding(
+                exp_name=f"ctc_{ctc_scale}_att_{att_scale}_beam{beam_size}_masking_fix",
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args=search_args,
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                # test_sets=["dev-other"],
+                test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+                remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                use_sclite=True,
+                time_rqmt=10.0,
+            )
+
+    # ctc att mask fix + lm
+    for beam_size in [48]:
+        prior_corr_args = copy.deepcopy(oclr_args)
+        prior_corr_args["ctc_log_prior_file"] = new_prior_file
+        # ] = "/u/luca.gaudino/debug/ctc/prior.txt"
+        for scale in [(0.7, 0.3, 0.6, 0.3)]:
+            search_args = copy.deepcopy(prior_corr_args)
+            search_args["beam_size"] = beam_size
+            att_scale, ctc_scale, lm_scale, prior_scale = scale
+            # prior_scale = 0.3
+            lm_type = "lstm"
+            ext_lm_opts = lstm_lm_opts_map[BPE_10K]
+            search_args["decoder_args"] = CTCDecoderArgs(
+                add_att_dec=True,
+                att_scale=att_scale,
+                ctc_scale=ctc_scale,
+                att_masking_fix=True,
+                add_ext_lm=True,
+                lm_type=lm_type,
+                ext_lm_opts=ext_lm_opts,
+                lm_scale=lm_scale,
+                ctc_prior_correction=True,
+                prior_scale=prior_scale,
+                # remove_eos=True,
+                # rescore_last_eos=True,
+                # add_eos_to_blank=True,
+            )
+            run_decoding(
+                exp_name=f"ctc_{ctc_scale}_att_{att_scale}_lm_{lm_scale}_prior_{prior_scale}_beam{beam_size}_masking_fix",
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args=search_args,
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                # test_sets=["dev-other"],
+                test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+                remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                use_sclite=True,
+                time_rqmt=1.0,
+            )
+
+    # ctc + att masking fix scales
+    for beam_size in [32]:
+        for scale in [(0.65, 0.35)]:
+            search_args = copy.deepcopy(oclr_args)
+            search_args["beam_size"] = beam_size
+            att_scale, ctc_scale = scale
+
+            search_args["decoder_args"] = CTCDecoderArgs(
+                add_att_dec=True,
+                att_scale=att_scale,
+                ctc_scale=ctc_scale,
+                att_masking_fix=True,
+                one_minus_term_mul_scale=1.5,
+            )
+            run_decoding(
+                exp_name=f"ctc_{ctc_scale}_att_{att_scale}_beam{beam_size}_omt{1.5}",
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args=search_args,
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-other"],
+                # test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+                remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                use_sclite=True,
+            )
+
+    # ctc + att + ctc prior corr
+    for beam_size in [32]:
+        for scale in [(0.65, 0.35)]:
+            for prior_scale in [0.3]:
+                search_args = copy.deepcopy(oclr_args)
+                search_args["beam_size"] = beam_size
+                att_scale, ctc_scale = scale
+                search_args["ctc_log_prior_file"] = new_prior_file
+
+                search_args["decoder_args"] = CTCDecoderArgs(
+                    add_att_dec=True,
+                    att_scale=att_scale,
+                    ctc_scale=ctc_scale,
+                    ctc_prior_correction=True,
+                    prior_scale=prior_scale,
+                )
+                run_decoding(
+                    exp_name=f"ctc_{ctc_scale}_att_{att_scale}_beam_{beam_size}_prior_{prior_scale}",
+                    train_data=train_data,
+                    checkpoint=train_job_avg_ckpt[
+                        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                    ],
+                    search_args=search_args,
+                    feature_extraction_net=log10_net_10ms,
+                    bpe_size=BPE_10K,
+                    # test_sets=["dev-other"],
+                    test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+                    remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                    use_sclite=True,
+                )
+
+    # ctc + att + mask eos
+    for beam_size in []:
+        for scale in [(0.65, 0.35)]:
+            search_args = copy.deepcopy(oclr_args)
+            search_args["beam_size"] = beam_size
+            att_scale, ctc_scale = scale
+
+            search_args["decoder_args"] = CTCDecoderArgs(
+                add_att_dec=True,
+                att_scale=att_scale,
+                ctc_scale=ctc_scale,
+                remove_eos=True,
+                add_eos_to_blank=True,
+                rescore_last_eos=True,
+                ctc_prior_correction=True,
+                prior_scale=0.3,
+            )
+            search_args["ctc_log_prior_file"] = new_prior_file
+
+            run_decoding(
+                exp_name=f"ctc_{ctc_scale}_att_{att_scale}_beam_{beam_size}_prior_new_0.3_no_eos",
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args=search_args,
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-other"],
+                # test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+                remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                use_sclite=True,
+            )
+
+    # try blank collapse atanas
+    search_args = copy.deepcopy(oclr_args)
+    search_args["decoder_args"] = CTCDecoderArgs(blank_collapse=True)
+    run_decoding(
+        exp_name=f"ctc_greedy_blank_collapse",
+        train_data=train_data,
+        checkpoint=train_job_avg_ckpt[
+            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+        ],
+        search_args=search_args,
+        feature_extraction_net=log10_net_10ms,
+        bpe_size=BPE_10K,
+        test_sets=["dev-other"],
+        remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+        use_sclite=True,
+    )

@@ -5,6 +5,7 @@ import copy
 from typing import Any, Dict, Optional, List
 from dataclasses import dataclass, asdict
 
+from i6_experiments.users.gaudino.models.asr.decoder.ctc_decoder import CTCDecoder
 from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder import ConformerEncoder
 from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder import TransformerDecoder
 from i6_experiments.users.zeineldeen.models.asr.decoder.conformer_decoder import ConformerDecoder
@@ -458,7 +459,7 @@ class RNNDecoderArgs(DecoderArgs):
     enc_key_dim: int = 1024  # also attention dim  # also attention dim
 
     # location feedback
-    loc_conv_att_num_channels: Optional[int] = None
+    # loc_conv_att_num_channels: Optional[int] = None
     loc_conv_att_filter_size: Optional[int] = None
 
     # param init
@@ -478,7 +479,7 @@ class RNNDecoderArgs(DecoderArgs):
     reduceout: bool = True
 
     # lstm lm
-    lstm_lm_proj_dim: int = 1024
+    # lstm_lm_proj_dim: int = 1024
     lstm_lm_dim: int = 1024
     add_lstm_lm: bool = False
 
@@ -492,6 +493,34 @@ class RNNDecoderArgs(DecoderArgs):
     label_smoothing: float = 0.1
 
     use_zoneout_output: bool = False
+
+
+@dataclass
+class CTCDecoderArgs(DecoderArgs):
+    add_ext_lm: bool = False
+    lm_type: Optional[str] = None
+    ext_lm_opts: Optional[dict] = None
+    lm_scale: float = 0.3
+    ctc_scale: float = 0.35
+    add_att_dec: bool = False
+    att_scale: float = 0.65
+    ts_reward: float = 0.0
+    blank_prob_scale: float = 0.0
+    repeat_prob_scale: float = 0.0
+    ctc_prior_correction: bool = False
+    prior_scale: float = 1.0
+    logits: bool = False
+    remove_eos: bool = False
+    eos_postfix: bool = False
+    add_eos_to_blank: bool = False
+    rescore_last_eos: bool = False
+    ctc_beam_search_tf: bool = False
+    att_masking_fix: bool = True
+    one_minus_term_mul_scale: float = 1.0
+    one_minus_term_sub_scale: float = 0.0
+    length_normalization: bool = False
+    hash_override_version: Optional[int] = None
+    blank_collapse: bool = False
 
 
 def create_config(
@@ -548,6 +577,7 @@ def create_config(
     joint_ctc_att_decode_args=None,
     staged_hyperparams: dict = None,
     keep_best_n=None,
+    ctc_log_prior_file=None,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -657,6 +687,11 @@ def create_config(
     elif isinstance(decoder_args, ConformerDecoderArgs):
         decoder_type = ConformerDecoder
         dec_type = "conformer"  # TODO: check if same as transformer
+    elif isinstance(decoder_args, CTCDecoderArgs):
+        decoder_type = CTCDecoder
+        dec_type = "ctc"
+        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
+        exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
     else:
         assert False, "invalid decoder_args type"
 
@@ -675,6 +710,11 @@ def create_config(
 
     decoder_args = asdict(decoder_args)
     decoder_args.update({"target": target, "beam_size": beam_size})
+
+    if "hash_override_version" in decoder_args.keys():
+        if decoder_args["hash_override_version"] is not None:
+            exp_config["version"] = decoder_args["hash_override_version"]
+        decoder_args.pop("hash_override_version")
 
     transformer_decoder = decoder_type(base_model=conformer_encoder, **decoder_args)
     transformer_decoder.create_network()
@@ -801,6 +841,25 @@ def create_config(
             "eval": "(source(0) - source(1)) / source(2)",
         }
 
+    if ctc_log_prior_file:
+        python_prolog += ["import numpy"]
+        from sisyphus.delayed_ops import DelayedFormat
+        tmp = DelayedFormat("{}", ctc_log_prior_file)
+        # CodeWrapper(DelayedFormat("numpy.loadtxt('{}')", ctc_prior_file))
+        exp_config["network"]["ctc_log_prior"] = {
+            "class": "constant",
+            "value": CodeWrapper(f"numpy.loadtxt('{tmp}', dtype='float32')"),
+        }
+        # to wait for prior job (not tested):
+        # from sisyphus.delayed_ops import DelayedFormat
+        #
+        # config["network"]["ctc_log_prior"] = {
+        #     "class": "constant",
+        #     "value": CodeWrapper(DelayedFormat("numpy.loadtxt('{}', dtype='float32')", ctc_log_prior_file)),
+        # }
+        # TODO: name of ctc layer standalone
+        # TODO: name of ctc layer combined with LM/Att
+
     staged_network_dict = None
 
     # add pretraining
@@ -887,6 +946,10 @@ def create_config(
         python_prolog += ["from returnn.tf.compat import v1 as tf_v1"]
         if joint_ctc_att_decode_args.get("remove_eos", False):
             python_prolog += [update_tensor_entry]
+
+    if dec_type == "ctc":
+        python_prolog += transformer_decoder.get_python_prolog()
+
 
     # modify hyperparameters based on epoch
     if staged_hyperparams:

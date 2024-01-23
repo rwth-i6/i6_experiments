@@ -19,13 +19,13 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
 
     returnn_configs = get_pytorch_returnn_configs(
         num_inputs=50, num_outputs=num_outputs, batch_size=5000,
-        evaluation_epochs=evaluation_epochs, debug=debug,
+        evaluation_epochs=evaluation_epochs, debug=debug, num_epochs=num_epochs,
     )
 
     returnn_recog_configs = get_pytorch_returnn_configs(
         num_inputs=50, num_outputs=num_outputs, batch_size=5000,
         evaluation_epochs=evaluation_epochs,
-        recognition=True, debug=debug,
+        recognition=True, debug=debug, num_epochs=num_epochs,
     )
 
 
@@ -72,7 +72,7 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
             "lmgc_mem": 16,
             "cpu": 2,
             "parallelize_conversion": True,
-            "training_whitelist": ["blstm_oclr_v2", "blstm_oclr_v2_fp16", "blstm_oclr_v2_trace"]
+            "training_whitelist": ["blstm_oclr_v2", "blstm_oclr_v2_fp16", "blstm_oclr_v2_trace", "blstm_oclr_v2_i6models"]
         },
         "dev-other-nolen": {
             "epochs": evaluation_epochs,
@@ -103,7 +103,13 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
             "parallelize_conversion": True,
             "needs_features_size": False,
             "training_whitelist": [
-                "torchaudio_conformer", "torchaudio_conformer_subup_medium", "torchaudio_conformer_v2_subx2_lchunk",  "torchaudio_conformer_v2_subx2_lchunk_nomhsa", "i6_models_conformer_block"],
+                "torchaudio_conformer",
+                "torchaudio_conformer_subup_medium",
+                "torchaudio_conformer_v2_subx2_lchunk",
+                "torchaudio_conformer_v2_subx2_lchunk_nomhsa",
+                "torchaudio_conformer_v3_subx2_lchunk",
+                "i6_models_conformer_block",
+                "i6_models_conformer_block_convfirst"],
         },
         "dev-other-dynqant": {
             "epochs": evaluation_epochs,
@@ -181,7 +187,7 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
 
 
 def get_pytorch_returnn_configs(
-        num_inputs: int, num_outputs: int, batch_size: int, evaluation_epochs: List[int],
+        num_inputs: int, num_outputs: int, batch_size: int, evaluation_epochs: List[int], num_epochs,
         recognition=False, debug=False,
 ):
     # ******************** blstm base ********************
@@ -268,7 +274,7 @@ def get_pytorch_returnn_configs(
         if use_i6_models:
             i6_models_repo = CloneGitRepositoryJob(
                 url="https://github.com/rwth-i6/i6_models",
-                commit="83af04d84f6a223a980f0bed8db6d2d1466dd690",
+                commit="2e76cd9bf346ba0a635815731f4cff53cd817d2a",
                 checkout_folder_name="i6_models"
             ).out_repository
             i6_models_repo.hash_overwrite = "LIBRISPEECH_DEFAULT_I6_MODELS"
@@ -314,13 +320,16 @@ def get_pytorch_returnn_configs(
         #"blstm_oclr_v2": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug"}),
         #"blstm_oclr_v2_custom": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_custom_engine"}, use_custom_engine=True),
         "blstm_oclr_v2": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug"}, use_tracing=False),
-        "torchaudio_conformer": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer"}, use_tracing=False),# here the config is wrong, it does use tracing
-        "torchaudio_conformer_subsample": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_subsample"}, use_tracing=True),#
-        "torchaudio_conformer_subsample_upsample": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_subsample_upsample"}, use_tracing=True),#
-        "torchaudio_conformer_subup_medium": construct_from_net_kwargs(medium_lr_config, {"model_type": "torchaudio_conformer_subsample_upsample"}, use_tracing=True),#
+        "blstm_oclr_v2_i6models": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_i6models_test"}, use_tracing=False, use_i6_models=True),
+        #"torchaudio_conformer": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer"}, use_tracing=False),# here the config is wrong, it does use tracing
+        #"torchaudio_conformer_subsample": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_subsample"}, use_tracing=True),#
+        #"torchaudio_conformer_subsample_upsample": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_subsample_upsample"}, use_tracing=True),#
+        #"torchaudio_conformer_subup_medium": construct_from_net_kwargs(medium_lr_config, {"model_type": "torchaudio_conformer_subsample_upsample"}, use_tracing=True),#
         "torchaudio_conformer_v2_subx2_lchunk": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "torchaudio_conformer_v2_subup_large"}, use_tracing=True),#
+        "torchaudio_conformer_v3_subx2_lchunk": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "torchaudio_conformer_v3_subup_large"}, use_tracing=True),#
         "torchaudio_conformer_v2_subx2_lchunk_nomhsa": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "torchaudio_conformer_v2_subup_large_nomhsa"}, use_tracing=True),#
         "i6_models_conformer_block": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "i6_models_conformer_block_subup"}, use_tracing=True, use_i6_models=True),#
+        "i6_models_conformer_block_convfirst": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "i6_models_conformer_block_subup_convfirst"}, use_tracing=True, use_i6_models=True),#
         # "torchaudio_conformer_large": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_large_fp16"}, use_tracing=True), # no custom engine, so no fp16
         # "torchaudio_conformer_large_fp16": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_large_fp16"}, use_tracing=True, use_custom_engine=True), #
         "blstm_oclr_v2_fp16": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug_fp16"}, use_tracing=False, use_custom_engine=True),#

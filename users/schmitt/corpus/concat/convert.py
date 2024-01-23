@@ -30,3 +30,19 @@ class WordsToCTMJob(Job):
     ScliteHubScoreJob.create_ctm(
       name=self.dataset_name, ref_stm_filename=self.stm_path.get_path(), source_filename=self.words_path.get_path(),
       target_filename=self.out_ctm_file.get_path())
+
+
+class WordsToCTMJobV2(Job):
+  def __init__(self, words_path: Path):
+    self.words_path = words_path
+
+    self.out_ctm_file = self.output_path("out.ctm")
+
+  def tasks(self):
+    yield Task("run", mini_task=True)
+
+  def run(self):
+    from recipe.i6_experiments.users.schmitt.experiments.config.concat_seqs.scoring import ScliteJob
+    ScliteJob.create_ctm(
+      source_filename=self.words_path.get_path(),
+      target_filename=self.out_ctm_file.get_path())

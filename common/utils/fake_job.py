@@ -23,6 +23,7 @@ def make_fake_job(*, module: str, name: str, sis_hash: str) -> sisyphus.Job:
         # Fake these attributes so that JobSingleton.__call__ results in the same sis_id.
         cls.__module__ = module
         cls.__name__ = name
+        cls.__qualname__ = name + "(FakeJob)"
         _fake_job_class_cache[(module, name)] = cls
     job = cls(sis_hash=sis_hash)
     # Note: If this isinstance(...) is not true,
@@ -51,5 +52,34 @@ class _FakeJobBase(sisyphus.Job):
         """
         return parsed_args["sis_hash"]
 
+    def __reduce__(self):
+        return _make_fake_job, (self.__class__.__module__, self.__class__.__name__, self.sis_hash)
+
+
+def _make_fake_job(module: str, name: str, sis_hash: str) -> sisyphus.Job:
+    """just for _FakeJobBase.__reduce__"""
+    return make_fake_job(module=module, name=name, sis_hash=sis_hash)
+
 
 _fake_job_class_cache = {}
+
+
+def test_fake_job():
+    from sisyphus import tk, gs
+    from sisyphus.hash import short_hash
+    import pickle
+
+    job = make_fake_job(module="i6_core.audio.encoding", name="BlissChangeEncodingJob", sis_hash="vUdgDkgc97ZK")
+    print(f"job: {job} {job.job_id()}/{gs.JOB_OUTPUT}")  # the latter is what tk.Path._sis_hash uses
+    print(job.__class__, job.__class__.__qualname__, job.__class__.__name__, job.__class__.__module__)
+    path = tk.Path("corpus.xml.gz", creator=job)
+    print(f"path: {path} {short_hash(path)}")
+    assert short_hash(path) == "6nofT6iiMd7G"
+
+    path_ = pickle.loads(pickle.dumps(path))
+    assert isinstance(path_, tk.Path)
+    assert path == path_ and short_hash(path) == short_hash(path_)
+
+    job_ = pickle.loads(pickle.dumps(job))
+    assert isinstance(job_, _FakeJobBase)
+    assert job.job_id() == job_.job_id()

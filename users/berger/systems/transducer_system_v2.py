@@ -9,6 +9,7 @@ from typing import Callable, Dict, List, Literal, Optional, Tuple, Type, Union
 # -------------------- Recipes --------------------
 
 from i6_core import am, corpus, features, lexicon, mm, rasr, recognition, returnn
+from i6_core.returnn.search import ReturnnSearchJob
 from i6_experiments.common.setups.rasr.util.rasr import RasrDataInput
 from i6_experiments.users.berger.args.jobs.search_types import SearchTypes
 from i6_experiments.users.berger.recipe import mm as custom_mm
@@ -512,7 +513,7 @@ class TransducerSystem:
         self,
         filename: str,
         recognition_corpus_key: str,
-        recognition_job: returnn.ReturnnSearchJobV2,
+        recognition_job: ReturnnSearchJob,
     ) -> Job:
         bpe2word = returnn.SearchBPEtoWordsJob(recognition_job.out_search_file)
         word2ctm = returnn.SearchWordsToCTMJob(

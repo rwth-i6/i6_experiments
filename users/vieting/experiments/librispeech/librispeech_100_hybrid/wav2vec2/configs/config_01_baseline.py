@@ -10,13 +10,13 @@ from i6_experiments.common.setups.serialization import Import, ExplicitHash
 from i6_experiments.common.setups.returnn_pytorch.serialization import PyTorchModel, Collection
 
 
-from ..default_tools import PACKAGE
+from ..default_tools import PACKAGE, FAIRSEQ
 
 
-def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_returnn_training=True, debug=False, **net_kwargs):
-    evaluation_epochs  = list(range(num_epochs, num_epochs + 1, 10))
+def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_returnn_training=True, debug=False, evaluation_epochs=None, **net_kwargs):
+    evaluation_epochs  = evaluation_epochs or list(range(num_epochs, num_epochs + 1, 10))
 
-    batch_size = {"classes": 4 * 2000, "data": 4 * 320000}
+    batch_size = {"classes": 3 * 2000, "data": 3 * 320000}
     chunking = ({"classes": 100, "data": 100 * 160}, {"classes": 50, "data": 50 * 160})
     returnn_configs = get_pytorch_returnn_configs(
         num_inputs=50, num_outputs=num_outputs, batch_size=batch_size, chunking=chunking,
@@ -31,7 +31,7 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
 
 
     training_args = {
-        "log_verbosity": 5,
+        "log_verbosity": 4,
         "num_epochs": num_epochs,
         "save_interval": 1,
         "keep_epochs": None,
@@ -48,7 +48,7 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
     recognition_args = {
         "dev-other": {
             "epochs": evaluation_epochs,
-            "feature_flow_key": "gt",
+            "feature_flow_key": "samples",
             "prior_scales": [0.3],
             "pronunciation_scales": [6.0],
             "lm_scales": [20.0],
@@ -73,6 +73,7 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
             "lmgc_mem": 16,
             "cpu": 2,
             "parallelize_conversion": True,
+            "needs_features_size": False,
         },
     }
     test_recognition_args = None
@@ -131,9 +132,8 @@ def get_pytorch_returnn_configs(
             "keep": evaluation_epochs,
         }
 
-
     # those are hashed
-    pytorch_package =  PACKAGE + ".pytorch_networks"
+    pytorch_package = PACKAGE + ".pytorch_networks"
 
     def construct_from_net_kwargs(base_config, net_kwargs, explicit_hash=None):
         model_type = net_kwargs.pop("model_type")
@@ -166,10 +166,12 @@ def get_pytorch_returnn_configs(
                 pytorch_package,
             },
         )
+        prolog = ["import sys", f"sys.path.insert(0, '{FAIRSEQ}')"]
 
         returnn_config = ReturnnConfig(
             config=base_config,
             post_config=base_post_config,
+            python_prolog=prolog,
             python_epilog=[serializer],
             pprint_kwargs={"sort_dicts": False},
         )
@@ -185,7 +187,7 @@ def get_pytorch_returnn_configs(
             "init_for_train": True,
         }}
     return {
-        "w2v2_oclr_v1": construct_from_net_kwargs(w2v_base_config, {"model_type": "w2v2_large"}),
+        # "w2v2_oclr_v1": construct_from_net_kwargs(w2v_base_config, {"model_type": "w2v2_large"}),
         "w2v2_oclr_v1_pretrained": construct_from_net_kwargs(
             {"preload_from_files": preload, **w2v_base_config}, {"model_type": "w2v2_large"}),
     }

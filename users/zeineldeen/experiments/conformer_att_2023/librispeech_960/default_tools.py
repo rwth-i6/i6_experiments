@@ -7,7 +7,7 @@ RETURNN_EXE = tk.Path("/u/zeineldeen/bin/returnn_tf_ubuntu22_launcher.sh", hash_
 RETURNN_CPU_EXE = RETURNN_EXE
 
 RETURNN_ROOT = CloneGitRepositoryJob(
-    "https://github.com/rwth-i6/returnn", commit="b8187f47437a368eda8ad369631521515ee5e209"
+    "https://github.com/rwth-i6/returnn", commit="a585a9be5f17f5a0b513de4c46eed07b945d6194"
 ).out_repository
 RETURNN_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
 

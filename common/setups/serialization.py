@@ -3,16 +3,18 @@ Helper code for serializing any data, e.g. for ReturnnConfig.
 """
 
 from __future__ import annotations
-from typing import Any, Union, Optional, List
-from types import FunctionType
+
+import string
 import sys
 import textwrap
+from types import FunctionType
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+from i6_core.util import uopen, instanciate_delayed
 from sisyphus import tk
-from sisyphus.hash import sis_hash_helper, short_hash
 from sisyphus.delayed_ops import DelayedBase
-
-from i6_core.util import uopen
+from sisyphus.hash import short_hash, sis_hash_helper
+from sisyphus.tools import try_get
 
 
 class SerializerObject(DelayedBase):
@@ -72,16 +74,24 @@ class Import(SerializerObject):
     def __init__(
         self,
         code_object_path: Union[str, FunctionType, Any],
-        import_as: Optional[str] = None,
         *,
+        unhashed_package_root: Optional[str] = None,
+        import_as: Optional[str] = None,
         use_for_hash: bool = True,
         ignore_import_as_for_hash: bool = False,
     ):
         """
-        :param code_object_path: e.g. `i6_experiments.users.username.my_rc_files.SomeNiceASRModel`.
+        :param code_object_path: e.g.`i6_experiments.users.username.some_experiment.pytorch_networks.SomeNiceASRModel`.
             This can be the object itself, e.g. a function or a class. Then it will use __qualname__ and __module__.
+        :param unhashed_package_root: The root path to a package, from where relatives paths will be hashed.
+            Recommended is to use the root folder of an experiment module. E.g.:
+            `i6_experiments.users.username.some_experiment`
+            which could be retrieved via `__package__` from a module in the root of the `some_experiment` folder.
+            In case one wants to avoid hash conflicts this might cause, passing an `ExplicitHash` object to the
+            same collection as the import is possible.
         :param import_as: if given, the code object will be imported as this name
-        :param use_for_hash:
+        :param use_for_hash: if False, this import is not hashed when passed to a Collection/Serializer
+        :param ignore_import_as_for_hash: do not hash `import_as` if set
         """
         super().__init__()
         if not isinstance(code_object_path, str):
@@ -96,6 +106,14 @@ class Import(SerializerObject):
         self.object_name = self.code_object.split(".")[-1]
         self.module = ".".join(self.code_object.split(".")[:-1])
         self.package = ".".join(self.code_object.split(".")[:-2])
+
+        if unhashed_package_root:
+            if not self.code_object.startswith(unhashed_package_root):
+                raise ValueError(
+                    f"unhashed_package_root: {unhashed_package_root} is not a prefix of {self.code_object}"
+                )
+            self.code_object = self.code_object[len(unhashed_package_root) :]
+
         self.import_as = import_as
         self.use_for_hash = use_for_hash
         self.ignore_import_as_for_hash = ignore_import_as_for_hash
@@ -110,6 +128,79 @@ class Import(SerializerObject):
         if self.import_as and not self.ignore_import_as_for_hash:
             return sis_hash_helper({"code_object": self.code_object, "import_as": self.import_as})
         return sis_hash_helper(self.code_object)
+
+    def __hash__(self):
+        if self.import_as and not self.ignore_import_as_for_hash:
+            return hash({"code_object": self.code_object, "import_as": self.import_as})
+        return hash(self.code_object)
+
+
+class PartialImport(Import):
+    """
+    Like Import, but for partial callables where certain parameters are given fixed and are hashed.
+    """
+
+    TEMPLATE = textwrap.dedent(
+        """\
+            ${OBJECT_NAME} = __import__("functools").partial(
+                __import__("${IMPORT_PATH}", fromlist=["${IMPORT_NAME}"]).${IMPORT_NAME},
+                **${KWARGS}
+            )
+        """
+    )
+
+    def __init__(
+        self,
+        *,
+        code_object_path: Union[str, FunctionType, Any],
+        unhashed_package_root: str,
+        hashed_arguments: Dict[str, Any],
+        unhashed_arguments: Dict[str, Any],
+        import_as: Optional[str] = None,
+        use_for_hash: bool = True,
+        ignore_import_as_for_hash: bool = False,
+    ):
+        """
+        :param code_object_path: e.g.`i6_experiments.users.username.some_experiment.pytorch_networks.SomeNiceASRModel`.
+            This can be the object itself, e.g. a function or a class. Then it will use __qualname__ and __module__.
+        :param unhashed_package_root: The root path to a package, from where relatives paths will be hashed.
+            Recommended is to use the root folder of an experiment module. E.g.:
+            `i6_experiments.users.username.some_experiment`
+            which could be retrieved via `__package__` from a module in the root of the `some_experiment` folder.
+            In case one wants to avoid hash conflicts this might cause, passing an `ExplicitHash` object to the
+            same collection as the import is possible.
+        :param hashed_arguments: argument dictionary for addition partial arguments to set to the callable.
+            Will be serialized as dict into the config, so make sure to use only serializable/parseable content
+        :param unhashed_arguments: same as above, but does not influence the hash
+        :param import_as: if given, the code object will be imported as this name
+        :param use_for_hash: if False, this module is not hashed when passed to a Collection/Serializer
+        :param ignore_import_as_for_hash: do not hash `import_as` if set
+        """
+
+        super().__init__(
+            code_object_path=code_object_path,
+            unhashed_package_root=unhashed_package_root,
+            import_as=import_as,
+            use_for_hash=use_for_hash,
+            ignore_import_as_for_hash=ignore_import_as_for_hash,
+        )
+        self.hashed_arguments = hashed_arguments
+        self.unhashed_arguments = unhashed_arguments
+
+    def get(self) -> str:
+        arguments = {**self.unhashed_arguments, **self.hashed_arguments}
+        return string.Template(self.TEMPLATE).substitute(
+            {
+                "KWARGS": str(instanciate_delayed(arguments)),
+                "IMPORT_PATH": self.module,
+                "IMPORT_NAME": self.object_name,
+                "OBJECT_NAME": self.import_as if self.import_as is not None else self.object_name,
+            }
+        )
+
+    def _sis_hash(self):
+        super_hash = super()._sis_hash()
+        return sis_hash_helper({"import": super_hash, "hashed_arguments": self.hashed_arguments})
 
 
 class ExternalImport(SerializerObject):
@@ -261,6 +352,60 @@ class ExplicitHash(SerializerObject):
 
     def _sis_hash(self):
         return sis_hash_helper(self.hash)
+
+
+class Call(SerializerObject):
+    """
+    SerializerObject that serializes the call of a callable with given arguments.
+    The return values of the call are optionally assigned to variables of a given name.
+    Example:
+    Call(callable_name="range", kwargs=[("start", 1), ("stop", 10)], return_assign_variables="number_range")
+    ->
+    number_range = range(start=1, stop=10)
+    """
+
+    def __init__(
+        self,
+        callable_name: str,
+        kwargs: Optional[List[Tuple[str, Union[str, DelayedBase]]]] = None,
+        unhashed_kwargs: Optional[List[Tuple[str, Union[str, DelayedBase]]]] = None,
+        return_assign_variables: Optional[Union[str, List[str]]] = None,
+    ) -> None:
+        """
+        :param callable_name: Name of the callable for which the call is serialized.
+        :param kwargs: Optional list of keyword arguments provided to the call in the form of key-value tuples.
+        :param unhashed_kwargs: same as above, but does not influence the hash
+        :param return_assign_variables: Optional name or list of variable names that the return value(s) of the call
+            are assigned to.
+        """
+        super().__init__()
+        self.callable_name = callable_name
+        self.kwargs = kwargs or []
+        self.unhashed_kwargs = unhashed_kwargs or []
+        self.return_assign_variables = return_assign_variables
+
+        if isinstance(self.return_assign_variables, str):
+            self.return_assign_variables = [self.return_assign_variables]
+
+    def get(self) -> str:
+        # Variable assignment
+        return_assign_str = ""
+        if self.return_assign_variables is not None:
+            return_assign_str = ", ".join(self.return_assign_variables) + " = "
+
+        # kwargs
+        kwargs_str_list = [f"{key}={try_get(val)}" for key, val in self.kwargs + self.unhashed_kwargs]
+
+        # full call
+        return f"{return_assign_str}{self.callable_name}({', '.join(kwargs_str_list)})"
+
+    def _sis_hash(self):
+        h = {
+            "callable_name": self.callable_name,
+            "kwargs": self.kwargs,
+            "return_assign_variables": self.return_assign_variables,
+        }
+        return sis_hash_helper(h)
 
 
 PythonEnlargeStackWorkaroundNonhashedCode = NonhashedCode(

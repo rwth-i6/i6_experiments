@@ -100,3 +100,10 @@ default_tools = ToolPaths(
     #     "/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so"
     # ),
 )
+
+default_tools_v2 = ToolPaths(
+    returnn_root=tk.Path("/u/berger/repositories/returnn"),
+    returnn_python_exe=tk.Path("/usr/bin/python3"),
+    rasr_binary_path=tk.Path("/u/berger/repositories/rasr_versions/gen_seq2seq_apptainer/arch/linux-x86_64-standard"),
+    returnn_common_root=tk.Path("/u/berger/repositories/returnn_common"),
+)

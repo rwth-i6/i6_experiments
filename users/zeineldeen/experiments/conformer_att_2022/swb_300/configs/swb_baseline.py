@@ -41,40 +41,17 @@ train_jobs_map = {}  # dict[str, ReturnnTrainJob]
 train_job_avg_ckpt = {}
 train_job_best_epoch = {}
 
-BPE_10K = 10000
-BPE_5K = 5000
 BPE_1K = 1000
 BPE_500 = 500
 
 # --------------------------- LM --------------------------- #
 
-lstm_10k_lm_opts = {
-    "lm_subnet": generic_lm.libri_lstm_bpe10k_net,
-    "lm_model": generic_lm.libri_lstm_bpe10k_model,
-    "name": "lstm",
-}
-
-lstm_lm_opts_map = {
-    BPE_10K: lstm_10k_lm_opts,
-}
-
-trafo_lm_net = TransformerLM(source="prev:output", num_layers=24, vocab_size=10025, use_as_ext_lm=True)
+trafo_lm_net = TransformerLM(source="prev:output", num_layers=6, vocab_size=534, use_as_ext_lm=True)
 trafo_lm_net.create_network()
-trafo_10k_lm_opts = {
+trafo_500_lm_opts = {
     "lm_subnet": trafo_lm_net.network.get_net(),
     "load_on_init_opts": {
-        "filename": "/work/asr3/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/transfo_24_d00.4096_1024.sgd.lr1.8_heads/bk-net-model/network.023",
-        "params_prefix": "",
-        "load_if_prefix": "lm_output/",
-    },
-    "name": "trafo",
-}
-
-bpe5k_lm = get_lm("ls960_trafo24_bs3000_5ep_5kbpe")  # type: ZeineldeenLM
-trafo_5k_lm_opts = {
-    "lm_subnet": bpe5k_lm.combination_network,
-    "load_on_init_opts": {
-        "filename": get_best_checkpoint(bpe5k_lm.train_job, key="dev_score_output/output"),
+        "filename": "/work/asr4/zeineldeen/setups-data/switchboard/2021-02-21--lm-bpe/work/crnn/training/CRNNTrainingFromFile.PMryuWQ3Faxm/output/models/epoch.019",
         "params_prefix": "",
         "load_if_prefix": "lm_output/",
     },
@@ -82,8 +59,7 @@ trafo_5k_lm_opts = {
 }
 
 trafo_lm_opts_map = {
-    BPE_10K: trafo_10k_lm_opts,
-    BPE_5K: trafo_5k_lm_opts,
+    BPE_500: trafo_500_lm_opts,
 }
 
 # ----------------------------------------------------------- #
@@ -514,6 +490,7 @@ def conformer_baseline():
         exp_name,
         checkpoint,
         args,
+        bpe_size,
         num_epochs=20,
         lr=8e-4,
         time_rqmt=4,
@@ -537,7 +514,7 @@ def conformer_baseline():
         mini_lstm_args["batch_size"] = 20000 * 80
         mini_lstm_args["with_pretrain"] = False
         mini_lstm_args["lr"] = lr
-        mini_lstm_args["allow_lr_scheduling_for_retrain"] = False
+        mini_lstm_args["allow_lr_scheduling"] = False
         mini_lstm_args["encoder_args"].with_ctc = False
         mini_lstm_args["keep_all_epochs"] = True  # keep everything
         mini_lstm_args["extra_str"] = params_freeze_str
@@ -552,7 +529,7 @@ def conformer_baseline():
 
         exp_prefix = os.path.join(prefix_name, exp_name, name)
         mini_lstm_train_data = build_training_datasets(
-            bpe_size=10000,
+            bpe_size=bpe_size,
             use_raw_features=True,
             epoch_wise_filter=None,
             link_speed_perturbation=False,  # depends only on text
@@ -627,7 +604,7 @@ def conformer_baseline():
         mini_self_att["batch_size"] = 20000 * 80  # TODO: does this fit now?
         mini_self_att["with_pretrain"] = False
         mini_self_att["lr"] = lr
-        mini_self_att["allow_lr_scheduling_for_retrain"] = False
+        mini_self_att["allow_lr_scheduling"] = False
         mini_self_att["encoder_args"].with_ctc = False
         # mini_self_att['keep_all_epochs'] = True  # keep everything
         mini_self_att["extra_str"] = params_freeze_str
@@ -804,271 +781,13 @@ def conformer_baseline():
         )
 
     base_12l_reduce_0_7_args = get_modified_base_args(base_v1_args, 12, 0.7)
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_maxSeqLen75_ep{300}",
-        train_args=base_12l_reduce_0_7_args,
-        num_epochs=300,
-    )
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["max_seq_length"] = None
-    args["oclr_opts"]["n_step"] = 2085
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_ep{300}",
-        train_args=args,
-        num_epochs=300,
-    )
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["max_seq_length"] = None
-    args["oclr_opts"]["n_step"] = 2085
-    args["oclr_opts"]["cycle_ep"] = int(0.45 * 600)
-    args["oclr_opts"]["total_ep"] = 600
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_ep{600}",
-        train_args=args,
-        num_epochs=600,
-    )
-    # TODO: specaug v2
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["max_seq_length"] = None
-    args["oclr_opts"]["n_step"] = 2085
-    args["specaug_version"] = 2
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_ep{300}_specaug2",
-        train_args=args,
-        num_epochs=300,
-    )
 
-    # TODO: without CTC
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["encoder_args"].with_ctc = False
-    args["max_seq_length"] = None
-    args["oclr_opts"]["n_step"] = 2085
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_ep{300}_noCTC", train_args=args, num_epochs=300, dev_score_key="dev_score"
-    )
-
-    # base_conf_12l_lstm_1l_conv6_sqrdReLU_peak0.001_bpe500_maxSeqLenNone_dimReduce0.7_ep900
-    # hub5e00: 11.7 - hub5e01: 10.6 - rt03s: 12.2 - ckpt: avg
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["oclr_opts"]["cycle_ep"] = int(0.45 * 900)
-    args["oclr_opts"]["total_ep"] = 900
-    args["max_seq_length"] = None
-    args["oclr_opts"]["n_step"] = 2085
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_ep{900}",
-        train_args=args,
-        num_epochs=900,
-    )
-    # for peak_lr in [5e-4, 8e-4, 1e-3]:
-    #     for ep in [300, 600, 900]:
-    #         retrain_args = copy.deepcopy(args)
-    #         retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[f"base1_conf_{12}l_lstm_1l_conv{6}_ep{900}"]
-    #         retrain_args["allow_lr_scheduling_for_retrain"] = True
-    #         retrain_args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
-    #         retrain_args["oclr_opts"]["total_ep"] = ep
-    #         retrain_args["oclr_opts"]["peak_lr"] = peak_lr
-    #         run_default_exp(
-    #             f"base1_conf_{12}l_lstm_1l_conv{6}_peak{peak_lr}_ep{ep}_retrain1",
-    #             train_args=retrain_args,
-    #             num_epochs=ep,
-    #         )
+    # Results with grad noise and weight noise:
     #
-    # # TODO: retrain with more speed perturbation
-    # for peak_lr in [1e-3, 2e-3]:
-    #     retrain_args = copy.deepcopy(args)
-    #     retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[f"base1_conf_{12}l_lstm_1l_conv{6}_ep{900}"]
-    #     retrain_args["allow_lr_scheduling_for_retrain"] = True
-    #     retrain_args["oclr_opts"]["cycle_ep"] = int(0.45 * 300)
-    #     retrain_args["oclr_opts"]["total_ep"] = 300
-    #     retrain_args["oclr_opts"]["peak_lr"] = peak_lr
-    #
-    #     retrain_args["encoder_args"].frontend_conv_l2 = 1e-2
-    #     retrain_args["encoder_args"].att_dropout = 0.3
-    #     retrain_args["encoder_args"].dropout = 0.3
-    #     retrain_args["gradient_noise"] = 0.01
-    #
-    #     # more
-    #     retrain_args["speed_pert_version"] = 3
-    #
-    #     run_default_exp(
-    #         f"base1_conf_{12}l_lstm_1l_conv{6}_peak{peak_lr}_ep{300}_drop{0.3}_speedPertV3_convL2{1e-2}_gradNoise{0.01}_retrain1",
-    #         train_args=retrain_args,
-    #         num_epochs=300,
-    #     )
+    # base1_conf_12l_lstm_1l_conv6_fixedZoneout_ep300_gradNoise0.001              12.7       11.3     13.3  avg
+    # base1_conf_12l_lstm_1l_conv6_fixedZoneout_ep300_weightNoiseMHSA0.001        12.8       11.5     13.5  avg
+    # base1_conf_12l_lstm_1l_conv6_fixedZoneout_ep300_weightNoiseMHSA0.0001       12.9       11.3     13.4  avg
 
-    # retrain_args = copy.deepcopy(args)
-    # retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[f"base1_conf_{12}l_lstm_1l_conv{6}_ep{900}"]
-    # retrain_args["allow_lr_scheduling_for_retrain"] = True
-    # retrain_args["oclr_opts"]["cycle_ep"] = int(0.45 * 300)
-    # retrain_args["oclr_opts"]["total_ep"] = 300
-    # retrain_args["oclr_opts"]["peak_lr"] = 1e-3
-    #
-    # retrain_args["encoder_args"].frontend_conv_l2 = 1e-2
-    # retrain_args["encoder_args"].att_dropout = 0.3
-    # retrain_args["encoder_args"].dropout = 0.3
-    # retrain_args["gradient_noise"] = 0.01
-    #
-    # # more
-    # retrain_args["specaug_version"] = 2
-    #
-    # run_default_exp(
-    #     f"base1_conf_{12}l_lstm_1l_conv{6}_peak{1e-3}_ep{300}_drop{0.3}_specaug2_convL2{1e-2}_gradNoise{0.01}_retrain1",
-    #     train_args=retrain_args,
-    #     num_epochs=300,
-    # )
-
-    # # retrain
-    # for ep in [300]:
-    #     for peak_lr in [1e-3]:
-    #         for drop in [0.1, 0.2, 0.3]:
-    #             for dec_att_drop in [0.0, drop]:
-    #                 retrain_args = copy.deepcopy(base_12l_reduce_0_7_args)
-    #                 retrain_args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
-    #                 retrain_args["oclr_opts"]["total_ep"] = ep
-    #                 retrain_args["oclr_opts"]["peak_lr"] = peak_lr
-    #                 retrain_args["max_seq_length"] = None
-    #                 retrain_args["oclr_opts"]["n_step"] = 2085
-    #
-    #                 # add regularization
-    #                 retrain_args["encoder_args"].att_dropout = drop
-    #                 retrain_args["encoder_args"].dropout = drop
-    #                 retrain_args["decoder_args"].embed_dropout = drop
-    #
-    #                 retrain_args["decoder_args"].att_dropout = dec_att_drop
-    #                 retrain_args["decoder_args"].use_zoneout_output = True
-    #
-    #                 retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[f"base1_conf_{12}l_lstm_1l_conv{6}_ep{900}"]
-    #
-    #                 retrain_args["allow_lr_scheduling_for_retrain"] = True
-    #
-    #                 name = f"base1_conf_{12}l_lstm_1l_conv{6}_ep{ep}_drop{drop}_decAttDrop{dec_att_drop}_fixedZoneout"
-    #                 name += "_retrain1"
-    #                 run_default_exp(
-    #                     name=name,
-    #                     train_args=retrain_args,
-    #                     num_epochs=ep,
-    #                 )
-
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["pretrain_reps"] = 3
-    args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-    args["max_seq_length"] = None
-    args["decoder_args"].use_zoneout_output = True  # should be more regs
-    args["oclr_opts"]["n_step"] = 2085
-    args["oclr_opts"]["cycle_ep"] = int(0.45 * 900)
-    args["oclr_opts"]["total_ep"] = 900
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_woDepthwiseConvPre_preReps{3}_fixedZoneout_ep900",
-        train_args=args,
-        num_epochs=900,
-    )
-
-    args = copy.deepcopy(base_v1_args)
-    args["pretrain_reps"] = 3
-    args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-    args["max_seq_length"] = None
-    args["decoder_args"].use_zoneout_output = True  # should be more regs
-    args["oclr_opts"]["n_step"] = 2085
-    args["oclr_opts"]["cycle_ep"] = int(0.45 * 900)
-    args["oclr_opts"]["total_ep"] = 900
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_dimReduce{1.0}_woDepthwiseConvPre_preReps{3}_fixedZoneout_ep900",
-        train_args=args,
-        num_epochs=900,
-    )
-
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["max_seq_length"] = None
-    args["decoder_args"].use_zoneout_output = True  # should be more regs
-    args["oclr_opts"]["n_step"] = 2085
-    args["oclr_opts"]["cycle_ep"] = int(0.45 * 900)
-    args["oclr_opts"]["total_ep"] = 900
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_fixedZoneout_ep600",
-        train_args=args,
-        num_epochs=900,
-    )
-
-    # TODO: gradient noise
-    for disable_in_pretrain in [True, False]:
-        for grad_noise in [1e-2, 1e-3, 1e-4]:
-            args = copy.deepcopy(base_12l_reduce_0_7_args)
-            args["max_seq_length"] = None
-            args["decoder_args"].use_zoneout_output = True
-            args["oclr_opts"]["n_step"] = 2085
-            args["gradient_noise"] = grad_noise
-            name = f"base1_conf_{12}l_lstm_1l_conv{6}_fixedZoneout_ep300_gradNoise{grad_noise}"
-            if disable_in_pretrain:
-                args["pretrain_opts"]["extra_net_dict_override"] = {"gradient_noise": 0.0}
-                name += "_disablePre"
-            run_default_exp(
-                name,
-                train_args=args,
-                num_epochs=300,
-            )
-
-    # TODO: variational noise
-    for disable_in_pretrain in [False]:
-        for param_var_noise in [1e-2, 1e-3, 1e-4]:
-            args = copy.deepcopy(base_12l_reduce_0_7_args)
-            args["max_seq_length"] = None
-            args["decoder_args"].use_zoneout_output = True
-            args["oclr_opts"]["n_step"] = 2085
-            args["encoder_args"].weight_noise = param_var_noise
-            args["encoder_args"].weight_noise_layers = ["mhsa"]
-            name = f"base1_conf_{12}l_lstm_1l_conv{6}_fixedZoneout_ep300_weightNoiseMHSA{param_var_noise}"
-            if disable_in_pretrain:
-                args["pretrain_opts"]["extra_net_dict_override"] = {"param_variational_noise": None}
-                name += "_disablePre"
-            run_default_exp(
-                name,
-                train_args=args,
-                num_epochs=300,
-            )
-
-    # lbs
-    for lbs in [0.15, 0.2]:
-        args = copy.deepcopy(base_12l_reduce_0_7_args)
-        args["max_seq_length"] = None
-        args["decoder_args"].use_zoneout_output = True
-        args["decoder_args"].label_smoothing = lbs
-        args["oclr_opts"]["n_step"] = 2085
-        name = f"base1_conf_{12}l_lstm_1l_conv{6}_fixedZoneout_ep300_lbs{lbs}"
-        run_default_exp(
-            name,
-            train_args=args,
-            num_epochs=300,
-        )
-
-    # staged hyperparams
-    # args = copy.deepcopy(base_12l_reduce_0_7_args)
-    # args["max_seq_length"] = None
-    # args["decoder_args"].use_zoneout_output = True
-    # args["oclr_opts"]["n_step"] = 2085
-    # args["staged_hyperparams"] = {}
-    # name = f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLenNone_dimReduce{0.7}_fixedZoneout_ep300"
-    # run_default_exp(
-    #     name,
-    #     train_args=args,
-    #     num_epochs=300,
-    # )
-
-    # train with bpe 1k
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["max_seq_length"] = None
-    args["oclr_opts"]["n_step"] = 2085
-    args["decoder_args"].use_zoneout_output = True
-    run_default_exp(
-        name="base1_conf_12l_lstm_1l_conv6_bpe1k_fixedZoneout_ep300",
-        train_args=args,
-        num_epochs=300,
-        bpe_size=1000,
-    )
-
-    # ----------------------------------------------- #
-
-    # base_conf_12l_lstm_1l_conv6_sqrdReLU_bpe500_maxSeqLenNone_dimReduce0.7_woDepthwiseConvPre_preReps3_drop0.2_fixedZoneout_l20.0001_ep600
-    # hub5e00: 12 - hub5e01: 10.5 - rt03s: 12.5 - ckpt: best
     base_v2_args = copy.deepcopy(base_12l_reduce_0_7_args)
     base_v2_args["pretrain_reps"] = 3
     base_v2_args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
@@ -1079,59 +798,91 @@ def conformer_baseline():
     base_v2_args["encoder_args"].att_dropout = 0.2
     base_v2_args["encoder_args"].dropout = 0.2
     base_v2_args["decoder_args"].use_zoneout_output = True
+
+    # base_conf_12l_lstm_1l_conv6_sqrdReLU_bpe500_maxSeqLenNone_dimReduce0.7_woDepthwiseConvPre_preReps3_drop0.2_fixedZoneout_l20.0001_ep600
+    # hub5e00: 12 - hub5e01: 10.5 - rt03s: 12.5 - ckpt: best
     run_default_exp(
         f"base2_conf_{12}l_lstm_1l_conv{6}_ep{600}",
         train_args=base_v2_args,
         num_epochs=600,
     )
 
+    # TODO: less specaug for features
+    # base2_conf_12l_lstm_1l_conv6_ep600_specaug3                         11.8       10.5     12.3  avg
     args = copy.deepcopy(base_v2_args)
-    args["encoder_args"].with_ctc = False
+    args["specaug_version"] = 3
     run_default_exp(
-        f"base2_conf_{12}l_lstm_1l_conv{6}_ep{600}_noCTC",
+        f"base2_conf_{12}l_lstm_1l_conv{6}_ep{600}_specaug{3}",
         train_args=args,
         num_epochs=600,
     )
 
-    # TODO: more specaug
-    for specaug_version in [2, 3]:
-        args = copy.deepcopy(base_v2_args)
-        args["specaug_version"] = specaug_version
-        run_default_exp(
-            f"base2_conf_{12}l_lstm_1l_conv{6}_ep{600}_specaug{specaug_version}",
-            train_args=args,
-            num_epochs=600,
-        )
-
+    # base2_conf_12l_lstm_1l_conv6_decAttDrop0.2_embedDrop0.2_ep900       11.4       10.3     12.1  best
+    # base2_conf_12l_lstm_1l_conv6_decAttDrop0.2_embedDrop0.2_ep900       11.5       10.1     11.9  avg
     args = copy.deepcopy(base_v2_args)
+    args["decoder_args"].att_dropout = 0.2
+    args["decoder_args"].embed_dropout = 0.2
     args["oclr_opts"]["cycle_ep"] = int(0.45 * 900)
     args["oclr_opts"]["total_ep"] = 900
-    run_default_exp(
-        f"base2_conf_{12}l_lstm_1l_conv{6}_ep{900}",
+    train_j, train_data = run_default_exp(
+        f"base2_conf_{12}l_lstm_1l_conv{6}_decAttDrop{0.2}_embedDrop{0.2}_ep{900}",
         train_args=args,
         num_epochs=900,
     )
 
-    for ep in [600, 900]:
-        args = copy.deepcopy(base_v2_args)
-        args["decoder_args"].att_dropout = 0.2
-        args["decoder_args"].embed_dropout = 0.2
-        args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
-        args["oclr_opts"]["total_ep"] = ep
-        run_default_exp(
-            f"base2_conf_{12}l_lstm_1l_conv{6}_decAttDrop{0.2}_embedDrop{0.2}_ep{ep}",
-            train_args=args,
-            num_epochs=ep,
+    # TODO: Trafo LM
+    for ep_ in ["avg", "best"]:
+        for beam_size in [12, 16, 24]:
+            for lm_scale in [0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.1]:
+                run_lm_fusion(
+                    lm_type="trafo",
+                    exp_name=f"base2_conf_{12}l_lstm_1l_conv{6}_decAttDrop{0.2}_embedDrop{0.2}_ep{900}",
+                    args=args,
+                    epoch=ep_,
+                    lm_scales=[lm_scale],
+                    train_job=train_j,
+                    train_data=train_data,
+                    feature_net=log10_net_10ms,
+                    bpe_size=BPE_500,
+                    test_set_names=["hub5e00"],
+                    beam_size=beam_size,
+                )
+
+    for n in ["avg", "best"]:
+        mini_lstm_exp_name = "base2_conf_12l_lstm_1l_conv6_decAttDrop0.2_embedDrop0.2_ep900"
+        if n == "avg":
+            ckpt = train_job_avg_ckpt[mini_lstm_exp_name]
+        else:
+            ckpt = train_job_best_epoch[mini_lstm_exp_name]
+
+        train_j = train_mini_lstm(
+            exp_name=mini_lstm_exp_name,
+            checkpoint=ckpt,
+            args=args,
+            lr=1e-3,
+            name=f"mini_lstm_{n}_lr{1e-3}_ep20",
+            w_drop=True,
+            num_epochs=20,
+            bpe_size=BPE_500,
         )
 
-    # TODO: swap mhsa and conv
-    for ep in [600]:
-        args = copy.deepcopy(base_v2_args)
-        args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
-        args["oclr_opts"]["total_ep"] = ep
-        args["encoder_args"].convolution_first = True
-        run_default_exp(
-            f"base2_conf_{12}l_lstm_1l_conv{6}_ep{ep}_convFirst",
-            train_args=args,
-            num_epochs=ep,
-        )
+        for beam_size in [12, 16, 24, 32, 64]:
+            for lm_scale in [0.16, 0.18, 0.2, 0.22, 0.24, 0.26, 0.28, 0.3, 0.32]:
+                for prior_scale in [0.1, 0.12, 0.14, 0.16, 0.18, 0.2, 0.22, 0.24]:
+                    run_lm_fusion(
+                        lm_type="trafo",
+                        exp_name=mini_lstm_exp_name,
+                        args=args,
+                        epoch="avg",
+                        lm_scales=[lm_scale],
+                        prior_scales=[prior_scale],
+                        train_job=train_j,
+                        train_data=train_data,
+                        feature_net=log10_net_10ms,
+                        bpe_size=BPE_500,
+                        test_set_names=["hub5e00"],
+                        beam_size=beam_size,
+                        prior_type="mini_lstm",
+                        prior_type_name=f"mini_lstm_{n}_lr0.001",
+                        mini_lstm_ckpt=get_best_checkpoint(train_j, key="dev_score"),
+                    )

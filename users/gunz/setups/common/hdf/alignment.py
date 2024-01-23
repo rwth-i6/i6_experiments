@@ -1,7 +1,7 @@
 __all__ = ["RasrAlignmentToHDF", "RasrForcedTriphoneAlignmentToHDF"]
 
 import dataclasses
-from dataclasses import dataclass
+
 import h5py
 import logging
 import numpy as np
@@ -14,26 +14,39 @@ from sisyphus import tk, Job, Task
 
 from i6_core.lib.rasr_cache import FileArchiveBundle
 
+from ..analysis.allophone_state import AllophoneState
 from ...common.cache_manager import cache_file
 
 
 class RasrAlignmentToHDF(Job):
-    def __init__(self, alignment_bundle: tk.Path, allophones: tk.Path, state_tying: tk.Path, num_tied_classes: int):
+    __sis_hash_exclude__ = {"tmp_dir": "/var/tmp", "remap_segment_names": None}
+
+    def __init__(
+        self,
+        alignment_bundle: tk.Path,
+        allophones: tk.Path,
+        state_tying: tk.Path,
+        num_tied_classes: int,
+        tmp_dir: typing.Optional[str] = "/var/tmp",
+        remap_segment_names: typing.Optional[typing.Callable[[str], str]] = None,
+    ):
         self.alignment_bundle = alignment_bundle
         self.allophones = allophones
         self.num_tied_classes = num_tied_classes
+        self.remap_segment_names = remap_segment_names
         self.state_tying = state_tying
+        self.tmp_dir = tmp_dir
 
         self.out_hdf_file = self.output_path("alignment.hdf")
         self.out_segments = self.output_path("segments")
 
-        self.rqmt = {"cpu": 1, "mem": 8, "time": 1}
+        self.rqmt = {"cpu": 1, "mem": 8, "time": 2}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with tempfile.TemporaryDirectory(dir=self.tmp_dir) as tmp_dir:
             f = path.join(tmp_dir, "data.hdf")
             logging.info(f"processing using temporary file {f}")
 
@@ -73,7 +86,8 @@ class RasrAlignmentToHDF(Job):
             if file.endswith(".attribs"):
                 continue
 
-            seq_names.append(file)
+            mapped_name = file if self.remap_segment_names is None else self.remap_segment_names(file)
+            seq_names.append(mapped_name)
 
             # alignment
             alignment = alignment_cache.read(file, "align")
@@ -82,7 +96,7 @@ class RasrAlignmentToHDF(Job):
             targets = self.compute_targets(alignment_states=alignment_states, state_tying=state_tying)
 
             alignment_data.create_dataset(
-                seq_names[-1].replace("/", "\\"),
+                mapped_name.replace("/", "\\"),
                 data=np.array(targets).astype(np.int32),
             )
 
@@ -98,49 +112,29 @@ class RasrAlignmentToHDF(Job):
         return targets
 
 
-@dataclass(eq=True, frozen=True)
-class AllophoneState:
-    """
-    A single, parsed allophone state.
-    """
-
-    ctx_l: str
-    ctx_r: str
-    ph: str
-    rest: str
-
-    def __str__(self):
-        return f"{self.ph}{{{self.ctx_l}+{self.ctx_r}}}{self.rest}"
-
-    def in_context(
-        self, left: typing.Optional["AllophoneState"], right: typing.Optional["AllophoneState"]
-    ) -> "AllophoneState":
-        if self.ph == "[SILENCE]":
-            # Silence does not have context.
-
-            return self
-
-        new_left = left.ph if left is not None and left.ph != "[SILENCE]" else "#"
-        new_right = right.ph if right is not None and right.ph != "[SILENCE]" else "#"
-        return dataclasses.replace(self, ctx_l=new_left, ctx_r=new_right)
-
-    @classmethod
-    def from_alignment_state(cls, state: str) -> "AllophoneState":
-        import re
-
-        match = re.match(r"^(.*)\{(.*)\+(.*)}(.*)$", state)
-        if match is None:
-            raise AttributeError(f"{state} is not an allophone state")
-
-        return cls(ph=match.group(1), ctx_l=match.group(2), ctx_r=match.group(3), rest=match.group(4))
-
-
 class RasrForcedTriphoneAlignmentToHDF(RasrAlignmentToHDF):
+    first = True
+
     def compute_targets(
         self, alignment_states: typing.List[str], state_tying: typing.Dict[str, int]
     ) -> typing.List[int]:
         decomposed_alignment = [AllophoneState.from_alignment_state(s) for s in alignment_states]
-        in_context = zip((None, *decomposed_alignment[:-1]), decomposed_alignment, (*decomposed_alignment[1:], None))
-        forced_triphone_alignment = [str(cur.in_context(prv, nxt)) for prv, cur, nxt in in_context]
+        forced_triphone_alignment = []
+
+        for i, a_st in enumerate(decomposed_alignment):
+            if a_st.ph == "[SILENCE]":
+                forced_triphone_alignment.append(str(a_st))
+                continue
+
+            next_left = (st.as_context() for st in decomposed_alignment[i::-1] if st.ph != a_st.ph)
+            next_right = (st.as_context() for st in decomposed_alignment[i:] if st.ph != a_st.ph)
+
+            in_ctx = dataclasses.replace(a_st, ctx_l=next(next_left, "#"), ctx_r=next(next_right, "#"))
+
+            forced_triphone_alignment.append(str(in_ctx))
+
+        if self.first:
+            self.first = False
+            logging.info(f"Example alignment: {forced_triphone_alignment}")
 
         return super().compute_targets(forced_triphone_alignment, state_tying)

@@ -182,8 +182,10 @@ class GammatoneNetwork(NetworkDict):
 
 
 class ScfNetwork(NetworkDict):
-  def __init__(self, num_tf=150, size_tf=256, stride_tf=10, activation_tf=None, num_env=5, size_env=40,
-      stride_env=16, activation_env=None, normalization_env="layer", padding="valid", wave_norm=False, **kwargs):
+  def __init__(
+    self, num_tf=150, size_tf=256, stride_tf=10, activation_tf=None, num_env=5, size_env=40, stride_env=16,
+    activation_env=None, normalization_env="layer", padding="valid", wave_norm=False, **kwargs
+  ):
     """
     Network which applies conv layers to the raw waveform and pools using multi resolutional learned filters similar to
     Z. Tüske, R. Schlüter, and H. Ney.
@@ -205,7 +207,7 @@ class ScfNetwork(NetworkDict):
     :param int size_env: size of filters for envelope extraction (N_ENV in paper)
     :param int stride_env: stride of filters for envelope extraction (160t'' = 10t' = t in paper)
     :param dict[str, dict] activation_env: activation after envelope extraction (f_2 in paper)
-    :param str normalization_env: normalization applied after envelope extraction, e.g. 'batch' or 'layer'
+    :param Optional[str] normalization_env: normalization applied after envelope extraction, e.g. 'batch' or 'layer'
     :param str padding: padding to use for convolutions ('valid' (default) or 'same')
     :param kwargs: arguments passed to parent class `NetworkDict`
     """
@@ -274,12 +276,20 @@ class ScfNetwork(NetworkDict):
     """
     adds normalization to a layer
     :param str layer_name: name of the layer which should be normalized
-    :param str norm: normalization type, e.g. 'batch' or 'layer'
+    :param Optional[str] norm: normalization type, e.g. 'batch' or 'layer'
     """
     if norm is None:
       pass
     elif norm == "batch":
-      self._network[layer_name]["batch_norm"] = True
+      self._network[layer_name + "_no_norm"] = self._network[layer_name].copy()
+      self._network[layer_name] = {
+        "class": "batch_norm",
+        "from": layer_name + "_no_norm",
+        "momentum": 0.01,
+        "epsilon": 0.001,
+        "update_sample_only_in_training": True,
+        "delay_sample_update": True,
+      }
     elif norm == "layer":
       self._network[layer_name + "_no_norm"] = self._network[layer_name].copy()
       self._network[layer_name] = {"class": "layer_norm", "from": [layer_name + "_no_norm"]}

@@ -1,15 +1,16 @@
 import copy
-from pathlib import Path
-from i6_core.am.config import acoustic_model_config
-from sisyphus.delayed_ops import DelayedFunction, DelayedFormat
-import i6_core.rasr as rasr
-from sisyphus import tk
+from i6_experiments.users.berger.network.helpers.conformer_wei import add_conformer_stack, add_initial_conv
 from typing import Dict, List, Optional, Tuple, Union
 from i6_experiments.users.berger.network.helpers.blstm import add_blstm_stack
+from i6_core.am.config import acoustic_model_config
 from i6_experiments.users.berger.network.helpers.feature_extraction import (
     add_gt_feature_extraction,
 )
 from i6_experiments.users.berger.network.helpers.mlp import add_feed_forward_stack
+from sisyphus import tk
+
+import i6_core.rasr as rasr
+from sisyphus.delayed_ops import DelayedFunction
 
 
 def make_ctc_rasr_loss_config_v1(
@@ -34,6 +35,8 @@ def make_ctc_rasr_loss_config_v1(
     loss_crp.lexicon_config.file = loss_lexicon_path  # type: ignore
 
     loss_crp.acoustic_model_config = acoustic_model_config(**am_args)  # type: ignore
+    loss_crp.acoustic_model_config.allophones.add_all = True  # type: ignore
+    loss_crp.acoustic_model_config.allophones.add_from_lexicon = False  # type: ignore
 
     # Make config from crp
     mapping = {
@@ -69,27 +72,29 @@ def make_ctc_rasr_loss_config_v1(
 
 
 def make_ctc_rasr_loss_config_v2(
-    loss_corpus_path: str,
-    loss_lexicon_path: str,
+    loss_corpus_path: tk.Path,
+    loss_lexicon_path: tk.Path,
     am_args: Dict,
     allow_label_loop: bool = True,
     min_duration: int = 1,
     extra_config: Optional[rasr.RasrConfig] = None,
     extra_post_config: Optional[rasr.RasrConfig] = None,
+    remove_prefix: str = "loss-corpus/",
 ):
-
     # Make crp and set loss_corpus and lexicon
     loss_crp = rasr.CommonRasrParameters()
     rasr.crp_add_default_output(loss_crp)
 
     loss_crp.corpus_config = rasr.RasrConfig()  # type: ignore
     loss_crp.corpus_config.file = loss_corpus_path  # type: ignore
-    loss_crp.corpus_config.remove_corpus_name_prefix = "loss-corpus/"  # type: ignore
+    loss_crp.corpus_config.remove_corpus_name_prefix = remove_prefix  # type: ignore
 
     loss_crp.lexicon_config = rasr.RasrConfig()  # type: ignore
     loss_crp.lexicon_config.file = loss_lexicon_path  # type: ignore
 
     loss_crp.acoustic_model_config = acoustic_model_config(**am_args)  # type: ignore
+    loss_crp.acoustic_model_config.allophones.add_all = True  # type: ignore
+    loss_crp.acoustic_model_config.allophones.add_from_lexicon = False  # type: ignore
 
     # Make config from crp
     mapping = {
@@ -134,9 +139,13 @@ def format_func(s, *args, **kwargs):
 
 
 def make_rasr_ctc_loss_opts(
-    rasr_binary_path: str, rasr_arch: str = "linux-x86_64-standard", v2: bool = True, num_instances: int = 2, **kwargs
+    rasr_binary_path: tk.Path,
+    rasr_arch: str = "linux-x86_64-standard",
+    v2: bool = True,
+    num_instances: int = 2,
+    **kwargs,
 ):
-    trainer_exe = Path(rasr_binary_path) / f"nn-trainer.{rasr_arch}"
+    trainer_exe = rasr_binary_path.join_right(f"nn-trainer.{rasr_arch}")
 
     if v2:
         config, post_config = make_ctc_rasr_loss_config_v2(**kwargs)
@@ -145,7 +154,7 @@ def make_rasr_ctc_loss_opts(
 
     loss_opts = {
         "sprint_opts": {
-            "sprintExecPath": trainer_exe.as_posix(),
+            "sprintExecPath": trainer_exe,
             "sprintConfigStr": DelayedFunction(
                 "%s %s --*.LOGFILE=nn-trainer.loss.log --*.TASK=1", format_func, config, post_config
             ),
@@ -195,7 +204,7 @@ def make_blstm_fullsum_ctc_model(
     from_list, _ = add_blstm_stack(network, from_list, **blstm_args)
     network["encoder"] = {"class": "copy", "from": from_list}
     from_list = add_feed_forward_stack(network, "encoder", **mlp_args)
-    add_rasr_fastbw_output_layer(network, from_list=from_list, num_outputs=num_outputs, **output_args)
+    add_rasr_fastbw_output_layer(network=network, from_list=from_list, num_outputs=num_outputs, **output_args)
 
     return network, python_code
 
@@ -222,6 +231,58 @@ def make_blstm_ctc_recog_model(
     network["output"] = {
         "class": "linear",
         "from": from_list,
+        "activation": "log_softmax",
+        "n_out": num_outputs,
+    }
+
+    return network, python_code
+
+
+def make_conformer_fullsum_ctc_model(
+    num_outputs: int,
+    gt_args: Dict = {},
+    vgg_args: Dict = {},
+    conformer_args: Dict = {},
+    output_args: Dict = {},
+) -> Tuple[Dict, Union[str, List[str]]]:
+    network = {}
+    python_code = []
+
+    from_list = ["data"]
+    from_list, python_code = add_gt_feature_extraction(network, from_list=from_list, name="gt", **gt_args)
+
+    from_list = add_initial_conv(network, from_list, **vgg_args)
+    from_list, _ = add_conformer_stack(network, from_list, **conformer_args)
+
+    network["encoder"] = {"class": "copy", "from": from_list}
+    add_rasr_fastbw_output_layer(network=network, from_list=["encoder"], num_outputs=num_outputs, **output_args)
+
+    return network, python_code
+
+
+def make_conformer_ctc_recog_model(
+    num_outputs: int,
+    gt_args: Dict = {},
+    vgg_args: Dict = {},
+    conformer_args: Dict = {},
+) -> Tuple[Dict, Union[str, List[str]]]:
+    network = {}
+
+    from_list = ["data"]
+
+    gt_args_mod = copy.deepcopy(gt_args)
+    gt_args_mod.setdefault("specaug_before_dct", False)
+    gt_args_mod.setdefault("specaug_after_dct", False)
+
+    from_list, python_code = add_gt_feature_extraction(network, from_list=from_list, name="gt", **gt_args_mod)
+
+    from_list = add_initial_conv(network, from_list, **vgg_args)
+    from_list, _ = add_conformer_stack(network, from_list, **conformer_args)
+    network["encoder"] = {"class": "copy", "from": from_list}
+
+    network["output"] = {
+        "class": "linear",
+        "from": ["encoder"],
         "activation": "log_softmax",
         "n_out": num_outputs,
     }

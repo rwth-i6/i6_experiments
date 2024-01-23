@@ -90,9 +90,8 @@ class OptunaReturnnComputePriorJob(Job):
         util.create_executable("rnn.sh", cmd)
 
         # check here if model actually exists
-        assert os.path.exists(self.model_checkpoint.index_path.get_path()), (
-            "Provided model does not exists: %s" % self.model_checkpoint
-        )
+        if self.model_checkpoint is not None:
+            assert self.model_checkpoint.exists(), "Provided model does not exists: %s" % str(self.model_checkpoint)
 
     def run(self):
         cmd = self._get_run_cmd()
@@ -101,10 +100,7 @@ class OptunaReturnnComputePriorJob(Job):
         merged_scores = np.loadtxt(self.out_prior_txt_file.get_path(), delimiter=" ")
 
         with open(self.out_prior_xml_file.get_path(), "wt") as f_out:
-            f_out.write(
-                '<?xml version="1.0" encoding="UTF-8"?>\n<vector-f32 size="%d">\n'
-                % len(merged_scores)
-            )
+            f_out.write('<?xml version="1.0" encoding="UTF-8"?>\n<vector-f32 size="%d">\n' % len(merged_scores))
             f_out.write(" ".join("%.20e" % s for s in merged_scores) + "\n")
             f_out.write("</vector-f32>")
 
@@ -177,12 +173,8 @@ class OptunaReturnnComputePriorJob(Job):
     @classmethod
     def hash(cls, kwargs):
         d = {
-            "returnn_config_generator": inspect.getsource(
-                kwargs["optuna_returnn_config"].config_generator
-            ),
-            "returnn_config_generator_kwargs": list(
-                sorted(kwargs["optuna_returnn_config"].config_kwargs)
-            ),
+            "returnn_config_generator": inspect.getsource(kwargs["optuna_returnn_config"].config_generator),
+            "returnn_config_generator_kwargs": list(sorted(kwargs["optuna_returnn_config"].config_kwargs)),
             "model_checkpoint": kwargs["model_checkpoint"],
             "trial": kwargs["trial"],
             "returnn_python_exe": kwargs["returnn_python_exe"],

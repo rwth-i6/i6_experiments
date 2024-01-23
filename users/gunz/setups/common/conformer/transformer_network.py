@@ -25,6 +25,7 @@ class attention_for_hybrid:
         focal_loss_factor=0.0,
         softmax_dropout=0.0,
         use_spec_augment=True,
+        spec_aug_as_data=False,
         use_pos_encoding=False,
         add_to_input=True,
         src_embed_args=None,
@@ -164,6 +165,7 @@ class attention_for_hybrid:
         self.num_classes = num_classes
 
         self.use_spec_augment = use_spec_augment
+        self.spec_aug_as_data = spec_aug_as_data
 
         self.add_blstm_block = add_blstm_block
         self.num_blstm_layers = len(blstm_args["dims"]) if blstm_args and "dims" in blstm_args.keys() else 2
@@ -483,12 +485,12 @@ class attention_for_hybrid:
 
         if self.conv_args:
             for name in [
-                "conv0_0",
-                "conv0_1",
-                "conv0p",
-                "conv1_0",
-                "conv1_1",
-                "conv1p",
+                f"{prefix}conv0_0",
+                f"{prefix}conv0_1",
+                f"{prefix}conv0p",
+                f"{prefix}conv1_0",
+                f"{prefix}conv1_1",
+                f"{prefix}conv1p",
             ]:
                 if self.conv_args.get(name, None):
                     self.network[name].update(self.conv_args.pop(name))
@@ -1013,7 +1015,9 @@ class attention_for_hybrid:
         if self.use_spec_augment:
             self.network["source"] = {
                 "class": "eval",
-                "eval": "self.network.get_config().typed_value('transform')(source(0), network=self.network)",
+                "eval": "self.network.get_config().typed_value('transform')(source(0, as_data=True), network=self.network)"
+                if self.spec_aug_as_data
+                else "self.network.get_config().typed_value('transform')(source(0), network=self.network)",
                 "from": "data"
                 # "eval": "self.network.get_config().typed_value('transform')(source(0, as_data=True), network=self.network)",
                 # "eval": "self.network.get_config().typed_value('transform')(source(0, as_data=True), network=self.network, clip=True)",

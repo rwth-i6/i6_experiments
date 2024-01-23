@@ -1,12 +1,13 @@
 __all__ = ["SystemInput"]
 
 import copy
-from typing import Dict
+from typing import Dict, Optional
 
 from i6_experiments.common.setups.rasr.util import (
     ReturnnRasrDataInput,
     ReturnnRasrTrainingArgs,
 )
+
 
 class SystemInput:
     """
@@ -16,12 +17,8 @@ class SystemInput:
     def __init__(self):
         self.crp: Optional[rasr.CommonRasrParameters] = None
         self.feature_flows: Dict[str, rasr.FlowNetwork] = {}
-        self.features: Dict[
-            str, Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]
-        ] = {}
-        self.alignments: Optional[
-            Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]
-        ] = None,
+        self.features: Dict[str, Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]] = {}
+        self.alignments: Optional[Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]] = (None,)
         self.returnn_rasr_training_args: Optional[ReturnnRasrTrainingArgs] = None
 
     def as_returnn_rasr_data_input(
@@ -29,7 +26,7 @@ class SystemInput:
         name: str = "init",
         *,
         feature_flow_key: str = "gt",
-        shuffling_parameters: Dict = False,
+        shuffling_parameters: Dict = {},
         returnn_rasr_training_args: Optional[ReturnnRasrTrainingArgs] = None,
     ):
         """

@@ -173,6 +173,7 @@ class Conformer(torch.nn.Module):
 
         return out_upsampled, lengths
 
+
 class Model(torch.nn.Module):
     """
     Do convolution first, with softmax dropout
@@ -214,7 +215,7 @@ class Model(torch.nn.Module):
 
         conformer_out, _ = self.conformer(conformer_in, audio_features_len)
 
-        conformer_out_dropped = nn.functional.dropout(conformer_out, p=0.2)
+        conformer_out_dropped = nn.functional.dropout(conformer_out, p=0.2, training=self.training)
         logits = self.final_linear(conformer_out_dropped)  # [B, T, F]
         logits_ce_order = torch.permute(logits, dims=(0, 2, 1))  # CE expects [B, F, T]
         log_probs = torch.log_softmax(logits, dim=2)

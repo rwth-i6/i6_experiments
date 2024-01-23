@@ -1,6 +1,10 @@
 from typing import Any, Dict, List, Optional, Tuple, Union
 from i6_experiments.users.berger.network.helpers.specaug import add_specaug_layer_v2
-from returnn_common.asr import gt
+from i6_experiments.users.berger.network.helpers.specaug import (
+    add_specaug_layer,
+    add_specaug_layer_v2,
+    get_specaug_funcs,
+)
 
 
 def add_gt_feature_extraction(
@@ -10,6 +14,8 @@ def add_gt_feature_extraction(
     name="gammatone",
     specaug_before_dct: bool = False,
     specaug_after_dct: bool = True,
+    specaug_v2: bool = True,
+    specaug_args: Optional[Dict] = None,
     channels: Optional[int] = None,
     filterbank_size: Optional[int] = None,
     tempint_length: float = 0.025,
@@ -17,6 +23,7 @@ def add_gt_feature_extraction(
     max_freq: Optional[int] = None,
     padding: Optional[Tuple[int, int]] = None,
 ) -> Tuple[str, Union[str, List[str]]]:
+    from returnn_common.asr import gt
     python_code = []
 
     channels = (
@@ -37,6 +44,7 @@ def add_gt_feature_extraction(
 
     filterbank_size = filterbank_size or sample_rate // 25
 
+    specaug_args = specaug_args or {}
     gt_net = gt.get_net_dict_v1(
         num_channels=channels,
         sample_rate=sample_rate,
@@ -58,15 +66,19 @@ def add_gt_feature_extraction(
         gt_net["gammatone_filterbank"]["from"] = "preemphasis_padded"
 
     if specaug_before_dct:
-        specaug_name, python_code = add_specaug_layer_v2(
-            gt_net, from_list=gt_net["dct"]["from"]
-        )
+        if specaug_v2:
+            specaug_name, python_code = add_specaug_layer_v2(gt_net, from_list=gt_net["dct"]["from"])
+        else:
+            specaug_name = add_specaug_layer(gt_net, from_list=gt_net["dct"]["from"], **specaug_args)
+            python_code = get_specaug_funcs()
         gt_net["dct"]["from"] = specaug_name
 
     if specaug_after_dct:
-        specaug_name, python_code = add_specaug_layer_v2(
-            gt_net, from_list=gt_net["output"]["from"]
-        )
+        if specaug_v2:
+            specaug_name, python_code = add_specaug_layer_v2(gt_net, from_list=gt_net["output"]["from"])
+        else:
+            specaug_name = add_specaug_layer(gt_net, from_list=gt_net["output"]["from"], **specaug_args)
+            python_code = get_specaug_funcs()
         gt_net["output"]["from"] = specaug_name
 
     for layer_attr in gt_net.values():

@@ -23,6 +23,14 @@ def dump(ref_dataset, search_dataset, blank_idx, label_name, model_type, max_seg
   output_dict = {}
   if model_type == "seg":
     label_log_prob_layer = rnn.engine.network.get_layer("label_model/label_log_prob")
+    # dirty fix: try to get the sil_log_prob layer (which only exists in case of the separate silence model)
+    # when it fails, just get the blank_log_prob layer which exists in any case
+    # later, just check the name of the retrieved layer and prepend the sil log prob to the label log prob, only
+    # when the sil_log_prob layer exists
+    try:
+      sil_log_prob_layer = rnn.engine.network.get_layer("label_model/sil_log_prob")
+    except:
+      sil_log_prob_layer = rnn.engine.network.get_layer("output/blank_log_prob")
     try:
       blank_log_prob_layer = rnn.engine.network.get_layer("output/blank_log_prob_scaled")
     except:
@@ -32,6 +40,7 @@ def dump(ref_dataset, search_dataset, blank_idx, label_name, model_type, max_seg
     except:
       emit_log_prob_layer = rnn.engine.network.get_layer("output/emit_log_prob")
     output_dict["%s-out" % "label_log_prob"] = label_log_prob_layer.output.get_placeholder_as_batch_major()
+    output_dict["%s-out" % "sil_log_prob"] = sil_log_prob_layer.output.get_placeholder_as_batch_major()
     output_dict["%s-out" % "blank_log_prob"] = blank_log_prob_layer.output.get_placeholder_as_batch_major()
     output_dict["%s-out" % "emit_log_prob"] = emit_log_prob_layer.output.get_placeholder_as_batch_major()
   elif model_type in ["seg_lab_dep", "global-import"]:
@@ -61,10 +70,6 @@ def dump(ref_dataset, search_dataset, blank_idx, label_name, model_type, max_seg
   while ref_dataset.is_less_than_num_seqs(seq_idx) and seq_idx <= float("inf"):
     assert ref_dataset.get_tag(seq_idx) == search_dataset.get_tag(seq_idx)
 
-    # if ref_dataset.get_tag(seq_idx) != "switchboard-1/sw02184A/sw2184A-ms98-a-0084":
-    #   seq_idx += 1
-    #   continue
-
     ref_out = rnn.engine.run_single(dataset=ref_dataset, seq_idx=seq_idx, output_dict=output_dict)
     ref_dataset.load_seqs(seq_idx, seq_idx + 1)
     ref_labels = ref_dataset.get_data(seq_idx, label_name)
@@ -72,11 +77,15 @@ def dump(ref_dataset, search_dataset, blank_idx, label_name, model_type, max_seg
     search_dataset.load_seqs(seq_idx, seq_idx + 1)
     search_labels = search_dataset.get_data(seq_idx, label_name)
     if model_type.startswith("seg") and len(search_labels[search_labels != blank_idx]) == 0:
+      # in this case, the found seq just contains blanks and we just skip the seq
       only_blanks += 1
       seq_idx += 1
       continue
 
     if model_type.startswith("seg") and max_seg_len != -1:
+      # in this case, the search was done with a maximum allowed segment size
+      # if the reference seq contains segments which are longer, we need to skip bc the model had no way of finding
+      # this segment during search
       label_positions = np.where(ref_labels != blank_idx)[0]
       label_positions_zero_prepend = np.concatenate([np.array([0]), label_positions])
       label_positions_len_append = np.concatenate([label_positions, np.array([len(ref_labels) - 1])])
@@ -86,12 +95,13 @@ def dump(ref_dataset, search_dataset, blank_idx, label_name, model_type, max_seg
         seq_idx += 1
         continue
 
-
-    search_out = rnn.engine.run_single(dataset=search_dataset, seq_idx=seq_idx, output_dict=output_dict)
-
     if model_type == "seg":
       # get log probs for labels, blank and emit
       ref_label_log_prob = ref_out["label_log_prob-out"][0]  # [S, V]
+      if sil_log_prob_layer.name == "sil_log_prob":
+        # prepend the sil log prob to the label log prob (sil idx is always 0)
+        ref_sil_log_prob = ref_out["sil_log_prob-out"][0]  # [S, 1]
+        ref_label_log_prob = np.concatenate((ref_sil_log_prob, ref_label_log_prob), axis=-1)
       ref_blank_log_prob = ref_out["blank_log_prob-out"][0]  # [T, 1]
       ref_emit_log_prob = ref_out["emit_log_prob-out"][0]  # [T, 1]
       # choose the log probs for the labels in the alignment
@@ -109,6 +119,10 @@ def dump(ref_dataset, search_dataset, blank_idx, label_name, model_type, max_seg
 
       # get log probs for labels, blank and emit
       search_label_log_prob = search_out["label_log_prob-out"][0]  # [S, V]
+      if sil_log_prob_layer.name == "sil_log_prob":
+        # prepend the sil log prob to the label log prob (sil idx is always 0)
+        search_sil_log_prob = search_out["sil_log_prob-out"][0]  # [S, 1]
+        search_label_log_prob = np.concatenate((search_sil_log_prob, search_label_log_prob), axis=-1)
       search_blank_log_prob = search_out["blank_log_prob-out"][0]  # [T, 1]
       search_emit_log_prob = search_out["emit_log_prob-out"][0]  # [T, 1]
       # choose the log probs for the labels in the alignment
@@ -124,26 +138,28 @@ def dump(ref_dataset, search_dataset, blank_idx, label_name, model_type, max_seg
       # get seq log likelihood by summing over individual frames
       search_output_log_prob = np.sum(search_label_emit_log_probs_seq, axis=0) + np.sum(search_blank_log_probs_seq, axis=0)
 
-      ref_label_prob = ref_out["label_log_prob-out"][0]  # [S, V]
-      ref_label_log_probs_seq = np.take_along_axis(ref_label_prob, ref_labels_non_blank[:, None], axis=-1)
+      ref_label_log_probs_seq = np.take_along_axis(ref_label_log_prob, ref_labels_non_blank[:, None], axis=-1)
       ref_label_log_prob_sum = np.sum(ref_label_log_probs_seq, axis=0)
       print("REF FEED LABEL LOG SCORES: %s \n" % ref_label_log_probs_seq)
       print("REF FEED LABEL LOG SCORES SUM: %s \n" % ref_label_log_prob_sum)
-      print("REF FEED LABEL LOG SCORES ARGMAX: %s, SCORE: %s \n" % (np.argmax(ref_label_prob, axis=-1), np.max(ref_label_prob, axis=-1)))
+      print("REF FEED LABEL LOG SCORES ARGMAX: %s, SCORE: %s \n" % (np.argmax(ref_label_log_prob, axis=-1), np.max(ref_label_log_prob, axis=-1)))
       print("REF FEED EMIT LOG SCORES: %s \n" % ref_emit_log_probs_seq)
+      print("REF FEED EMIT LOG SCORES SUM: %s \n" % np.sum(ref_emit_log_probs_seq, axis=0))
       print("REF FEED EMIT LOG SCORES ARGMAX: %s, SCORE: %s \n" % (np.argmax(ref_emit_log_prob, axis=-1), np.max(ref_emit_log_prob, axis=-1)))
       print("REF FEED BLANK LOG SCORES: %s \n" % ref_blank_log_probs_seq)
+      print("REF FEED BLANK LOG SCORES SUM: %s \n" % np.sum(ref_blank_log_probs_seq, axis=0))
       print("REF FEED BLANK LOG SCORES ARGMAX: %s, SCORE: %s \n" % (np.argmax(ref_blank_log_prob, axis=-1), np.max(ref_blank_log_prob, axis=-1)))
 
-      search_label_prob = search_out["label_log_prob-out"][0]  # [S, V]
-      search_label_log_probs_seq = np.take_along_axis(search_label_prob, search_labels_non_blank[:, None], axis=-1)
+      search_label_log_probs_seq = np.take_along_axis(search_label_log_prob, search_labels_non_blank[:, None], axis=-1)
       search_label_log_prob_sum = np.sum(search_label_log_probs_seq, axis=0)
       print("SEARCH FEED LABEL LOG SCORES: %s \n" % search_label_log_probs_seq)
       print("SEARCH FEED LABEL LOG SCORES SUM: %s \n" % search_label_log_prob_sum)
-      print("SEARCH FEED LABEL LOG SCORES ARGMAX: %s, SCORE: %s \n" % (np.argmax(search_label_prob, axis=-1), np.max(search_label_prob, axis=-1)))
+      print("SEARCH FEED LABEL LOG SCORES ARGMAX: %s, SCORE: %s \n" % (np.argmax(search_label_log_prob, axis=-1), np.max(search_label_log_prob, axis=-1)))
       print("SEARCH FEED EMIT LOG SCORES: %s \n" % search_emit_log_probs_seq)
+      print("SEARCH FEED EMIT LOG SCORES SUM: %s \n" % np.sum(search_emit_log_probs_seq, axis=0))
       print("SEARCH FEED EMIT LOG SCORES ARGMAX: %s, SCORE: %s \n" % (np.argmax(search_emit_log_prob, axis=-1), np.max(search_emit_log_prob, axis=-1)))
       print("SEARCH FEED BLANK LOG SCORES: %s \n" % search_blank_log_probs_seq)
+      print("SEARCH FEED BLANK LOG SCORES SUM: %s \n" % np.sum(search_blank_log_probs_seq, axis=0))
       print("SEARCH FEED BLANK LOG SCORES ARGMAX: %s, SCORE: %s \n" % (np.argmax(search_blank_log_prob, axis=-1), np.max(search_blank_log_prob, axis=-1)))
     elif model_type in ["seg_lab_dep", "global-import"]:
       if model_type == "global-import":
@@ -270,7 +286,8 @@ def dump(ref_dataset, search_dataset, blank_idx, label_name, model_type, max_seg
 
     if list(search_labels_non_blank) == list(ref_labels_non_blank):
       if search_output_log_prob < ref_output_log_prob:
-        # in this case, a search error occurred
+        # in this case, the found alignment is worse than the ref alignment but the non-blank labels are the same
+        # so we do not count this as search errors
         with open("search_error_log", "a") as f:
           f.write("SEQ IDX: %s \n" % seq_idx)
           f.write("TAG: %s \n" % ref_dataset.get_tag(seq_idx))
@@ -282,10 +299,10 @@ def dump(ref_dataset, search_dataset, blank_idx, label_name, model_type, max_seg
           f.write("-----------------------------\n\n")
         num_search_errors_seg_bounds += 1
     else:
-      # in this case, the sequences are different
+      # in this case, the non-blank labels are different
       num_diff_seqs += 1
       if search_output_log_prob < ref_output_log_prob:
-        # in this case, a search error occurred
+        # if the found seq is now worse than the ref seq, we have a search error
         with open("search_error_log", "a") as f:
           f.write("SEQ IDX: %s \n" % seq_idx)
           f.write("TAG: %s \n" % ref_dataset.get_tag(seq_idx))
@@ -329,6 +346,10 @@ def net_dict_add_losses(net_dict):
     net_dict["label_model"]["unit"]["label_log_prob"]["is_output_layer"] = True
     net_dict["output"]["unit"]["blank_log_prob"]["is_output_layer"] = True
     net_dict["output"]["unit"]["emit_log_prob"]["is_output_layer"] = True
+    if "blank_log_prob_scaled" in net_dict["output"]["unit"]:
+      net_dict["output"]["unit"]["blank_log_prob_scaled"]["is_output_layer"] = True
+    if "emit_log_prob_scaled" in net_dict["output"]["unit"]:
+      net_dict["output"]["unit"]["emit_log_prob_scaled"]["is_output_layer"] = True
   else:
     # in this case, we have the global model
     net_dict["output"]["unit"]["label_prob"]["is_output_layer"] = True

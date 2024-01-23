@@ -96,9 +96,7 @@ class ConvertPytorchToReturnnJob(Job):
         :param pytorch_to_returnn_root: path to pytorch_to_returnn version to use for conversion
         :param returnn_root: returnn root for conversion
         """
-        assert isinstance(
-            model_func, str
-        ), "model function is required to be string, see docstring"
+        assert isinstance(model_func, str), "model function is required to be string, see docstring"
         assert device in ["cpu", "gpu"]
         self.input = input
         self.conversion_python_exe = conversion_python_exe
@@ -157,11 +155,7 @@ class ConvertPytorchToReturnnJob(Job):
         **kwargs,
     ):
         fairseq_root = fairseq_root.get_path() if fairseq_root is not None else None
-        pytorch_to_returnn_root = (
-            pytorch_to_returnn_root.get_path()
-            if pytorch_to_returnn_root is not None
-            else None
-        )
+        pytorch_to_returnn_root = pytorch_to_returnn_root.get_path() if pytorch_to_returnn_root is not None else None
 
         config = returnn.ReturnnConfig(
             config={

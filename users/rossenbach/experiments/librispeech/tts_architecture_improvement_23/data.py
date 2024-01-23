@@ -11,7 +11,7 @@ from i6_experiments.common.datasets.librispeech import get_g2p_augmented_bliss_l
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import AudioFeatureDatastream, DBMelFilterbankOptions, ReturnnAudioFeatureOptions, FeatureType
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream
-from i6_experiments.users.rossenbach.common_setups.returnn import datasets
+from i6_experiments.users.rossenbach.common_setups.returnn import datasets as returnn_datasets
 
 from i6_experiments.users.rossenbach.datasets.librispeech import (
     get_librispeech_tts_segments,
@@ -40,6 +40,12 @@ def get_librispeech_lexicon(corpus_key="train-clean-100") -> tk.Path:
     """
     return extend_lexicon_with_tts_lemmas(get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)[corpus_key])
 
+
+def get_text_lexicon(corpus_key="train-clean-100") -> tk.Path:
+    bliss_lex = get_librispeech_lexicon(corpus_key)
+    from i6_experiments.users.rossenbach.lexicon.conversion import BlissLexiconToWordLexicon
+    word_lexicon = BlissLexiconToWordLexicon(bliss_lex).out_lexicon
+    return word_lexicon
 
 def get_tts_extended_bliss(ls_corpus_key) -> tk.Path:
     """
@@ -216,7 +222,7 @@ def get_bliss_and_zip(ls_corpus_key, silence_preprocessed=True):
     return bliss_dataset, zip_dataset
 
 
-def make_meta_dataset(audio_dataset, speaker_dataset):
+def make_meta_dataset(audio_dataset, speaker_dataset, duration_dataset=None):
     """
     Shared function to create a metadatset with joined audio and speaker information
 
@@ -225,15 +231,22 @@ def make_meta_dataset(audio_dataset, speaker_dataset):
     :return:
     :rtype: MetaDataset
     """
-    meta_dataset = datasets.MetaDataset(
-        data_map={'audio_features': ('audio', 'data'),
-                  'phonemes': ('audio', 'classes'),
-                  'speaker_labels': ('speaker', 'data'),
-                  },
-        datasets={
-            'audio': audio_dataset.as_returnn_opts(),
-            'speaker': speaker_dataset.as_returnn_opts()
-        },
+    data_map = {
+        'audio_features': ('audio', 'data'),
+        'phonemes': ('audio', 'classes'),
+        'speaker_labels': ('speaker', 'data'),
+    }
+    datasets = {
+        'audio': audio_dataset.as_returnn_opts(),
+        'speaker': speaker_dataset.as_returnn_opts()
+    }
+    if duration_dataset:
+        data_map["durations"] = ("durations", "data")
+        datasets["durations"] = duration_dataset.as_returnn_opts()
+
+    meta_dataset = returnn_datasets.MetaDataset(
+        data_map=data_map,
+        datasets=datasets,
         seq_order_control_dataset="audio",
     )
     return meta_dataset

@@ -1,3 +1,4 @@
+import copy
 from typing import Optional, Dict, Any, Tuple, Callable
 from sisyphus import tk
 
@@ -114,12 +115,32 @@ def dump_features_for_hybrid_training(
     return features["nn-train"], features["nn-cv"], features["nn-devtrain"]
 
 
+def dump_dev_features(
+    gmm_system: GmmSystem,
+    feature_extraction_args: Dict[str, Any],
+    feature_extraction_class: Callable[[Any, ...], FeatureExtractionJob],
+) -> tk.Path:
+    """
+
+    :param gmm_system: GMM system to get corpora from
+    :param feature_extraction_args: Args for the feature extraction
+    :param feature_extraction_class: Feature extraction class/job to be used for extraction
+    :return:
+    """
+    features = {}
+    for name in ["dev"]:
+        features[name] = list(
+            feature_extraction_class(gmm_system.crp[name], **feature_extraction_args).out_feature_bundle.values()
+        )[0]
+    return features["dev"]
+
 def get_corpus_data_inputs(
     gmm_system: GmmSystem,
     feature_extraction_args: Dict[str, Any],
     feature_extraction_class: Callable[[Any], FeatureExtractionJob],
     alias_prefix: Optional[str] = None,
     remove_faulty_segments: bool = False,
+    fix_dev_set=False,
 ) -> Tuple[
     Dict[str, HdfDataInput],
     Dict[str, HdfDataInput],
@@ -167,6 +188,10 @@ def get_corpus_data_inputs(
     gmm_system.crp["nn-train"].segment_path = all_train_segments
     gmm_system.crp["nn-train"].concurrent = 1
     gmm_system.crp["nn-train"].corpus_duration = DURATIONS["train"]
+
+    if fix_dev_set:
+        gmm_dev_out = copy.deepcopy(gmm_system.outputs["dev"])
+        gmm_dev = copy.deepcopy(gmm_system.crp["dev"])
 
     gmm_system.add_overlay("dev", "nn-cv")
     gmm_system.crp["nn-cv"].corpus_config.file = cv_corpus_path
@@ -240,6 +265,7 @@ def get_corpus_data_inputs(
     tk.register_output(f"{alias_prefix}/nn_cv_data/features", nn_cv_data.features)
     tk.register_output(f"{alias_prefix}/nn_cv_data/alignments", nn_cv_data.alignments)
 
+
     nn_train_data_inputs = {
         "train.train": nn_train_data,
     }
@@ -250,10 +276,12 @@ def get_corpus_data_inputs(
     nn_cv_data_inputs = {
         "dev.cv": nn_cv_data,
     }
+    if fix_dev_set:
+        gmm_system.crp["dev"] = gmm_dev
+        gmm_system.outputs["dev"] = gmm_dev_out
 
     nn_dev_data_inputs = {
         "dev": gmm_system.outputs["dev"]["final"].as_returnn_rasr_data_input(),
-        "dev_kaldi_small": gmm_system.outputs["dev_kaldi_small_4_gram"]["final"].as_returnn_rasr_data_input(),
     }
     nn_test_data_inputs = {
         # "test": gmm_system.outputs["test"][

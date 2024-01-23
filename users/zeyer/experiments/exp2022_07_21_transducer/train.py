@@ -7,20 +7,14 @@ from __future__ import annotations
 from typing import Optional, Union, Dict, Any, Sequence
 
 import inspect
+from i6_core.util import instanciate_delayed
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn_common import serialization
 from returnn_common import nn
 
-from i6_experiments.users.zeyer.model_interfaces import (
-    ModelWithCheckpoints,
-    Checkpoint,
-    AlignmentCollection,
-    ModelT,
-    ModelDef,
-    TrainDef,
-    FramewiseTrainDef,
-)
+from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, TrainDef, FramewiseTrainDef
+from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint, AlignmentCollection
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.recog import SharedPostConfig
 
@@ -77,15 +71,19 @@ def train(
     if init_params:
         returnn_train_config_dict["import_model_train_epoch1"] = init_params
 
+    extern_data_raw = task.train_dataset.get_extern_data()
+    # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
+    # It's not hashed because we assume that all aspects of the dataset are already covered
+    # by the datasets itself as part in the config above.
+    extern_data_raw = instanciate_delayed(extern_data_raw)
+
     returnn_train_config = ReturnnConfig(
         returnn_train_config_dict,
         python_epilog=[
             serialization.Collection(
                 [
                     serialization.NonhashedCode(
-                        nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(
-                            task.train_dataset.get_extern_data()
-                        )
+                        nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
                     serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
                     serialization.Import(train_def, "_train_def", ignore_import_as_for_hash=True),

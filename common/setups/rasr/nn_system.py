@@ -12,7 +12,7 @@ import sisyphus.global_settings as gs
 # -------------------- Recipes --------------------
 
 import i6_core.returnn as returnn
-from i6_core.tools import CloneGitRepositoryJob
+
 
 from .rasr_system import RasrSystem
 
@@ -98,6 +98,8 @@ def returnn_training(
     config = copy.deepcopy(returnn_config)
 
     config.config["train"] = train_data if isinstance(train_data, Dict) else train_data.get_data_dict()
+    if "split_10" in name:
+        config.config["train"]["datasets"]["align"]["partition_epoch"] = 10
     if cv_data is not None:
         config.config["dev"] = cv_data if isinstance(cv_data, Dict) else cv_data.get_data_dict()
     if additional_data is not None:
@@ -108,8 +110,12 @@ def returnn_training(
         returnn_config=config,
         **asdict(training_args) if isinstance(training_args, ReturnnTrainingJobArgs) else training_args,
     )
-    if "larger" in name:
+    #if any(sub in name for sub in ["larger", "whisper_medium", "whisper_large"]):
+    #print(name, any(f"keepuntil_{x}_" in name for x in range(9)))
+    if any(sub in name for sub in ["larger", "medium", "large"]) and not any(f"keepuntil_{x}_" in name for x in range(9)) and not "keeponly" in name:
         returnn_training_job.rqmt["gpu_mem"] = 24
+    if any(sub in name for sub in ["whisper_large", "whisper_v2_large"]):
+        returnn_training_job.rqmt["mem"] = 12
     if register_output:
         returnn_training_job.add_alias(f"nn_train/{name}")
         tk.register_output(f"nn_train/{name}_learning_rates.png", returnn_training_job.out_plot_lr)

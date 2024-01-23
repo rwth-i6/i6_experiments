@@ -1,7 +1,7 @@
 import sys
 import os
 from sisyphus import Job, Task, tk
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any, Dict, Optional, Tuple, List, Union
 import logging
 
 from i6_core.returnn.config import ReturnnConfig
@@ -9,6 +9,7 @@ from i6_core.returnn.training import PtCheckpoint
 from onnxruntime.quantization import quant_pre_process, quantize_static, CalibrationDataReader, CalibrationMethod, QuantType, QuantFormat
 from onnxruntime import InferenceSession, SessionOptions
 from returnn.datasets import Dataset, init_dataset
+from returnn.datasets.meta import MetaDataset
 import numpy as np
 
 class ExportPyTorchModelToOnnxJob(Job):
@@ -139,6 +140,17 @@ class ModelQuantizeStaticJob(Job):
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
+    def convert_to_str(self, dataset: Dict):
+        res = {}
+        for x in dataset:
+            if isinstance(dataset[x], dict):
+                res[x] = self.convert_to_str(dataset[x])
+            elif isinstance(dataset[x], tk.Path):
+                res[x] = str(dataset[x])
+            else:
+                res[x] = dataset[x]
+        return res
+
     def run(self):
         print("Start")
         quant_pre_process(
@@ -147,7 +159,7 @@ class ModelQuantizeStaticJob(Job):
 
         class DummyDataReader(CalibrationDataReader):
 
-            def __init__(self, model_str: str, data: Dataset, max_seqs: int, final_skip:  Optional[Tuple[int, int]] = (None, None)):
+            def __init__(self, model_str: str, data: Union[Dataset, MetaDataset], max_seqs: int, final_skip:  Optional[Tuple[int, int]] = (None, None)):
 
                 self.max_seqs = max_seqs
                 self.data = data
@@ -163,21 +175,22 @@ class ModelQuantizeStaticJob(Job):
 
             def get_next(self):
                 init_dataset(self.data)
+                key = "data" if "data" in self.data.data_keys else "raw_audio"  # hack to make it compatible with both setups for now
                 if not self.data.is_less_than_num_seqs(self.idx) or self.idx >= self.max_seqs:
                     if self.final_skip_step is not None and self.idx < self.max_seqs + self.final_skip_step * self.final_skip_count:
                         self.idx += self.final_skip_step
                         logging.info(f"Skipping to Seq {self.idx}")
                         self.data.load_seqs(self.idx, self.idx + 1)
-                        seq_len: np.ndarray = self.data.get_seq_length(self.idx)["data"]
-                        data: np.ndarray = self.data.get_data(self.idx, "data")
+                        seq_len: np.ndarray = self.data.get_seq_length(self.idx)[key]
+                        data: np.ndarray = self.data.get_data(self.idx, key)
                         seq_len = np.array([seq_len], dtype=np.int32)
                         data = np.expand_dims(data, axis=0)
                         return {self.input_name_1: data, self.input_name_2: seq_len}
                     else:
                         return None
                 self.data.load_seqs(self.idx, self.idx + 1)
-                seq_len: np.ndarray = self.data.get_seq_length(self.idx)["data"]
-                data: np.ndarray = self.data.get_data(self.idx, "data")
+                seq_len: np.ndarray = self.data.get_seq_length(self.idx)[key]
+                data: np.ndarray = self.data.get_data(self.idx, key)
                 if self.idx % 10 == 0:
                     logging.info(f"{self.idx} seqs seen")
                 seq_len = np.array([seq_len], dtype=np.int32)
@@ -191,11 +204,10 @@ class ModelQuantizeStaticJob(Job):
                 while x is not None:
                     data.append(x)
                     x = self.get_next()
-                shape = {arr["data"].shape for arr in data}
-                shape2 = {arr["data_len"].shape for arr in data}
                 for x in data:
                     yield x
 
+        self.dataset = self.convert_to_str(self.dataset)
         dataset: Dataset = init_dataset(self.dataset)
         dataset.init_seq_order(1)
         y = DummyDataReader(model_str="model_prep.onnx", data=dataset, max_seqs=self.num_seqs, final_skip=self.final_skip)

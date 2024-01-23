@@ -391,6 +391,9 @@ def conformer_baseline():
     ):
         if train_args.get("retrain_checkpoint", None):
             assert kwargs.get("epoch_wise_filter", None) is None, "epoch_wise_filter should be disabled for retraining."
+            if "allow_lr_scheduling" not in train_args:
+                train_args["allow_lr_scheduling"] = False  # force it
+
         train_data = build_training_datasets(
             bpe_size=bpe_size,
             use_raw_features=True,
@@ -444,7 +447,7 @@ def conformer_baseline():
         mini_lstm_args["batch_size"] = 20000 * 160
         mini_lstm_args["with_pretrain"] = False
         mini_lstm_args["lr"] = lr
-        mini_lstm_args["allow_lr_scheduling_for_retrain"] = False
+        mini_lstm_args["allow_lr_scheduling"] = False
         mini_lstm_args["encoder_args"].with_ctc = False
         mini_lstm_args["keep_all_epochs"] = True  # keep everything
         mini_lstm_args["extra_str"] = params_freeze_str
@@ -534,7 +537,7 @@ def conformer_baseline():
         mini_self_att["batch_size"] = 20000 * 160  # TODO: does this fit now?
         mini_self_att["with_pretrain"] = False
         mini_self_att["lr"] = lr
-        mini_self_att["allow_lr_scheduling_for_retrain"] = False
+        mini_self_att["allow_lr_scheduling"] = False
         mini_self_att["encoder_args"].with_ctc = False
         # mini_self_att['keep_all_epochs'] = True  # keep everything
         mini_self_att["extra_str"] = params_freeze_str
@@ -723,38 +726,26 @@ def conformer_baseline():
     )
 
     # baseline with 635 epochs and epoch-based OCLR
-    args = copy.deepcopy(oclr_args)
-    args.pop("oclr_opts")
-    args["learning_rates_list"] = (
-        list(numpy.linspace(8e-5, 8e-4, 285))
-        + list(numpy.linspace(8e-4, 8e-5, 285))
-        + list(numpy.linspace(8e-5, 1e-6, 65))
-    )
-    run_exp("base_conf_12l_lstm_1l_conv6_sqrdReLU_cyc285_ep635_epochOCLR", train_args=args, num_epochs=635)
-
-    # TODO: average epoch-based OCLR
-    args = copy.deepcopy(oclr_args)
-    oclr_n_step = args["oclr_opts"]["n_step"]
-    args.pop("oclr_opts")
-    lrs = numpy.concatenate(
-        [
-            numpy.linspace(8e-5, 8e-4, 285 * oclr_n_step),
-            numpy.linspace(8e-4, 8e-5, 285 * oclr_n_step),
-            numpy.linspace(8e-5, 1e-6, 65 * oclr_n_step),
-        ]
-    )  # (num_epochs * n_step,)
-    args["learning_rates_list"] = list(numpy.mean(lrs.reshape(-1, oclr_n_step), axis=-1))
-    assert len(args["learning_rates_list"]) == 635
-    run_exp("base_conf_12l_lstm_1l_conv6_sqrdReLU_cyc285_ep635_avgEpochOCLR", train_args=args, num_epochs=635)
-
-    # TODO: retrain
-    # retrain_args = copy.deepcopy(args)
-    # retrain_args["retrain_checkpoint"] = train_job_avg_ckpt["base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635"]
-    # train_j, train_data = run_exp(
-    #     "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_retrain1",
-    #     train_args=retrain_args,
-    #     num_epochs=435,
-    #     epoch_wise_filter=None,
+    # args = copy.deepcopy(oclr_args)
+    # args.pop("oclr_opts")
+    # args["learning_rates_list"] = (
+    #     list(numpy.linspace(8e-5, 8e-4, 285))
+    #     + list(numpy.linspace(8e-4, 8e-5, 285))
+    #     + list(numpy.linspace(8e-5, 1e-6, 65))
     # )
-
-    # ------------------------------------------------------- #
+    # run_exp("base_conf_12l_lstm_1l_conv6_sqrdReLU_cyc285_ep635_epochOCLR", train_args=args, num_epochs=635)
+    #
+    # # TODO: average epoch-based OCLR
+    # args = copy.deepcopy(oclr_args)
+    # oclr_n_step = args["oclr_opts"]["n_step"]
+    # args.pop("oclr_opts")
+    # lrs = numpy.concatenate(
+    #     [
+    #         numpy.linspace(8e-5, 8e-4, 285 * oclr_n_step),
+    #         numpy.linspace(8e-4, 8e-5, 285 * oclr_n_step),
+    #         numpy.linspace(8e-5, 1e-6, 65 * oclr_n_step),
+    #     ]
+    # )  # (num_epochs * n_step,)
+    # args["learning_rates_list"] = list(numpy.mean(lrs.reshape(-1, oclr_n_step), axis=-1))
+    # assert len(args["learning_rates_list"]) == 635
+    # run_exp("base_conf_12l_lstm_1l_conv6_sqrdReLU_cyc285_ep635_avgEpochOCLR", train_args=args, num_epochs=635)

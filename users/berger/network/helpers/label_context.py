@@ -1,6 +1,10 @@
 from typing import Dict, List, Optional, Tuple
 from i6_experiments.users.berger.network.helpers.mlp import add_feed_forward_stack
-from i6_experiments.users.berger.network.helpers.compressed_input import compressed_add_code, compressed_concat_code, compressed_multiply_code
+from i6_experiments.users.berger.network.helpers.compressed_input import (
+    compressed_add_code,
+    compressed_concat_code,
+    compressed_multiply_code,
+)
 
 
 def add_context_label_sequence_blank(
@@ -59,9 +63,7 @@ def add_context_label_sequence_noblank(
     # 1110000000
     eval_str = f"tf.math.not_equal(source(0), {nonword_labels[0]})"
     for label in nonword_labels[1:]:
-        eval_str = (
-            f"tf.math.logical_and(tf.math.not_equal(source(0), {label}), {eval_str})"
-        )
+        eval_str = f"tf.math.logical_and(tf.math.not_equal(source(0), {label}), {eval_str})"
     network["mask_no_nonword"] = {
         "class": "eval",
         "from": base_labels,
@@ -185,9 +187,7 @@ def add_context_1_decoder(
 
     output_unit = {}
 
-    decoder_ff = add_dec_ffnn_stack(
-        output_unit, context_labels, embedding_size, dec_mlp_args
-    )
+    decoder_ff = add_dec_ffnn_stack(output_unit, context_labels, embedding_size, dec_mlp_args)
 
     output_unit["mask_non_blank_shifted"] = {
         "class": "shift_axis",
@@ -229,9 +229,7 @@ def add_context_1_decoder(
             "kind": combination_mode,
         }
 
-    joint_output = add_feed_forward_stack(
-        output_unit, from_list="joint_input", name="joint_ff", **joint_mlp_args
-    )
+    joint_output = add_feed_forward_stack(output_unit, from_list="joint_input", name="joint_ff", **joint_mlp_args)
 
     network["output"] = {
         "class": "rec",
@@ -276,9 +274,7 @@ def add_context_1_decoder_recog(
         "safe_embedding": True,
     }
 
-    decoder_ff = add_feed_forward_stack(
-        output_unit, from_list="context_embedding", name="dec_ff", **dec_mlp_args
-    )
+    decoder_ff = add_feed_forward_stack(output_unit, from_list="context_embedding", name="dec_ff", **dec_mlp_args)
 
     output_unit["decoder"] = {
         "class": "copy",
@@ -298,9 +294,7 @@ def add_context_1_decoder_recog(
             "kind": combination_mode,
         }
 
-    joint_output = add_feed_forward_stack(
-        output_unit, from_list="joint_input", name="joint_ff", **joint_mlp_args
-    )
+    joint_output = add_feed_forward_stack(output_unit, from_list="joint_input", name="joint_ff", **joint_mlp_args)
 
     network["output"] = {
         "class": "rec",
@@ -328,9 +322,7 @@ def add_context_1_decoder_fullsum(
     output_unit = {}
     extra_python = []
 
-    decoder_ff = add_dec_ffnn_stack(
-        output_unit, f"base:{context_labels}", embedding_size, dec_mlp_args
-    )
+    decoder_ff = add_dec_ffnn_stack(output_unit, f"base:{context_labels}", embedding_size, dec_mlp_args)
 
     output_unit["decoder"] = {
         "class": "copy",
@@ -370,9 +362,7 @@ def add_context_1_decoder_fullsum(
                 "kind": combination_mode,
             }
 
-    joint_output = add_feed_forward_stack(
-        output_unit, from_list="joint_input", name="joint_ff", **joint_mlp_args
-    )
+    joint_output = add_feed_forward_stack(output_unit, from_list="joint_input", name="joint_ff", **joint_mlp_args)
 
     # Match name scope from viterbi model to enable initializing from one
     network["output"] = {

@@ -20,7 +20,7 @@ def add_specaug_layer(
         "eval": f'self.network.get_config().typed_value("transform")(source(0, as_data=True), max_time_num={max_time_num}, max_time={max_time}, max_feature_num={max_feature_num}, max_feature={max_feature}, network=self.network)',
     }
 
-    return [name]
+    return [name], get_specaug_funcs()
 
 
 def add_specaug_layer_v2(

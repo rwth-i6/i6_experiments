@@ -31,17 +31,12 @@ class SystemInput:
         feature_flow_key: str = "gt",
         shuffle_data: bool = False,
         segment_order_sort_by_time_length: bool = False,
-        chunk_size=348,
+        chunk_size=384,
     ):
-        """
-        dumps stored GMM pipeline output/file/information for ReturnnRasrTraining
+        shuffle_params = {"shuffle_data": shuffle_data}
+        if segment_order_sort_by_time_length:
+            shuffle_params["segment_order_sort_by_time_length_chunk_size"] = chunk_size
 
-        :param name:
-        :param feature_flow_key:
-        :param shuffle_data:
-        :return:
-        :rtype: ReturnnRasrDataInput
-        """
         return ReturnnRasrDataInput(
             name=name,
             crp=copy.deepcopy(self.crp),
@@ -49,8 +44,5 @@ class SystemInput:
             feature_flow=self.feature_flows[feature_flow_key],
             features=self.features[feature_flow_key],
             chunk_size=chunk_size,
-            shuffling_parameters={
-                "shuffle_data": shuffle_data,
-                "segment_order_sort_by_time_length": segment_order_sort_by_time_length,
-            },
+            shuffling_parameters=shuffle_params,
         )

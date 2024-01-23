@@ -1,0 +1,545 @@
+Hello, experiment: /u/schmitt/experiments/segmental_models_2021_22_pycharm/recipe/i6_experiments/users/schmitt/experiments/config/pipelines/global_vs_segmental_2022_23/demos/demo_center_window_weight_feedback_2
+RETURNN starting up, version 1.20230601.145745+git.d7689b94, date/time 2023-07-12-18-34-59 (UTC+0200), pid 188307, cwd /u/schmitt/src/returnn_new/tests, Python /work/asr3/zeyer/schmitt/venvs/returnn_torch/bin/python3
+RETURNN command line options: ['/u/schmitt/experiments/segmental_models_2021_22_pycharm/recipe/i6_experiments/users/schmitt/experiments/config/pipelines/global_vs_segmental_2022_23/demos/demo_center_window_weight_feedback_2.py']
+Hostname: zink
+TensorFlow: 2.12.0 (v2.12.0-rc1-12-g0db597d0d75) (<site-package> in /work/asr3/zeyer/schmitt/venvs/returnn_torch/lib/python3.10/site-packages/tensorflow)
+Use num_threads=1 (but min 2) via OMP_NUM_THREADS.
+Setup TF inter and intra global thread pools, num_threads 2, session opts {'log_device_placement': False, 'device_count': {'GPU': 0}, 'intra_op_parallelism_threads': 2, 'inter_op_parallelism_threads': 2}.
+CUDA_VISIBLE_DEVICES is not set.
+Collecting TensorFlow device list...
+Local devices available to TensorFlow:
+  1/1: name: "/device:CPU:0"
+       device_type: "CPU"
+       memory_limit: 268435456
+       locality {
+       }
+       incarnation: 7446289598441224614
+       xla_global_id: -1
+Train data:
+  input: 20 x 1
+  output: {'classes': (5, 1), 'data': (20, 2)}
+  DummyDatasetMultipleSequenceLength, sequences: 10, frames: unknown
+Dev data:
+  DummyDatasetMultipleSequenceLength, sequences: 1, frames: unknown
+Device not set explicitly, and no GPU found.
+Learning-rate-control: no file specified, not saving history (no proper restart possible)
+Update config key 'batch_size' for epoch 1: 5000 -> 3600000
+Setup TF session with options {'log_device_placement': False, 'device_count': {'GPU': 0}} ...
+layer /'data:classes': [B,T|'time:var:extern_data:classes'[B]] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+layer /'data:data': [B,T|'time:var:extern_data:data'[B],F|F'feature:data'(20)] float32
+layer /'encoder': [B,T|'time:var:extern_data:data'[B],F|F'feature:data'(20)] float32
+layer /'existing_alignment': [B,T|'time:var:extern_data:data'[B]] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+layer /'is_label': [B,T|'time:var:extern_data:data'[B]] bool
+layer /'const1': [B] int32
+layer /'const0': [B] int32
+layer /'emit_ground_truth0': [B,T|'time:var:extern_data:data'[B]] int32
+layer /'emit_ground_truth': [B,T|'time:var:extern_data:data'[B]] int32 sparse_dim=Dim{F'emit_ground_truth_output:sparse-dim'(2)}
+layer /'label_ground_truth_masked0': [T|'label_ground_truth_masked0:masked:time'[B],B] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+layer /'label_ground_truth_masked': [B,T|'label_ground_truth_masked0:masked:time'[B]] int32 sparse_dim=Dim{F'label_ground_truth_masked:set-sparse-dim'(4)}
+layer /'labels_with_blank_ground_truth': [B,T|'time:var:extern_data:data'[B]] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+layer /'data:targetb': [B,T|'time:var:extern_data:data'[B]] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+layer /'output': [T|'time:var:extern_data:data'[B],B] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+Rec layer 'output' (search False, train 'globals/train_flag:0') sub net:
+  Input layers moved out of loop: (#: 2)
+    output
+    output_emit
+  Output layers moved out of loop: (#: 19)
+    segment_lens
+    segment_ends
+    seq_end_too_far
+    segment_ends1
+    seq_lens
+    segment_starts
+    seq_start_too_far
+    segment_starts2
+    segment_lens1
+    segment_lens0
+    const1
+    emit_blank_prob
+    emit_blank_log_prob
+    blank_log_prob
+    emit_log_prob
+    emit_prob0
+    s
+    am
+    prev_out_embed
+  Layers in loop: (#: 2)
+    segment_starts1
+    :i
+  Unused layers: (#: 0)
+    None
+layer /output(rec-subnet-input)/'data:targetb': [B,T|'time:var:extern_data:data'[B]] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+layer /output(rec-subnet-input)/'output': [B,T|'time:var:extern_data:data'[B]] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+layer /output(rec-subnet-input)/'output_emit': [B,T|'time:var:extern_data:data'[B]] bool
+layer /output(rec-subnet)/'prev:output_emit': [B] bool
+layer /output(rec-subnet)/'segment_starts1': [B] int32
+layer /output(rec-subnet-output)/'data:source': [B,T|'time:var:extern_data:data'[B],F|F'feature:data'(20)] float32
+layer /output(rec-subnet-output)/'am': [B,T|'time:var:extern_data:data'[B],F|F'feature:data'(20)] float32
+layer /output(rec-subnet-output)/'prev:output': [T|'time:var:extern_data:data'[B],B] int32 sparse_dim=Dim{F'classes:sparse-dim'(5)}
+layer /output(rec-subnet-output)/'prev_out_embed': [T|'time:var:extern_data:data'[B],B,F|F'prev_out_embed:feature-dense'(128)] float32
+layer /output(rec-subnet-output)/'s': [T|'time:var:extern_data:data'[B],B,F|F's:rnn_cell_feat'(128)] float32
+layer /output(rec-subnet-output)/'emit_prob0': [T|'time:var:extern_data:data'[B],B,F|F'emit_prob0:feature-dense'(1)] float32
+layer /output(rec-subnet-output)/'segment_starts1': [T|'time:var:extern_data:data'[B],B] int32
+layer /output(rec-subnet-output)/':i': [T|'time:var:extern_data:data'[B]] int32
+layer /output(rec-subnet-output)/'segment_lens0': [T|'time:var:extern_data:data'[B],B] int32
+layer /output(rec-subnet-output)/'const1': [] int32
+layer /output(rec-subnet-output)/'segment_lens1': [T|'time:var:extern_data:data'[B],B] int32
+layer /output(rec-subnet-output)/'segment_ends1': [T|'time:var:extern_data:data'[B],B] int32
+layer /output(rec-subnet-output)/'seq_lens': [B] int32
+layer /output(rec-subnet-output)/'seq_end_too_far': [T|'time:var:extern_data:data'[B],B] bool
+layer /output(rec-subnet-output)/'segment_ends': [T|'time:var:extern_data:data'[B],B] int32
+layer /output(rec-subnet-output)/'segment_starts2': [T|'time:var:extern_data:data'[B],B] int32
+layer /output(rec-subnet-output)/'seq_start_too_far': [T|'time:var:extern_data:data'[B],B] bool
+layer /output(rec-subnet-output)/'segment_starts': [T|'time:var:extern_data:data'[B],B] int32
+layer /output(rec-subnet-output)/'segment_lens': [T|'time:var:extern_data:data'[B],B] int32
+layer /output(rec-subnet-output)/'blank_log_prob': [T|'time:var:extern_data:data'[B],B,F|F'emit_prob0:feature-dense'(1)] float32
+layer /output(rec-subnet-output)/'emit_log_prob': [T|'time:var:extern_data:data'[B],B,F|F'emit_prob0:feature-dense'(1)] float32
+layer /output(rec-subnet-output)/'emit_blank_log_prob': [T|'time:var:extern_data:data'[B],B,F|F'2*(emit_prob0:feature-dense)'(2)] float32
+layer /output(rec-subnet-output)/'data:emit_ground_truth': [B,T|'time:var:extern_data:data'[B]] int32 sparse_dim=Dim{F'emit_ground_truth_output:sparse-dim'(2)}
+layer /output(rec-subnet-output)/'emit_blank_prob': [T|'time:var:extern_data:data'[B],B,F|F'2*(emit_prob0:feature-dense)'(2)] float32
+layer /'segment_lens_masked': [T|'segment_lens_masked:masked:time'[B],B] int32
+layer /'segment_starts_masked': [T|'segment_starts_masked:masked:time'[B],B] int32
+layer /'data:label_ground_truth': [B,T|'label_ground_truth_masked0:masked:time'[B]] int32 sparse_dim=Dim{F'label_ground_truth_masked:set-sparse-dim'(4)}
+layer /'data:segment_starts_masked': [T|'segment_starts_masked:masked:time'[B],B] int32
+layer /'data:segment_lens_masked': [T|'segment_lens_masked:masked:time'[B],B] int32
+layer /'inv_fertility': [B,T|'time:var:extern_data:data'[B],F|F'inv_fertility:feature-dense'(1)] float32
+layer /'label_model': [T|'label_ground_truth_masked0:masked:time'[B],B] int32 sparse_dim=Dim{F'label_ground_truth_masked:set-sparse-dim'(4)}
+Rec layer 'label_model' (search False, train 'globals/train_flag:0') sub net:
+  Input layers moved out of loop: (#: 3)
+    output
+    target_embed0
+    target_embed
+  Output layers moved out of loop: (#: 6)
+    output_prob
+    readout
+    readout_in
+    print_targetb
+    print_segment_lens_layer_out
+    segment_lens_layer_out
+  Layers in loop: (#: 24)
+    lm
+    att
+    att0
+    att_val
+    segments
+    segment_starts
+    :i
+    segment_lens
+    att_weights
+    energy
+    energy_tanh
+    energy_in
+    att_ctx
+    weight_feedback
+    accum_att_weights
+    accum_att_weights_scattered
+    overlap_accum_weights
+    overlap_start
+    overlap_len
+    overlap_mask
+    overlap_len0
+    overlap_range
+    inv_fertility
+    lm_transformed
+  Unused layers: (#: 0)
+    None
+layer /label_model(rec-subnet-input)/'data:label_ground_truth': [B,T|'label_ground_truth_masked0:masked:time'[B]] int32 sparse_dim=Dim{F'label_ground_truth_masked:set-sparse-dim'(4)}
+layer /label_model(rec-subnet-input)/'output': [B,T|'label_ground_truth_masked0:masked:time'[B]] int32 sparse_dim=Dim{F'label_ground_truth_masked:set-sparse-dim'(4)}
+layer /label_model(rec-subnet-input)/'target_embed0': [B,T|'label_ground_truth_masked0:masked:time'[B],F|F'target_embed0:feature-dense'(640)] float32
+layer /label_model(rec-subnet-input)/'target_embed': [B,T|'label_ground_truth_masked0:masked:time'[B],F|F'target_embed0:feature-dense'(640)] float32
+
+ERROR: Got exception during initial-output construction of layer 'accum_att_weights':
+Exception: Dim{'sliced-time:segments'[B]{ctx=loop('label_ground_truth_masked0:masked:time'[B])}}: need placeholder, self.dimension or self.dyn_size for dim value
+
+Template network (check out types / shapes):
+output: <_TemplateLayer(ChoiceLayer)(:template:choice) label_model/'output' out_type=Tensor{[B], dtype='int32', sparse_dim=Dim{F'label_ground_truth_masked:set-sparse-dim'(4)}, ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack None)>
+data:label_ground_truth: <_TemplateLayer(SourceLayer)(:template:source) label_model/'data:label_ground_truth' out_type=Tensor{[B], dtype='int32', sparse_dim=Dim{F'label_ground_truth_masked:set-sparse-dim'(4)}, available_for_inference=False, ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'output')>
+output_prob: <_TemplateLayer(SoftmaxLayer)(:template:softmax) label_model/'output_prob' out_type=Tensor{[B,F|F'label_ground_truth_masked:set-sparse-dim'(4)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack None)>
+readout: <_TemplateLayer(ReduceOutLayer)(:template:reduce_out) label_model/'readout' out_type=Tensor{[B,F|F'lm:rnn_cell_feat//2'(512)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'output_prob')>
+readout_in: <_TemplateLayer(LinearLayer)(:template:linear) label_model/'readout_in' out_type=Tensor{[B,F|F'lm:rnn_cell_feat'(1024)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'readout')>
+lm: <_TemplateLayer(RnnCellLayer)(:template:rnn_cell) label_model/'lm' out_type=Tensor{[B,F|F'lm:rnn_cell_feat'(1024)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'readout_in')>
+target_embed: <_TemplateLayer(DropoutLayer)(:template:dropout) label_model/'target_embed' out_type=Tensor{[B,F|F'target_embed0:feature-dense'(640)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'lm')>
+target_embed0: <_TemplateLayer(LinearLayer)(:template:linear) label_model/'target_embed0' out_type=Tensor{[B,F|F'target_embed0:feature-dense'(640)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'target_embed')>
+att: <_TemplateLayer(MergeDimsLayer)(:template:merge_dims) label_model/'att' out_type=Tensor{[B,F|F'feature:data'(20)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'lm')>
+att0: <_TemplateLayer(GenericAttentionLayer)(:template:generic_attention) label_model/'att0' out_type=Tensor{[B,F|F'feature:data'(20)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'att')>
+att_val: <_TemplateLayer(CopyLayer)(:template:copy) label_model/'att_val' out_type=Tensor{[B,T|'sliced-time:segments'[B]{ctx=loop('label_ground_truth_masked0:masked:time'[B])},F|F'feature:data'(20)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'att0')>
+segments: <_TemplateLayer(SliceNdLayer)(:template:slice_nd) label_model/'segments' out_type=Tensor{[B,T|'sliced-time:segments'[B]{ctx=loop('label_ground_truth_masked0:masked:time'[B])},F|F'feature:data'(20)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'att_val')>
+segment_starts: <_TemplateLayer(GatherLayer)(:template:gather) label_model/'segment_starts' out_type=Tensor{[B], dtype='int32', ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'segments')>
+:i: <_TemplateLayer(RecStepInfoLayer)(:template::i) label_model/':i' out_type=Tensor{[], dtype='int32', ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'segment_starts')>
+segment_lens: <_TemplateLayer(GatherLayer)(:template:gather) label_model/'segment_lens' out_type=Tensor{[B], dtype='int32', ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'segments')>
+att_weights: <_TemplateLayer(SoftmaxOverSpatialLayer)(:template:softmax_over_spatial) label_model/'att_weights' out_type=Tensor{[B,F|F'energy:feature-dense'(1),T|'sliced-time:segments'[B]{ctx=loop('label_ground_truth_masked0:masked:time'[B])}], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'att0')>
+energy: <_TemplateLayer(LinearLayer)(:template:linear) label_model/'energy' out_type=Tensor{[B,T|'sliced-time:segments'[B]{ctx=loop('label_ground_truth_masked0:masked:time'[B])},F|F'energy:feature-dense'(1)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'att_weights')>
+energy_tanh: <_TemplateLayer(ActivationLayer)(:template:activation) label_model/'energy_tanh' out_type=Tensor{[B,T|'sliced-time:segments'[B]{ctx=loop('label_ground_truth_masked0:masked:time'[B])},F|F'att_ctx:feature-dense'(1024)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'energy')>
+energy_in: <_TemplateLayer(CombineLayer)(:template:combine) label_model/'energy_in' out_type=Tensor{[B,T|'sliced-time:segments'[B]{ctx=loop('label_ground_truth_masked0:masked:time'[B])},F|F'att_ctx:feature-dense'(1024)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'energy_tanh')>
+att_ctx: <_TemplateLayer(LinearLayer)(:template:linear) label_model/'att_ctx' out_type=Tensor{[B,T|'sliced-time:segments'[B]{ctx=loop('label_ground_truth_masked0:masked:time'[B])},F|F'att_ctx:feature-dense'(1024)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'energy_in')>
+weight_feedback: <_TemplateLayer(LinearLayer)(:template:linear) label_model/'weight_feedback' out_type=Tensor{[B,T|'sliced-time:segments'[B]{ctx=loop('label_ground_truth_masked0:masked:time'[B])},F|F'weight_feedback:feature-dense'(1024)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'energy_in')>
+accum_att_weights: <_TemplateLayer(EvalLayer)(:template:eval) label_model/'accum_att_weights' out_type=Tensor{[B,T|'sliced-time:segments'[B]{ctx=loop('label_ground_truth_masked0:masked:time'[B])},F|F'feature:accum_att_weights_output'(1)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'weight_feedback')>
+accum_att_weights_scattered: <_TemplateLayer(ScatterNdLayer)(:template:scatter_nd) label_model/'accum_att_weights_scattered' out_type=Tensor{[T|'sliced-time:segments'[B]{ctx=loop('label_ground_truth_masked0:masked:time'[B])},B,F|F'feature:accum_att_weights_output'(1)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'accum_att_weights')>
+overlap_accum_weights: <_TemplateLayer(SliceNdLayer)(:template:slice_nd) label_model/'overlap_accum_weights' out_type=Tensor{[B,T|'sliced-time:overlap_accum_weights'[B]{ctx=loop('label_ground_truth_masked0:masked:time'[B])},F|F'feature:accum_att_weights_output'(1)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'accum_att_weights_scattered')>
+overlap_start: <_TemplateLayer(CombineLayer)(:template:combine) label_model/'overlap_start' out_type=Tensor{[B], dtype='int32', ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'overlap_accum_weights')>
+overlap_len: <_TemplateLayer(SwitchLayer)(:template:switch) label_model/'overlap_len' out_type=Tensor{[B], dtype='int32', ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'overlap_accum_weights')>
+overlap_range: <_TemplateLayer(RangeInAxisLayer)(:template:range_in_axis) label_model/'overlap_range' out_type=Tensor{[T|'sliced-time:overlap_accum_weights'[B]{ctx=loop('label_ground_truth_masked0:masked:time'[B])}], dtype='int32', ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'accum_att_weights_scattered')>
+inv_fertility: <_TemplateLayer(SliceNdLayer)(:template:slice_nd) label_model/'inv_fertility' out_type=Tensor{[B,T|'sliced-time:segments'[B]{ctx=loop('label_ground_truth_masked0:masked:time'[B])},F|F'inv_fertility:feature-dense'(1)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'accum_att_weights')>
+lm_transformed: <_TemplateLayer(LinearLayer)(:template:linear) label_model/'lm_transformed' out_type=Tensor{[B,F|F'lm:rnn_cell_feat'(1024)], ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'energy_in')>
+print_segment_lens_layer_out: <_TemplateLayer(PrintLayer)(:template:print) label_model/'print_segment_lens_layer_out' out_type=Tensor{[B], dtype='int32', ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack None)>
+segment_lens_layer_out: <_TemplateLayer(LengthLayer)(:template:length) label_model/'segment_lens_layer_out' out_type=Tensor{[B], dtype='int32', ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'print_segment_lens_layer_out')>
+print_targetb: <_TemplateLayer(PrintLayer)(:template:print) label_model/'print_targetb' out_type=Tensor{[B], dtype='int32', sparse_dim=Dim{F'classes:sparse-dim'(5)}, available_for_inference=False, ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack None)>
+data:targetb: <_TemplateLayer(SourceLayer)(:template:source) label_model/'data:targetb' out_type=Tensor{[B], dtype='int32', sparse_dim=Dim{F'classes:sparse-dim'(5)}, available_for_inference=False, ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'print_targetb')>
+overlap_mask: <_TemplateLayer(CompareLayer)(:template:compare) label_model/'overlap_mask' out_type=Tensor{[B], dtype='bool', ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'overlap_len')>
+overlap_len0: <_TemplateLayer(EvalLayer)(:template:eval) label_model/'overlap_len0' out_type=Tensor{[B], dtype='int32', ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack 'overlap_mask')>
+:dyn-tag-accum:segments:tag1: <_TemplateLayer(LengthLayer)(:template:length) label_model/':dyn-tag-accum:segments:tag1' out_type=Tensor{[B], dtype='int32', ctx=loop('label_ground_truth_masked0:masked:time'[B])} (construction stack None)>
+
+Collected (unique) exceptions during template construction:
+(Note that many of these can be ignored, or are expected.)
+
+[31;1mEXCEPTION[0m
+[34mTraceback (most recent call last):[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mrec.py[0m[36m"[0m, [34mline[0m [35m1813[0m, [34min[0m _SubnetworkRecCell._construct_template.<locals>.RecSubnetGetTemplateLayer.__call__
+    [34mline:[0m self[34m.[0mnet[34m.[0mconstruct_layer[34m([0m
+              net_dict[34m=[0mself[34m.[0mnet_dict[34m,[0m
+              name[34m=[0mname[34m,[0m
+              get_layer[34m=[0mshallow_get_layer[34m,[0m
+              add_layer[34m=[0mshallow_get_layer[34m.[0madd_templated_layer[34m,[0m
+          [34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m
+      self[34;1m.[0mnet [34;1m=[0m [34m<local>[0m [34m<[0mTFNetwork [36m'/label_model(rec-subnet)'[0m parent_net[34m=[0m[34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m
+      self[34;1m.[0mnet[34;1m.[0mconstruct_layer [34;1m=[0m [34m<local>[0m [34m<[0mbound method TFNetwork[34m.[0mconstruct_layer of [34m<[0mTFNetwork [36m'/label_model(rec-subnet)'[0m parent_net[34m=[0m[34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m[34m>[0m
+      net_dict [34;1m=[0m [34m<not found>[0m
+      self[34;1m.[0mnet_dict [34;1m=[0m [34m<local>[0m [34m{[0m[36m'target_embed0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'linear'[0m[34m,[0m [36m'activation'[0m[34m:[0m [34mNone[0m[34m,[0m [36m'with_bias'[0m[34m:[0m [34mFalse[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'output'[0m[34m,[0m [36m'n_out'[0m[34m:[0m 640[34m,[0m [36m'initial_output'[0m[34m:[0m 0[34m}[0m[34m,[0m [36m'target_embed'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'dropout'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'target_embed0'[0m[34m,[0m [36m'dropout'[0m[34m:[0m 0[34m.[0m0[34m,[0m [36m'dropout_noise_shape'[0m[34m:[0m [34m{[0m[36m'*'[0m[34m:[0m [34mNone[0m[34m}[0m[34m}[0m[34m,[0m [36m'overlap_len0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'eval'[0m[34m,[0m [36m'from'[0m[34m:[0m [34m[[0m[36m'prev:s[0m..., len [34m=[0m 32
+      name [34;1m=[0m [34m<local>[0m [36m'overlap_accum_weights'[0m, len [34m=[0m 21
+      get_layer [34;1m=[0m [34m<not found>[0m
+      shallow_get_layer [34;1m=[0m [34m<local>[0m [34m<[0mRecLayer construct template GetLayer[34m>[0m[34m([0mallow_uninitialized_template [34mTrue[0m[34m,[0m parents [36m'output_prob <- readout <- readout_in <- lm <- att <- att0 <- att_weights <- energy <- energy_tanh <- energy_in <- weight_feedback <- accum_att_weights <- accum_att_weights_scattered <- overlap_accum_weights'[0m[34m)[0m
+      add_layer [34;1m=[0m [34m<not found>[0m
+      shallow_get_layer[34;1m.[0madd_templated_layer [34;1m=[0m [34m<local>[0m [34m<[0mbound method _SubnetworkRecCell[34m.[0m_construct_template[34m.[0m[34m<[0mlocals[34m>[0m[34m.[0mRecSubnetGetTemplateLayer[34m.[0madd_templated_layer of [34m<[0mRecLayer construct template GetLayer[34m>[0m[34m([0mallow_uninitialized_template [34mTrue[0m[34m,[0m parents [36m'output_prob <- readout <- readout_in <- lm <- att <- att0 <- att_weights <- energy <- energy_tanh <- en[0m...
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mnetwork.py[0m[36m"[0m, [34mline[0m [35m1199[0m, [34min[0m TFNetwork.construct_layer
+    [34mline:[0m [34mreturn[0m add_layer[34m([0mname[34m=[0mname_with_prefix[34m,[0m layer_class[34m=[0mlayer_class[34m,[0m [34m*[0m[34m*[0mlayer_desc[34m)[0m
+    [34mlocals:[0m
+      add_layer [34;1m=[0m [34m<local>[0m [34m<[0mbound method _SubnetworkRecCell[34m.[0m_construct_template[34m.[0m[34m<[0mlocals[34m>[0m[34m.[0mRecSubnetGetTemplateLayer[34m.[0madd_templated_layer of [34m<[0mRecLayer construct template GetLayer[34m>[0m[34m([0mallow_uninitialized_template [34mTrue[0m[34m,[0m parents [36m'output_prob <- readout <- readout_in <- lm <- att <- att0 <- att_weights <- energy <- energy_tanh <- en[0m...
+      name [34;1m=[0m [34m<local>[0m [36m'overlap_accum_weights'[0m, len [34m=[0m 21
+      name_with_prefix [34;1m=[0m [34m<local>[0m [36m'overlap_accum_weights'[0m, len [34m=[0m 21
+      layer_class [34;1m=[0m [34m<local>[0m [34m<[0m[34mclass[0m [36m'returnn.tf.layers.basic.SliceNdLayer'[0m[34m>[0m
+      layer_desc [34;1m=[0m [34m<local>[0m [34m{[0m[36m'start'[0m[34m:[0m [34m<[0m_TemplateLayer [36m'label_model/overlap_start'[0m uninitialized[34m,[0m construction stack [36m'overlap_accum_weights'[0m[34m>[0m[34m,[0m [36m'size'[0m[34m:[0m [34m<[0m_TemplateLayer [36m'label_model/overlap_len'[0m uninitialized[34m,[0m construction stack [36m'overlap_accum_weights'[0m[34m>[0m[34m,[0m [36m'initial_output'[0m[34m:[0m 0[34m.[0m0[34m,[0m [36m'_network'[0m[34m:[0m [34m<[0mTFNetwork [36m'/label_model(rec-subnet)'[0m ..., len [34m=[0m 6
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mrec.py[0m[36m"[0m, [34mline[0m [35m1675[0m, [34min[0m _SubnetworkRecCell._construct_template.<locals>.RecSubnetGetTemplateLayer.add_templated_layer
+    [34mline:[0m layer_[34m.[0mkwargs[34m[[0m[36m"output"[0m[34m][0m [34m=[0m layer_class[34m.[0mget_out_data_from_opts[34m([0m[34m*[0m[34m*[0mlayer_desc[34m)[0m
+    [34mlocals:[0m
+      layer_ [34;1m=[0m [34m<local>[0m [34m<[0m_TemplateLayer [36m'label_model/overlap_accum_weights'[0m uninitialized[34m,[0m construction stack [36m'accum_att_weights_scattered'[0m[34m>[0m
+      layer_[34;1m.[0mkwargs [34;1m=[0m [34m<local>[0m [34m{[0m[36m'start'[0m[34m:[0m [34m<[0m_TemplateLayer [36m'label_model/overlap_start'[0m uninitialized[34m,[0m construction stack [36m'overlap_accum_weights'[0m[34m>[0m[34m,[0m [36m'size'[0m[34m:[0m [34m<[0m_TemplateLayer [36m'label_model/overlap_len'[0m uninitialized[34m,[0m construction stack [36m'overlap_accum_weights'[0m[34m>[0m[34m,[0m [36m'initial_output'[0m[34m:[0m 0[34m.[0m0[34m,[0m [36m'_network'[0m[34m:[0m [34m<[0mTFNetwork [36m'/label_model(rec-subnet)'[0m ..., len [34m=[0m 8
+      layer_class [34;1m=[0m [34m<local>[0m [34m<[0m[34mclass[0m [36m'returnn.tf.layers.basic.SliceNdLayer'[0m[34m>[0m
+      layer_class[34;1m.[0mget_out_data_from_opts [34;1m=[0m [34m<local>[0m [34m<[0mbound method SliceNdLayer[34m.[0mget_out_data_from_opts of [34m<[0m[34mclass[0m [36m'returnn.tf.layers.basic.SliceNdLayer'[0m[34m>[0m[34m>[0m
+      layer_desc [34;1m=[0m [34m<local>[0m [34m{[0m[36m'start'[0m[34m:[0m [34m<[0m_TemplateLayer [36m'label_model/overlap_start'[0m uninitialized[34m,[0m construction stack [36m'overlap_accum_weights'[0m[34m>[0m[34m,[0m [36m'size'[0m[34m:[0m [34m<[0m_TemplateLayer [36m'label_model/overlap_len'[0m uninitialized[34m,[0m construction stack [36m'overlap_accum_weights'[0m[34m>[0m[34m,[0m [36m'initial_output'[0m[34m:[0m 0[34m.[0m0[34m,[0m [36m'_network'[0m[34m:[0m [34m<[0mTFNetwork [36m'/label_model(rec-subnet)'[0m ..., len [34m=[0m 8
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mbasic.py[0m[36m"[0m, [34mline[0m [35m1464[0m, [34min[0m SliceNdLayer.get_out_data_from_opts
+    [34mline:[0m axis_int [34m=[0m input_data[34m.[0mget_axis_from_description[34m([0maxis[34m,[0m allow_int[34m=[0m[34mFalse[0m[34m)[0m
+    [34mlocals:[0m
+      axis_int [34;1m=[0m [34m<not found>[0m
+      input_data [34;1m=[0m [34m<local>[0m Tensor[34m{[0m[36m'accum_att_weights:dummy_initial_template_data'[0m[34m,[0m [34m[[0m[34m][0m[34m,[0m ctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m
+      input_data[34;1m.[0mget_axis_from_description [34;1m=[0m [34m<local>[0m [34m<[0mbound method _TensorMixin[34m.[0mget_axis_from_description of Tensor[34m{[0m[36m'accum_att_weights:dummy_initial_template_data'[0m[34m,[0m [34m[[0m[34m][0m[34m,[0m ctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m[34m>[0m
+      axis [34;1m=[0m [34m<local>[0m [36m'T'[0m
+      allow_int [34;1m=[0m [34m<not found>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tensor/[0m[36;1m_tensor_extra.py[0m[36m"[0m, [34mline[0m [35m2394[0m, [34min[0m _TensorMixin.get_axis_from_description
+    [34mline:[0m axes [34m=[0m self[34m.[0mget_axes_from_description[34m([0maxis[34m,[0m allow_int[34m=[0mallow_int[34m)[0m
+    [34mlocals:[0m
+      axes [34;1m=[0m [34m<not found>[0m
+      self [34;1m=[0m [34m<local>[0m Tensor[34m{[0m[36m'accum_att_weights:dummy_initial_template_data'[0m[34m,[0m [34m[[0m[34m][0m[34m,[0m ctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m
+      self[34;1m.[0mget_axes_from_description [34;1m=[0m [34m<local>[0m [34m<[0mbound method _TensorMixin[34m.[0mget_axes_from_description of Tensor[34m{[0m[36m'accum_att_weights:dummy_initial_template_data'[0m[34m,[0m [34m[[0m[34m][0m[34m,[0m ctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m[34m>[0m
+      axis [34;1m=[0m [34m<local>[0m [36m'T'[0m
+      allow_int [34;1m=[0m [34m<local>[0m [34mFalse[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tensor/[0m[36;1m_tensor_extra.py[0m[36m"[0m, [34mline[0m [35m2302[0m, [34min[0m _TensorMixin.get_axes_from_description
+    [34mline:[0m [34massert[0m self[34m.[0mtime_dim_axis [34mis[0m [34mnot[0m [34mNone[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m Tensor[34m{[0m[36m'accum_att_weights:dummy_initial_template_data'[0m[34m,[0m [34m[[0m[34m][0m[34m,[0m ctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m
+      self[34;1m.[0mtime_dim_axis [34;1m=[0m [34m<local>[0m [34mNone[0m
+[31mAssertionError[0m
+
+[31;1mEXCEPTION[0m
+[34mTraceback (most recent call last):[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mrec.py[0m[36m"[0m, [34mline[0m [35m1813[0m, [34min[0m _SubnetworkRecCell._construct_template.<locals>.RecSubnetGetTemplateLayer.__call__
+    [34mline:[0m self[34m.[0mnet[34m.[0mconstruct_layer[34m([0m
+              net_dict[34m=[0mself[34m.[0mnet_dict[34m,[0m
+              name[34m=[0mname[34m,[0m
+              get_layer[34m=[0mshallow_get_layer[34m,[0m
+              add_layer[34m=[0mshallow_get_layer[34m.[0madd_templated_layer[34m,[0m
+          [34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m
+      self[34;1m.[0mnet [34;1m=[0m [34m<local>[0m [34m<[0mTFNetwork [36m'/label_model(rec-subnet)'[0m parent_net[34m=[0m[34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m
+      self[34;1m.[0mnet[34;1m.[0mconstruct_layer [34;1m=[0m [34m<local>[0m [34m<[0mbound method TFNetwork[34m.[0mconstruct_layer of [34m<[0mTFNetwork [36m'/label_model(rec-subnet)'[0m parent_net[34m=[0m[34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m[34m>[0m
+      net_dict [34;1m=[0m [34m<not found>[0m
+      self[34;1m.[0mnet_dict [34;1m=[0m [34m<local>[0m [34m{[0m[36m'target_embed0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'linear'[0m[34m,[0m [36m'activation'[0m[34m:[0m [34mNone[0m[34m,[0m [36m'with_bias'[0m[34m:[0m [34mFalse[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'output'[0m[34m,[0m [36m'n_out'[0m[34m:[0m 640[34m,[0m [36m'initial_output'[0m[34m:[0m 0[34m}[0m[34m,[0m [36m'target_embed'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'dropout'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'target_embed0'[0m[34m,[0m [36m'dropout'[0m[34m:[0m 0[34m.[0m0[34m,[0m [36m'dropout_noise_shape'[0m[34m:[0m [34m{[0m[36m'*'[0m[34m:[0m [34mNone[0m[34m}[0m[34m}[0m[34m,[0m [36m'overlap_len0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'eval'[0m[34m,[0m [36m'from'[0m[34m:[0m [34m[[0m[36m'prev:s[0m..., len [34m=[0m 32
+      name [34;1m=[0m [34m<local>[0m [36m'accum_att_weights_scattered'[0m, len [34m=[0m 27
+      get_layer [34;1m=[0m [34m<not found>[0m
+      shallow_get_layer [34;1m=[0m [34m<local>[0m [34m<[0mRecLayer construct template GetLayer[34m>[0m[34m([0mallow_uninitialized_template [34mTrue[0m[34m,[0m parents [36m'output_prob <- readout <- readout_in <- lm <- att <- att0 <- att_weights <- energy <- energy_tanh <- energy_in <- weight_feedback <- accum_att_weights <- accum_att_weights_scattered'[0m[34m)[0m
+      add_layer [34;1m=[0m [34m<not found>[0m
+      shallow_get_layer[34;1m.[0madd_templated_layer [34;1m=[0m [34m<local>[0m [34m<[0mbound method _SubnetworkRecCell[34m.[0m_construct_template[34m.[0m[34m<[0mlocals[34m>[0m[34m.[0mRecSubnetGetTemplateLayer[34m.[0madd_templated_layer of [34m<[0mRecLayer construct template GetLayer[34m>[0m[34m([0mallow_uninitialized_template [34mTrue[0m[34m,[0m parents [36m'output_prob <- readout <- readout_in <- lm <- att <- att0 <- att_weights <- energy <- energy_tanh <- en[0m...
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mnetwork.py[0m[36m"[0m, [34mline[0m [35m1199[0m, [34min[0m TFNetwork.construct_layer
+    [34mline:[0m [34mreturn[0m add_layer[34m([0mname[34m=[0mname_with_prefix[34m,[0m layer_class[34m=[0mlayer_class[34m,[0m [34m*[0m[34m*[0mlayer_desc[34m)[0m
+    [34mlocals:[0m
+      add_layer [34;1m=[0m [34m<local>[0m [34m<[0mbound method _SubnetworkRecCell[34m.[0m_construct_template[34m.[0m[34m<[0mlocals[34m>[0m[34m.[0mRecSubnetGetTemplateLayer[34m.[0madd_templated_layer of [34m<[0mRecLayer construct template GetLayer[34m>[0m[34m([0mallow_uninitialized_template [34mTrue[0m[34m,[0m parents [36m'output_prob <- readout <- readout_in <- lm <- att <- att0 <- att_weights <- energy <- energy_tanh <- en[0m...
+      name [34;1m=[0m [34m<local>[0m [36m'accum_att_weights_scattered'[0m, len [34m=[0m 27
+      name_with_prefix [34;1m=[0m [34m<local>[0m [36m'accum_att_weights_scattered'[0m, len [34m=[0m 27
+      layer_class [34;1m=[0m [34m<local>[0m [34m<[0m[34mclass[0m [36m'returnn.tf.layers.basic.ScatterNdLayer'[0m[34m>[0m
+      layer_desc [34;1m=[0m [34m<local>[0m [34m{[0m[36m'position'[0m[34m:[0m [34m<[0m_TemplateLayer [36m'label_model/overlap_range'[0m uninitialized[34m,[0m construction stack [36m'accum_att_weights_scattered'[0m[34m>[0m[34m,[0m [36m'position_axis'[0m[34m:[0m [36m'stag:sliced-time:overlap_accum_weights'[0m[34m,[0m [36m'out_spatial_dim'[0m[34m:[0m Dim[34m{[0m[36m'sliced-time:segments'[0m[34m[[0m?[34m][0m[34m}[0m[34m,[0m [36m'_network'[0m[34m:[0m [34m<[0mTFNetwork [36m'/label_model(rec-subnet)'[0m parent_net[34m=[0m[34m<[0mTF..., len [34m=[0m 6
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mrec.py[0m[36m"[0m, [34mline[0m [35m1675[0m, [34min[0m _SubnetworkRecCell._construct_template.<locals>.RecSubnetGetTemplateLayer.add_templated_layer
+    [34mline:[0m layer_[34m.[0mkwargs[34m[[0m[36m"output"[0m[34m][0m [34m=[0m layer_class[34m.[0mget_out_data_from_opts[34m([0m[34m*[0m[34m*[0mlayer_desc[34m)[0m
+    [34mlocals:[0m
+      layer_ [34;1m=[0m [34m<local>[0m [34m<[0m_TemplateLayer [36m'label_model/accum_att_weights_scattered'[0m uninitialized[34m,[0m construction stack [36m'accum_att_weights'[0m[34m>[0m
+      layer_[34;1m.[0mkwargs [34;1m=[0m [34m<local>[0m [34m{[0m[36m'position'[0m[34m:[0m [34m<[0m_TemplateLayer [36m'label_model/overlap_range'[0m uninitialized[34m,[0m construction stack [36m'accum_att_weights_scattered'[0m[34m>[0m[34m,[0m [36m'position_axis'[0m[34m:[0m [36m'stag:sliced-time:overlap_accum_weights'[0m[34m,[0m [36m'out_spatial_dim'[0m[34m:[0m Dim[34m{[0m[36m'sliced-time:segments'[0m[34m[[0m?[34m][0m[34m}[0m[34m,[0m [36m'_network'[0m[34m:[0m [34m<[0mTFNetwork [36m'/label_model(rec-subnet)'[0m parent_net[34m=[0m[34m<[0mTF..., len [34m=[0m 8
+      layer_class [34;1m=[0m [34m<local>[0m [34m<[0m[34mclass[0m [36m'returnn.tf.layers.basic.ScatterNdLayer'[0m[34m>[0m
+      layer_class[34;1m.[0mget_out_data_from_opts [34;1m=[0m [34m<local>[0m [34m<[0mbound method ScatterNdLayer[34m.[0mget_out_data_from_opts of [34m<[0m[34mclass[0m [36m'returnn.tf.layers.basic.ScatterNdLayer'[0m[34m>[0m[34m>[0m
+      layer_desc [34;1m=[0m [34m<local>[0m [34m{[0m[36m'position'[0m[34m:[0m [34m<[0m_TemplateLayer [36m'label_model/overlap_range'[0m uninitialized[34m,[0m construction stack [36m'accum_att_weights_scattered'[0m[34m>[0m[34m,[0m [36m'position_axis'[0m[34m:[0m [36m'stag:sliced-time:overlap_accum_weights'[0m[34m,[0m [36m'out_spatial_dim'[0m[34m:[0m Dim[34m{[0m[36m'sliced-time:segments'[0m[34m[[0m?[34m][0m[34m}[0m[34m,[0m [36m'_network'[0m[34m:[0m [34m<[0mTFNetwork [36m'/label_model(rec-subnet)'[0m parent_net[34m=[0m[34m<[0mTF..., len [34m=[0m 8
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mbasic.py[0m[36m"[0m, [34mline[0m [35m2069[0m, [34min[0m ScatterNdLayer.get_out_data_from_opts
+    [34mline:[0m common[34m,[0m output[34m,[0m replace_common_axis[34m,[0m input_extra_axes [34m=[0m cls[34m.[0m_get_axes[34m([0m
+              input_data[34m=[0minput_data[34m,[0m
+              position[34m=[0mposition[34m.[0moutput[34m,[0m
+              position_axis[34m=[0mposition_axis[34m,[0m
+              out_spatial_dim[34m=[0mout_spatial_dim [34mif[0m out_spatial_dim [34melse[0m output_dim_via_time_from[34m.[0moutput[34m.[0mget_time_dim_tag[34m([0m[34m)[0m[34m,[0m
+          [34m)[0m
+    [34mlocals:[0m
+      common [34;1m=[0m [34m<not found>[0m
+      output [34;1m=[0m [34m<not found>[0m
+      replace_common_axis [34;1m=[0m [34m<not found>[0m
+      input_extra_axes [34;1m=[0m [34m<not found>[0m
+      cls [34;1m=[0m [34m<local>[0m [34m<[0m[34mclass[0m [36m'returnn.tf.layers.basic.ScatterNdLayer'[0m[34m>[0m
+      cls[34;1m.[0m_get_axes [34;1m=[0m [34m<local>[0m [34m<[0mbound method ScatterNdLayer[34m.[0m_get_axes of [34m<[0m[34mclass[0m [36m'returnn.tf.layers.basic.ScatterNdLayer'[0m[34m>[0m[34m>[0m
+      input_data [34;1m=[0m [34m<local>[0m Tensor[34m{[0m[36m'overlap_accum_weights:dummy_initial_template_data'[0m[34m,[0m [34m[[0m[34m][0m[34m,[0m ctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m
+      position [34;1m=[0m [34m<local>[0m [34m<[0m_TemplateLayer [36m'label_model/overlap_range'[0m uninitialized[34m,[0m construction stack [36m'accum_att_weights_scattered'[0m[34m>[0m
+      position[34;1m.[0moutput [34;1m=[0m [34m<local>[0m Tensor[34m{[0m[36m'overlap_range:dummy_initial_template_data'[0m[34m,[0m [34m[[0m[34m][0m[34m,[0m ctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m
+      position_axis [34;1m=[0m [34m<local>[0m [36m'stag:sliced-time:overlap_accum_weights'[0m, len [34m=[0m 38
+      out_spatial_dim [34;1m=[0m [34m<local>[0m Dim[34m{[0m[36m'sliced-time:segments'[0m[34m[[0m?[34m][0m[34m}[0m
+      output_dim_via_time_from [34;1m=[0m [34m<local>[0m [34mNone[0m
+      output_dim_via_time_from[34;1m.[0moutput [34;1m=[0m [34m<local>[0m !AttributeError: 'NoneType' object has no attribute 'output'
+      output_dim_via_time_from[34;1m.[0moutput[34;1m.[0mget_time_dim_tag [34;1m=[0m [34m<local>[0m !AttributeError: 'NoneType' object has no attribute 'output'
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mbasic.py[0m[36m"[0m, [34mline[0m [35m2048[0m, [34min[0m ScatterNdLayer._get_axes
+    [34mline:[0m position_axis [34m=[0m position[34m.[0mget_axis_from_description[34m([0mposition_axis[34m)[0m
+    [34mlocals:[0m
+      position_axis [34;1m=[0m [34m<local>[0m [36m'stag:sliced-time:overlap_accum_weights'[0m, len [34m=[0m 38
+      position [34;1m=[0m [34m<local>[0m Tensor[34m{[0m[36m'overlap_range:dummy_initial_template_data'[0m[34m,[0m [34m[[0m[34m][0m[34m,[0m ctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m
+      position[34;1m.[0mget_axis_from_description [34;1m=[0m [34m<local>[0m [34m<[0mbound method _TensorMixin[34m.[0mget_axis_from_description of Tensor[34m{[0m[36m'overlap_range:dummy_initial_template_data'[0m[34m,[0m [34m[[0m[34m][0m[34m,[0m ctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m[34m>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tensor/[0m[36;1m_tensor_extra.py[0m[36m"[0m, [34mline[0m [35m2394[0m, [34min[0m _TensorMixin.get_axis_from_description
+    [34mline:[0m axes [34m=[0m self[34m.[0mget_axes_from_description[34m([0maxis[34m,[0m allow_int[34m=[0mallow_int[34m)[0m
+    [34mlocals:[0m
+      axes [34;1m=[0m [34m<not found>[0m
+      self [34;1m=[0m [34m<local>[0m Tensor[34m{[0m[36m'overlap_range:dummy_initial_template_data'[0m[34m,[0m [34m[[0m[34m][0m[34m,[0m ctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m
+      self[34;1m.[0mget_axes_from_description [34;1m=[0m [34m<local>[0m [34m<[0mbound method _TensorMixin[34m.[0mget_axes_from_description of Tensor[34m{[0m[36m'overlap_range:dummy_initial_template_data'[0m[34m,[0m [34m[[0m[34m][0m[34m,[0m ctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m[34m>[0m
+      axis [34;1m=[0m [34m<local>[0m [36m'stag:sliced-time:overlap_accum_weights'[0m, len [34m=[0m 38
+      allow_int [34;1m=[0m [34m<local>[0m [34m<[0m[34mclass[0m [36m'returnn.util.basic.NotSpecified'[0m[34m>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tensor/[0m[36;1m_tensor_extra.py[0m[36m"[0m, [34mline[0m [35m2349[0m, [34min[0m _TensorMixin.get_axes_from_description
+    [34mline:[0m [34mreturn[0m [34m[[0mself[34m.[0mget_axis_by_tag_name[34m([0maxes[34m[[0mlen[34m([0m[36m"stag:"[0m[34m)[0m [34m:[0m[34m][0m[34m,[0m spatial_only[34m=[0m[34mTrue[0m[34m)[0m[34m][0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m Tensor[34m{[0m[36m'overlap_range:dummy_initial_template_data'[0m[34m,[0m [34m[[0m[34m][0m[34m,[0m ctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m
+      self[34;1m.[0mget_axis_by_tag_name [34;1m=[0m [34m<local>[0m [34m<[0mbound method _TensorMixin[34m.[0mget_axis_by_tag_name of Tensor[34m{[0m[36m'overlap_range:dummy_initial_template_data'[0m[34m,[0m [34m[[0m[34m][0m[34m,[0m ctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m[34m>[0m
+      axes [34;1m=[0m [34m<local>[0m [36m'stag:sliced-time:overlap_accum_weights'[0m, len [34m=[0m 38
+      len [34;1m=[0m [34m<builtin>[0m [34m<[0mbuilt[34m-[0m[34min[0m function len[34m>[0m
+      spatial_only [34;1m=[0m [34m<not found>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tensor/[0m[36;1m_tensor_extra.py[0m[36m"[0m, [34mline[0m [35m2470[0m, [34min[0m _TensorMixin.get_axis_by_tag_name
+    [34mline:[0m [34massert[0m len[34m([0mmatching_dim_tags[34m)[0m [34m>[0m 0[34m,[0m [36m"%r: no %stag found with name %r"[0m [34m%[0m [34m([0m
+              self[34m,[0m
+              [36m"spatial "[0m [34mif[0m spatial_only [34melse[0m [36m""[0m[34m,[0m
+              name[34m,[0m
+          [34m)[0m
+    [34mlocals:[0m
+      len [34;1m=[0m [34m<builtin>[0m [34m<[0mbuilt[34m-[0m[34min[0m function len[34m>[0m
+      matching_dim_tags [34;1m=[0m [34m<local>[0m [34m[[0m[34m][0m
+      self [34;1m=[0m [34m<local>[0m Tensor[34m{[0m[36m'overlap_range:dummy_initial_template_data'[0m[34m,[0m [34m[[0m[34m][0m[34m,[0m ctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m
+      spatial_only [34;1m=[0m [34m<local>[0m [34mTrue[0m
+      name [34;1m=[0m [34m<local>[0m [36m'sliced-time:overlap_accum_weights'[0m, len [34m=[0m 33
+[31mAssertionError[0m: Tensor{'overlap_range:dummy_initial_template_data', [], ctx=loop('label_ground_truth_masked0:masked:time'[B])}: no spatial tag found with name 'sliced-time:overlap_accum_weights'
+
+Exception creating layer /'label_model' of class RecLayer with opts:
+{'_name': 'label_model',
+ '_network': <TFNetwork '' train=<tf.Tensor 'globals/train_flag:0' shape=() dtype=bool>>,
+ '_target_layers': {'label_ground_truth': <SourceLayer 'data:label_ground_truth' out_type=Tensor{[B,T|'label_ground_truth_masked0:masked:time'[B]], dtype='int32', sparse_dim=Dim{F'label_ground_truth_masked:set-sparse-dim'(4)}, available_for_inference=False}>},
+ 'axis': Dim{'label_ground_truth_masked0:masked:time'[B]},
+ 'is_output_layer': True,
+ 'n_out': <class 'returnn.util.basic.NotSpecified'>,
+ 'name': 'label_model',
+ 'name_scope': 'output/rec',
+ 'network': <TFNetwork '' train=<tf.Tensor 'globals/train_flag:0' shape=() dtype=bool>>,
+ 'output': Tensor{'label_model_output', [T|'label_ground_truth_masked0:masked:time'[B],B], dtype='int32', sparse_dim=Dim{F'label_ground_truth_masked:set-sparse-dim'(4)}},
+ 'sources': [],
+ 'target': 'label_ground_truth',
+ 'unit': <_SubnetworkRecCell '/label_model(rec-subnet)'>}
+Unhandled exception <class 'Exception'> in thread <_MainThread(MainThread, started 140017304891392)>, proc 188307.
+
+Thread current, main, <_MainThread(MainThread, started 140017304891392)>:
+(Excluded thread.)
+
+That were all threads.
+[31;1mEXCEPTION[0m
+[34mTraceback (most recent call last):[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/[0m[36;1mrnn.py[0m[36m"[0m, [34mline[0m [35m11[0m, [34min[0m <module>
+    [34mline:[0m main[34m([0m[34m)[0m
+    [34mlocals:[0m
+      main [34;1m=[0m [34m<local>[0m [34m<[0mfunction main at 0x7f584ccff010[34m>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/[0m[36;1m__main__.py[0m[36m"[0m, [34mline[0m [35m609[0m, [34min[0m main
+    [34mline:[0m execute_main_task[34m([0m[34m)[0m
+    [34mlocals:[0m
+      execute_main_task [34;1m=[0m [34m<global>[0m [34m<[0mfunction execute_main_task at 0x7f584ccfeef0[34m>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/[0m[36;1m__main__.py[0m[36m"[0m, [34mline[0m [35m418[0m, [34min[0m execute_main_task
+    [34mline:[0m engine[34m.[0minit_train_from_config[34m([0mconfig[34m,[0m train_data[34m,[0m dev_data[34m,[0m eval_data[34m)[0m
+    [34mlocals:[0m
+      engine [34;1m=[0m [34m<global>[0m [34m<[0mreturnn[34m.[0mtf[34m.[0mengine[34m.[0mEngine object at 0x7f58117dccd0[34m>[0m
+      engine[34;1m.[0minit_train_from_config [34;1m=[0m [34m<global>[0m [34m<[0mbound method Engine[34m.[0minit_train_from_config of [34m<[0mreturnn[34m.[0mtf[34m.[0mengine[34m.[0mEngine object at 0x7f58117dccd0[34m>[0m[34m>[0m
+      config [34;1m=[0m [34m<global>[0m [34m<[0mreturnn[34m.[0mconfig[34m.[0mConfig object at 0x7f584ccb7670[34m>[0m
+      train_data [34;1m=[0m [34m<global>[0m [34m<[0mDummyDatasetMultipleSequenceLength [36m'train'[0m epoch[34m=[0m[34mNone[0m[34m>[0m
+      dev_data [34;1m=[0m [34m<global>[0m [34m<[0mDummyDatasetMultipleSequenceLength [36m'dev'[0m epoch[34m=[0m[34mNone[0m[34m>[0m
+      eval_data [34;1m=[0m [34m<global>[0m [34mNone[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mengine.py[0m[36m"[0m, [34mline[0m [35m1144[0m, [34min[0m Engine.init_train_from_config
+    [34mline:[0m self[34m.[0minit_network_from_config[34m([0mconfig[34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mreturnn[34m.[0mtf[34m.[0mengine[34m.[0mEngine object at 0x7f58117dccd0[34m>[0m
+      self[34;1m.[0minit_network_from_config [34;1m=[0m [34m<local>[0m [34m<[0mbound method Engine[34m.[0minit_network_from_config of [34m<[0mreturnn[34m.[0mtf[34m.[0mengine[34m.[0mEngine object at 0x7f58117dccd0[34m>[0m[34m>[0m
+      config [34;1m=[0m [34m<local>[0m [34m<[0mreturnn[34m.[0mconfig[34m.[0mConfig object at 0x7f584ccb7670[34m>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mengine.py[0m[36m"[0m, [34mline[0m [35m1229[0m, [34min[0m Engine.init_network_from_config
+    [34mline:[0m self[34m.[0m_init_network[34m([0mnet_desc[34m=[0mnet_dict[34m,[0m epoch[34m=[0mself[34m.[0mepoch[34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mreturnn[34m.[0mtf[34m.[0mengine[34m.[0mEngine object at 0x7f58117dccd0[34m>[0m
+      self[34;1m.[0m_init_network [34;1m=[0m [34m<local>[0m [34m<[0mbound method Engine[34m.[0m_init_network of [34m<[0mreturnn[34m.[0mtf[34m.[0mengine[34m.[0mEngine object at 0x7f58117dccd0[34m>[0m[34m>[0m
+      net_desc [34;1m=[0m [34m<not found>[0m
+      net_dict [34;1m=[0m [34m<local>[0m [34m{[0m[36m'source0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'split_dims'[0m[34m,[0m [36m'axis'[0m[34m:[0m [36m'F'[0m[34m,[0m [36m'dims'[0m[34m:[0m [34m([0m[34m-[0m1[34m,[0m 1[34m)[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'data:data'[0m[34m}[0m[34m,[0m [36m'conv0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'conv'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'source0'[0m[34m,[0m [36m'padding'[0m[34m:[0m [36m'same'[0m[34m,[0m [36m'filter_size'[0m[34m:[0m [34m([0m3[34m,[0m 3[34m)[0m[34m,[0m [36m'n_out'[0m[34m:[0m 32[34m,[0m [36m'activation'[0m[34m:[0m [36m'relu'[0m[34m,[0m [36m'with_bias'[0m[34m:[0m [34mTrue[0m[34m}[0m[34m,[0m [36m'conv0p'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'pool'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'conv0'[0m[34m,[0m [36m'pool_size'[0m[34m:[0m [34m([0m1[34m,[0m 2[34m)[0m[34m,[0m ..., len [34m=[0m 105
+      epoch [34;1m=[0m [34m<local>[0m [34mNone[0m
+      self[34;1m.[0mepoch [34;1m=[0m [34m<local>[0m 1
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mengine.py[0m[36m"[0m, [34mline[0m [35m1423[0m, [34min[0m Engine._init_network
+    [34mline:[0m self[34m.[0mnetwork[34m,[0m self[34m.[0mupdater [34m=[0m self[34m.[0mcreate_network[34m([0m
+              config[34m=[0mself[34m.[0mconfig[34m,[0m
+              extern_data[34m=[0mextern_data[34m,[0m
+              rnd_seed[34m=[0mnet_random_seed[34m,[0m
+              train_flag[34m=[0mtrain_flag[34m,[0m
+              eval_flag[34m=[0mself[34m.[0muse_eval_flag[34m,[0m
+              search_flag[34m=[0mself[34m.[0muse_search_flag[34m,[0m
+              initial_learning_rate[34m=[0mgetattr[34m([0mself[34m,[0m [36m"initial_learning_rate"[0m[34m,[0m [34mNone[0m[34m)[0m[34m,[0m
+              net_dict[34m=[0mnet_desc[34m,[0m
+          [34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mreturnn[34m.[0mtf[34m.[0mengine[34m.[0mEngine object at 0x7f58117dccd0[34m>[0m
+      self[34;1m.[0mnetwork [34;1m=[0m [34m<local>[0m [34mNone[0m
+      self[34;1m.[0mupdater [34;1m=[0m [34m<local>[0m [34mNone[0m
+      self[34;1m.[0mcreate_network [34;1m=[0m [34m<local>[0m [34m<[0mbound method Engine[34m.[0mcreate_network of [34m<[0m[34mclass[0m [36m'returnn.tf.engine.Engine'[0m[34m>[0m[34m>[0m
+      config [34;1m=[0m [34m<not found>[0m
+      self[34;1m.[0mconfig [34;1m=[0m [34m<local>[0m [34m<[0mreturnn[34m.[0mconfig[34m.[0mConfig object at 0x7f584ccb7670[34m>[0m
+      extern_data [34;1m=[0m [34m<local>[0m [34m<[0mExternData data[34m=[0m[34m{[0m[36m'data'[0m[34m:[0m Tensor[34m{[0m[36m'data'[0m[34m,[0m [34m[[0mB[34m,[0mT[34m|[0m[36m'time:var:extern_data:data'[0m[34m[[0mB[34m][0m[34m,[0mF[34m|[0mF[36m'[0mfeature:data'[34m([0m20[34m)[0m[34m][0m[34m}[0m[34m,[0m [36m'classes'[0m[34m:[0m Tensor[34m{[0m[36m'classes'[0m[34m,[0m [34m[[0mB[34m,[0mT[34m|[0m[36m'time:var:extern_data:classes'[0m[34m[[0mB[34m][0m[34m][0m[34m,[0m dtype[34m=[0m[36m'int32'[0m[34m,[0m sparse_dim[34m=[0mDim[34m{[0mF[36m'[0mclasses:sparse-dim'[34m([0m5[34m)[0m[34m}[0m[34m,[0m available_for_inference[34m=[0m[34mFalse[0m[34m}[0m[34m,[0m [36m'emit_ground_truth'[0m[34m:[0m Tensor[34m{[0m[36m'emit_gr[0m...
+      rnd_seed [34;1m=[0m [34m<not found>[0m
+      net_random_seed [34;1m=[0m [34m<local>[0m 1
+      train_flag [34;1m=[0m [34m<local>[0m [34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m
+      eval_flag [34;1m=[0m [34m<not found>[0m
+      self[34;1m.[0muse_eval_flag [34;1m=[0m [34m<local>[0m [34mTrue[0m
+      search_flag [34;1m=[0m [34m<not found>[0m
+      self[34;1m.[0muse_search_flag [34;1m=[0m [34m<local>[0m [34mFalse[0m
+      initial_learning_rate [34;1m=[0m [34m<not found>[0m
+      getattr [34;1m=[0m [34m<builtin>[0m [34m<[0mbuilt[34m-[0m[34min[0m function getattr[34m>[0m
+      net_dict [34;1m=[0m [34m<not found>[0m
+      net_desc [34;1m=[0m [34m<local>[0m [34m{[0m[36m'source0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'split_dims'[0m[34m,[0m [36m'axis'[0m[34m:[0m [36m'F'[0m[34m,[0m [36m'dims'[0m[34m:[0m [34m([0m[34m-[0m1[34m,[0m 1[34m)[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'data:data'[0m[34m}[0m[34m,[0m [36m'conv0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'conv'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'source0'[0m[34m,[0m [36m'padding'[0m[34m:[0m [36m'same'[0m[34m,[0m [36m'filter_size'[0m[34m:[0m [34m([0m3[34m,[0m 3[34m)[0m[34m,[0m [36m'n_out'[0m[34m:[0m 32[34m,[0m [36m'activation'[0m[34m:[0m [36m'relu'[0m[34m,[0m [36m'with_bias'[0m[34m:[0m [34mTrue[0m[34m}[0m[34m,[0m [36m'conv0p'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'pool'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'conv0'[0m[34m,[0m [36m'pool_size'[0m[34m:[0m [34m([0m1[34m,[0m 2[34m)[0m[34m,[0m ..., len [34m=[0m 105
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mengine.py[0m[36m"[0m, [34mline[0m [35m1473[0m, [34min[0m Engine.create_network
+    [34mline:[0m network[34m.[0mconstruct_from_dict[34m([0mnet_dict[34m)[0m
+    [34mlocals:[0m
+      network [34;1m=[0m [34m<local>[0m [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m
+      network[34;1m.[0mconstruct_from_dict [34;1m=[0m [34m<local>[0m [34m<[0mbound method TFNetwork[34m.[0mconstruct_from_dict of [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m[34m>[0m
+      net_dict [34;1m=[0m [34m<local>[0m [34m{[0m[36m'source0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'split_dims'[0m[34m,[0m [36m'axis'[0m[34m:[0m [36m'F'[0m[34m,[0m [36m'dims'[0m[34m:[0m [34m([0m[34m-[0m1[34m,[0m 1[34m)[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'data:data'[0m[34m}[0m[34m,[0m [36m'conv0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'conv'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'source0'[0m[34m,[0m [36m'padding'[0m[34m:[0m [36m'same'[0m[34m,[0m [36m'filter_size'[0m[34m:[0m [34m([0m3[34m,[0m 3[34m)[0m[34m,[0m [36m'n_out'[0m[34m:[0m 32[34m,[0m [36m'activation'[0m[34m:[0m [36m'relu'[0m[34m,[0m [36m'with_bias'[0m[34m:[0m [34mTrue[0m[34m}[0m[34m,[0m [36m'conv0p'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'pool'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'conv0'[0m[34m,[0m [36m'pool_size'[0m[34m:[0m [34m([0m1[34m,[0m 2[34m)[0m[34m,[0m ..., len [34m=[0m 105
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mnetwork.py[0m[36m"[0m, [34mline[0m [35m818[0m, [34min[0m TFNetwork.construct_from_dict
+    [34mline:[0m self[34m.[0mconstruct_layer[34m([0mnet_dict[34m,[0m name[34m,[0m get_layer[34m=[0mget_layer[34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m
+      self[34;1m.[0mconstruct_layer [34;1m=[0m [34m<local>[0m [34m<[0mbound method TFNetwork[34m.[0mconstruct_layer of [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m[34m>[0m
+      net_dict [34;1m=[0m [34m<local>[0m [34m{[0m[36m'source0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'split_dims'[0m[34m,[0m [36m'axis'[0m[34m:[0m [36m'F'[0m[34m,[0m [36m'dims'[0m[34m:[0m [34m([0m[34m-[0m1[34m,[0m 1[34m)[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'data:data'[0m[34m}[0m[34m,[0m [36m'conv0'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'conv'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'source0'[0m[34m,[0m [36m'padding'[0m[34m:[0m [36m'same'[0m[34m,[0m [36m'filter_size'[0m[34m:[0m [34m([0m3[34m,[0m 3[34m)[0m[34m,[0m [36m'n_out'[0m[34m:[0m 32[34m,[0m [36m'activation'[0m[34m:[0m [36m'relu'[0m[34m,[0m [36m'with_bias'[0m[34m:[0m [34mTrue[0m[34m}[0m[34m,[0m [36m'conv0p'[0m[34m:[0m [34m{[0m[36m'class'[0m[34m:[0m [36m'pool'[0m[34m,[0m [36m'from'[0m[34m:[0m [36m'conv0'[0m[34m,[0m [36m'pool_size'[0m[34m:[0m [34m([0m1[34m,[0m 2[34m)[0m[34m,[0m ..., len [34m=[0m 105
+      name [34;1m=[0m [34m<local>[0m [36m'label_model'[0m, len [34m=[0m 11
+      get_layer [34;1m=[0m [34m<local>[0m [34mNone[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mnetwork.py[0m[36m"[0m, [34mline[0m [35m1199[0m, [34min[0m TFNetwork.construct_layer
+    [34mline:[0m [34mreturn[0m add_layer[34m([0mname[34m=[0mname_with_prefix[34m,[0m layer_class[34m=[0mlayer_class[34m,[0m [34m*[0m[34m*[0mlayer_desc[34m)[0m
+    [34mlocals:[0m
+      add_layer [34;1m=[0m [34m<local>[0m [34m<[0mbound method TFNetwork[34m.[0madd_layer of [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m[34m>[0m
+      name [34;1m=[0m [34m<local>[0m [36m'label_model'[0m, len [34m=[0m 11
+      name_with_prefix [34;1m=[0m [34m<local>[0m [36m'label_model'[0m, len [34m=[0m 11
+      layer_class [34;1m=[0m [34m<local>[0m [34m<[0m[34mclass[0m [36m'returnn.tf.layers.rec.RecLayer'[0m[34m>[0m
+      layer_desc [34;1m=[0m [34m<local>[0m [34m{[0m[36m'target'[0m[34m:[0m [36m'label_ground_truth'[0m[34m,[0m [36m'name_scope'[0m[34m:[0m [36m'output/rec'[0m[34m,[0m [36m'is_output_layer'[0m[34m:[0m [34mTrue[0m[34m,[0m [36m'_network'[0m[34m:[0m [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m[34m,[0m [36m'_name'[0m[34m:[0m [36m'label_model'[0m[34m,[0m [36m'n_out'[0m[34m:[0m [34m<[0m[34mclass[0m [36m'returnn.util.basic.NotSpecified'[0m[34m>[0m[34m,[0m [36m'sources'[0m[34m:[0m [34m[[0m[34m][0m[34m,[0m [36m'_target_layers'[0m[34m:[0m [34m{[0m[36m'label_groun[0m..., len [34m=[0m 10
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mnetwork.py[0m[36m"[0m, [34mline[0m [35m1395[0m, [34min[0m TFNetwork.add_layer
+    [34mline:[0m layer [34m=[0m self[34m.[0m_create_layer[34m([0mname[34m=[0mname[34m,[0m layer_class[34m=[0mlayer_class[34m,[0m [34m*[0m[34m*[0mlayer_desc[34m)[0m
+    [34mlocals:[0m
+      layer [34;1m=[0m [34m<not found>[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m
+      self[34;1m.[0m_create_layer [34;1m=[0m [34m<local>[0m [34m<[0mbound method TFNetwork[34m.[0m_create_layer of [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m[34m>[0m
+      name [34;1m=[0m [34m<local>[0m [36m'label_model'[0m, len [34m=[0m 11
+      layer_class [34;1m=[0m [34m<local>[0m [34m<[0m[34mclass[0m [36m'returnn.tf.layers.rec.RecLayer'[0m[34m>[0m
+      layer_desc [34;1m=[0m [34m<local>[0m [34m{[0m[36m'target'[0m[34m:[0m [36m'label_ground_truth'[0m[34m,[0m [36m'name_scope'[0m[34m:[0m [36m'output/rec'[0m[34m,[0m [36m'is_output_layer'[0m[34m:[0m [34mTrue[0m[34m,[0m [36m'_network'[0m[34m:[0m [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m[34m,[0m [36m'_name'[0m[34m:[0m [36m'label_model'[0m[34m,[0m [36m'n_out'[0m[34m:[0m [34m<[0m[34mclass[0m [36m'returnn.util.basic.NotSpecified'[0m[34m>[0m[34m,[0m [36m'sources'[0m[34m:[0m [34m[[0m[34m][0m[34m,[0m [36m'_target_layers'[0m[34m:[0m [34m{[0m[36m'label_groun[0m..., len [34m=[0m 10
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/[0m[36;1mnetwork.py[0m[36m"[0m, [34mline[0m [35m1290[0m, [34min[0m TFNetwork._create_layer
+    [34mline:[0m layer [34m=[0m layer_class[34m([0m[34m*[0m[34m*[0mlayer_desc[34m)[0m
+    [34mlocals:[0m
+      layer [34;1m=[0m [34m<not found>[0m
+      layer_class [34;1m=[0m [34m<local>[0m [34m<[0m[34mclass[0m [36m'returnn.tf.layers.rec.RecLayer'[0m[34m>[0m
+      layer_desc [34;1m=[0m [34m<local>[0m [34m{[0m[36m'target'[0m[34m:[0m [36m'label_ground_truth'[0m[34m,[0m [36m'name_scope'[0m[34m:[0m [36m'output/rec'[0m[34m,[0m [36m'is_output_layer'[0m[34m:[0m [34mTrue[0m[34m,[0m [36m'_network'[0m[34m:[0m [34m<[0mTFNetwork [36m''[0m train[34m=[0m[34m<[0mtf[34m.[0mTensor [36m'globals/train_flag:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mbool[34m>[0m[34m>[0m[34m,[0m [36m'_name'[0m[34m:[0m [36m'label_model'[0m[34m,[0m [36m'n_out'[0m[34m:[0m [34m<[0m[34mclass[0m [36m'returnn.util.basic.NotSpecified'[0m[34m>[0m[34m,[0m [36m'sources'[0m[34m:[0m [34m[[0m[34m][0m[34m,[0m [36m'_target_layers'[0m[34m:[0m [34m{[0m[36m'label_groun[0m..., len [34m=[0m 13
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mrec.py[0m[36m"[0m, [34mline[0m [35m295[0m, [34min[0m RecLayer.__init__
+    [34mline:[0m y [34m=[0m self[34m.[0m_get_output_subnet_unit[34m([0mself[34m.[0mcell[34m)[0m
+    [34mlocals:[0m
+      y [34;1m=[0m [34m<not found>[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mRecLayer [36m'label_model'[0m out_type[34m=[0mTensor[34m{[0m[34m[[0mT[34m|[0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m,[0mB[34m][0m[34m,[0m dtype[34m=[0m[36m'int32'[0m[34m,[0m sparse_dim[34m=[0mDim[34m{[0mF[36m'[0mlabel_ground_truth_masked:set-sparse-dim'[34m([0m4[34m)[0m[34m}[0m[34m}[0m[34m>[0m
+      self[34;1m.[0m_get_output_subnet_unit [34;1m=[0m [34m<local>[0m [34m<[0mbound method RecLayer[34m.[0m_get_output_subnet_unit of [34m<[0mRecLayer [36m'label_model'[0m out_type[34m=[0mTensor[34m{[0m[34m[[0mT[34m|[0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m,[0mB[34m][0m[34m,[0m dtype[34m=[0m[36m'int32'[0m[34m,[0m sparse_dim[34m=[0mDim[34m{[0mF[36m'[0mlabel_ground_truth_masked:set-sparse-dim'[34m([0m4[34m)[0m[34m}[0m[34m}[0m[34m>[0m[34m>[0m
+      self[34;1m.[0mcell [34;1m=[0m [34m<local>[0m [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mrec.py[0m[36m"[0m, [34mline[0m [35m1274[0m, [34min[0m RecLayer._get_output_subnet_unit
+    [34mline:[0m output [34m=[0m cell[34m.[0mget_output[34m([0m[34m)[0m
+    [34mlocals:[0m
+      output [34;1m=[0m [34m<not found>[0m
+      cell [34;1m=[0m [34m<local>[0m [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m
+      cell[34;1m.[0mget_output [34;1m=[0m [34m<local>[0m [34m<[0mbound method _SubnetworkRecCell[34m.[0mget_output of [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m[34m>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mrec.py[0m[36m"[0m, [34mline[0m [35m3426[0m, [34min[0m _SubnetworkRecCell.get_output
+    [34mline:[0m init_loop_vars [34m=[0m [34m([0mtf[34m.[0mconstant[34m([0m0[34m,[0m name[34m=[0m[36m"initial_i"[0m[34m)[0m[34m,[0m self[34m.[0mget_init_loop_vars[34m([0m[34m)[0m[34m,[0m init_acc_tas[34m)[0m
+    [34mlocals:[0m
+      init_loop_vars [34;1m=[0m [34m<not found>[0m
+      tf [34;1m=[0m [34m<global>[0m [34m<[0mmodule [36m'tensorflow'[0m [34mfrom[0m [36m'/work/asr3/zeyer/schmitt/venvs/returnn_torch/lib/python3.10/site-packages/tensorflow/__init__.py'[0m[34m>[0m
+      tf[34;1m.[0mconstant [34;1m=[0m [34m<global>[0m [34m<[0mfunction constant at 0x7f581272fd90[34m>[0m
+      name [34;1m=[0m [34m<local>[0m [36m'print_segment_lens_layer_out'[0m, len [34m=[0m 28
+      self [34;1m=[0m [34m<local>[0m [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m
+      self[34;1m.[0mget_init_loop_vars [34;1m=[0m [34m<local>[0m [34m<[0mbound method _SubnetworkRecCell[34m.[0mget_init_loop_vars of [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m[34m>[0m
+      init_acc_tas [34;1m=[0m [34m<local>[0m [34m[[0m[34m<[0mtf[34m.[0mTensorArray [36m'output/rec/subnet_base_1/acc_ta_output_lm'[0m[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensorArray [36m'output/rec/subnet_base_1/acc_ta_output_att'[0m[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensorArray [36m'output/rec/subnet_base_1/acc_ta_output_segments'[0m[34m>[0m[34m,[0m [34m<[0mtf[34m.[0mTensorArray [36m'output/rec/subnet_base_1/acc_ta_output___dyn__tag__accum__segments__tag1'[0m[34m>[0m[34m][0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mrec.py[0m[36m"[0m, [34mline[0m [35m2358[0m, [34min[0m _SubnetworkRecCell.get_init_loop_vars
+    [34mline:[0m self[34m.[0m_initial_outputs [34m=[0m [34m{[0m
+              k[34m:[0m self[34m.[0m_get_init_output[34m([0mk[34m)[0m
+              [34mfor[0m k [34min[0m sorted[34m([0mself[34m.[0mprev_layers_needed[34m)[0m
+              [34mif[0m k [34mnot[0m [34min[0m self[34m.[0minput_layers_moved_out [34m+[0m self[34m.[0moutput_layers_moved_out
+          [34m}[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m
+      self[34;1m.[0m_initial_outputs [34;1m=[0m [34m<local>[0m [34mNone[0m
+      k [34;1m=[0m [34m<not found>[0m
+      self[34;1m.[0m_get_init_output [34;1m=[0m [34m<local>[0m [34m<[0mbound method _SubnetworkRecCell[34m.[0m_get_init_output of [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m[34m>[0m
+      sorted [34;1m=[0m [34m<builtin>[0m [34m<[0mbuilt[34m-[0m[34min[0m function sorted[34m>[0m
+      self[34;1m.[0mprev_layers_needed [34;1m=[0m [34m<local>[0m [34m{[0m[36m'segment_starts'[0m[34m,[0m [36m'att'[0m[34m,[0m [36m'segment_lens'[0m[34m,[0m [36m'accum_att_weights_scattered'[0m[34m,[0m [36m'target_embed'[0m[34m,[0m [36m'accum_att_weights'[0m[34m}[0m, len [34m=[0m 6
+      self[34;1m.[0minput_layers_moved_out [34;1m=[0m [34m<local>[0m [34m[[0m[36m'output'[0m[34m,[0m [36m'target_embed0'[0m[34m,[0m [36m'target_embed'[0m[34m][0m, _[34m[[0m0[34m][0m[34m:[0m [34m{[0mlen [34m=[0m 6[34m}[0m
+      self[34;1m.[0moutput_layers_moved_out [34;1m=[0m [34m<local>[0m [34m[[0m[36m'output_prob'[0m[34m,[0m [36m'readout'[0m[34m,[0m [36m'readout_in'[0m[34m,[0m [36m'print_targetb'[0m[34m,[0m [36m'print_segment_lens_layer_out'[0m[34m,[0m [36m'segment_lens_layer_out'[0m[34m][0m, len [34m=[0m 6[34m,[0m _[34m[[0m0[34m][0m[34m:[0m [34m{[0mlen [34m=[0m 11[34m}[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mrec.py[0m[36m"[0m, [34mline[0m [35m2359[0m, [34min[0m <dictcomp>
+    [34mline:[0m k[34m:[0m self[34m.[0m_get_init_output[34m([0mk[34m)[0m
+    [34mlocals:[0m
+      k [34;1m=[0m [34m<local>[0m [36m'accum_att_weights'[0m, len [34m=[0m 17
+      self [34;1m=[0m [34m<local>[0m [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m
+      self[34;1m.[0m_get_init_output [34;1m=[0m [34m<local>[0m [34m<[0mbound method _SubnetworkRecCell[34m.[0m_get_init_output of [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m[34m>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mrec.py[0m[36m"[0m, [34mline[0m [35m2311[0m, [34min[0m _SubnetworkRecCell._get_init_output
+    [34mline:[0m [34mreturn[0m cl[34m.[0mget_rec_initial_output[34m([0m
+              batch_dim[34m=[0mbatch_dim[34m,[0m rec_layer[34m=[0mself[34m.[0mparent_rec_layer[34m,[0m [34m*[0m[34m*[0mself[34m.[0mlayer_data_templates[34m[[0mname[34m][0m[34m.[0mkwargs
+          [34m)[0m
+    [34mlocals:[0m
+      cl [34;1m=[0m [34m<local>[0m [34m<[0m[34mclass[0m [36m'returnn.tf.layers.basic.EvalLayer'[0m[34m>[0m
+      cl[34;1m.[0mget_rec_initial_output [34;1m=[0m [34m<local>[0m [34m<[0mbound method LayerBase[34m.[0mget_rec_initial_output of [34m<[0m[34mclass[0m [36m'returnn.tf.layers.basic.EvalLayer'[0m[34m>[0m[34m>[0m
+      batch_dim [34;1m=[0m [34m<local>[0m [34m<[0mtf[34m.[0mTensor [36m'extern_data/placeholders/batch_dim:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mint32[34m>[0m
+      rec_layer [34;1m=[0m [34m<not found>[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0m_SubnetworkRecCell [36m'/label_model(rec-subnet)'[0m[34m>[0m
+      self[34;1m.[0mparent_rec_layer [34;1m=[0m [34m<local>[0m [34m<[0mRecLayer [36m'label_model'[0m out_type[34m=[0mTensor[34m{[0m[34m[[0mT[34m|[0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m,[0mB[34m][0m[34m,[0m dtype[34m=[0m[36m'int32'[0m[34m,[0m sparse_dim[34m=[0mDim[34m{[0mF[36m'[0mlabel_ground_truth_masked:set-sparse-dim'[34m([0m4[34m)[0m[34m}[0m[34m}[0m[34m>[0m
+      self[34;1m.[0mlayer_data_templates [34;1m=[0m [34m<local>[0m [34m{[0m[36m'output'[0m[34m:[0m [34m<[0m_TemplateLayer[34m([0mChoiceLayer[34m)[0m[34m([0m[34m:[0mtemplate[34m:[0mchoice[34m)[0m label_model[34m/[0m[36m'output'[0m out_type[34m=[0mTensor[34m{[0m[34m[[0mB[34m][0m[34m,[0m dtype[34m=[0m[36m'int32'[0m[34m,[0m sparse_dim[34m=[0mDim[34m{[0mF[36m'[0mlabel_ground_truth_masked:set-sparse-dim'[34m([0m4[34m)[0m[34m}[0m[34m,[0m ctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m [34m([0mconstruction stack [34mNone[0m[34m)[0m[34m>[0m[34m,[0m [36m'data:label_ground_truth'[0m[34m:[0m [34m<[0m_Templa..., len [34m=[0m 36
+      name [34;1m=[0m [34m<local>[0m [36m'accum_att_weights'[0m, len [34m=[0m 17
+      kwargs [34;1m=[0m [34m<not found>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tf/layers/[0m[36;1mbase.py[0m[36m"[0m, [34mline[0m [35m1993[0m, [34min[0m LayerBase.get_rec_initial_output
+    [34mline:[0m shape[34m.[0mappend[34m([0mdim[34m.[0mget_dim_value[34m([0m[34m)[0m[34m)[0m
+    [34mlocals:[0m
+      shape [34;1m=[0m [34m<local>[0m [34m[[0m[34m<[0mtf[34m.[0mTensor [36m'extern_data/placeholders/batch_dim:0'[0m shape[34m=[0m[34m([0m[34m)[0m dtype[34m=[0mint32[34m>[0m[34m][0m
+      shape[34;1m.[0mappend [34;1m=[0m [34m<local>[0m [34m<[0mbuilt[34m-[0m[34min[0m method append of list object at 0x7f57f5c0ab40[34m>[0m
+      dim [34;1m=[0m [34m<local>[0m Dim[34m{[0m[36m'sliced-time:segments'[0m[34m[[0mB[34m][0m[34m{[0mctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m[34m}[0m
+      dim[34;1m.[0mget_dim_value [34;1m=[0m [34m<local>[0m [34m<[0mbound method _DimMixin[34m.[0mget_dim_value of Dim[34m{[0m[36m'sliced-time:segments'[0m[34m[[0mB[34m][0m[34m{[0mctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m[34m}[0m[34m>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tensor/[0m[36;1m_dim_extra.py[0m[36m"[0m, [34mline[0m [35m1656[0m, [34min[0m _DimMixin.get_dim_value
+    [34mline:[0m res [34m=[0m self[34m.[0mget_dim_value_tensor[34m([0m[34m)[0m
+    [34mlocals:[0m
+      res [34;1m=[0m [34m<not found>[0m
+      self [34;1m=[0m [34m<local>[0m Dim[34m{[0m[36m'sliced-time:segments'[0m[34m[[0mB[34m][0m[34m{[0mctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m[34m}[0m
+      self[34;1m.[0mget_dim_value_tensor [34;1m=[0m [34m<local>[0m [34m<[0mbound method _DimMixin[34m.[0mget_dim_value_tensor of Dim[34m{[0m[36m'sliced-time:segments'[0m[34m[[0mB[34m][0m[34m{[0mctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m[34m}[0m[34m>[0m
+  [34;1mFile[0m [36m"/u/schmitt/src/returnn_new/returnn/tensor/[0m[36;1m_dim_extra.py[0m[36m"[0m, [34mline[0m [35m1710[0m, [34min[0m _DimMixin.get_dim_value_tensor
+    [34mline:[0m [34mraise[0m Exception[34m([0m[36m"%s: need placeholder, self.dimension or self.dyn_size for dim value"[0m [34m%[0m self[34m)[0m
+    [34mlocals:[0m
+      Exception [34;1m=[0m [34m<builtin>[0m [34m<[0m[34mclass[0m [36m'Exception'[0m[34m>[0m
+      self [34;1m=[0m [34m<local>[0m Dim[34m{[0m[36m'sliced-time:segments'[0m[34m[[0mB[34m][0m[34m{[0mctx[34m=[0mloop[34m([0m[36m'label_ground_truth_masked0:masked:time'[0m[34m[[0mB[34m][0m[34m)[0m[34m}[0m[34m}[0m
+[31mException[0m: Dim{'sliced-time:segments'[B]{ctx=loop('label_ground_truth_masked0:masked:time'[B])}}: need placeholder, self.dimension or self.dyn_size for dim value

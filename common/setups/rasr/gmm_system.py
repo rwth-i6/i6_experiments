@@ -362,6 +362,7 @@ class GmmSystem(RasrSystem):
             crp.acoustic_model_config.state_tying.file = cart_lda.last_cart_tree
 
         state_tying_job = allophones.DumpStateTyingJob(self.crp[corpus_key])
+        self.jobs[corpus_key][f"state_tying_{name}"] = state_tying_job
         tk.register_output(
             "{}_{}_state_tying".format(corpus_key, name),
             state_tying_job.out_state_tying,
@@ -1407,6 +1408,12 @@ class GmmSystem(RasrSystem):
 
             # ---------- Forced Alignment ----------
             if step_name.startswith("forced_align"):
+                corpus_keys = step_args.pop("corpus_keys", None)
+                assert (
+                    "corpus_keys" not in step_args.keys() or "train_corpus_keys" not in step_args.keys()
+                ), "Please define either corpus_keys or train_corpus_keys, but not both."
+                if corpus_keys:
+                    step_args["train_corpus_keys"] = corpus_keys
                 self.run_forced_align_step(step_args)
 
             # ---------- Only Recognition ----------

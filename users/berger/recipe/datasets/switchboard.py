@@ -37,9 +37,7 @@ def add_lowercase_orths_to_lexicon(lexicon: Lexicon):
         if not lemma.orth or lemma.orth[0].startswith("["):
             base_lemma_list.append(lemma)
             continue
-        key_orth = lemma.orth[
-            0
-        ].lower()  # Lemmas will be merged if their key_orth is equal
+        key_orth = lemma.orth[0].lower()  # Lemmas will be merged if their key_orth is equal
         lowercase_orth = [orth.lower() for orth in lemma.orth]
         lemma.orth = list(set(lemma.orth + lowercase_orth))
         lemma.orth.sort(key=str.swapcase)
@@ -49,9 +47,7 @@ def add_lowercase_orths_to_lexicon(lexicon: Lexicon):
         else:
             lemma_dict[key_orth] = lemma
 
-    lexicon.lemmata = base_lemma_list + [
-        lemma_dict[key] for key in sorted(lemma_dict.keys())
-    ]
+    lexicon.lemmata = base_lemma_list + [lemma_dict[key] for key in sorted(lemma_dict.keys())]
 
 
 class PreprocessSwitchboardLexiconJob(Job):

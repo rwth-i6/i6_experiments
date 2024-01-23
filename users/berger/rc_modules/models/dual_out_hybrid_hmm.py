@@ -41,9 +41,7 @@ class DualOutputHybridModel(hybrid_hmm.IHybridHMM):
         self.enable_combine = enable_combine
 
         self.speech_separator_net_dict = {}
-        out_layer_name, dim_tags = add_speech_separation(
-            self.speech_separator_net_dict, **speech_separator_args
-        )
+        out_layer_name, dim_tags = add_speech_separation(self.speech_separator_net_dict, **speech_separator_args)
         self.speech_separator_net_dict["output"] = {
             "class": "copy",
             "from": out_layer_name,
@@ -52,18 +50,14 @@ class DualOutputHybridModel(hybrid_hmm.IHybridHMM):
         self.features, self.feature_dim = make_features(feature_type, **feature_args)
         self.specaug_args = specaug_args
 
-        self.sep_encoder = make_encoder(
-            encoder_type, in_dim=self.feature_dim, **sep_encoder_args
-        )
+        self.sep_encoder = make_encoder(encoder_type, in_dim=self.feature_dim, **sep_encoder_args)
         if enable_sep:
             sep_dim = self.sep_encoder.out_dim
         else:
             sep_dim = self.feature_dim
         self.sep_projection = nn.Linear(self.sep_encoder.out_dim, out_dim)
 
-        self.mix_encoder = make_encoder(
-            encoder_type, in_dim=self.feature_dim, **mix_encoder_args
-        )
+        self.mix_encoder = make_encoder(encoder_type, in_dim=self.feature_dim, **mix_encoder_args)
         if enable_mix:
             mix_dim = self.mix_encoder.out_dim
         else:
@@ -76,9 +70,7 @@ class DualOutputHybridModel(hybrid_hmm.IHybridHMM):
         else:
             mas_in_dim = sep_dim + mix_dim
 
-        self.mas_encoder = make_encoder(
-            encoder_type, in_dim=mas_in_dim, **mas_encoder_args
-        )
+        self.mas_encoder = make_encoder(encoder_type, in_dim=mas_in_dim, **mas_encoder_args)
         self.mas_projection = nn.Linear(self.mas_encoder.out_dim, out_dim)
 
         self.combine_layer = BlstmSingleLayer(
@@ -153,17 +145,13 @@ class DualOutputHybridModel(hybrid_hmm.IHybridHMM):
             assert spatial_dim in targets.dims_set
             if self.label_smoothing != 0:
                 targets = nn.label_smoothing(targets, self.label_smoothing)
-            ce_loss = nn.sparse_softmax_cross_entropy_with_logits(
-                logits=x, targets=targets, axis=self.out_dim
-            )
+            ce_loss = nn.sparse_softmax_cross_entropy_with_logits(logits=x, targets=targets, axis=self.out_dim)
             ce_loss *= (1.0 - nn.exp(-ce_loss)) ** self.focal_loss_scale
             ce_loss.mark_as_loss("ce")
         return nn.log_softmax(x, axis=self.out_dim), None
 
 
-def construct_net_with_data(
-    epoch: int, train: bool, audio_data: nn.Data, label_data: nn.Data, **kwargs
-) -> HybridModel:
+def construct_net_with_data(epoch: int, train: bool, audio_data: nn.Data, label_data: nn.Data, **kwargs) -> HybridModel:
     label_dim = label_data.feature_dim_or_sparse_dim
     assert label_dim is not None
     net = HybridModel(out_dim=label_dim, **kwargs)

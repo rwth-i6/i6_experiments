@@ -20,13 +20,18 @@ from .. import serialization as base_serialization
 T = TypeVar("T")
 
 
-def get_serializable_config(config: ReturnnConfig, *, hash_full_python_code: bool = False) -> ReturnnConfig:
+def get_serializable_config(
+    config: ReturnnConfig, *, serialize_dim_tags: bool = True, hash_full_python_code: bool = False
+) -> ReturnnConfig:
     """
     Takes the config, goes through the config (e.g. network dict)
     and replaces some non-serializable objects (e.g. dim tags) with serializable ones.
-    (Currently, it is all about dim tags.)
+
+    Currently, it is all about dim tags and functions are wrapped via :class:`CodeFromFunction`.
+    Note that dim tags currently make use of TF-specific imports here!
 
     :param config: the existing config
+    :param serialize_dim_tags: whether to serialize dim tags
     :param hash_full_python_code: if True, the full python code is used for hashing via :class:`CodeFromFunction`,
         otherwise it uses only the module name and function qualname for the hash of functions
     :return: either config itself if no change needed, or otherwise new adapted config
@@ -36,17 +41,18 @@ def get_serializable_config(config: ReturnnConfig, *, hash_full_python_code: boo
     # Collect taken Python variable names (or function names).
     # See if there are already some existing functions in the prolog.
     reserved_names = set()
-    dim_tag_proxy = ReturnnDimTagsProxy(reserved_names=reserved_names)
+    dim_tag_proxy = ReturnnDimTagsProxy(reserved_names=reserved_names) if serialize_dim_tags else None
     proxy = _ProxyHandler(reserved_names=reserved_names)
     if isinstance(config.python_prolog, (list, tuple)):
         for obj in config.python_prolog:
             if isinstance(obj, base_serialization.CodeFromFunction):
                 proxy.register_obj(obj.name, obj.func, serializer_obj=obj)
 
-    # Collect all dim tags.
-    config.config = dim_tag_proxy.collect_dim_tags_and_transform_config(config.config)
-    config.post_config = dim_tag_proxy.collect_dim_tags_and_transform_config(config.post_config)
-    config.staged_network_dict = dim_tag_proxy.collect_dim_tags_and_transform_config(config.staged_network_dict)
+    if serialize_dim_tags:
+        # Collect all dim tags.
+        config.config = dim_tag_proxy.collect_dim_tags_and_transform_config(config.config)
+        config.post_config = dim_tag_proxy.collect_dim_tags_and_transform_config(config.post_config)
+        config.staged_network_dict = dim_tag_proxy.collect_dim_tags_and_transform_config(config.staged_network_dict)
 
     # Collect some other objects (currently only functions).
     proxy.obj_refs_by_name.clear()  # reset such that we only have the new ones in here
@@ -54,7 +60,7 @@ def get_serializable_config(config: ReturnnConfig, *, hash_full_python_code: boo
     config.post_config = proxy.collect_objs_and_transform_config(config.post_config)
     config.staged_network_dict = proxy.collect_objs_and_transform_config(config.staged_network_dict)
 
-    if not dim_tag_proxy.dim_refs_by_name and not proxy.obj_refs_by_name:
+    if (not dim_tag_proxy or not dim_tag_proxy.dim_refs_by_name) and not proxy.obj_refs_by_name:
         # No dim tags or other special objects found, just return as-is.
         return config
 
@@ -70,12 +76,12 @@ def get_serializable_config(config: ReturnnConfig, *, hash_full_python_code: boo
     python_prolog_ext = []
     for code in [
         # Probably we should use base_serialization.NonhashedCode for this here...
-        _ImportPyCodeStr,
+        _ImportPyCodeTfDimTagsStr if serialize_dim_tags else None,
         # Also this should probably be split for each individual dim tag definition,
         # and those wrapped in some own code wrappers,
         # such that we have control over the hash and can make sure it will stay stable,
         # even with code changes.
-        dim_tag_proxy.py_code_str(),
+        dim_tag_proxy.py_code_str() if serialize_dim_tags else None,
     ]:
         if not code:
             continue
@@ -224,7 +230,7 @@ class _ProxyHandler:
 # We copy it here because in the current implementation of get_serializable_config,
 # any change in here will also change the config hash,
 # but in returnn-common, we do not guarantee that this code will not change.
-_ImportPyCodeStr = (
+_ImportPyCodeTfDimTagsStr = (
     "from returnn.tf.util.data import (\n"
     "  Dim, batch_dim, single_step_dim,"
     " SpatialDim, FeatureDim, ImplicitDynSizeDim, ImplicitSparseDim)\n\n"

@@ -1,7 +1,10 @@
-from i6_core import rasr, returnn
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Optional
+
 from sisyphus import tk
+
+from i6_core import rasr, returnn
 from i6_experiments.users.berger.util import ToolPaths
 
 from .returnn import get_native_lstm_op
@@ -15,6 +18,9 @@ class LMData(ABC):
     def get_config(self, tool_paths: ToolPaths) -> rasr.RasrConfig:
         ...
 
+    def get_lookahead_config(self, tool_paths: ToolPaths) -> Optional[rasr.RasrConfig]:
+        return None
+
 
 @dataclass
 class ArpaLMData(LMData):
@@ -24,6 +30,7 @@ class ArpaLMData(LMData):
         config = rasr.RasrConfig()
         config.type = "ARPA"
         config.file = self.filename
+        config.scale = self.scale
 
         return config
 
@@ -32,17 +39,23 @@ class ArpaLMData(LMData):
 class NNLMData(LMData, ABC):
     vocab_file: tk.Path
     model_file: returnn.Checkpoint
-    returnn_config: returnn.ReturnnConfig
+    returnn_config: Optional[returnn.ReturnnConfig] = None
+    graph_file: Optional[tk.Path] = None
     unknown_word: str = "<UNK>"
+    lookahead_lm: Optional[LMData] = None
 
-    def get_config(self, tool_paths: ToolPaths) -> rasr.RasrConfig:
-        compiled_graph = returnn.CompileTFGraphJob(
+    def _get_graph(self, tool_paths: ToolPaths) -> tk.Path:
+        if self.graph_file is not None:
+            return self.graph_file
+        assert self.returnn_config is not None, "Must specify either a graph .meta file or a returnn config"
+        return returnn.CompileTFGraphJob(
             self.returnn_config,
             returnn_python_exe=tool_paths.returnn_python_exe,
             returnn_root=tool_paths.returnn_root,
             blas_lib=tool_paths.blas_lib,
         ).out_graph
 
+    def get_config(self, tool_paths: ToolPaths) -> rasr.RasrConfig:
         config = rasr.RasrConfig()
         config.scale = self.scale
         config.vocab_file = self.vocab_file
@@ -50,7 +63,7 @@ class NNLMData(LMData, ABC):
         config.vocab_unknown_word = self.unknown_word
 
         config.loader.type = "meta"
-        config.loader.meta_graph_file = compiled_graph
+        config.loader.meta_graph_file = self._get_graph(tool_paths=tool_paths)
         config.loader.saved_model_file = self.model_file
         config.loader.required_libraries = get_native_lstm_op(tool_paths)
 
@@ -62,6 +75,11 @@ class NNLMData(LMData, ABC):
         config.output_map.info_0.tensor_name = "output/output_batch_major"
 
         return config
+
+    def get_lookahead_config(self, tool_paths: ToolPaths) -> Optional[rasr.RasrConfig]:
+        if self.lookahead_lm is None:
+            return None
+        return self.lookahead_lm.get_config(tool_paths)
 
 
 @dataclass

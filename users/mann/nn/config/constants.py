@@ -36,6 +36,12 @@ BASE_LSTM_CONFIG = {
     "layers": 6 * [512],
 }
 
+BASE_FFNN_LAYERS = {
+    "layers": 6 * [2048],
+    "feature_window": 15,
+    "activation": "relu",
+}
+
 BASE_VITERBI_LRS = {
     "lr": 0.0008,
     "learning_rates": [ 

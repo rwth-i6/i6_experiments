@@ -13,6 +13,7 @@ from returnn.tf.layers.basic import LayerBase
 
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 from i6_experiments.users.zeineldeen.modules.abs_module import AbsModule
+from i6_experiments.users.zeineldeen.modules.attention import AdditiveLocAwareness
 
 
 class AttentionMechanism(AbsModule):
@@ -28,6 +29,7 @@ class AttentionMechanism(AbsModule):
         l2,
         loc_filter_size,
         loc_num_channels,
+        use_weight_feedback,
     ):
         super().__init__()
         self.enc_key_dim = enc_key_dim
@@ -43,6 +45,8 @@ class AttentionMechanism(AbsModule):
         self.select_base_enc: Optional[Callable[[str], str]] = None
         self.enc_time_dim = None
 
+        self.use_weight_feedback = use_weight_feedback
+
     def create(self):
         out_net = ReturnnNetwork()
 
@@ -50,12 +54,20 @@ class AttentionMechanism(AbsModule):
             "s_transformed", "s", n_out=self.enc_key_dim, with_bias=False, l2=self.l2
         )  # project query
 
+        if self.use_weight_feedback:
+            weight_feedback = AdditiveLocAwareness(
+                enc_key_dim=self.enc_key_dim, att_num_heads=self.att_num_heads.dimension
+            )
+            out_net.update(weight_feedback.create())  # add weight feedback to network
+        else:
+            weight_feedback = None
+
         enc_ctx = "base:enc_ctx"
         if self.select_base_enc:
             enc_ctx = self.select_base_enc(enc_ctx)
         out_net.add_combine_layer(
             "energy_in",
-            [enc_ctx, "s_transformed"],
+            [enc_ctx, "s_transformed"] if not weight_feedback else [enc_ctx, weight_feedback.name, "s_transformed"],
             kind="add",
             n_out=self.enc_key_dim,
         )
@@ -151,6 +163,7 @@ class RNNDecoder:
         masked_computation_blank_idx: Optional[int] = None,
         full_sum_simple_approx: bool = False,
         prev_target_embed_direct: bool = False,
+        use_zoneout_output: bool = False,
     ):
         """
         :param base_model: base/encoder model instance
@@ -261,6 +274,8 @@ class RNNDecoder:
         if full_sum_simple_approx:
             assert enc_chunks_dim is not None, "full_sum_simple_approx requires enc_chunks_dim"
         self.prev_target_embed_direct = prev_target_embed_direct
+
+        self.use_zoneout_output = use_zoneout_output
 
     def add_decoder_subnetwork(
         self,
@@ -428,7 +443,16 @@ class RNNDecoder:
             l2=self.l2,
             loc_filter_size=self.loc_conv_att_filter_size,
             loc_num_channels=self.loc_conv_att_num_channels,
+            use_weight_feedback=not self.enc_chunks_dim,  # TODO: allow when chunked
         )
+        if self.masked_computation_blank_idx is not None:
+            subnet_unit["prev_att_masked"] = {
+                "class": "masked_computation",
+                "mask": "prev:masked_comp_mask",
+                "unit": {"class": "copy", "from": "data"},
+                "from": "prev:att",
+            }
+
         if self.enc_chunks_dim:
             att.enc_time_dim = self.enc_time_dim
             if self.full_sum_simple_approx:
@@ -482,7 +506,11 @@ class RNNDecoder:
             lstm_inputs += [lstm_lm_component_proj]
         else:
             lstm_inputs += [prev_target_embed]
-        lstm_inputs += ["prev:att"]
+
+        if self.masked_computation_blank_idx is not None:
+            lstm_inputs += ["prev_att_masked"]
+        else:
+            lstm_inputs += ["prev:att"]
 
         if self.add_lstm_lm:
             # element-wise addition is applied instead of concat
@@ -493,6 +521,9 @@ class RNNDecoder:
         # LSTM decoder (or decoder state)
         if self.dec_zoneout and not self.full_sum_simple_approx:
             # It's bad to use rnn_cell here... Just annoying to keep this just to preserve hash...
+            zoneout_unit_opts = {"zoneout_factor_cell": 0.15, "zoneout_factor_output": 0.05}
+            if self.use_zoneout_output:
+                zoneout_unit_opts["use_zoneout_output"] = True
             subnet_unit.add_rnn_cell_layer(
                 "s",
                 lstm_inputs,
@@ -500,7 +531,7 @@ class RNNDecoder:
                 l2=self.l2,
                 weights_init=self.lstm_weights_init,
                 unit="zoneoutlstm",
-                unit_opts={"zoneout_factor_cell": 0.15, "zoneout_factor_output": 0.05},
+                unit_opts=zoneout_unit_opts,
             )
         else:
             subnet_unit.add_rec_layer(
@@ -561,27 +592,40 @@ class RNNDecoder:
                     loss_opts={"label_smoothing": self.label_smoothing},
                 )
             )
-        self.output_prob = subnet_unit.add_softmax_layer(
-            "output_prob",
-            "readout",
-            l2=self.l2,
-            target=f"layer:base:data:{target}"
-            if (search_type == "end-of-chunk" or self.full_sum_simple_approx)
-            else target,
-            dropout=self.softmax_dropout,
-            **out_prob_opts,
-        )
+
+        if self.full_sum_simple_approx:
+            # we only need the logits for full_sum training
+            self.output_logits = subnet_unit.add_linear_layer(
+                "output_logits",
+                "readout",
+                l2=self.l2,
+                target=f"layer:base:data:{target}",
+                dropout=self.softmax_dropout,
+                name_scope="output_prob",  # for ckpt loading
+            )
+            # used for recognition
+            self.output_prob = subnet_unit.add_activation_layer(
+                "output_prob",
+                "output_logits",
+                activation="softmax",
+            )
+        else:
+            self.output_prob = subnet_unit.add_softmax_layer(
+                "output_prob",
+                "readout",
+                l2=self.l2,
+                target=f"layer:base:data:{target}"
+                if (search_type == "end-of-chunk" or self.full_sum_simple_approx)
+                else target,
+                dropout=self.softmax_dropout,
+                **out_prob_opts,
+            )
 
         if self.full_sum_simple_approx:
             assert self.enc_chunks_dim
-            subnet_unit["output_log_prob"] = {
-                "class": "activation",
-                "from": "output_prob",
-                "activation": "safe_log",
-            }
             subnet_unit["full_sum_simple_approx_loss"] = {
                 "class": "eval",
-                "from": ["output_log_prob", f"base:data:{target}"],
+                "from": ["output_logits", f"base:data:{target}"],
                 # Pickling/serialization of the func ref should work when this is a global function of this module.
                 # But depending on your setup, there might anyway not be any serialization.
                 "eval": _rnnt_full_sum_log_prob_eval_layer_func,
@@ -763,13 +807,25 @@ class RNNDecoder:
                 ),
             )
 
-        self.base_model.network.add_linear_layer(
-            "inv_fertility",
-            "encoder",
-            activation="sigmoid",
-            n_out=self.att_num_heads,
-            with_bias=False,
-        )
+        if not self.enc_chunks_dim:  # use weight feedback
+            # there was a bug where n_out should be dimension and not the tag
+            # this does not override the layer to not break hashes of old exps without weight feedback. super annoying
+            self.base_model.network.add_linear_layer(
+                "inv_fertility",
+                "encoder",
+                activation="sigmoid",
+                n_out=self.att_num_heads.dimension,
+                with_bias=False,
+            )
+        else:
+            # this layer is not used anw and kept just to not break hashes
+            self.base_model.network.add_linear_layer(
+                "inv_fertility",
+                "encoder",
+                activation="sigmoid",
+                n_out=self.att_num_heads,  # Note: this is a bug
+                with_bias=False,
+            )
 
         self.base_model.network["out_best"] = {
             "class": "decide",
@@ -802,7 +858,6 @@ class RNNDecoder:
 
         # Filter blank / EOS / EOC
         if not self.full_sum_simple_approx:
-
             self.base_model.network["out_best_non_blank_mask"] = {
                 "class": "compare",
                 "from": "out_best",
@@ -888,35 +943,35 @@ def _rnnt_full_sum_log_prob_eval_layer_func(
     from returnn.extern.HawkAaronWarpTransducer import rnnt_loss
 
     assert isinstance(self, LayerBase)
-    log_probs = source(0, auto_convert=False, as_data=True)
+    logits = source(0, auto_convert=False, as_data=True)
     labels = source(1, auto_convert=False, as_data=True)
-    assert isinstance(log_probs, Data) and isinstance(labels, Data)
+    assert isinstance(logits, Data) and isinstance(labels, Data)
     assert labels.batch_ndim == 2 and labels.have_batch_axis() and labels.have_time_axis()
     labels_spatial_dim = labels.get_time_dim_tag()
     prev_labels_spatial_dim = 1 + labels_spatial_dim
     batch_dims = list(self.output.dim_tags)
-    feat_dim = log_probs.feature_dim_or_sparse_dim
+    feat_dim = logits.feature_dim_or_sparse_dim
     if blank_index < 0:
         blank_index += feat_dim.dimension
     assert 0 <= blank_index < feat_dim.dimension
     assert labels.sparse_dim.dimension <= feat_dim.dimension
     # Move axes into the right order (no-op if they already are).
-    log_probs = log_probs.copy_compatible_to(
-        Data("log_probs", dim_tags=batch_dims + [input_spatial_dim, prev_labels_spatial_dim, feat_dim]),
+    logits = logits.copy_compatible_to(
+        Data("logits", dim_tags=batch_dims + [input_spatial_dim, prev_labels_spatial_dim, feat_dim]),
         check_dtype=False,
     )
     labels = labels.copy_compatible_to(
         Data("labels", dim_tags=batch_dims + [labels_spatial_dim], sparse_dim=labels.sparse_dim), check_dtype=False
     )
     input_lengths = input_spatial_dim.get_dyn_size_ext_for_batch_ctx(
-        log_probs.batch, log_probs.control_flow_ctx
+        logits.batch, logits.control_flow_ctx
     ).copy_compatible_to(Data("input_lengths", dim_tags=batch_dims), check_dtype=False)
     label_lengths = labels_spatial_dim.get_dyn_size_ext_for_batch_ctx(
-        log_probs.batch, log_probs.control_flow_ctx
+        logits.batch, logits.control_flow_ctx
     ).copy_compatible_to(Data("label_lengths", dim_tags=batch_dims), check_dtype=False)
 
     return rnnt_loss(
-        acts=log_probs.placeholder,
+        acts=logits.placeholder,
         labels=labels.placeholder,
         input_lengths=input_lengths.placeholder,
         label_lengths=label_lengths.placeholder,

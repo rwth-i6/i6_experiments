@@ -1,6 +1,7 @@
 """
 RETURNN network dict creation helper
 """
+from typing import Optional, List, Union, Tuple, Any
 
 
 class ReturnnNetwork:
@@ -43,6 +44,7 @@ class ReturnnNetwork:
         forward_weights_init=None,
         strides=None,
         param_variational_noise=None,
+        param_dropout=None,
         **kwargs,
     ):
         d = {
@@ -62,6 +64,8 @@ class ReturnnNetwork:
             d["forward_weights_init"] = forward_weights_init
         if param_variational_noise:
             d["param_variational_noise"] = param_variational_noise
+        if param_dropout:
+            d["param_dropout"] = param_dropout
         d.update(kwargs)
         self._net[name] = d
         return name
@@ -70,21 +74,28 @@ class ReturnnNetwork:
         self,
         name,
         source,
-        n_out,
+        n_out=None,
         activation=None,
         with_bias=True,
         dropout=0.0,
         l2=0.0,
         forward_weights_init=None,
+        param_dropout=None,
         **kwargs,
     ):
-        d = {"class": "linear", "activation": activation, "with_bias": with_bias, "from": source, "n_out": n_out}
+        d = {"class": "linear", "activation": activation, "with_bias": with_bias, "from": source}
+        if n_out:
+            d["n_out"] = n_out
+        else:
+            assert "target" in kwargs, "target must be specified to define output dimension"
         if dropout:
             d["dropout"] = dropout
         if l2:
             d["L2"] = l2
         if forward_weights_init:
             d["forward_weights_init"] = forward_weights_init
+        if param_dropout:
+            d["param_dropout"] = param_dropout
         d.update(kwargs)
         self._net[name] = d
         return name
@@ -146,8 +157,10 @@ class ReturnnNetwork:
         self._net[name] = {"class": "cast", "from": source, "dtype": dtype}
         return name
 
-    def add_combine_layer(self, name, source, kind, n_out, **kwargs):
-        self._net[name] = {"class": "combine", "kind": kind, "from": source, "n_out": n_out}
+    def add_combine_layer(self, name, source, kind, n_out=None, **kwargs):
+        self._net[name] = {"class": "combine", "kind": kind, "from": source}
+        if n_out is not None:
+            self._net[name]["n_out"] = n_out
         self._net[name].update(kwargs)
         return name
 
@@ -228,7 +241,7 @@ class ReturnnNetwork:
         self._net[name].update(kwargs)
         return name
 
-    def add_subnet_rec_layer(self, name, unit, target, source=None, **kwargs):
+    def add_subnet_rec_layer(self, name, unit, target, source=None, include_eos=False, **kwargs):
         if source is None:
             source = []
         self._net[name] = {
@@ -238,6 +251,8 @@ class ReturnnNetwork:
             "target": target,
             "max_seq_len": "max_len_from('base:encoder')",
         }
+        if include_eos:
+            self._net[name]["include_eos"] = include_eos
         self._net[name].update(kwargs)
         return name
 
@@ -278,6 +293,7 @@ class ReturnnNetwork:
         l2=0.0,
         attention_left_only=False,
         param_variational_noise=None,
+        param_dropout=None,
         **kwargs,
     ):
         d = {
@@ -371,6 +387,14 @@ class ReturnnNetwork:
 
     def add_window_layer(self, name, source, window_size, **kwargs):
         self._net[name] = {"class": "window", "from": source, "window_size": window_size, **kwargs}
+        return name
+
+    def add_range_layer(self, name, limit, **kwargs):
+        self._net[name] = {"class": "range", "limit": limit, **kwargs}
+        return name
+
+    def add_range_in_axis_layer(self, name, source, axis, **kwargs):
+        self._net[name] = {"class": "range_in_axis", "from": source, "axis": axis, **kwargs}
         return name
 
     def add_conv_block(
@@ -486,7 +510,6 @@ class ReturnnNetwork:
         pool_idx = 0
 
         for layer in range(num_layers):
-
             # Forward LSTM
             lstm_fw_name = self.add_rec_layer(
                 name="lstm%i_fw" % layer,
@@ -548,11 +571,30 @@ class ReturnnNetwork:
         self._net[name].update(kwargs)
         return name
 
+    def add_generic_layer(
+        self, name: str, *, cls: str, source: Optional[Union[str, List[str], List[Tuple[str, Any]]]], **kwargs
+    ):
+        """
+        :param name: layer name
+        :param source: layer source
+        :param cls: layer class
+        :param kwargs: layer kwargs
+        :return: layer name
+        """
+        self._net[name] = {"class": cls}
+        if source:
+            self._net[name]["from"] = source
+        self._net[name].update(kwargs)
+        return name
+
     def __setitem__(self, key, value):
         self._net[key] = value
 
     def __getitem__(self, item):
         return self._net[item]
+
+    def __contains__(self, item):
+        return item in self._net
 
     def update(self, d: dict):
         self._net.update(d)

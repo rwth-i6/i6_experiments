@@ -35,9 +35,7 @@ class CreateBPELexiconJob(Job):
         self.base_lexicon_path = base_lexicon_path
         self.bpe_codes = bpe_codes
         self.bpe_vocab = bpe_vocab
-        self.subword_nmt_repo = (
-            subword_nmt_repo if subword_nmt_repo is not None else gs.SUBWORD_NMT_PATH
-        )
+        self.subword_nmt_repo = subword_nmt_repo if subword_nmt_repo is not None else gs.SUBWORD_NMT_PATH
         self.unk_label = unk_label
 
         self.out_lexicon = self.output_path("lexicon.xml.gz", cached=True)
@@ -67,9 +65,7 @@ class CreateBPELexiconJob(Job):
             for t in lm_tokens:
                 f.write(f"{t}\n")
 
-        apply_binary = os.path.join(
-            tk.uncached_path(self.subword_nmt_repo), "apply_bpe.py"
-        )
+        apply_binary = os.path.join(tk.uncached_path(self.subword_nmt_repo), "apply_bpe.py")
         args = [
             sys.executable,
             apply_binary,
@@ -101,9 +97,7 @@ class CreateBPELexiconJob(Job):
                     lexicon.add_phoneme(symbol.replace(".", "_"))
         lexicon.add_phoneme("[SILENCE]", variation="none")
 
-        lexicon.add_lemma(
-            Lemma(["[SILENCE]"], ["[SILENCE]"], [], [[]], special="silence")
-        )
+        lexicon.add_lemma(Lemma(["[SILENCE]"], ["[SILENCE]"], [], [[]], special="silence"))
         lexicon.add_lemma(
             Lemma(
                 ["[SENTENCE-END]"],
@@ -113,14 +107,10 @@ class CreateBPELexiconJob(Job):
                 special="sentence-boundary",
             )
         )
-        lexicon.add_lemma(
-            Lemma(["[UNKNOWN]"], [self.unk_label], None, None, special="unknown")
-        )
+        lexicon.add_lemma(Lemma(["[UNKNOWN]"], [self.unk_label], None, None, special="unknown"))
 
         for w, b in w2b.items():
-            b = " ".join(
-                [token if token in vocab else self.unk_label for token in b.split()]
-            )
+            b = " ".join([token if token in vocab else self.unk_label for token in b.split()])
             lexicon.add_lemma(Lemma([w], [b.replace(".", "_")]))
 
         elem = lexicon.to_xml()

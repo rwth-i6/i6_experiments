@@ -26,17 +26,17 @@ class LegacyAlignmentFunctor(
         epochs: List[types.EpochType] = [],
         prior_scales: List[float] = [0],
         prior_args: Dict = {},
+        feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
         flow_args: Dict = {},
+        register_output: bool = False,
         **kwargs,
     ) -> None:
         crp = copy.deepcopy(align_corpus.corpus_info.crp)
 
-        acoustic_mixture_path = mm.CreateDummyMixturesJob(
-            num_classes, num_inputs
-        ).out_mixtures
+        acoustic_mixture_path = mm.CreateDummyMixturesJob(num_classes, num_inputs).out_mixtures
 
         base_feature_flow = self._make_base_feature_flow(
-            align_corpus.corpus_info, **flow_args
+            align_corpus.corpus_info, feature_type=feature_type, **flow_args
         )
 
         for prior_scale, epoch in itertools.product(prior_scales, epochs):
@@ -72,15 +72,14 @@ class LegacyAlignmentFunctor(
                 **kwargs,
             )
 
-            exp_full = (
-                f"align_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
-            )
+            exp_full = f"align_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
             path = f"nn_recog/{align_corpus.name}/{train_job.name}/{exp_full}"
 
             align.set_vis_name(f"Alignment {path}")
             align.add_alias(path)
 
-            tk.register_output(
-                f"{path}.alignment.cache.bundle",
-                align.out_alignment_bundle,
-            )
+            if register_output:
+                tk.register_output(
+                    f"{path}.alignment.cache.bundle",
+                    align.out_alignment_bundle,
+                )

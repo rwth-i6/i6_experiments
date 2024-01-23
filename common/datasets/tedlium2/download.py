@@ -36,6 +36,10 @@ def download_data_dict(output_prefix: str = "datasets") -> TedLium2Data:
     bliss_corpus_tedlium2_job = CreateTEDLIUM2BlissCorpusJob(download_tedlium2_job.out_corpus_folders)
     bliss_corpus_tedlium2_job.add_alias(os.path.join(output_prefix, "create_bliss", "bliss_corpus_job"))
 
+    bliss_unnormalized_job = CreateTEDLIUM2BlissCorpusJob(download_tedlium2_job.out_corpus_folders, normalize_stms=False)
+    bliss_corpus_tedlium2_job.add_alias(os.path.join(output_prefix, "create_bliss", "bliss_corpus_job_unnorm"))
+    tk.register_output("test/unnorm_dev", bliss_unnormalized_job.out_stm_files["dev"])
+
     tl2_data = TedLium2Data(
         data_dir=download_tedlium2_job.out_corpus_folders,
         lm_dir=download_tedlium2_job.out_lm_folder,

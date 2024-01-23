@@ -1,8 +1,10 @@
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, Union, List
+from i6_core.meta.system import CorpusObject
 
+import i6_core.rasr as rasr
+from i6_core import am, corpus, meta, rasr
 from i6_experiments.users.berger.util import ToolPaths
-from i6_core import corpus, rasr, am, meta
 from sisyphus import tk
 
 from .rasr_lm_config import LMData
@@ -17,8 +19,49 @@ class LexiconConfig:
 
 
 @dataclass
+class SeparatedCorpusObject:
+    primary_corpus_file: tk.Path
+    secondary_corpus_file: tk.Path
+    mix_corpus_file: tk.Path
+    audio_dir: Optional[tk.Path] = None
+    audio_format: Optional[str] = None
+    duration: Optional[float] = None
+
+    @property
+    def corpus_file(self) -> tk.Path:
+        return self.primary_corpus_file
+
+    def _get_corpus_object(self, corpus_file: tk.Path) -> CorpusObject:
+        c = CorpusObject()
+        c.corpus_file = corpus_file
+        c.audio_dir = self.audio_dir
+        c.audio_format = self.audio_format
+        c.duration = self.duration
+
+        return c
+
+    def get_primary_corpus_object(self) -> CorpusObject:
+        return self._get_corpus_object(self.primary_corpus_file)
+
+    def get_secondary_corpus_object(self) -> CorpusObject:
+        return self._get_corpus_object(self.secondary_corpus_file)
+
+    def get_mix_corpus_object(self) -> CorpusObject:
+        return self._get_corpus_object(self.mix_corpus_file)
+
+
+@dataclass
+class SeparatedCorpusHDFFiles:
+    primary_features_files: List[tk.Path]
+    secondary_features_files: List[tk.Path]
+    mix_features_files: List[tk.Path]
+    alignments_file: tk.Path
+    segments: tk.Path
+
+
+@dataclass
 class RasrDataInput:
-    corpus_object: meta.CorpusObject
+    corpus_object: Union[meta.CorpusObject, SeparatedCorpusObject]
     lexicon: LexiconConfig
     lm: Optional[LMData] = None
     concurrent: int = 10
@@ -41,7 +84,10 @@ def get_crp_for_data_input(
     ).out_segment_path
 
     if data.lm is not None:
-        crp.language_model_config = data.lm.get_config(tool_paths)
+        crp.language_model_config = data.lm.get_config(tool_paths)  # type: ignore
+        lookahead_config = data.lm.get_lookahead_config(tool_paths)
+        if lookahead_config is not None:
+            crp.lookahead_language_model_config = lookahead_config  # type: ignore
 
     crp.lexicon_config = rasr.RasrConfig()  # type: ignore
     crp.lexicon_config.file = data.lexicon.filename

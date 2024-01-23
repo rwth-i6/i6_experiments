@@ -26,6 +26,14 @@ from .specaug_sorted import (
     specaug_layer_sorted,
     get_funcs_sorted,
 )
+from .specaug_time import ( 
+    specaug_layer_only_time,
+    get_funcs_only_time,
+)
+from .specaug_random import (
+    specaug_layer_random,
+    get_funcs_random,   
+)
 
 RECUSRION_LIMIT = """
 import sys
@@ -102,7 +110,7 @@ def get_nn_args_single(
     num_outputs: int = 9001, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None,
     peak_lr=1e-3, feature_args=None, returnn_args=None,
 ):
-    feature_args = feature_args or {"class": "GammatoneNetwork", "sample_rate": 8000}
+    feature_args = copy.deepcopy(feature_args) or {"class": "GammatoneNetwork", "sample_rate": 8000}
     preemphasis = feature_args.pop("preemphasis", None)
     wave_norm = feature_args.pop("wave_norm", False)
     feature_network_class = {
@@ -119,7 +127,8 @@ def get_nn_args_single(
     if wave_norm:
         for layer in feature_net["subnetwork"]:
             if feature_net["subnetwork"][layer].get("from", "data") == "data":
-                feature_net["subnetwork"][layer]["from"] = "wave_norm"
+                if feature_net["subnetwork"][layer].get("class", None) != "variable":
+                    feature_net["subnetwork"][layer]["from"] = "wave_norm"
         feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": "data"}
 
     returnn_config = get_returnn_config(
@@ -174,7 +183,12 @@ def get_returnn_config(
     recognition: bool = False,
     extra_args: Optional[Dict[str, Any]] = None,
     staged_opts: Optional[Dict[int, Any]] = None,
+    enable_specaug: bool = True,
     specaug_mask_sorting: bool = False,
+    specaug_after_first_layer: bool = False,
+    specaug_time_only: bool = False,
+    specaug_shuffled: bool = False,
+    mask_divisor: int = None,
 ):
     base_config = {
         "extern_data": {
@@ -199,26 +213,58 @@ def get_returnn_config(
 
     from .network_helpers.reduced_dim import network
     network = copy.deepcopy(network)
-    network["features"] = feature_net
+    network["features"] = copy.deepcopy(feature_net)
+    prolog = None
     if recognition:
         for layer in list(network.keys()):
             if "aux" in layer:
                 network.pop(layer)
         network["source"] = {"class": "copy", "from": "features"}
-    else:
+    elif enable_specaug:
         if specaug_mask_sorting:
-            network["features"]["subnetwork"]["specaug"] = specaug_layer_sorted(in_layer=["conv_h_act"])
+            assert not specaug_shuffled, "shuffling cannot be combined with sorting!"
+            assert specaug_after_first_layer, "Sorted specaug is only possible after the first layer!"
+            network["features"]["subnetwork"]["specaug"] = specaug_layer_sorted(in_layer=["conv_h_act"], mask_divisor=mask_divisor)
             network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
             network["source"] = {"class": "copy", "from": "features"}
+            prolog = get_funcs_sorted()
         else:
-            network["source"] = specaug_layer_jingjing(in_layer=["features"])
+            if specaug_after_first_layer:
+                assert not specaug_shuffled, "shuffling can only be done on the second layer"
+                if specaug_time_only:
+                    network["features"]["subnetwork"]["specaug"] = specaug_layer_only_time(in_layer=["conv_h_act"])
+                    network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
+                    network["source"] = {"class": "copy", "from": "features"}
+                    prolog = get_funcs_only_time()
+                else:
+                    network["features"]["subnetwork"]["specaug"] = specaug_layer_jingjing(in_layer=["conv_h_act"])
+                    network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
+                    network["source"] = {"class": "copy", "from": "features"}
+                    prolog = get_funcs_jingjing()
+            else:
+                if specaug_time_only:
+                    network["source"] = specaug_layer_only_time(in_layer=["features"])
+                    prolog = get_funcs_only_time()
+                else:
+                    if specaug_shuffled:
+                        network["source"] = specaug_layer_random(in_layer=["features"])
+                        prolog = get_funcs_random()
+                    else:
+                        network["source"] = specaug_layer_jingjing(in_layer=["features"])
+                        prolog = get_funcs_jingjing()
 
         network = fix_network_for_sparse_output(network)
-
-    if specaug_mask_sorting:
-        prolog = get_funcs_sorted()
     else:
-        prolog = get_funcs_jingjing()
+        assert (
+            not specaug_mask_sorting and 
+            not specaug_after_first_layer and 
+            not specaug_time_only and 
+            not specaug_shuffled
+        ), "specaug options are specified, but enable_specaug=False"
+
+        network["source"] = {"class": "copy", "from": "features"}
+        network = fix_network_for_sparse_output(network)
+
     conformer_base_config = copy.deepcopy(base_config)
     conformer_base_config.update(
         {

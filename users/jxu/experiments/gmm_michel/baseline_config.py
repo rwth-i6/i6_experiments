@@ -10,7 +10,7 @@ from . import baseline_args_v5
 from . import baseline_args_v6
 from .data import get_corpus_data_inputs
 
-from ..hybrid.switchboard.default_tools import RASR_BINARY_PATH
+from recipe.i6_experiments.users.jxu.experiments.hybrid.switchboard.default_tools import RASR_BINARY_PATH
 
 
 @tk.block(name="SWDB_LDC_v5")

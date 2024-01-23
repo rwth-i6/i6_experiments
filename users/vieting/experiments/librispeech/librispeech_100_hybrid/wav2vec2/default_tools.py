@@ -27,3 +27,6 @@ RETURNN_RC_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_RC_ROOT"
 
 RETURNN_COMMON = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn_common", commit="e3083fac1899bb764710ca46ff9257247e4e6b14", checkout_folder_name="returnn_common").out_repository
 RETURNN_COMMON.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_COMMON"
+
+FAIRSEQ = CloneGitRepositoryJob("https://github.com/facebookresearch/fairseq", commit="176cd934982212a4f75e0669ee81b834ee71dbb0", checkout_folder_name="fairseq").out_repository
+FAIRSEQ.hash_overwrite = "LIBRISPEECH_DEFAULT_FAIRSEQ"

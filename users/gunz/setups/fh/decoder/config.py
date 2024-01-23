@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import typing
 
 from sisyphus import tk
+from sisyphus.delayed_ops import DelayedBase
 
 from ...common.tdp import Float, TDP
 from ..factored import PhoneticContext
@@ -125,10 +126,13 @@ def default_posterior_scales() -> PosteriorScales:
     }
 
 
+Int = typing.Union[int, tk.Variable, DelayedBase]
+
+
 @dataclass(eq=True, frozen=True)
 class SearchParameters:
     beam: Float
-    beam_limit: int
+    beam_limit: Int
     lm_scale: Float
     non_word_phonemes: str
     prior_info: PriorInfo
@@ -138,14 +142,24 @@ class SearchParameters:
     tdp_speech: typing.Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     tdp_non_word: typing.Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     we_pruning: Float
-    we_pruning_limit: int
+    we_pruning_limit: Int
 
     add_all_allophones: bool = True
     altas: typing.Optional[float] = None
+    lm_lookahead_scale: typing.Optional[float] = None
     posterior_scales: typing.Optional[PosteriorScales] = None
     silence_penalties: typing.Optional[typing.Tuple[Float, Float]] = None  # loop, fwd
     state_dependent_tdps: typing.Optional[typing.Union[str, tk.Path]] = None
     transition_scales: typing.Optional[typing.Tuple[Float, Float]] = None  # loop, fwd
+
+    def with_altas(self, altas: Float) -> "SearchParameters":
+        return dataclasses.replace(self, altas=altas)
+
+    def with_beam_limit(self, beam_limit: Int) -> "SearchParameters":
+        return dataclasses.replace(self, beam_limit=beam_limit)
+
+    def with_beam_size(self, beam: Float) -> "SearchParameters":
+        return dataclasses.replace(self, beam=beam)
 
     def with_lm_scale(self, scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, lm_scale=scale)
@@ -157,6 +171,27 @@ class SearchParameters:
         right: typing.Optional[Float] = None,
     ) -> "SearchParameters":
         return dataclasses.replace(self, prior_info=self.prior_info.with_scale(center=center, left=left, right=right))
+
+    def with_prior_files(self, other: "SearchParameters"):
+        return dataclasses.replace(
+            self,
+            prior_info=dataclasses.replace(
+                self.prior_info,
+                center_state_prior=dataclasses.replace(
+                    self.prior_info.center_state_prior, file=other.prior_info.center_state_prior.file
+                ),
+                left_context_prior=dataclasses.replace(
+                    self.prior_info.left_context_prior, file=other.prior_info.left_context_prior.file
+                )
+                if self.prior_info.left_context_prior is not None
+                else None,
+                right_context_prior=dataclasses.replace(
+                    self.prior_info.right_context_prior, file=other.prior_info.right_context_prior.file
+                )
+                if self.prior_info.right_context_prior is not None
+                else None,
+            ),
+        )
 
     def with_pron_scale(self, pron_scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, pron_scale=pron_scale)

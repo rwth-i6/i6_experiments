@@ -36,33 +36,23 @@ def make_blstm_fullsum_ctc_dual_output_model(
     use_mix = bool(from_mix)
 
     # Specaug
-    from_0 = add_specaug_layer(
-        network, name="specaug_0", from_list=from_0, **specaug_01_args
-    )
-    from_1 = add_specaug_layer(
-        network, name="specaug_1", from_list=from_1, **specaug_01_args
-    )
+    from_0 = add_specaug_layer(network, name="specaug_0", from_list=from_0, **specaug_01_args)
+    from_1 = add_specaug_layer(network, name="specaug_1", from_list=from_1, **specaug_01_args)
     if use_mix:
         specaug_mix_args = specaug_mix_args or specaug_01_args
-        from_mix = add_specaug_layer(
-            network, name="specaug_mix", from_list=from_mix, **specaug_mix_args
-        )
+        from_mix = add_specaug_layer(network, name="specaug_mix", from_list=from_mix, **specaug_mix_args)
 
     # Encoders of separated audio
 
     # Assert that pooling is compatible, i.e. time axes have the same length
     if use_mix:
         if blstm_01_args.get("num_layers", 1) > 0:
-            total_01_pool = reduce(
-                lambda x, y: x * y, blstm_01_args.get("max_pool", []), 1
-            )
+            total_01_pool = reduce(lambda x, y: x * y, blstm_01_args.get("max_pool", []), 1)
         else:
             total_01_pool = 1
 
         if blstm_mix_args.get("num_layers", 1) > 0:
-            total_mix_pool = reduce(
-                lambda x, y: x * y, blstm_mix_args.get("max_pool", []), 1
-            )
+            total_mix_pool = reduce(lambda x, y: x * y, blstm_mix_args.get("max_pool", []), 1)
         else:
             total_mix_pool = 1
 
@@ -260,9 +250,7 @@ def make_blstm_fullsum_ctc_dual_output_recog_model(
                         "unit": {
                             "class": "subnetwork",
                             "load_on_init": DelayedFormat("{}.index", lm_path),
-                            "subnetwork": make_lstm_lm_recog_model(
-                                num_outputs=num_outputs - 1, **lm_args
-                            ),
+                            "subnetwork": make_lstm_lm_recog_model(num_outputs=num_outputs - 1, **lm_args),
                         },
                     },
                     "lm_padded": {
@@ -280,9 +268,7 @@ def make_blstm_fullsum_ctc_dual_output_recog_model(
                     },
                 }
             )
-            network[f"beam_search_{index}"]["unit"]["output"][
-                "from"
-            ] = "combined_scores"
+            network[f"beam_search_{index}"]["unit"]["output"]["from"] = "combined_scores"
 
         # CTC decoding
         network[f"ctc_decode_{index}"] = {

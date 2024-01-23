@@ -26,9 +26,7 @@ def get_returnn_rasr_data_input(
         concurrent = rasr_data.concurrent
 
     if segment_path is None:
-        segment_path = SegmentCorpusJob(
-            rasr_data.corpus_object.corpus_file, concurrent
-        ).out_segment_path
+        segment_path = SegmentCorpusJob(rasr_data.corpus_object.corpus_file, concurrent).out_segment_path
 
     if am_args is None:
         am_args = {}
@@ -98,9 +96,7 @@ def get_returnn_rasr_data_inputs(
         )
 
         # Remove segments with unknown words from cv corpus
-        nn_data_inputs["cv"][
-            f"{train_key}.cv"
-        ].crp.corpus_config.file = FilterCorpusRemoveUnknownWordSegmentsJob(
+        nn_data_inputs["cv"][f"{train_key}.cv"].crp.corpus_config.file = FilterCorpusRemoveUnknownWordSegmentsJob(
             nn_data_inputs["cv"][f"{train_key}.cv"].crp.corpus_config.file,
             nn_data_inputs["cv"][f"{train_key}.cv"].crp.lexicon_config.file,
             case_sensitive=True,

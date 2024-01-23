@@ -291,7 +291,9 @@ def run_single(
             )
         )
 
-    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+    for ep, crp_k in itertools.product(
+        [max(keep_epochs)], ["dev-other"] if lr != "v13" else ["dev-other", "dev-clean", "test-clean", "test-other"]
+    ):
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.triphone_forward,
@@ -311,5 +313,36 @@ def run_single(
                 calculate_stats=True,
                 rtf_cpu=35,
             )
+
+    if lr == "v13":
+        generic_lstm_base_op = returnn.CompileNativeOpJob(
+            "LstmGenericBase",
+            returnn_root=returnn_root,
+            returnn_python_exe=RETURNN_PYTHON_EXE,
+        )
+        generic_lstm_base_op.rqmt = {"cpu": 1, "mem": 4, "time": 0.5}
+        for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other", "dev-clean", "test-clean", "test-other"]):
+            recognizer, recog_args = s.get_recognizer_and_args(
+                key="fh",
+                context_type=PhoneticContext.triphone_forward,
+                crp_corpus=crp_k,
+                epoch=ep,
+                gpu=False,
+                tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+                recompile_graph_for_feature_scorer=False,
+                set_batch_major_for_feature_scorer=True,
+                tf_library=[generic_lstm_base_op.out_grad_op, generic_lstm_base_op.out_op],
+            )
+            recog_args = recog_args.with_lm_scale(recog_args.lm_scale + 2)
+            for cfg in [recog_args.with_prior_scale(0.4, 0.4, 0.2).with_tdp_scale(0.6)]:
+                recognizer.recognize_ls_trafo_lm(
+                    label_info=s.label_info,
+                    search_parameters=cfg,
+                    num_encoder_output=conf_model_dim,
+                    rerun_after_opt_lm=False,
+                    calculate_stats=True,
+                    gpu=True,
+                    rtf_gpu=24,
+                )
 
     return s

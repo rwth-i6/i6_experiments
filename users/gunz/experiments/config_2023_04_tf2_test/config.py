@@ -26,6 +26,14 @@ RASR_ROOT_FH_GUNZ = "/u/mgunz/src/fh_rasr/"
 RASR_ROOT_TF2 = "/u/raissi/dev/rasr_github/rasr_tf2/"
 RETURNN_PYTHON_TF23 = "/u/mgunz/src/bin/returnn_tf2.3_launcher.sh"
 
+# Ubuntu 22
+RASR_ARCH = "linux-x86_64-standard"
+RASR_ROOT_NO_TF = "/work/tools/users/raissi/shared/mgunz/rasr_no_tf"
+RASR_ROOT_TF2_U22 = "/work/tools/users/raissi/shared/mgunz/rasr_tf2"
+
+RETURNN_PYTHON_TF2_12 = "/u/mgunz/src/bin/returnn_tf2.12_launcher.sh"
+# End ubuntu 22
+
 CONF_CHUNKING = "400:200"
 CONF_FOCAL_LOSS = 2.0
 CONF_LABEL_SMOOTHING = 0.0

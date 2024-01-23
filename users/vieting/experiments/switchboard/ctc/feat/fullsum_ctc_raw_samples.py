@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 
 from sisyphus import tk
 from sisyphus.delayed_ops import DelayedFunction
@@ -6,16 +6,17 @@ import i6_core.rasr as rasr
 from i6_core.am.config import acoustic_model_config
 from i6_core.returnn import CodeWrapper
 from i6_experiments.users.berger.network.helpers.conformer import add_conformer_stack as add_conformer_stack_simon
-from .network_helpers.specaug import add_specaug_layer_v2
+from .network_helpers.specaug import add_specaug_layer, add_specaug_layer_v2
 from .network_helpers.conformer_wei import add_conformer_stack as add_conformer_stack_wei
 from .network_helpers.conformer_wei import add_vgg_stack as add_vgg_stack_wei
 
 
 def make_ctc_rasr_loss_config_v2(
     loss_corpus_path: str,
-    loss_corpus_segments: str,
     loss_lexicon_path: str,
     am_args: Dict,
+    loss_corpus_segments: Optional[str] = None,
+    loss_corpus_prefix: Optional[str] = None,
     allow_label_loop: bool = True,
     min_duration: int = 1,
     extra_config: Optional[rasr.RasrConfig] = None,
@@ -28,7 +29,10 @@ def make_ctc_rasr_loss_config_v2(
 
     loss_crp.corpus_config = rasr.RasrConfig()
     loss_crp.corpus_config.file = loss_corpus_path
-    loss_crp.corpus_config.segments.file = loss_corpus_segments
+    if loss_corpus_segments is not None:
+        loss_crp.corpus_config.segments.file = loss_corpus_segments
+    if loss_corpus_prefix is not None:
+        loss_crp.corpus_config.remove_corpus_name_prefix = loss_corpus_prefix
 
     loss_crp.lexicon_config = rasr.RasrConfig()
     loss_crp.lexicon_config.file = loss_lexicon_path
@@ -138,12 +142,26 @@ def make_conformer_fullsum_ctc_model(
     conformer_args: Optional[Dict] = None,
     output_args: Optional[Dict] = None,
     conformer_type: str = "wei",
+    specaug_old: Optional[Dict[str, Any]] = None,
     recognition: bool = False,
 ) -> Tuple[Dict, Union[str, List[str]]]:
     network = {}
     from_list = ["data"]
 
-    from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
+    if recognition:
+        python_code = []
+    else:
+        if specaug_old is not None:
+            specaug_old_args = {
+                "max_time_num": 1,
+                "max_time": 15,
+                "max_feature_num": 5,
+                "max_feature": 4,
+                **specaug_old,
+            }
+            from_list, python_code = add_specaug_layer(network, from_list=from_list, **specaug_old_args)
+        else:
+            from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
 
     if conformer_type == "wei":
         network, from_list = add_vgg_stack_wei(network, from_list)
@@ -179,7 +197,7 @@ def make_conformer_fullsum_ctc_model(
     if recognition:
         network["output"] = {
             "class": "linear",
-            "from": from_list,
+            "from": "encoder",
             "activation": "log_softmax",
             "n_out": num_outputs,
         }

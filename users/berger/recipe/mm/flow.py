@@ -27,7 +27,7 @@ def label_alignment_flow(feature_net, alignment_cache_path=None):
     net.link(mapping[feature_net.get_output_links(out_link_name).pop()], aggregate)
 
     alignment = net.add_node(
-        "speech-label-alignment",
+        "speech-seq2seq-alignment",
         "alignment",
         {"id": "$(id)", "orthography": "$(orthography)"},
     )

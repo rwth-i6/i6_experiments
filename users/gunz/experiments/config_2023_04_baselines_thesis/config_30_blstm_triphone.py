@@ -99,7 +99,7 @@ def run(returnn_root: tk.Path):
             dc_detection=False,
             lr="v7",
             own_priors=True,
-            tune_decoding=True,
+            tune_decoding=False,
         ),
         Experiment(
             alignment=scratch_align,

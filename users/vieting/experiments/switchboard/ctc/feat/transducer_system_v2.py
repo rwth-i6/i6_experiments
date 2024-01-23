@@ -4,18 +4,18 @@ import copy
 import itertools
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Callable, Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import Callable, Dict, List, Literal, Optional, Tuple, Type, Union, Any
 
 # -------------------- Recipes --------------------
 
 from i6_core import am, corpus, features, lexicon, mm, rasr, recognition, returnn
 from i6_experiments.common.setups.rasr.util.rasr import RasrDataInput
-from i6_experiments.users.berger.args.jobs.search_types import SearchTypes
 from i6_experiments.users.berger.recipe import mm as custom_mm
-from i6_experiments.users.berger.recipe import rasr as custom_rasr
+from i6_experiments.users.berger.recipe.rasr import GenerateLabelFileFromStateTyingJobV2
+from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import recognition as custom_recognition
-from i6_experiments.users.berger.recipe import summary as custom_summary
 from i6_experiments.users.berger.util import lru_cache_with_signature
+from i6_experiments.users.vieting.tools.report import Report
 from .recipe import returnn as custom_returnn
 
 
@@ -72,20 +72,10 @@ class ScorerInfo:
         return self.job_type(hyp=ctm, ref=self.ref_file, **self.score_kwargs)
 
 
-class SummaryKey(Enum):
-    TRAIN_NAME = "Train name"
-    RECOG_NAME = "Recog name"
-    CORPUS = "Corpus"
-    EPOCH = "Epoch"
-    TRIAL = "Trial"
-    PRON = "Pron"
-    PRIOR = "Prior"
-    LM = "Lm"
-    WER = "WER"
-    SUB = "Sub"
-    DEL = "Del"
-    INS = "Ins"
-    ERR = "#Err"
+class SearchTypes(Enum):
+    AdvancedTreeSearch = auto()
+    GenericSeq2SeqSearchJob = auto()
+    ReturnnSearch = auto()
 
 
 # -------------------- System --------------------
@@ -113,11 +103,13 @@ class TransducerSystem:
         rasr_python_home: Optional[tk.Path] = None,
         rasr_python_exe: Optional[tk.Path] = None,
         blas_lib: Optional[tk.Path] = None,
+        require_native_lstm: bool = True,
     ) -> None:
         self.rasr_binary_path = rasr_binary_path
         self.returnn_root = returnn_root
         self.returnn_python_exe = returnn_python_exe
         self.blas_lib = blas_lib
+        self._require_native_lstm = require_native_lstm
 
         # Build base crp
         self.base_crp = rasr.CommonRasrParameters()
@@ -149,7 +141,7 @@ class TransducerSystem:
         # corpus-key to ScorerInfo
         self.scorers: Dict[str, ScorerInfo] = {}
 
-        self._summary_report: Optional[custom_summary.SummaryReport] = None
+        self._report: Optional[Report] = None
 
         self.alignments: Dict[str, rasr.FlagDependentFlowAttribute] = {}
 
@@ -163,7 +155,7 @@ class TransducerSystem:
         corpus_data: Dict[str, RasrDataInput] = {},
         am_args: Dict = {},
         scorer_info: Optional[ScorerInfo] = None,
-        summary_keys: Optional[List[SummaryKey]] = None,
+        report: Optional[Report] = None,
     ) -> None:
 
         self.returnn_configs = returnn_configs
@@ -183,18 +175,11 @@ class TransducerSystem:
         for key in set(dev_keys + test_keys):
             self._set_scorer(key, scorer_info or ScorerInfo())
 
-        if summary_keys:
-            col_names = [key.value for key in summary_keys]
-        else:
-            col_names = [key.value for key in SummaryKey]
-        self._summary_report = custom_summary.SummaryReport(
-            col_names=col_names,
-            col_sort_key=SummaryKey.ERR.value,
-        )
+        self._report = report
 
     @property
-    def summary_report(self) -> Optional[custom_summary.SummaryReport]:
-        return self._summary_report
+    def report(self) -> Optional[Report]:
+        return self._report
 
     # -------------------- Helpers ---------------------
 
@@ -234,7 +219,10 @@ class TransducerSystem:
             self._generate_stm_for_corpus(key)
 
     @lru_cache_with_signature
-    def _get_native_op(self) -> tk.Path:
+    def _get_native_op(self) -> Optional[tk.Path]:
+        if not self._require_native_lstm:
+            return None
+
         # DO NOT USE BLAS ON I6, THIS WILL SLOW DOWN RECOGNITION ON OPTERON MACHNIES BY FACTOR 4
         compile_job = returnn.CompileNativeOpJob(
             "NativeLstm2",
@@ -540,7 +528,7 @@ class TransducerSystem:
     @lru_cache_with_signature
     def _get_label_file(self, key: str) -> tk.Path:
         state_tying_file = lexicon.DumpStateTyingJob(self.crp[key]).out_state_tying
-        return custom_rasr.GenerateLabelFileFromStateTyingJobV2(
+        return GenerateLabelFileFromStateTyingJobV2(
             state_tying_file,
         ).out_label_file
 
@@ -550,9 +538,10 @@ class TransducerSystem:
         base_feature_flow: rasr.FlowNetwork,
         tf_graph: tk.Path,
         checkpoint: returnn.Checkpoint,
+        **kwargs
     ) -> rasr.FlowNetwork:
         if custom_rasr.LabelScorer.need_tf_flow(label_scorer.scorer_type):
-            feature_flow = self._make_tf_feature_flow(base_feature_flow, tf_graph, checkpoint)
+            feature_flow = self._make_tf_feature_flow(base_feature_flow, tf_graph, checkpoint, **kwargs)
         else:
             feature_flow = base_feature_flow
             label_scorer.set_input_config()
@@ -577,6 +566,9 @@ class TransducerSystem:
         label_scorer_type: str = "precomputed-log-posterior",
         label_scorer_args: Dict = {},
         flow_args: Dict = {},
+        tf_flow_args: Dict = {},
+        extra_name: str = "",
+        report_args: Dict[str, Any] = None,
         **kwargs,
     ) -> None:
         crp = self.crp[recognition_corpus_key]
@@ -625,6 +617,7 @@ class TransducerSystem:
                 base_feature_flow=base_feature_flow,
                 tf_graph=tf_graph,
                 checkpoint=checkpoint,
+                **tf_flow_args,
             )
 
             rec = custom_recognition.GenericSeq2SeqSearchJob(
@@ -640,7 +633,7 @@ class TransducerSystem:
                 epoch_str = f"{epoch:03d}"
             else:
                 epoch_str = epoch
-            exp_full = f"{recog_exp_name}_e-{epoch_str}_prior-{prior_scale:02.2f}_lm-{lm_scale:02.2f}"
+            exp_full = f"{recog_exp_name}_e-{epoch_str}_prior-{prior_scale:02.2f}_lm-{lm_scale:02.2f}{extra_name}"
 
             if trial_num is None:
                 path = f"nn_recog/{recognition_corpus_key}/{train_exp_name}/{exp_full}"
@@ -657,21 +650,22 @@ class TransducerSystem:
                 **lattice_to_ctm_kwargs,
             )
 
-            if self._summary_report:
-                self._summary_report.add_row(
+            if self._report:
+                report_args = report_args or {}
+                self._report.add(
                     {
-                        SummaryKey.TRAIN_NAME.value: train_exp_name,
-                        SummaryKey.RECOG_NAME.value: recog_exp_name,
-                        SummaryKey.CORPUS.value: recognition_corpus_key,
-                        SummaryKey.TRIAL.value: self._get_trial_value(train_exp_name, trial_num),
-                        SummaryKey.EPOCH.value: self._get_epoch_value(train_exp_name, epoch, trial_num),
-                        SummaryKey.PRIOR.value: prior_scale,
-                        SummaryKey.LM.value: lm_scale,
-                        SummaryKey.WER.value: scorer_job.out_wer,
-                        SummaryKey.SUB.value: scorer_job.out_percent_substitution,
-                        SummaryKey.DEL.value: scorer_job.out_percent_deletions,
-                        SummaryKey.INS.value: scorer_job.out_percent_insertions,
-                        SummaryKey.ERR.value: scorer_job.out_num_errors,
+                        "train_name": train_exp_name,
+                        "recog_name": recog_exp_name,
+                        "corpus": recognition_corpus_key,
+                        "trial": self._get_trial_value(train_exp_name, trial_num),
+                        "epoch": self._get_epoch_value(train_exp_name, epoch, trial_num),
+                        "prior_scale": prior_scale,
+                        "lm_scale": lm_scale,
+                        "wer": scorer_job.out_wer,
+                        "sub": scorer_job.out_percent_substitution,
+                        "del": scorer_job.out_percent_deletions,
+                        "ins": scorer_job.out_percent_insertions,
+                        **report_args.get(train_exp_name, {}),
                     }
                 )
 
@@ -897,6 +891,7 @@ class TransducerSystem:
         self,
         recog_args: Optional[Dict] = None,
         search_type: SearchTypes = SearchTypes.GenericSeq2SeqSearchJob,
+        **kwargs,
     ) -> None:
         for train_exp_name in self.returnn_configs.keys():
             self.run_recogs_for_corpora(
@@ -904,6 +899,7 @@ class TransducerSystem:
                 train_exp_name,
                 search_type,
                 **(recog_args or {}),
+                **kwargs,
             )
 
     def run_test_recog_step(

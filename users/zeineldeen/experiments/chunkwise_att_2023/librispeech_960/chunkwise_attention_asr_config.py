@@ -11,6 +11,7 @@ from dataclasses import dataclass, asdict
 
 from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder import (
     ConformerEncoder,
+    ConformerMemoryVariantOpts,
 )
 from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder import (
     TransformerDecoder,
@@ -18,7 +19,7 @@ from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder impo
 from i6_experiments.users.zeineldeen.models.asr.decoder.conformer_decoder import (
     ConformerDecoder,
 )
-from i6_experiments.users.zeineldeen.models.lm.external_lm_decoder import (
+from i6_experiments.users.zeineldeen.models.lm.external_lm_decoder_v2 import (
     ExternalLMDecoder,
 )
 
@@ -135,6 +136,73 @@ def transform(data, network, max_time_dim={max_time_dim}, freq_dim_factor={freq_
 """
 
 
+def load_qkv_mats(name, shape, reader):
+    if not name.startswith("conformer_block_"):
+        return None
+
+    idx = name.split("_")[2]
+    qkv_tensor = reader.get_tensor("conformer_block_%s_self_att/QKV" % idx)
+    num_heads = enc_att_num_heads_dim.dimension
+    model_dim_per_head = enc_dim_per_head_dim.dimension
+    model_dim = num_heads * model_dim_per_head
+    assert qkv_tensor.shape == (model_dim, 3 * model_dim)
+    import numpy
+
+    qkv_tensor_ = qkv_tensor.reshape((model_dim, num_heads, 3, model_dim_per_head))
+    q = qkv_tensor_[:, :, 0, :].reshape((model_dim, model_dim))
+    k = qkv_tensor_[:, :, 1, :].reshape((model_dim, model_dim))
+    v = qkv_tensor_[:, :, 2, :].reshape((model_dim, model_dim))
+
+    if name == "conformer_block_%s_self_att_ln_K/W" % idx:
+        return k
+    elif name == "conformer_block_%s_self_att_ln_Q/W" % idx:
+        return q
+    elif name == "conformer_block_%s_self_att_ln_V/W" % idx:
+        return v
+    return None
+
+
+def load_params_v2(name, shape, reader):
+    import numpy
+
+    model_dim = val_dim.dimension
+
+    if name.startswith("conformer_block_"):
+        idx = name.split("_")[2]
+        qkv_tensor = reader.get_tensor("conformer_block_%s_self_att/QKV" % idx)
+        assert qkv_tensor.shape == (model_dim, 3 * model_dim)
+
+        qkv_tensor_ = qkv_tensor.reshape((model_dim, num_heads, 3, model_dim_per_head))
+        q = qkv_tensor_[:, :, 0, :].reshape((model_dim, model_dim))
+        k = qkv_tensor_[:, :, 1, :].reshape((model_dim, model_dim))
+        v = qkv_tensor_[:, :, 2, :].reshape((model_dim, model_dim))
+
+        if name == "conformer_block_%s_self_att_ln_K/W" % idx:
+            return k
+        elif name == "conformer_block_%s_self_att_ln_Q/W" % idx:
+            return q
+        elif name == "conformer_block_%s_self_att_ln_V/W" % idx:
+            return v
+    else:
+        # input is [y_{i-1}, c_{i-1}, h_{i-1}]
+        s_kernel = reader.get_tensor("output/rec/s/rec/lstm_cell/kernel")  # (input_dim, 4 * lstm_dim)
+        s_bias = reader.get_tensor("output/rec/s/rec/lstm_cell/bias")  # (4 * lstm_dim,)
+        target_embed = reader.get_tensor("output/rec/target_embed0/W")  # (V, embed_dim)
+        embed_dim = target_embed.shape[1]
+        emb_ = s_kernel[:embed_dim]
+        h_ = s_kernel[embed_dim + model_dim :]
+        s_kernel_ = numpy.concatenate([emb_, h_], axis=0)
+        assert s_kernel_.shape[0] == s_kernel.shape[0] - model_dim
+        assert s_kernel_.shape[1] == s_kernel.shape[1]
+
+        if name == "output/rec/s_wo_att/rec/lstm_cell/kernel":
+            return s_kernel_  # modified
+        elif name == "output/rec/s_wo_att/rec/lstm_cell/bias":
+            return s_bias
+
+    return None
+
+
 # -------------------------- Pretraining -------------------------- #
 
 
@@ -154,6 +222,7 @@ def pretrain_layers_and_dims(
     second_bs_idx=None,
     enc_dec_share_grow_frac=True,
     repeat_first=True,
+    ignored_keys_for_reduce_dim=None,
 ):
     """
     Pretraining implementation that works for multiple encoder/decoder combinations
@@ -242,6 +311,8 @@ def pretrain_layers_and_dims(
         dim_frac_enc = InitialDimFactor + (1.0 - InitialDimFactor) * grow_frac_enc
 
         for key in encoder_keys:
+            if ignored_keys_for_reduce_dim and key in ignored_keys_for_reduce_dim:
+                continue
             encoder_args_copy[key] = (
                 int(encoder_args[key] * dim_frac_enc / float(EncoderAttNumHeads)) * EncoderAttNumHeads
             )
@@ -264,6 +335,8 @@ def pretrain_layers_and_dims(
                 decoder_keys += ["conv_kernel_size"]
 
             for key in decoder_keys:
+                if ignored_keys_for_reduce_dim and key in ignored_keys_for_reduce_dim:
+                    continue
                 decoder_args_copy[key] = (
                     int(decoder_args[key] * dim_frac_dec / float(DecoderAttNumHeads)) * DecoderAttNumHeads
                 )
@@ -333,11 +406,14 @@ class ConformerEncoderArgs(EncoderArgs):
     subsample: Optional[str] = None
     conv_alternative_name: Optional[str] = None
     use_causal_layers: bool = False
+    use_causal_conv: Optional[bool] = None
 
     # ctc
     with_ctc: bool = True
     native_ctc: bool = True
     ctc_loss_scale: Optional[float] = None
+    ctc_self_align_delay: Optional[int] = None
+    ctc_self_align_scale: float = 0.5
 
     # param init
     ff_init: Optional[str] = None
@@ -352,6 +428,11 @@ class ConformerEncoderArgs(EncoderArgs):
     att_dropout: float = 0.1
     lstm_dropout: float = 0.1
 
+    # weight dropout
+    ff_weight_dropout: Optional[float] = None
+    mhsa_weight_dropout: Optional[float] = None
+    conv_weight_dropout: Optional[float] = None
+
     # norms
     batch_norm_opts: Optional[Dict[str, Any]] = None
     use_ln: bool = False
@@ -360,10 +441,13 @@ class ConformerEncoderArgs(EncoderArgs):
     l2: float = 0.0001
     self_att_l2: float = 0.0
     rel_pos_clipping: int = 16
+    frontend_conv_l2: float = 0.0001
 
     use_sqrd_relu: bool = False
 
     output_layer_name: str = "encoder"
+
+    memory_variant_opts: Optional[ConformerMemoryVariantOpts] = None
 
 
 class DecoderArgs:
@@ -485,12 +569,14 @@ class RNNDecoderArgs(DecoderArgs):
     coverage_scale: float = None
     coverage_threshold: float = None
 
+    use_zoneout_output: bool = False
+
 
 def create_config(
     training_datasets,
     encoder_args: EncoderArgs,
     decoder_args: DecoderArgs,
-    with_staged_network=False,
+    with_staged_network=True,
     is_recog=False,
     input_key="audio_features",
     lr=0.0008,
@@ -503,6 +589,7 @@ def create_config(
     accum_grad=2,
     pretrain_reps=5,
     max_seq_length=75,
+    max_seqs=200,
     noam_opts=None,
     warmup_lr_opts=None,
     with_pretrain=True,
@@ -526,6 +613,7 @@ def create_config(
     specaug_str_func_opts=None,
     recursion_limit=3000,
     feature_extraction_net=None,
+    global_stats=None,
     config_override=None,
     feature_extraction_net_global_norm=False,
     freeze_bn=False,
@@ -536,6 +624,7 @@ def create_config(
     chunk_size=20,
     chunk_step=None,
     chunk_level="encoder",  # or "input"
+    chunked_decoder=True,
     eoc_idx=0,
     search_type=None,
     dump_alignments_dataset=None,  # train, dev, etc
@@ -543,6 +632,21 @@ def create_config(
     dump_ctc_dataset=None,  # train, dev, etc
     enable_check_align=True,
     recog_ext_pipeline=False,
+    window_left_padding=None,
+    end_slice_start=None,
+    end_slice_size=None,
+    conf_mem_opts=None,
+    gpu_mem=11,
+    remove_att_ctx_from_dec_state=False,
+    use_curr_enc_for_dec_state=False,
+    lm_mask_layer_name=None,
+    ilm_mask_layer_name=None,
+    eos_cond_layer_name=None,
+    handle_eos_for_ilm=False,
+    renorm_wo_eos=False,
+    asr_eos_no_scale=False,
+    eos_asr_lm_scales=None,
+    mask_always_eos_for_ilm=True,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -585,7 +689,7 @@ def create_config(
         "accum_grad_multiple_step": accum_grad,
         "gradient_noise": gradient_noise,
         "batch_size": batch_size,
-        "max_seqs": 200,
+        "max_seqs": max_seqs,
         "truncation": -1,
     }
     # default: Adam optimizer
@@ -696,11 +800,26 @@ def create_config(
             encoder_args["specaug"] = False  # need to do it before
             encoder_args["fix_merge_dims"] = True  # broken otherwise
 
+        if conf_mem_opts is not None:
+            encoder_args["memory_variant_opts"] = ConformerMemoryVariantOpts(
+                split_batch_time_base="_input_chunked",
+                chunked_time_dim=chunked_time_dim,
+                self_att_version=conf_mem_opts["self_att_version"],
+                chunk_size=chunk_size,
+                chunk_size_dim=chunk_size_dim,
+                mem_size=conf_mem_opts.get("mem_size", 1),
+                conv_cache_size=conf_mem_opts.get("conv_cache_size", None),
+                use_cached_prev_kv=conf_mem_opts.get("use_cached_prev_kv", False),
+                mem_slice_size=conf_mem_opts.get("mem_slice_size", None),
+                mem_slice_start=conf_mem_opts.get("mem_slice_start", None),
+                use_emformer_mem=conf_mem_opts.get("use_emformer_mem", False),
+                apply_tanh_on_emformer_mem=conf_mem_opts.get("apply_tanh_on_emformer_mem", False),
+            )
+
         conformer_encoder = encoder_type(**encoder_args)
         conformer_encoder.create_network()
 
         if chunk_level == "encoder":
-
             conformer_encoder.network["encoder"] = {
                 "class": "window",
                 "from": "encoder_full_seq",
@@ -708,7 +827,8 @@ def create_config(
                 "stride": chunk_step,
                 "out_spatial_dim": chunked_time_dim,
             }
-
+            assert end_slice_size is None  # not implemented
+            assert window_left_padding is None, "not implemented"
             if not dump_ctc_dataset:  # to not break hashes for CTC dumping
                 if chunk_size == chunk_step:
                     conformer_encoder.network["encoder"]["window_left"] = 0
@@ -721,7 +841,6 @@ def create_config(
                     )
 
         elif chunk_level == "input":
-
             if specaug_:
                 input_ = conformer_encoder.network.add_eval_layer(
                     "source",
@@ -730,15 +849,21 @@ def create_config(
                     "(source(0, as_data=True), network=self.network)",
                 )
 
+            if window_left_padding is None:
+                if in_chunk_size > 1:
+                    window_left_padding = (
+                        (in_chunk_size // 2 - 1) * (in_chunk_size - in_chunk_step) // (in_chunk_size - 1)
+                    )
+                else:
+                    window_left_padding = 0
+
             conformer_encoder.network["_input_chunked"] = {
                 "class": "window",
                 "from": input_,
                 "window_dim": input_chunk_size_dim,
                 "stride": in_chunk_step,
                 "out_spatial_dim": chunked_time_dim,
-                "window_left": ((in_chunk_size // 2 - 1) * (in_chunk_size - in_chunk_step) // (in_chunk_size - 1))
-                if in_chunk_size > 1
-                else 0,
+                "window_left": window_left_padding,
             }
             conformer_encoder.network["__input_chunked"] = {
                 "class": "merge_dims",
@@ -762,15 +887,38 @@ def create_config(
                 "from": "_encoder",
                 "base": "_input_chunked",
             }
+            src = "__encoder"
+            if end_slice_size is not None:
+                new_chunk_size_dim = SpatialDim("sliced-chunk-size", end_slice_size)
+                # TODO: this will break hashes for left-context only exps so needs to handle this later
+                conformer_encoder.network["___encoder"] = {
+                    "class": "slice",
+                    "from": "__encoder",
+                    "axis": chunk_size_dim,
+                    "slice_start": end_slice_start,
+                    "slice_end": end_slice_start + end_slice_size,
+                    "out_dim": new_chunk_size_dim,
+                }
+                chunk_size_dim = new_chunk_size_dim
+                src = "___encoder"
             conformer_encoder.network["encoder"] = {
                 "class": "reinterpret_data",
-                "from": "__encoder",
+                "from": src,
                 "set_axes": {"T": chunked_time_dim},
             }
 
         else:
             raise ValueError(f"invalid chunk_level: {chunk_level!r}")
 
+        # if not dump_ctc_dataset and not dump_ctc and not dump_alignments_dataset:
+        #     if encoder_args["with_ctc"]:
+        #         conformer_encoder.network["ctc_encoder"] = {
+        #             "class": "fold",
+        #             "from": "encoder",  # [B,C,W,D]
+        #             "in_spatial_dim": chunked_time_dim,  # C
+        #             "window_dim": chunk_size_dim,  # W
+        #         }  # [B,C*W,D]
+        #         conformer_encoder.network["ctc"]["from"] = "ctc_encoder"
     else:
         conformer_encoder = encoder_type(**encoder_args)
         conformer_encoder.create_network()
@@ -782,15 +930,28 @@ def create_config(
     decoder_args = asdict(decoder_args)
     decoder_args.update({"target": target, "beam_size": beam_size})
 
-    decoder_args["enc_chunks_dim"] = chunked_time_dim
-    decoder_args["enc_time_dim"] = chunk_size_dim
-    decoder_args["eos_id"] = eoc_idx
-    decoder_args["search_type"] = search_type
-    decoder_args["enable_check_align"] = enable_check_align  # just here to keep some old changes
+    if chunked_decoder:
+        decoder_args["enc_chunks_dim"] = chunked_time_dim
+        decoder_args["enc_time_dim"] = chunk_size_dim
+        decoder_args["eos_id"] = eoc_idx
+        decoder_args["search_type"] = search_type
+        decoder_args["enable_check_align"] = enable_check_align  # just here to keep some old changes
 
-    if decoder_args["full_sum_simple_approx"] and is_recog:
-        decoder_args["full_sum_simple_approx"] = False
-        decoder_args["masked_computation_blank_idx"] = eoc_idx
+        if decoder_args["full_sum_simple_approx"] and is_recog:
+            decoder_args["full_sum_simple_approx"] = False
+            decoder_args["masked_computation_blank_idx"] = eoc_idx
+    elif chunk_size and not dump_ctc_dataset and not dump_ctc and not dump_alignments_dataset:
+        # chunked encoder and non-chunked decoder so we need to merge encoder chunks
+        assert "encoder_fold_inp" not in conformer_encoder.network
+        conformer_encoder.network["encoder_fold_inp"] = copy.deepcopy(conformer_encoder.network["encoder"])
+        conformer_encoder.network["encoder"] = {
+            "class": "fold",
+            "from": "encoder_fold_inp",  # [B,C,W,D]
+            "in_spatial_dim": chunked_time_dim,  # C
+            "window_dim": chunk_size_dim,  # W
+        }  # [B,C*W,D]
+        if encoder_args["with_ctc"]:
+            conformer_encoder.network["ctc"]["from"] = "encoder"
 
     transformer_decoder = decoder_type(base_model=conformer_encoder, **decoder_args)
     if not dump_ctc_dataset:
@@ -810,6 +971,14 @@ def create_config(
             beam_size=beam_size,
             dec_type=dec_type,
             length_normalization=decoder_args["length_normalization"],
+            mask_layer_name=lm_mask_layer_name,
+            ilm_mask_layer_name=ilm_mask_layer_name,
+            eos_cond_layer_name=eos_cond_layer_name,
+            handle_eos_for_ilm=handle_eos_for_ilm,
+            renorm_wo_eos=renorm_wo_eos,
+            asr_eos_no_scale=asr_eos_no_scale,
+            eos_asr_lm_scales=eos_asr_lm_scales,
+            mask_always_eos_for_ilm=mask_always_eos_for_ilm,
         )
         transformer_decoder.create_network()
 
@@ -822,6 +991,18 @@ def create_config(
 
     if feature_extraction_net:
         exp_config["network"].update(feature_extraction_net)
+        if global_stats:
+            add_global_stats_norm(global_stats, exp_config["network"])
+
+    if ext_lm_opts:
+        if lm_mask_layer_name:
+            exp_config["network"]["output"]["unit"][lm_mask_layer_name] = {
+                "class": "compare",
+                "from": "output",
+                "kind": "not_equal",
+                "value": 0,
+                "initial_output": True,
+            }
 
     # if chunked_time_dim:
     #   exp_config['network']["_check_alignment"] = {
@@ -884,6 +1065,43 @@ def create_config(
 
     # add hyperparmas
     exp_config.update(hyperparams)
+
+    if conf_mem_opts and conf_mem_opts["self_att_version"] == 1:
+        assert retrain_checkpoint_opts is None
+        retrain_checkpoint_opts = {}
+        retrain_checkpoint_opts["custom_missing_load_func"] = load_qkv_mats
+
+    if remove_att_ctx_from_dec_state:
+        assert retrain_checkpoint_opts is None
+        retrain_checkpoint_opts = {}
+        retrain_checkpoint_opts["custom_missing_load_func"] = load_params_v2
+        # TODO: hacky way for now
+        exp_config["network"]["output"]["unit"]["s_wo_att"] = copy.deepcopy(
+            exp_config["network"]["output"]["unit"]["s"]
+        )
+        exp_config["network"]["output"]["unit"].pop("s", None)
+
+        # change inputs
+        exp_config["network"]["output"]["unit"]["s_wo_att"]["from"] = "prev:target_embed"  # remove prev:att
+        exp_config["network"]["output"]["unit"]["s_transformed"]["from"] = "s_wo_att"
+        exp_config["network"]["output"]["unit"]["readout_in"]["from"][0] = "s_wo_att"
+    elif use_curr_enc_for_dec_state:
+        assert chunk_size == 1
+        assert retrain_checkpoint_opts is None
+        retrain_checkpoint_opts = {}
+        exp_config["network"]["output"]["unit"]["enc_h_t_"] = {
+            "class": "gather",
+            "from": "base:encoder_full_seq",  # [B,C,1,D]
+            "position": "chunk_idx",
+            "axis": chunked_time_dim,
+        }  # [B,1,D]
+        exp_config["network"]["output"]["unit"]["enc_h_t"] = {
+            "class": "squeeze",
+            "from": "enc_h_t_",
+            "axis": chunk_size_dim,
+        }  # [B,D]
+        # change inputs
+        exp_config["network"]["output"]["unit"]["s"]["from"] = ["prev:target_embed", "enc_h_t"]
 
     if retrain_checkpoint is not None:
         if retrain_checkpoint_opts:
@@ -990,6 +1208,14 @@ def create_config(
     if feature_extraction_net_global_norm:
         python_prolog += ["import numpy"]
 
+    if conf_mem_opts and conf_mem_opts["self_att_version"] == 1:
+        assert retrain_checkpoint_opts is not None, "preload_from_files should be used."
+
+    # seems to only work only when TF_FORCE_GPU_ALLOW_GROWTH is set to True in settings.py
+    # otherwise I get CUDNN not loaded error. Also some error related to conv ops.
+    if gpu_mem == 24:
+        post_config["tf_session_opts"] = {"gpu_options": {"per_process_gpu_memory_fraction": 0.94}}
+
     returnn_config = ReturnnConfig(
         exp_config,
         staged_network_dict=staged_network_dict,
@@ -1006,3 +1232,31 @@ def create_config(
     # pprint(serialized_config.config)
 
     return serialized_config
+
+
+def add_global_stats_norm(global_stats: dict, net):
+    from sisyphus.delayed_ops import DelayedFormat
+
+    global_mean_delayed = DelayedFormat("{}", global_stats["mean"])
+    global_stddev_delayed = DelayedFormat("{}", global_stats["stddev"])
+
+    net["log10_"] = copy.deepcopy(net["log10"])
+    net["global_mean"] = {
+        "class": "constant",
+        "value": CodeWrapper(
+            f"eval(\"exec('import numpy') or numpy.loadtxt('{global_mean_delayed}', dtype='float32')\")"
+        ),
+        "dtype": "float32",
+    }
+    net["global_stddev"] = {
+        "class": "constant",
+        "value": CodeWrapper(
+            f"eval(\"exec('import numpy') or numpy.loadtxt('{global_stddev_delayed}', dtype='float32')\")"
+        ),
+        "dtype": "float32",
+    }
+    net["log10"] = {
+        "class": "eval",
+        "from": ["log10_", "global_mean", "global_stddev"],
+        "eval": "(source(0) - source(1)) / source(2)",
+    }

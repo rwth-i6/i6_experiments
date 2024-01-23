@@ -27,15 +27,16 @@ ctc_recog_am_args.update(
 )
 
 
-def get_ctc_train_args(**kwargs) -> Dict:
+def get_ctc_train_step_args(**kwargs) -> Dict:
     default_args = {
         "time_rqmt": 168,
         "mem_rqmt": 16,
+        "log_verbosity": 5,
     }
     return recursive_update(default_args, kwargs)
 
 
-def get_ctc_recog_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
+def get_ctc_recog_step_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
     default_args = {
         "epochs": ["best"],
         "lm_scales": [0.9],
@@ -65,24 +66,24 @@ def get_ctc_recog_args(num_classes: int, reduction_factor: int = 4, **kwargs) ->
         "prior_args": {
             "mem_rqmt": 16,
         },
-        "rtf": 5,
-        "mem": 8,
+        "rtf": 20,
+        "mem": 16,
     }
 
     return recursive_update(default_args, kwargs)
 
 
-def get_ctc_align_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
+def get_ctc_align_step_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
     default_args = {
         "epochs": ["best"],
         "prior_scales": [0.3],
-        "use_gpu": True,
+        "use_gpu": False,
         "alignment_options": {
             "label-pruning": 50,
             "label-pruning-limit": 100000,
         },
         "align_node_options": {
-            "allow-label-loop": True,
+            "allophone-state-graph-builder.topology": "rna",  # No label loop for transducer
         },
         "label_scorer_args": {
             "use_prior": True,
@@ -92,6 +93,8 @@ def get_ctc_align_args(num_classes: int, reduction_factor: int = 4, **kwargs) ->
                 "reduction_factors": reduction_factor,
             },
         },
+        "rtf": 5,
+        "register_output": False,
     }
 
     return recursive_update(default_args, kwargs)

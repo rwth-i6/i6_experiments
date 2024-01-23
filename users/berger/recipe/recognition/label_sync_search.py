@@ -37,10 +37,7 @@ class LabelSyncSearchLmImageAndGlobalCacheJob(rasr.RasrCommand, Job):
             sprint_exe = crp.flf_tool_exe
         self.exe = self.select_exe(sprint_exe, "flf-tool")
         self.log_file = self.log_file_output_path("image-cache", crp, False)
-        self.lm_images = {
-            i: self.output_path("lm-%d.image" % i, cached=True)
-            for i in range(1, self.num_images + 1)
-        }
+        self.lm_images = {i: self.output_path("lm-%d.image" % i, cached=True) for i in range(1, self.num_images + 1)}
         self.global_cache = self.output_path("global.cache", cached=True)
 
         self.local_job = local_job
@@ -53,13 +50,9 @@ class LabelSyncSearchLmImageAndGlobalCacheJob(rasr.RasrCommand, Job):
     def create_files(self):
         self.write_config(self.config, self.post_config, "image-cache.config")
         with open("dummy.corpus", "wt") as f:
-            f.write(
-                '<?xml version="1.0" encoding="utf-8" ?>\n<corpus name="dummy"></corpus>'
-            )
+            f.write('<?xml version="1.0" encoding="utf-8" ?>\n<corpus name="dummy"></corpus>')
         with open("dummy.flow", "wt") as f:
-            f.write(
-                '<?xml version="1.0" encoding="utf-8" ?>\n<network><out name="features" /></network>'
-            )
+            f.write('<?xml version="1.0" encoding="utf-8" ?>\n<network><out name="features" /></network>')
         extra_code = (
             ":${THEANO_FLAGS:="
             '}\nexport THEANO_FLAGS="$THEANO_FLAGS,device=cpu,force_device=True"\nexport TF_DEVICE="cpu"'
@@ -88,43 +81,22 @@ class LabelSyncSearchLmImageAndGlobalCacheJob(rasr.RasrCommand, Job):
                 if sub_lm_config.type == "ARPA" and sub_lm_config._get("image") is None:
                     result.append(sub_lm_config)
         # lookahead lm #
-        separate_lookahead_lm = (
-            config.flf_lattice_tool.network.recognizer.recognizer.separate_lookahead_lm
-        )
-        lookahead_lm_config = (
-            config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm
-        )
+        separate_lookahead_lm = config.flf_lattice_tool.network.recognizer.recognizer.separate_lookahead_lm
+        lookahead_lm_config = config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm
         if separate_lookahead_lm:
-            if (
-                lookahead_lm_config.type == "ARPA"
-                and lookahead_lm_config._get("image") is None
-            ):
+            if lookahead_lm_config.type == "ARPA" and lookahead_lm_config._get("image") is None:
                 result.append(lookahead_lm_config)
         # recombination lm #
-        separate_recombination_lm = (
-            config.flf_lattice_tool.network.recognizer.recognizer.separate_recombination_lm
-        )
-        recombination_lm_config = (
-            config.flf_lattice_tool.network.recognizer.recognizer.recombination_lm
-        )
+        separate_recombination_lm = config.flf_lattice_tool.network.recognizer.recognizer.separate_recombination_lm
+        recombination_lm_config = config.flf_lattice_tool.network.recognizer.recognizer.recombination_lm
         if separate_recombination_lm:
-            if (
-                recombination_lm_config.type == "ARPA"
-                and recombination_lm_config._get("image") is None
-            ):
+            if recombination_lm_config.type == "ARPA" and recombination_lm_config._get("image") is None:
                 result.append(recombination_lm_config)
         return result
 
     @classmethod
     def create_config(
-        cls,
-        crp,
-        label_tree,
-        label_scorer,
-        extra_config=None,
-        extra_post_config=None,
-        default_search=False,
-        **kwargs
+        cls, crp, label_tree, label_scorer, extra_config=None, extra_post_config=None, default_search=False, **kwargs
     ):
         # get config from csp #
         config, post_config = rasr.build_config_from_mapping(
@@ -145,9 +117,7 @@ class LabelSyncSearchLmImageAndGlobalCacheJob(rasr.RasrCommand, Job):
         if label_tree.lexicon_config is not None:
             config["flf-lattice-tool.lexicon"]._update(label_tree.lexicon_config)
         # label scorer #
-        label_scorer.apply_config(
-            "flf-lattice-tool.network.recognizer.label-scorer", config, post_config
-        )
+        label_scorer.apply_config("flf-lattice-tool.network.recognizer.label-scorer", config, post_config)
 
         # flf network #
         config.flf_lattice_tool.network.initial_nodes = "segment"
@@ -160,9 +130,7 @@ class LabelSyncSearchLmImageAndGlobalCacheJob(rasr.RasrCommand, Job):
         config.flf_lattice_tool.network.recognizer.add_confidence_score = False
         config.flf_lattice_tool.network.recognizer.apply_posterior_pruning = False
         config.flf_lattice_tool.network.recognizer.search_type = "label-sync-search"
-        config.flf_lattice_tool.network.recognizer.feature_extraction.file = (
-            "dummy.flow"
-        )
+        config.flf_lattice_tool.network.recognizer.feature_extraction.file = "dummy.flow"
         config.flf_lattice_tool.network.sink.type = "sink"
         post_config.flf_lattice_tool.network.sink.warn_on_empty_lattice = True
         post_config.flf_lattice_tool.network.sink.error_on_empty_lattice = False
@@ -188,9 +156,7 @@ class LabelSyncSearchLmImageAndGlobalCacheJob(rasr.RasrCommand, Job):
         if extra_config and cls.find_arpa_lms(copy.deepcopy(extra_config)):
             config._update(extra_config)
         else:
-            post_config._update(
-                extra_config
-            )  # mainly run-time params: image/cache independent
+            post_config._update(extra_config)  # mainly run-time params: image/cache independent
         post_config._update(extra_post_config)
 
         # lm images #
@@ -274,16 +240,12 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
             resume = None
         else:
             resume = "run"
-        yield Task(
-            "run", resume=resume, rqmt=self.rqmt, args=range(1, self.concurrent + 1)
-        )
+        yield Task("run", resume=resume, rqmt=self.rqmt, args=range(1, self.concurrent + 1))
 
     def create_files(self):
         self.write_config(self.config, self.post_config, "recognition.config")
         self.feature_flow.write_to_file("feature.flow")
-        util.write_paths_to_file(
-            self.out_lattice_bundle, self.out_single_lattice_caches.values()
-        )
+        util.write_paths_to_file(self.out_lattice_bundle, self.out_single_lattice_caches.values())
         extra_code = 'export TF_DEVICE="{0}"'.format("gpu" if self.use_gpu else "cpu")
         # sometimes crash without this
         if not self.use_gpu:
@@ -325,7 +287,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
         lm_gc_job_local=True,
         lm_gc_job_mem=6,
         lm_gc_job_default_search=False,
-        **kwargs
+        **kwargs,
     ):
 
         # optional individual lm-image and global-cache job #
@@ -362,9 +324,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
             config.flf_lattice_tool.network.recognizer.use_mixture = False
 
         # feature flow #
-        config.flf_lattice_tool.network.recognizer.feature_extraction.file = (
-            "feature.flow"
-        )
+        config.flf_lattice_tool.network.recognizer.feature_extraction.file = "feature.flow"
         feature_flow.apply_config(
             "flf-lattice-tool.network.recognizer.feature-extraction",
             config,
@@ -381,9 +341,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
             config["flf-lattice-tool.lexicon"]._update(label_tree.lexicon_config)
 
         # label scorer #
-        label_scorer.apply_config(
-            "flf-lattice-tool.network.recognizer.label-scorer", config, post_config
-        )
+        label_scorer.apply_config("flf-lattice-tool.network.recognizer.label-scorer", config, post_config)
 
         # search settings #
         search_config = rasr.RasrConfig()
@@ -401,16 +359,10 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
         if lookahead_options is not None:
             la_opts.update(lookahead_options)
 
-        config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead = (
-            rasr.RasrConfig()
-        )
-        config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead._value = (
-            lm_lookahead
-        )
+        config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead = rasr.RasrConfig()
+        config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead._value = lm_lookahead
         if "laziness" in la_opts:
-            config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead_laziness = la_opts[
-                "laziness"
-            ]
+            config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead_laziness = la_opts["laziness"]
         config.flf_lattice_tool.network.recognizer.recognizer.optimize_lattice = True
         if lm_lookahead:
             if "history_limit" in la_opts:
@@ -418,9 +370,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
                     "history_limit"
                 ]
             if "tree_cutoff" in la_opts:
-                config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.tree_cutoff = la_opts[
-                    "tree_cutoff"
-                ]
+                config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.tree_cutoff = la_opts["tree_cutoff"]
             if "minimum_representation" in la_opts:
                 config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.minimum_representation = la_opts[
                     "minimum_representation"
@@ -441,9 +391,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
         # flf network #
         config.flf_lattice_tool.network.initial_nodes = "segment"
         config.flf_lattice_tool.network.segment.type = "speech-segment"
-        config.flf_lattice_tool.network.segment.links = (
-            "1->recognizer:1 0->archive-writer:1 0->evaluator:1"
-        )
+        config.flf_lattice_tool.network.segment.links = "1->recognizer:1 0->archive-writer:1 0->evaluator:1"
 
         config.flf_lattice_tool.network.recognizer.type = "recognizer"
         config.flf_lattice_tool.network.recognizer.search_type = "label-sync-search"
@@ -456,9 +404,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
             config.flf_lattice_tool.network.expand.type = "expand-transits"
             config.flf_lattice_tool.network.expand.links = "evaluator archive-writer"
         else:
-            config.flf_lattice_tool.network.recognizer.links = (
-                "evaluator archive-writer"
-            )
+            config.flf_lattice_tool.network.recognizer.links = "evaluator archive-writer"
 
         config.flf_lattice_tool.network.evaluator.type = "evaluator"
         config.flf_lattice_tool.network.evaluator.links = "sink:0"
@@ -466,9 +412,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
         config.flf_lattice_tool.network.evaluator.single_best = eval_single_best
         config.flf_lattice_tool.network.evaluator.best_in_lattice = eval_best_in_lattice
         config.flf_lattice_tool.network.evaluator.edit_distance.format = "bliss"
-        config.flf_lattice_tool.network.evaluator.edit_distance.allow_broken_words = (
-            False
-        )
+        config.flf_lattice_tool.network.evaluator.edit_distance.allow_broken_words = False
 
         config.flf_lattice_tool.network.archive_writer.type = "archive-writer"
         config.flf_lattice_tool.network.archive_writer.links = "sink:1"
@@ -487,9 +431,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
 
         # image and cache #
         arpa_lms = LabelSyncSearchLmImageAndGlobalCacheJob.find_arpa_lms(config)
-        assert (
-            len(arpa_lms) == lm_gc_job.num_images
-        ), "mismatch between image-cache config and recognition config"
+        assert len(arpa_lms) == lm_gc_job.num_images, "mismatch between image-cache config and recognition config"
         for i, lm_config in enumerate(arpa_lms):
             lm_config.image = lm_gc_job.lm_images[i + 1]
 

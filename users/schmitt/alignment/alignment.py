@@ -4,6 +4,7 @@ from recipe.i6_core.util import create_executable
 from recipe.i6_core.rasr.config import build_config_from_mapping
 from recipe.i6_core.rasr.command import RasrCommand
 from i6_core.returnn.config import ReturnnConfig
+from i6_core.returnn.forward import ReturnnForwardJob
 
 from sisyphus import Path
 
@@ -180,11 +181,11 @@ class AlignmentStatisticsJob(Job):
 
   def run(self):
     command = [
-      self.returnn_python_exe,
+      self.returnn_python_exe.get_path(),
       os.path.join(tools_dir, "segment_statistics.py"),
-      tk.uncached_path(self.alignment),
+      self.alignment.get_path(),
       "--blank-idx", str(self.blank_idx), "--sil-idx", str(self.silence_idx),
-      "--returnn-root", self.returnn_root
+      "--returnn-root", self.returnn_root.get_path()
     ]
 
     if self.seq_list_filter_file:
@@ -287,15 +288,22 @@ class AlignmentCenterSegBoundaryJob(Job):
     shutil.move("out_alignment", self.out_align.get_path())
 
 
-class AlignmentAddEOSJob(Job):
-  def __init__(self, hdf_align_path, segment_file, blank_idx, eos_idx,
-               returnn_python_exe=None, returnn_root=None):
+class AlignmentAddEosJob(Job):
+  def __init__(
+          self,
+          hdf_align_path: Path,
+          segment_file: Path,
+          blank_idx: int,
+          eos_idx: int,
+          returnn_python_exe: Path,
+          returnn_root: Path,
+  ):
+    self.returnn_root = returnn_root
+    self.returnn_python_exe = returnn_python_exe
     self.blank_idx = blank_idx
     self.eos_idx = eos_idx
     self.hdf_align_path = hdf_align_path
     self.segment_file = segment_file
-    self.returnn_python_exe = (returnn_python_exe if returnn_python_exe is not None else gs.RETURNN_PYTHON_EXE)
-    self.returnn_root = (returnn_root if returnn_root is not None else gs.RETURNN_ROOT)
 
     self.out_align = self.output_path("out_align")
     self.out_keep_seqs = self.output_path("out_keep_seqs")
@@ -306,14 +314,16 @@ class AlignmentAddEOSJob(Job):
 
   def run(self):
     command = [
-      self.returnn_python_exe,
+      self.returnn_python_exe.get_path(),
       os.path.join(tools_dir, "alignment_add_eos.py"),
       self.hdf_align_path.get_path(),
-      "--segment_file", tk.uncached_path(self.segment_file),
       "--blank_idx", str(self.blank_idx),
       "--eos_idx", str(self.eos_idx),
-      "--returnn_root", self.returnn_root
+      "--returnn_root", self.returnn_root.get_path()
     ]
+
+    if self.segment_file is not None:
+      command += ["--segment_file", self.segment_file.get_path()]
 
     create_executable("rnn.sh", command)
     subprocess.check_call(["./rnn.sh"])
@@ -364,9 +374,9 @@ class ReduceAlignmentJob(Job):
 
 
 class DumpNonBlanksFromAlignmentJob(Job):
-  def __init__(self, alignment, blank_idx=0, time_rqmt=2, returnn_python_exe=None, returnn_root=None):
-    self.returnn_python_exe = (returnn_python_exe if returnn_python_exe is not None else gs.RETURNN_PYTHON_EXE)
-    self.returnn_root = (returnn_root if returnn_root is not None else gs.RETURNN_ROOT)
+  def __init__(self, alignment: Path, returnn_python_exe: Path, returnn_root: Path, blank_idx=0, time_rqmt=2):
+    self.returnn_python_exe = returnn_python_exe
+    self.returnn_root = returnn_root
 
     self.alignment = alignment
     self.blank_idx = blank_idx
@@ -382,11 +392,11 @@ class DumpNonBlanksFromAlignmentJob(Job):
 
   def run(self):
     command = [
-      self.returnn_python_exe,
+      self.returnn_python_exe.get_path(),
       os.path.join(tools_dir, "alignment_dump_non_blanks.py"),
       self.alignment.get_path(),
       "--blank_idx", str(self.blank_idx),
-      "--returnn-root", self.returnn_root
+      "--returnn-root", self.returnn_root.get_path()
     ]
 
     create_executable("rnn.sh", command)
@@ -582,10 +592,58 @@ class ChooseBestAlignmentJob(Job):
       "--align2_hdf_path", self.align2_hdf_path.get_path(),
       "--label_name", self.label_name,
       "--blank_idx", str(self.blank_idx),
+      "--output_path", self.out_hdf_align.get_path(),
       "--returnn_root", self.returnn_root
     ]
 
     create_executable("rnn.sh", command)
     subprocess.check_call(["./rnn.sh"])
 
-    shutil.move("out_hdf_align", self.out_hdf_align.get_path())
+    # shutil.move("out_hdf_align", self.out_hdf_align.get_path())
+
+
+class AlignmentRemoveAllBlankSeqsJob(Job):
+  """
+  Goes through HDF file with alignment sequences and returns another HDF file, which only contains the alignments
+  with at least one non-blank label.
+  """
+  def __init__(
+          self,
+          hdf_align_path: Path,
+          blank_idx: int,
+          returnn_python_exe: Path,
+          returnn_root: Path,
+  ):
+    self.returnn_root = returnn_root
+    self.returnn_python_exe = returnn_python_exe
+    self.blank_idx = blank_idx
+    self.hdf_align_path = hdf_align_path
+
+    self.out_align = self.output_path("out_align")
+    self.out_segment_file = self.output_path("out_segment_file")
+
+  def tasks(self):
+    yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
+
+  def run(self):
+    command = [
+      self.returnn_python_exe.get_path(),
+      os.path.join(tools_dir, "alignment_remove_all_blank_seqs.py"),
+      self.hdf_align_path.get_path(),
+      "--blank_idx", str(self.blank_idx),
+      "--returnn_root", self.returnn_root.get_path()
+    ]
+
+    create_executable("rnn.sh", command)
+    subprocess.check_call(["./rnn.sh"])
+
+    shutil.move("out_alignment", self.out_align.get_path())
+    shutil.move("out_segment_file", self.out_segment_file.get_path())
+
+
+def extract_ctc_alignment(
+        returnn_config: ReturnnConfig,
+        ctc_layer_name: str,
+        topology: str
+):
+  pass

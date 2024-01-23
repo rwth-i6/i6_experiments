@@ -3,6 +3,7 @@ from typing import Dict
 from sisyphus import Path
 from i6_core import corpus as corpus_recipe
 from i6_core import text
+from i6_core.returnn.config import CodeWrapper
 from i6_core.returnn.oggzip import BlissToOggZipJob
 from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00
 from i6_experiments.common.setups.rasr.gmm_system import GmmSystem
@@ -10,7 +11,12 @@ from i6_experiments.common.setups.rasr.util import OggZipHdfDataInput
 
 
 def get_corpus_data_inputs_oggzip(
-    gmm_system, partition_epoch, context_window=None, returnn_root=None, returnn_python_exe=None
+    gmm_system,
+    partition_epoch,
+    context_window=None,
+    returnn_root=None,
+    returnn_python_exe=None,
+    pre_process=None
 ):
     """
     :param GmmSystem gmm_system:
@@ -74,10 +80,16 @@ def get_corpus_data_inputs_oggzip(
     meta_args = {"data_map": {"classes": ("hdf", "data"), "data": ("ogg", "data")}}
     if context_window is not None:
         meta_args["context_window"] = context_window
+    audio = {
+            "features": "raw",
+            "peak_normalization": True
+        }
+    if pre_process is not None:
+        audio["pre_process"] = pre_process
     ogg_zip_base_args = dict(
         oggzip_files=[ogg_zip_job.out_ogg_zip],
         alignments=[],
-        audio={"features": "raw", "peak_normalization": True},
+        audio=audio,
         meta_args=meta_args,
         acoustic_mixtures=gmm_system.outputs["switchboard"]["final"].acoustic_mixtures,
     )

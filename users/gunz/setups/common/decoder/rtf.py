@@ -63,7 +63,7 @@ class ExtractSearchStatisticsJob(Job):
         eval_statistics = {}
 
         for path in self.search_logs:
-            with gzip.open(tk.uncached_path(path), "rt") as f:
+            with gzip.open(path, "rt") as f:
                 root = ET.fromstring(f.read())
             host = root.findall("./system-information/name")[0].text
             elapsed = float(root.findall("./timer/elapsed")[0].text)
@@ -146,6 +146,8 @@ class ExtractSearchStatisticsJob(Job):
             count, frames = ss_statistics[s]
             ss_statistics[s] = count / frames
 
+        tf_fwd_rtf = ss_statistics.get("tf_fwd", 0)
+
         self.elapsed_time.set(total_elapsed / 3600.0)
         self.user_time.set(total_user / 3600.0)
         self.system_time.set(total_system / 3600.0)
@@ -161,7 +163,9 @@ class ExtractSearchStatisticsJob(Job):
         self.rescoring_rtf.set(rescoring_time / (3600.0 * 1000.0 * self.corpus_duration))
         self.tf_lm_time.set(lm_time / (3600.0 * 1000.0))
         self.tf_lm_rtf.set(lm_time / (3600.0 * 1000.0 * self.corpus_duration))
-        self.decoding_rtf.set((recognizer_time + rescoring_time) / (3600.0 * 1000.0 * self.corpus_duration))
+        self.decoding_rtf.set(
+            tf_fwd_rtf + ((recognizer_time + rescoring_time) / (3600.0 * 1000.0 * self.corpus_duration))
+        )
         self.ss_statistics.set(dict(ss_statistics.items()))
         self.seq_ss_statistics.set(seq_ss_statistics)
         self.eval_statistics.set(eval_statistics)

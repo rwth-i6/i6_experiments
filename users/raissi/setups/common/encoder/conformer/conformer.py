@@ -1,44 +1,51 @@
 __all__ = ["get_best_conformer_network"]
 
-from typing import Optional
+from typing import Any, Optional, Union
 
 
-from i6_experiments.users.raissi.common.encoder.conformer.best_conformer import get_best_model_config, Size
-from i6_experiments.users.raissi.common.helpers.network.augment import Network
-from i6_experiments.users.raissi.common.helpers.train import returnn_time_tag
+from i6_experiments.users.raissi.setups.common.encoder.conformer.best_setup import get_best_model_config, Size
+from i6_experiments.users.raissi.setups.common.encoder.conformer.transformer_network import attention_for_hybrid
+from i6_experiments.users.raissi.setups.common.helpers.train import returnn_time_tag
+from i6_experiments.users.raissi.setups.common.encoder.conformer.layers import DEFAULT_INIT
+
 
 def get_best_conformer_network(
-    size: typing.Union[Size, int],
+    size: Union[Size, int],
     num_classes: int,
+    num_input_feature: int,
     *,
     time_tag_name: Optional[str] = None,
     chunking: Optional[str] = None,
-    focal_loss_factor: Optional[float] = None,
     int_loss_at_layer: Optional[int] = None,
     int_loss_scale: Optional[float] = None,
-    label_smoothing: float = 0.2,
+    label_smoothing: float = 0.0,
     leave_cart_output: bool = False,
     target: str = "classes",
-) -> Network:
-    if time_tag_name is None:
-        _, time_tag_name = returnn_time_tag.get_shared_time_tag()
-    conformer_net = get_cfg(
-        num_classes=num_classes,
+    upsample_by_transposed_conv: bool = True,
+    feature_stacking_size: int = 3,
+    weights_init: str = DEFAULT_INIT,
+    additional_args: Optional[Any] = None,
+) -> attention_for_hybrid:
+    conformer_net = get_best_model_config(
         size=size,
+        num_classes=num_classes,
+        num_input_feature=num_input_feature,
         chunking=chunking,
-        focal_loss_factor=focal_loss_factor,
         int_loss_at_layer=int_loss_at_layer,
         int_loss_scale=int_loss_scale,
         label_smoothing=label_smoothing,
         target=target,
         time_tag_name=time_tag_name,
+        upsample_by_transposed_conv=upsample_by_transposed_conv,
+        feature_stacking_size=feature_stacking_size,
+        weights_init=weights_init,
+        additional_args=additional_args,
     )
 
     if not leave_cart_output:
-        conformer_net.network.pop("output", None)
-        conformer_net.network["encoder-output"] = {
-            "class": "copy",
-            "from": "length_masked",
-        }
+        cart_out = conformer_net.network.pop("output")
+        last_layer = cart_out["from"][0]
+
+        conformer_net.network["encoder-output"] = {"class": "copy", "from": last_layer}
 
     return conformer_net

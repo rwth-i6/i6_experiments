@@ -9,6 +9,7 @@ import tempfile
 import shutil
 import ast
 import json
+import xml.etree.ElementTree as ET
 
 
 class RASRLatticeToCTMJob(Job):
@@ -23,7 +24,7 @@ class RASRLatticeToCTMJob(Job):
     self.out_ctm = self.output_path("lattice.ctm.1")
 
   def tasks(self):
-    yield Task("run", rqmt={"cpu": 1, "mem": self.mem_rqmt, "time": self.time_rqmt})
+    yield Task("run", rqmt={"cpu": 1, "mem": self.mem_rqmt, "time": self.time_rqmt}, mini_task=True)
 
   def run(self):
     config, post_config = build_config_from_mapping(self.crp, {
@@ -109,7 +110,7 @@ class BPEJSONVocabToRasrFormatsJob(Job):
     self.out_state_tying = self.output_path("out_state_tying")
 
   def tasks(self):
-    yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 1})
+    yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 1}, mini_task=True)
 
   def run(self):
     # load json vocab
@@ -172,7 +173,7 @@ class PhonJSONVocabToRasrFormatsJob(Job):
     self.out_state_tying = self.output_path("out_state_tying")
 
   def tasks(self):
-    yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 1})
+    yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 1}, mini_task=True)
 
   def run(self):
     # load json vocab
@@ -240,3 +241,75 @@ class PhonJSONVocabToRasrFormatsJob(Job):
 
     with open(self.out_state_tying.get_path(), "w+") as f:
       f.writelines(state_tying)
+
+
+class JsonSubwordVocabToLexiconJob(Job):
+  """
+  Takes a json vocab file (mapping from subword to idx) and creates a lexicon with one lemma for each subword.
+  The resulting lexicon only has lemmas and no phonemes.
+  """
+
+  def __init__(self, json_vocab_path, blank_idx):
+    self.blank_idx = blank_idx
+    self.json_vocab_path = json_vocab_path
+    self.out_lexicon = self.output_path("out_lexicon")
+
+  def tasks(self):
+    yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 1}, mini_task=True)
+
+  @staticmethod
+  def make_base_lexicon_xml(phoneme_list=None, unk_token='<unk>', unk_pronunciation=None):
+    root = ET.Element('lexicon')
+    tree = ET.ElementTree(root)
+    # list of phonemes(or bpes)
+    if phoneme_list is not None:
+      pI = ET.SubElement(root, 'phoneme-inventory')
+      for phon in phoneme_list:
+        phoneme = ET.SubElement(pI, 'phoneme')
+        symbol = ET.SubElement(phoneme, 'symbol')
+        symbol.text = phon
+        # var = ET.SubElement(phoneme, 'variation')
+        # var.text = 'none'
+    else:
+      comment = ET.Comment('no phoneme-inventory')
+      root.append(comment)
+
+    # special lemma #
+    special_lemma_dict = [('sentence-begin', '<s>', None),
+                        ('sentence-end', '</s>', None),
+                        ('unknown', unk_token, unk_pronunciation)
+                        ]  # no silence
+    for sp_lemma, token, pron in special_lemma_dict:
+      lemma = ET.SubElement(root, 'lemma', {"special": sp_lemma})
+      orth = ET.SubElement(lemma, 'orth')
+      # orth.text = '['+spLemma.upper()+']'
+      orth.text = token
+      if pron is not None:
+        phon = ET.SubElement(lemma, 'phon')
+        phon.text = pron
+      synt = ET.SubElement(lemma, 'synt')
+      if token is None:
+        ET.SubElement(lemma, 'eval')
+      else:
+        tok = ET.SubElement(synt, 'tok')
+        tok.text = token
+
+    return root, tree
+
+  def run(self):
+    root, tree = self.make_base_lexicon_xml()
+    with open(self.json_vocab_path.get_path(), "r") as f:
+      vocab = ast.literal_eval(f.read())
+    special_tokens = ['<s>', '</s>', '<unk>']
+
+    for v in sorted(vocab.keys()):
+      if v in special_tokens:
+        continue
+      lemma = ET.SubElement(root, 'lemma')
+      orth = ET.SubElement(lemma, 'orth')
+      orth.text = v
+
+    tree.write("lexicon", encoding='UTF-8', xml_declaration=True)
+    cmd = ["xmllint", "--format", "lexicon", "-o", "lexicon"]
+    subprocess.check_call(cmd)
+    shutil.move("lexicon", self.out_lexicon.get_path())

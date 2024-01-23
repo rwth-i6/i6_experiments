@@ -60,7 +60,7 @@ class SmoothenPriorsJob(Job):
     def run(self):
         parse_result = read_prior_xml(self.prior_xml)
 
-        priors = np.exp(np.array(parse_result.priors_log).reshape(parse_result.shape))
+        priors = np.exp(parse_result.priors_log).reshape(parse_result.shape)
 
         zero_priors = priors == 0
         print(f"smoothing {zero_priors.size} priors to {self.zero_weight:.2E}")

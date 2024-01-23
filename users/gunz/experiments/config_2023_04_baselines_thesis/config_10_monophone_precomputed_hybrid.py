@@ -401,7 +401,7 @@ def run_single(
 
                 decoder.recognition(
                     name=s.experiments[key]["name"],
-                    checkpoints={epoch: s._get_model_path(s.experiments[key]["train_job"], epoch)},
+                    checkpoints={epoch: s._get_model_checkpoint(s.experiments[key]["train_job"], epoch)},
                     epochs=[epoch],
                     forward_output_layer="center__output",
                     prior_paths={

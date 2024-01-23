@@ -50,7 +50,7 @@ def augment_for_center_state(
         "available_for_inference": True,
         "dim": label_info.get_n_state_classes() * num_ctx,
         "sparse": True,
-        "same_dim_tags_as": extern_data["classes"]["same_dim_tags_as"],
+        "same_dim_tags_as": extern_data["data"]["same_dim_tags_as"],
         "dtype": "int32",
     }
 
@@ -122,7 +122,7 @@ def augment_for_right_context(
         "available_for_inference": True,
         "dim": label_info.get_n_of_dense_classes(),
         "sparse": True,
-        "same_dim_tags_as": extern_data["classes"]["same_dim_tags_as"],
+        "same_dim_tags_as": extern_data["data"]["same_dim_tags_as"],
         "dtype": "int32",
     }
 
@@ -201,6 +201,9 @@ def get_returnn_config_for_left_context_prior_estimation(
     # Left Context does not need any network modifications
     left_context_config = copy.deepcopy(config_in)
     left_context_config.config["forward_output_layer"] = left_context_softmax_layer
+    left_context_config.config["network"][left_context_softmax_layer][
+        "register_as_extern_data"
+    ] = left_context_softmax_layer
     if left_context_batch_size is not None:
         left_context_config.config["batch_size"] = left_context_batch_size
 
