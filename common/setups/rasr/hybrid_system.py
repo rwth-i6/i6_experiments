@@ -43,7 +43,6 @@ from .util import (
 Path = tk.setup_path(__package__)
 
 # -------------------- System --------------------
-    return "\n".join([f"{pair[0]}:  {str(pair[1])}" for pair in out])
 
 
 class HybridSystem(NnSystem):
