@@ -167,6 +167,8 @@ def get_relevant_epochs_from_training_learning_rate_scores(
         The function should only really be called once when the scores_and_learning_rates becomes available,
         so it should not be a problem to always enable this.
     """
+    if n_best == 0:
+        return set()
     if log_stream is None:
         log_stream = open(os.devnull, "w")
     print(f"Check relevant epochs in {model_dir.get_path()}", file=log_stream)

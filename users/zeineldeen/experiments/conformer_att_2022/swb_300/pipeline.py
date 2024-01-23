@@ -10,7 +10,15 @@ from .default_tools import SCTK_BINARY_PATH
 
 
 def training(
-    prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs, mem_rqmt=15, time_rqmt=168, gpu_mem=None
+    prefix_name,
+    returnn_config,
+    returnn_exe,
+    returnn_root,
+    num_epochs,
+    mem_rqmt=15,
+    time_rqmt=168,
+    gpu_mem=None,
+    horovod_num_processes=None,
 ):
     """
 
@@ -28,7 +36,12 @@ def training(
         "returnn_root": returnn_root,
     }
 
-    train_job = ReturnnTrainingJob(returnn_config=returnn_config, num_epochs=num_epochs, **default_rqmt)
+    train_job = ReturnnTrainingJob(
+        returnn_config=returnn_config,
+        num_epochs=num_epochs,
+        horovod_num_processes=horovod_num_processes,
+        **default_rqmt
+    )
     if gpu_mem:
         assert gpu_mem in [11, 24]
         train_job.rqmt["gpu_mem"] = gpu_mem

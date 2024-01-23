@@ -142,7 +142,7 @@ def get_fairseq_args(num_gpus=1):
 def main():
     prefix_name = "experiments/librispeech/librispeech_960_pretraining/wav2vec2/"
     # run pre-training
-    exp_name = "base"
+    exp_name = "base_old_recipe"
     fairseq_args = get_fairseq_args(num_gpus=8)
     fairseq_config = FairseqHydraConfig(fairseq_args)
     fairseq_root = get_fairseq_root()

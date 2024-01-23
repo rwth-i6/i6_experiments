@@ -1,3 +1,4 @@
+import copy
 from typing import Dict
 
 
@@ -58,24 +59,23 @@ def blstm_network(
     return result
 
 
-def add_subsmapling_via_max_pooling(network_dict: Dict, pool_factor: int = 2, num_layers: int = None) -> Dict:
-    num_layers_ = num_layers if num_layers is not None else min(pool_factor % 3 + 1, 2)
-    for i in range(num_layers_):
-        l_n = i + 2
+def add_subsmapling_via_max_pooling(network_dict: Dict, pool_factor: int = 2, num_pool_layers: int = None) -> Dict:
+    network_dict_ = copy.deepcopy(network_dict)
+    num_pool_layers = num_pool_layers if num_pool_layers is not None else min(pool_factor % 3 + 1, 2)
+    for i in range(num_pool_layers):
+        l_n = i + 1
         for pre_name in ["fwd", "bwd"]:
-            network_dict[f"{pre_name}_{l_n}"]["from"] = f"max_pool_{i+1}"
-        network_dict[f"max_pool_{i+1}"] = (
-            {
-                "class": "pool",
-                "from": [f"fwd_{i+2}", f"bwd_{i+2}"],
-                "mode": "max",
-                "padding": "same",
-                "pool_size": (pool_factor,),
-                "trainable": False,
-            },
-        )
+            network_dict_[f"{pre_name}_{i+3}"]["from"] = f"max_pool_{i+1}"
+        network_dict_[f"max_pool_{l_n}"] = {
+            "class": "pool",
+            "from": [f"fwd_{i+2}", f"bwd_{i+2}"],
+            "mode": "max",
+            "padding": "same",
+            "pool_size": (pool_factor,),
+            "trainable": False,
+        }
 
-    return network_dict
+    return network_dict_
 
 
 def add_subsampling_via_feature_stacking(network_dict: Dict, stride_factor: int = 3):

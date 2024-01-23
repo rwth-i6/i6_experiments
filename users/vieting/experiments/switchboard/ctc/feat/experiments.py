@@ -2,6 +2,7 @@ import copy
 import os.path
 from sisyphus import tk, gs
 from sisyphus.delayed_ops import DelayedFormat
+from typing import Any, Dict
 
 from i6_core.meta.system import CorpusObject
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
@@ -27,7 +28,7 @@ from .data import get_corpus_data_inputs_oggzip  # TODO: might be copied here fo
 from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT, RETURNN_EXE, SCTK_BINARY_PATH
 
 
-def get_datasets(**kwargs):
+def get_datasets(use_multi_proc_dataset=False, **kwargs):
     gmm_system = run_gmm_system_from_common()
 
     # TODO: get oggzip independent of GMM system
@@ -55,6 +56,14 @@ def get_datasets(**kwargs):
             "devtrain": nn_devtrain_data_inputs["switchboard.devtrain"].get_data_dict()["datasets"]["ogg"],
         },
     }
+
+    if use_multi_proc_dataset:
+        returnn_datasets["train"] = {
+            "class": "MultiProcDataset",
+            "dataset": nn_train_data_inputs["switchboard.train"].get_data_dict()["datasets"]["ogg"],
+            "num_workers": 2,
+            "buffer_size": 5,
+        }
 
     lexicon = gmm_system.crp["switchboard"].lexicon_config.file
     lexicon = DeleteEmptyOrthJob(lexicon).out_lexicon
@@ -759,6 +768,131 @@ def run_scf_baseline():
         num_epochs=450,
         evaluation_epochs=[350, 400, 450],
         prefix="conformer_bs2x5k_",
+    )
+
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
+    ).out_repository
+    returnn_root.hash_overwrite = "returnn_conv_padding"
+    report = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        returnn_root=returnn_root,
+        recog_args={"epochs": [350, 400, 450, "best"]},
+    )
+    return report
+
+
+def run_scf_audio_perturbation():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
+
+    (
+        returnn_datasets,
+        rasr_loss_corpus_path,
+        rasr_loss_corpus_segments,
+        rasr_loss_lexicon_path,
+        dev_corpora,
+    ) = get_datasets(use_multi_proc_dataset=True, pre_process=CodeWrapper("audio_perturb_runner.run"))
+    returnn_args = {
+        "batch_size": 5000,
+        "rasr_binary_path": RASR_BINARY_PATH,
+        "rasr_loss_corpus_path": rasr_loss_corpus_path,
+        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
+        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
+        "datasets": returnn_datasets,
+        "conformer_type": "wei",
+        "specaug_old": {"max_feature": 15},
+        "audio_perturbation": True,
+        "use_multi_proc_dataset": True,
+    }
+    feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+    lr_args = {
+        "peak_lr": 4e-4,
+        "start_lr": 1.325e-05,
+        "end_lr": 1e-5,
+        "increase_epochs": 180,
+        "decrease_epochs": 180,
+        "final_epochs": 0,
+    }
+
+    perturbation_args = [
+        {"speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12}},
+        {"speed": {"prob": 0.6, "minimum": 0.8, "maximum": 1.2}},
+        {"speed": {"prob": 0.6, "minimum": 0.9, "maximum": 1.1}},
+        {"speed": {"prob": 0.5, "minimum": 0.88, "maximum": 1.12}},
+        {"speed": {"prob": 0.4, "minimum": 0.88, "maximum": 1.12}},
+        {"tempo": {"prob": 0.4, "minimum": 0.83, "maximum": 1.17}},
+        {"tempo": {"prob": 0.5, "minimum": 0.83, "maximum": 1.17}},
+        {"tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17}},
+        {"tempo": {"prob": 0.6, "minimum": 0.9, "maximum": 1.1}},
+        {"tempo": {"prob": 0.6, "minimum": 0.8, "maximum": 1.2}},
+        {"preemphasis": {"prob": 0.9, "minimum": 0.9, "maximum": 1.0}},
+        {"preemphasis": {"prob": 1.0, "minimum": 1.0, "maximum": 1.0}},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.4}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.6}]},
+        {"non_linearity": {"prob": 0.4, "minimum": 0.9, "maximum": 1.1}},
+        {"non_linearity": {"prob": 0.4, "minimum": 0.8, "maximum": 1.2}},
+        {"non_linearity": {"prob": 0.6, "minimum": 0.9, "maximum": 1.1}},
+        {"non_linearity": {"prob": 0.6, "minimum": 0.8, "maximum": 1.2}},
+    ]
+
+    def process_args(args: Dict[str, Any]):
+        """
+        Process the argument dictionary to generate a key string and a report string.
+
+        Returns:
+            tuple: A tuple containing the key string and the report string.
+        """
+
+        key_string = ""
+        report_dict = {}
+
+        for key, value in args.items():
+
+            if key in ["speed", "tempo", "preemphasis", "non_linearity"]:
+                key_component = f"{key}_{value['prob']}_{value['minimum']}_{value['maximum']}"
+                key_string += key_component
+                report_dict[key] = f"{value['prob']}_{value['minimum']}_{value['maximum']}"
+            elif key == "codecs":
+                codecs_str = "_".join([f"{codec['encoding']}_{codec['prob']}" for codec in value])
+                key_string += f"{key}_{codecs_str}_"
+                report_dict[key] = codecs_str
+            else:
+                raise ValueError(f"Unknown argument name: {key}")
+
+        return key_string, report_dict
+
+    nn_base_args = {}
+
+    for args in perturbation_args:
+        exp_name_suffix, report_dict = process_args(args)
+
+        # Construct the exp_name and report_args
+        exp_name = f"scf_bs2x5k_perturb_{exp_name_suffix}"
+        report_args = report_dict
+        nn_base_args[exp_name] = dict(
+            returnn_args={
+                "extra_args": {
+                    "audio_perturb_args": args,
+                    "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
+                    "conv_pad_seq_len_to_power": 1.5,
+                    "watch_memory": True,
+                    "accum_grad_multiple_step": 2,
+                },
+                **returnn_args,
+            },
+            feature_args=feature_args,
+            lr_args=lr_args,
+            report_args=report_args,
+        )
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args=nn_base_args,
+        num_epochs=450,
+        evaluation_epochs=[350, 400, 450],
+        prefix="conformer_",
     )
 
     returnn_root = CloneGitRepositoryJob(

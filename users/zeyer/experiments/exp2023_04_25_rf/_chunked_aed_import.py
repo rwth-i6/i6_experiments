@@ -14,7 +14,7 @@ from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpoi
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, batch_dim, TensorDict
 
-from .chunked_aed_import import Model, MakeModel, from_scratch_training, model_recog
+from .chunked_aed_import import Model, MakeModel, from_scratch_training, model_recog_v2
 from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 
 # libri: C=20, R=15:
@@ -251,25 +251,32 @@ def test_import_forward():
     debug.init_faulthandler()
     better_exchook.install()
 
-    from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
+    from .chunked_conformer import (
+        ChunkedConformerEncoder,
+        ChunkedConformerEncoderLayer,
+        ChunkedRelPosSelfAttention,
+        _mem_chunks,
+    )
     from pprint import pprint
 
     # Pick some layers to check outputs for equality.
     # See the func tracing logic below, entries in captured_tensors.
     # RETURNN layer name -> trace point in RF/PT model forwarding.
     _layer_mapping = {
-        "source": (Model.encode, 0, "source", -1),
-        "conv_merged": (ConformerEncoder.__call__, 0, "x_subsample", 0),
-        "source_linear": (ConformerEncoder.__call__, 0, "x_linear", 0),
-        "conformer_block_01_ffmod_1_drop2": (ConformerEncoderLayer.__call__, 0, "x_ffn1", 0),
-        "conformer_block_01_ffmod_1_res": (ConformerEncoderLayer.__call__, 0, "x_ffn1_out", 0),
-        "conformer_block_01_self_att_ln": (ConformerEncoderLayer.__call__, 0, "x_mhsa_ln", 0),
-        "conformer_block_01_self_att_linear": (ConformerEncoderLayer.__call__, 0, "x_mhsa", 0),
-        "conformer_block_01_self_att_res": (ConformerEncoderLayer.__call__, 0, "x_mhsa_out", 0),
-        "conformer_block_01_conv_mod_res": (ConformerEncoderLayer.__call__, 0, "x_conv_out", 0),
-        "conformer_block_01_ffmod_2_res": (ConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
-        "conformer_block_01": (ConformerEncoderLayer.__call__, 1, "inp", 0),
-        "encoder": (Model.encode, 0, "enc", 0),
+        "source": (Model.encode, 0, "source", -2),
+        "_input_chunked": (Model.encode, 0, "source", -1),
+        "conv_merged": (ChunkedConformerEncoder.__call__, 0, "x_subsample", 0),
+        "source_linear": (ChunkedConformerEncoder.__call__, 0, "x_linear", 0),
+        "conformer_block_01_ffmod_1_drop2": (ChunkedConformerEncoderLayer.__call__, 0, "x_ffn1", 0),
+        "conformer_block_01_ffmod_1_res": (ChunkedConformerEncoderLayer.__call__, 0, "x_ffn1_out", 0),
+        "conformer_block_01_self_att_ln": (ChunkedConformerEncoderLayer.__call__, 0, "x_mhsa_ln", 0),
+        # "conformer_block_01_self_att_ln_K_H": (ChunkedRelPosSelfAttention.__call__, 0, "k", 0),
+        "conformer_block_01_self_att_linear": (ChunkedConformerEncoderLayer.__call__, 0, "x_mhsa", 0),
+        "conformer_block_01_self_att_res": (ChunkedConformerEncoderLayer.__call__, 0, "x_mhsa_out", 0),
+        "conformer_block_01_conv_mod_res": (ChunkedConformerEncoderLayer.__call__, 0, "x_conv_out", 0),
+        "conformer_block_01_ffmod_2_res": (ChunkedConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
+        "conformer_block_01": (ChunkedConformerEncoderLayer.__call__, 1, "inp", 0),
+        "encoder": (Model.encode, 0, "enc", -1),
         "enc_ctx": (Model.encode, 0, "enc_ctx", 0),
         "output/prev:target_embed": (from_scratch_training, 0, "input_embeddings", -1),
         # Note: Some of these commented-out checks are not available anymore because we cleaned up the code.
@@ -280,7 +287,7 @@ def test_import_forward():
         # "output/energy": (from_scratch_training, 0, "energy", 0),
         # "output/att_weights": (from_scratch_training, 0, "att_weights", 0),
         "output/att": (Model.decode_logits, 0, "att", 0),
-        "output/output_prob": (from_scratch_training, 0, "logits", 0),
+        "output/output_prob": (from_scratch_training, 0, "logits", 0),  # we rewrite that to logits below
     }
 
     from returnn.datasets.util.vocabulary import Vocabulary
@@ -322,6 +329,7 @@ def test_import_forward():
     from returnn.tensor.utils import tensor_dict_fill_random_numpy_
     from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
     from returnn.tf.network import TFNetwork
+    from returnn.tf.util import basic as tf_util
     import tensorflow as tf
     import numpy.testing
     import tempfile
@@ -335,14 +343,25 @@ def test_import_forward():
     extern_data = TensorDict()
     extern_data.update(config.typed_dict["extern_data"], auto_convert=True)
     tensor_dict_fill_random_numpy_(
-        extern_data, dyn_dim_max_sizes={time_dim: 2000}, dyn_dim_min_sizes={time_dim: 1000}
+        extern_data,
+        dyn_dim_max_sizes={target_spatial_dim: 20, time_dim: 100_000},
+        dyn_dim_min_sizes={target_spatial_dim: 10, time_dim: 10_000},
     )  # raw sample level
+    extern_data.data["audio_features"].raw_tensor *= 0.1  # raw audio samples are usually a bit smaller
+    # Make sure we have some end-of-chunk (EOC, blank) labels in it.
+    extern_data.data["bpe_labels"].raw_tensor[0, 2] = target_dim.vocab.eos_label_id
+    extern_data.data["bpe_labels"].raw_tensor[0, 6] = target_dim.vocab.eos_label_id
+    extern_data.data["bpe_labels"].raw_tensor[1, 3] = target_dim.vocab.eos_label_id
     extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
     extern_data.reset_content()
 
+    # Make it logits, because that is what we compare and expect.
+    config.typed_dict["network"]["output"]["unit"]["output_prob"].update({"class": "linear", "activation": None})
+
     tf1 = tf.compat.v1
     with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
-        net = TFNetwork(config=config, train_flag=True)
+        train_flag = tf_util.get_global_train_flag_placeholder()
+        net = TFNetwork(config=config, train_flag=train_flag)
         net.construct_from_dict(config.typed_dict["network"])
         if _load_existing_ckpt_in_test:
             ckpt_path = _get_tf_checkpoint_path()
@@ -361,11 +380,14 @@ def test_import_forward():
         extern_data_tf_raw_dict = net.extern_data.as_raw_tensor_dict()
         assert set(extern_data_tf_raw_dict.keys()) == set(extern_data_numpy_raw_dict.keys())
         feed_dict = {extern_data_tf_raw_dict[k]: extern_data_numpy_raw_dict[k] for k in extern_data_numpy_raw_dict}
+        feed_dict[train_flag] = False
         fetches = net.get_fetches_dict()
         old_model_outputs_data = {}
         for old_layer_name, _ in _layer_mapping.items():
             layer = net.get_layer(old_layer_name)
             out = layer.output.copy_as_batch_major()
+            if out.batch and out.batch.base:
+                out = _tf_split_batch(out)
             old_model_outputs_data[old_layer_name] = out
             fetches["layer:" + old_layer_name] = out.placeholder
             for i, tag in enumerate(out.dim_tags):
@@ -377,7 +399,15 @@ def test_import_forward():
         old_model_outputs_fetch = session.run(fetches, feed_dict=feed_dict)
 
     def _make_new_model():
-        return MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
+        return MakeModel.make_model(
+            in_dim,
+            target_dim,
+            num_enc_layers=num_layers,
+            chunk_stride=120,
+            chunk_history=2,
+            input_chunk_size_dim=config.typed_dict["input_chunk_size_dim"],
+            end_chunk_size_dim=config.typed_dict["sliced_chunk_size_dim"],
+        )
 
     rf.select_backend_torch()
 
@@ -415,14 +445,7 @@ def test_import_forward():
 
     print("*** Forwarding with tracing ...")
 
-    funcs_to_trace_list = [
-        Model.encode,
-        Model.decode_logits,
-        ConformerEncoder.__call__,
-        ConformerEncoderLayer.__call__,
-        ConformerConvSubsample.__call__,
-        from_scratch_training,
-    ]
+    funcs_to_trace_list = [func for (func, *_) in _layer_mapping.values()]
     code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
     captured_tensors = {}  # func -> (list of calls) -> tensor local name -> (list of versions) -> tensor
 
@@ -682,7 +705,15 @@ def test_import_search():
     print(pt_checkpoint_path)
 
     print("*** Create new model")
-    new_model = MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
+    new_model = MakeModel.make_model(
+        in_dim,
+        target_dim,
+        num_enc_layers=num_layers,
+        chunk_stride=120,
+        chunk_history=2,
+        input_chunk_size_dim=Dim(210, name="input-chunk-size"),
+        end_chunk_size_dim=Dim(20, name="sliced-chunk-size"),
+    )
 
     from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
 
@@ -707,7 +738,7 @@ def test_import_search():
 
     with torch.no_grad():
         with rf.set_default_device_ctx("cuda"):
-            seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
+            seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog_v2(
                 model=new_model,
                 data=extern_data["audio_features"],
                 data_spatial_dim=time_dim,
@@ -715,11 +746,32 @@ def test_import_search():
     print(seq_targets, seq_targets.raw_tensor)
 
 
+def _tf_split_batch(x: Tensor) -> Tensor:
+    import tensorflow as tf
+    from returnn.tf.util.data import BatchInfo
+
+    x = x.copy_as_batch_major()
+    batch_base = x.batch.get_global_base()
+    dims = []
+    for batch_virt_dim in x.batch.virtual_dims:
+        if isinstance(batch_virt_dim, BatchInfo.GlobalBatchDim):
+            dims.append(batch_base.batch_dim_tag)
+        elif isinstance(batch_virt_dim, BatchInfo.PaddedDim):
+            dims.append(batch_virt_dim.dim_tag)
+        else:
+            raise TypeError(f"{x} split batch: not handled {batch_virt_dim} ({type(batch_virt_dim)})")
+    dims.extend(x.dims[1:])
+    out = Tensor(x.name, dims=dims, dtype=x.dtype, sparse_dim=x.sparse_dim, feature_dim=x.feature_dim)
+    out.raw_tensor = tf.reshape(x.raw_tensor, [d.get_dim_value() for d in dims])
+    print(f"TF: split batch on {x} to {out}")
+    return out
+
+
 # `py` is the default sis config function name. so when running this directly, run the import test.
 # So you can just run:
 # `sis m recipe/i6_experiments/users/zeyer/experiments/....py`
-# py = test_import_search
-py = test_import_forward
+py = test_import_search
+# py = test_import_forward
 
 
 # Another way to start this:

@@ -18,6 +18,10 @@ if TYPE_CHECKING:
 
 # run directly via `sis m ...`
 def py():
+    from i6_experiments.users.zeyer import tools_paths
+
+    tools_paths.monkey_patch_i6_core()
+
     train_exp(
         "v4-f32-bs20k-accgrad4",
         config_v4_f32_bs20k,

@@ -2,7 +2,7 @@ __all__ = ["INT_LOSS_LAYER", "INT_LOSS_SCALE", "get_best_model_config", "Size"]
 
 
 from enum import Enum
-from typing import Union, Optional
+from typing import Union, Optional, Tuple
 from i6_experiments.users.raissi.setups.common.encoder.conformer.get_network_args import (
     get_encoder_args,
     get_network_args,
@@ -29,7 +29,7 @@ def get_best_model_config(
     num_classes: int,
     num_input_feature: int,
     *,
-    chunking: Optional[str] = None,
+    chunking: [str, Tuple] = None,
     int_loss_at_layer: Optional[int] = None,
     int_loss_scale: Optional[float] = None,
     label_smoothing: Optional[float] = None,
@@ -52,7 +52,10 @@ def get_best_model_config(
 
     assert model_dim % att_dim == 0, "model_dim must be divisible by number of att heads"
 
-    clipping, overlap = [int(v) for v in chunking.split(":")] if chunking is not None else (400, 200)
+    if isinstance(chunking, tuple):
+        [clipping, overlap] = [ele['data'] for ele in chunking]
+    else:
+        clipping, overlap = [int(v) for v in chunking.split(":")] if chunking is not None else (400, 200)
 
     enc_args = get_encoder_args(
         model_dim // att_dim,

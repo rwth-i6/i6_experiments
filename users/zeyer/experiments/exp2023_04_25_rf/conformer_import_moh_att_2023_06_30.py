@@ -15,10 +15,9 @@ import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
-from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
-from i6_experiments.users.zeyer.lr_schedules.lin_warmup_invsqrt_decay import dyn_lr_lin_warmup_invsqrt_decay
+from .configs import *
+from .configs import _batch_size_factor, _cfg_lrlin1e_5_295k, _get_cfg_lrlin_oclr_by_bs_nep
 from i6_experiments.users.zeyer.lr_schedules.combine_eval import dyn_lr_combine_eval
-from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
@@ -94,132 +93,124 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     train_exp("from-scratch-train", config, gpu_mem=11)
 
-    train_exp(  # dev-other 7.6
-        "base-24gb-bs30k-f32",
-        config_24gb,
-        config_updates={"batch_size": 30_000 * _batch_size_factor},
-        config_deletes=["torch_amp"],
-    )
+    # train_exp(  # dev-other 7.6
+    #     "base-24gb-bs30k-f32",
+    #     config_24gb,
+    #     config_updates={"batch_size": 30_000 * _batch_size_factor},
+    #     config_deletes=["torch_amp"],
+    # )
 
-    train_exp("base-24gb-v2-lr1e_3", config_24gb_v2, config_updates={"learning_rate": 0.001})  # dev-other 7.44
-    train_exp(  # dev-other 7.24
-        "base-24gb-v2-lr1e_3-nogradscaler", config_24gb_v2, config_updates={"learning_rate": 0.001, "grad_scaler": None}
-    )
+    # train_exp("base-24gb-v2-lr1e_3", config_24gb_v2, config_updates={"learning_rate": 1e-3})  # dev-other 7.44
+    # train_exp(  # dev-other 7.24
+    #     "base-24gb-v2-lr1e_3-nogradscaler", config_24gb_v2, config_updates={"learning_rate": 1e-3, "grad_scaler": None}
+    # )
 
     # base-24gb-v3: diverges at later point
-    train_exp(  # 7.01, slightly better than baseline.
-        "base-24gb-v3-lr1e_3-wd1e_3",
-        config_24gb_v3,
-        config_updates={"learning_rate": 0.001, "optimizer.weight_decay": 0.001},
-    )
-    train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})  # 7.56
-    train_exp(  # dev-other 7.01 (epoch 1964)
-        "base-24gb-v3-lr1e_3",
-        config_24gb_v3,
-        config_updates={"learning_rate": 0.001},
-        fine_tune=[
-            # (ep 1280 itself is dev-other 7.34)
-            (1280, {"num_epochs": 50}),  # 7.22
-            (1280, {"num_epochs": 100}),  # 7.08
-            (1280, {"num_epochs": 200}),  # 7.03
-            # (ep 2000 is 7.03, 7.31)
-            (2000, {"num_epochs": 100}),  # 6.93, 7.12
-            (2000, {"num_epochs": 200}),  # dev-other 6.84, test-other 7.06
-            (2000, {"num_epochs": 200, "final_lr": 1e-6}),  # dev-other* 6.83, test-other 7.10
-            (2000, {"num_epochs": 200, "lr_decay_type": "linspace"}),  # 6.95, 7.11
-            (2000, {"num_epochs": 200, "lr_decay_type": "linspace", "final_lr": 1e-6}),  # dev-ot 6.94, test-other* 7.01
-            (
-                2000,
-                {
-                    "num_epochs": 200,
-                    "_lr_decay_type": "L3_5_150_L7_50",  # dev-other 6.89, test-other 7.20
-                    "learning_rates": list(np.linspace(1e-3, 1e-5, num=150)) + list(np.linspace(1e-5, 1e-7, num=50)),
-                },
-            ),
-            (
-                2000,
-                {
-                    "num_epochs": 200,
-                    "_lr_decay_type": "L3_5_180_L6_20",  # dev-other 6.87, test-other 7.12
-                    "learning_rates": list(np.linspace(1e-3, 1e-5, num=180)) + list(np.linspace(1e-5, 1e-6, num=20)),
-                },
-            ),
-        ],
-    )
-    train_exp(  # dev/test-other 6.89,7.39 (overfitting on dev? base: dev/test 7.01,7.23). unclear...
-        "base-24gb-v3-lr1e_3-lrdecnorm40k",
-        config_24gb_v3,
-        config_updates={"learning_rate": 0.001, "learning_rate_invsqrt_norm": 40_000},
-    )
-    train_exp(  # 6.22 (vs base 7.01, so much better)
-        "base-24gb-v3-lr1e_3-specaugorig",
-        config_24gb_v3,
-        config_updates={"learning_rate": 0.001},
-        config_deletes=[
-            "specaugment_num_spatial_mask_factor",
-            "specaugment_max_consecutive_feature_dims",
-        ],
-    )
-    train_exp(  # 8.21 (vs base 7.01, so lossscalesF is worse)
-        "base-24gb-v3-lr1e_3-lossscalesF",
-        config_24gb_v3,
-        config_updates={"learning_rate": 0.001, "aux_loss_scales": [0.1, 0.2], "aed_loss_scale": 0.7},
-    )
+    # train_exp(  # 7.01, slightly better than baseline.
+    #     "base-24gb-v3-lr1e_3-wd1e_3",
+    #     config_24gb_v3,
+    #     config_updates={"learning_rate": 1e-3, "optimizer.weight_decay": 1e-3},
+    # )
+    # train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})  # 7.56
+    # train_exp(  # dev-other 7.01 (epoch 1964)
+    #     "base-24gb-v3-lr1e_3",
+    #     config_24gb_v3,
+    #     config_updates={"learning_rate": 1e-3},
+    #     fine_tune=[
+    #         # (ep 1280 itself is dev-other 7.34)
+    #         (1280, {"num_epochs": 50}),  # 7.22
+    #         (1280, {"num_epochs": 100}),  # 7.08
+    #         (1280, {"num_epochs": 200}),  # 7.03
+    #         # (ep 2000 is 7.03, 7.31)
+    #         (2000, {"num_epochs": 100}),  # 6.93, 7.12
+    #         (2000, {"num_epochs": 200}),  # dev-other 6.84, test-other 7.06
+    #         (2000, {"num_epochs": 200, "final_lr": 1e-6}),  # dev-other* 6.83, test-other 7.10
+    #         (2000, {"num_epochs": 200, "lr_decay_type": "linspace"}),  # 6.95, 7.11
+    #         (2000, {"num_epochs": 200, "lr_decay_type": "linspace", "final_lr": 1e-6}),  # dev-ot 6.94, test-other* 7.01
+    #         (
+    #             2000,
+    #             {
+    #                 "num_epochs": 200,
+    #                 "_lr_decay_type": "L3_5_150_L7_50",  # dev-other 6.89, test-other 7.20
+    #                 "learning_rates": list(np.linspace(1e-3, 1e-5, num=150)) + list(np.linspace(1e-5, 1e-7, num=50)),
+    #             },
+    #         ),
+    #         (
+    #             2000,
+    #             {
+    #                 "num_epochs": 200,
+    #                 "_lr_decay_type": "L3_5_180_L6_20",  # dev-other 6.87, test-other 7.12
+    #                 "learning_rates": list(np.linspace(1e-3, 1e-5, num=180)) + list(np.linspace(1e-5, 1e-6, num=20)),
+    #             },
+    #         ),
+    #     ],
+    # )
+    # train_exp(  # dev/test-other 6.89,7.39 (overfitting on dev? base: dev/test 7.01,7.23). unclear...
+    #     "base-24gb-v3-lr1e_3-lrdecnorm40k",
+    #     config_24gb_v3,
+    #     config_updates={"learning_rate": 1e-3, "learning_rate_invsqrt_norm": 40_000},
+    # )
+    # train_exp(  # 6.22 (vs base 7.01, so much better)
+    #     "base-24gb-v3-lr1e_3-specaugorig",
+    #     config_24gb_v3,
+    #     config_updates={"learning_rate": 1e-3},
+    #     config_deletes=[
+    #         "specaugment_num_spatial_mask_factor",
+    #         "specaugment_max_consecutive_feature_dims",
+    #     ],
+    # )
+    # train_exp(  # 8.21 (vs base 7.01, so lossscalesF is worse)
+    #     "base-24gb-v3-lr1e_3-lossscalesF",
+    #     config_24gb_v3,
+    #     config_updates={"learning_rate": 1e-3, "aux_loss_scales": [0.1, 0.2], "aed_loss_scale": 0.7},
+    # )
 
-    train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)  # 7.07 (vs base 7.01, so worse?)
-    train_exp(
-        "base-24gb-v4",
-        config_24gb_v4,
-        fine_tune=[
-            (2000, {"num_epochs": 200, "final_lr": 1e-6}),  # 6.84
-        ],
-    )
-    train_exp(  # 6.85 (vs base 7.07), so better, but maybe just because too less regularization in general
-        "base-24gb-v4-wdblacklist2",
-        config_24gb_v4,
-        config_updates={
-            "optimizer.weight_decay_modules_blacklist": [
-                # Difference to base-24gb-v4: weight decay also for LayerNorm and BatchNorm.
-                # The initial thought was that we maybe do it wrong, and it applies to the statistics as well.
-                # This is not the case, it only applies on the learnable parameters,
-                # and there it makes sense to apply weight decay.
-                "rf.Embedding",
-                "rf.LearnedRelativePositionalEncoding",
-            ],
-        },
-    )
-    train_exp("base-24gb-v4-lr09e_3", config_24gb_v4, config_updates={"learning_rate": 0.0009})  # 6.99 (vs base 7.07)
-    train_exp(  # 7.46 (vs base 7.07, so worse)
-        "base-24gb-v4-lrcos",
-        config_24gb_v4,
-        config_updates={
-            "dynamic_learning_rate": dyn_lr_combine_eval,
-            "learning_rate_eval": "orig * (np.cos(global_train_step / 10_000 * 2 * np.pi) * 0.49995 + 0.50005)",
-            "learning_rate_eval_locals": {"orig": dyn_lr_lin_warmup_invsqrt_decay},
-        },
-    )
-    train_exp(  # 6.48 (vs base 7.07, so much better, but this is already with fine-tuning included here)
-        "base-24gb-v4-lrlin",
-        config_24gb_v4,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [20_000, 900_000, 982_000],
-            "learning_rate_piecewise_values": [0.0, 1e-3, 1e-5, 1e-6],
-        },
-    )
-    train_exp(
-        "base-24gb-v4-lrlin1e_5_450k",
-        config_24gb_v4,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [450_000, 900_000, 982_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-        },
-    )
+    # train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)  # 7.07 (vs base 7.01, so worse?)
+    # train_exp(  # 7.07
+    #     "base-24gb-v4",
+    #     config_24gb_v4,
+    #     fine_tune=[
+    #         (2000, {"num_epochs": 200, "final_lr": 1e-6}),  # 6.84
+    #     ],
+    # )
+    # train_exp(  # 6.85 (vs base 7.07), so better, but maybe just because too less regularization in general
+    #     "base-24gb-v4-wdblacklist2",
+    #     config_24gb_v4,
+    #     config_updates={
+    #         "optimizer.weight_decay_modules_blacklist": [
+    #             # Difference to base-24gb-v4: weight decay also for LayerNorm and BatchNorm.
+    #             # The initial thought was that we maybe do it wrong, and it applies to the statistics as well.
+    #             # This is not the case, it only applies on the learnable parameters,
+    #             # and there it makes sense to apply weight decay.
+    #             "rf.Embedding",
+    #             "rf.LearnedRelativePositionalEncoding",
+    #         ],
+    #     },
+    # )
+    # train_exp("base-24gb-v4-lr09e_3", config_24gb_v4, config_updates={"learning_rate": 0.9e-3})  # 6.99 (vs base 7.07)
+    # train_exp(  # 7.46 (vs base 7.07, so worse)
+    #     "base-24gb-v4-lrcos",
+    #     config_24gb_v4,
+    #     config_updates={
+    #         "dynamic_learning_rate": dyn_lr_combine_eval,
+    #         "learning_rate_eval": "orig * (np.cos(global_train_step / 10_000 * 2 * np.pi) * 0.49995 + 0.50005)",
+    #         "learning_rate_eval_locals": {"orig": dyn_lr_lin_warmup_invsqrt_decay},
+    #     },
+    # )
+    # train_exp(  # 6.48 (vs base 7.07, so much better, but this is already with fine-tuning included here)
+    #     "base-24gb-v4-lrlin",
+    #     config_24gb_v4,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [20_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [0.0, 1e-3, 1e-5, 1e-6],
+    #     },
+    # )
+    # train_exp(  # 5.9
+    #     "base-24gb-v4-lrlin1e_5_450k", config_24gb_v4, config_updates=_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000)
+    # )
     # gn01 ("gradient_noise": 0.1), does not converge? that was with old RETURNN, gn after grad clip
     # gn01 before grad clip (new RETURNN) also does not converge.
     # train_exp(
@@ -284,9 +275,9 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
-    train_exp("base-24gb-v5", config_24gb_v5)
-    train_exp("base-24gb-v5-embInit1", config_24gb_v5, config_updates={"embed_init_stddev": 1.0})
-    train_exp(  # 6.36
+    train_exp("base-24gb-v5", config_24gb_v5)  # 6.35
+    train_exp("base-24gb-v5-embInit1", config_24gb_v5, config_updates={"embed_init_stddev": 1.0})  # 6.51
+    train_exp(  # 6.36, no effect at all?
         "base-24gb-v5-mixup",
         config_24gb_v5,
         config_updates={"mixup": {}},
@@ -294,25 +285,85 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # might be even faster?
     )
 
-    train_exp("base-24gb-v6", config_24gb_v6)
+    train_exp("base-24gb-v6", config_24gb_v6)  # 6.30
     train_exp(
-        "base-24gb-v6-lrlin1e_5_450k",
+        "base-24gb-v6-warmup100k",
+        config_24gb_v6,
+        config_updates={"learning_rate_warmup_steps": 100_000},
+        # OOM in ep 523
+        post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
+    )
+    train_exp(
+        "base-24gb-v6-lrlin1e_5_800k",
         config_24gb_v6,
         config_updates={
             "learning_rate": 1.0,
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
             # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [450_000, 900_000, 982_000],
+            "learning_rate_piecewise_steps": [800_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+    )
+    train_exp(  # 5.41
+        "base-24gb-v6-lrlin1e_5_600k",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+    )
+    # "best_scores": {"dev-clean": 2.31, "dev-other": 5.44, "test-clean": 2.64, "test-other": 5.74}, "best_epoch": 1941
+    train_exp(  # 5.44
+        "base-24gb-v6-lrlin1e_5_450k", config_24gb_v6, config_updates=_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000)
+    )
+    train_exp(
+        "base-24gb-v6-lrlin1e_5_100k",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [100_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+        # OOM in ep 582
+        post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
+    )
+    train_exp(
+        "base-24gb-v6-lrlin1e_5_50k",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [50_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+        # OOM in ep 758
+        post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
+    )
+    train_exp(  # 5.87
+        "base-24gb-v6-lrlin1e_5_20k",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [20_000, 900_000, 982_000],
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
         },
     )
 
-    train_exp(
+    train_exp(  # 6.11
         "v6-11gb-f32-bs15k-accgrad4-mgpu2",
         config_11gb_v6_f32_bs15k_accgrad4_mgpu,
         num_processes=2,  # multi-GPU
+        model_avg=True,
     )
-    train_exp(
+    train_exp(  # 5.44
         "v6-11gb-f32-bs15k-accgrad4-mgpu4-lrlin1e_5_295k",
         config_11gb_v6_f32_bs15k_accgrad4_mgpu,
         config_updates={
@@ -321,7 +372,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         num_processes=4,  # multi-GPU
         num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
     )
-    train_exp(
+    train_exp(  # 5.60
         "v6-11gb-f32-bs15k-accgrad4-mgpu4-wd1e_4-lrlin1e_5_295k",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
         config_updates={"accum_grad_multiple_step": 4},
@@ -330,25 +381,74 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-wd1e_4-lrlin1e_5_295k",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
     )
-    train_exp(
+    train_exp(  # 5.48
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg4-wd1e_4-lrlin1e_5_295k",
+        # "500": {"dev-clean": 2.29, "dev-other": 5.57, "test-clean": 2.54, "test-other": 5.59}
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
         config_updates={
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 4},  # multi-GPU
         },
     )
-    train_exp(
+    train_exp(  # 5.63
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg10-wd1e_4-lrlin1e_5_295k",
+        # "500": {"dev-clean": 2.28, "dev-other": 5.65, "test-clean": 2.56, "test-other": 5.74}
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
         config_updates={
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 10},  # multi-GPU
         },
     )
-    train_exp(
+    train_exp(  # 5.53, so better than p10? noisy, see below...
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k",
+        # "460": {"dev-clean": 2.37, "dev-other": 5.53, "test-clean": 2.6, "test-other": 5.72},
+        # "500": {"dev-clean": 2.36, "dev-other": 5.58, "test-clean": 2.58, "test-other": 5.74}
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
         config_updates={
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},  # multi-GPU
+        },
+        model_avg=True,
+    )
+    train_exp(  # 5.67
+        "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-run2",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "torch_distributed": {"reduce_type": "param", "param_sync_step": 100, "run": 2},  # multi-GPU
+        },
+    )
+    train_exp(  # 5.59
+        "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-run3",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "torch_distributed": {"reduce_type": "param", "param_sync_step": 100, "run": 3},  # multi-GPU
+        },
+    )
+    train_exp(  # 5.63
+        "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-lrlin1e_5_295k",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "optimizer.weight_decay": 1e-6,
+            "torch_distributed": {"reduce_type": "param", "param_sync_step": 100, "run": 2},  # multi-GPU
+        },
+    )
+    train_exp(  # wd1e-5: 5.61, vs wd1e-4: 5.59, vs wd1e-6: 5.63
+        "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_5-lrlin1e_5_295k",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "optimizer.weight_decay": 1e-5,
+            "torch_distributed": {"reduce_type": "param", "param_sync_step": 100, "run": 2},  # multi-GPU
+        },
+    )
+    train_exp(  # 5.70
+        "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg500-wd1e_4-lrlin1e_5_295k",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "torch_distributed": {"reduce_type": "param", "param_sync_step": 500},  # multi-GPU
+        },
+    )
+    train_exp(  # 5.66
+        "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg1000-wd1e_4-lrlin1e_5_295k",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "torch_distributed": {"reduce_type": "param", "param_sync_step": 1000},  # multi-GPU
         },
     )
 
@@ -418,6 +518,7 @@ def train_exp(
     num_processes: Optional[int] = None,
     fine_tune: Optional[Union[int, List[Tuple[int, Dict[str, Any]]]]] = None,
     time_rqmt: Optional[int] = None,
+    model_avg: bool = False,
 ) -> ModelWithCheckpoints:
     """
     Train experiment
@@ -452,7 +553,7 @@ def train_exp(
         distributed_launch_cmd="torchrun" if num_processes else "mpirun",
         time_rqmt=time_rqmt,
     )
-    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
+    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog, model_avg=model_avg)
 
     if fine_tune:
         if isinstance(fine_tune, int):
@@ -520,140 +621,6 @@ def _get_ls_task():
 
 
 py = sis_run_with_prefix  # if run directly via `sis m ...`
-
-_batch_size_factor = 160
-
-config = dict(
-    batching="laplace:.1000",
-    batch_size=15_000 * _batch_size_factor,
-    max_seqs=200,
-    max_seq_length_default_target=75,
-    specaugment_steps=(10_000, 20_000, 40_000),
-    # gradient_clip=0,
-    # gradient_clip_global_norm = 1.0
-    optimizer={
-        "class": "adamw",
-        "epsilon": 1e-8,
-        "weight_decay": 1e-6,
-    },
-    accum_grad_multiple_step=4,
-    # gradient_noise=0.0,
-    learning_rate=0.0025,
-    dynamic_learning_rate=dyn_lr_lin_warmup_invsqrt_decay,
-    learning_rate_warmup_steps=40_000,
-    learning_rate_invsqrt_norm=40_000,
-    aux_loss_layers=[4, 8],
-)
-post_config = dict(
-    cleanup_old_models=dict(keep_last_n=5),
-    torch_dataloader_opts=dict(num_workers=1),
-)
-
-config_24gb = config.copy()
-config_24gb.update(
-    dict(
-        torch_amp="bfloat16",
-        batch_size=40_000 * _batch_size_factor,
-        accum_grad_multiple_step=2,
-        learning_rate=0.002,
-        learning_rate_warmup_steps=20_000,
-        learning_rate_invsqrt_norm=20_000,
-        specaugment_steps=(5_000, 15_000, 25_000),
-    )
-)
-# base-24gb (using config_24gb): converged, but stagnated, and hiccups
-
-config_24gb_v2 = dict_update_deep(
-    config_24gb,
-    {
-        "optimizer.epsilon": 1e-16,
-        "specaugment_num_spatial_mask_factor": 200,
-        "specaugment_max_consecutive_feature_dims": 10,
-    },
-)
-
-config_24gb_v3 = config_24gb_v2.copy()
-config_24gb_v3.update(
-    dict(
-        learning_rate=0.0025,
-        grad_scaler=None,
-        gradient_clip_global_norm=5.0,
-    )
-)
-
-config_24gb_v4 = dict_update_deep(
-    config_24gb_v3,
-    {
-        "learning_rate": 0.001,
-        "optimizer.weight_decay_modules_blacklist": [
-            "rf.BatchNorm",  # unclear if really good
-            "rf.LayerNorm",  # unclear if really good
-            "rf.Embedding",
-            "rf.LearnedRelativePositionalEncoding",
-        ],
-    },
-)
-
-config_24gb_v5 = dict_update_deep(
-    config_24gb_v4,
-    {
-        "pretrain_opts": {  # pretrain
-            "steps": [(8 * 500, {"num_layers": 2}), (4 * 500, {"num_layers": 4}), (4 * 500, {"num_layers": 8})]
-        },
-        "pos_emb_dropout": 0.1,  # posdrop01
-        "optimizer.weight_decay_modules_blacklist": [  # wdblacklist2
-            "rf.Embedding",
-            "rf.LearnedRelativePositionalEncoding",
-        ],
-        "rf_att_dropout_broadcast": False,  # attdropfixbc
-    },
-    [
-        # specaugorig
-        "specaugment_num_spatial_mask_factor",
-        "specaugment_max_consecutive_feature_dims",
-    ],
-)
-
-config_24gb_v6 = dict_update_deep(config_24gb_v5, None, ["pretrain_opts"])
-
-_cfg_lrlin1e_5_295k = {  # for bs15k, mgpu4
-    "learning_rate": 1.0,
-    "dynamic_learning_rate": dyn_lr_piecewise_linear,
-    # total steps after 500 epochs: ~652k
-    "learning_rate_piecewise_steps": [295_000, 590_000, 652_000],
-    "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-}
-
-config_11gb_v6_f32_bs15k_accgrad4_mgpu = dict_update_deep(
-    config_24gb_v6,
-    {
-        "batch_size": 15_000 * _batch_size_factor,  # ~1305 steps/epoch
-        "accum_grad_multiple_step": 4,  # per single GPU
-        "torch_distributed": {},  # multi-GPU
-        "__gpu_mem": 11,
-    },
-    [
-        "torch_amp",  # f32
-    ],
-)
-config_11gb_v6_f32_bs15k_accgrad1_mgpu = dict_update_deep(
-    config_11gb_v6_f32_bs15k_accgrad4_mgpu,
-    {
-        "accum_grad_multiple_step": 1,
-    },
-)
-config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k = dict_update_deep(
-    config_11gb_v6_f32_bs15k_accgrad1_mgpu,
-    {
-        "optimizer.weight_decay": 1e-4,
-        **_cfg_lrlin1e_5_295k,
-        "__num_processes": 4,  # multi-GPU
-        "__num_epochs": 500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
-    },
-)
-
-# TODO lrlin
-# TODO lr09e_3
 
 
 class MakeModel:

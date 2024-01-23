@@ -1,6 +1,3 @@
-__all__ = ["get_base_returnn_dict"]
-
-
 def get_base_returnn_dict(debug=False):
     debug_params = {
         "debug_print_layer_output_template": True,
@@ -16,9 +13,18 @@ def get_base_returnn_dict(debug=False):
         "optimizer": {"class": "nadam"},
         "optimizer_epsilon": 1e-8,
         "gradient_noise": 0.0,
+        "gradient_clip": 0.0,
     }
 
     if debug:
         base.update(**debug_params)
 
     return base
+
+
+def get_base_returnn_dict_v2(debug=False):
+
+    params = get_base_returnn_dict(debug=debug)
+    params["gradient_clip"] = 0.0
+
+    return params

@@ -63,63 +63,36 @@ def blank_collapse_batched(logprobs, audio_features_len, blank_threshold, blank_
     blanks = logprobs[:, :, blank_idx] > blank_threshold  # [B, T]
 
     # For batches, adjust individual lengths by mapping paddings to True values in mask
-    audio_lens_mask = (
-        torch.arange(time_dim)[None, :] >= audio_features_len[:, None]
-    )  # [B, T]
+    audio_lens_mask = torch.arange(time_dim)[None, :] >= audio_features_len[:, None]  # [B, T]
     blanks = blanks | audio_lens_mask  # [B, T]
 
     # Obtain counts on initial and final blank frames
-    sequence_mask, sequence_indices = (~blanks).nonzero(as_tuple=True)  # tuple of [T',]
-    _, sequence_bounds = torch.unique(sequence_mask, return_counts=True)  # [B,]
+    blanks_int = blanks.int()  # torch does not support argmin/argmax on Bool
 
-    sequence_bounds = torch.cat(
-        (torch.Tensor([0]).to(torch.int), torch.cumsum(sequence_bounds, dim=0))
-    )  # [B+1,]
+    init_non_blank_idx = torch.argmin(blanks_int, dim=1)  # [B,]
+    final_non_blank_idx = torch.argmin(torch.fliplr(blanks_int), dim=1)  # [B,]
+    final_non_blank_idx = time_dim - final_non_blank_idx  # [B,]
 
-    initial_blank_idx = sequence_indices[sequence_bounds[:-1]]  # [B,]
-    final_blank_idx = sequence_indices[(sequence_bounds - 1)[1:]]  # [B,]
+    # Logical-or between "(blanks & blanks_shift)" and "bounds_mask" to restore proper lengths
+    bounds_range = torch.arange(time_dim).repeat(batch_dim, 1)  # [B, T]
+    bounds_mask = (bounds_range < init_non_blank_idx[:, None]) | (bounds_range >= final_non_blank_idx[:, None])  # [B, T]
 
     # Logical-and between "blanks" and "blanks_shift" to account for label-blank-label case
     blanks_shift = torch.roll(blanks, shifts=-1, dims=1)  # [B, T]
 
-    # Logical-or between "(blanks & blanks_shift)" and "bounds_mask" to restore proper lengths
-    bounds_mask = torch.arange(time_dim).repeat(batch_dim, 1)  # [B, T]
-    bounds_mask_initial = bounds_mask < initial_blank_idx[:, None]  # [B, T]
-    bounds_mask_final = bounds_mask > final_blank_idx[:, None]  # [B, T]
-    bounds_mask = bounds_mask_initial | bounds_mask_final  # [B, T]
-
     # Logical-not to assign True to frames kept
     blanks = ~((blanks & blanks_shift) | bounds_mask)  # [B, T]
 
-    # De-batchify and re-arrange based on changed lengths
-    batch_mask, batch_indices = blanks.nonzero(as_tuple=True)
-    _, collapsed_audio_features_len = torch.unique(
-        batch_mask, return_counts=True
-    )  # [B,]
+    # De-batchify and compute new time dimension to restore batching based on changed lengths
+    _, batch_indices = blanks.nonzero(as_tuple=True)
+    collapsed_audio_features_len = torch.sum(blanks, dim=1)
 
-    # Compute new time dimension to restore batching
-    collapsed_time_dim = torch.max(collapsed_audio_features_len)  # T''
-
-    # IMPORTANT: After blank collapse, permuting the batch might be necessary due to new audio lengths
-    # batch_collapsed_order = torch.argsort(collapsed_audio_features_len, descending=True)
+    # IMPORTANT: After blank collapse, the batch should not be permuted!
+    # The padding pattern might change, but correspondence to target sequences is the same.
 
     # Align mask and indices to match the collapsed audio lengths in sorted order
-    batch_mask = torch.arange(batch_dim)[:, None].expand(
-        batch_dim, collapsed_time_dim
-    )  # [B, T'']
-    # batch_mask = batch_mask[batch_collapsed_order]  # [B, T'']
+    batch_indices = torch.split(batch_indices, collapsed_audio_features_len.tolist())  # tuple (B,)
+    batch_indices = torch.nn.utils.rnn.pad_sequence(batch_indices, batch_first=True)  # [B, T'']
 
-    batch_indices = torch.split(
-        batch_indices, collapsed_audio_features_len.tolist()
-    )  # tuple (B,)
-    batch_indices = torch.nn.utils.rnn.pad_sequence(
-        batch_indices, batch_first=True
-    )  # [B, T'']
-    # batch_indices = batch_indices[batch_collapsed_order]  # [B, T'']
-
-    # Restore original order within the batch
-    collapsed_logprobs = logprobs[batch_mask, batch_indices]  # [B, T'', V+1]
-    # collapsed_logprobs = permuted_logprobs[torch.argsort(batch_collapsed_order)]  # [B, T'', V+1]
-    # collapsed_audio_features_len = collapsed_audio_features_len[batch_collapsed_order]  # [B, ]
-
+    collapsed_logprobs = logprobs[torch.arange(batch_dim)[:, None], batch_indices]  # [B, T'', V+1]
     return collapsed_logprobs, collapsed_audio_features_len

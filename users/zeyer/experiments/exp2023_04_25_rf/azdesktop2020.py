@@ -3,7 +3,6 @@ Experiments for azDesktop2020 (local computer).
 """
 
 from __future__ import annotations
-from returnn.tensor import Tensor
 from .conformer_import_moh_att_2023_06_30 import (
     config,
     post_config,
@@ -15,6 +14,10 @@ from .conformer_import_moh_att_2023_06_30 import (
 
 def sis_run_with_prefix(prefix_name: str = None):
     """run the exp"""
+    from i6_experiments.users.zeyer import tools_paths
+
+    tools_paths.monkey_patch_i6_core()
+
     from .sis_setup import get_prefix_for_config
     from .train import train
     from i6_experiments.users.zeyer.recog import recog_training_exp

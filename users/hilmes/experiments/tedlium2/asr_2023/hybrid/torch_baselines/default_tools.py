@@ -11,7 +11,7 @@ from sisyphus import tk
 from i6_core.tools.git import CloneGitRepositoryJob
 from i6_experiments.common.tools.sctk import compile_sctk
 
-RASR_BINARY_PATH = tk.Path("/u/hilmes/dev/rasr_onnx_115/arch/linux-x86_64-standard")
+RASR_BINARY_PATH = tk.Path("/u/hilmes/dev/rasr_onnx_115_new/arch/linux-x86_64-standard")
 assert RASR_BINARY_PATH, "Please set a specific RASR_BINARY_PATH before running the pipeline"
 RASR_BINARY_PATH.hash_overwrite = "TEDLIUM2_DEFAULT_RASR_BINARY_PATH"
 

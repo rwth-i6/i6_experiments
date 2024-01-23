@@ -95,7 +95,7 @@ class ReturnnAudioFeatureOptions:
     feature_options: Optional[Union[dict, AdditionalFeatureOptions]] = None
     sample_rate: Optional[int] = None
     peak_normalization: bool = True
-    preemphasis: float = None
+    preemphasis: Optional[float] = None
 
     def __post_init__(self):
         # convert Enum back to str
@@ -198,7 +198,7 @@ class AudioFeatureDatastream(Datastream):
         :rtype: AudioFeatureDatastream
         """
         extraction_dataset = OggZipDataset(
-            path=zip_datasets,
+            files=zip_datasets,
             segment_file=segment_file,
             audio_options=self.as_returnn_audio_opts(),
             target_options=None,

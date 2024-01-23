@@ -15,10 +15,10 @@ import hashlib
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
-from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
+from .chunked_conformer import ChunkedConformerEncoder, ConformerConvSubsample
 
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
-from i6_experiments.users.zeyer.lr_schedules.lin_warmup_invsqrt_decay import dyn_lr_lin_warmup_invsqrt_decay
+from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
@@ -47,9 +47,31 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     """run the exp"""
     _sis_setup_global_prefix(prefix_name)
 
-    _recog_imported()
+    _recog_imported()  # {"dev-clean": 2.44, "dev-other": 6.38, "test-clean": 2.66, "test-other": 6.33}
+    # recog default opts:
+    #     chunk_opts=dict(
+    #         chunk_stride=120,
+    #         chunk_history=2,
+    #         input_chunk_size=210,
+    #         end_chunk_size=20,
+    #     ),
 
-    # train_exp("from-scratch-train", config_24gb)
+    # train_exp("chunk-C20-R15-H2-bs15k", config_24gb)
+
+    # most reasonable? but training is broken, needs alignment, or on-the-fly align...
+    # train_exp("chunk-C20-R15-H2-bs22k", config_24gb, config_updates=_cfg_bs22k)
+
+    # train_exp(
+    #     "chunk-C10-R5-H4-bs22k",
+    #     config_24gb,
+    #     config_updates={
+    #         "chunk_opts.chunk_stride": 60,
+    #         "chunk_opts.chunk_history": 4,
+    #         "chunk_opts.input_chunk_size": 90,
+    #         "chunk_opts.end_chunk_size": 10,
+    #         **_cfg_bs22k,
+    #     },
+    # )
 
 
 _sis_prefix: Optional[str] = None
@@ -66,7 +88,7 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
 
 def _recog_imported():
     from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
-    from ._moh_att_2023_06_30_import import map_param_func_v2
+    from ._chunked_aed_import import map_param_func_v2
     from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
     from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
@@ -89,16 +111,27 @@ def _recog_imported():
     new_chkpt = PtCheckpoint(new_chkpt_path)
     model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
 
-    _recog("recog_results", model_with_checkpoint)
+    _recog(
+        "recog_results",
+        model_with_checkpoint,
+        config={
+            "chunk_opts": dict(
+                chunk_stride=120,
+                chunk_history=2,
+                input_chunk_size=210,
+                end_chunk_size=20,
+            )
+        },
+    )
 
 
-def _recog(name: str, model_with_checkpoint: ModelWithCheckpoint):
+def _recog(name: str, model_with_checkpoint: ModelWithCheckpoint, config: Optional[Dict[str, Any]] = None):
     from sisyphus import tk
     from i6_experiments.users.zeyer.recog import recog_model
 
     task = _get_ls_task()
 
-    res = recog_model(task, model_with_checkpoint, model_recog)
+    res = recog_model(task, model_with_checkpoint, model_recog_v2, config=config)
     tk.register_output(_sis_prefix + "/" + name, res.output)
 
 
@@ -148,7 +181,13 @@ def train_exp(
         distributed_launch_cmd="torchrun" if num_processes else "mpirun",
         time_rqmt=time_rqmt,
     )
-    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
+    recog_training_exp(
+        prefix,
+        task,
+        model_with_checkpoint,
+        recog_def=model_recog_v2,
+        search_config={"chunk_opts": config["chunk_opts"]},
+    )
 
     if fine_tune:
         if isinstance(fine_tune, int):
@@ -196,7 +235,7 @@ def train_exp(
                 gpu_mem=gpu_mem,
             )
             # _recog(name + suffix + "/recog/last", finetune_model_with_ckpt.get_last_fixed_epoch())
-            recog_training_exp(prefix + suffix, task, finetune_model_with_ckpt, recog_def=model_recog)
+            recog_training_exp(prefix + suffix, task, finetune_model_with_ckpt, recog_def=model_recog_v2)
 
     return model_with_checkpoint
 
@@ -219,12 +258,12 @@ py = sis_run_with_prefix  # if run directly via `sis m ...`
 
 _batch_size_factor = 160
 
-config_24g = dict(
+config_24gb = dict(
     __gpu_mem=24,
     batching="laplace:.1000",
     torch_amp="bfloat16",
     grad_scaler=None,
-    batch_size=40_000 * _batch_size_factor,
+    batch_size=15_000 * _batch_size_factor,
     accum_grad_multiple_step=2,
     max_seqs=200,
     max_seq_length_default_target=75,
@@ -239,18 +278,32 @@ config_24g = dict(
         ],
     },
     gradient_clip_global_norm=5.0,
-    learning_rate=0.001,
-    dynamic_learning_rate=dyn_lr_lin_warmup_invsqrt_decay,
-    learning_rate_warmup_steps=20_000,
-    learning_rate_invsqrt_norm=20_000,
+    learning_rate=1.0,
+    dynamic_learning_rate=dyn_lr_piecewise_linear,
+    # total steps after 2000 epochs: ~2608k
+    learning_rate_piecewise_steps=[295_000 * 4, 590_000 * 4, 652_000 * 4],
+    learning_rate_piecewise_values=[1e-5, 1e-3, 1e-5, 1e-6],
     aux_loss_layers=[4, 8],
+    chunk_opts=dict(
+        chunk_stride=120,
+        chunk_history=2,
+        input_chunk_size=210,
+        end_chunk_size=20,
+    ),
 )
 post_config = dict(
     cleanup_old_models=dict(keep_last_n=5),
     torch_dataloader_opts=dict(num_workers=1),
+    # https://github.com/rwth-i6/returnn/issues/1478
+    reset_dev_memory_caches=True,
+    PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True",
 )
 
-# TODO lrlin
+_cfg_bs22k = {
+    "batch_size": 22_000 * _batch_size_factor,
+    # total steps after 2000 epochs: bs15k: ~2608k, bs30k: ~1305k, est: bs22k: ~2000k
+    "learning_rate_piecewise_steps": [900_000, 1_800_000, 1_999_000],
+}
 
 
 class MakeModel:
@@ -271,7 +324,28 @@ class MakeModel:
             [str(i) for i in range(target_dim.dimension)], eos_label=self.eos_label
         )
 
-        return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers)
+        from returnn.config import get_global_config
+
+        config = get_global_config(return_empty_if_none=True)
+
+        return self.make_model(
+            in_dim,
+            target_dim,
+            num_enc_layers=self.num_enc_layers,
+            **_transform_chunk_opts(
+                config.typed_value(
+                    "chunk_opts",
+                    dict(
+                        # defaults. usually we would set the chunk_opts, but e.g. for importing the params,
+                        # it does not matter.
+                        chunk_stride=120,
+                        chunk_history=2,
+                        input_chunk_size=210,
+                        end_chunk_size=20,
+                    ),
+                )
+            ),
+        )
 
     @classmethod
     def make_model(
@@ -298,7 +372,7 @@ class MakeModel:
                 ff_activation=lambda x: rf.relu(x) ** 2.0,
             ),
             target_dim=target_dim,
-            blank_idx=target_dim.dimension,
+            blank_idx=_get_eos_idx(target_dim),  # blank is end-of-chunk (EOC) which is end-of-sequence (EOS)
             bos_idx=_get_bos_idx(target_dim),
             eos_idx=_get_eos_idx(target_dim),
             **extra,
@@ -318,6 +392,10 @@ class Model(rf.Module):
         blank_idx: int,
         eos_idx: int,
         bos_idx: int,
+        input_chunk_size_dim: Dim,
+        chunk_stride: int,
+        chunk_history: int,
+        end_chunk_size_dim: Dim,
         enc_aux_logits: Sequence[int] = (),  # layers
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
         enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
@@ -337,7 +415,11 @@ class Model(rf.Module):
         config = get_global_config(return_empty_if_none=True)
 
         self.in_dim = in_dim
-        self.encoder = ConformerEncoder(
+        self.input_chunk_size_dim = input_chunk_size_dim
+        self.chunk_stride = chunk_stride
+        self.chunk_history = chunk_history
+        self.end_chunk_size_dim = end_chunk_size_dim
+        self.encoder = ChunkedConformerEncoder(
             in_dim,
             enc_model_dim,
             ff_dim=enc_ff_dim,
@@ -353,6 +435,8 @@ class Model(rf.Module):
             num_heads=enc_att_num_heads,
             dropout=enc_dropout,
             att_dropout=enc_att_dropout,
+            chunk_history=chunk_history,
+            end_chunk_size_dim=end_chunk_size_dim,
         )
 
         self.target_dim = target_dim
@@ -425,7 +509,7 @@ class Model(rf.Module):
         *,
         in_spatial_dim: Dim,
         collected_outputs: Optional[Dict[str, Tensor]] = None,
-    ) -> Tuple[Dict[str, Tensor], Dim]:
+    ) -> Tuple[Dict[str, Tensor], Dim, Dim, Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
         # log mel filterbank features
         source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
@@ -435,8 +519,11 @@ class Model(rf.Module):
             sampling_rate=16_000,
             log_base=math.exp(2.3026),  # almost 10.0 but not exactly...
         )
+
+        # Mixup
         if self._mixup:
             source = self._mixup(source, spatial_dim=in_spatial_dim)
+
         # SpecAugment
         source = rf.audio.specaugment(
             source,
@@ -444,21 +531,40 @@ class Model(rf.Module):
             feature_dim=self.in_dim,
             **self._specaugment_opts,
         )
-        # Encoder including convolutional frontend
-        enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
-        enc_ctx = self.enc_ctx(enc)
-        return dict(enc=enc, enc_ctx=enc_ctx), enc_spatial_dim
 
-    def decoder_default_initial_state(self, *, batch_dims: Sequence[Dim], enc_spatial_dim: Dim) -> rf.State:
+        # Chunk
+        source, chunked_time_dim = rf.window(
+            source,
+            spatial_dim=in_spatial_dim,
+            window_dim=self.input_chunk_size_dim,
+            window_left=0,
+            stride=self.chunk_stride,
+        )
+
+        # Encoder including convolutional frontend
+        enc, enc_spatial_dim = self.encoder(
+            source,
+            in_spatial_dim=self.input_chunk_size_dim,
+            chunked_time_dim=chunked_time_dim,
+            collected_outputs=collected_outputs,
+        )
+
+        enc, enc_spatial_dim_ = rf.slice(enc, axis=enc_spatial_dim, size=self.end_chunk_size_dim)
+
+        enc_ctx = self.enc_ctx(enc)
+        return dict(enc=enc, enc_ctx=enc_ctx), enc_spatial_dim_, enc_spatial_dim, chunked_time_dim
+
+    def decoder_default_initial_state(self, *, batch_dims: Sequence[Dim], chunked_time_dim: Dim) -> rf.State:
         """Default initial state"""
         state = rf.State(
             s=self.s.default_initial_state(batch_dims=batch_dims),
             att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.encoder.out_dim]),
+            chunk_idx=rf.zeros(batch_dims, dtype="int32", sparse_dim=chunked_time_dim) - 1,
         )
         state.att.feature_dim_axis = len(state.att.dims) - 1
         return state
 
-    def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
+    def loop_step_output_templates(self, *, batch_dims: List[Dim], chunked_time_dim: Dim) -> Dict[str, Tensor]:
         """loop step out"""
         return {
             "s": Tensor(
@@ -479,25 +585,30 @@ class Model(rf.Module):
         enc_ctx: rf.Tensor,
         enc_spatial_dim: Dim,
         input_embed: rf.Tensor,
-        state: Optional[rf.State] = None,
+        input_label: rf.Tensor,
+        state: rf.State,
     ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
         """step of the inner loop"""
-        if state is None:
-            batch_dims = enc.remaining_dims(
-                remove=(enc.feature_dim, enc_spatial_dim) if enc_spatial_dim != single_step_dim else (enc.feature_dim,)
-            )
-            state = self.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim)
         state_ = rf.State()
 
         prev_att = state.att
-
         s, state_.s = self.s(rf.concat_features(input_embed, prev_att), state=state.s, spatial_dim=single_step_dim)
 
+        prev_chunk_idx = state.chunk_idx
+        chunk_idx = rf.where(
+            rf.logical_or(input_label == self.bos_idx, input_label == self.blank_idx),
+            prev_chunk_idx + 1,
+            prev_chunk_idx,
+        )
+        state_.chunk_idx = chunk_idx
+        enc_ = rf.gather(enc, indices=chunk_idx, clip_to_valid=True)
+        enc_ctx_ = rf.gather(enc_ctx, indices=chunk_idx, clip_to_valid=True)
+
         s_transformed = self.s_transformed(s)
-        energy_in = enc_ctx + s_transformed
+        energy_in = enc_ctx_ + s_transformed
         energy = self.energy(rf.tanh(energy_in))
         att_weights = rf.softmax(energy, axis=enc_spatial_dim)
-        att0 = rf.dot(att_weights, enc, reduce=enc_spatial_dim, use_mask=False)
+        att0 = rf.dot(att_weights, enc_, reduce=enc_spatial_dim, use_mask=False)
         att0.feature_dim = self.encoder.out_dim
         att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.encoder.out_dim))
         state_.att = att
@@ -548,7 +659,11 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
     return MakeModel.make_model(
-        in_dim, target_dim, enc_aux_logits=enc_aux_logits or (), pos_emb_dropout=pos_emb_dropout
+        in_dim,
+        target_dim,
+        enc_aux_logits=enc_aux_logits or (),
+        pos_emb_dropout=pos_emb_dropout,
+        **_transform_chunk_opts(config.typed_value("chunk_opts")),
     )
 
 
@@ -575,17 +690,22 @@ def from_scratch_training(
     assert not data.feature_dim  # raw audio
 
     collected_outputs = {}
-    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+    enc_args, enc_spatial_dim, aux_enc_spatial_dim, chunked_time_dim = model.encode(
+        data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs
+    )
     if aux_loss_layers:
         for i, layer_idx in enumerate(aux_loss_layers):
             if layer_idx > len(model.encoder.layers):
                 continue
             linear = getattr(model, f"enc_aux_logits_{layer_idx}")
-            aux_logits = linear(collected_outputs[str(layer_idx - 1)])
+            aux_enc: Tensor = collected_outputs[str(layer_idx - 1)]
+            aux_enc, _ = rf.slice(aux_enc, axis=aux_enc_spatial_dim, size=model.end_chunk_size_dim)
+            aux_enc, enc_spatial_dim_ = rf.merge_dims(aux_enc, dims=(chunked_time_dim, enc_spatial_dim))
+            aux_logits = linear(aux_enc)
             aux_loss = rf.ctc_loss(
                 logits=aux_logits,
                 targets=targets,
-                input_spatial_dim=enc_spatial_dim,
+                input_spatial_dim=enc_spatial_dim_,
                 targets_spatial_dim=targets_spatial_dim,
                 blank_index=model.blank_idx,
             )
@@ -604,23 +724,26 @@ def from_scratch_training(
     batch_dims = data.remaining_dims(data_spatial_dim)
     input_embeddings = model.target_embed(targets)
     input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
+    input_labels = rf.shift_right(targets, axis=targets_spatial_dim, pad_value=model.bos_idx)
 
-    def _body(input_embed: Tensor, state: rf.State):
+    def _body(x: Tuple[rf.Tensor, rf.Tensor], state: rf.State):
+        input_embed, input_label = x
         new_state = rf.State()
         loop_out_, new_state.decoder = model.loop_step(
             **enc_args,
             enc_spatial_dim=enc_spatial_dim,
             input_embed=input_embed,
+            input_label=input_label,
             state=state.decoder,
         )
         return loop_out_, new_state
 
     loop_out, _, _ = rf.scan(
         spatial_dim=targets_spatial_dim,
-        xs=input_embeddings,
-        ys=model.loop_step_output_templates(batch_dims=batch_dims),
+        xs=(input_embeddings, input_labels),
+        ys=model.loop_step_output_templates(batch_dims=batch_dims, chunked_time_dim=chunked_time_dim),
         initial=rf.State(
-            decoder=model.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim),
+            decoder=model.decoder_default_initial_state(batch_dims=batch_dims, chunked_time_dim=chunked_time_dim),
         ),
         body=_body,
     )
@@ -647,7 +770,7 @@ from_scratch_training: TrainDef[Model]
 from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
 
 
-def model_recog(
+def model_recog_v2(
     *,
     model: Model,
     data: Tensor,
@@ -667,12 +790,18 @@ def model_recog(
         out_spatial_dim,
         final beam_dim
     """
+    from returnn.config import get_global_config
+
+    config = get_global_config(return_empty_if_none=True)
+
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    beam_size = 12
-    length_normalization_exponent = 1.0  # TODO none here?
+    enc_args, enc_spatial_dim, aux_enc_spatial_dim, chunked_time_dim = model.encode(
+        data, in_spatial_dim=data_spatial_dim
+    )
+    beam_size = config.int("beam_size", 12)
+    length_normalization_exponent = config.float("length_normalization_exponent", 0.0)
     if max_seq_len is None:
-        max_seq_len = enc_spatial_dim.get_size_tensor()
+        max_seq_len = enc_spatial_dim.get_size_tensor() * chunked_time_dim.get_size_tensor()
     else:
         max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
     print("** max seq len:", max_seq_len.raw_tensor)
@@ -681,7 +810,7 @@ def model_recog(
     # Initial state.
     beam_dim = Dim(1, name="initial-beam")
     batch_dims_ = [beam_dim] + batch_dims
-    decoder_state = model.decoder_default_initial_state(batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+    decoder_state = model.decoder_default_initial_state(batch_dims=batch_dims_, chunked_time_dim=chunked_time_dim)
     target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
     ended = rf.constant(False, dims=batch_dims_)
     out_seq_len = rf.constant(0, dims=batch_dims_)
@@ -699,6 +828,7 @@ def model_recog(
             **enc_args,
             enc_spatial_dim=enc_spatial_dim,
             input_embed=input_embed,
+            input_label=target,
             state=decoder_state,
         )
         logits = model.decode_logits(input_embed=input_embed, **step_out)
@@ -720,7 +850,14 @@ def model_recog(
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         i += 1
 
-        ended = rf.logical_or(ended, target == model.eos_idx)  # TODO fix ending condition
+        ended = rf.logical_or(
+            ended,
+            rf.logical_and(
+                target == model.blank_idx,
+                decoder_state.chunk_idx
+                == chunked_time_dim.get_dyn_size_ext_for_device(decoder_state.chunk_idx.device) - 1,
+            ),
+        )
         ended = rf.logical_or(ended, rf.copy_to_device(i >= max_seq_len))
         if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
             break
@@ -758,7 +895,19 @@ def model_recog(
 
 
 # RecogDef API
-model_recog: RecogDef[Model]
-model_recog.output_with_beam = True
-model_recog.output_blank_label = "<blank>"
-model_recog.batch_size_dependent = False
+model_recog_v2: RecogDef[Model]
+model_recog_v2.output_with_beam = True
+model_recog_v2.output_blank_label = "<s>"  # EOC
+model_recog_v2.batch_size_dependent = False
+
+
+def _transform_chunk_opts(opts: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not opts:
+        opts = {}
+    else:
+        opts = opts.copy()
+    if "input_chunk_size" in opts and "input_chunk_size_dim" not in opts:
+        opts["input_chunk_size_dim"] = Dim(opts.pop("input_chunk_size"), name="input-chunk-size")
+    if "end_chunk_size" in opts and "end_chunk_size_dim" not in opts:
+        opts["end_chunk_size_dim"] = Dim(opts.pop("end_chunk_size"), name="sliced-chunk-size")
+    return opts

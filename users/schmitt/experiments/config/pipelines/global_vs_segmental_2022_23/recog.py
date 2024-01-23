@@ -29,6 +29,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
 from i6_experiments.users.schmitt.rasr.recognition import RASRDecodingJobParallel
 from i6_experiments.users.schmitt.rasr.convert import RASRLatticeToCTMJob, ConvertCTMBPEToWordsJob
+from i6_experiments.users.schmitt.alignment.alignment import AlignmentRemoveAllBlankSeqsJob
 
 
 class DecodingExperiment(ABC):
@@ -156,10 +157,33 @@ class ReturnnDecodingExperimentV2(DecodingExperiment):
       eval_mode=False
     )
     forward_search_job.add_alias("%s/analysis/forward_recog_dump_seq" % self.alias)
+    search_hdf = forward_search_job.out_default_hdf
+    search_not_all_blank_segments = None
+
+    # remove the alignments, which only consist of blank labels because this leads to errors in the following Forward jobs
+    # temporarily, only do this for selected models to avoid unnecessarily restarting completed jobs
+    for variant in [
+      "no_label_feedback",
+      "non_blank_ctx",
+      "linear_layer",
+      "couple_length_and_label_model",
+      "use_label_model_state",
+      "chunking",
+    ]:
+      if variant in self.alias:
+        remove_all_blank_seqs_job = AlignmentRemoveAllBlankSeqsJob(
+          hdf_align_path=forward_search_job.out_default_hdf,
+          blank_idx=self.config_builder.variant_params["dependencies"].model_hyperparameters.blank_idx,
+          returnn_root=RETURNN_ROOT,
+          returnn_python_exe=self.config_builder.variant_params["returnn_python_exe"],
+        )
+        search_hdf = remove_all_blank_seqs_job.out_align
+        search_not_all_blank_segments = remove_all_blank_seqs_job.out_segment_file
+        break
 
     for hdf_alias, hdf_targets in zip(
             ["ground_truth", "search"],
-            [ground_truth_hdf, forward_search_job.out_default_hdf]
+            [ground_truth_hdf, search_hdf]
     ):
       dump_att_weights(
         self.config_builder,
@@ -179,9 +203,10 @@ class ReturnnDecodingExperimentV2(DecodingExperiment):
       variant_params=self.config_builder.variant_params,
       checkpoint=self.checkpoint,
       ground_truth_hdf_targets=ground_truth_hdf,
-      search_hdf_targets=forward_search_job.out_default_hdf,
+      search_hdf_targets=search_hdf,
       corpus_key=self.corpus_key,
       alias=self.alias,
+      segment_file=search_not_all_blank_segments,
     )
 
 
@@ -218,7 +243,7 @@ class RasrDecodingExperiment(DecodingExperiment):
     self.length_norm = length_norm
     self.search_rqmt = search_rqmt
 
-    self.alias += "/rasr_decoding"
+    self.alias += "/rasr_decoding/max-seg-len-%d" % self.max_segment_len
 
   def get_recog_opts(self):
     return {
@@ -235,6 +260,7 @@ class RasrDecodingExperiment(DecodingExperiment):
       rec_step_by_step="output",
     )
     compile_job.add_alias("%s/compile" % self.alias)
+    tk.register_output(compile_job.get_one_alias(), compile_job.out_graph)
 
     return compile_job.out_graph
 
@@ -303,7 +329,7 @@ class RasrDecodingExperiment(DecodingExperiment):
       time_rqmt=self.search_rqmt.get("time", 1),
       use_gpu=self.search_rqmt.get("gpu", 1) > 0
     )
-    rasr_decoding_job.add_alias("%s/rasr-decoding_%s" % (self.alias, self.corpus_key))
+    rasr_decoding_job.add_alias("%s/search_%s" % (self.alias, self.corpus_key))
 
     # self._best_traces = DumpAlignmentFromTxtJob(
     #   alignment_txt=rasr_decoding_job.out_best_traces,
@@ -324,229 +350,3 @@ class RasrDecodingExperiment(DecodingExperiment):
       flf_lattice_tool_config=lattice_to_ctm_config)
 
     return ConvertCTMBPEToWordsJob(bpe_ctm_file=lattice_to_ctm_job.out_ctm).out_ctm_file
-
-# def run_recog(
-#         config_builder: ConfigBuilder,
-#         variant_params: Dict,
-#         recog_opts_list: List[Dict],
-#         checkpoint: Checkpoint,
-#         alias: str,
-# ):
-#   recog_config_builder = copy.deepcopy(config_builder)
-#
-#   for recog_opts in recog_opts_list:
-#     search_rqmt = recog_opts.pop("search_rqmt", None)
-#     recog_config = recog_config_builder.get_recog_config(opts=recog_opts)
-#     ReturnnDecodingExperiment(
-#       returnn_config=recog_config,
-#       variant_params=variant_params,
-#       checkpoint=checkpoint,
-#       corpus_key=recog_opts["search_corpus_key"],
-#       search_rqmt=search_rqmt,
-#       base_alias=alias,
-#       concat_num=recog_opts.get("dataset_opts", {}).get("concat_num", None)
-#     ).run_eval(use_hub5_score_job=(type(variant_params["dataset"]["corpus"]) == SWBCorpus))
-
-    # if "center-window_att_global_ctc_align_diff_win_sizes_diff_epochs_diff_lrs" in alias:
-    #   recog_config.config["network"]["decision"] = {
-    #     "class": "copy",
-    #     "from": "output_wo_b",
-    #     "target": "targets",
-    #     "is_output_layer": True
-    #   }
-    #   ReturnnDecodingExperiment(
-    #     returnn_config=recog_config,
-    #     variant_params=variant_params,
-    #     checkpoint=train_job.out_checkpoints[n_epochs],
-    #     corpus_key=recog_opts["search_corpus_key"],
-    #     base_alias=alias + "n-best-test"
-    #   ).run_eval(use_hub5_score_job=(type(variant_params["dataset"]["corpus"]) == SWBCorpus))
-
-    # if "center-window_att_global_ctc_align_diff_win_sizes_diff_epochs_diff_lrs" in alias or "weight_feedback" in alias or "win-size-32" in alias:
-
-
-# def run_analysis(
-#         config_builder: ConfigBuilder,
-#         variant_params: Dict,
-#         ground_truth_hdf: Optional[Path],
-#         att_weight_ref_alignment_hdf: Path,
-#         att_weight_ref_alignment_blank_idx: int,
-#         forward_recog_opts: Dict,
-#         checkpoint: Checkpoint,
-#         corpus_key: str,
-#         alias: str,
-# ):
-#     forward_recog_opts = copy.deepcopy(forward_recog_opts)
-#     forward_recog_opts["search_corpus_key"] = corpus_key
-#     forward_recog_config = config_builder.get_recog_config_for_forward_job(opts=forward_recog_opts)
-#     forward_search_job = ReturnnForwardJob(
-#       model_checkpoint=checkpoint,
-#       returnn_config=forward_recog_config,
-#       returnn_root=variant_params["returnn_root"],
-#       returnn_python_exe=variant_params["returnn_python_exe"],
-#       eval_mode=False
-#     )
-#     forward_search_job.add_alias("%s/analysis/forward_recog_dump_seq" % alias)
-#
-#     for hdf_alias, hdf_targets in zip(
-#             ["ground_truth", "search"],
-#             [ground_truth_hdf, forward_search_job.out_default_hdf]
-#     ):
-#
-#       dump_att_weights(
-#         config_builder,
-#         variant_params=variant_params,
-#         checkpoint=checkpoint,
-#         hdf_targets=hdf_targets,
-#         ref_alignment=att_weight_ref_alignment_hdf,
-#         corpus_key=corpus_key,
-#         hdf_alias=hdf_alias,
-#         alias=alias,
-#         ref_alignment_blank_idx=att_weight_ref_alignment_blank_idx
-#       )
-#
-#     calc_search_errors(
-#       config_builder,
-#       variant_params=variant_params,
-#       checkpoint=checkpoint,
-#       ground_truth_hdf_targets=ground_truth_hdf,
-#       search_hdf_targets=forward_search_job.out_default_hdf,
-#       corpus_key=corpus_key,
-#       alias=alias,
-#     )
-
-
-# def run_train_recog(
-#         config_builder: ConfigBuilder,
-#         variant_params: Dict,
-#         n_epochs: int,
-#         train_opts: Dict,
-#         recog_opts_list: List[Dict],
-#         alias: str,
-# ):
-#   train_config_builder = copy.deepcopy(config_builder)
-#   train_config = train_config_builder.get_train_config(opts=train_opts)
-#
-#   train_job = ReturnnTrainingJob(
-#     train_config,
-#     num_epochs=n_epochs,
-#     keep_epochs=[n_epochs],
-#     log_verbosity=5,
-#     returnn_python_exe=variant_params["returnn_python_exe"],
-#     returnn_root=variant_params["returnn_root"] if "positional_embedding" not in alias and "center-window_att_global_ctc_align_diff_win_sizes_diff_epochs_diff_lrs" not in alias else RETURNN_ROOT,
-#     mem_rqmt=24,
-#     time_rqmt=30)
-#   train_job.add_alias(alias + "/train")
-#   tk.register_output(train_job.get_one_alias() + "/models", train_job.out_model_dir)
-#   tk.register_output(train_job.get_one_alias() + "/plot_lr", train_job.out_plot_lr)
-#
-#   recog_config_builder = copy.deepcopy(config_builder)
-#
-#   for recog_opts in recog_opts_list:
-#     recog_config = recog_config_builder.get_recog_config(opts=recog_opts)
-#     ReturnnDecodingExperiment(
-#       returnn_config=recog_config,
-#       variant_params=variant_params,
-#       checkpoint=train_job.out_checkpoints[n_epochs],
-#       corpus_key=recog_opts["search_corpus_key"],
-#       base_alias=alias
-#     ).run_eval(use_hub5_score_job=(type(variant_params["dataset"]["corpus"]) == SWBCorpus))
-#
-#     # if "center-window_att_global_ctc_align_diff_win_sizes_diff_epochs_diff_lrs" in alias:
-#     #   recog_config.config["network"]["decision"] = {
-#     #     "class": "copy",
-#     #     "from": "output_wo_b",
-#     #     "target": "targets",
-#     #     "is_output_layer": True
-#     #   }
-#     #   ReturnnDecodingExperiment(
-#     #     returnn_config=recog_config,
-#     #     variant_params=variant_params,
-#     #     checkpoint=train_job.out_checkpoints[n_epochs],
-#     #     corpus_key=recog_opts["search_corpus_key"],
-#     #     base_alias=alias + "n-best-test"
-#     #   ).run_eval(use_hub5_score_job=(type(variant_params["dataset"]["corpus"]) == SWBCorpus))
-#
-#     # if "center-window_att_global_ctc_align_diff_win_sizes_diff_epochs_diff_lrs" in alias or "weight_feedback" in alias or "win-size-32" in alias:
-#     if "center-window_att_global_ctc_align_weight_feedback/win-size-16" in alias or "center-window_att_global_ctc_align_weight_feedback_only-train-length-model/win-size-16" in alias or "center-window_att_global_ctc_align_diff_win_sizes_diff_epochs_diff_lrs/win-size-4_100-epochs_const-lr-0.000100" in alias:
-#       forward_recog_config = copy.deepcopy(recog_config)
-#       forward_recog_config.config.update({
-#         "forward_use_search": True,
-#         "forward_batch_size": CodeWrapper("batch_size")
-#       })
-#       forward_recog_config.config["network"]["dump_decision"] = {
-#         "class": "hdf_dump",
-#         "from": "decision",
-#         "is_output_layer": True,
-#         "filename": "search_out.hdf"
-#       }
-#       del forward_recog_config.config["task"]
-#       forward_recog_config.config["eval"] = copy.deepcopy(train_config.config["dev"])
-#       del forward_recog_config.config["search_data"]
-#       forward_recog_config.config["network"]["output_w_beam"] = copy.deepcopy(forward_recog_config.config["network"]["output"])
-#       forward_recog_config.config["network"]["output_w_beam"]["name_scope"] = "output/rec"
-#       del forward_recog_config.config["network"]["output"]
-#       forward_recog_config.config["network"]["output"] = copy.deepcopy(forward_recog_config.config["network"]["decision"])
-#       forward_recog_config.config["network"]["output"]["from"] = "output_w_beam"
-#       forward_recog_config.config["network"]["output_non_blank"]["from"] = "output_w_beam"
-#       forward_recog_config.config["network"]["output_wo_b"]["from"] = "output_w_beam"
-#       forward_search_job = ReturnnForwardJob(
-#         model_checkpoint=train_job.out_checkpoints[n_epochs],
-#         returnn_config=forward_recog_config,
-#         returnn_root=variant_params["returnn_root"],
-#         returnn_python_exe=variant_params["returnn_python_exe"],
-#         hdf_outputs=["search_out.hdf"],
-#         eval_mode=False
-#       )
-#
-#       for hdf_alias, hdf_target in zip(
-#               ["ground_truth", "search"],
-#               [train_opts["dataset_opts"]["hdf_targets"]["cv"], forward_search_job.out_default_hdf]
-#       ):
-#         dump_att_weights_opts = copy.deepcopy(train_opts)
-#         dump_att_weights_opts.update({
-#           "dataset_opts": {
-#             "hdf_targets": {"cv": hdf_target}
-#           }
-#         })
-#
-#         dump_att_weights(
-#           config_builder,
-#           variant_params=variant_params,
-#           checkpoint=train_job.out_checkpoints[n_epochs],
-#           opts=dump_att_weights_opts,
-#           ref_alignment=train_opts["dataset_opts"]["hdf_targets"]["cv"],
-#           corpus_key="cv",
-#           alias=alias + "_%s" % hdf_alias,
-#           use_search=False
-#         )
-#
-#       dump_scores_opts_ground_truth = copy.deepcopy(train_opts)
-#       dump_scores_opts_search = copy.deepcopy(train_opts)
-#       dump_scores_opts_ground_truth.update({
-#         "dataset_opts": {
-#           "hdf_targets": {"cv": train_opts["dataset_opts"]["hdf_targets"]["cv"]}
-#         }
-#       })
-#       dump_scores_opts_search.update({
-#         "dataset_opts": {
-#           "hdf_targets": {"cv": forward_search_job.out_default_hdf}
-#         }
-#       })
-#       calc_search_errors(
-#         config_builder,
-#         variant_params=variant_params,
-#         checkpoint=train_job.out_checkpoints[n_epochs],
-#         dump_scores_opts_ground_truth=dump_scores_opts_ground_truth,
-#         dump_scores_opts_search=dump_scores_opts_search,
-#         corpus_key="cv",
-#         alias=alias,
-#       )
-#
-#     # calc_search_errors(
-#     #   config_builder,
-#     #   variant_params=variant_params,
-#     #   checkpoint=train_job.out_checkpoints[n_epochs],
-#     #   train_opts=train_opts,
-#     #   alias=alias
-#     # )

@@ -7,14 +7,33 @@ from sisyphus import tk
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 from i6_core.mm import CreateDummyMixturesJob
-from i6_experiments.users.hilmes.experiments.tedlium2.asr_2023.hybrid.torch_baselines.pytorch_networks.prior.forward import \
-    ReturnnForwardComputePriorJob
 from i6_core.returnn import ReturnnForwardJobV2
-from i6_core.returnn import GetBestPtCheckpointJob, TorchOnnxExportJob
+from i6_core.returnn import GetBestPtCheckpointJob
 from i6_core.returnn.flow import make_precomputed_hybrid_onnx_feature_flow, add_fwd_flow_to_base_flow
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
+from i6_experiments.common.setups.rasr.util.nn import HybridArgs, ReturnnRasrDataInput
+from i6_experiments.users.hilmes.tools.onnx import ExportPyTorchModelToOnnxJob
+from i6_experiments.users.hilmes.experiments.tedlium2.asr_2023.hybrid.torch_baselines.pytorch_networks.prior.forward import ReturnnForwardComputePriorJob
 
+
+from i6_core.report.report import _Report_Type
 Path = tk.setup_path(__package__)
+def hybrid_report_format(report: _Report_Type) -> str:
+    extra_ls = ["kazuki", "quant_min_max", "kaldi_small", "quant_entropy"]
+    out = [(recog, str(report[recog])) for recog in report if not any(extra in recog for extra in extra_ls)]
+    out = sorted(out, key=lambda x: float(x[1]))
+    best_ls = [out[0]]
+    for extra in extra_ls:
+        out2 = [(recog, str(report[recog])) for recog in report if extra in recog]
+        out2 = sorted(out2, key=lambda x: float(x[1]))
+        if len(out2) > 0:
+            out.append((extra, ""))
+            out.extend(out2)
+            best_ls.append(out2[0])
+    best_ls = sorted(best_ls, key=lambda x: float(x[1]))
+    out.append(("Best Results", ""))
+    out.extend(best_ls)
+    return "\n".join([f"{pair[0]}:  {str(pair[1])}" for pair in out])
 
 
 class OnnxPrecomputedHybridSystem(HybridSystem):
@@ -22,6 +41,101 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
     System class for hybrid systems that train PyTorch models and export them to onnx for recognition. The NN
     precomputed hybrid feature scorer is used.
     """
+    def run_nn_step(self, step_name: str, step_args: HybridArgs):
+        for pairing in self.train_cv_pairing:
+            trn_c = pairing[0]
+            cv_c = pairing[1]
+            name_list = [pairing[2]] if len(pairing) >= 3 else list(step_args.returnn_training_configs.keys())
+            dvtr_c_list = [pairing[3]] if len(pairing) >= 4 else self.devtrain_corpora
+            dvtr_c_list = [None] if len(dvtr_c_list) == 0 else dvtr_c_list
+
+            for name, dvtr_c in itertools.product(name_list, dvtr_c_list):
+                if isinstance(self.train_input_data[trn_c], ReturnnRasrDataInput):
+                    returnn_train_job = self.returnn_rasr_training(
+                        name=name,
+                        returnn_config=step_args.returnn_training_configs[name],
+                        nn_train_args=step_args.training_args,
+                        train_corpus_key=trn_c,
+                        cv_corpus_key=cv_c,
+                    )
+                else:
+                    returnn_train_job = self.returnn_training(
+                        name=name,
+                        returnn_config=step_args.returnn_training_configs[name],
+                        nn_train_args=step_args.training_args,
+                        train_corpus_key=trn_c,
+                        cv_corpus_key=cv_c,
+                        devtrain_corpus_key=dvtr_c,
+                    )
+
+                returnn_recog_config = step_args.returnn_recognition_configs.get(
+                    name, step_args.returnn_training_configs[name]
+                )
+
+                self.nn_recog(
+                    train_name=name,
+                    train_corpus_key=trn_c,
+                    returnn_config=returnn_recog_config,
+                    checkpoints=returnn_train_job.out_checkpoints,
+                    step_args=step_args,
+                    train_job=returnn_train_job
+                )
+                from i6_core.report import GenerateReportStringJob, MailJob
+
+                results = {}
+                for c in self.dev_corpora + self.test_corpora:
+                    for job_name in self.jobs[c]:
+                        if "scorer" not in job_name:
+                            continue
+                        if not name == job_name.split("-")[1]:
+                            continue
+                        scorer = self.jobs[c][job_name]
+                        if scorer.out_wer:
+                            results[job_name] = scorer.out_wer
+                tk.register_report(f"reports/{name.replace('/', '_')}", values=results)
+                report = GenerateReportStringJob(report_values=results, report_template=hybrid_report_format)
+                report.add_alias(f"report/report_{name}")
+                mail = MailJob(report.out_report, send_contents=True, subject=name)
+                mail.add_alias(f"report/mail_{name}")
+                tk.register_output("mail/" + name, mail.out_status)
+
+
+    def nn_recog(
+        self,
+        train_name: str,
+        train_corpus_key: str,
+        returnn_config: Path,
+        checkpoints: Dict[int, returnn.Checkpoint],
+        step_args: HybridArgs,
+        train_job: Optional[Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob]]
+    ):
+        for recog_name, recog_args in step_args.recognition_args.items():
+            for dev_c in self.dev_corpora:
+                self.nn_recognition(
+                    name=f"{train_corpus_key}-{train_name}-{recog_name}",
+                    returnn_config=returnn_config,
+                    checkpoints=checkpoints,
+                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
+                    recognition_corpus_key=dev_c,
+                    train_job=train_job,
+                    **recog_args,
+                )
+
+            for tst_c in self.test_corpora:
+                r_args = copy.deepcopy(recog_args)
+                if step_args.test_recognition_args is None or recog_name not in step_args.test_recognition_args.keys():
+                    break
+                r_args.update(step_args.test_recognition_args[recog_name])
+                r_args["optimize_am_lm_scale"] = False
+                self.nn_recognition(
+                    name=f"{train_name}-{recog_name}",
+                    returnn_config=returnn_config,
+                    checkpoints=checkpoints,
+                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
+                    recognition_corpus_key=tst_c,
+                    train_job=train_job,
+                    **r_args,
+                )
 
     def calcluate_nn_prior(self, returnn_config, epoch, epoch_num, name, checkpoint):
         prior_config = copy.deepcopy(returnn_config)
@@ -30,41 +144,37 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
         prior_config.config["train"] = copy.deepcopy(train_data) if isinstance(train_data,
                                                                                Dict) else copy.deepcopy(
             train_data.get_data_dict())
+        #prior_config.config["train"]["datasets"]["align"]["partition_epoch"] = 100
+        prior_config.config["forward_data"] = "train"
         prior_config.config["train"]["datasets"]["align"]["seq_ordering"] = "random"
-        prior_config.config["forward_batch_size"] = 10000
         if epoch == "best":
             prior_config.config["load_epoch"] = epoch_num
-        if "chunking" in prior_config.config.keys():
-            del prior_config.config["chunking"]
-
+        from i6_core.tools.git import CloneGitRepositoryJob
+        # returnn_root = CloneGitRepositoryJob(
+        #     "https://github.com/rwth-i6/returnn",
+        #     commit="925e0023c52db071ecddabb8f7c2d5a88be5e0ec",
+        # ).out_repository
         nn_prior_job = ReturnnForwardJobV2(
             model_checkpoint=checkpoint,
             returnn_config=prior_config,
             log_verbosity=5,
             mem_rqmt=4,
-            time_rqmt=1,
+            time_rqmt=4,
             device="gpu",
             cpu_rqmt=4,
             returnn_python_exe=self.returnn_python_exe,
             returnn_root=self.returnn_root,
-            output_files=["prior.txt"]
+            output_files=["prior.txt", "prior.xml", "prior.png"],
         )
-        # nn_prior_job = ReturnnForwardComputePriorJob(
-        #     model_checkpoint=checkpoint,
-        #     returnn_config=prior_config,
-        #     returnn_python_exe=self.returnn_python_exe,
-        #     returnn_root=self.returnn_root,
-        #     log_verbosity=5,
-        # )
         nn_prior_job.add_alias("extract_nn_prior/" + name + "/epoch_" + str(epoch))
-        prior_file = nn_prior_job.out_files["prior.txt"]
+        prior_file = nn_prior_job.out_files["prior.xml"]
         return prior_file, prior_config
 
     def nn_recognition(
         self,
         name: str,
         returnn_config: returnn.ReturnnConfig,
-        checkpoints: Dict[int, returnn.PtCheckpoint],
+        checkpoints: Dict[int, returnn.Checkpoint],
         prior_scales: List[float],
         pronunciation_scales: List[float],
         lm_scales: List[float],
@@ -113,12 +223,12 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                     checkpoint = checkpoints[epoch]
                     epoch_str = f"{epoch:03d}"
                     epoch_num = None
-
-                onnx_job = TorchOnnxExportJob(
+                if returnn_config.config["behavior_version"] == 15:
+                    returnn_config.config["behavior_version"] = 16
+                onnx_job = ExportPyTorchModelToOnnxJob(
                     returnn_config=returnn_config,
-                    checkpoint=checkpoint,
+                    pytorch_checkpoint=checkpoint,
                     returnn_root=self.returnn_root,
-                    returnn_python_exe=self.returnn_python_exe,
                 )
                 onnx_job.add_alias(f"export_onnx/{name}/epoch_{epoch_str}")
                 onnx_model = onnx_job.out_onnx_model
@@ -131,7 +241,7 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                     io_map=io_map,
                     cpu=kwargs.get("cpu", 1),
                 )
-                flow = add_fwd_flow_to_base_flow(feature_flow, onnx_flow, fwd_input_name="onnx-fwd-input")
+                flow = add_fwd_flow_to_base_flow(feature_flow, onnx_flow)
 
                 if nn_prior:
                     prior_file, prior_config = self.calcluate_nn_prior(
@@ -149,7 +259,8 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                     lmgc_scorer = rasr.GMMFeatureScorer(tmp_acoustic_mixture_path)
                     scorer = rasr.PrecomputedHybridFeatureScorer(
                         prior_mixtures=tmp_acoustic_mixture_path,
-                        priori_scale=prior_file,
+                        prior_file=prior_file,
+                        priori_scale=prior
                     )
                 else:
                     assert acoustic_mixture_path is not None, "need mixtures if no nn prior is computed"

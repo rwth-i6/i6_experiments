@@ -520,6 +520,7 @@ class CTCDecoderArgs(DecoderArgs):
     one_minus_term_sub_scale: float = 0.0
     length_normalization: bool = False
     hash_override_version: Optional[int] = None
+    blank_collapse: bool = False
 
 
 def create_config(

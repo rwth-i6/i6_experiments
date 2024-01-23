@@ -20,12 +20,7 @@ class CreateBPELexiconJob(Job):
     """
 
     def __init__(
-            self,
-            base_lexicon_path,
-            bpe_codes,
-            bpe_vocab,
-            subword_nmt_repo=None,
-            unk_label="UNK",
+        self, base_lexicon_path, bpe_codes, bpe_vocab, subword_nmt_repo=None, unk_label="UNK",
     ):
         """
         :param Path base_lexicon_path:
@@ -36,9 +31,7 @@ class CreateBPELexiconJob(Job):
         self.base_lexicon_path = base_lexicon_path
         self.bpe_codes = bpe_codes
         self.bpe_vocab = bpe_vocab
-        self.subword_nmt_repo = (
-            subword_nmt_repo if subword_nmt_repo is not None else gs.SUBWORD_NMT_PATH
-        )
+        self.subword_nmt_repo = subword_nmt_repo if subword_nmt_repo is not None else gs.SUBWORD_NMT_PATH
         self.unk_label = unk_label
 
         self.out_lexicon = self.output_path("lexicon.xml.gz", cached=True)
@@ -81,9 +74,7 @@ class CreateBPELexiconJob(Job):
                     vocab.add(symbol)
                     lexicon.add_phoneme(symbol.replace(".", "_"))
 
-        apply_binary = os.path.join(
-            tk.uncached_path(self.subword_nmt_repo), "apply_bpe.py"
-        )
+        apply_binary = os.path.join(tk.uncached_path(self.subword_nmt_repo), "apply_bpe.py")
         args = [
             sys.executable,
             apply_binary,
@@ -104,146 +95,12 @@ class CreateBPELexiconJob(Job):
         w2b = {w: b for w, b in zip(lm_tokens, bpe_tokens)}
 
         for w, b in w2b.items():
-            b = " ".join(
-                [token if token in vocab else self.unk_label for token in b.split()]
-            )
+            b = " ".join([token if token in vocab else self.unk_label for token in b.split()])
             lexicon.add_lemma(Lemma([w], [b.replace(".", "_")]))
 
         elem = lexicon.to_xml()
         tree = ET.ElementTree(elem)
         util.write_xml(self.out_lexicon.get_path(), tree)
-
-
-# class CreateBPELexiconJob(Job):
-#     """
-#     Create a Bliss lexicon from BPE transcriptions.
-#     """
-#
-#     def __init__(
-#         self,
-#         base_lexicon_path: tk.Path,
-#         bpe_codes: tk.Path,
-#         bpe_vocab: tk.Path,
-#         subword_nmt_repo: Optional[tk.Path] = None,
-#         unk_label: str = "[UNKNOWN]",
-#         add_silence: bool = True,
-#         add_other_special: bool = False,
-#     ):
-#         """
-#         :param tk.Path base_lexicon_path: path to a Bliss lexicon
-#         :param tk.Path bpe_codes: path to BPE codes produced by i.e. ReturnnTrainBPEJob
-#         :param tk.Path bpe_vocab: path to BPE vocab produced by i.e. ReturnnTrainBPEJob
-#         :param tk.Path|None subword_nmt_repo:
-#         :param str unk_label:
-#         :param bool add_silence: explicitly include a [SILENCE] phoneme and lemma
-#         :param bool add_other_special: explicitly include special lemmata from base_lexicon_path
-#         """
-#
-#         self.base_lexicon_path = base_lexicon_path
-#         self.bpe_codes = bpe_codes
-#         self.bpe_vocab = bpe_vocab
-#         self.subword_nmt_repo = (
-#             subword_nmt_repo if subword_nmt_repo is not None else gs.SUBWORD_NMT_PATH
-#         )
-#         self.unk_label = unk_label
-#         self.add_silence = add_silence
-#         self.add_other_special = add_other_special
-#
-#         self.out_lexicon = self.output_path("lexicon.xml.gz", cached=True)
-#
-#     def tasks(self):
-#         yield Task("run", resume="run", mini_task=True)
-#
-#     def run(self):
-#         lm_tokens = set()
-#         other_special = []
-#
-#         base_lexicon = Lexicon()
-#         base_lexicon.load(self.base_lexicon_path)
-#
-#         for l in base_lexicon.lemmata:
-#             if l.special:
-#                 if l.special not in ["silence", "unknown"]:
-#                     other_special.append(l)
-#                 continue
-#             for orth in l.orth or []:  # l.orth can be None
-#                 lm_tokens.add(orth)
-#             for token in l.synt or []:  # l.synt can be None
-#                 lm_tokens.add(token)
-#             for eval in l.eval or []:  # l.eval can be None
-#                 for t in eval:
-#                     lm_tokens.add(t)
-#
-#         lm_tokens = [lt for lt in lm_tokens if lt != '']  # catch </orth>, </synt> or </eval>
-#
-#         with util.uopen("words", "wt") as f:
-#             for t in lm_tokens:
-#                 f.write(f"{t}\n")
-#
-#         vocab = set()
-#         lexicon = Lexicon()
-#
-#         lexicon.add_phoneme(self.unk_label, variation="none")
-#
-#         if self.add_silence:
-#             lexicon.add_phoneme("[SILENCE]", variation="none")
-#
-#         with util.uopen(self.bpe_vocab.get_path(), "rt") as bpe_vocab_file:
-#             with util.uopen("fake_count_vocab", "wt") as fake_count_file:
-#                 for line in bpe_vocab_file:
-#                     if "{" in line or "<s>" in line or "</s>" in line or "}" in line:
-#                         continue
-#                     symbol = line.split(":")[0][1:-1]
-#                     if symbol != self.unk_label:
-#                         fake_count_file.write(symbol + " -1\n")
-#                         symbol = symbol.replace(".", "_")
-#                         vocab.add(symbol)
-#                         lexicon.add_phoneme(symbol)
-#
-#         apply_binary = os.path.join(
-#             tk.uncached_path(self.subword_nmt_repo), "apply_bpe.py"
-#         )
-#         args = [
-#             sys.executable,
-#             apply_binary,
-#             "--input",
-#             "words",
-#             "--codes",
-#             self.bpe_codes.get_path(),
-#             "--vocabulary",
-#             "fake_count_vocab",
-#             "--output",
-#             "bpes",
-#         ]
-#         sp.run(args, check=True)
-#
-#         with util.uopen("bpes", "rt") as f:
-#             bpe_tokens = [l.strip() for l in f]
-#
-#         w2b = {w: b for w, b in zip(lm_tokens, bpe_tokens)}
-#
-#         lexicon.add_lemma(
-#             Lemma(["[UNKNOWN]"], [self.unk_label], None, None, special="unknown")
-#         )
-#
-#         if self.add_silence:
-#             lexicon.add_lemma(
-#                 Lemma(["[SILENCE]"], ["[SILENCE]"], [], [[]], special="silence")
-#             )
-#
-#         if self.add_other_special:
-#             for l in other_special:
-#                 lexicon.add_lemma(l)
-#
-#         for w, b in w2b.items():
-#             b = " ".join(
-#                 [token if token in vocab else self.unk_label for token in b.split()]
-#             )
-#             lexicon.add_lemma(Lemma([w], [b.replace(".", "_")]))
-#
-#         elem = lexicon.to_xml()
-#         tree = ET.ElementTree(elem)
-#         util.write_xml(self.out_lexicon.get_path(), tree)
 
 
 class ApplyBPEToTextJob(Job):
@@ -274,9 +131,7 @@ class ApplyBPEToTextJob(Job):
         self.words_file = words_file
         self.bpe_codes = bpe_codes
         self.bpe_vocab = bpe_vocab
-        self.subword_nmt_repo = (
-            subword_nmt_repo if subword_nmt_repo is not None else gs.SUBWORD_NMT_PATH
-        )
+        self.subword_nmt_repo = subword_nmt_repo if subword_nmt_repo is not None else gs.SUBWORD_NMT_PATH
         self.gzip_output = gzip_output
 
         self.out_bpe_text = self.output_path("words_to_bpe.txt.gz" if gzip_output else "words_to_bpe.txt")
@@ -303,9 +158,7 @@ class ApplyBPEToTextJob(Job):
                         symbol = line.split(":")[0][1:-1]
                         fake_count_file.write(symbol + " -1\n")
 
-            apply_binary = os.path.join(
-                tk.uncached_path(self.subword_nmt_repo), "apply_bpe.py"
-            )
+            apply_binary = os.path.join(tk.uncached_path(self.subword_nmt_repo), "apply_bpe.py")
             cmd = [
                 sys.executable,
                 apply_binary,

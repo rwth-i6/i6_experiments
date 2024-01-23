@@ -113,12 +113,14 @@ def seg_att_import_global_global_ctc_align_align_augment(
 
 def get_seg_att_config_builder(
         use_positional_embedding: bool = False,
+        search_remove_eos: bool = False,
 ):
   model_type = "librispeech_conformer_seg_att"
   variant_name = "seg.conformer.like-global"
   variant_params = copy.deepcopy(models[model_type][variant_name])
   variant_params["network"]["use_weight_feedback"] = False
   variant_params["network"]["use_positional_embedding"] = use_positional_embedding
+  variant_params["network"]["search_remove_eos"] = search_remove_eos
 
   config_builder = LibrispeechConformerSegmentalAttentionConfigBuilder(
     dependencies=variant_params["dependencies"],

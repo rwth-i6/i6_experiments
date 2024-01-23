@@ -618,6 +618,7 @@ def create_config(
     mixup_aug_opts=None,
     enable_mixup_in_pretrain=True,
     seq_train_opts=None,
+    horovod_params=None,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -627,7 +628,8 @@ def create_config(
     if not is_recog:
         exp_config["train"] = training_datasets.train.as_returnn_opts()
         exp_config["dev"] = training_datasets.cv.as_returnn_opts()
-        exp_config["eval_datasets"] = {"devtrain": training_datasets.devtrain.as_returnn_opts()}
+        if training_datasets.devtrain:
+            exp_config["eval_datasets"] = {"devtrain": training_datasets.devtrain.as_returnn_opts()}
 
     target = "bpe_labels"
 
@@ -844,8 +846,12 @@ def create_config(
         else:
             raise ValueError("Invalid speed_pert_version")
 
-    if feature_extraction_net and global_stats:
-        add_global_stats_norm(global_stats, exp_config["network"])
+    if feature_extraction_net:
+        if global_stats:
+            add_global_stats_norm(global_stats, exp_config["network"])
+        else:
+            # use per-seq norm
+            add_per_seq_norm(exp_config["network"])
 
     if mixup_aug_opts:
         add_mixup_layers(
@@ -876,6 +882,8 @@ def create_config(
                     net.update(feature_extraction_net)
                     if global_stats:
                         add_global_stats_norm(global_stats, net)
+                    else:
+                        add_per_seq_norm(net)
                 if mixup_aug_opts and enable_mixup_in_pretrain:
                     add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog)
                     net_as_str = "from returnn.config import get_global_config\n"
@@ -993,6 +1001,9 @@ def create_config(
         elif seq_train_type == "double_softmax":
             add_double_softmax(net=exp_config["network"], **opts)
 
+    if horovod_params:
+        exp_config.update(horovod_params)
+
     returnn_config = ReturnnConfig(
         exp_config,
         staged_network_dict=staged_network_dict,
@@ -1004,6 +1015,11 @@ def create_config(
     )
 
     return returnn_config
+
+
+def add_per_seq_norm(net):
+    net["log10_"] = copy.deepcopy(net["log10"])
+    net["log10"] = {"class": "norm", "from": "log10_", "axis": "T"}
 
 
 def add_global_stats_norm(global_stats, net):

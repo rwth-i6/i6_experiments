@@ -136,6 +136,7 @@ def conformer_baseline():
             kwargs.get("returnn_root", RETURNN_ROOT),
             num_epochs=num_epochs,
             gpu_mem=kwargs.get("gpu_mem", 11),
+            horovod_num_processes=kwargs.get("horovod_num_processes", None),
         )
         return train_job
 
@@ -345,10 +346,11 @@ def conformer_baseline():
             returnn_exe=RETURNN_CPU_EXE,
             returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
             num_average=num_avg,
+            key=kwargs.get("avg_key", "dev_score_output/output_prob"),
         )
         train_job_avg_ckpt[exp_name] = averaged_checkpoint
 
-        best_checkpoint = get_best_checkpoint(train_job)
+        best_checkpoint = get_best_checkpoint(train_job, key=kwargs.get("avg_key", "dev_score_output/output_prob"))
         train_job_best_epoch[exp_name] = best_checkpoint
 
         if recog_epochs is None:
@@ -420,6 +422,7 @@ def conformer_baseline():
         train_data = build_training_datasets(
             bpe_size=bpe_size,
             use_raw_features=True,
+            partition_epoch=kwargs.get("partition_epoch", 6),
             epoch_wise_filter=kwargs.get("epoch_wise_filter", None),
             link_speed_perturbation=train_args.get("speed_pert", False),
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
@@ -859,14 +862,22 @@ def conformer_baseline():
         if lr_type == "epoch-oclr":
             lr = lr_opts["lr"]
             initial_lr = lr_opts.get("initial_lr", lr / 10)
-            cyc_ep = int(0.45 * num_epochs)
+            cyc1_factor = lr_opts.get("cyc1_factor", 0.45)
+            cyc2_factor = lr_opts.get("cyc2_factor", 0.45)
+            cyc1_ep = int(cyc1_factor * num_epochs)
+            cyc2_ep = int(cyc2_factor * num_epochs)
+            finetune_ep = num_epochs - cyc1_ep - cyc2_ep
+            assert cyc1_ep + cyc2_ep + finetune_ep == num_epochs, "OCLR epochs do not add up."
             base_v2_args["learning_rates_list"] = (
-                list(numpy.linspace(initial_lr, lr, cyc_ep))
-                + list(numpy.linspace(lr, initial_lr, cyc_ep))
-                + list(numpy.linspace(initial_lr, 1e-6, ep - 2 * cyc_ep))
+                list(numpy.linspace(initial_lr, lr, cyc1_ep))
+                + list(numpy.linspace(lr, initial_lr, cyc2_ep))
+                + list(numpy.linspace(initial_lr, 1e-6, finetune_ep))
             )
             assert len(base_v2_args["learning_rates_list"]) == num_epochs
             exp_name += f"_epocOCLR-{initial_lr}-{lr}"
+            if cyc1_factor != 0.45 or cyc2_factor != 0.45:
+                exp_name += f"_epocOCLR-{initial_lr}-{lr}-{cyc1_factor}-{cyc2_factor}"
+
         elif lr_type == "step-oclr":
             base_v2_args["oclr_opts"]["peak_lr"] = lr_opts["lr"]
             base_v2_args["oclr_opts"]["total_ep"] = num_epochs
@@ -947,8 +958,14 @@ def conformer_baseline():
                 bpe_size=BPE_500,
             )
 
+    # hub5e00 hub5e01 rt03s
+    #
+    # with pretraining:                                  12.4       11.1     13.0
+    # with pretraining + disable specaug initially:      12.5       11.1     13.4
+    # without pretraining + disable specaug initially:   12.4       11.2     13.2
+
     for ep in [50 * 6]:
-        for num_blocks, reduce_factor in [(8, 1.0)]:
+        for num_blocks, reduce_factor in [(8, 1.0), (12, 1.0)]:
             # TODO: smaller target embed dim
             args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
             args["specaug_version"] = 1
@@ -961,6 +978,66 @@ def conformer_baseline():
                 bpe_size=BPE_500,
             )
 
+            # TODO: pretrain + step-based oclr
+            # note that batch size is larger during pretrain so the oclr here is not symmetric
+            args, name = get_base_v2_args(
+                ep, num_blocks, reduce_factor, lr_type="step-oclr", lr_opts={"lr": 1e-3, "n_step": 1450}
+            )
+            args["specaug_version"] = 1
+            args["decoder_args"].embed_dim = 256
+            run_default_exp(
+                name + f"_embed256_specaug1",
+                train_args=args,
+                num_epochs=ep,
+                gpu_mem=11,
+                bpe_size=BPE_500,
+            )
+
+            # TODO: no pretrain
+            for oclr_n_step in [None, 1450]:
+                if num_blocks == 12:
+                    continue
+                if oclr_n_step is None and num_blocks == 8:
+                    continue
+                if oclr_n_step is not None:
+                    # step-based
+                    args, name = get_base_v2_args(
+                        ep, num_blocks, reduce_factor, lr_type="step-oclr", lr_opts={"lr": 1e-3, "n_step": oclr_n_step}
+                    )
+                else:
+                    # epoch-based
+                    args, name = get_base_v2_args(
+                        ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3}
+                    )
+
+                if num_blocks == 8:
+                    specaug_steps = {"step0": 6_000, "step1": 8_000, "step2": 10_000}
+                elif num_blocks == 12:
+                    specaug_steps = {"step0": 10_000, "step1": 15_000, "step2": 20_000}
+                else:
+                    raise NotImplementedError
+
+                args["specaug_str_func_opts"] = {
+                    "version": 2,
+                    **specaug_steps,
+                    "max_time_num": 100,
+                    "max_time_dim": 20,
+                    "min_num_add_factor": 0,
+                    "freq_dim_factor": 5,
+                }
+                args["decoder_args"].embed_dim = 256
+                args["with_pretrain"] = False
+                run_default_exp(
+                    name + f"_embed256_specaugCurrV1_noPretrain",
+                    train_args=args,
+                    num_epochs=ep,
+                    gpu_mem=11,
+                    bpe_size=BPE_500,
+                )
+
+    # TODO: mixup
+    for ep in [50 * 6]:
+        for num_blocks, reduce_factor in [(8, 1.0)]:
             for apply_drop in [0.1, 0.2, 0.3, 0.4]:
                 for max_num_mix in [4, 5]:
                     for lambda_min_max in [(0.15, 0.3), (0.1, 0.3)]:
@@ -1037,6 +1114,63 @@ def conformer_baseline():
     # TODO: staged hyperparams
     # - weight noise: disable for first 45% of epochs for example and enable it later
     # - apply curriculum learning for utterances?
-    # - grad clip: /4, /2, /1
-    # - schedule sampling?
-    # - label smoothing?
+
+    # TODO: no ctc
+    for ep in [50 * 6]:
+        for num_blocks, reduce_factor in [(8, 1.0)]:
+            # TODO: smaller target embed dim
+            args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
+            args["specaug_version"] = 1
+            args["decoder_args"].embed_dim = 256
+            args["encoder_args"].with_ctc = False
+            run_default_exp(
+                name + f"_embed256_specaug1_noCTC",
+                train_args=args,
+                num_epochs=ep,
+                gpu_mem=11,
+                bpe_size=BPE_500,
+                avg_key="dev_score",
+            )
+
+    # TODO: multi-gpu training
+    # conf_8l_dimF1.0_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_epocOCLR-0.0001-0.001_embed256_specaug1
+    # 12.4       11.1     13    avg
+
+    # TODO: param sync
+    # gpu4_paramSync_step50_accum1_gradClipNorm5              13.7       12.1     14.5  avg
+    # gpu4_paramSync_step100_accum1_gradClipNorm20            13.8       12.3     14.5  avg
+    # gpu4_paramSync_step100_accum1_gradClipNorm5             14         12.1     14.6  avg
+    for ep in [50 * 6]:
+        for num_blocks, reduce_factor in [(8, 1.0)]:
+            for sync_step in [50]:
+                for gradient_clip_global_norm in [5]:
+                    for lr_opts in [
+                        {"lr": 1e-3},
+                        {"lr": 1e-3, "initial_lr": 4e-4},  # higher initial LR
+                        {"lr": 1e-3, "cyc1_factor": 0.5, "cyc2_factor": 0.5},  # no fine-tuning
+                        {"lr": 1e-3, "cyc1_factor": 0.2, "cyc2_factor": 0.7},  # shorter warmup
+                    ]:
+                        args, name = get_base_v2_args(
+                            ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts=lr_opts
+                        )
+                        args["accum_grad"] = 1
+                        args["specaug_version"] = 1
+                        args["decoder_args"].embed_dim = 256
+                        args["horovod_params"] = {
+                            "horovod_reduce_type": "param",
+                            "horovod_param_sync_step": sync_step,
+                            "horovod_dataset_distribution": "random_seed_offset",
+                        }
+                        exp_name = name + f"_embed256_specaug1_gpu4_paramSync_step{sync_step}_accum1"
+                        if gradient_clip_global_norm:
+                            args["gradient_clip_global_norm"] = gradient_clip_global_norm
+                            exp_name += f"_gradClipNorm{gradient_clip_global_norm}"
+                        run_default_exp(
+                            exp_name,
+                            train_args=args,
+                            num_epochs=ep,
+                            partition_epoch=6 * 4,
+                            gpu_mem=11,
+                            bpe_size=BPE_500,
+                            horovod_num_processes=4,
+                        )

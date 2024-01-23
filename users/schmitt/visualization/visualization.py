@@ -10,7 +10,7 @@ import shutil
 import os
 import json
 import matplotlib
-matplotlib.use("Agg")
+# matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 import ast
@@ -305,10 +305,6 @@ class PlotAttentionWeightsJobV2(Job):
 
       num_labels = weights.shape[0]
       num_frames = weights.shape[1]
-      frame_label_ratio = num_frames / num_labels  # used for the fig size
-
-      font_size = 15
-      figsize_factor = 2
       fig_width = num_frames / 8
       fig_height = num_labels / 4
       figsize = (fig_width, fig_height)
@@ -321,7 +317,7 @@ class PlotAttentionWeightsJobV2(Job):
       labels = targets[targets != self.target_blank_idx] if self.target_blank_idx is not None else targets  # the alignment labels which are not blank (in case of global att model, just use `targets`)
       labels = [vocab[idx] for idx in labels]  # the corresponding bpe label
       # x axis
-      ax.set_xticks([tick - .5 for tick in ref_label_positions])
+      ax.set_xticks([tick - 1.0 for tick in ref_label_positions])
       ax.set_xticklabels(ref_labels, rotation=90)
       # y axis
       yticks = [tick for tick in range(num_labels)]
@@ -335,20 +331,21 @@ class PlotAttentionWeightsJobV2(Job):
         for i, (seg_start, seg_len) in enumerate(zip(seg_starts, seg_lens)):
           ymin = (num_labels - i) / num_labels
           ymax = (num_labels - i - 1) / num_labels
-          ax.axvline(x=seg_start - .5, ymin=ymin, ymax=ymax, color="r")
-          ax.axvline(x=seg_start + seg_len - .5, ymin=ymin, ymax=ymax, color="r")
+          ax.axvline(x=seg_start - 0.5, ymin=ymin, ymax=ymax, color="r")
+          ax.axvline(x=seg_start + seg_len - 1.5, ymin=ymin, ymax=ymax, color="r")
 
       if center_positions is not None:
-        # yellow markers to indicate center positions
+        # green markers to indicate center positions
         for i, center_position in enumerate(center_positions):
           ymin = (num_labels - i) / num_labels
           ymax = (num_labels - i - 1) / num_labels
           ax.axvline(x=center_position - .5, ymin=ymin, ymax=ymax, color="lime")
+          ax.axvline(x=center_position + .5, ymin=ymin, ymax=ymax, color="lime")
 
       dirname = self.out_plot_dir.get_path()
-      filename = os.path.join(dirname, "plot.%s.png" % seq_tag.replace("/", "_"))
-      plt.savefig(filename)
-      # plt.savefig(self.out_plot_pdf.get_path())
+      filename = os.path.join(dirname, "plot.%s" % seq_tag.replace("/", "_"))
+      plt.savefig(filename + ".png")
+      plt.savefig(filename + ".pdf")
 
 
   @classmethod

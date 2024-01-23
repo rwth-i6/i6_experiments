@@ -12,7 +12,10 @@ class ComputePriorCallback(ForwardCallbackIface):
     def process_seq(self, *, seq_tag: str, outputs: TensorDict):
         log_prob_tensor = outputs["log_probs"].raw_tensor
         assert log_prob_tensor is not None
-        prob_tensor_iter = iter(torch.exp(log_prob_tensor))
+        if isinstance(log_prob_tensor, torch.Tensor):
+            prob_tensor_iter = iter(torch.exp(log_prob_tensor))
+        else:
+            prob_tensor_iter = iter(np.exp(log_prob_tensor))
 
         if self.avg_probs is None:
             self.avg_probs = next(prob_tensor_iter)
@@ -22,16 +25,20 @@ class ComputePriorCallback(ForwardCallbackIface):
             self.avg_probs += (prob_tensor - self.avg_probs) / self.n
 
     def finish(self):
-        prob_array = self.avg_probs.cpu().numpy()
+        if isinstance(self.avg_probs, torch.Tensor):
+            prob_array = self.avg_probs.cpu().numpy()
+        else:
+            prob_array = self.avg_probs
         log_prob_array = np.log(prob_array)
         log_prob_strings = ["%.20e" % s for s in log_prob_array]
 
+        print("Sum of probs, should be close to 1.0:", np.sum(prob_array))
         # Write txt file
-        with open("../output/prior.txt", "wt") as f:
+        with open("prior.txt", "wt") as f:
             f.write(" ".join(log_prob_strings))
 
         # Write xml file
-        with open("../output/prior.xml", "wt") as f:
+        with open("prior.xml", "wt") as f:
             f.write(f'<?xml version="1.0" encoding="UTF-8"?>\n<vector-f32 size="{len(log_prob_array)}">\n')
             f.write(" ".join(log_prob_strings))
             f.write("\n</vector-f32>")
@@ -47,4 +54,4 @@ class ComputePriorCallback(ForwardCallbackIface):
         plt.xlabel("emission idx")
         plt.ylabel("prior")
         plt.grid(True)
-        plt.savefig("../output/prior.png")
+        plt.savefig("prior.png")

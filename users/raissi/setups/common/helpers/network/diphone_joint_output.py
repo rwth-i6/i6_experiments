@@ -1,4 +1,4 @@
-__all__ = ["augment_to_joint_diphone_softmax"]
+__all__ = ["augment_returnn_config_to_joint_diphone_softmax", "get_prolog_augment_network_to_joint_diphone_softmax"]
 
 import copy
 from textwrap import dedent
@@ -6,9 +6,12 @@ from textwrap import dedent
 from i6_core import returnn
 
 from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo
+from i6_experiments.users.raissi.setups.common.helpers.network.augment import Network
+
+from i6_experiments.users.raissi.setups.common.helpers.train.returnn_time_tag import get_context_dim_tag_prolog
 
 
-def augment_to_joint_diphone_softmax(
+def augment_returnn_config_to_joint_diphone_softmax(
     returnn_config: returnn.ReturnnConfig,
     label_info: LabelInfo,
     out_joint_score_layer: str,
@@ -17,6 +20,7 @@ def augment_to_joint_diphone_softmax(
     left_context_softmax_layer: str = "left-output",
     encoder_output_layer: str = "encoder-output",
     prepare_for_train: bool = False,
+    keep_right_context: bool = False,
 ) -> returnn.ReturnnConfig:
     """
     Assumes a diphone FH model and expands the model to calculate the scores for the joint
@@ -43,25 +47,48 @@ def augment_to_joint_diphone_softmax(
         "same_dim_tags_as": extern_data["data"]["same_dim_tags_as"],
     }
 
-    center_state_spatial_dim_variable_name = "__center_state_spatial"
-    center_state_feature_dim_variable_name = "__center_state_feature"
-
-    dim_prolog = dedent(
-        f"""
-        from returnn.tf.util.data import FeatureDim
-
-        {center_state_spatial_dim_variable_name} = FeatureDim("contexts-L", {label_info.n_contexts})
-        {center_state_feature_dim_variable_name} = FeatureDim("L", {label_info.n_contexts})
-        """
+    dim_prolog, network = get_prolog_augment_network_to_joint_diphone_softmax(
+        network=returnn_config.config["network"],
+        label_info=label_info,
+        out_joint_score_layer=out_joint_score_layer,
+        log_softmax=log_softmax,
+        center_state_softmax_layer=center_state_softmax_layer,
+        left_context_softmax_layer=left_context_softmax_layer,
+        encoder_output_layer=encoder_output_layer,
+        prepare_for_train=prepare_for_train,
+        keep_right_context=keep_right_context
     )
-    c_spatial_dim = returnn.CodeWrapper(center_state_spatial_dim_variable_name)
-    c_range_dim = returnn.CodeWrapper(center_state_feature_dim_variable_name)
 
-    network = returnn_config.config["network"]
+    update_cfg = returnn.ReturnnConfig({}, python_prolog=dim_prolog)
+    returnn_config.update(update_cfg)
 
-    for k in ["linear1-triphone", "linear2-triphone", "right-output"]:
-        # reduce error surface, remove all triphone-related stuff
-        network.pop(k, None)
+    return returnn_config
+
+
+def get_prolog_augment_network_to_joint_diphone_softmax(
+    network: Network,
+    label_info: LabelInfo,
+    out_joint_score_layer: str,
+    log_softmax: bool,
+    center_state_softmax_layer: str = "center-output",
+    left_context_softmax_layer: str = "left-output",
+    encoder_output_layer: str = "encoder-output",
+    prepare_for_train: bool = False,
+    keep_right_context: bool = False,
+) -> Network:
+
+    dim_prolog, c_spatial_dim, c_range_dim = get_context_dim_tag_prolog(
+        spatial_size=label_info.n_contexts,
+        feature_size=label_info.n_contexts,
+        context_type="L",
+        spatial_dim_variable_name="__center_state_spatial",
+        feature_dim_variable_name="__center_state_feature",
+    )
+
+    if not keep_right_context:
+        for k in ["linear1-triphone", "linear2-triphone", "right-output"]:
+            # reduce error surface, remove all triphone-related stuff
+            network.pop(k, None)
     for layer in network.values():
         layer.pop("target", None)
         layer.pop("loss", None)
@@ -145,7 +172,4 @@ def augment_to_joint_diphone_softmax(
 
     network[out_joint_score_layer]["register_as_extern_data"] = out_joint_score_layer
 
-    update_cfg = returnn.ReturnnConfig({}, python_prolog=dim_prolog)
-    returnn_config.update(update_cfg)
-
-    return returnn_config
+    return dim_prolog, network

@@ -373,10 +373,12 @@ class Call(SerializerObject):
     ) -> None:
         """
         :param callable_name: Name of the callable for which the call is serialized.
-        :param args: Optional list of positional arguments provided to the call.
         :param kwargs: Optional list of keyword arguments provided to the call in the form of key-value tuples.
-        :param return_assign_variables: Optional name or list of variable names that the return value(s) of the call are assigned to.
+        :param unhashed_kwargs: same as above, but does not influence the hash
+        :param return_assign_variables: Optional name or list of variable names that the return value(s) of the call
+            are assigned to.
         """
+        super().__init__()
         self.callable_name = callable_name
         self.kwargs = kwargs or []
         self.unhashed_kwargs = unhashed_kwargs or []

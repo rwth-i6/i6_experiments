@@ -281,6 +281,7 @@ class CTCDecoder:
         att_masking_fix=False,
         one_minus_term_mul_scale=1.0,
         one_minus_term_sub_scale=0.0,
+        blank_collapse=False,
     ):
         """
         :param base_model: base/encoder model instance
@@ -392,6 +393,8 @@ class CTCDecoder:
 
         self.one_minus_term_mul_scale = one_minus_term_mul_scale
         self.one_minus_term_sub_scale = one_minus_term_sub_scale
+
+        self.blank_collapse = blank_collapse
 
         self.network = ReturnnNetwork()
         self.subnet_unit = ReturnnNetwork()
@@ -895,6 +898,8 @@ class CTCDecoder:
             )
             choice_layer_source = "ctc_log_scores_w_prior"
 
+
+
         if self.length_normalization:
             subnet_unit.add_choice_layer(
                 "output",
@@ -1138,11 +1143,147 @@ class CTCDecoder:
             )
             self.ctc_source = "ctc_no_eos_postfix_in_time"
 
+
+    def add_blank_collapse(self):
+        """Collpase blanks in ctc logits and set ctc_source to the new logits."""
+        from i6_experiments.users.gruev.implementations.returnn.blank_collapse import blank_collapse
+
+        # apply_log = False
+        #
+        # if apply_log:
+        #     blank_threshold = math.log(blank_threshold)
+
+        ### INITIAL BLANK THRESHOLDING
+        # computes softmax_layer_output[:, :, blank_idx], output_dims=[B, T]
+        self.network.update({
+            "ctc_sequence": {
+                "class": "gather",
+                "from": self.ctc_source,
+                "axis": "B",
+                "position": 0,
+            },
+            # "print_ctc_sequence": {
+            #    "class": "print",
+            #    "from": "ctc_sequence",
+            #    "is_output_layer": True,
+            # },
+            ### Obtain probs[:, :, blank_idx], dims=[B, T]
+            ### Status: OK
+            "blank_axis": {
+                "class": "gather",
+                "from": self.ctc_source,
+                "position": 10_025,
+                "axis": "F",
+            },
+            ### Mask via probs[:, :, blank_idx] > 0.999, dims=[B, T]
+            ### Status: OK
+            "blank_mask": {
+                "class": "compare",
+                "from": "blank_axis",
+                "kind": "greater",
+                "value": 0.999,
+            },
+            ### Obtain audio lengths of sequence in batch, dims=[B,]
+            ### Status: OK
+            "audio_lens": {
+                "class": "length",
+                "from": self.ctc_source,
+                "axis": "T",
+            },
+            ### Obtain a range over largest audio length, dims=[T,]
+            ### Status: OK
+            "audio_range": {
+                "class": "range_from_length",
+                "from": "audio_lens",
+            },
+            ### Mask for sequence audio lengths, dims=[B, T]
+            ### Status: OK
+            "audio_lens_mask": {
+                "class": "compare",
+                "kind": "less_equal",
+                "from": ["audio_lens", "audio_range"],
+            },
+            ### Combined mask from threshold and audio lengths, dims=[B, T]
+            ### Status: OK
+            "blank_mask_w_audio_lens": {
+                "class": "combine",
+                "from": ["blank_mask", "audio_lens_mask"],
+                "kind": "logical_or",
+            },
+            ### One masking to shift blanks at start is enough, see corner cases
+            ### Status: OK
+            ### Cast True to +inf and False to audio_len_range, dims=[B, T]
+            ### Another corner case: what if there are no False, i.e. only blanks??
+            ### Status: OK
+            "mapping_start": {
+                "class": "switch",
+                "condition": "blank_mask_w_audio_lens",
+                "true_from": int(1e4),
+                "false_from": "audio_range",
+            },
+            ### Indices of first non-blank elements, dims=[B,]
+            ### Status: OK
+            "sequences_start": {
+                "class": "reduce",
+                "from": "mapping_start",
+                "mode": "argmin",
+                "axis": "T",
+            },
+            ### Restore proper boundaries
+            "sequences_start_mask": {
+                "class": "compare",
+                "kind": "less",
+                "from": ["audio_range", "sequences_start"],
+            },
+            ### Construct shifted mask for single blanks, dims=[B, T]
+            ### Set adjust_size_info to False, preserves 'T' Dim
+            ### Status: OK
+            "blank_mask_w_audio_lens_shifted": {
+                "class": "shift_axis",
+                "from": ["blank_mask_w_audio_lens"],
+                "axis": "T",
+                "amount": -1,
+                "pad_value": True,
+                "adjust_size_info": False,
+            },
+            ### Apply logical_and towards final mask, dims=[B, T]
+            ### Status: OK
+            "blank_mask_w_shift": {
+                "class": "combine",
+                "kind": "logical_and",
+                "from": ["blank_mask_w_audio_lens", "blank_mask_w_audio_lens_shifted"],
+            },
+            ### Final mask, dims=[B, T]
+            "blank_mask_final_": {
+                "class": "combine",
+                "kind": "logical_or",
+                "from": ["blank_mask_w_shift", "sequences_start_mask"],
+            },
+            "blank_mask_final": {
+                "class": "eval",
+                "from": "blank_mask_final_",
+                "eval": "tf.math.logical_not(source(0))",
+            },
+            "blank_collapse_apply": {
+                "class": "masked_computation",
+                "from": [self.ctc_source],
+                "mask": "blank_mask_final",
+                "unit": {"class": "copy"},
+            },
+        })
+
+        self.ctc_source = "blank_collapse_apply"
+
+
     def create_network(self):
         self.decision_layer_name = "out_best_wo_blank"
 
+        # modify ctc source
+        if self.blank_collapse:
+            self.add_blank_collapse()
         if self.remove_eos:
             self.remove_eos_from_ctc_logits()
+
         if self.add_ext_lm and not self.add_att_dec:
             self.network.add_length_layer("enc_seq_len", "encoder", sparse=False)
             self.dec_output = self.add_greedy_with_ext_lm_decoder(self.subnet_unit)

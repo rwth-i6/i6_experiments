@@ -16,8 +16,10 @@ from i6_experiments.users.raissi.setups.common.data.factored_label import (
 )
 
 from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
+from i6_experiments.users.raissi.setups.common.helpers.align.FSA import correct_rasr_FSA_bug
 
 DEFAULT_INIT = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)"
+
 
 @dataclass(frozen=True, eq=True)
 class LogLinearScales:
@@ -28,6 +30,7 @@ class LogLinearScales:
     @classmethod
     def default(cls) -> "LogLinearScales":
         return cls(label_posterior_scale=0.3, label_prior_scale=None, transition_scale=0.3)
+
 
 Layer = Dict[str, Any]
 Network = Dict[str, Layer]
@@ -266,7 +269,11 @@ def augment_net_with_monophone_outputs(
     assert not add_mlps or final_ctx_type is not None
 
     network = copy.copy(shared_network)
-    center_target, center_dim = ("singleStateCenter", label_info.get_n_single_state_classes()) if frame_rate_reduction_ratio_info.single_state_alignment else ("centerState", label_info.get_n_state_classes())
+    center_target, center_dim = (
+        ("singleStateCenter", label_info.get_n_single_state_classes())
+        if frame_rate_reduction_ratio_info.single_state_alignment
+        else ("centerState", label_info.get_n_state_classes())
+    )
 
     loss_opts = {}
     if focal_loss_factor > 0.0:
@@ -620,9 +627,11 @@ def augment_with_triphone_embeds(
     copy_net=True,
 ) -> Network:
     network = copy.deepcopy(shared_network) if copy_net else shared_network
-    center_target, center_dim = ("singleStateCenter",
-                                 label_info.get_n_single_state_classes()) if frame_rate_reduction_ratio_info.single_state_alignment else (
-    "centerState", label_info.get_n_state_classes())
+    center_target, center_dim = (
+        ("singleStateCenter", label_info.get_n_single_state_classes())
+        if frame_rate_reduction_ratio_info.single_state_alignment
+        else ("centerState", label_info.get_n_state_classes())
+    )
 
     network["pastEmbed"] = get_embedding_layer(source="pastLabel", dim=ph_emb_size, l2=l2)
     network["currentState"] = get_embedding_layer(source=center_target, dim=st_emb_size, l2=l2)
@@ -679,7 +688,6 @@ def remove_label_pops_and_losses(network: Network, except_layers: Optional[Itera
         if center_target in network:
             network.pop(center_target, None)
 
-
     for layer in network.values():
         layer.pop("target", None)
         layer.pop("loss", None)
@@ -706,30 +714,23 @@ def remove_label_pops_and_losses_from_returnn_config(
     return cfg
 
 
-def add_fast_bw_layer(
+def add_fast_bw_layer_to_network(
     crp: rasr.CommonRasrParameters,
-    returnn_config: returnn.ReturnnConfig,
+    network: Network,
     log_linear_scales: LogLinearScales,
-    import_model: [tk.Path, str] = None,
     reference_layer: str = "center-output",
     label_prior: Optional[returnn.CodeWrapper] = None,
     extra_rasr_config: Optional[rasr.RasrConfig] = None,
     extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
-) -> returnn.ReturnnConfig:
+) -> Network:
 
-    crp.acoustic_model_config.tdp.applicator_type = "corrected"
-    transition_types = ["*", "silence"]
-    if crp.acoustic_model_config.tdp.tying_type == "global-and-nonword":
-        for nw in [0, 1]:
-            transition_types.append(f"nonword-{nw}")
-    for t in transition_types:
-        crp.acoustic_model_config.tdp[t].exit = 0.0
+    crp = correct_rasr_FSA_bug(crp)
 
     if log_linear_scales.label_prior_scale is not None:
         assert prior is not None, "Hybrid HMM needs a transcription based prior for fullsum training"
 
     for attribute in ["loss", "loss_opts", "target"]:
-        del returnn_config.config["network"][reference_layer][attribute]
+        del network[reference_layer][attribute]
 
     inputs = []
     out_denot = reference_layer.split("-")[0]
@@ -738,10 +739,10 @@ def add_fast_bw_layer(
     if label_prior is not None:
         # Here we are creating a standard hybrid HMM, without prior we have a posterior HMM
         prior_name = ("_").join(["label_prior", reference_layer_denot])
-        returnn_config.config["network"][prior_name] = {"class": "constant", "dtype": "float32", "value": label_prior}
+        network[prior_name] = {"class": "constant", "dtype": "float32", "value": label_prior}
         comb_name = ("_").join(["comb-prior", out_denot])
         inputs.append(comb_name)
-        returnn_config.config["network"][comb_name] = {
+        network[comb_name] = {
             "class": "combine",
             "kind": "eval",
             "eval": "am_scale*( safe_log(source(0)) - (safe_log(source(1)) * prior_scale) )",
@@ -754,7 +755,7 @@ def add_fast_bw_layer(
     else:
         comb_name = ("_").join(["multiply-scale", out_denot])
         inputs.append(comb_name)
-        returnn_config.config["network"][comb_name] = {
+        network[comb_name] = {
             "class": "combine",
             "kind": "eval",
             "eval": "am_scale*(safe_log(source(0)))",
@@ -762,7 +763,7 @@ def add_fast_bw_layer(
             "from": [reference_layer],
         }
 
-    returnn_config.config["network"]["output_bw"] = {
+    network["output_bw"] = {
         "class": "copy",
         "from": reference_layer,
         "loss": "via_layer",
@@ -770,21 +771,12 @@ def add_fast_bw_layer(
         "loss_scale": 1.0,
     }
 
-    returnn_config.config["network"]["fast_bw"] = {
+    network["fast_bw"] = {
         "class": "fast_bw",
         "align_target": "sprint",
         "from": inputs,
         "tdp_scale": log_linear_scales.transition_scale,
     }
-
-    if "chunking" in returnn_config.config:
-        del returnn_config.config["chunking"]
-    if "pretrain" in returnn_config.config and import_model is not None:
-        del returnn_config.config["pretrain"]
-
-    # start training from existing model
-    if import_model is not None:
-        returnn_config.config["import_model_train_epoch1"] = import_model
 
     # Create additional Rasr config file for the automaton
     mapping = {
@@ -819,12 +811,43 @@ def add_fast_bw_layer(
     automaton_config = rasr.WriteRasrConfigJob(config, post_config).out_config
     tk.register_output("train/bw.config", automaton_config)
 
-    returnn_config.config["network"]["fast_bw"]["sprint_opts"] = {
+    network["fast_bw"]["sprint_opts"] = {
         "sprintExecPath": rasr.RasrCommand.select_exe(crp.nn_trainer_exe, "nn-trainer"),
         "sprintConfigStr": DelayedFormat("--config={}", automaton_config),
         "sprintControlConfig": {"verbose": True},
         "usePythonSegmentOrder": False,
         "numInstances": 1,
     }
+
+    return network
+
+
+def add_fast_bw_layer_to_returnn_config(
+    crp: rasr.CommonRasrParameters,
+    returnn_config: returnn.ReturnnConfig,
+    log_linear_scales: LogLinearScales,
+    import_model: [tk.Path, str] = None,
+    reference_layer: str = "center-output",
+    label_prior: Optional[returnn.CodeWrapper] = None,
+    extra_rasr_config: Optional[rasr.RasrConfig] = None,
+    extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
+) -> returnn.ReturnnConfig:
+
+    returnn_config.config["network"] = add_fast_bw_layer_to_network(
+        crp=crp,
+        network=returnn_config.config["network"],
+        log_linear_scales=log_linear_scales,
+        reference_layer=reference_layer,
+        label_prior=label_prior,
+        extra_rasr_config=extra_rasr_config,
+        extra_rasr_post_config=extra_rasr_post_config,
+    )
+
+    if "chunking" in returnn_config.config:
+        del returnn_config.config["chunking"]
+    if "pretrain" in returnn_config.config and import_model is not None:
+        del returnn_config.config["pretrain"]
+
+    # ToDo: handel the import model part
 
     return returnn_config

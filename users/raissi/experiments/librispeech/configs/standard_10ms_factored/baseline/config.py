@@ -72,10 +72,14 @@ CONF_JOINT_DECODING_TENSOR_CONFIG = dataclasses.replace(
     DecodingTensorMap.default(),
     out_joint_diphone="output/output_batch_major",
 )
-BLSTM_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
+BLSTM_FH_DECODING_TENSOR_CONFIG_TF2 = dataclasses.replace(
     CONF_FH_DECODING_TENSOR_CONFIG,
     in_encoder_output="concat_lstm_fwd_6_lstm_bwd_6/concat_sources/concat",
+    in_seq_length="extern_data/placeholders/data/data_dim0_size",
 )
+
+BLSTM_FH_DECODING_TENSOR_CONFIG_TF1 = DecodingTensorMap.default()
+
 MLP_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
     CONF_FH_DECODING_TENSOR_CONFIG,
     in_encoder_output="linear__6/activation/Relu",

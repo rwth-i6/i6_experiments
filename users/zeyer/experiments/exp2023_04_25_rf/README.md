@@ -3,6 +3,7 @@
   Mostly done now, we get almost same speed as TF?
 * [Check older experiments on Conformer](../exp2022_07_21_transducer/exp_fs_base/README.md),
   example: conformer_ln_pre10_d384_h6_blstmf2_fix245_wdro_specaugweia_attdrop01_posdrop01_aux48ff_mhsapinit05_lsxx01
+* ESPnet example: https://github.com/espnet/espnet/blob/master/egs2/librispeech/asr1/conf/tuning/train_asr_conformer10_hop_length160.yaml
 
 Reference:
 
@@ -61,6 +62,7 @@ TODO:
 - Nadam? https://github.com/rwth-i6/returnn/issues/1440
 - weight decay? (also dependent on whether adam or adamw) adamw-wd1e_3 better?
 - weight decay only on selected layers/modules, like in TF, e.g. not so much on decoder
+- weight decay higher (0.1?) in decoder (Trafo decoder) only
 - adam eps? 1e-16 is what we had in TF, maybe better? moh as 1e-8 though.
 - try CTC only
 - CTC is incorrectly trained with EOS label at end - fix?
@@ -93,3 +95,8 @@ TODO model changes:
 - QK Norm (as in QK Norm paper with L2 norm, or as in Scaling ViT paper with LayerNorm)
 - Transformer decoder, probably makes training more stable, reaches better WER without ext LM/ILM
 - Chunked AED
+- LayerNorm no bias
+- check Zipformer, ScaledAdam, etc
+- check E-Branchformer
+- flash attention
+

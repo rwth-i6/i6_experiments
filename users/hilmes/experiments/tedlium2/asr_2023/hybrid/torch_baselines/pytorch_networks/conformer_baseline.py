@@ -221,9 +221,9 @@ def export(*, model: Model, model_filename: str):
     dummy_data = torch.randn(1, 30, 80, device="cpu")
     # dummy_data_len, _ = torch.sort(torch.randint(low=10, high=30, size=(1,), device="cpu", dtype=torch.int32), descending=True)
     dummy_data_len = torch.ones((1,), dtype=torch.int32) * 30
-    scripted_model = torch.jit.trace(model.eval(), example_inputs=(dummy_data, dummy_data_len))
+    #scripted_model = torch.jit.trace(model.eval(), example_inputs=(dummy_data, dummy_data_len))
     onnx_export(
-        scripted_model,
+        model.eval(),
         (dummy_data, dummy_data_len),
         f=model_filename,
         verbose=True,
@@ -262,8 +262,8 @@ def prior_step(*, model: Model, data, run_ctx, **kwargs):
     raw_audio_len = data["raw_audio:size1"]  # [B]
 
     logprobs, audio_features_len = model(
-        audio_features=raw_audio,
-        audio_features_len=raw_audio_len,
+        raw_audio=raw_audio,
+        raw_audio_len=raw_audio_len,
     )
 
     probs = torch.exp(logprobs)

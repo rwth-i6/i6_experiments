@@ -602,6 +602,45 @@ class ChooseBestAlignmentJob(Job):
     # shutil.move("out_hdf_align", self.out_hdf_align.get_path())
 
 
+class AlignmentRemoveAllBlankSeqsJob(Job):
+  """
+  Goes through HDF file with alignment sequences and returns another HDF file, which only contains the alignments
+  with at least one non-blank label.
+  """
+  def __init__(
+          self,
+          hdf_align_path: Path,
+          blank_idx: int,
+          returnn_python_exe: Path,
+          returnn_root: Path,
+  ):
+    self.returnn_root = returnn_root
+    self.returnn_python_exe = returnn_python_exe
+    self.blank_idx = blank_idx
+    self.hdf_align_path = hdf_align_path
+
+    self.out_align = self.output_path("out_align")
+    self.out_segment_file = self.output_path("out_segment_file")
+
+  def tasks(self):
+    yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
+
+  def run(self):
+    command = [
+      self.returnn_python_exe.get_path(),
+      os.path.join(tools_dir, "alignment_remove_all_blank_seqs.py"),
+      self.hdf_align_path.get_path(),
+      "--blank_idx", str(self.blank_idx),
+      "--returnn_root", self.returnn_root.get_path()
+    ]
+
+    create_executable("rnn.sh", command)
+    subprocess.check_call(["./rnn.sh"])
+
+    shutil.move("out_alignment", self.out_align.get_path())
+    shutil.move("out_segment_file", self.out_segment_file.get_path())
+
+
 def extract_ctc_alignment(
         returnn_config: ReturnnConfig,
         ctc_layer_name: str,

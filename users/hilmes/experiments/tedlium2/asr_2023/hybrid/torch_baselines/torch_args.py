@@ -50,7 +50,7 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **n
 
     recognition_args = {
         "dev": {
-            "epochs": evaluation_epochs,
+            "epochs": evaluation_epochs + ["best"],
             "feature_flow_key": "fb",
             "prior_scales": [0.7, 0.9],
             "pronunciation_scales": [0.0],
@@ -181,10 +181,10 @@ def get_pytorch_returnn_configs(
             debug=False,
             returnn_commit: Optional[str] = None,
     ):
+        base_config = copy.deepcopy(base_config)
         if post_config is None:
             post_config = base_post_config
         if any(x is not None for x in [max_seqs, grad_acc, learning_rate, returnn_commit]):
-            base_config = copy.deepcopy(base_config)
             if max_seqs is not None:
                 base_config["max_seqs"] = max_seqs
             if grad_acc is not None:
@@ -215,6 +215,11 @@ def get_pytorch_returnn_configs(
                 package + ".pytorch_networks.prior.prior_callback.ComputePriorCallback", import_as="forward_callback"
             )
             serializer_objects.append(prior_computation)
+            base_config["batch_size"] = 12000
+            base_config["forward_data"] = "train"
+            del base_config["min_seq_length"]
+            if "chunking" in base_config.keys():
+                del base_config["chunking"]
 
         i6_models_repo = CloneGitRepositoryJob(
             url="https://github.com/rwth-i6/i6_models",
