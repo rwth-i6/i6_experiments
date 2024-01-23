@@ -160,7 +160,6 @@ def get_corpus_data_inputs(
     gmm_system.crp["nn-train"].corpus_duration = DURATIONS["train"]
 
     gmm_system.add_overlay("dev", "nn-cv")
-    gmm_system.crp["nn-cv"].corpus_config.file = cv_corpus_path
     gmm_system.crp["nn-cv"].segment_path = cv_segments
     gmm_system.crp["nn-cv"].concurrent = 1
     gmm_system.crp["nn-cv"].corpus_duration = DURATIONS["dev"]
