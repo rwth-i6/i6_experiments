@@ -840,7 +840,12 @@ def create_config(
             python_prolog += [data_aug.speed_pert_v4]
         elif isinstance(speed_pert_version, dict):
             # generic
-            speed_pert_generic_str = data_aug.speed_pert_generic
+            version = speed_pert_version["version"]
+            if version == 1:
+                speed_pert_generic_str = data_aug.speed_pert_generic
+            else:
+                assert "sample_rate" in speed_pert_version
+                speed_pert_generic_str = data_aug.speed_pert_generic_v2
             assert isinstance(speed_pert_generic_str, str)
             python_prolog += [speed_pert_generic_str.format(**speed_pert_version)]
         else:
