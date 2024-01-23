@@ -5,7 +5,7 @@ from i6_experiments.common.setups.rasr import util
 from i6_experiments.common.datasets.tedlium2.cart import CartQuestions
 from i6_experiments.common.baselines.tedlium2.default_tools import SCTK_BINARY_PATH
 
-USE_CORRECTED_APPLICATOR=True
+USE_CORRECTED_APPLICATOR = True
 
 
 def get_init_args():
