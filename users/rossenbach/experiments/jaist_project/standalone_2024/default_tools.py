@@ -1,3 +1,6 @@
+"""
+Defines the external software to be used for the Experiments
+"""
 from sisyphus import tk
 from i6_core.tools.git import CloneGitRepositoryJob
 

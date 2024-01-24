@@ -1,6 +1,7 @@
+"""
+Universal helpers to create configuration objects (i6_core ReturnnConfig) for RETURNN training/forwarding
+"""
 import copy
-import numpy as np
-from sisyphus import tk
 from typing import Any, Dict, Optional
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
@@ -11,8 +12,6 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import (
 from i6_experiments.common.setups.serialization import Import
 from .data.common import TrainingDatasets
 from .serializer import get_pytorch_serializer_v3, PACKAGE
-
-from i6_experiments.users.rossenbach.common_setups.returnn.datasets import GenericDataset
 
 
 def get_training_config(
@@ -26,11 +25,16 @@ def get_training_config(
         post_config: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
     """
+    Get a generic config for training a model
+
     :param training_datasets: datasets for training
     :param network_module: path to the pytorch config file containing Model
-    :param net_args: extra arguments for the model
-    :param config:
+    :param net_args: extra arguments for constructing the PyTorch model
+    :param config: config arguments for RETURNN
     :param debug: run training in debug mode (linking from recipe instead of copy)
+    :param use_custom_engine: link custom engine source code (for RETURNN) from the specified network module
+    :param use_speed_perturbation: Use speedperturbation in the training
+    :param post_config: Add non-hashed arguments for RETURNN
     """
 
     # changing these does not change the hash
@@ -83,15 +87,18 @@ def get_prior_config(
         net_args: Dict[str, Any],
         config: Dict[str, Any],
         debug: bool = False,
-        use_custom_engine=False,
+        use_custom_engine: bool = False,
         **kwargs,
 ):
     """
-    Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_aligner
-    :param returnn_common_root: returnn_common version to be used, usually output of CloneGitRepositoryJob
-    :param training_datasets: datasets for training
-    :param kwargs: arguments to be passed to the network construction
-    :return: RETURNN training config
+     Get a generic config for extracting output label priors
+
+     :param training_datasets: datasets for training
+     :param network_module: path to the pytorch config file containing Model
+     :param net_args: extra arguments for constructing the PyTorch model
+     :param config: config arguments for RETURNN
+     :param debug: run training in debug mode (linking from recipe instead of copy)
+     :param use_custom_engine: link custom engine source code (for RETURNN) from the specified network module
     """
 
     # changing these does not change the hash
@@ -122,23 +129,26 @@ def get_prior_config(
     return returnn_config
 
 
-
 def get_forward_config(
         network_module: str,
         net_args: Dict[str, Any],
-        decoder: [str],
+        decoder: str,
         decoder_args: Dict[str, Any],
         config: Dict[str, Any],
         debug: bool = False,
-        use_custom_engine=False,
+        use_custom_engine: bool = False,
         **kwargs,
-):
+) -> ReturnnConfig:
     """
-    Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_aligner
-    :param returnn_common_root: returnn_common version to be used, usually output of CloneGitRepositoryJob
-    :param training_datasets: datasets for training
-    :param kwargs: arguments to be passed to the network construction
-    :return: RETURNN training config
+     Get a generic config for forwarding
+
+     :param network_module: path to the pytorch config file containing Model
+     :param net_args: extra arguments for constructing the PyTorch model
+     :param decoder: which (python) file to load which defines the forward, forward_init and forward_finish functions
+     :param decoder_args: extra arguments to pass to forward_init
+     :param config: config arguments for RETURNN
+     :param debug: run training in debug mode (linking from recipe instead of copy)
+     :param use_custom_engine: link custom engine source code (for RETURNN) from the specified network module
     """
 
     # changing these does not change the hash

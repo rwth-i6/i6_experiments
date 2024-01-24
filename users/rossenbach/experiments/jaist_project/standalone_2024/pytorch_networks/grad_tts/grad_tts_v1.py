@@ -3,14 +3,11 @@ import torch
 from torch import nn
 import math
 import os
+import random
 from typing import Any, Dict
 
-
-from . import modules
-from . import commons
-from . import attentions
 try:
-    from .monotonic_align.path import maximum_path
+    from ..glow_tts.monotonic_align.path import maximum_path
 except:
     import subprocess
     import sys
@@ -18,95 +15,110 @@ except:
         [sys.executable, 'setup.py', 'build_ext', '--inplace'],
         cwd=os.path.join(os.path.realpath(os.path.dirname(__file__)), "monotonic_align")
     )
-    from .monotonic_align.path import maximum_path
+    from ..glow_tts.monotonic_align.path import maximum_path
 
 from ..tts_shared.tts_base_model.base_model_v1 import BaseTTSModelV1
 from ..tts_shared import DbMelFeatureExtractionConfig
 from ..tts_shared.encoder.transformer import TTSTransformerTextEncoderV1Config
 from ..tts_shared.encoder.duration_predictor import SimpleConvDurationPredictorV1Config
-from .unet import Unet
+from ..tts_shared.util import sequence_mask, generate_path
+
+from .diffusion import get_noise, GradLogPEstimator2d
 
 
 @dataclass
 class DiffusionDecoderConfig():
     """
-        Args:
-            target_channels: Number of feature- and latent space channels
-            hidden_channels: Number of hidden channels
-            kernel_size: Kernel Size for convolutions in coupling blocks
-            dilation_rate: Dilation Rate to define dilation in convolutions of coupling block
-            num_blocks: Number of coupling blocks
-            num_layers_per_block: Number of layers in CNN of the coupling blocks
-            dropout: Dropout probability for CNN in coupling blocks.
-            num_splits: Number of splits for the 1x1 convolution for flows in the decoder.
-            num_squeeze: Squeeze the feature and latent space by this factor.
-            use_sigmoid_scale: Boolean to define if log probs in coupling layers should be rescaled using sigmoid. Defaults to False.
+
+    :param n_feats: target feature size
+    :param dim: internal dimension of the diffusion process
+    :param n_spks: number of speakers
+    :param spk_emb_dim:
+    :param beta_min:
+    :param beta_max:
+    :param pe_scale:
     """
-    unet_channels: int
-    unet_in_channels: int
-    unet_out_channels: int
-    dim_mults: list[int]
-    groups: int
-    with_time_emb: bool
-    beta_0: float
-    beta_1: float
-    iteration_steps: int
-    time_scale: float
+    n_feats: int
+    dim: int
+    beta_min: float
+    beta_max: float
+    pe_scale: int
 
 
-
-
-class DiffusionDecoder(nn.Module):
-  def __init__(self, 
-      cfg: DiffusionDecoderConfig
+class DiffusionDecoder(torch.nn.Module):
+    def __init__(
+            self,
+            cfg: DiffusionDecoderConfig,
+            num_speakers: int,
+            speaker_embedding_size: int
     ):
 
-    super().__init__()
-    self.cfg = cfg
-    self.delta_t = cfg.time_scale*1.0 / cfg.iteration_steps
-    self.discrete_betas = torch.linspace(cfg.beta_0, cfg.beta_1, cfg.iteration_steps)
-    self.unet = Unet(dim=cfg.unet_channels, out_dim=cfg.unet_out_channels, dim_mults=cfg.dim_mults, groups=cfg.groups, channels=cfg.unet_in_channels, with_time_emb=cfg.with_time_emb)
+        super().__init__()
+        self.cfg = cfg
+        self.estimator = GradLogPEstimator2d(cfg.dim, n_spks=num_speakers,
+                                             spk_emb_dim=speaker_embedding_size,
+                                             pe_scale=cfg.pe_scale)
 
-  def marginal_prob(self, mu, x, t):
-    log_mean_coeff = -0.25 * t ** 2 * (self.beta_1 - self.beta_0) - 0.5 * t * self.beta_0
-    mean = torch.exp(log_mean_coeff[:, None, None]) * x + (1-torch.exp(log_mean_coeff[:, None, None]) ) * mu
-    std = torch.sqrt(1. - torch.exp(2. * log_mean_coeff))
-    return mean, std
+    def forward_diffusion(self, x0, mask, mu, t):
+        time = t.unsqueeze(-1).unsqueeze(-1)
+        cum_noise = get_noise(time, self.cfg.beta_min, self.cfg.beta_max, cumulative=True)
+        mean = x0 * torch.exp(-0.5 * cum_noise) + mu * (1.0 - torch.exp(-0.5 * cum_noise))
+        variance = 1.0 - torch.exp(-cum_noise)
+        z = torch.randn(x0.shape, dtype=x0.dtype, device=x0.device,
+                        requires_grad=False)
+        xt = mean + z * torch.sqrt(variance)
+        return xt * mask, z * mask
 
-  def cal_loss(self, x, mu, t, z, std, g=None):
-    time_steps = t * (self.N - 1)
-    if g:
-        x = torch.stack([x, mu, g], 1)
-    else:
-        x = torch.stack([x, mu], 1)
-    grad = self.unet(x, time_steps)
-    loss = torch.square(grad + z / std[:, None, None]) * torch.square(std[:, None, None])
-    return loss
+    @torch.no_grad()
+    def reverse_diffusion(self, z, mask, mu, n_timesteps, stoc=False, spk=None):
+        h = 1.0 / n_timesteps
+        xt = z * mask
+        for i in range(n_timesteps):
+            t = (1.0 - (i + 0.5) * h) * torch.ones(z.shape[0], dtype=z.dtype,
+                                                   device=z.device)
+            time = t.unsqueeze(-1).unsqueeze(-1)
+            noise_t = get_noise(time, self.cfg.beta_min, self.cfg.beta_max,
+                                cumulative=False)
+            if stoc:  # adds stochastic term
+                dxt_det = 0.5 * (mu - xt) - self.estimator(xt, mask, mu, t, spk)
+                dxt_det = dxt_det * noise_t * h
+                dxt_stoc = torch.randn(z.shape, dtype=z.dtype, device=z.device,
+                                       requires_grad=False)
+                dxt_stoc = dxt_stoc * torch.sqrt(noise_t * h)
+                dxt = dxt_det + dxt_stoc
+            else:
+                dxt = 0.5 * (mu - xt - self.estimator(xt, mask, mu, t, spk))
+                dxt = dxt * noise_t * h
+            xt = (xt - dxt) * mask
+        return xt
 
-  def forward(self, mu, y=None, g=None, gen=False):
-    if not gen:
-      t = torch.FloatTensor(y.shape[0]).uniform_(0, self.cfg.time_scale-self.delta_t).to(y.device)+self.delta_t  # sample a random t
-      mean, std = self.marginal_prob(mu, y, t)
-      z = torch.randn_like(y)
-      x = mean + std[:, None, None] * z
-      loss = self.cal_loss(x, mu, t, z, std, g)
-      return loss
-    else:
-      with torch.no_grad():
-        y_T = torch.randn_like(mu) + mu
-        y_t_plus_one = y_T
-        y_t = None
-        for n in range(self.N - 1, 0, -1):
-          t = torch.FloatTensor(1).fill_(n).to(mu.device)
-          if g:
-              x = torch.stack([y_t_plus_one, mu, g], 1)
-          else:
-              x = torch.stack([y_t_plus_one, mu], 1)
-          grad = self.unet(x, t)
-          y_t = y_t_plus_one-0.5*self.delta_t*self.discrete_betas[n]*(mu-y_t_plus_one-grad)
-          y_t_plus_one = y_t
+    @torch.no_grad()
+    def forward(self, z, mask, mu, n_timesteps, stoc=False, spk=None):
+        return self.reverse_diffusion(z, mask, mu, n_timesteps, stoc, spk)
 
-      return y_t
+    def loss_t(self, x0, mask, mu, t, spk=None):
+        """
+
+        :param x0: target features (diffusion step zero) [B, F, T]?
+        :param mask: [B, 1, T]?
+        :param mu: [B, F, T]?
+        :param t: just noise? unclear?
+        :param spk: [B, emb_size]
+        :return:
+        """
+        xt, z = self.forward_diffusion(x0, mask, mu, t)
+        time = t.unsqueeze(-1).unsqueeze(-1)
+        cum_noise = get_noise(time, self.cfg.beta_min, self.cfg.beta_max, cumulative=True)
+        noise_estimation = self.estimator(xt, mask, mu, t, spk)
+        noise_estimation *= torch.sqrt(1.0 - torch.exp(-cum_noise))
+        loss = torch.sum((noise_estimation + z) ** 2) / (torch.sum(mask) * self.cfg.n_feats)
+        return loss, xt
+
+    def compute_loss(self, x0, mask, mu, spk=None, offset=1e-5):
+        t = torch.rand(x0.shape[0], dtype=x0.dtype, device=x0.device,
+                       requires_grad=False)
+        t = torch.clamp(t, offset, 1.0 - offset)
+        return self.loss_t(x0, mask, mu, t, spk)
 
 
 @dataclass
@@ -115,7 +127,6 @@ class Config:
         Args:
             num_speakers: input size of the speaker embedding matrix
             speaker_embedding_size: output size of the speaker embedding matrix
-            mean_only: if true, standard deviation for latent z estimation is fixed to 1
     """
     feature_extraction_config: DbMelFeatureExtractionConfig
     encoder_config: TTSTransformerTextEncoderV1Config
@@ -124,7 +135,7 @@ class Config:
 
     num_speakers: int
     speaker_embedding_size: int
-    mean_only: bool = False
+    decoder_segment_num_frames: int
 
     @classmethod
     def from_dict(cls, d):
@@ -132,8 +143,16 @@ class Config:
         d["feature_extraction_config"] = DbMelFeatureExtractionConfig(**d["feature_extraction_config"])
         d["encoder_config"] = TTSTransformerTextEncoderV1Config.from_dict(d["encoder_config"])
         d["duration_predictor_config"] = SimpleConvDurationPredictorV1Config(**d["duration_predictor_config"])
-        d["flow_decoder_config"] = FlowDecoderConfig(**d["flow_decoder_config"])
+        d["diffusion_decoder_config"] = DiffusionDecoderConfig(**d["diffusion_decoder_config"])
         return Config(**d)
+
+
+
+def fix_len_compatibility(length, num_downsamplings_in_unet=2):
+    while True:
+        if length % (2**num_downsamplings_in_unet) == 0:
+            return length
+        length += 1
 
 
 class Model(BaseTTSModelV1):
@@ -151,7 +170,6 @@ class Model(BaseTTSModelV1):
         # build config from nested dict
         config = Config.from_dict(config)
         self.config = config
-        self.n_sqz = config.flow_decoder_config.num_squeeze
 
         super().__init__(
             feature_extraction_config=config.feature_extraction_config,
@@ -161,24 +179,22 @@ class Model(BaseTTSModelV1):
             speaker_embedding_size=config.speaker_embedding_size,
         )
 
-
-        self.proj_m = nn.Conv1d(config.encoder_config.basic_dim, config.flow_decoder_config.target_channels, 1)
-        if not config.mean_only:
-            self.proj_s = nn.Conv1d(config.encoder_config.basic_dim, config.flow_decoder_config.target_channels, 1)
+        self.proj_m = nn.Conv1d(config.encoder_config.basic_dim, config.diffusion_decoder_config.n_feats, 1)
 
         self.decoder = DiffusionDecoder(
             cfg=config.diffusion_decoder_config,
+            num_speakers=config.num_speakers,
+            speaker_embedding_size=config.speaker_embedding_size
         )
 
     def forward(
-        self, x, x_lengths, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, noise_scale=1.0, length_scale=1.0
+        self, x, x_lengths, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, noise_scale=1.0, length_scale=1.0, num_timesteps=10,
     ):
         if not gen:
             y, y_lengths = self.extract_features(
                 raw_audio=raw_audio,
                 raw_audio_lengths=raw_audio_lengths
             )
-            feature_lengths = y_lengths
         else:
             y, y_lengths = (None, None)
 
@@ -187,66 +203,94 @@ class Model(BaseTTSModelV1):
             labels_lengths=x_lengths,
             speaker_label=g,
         )
-        
-        h_m = self.proj_m(h) * h_mask
-        if not self.config.mean_only:
-            h_logs = self.proj_s(h) * h_mask
-        else:
-            h_logs = torch.zeros_like(h_m)
+        # speaker embedding is returned as [B, spk_emb, 1], but GlowTTS does not need that last axis
+        spk = spk.squeeze(-1)
+        # same for log durations, remove remaining axis here
+        log_durations = log_durations.squeeze(1)
+
+        h_mu = self.proj_m(h) * h_mask
 
         if gen:  # durations from dp only used during generation
             w = torch.exp(log_durations) * h_mask * length_scale  # durations
             w_ceil = torch.ceil(w)  # durations ceiled
             y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
-            y_max_length = None
+
+            # Extra code for GradTTS
+            y_max_length = int(y_lengths.max())
+            y_max_length = fix_len_compatibility(y_max_length)
         else:
             y_max_length = y.size(2)
+            # y_max_length = fix_len_compatibility(y_max_length)
 
-        y, y_lengths, y_max_length = self.preprocess(y, y_lengths, y_max_length)
-        z_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, y_max_length), 1).to(h_mask.dtype)
-        attn_mask = torch.unsqueeze(h_mask, -1) * torch.unsqueeze(z_mask, 2)
+        y_mask = torch.unsqueeze(sequence_mask(y_lengths, y_max_length), 1).to(h_mask.dtype)
+        attn_mask = torch.unsqueeze(h_mask, -1) * torch.unsqueeze(y_mask, 2)
 
         if gen:
-            attn = commons.generate_path(w_ceil.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
-            z_m = torch.matmul(attn.squeeze(1).transpose(1, 2), h_m.transpose(1, 2)).transpose(1, 2)
-            z_logs = torch.matmul(attn.squeeze(1).transpose(1, 2), h_logs.transpose(1, 2)).transpose(1, 2)
+            attn = generate_path(w_ceil.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
+            z_m = torch.matmul(attn.squeeze(1).transpose(1, 2), h_mu.transpose(1, 2)).transpose(1, 2)
             logw_ = torch.log(1e-8 + torch.sum(attn, -1)) * h_mask
 
-            z = (z_m + torch.exp(z_logs) * torch.randn_like(z_m) * noise_scale) * z_mask
-            y, logdet = self.decoder(z, z_mask, g=spk, reverse=True)
-            return (y, z_m, z_logs, logdet, z_mask, y_lengths), (h_m, h_logs, h_mask), (attn, log_durations, logw_, w_ceil)
-        else:
-            z, logdet = self.decoder(y, z_mask, g=spk, reverse=False)
-            with torch.no_grad():
-                x_s_sq_r = torch.exp(-2 * h_logs)
-                logp1 = torch.sum(-0.5 * math.log(2 * math.pi) - h_logs, [1]).unsqueeze(-1)  # [b, t, 1]
-                logp2 = torch.matmul(x_s_sq_r.transpose(1, 2), -0.5 * (z**2))  # [b, t, d] x [b, d, t'] = [b, t, t']
-                logp3 = torch.matmul((h_m * x_s_sq_r).transpose(1, 2), z)  # [b, t, d] x [b, d, t'] = [b, t, t']
-                logp4 = torch.sum(-0.5 * (h_m**2) * x_s_sq_r, [1]).unsqueeze(-1)  # [b, t, 1]
-                logp = logp1 + logp2 + logp3 + logp4  # [b, t, t']
+            # Like GlowTTS, but we do not support only unit variance
+            z = (z_m + torch.randn_like(z_m) * noise_scale) * y_mask
 
-                attn = maximum_path(logp, attn_mask.squeeze(1)).unsqueeze(1).detach()
+            y, logdet = self.decoder(z, y_mask, z_m, num_timesteps=num_timesteps, spk=spk)
+            return (y, z_m, logdet, y_mask, y_lengths), (h_mu, h_mask), (attn, log_durations, logw_, w_ceil)
+        else:
+            with torch.no_grad():
+                const = -0.5 * math.log(2 * math.pi) * self.config.diffusion_decoder_config.n_feats
+                factor = -0.5 * torch.ones(h_mu.shape, dtype=h_mu.dtype, device=h_mu.device)
+                y_square = torch.matmul(factor.transpose(1, 2), y ** 2)
+                y_mu_double = torch.matmul(2.0 * (factor * h_mu).transpose(1, 2), y)
+                mu_square = torch.sum(factor * (h_mu ** 2), 1).unsqueeze(-1)
+                log_prior = y_square - y_mu_double + mu_square + const
+
+                attn = maximum_path(log_prior, attn_mask.squeeze(1)).detach()  # [B, N, T] here
                 # embed()
 
-            z_m = torch.matmul(attn.squeeze(1).transpose(1, 2), h_m.transpose(1, 2)).transpose(
-                1, 2
-            )  # [b, t', t], [b, t, d] -> [b, d, t']
-            z_logs = torch.matmul(attn.squeeze(1).transpose(1, 2), h_logs.transpose(1, 2)).transpose(
-                1, 2
-            )  # [b, t', t], [b, t, d] -> [b, d, t']
+            out_size = self.config.decoder_segment_num_frames
 
-            logw_ = torch.log(1e-8 + torch.sum(attn, -1)) * h_mask
-            return (z, z_m, z_logs, logdet, z_mask), (h_m, h_logs, h_mask), (y_lengths, feature_lengths), (attn, log_durations, logw_)
+            # compute duration loss before segmenting decoder
+            # [B, N, T] -> [B, N] masked with [B, N]
+            target_log_durations = torch.log(1e-8 + torch.sum(attn, -1)) * h_mask.squeeze(1)
+            duration_loss = torch.sum((log_durations - target_log_durations) ** 2) / torch.sum(x_lengths)
 
-    def preprocess(self, y, y_lengths, y_max_length):
-        if y_max_length is not None:
-            y_max_length = (y_max_length // self.n_sqz) * self.n_sqz
-            y = y[:, :, :y_max_length]
-        y_lengths = (y_lengths // self.n_sqz) * self.n_sqz
-        return y, y_lengths, y_max_length
+            # Not using out_size crashed....
+            if not isinstance(out_size, type(None)):
+                max_offset = (y_lengths - out_size).clamp(0)
+                offset_ranges = list(zip([0] * max_offset.shape[0], max_offset.cpu().numpy()))
+                out_offset = torch.LongTensor([
+                    torch.tensor(random.choice(range(start, end)) if end > start else 0)
+                    for start, end in offset_ranges
+                ]).to(y_lengths)
 
-    def store_inverse(self):
-        self.decoder.store_inverse()
+                attn_cut = torch.zeros(attn.shape[0], attn.shape[1], out_size, dtype=attn.dtype, device=attn.device)
+                y_cut = torch.zeros(y.shape[0], self.config.diffusion_decoder_config.n_feats, out_size, dtype=y.dtype, device=y.device)
+                y_cut_lengths = []
+                for i, (y_, out_offset_) in enumerate(zip(y, out_offset)):
+                    y_cut_length = out_size + (y_lengths[i] - out_size).clamp(None, 0)
+                    y_cut_lengths.append(y_cut_length)
+                    cut_lower, cut_upper = out_offset_, out_offset_ + y_cut_length
+                    y_cut[i, :, :y_cut_length] = y_[:, cut_lower:cut_upper]
+                    attn_cut[i, :, :y_cut_length] = attn[i, :, cut_lower:cut_upper]
+                y_cut_lengths = torch.LongTensor(y_cut_lengths)
+                y_cut_mask = sequence_mask(y_cut_lengths).unsqueeze(1).to(y_mask)
+
+                attn = attn_cut
+                y = y_cut
+                y_mask = y_cut_mask
+
+            # Align encoded text with mel-spectrogram and get mu_y segment
+            mu_y = torch.matmul(attn.squeeze(1).transpose(1, 2), h_mu.transpose(1, 2))
+            mu_y = mu_y.transpose(1, 2)
+
+            # Compute loss of score-based decoder
+            diff_loss, xt = self.decoder.compute_loss(y, y_mask, mu_y, spk)
+
+            # Compute loss between aligned encoder outputs and mel-spectrogram
+            prior_loss = torch.sum(0.5 * ((y - mu_y) ** 2 + math.log(2 * math.pi)) * y_mask)
+            prior_loss = prior_loss / (torch.sum(y_mask) * self.config.diffusion_decoder_config.n_feats)
+
+            return duration_loss, prior_loss, diff_loss
 
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):
@@ -256,13 +300,11 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     phonemes_len = data["phonemes:size1"]  # [B, N]
     speaker_labels = data["speaker_labels"]  # [B, 1] (sparse)
 
-    (z, z_m, z_logs, logdet, z_mask), _, _, (attn, logw, logw_) = model(
+    duration_loss, prior_loss, diff_loss = model(
         phonemes, phonemes_len, raw_samples, audio_features_len, speaker_labels
     )
 
-    l_mle = commons.mle_loss(z, z_m, z_logs, logdet, z_mask)
-    l_dp = commons.duration_loss(logw, logw_, phonemes_len)
-
-    run_ctx.mark_as_loss(name="mle", loss=l_mle)
-    run_ctx.mark_as_loss(name="dp", loss=l_dp)
+    run_ctx.mark_as_loss(name="duration_loss", loss=duration_loss)
+    run_ctx.mark_as_loss(name="prior_loss", loss=prior_loss)
+    run_ctx.mark_as_loss(name="diff_loss", loss=diff_loss)
 

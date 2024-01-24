@@ -1,3 +1,6 @@
+"""
+Data to store globally to make it easier to transfer arbitrarily between the different experiments
+"""
 from dataclasses import dataclass
 from sisyphus import tk
 from typing import Any, Dict

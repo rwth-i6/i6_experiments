@@ -24,7 +24,7 @@ from ..tts_shared.tts_base_model.base_model_v1 import BaseTTSModelV1
 from ..tts_shared import DbMelFeatureExtractionConfig
 from ..tts_shared.encoder.transformer import TTSTransformerTextEncoderV1Config
 from ..tts_shared.encoder.duration_predictor import SimpleConvDurationPredictorV1Config
-
+from ..tts_shared.util import generate_path
 
 @dataclass
 class FlowDecoderConfig():
@@ -215,7 +215,7 @@ class Model(BaseTTSModelV1):
         attn_mask = torch.unsqueeze(h_mask, -1) * torch.unsqueeze(z_mask, 2)
 
         if gen:
-            attn = commons.generate_path(w_ceil.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
+            attn = generate_path(w_ceil.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
             z_m = torch.matmul(attn.squeeze(1).transpose(1, 2), h_m.transpose(1, 2)).transpose(1, 2)
             z_logs = torch.matmul(attn.squeeze(1).transpose(1, 2), h_logs.transpose(1, 2)).transpose(1, 2)
             logw_ = torch.log(1e-8 + torch.sum(attn, -1)) * h_mask

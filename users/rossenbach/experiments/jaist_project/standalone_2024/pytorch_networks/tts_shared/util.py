@@ -2,6 +2,7 @@
 utility functions needed by all/most TTS systems
 """
 import torch
+from torch.nn import functional as F
 from typing import Optional
 
 
@@ -33,3 +34,22 @@ def convert_pad_shape(pad_shape):
     reversed_pad_shape = pad_shape[::-1]
     flat_pad_shape = [item for sublist in reversed_pad_shape for item in sublist]
     return flat_pad_shape
+
+
+def generate_path(duration: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """
+    Convert an N to T duration tensor into a monotonic path grid
+
+    :param duration: [B, N]
+    :param mask [B, N, T]
+    :return one-hot (like mask) path grid of [B, N, T]
+    """
+    b, t_x, t_y = mask.shape
+    cum_duration = torch.cumsum(duration, 1)
+
+    cum_duration_flat = cum_duration.view(b * t_x)
+    path = sequence_mask(cum_duration_flat, t_y).to(mask.dtype)
+    path = path.view(b, t_x, t_y)
+    path = path - F.pad(path, convert_pad_shape([[0, 0], [1, 0], [0, 0]]))[:, :-1]
+    path = path * mask
+    return path

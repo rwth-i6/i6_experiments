@@ -1,29 +1,40 @@
+"""
+Pipeline parts to create the necessary jobs for training / forwarding / search etc...
+"""
 import copy
-import os.path
 
 from sisyphus import tk
 
-from i6_experiments.users.rossenbach.common_setups.returnn.datasets import GenericDataset
+from i6_core.corpus.convert import CorpusToStmJob
+from i6_core.recognition.scoring import ScliteJob
 
 from i6_core.returnn.config import ReturnnConfig
+from i6_core.returnn.search import SearchWordsToCTMJob
 from i6_core.returnn.training import ReturnnTrainingJob
-from i6_core.returnn.training import GetBestTFCheckpointJob
-from i6_core.returnn.forward import ReturnnForwardJob, ReturnnForwardJobV2
-from i6_core.returnn.search import SearchBPEtoWordsJob, ReturnnComputeWERJob
-from i6_experiments.users.rossenbach.returnn.training import AverageCheckpointsJobV2
+from i6_core.returnn.forward import ReturnnForwardJobV2
 
-from .default_tools import RETURNN_EXE, MINI_RETURNN_ROOT, SCTK_BINARY_PATH
+from i6_experiments.users.rossenbach.common_setups.returnn.datasets import GenericDataset
+
+from .default_tools import SCTK_BINARY_PATH
 
 
 @tk.block()
-def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs):
+def training(
+        prefix_name: str,
+        returnn_config: ReturnnConfig,
+        returnn_exe: tk.Path,
+        returnn_root: tk.Path,
+        num_epochs: int
+) -> ReturnnTrainingJob:
     """
+    Perform RETURNN training
 
-    :param prefix_name:
-    :param returnn_config:
-    :param returnn_exe:
-    :param returnn_root:
-    :return:
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for training
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param num_epochs: for how many epochs to train
+    :return: training job
     """
     default_rqmt = {
         'mem_rqmt': 32,
@@ -46,26 +57,28 @@ def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs)
 
 @tk.block()
 def search_single(
-        prefix_name,
-        returnn_config,
-        checkpoint,
+        prefix_name: str,
+        returnn_config: ReturnnConfig,
+        checkpoint: tk.Path,
         recognition_dataset: GenericDataset,
-        recognition_bliss_corpus,
-        returnn_exe,
-        returnn_root,
-        mem_rqmt=8,
-        use_gpu=False,
+        recognition_bliss_corpus: tk.Path,
+        returnn_exe: tk.Path,
+        returnn_root: tk.Path,
+        mem_rqmt: float = 8,
+        use_gpu:bool = False,
 ):
     """
     Run search for a specific test dataset
 
-    :param str prefix_name:
-    :param ReturnnConfig returnn_config:
-    :param Checkpoint checkpoint:
-    :param returnn_standalone.data.datasets.dataset.GenericDataset recognition_dataset:
-    :param Path recognition_reference: Path to a py-dict format reference file
-    :param Path returnn_exe:
-    :param Path returnn_root:
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param recognition_dataset: Dataset to perform recognition on
+    :param recognition_bliss_corpus: path to bliss file used as Sclite evaluation reference
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: some search jobs might need more memory
+    :param use_gpu: if to do GPU decoding
     """
     returnn_config = copy.deepcopy(returnn_config)
     returnn_config.config["forward"] = recognition_dataset.as_returnn_opts()
@@ -83,10 +96,6 @@ def search_single(
     )
     search_job.add_alias(prefix_name + "/search_job")
 
-    from i6_core.returnn.search import SearchWordsToCTMJob
-    from i6_core.corpus.convert import CorpusToStmJob
-    from i6_core.recognition.scoring import ScliteJob
-
     search_ctm = SearchWordsToCTMJob(
         recog_words_file=search_job.out_files["search_out.py"],
         bliss_corpus=recognition_bliss_corpus,
@@ -102,15 +111,24 @@ def search_single(
 
 
 @tk.block()
-def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn_exe, returnn_root, use_gpu=False):
+def search(
+        prefix_name: str,
+        returnn_config: ReturnnConfig,
+        checkpoint: tk.Path,
+        test_dataset_tuples,
+        returnn_exe: tk.Path,
+        returnn_root: tk.Path,
+        use_gpu: bool = False
+):
     """
+    Run search over multiple datasets and collect statistics
 
-    :param str prefix_name:
-    :param ReturnnConfig returnn_config:
-    :param Checkpoint checkpoint:
-    :param test_dataset_tuples:
-    :param returnn_exe:
-    :param returnn_root:
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param test_dataset_tuples: tuple of (Dataset, tk.Path) for the dataset object and the reference bliss
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
     :return:
     """
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
@@ -138,21 +156,22 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
 
 @tk.block()
 def compute_prior(
-        prefix_name,
-        returnn_config,
-        checkpoint,
-        returnn_exe,
-        returnn_root,
-        mem_rqmt=8,
+        prefix_name: str,
+        returnn_config: ReturnnConfig,
+        checkpoint: tk.Path,
+        returnn_exe: tk.Path,
+        returnn_root: tk.Path,
+        mem_rqmt: int = 8,
 ):
     """
     Run search for a specific test dataset
 
-    :param str prefix_name:
-    :param ReturnnConfig returnn_config:
-    :param Checkpoint checkpoint:
-    :param Path returnn_exe:
-    :param Path returnn_root:
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: override the default memory requirement
     """
     search_job = ReturnnForwardJobV2(
         model_checkpoint=checkpoint,
@@ -172,21 +191,22 @@ def compute_prior(
 
 @tk.block()
 def extract_durations(
-        prefix_name,
-        returnn_config,
-        checkpoint,
-        returnn_exe,
-        returnn_root,
-        mem_rqmt=8,
+        prefix_name: str,
+        returnn_config: ReturnnConfig,
+        checkpoint: tk.Path,
+        returnn_exe: tk.Path,
+        returnn_root: tk.Path,
+        mem_rqmt: int = 8,
 ):
     """
-    Run search for a specific test dataset
+    Run phoneme duration extraction
 
-    :param str prefix_name:
-    :param ReturnnConfig returnn_config:
-    :param Checkpoint checkpoint:
-    :param Path returnn_exe:
-    :param Path returnn_root:
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: override the default memory requirement
     """
     search_job = ReturnnForwardJobV2(
         model_checkpoint=checkpoint,
@@ -216,11 +236,12 @@ def tts_eval(
     """
     Run search for a specific test dataset
 
-    :param str prefix_name:
-    :param ReturnnConfig returnn_config:
-    :param Checkpoint checkpoint:
-    :param Path returnn_exe:
-    :param Path returnn_root:
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: override the default memory requirement
     """
     forward_job = ReturnnForwardJobV2(
         model_checkpoint=checkpoint,
@@ -249,11 +270,12 @@ def tts_generation(
     """
     Run search for a specific test dataset
 
-    :param str prefix_name:
-    :param ReturnnConfig returnn_config:
-    :param Checkpoint checkpoint:
-    :param Path returnn_exe:
-    :param Path returnn_root:
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: override the default memory requirement
     """
     forward_job = ReturnnForwardJobV2(
         model_checkpoint=checkpoint,

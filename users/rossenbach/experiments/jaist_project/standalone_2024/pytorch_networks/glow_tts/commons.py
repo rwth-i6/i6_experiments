@@ -116,23 +116,7 @@ def maximum_path(value, mask, max_neg_val=-np.inf):
     return path
 
 
-def generate_path(duration, mask):
-    """
-    duration: [b, t_x]
-    mask: [b, t_x, t_y]
-    """
-    device = duration.device
 
-    b, t_x, t_y = mask.shape
-    cum_duration = torch.cumsum(duration, 1)
-    path = torch.zeros(b, t_x, t_y, dtype=mask.dtype).to(device=device)
-
-    cum_duration_flat = cum_duration.view(b * t_x)
-    path = sequence_mask(cum_duration_flat, t_y).to(mask.dtype)
-    path = path.view(b, t_x, t_y)
-    path = path - F.pad(path, convert_pad_shape([[0, 0], [1, 0], [0, 0]]))[:, :-1]
-    path = path * mask
-    return path
 
 class vMFLogPartition(torch.autograd.Function):
     

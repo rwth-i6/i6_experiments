@@ -361,8 +361,19 @@ def run_flow_tts():
     train = run_exp(net_module + "_bs600_v2_base256_newgl_noise0.7", params_base256, net_module, local_config, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
                     debug=True, num_epochs=200)
     # train.hold()
-
+    
     synthetic_corpus = generate_synthetic(net_module + "_bs600_v2_base256_newgl_noise0.7_syn", "train-clean-100",
                                           train.out_checkpoints[200], params_base256, net_module,
                                           extra_decoder="glow_tts.simple_gl_decoder",
                                           decoder_options=decoder_options_synthetic, debug=True)
+
+    synthetic_corpus = generate_synthetic(net_module + "_bs600_v2_base256_newgl_noise0.7_syn", "train-clean-360",
+                                          train.out_checkpoints[200], params_base256, net_module,
+                                          extra_decoder="glow_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_synthetic, debug=True)
+
+    local_config_fp16 = copy.deepcopy(local_config)
+    local_config_fp16["torch_amp_options"] = {"dtype": "bfloat16"}
+    train = run_exp(net_module + "_bs600_v2_base256_fp16_newgl_noise0.7", params_base256, net_module, local_config_fp16, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
+                    debug=True, num_epochs=200)
+    train.hold()

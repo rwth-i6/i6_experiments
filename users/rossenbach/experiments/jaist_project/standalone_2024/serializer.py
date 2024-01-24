@@ -1,4 +1,3 @@
-import copy
 from sisyphus import tk
 from typing import Any, Dict, Optional
 
@@ -7,11 +6,9 @@ from i6_core.tools.git import CloneGitRepositoryJob
 from i6_experiments.common.setups.returnn_pytorch.serialization import (
     Collection as TorchCollection,
 )
-from i6_experiments.common.setups.serialization import ExternalImport
+from i6_experiments.common.setups.serialization import ExternalImport, Import, PartialImport
 
 from .import PACKAGE
-
-from i6_experiments.common.setups.serialization import Import, PartialImport
 
 
 def get_pytorch_serializer_v3(
@@ -20,9 +17,9 @@ def get_pytorch_serializer_v3(
         decoder: Optional[str] = None,
         decoder_args: Optional[Dict[str, Any]] = None,
         post_decoder_args: Optional[Dict[str, Any]] = None,
-        prior=False,
-        debug=False,
-        use_custom_engine=False,
+        prior: bool = False,
+        debug: bool = False,
+        use_custom_engine: bool = False,
         **kwargs
 ) -> TorchCollection:
     """
@@ -30,8 +27,8 @@ def get_pytorch_serializer_v3(
     :param network_module: path to the pytorch config file containing Model
     :param net_args: extra arguments for the model
     :param decoder: path to the search decoder, if provided will link search functions
-    :param decoder_args:
-    :param post_decoder_args:
+    :param decoder_args: additional arguments to pass to forward_init
+    :param post_decoder_args: additional non-hashed arguments to pass to forward_init
     :param prior: build config for prior computation
     :param debug: run training in debug mode (linking from recipe instead of copy)
     :param kwargs:

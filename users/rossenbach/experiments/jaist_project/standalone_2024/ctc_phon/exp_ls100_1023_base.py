@@ -235,6 +235,7 @@ def eow_phon_ls100_1023_base():
         "glow_tts.glow_tts_v1_bs600_newgl_noise0.7_syn_train-clean-100",
         "glow_tts.glow_tts_v1_bs600_newgl_noise0.7_cont100_syn_train-clean-100",
         "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_noise0.7_syn_train-clean-100",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_fromctc_v1_halfbatch_syn_train-clean-100"
     ]
     for syn_name in syn_names:
         syn_bliss = synthetic_bliss_data[syn_name]
@@ -252,17 +253,19 @@ def eow_phon_ls100_1023_base():
                     "lm_weight": lm_weight,
                     "prior_scale": prior_scale,
                 }
+                train_args_tmp = copy.deepcopy(train_args_gc1)
+                # somehow training diverged, run with a new seed
+                if syn_name ==  "glow_tts.lukas_baseline_bs600_v2_newgl_noise1.0_syn_train-clean-100":
+                    train_args_tmp["config"]["random_seed"] = 43  # default is obviously 42
                 train_job, _ = run_exp(
                     prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16_syn/{syn_name}/lm%.1f_prior%.2f_bs1024_th14" % (
                         lm_weight, prior_scale),
-                    datasets=syn_train_data, train_args=train_args_gc1, search_args=search_args, with_prior=True)
+                    datasets=syn_train_data, train_args=train_args_tmp, search_args=search_args, with_prior=True)
                 if syn_name == "glow_tts.lukas_baseline_bs600_v2_newgl_noise0.7_syn_train-clean-100" and lm_weight == 3.5:
                     train_job, _ = run_exp(
                         prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16_syn/{syn_name}/lm%.1f_prior%.2f_bs1024_th14_best" % (
                             lm_weight, prior_scale),
-                        datasets=syn_train_data, train_args=train_args_gc1, search_args=search_args, with_prior=True, use_best=True)
-
-
+                        datasets=syn_train_data, train_args=train_args_tmp, search_args=search_args, with_prior=True, use_best=True)
 
     # Resume
     
@@ -284,6 +287,7 @@ def eow_phon_ls100_1023_base():
     # Synthetic combined training
     syn_names = [
         "glow_tts.lukas_baseline_bs600_v2_newgl_noise0.3_syn_train-clean-360",
+        "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_noise0.7_syn_train-clean-360",
     ]
     for syn_name in syn_names:
         syn_bliss = synthetic_bliss_data[syn_name]
@@ -326,6 +330,44 @@ def eow_phon_ls100_1023_base():
                 prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16_ep300/lm%.1f_prior%.2f_bs1024_th14" % (
                     lm_weight, prior_scale),
                 datasets=train_data, train_args=train_args_gc1_300ep, search_args=search_args, with_prior=True, num_epochs=300)
+
+
+    # longer training V2, this was not good....
+    model_config_fixspec = copy.deepcopy(model_config)
+    model_config_fixspec.specaug_config.max_dim_feat = 8
+
+    train_args_gc1_300ep = copy.deepcopy(train_args)
+    train_args_gc1_300ep["net_args"] =  {"model_config_dict": asdict(model_config_fixspec)}
+    train_args_gc1_300ep["config"]["gradient_clip"] = 1.0
+    train_args_gc1_300ep["config"]["torch_amp_options"] =  {"dtype": "bfloat16"}
+    train_args_gc1_300ep["config"]["learning_rates"] = list(np.linspace(7e-6, 7e-4, 140)) + list(
+                np.linspace(7e-4, 7e-5, 140)) + list(np.linspace(7e-5, 1e-8, 30))
+    for lm_weight in [2.5, 3.0, 3.5]:
+        for prior_scale in [0.0, 0.3, 0.5]:
+            search_args = {
+                **default_search_args,
+                "lm_weight": lm_weight,
+                "prior_scale": prior_scale,
+            }
+            run_exp(
+                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_halfspec_amp16_ep300/lm%.1f_prior%.2f_bs1024_th14" % (
+                    lm_weight, prior_scale),
+                datasets=train_data, train_args=train_args_gc1_300ep, search_args=search_args, with_prior=True, num_epochs=300)
+
+
+    train_args_gc1_speedpert = copy.deepcopy(train_args_gc1)
+    train_args_gc1_speedpert["use_speed_perturbation"] = True
+    for lm_weight in [2.5, 3.0, 3.5]:
+        for prior_scale in [0.0, 0.3, 0.5]:
+            search_args = {
+                **default_search_args,
+                "lm_weight": lm_weight,
+                "prior_scale": prior_scale,
+            }
+            run_exp(
+                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_sp_amp16/lm%.1f_prior%.2f_bs1024_th14" % (
+                    lm_weight, prior_scale),
+                datasets=train_data, train_args=train_args_gc1_speedpert, search_args=search_args, with_prior=True, num_epochs=250)
 
 
 
