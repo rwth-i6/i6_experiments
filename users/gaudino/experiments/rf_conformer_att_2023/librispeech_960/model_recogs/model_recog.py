@@ -41,6 +41,9 @@ def model_recog(
     """
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    if model.search_args.get("encoder_ctc", False):
+        enc_args_ctc, enc_spatial_dim_ctc = model.encode_ctc(data, in_spatial_dim=data_spatial_dim)
+
     beam_size = model.search_args.get("beam_size", 12)
     length_normalization_exponent = model.search_args.get("length_normalization_exponent", 1.0)
     if max_seq_len is None:
@@ -87,8 +90,13 @@ def model_recog(
     # )
     # ctc_memory = None
 
+    if model.search_args.get("encoder_ctc", False):
+        enc_ctc = enc_args_ctc["ctc"]
+    else:
+        enc_ctc = enc_args["ctc"]
+
     ctc_out = (
-        enc_args["ctc"]
+        enc_ctc
         .copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_b))
         .raw_tensor
     )  # [B,T,V+1]
@@ -126,7 +134,7 @@ def model_recog(
             blank_index,
             0,
             model.search_args.get("window_margin", 0),
-            model.search_args["mask_eos"],
+            model.search_args.get("mask_eos", True),
         )
         ctc_state = None
     enc_args.pop("ctc")

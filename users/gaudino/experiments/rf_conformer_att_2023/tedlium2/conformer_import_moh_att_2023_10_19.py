@@ -26,8 +26,8 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_time_sync import (
     model_recog_time_sync,
 )
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_dump import (
-    model_recog_dump
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_ctc_greedy import (
+    model_recog_ctc,
 )
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.conformer_import_moh_att_2023_06_30 import (
@@ -61,7 +61,9 @@ from IPython import embed
 def sis_run_with_prefix(prefix_name: str = None):
     """run the exp"""
     from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
-    from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960._moh_att_2023_06_30_import import map_param_func_v3
+    from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960._moh_att_2023_06_30_import import (
+        map_param_func_v3,
+    )
     from .sis_setup import get_prefix_for_config
     from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
@@ -109,7 +111,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     }
 
     # att only
-    for beam_size in [12]:
+    for beam_size in [6]:
         lm_scale = 0.1
         search_args = {
             "beam_size": beam_size,
@@ -123,7 +125,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         name = (
             prefix_name
             # + f"/bsf160_att_beam{beam_size}"
-            + f"/bsf40_att_trafo_lm{lm_scale}_beam{beam_size}_fix"
+            + f"/bsf40_att_trafo_lm{lm_scale}_beam{beam_size}"
         )
         res, _ = recog_model(
             task,
@@ -135,23 +137,54 @@ def sis_run_with_prefix(prefix_name: str = None):
             prefix_name=name,
         )
         tk.register_output(
-            name
-            + f"/recog_results",
+            name + f"/recog_results",
+            res.output,
+        )
+
+    # ctc greedy
+    for beam_size in [1]:
+        lm_scale = 0.1
+        search_args = {
+            "beam_size": beam_size,
+            "blank_idx": 1057,
+            "bsf": "bsf40_2",
+            "blank_collapse": True,
+            "blank_threshold": -0.05, # in log space
+        }
+
+        dev_sets = ["dev"]  # only dev-other for testing
+        # dev_sets = None  # all
+        name = (
+            prefix_name
+            # + f"/bsf160_att_beam{beam_size}"
+            + f"/bsf40_ctc_greedy_blank_collapse"
+        )
+        res, _ = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog_ctc,
+            dev_sets=dev_sets,
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+        )
+        tk.register_output(
+            name + f"/recog_results",
             res.output,
         )
 
     # att + ctc opts
-    for scales, beam_size in product([(0.65, 0.35, 0.3)], [6,12,32]):
+    for scales, beam_size in product([(0.65, 0.35, 0.3)], [6, 12, 32]):
         att_scale, ctc_scale, prior_scale = scales
         name = (
-                prefix_name
-                + f"/bsf40_timesync_att{att_scale}_ctc{ctc_scale}_beam{beam_size}"
+            prefix_name
+            + f"/bsf40_opts_att{att_scale}_ctc{ctc_scale}_beam{beam_size}"
         )
         search_args = {
             "beam_size": beam_size,
             "att_scale": att_scale,
             "ctc_scale": ctc_scale,
-            "bsf": "bsf40_1",
+            "bsf": "bsf40",
         }
 
         dev_sets = ["dev"]  # only dev for testing
@@ -162,6 +195,76 @@ def sis_run_with_prefix(prefix_name: str = None):
             task,
             model_with_checkpoint,
             model_recog_time_sync,
+            dev_sets=dev_sets,
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            recog_res.output,
+        )
+
+    # att + ctc + trafo lm opts
+    for scales, beam_size in product([(0.65, 0.35, 0.1)], [6]):
+        att_scale, ctc_scale, lm_scale = scales
+        name = (
+            prefix_name
+            + f"/bsf40_opts_att{att_scale}_ctc{ctc_scale}_blank_collapse_trafolm{lm_scale}_no_eos_beam{beam_size}"
+        )
+        search_args = {
+            "beam_size": beam_size,
+            "att_scale": att_scale,
+            "ctc_scale": ctc_scale,
+            "add_trafo_lm": True,
+            "remove_trafo_lm_eos": True,
+            "lm_scale": lm_scale,
+            "blank_collapse": True,
+            "blank_threshold": -0.05, # in log space
+            "bsf": "bsf40",
+        }
+
+        dev_sets = ["dev"]  # only dev for testing
+        # dev_sets = None  # all
+
+        # first recog
+        recog_res, recog_out = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog_time_sync,
+            dev_sets=dev_sets,
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            recog_res.output,
+        )
+
+    # att + ctc opls
+    for scales, beam_size in product([(0.6, 0.4), (0.65, 0.35), (0.7, 0.3)], [32]):
+        att_scale, ctc_scale = scales
+        name = (
+            prefix_name
+            + f"/bsf40_opls_att{att_scale}_ctc{ctc_scale}_beam{beam_size}"
+        )
+        search_args = {
+            "beam_size": beam_size,
+            "att_scale": att_scale,
+            "use_ctc": True,
+            "ctc_scale": ctc_scale,
+            "bsf": "bsf40",
+        }
+
+        dev_sets = ["dev"]  # only dev for testing
+        # dev_sets = None  # all
+
+        # first recog
+        recog_res, recog_out = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog,
             dev_sets=dev_sets,
             model_args=model_args,
             search_args=search_args,
@@ -173,19 +276,22 @@ def sis_run_with_prefix(prefix_name: str = None):
         )
 
     # ctc + trafo lm
-    for scales, beam_size in product([(1.0, 0.1, 0.0), (1.0, 0.3, 0.0)], [6, 12]):
+    for scales, beam_size in product([(0.7, 0.3, 0.0)], [12,32]):
         ctc_scale, lm_scale, prior_scale = scales
         name = (
-                prefix_name
-                + f"/single_seq_ctc{ctc_scale}_trafolm{lm_scale}_beam{beam_size}"
+            prefix_name
+            + f"/bsf40_ctc{ctc_scale}_trafolm{lm_scale}_beam{beam_size}_blank_collapse"
         )
         search_args = {
             "beam_size": beam_size,
-            "att_scale": 0.0,
+            "att_scale": 1.0,
             "ctc_scale": ctc_scale,
             "add_trafo_lm": True,
             "lm_scale": lm_scale,
-            "bsf": "bsf40_3",
+            "bsf": "bsf40_5",
+            "remove_trafo_lm_eos": True,
+            "blank_collapse": True,
+            "blank_threshold": -0.05, # in log space
         }
 
         dev_sets = ["dev"]  # only dev for testing
@@ -206,6 +312,58 @@ def sis_run_with_prefix(prefix_name: str = None):
             recog_res.output,
         )
 
+
+    # separate encoders
+    new_chkpt_path_sep_enc = tk.Path(
+        "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/model_baseline__ctc_only__trafo_lm_24_01_19/average.pt",
+        hash_overwrite="torch_ckpt_sep_enc",
+    )
+    new_chkpt_sep_enc = PtCheckpoint(new_chkpt_path_sep_enc)
+    model_with_checkpoint = ModelWithCheckpoint(
+        definition=from_scratch_model_def, checkpoint=new_chkpt_sep_enc
+    )
+    model_args_sep_enc = {
+        "target_embed_dim": 256,
+        "add_ted2_trafo_lm": True,
+        "encoder_ctc": True,
+    }
+
+    # sep encoder baseline + ctc only - opls + trafo lm
+    for scales, beam_size in product([(0.7, 0.3, 0.1), (0.7, 0.3, 0.3)], [6, 12]):
+        model_name = "/model_baseline__ctc_only"
+        att_scale, ctc_scale, lm_scale = scales
+        search_args = {
+            "beam_size": beam_size,
+            "att_scale": att_scale,
+            "use_ctc": True,
+            "ctc_scale": ctc_scale,
+            "encoder_ctc": True,
+            "add_trafo_lm": True,
+            "lm_scale": lm_scale,
+            "bsf": "bsf40",
+        }
+
+        dev_sets = ["dev"]  # only dev-other for testing
+        # dev_sets = None  # all
+        name = (
+            prefix_name
+            + model_name
+            # + f"/bsf160_att_beam{beam_size}"
+            + f"/bsf40_opls_att{att_scale}_ctc{ctc_scale}_trafo_lm{lm_scale}_beam{beam_size}"
+        )
+        res, _ = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog,
+            dev_sets=dev_sets,
+            model_args=model_args_sep_enc,
+            search_args=search_args,
+            prefix_name=name,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            res.output,
+        )
 
     # # att + espnet ctc prefix scorer
     # for scales in [(0.7,0.3), (0.65,0.35), (0.75,0.25)]:
@@ -269,7 +427,6 @@ def sis_run_with_prefix(prefix_name: str = None):
     #             + f"/recog_results",
     #             res.output,
     #         )
-
 
 
 py = sis_run_with_prefix

@@ -544,6 +544,22 @@ class Model(rf.Module):
     ):
         super(Model, self).__init__()
         self.in_dim = in_dim
+        self.target_dim = target_dim
+        self.blank_idx = blank_idx
+        self.eos_idx = eos_idx
+        self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
+
+        self.enc_key_total_dim = enc_key_total_dim
+        self.enc_key_per_head_dim = enc_key_total_dim.div_left(att_num_heads)
+        self.att_num_heads = att_num_heads
+        self.att_dropout = att_dropout
+
+        self.target_dim_w_b = Dim(
+            name="target_w_b",
+            dimension=self.target_dim.dimension + 1,
+            kind=Dim.Types.Feature,
+        )
+
         self.encoder = ConformerEncoder(
             in_dim,
             enc_model_dim,
@@ -566,15 +582,30 @@ class Model(rf.Module):
             att_dropout=enc_att_dropout,
         )
 
-        self.target_dim = target_dim
-        self.blank_idx = blank_idx
-        self.eos_idx = eos_idx
-        self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
+        if model_args.get("encoder_ctc", False):
+            self.sep_enc_ctc_encoder = ConformerEncoder(
+                in_dim,
+                enc_model_dim,
+                ff_dim=enc_ff_dim,
+                input_layer=ConformerConvSubsample(
+                    in_dim,
+                    out_dims=[
+                        Dim(32, name="conv1"),
+                        Dim(64, name="conv2"),
+                        Dim(64, name="conv3"),
+                    ],
+                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                    pool_sizes=[(1, 2)],
+                    strides=[(1, 1), (3, 1), (2, 1)],
+                ),
+                encoder_layer_opts=enc_conformer_layer_opts,
+                num_layers=num_enc_layers,
+                num_heads=enc_att_num_heads,
+                dropout=enc_dropout,
+                att_dropout=enc_att_dropout,
+            )
+            self.sep_enc_ctc_ctc = rf.Linear(self.sep_enc_ctc_encoder.out_dim, self.target_dim_w_b)
 
-        self.enc_key_total_dim = enc_key_total_dim
-        self.enc_key_per_head_dim = enc_key_total_dim.div_left(att_num_heads)
-        self.att_num_heads = att_num_heads
-        self.att_dropout = att_dropout
 
         # https://github.com/rwth-i6/returnn-experiments/blob/master/2020-rnn-transducer/configs/base2.conv2l.specaug4a.ctc.devtrain.config
 
@@ -582,11 +613,6 @@ class Model(rf.Module):
         self.enc_ctx_dropout = 0.2
         self.enc_win_dim = Dim(name="enc_win_dim", dimension=5)
 
-        self.target_dim_w_b = Dim(
-            name="target_w_b",
-            dimension=self.target_dim.dimension + 1,
-            kind=Dim.Types.Feature,
-        )
 
         self.search_args = search_args
         self.ctc = rf.Linear(self.encoder.out_dim, self.target_dim_w_b)
@@ -669,6 +695,42 @@ class Model(rf.Module):
         ctc = rf.log_softmax(self.ctc(enc), axis=self.target_dim_w_b)
         return (
             dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility, ctc=ctc),
+            enc_spatial_dim,
+        )
+
+    def encode_ctc(
+            self,
+            source: Tensor,
+            *,
+            in_spatial_dim: Dim,
+            collected_outputs: Optional[Dict[str, Tensor]] = None,
+    ) -> Tuple[Dict[str, Tensor], Dim]:
+        """encode ctc"""
+        assert self.sep_enc_ctc_encoder is not None, "sep_enc_ctc_encoder is None"
+        if source.feature_dim:
+            assert source.feature_dim.dimension == 1
+            source = rf.squeeze(source, source.feature_dim)
+        # log mel filterbank features
+        source, in_spatial_dim, in_dim_ = rf.stft(
+            source,
+            in_spatial_dim=in_spatial_dim,
+            frame_step=160,
+            frame_length=400,
+            fft_length=512,
+        )
+        source = rf.abs(source) ** 2.0
+        source = rf.audio.mel_filterbank(
+            source, in_dim=in_dim_, out_dim=self.in_dim, sampling_rate=16000
+        )
+        source = rf.safe_log(source, eps=1e-10) / 2.3026
+
+        enc, enc_spatial_dim = self.sep_enc_ctc_encoder(
+            source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
+        )
+
+        ctc = rf.log_softmax(self.ctc(enc), axis=self.target_dim_w_b)
+        return (
+            dict(enc=enc, ctc=ctc),
             enc_spatial_dim,
         )
 
@@ -767,7 +829,9 @@ class Model(rf.Module):
         readout = rf.reduce_out(
             readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim
         )
-        readout = rf.dropout(readout, drop_prob=0.3, axis=readout.feature_dim) # why is this here?
+        readout = rf.dropout(
+            readout, drop_prob=0.3, axis=readout.feature_dim
+        )  # why is this here?
         logits = self.output_prob(readout)
         return logits
 
@@ -817,9 +881,9 @@ from_scratch_model_def: ModelDef[Model]
 from_scratch_model_def.behavior_version = 16
 from_scratch_model_def.backend = "torch"
 from_scratch_model_def.batch_size_factor = (
-    40 # change batch size here - 20 for att_window - 40 for ctc_prefix
+    40  # change batch size here - 20 for att_window - 40 for ctc_prefix
 )
-from_scratch_model_def.max_seqs = 1 # 200 # 1
+from_scratch_model_def.max_seqs = 200 # 1
 
 
 def from_scratch_training(

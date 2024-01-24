@@ -65,7 +65,7 @@ def model_recog_ctc(
 
     max_out_len = max_seq_len.raw_tensor[0]
 
-    seq_targets, out_spatial_dim = remove_blank_and_eos(hyps.unsqueeze(1), max_out_len, batch_dims, beam_dim, model.target_dim, blank_idx=10025, eos_idx=0)
+    seq_targets, out_spatial_dim = remove_blank_and_eos(hyps.unsqueeze(1), max_out_len, batch_dims, beam_dim, model.target_dim, blank_idx=model.search_args.get("blank_idx", 10025), eos_idx=0)
 
     # # torchaudio ctc decoder
     # # only runs on cpu -> slow
