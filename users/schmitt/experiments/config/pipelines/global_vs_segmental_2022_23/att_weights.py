@@ -70,6 +70,37 @@ def dump_att_weights(
   )
 
 
+def dump_length_model_probs(
+        config_builder: ConfigBuilder,
+        variant_params: Dict,
+        checkpoint: Checkpoint,
+        hdf_targets: Path,
+        corpus_key: str,
+        hdf_alias: str,
+        ref_alignment: Path,
+        ref_alignment_blank_idx: int,
+        alias: str,
+        seq_tags_to_analyse: Optional[List[str]] = None,
+):
+  def _get_dump_length_model_probs_config(corpus_key, opts):
+    return config_builder.get_dump_length_model_probs_config(corpus_key=corpus_key, opts=opts)
+
+  dump_frame_probs(
+    config_builder=config_builder,
+    variant_params=variant_params,
+    checkpoint=checkpoint,
+    hdf_targets=hdf_targets,
+    corpus_key=corpus_key,
+    hdf_alias=hdf_alias,
+    ref_alignment=ref_alignment,
+    ref_alignment_blank_idx=ref_alignment_blank_idx,
+    alias=alias,
+    seq_tags_to_analyse=seq_tags_to_analyse,
+    probs_name="length_model_probs",
+    get_dump_frame_probs_config_func=_get_dump_length_model_probs_config
+  )
+
+
 def dump_frame_probs(
         config_builder: ConfigBuilder,
         variant_params: Dict,

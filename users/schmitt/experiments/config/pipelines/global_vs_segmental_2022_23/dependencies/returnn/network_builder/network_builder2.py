@@ -1,5 +1,5 @@
 from i6_core.returnn.config import CodeWrapper
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 import copy
 
 
@@ -450,6 +450,21 @@ def get_output_log_prob(output_prob_layer_name: str):
   }
 
 
+def add_is_last_frame_condition(network: Dict, rec_layer_name: str):
+  network[rec_layer_name]["unit"].update({
+    "encoder_len": {
+      "class": "length",
+      "from": "base:encoder"
+    },
+    "is_last_frame": {
+      "class": "eval",
+      "from": [":i", "encoder_len"],
+      "eval": "tf.math.equal(source(0), source(1) - 1)",
+      "out_type": {"dtype": "bool"},
+    },
+  })
+
+
 def add_center_positions(network: Dict, segment_lens_starts_layer_name: str):
   """
   For center-window models, add a layer returning the center position of the windows.
@@ -512,6 +527,59 @@ def add_abs_segment_positions(network: Dict, rec_layer_name: str, att_t_dim_tag_
       "eval": "source(0) + source(1)"
     },
   })
+
+
+def get_explicit_lstm(layer_name: str, n_out: int, from_: List[str]):
+  input_ = "%s_input" % layer_name
+  input_gate_ = "%s_input_gate" % layer_name
+  forget_gate_ = "%s_forget_gate" % layer_name
+  output_gate_ = "%s_output_gate" % layer_name
+  cell_in_ = "%s_cell_in" % layer_name
+  c_ = "%s_c" % layer_name
+  output_ = layer_name
+
+  lstm_dict = {
+    input_: {
+      "class": "copy",
+      "from": ["prev:%s" % output_] + from_
+    },
+    input_gate_: {
+      "class": "linear",
+      "from": input_,
+      "activation": "sigmoid",
+      "n_out": n_out
+    },
+    forget_gate_: {
+      "class": "linear",
+      "from": input_,
+      "activation": "sigmoid",
+      "n_out": n_out
+    },
+    output_gate_: {
+      "class": "linear",
+      "from": input_,
+      "activation": "sigmoid",
+      "n_out": n_out
+    },
+    cell_in_: {
+      "class": "linear",
+      "from": input_,
+      "activation": "tanh",
+      "n_out": n_out
+    },
+    c_: {
+      "class": "eval",
+      "from": [input_gate_, cell_in_, forget_gate_, "prev:%s" % c_],
+      "eval": "source(0) * source(1) + source(2) * source(3)"
+    },
+    output_: {
+      "class": "eval",
+      "from": [output_gate_, c_],
+      "eval": "source(0) * source(1)"
+    },
+  }
+
+  return lstm_dict
 
 
 def add_att_weights_center_of_gravity(network: Dict, rec_layer_name: str, att_t_dim_tag_code_wrapper: CodeWrapper):

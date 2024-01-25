@@ -564,107 +564,269 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
   network["output"]["unit"]["emit_log_prob"]["is_output_layer"] = True
   network[rec_layer_name]["unit"]["segments"]["out_spatial_dim"] = att_t_dim_tag
 
-  network[rec_layer_name]["unit"].update({
-    # get all the blank log probs from the prev center pos to the second last frame of the segment
-    "blank_log_prob_size": {
-      "class": "eval",
-      "from": ["segment_starts", "segment_lens", "prev:center_positions"],
-      "eval": "source(0) + source(1) - source(2)"
-    },
-    "blank_log_prob0": {
-      "class": "slice_nd",
-      "from": "base:output/blank_log_prob",
-      "size": "blank_log_prob_size",
-      "start": "prev:center_positions"
-    },
-    # set the first of these blank log probs to 0.0
-    "blank_log_prob_mask_range": {
-      "class": "range_in_axis",
-      "from": "blank_log_prob0",
-      "axis": "stag:sliced-time:blank_log_prob0"
-    },
-    "blank_log_prob_mask": {
-      "class": "compare",
-      "from": "blank_log_prob_mask_range",
-      "value": 0,
-      "kind": "greater"
-    },
-    "blank_log_prob": {
-      "class": "switch",
-      "condition": "blank_log_prob_mask",
-      "true_from": "blank_log_prob0",
-      "false_from": 0.0
-    },
-    # cumulatively sum of all of the blank log probs
-    # this corresponds to the first product of the formula in the function documentation
-    # the initial 0.0 in the blank log probs corresponds to the case that the first frame after the last boundary
-    # is an "emit" frame
-    "blank_log_prob_cum_sum0": {
-      "class": "cumsum",
-      "from": "blank_log_prob",
-      "axis": "stag:sliced-time:blank_log_prob0"
-    },
-    # get the cum blank log probs corresponding to the current segment
-    # in case the segment is overlapping with the last one, we slice from positions which are left of the actual start
-    # of the blank_log_prob_cum_sum0 layer. in this case, the slice-nd layer clips the gather indices to 0. later, we
-    # then set the log probs of these "invalid" indices to -inf
-    "blank_log_prob_cum_sum_left_bound": {
-      "class": "eval",
-      "from": ["segment_starts", "prev:center_positions"],
-      "eval": "source(0) - source(1) - 1"
-    },
-    "blank_log_prob_cum_sum": {
-      "class": "slice_nd",
-      "from": "blank_log_prob_cum_sum0",
-      "axis": "stag:sliced-time:blank_log_prob0",
-      "out_spatial_dim": att_t_dim_tag,
-      "size": "segment_lens",
-      "start": "blank_log_prob_cum_sum_left_bound"
-    },
-    # get the emit log probs corresponding to the current segment
-    "emit_log_prob": {
-      "class": "slice_nd",
-      "from": "base:output/emit_log_prob",
-      "out_spatial_dim": att_t_dim_tag,
-      "size": "segment_lens",
-      "start": "segment_starts"
-    },
-    # get the final length model probs by adding the emit log prob with the cum blank log probs
-    "label_sync_pos_prob0": {
-      "class": "eval",
-      "from": ["blank_log_prob_cum_sum", "emit_log_prob"],
-      "eval": "tf.math.exp(source(0) + source(1))"
-    },
-    # set the prob for the invalid positions to 0.0
-    "label_sync_pos_valid_start_idx": {
-      "class": "eval",
-      "from": ["segment_starts", "segment_lens", "prev:center_positions"],
-      "eval": "source(1) - (source(0) + source(1) - source(2) - 1)"
-    },
-    "label_sync_pos_range": {
-      "class": "range_in_axis",
-      "from": "label_sync_pos_prob0",
-      "axis": att_t_dim_tag
-    },
-    "label_sync_pos_valid_mask": {
-      "class": "compare",
-      "from": ["label_sync_pos_range", "label_sync_pos_valid_start_idx"],
-      "kind": "greater_equal"
-    },
-    "label_sync_pos_prob": {
-      "class": "switch",
-      "condition": "label_sync_pos_valid_mask",
-      "true_from": "label_sync_pos_prob0",
-      "false_from": CodeWrapper('float("-inf")')
-    },
-    # normalize with softmax
-    "label_sync_pos_prob_norm": {
-      "class": "softmax_over_spatial",
-      "from": "label_sync_pos_prob",
-      "axis": att_t_dim_tag,
-    },
-  })
-
+  if rec_layer_name == "label_model":
+    network[rec_layer_name]["unit"].update({
+      # get all the blank log probs from the prev center pos to the second last frame of the segment
+      "blank_log_prob_size": {
+        "class": "eval",
+        "from": ["segment_starts", "segment_lens", "prev:center_positions"],
+        "eval": "source(0) + source(1) - source(2)"
+      },
+      "blank_log_prob0": {
+        "class": "slice_nd",
+        "from": "base:output/blank_log_prob",
+        "size": "blank_log_prob_size",
+        "start": "prev:center_positions"
+      },
+      # set the first of these blank log probs to 0.0
+      "blank_log_prob_mask_range": {
+        "class": "range_in_axis",
+        "from": "blank_log_prob0",
+        "axis": "stag:sliced-time:blank_log_prob0"
+      },
+      "blank_log_prob_mask": {
+        "class": "compare",
+        "from": "blank_log_prob_mask_range",
+        "value": 0,
+        "kind": "greater"
+      },
+      "blank_log_prob": {
+        "class": "switch",
+        "condition": "blank_log_prob_mask",
+        "true_from": "blank_log_prob0",
+        "false_from": 0.0
+      },
+      # cumulatively sum of all of the blank log probs
+      # this corresponds to the first product of the formula in the function documentation
+      # the initial 0.0 in the blank log probs corresponds to the case that the first frame after the last boundary
+      # is an "emit" frame
+      "blank_log_prob_cum_sum0": {
+        "class": "cumsum",
+        "from": "blank_log_prob",
+        "axis": "stag:sliced-time:blank_log_prob0"
+      },
+      # get the cum blank log probs corresponding to the current segment
+      # in case the segment is overlapping with the last one, we slice from positions which are left of the actual start
+      # of the blank_log_prob_cum_sum0 layer. in this case, the slice-nd layer clips the gather indices to 0. later, we
+      # then set the log probs of these "invalid" indices to -inf
+      "blank_log_prob_cum_sum_left_bound": {
+        "class": "eval",
+        "from": ["segment_starts", "prev:center_positions"],
+        "eval": "source(0) - source(1) - 1"
+      },
+      "blank_log_prob_cum_sum": {
+        "class": "slice_nd",
+        "from": "blank_log_prob_cum_sum0",
+        "axis": "stag:sliced-time:blank_log_prob0",
+        "out_spatial_dim": att_t_dim_tag,
+        "size": "segment_lens",
+        "start": "blank_log_prob_cum_sum_left_bound"
+      },
+      # get the emit log probs corresponding to the current segment
+      "emit_log_prob": {
+        "class": "slice_nd",
+        "from": "base:output/emit_log_prob",
+        "out_spatial_dim": att_t_dim_tag,
+        "size": "segment_lens",
+        "start": "segment_starts"
+      },
+      # get the final length model probs by adding the emit log prob with the cum blank log probs
+      "label_sync_pos_prob0": {
+        "class": "eval",
+        "from": ["blank_log_prob_cum_sum", "emit_log_prob"],
+        "eval": "tf.math.exp(source(0) + source(1))"
+      },
+      # set the prob for the invalid positions to 0.0
+      "label_sync_pos_valid_start_idx": {
+        "class": "eval",
+        "from": ["segment_starts", "segment_lens", "prev:center_positions"],
+        "eval": "source(1) - (source(0) + source(1) - source(2) - 1)"
+      },
+      "label_sync_pos_range": {
+        "class": "range_in_axis",
+        "from": "label_sync_pos_prob0",
+        "axis": att_t_dim_tag
+      },
+      "label_sync_pos_valid_mask": {
+        "class": "compare",
+        "from": ["label_sync_pos_range", "label_sync_pos_valid_start_idx"],
+        "kind": "greater_equal"
+      },
+      "label_sync_pos_prob": {
+        "class": "switch",
+        "condition": "label_sync_pos_valid_mask",
+        "true_from": "label_sync_pos_prob0",
+        "false_from": CodeWrapper('float("-inf")')
+      },
+      # normalize with softmax
+      "label_sync_pos_prob_norm": {
+        "class": "softmax_over_spatial",
+        "from": "label_sync_pos_prob",
+        "axis": att_t_dim_tag,
+      },
+    })
+  else:
+    assert rec_layer_name == "output"
+    network["length_model_probs"] = {
+      "back_prop": False,
+      "class": "rec",
+      "from": "encoder",
+      "include_eos": True,
+      "max_seq_len": "max_len_from('base:encoder')",
+      "size_target": None,
+      "target": "targets",
+      "is_output_layer": True,
+      "unit": {
+        "am": {"class": "copy", "from": "data:source"},
+        "blank_log_prob": {
+          "class": "eval",
+          "eval": "tf.math.log_sigmoid(-source(0))",
+          "from": "emit_prob0",
+          "is_output_layer": True
+        },
+        "emit_log_prob": {
+          "activation": "log_sigmoid",
+          "class": "activation",
+          "from": "emit_prob0",
+          "is_output_layer": True
+        },
+        "emit_prob0": {
+          "activation": None,
+          "class": "linear",
+          "from": "s",
+          "n_out": 1,
+          "name_scope": "/output/rec/emit_prob0"
+        },
+        "output": {
+          "class": "copy",
+          "from": "am"
+        },
+        "s": {
+          "L2": 0.0001,
+          "class": "rec",
+          "dropout": 0.3,
+          "from": ["am"],
+          "n_out": 128,
+          "unit": "nativelstm2",
+          "unit_opts": {"rec_weight_dropout": 0.3},
+          "name_scope": "/output/rec/s/rec"
+        },
+      }
+    }
+    network[rec_layer_name]["unit"]["blank_log_prob"] = {
+      "class": "gather",
+      "from": "base:length_model_probs/blank_log_prob",
+      "position": ":i",
+      "axis": "t"
+    }
+    network[rec_layer_name]["unit"]["emit_log_prob"] = {
+      "class": "gather",
+      "from": "base:length_model_probs/emit_log_prob",
+      "position": ":i",
+      "axis": "t"
+    }
+    del network[rec_layer_name]["unit"]["emit_prob0"]
+    del network[rec_layer_name]["unit"]["s"]
+    network[rec_layer_name]["unit"].update({
+      # get all the blank log probs from the prev center pos to the second last frame of the segment
+      "accum_blank_log_prob_size": {
+        "class": "eval",
+        "from": ["segment_starts", "segment_lens", "prev:center_positions"],
+        "eval": "source(0) + source(1) - source(2)"
+      },
+      "accum_blank_log_prob0": {
+        "class": "slice_nd",
+        "from": "base:length_model_probs/blank_log_prob",
+        "size": "accum_blank_log_prob_size",
+        "start": "prev:center_positions"
+      },
+      # set the first of these blank log probs to 0.0
+      "accum_blank_log_prob_mask_range": {
+        "class": "range_in_axis",
+        "from": "accum_blank_log_prob0",
+        "axis": "stag:sliced-time:accum_blank_log_prob0"
+      },
+      "accum_blank_log_prob_mask": {
+        "class": "compare",
+        "from": "accum_blank_log_prob_mask_range",
+        "value": 0,
+        "kind": "greater"
+      },
+      "accum_blank_log_prob": {
+        "class": "switch",
+        "condition": "accum_blank_log_prob_mask",
+        "true_from": "accum_blank_log_prob0",
+        "false_from": 0.0
+      },
+      # cumulatively sum of all of the blank log probs
+      # this corresponds to the first product of the formula in the function documentation
+      # the initial 0.0 in the blank log probs corresponds to the case that the first frame after the last boundary
+      # is an "emit" frame
+      "blank_log_prob_cum_sum0": {
+        "class": "cumsum",
+        "from": "accum_blank_log_prob",
+        "axis": "stag:sliced-time:accum_blank_log_prob0"
+      },
+      # get the cum blank log probs corresponding to the current segment
+      # in case the segment is overlapping with the last one, we slice from positions which are left of the actual start
+      # of the blank_log_prob_cum_sum0 layer. in this case, the slice-nd layer clips the gather indices to 0. later, we
+      # then set the log probs of these "invalid" indices to -inf
+      "blank_log_prob_cum_sum_left_bound": {
+        "class": "eval",
+        "from": ["segment_starts", "prev:center_positions"],
+        "eval": "source(0) - source(1) - 1"
+      },
+      "blank_log_prob_cum_sum": {
+        "class": "slice_nd",
+        "from": "blank_log_prob_cum_sum0",
+        "axis": "stag:sliced-time:accum_blank_log_prob0",
+        "out_spatial_dim": att_t_dim_tag,
+        "size": "segment_lens",
+        "start": "blank_log_prob_cum_sum_left_bound"
+      },
+      # get the emit log probs corresponding to the current segment
+      "accum_emit_log_prob": {
+        "class": "slice_nd",
+        "from": "base:length_model_probs/emit_log_prob",
+        "out_spatial_dim": att_t_dim_tag,
+        "size": "segment_lens",
+        "start": "segment_starts"
+      },
+      # get the final length model probs by adding the emit log prob with the cum blank log probs
+      "label_sync_pos_prob0": {
+        "class": "eval",
+        "from": ["blank_log_prob_cum_sum", "accum_emit_log_prob"],
+        "eval": "tf.math.exp(source(0) + source(1))"
+      },
+      # set the prob for the invalid positions to 0.0
+      "label_sync_pos_valid_start_idx": {
+        "class": "eval",
+        "from": ["segment_starts", "segment_lens", "prev:center_positions"],
+        "eval": "source(1) - (source(0) + source(1) - source(2) - 1)"
+      },
+      "label_sync_pos_range": {
+        "class": "range_in_axis",
+        "from": "label_sync_pos_prob0",
+        "axis": att_t_dim_tag
+      },
+      "label_sync_pos_valid_mask": {
+        "class": "compare",
+        "from": ["label_sync_pos_range", "label_sync_pos_valid_start_idx"],
+        "kind": "greater_equal"
+      },
+      "label_sync_pos_prob": {
+        "class": "switch",
+        "condition": "label_sync_pos_valid_mask",
+        "true_from": "label_sync_pos_prob0",
+        "false_from": CodeWrapper('float("-inf")')
+      },
+      # normalize with softmax
+      "label_sync_pos_prob_norm": {
+        "class": "softmax_over_spatial",
+        "from": "label_sync_pos_prob",
+        "axis": att_t_dim_tag,
+      },
+    })
 
 def add_att_weight_interpolation(
         network: Dict, rec_layer_name: str, interpolation_layer_name: str, interpolation_scale: float):
@@ -707,69 +869,128 @@ def get_segment_starts_and_lengths(segment_center_window_size: Optional[int]):
       },
     }
   else:
-    window_half_size = segment_center_window_size // 2
-    return {
-      "segment_ends": {
-        "class": "switch",
-        "condition": "seq_end_too_far",
-        "false_from": "segment_ends1",
-        "true_from": "seq_lens",
-      },
-      "segment_ends1": {
-        "class": "eval",
-        "eval": "source(0) + source(1) + %d" % window_half_size,
-        "from": ["segment_starts1", "segment_lens1"],
-      },
-      "segment_lens": {
-        "class": "eval",
-        "eval": "source(0) - source(1)",
-        "from": ["segment_ends", "segment_starts"],
-        "is_output_layer": True,
-      },
-      "segment_lens0": {
-        "class": "combine",
-        "from": [":i", "segment_starts1"],
-        "kind": "sub",
-      },
-      "segment_lens1": {
-        "class": "combine",
-        "from": ["segment_lens0", "const1"],
-        "is_output_layer": True,
-        "kind": "add",
-      },
-      "segment_starts": {
-        "class": "switch",
-        "condition": "seq_start_too_far",
-        "false_from": "segment_starts2",
-        "true_from": 0,
-      },
-      "segment_starts1": {
-        "class": "switch",
-        "condition": "prev:output_emit",
-        "false_from": "prev:segment_starts1",
-        "initial_output": 0,
-        "is_output_layer": True,
-        "true_from": ":i",
-      },
-      "segment_starts2": {
-        "class": "eval",
-        "eval": "source(0) + source(1) - %d" % window_half_size,
-        "from": ["segment_starts1", "segment_lens1"],
-        "is_output_layer": True,
-      },
-      "seq_end_too_far": {
-        "class": "compare",
-        "from": ["segment_ends1", "seq_lens"],
-        "kind": "greater",
-      },
-      "seq_lens": {"class": "length", "from": "base:encoder"},
-      "seq_start_too_far": {
-        "class": "compare",
-        "from": ["segment_starts2"],
-        "kind": "less",
-        "value": 0,
-      },
-    }
+    if segment_center_window_size % 2 == 1:
+      window_half_size = (segment_center_window_size - 1) // 2
+      return {
+        "segment_ends": {
+          "class": "switch",
+          "condition": "seq_end_too_far",
+          "false_from": "segment_ends1",
+          "true_from": "seq_lens",
+        },
+        "segment_ends1": {
+          "class": "eval",
+          "eval": "source(0) + source(1) + %d" % window_half_size,
+          "from": ["segment_starts1", "segment_lens1"],
+        },
+        "segment_lens": {
+          "class": "eval",
+          "eval": "source(0) - source(1) + 1",
+          "from": ["segment_ends", "segment_starts"],
+          "is_output_layer": True,
+        },
+        "segment_lens1": {
+          "class": "combine",
+          "from": [":i", "segment_starts1"],
+          "kind": "sub",
+        },
+        "segment_starts": {
+          "class": "switch",
+          "condition": "seq_start_too_far",
+          "false_from": "segment_starts2",
+          "true_from": 0,
+        },
+        "segment_starts1": {
+          "class": "switch",
+          "condition": "prev:output_emit",
+          "false_from": "prev:segment_starts1",
+          "initial_output": 0,
+          "is_output_layer": True,
+          "true_from": ":i",
+        },
+        "segment_starts2": {
+          "class": "eval",
+          "eval": "source(0) + source(1) - %d" % window_half_size,
+          "from": ["segment_starts1", "segment_lens1"],
+          "is_output_layer": True,
+        },
+        "seq_end_too_far": {
+          "class": "compare",
+          "from": ["segment_ends1", "seq_lens"],
+          "kind": "greater",
+        },
+        "seq_lens": {"class": "length", "from": "base:encoder"},
+        "seq_start_too_far": {
+          "class": "compare",
+          "from": ["segment_starts2"],
+          "kind": "less",
+          "value": 0,
+        },
+      }
+    else:
+      window_half_size = segment_center_window_size // 2
+      return {
+        "segment_ends": {
+          "class": "switch",
+          "condition": "seq_end_too_far",
+          "false_from": "segment_ends1",
+          "true_from": "seq_lens",
+        },
+        "segment_ends1": {
+          "class": "eval",
+          "eval": "source(0) + source(1) + %d" % window_half_size,
+          "from": ["segment_starts1", "segment_lens1"],
+        },
+        "segment_lens": {
+          "class": "eval",
+          "eval": "source(0) - source(1)",
+          "from": ["segment_ends", "segment_starts"],
+          "is_output_layer": True,
+        },
+        "segment_lens0": {
+          "class": "combine",
+          "from": [":i", "segment_starts1"],
+          "kind": "sub",
+        },
+        "segment_lens1": {
+          "class": "combine",
+          "from": ["segment_lens0", "const1"],
+          "is_output_layer": True,
+          "kind": "add",
+        },
+        "segment_starts": {
+          "class": "switch",
+          "condition": "seq_start_too_far",
+          "false_from": "segment_starts2",
+          "true_from": 0,
+        },
+        "segment_starts1": {
+          "class": "switch",
+          "condition": "prev:output_emit",
+          "false_from": "prev:segment_starts1",
+          "initial_output": 0,
+          "is_output_layer": True,
+          "true_from": ":i",
+        },
+        "segment_starts2": {
+          "class": "eval",
+          "eval": "source(0) + source(1) - %d" % window_half_size,
+          "from": ["segment_starts1", "segment_lens1"],
+          "is_output_layer": True,
+        },
+        "seq_end_too_far": {
+          "class": "compare",
+          "from": ["segment_ends1", "seq_lens"],
+          "kind": "greater",
+        },
+        "seq_lens": {"class": "length", "from": "base:encoder"},
+        "seq_start_too_far": {
+          "class": "compare",
+          "from": ["segment_starts2"],
+          "kind": "less",
+          "value": 0,
+        },
+      }
 
 
 def get_label_model_unit_dict(global_attention: bool, task: str):

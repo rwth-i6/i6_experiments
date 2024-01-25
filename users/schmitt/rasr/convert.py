@@ -5,11 +5,11 @@ from i6_core.rasr.config import build_config_from_mapping
 from i6_core.rasr.command import RasrCommand
 
 import subprocess
-import tempfile
 import shutil
 import ast
 import json
-import xml.etree.ElementTree as ET
+import gzip
+from typing import List
 
 
 class RASRLatticeToCTMJob(Job):
@@ -243,73 +243,68 @@ class PhonJSONVocabToRasrFormatsJob(Job):
       f.writelines(state_tying)
 
 
-class JsonSubwordVocabToLexiconJob(Job):
+class LabelFileToWordListJob(Job):
   """
-  Takes a json vocab file (mapping from subword to idx) and creates a lexicon with one lemma for each subword.
-  The resulting lexicon only has lemmas and no phonemes.
+  Convert a RASR label file (<label> <idx>) to a list of words.
   """
 
-  def __init__(self, json_vocab_path, blank_idx):
-    self.blank_idx = blank_idx
-    self.json_vocab_path = json_vocab_path
-    self.out_lexicon = self.output_path("out_lexicon")
+  def __init__(self, label_file_path: Path, labels_to_exclude: List[str]):
+    self.label_file_path = label_file_path
+    self.labels_to_exclude = labels_to_exclude
+    self.out_word_list_file = self.output_path("out_word_list")
 
   def tasks(self):
-    yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 1}, mini_task=True)
-
-  @staticmethod
-  def make_base_lexicon_xml(phoneme_list=None, unk_token='<unk>', unk_pronunciation=None):
-    root = ET.Element('lexicon')
-    tree = ET.ElementTree(root)
-    # list of phonemes(or bpes)
-    if phoneme_list is not None:
-      pI = ET.SubElement(root, 'phoneme-inventory')
-      for phon in phoneme_list:
-        phoneme = ET.SubElement(pI, 'phoneme')
-        symbol = ET.SubElement(phoneme, 'symbol')
-        symbol.text = phon
-        # var = ET.SubElement(phoneme, 'variation')
-        # var.text = 'none'
-    else:
-      comment = ET.Comment('no phoneme-inventory')
-      root.append(comment)
-
-    # special lemma #
-    special_lemma_dict = [('sentence-begin', '<s>', None),
-                        ('sentence-end', '</s>', None),
-                        ('unknown', unk_token, unk_pronunciation)
-                        ]  # no silence
-    for sp_lemma, token, pron in special_lemma_dict:
-      lemma = ET.SubElement(root, 'lemma', {"special": sp_lemma})
-      orth = ET.SubElement(lemma, 'orth')
-      # orth.text = '['+spLemma.upper()+']'
-      orth.text = token
-      if pron is not None:
-        phon = ET.SubElement(lemma, 'phon')
-        phon.text = pron
-      synt = ET.SubElement(lemma, 'synt')
-      if token is None:
-        ET.SubElement(lemma, 'eval')
-      else:
-        tok = ET.SubElement(synt, 'tok')
-        tok.text = token
-
-    return root, tree
+    yield Task("run", rqmt={
+      "cpu": 1,
+      "mem": 1,
+      "time": 1
+    }, mini_task=True)
 
   def run(self):
-    root, tree = self.make_base_lexicon_xml()
-    with open(self.json_vocab_path.get_path(), "r") as f:
-      vocab = ast.literal_eval(f.read())
-    special_tokens = ['<s>', '</s>', '<unk>']
+    labels = []
+    with open(self.label_file_path, "r") as f:
+      for line in f:
+        label = line.strip().split()[0]
+        if label in self.labels_to_exclude:
+          continue
+        labels.append(label)
 
-    for v in sorted(vocab.keys()):
-      if v in special_tokens:
-        continue
-      lemma = ET.SubElement(root, 'lemma')
-      orth = ET.SubElement(lemma, 'orth')
-      orth.text = v
+    with open(self.out_word_list_file, "w+") as f:
+      for label in labels:
+        f.write(label + "\n")
 
-    tree.write("lexicon", encoding='UTF-8', xml_declaration=True)
-    cmd = ["xmllint", "--format", "lexicon", "-o", "lexicon"]
-    subprocess.check_call(cmd)
-    shutil.move("lexicon", self.out_lexicon.get_path())
+
+class ArpaLMToWordListJob(Job):
+  """
+  Convert an ARPA LM file (<float>\t<n-gram>\t<float>) to a list of words.
+  """
+
+  def __init__(self, arpa_lm_file_path: Path, labels_to_exclude: List[str]):
+    self.arpa_lm_file_path = arpa_lm_file_path
+    self.labels_to_exclude = labels_to_exclude
+    self.out_word_list_file = self.output_path("out_word_list")
+
+  def tasks(self):
+    yield Task("run", rqmt={
+      "cpu": 1,
+      "mem": 1,
+      "time": 1
+    }, mini_task=True)
+
+  def run(self):
+    labels = []
+    with gzip.open(self.arpa_lm_file_path, "r") as f:
+      for line in f:
+        if line.startswith(b"\\data\\") or line.startswith(b"ngram") or line.strip() == b"" or line.startswith(b"\\1-grams"):
+          continue
+        elif line.startswith(b"\\2-grams"):
+          break
+        else:
+          label = line.strip().split(b"\t")[1].decode("utf-8")
+          if label in self.labels_to_exclude:
+            continue
+          labels.append(label)
+
+    with open(self.out_word_list_file, "w+") as f:
+      for label in labels:
+        f.write(label + "\n")

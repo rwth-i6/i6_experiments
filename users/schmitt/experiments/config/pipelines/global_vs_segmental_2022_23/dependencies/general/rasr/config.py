@@ -3,7 +3,7 @@ from i6_core.rasr.crp import CommonRasrParameters, crp_add_default_output
 
 from sisyphus import *
 
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict, Any, Union
 
 
 class RasrConfigBuilder:
@@ -26,6 +26,30 @@ class RasrConfigBuilder:
     corpus_config.warn_about_unexpected_elements = True
 
     return corpus_config
+
+  @staticmethod
+  def get_lm_image_crp(
+          lexicon_path: Path,
+          lm_type: str,
+          lm_file: Path,
+
+  ) -> CommonRasrParameters:
+    assert lm_type == "ARPA", "Only ARPA LMs are supported."
+
+    crp = CommonRasrParameters()
+    crp_add_default_output(crp, unbuffered=True)
+
+    lexicon_config = RasrConfig()
+    lexicon_config.file = lexicon_path
+    lexicon_config.normalize_pronunciation = False
+    crp.lexicon_config = lexicon_config
+
+    lm_config = RasrConfig()
+    lm_config.file = lm_file
+    lm_config.type = lm_type
+    crp.language_model_config = lm_config
+
+    return crp
 
   @staticmethod
   def get_phon_align_extraction_config(
@@ -171,7 +195,7 @@ class RasrConfigBuilder:
           segment_path: Path,
           lexicon_path: Path,
           feature_cache_path: Path,
-          feature_extraction_file: Path | str,
+          feature_extraction_file: Union[Path, str],
           label_file_path: Path,
           meta_graph_path: Path,
           simple_beam_search: bool,
@@ -187,24 +211,17 @@ class RasrConfigBuilder:
           full_sum_decoding: bool,
           label_pruning: float,
           label_pruning_limit: int,
-          use_lm_score: bool,
           word_end_pruning: float,
           word_end_pruning_limit: int,
           label_recombination_limit: int,
-          label_unit: str,
           max_seg_len: int,
           skip_silence: bool,
-          lm_type: str,
-          lm_scale: Optional[float],
-          lm_file: Optional[Path],
-          lm_image: Optional[Path],
-          lm_lookahead: bool,
+          native_lstm2_so_path: Path,
           max_batch_size: int = 256,
           label_scorer_type: str = "tf-rnn-transducer",
-          lm_lookahead_cache_size_high: Optional[int] = None,
-          lm_lookahead_cache_size_low: Optional[int] = None,
-          lm_lookahead_history_limit: Optional[int] = None,
-          lm_lookahead_scale: Optional[float] = None,
+          lm_opts: Optional[Dict[str, Any]] = None,
+          lm_lookahead_opts: Optional[Dict[str, Any]] = None,
+          open_vocab: bool = True,
           debug: bool = False
   ) -> Tuple[CommonRasrParameters, RasrConfig]:
     crp = CommonRasrParameters()
@@ -226,18 +243,91 @@ class RasrConfigBuilder:
     recognizer_config.feature_extraction.feature_cache.path = feature_cache_path
     recognizer_config.links = "evaluator archive-writer"
     recognizer_config.pronunciation_scale = 1.0
-    recognizer_config.search_type = "label-sync-search"
+    # recognizer_config.search_type = "label-sync-search"
+    recognizer_config.search_type = "generic-seq2seq-tree-search"
     recognizer_config.type = "recognizer"
     recognizer_config.use_acoustic_model = False
     recognizer_config.debug = debug
 
-    recognizer_config.lm.type = lm_type
-    if lm_scale is not None:
-      recognizer_config.lm.scale = lm_scale
-    if lm_image is not None:
-      recognizer_config.lm.image = lm_image
-    if lm_file is not None:
-      recognizer_config.lm.file = lm_file
+    # LM
+    if lm_opts is None:
+      recognizer_config.lm.type = "simple-history"
+      recognizer_config.recognizer.use_lm_score = False
+    else:
+      assert not open_vocab, "Currently, closed vocab is assumed for LM decoding."
+
+      # basic settings
+      recognizer_config.lm.scale = lm_opts["scale"]
+      recognizer_config.lm.type = lm_opts["type"]
+      if "image" in lm_opts:
+        recognizer_config.lm.image = lm_opts["image"]
+      if "file" in lm_opts:
+        recognizer_config.lm.file = lm_opts["file"]
+      if "allow_reduced_history" in lm_opts:
+        recognizer_config.lm.allow_reduced_history = lm_opts["allow_reduced_history"]
+      if "max_batch_size" in lm_opts:
+        recognizer_config.lm.max_batch_size = lm_opts["max_batch_size"]
+      if "min_batch_size" in lm_opts:
+        recognizer_config.lm.min_batch_size = lm_opts["min_batch_size"]
+      if "opt_batch_size" in lm_opts:
+        recognizer_config.lm.opt_batch_size = lm_opts["opt_batch_size"]
+      if "sort_batch_request" in lm_opts:
+        recognizer_config.lm.sort_batch_request = lm_opts["sort_batch_request"]
+      if "transform_output_negate" in lm_opts:
+        recognizer_config.lm.transform_output_negate = lm_opts["transform_output_negate"]
+      if "vocab_file" in lm_opts:
+        recognizer_config.lm.vocab_file = lm_opts["vocab_file"]
+      if "vocab_unknown_word" in lm_opts:
+        recognizer_config.lm.vocab_unknown_word = lm_opts["vocab_unknown_word"]
+
+      # tf settings
+      if lm_opts["type"] == "tfrnn":
+        # input map
+        recognizer_config.lm.input_map.info_0.param_name = "word"
+        recognizer_config.lm.input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/delayed/delayed_dim0_size"
+        recognizer_config.lm.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
+        # output map
+        recognizer_config.lm.output_map.info_0.param_name = "softmax"
+        recognizer_config.lm.output_map.info_0.tensor_name = "output/output_batch_major"
+        # loader
+        recognizer_config.lm.loader.meta_graph_file = lm_opts["meta_graph_file"]
+        recognizer_config.lm.loader.required_libraries = native_lstm2_so_path
+        recognizer_config.lm.loader.type = "meta"
+        recognizer_config.lm.loader.saved_model_file = lm_opts["saved_model_file"]
+
+      recognizer_config.recognizer.use_lm_score = True
+
+    # LM Lookahead
+    if lm_lookahead_opts is None:
+      recognizer_config.recognizer.lm_lookahead = False
+    else:
+      recognizer_config.recognizer.lm_lookahead.cache_size_high = lm_lookahead_opts["cache_size_high"]
+      recognizer_config.recognizer.lm_lookahead.cache_size_low = lm_lookahead_opts["cache_size_low"]
+      recognizer_config.recognizer.lm_lookahead.history_limit = lm_lookahead_opts["history_limit"]
+      recognizer_config.recognizer.lm_lookahead.scale = lm_lookahead_opts["scale"]
+      recognizer_config.recognizer.lm_lookahead = True
+      if lm_lookahead_opts.get("separate_lookahead_lm", False):
+        recognizer_config.recognizer.separate_lookahead_lm = True
+        recognizer_config.recognizer.lookahead_lm.scale = 1.0
+        recognizer_config.recognizer.lookahead_lm.type = lm_lookahead_opts["type"]
+        recognizer_config.recognizer.lookahead_lm.file = lm_lookahead_opts["file"]
+        recognizer_config.recognizer.lookahead_lm.image = lm_lookahead_opts["image"]
+
+
+    # Open/Closed Vocab
+    if not open_vocab:
+      recognizer_config.recognizer.label_tree.label_unit = "phoneme"
+      recognizer_config.acoustic_model.state_tying.type = "monophone"
+      recognizer_config.acoustic_model.allophones.add_all = True
+      recognizer_config.acoustic_model.allophones.add_from_lexicon = False
+      recognizer_config.acoustic_model.hmm.across_word_model = True
+      recognizer_config.acoustic_model.hmm.early_recombination = False
+      recognizer_config.acoustic_model.hmm.state_repetitions = 1
+      recognizer_config.acoustic_model.hmm.states_per_phone = 1
+      recognizer_config.acoustic_model.phonology.future_length = 0
+      recognizer_config.acoustic_model.phonology.history_length = 0
+    else:
+      recognizer_config.recognizer.label_tree.label_unit = "word"
 
     recognizer_config.label_scorer.blank_label_index = blank_label_index
     recognizer_config.label_scorer.label_file = label_file_path
@@ -258,8 +348,7 @@ class RasrConfigBuilder:
     recognizer_config.label_scorer.feature_input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/data/data_dim0_size"
     recognizer_config.label_scorer.feature_input_map.info_0.tensor_name = "extern_data/placeholders/data/data"
 
-    recognizer_config.label_scorer.loader.required_libraries = Path(
-      "/u/rossenbach/temp/ctc_speedtest/tf_new_native_mkl/NativeLstm2.so")
+    recognizer_config.label_scorer.loader.required_libraries = native_lstm2_so_path
     recognizer_config.label_scorer.loader.meta_graph_file = meta_graph_path
     recognizer_config.label_scorer.loader.type = "meta"
 
@@ -271,7 +360,6 @@ class RasrConfigBuilder:
     recognizer_config.recognizer.label_pruning = label_pruning
     recognizer_config.recognizer.label_pruning_limit = label_pruning_limit
     recognizer_config.recognizer.optimize_lattice = False
-    recognizer_config.recognizer.use_lm_score = use_lm_score
     recognizer_config.recognizer.word_end_pruning = word_end_pruning
     recognizer_config.recognizer.word_end_pruning_limit = word_end_pruning_limit
     recognizer_config.recognizer.debug = debug
@@ -283,20 +371,8 @@ class RasrConfigBuilder:
     if length_norm:
       recognizer_config.recognizer.length_normalization = True
 
-    recognizer_config.recognizer.label_tree.label_unit = label_unit
     recognizer_config.recognizer.label_tree.skip_silence = skip_silence
     crp.recognizer_config = recognizer_config
-
-    recognizer_config.recognizer.lm_lookahead = lm_lookahead
-    if lm_lookahead:
-      assert lm_lookahead_scale is not None
-      assert lm_lookahead_history_limit is not None
-      assert lm_lookahead_cache_size_high is not None
-      assert lm_lookahead_cache_size_low is not None
-      recognizer_config.recognizer.lm_lookahead.cache_size_high = lm_lookahead_cache_size_high
-      recognizer_config.recognizer.lm_lookahead.cache_size_low = lm_lookahead_cache_size_low
-      recognizer_config.recognizer.lm_lookahead.history_limit = lm_lookahead_history_limit
-      recognizer_config.recognizer.lm_lookahead.scale = lm_lookahead_scale
 
     flf_lattice_tool_config = RasrConfig()
     flf_lattice_tool_config.global_cache.file = "global.cache"
@@ -385,7 +461,8 @@ class RasrConfigBuilder:
           corpus_path: Path,
           segment_path: Path,
           lexicon_path: Path,
-          feature_cache_path: Path,
+          feature_cache_path: Optional[Path],
+          feature_extraction_file: Union[Path, str],
           allophone_path: Path,
           label_pruning: float,
           label_pruning_limit: int,
@@ -394,13 +471,15 @@ class RasrConfigBuilder:
           context_size: int,
           label_file: Path,
           reduction_factors: int,
+          reduction_subtrahend: int,
           start_label_index: int,
-          meta_graph_file: Path,
+          meta_graph_path: Path,
           state_tying_path: Path,
           max_segment_len: int,
           length_norm: bool,
+          native_lstm2_so_path: Path,
           blank_update_history: bool = False,
-          loop_update_history: bool = False
+          loop_update_history: bool = False,
   ) -> Tuple[CommonRasrParameters, RasrConfig]:
     crp = CommonRasrParameters()
     crp_add_default_output(crp, unbuffered=True)
@@ -453,6 +532,7 @@ class RasrConfigBuilder:
     am_model_trainer_config.alignment.label_scorer.label_scorer_type = "tf-rnn-transducer"
     am_model_trainer_config.alignment.label_scorer.max_batch_size = 256
     am_model_trainer_config.alignment.label_scorer.reduction_factors = reduction_factors
+    am_model_trainer_config.alignment.label_scorer.reduction_subtrahend = reduction_subtrahend
     am_model_trainer_config.alignment.label_scorer.scale = 1.0
     am_model_trainer_config.alignment.label_scorer.start_label_index = start_label_index
     am_model_trainer_config.alignment.label_scorer.transform_output_negate = True
@@ -465,13 +545,15 @@ class RasrConfigBuilder:
     am_model_trainer_config.alignment.label_scorer.feature_input_map.info_0.param_name = "feature"
     am_model_trainer_config.alignment.label_scorer.feature_input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/data/data_dim0_size"
     am_model_trainer_config.alignment.label_scorer.feature_input_map.info_0.tensor_name = "extern_data/placeholders/data/data"
-    am_model_trainer_config.alignment.label_scorer.loader.meta_graph_file = meta_graph_file
-    am_model_trainer_config.alignment.label_scorer.loader.required_libraries = Path("/u/rossenbach/temp/ctc_speedtest/tf_new_native_mkl/NativeLstm2.so")
+    am_model_trainer_config.alignment.label_scorer.loader.meta_graph_file = meta_graph_path
+    # am_model_trainer_config.alignment.label_scorer.loader.required_libraries = Path("/u/rossenbach/temp/ctc_speedtest/tf_new_native_mkl/NativeLstm2.so")
+    am_model_trainer_config.alignment.label_scorer.loader.required_libraries = native_lstm2_so_path
     am_model_trainer_config.alignment.label_scorer.loader.type = "meta"
 
-    flow_path = "/u/schmitt/experiments/transducer/config/rasr-configs/realignment.flow"
-    am_model_trainer_config.file = flow_path
-    am_model_trainer_config.feature_cache.path = feature_cache_path
+    # flow_path = "/u/schmitt/experiments/transducer/config/rasr-configs/realignment.flow"
+    am_model_trainer_config.file = feature_extraction_file
+    if feature_cache_path is not None:
+      am_model_trainer_config.feature_cache.path = feature_cache_path
 
     return crp, am_model_trainer_config
 

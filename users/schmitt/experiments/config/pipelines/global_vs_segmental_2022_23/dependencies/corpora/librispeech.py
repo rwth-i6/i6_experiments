@@ -6,12 +6,14 @@ from i6_core.corpus.convert import CorpusToStmJob
 from i6_core.corpus.segments import SegmentCorpusJob
 from i6_core.audio.encoding import BlissChangeEncodingJob
 from i6_core.returnn.oggzip import BlissToOggZipJob
+from i6_core.tools.download import DownloadJob
 
 from i6_experiments.common.datasets.librispeech.corpus import get_bliss_corpus_dict
 from i6_experiments.users.schmitt.datasets.dump import DumpDatasetConfigBuilder
 from i6_experiments.users.schmitt.datasets import oggzip, concat
 from i6_experiments.users.schmitt.datasets.concat import ConcatStmFileJob, ConcatSeqTagFileJob
 from i6_experiments.users.schmitt.corpus.statistics import GetSeqLenFileJob
+from i6_experiments.users.schmitt.rasr.convert import ArpaLMToWordListJob, LabelFileToWordListJob
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_CURRENT_ROOT, RETURNN_EXE_NEW
 
@@ -81,6 +83,34 @@ class LibrispeechCorpora:
     test_corpus_keys = ()
 
     self.partition_epoch = 20
+
+    self.arpa_lm_paths = {
+      "arpa": DownloadJob(
+        url="http://www.openslr.org/resources/11/4-gram.arpa.gz",
+        target_filename="librispeech_4-gram.arpa.gz",
+      ).out_file
+    }
+
+    self.nn_lm_meta_graph_paths = {
+      "kazuki-lstm": Path("/u/atanas.gruev/setups/librispeech/2023-08-08-zhou-conformer-transducer/work/crnn/compile/CompileTFGraphJob.0dxq1DSvOxuN/output/graph.meta")
+    }
+    self.nn_lm_checkpoint_paths = {
+      "kazuki-lstm": "/u/zhou/asr-exps/librispeech/dependencies/kazuki_lstmlm_27062019/network.040"
+    }
+    self.nn_lm_vocab_paths = {
+      "kazuki-lstm": Path("/work/asr3/zeyer/schmitt/dependencies/librispeech/lm/kazuki_lstmlm_27062019/vocabulary")
+    }
+
+    self.lm_word_list_paths = {
+      "arpa": ArpaLMToWordListJob(
+        arpa_lm_file_path=self.arpa_lm_paths["arpa"],
+        labels_to_exclude=["<s>", "</s>", "<UNK>"],
+      ).out_word_list_file,
+      "kazuki-lstm": LabelFileToWordListJob(
+        label_file_path=self.nn_lm_vocab_paths["kazuki-lstm"],
+        labels_to_exclude=["<s>", "</s>", "<sb>", "<UNK>"],
+      ).out_word_list_file
+    }
 
   def get_seq_lens_file(self, dataset_name: str, concat_num: Optional[int]):
     dataset_dict = oggzip.get_dataset_dict(

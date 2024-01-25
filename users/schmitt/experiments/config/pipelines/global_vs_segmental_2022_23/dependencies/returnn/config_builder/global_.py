@@ -10,7 +10,7 @@ from i6_experiments.users.schmitt.specaugment import _mask
 from i6_experiments.users.schmitt.augmentation.alignment import shift_alignment_boundaries_func_str
 from i6_experiments.users.schmitt.dynamic_lr import dynamic_lr_str
 from i6_experiments.users.schmitt.chunking import custom_chunkin_func_str
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn import network_builder
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn import custom_construction_algos
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.base import ConfigBuilder, SWBBlstmConfigBuilder, SwbConformerConfigBuilder, LibrispeechConformerConfigBuilder, ConformerConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
@@ -32,6 +32,12 @@ class GlobalConfigBuilder(ConfigBuilder, ABC):
     super().__init__(dependencies=dependencies, **kwargs)
 
     self.dependencies = dependencies
+
+  def get_compile_tf_graph_config(self, opts: Dict):
+    returnn_config = self.get_recog_config(opts)
+    del returnn_config.config["network"]["output"]["max_seq_len"]
+
+    return returnn_config
 
   def get_dump_att_weight_config(self, corpus_key: str, opts: Dict):
     returnn_config = self.get_eval_config(eval_corpus_key=corpus_key, opts=opts)
@@ -57,6 +63,9 @@ class GlobalConfigBuilder(ConfigBuilder, ABC):
     returnn_config.config["forward_batch_size"] = CodeWrapper("batch_size")
 
     return returnn_config
+
+  def get_dump_length_model_probs_config(self, corpus_key: str, opts: Dict):
+    raise NotImplementedError
 
   def get_recog_config_for_forward_job(self, opts: Dict):
     forward_recog_config = self.get_recog_config(opts)

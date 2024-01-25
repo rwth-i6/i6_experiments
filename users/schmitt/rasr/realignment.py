@@ -4,10 +4,12 @@ from i6_core.util import create_executable
 from i6_core.rasr.config import build_config_from_mapping
 from i6_core.rasr.command import RasrCommand
 from i6_core import util
+from i6_core.rasr.flow import FlowNetwork
 
 import subprocess
 import tempfile
 import shutil
+from typing import Optional
 
 
 class RASRRealignmentJob(Job):
@@ -67,17 +69,28 @@ class RASRRealignmentJob(Job):
 
 
 class RASRRealignmentParallelJob(RasrCommand, Job):
-  def __init__(self, rasr_exe_path, am_model_trainer_config, crp, model_checkpoint, blank_allophone_state_idx,
-               time_rqtm=1, mem_rqmt=2, use_gpu=False):
+  def __init__(
+          self,
+          rasr_exe_path,
+          am_model_trainer_config,
+          crp,
+          model_checkpoint,
+          blank_allophone_state_idx,
+          time_rqmt=1,
+          mem_rqmt=2,
+          use_gpu=False,
+          feature_flow: Optional[FlowNetwork] = None,
+  ):
     self.am_model_trainer_config = am_model_trainer_config
     self.crp = crp
     self.rasr_exe_path = rasr_exe_path
     self.model_checkpoint = model_checkpoint
     self.blank_allophone_state_idx = blank_allophone_state_idx
+    self.feature_flow = feature_flow
 
     self.use_gpu = use_gpu
     self.mem_rqmt = mem_rqmt
-    self.time_rqmt = time_rqtm
+    self.time_rqmt = time_rqmt
 
     self.out_log_file = self.log_file_output_path("alignment", crp, True)
     self.out_single_alignment_caches = dict(
@@ -123,6 +136,8 @@ class RASRRealignmentParallelJob(RasrCommand, Job):
     config["*"].blank_allophone_state_idx = self.blank_allophone_state_idx
 
     RasrCommand.write_config(config, post_config, "rasr.config")
+    if self.feature_flow is not None:
+      self.feature_flow.write_to_file("feature.flow")
     util.write_paths_to_file(
       self.out_alignment_bundle, self.out_single_alignment_caches.values()
     )
@@ -156,6 +171,6 @@ class RASRRealignmentParallelJob(RasrCommand, Job):
 
   @classmethod
   def hash(cls, kwargs):
-    kwargs.pop("time_rqtm")
+    kwargs.pop("time_rqmt")
     kwargs.pop("mem_rqmt")
     return super().hash(kwargs)

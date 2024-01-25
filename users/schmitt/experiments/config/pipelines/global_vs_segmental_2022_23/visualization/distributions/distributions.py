@@ -4,6 +4,10 @@ import numpy as np
 from matplotlib.pyplot import figure
 import os
 
+"""
+This script plots the distributions of the gaussian and laplace distributions.
+"""
+
 out_folder = os.path.join(os.path.dirname(__file__), "visualizations")
 if not os.path.exists(out_folder):
   os.makedirs(out_folder)

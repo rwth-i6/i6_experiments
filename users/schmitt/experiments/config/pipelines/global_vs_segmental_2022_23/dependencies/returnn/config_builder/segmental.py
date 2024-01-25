@@ -10,7 +10,7 @@ from i6_experiments.users.schmitt.specaugment import _mask
 from i6_experiments.users.schmitt.augmentation.alignment import shift_alignment_boundaries_func_str
 from i6_experiments.users.schmitt.dynamic_lr import dynamic_lr_str
 from i6_experiments.users.schmitt.chunking import custom_chunkin_func_str, custom_chunkin_w_reduction_func_str
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn import network_builder, network_builder2
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder, network_builder2, ilm_correction
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn import custom_construction_algos
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.base import ConfigBuilder, SWBBlstmConfigBuilder, SwbConformerConfigBuilder, LibrispeechConformerConfigBuilder, ConformerConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
@@ -39,7 +39,7 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
       self.global_att_to_seg_att_maker = MohammadGlobalAttToSegmentalAttentionMaker2
 
   def get_train_config(self, opts: Dict, python_epilog: Optional[Dict] = None):
-    python_epilog = copy.deepcopy(self.python_epilog if python_epilog is None else python_epilog)
+    train_config = super().get_train_config(opts=opts, python_epilog=python_epilog)
 
     hdf_targets = self.dependencies.hdf_targets
     if "dataset_opts" in opts:
@@ -56,19 +56,57 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
       chunk_step_data = opts["chunking"]["chunk_step_data"]
       red_subtrahend = opts["chunking"].get("red_subtrahend", None)
       red_factor = opts["chunking"].get("red_factor", None)
-      python_epilog += [
+      train_config.python_epilog += [
         "from returnn.util.basic import NumbersDict",
         "chunk_size = NumbersDict({'targets': %s, 'data': %s})" % (chunk_size_targets, chunk_size_data),
         "chunk_step = NumbersDict({'targets': %s, 'data': %s})" % (chunk_step_targets, chunk_step_data),
         custom_chunkin_func_str.format(blank_idx=self.dependencies.model_hyperparameters.blank_idx
-          ) if red_factor is not None else custom_chunkin_w_reduction_func_str.format(
+          ) if red_factor is None else custom_chunkin_w_reduction_func_str.format(
           blank_idx=self.dependencies.model_hyperparameters.blank_idx,
           red_factor=red_factor,
-          ref_subtrahend=red_subtrahend,
+          red_subtrahend=red_subtrahend,
         )
       ]
 
-    return super().get_train_config(opts=opts, python_epilog=python_epilog)
+    if opts.get("train_mini_lstm_opts") is not None:  # need to check for None because it can be {}
+      ilm_correction.add_mini_lstm(
+        network=train_config.config["network"],
+        rec_layer_name="label_model",
+        train=True,
+      )
+      self.edit_network_freeze_layers(
+        train_config.config["network"],
+        layers_to_exclude=["mini_att_lstm", "mini_att"]
+      )
+      train_config.config["network"]["label_model"]["trainable"] = True
+
+    return train_config
+
+  def get_recog_config(self, opts: Dict):
+    recog_config = super().get_recog_config(opts)
+
+    ilm_correction_opts = opts.get("ilm_correction_opts", None)
+    if ilm_correction_opts is not None:
+      ilm_correction.add_mini_lstm(
+        network=recog_config.config["network"],
+        rec_layer_name="output",
+        train=False
+      )
+
+      if ilm_correction_opts.get("correct_eos", False):
+        ilm_correction_opts = copy.deepcopy(ilm_correction_opts)
+        ilm_correction_opts["eos_idx"] = self.dependencies.model_hyperparameters.sos_idx
+      ilm_correction.add_ilm_correction(
+        network=recog_config.config["network"],
+        rec_layer_name="output",
+        target_num_labels=self.dependencies.model_hyperparameters.target_num_labels_wo_blank,
+        opts=ilm_correction_opts
+      )
+
+    return recog_config
+
+  def get_compile_tf_graph_config(self, opts: Dict):
+    return self.get_recog_config(opts)
 
   def edit_network_only_train_length_model(self, net_dict: Dict):
     if "class" in net_dict:
@@ -77,6 +115,14 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
     for item in net_dict:
       if type(net_dict[item]) == dict and item != "output":
         self.edit_network_only_train_length_model(net_dict[item])
+
+  def edit_network_freeze_layers(self, net_dict: Dict, layers_to_exclude: List[str]):
+    if "class" in net_dict:
+      net_dict["trainable"] = False
+
+    for item in net_dict:
+      if type(net_dict[item]) == dict and item not in layers_to_exclude:
+        self.edit_network_freeze_layers(net_dict[item], layers_to_exclude)
 
   def get_dump_scores_config(self, corpus_key: str, opts: Dict):
     returnn_config = self.get_eval_config(eval_corpus_key=corpus_key, opts=opts)
@@ -233,6 +279,106 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
           "class": "hdf_dump",
           "filename": hdf_filenames["att_weight_penalty"],
           "from": "label_model/att_weight_penalty",
+          "is_output_layer": True,
+        },
+      })
+
+    returnn_config.config["forward_batch_size"] = CodeWrapper("batch_size")
+
+    return returnn_config
+
+  def get_dump_length_model_probs_config(self, corpus_key: str, opts: Dict):
+    returnn_config = self.get_eval_config(eval_corpus_key=corpus_key, opts=opts)
+
+    assert opts.get("use_train_net", False), "Use train net to dump att weights!"
+    if opts.get("use_train_net", False):
+      rec_layer_name = "label_model"
+      task = "train"
+    else:
+      rec_layer_name = "output"
+      task = "search"
+
+    segment_lens_starts_layer_name = SegmentalConfigBuilder.get_segment_lens_starts_layer_name(
+      network_opts=self.variant_params["network"], task=task
+    )
+
+    if "label_sync_pos_prob" not in returnn_config.config["network"][rec_layer_name]["unit"]:
+      att_t_dim_tag_str = "att_t_dim_tag"
+      blank_log_prob_dim_tag_str = "blank_log_prob_dim_tag"
+      returnn_config.config[att_t_dim_tag_str] = SegmentalConfigBuilder.get_att_t_dim_tag_code_wrapper()
+      returnn_config.config[blank_log_prob_dim_tag_str] = CodeWrapper(
+        'DimensionTag(kind=DimensionTag.Types.Spatial, description="sliced-time:blank_log_prob", dimension=None)')
+
+      network_builder2.add_length_model_pos_probs(
+        network=returnn_config.config["network"],
+        rec_layer_name=rec_layer_name,
+        use_normalization=False,
+        att_t_dim_tag=CodeWrapper(att_t_dim_tag_str),
+        blank_log_prob_dim_tag=CodeWrapper(blank_log_prob_dim_tag_str),
+        segment_lens_starts_layer_name=segment_lens_starts_layer_name
+      )
+
+    returnn_config.config["network"][rec_layer_name]["unit"].update({
+      "segment_range0": {
+        "class": "range_in_axis",
+        "from": "att_weights",
+        "axis": "stag:sliced-time:segments"
+      },
+      "segment_range": {
+        "class": "eval",
+        "from": ["segment_range0", "segment_starts"],
+        "eval": "source(0) + source(1)"
+      },
+      "length_model_probs_scattered_into_encoder": {
+        "class": "scatter_nd",
+        "from": "label_sync_pos_prob",
+        "position": "segment_range",
+        "position_axis": "stag:sliced-time:segments",
+        "output_dim_via_time_from": "base:encoder",
+        "is_output_layer": True
+      },
+    })
+
+    hdf_filenames = opts["hdf_filenames"]
+
+    returnn_config.config["network"].update({
+      "length_model_probs_dump": {
+        "class": "hdf_dump",
+        "filename": hdf_filenames["length_model_probs"],
+        "from": "%s/length_model_probs_scattered_into_encoder" % rec_layer_name,
+        "is_output_layer": True,
+      },
+      "targets_dump": {
+        "class": "hdf_dump",
+        "filename": hdf_filenames["targets"],
+        "from": "data:targetb",
+        "is_output_layer": True,
+      },
+      "seg_starts_dump": {
+        "class": "hdf_dump",
+        "filename": hdf_filenames["seg_starts"],
+        "from": "segment_starts_masked",
+        "is_output_layer": True,
+      },
+      "seg_lens_dump": {
+        "class": "hdf_dump",
+        "filename": hdf_filenames["seg_lens"],
+        "from": "segment_lens_masked",
+        "is_output_layer": True,
+      },
+    })
+
+    if "center_positions" in hdf_filenames:
+      # additionally dump the center positions into hdf
+      network_builder2.add_center_positions(
+        network=returnn_config.config["network"],
+        segment_lens_starts_layer_name=segment_lens_starts_layer_name
+      )
+      returnn_config.config["network"].update({
+        "center_positions_dump": {
+          "class": "hdf_dump",
+          "filename": hdf_filenames["center_positions"],
+          "from": "center_positions_masked",
           "is_output_layer": True,
         },
       })
@@ -1682,6 +1828,7 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
 
     def _add_length_model(length_model_opts: Dict):
       length_model_dict = {}
+      # build base structure
       length_model_dict.update({
         "am": {"class": "copy", "from": "data:source"},
         "blank_log_prob": {
@@ -1715,26 +1862,14 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
         },
       })
 
+      # build inputs
+
+      # current frame
       assert length_model_opts["use_current_frame"] or length_model_opts["use_embedding"] or length_model_opts["use_label_model_state"]
       if length_model_opts["use_current_frame"]:
         length_model_dict["s_length_model"]["from"].append("am")
 
-      assert length_model_opts["layer_class"] in ("lstm", "linear")
-      if length_model_opts["layer_class"] == "lstm":
-        length_model_dict["s_length_model"].update({
-          "L2": 0.0001,
-          "class": "rec",
-          "dropout": 0.3,
-          "unit": "nativelstm2",
-          "unit_opts": {"rec_weight_dropout": 0.3},
-        })
-      else:
-        length_model_dict["s_length_model"].update({
-          "L2": 0.0001,
-          "class": "linear",
-          "dropout": 0.3,
-        })
-
+      # label context: either full alignment or non-blank
       if length_model_opts["use_embedding"]:
         assert "embedding_size" in length_model_opts
 
@@ -1780,6 +1915,7 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
                   }}}}})
         length_model_dict["s_length_model"]["from"].append("prev:target_embed_length_model")
 
+      # label model state
       if length_model_opts["use_label_model_state"]:
         # in case of training, we need to access the label model state from the label_model rec layer
         if task == "train":
@@ -1793,7 +1929,30 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
           })
         length_model_dict["s_length_model"]["from"].append("s")
 
+      # build layer type: linear layer, native lstm or explicit lstm
+      assert length_model_opts["layer_class"] in ("lstm", "lstm_explicit", "linear")
+      if length_model_opts["layer_class"] == "lstm":
+        length_model_dict["s_length_model"].update({
+          "L2": 0.0001,
+          "class": "rec",
+          "dropout": 0.3,
+          "unit": "nativelstm2",
+          "unit_opts": {"rec_weight_dropout": 0.3},
+        })
+      elif length_model_opts["layer_class"] == "lstm_explicit":
+        length_model_dict.update(network_builder2.get_explicit_lstm(
+          layer_name="s_length_model",
+          n_out=128,
+          from_=length_model_dict["s_length_model"]["from"]
+        ))
+      else:
+        length_model_dict["s_length_model"].update({
+          "L2": 0.0001,
+          "class": "linear",
+          "dropout": 0.3,
+        })
 
+      # length model scale
       length_scale = network_opts.get("length_scale")
       if type(length_scale) == float and length_scale != 1.0:
         # scale both blank and emit log prob by a constant factor
@@ -1810,6 +1969,7 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
           },
         })
 
+      # blank penalty
       blank_penalty = network_opts.get("blank_penalty")
       if type(blank_penalty) == float and blank_penalty != 0.0:
         # add constant penalty to blank log prob
@@ -1821,6 +1981,9 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
       raise NotImplementedError
 
     def _add_att_weight_recog_penalty(rec_layer_name: str, opts):
+      att_t_dim_tag_str = "att_t_dim_tag"
+      config_dict[att_t_dim_tag_str] = SegmentalConfigBuilder.get_att_t_dim_tag_code_wrapper()
+
       mult_weight = opts["mult_weight"]
       exp_weight = opts["exp_weight"]
 
@@ -1830,7 +1993,11 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
           network_opts=network_opts, task=task
         )
       )
-      network_builder2.add_att_weights_center_of_gravity(network=seg_net_dict, rec_layer_name=rec_layer_name)
+      network_builder2.add_att_weights_center_of_gravity(
+        network=seg_net_dict,
+        rec_layer_name=rec_layer_name,
+        att_t_dim_tag_code_wrapper=CodeWrapper(att_t_dim_tag_str)
+      )
 
       seg_net_dict[rec_layer_name]["unit"].update({
         "att_weight_penalty": {

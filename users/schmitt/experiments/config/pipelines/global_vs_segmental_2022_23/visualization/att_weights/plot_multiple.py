@@ -4,8 +4,12 @@ import ast
 import numpy as np
 import os
 
+"""
+This script can be used to plot the attention weights and segment boundaries of multiple models for the same utterance.
+"""
 
-model1_folder = "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2021_22/i6_core/returnn/forward/ReturnnForwardJob.BsHWXoCLdvPN/output"
+
+model1_folder = "/u/schmitt/experiments/segmental_models_2021_22/alias/models/ls_conformer/import_glob.conformer.mohammad.5.6/center_window_train_global_recog/win-size-129/w-weight-feedback/w-eos/10-epochs_const-lr-0.000100/center_window_att_train_recog/returnn_decoding/analysis/att_weights/dev-other/search/dump_hdf/output"
 model2_folder = "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2021_22/i6_core/returnn/forward/ReturnnForwardJob.8VnoYBjNApTh/output"
 model_folders = [model1_folder, model2_folder]
 
