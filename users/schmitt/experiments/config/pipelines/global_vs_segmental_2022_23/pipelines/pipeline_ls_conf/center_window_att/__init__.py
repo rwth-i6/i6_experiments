@@ -6,26 +6,33 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   no_finetuning,
   couple_length_label_model,
   length_model_variants,
-  chunking
+  chunking,
+  ilm_correction,
 )
 
 
 def run_exps():
   simple_ablations.center_window_att_import_global_global_ctc_align_baseline(
-    n_epochs_list=(100, 10), win_size_list=(1, 5, 9, 129)
-  )
-  simple_ablations.center_window_att_import_global_global_ctc_align_only_train_length_model(
-    n_epochs_list=(10,), win_size_list=(5, 129)
+    n_epochs_list=(10,), win_size_list=(1, 5, 9, 33, 129)
   )
   simple_ablations.center_window_att_import_global_global_ctc_align_no_weight_feedback(
-    n_epochs_list=(10,), win_size_list=(128,)
+    n_epochs_list=(10,), win_size_list=(129,)
   )
   simple_ablations.center_window_att_import_global_global_ctc_align_no_weight_feedback_rasr_recog(
-    n_epochs_list=(10,), win_size_list=(128,), max_segment_len_list=(-1,)
+    n_epochs_list=(10,), win_size_list=(5,), max_segment_len_list=(-1,)
   )
+  ilm_correction.center_window_att_import_global_global_ctc_align_ilm_prior_correction()
+
+  no_finetuning.center_window_att_import_global_global_ctc_align_only_train_length_model_chunking(
+    n_epochs_list=(10,), win_size_list=(129, 5)
+  )
+  no_finetuning.center_window_att_import_global_global_ctc_align_only_train_length_model_use_label_model_state_only_non_blank_ctx(
+    n_epochs_list=(10, 20,), win_size_list=(129, 5)
+  )
+  no_finetuning.center_window_att_import_global_global_ctc_align_only_train_length_model_use_label_model_state_only_non_blank_ctx_eos()
 
   chunking.center_window_att_import_global_global_ctc_align_chunking(
-    win_size_list=(5, 129), n_epochs_list=(10,), chunk_params_data_list=((170000, 85000), (200000, 100000))
+    win_size_list=(5, 129), n_epochs_list=(10,), chunk_params_data_list=((100000, 50000), (200000, 100000), (300000, 150000))
   )
 
   att_weight_penalty.center_window_att_import_global_global_ctc_align_att_weight_penalty_recog()
@@ -58,11 +65,13 @@ def run_exps():
     loss_scale_list=(1.,), win_size_list=(5, 129), use_normalization_list=(True, False)
   )
 
-  length_model_variants.center_window_att_import_global_global_ctc_align_length_model_linear_layer()
-  length_model_variants.center_window_att_import_global_global_ctc_align_length_model_linear_layer_use_label_model_state()
-  length_model_variants.center_window_att_import_global_global_ctc_align_length_model_linear_layer_only_non_blank_ctx()
+  length_model_variants.center_window_att_import_global_global_ctc_align_length_model_no_label_feedback()
+  length_model_variants.center_window_att_import_global_global_ctc_align_length_model_explicit_lstm()
   length_model_variants.center_window_att_import_global_global_ctc_align_length_model_use_label_model_state(
-    n_epochs_list=(10, 20, 60, 100)
+    win_size_list=(5, 129,)
+  )
+  length_model_variants.center_window_att_import_global_global_ctc_align_length_model_use_label_model_state_no_label_feedback(
+    win_size_list=(129,)
   )
   length_model_variants.center_window_att_import_global_global_ctc_align_length_model_use_label_model_state_only_non_blank_ctx()
   length_model_variants.center_window_att_import_global_global_ctc_align_length_model_use_label_model_state_only_non_blank_ctx_w_eos()

@@ -1,7 +1,13 @@
 from typing import Tuple
 
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.center_window_att.base import default_import_model_name, get_center_window_att_config_builder, standard_train_recog_center_window_att_import_global, recog_center_window_att_import_global
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.center_window_att.base import (
+  default_import_model_name,
+  get_center_window_att_config_builder,
+  standard_train_recog_center_window_att_import_global,
+  returnn_recog_center_window_att_import_global,
+  train_center_window_att_import_global,
+)
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.checkpoints import external_checkpoints
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf import ctc_aligns
@@ -30,14 +36,14 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
               config_builder = get_center_window_att_config_builder(
                 win_size=win_size,
                 use_weight_feedback=True,
-                gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale, "dist_type": dist_type}
+                gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale, "dist_type": dist_type},
+                use_old_global_att_to_seg_att_maker=False
               )
 
               standard_train_recog_center_window_att_import_global(
                 config_builder=config_builder,
                 alias=alias,
-                n_epochs=n_epochs,
-                const_lr=const_lr
+                train_opts={"num_epochs": n_epochs, "const_lr": const_lr}
               )
 
 
@@ -61,23 +67,14 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
             train_config_builder = get_center_window_att_config_builder(
               win_size=win_size,
               use_weight_feedback=True,
-              gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale, "dist_type": dist_type}
+              gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale, "dist_type": dist_type},
+              use_old_global_att_to_seg_att_maker=False
             )
-            train_exp = SegmentalTrainExperiment(
-              config_builder=train_config_builder,
+            checkpoints, model_dir, learning_rates = train_center_window_att_import_global(
               alias=alias,
-              n_epochs=n_epochs,
-              import_model_train_epoch1=external_checkpoints[default_import_model_name],
-              align_targets=ctc_aligns.global_att_ctc_align.ctc_alignments,
-              lr_opts={
-                "type": "const_then_linear",
-                "const_lr": const_lr,
-                "const_frac": 1 / 3,
-                "final_lr": 1e-6,
-                "num_epochs": n_epochs
-              },
+              config_builder=train_config_builder,
+              train_opts={"num_epochs": n_epochs, "const_lr": const_lr},
             )
-            checkpoints, model_dir, learning_rates = train_exp.run_train()
 
             recog_config_builder = get_center_window_att_config_builder(
               win_size=win_size,
@@ -87,11 +84,11 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
                 "mult_weight": 0.005,
                 "exp_weight": 2.0
               },
+              use_old_global_att_to_seg_att_maker=False
             )
-            recog_center_window_att_import_global(
+            returnn_recog_center_window_att_import_global(
               alias=alias,
               config_builder=recog_config_builder,
               checkpoint=checkpoints[n_epochs],
-              analyse=True,
-              search_corpus_key="dev-other",
+              recog_opts={"analyse": True, "search_corpus_key": "dev-other"},
             )

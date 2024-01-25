@@ -5,7 +5,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   default_import_model_name,
   get_center_window_att_config_builder,
   standard_train_recog_center_window_att_import_global,
-  recog_center_window_att_import_global,
+  returnn_recog_center_window_att_import_global,
   rasr_recog_center_window_att_import_global
 )
 
@@ -51,7 +51,5 @@ def center_window_att_import_global_global_ctc_align_chunking(
           standard_train_recog_center_window_att_import_global(
             config_builder=config_builder,
             alias=alias,
-            n_epochs=n_epochs,
-            const_lr=const_lr,
-            chunking_opts=chunking_opts
+            train_opts={"num_epochs": n_epochs, "const_lr": const_lr, "chunking_opts": chunking_opts},
           )

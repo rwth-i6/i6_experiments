@@ -3,7 +3,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 
 def run_exps():
-  ctc_aligns.get_global_attention_ctc_align()
+  # ctc_aligns.get_global_attention_ctc_align()
 
   center_window_att.run_exps()
 

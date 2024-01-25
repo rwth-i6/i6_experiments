@@ -10,7 +10,11 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf import ctc_aligns
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train import GlobalTrainExperiment, SegmentalTrainExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.recog import ReturnnDecodingExperimentV2
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.center_window_att.base import recog_center_window_att_import_global, get_center_window_att_config_builder
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.center_window_att.base import (
+  returnn_recog_center_window_att_import_global,
+  get_center_window_att_config_builder,
+  train_center_window_att_import_global
+)
 from i6_experiments.users.schmitt.alignment.alignment import AlignmentAddEosJob
 
 
@@ -99,13 +103,6 @@ def glob_att_import_global_concat_recog(
         if concat_num == 8:
           batch_size = 2518800
           search_rqmt = None
-          # search_rqmt = {
-          #   "gpu": 1,
-          #   "cpu": 2,
-          #   "mem": 4,
-          #   "time": 1,
-          #   "sbatch_args": ["-p", "gpu_24gb", "-w", "cn-501"]
-          # }
         else:
           batch_size = None
           search_rqmt = None
@@ -151,41 +148,25 @@ def center_window_att_import_global_do_label_sync_search(
           )
 
           if center_window_use_eos:
-            align_targets = {
-              corpus_key: AlignmentAddEosJob(
-                hdf_align_path=alignment_path,
-                segment_file=center_window_config_builder.dependencies.segment_paths.get(corpus_key, None),
-                blank_idx=center_window_config_builder.dependencies.model_hyperparameters.blank_idx,
-                eos_idx=center_window_config_builder.dependencies.model_hyperparameters.sos_idx,
-                returnn_python_exe=RETURNN_EXE,
-                returnn_root=RETURNN_ROOT,
-              ).out_align for corpus_key, alignment_path in ctc_aligns.global_att_ctc_align.ctc_alignments.items()
-            }
+            align_targets = ctc_aligns.global_att_ctc_align.ctc_alignments_with_eos(
+              segment_paths=center_window_config_builder.dependencies.segment_paths,
+              blank_idx=center_window_config_builder.dependencies.model_hyperparameters.blank_idx,
+              eos_idx=center_window_config_builder.dependencies.model_hyperparameters.sos_idx
+            )
           else:
             align_targets = ctc_aligns.global_att_ctc_align.ctc_alignments
 
-          center_window_train_exp = SegmentalTrainExperiment(
-            config_builder=center_window_config_builder,
+          center_window_checkpoints, _, _ = train_center_window_att_import_global(
             alias=center_window_att_alias,
-            n_epochs=n_epochs,
-            import_model_train_epoch1=external_checkpoints[default_import_model_name],
-            lr_opts={
-              "type": "const_then_linear",
-              "const_lr": const_lr,
-              "const_frac": 1 / 3,
-              "final_lr": 1e-6,
-              "num_epochs": n_epochs
-            },
-            align_targets=align_targets,
+            config_builder=center_window_config_builder,
+            train_opts={"num_epochs": n_epochs, "const_lr": const_lr, "align_targets": align_targets},
           )
-          center_window_checkpoints, _, _ = center_window_train_exp.run_train()
 
-          recog_center_window_att_import_global(
+          returnn_recog_center_window_att_import_global(
             alias=center_window_att_alias,
             config_builder=center_window_config_builder,
             checkpoint=center_window_checkpoints[n_epochs],
-            analyse=True,
-            search_corpus_key="dev-other"
+            recog_opts={"analyse": True, "search_corpus_key": "dev-other"},
           )
 
           global_config_builder = get_global_att_config_builder(use_weight_feedback=weight_feedback)

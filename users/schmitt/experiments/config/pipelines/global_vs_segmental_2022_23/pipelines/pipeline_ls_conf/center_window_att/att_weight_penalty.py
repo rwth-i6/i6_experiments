@@ -1,7 +1,13 @@
 from typing import Tuple
 
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.center_window_att.base import default_import_model_name, get_center_window_att_config_builder, standard_train_recog_center_window_att_import_global, recog_center_window_att_import_global
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.center_window_att.base import (
+  default_import_model_name,
+  get_center_window_att_config_builder,
+  standard_train_recog_center_window_att_import_global,
+  returnn_recog_center_window_att_import_global,
+  train_center_window_att_import_global,
+)
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.checkpoints import external_checkpoints
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf import ctc_aligns
@@ -28,22 +34,13 @@ def center_window_att_import_global_global_ctc_align_att_weight_penalty_recog(
             train_config_builder = get_center_window_att_config_builder(
               win_size=win_size,
               use_weight_feedback=True,
+              use_old_global_att_to_seg_att_maker=False
             )
-            train_exp = SegmentalTrainExperiment(
-              config_builder=train_config_builder,
+            checkpoints, model_dir, learning_rates = train_center_window_att_import_global(
               alias=alias,
-              n_epochs=n_epochs,
-              import_model_train_epoch1=external_checkpoints[default_import_model_name],
-              align_targets=ctc_aligns.global_att_ctc_align.ctc_alignments,
-              lr_opts={
-                "type": "const_then_linear",
-                "const_lr": const_lr,
-                "const_frac": 1 / 3,
-                "final_lr": 1e-6,
-                "num_epochs": n_epochs
-              },
+              config_builder=train_config_builder,
+              train_opts={"num_epochs": n_epochs, "const_lr": const_lr},
             )
-            checkpoints, model_dir, learning_rates = train_exp.run_train()
 
             w_penalty_alias = alias + "/w_penalty"
             recog_config_builder = get_center_window_att_config_builder(
@@ -53,13 +50,13 @@ def center_window_att_import_global_global_ctc_align_att_weight_penalty_recog(
                 "mult_weight": mult_weight,
                 "exp_weight": exp_weight
               },
+              use_old_global_att_to_seg_att_maker=False
             )
-            recog_center_window_att_import_global(
+            returnn_recog_center_window_att_import_global(
               alias=w_penalty_alias,
               config_builder=recog_config_builder,
               checkpoint=checkpoints[n_epochs],
-              analyse=True,
-              search_corpus_key="dev-other",
+              recog_opts={"analyse": True, "search_corpus_key": "dev-other"},
             )
 
             wo_penalty_alias = alias + "/wo_penalty"
@@ -67,13 +64,13 @@ def center_window_att_import_global_global_ctc_align_att_weight_penalty_recog(
               win_size=win_size,
               use_weight_feedback=True,
               att_weight_recog_penalty_opts=None,
+              use_old_global_att_to_seg_att_maker=False
             )
-            recog_center_window_att_import_global(
+            returnn_recog_center_window_att_import_global(
               alias=wo_penalty_alias,
               config_builder=recog_config_builder,
               checkpoint=checkpoints[n_epochs],
-              analyse=True,
-              search_corpus_key="dev-other",
+              recog_opts={"analyse": True, "search_corpus_key": "dev-other"},
             )
 
 
@@ -104,22 +101,13 @@ def center_window_att_import_global_global_ctc_align_att_weight_penalty_train(
                   "use_as_loss": True,
                   "loss_scale": loss_scale,
                 },
+                use_old_global_att_to_seg_att_maker=False
               )
-              train_exp = SegmentalTrainExperiment(
-                config_builder=train_config_builder,
+              checkpoints, model_dir, learning_rates = train_center_window_att_import_global(
                 alias=alias,
-                n_epochs=n_epochs,
-                import_model_train_epoch1=external_checkpoints[default_import_model_name],
-                align_targets=ctc_aligns.global_att_ctc_align.ctc_alignments,
-                lr_opts={
-                  "type": "const_then_linear",
-                  "const_lr": const_lr,
-                  "const_frac": 1 / 3,
-                  "final_lr": 1e-6,
-                  "num_epochs": n_epochs
-                },
+                config_builder=train_config_builder,
+                train_opts={"num_epochs": n_epochs, "const_lr": const_lr},
               )
-              checkpoints, model_dir, learning_rates = train_exp.run_train()
 
               w_penalty_alias = alias + "/w_penalty"
               recog_config_builder = get_center_window_att_config_builder(
@@ -129,13 +117,13 @@ def center_window_att_import_global_global_ctc_align_att_weight_penalty_train(
                   "mult_weight": mult_weight,
                   "exp_weight": exp_weight
                 },
+                use_old_global_att_to_seg_att_maker=False
               )
-              recog_center_window_att_import_global(
+              returnn_recog_center_window_att_import_global(
                 alias=w_penalty_alias,
                 config_builder=recog_config_builder,
                 checkpoint=checkpoints[n_epochs],
-                analyse=True,
-                search_corpus_key="dev-other",
+                recog_opts={"analyse": True, "search_corpus_key": "dev-other"},
               )
 
               wo_penalty_alias = alias + "/wo_penalty"
@@ -143,11 +131,11 @@ def center_window_att_import_global_global_ctc_align_att_weight_penalty_train(
                 win_size=win_size,
                 use_weight_feedback=True,
                 att_weight_recog_penalty_opts=None,
+                use_old_global_att_to_seg_att_maker=False
               )
-              recog_center_window_att_import_global(
+              returnn_recog_center_window_att_import_global(
                 alias=wo_penalty_alias,
                 config_builder=recog_config_builder,
                 checkpoint=checkpoints[n_epochs],
-                analyse=True,
-                search_corpus_key="dev-other",
+                recog_opts={"analyse": True, "search_corpus_key": "dev-other"},
               )

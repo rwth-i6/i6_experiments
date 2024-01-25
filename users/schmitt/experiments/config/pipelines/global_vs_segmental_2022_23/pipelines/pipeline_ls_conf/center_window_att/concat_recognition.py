@@ -1,7 +1,7 @@
 from typing import Tuple
 
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.center_window_att.base import default_import_model_name, get_center_window_att_config_builder, standard_train_recog_center_window_att_import_global, recog_center_window_att_import_global
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.center_window_att.base import default_import_model_name, get_center_window_att_config_builder, standard_train_recog_center_window_att_import_global, returnn_recog_center_window_att_import_global
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.checkpoints import external_checkpoints
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf import ctc_aligns
@@ -9,7 +9,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train import SegmentalTrainExperiment
 
 
-def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpolation_plus_att_weight_recog_penalty(
+def center_window_att_import_global_global_ctc_align_concat_recognition(
         win_size_list: Tuple[int, ...] = (128,),
         n_epochs_list: Tuple[int, ...] = (10,),
         concat_num_list: Tuple[int, ...] = (2, 4),
@@ -23,6 +23,7 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
 
         config_builder = get_center_window_att_config_builder(
           win_size=win_size,
+          use_old_global_att_to_seg_att_maker=False
         )
         train_exp = SegmentalTrainExperiment(
           config_builder=config_builder,
