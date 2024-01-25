@@ -82,6 +82,7 @@ from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import
 from i6_experiments.users.raissi.setups.common.util.hdf import RasrFeaturesToHdf
 from i6_experiments.users.raissi.costum.returnn.rasr_returnn_bw import ReturnnRasrTrainingBWJob
 from i6_experiments.users.raissi.costum.corpus.segments import SegmentCorpusNoPrefixJob
+
 # -------------------- Init --------------------
 
 Path = tk.setup_path(__package__)
@@ -90,9 +91,20 @@ Path = tk.setup_path(__package__)
 class TrainingCriterion(Enum):
     """The training criterion."""
 
-    viterbi = "viterbi"
-    fullsum = "fullsum"
-    smbr = "smbr"
+    VITERBI = "viterbi"
+    FULLSUM = "fullsum"
+    sMBR = "smbr"
+
+    def __str__(self):
+        return self.value
+
+
+class SingleSoftmaxType(Enum):
+    """The training criterion."""
+
+    TRAIN = "train"
+    PRIOR = "prior"
+    DECODE = "decode"
 
     def __str__(self):
         return self.value
@@ -172,14 +184,6 @@ class BASEFactoredHybridSystem(NnSystem):
         # train information
         self.nn_feature_type = "gt"  # Gammatones
 
-        # mostly used as placeholders and info to the user about what is necessary
-        self.initial_nn_args = {
-            "num_input": None,
-            "keep_epochs": None,
-            "keep_best_n": None,
-        }
-        self.initial_nn_args.update(**initial_nn_args)
-
         self.initial_train_args = {
             "cpu_rqmt": 4,
             "time_rqmt": 168,
@@ -187,7 +191,7 @@ class BASEFactoredHybridSystem(NnSystem):
             "log_verbosity": 3,
         }
 
-        self.partition_epochs = None  # default to None to break it, set it in the config
+        # default to None to break it, set it in the config
         self.shuffling_params = {
             "shuffle_data": True,
             "segment_order_sort_by_time_length_chunk_size": 348,
@@ -195,7 +199,7 @@ class BASEFactoredHybridSystem(NnSystem):
         self.fullsum_log_linear_scales = {"label_posterior_scale": 0.3, "transition_scale": 0.3}
 
         # extern classes and objects
-        self.training_criterion: TrainingCriterion = TrainingCriterion.fullsum
+        self.training_criterion: TrainingCriterion = TrainingCriterion.FULLSUM
         self.trainers = {
             "returnn": returnn.ReturnnTrainingJob,
             "rasr-returnn": returnn.ReturnnRasrTrainingJob,
@@ -211,6 +215,8 @@ class BASEFactoredHybridSystem(NnSystem):
 
         # keys when you have different dev and test sets
         self.train_key = None
+
+        self.set_initial_nn_args(initial_nn_args=initial_nn_args)
 
     def set_crp_pairings(self, dev_key, test_key):
         # have a dict of crp_names so that you can refer to your data as you want
@@ -368,20 +374,22 @@ class BASEFactoredHybridSystem(NnSystem):
             self.feature_flows[c_key] = c_data.feature_flow
             self.set_sclite_scorer(c_key)
 
-    def _update_crp_am_setting(self, crp_key: str, tdp_type: str = None, add_base_allophones=False):
+    def _update_crp_am_setting(
+        self,
+        crp_key: str,
+        tdp_type: str = None,
+        decode_state_tying: RasrStateTying = RasrStateTying.triphone,
+        add_base_allophones=False,
+    ):
         # ToDo handle different tdp values: default, based on transcription, based on an alignment
         tdp_pattern = self.tdp_values["pattern"]
-        if tdp_type in ["default"]:  # additional later, maybe enum or so
+        if tdp_type is None:
+            tdp_type = "default"
+        if tdp_type == "default":  # additional later, maybe enum or so
             tdp_values = self.tdp_values[tdp_type]
 
         elif isinstance(tdp_type, tuple):
             tdp_values = self.tdp_values[tdp_type[0]][tdp_type[1]]
-
-        else:
-            print("Not implemented tdp type")
-            import sys
-
-            sys.exit()
 
         crp = self.crp[crp_key]
         for ind, ele in enumerate(tdp_pattern):
@@ -406,7 +414,7 @@ class BASEFactoredHybridSystem(NnSystem):
             if "train" in crp_key:
                 crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
             else:
-                crp.acoustic_model_config.state_tying.type = RasrStateTying.triphone  # for correct tree of dependency
+                crp.acoustic_model_config.state_tying.type = decode_state_tying
 
         crp.acoustic_model_config.allophones.add_all = self.lexicon_args["add_all_allophones"]
         crp.acoustic_model_config.allophones.add_from_lexicon = not self.lexicon_args["add_all_allophones"]
@@ -415,35 +423,13 @@ class BASEFactoredHybridSystem(NnSystem):
 
         crp.lexicon_config.normalize_pronunciation = self.lexicon_args["norm_pronunciation"]
 
-    def _update_crp_am_setting_for_decoding(self, crp_key):
-        # Here the idea is to be able to do decoding with different tying or FSA structure (e.g. min. dur.)
-        # ToDo handle min duration not on the model/fs level but rasr?
-        assert "train" not in crp_key or "align" in crp_key, "Call this function only with decoding crps"
-        crp = self.crp[crp_key]
-
-        if self.label_info.state_tying == RasrStateTying.cart:
-            crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
-            assert (
-                self.label_info.state_tying_file is not None
-            ), "for cart state tying you need to set state tying file for label_info"
-            crp.acoustic_model_config.state_tying.file = self.label_info.state_tying_file
-        else:
-            if self.label_info.phoneme_state_classes.use_word_end():
-                crp.acoustic_model_config.state_tying.use_word_end_classes = (
-                    self.label_info.phoneme_state_classes.use_word_end()
-                )
-            crp.acoustic_model_config.state_tying.use_boundary_classes = (
-                self.label_info.phoneme_state_classes.use_boundary()
-            )
-            crp.acoustic_model_config.hmm.states_per_phone = self.label_info.n_states_per_phone
-            crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
-
-    def set_state_tying_for_decoder_fsa(self, state_tying: RasrStateTying = RasrStateTying.diphone):
+    def reset_state_tying(self, crp_list = None, state_tying: RasrStateTying = RasrStateTying.diphone):
         # the default decoding state tying is no-tying-dense, unless nn_precomputed feature scorer is used
+        if crp_list is None:
+            crp_list = list(self.crp_names.keys())
         self.label_info = dataclasses.replace(self.label_info, state_tying=state_tying)
-        for crp_k in self.crp_names.keys():
-            if "train" not in self.crp_names[crp_k] or "align" in self.crp_names[crp_k]:
-                self._update_crp_am_setting_for_decoding(self.crp_names[crp_k])
+        for crp_k in crp_list:
+            self._update_crp_am_setting(self.crp_names[crp_k], decode_state_tying=state_tying)
 
     def _get_segment_file(self, corpus_path, remove_prefix=None):
         if remove_prefix is not None:
@@ -558,6 +544,19 @@ class BASEFactoredHybridSystem(NnSystem):
         self.csp["base"].flf_tool_exe = path
 
     # --------------------- Init procedure -----------------
+    def set_initial_nn_args(self, initial_nn_args):
+        """
+        self.initial_nn_args = {
+            "num_input": None,
+            "keep_epochs": None,
+            "keep_best_n": None,
+            "partition_epochs": {"train": 1, "dev": 1}
+        }
+        """
+        assert "partition_epochs" in initial_nn_args, "You forgot to set the partition epochs in the initial_nn_args"
+        self.partition_epochs = initial_nn_args.pop("partition_epochs")
+        self.initial_nn_args = initial_nn_args
+
     def init_system(self, label_info_additional_args=None, frr_additional_args=None, native_lstm_compilation_args=None):
 
         if self.native_lstm2_path is None:
@@ -622,7 +621,7 @@ class BASEFactoredHybridSystem(NnSystem):
         assert cv_corpus_key is not None or not is_cv_separate_from_train, "define a corpus key for separate cv data"
 
         configure_automata = False
-        if self.training_criterion == TrainingCriterion.fullsum:
+        if self.training_criterion == TrainingCriterion.FULLSUM:
             configure_automata = True
         # get the train data for alignment before you changed any setting
         nn_train_align_data = copy.deepcopy(self.inputs[self.train_key][input_key].as_returnn_rasr_data_input())
@@ -759,9 +758,9 @@ class BASEFactoredHybridSystem(NnSystem):
     def get_config_with_standard_prolog_and_epilog(
         self,
         config: Dict,
-        prolog_additional_str: str  = None,
-        epilog_additional_str: str  = None,
-        add_extern_data_for_fullsum = False,
+        prolog_additional_str: str = None,
+        epilog_additional_str: str = None,
+        add_extern_data_for_fullsum=False,
     ):
         # this is not a returnn config, but the dict params
         assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
@@ -776,7 +775,7 @@ class BASEFactoredHybridSystem(NnSystem):
             "time": self.frame_rate_reduction_ratio_info.get_time_tag_prolog_for_returnn_config(),
         }
 
-        if self.training_criterion != TrainingCriterion.fullsum or add_extern_data_for_fullsum:
+        if self.training_criterion != TrainingCriterion.FULLSUM or add_extern_data_for_fullsum:
             label_time_tag = None
             if self.frame_rate_reduction_ratio_info.factor == 1:
                 label_time_tag = self.frame_rate_reduction_ratio_info.time_tag_name
@@ -815,7 +814,7 @@ class BASEFactoredHybridSystem(NnSystem):
         # this is not a returnn config, but the dict params
         assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
 
-        if self.training_criterion != TrainingCriterion.fullsum or add_extern_data_for_fullsum:
+        if self.training_criterion != TrainingCriterion.FULLSUM or add_extern_data_for_fullsum:
             config["extern_data"] = {
                 "data": {
                     "dim": self.initial_nn_args["num_input"],
@@ -1142,30 +1141,28 @@ class BASEFactoredHybridSystem(NnSystem):
 
     # -----------------------Decoding --------------------------
 
-    def get_parameters_for_decoder(self, context_type: PhoneticContext, prior_info: PriorInfo)-> Union[SearchParameters, AlignmentParameters]:
+    def get_parameters_for_decoder(
+        self, context_type: PhoneticContext, prior_info: PriorInfo
+    ) -> Union[SearchParameters, AlignmentParameters]:
         parameters = SearchParameters.default_for_ctx(context_type, priors=prior_info)
         if self.frame_rate_reduction_ratio_info.factor > 2:
-            sp_tdp = (10.0, 0.0, 'infinity', 0.0)
-            sil_tdp = (10.0, 0.0, 'infinity', 20.0)
-            parameters = (
-                parameters.with_tdp_speech(sp_tdp)
-                .with_tdp_silence(sil_tdp)
-            )
+            sp_tdp = (10.0, 0.0, "infinity", 0.0)
+            sil_tdp = (10.0, 0.0, "infinity", 20.0)
+            parameters = parameters.with_tdp_speech(sp_tdp).with_tdp_silence(sil_tdp)
 
         return parameters
 
-    def get_parameters_for_aligner(self, context_type: PhoneticContext, prior_info: PriorInfo) -> Union[
-        SearchParameters, AlignmentParameters]:
+    def get_parameters_for_aligner(
+        self, context_type: PhoneticContext, prior_info: PriorInfo
+    ) -> Union[SearchParameters, AlignmentParameters]:
         parameters = AlignmentParameters.default_for_ctx(context_type, priors=prior_info)
         if self.frame_rate_reduction_ratio_info.factor > 2:
-            sp_tdp = (10.0, 0.0, 'infinity', 0.0)
-            sil_tdp = (10.0, 0.0, 'infinity', 0.0)
-            parameters = (
-                parameters.with_tdp_speech(sp_tdp)
-                .with_tdp_silence(sil_tdp)
-            )
+            sp_tdp = (10.0, 0.0, "infinity", 0.0)
+            sil_tdp = (10.0, 0.0, "infinity", 0.0)
+            parameters = parameters.with_tdp_speech(sp_tdp).with_tdp_silence(sil_tdp)
 
         return parameters
+
     # -------------------- run setup  --------------------
 
     def run(self, steps: RasrSteps):
@@ -1175,9 +1172,7 @@ class BASEFactoredHybridSystem(NnSystem):
             init_args = steps.get_args_via_idx(0)
             frame_rate_args = init_args["frr_info"] if "frr_info" in init_args else None
             label_info_args = init_args["label_info"] if "label_info" in init_args else None
-            native_lstm_compilation_args = (
-                init_args["native_lstm"] if "native_lstm" in init_args else None
-            )
+            native_lstm_compilation_args = init_args["native_lstm"] if "native_lstm" in init_args else None
             self.init_system(
                 label_info_additional_args=label_info_args,
                 frr_additional_args=frame_rate_args,

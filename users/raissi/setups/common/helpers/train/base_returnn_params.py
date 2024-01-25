@@ -13,7 +13,6 @@ def get_base_returnn_dict(debug=False):
         "optimizer": {"class": "nadam"},
         "optimizer_epsilon": 1e-8,
         "gradient_noise": 0.0,
-        "gradient_clip": 0.0,
     }
 
     if debug:

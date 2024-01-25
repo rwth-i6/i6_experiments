@@ -32,6 +32,7 @@ from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system impor
     BASEFactoredHybridSystem,
     Experiment,
     TrainingCriterion,
+    SingleSoftmaxType,
 )
 
 from i6_experiments.common.setups.rasr.util import (
@@ -148,6 +149,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         self.graphs = {}
         # inference related
         self.native_lstm2_path: Optional[tk.Path] = None
+
     # -------------------- External helpers --------------------
     def get_model_checkpoint(self, model_job, epoch):
         return model_job.out_checkpoints[epoch]
@@ -171,7 +173,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 network_dict=network, pool_factor=self.frame_rate_reduction_ratio_info.factor // 2
             )
 
-        if self.training_criterion != TrainingCriterion.fullsum:
+        if self.training_criterion != TrainingCriterion.FULLSUM:
             network = net_helpers.augment.augment_net_with_label_pops(
                 network,
                 label_info=self.label_info,
@@ -207,7 +209,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             additional_args=kwargs,
         )
         network = network_builder.network
-        if self.training_criterion != TrainingCriterion.fullsum:
+        if self.training_criterion != TrainingCriterion.FULLSUM:
             network = net_helpers.augment.augment_net_with_label_pops(
                 network, label_info=self.label_info, frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info
             )
@@ -613,6 +615,81 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             graph_type_name = "infer"
         tk.register_output(f"graphs/{name}-{graph_type_name}.pb", infer_graph)
 
+    def setup_returnn_config_and_graph_for_single_softmax(
+        self,
+        key: str = None,
+        returnn_config: returnn.ReturnnConfig = None,
+        state_tying: RasrStateTying = RasrStateTying.diphone,
+        out_layer_name: str = None,
+        softmax_type: SingleSoftmaxType = SingleSoftmaxType.DECODE,
+    ):
+        prepare_for_train = False
+        log_softmax = False
+        if softmax_type in [SingleSoftmaxType.TRAIN, SingleSoftmaxType.DECODE]:
+            log_softmax = True
+            if softmax_type == SingleSoftmaxType.TRAIN:
+                prepare_for_train = True
+
+        assert state_tying in [
+            RasrStateTying.monophone,
+            RasrStateTying.diphone,
+        ], "triphone state tying not possible in precomputed feature scorer due to memory constraint"
+
+
+        if softmax_type == SingleSoftmaxType.TRAIN:
+            self.label_info = dataclasses.replace(self.label_info, state_tying=state_tying)
+            self.lexicon_args["norm_pronunciation"] = False
+            s.update_am_setting_for_all_crps(
+                train_tdp_type="heuristic",
+                eval_tdp_type="heuristic",
+                add_base_allophones=False,
+            )
+        else:
+            crp_list = [n for n in self.crp_names if "train" not in n or "align" in n]
+            self.reset_state_tying(crp_list=crp_list, state_tying=state_tying)
+
+        if out_layer_name is None:
+            out_layer_name = "output" if state_tying == RasrStateTying.diphone else "center-output"
+
+        if returnn_config is None:
+            returnn_config = self.experiments[key]["returnn_config"]
+
+        if state_tying == RasrStateTying.diphone:
+            clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
+            context_size = self.label_info.n_contexts
+            context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
+                spatial_size=context_size,
+                feature_size=context_size,
+                spatial_dim_variable_name="__center_state_spatial",
+                feature_dim_variable_name="__center_state_feature",
+                context_type="L",
+            )
+            final_returnn_config = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax(
+                returnn_config=clean_returnn_config,
+                label_info=self.label_info,
+                out_joint_score_layer="output",
+                log_softmax=log_softmax,
+                prepare_for_train=prepare_for_train,
+            )
+        elif state_tying == RasrStateTying.monophone:
+            final_returnn_config = copy.deepcopy(returnn_config)
+            context_time_tag = None
+            if log_softmax:
+                final_returnn_config.config["network"][out_layer_name] = {
+                    **final_returnn_config.config["network"][out_layer_name],
+                    "class": "linear",
+                    "activation": "log_softmax",
+                }
+
+        self.reset_returnn_config_for_experiment(
+            key=key,
+            config_dict=final_returnn_config.config,
+            extra_dict_key="context",
+            additional_python_prolog=context_time_tag,
+        )
+        self.set_graph_for_experiment(key, graph_type_name=f"precomputed-{softmax_type}")
+
+
     def setup_returnn_config_and_graph_for_precomputed_decoding(
         self,
         key: str = None,
@@ -620,17 +697,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         state_tying: RasrStateTying = RasrStateTying.diphone,
         out_layer_name: str = None,
     ):
-
-        assert state_tying in [
-            RasrStateTying.monophone,
-            RasrStateTying.diphone,
-        ], "triphone state tying not possible in precomputed feature scorer due to memory constraint"
-        self.set_state_tying_for_decoder_fsa(state_tying=state_tying)
-        if out_layer_name is None:
-            out_layer_name = "output" if state_tying == RasrStateTying.diphone else "center-output"
-
-        if returnn_config is None:
-            returnn_config = self.experiments[key]["returnn_config"]
 
         if state_tying == RasrStateTying.diphone:
             clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
@@ -698,31 +764,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
         self.set_graph_for_experiment(key, graph_type_name="joint-prior")
 
-    def setup_returnn_config_and_graph_for_diphone_joint_training(self, key: str, network: Dict):
-
-        context_size = self.label_info.n_contexts
-        context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
-            spatial_size=context_size,
-            feature_size=context_size,
-            spatial_dim_variable_name="__center_state_spatial",
-            feature_dim_variable_name="__center_state_feature",
-            context_type="L",
-        )
-
-        # used for decoding
-        decoding_returnn_config = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax(
-            returnn_config=clean_returnn_config,
-            label_info=self.label_info,
-            out_joint_score_layer="output",
-            log_softmax=True,
-        )
-        self.reset_returnn_config_for_experiment(
-            key=key,
-            config_dict=decoding_returnn_config.config,
-            extra_dict_key="context",
-            additional_python_prolog=context_time_tag,
-        )
-
     def get_recognizer_and_args(
         self,
         key: str,
@@ -758,8 +799,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             and self.experiments[key]["returnn_config"] is not None
         ):
 
-            self.setup_returnn_config_and_graph_for_precomputed_decoding(
-                key=key, state_tying=self.label_info.state_tying
+            self.setup_returnn_config_and_graph_for_single_softmax(
+                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE
             )
 
         graph = self.experiments[key]["graph"].get("inference", None)
@@ -802,7 +843,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         return recognizer, recog_args
 
-    def get_aligner_and_args(
+    def  get_aligner_and_args(
         self,
         key: str,
         context_type: PhoneticContext,
@@ -834,8 +875,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             and self.experiments[key]["returnn_config"] is not None
         ):
 
-            self.setup_returnn_config_and_graph_for_precomputed_decoding(
-                key=key, state_tying=self.label_info.state_tying
+            self.setup_returnn_config_and_graph_for_single_softmax(
+                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE
             )
 
         graph = self.experiments[key]["graph"].get("inference", None)

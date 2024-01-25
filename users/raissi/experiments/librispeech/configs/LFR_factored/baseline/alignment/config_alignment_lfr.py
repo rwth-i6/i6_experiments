@@ -86,12 +86,7 @@ def get_system(key, lr=4e-4, num_epochs=None, am_scale=1.0, tdp_scale=0.1):
     num_epochs = num_epochs or initial_nn_args["num_epochs"]
     if "num_epochs" in initial_nn_args:
         initial_nn_args.pop("num_epochs")
-    initial_nn_args["keep_epochs"] = [450] + list(
-        range(num_epochs - 10, num_epochs + 1)
-    )
-    initial_nn_args["keep_best_n"] = 2
 
-    partition_epochs = initial_nn_args.pop("partition_epochs")
     hyper_params = train_helpers.default_blstm_fullsum
 
     steps = rasr_util.RasrSteps()
@@ -111,8 +106,7 @@ def get_system(key, lr=4e-4, num_epochs=None, am_scale=1.0, tdp_scale=0.1):
         initial_nn_args=initial_nn_args,
     )
     # setting up parameters for full-sum
-    s.training_criterion = TrainingCriterion.fullsum
-    s.partition_epochs = partition_epochs
+    s.training_criterion = TrainingCriterion.FULLSUM
 
     #specific to full-sum
     s.lexicon_args["norm_pronunciation"] = False
