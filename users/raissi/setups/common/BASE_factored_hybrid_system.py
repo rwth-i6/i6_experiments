@@ -387,7 +387,6 @@ class BASEFactoredHybridSystem(NnSystem):
             tdp_type = "default"
         if tdp_type == "default":  # additional later, maybe enum or so
             tdp_values = self.tdp_values[tdp_type]
-
         elif isinstance(tdp_type, tuple):
             tdp_values = self.tdp_values[tdp_type[0]][tdp_type[1]]
 
@@ -598,7 +597,7 @@ class BASEFactoredHybridSystem(NnSystem):
     def update_am_setting_for_all_crps(self, train_tdp_type, eval_tdp_type, add_base_allophones=False):
         types = {"train": train_tdp_type, "eval": eval_tdp_type}
         for t in types.keys():
-            if types[t] == "heuristic":
+            if types[t].startswith("heuristic"):
                 if self.label_info.n_states_per_phone > 1:
                     types[t] = (types[t], "threepartite")
                 else:

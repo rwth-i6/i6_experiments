@@ -366,14 +366,15 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         train_corpus_key: str,
         dev_corpus_key: str,
         context_type: PhoneticContext = PhoneticContext.monophone,
+        state_tying: RasrStateTying = RasrStateTying.monophone,
         returnn_config: Optional[returnn.ReturnnConfig] = None,
         output_layer_name: str = "output",
         smoothen: bool = False,
         zero_weight: float = 1e-8,
         data_share: float = 0.3,
     ):
-        if self.experiments[key]["graph"].get("inference", None) is None:
-            self.set_graph_for_experiment(key)
+        #if self.experiments[key]["graph"].get("inference", None) is None:
+        #    self.set_graph_for_experiment(key)
 
         name = f"{self.experiments[key]['name']}/e{epoch}"
 
@@ -381,7 +382,14 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             returnn_config = self.experiments[key]["returnn_config"]
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
-        config = copy.deepcopy(returnn_config)
+        self.setup_returnn_config_and_graph_for_single_softmax(
+            key=key,
+            returnn_config=returnn_config,
+            state_tying=state_tying,
+            softmax_type=SingleSoftmaxType.PRIOR,
+        )
+
+        config = copy.deepcopy(self.experiments[key]["returnn_config"])
         config.config["forward_output_layer"] = output_layer_name
 
         job = self._compute_returnn_rasr_priors(
@@ -653,6 +661,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         if returnn_config is None:
             returnn_config = self.experiments[key]["returnn_config"]
+
 
         if state_tying == RasrStateTying.diphone:
             clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
