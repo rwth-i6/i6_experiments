@@ -48,6 +48,8 @@ from i6_experiments.users.rossenbach.experiments.librispeech.kazuki_lm.experimen
 )
 from i6_experiments.users.gaudino.models.asr.lm import tedlium_lm
 
+from i6_core.returnn.training import Checkpoint
+
 
 train_jobs_map = {}  # dict[str, ReturnnTrainJob]
 train_job_avg_ckpt = {}
@@ -550,11 +552,14 @@ def conformer_baseline():
             returnn_exe=RETURNN_CPU_EXE,
             returnn_root=RETURNN_ROOT,
             num_average=num_avg,
+            key=kwargs.get("dev_score_key", "dev_score_output/output_prob"),
         )
         if num_avg == 4:  # TODO: just for now to not break hashes
             train_job_avg_ckpt[exp_name] = averaged_checkpoint
 
-        best_checkpoint = get_best_checkpoint(train_job)
+        best_checkpoint = get_best_checkpoint(
+            train_job, key=kwargs.get("dev_score_key", "dev_score_output/output_prob")
+        )
         train_job_best_epoch[exp_name] = best_checkpoint
 
         if recog_epochs is None:
@@ -1174,21 +1179,27 @@ def conformer_baseline():
                 use_sclite=True,
             )
 
-    # train only CTC
+    # # train only CTC
     only_ctc_name = name + "_onlyCTC"
-    only_ctc_args = copy.deepcopy(args)
-    only_ctc_args["decoder_args"].ce_loss_scale = 0.0
-    _, train_data = run_exp(
-        only_ctc_name,
-        only_ctc_args,
-        num_epochs=ep,
-        epoch_wise_filter=None,
-        bpe_size=BPE_1K,
-        partition_epoch=4,
-        search_args={"ctc_decode": True, "ctc_blank_idx": 1057, **only_ctc_args},
-    )
+    # only_ctc_args = copy.deepcopy(args)
+    # only_ctc_args["decoder_args"].ce_loss_scale = 0.0
+    # _, train_data = run_exp(
+    #     only_ctc_name,
+    #     only_ctc_args,
+    #     num_epochs=ep,
+    #     epoch_wise_filter=None,
+    #     bpe_size=BPE_1K,
+    #     partition_epoch=4,
+    #     search_args={"ctc_decode": True, "ctc_blank_idx": 1057, **only_ctc_args},
+    # )
+    #
+    last_checkpoint = Checkpoint(
+                tk.Path(
+                    "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.9o6iL7eblZwa/output/models/epoch.400.index"
+                )
+            )
     prior_file_ctc_only = compute_ctc_prior(
-        only_ctc_name, prior_args, train_job_avg_ckpt[only_ctc_name], bpe_size=BPE_1K
+        only_ctc_name + "default_last", prior_args, last_checkpoint, bpe_size=BPE_1K
     )
     # best checkpoint path "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.9o6iL7eblZwa/output/models/epoch.400"
 
@@ -1239,9 +1250,7 @@ def conformer_baseline():
 
     # separate encoders
     # some model + ctc only
-    for beam_size, scales, prior_scale in product(
-        [32, 64], [(0.8, 0.2)], [0.4]
-    ):
+    for beam_size, scales, prior_scale in product([32, 64], [(0.8, 0.2)], [0.4]):
         search_args["beam_size"] = beam_size
         search_args["ctc_log_prior_file"] = prior_file_ctc_only
         att_scale, ctc_scale = scales
@@ -1292,7 +1301,7 @@ def conformer_baseline():
         )
 
     # # additional trainings
-    for scales in [(1.0, 0.2), (0.7, 0.3), (0.9, 0.1)]:
+    for scales in [(0.3, 0.7), (0.2, 0.8), (0.1, 0.9), (0.8, 0.2), (0.7, 0.3), (0.9, 0.1)]:
         # for scales in []:
         # train scale CTC
         att_scale, ctc_scale = scales
@@ -1319,26 +1328,33 @@ def conformer_baseline():
             bpe_size=BPE_1K,
         )
 
-    # train att only
-    for pretrain_reps in [4, 5]:
-        # train base model
-        att_only_args, exp_name = get_base_v1_args(
-            lr, ep, pretrain_reps=pretrain_reps, enc_drop=enc_drop
-        )
-        att_only_args["encoder_args"].with_ctc = False
-        exp_name = exp_name + "_noctc"
-        train_j, train_data = run_exp(
-            exp_name,
-            att_only_args,
-            num_epochs=ep,
-            epoch_wise_filter=None,
-            bpe_size=BPE_1K,
-            partition_epoch=4,
-        )
+    # train very low ctc scale
+    scale_ctc_args, exp_name = get_base_v1_args(
+        lr, ep, pretrain_reps=5, enc_drop=enc_drop
+    )
+    att_scale, ctc_scale = (0.999, 0.001)
+    scale_ctc_name = exp_name + f"_ce{att_scale}_ctc{ctc_scale}"
+    scale_ctc_args["encoder_args"].ctc_loss_scale = ctc_scale
+    scale_ctc_args["decoder_args"].ce_loss_scale = att_scale
+    _, train_data = run_exp(
+        scale_ctc_name,
+        scale_ctc_args,
+        num_epochs=ep,
+        epoch_wise_filter=None,
+        bpe_size=BPE_1K,
+        partition_epoch=4,
+    )
+
+    compute_ctc_prior(
+        scale_ctc_name,
+        prior_args,
+        train_job_avg_ckpt[scale_ctc_name],
+        bpe_size=BPE_1K,
+    )
 
     # att only with curriculum learning
     att_only_args, exp_name = get_base_v1_args(
-        lr, ep, pretrain_reps=pretrain_reps, enc_drop=enc_drop
+        lr, ep, pretrain_reps=5, enc_drop=enc_drop
     )
     att_only_args["encoder_args"].with_ctc = False
     exp_name = exp_name + "_noctc_currL1"
@@ -1349,8 +1365,34 @@ def conformer_baseline():
         epoch_wise_filter=[(1, 2, 400), (2, 4, 800)],
         bpe_size=BPE_1K,
         partition_epoch=4,
+        dev_score_key="dev_score",
     )
 
+    # att only with adjusted specaugment
+    att_only_args, exp_name = get_base_v1_args(
+        lr, ep, pretrain_reps=5, enc_drop=enc_drop
+    )
+    exp_name = exp_name + "_noctc_adjSpec1"
+    att_only_args["encoder_args"].with_ctc = False
+    att_only_args["specaug_str_func_opts"] = {
+        "version": 2,
+        "step0": 3935,  # 981 + 984 + 989 + 981 ---- 4000,
+        "step1": 5908,  # 990 + 983 ---- 6000
+        "step2": 7866,  # 979 + 979 ---- 8000
+        "max_time_num": 100,
+        "max_time_dim": 20,
+        "min_num_add_factor": 0,
+        "freq_dim_factor": 5,
+    }
+    train_j, train_data = run_exp(
+        exp_name,
+        att_only_args,
+        num_epochs=ep,
+        epoch_wise_filter=None,
+        bpe_size=BPE_1K,
+        partition_epoch=4,
+        dev_score_key="dev_score",
+    )
 
     # more pretrain reps
     scale_ctc_args, exp_name = get_base_v1_args(
@@ -1377,11 +1419,43 @@ def conformer_baseline():
         bpe_size=BPE_1K,
     )
 
+    # train scale CTC
+    scale_ctc_name = name + "_ctcScale0.2"
+    scale_ctc_args = copy.deepcopy(args)
+    scale_ctc_args["encoder_args"].ctc_loss_scale = 0.2 / 0.8  # AED scale is 1.0
+    _, train_data = run_exp(
+        scale_ctc_name,
+        scale_ctc_args,
+        num_epochs=ep,
+        epoch_wise_filter=None,
+        bpe_size=BPE_1K,
+        partition_epoch=4,
+    )
 
-
-
+    compute_ctc_prior(
+        scale_ctc_name,
+        prior_args,
+        train_job_avg_ckpt[scale_ctc_name],
+        bpe_size=BPE_1K,
+    )
 
     # --- old code ---
+
+    # for pretrain_reps in [5]:
+    #     # train base model
+    #     att_only_args, exp_name = get_base_v1_args(
+    #         lr, ep, pretrain_reps=pretrain_reps, enc_drop=enc_drop
+    #     )
+    #     att_only_args["encoder_args"].with_ctc = False
+    #     exp_name = exp_name + "_noctc"
+    #     train_j, train_data = run_exp(
+    #         exp_name,
+    #         att_only_args,
+    #         num_epochs=ep,
+    #         epoch_wise_filter=None,
+    #         bpe_size=BPE_1K,
+    #         partition_epoch=4,
+    #     )
 
     # # lower lr -> did not converge
     # scale_ctc_args, exp_name = get_base_v1_args(7e-4, ep, enc_drop=enc_drop)

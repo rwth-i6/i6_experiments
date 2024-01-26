@@ -10,9 +10,9 @@ tedlium_lm_net = {
         "activation": None,
         "with_bias": False,
         "n_out": 128,
-        "forward_weights_init": "variance_scaling_initializer(mode='fan_in', "
-        "distribution='uniform', scale=1.0)",
-        "param_device": "CPU",
+        # "forward_weights_init": "variance_scaling_initializer(mode='fan_in', "
+        # "distribution='uniform', scale=1.0)",
+        # "param_device": "CPU", # this breaks mask computation layer
     },
     "target_embed_with_pos": {
         "class": "positional_encoding",

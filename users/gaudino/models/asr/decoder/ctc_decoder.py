@@ -974,7 +974,7 @@ class CTCDecoder:
         elif self.lm_type == "trafo":
             ext_lm_subnet["target_embed_raw"]["from"] = "base:prev_output_reinterpret"
         elif self.lm_type == "trafo_ted":
-            ext_lm_subnet["target_embed_raw"]["from"] = "base:prev_output_reinterpret"
+            pass
 
         assert isinstance(ext_lm_subnet, dict)
 
@@ -987,7 +987,7 @@ class CTCDecoder:
             ), "load_on_init opts or lm_model are missing for loading subnet."
             assert "filename" in self.ext_lm_opts["load_on_init_opts"], "Checkpoint missing for loading subnet."
             load_on_init = self.ext_lm_opts["load_on_init_opts"]
-        lm_net_out.add_subnetwork("lm_output", [], subnetwork_net=ext_lm_subnet, load_on_init=load_on_init)
+        lm_net_out.add_subnetwork("lm_output", "data", subnetwork_net=ext_lm_subnet, load_on_init=load_on_init)
 
         return lm_net_out.get_net()["lm_output"]
 
@@ -1008,7 +1008,7 @@ class CTCDecoder:
                 "lm_output": {
                     "class": "masked_computation",
                     "mask": "prev_mask",
-                    "from": [],
+                    "from": "prev_output_reinterpret",
                     "unit": self.get_lm_subnet_unit(),
                 },
                 "lm_output_prob": {
