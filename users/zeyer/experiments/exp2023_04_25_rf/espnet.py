@@ -42,7 +42,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(30_000, 2000),
         },
-        model_config=True,
+        model_avg=True,
     )
 
     # uncomment this to get the CUDA OOM error in dist.all_reduce: https://github.com/rwth-i6/returnn/issues/1482
