@@ -42,6 +42,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(30_000, 2000),
         },
+        model_config=True,
     )
 
     # uncomment this to get the CUDA OOM error in dist.all_reduce: https://github.com/rwth-i6/returnn/issues/1482
@@ -54,7 +55,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     },
     # )
 
-    train_exp(
+    train_exp(  # 5.17
         "v6-11gb-f32-bs8k-mgpu4-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-dynGradAccumV2",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         {
@@ -66,11 +67,12 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "torch_distributed.sync_on_cpu": True,  # https://github.com/rwth-i6/returnn/issues/1482
             "accum_grad_multiple_step": _dyn_accum_grad_multiple_step_v2,
         },
+        model_avg=True,
     )
 
     # TODO also try model average
 
-    train_exp(
+    train_exp(  # 5.29
         "v6-11gb-f32-bs8k-mgpu4-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-dynGradAccumV1a",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         {
@@ -194,6 +196,7 @@ def train_exp(
     num_processes: Optional[int] = None,
     time_rqmt: Optional[int] = None,  # set this to 1 or below to get the fast test queue
     with_eos_postfix: bool = False,
+    model_avg: bool = False,
 ) -> ModelWithCheckpoints:
     """
     Train experiment
@@ -238,6 +241,7 @@ def train_exp(
         model_with_checkpoint,
         recog_def=model_recog,
         search_config={"search_version": 4, "num_epochs": num_epochs},
+        model_avg=model_avg,
     )
 
     return model_with_checkpoint
