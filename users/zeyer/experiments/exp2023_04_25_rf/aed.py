@@ -168,7 +168,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
-    train_exp(
+    train_exp(  # broken
         "v6-bhv20-nenc17-11gb-f32-bs8k-mgpu4-pavg100-wd1e_2-lrlin1e_5_443k-aux17-dynGradAccumV2",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         model_config={
