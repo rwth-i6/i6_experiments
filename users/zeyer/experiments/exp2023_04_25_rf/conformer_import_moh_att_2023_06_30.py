@@ -286,11 +286,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     )
 
     train_exp("base-24gb-v6", config_24gb_v6)  # 6.30
-    train_exp(
+    train_exp(  # 5.84 (!)
         "base-24gb-v6-warmup100k",
         config_24gb_v6,
         config_updates={"learning_rate_warmup_steps": 100_000},
         # OOM in ep 523
+        post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
+    )
+    train_exp(
+        "base-24gb-v6-warmup450k",
+        config_24gb_v6,
+        config_updates={"learning_rate_warmup_steps": 450_000},
         post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
     )
     train_exp(
@@ -379,7 +385,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
         config_updates={"accum_grad_multiple_step": 4},
     )
-    train_exp(
+    train_exp(  # 5.54
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-wd1e_4-lrlin1e_5_295k",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
     )
@@ -407,7 +413,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_updates={
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},  # multi-GPU
         },
-        model_avg=True,
+        model_avg=True,  # {"dev-clean": 2.38, "dev-other": 5.54, "test-clean": 2.58, "test-other": 5.73}
     )
     train_exp(  # 5.67
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-run2",
@@ -451,6 +457,15 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
         config_updates={
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 1000},  # multi-GPU
+        },
+    )
+
+    train_exp(
+        "v6-11gb-f32-bs15k-accgrad4-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
+        config_updates={
+            "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},  # multi-GPU
+            "accum_grad_multiple_step": 4,
         },
     )
 

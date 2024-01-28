@@ -32,7 +32,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     """run the exp"""
     _sis_setup_global_prefix(prefix_name)
 
-    train_exp(
+    train_exp(  # 5.15
         "v6-24gb-bs30k-wd1e_6-lrlin1e_5_587k-EBranchformer",
         config_24gb_v6,
         {
@@ -135,7 +135,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_deletes=["__num_processes", "torch_distributed"],
     )
 
-    train_exp(
+    train_exp(  # 5.85
         "v6-11gb-f32-bs8k-mgpu4-nep250-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-dynGradAccumV2",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         {
@@ -151,7 +151,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
-    train_exp(
+    train_exp(  # 7.26
         "v6-11gb-f32-bs8k-mgpu4-nep125-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-dynGradAccumV2",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         {

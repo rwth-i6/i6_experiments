@@ -59,7 +59,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_updates={"optimizer.weight_decay": 1e-2},
     )
 
-    train_exp(
+    train_exp(  # 5.11 (!!)
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         model_config={"behavior_version": 20},  # new Trafo decoder defaults
@@ -111,7 +111,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
         config_updates={"enc_layer_drop": 0.1, "dec_layer_drop": 0.1},
     )
-    train_exp(
+    train_exp(  # 5.78. big diff between dev and test?
+        # {"dev-clean": 2.85, "dev-other": 5.78, "test-clean": 3.24, "test-other": 6.15}
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_100k-layerdrop005",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
         config_updates={"enc_layer_drop": 0.05, "dec_layer_drop": 0.05},
@@ -139,7 +140,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
-    train_exp(
+    train_exp(  # 5.82
         "v6-bhv20-nenc17-11gb-f32-bs10k-accgrad4-mgpu4-pavg100-wd1e_4-lrlin1e_5_443k-aux17",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         model_config={
@@ -153,7 +154,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
-    train_exp(
+    train_exp(  # 5.84
         "v6-bhv20-nenc17-11gb-f32-bs10k-accgrad4-mgpu4-pavg100-wd1e_2-lrlin1e_5_443k-aux17",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         model_config={
