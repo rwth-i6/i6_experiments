@@ -68,7 +68,18 @@ Via https://huggingface.co/transformers/v3.5.1/_modules/transformers/modeling_t5
   RMSNorm instead of LayerNorm
   no bias terms in Linear
   huge batch size? growing batch size?
-  (example: Mamba paper: https://arxiv.org/pdf/2312.00752.pdf)
+  (example: Mamba paper on Transformer++: https://arxiv.org/pdf/2312.00752.pdf)
 
 - μParam
-- see recent Apple paper?
+- see recent Apple paper? (TODO which?)
+
+- Query-Key Normalization
+  - Query-Key Normalization for Transformers, https://aclanthology.org/2020.findings-emnlp.379.pdf
+  - https://github.com/google/flax/commit/344529669ce29561f21c518ea63b9e032ce99397
+  - https://twitter.com/PiotrPadlewski/status/1690686243296739328
+  - Small-scale proxies for large-scale Transformer training instabilities, https://arxiv.org/abs/2309.14322
+  - Scaling Vision Transformers to 22 Billion Parameters, https://arxiv.org/abs/2302.05442
+  - https://twitter.com/_basilM/status/1625185484837208082
+  - https://twitter.com/m__dehghani/status/1625192439999827971
+  - https://discuss.huggingface.co/t/how-to-implement-key-query-layer-normalized-transformers-llms-in-huggingface/31997
+  - Transformers without Tears: Improving the Normalization of Self-Attention, https://arxiv.org/abs/1910.05895
