@@ -60,6 +60,13 @@ Via https://huggingface.co/transformers/v3.5.1/_modules/transformers/modeling_t5
     module.o.weight.data.normal_(mean=0.0, std=factor * ((n_heads * d_kv) ** -0.5))
 
 - multi-query attention (Shazeer, 2019)
+  - also used in PaLM 
+
+- RoPE embeddings, or other positional embeddings
+  - RoPE is used in PaLM
+
+- no biases:
+  - PaLM and many others...
 
 - training recipe for large scale (huge amount of data) language modeling
   (via Lucas@Google, https://twitter.com/giffmana/status/1739754033194086733)
@@ -83,3 +90,17 @@ Via https://huggingface.co/transformers/v3.5.1/_modules/transformers/modeling_t5
   - https://twitter.com/m__dehghani/status/1625192439999827971
   - https://discuss.huggingface.co/t/how-to-implement-key-query-layer-normalized-transformers-llms-in-huggingface/31997
   - Transformers without Tears: Improving the Normalization of Self-Attention, https://arxiv.org/abs/1910.05895
+
+- From PaLM:
+  > We use a dynamic weight decay of lr^2.0 during training, where lr is the current learning rate.
+- From PaLM:
+  > Because the input and output embedding layers are shared, we scale the pre-softmax output logits by 1/√n,
+  > where n is the embedding size.
+
+- Optimizer, Adam variants:
+  - PaLM: Adafactor, scales the learning rate by the root-mean-square of the parameter matrix,
+    > parameter scaling has the benefit that parameter matrices which operate at different scales
+    > (the embeddings and layer norm scales) do not have their learning rate scaled down at the same rate.
+  - Check ZipFormer
+
+- Check ZipFormer for many things...
