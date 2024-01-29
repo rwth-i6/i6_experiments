@@ -788,7 +788,7 @@ def run_ctc_att_search():
         "initial_batch_size": 22500 * 160,
     }
     lstm_training_args["pretrain_reps"] = 5
-    lstm_training_args["batch_size"] = 15000 * 160  # frames * samples per frame
+    lstm_training_args["batch_size"] = 15000 * 160  # frames * samples per frame corresponds to bsf=120
 
     lstm_dec_exp_args = copy.deepcopy(
         {

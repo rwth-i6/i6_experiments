@@ -933,7 +933,7 @@ class CTCDecoder:
             {
                 "ctc_log": {
                     "class": "activation",
-                    "from": "ctc",
+                    "from": self.ctc_source,
                     "activation": "safe_log",
                 },
                 "ctc_decoder": {

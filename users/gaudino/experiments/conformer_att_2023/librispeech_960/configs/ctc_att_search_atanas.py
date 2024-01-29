@@ -447,3 +447,41 @@ def run_ctc_att_search():
         remove_label={"<s>", "<blank>"},  # blanks are removed in the network
         use_sclite=True,
     )
+
+    # ctc beam search tf
+    search_args["decoder_args"] = CTCDecoderArgs(ctc_beam_search_tf=True)
+    search_args["beam_size"] = 6
+    search_args["batch_size"] = 7500 * 160
+    run_decoding(
+        exp_name=f"ctc_beam_search_tf_beam_6",
+        train_data=train_data,
+        checkpoint=train_job_avg_ckpt[
+            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+        ],
+        search_args=search_args,
+        feature_extraction_net=log10_net_10ms,
+        bpe_size=BPE_10K,
+        time_rqmt=6.0,
+        test_sets=["dev-other"],
+        remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+        use_sclite=True,
+    )
+
+    # w blank collapse
+    search_args["decoder_args"] = CTCDecoderArgs(ctc_beam_search_tf=True, blank_collapse=True)
+    search_args["beam_size"] = 6
+    search_args["batch_size"] = 7500 * 160
+    run_decoding(
+        exp_name=f"ctc_beam_search_tf_blank_collapse_beam_6",
+        train_data=train_data,
+        checkpoint=train_job_avg_ckpt[
+            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+        ],
+        search_args=search_args,
+        feature_extraction_net=log10_net_10ms,
+        bpe_size=BPE_10K,
+        time_rqmt=6.0,
+        test_sets=["dev-other"],
+        remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+        use_sclite=True,
+    )
