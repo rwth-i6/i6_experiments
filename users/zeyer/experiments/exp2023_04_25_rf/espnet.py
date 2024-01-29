@@ -105,6 +105,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "espnet_fixed_sos_eos": True,
         },
         config_updates={
+            "batch_size": 8_000 * _batch_size_factor,
             "learning_rate": 2e-3,
             "dynamic_learning_rate": dyn_lr_lin_warmup_invsqrt_decay,
             "learning_rate_warmup_steps": 500_000,
