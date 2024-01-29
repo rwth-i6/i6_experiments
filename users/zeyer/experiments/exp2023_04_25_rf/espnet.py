@@ -64,7 +64,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(8_000, 500),
-            "torch_distributed": {},
+            "torch_distributed": {"options": {"find_unused_parameters": True}},
             "accum_grad_multiple_step": 100,
         },
     )
