@@ -126,7 +126,7 @@ _lrlin_oclr_steps_by_bs_nep = {
 }
 
 
-def _get_cfg_lrlin_oclr_by_bs_nep(bs_feat: int, n_ep: int) -> Dict[str, Any]:
+def _get_cfg_lrlin_oclr_by_bs_nep(bs_feat: int, n_ep: int, *, peak_lr: float = 1e-3) -> Dict[str, Any]:
     """
     :param bs_feat: batch size for features (not including _batch_size_factor)
     :param n_ep: num epochs
@@ -138,7 +138,7 @@ def _get_cfg_lrlin_oclr_by_bs_nep(bs_feat: int, n_ep: int) -> Dict[str, Any]:
         "dynamic_learning_rate": dyn_lr_piecewise_linear,
         # If the dict has no entry for the bs_feat,n_ep combination, see above.
         "learning_rate_piecewise_steps": _lrlin_oclr_steps_by_bs_nep[(bs_feat // 1000, n_ep)],
-        "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        "learning_rate_piecewise_values": [peak_lr * 1e-2, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3],
     }
 
 

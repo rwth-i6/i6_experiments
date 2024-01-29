@@ -130,6 +130,21 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         model_avg=True,
     )
 
+    train_exp(
+        "v6-11gb-f32-bs8k-mgpu4-pavg100-wd1e_4-lrlin2e_5_558k-EBranchformer-dynGradAccumV2",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        {
+            "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
+            "espnet_fixed_sos_eos": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(8_000, 500, peak_lr=2e-3),
+            "torch_distributed.sync_on_cpu": True,  # https://github.com/rwth-i6/returnn/issues/1482
+            "accum_grad_multiple_step": _dyn_accum_grad_multiple_step_v2,
+        },
+        model_avg=True,
+    )
+
     # TODO also try model average
 
     train_exp(  # 5.29
