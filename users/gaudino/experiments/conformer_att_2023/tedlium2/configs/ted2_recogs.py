@@ -521,8 +521,8 @@ def otps_recogs_additonal_trainings():
     # try ctc + trafo lm
     search_args = copy.deepcopy(args)
     for scales, beam_size, model_name in product(
-        [(1.0, 0.0), (1.0, 0.05), (1.0, 0.1), (1.0, 0.2), (1.0, 0.3), (1.0, 0.5)],
-        [12, 32],
+        [(1.0, 0.0), (1.0, 0.1)],
+        [12],
         ["model_baseline", "model_ctc_only"],
     ):
         search_args["beam_size"] = beam_size
@@ -544,7 +544,7 @@ def otps_recogs_additonal_trainings():
             # prior_scale=prior_scale,
         )
         run_decoding(
-            model_name + f"/opts_ctc{ctc_scale}_trafolm{lm_scale}_beam{beam_size}",
+            model_name + f"/opts_ctc{ctc_scale}_trafolm{lm_scale}_beam{beam_size}_2",
             train_data_baseline,
             checkpoint=models[model_name]["ckpt"],
             search_args=search_args,
@@ -579,6 +579,7 @@ def otps_recogs_additonal_trainings():
             target_embed_dim=256,
             remove_eos=True,
             rescore_last_eos=True,
+            eos_postfix=True,
             # blank_collapse=True,
             # ctc_prior_correction=True,
             # prior_scale=prior_scale,

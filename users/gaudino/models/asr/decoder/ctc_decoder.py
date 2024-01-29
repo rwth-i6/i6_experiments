@@ -766,25 +766,26 @@ class CTCDecoder:
 
         if self.rescore_last_eos:
             # rescores with EOS of ts at last frame
-            subnet_unit.update(
-                {
-                    "combined_ts_log_scores": {
-                        "class": "combine",
-                        "kind": "add",
-                        "from": ["scaled_att_log_scores", "scaled_lm_log_scores"],
-                    },
-                    "combined_ts_scores": {
-                        "class": "activation",
-                        "activation": "safe_exp",
-                        "from": "combined_ts_log_scores",
-                    },
-                }
-            )
+
             if self.add_ext_lm and not self.add_att_dec:
                 ts_score = lm_layer
             elif self.add_att_dec and not self.add_ext_lm:
                 ts_score = att_layer
             else:
+                subnet_unit.update(
+                    {
+                        "combined_ts_log_scores": {
+                            "class": "combine",
+                            "kind": "add",
+                            "from": ["scaled_att_log_scores", "scaled_lm_log_scores"],
+                        },
+                        "combined_ts_scores": {
+                            "class": "activation",
+                            "activation": "safe_exp",
+                            "from": "combined_ts_log_scores",
+                        },
+                    }
+                )
                 ts_score = "combined_ts_scores"
 
             subnet_unit.update(
@@ -972,7 +973,7 @@ class CTCDecoder:
         if self.lm_type == "lstm":
             ext_lm_subnet["input"]["from"] = "base:prev_output_reinterpret"
         elif self.lm_type == "trafo":
-            ext_lm_subnet["target_embed_raw"]["from"] = "base:prev_output_reinterpret"
+            ext_lm_subnet["target_embed_raw"]["from"] = "data"
         elif self.lm_type == "trafo_ted":
             pass
 

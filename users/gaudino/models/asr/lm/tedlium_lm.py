@@ -5,11 +5,20 @@
 #     "target": "bpe_labels",
 # },
 tedlium_lm_net = {
+    ### Try this fix _2
+    # "prev_output_reinterpret": {
+    #     "class": "reinterpret_data",
+    #     "from": "data",
+    #     "set_sparse": True,
+    #     "set_sparse_dim": 1057,
+    # },
+    ###
     "target_embed_raw": {
         "class": "linear",
         "activation": None,
         "with_bias": False,
         "n_out": 128,
+        "from": "data",
         # "forward_weights_init": "variance_scaling_initializer(mode='fan_in', "
         # "distribution='uniform', scale=1.0)",
         # "param_device": "CPU", # this breaks mask computation layer
