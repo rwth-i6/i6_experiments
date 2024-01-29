@@ -450,19 +450,6 @@ def otps_recogs_additonal_trainings():
         },
     }
 
-    # ctc greedy decoding
-    # search_args["decoder_args"] = CTCDecoderArgs(target_dim=1057)
-    #
-    # run_decoding(
-    #     f"ctc_greedy",
-    #     train_data,
-    #     checkpoint=train_job_avg_ckpt[name],
-    #     search_args=search_args,
-    #     bpe_size=BPE_1K,
-    #     test_sets=["dev"],
-    #     remove_label={"<s>", "<blank>"},
-    #     use_sclite=True,
-    # )
     def get_train_data(**kwargs):
         train_data = build_training_datasets(
             bpe_size=1000,
@@ -478,6 +465,22 @@ def otps_recogs_additonal_trainings():
         return train_data
 
     train_data_baseline = get_train_data()
+
+    # ctc greedy decoding
+    search_args = copy.deepcopy(args)
+    search_args["decoder_args"] = CTCDecoderArgs(target_dim=1057)
+
+    for model_name in list(models.keys())[:-3] + ["model_ctc_only"]:
+        run_decoding(
+            model_name + f"/ctc_greedy",
+            train_data_baseline,
+            checkpoint=models[model_name]["ckpt"],
+            search_args=search_args,
+            bpe_size=BPE_1K,
+            test_sets=["dev", "test"],
+            remove_label={"<s>", "<blank>"},
+            use_sclite=True,
+        )
 
     search_args = copy.deepcopy(args)
     for scales in [(0.7, 0.3)]:
@@ -518,7 +521,7 @@ def otps_recogs_additonal_trainings():
     # try ctc + trafo lm
     search_args = copy.deepcopy(args)
     for scales, beam_size, model_name in product(
-        [(1.0, 0.05), (1.0, 0.1), (1.0, 0.2), (1.0, 0.3), (1.0, 0.5)],
+        [(1.0, 0.0), (1.0, 0.05), (1.0, 0.1), (1.0, 0.2), (1.0, 0.3), (1.0, 0.5)],
         [12, 32],
         ["model_baseline", "model_ctc_only"],
     ):
@@ -552,11 +555,11 @@ def otps_recogs_additonal_trainings():
             time_rqmt=4.0,
         )
 
-    # ctc + trafo lm with blank_collapse
+    # ctc + trafo lm with rescore w eos
     search_args = copy.deepcopy(args)
     for scales, beam_size, model_name in product(
         [(1.0, 0.1)],
-        [12],
+        [6, 12],
         ["model_baseline", "model_ctc_only"],
     ):
         search_args["beam_size"] = beam_size
@@ -574,12 +577,14 @@ def otps_recogs_additonal_trainings():
             lm_scale=lm_scale,
             target_dim=1057,
             target_embed_dim=256,
-            blank_collapse=True,
+            remove_eos=True,
+            rescore_last_eos=True,
+            # blank_collapse=True,
             # ctc_prior_correction=True,
             # prior_scale=prior_scale,
         )
         run_decoding(
-            model_name + f"/opts_ctc{ctc_scale}_bc_trafolm{lm_scale}_beam{beam_size}",
+            model_name + f"/opts_ctc{ctc_scale}_trafolm{lm_scale}_beam{beam_size}_rescore_eos",
             train_data_baseline,
             checkpoint=models[model_name]["ckpt"],
             search_args=search_args,
