@@ -658,7 +658,10 @@ def create_config(
         hyperparams["decouple_constraints_factor"] = decouple_constraints_factor
 
     if max_seq_length:
-        hyperparams["max_seq_length"] = {target: max_seq_length}  # char-bpe
+        if isinstance(max_seq_length, dict):
+            hyperparams["max_seq_length"] = max_seq_length
+        else:
+            hyperparams["max_seq_length"] = {target: max_seq_length}  # char-bpe
     if gradient_clip_global_norm:
         hyperparams["gradient_clip_global_norm"] = gradient_clip_global_norm
 
