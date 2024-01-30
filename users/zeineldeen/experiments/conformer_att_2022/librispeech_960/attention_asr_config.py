@@ -573,6 +573,7 @@ def create_config(
     accum_grad=2,
     pretrain_reps=5,
     max_seq_length=75,
+    min_seq_length=None,
     max_seqs=200,
     noam_opts=None,
     warmup_lr_opts=None,
@@ -662,6 +663,9 @@ def create_config(
             hyperparams["max_seq_length"] = max_seq_length
         else:
             hyperparams["max_seq_length"] = {target: max_seq_length}  # char-bpe
+    if min_seq_length:
+        assert isinstance(min_seq_length, dict), "must be a dict to specify filtering per data key names"
+        hyperparams["min_seq_length"] = min_seq_length
     if gradient_clip_global_norm:
         hyperparams["gradient_clip_global_norm"] = gradient_clip_global_norm
 
