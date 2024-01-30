@@ -6,7 +6,8 @@ from i6_core import corpus
 from i6_core.meta.system import CorpusObject
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from i6_core.recognition import Hub5ScoreJob
-from i6_core.returnn import RasrFeatureDumpHDFJob, RasrAlignmentDumpHDFJob
+from i6_core.returnn import RasrFeatureDumpHDFJob, RasrAlignmentDumpHDFJob, BlissToOggZipJob
+from i6_core.text.processing import ConcatenateJob
 from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00
 from i6_experiments.common.setups.rasr.util import RasrDataInput
 from i6_experiments.users.berger.recipe.lexicon.modification import DeleteEmptyOrthJob, MakeBlankLexiconJob
@@ -55,6 +56,28 @@ def get_datasets_transducer(waveform=True):
         sparse=True,
         returnn_root=RETURNN_ROOT,
     )
+    feature_caches_train = [tk.Path(
+        "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/features/extraction/"
+        f"FeatureExtraction.Gammatone.OKQT9hEV3Zgd/output/gt.cache.{idx}",
+        hash_overwrite=f"wei_ls960_gammatone_train_{idx}"
+    ) for idx in range(1, 101)]
+    feature_cache_bundle_train = tk.Path(
+        "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/features/extraction/"
+        "FeatureExtraction.Gammatone.OKQT9hEV3Zgd/output/gt.cache.bundle",
+        hash_overwrite="wei_ls960_gammatone_train_bundle",
+        cached=False,
+    )
+    feature_caches_dev = [tk.Path(
+        "/u/zhou/asr-exps/swb1/2020-07-27_neural_transducer/work/features/extraction/"
+        f"FeatureExtraction.Gammatone.pp9W8m2Z8mHU/output/gt.cache.{idx}",
+        hash_overwrite=f"wei_ls960_gammatone_dev_{idx}"
+    ) for idx in range(1, 11)]
+    feature_cache_bundle_dev = tk.Path(
+        "/u/zhou/asr-exps/swb1/2020-07-27_neural_transducer/work/features/extraction/"
+        "FeatureExtraction.Gammatone.pp9W8m2Z8mHU/output/gt.cache.bundle",
+        hash_overwrite="wei_ls960_gammatone_dev_bundle",
+        cached=False,
+    )
 
     returnn_datasets["train"]["segment_file"] = corpus.FilterSegmentsByListJob(
         {1: returnn_datasets["train"]["segment_file"]},
@@ -64,8 +87,34 @@ def get_datasets_transducer(waveform=True):
         {1: returnn_datasets["dev"]["segment_file"]},
         targets.out_excluded_segments,
     ).out_single_segment_files[1]
+    segment_files = {
+        "train": returnn_datasets["train"]["segment_file"],
+        "dev": returnn_datasets["dev"]["segment_file"],
+        "devtrain": returnn_datasets["eval_datasets"]["devtrain"]["segment_file"],
+        "dev.wei": tk.Path(
+            "/u/vieting/setups/swb/20230406_feat/dependencies/segments.wei.dev",
+            hash_overwrite="swb_segments_dev_wei",
+        ),
+    }
 
     def _add_targets_to_dataset(dataset):
+        ogg_zip_job = dataset["path"][0].creator
+        feature_bundle = ConcatenateJob(
+            [feature_cache_bundle_train, feature_cache_bundle_dev],
+            zip_out=False,
+            out_name="gt.cache.bundle",
+        ).out
+        synced_ogg_zip_job = BlissToOggZipJob(
+            bliss_corpus=ogg_zip_job.bliss_corpus,
+            segments=ogg_zip_job.segments,
+            rasr_cache=feature_bundle,
+            raw_sample_rate=ogg_zip_job.raw_sample_rate,
+            feat_sample_rate=ogg_zip_job.feat_sample_rate,
+            returnn_python_exe=ogg_zip_job.returnn_python_exe,
+            returnn_root=ogg_zip_job.returnn_root,
+        )
+        synced_ogg_zip_job.rqmt = {"time": 8.0, "cpu": 2}
+        dataset["path"] = [synced_ogg_zip_job.out_ogg_zip]
         dataset = {
             "class": "MetaDataset",
             "data_map": {"classes": ("alignment", "data"), "data": ("ogg", "data")},
@@ -79,6 +128,7 @@ def get_datasets_transducer(waveform=True):
             },
             "seq_order_control_dataset": "ogg",
             "partition_epoch": dataset.get("partition_epoch", 1),
+            "context_window": {"classes": 1, "data": 121},
         }
         return dataset
 
@@ -88,16 +138,6 @@ def get_datasets_transducer(waveform=True):
         returnn_datasets["eval_datasets"]["devtrain"] = _add_targets_to_dataset(
             returnn_datasets["eval_datasets"]["devtrain"])
     else:
-        feature_caches_train = [tk.Path(
-            "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/features/extraction/"
-            f"FeatureExtraction.Gammatone.OKQT9hEV3Zgd/output/gt.cache.{idx}",
-            hash_overwrite=f"wei_ls960_gammatone_train_{idx}"
-        ) for idx in range(1, 101)]
-        feature_caches_dev = [tk.Path(
-            "/u/zhou/asr-exps/swb1/2020-07-27_neural_transducer/work/features/extraction/"
-            f"FeatureExtraction.Gammatone.pp9W8m2Z8mHU/output/gt.cache.{idx}",
-            hash_overwrite=f"wei_ls960_gammatone_dev_{idx}"
-        ) for idx in range(1, 11)]
         features = RasrFeatureDumpHDFJob(feature_caches_train + feature_caches_dev, returnn_root=RETURNN_ROOT)
         returnn_datasets = {
             "train": {
@@ -114,7 +154,8 @@ def get_datasets_transducer(waveform=True):
                         "files": targets.out_hdf_files,
                         "use_cache_manager": True,
                         "seq_ordering": "laplace:.384",
-                        "seq_list_filter_file": returnn_datasets["train"]["segment_file"],
+                        "seq_list_filter_file": segment_files["train"],
+                        "partition_epoch": 6,
                     },
                 },
                 "seq_order_control_dataset": "alignment",
@@ -134,13 +175,18 @@ def get_datasets_transducer(waveform=True):
                         "files": targets.out_hdf_files,
                         "use_cache_manager": True,
                         "seq_ordering": "sorted_reverse",
-                        "seq_list_filter_file": returnn_datasets["dev"]["segment_file"],
+                        "seq_list_filter_file": segment_files["dev"],
                     },
                 },
                 "seq_order_control_dataset": "alignment",
-                "partition_epoch": 6,
             },
         }
+        returnn_datasets["eval_datasets"] = {
+            "devtrain": copy.deepcopy(returnn_datasets["dev"]),
+            "dev.wei": copy.deepcopy(returnn_datasets["dev"]),
+        }
+        returnn_datasets["eval_datasets"]["devtrain"]["datasets"]["alignment"]["seq_list_filter_file"] = segment_files["devtrain"]
+        returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["alignment"]["seq_list_filter_file"] = segment_files["dev.wei"]
     return returnn_datasets, rasr_loss_corpus, rasr_loss_segments, rasr_loss_lexicon, dev_corpora
 
 
@@ -336,7 +382,7 @@ def py():
     called if the file is passed to sis manager, used to run all experiments (replacement for main)
     """
     report_rasr_gt = run_rasr_gt_baseline()
-    # report_mel = run_mel_baseline()
+    report_mel = run_mel_baseline()
 
     # report_base = Report(
     #     columns_start=["train_name", "wave_norm", "specaug", "lr", "batch_size"],
