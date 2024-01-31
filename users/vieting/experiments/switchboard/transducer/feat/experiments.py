@@ -235,7 +235,7 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
                 "word-end-pruning": 0.5,
                 "word-end-pruning-limit": 5000,
             },
-            "label_scorer_type": "tf-ffnn-transducer"
+            "label_scorer_type": "tf-ffnn-transducer",
         },
         **(recog_args or {}),
     }
@@ -316,6 +316,16 @@ def run_rasr_gt_baseline():
             "min_learning_rate": 1e-6,
         },
     }
+    recog_args = {
+        "flow_args": {
+            "type": "gammatone",
+            "channels": 40,
+            "maxfreq": 3800,
+            "warp_freqbreak":3700,
+            "do_specint": False,
+            "add_features_output": True,
+        },
+    }
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
@@ -335,7 +345,7 @@ def run_rasr_gt_baseline():
         evaluation_epochs=[270, 280, 290, 300],
         prefix="viterbi_rasrgt_",
     )
-    report = run_nn_args(nn_args, report_args_collection, dev_corpora)
+    report = run_nn_args(nn_args, report_args_collection, dev_corpora, recog_args=recog_args)
     return report
 
 

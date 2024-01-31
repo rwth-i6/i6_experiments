@@ -196,9 +196,8 @@ def make_conformer_viterbi_transducer_model(
         raise NotImplementedError
 
     network["encoder"] = {
-        "class": "reinterpret_data",
+        "class": "copy",
         "from": from_list,
-        "size_base": "data:classes",
     }
     add_transducer_viterbi_output_layer(
         network, from_list="encoder", num_outputs=num_outputs, recognition=recognition,
@@ -206,6 +205,11 @@ def make_conformer_viterbi_transducer_model(
     )
     if not recognition:
         network.update({
+            "encoder": {
+                "class": "reinterpret_data",
+                "from": from_list,
+                "size_base": "data:classes",
+            },
             "enc_output": {
                 "class": "softmax",
                 "from": "encoder",

@@ -143,7 +143,7 @@ def get_returnn_config(
     base_config = {
         "extern_data": {
             "data": {"dim": num_inputs},
-            "classes": {"dim": num_outputs, "dtype": "uint16", "sparse": True},
+            "classes": {"dim": num_outputs, "dtype": "int32" if recognition else "uint16", "sparse": True},
         },
         **datasets,
     }
