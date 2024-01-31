@@ -273,7 +273,8 @@ class CTCDecoder:
         # ce_loss_scale=1.0,
         # use_zoneout_output: bool = False,
         logits=False,
-        remove_eos=False,
+        remove_eos_from_ctc=False,
+        remove_eos_from_ts=False,
         eos_postfix=False,
         add_eos_to_blank=False,
         rescore_last_eos=False,
@@ -383,7 +384,8 @@ class CTCDecoder:
         # self.use_zoneout_output = use_zoneout_output
 
         self.logits = logits
-        self.remove_eos = remove_eos
+        self.remove_eos_from_ctc = remove_eos_from_ctc
+        self.remove_eos_from_ts = remove_eos_from_ts
         self.eos_postfix = eos_postfix
         self.add_eos_to_blank = add_eos_to_blank
         self.rescore_last_eos = rescore_last_eos
@@ -737,7 +739,7 @@ class CTCDecoder:
                 }
             )
 
-        if self.remove_eos:
+        if self.remove_eos_from_ts:
             # remove EOS from ts scores
             subnet_unit.update(
                 {
@@ -1282,11 +1284,11 @@ class CTCDecoder:
         # modify ctc source
         if self.blank_collapse:
             self.add_blank_collapse()
-        if self.remove_eos:
+        if self.remove_eos_from_ctc:
             self.remove_eos_from_ctc_logits()
 
         if self.add_ext_lm and not self.add_att_dec:
-            self.network.add_length_layer("enc_seq_len", "encoder", sparse=False)
+            self.network.add_length_layer("enc_seq_len", self.ctc_source, sparse=False)
             self.dec_output = self.add_greedy_with_ext_lm_decoder(self.subnet_unit)
         elif self.add_att_dec and not self.add_ext_lm:
             self.add_enc_output_for_att()
@@ -1373,4 +1375,4 @@ class CTCDecoder:
         self.network.add_linear_layer(
             "inv_fertility", "encoder", activation="sigmoid", n_out=self.att_num_heads, with_bias=False
         )
-        self.network.add_length_layer("enc_seq_len", "encoder", sparse=False)
+        self.network.add_length_layer("enc_seq_len", self.ctc_source, sparse=False)

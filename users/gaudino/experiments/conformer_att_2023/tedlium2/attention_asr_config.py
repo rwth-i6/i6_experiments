@@ -592,7 +592,8 @@ class CTCDecoderArgs(DecoderArgs):
     ctc_prior_correction: bool = False
     prior_scale: float = 1.0
     logits: bool = False
-    remove_eos: bool = False
+    remove_eos_from_ctc: bool = False
+    remove_eos_from_ts: bool = False
     eos_postfix: bool = False
     add_eos_to_blank: bool = False
     rescore_last_eos: bool = False
