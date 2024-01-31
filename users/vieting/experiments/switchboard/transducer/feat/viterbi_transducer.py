@@ -30,6 +30,7 @@ def add_transducer_viterbi_output_layer(
     name: str = "output",
     l2: Optional[float] = None,
     dropout: Optional[float] = None,
+    recognition: bool = False,
     **kwargs,
 ):
     network[name] = {
@@ -59,7 +60,7 @@ def add_transducer_viterbi_output_layer(
                 "activation": "tanh",
                 "class": "linear",
                 "dropout": dropout,
-                "from": ["mask_embedding"],
+                "from": ["embedding" if recognition else "mask_embedding"],
                 "n_out": 640,
             },
             "label_lm_2": {
@@ -93,7 +94,7 @@ def add_transducer_viterbi_output_layer(
                 "activation": "tanh",
                 "class": "linear",
                 "dropout": dropout,
-                "from": ["data:source", "unmask_context_reinterpret"],
+                "from": ["data:source", "label_lm_2" if recognition else "unmask_context_reinterpret"],
                 "n_out": 1024,
             },
             "ce_loss": {
@@ -116,6 +117,37 @@ def add_transducer_viterbi_output_layer(
             },
         },
     }
+    if recognition:
+        network[name]["unit"].update({
+            "label_context": {
+                "class": "choice",
+                "from": "output",
+                "input_type": "log_prob",
+                "target": "classes",
+                "beam_size": 1,
+                "initial_output": num_outputs + 1,
+            },
+            "embedding": {
+                "L2": l2,
+                "activation": None,
+                "class": "linear",
+                "from": "prev:label_context",
+                "n_out": 128,
+                "with_bias": False,
+                "initial_output": None,
+                "safe_embedding": True,
+            },
+            "output": {
+                "class": "linear",
+                "from": "joint_encoding",
+                "activation": "log_softmax",
+                "n_out": num_outputs,
+            },
+        })
+        for layer in [
+            "ce_loss", "mask_embedding", "mask_flag", "segmental_loss", "unmask_context", "unmask_context_reinterpret"
+        ]:
+            network[name]["unit"].pop(layer)
     return name
 
 
@@ -163,24 +195,17 @@ def make_conformer_viterbi_transducer_model(
     else:
         raise NotImplementedError
 
-    network["encoder"] = {"class": "copy", "from": from_list}
-    if recognition:
-        network["output"] = {
-            "class": "linear",
-            "from": "encoder",
-            "activation": "log_softmax",
-            "n_out": num_outputs,
-        }
-    else:
-        add_transducer_viterbi_output_layer(
-            network, from_list="encoder", num_outputs=num_outputs, **{**conformer_args_full, **(output_args or {})}
-        )
+    network["encoder"] = {
+        "class": "reinterpret_data",
+        "from": from_list,
+        "size_base": "data:classes",
+    }
+    add_transducer_viterbi_output_layer(
+        network, from_list="encoder", num_outputs=num_outputs, recognition=recognition,
+        **{**conformer_args_full, **(output_args or {})}
+    )
+    if not recognition:
         network.update({
-            "encoder": {
-                "class": "reinterpret_data",
-                "from": from_list,
-                "size_base": "data:classes",
-            },
             "enc_output": {
                 "class": "softmax",
                 "from": "encoder",

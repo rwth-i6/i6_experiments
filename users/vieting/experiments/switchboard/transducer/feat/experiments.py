@@ -187,6 +187,14 @@ def get_datasets_transducer(waveform=True):
         }
         returnn_datasets["eval_datasets"]["devtrain"]["datasets"]["alignment"]["seq_list_filter_file"] = segment_files["devtrain"]
         returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["alignment"]["seq_list_filter_file"] = segment_files["dev.wei"]
+
+    # retrieve silence lexicon
+    nonword_phones = ["[LAUGHTER]", "[NOISE]", "[VOCALIZEDNOISE]"]
+    recog_lexicon = AddEowPhonemesToLexiconJob(
+        rasr_loss_lexicon.creator.bliss_lexicon, nonword_phones=nonword_phones
+    ).out_lexicon
+    dev_corpora["hub5e00"].lexicon["filename"] = recog_lexicon
+
     return returnn_datasets, rasr_loss_corpus, rasr_loss_segments, rasr_loss_lexicon, dev_corpora
 
 
@@ -203,28 +211,44 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
             recog_configs={"recog": nn_args.returnn_recognition_configs[exp]},
         )
 
+    state_tying_file = tk.Path(
+        "/u/vieting/setups/swb/20230406_feat/dependencies/state-tying",
+        hash_overwrite="SWB_STATE_TYING_FILE_MONO_EOW_NOCTX_WEI"
+    )
     recog_args = {
         **{
-            "lm_scales": [0.7],
-            "prior_scales": [0.3, 0.5],
-            "epochs": [],  # [130, 140, 150, "best"],
-            "lookahead_options": {"lm_lookahead_scale": 0.7},
+            "lm_scales": [0.55],
+            "prior_scales": [0.5],
+            "epochs": [290],  # [130, 140, 150, "best"],
+            "lookahead_options": {"lm_lookahead_scale": 0.55},
             "label_scorer_args": {
                 "use_prior": True,
-                "extra_args": {"blank_label_index": 0},
+                "extra_args": {
+                    "blank-label-index": 0,
+                    "context-size": 1,
+                    "label-scorer-type": "tf-ffnn-transducer",
+                    "max-batch-size": 256,
+                    "reduction-factors": "2,2",
+                    "start-label-index": 89,
+                    "transform-output-negate": True,
+                    "use-start-label": True,
+                },
             },
             "label_tree_args": {"skip_silence": True},
             "search_parameters": {
                 "allow-blank-label": True,
-                "allow-label-loop": True,
                 "allow-label-recombination": True,
                 "allow-word-end-recombination": True,
                 "create-lattice": True,
-                "label-pruning": 11.2,
-                "label-pruning-limit": 100000,
+                "full-sum-decoding": True,
+                "label-pruning": 8.8,
+                "label-pruning-limit": 50000,
+                "recombination-lm.type": "simple-history",
+                "separate-recombination-lm": True,
                 "word-end-pruning": 0.5,
-                "word-end-pruning-limit": 10000,
+                "word-end-pruning-limit": 5000,
             },
+            "label_scorer_type": "tf-ffnn-transducer"
         },
         **(recog_args or {}),
     }
@@ -260,8 +284,8 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_lexicon = False
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_all = True
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_file = tk.Path(
-        "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
-        hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
+        "/u/vieting/setups/swb/20230406_feat/dependencies/allophones",
+        hash_overwrite="SWB_ALLOPHONE_FILE_WEI",
         cached=True,
     )
     ctc_nn_system.run_train_step(nn_args.training_args)
