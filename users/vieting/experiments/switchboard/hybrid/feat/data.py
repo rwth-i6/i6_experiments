@@ -31,9 +31,11 @@ def get_corpus_data_inputs_newcv(gmm_system):
     )
     train_segments = splitted_segments_job.out_segments["train"]
     cv_segments = splitted_segments_job.out_segments["cv"]
-    devtrain_segments = text.TailJob(
+    tail_job = text.TailJob(
         train_segments, num_lines=300, zip_output=False
-    ).out
+    )
+    tail_job.out = tail_job.output_path("out.gz")
+    devtrain_segments = tail_job.out
 
     # ******************** NN Init ********************
 
@@ -125,9 +127,11 @@ def get_corpus_data_inputs_oggzip(
         segment_files={1: cv_segments},
         filter_list=blacklisted_segments,
     ).out_single_segment_files[1]
-    devtrain_segments = text.TailJob(
+    tail_job = text.TailJob(
         train_segments, num_lines=300, zip_output=False
-    ).out
+    )
+    tail_job.out.path = "out.gz"  # fix for hash break, see i6_core/#479
+    devtrain_segments = tail_job.out
 
     # alignment hdf and oggzip
     state_tying_job = DumpStateTyingJob(gmm_system.outputs["switchboard"]["final"].crp)

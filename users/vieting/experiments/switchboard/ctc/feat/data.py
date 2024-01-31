@@ -58,9 +58,11 @@ def get_corpus_data_inputs_oggzip(
         segment_files={1: cv_segments},
         filter_list=blacklisted_segments,
     ).out_single_segment_files[1]
-    devtrain_segments = text.TailJob(
+    tail_job = text.TailJob(
         train_segments, num_lines=300, zip_output=False
-    ).out
+    )
+    tail_job.out.path = "out.gz"  # fix for hash break, see i6_core/#479
+    devtrain_segments = tail_job.out
     traincv_segments = corpus_recipe.FilterSegmentsByListJob(
         segment_files={1: all_segments},
         filter_list=blacklisted_segments,
