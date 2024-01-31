@@ -86,6 +86,22 @@ def py():
         },
     )
 
+    train_exp_aed_trafo(
+        "v6-bhv20-f32-bs20k-accgrad10-mgpu2-wd1e_2-lrlin2e_5_438k-speedpertV2",
+        config_v6_f32_bs20k,
+        model_config={"behavior_version": 20},
+        config_updates={
+            "__gpu_mem": 16,
+            "__num_processes": 2,
+            **_get_cfg_lrlin_oclr_by_bs_nep(20_000, 1000, peak_lr=2e-3),
+            "accum_grad_multiple_step": 10,
+            "torch_distributed": {},
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+        },
+    )
+
     # currently NVLINK seems broken, always NCCL error... or I could fallback to slower communication...
     # train_exp(
     #     "v4-f32-mgpu16",
