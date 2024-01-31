@@ -283,6 +283,7 @@ class CTCDecoder:
         one_minus_term_mul_scale=1.0,
         one_minus_term_sub_scale=0.0,
         blank_collapse=False,
+        renorm_p_comb=False,
     ):
         """
         :param base_model: base/encoder model instance
@@ -397,6 +398,7 @@ class CTCDecoder:
         self.one_minus_term_sub_scale = one_minus_term_sub_scale
 
         self.blank_collapse = blank_collapse
+        self.renorm_p_comb = renorm_p_comb
 
         self.network = ReturnnNetwork()
         self.subnet_unit = ReturnnNetwork()
@@ -414,7 +416,7 @@ class CTCDecoder:
         return python_prolog
 
     def add_norm_layer(self, subnet_unit: ReturnnNetwork, name: str):
-        """Add layer norm layer"""
+        """Add layer norm layer (in log space)"""
         subnet_unit.update(
             {
                 f"{name}_norm": {
@@ -606,7 +608,7 @@ class CTCDecoder:
                     "from": "ctc_log_scores_slice",
                     "axis": "f",
                 },
-                # renormalize label probs without blank
+                # renormalize ctc label probs without blank
                 "ctc_log_scores_renorm": {
                     "class": "combine",
                     "kind": "sub",
@@ -622,6 +624,10 @@ class CTCDecoder:
                     "kind": "add",
                     "from": combine_list,
                 },  # [B,V]
+            }
+        )
+
+        subnet_unit.update({
                 # log p_ctc_sigma' (blank | ...)
                 # ----------------------------- #
                 "vocab_range": {"class": "range", "limit": self.target_dim},
@@ -765,6 +771,22 @@ class CTCDecoder:
                     }
                 }
             )
+
+        if self.renorm_p_comb:
+            subnet_unit.update({
+                "combined_att_ctc_scores_1": {
+                    "class": "combine",
+                    "kind": "add",
+                    "from": combine_list,
+                },  # [B,V]
+            })
+            self.add_norm_layer(subnet_unit, "combined_att_ctc_scores_1")
+            subnet_unit.update({
+                "combined_att_ctc_scores": {
+                    "class": "copy",
+                    "from": "combined_att_ctc_scores_1_renorm",
+                },
+            })
 
         if self.rescore_last_eos:
             # rescores with EOS of ts at last frame

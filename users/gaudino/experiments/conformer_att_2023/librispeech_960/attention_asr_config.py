@@ -522,6 +522,7 @@ class CTCDecoderArgs(DecoderArgs):
     length_normalization: bool = False
     hash_override_version: Optional[int] = None
     blank_collapse: bool = False
+    renorm_p_comb: bool = False
 
 
 def create_config(
