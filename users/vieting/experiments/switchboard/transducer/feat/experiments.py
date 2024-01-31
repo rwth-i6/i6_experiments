@@ -3,29 +3,20 @@ import os.path
 from sisyphus import tk, gs
 
 from i6_core import corpus
-from i6_core.meta.system import CorpusObject
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from i6_core.recognition import Hub5ScoreJob
 from i6_core.returnn import RasrFeatureDumpHDFJob, RasrAlignmentDumpHDFJob, BlissToOggZipJob
 from i6_core.text.processing import ConcatenateJob
-from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00
-from i6_experiments.common.setups.rasr.util import RasrDataInput
-from i6_experiments.users.berger.recipe.lexicon.modification import DeleteEmptyOrthJob, MakeBlankLexiconJob
 from i6_experiments.users.vieting.tools.report import Report
 
-# TODO: run_gmm_system_from_common might be copied here for stability
-from i6_experiments.users.vieting.experiments.switchboard.hybrid.feat.experiments import run_gmm_system_from_common
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.experiments import get_datasets as get_datasets_ctc
-from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.data import get_corpus_data_inputs_oggzip
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_system_v2 import (
     TransducerSystem,
     ReturnnConfigs,
     ScorerInfo,
 )
 from .baseline_args import get_nn_args as get_nn_args_baseline
-from .default_tools import RETURNN_ROOT
 from .helpers.lr.oclr import dynamic_learning_rate
-
 from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT, RETURNN_EXE, SCTK_BINARY_PATH
 
 
@@ -211,10 +202,6 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
             recog_configs={"recog": nn_args.returnn_recognition_configs[exp]},
         )
 
-    state_tying_file = tk.Path(
-        "/u/vieting/setups/swb/20230406_feat/dependencies/state-tying",
-        hash_overwrite="SWB_STATE_TYING_FILE_MONO_EOW_NOCTX_WEI"
-    )
     recog_args = {
         **{
             "lm_scales": [0.55],
