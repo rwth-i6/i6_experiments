@@ -55,7 +55,7 @@ def py():
         },
         num_processes=2,
     )
-    train_exp(
+    train_exp(  # 6.31
         "v6-f32-bs20k-accgrad2-mgpu2-wd1e_4",
         config_v6_f32_bs20k,
         config_updates={
@@ -65,6 +65,7 @@ def py():
         },
         num_processes=2,
     )
+
     train_exp(
         "v4-f32-mgpu16",
         config_v4_f32,
