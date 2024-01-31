@@ -48,7 +48,7 @@ def get_ctc_alignment():
     }
 
     prefix = "experiments/jaist_project/standalone_2024/nar_tts/ctc_aligner/"
-    training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", silence_preprocessed=False, partition_epoch=1)
+    training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", partition_epoch=1)
 
     def run_exp(name, params, net_module, config, use_custom_engine=False, debug=False, v2=False, num_epochs=100, with_prior=0.0):
         aligner_config = get_training_config(

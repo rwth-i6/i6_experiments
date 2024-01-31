@@ -24,7 +24,8 @@ def training(
         returnn_config: ReturnnConfig,
         returnn_exe: tk.Path,
         returnn_root: tk.Path,
-        num_epochs: int
+        num_epochs: int,
+        trigger: bool = False,
 ) -> ReturnnTrainingJob:
     """
     Perform RETURNN training
@@ -50,6 +51,9 @@ def training(
         num_epochs=num_epochs,
         **default_rqmt
     )
+    if trigger:
+        print(train_job)
+        assert False
     train_job.add_alias(prefix_name + "/training")
     tk.register_output(prefix_name + "/learning_rates", train_job.out_learning_rates)
 
@@ -265,7 +269,7 @@ def tts_generation(
         checkpoint,
         returnn_exe,
         returnn_root,
-        mem_rqmt=8,
+        mem_rqmt=16,
 ):
     """
     Run search for a specific test dataset
@@ -282,9 +286,9 @@ def tts_generation(
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=4,
+        time_rqmt=24,
         device="cpu",
-        cpu_rqmt=4,
+        cpu_rqmt=8,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
         output_files=["audio_files", "out_corpus.xml.gz"],

@@ -145,6 +145,8 @@ def conformer_rnnt_ls960():
         joiner_activation="relu",
         joiner_dropout=0.1,
     )
+    model_config_v5_sub6_512lstm_start1 = copy.deepcopy(model_config_v5_sub6_512lstm)
+    model_config_v5_sub6_512lstm_start1.specauc_start_epoch = 1
 
 
     train_args = {
@@ -160,7 +162,34 @@ def conformer_rnnt_ls960():
     train_job, _ = run_exp(
         prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub6_start20_lstm512_amp16/bs12",
         datasets=train_data, train_args=train_args, search_args=search_args)
+
     
+    
+    train_args_continue_ctc = copy.deepcopy(train_args)
+    train_args_continue_ctc["config"]["batch_size"] = 120 * 16000
+    train_args_continue_ctc["net_args"] = {"model_config_dict": asdict(model_config_v5_sub6_512lstm_start1)}
+    train_args_continue_ctc["config"]["preload_from_files"] = {
+        "encoder": {
+            "filename": ctc_models["bpe5k_i6modelsLV1_LRv2_sub6_ep50"],
+            "init_for_train": True,
+            "ignore_missing": True,
+        }
+    }
+    train_job, _ = run_exp(
+        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub6_start1_accum2_lstm512_amp16_init_from_ctc_50eps/bs12",
+        datasets=train_data, train_args=train_args_continue_ctc, search_args=search_args)
+    # train_job.hold()
+
+
+    train_args_continue_ctc_LR5 = copy.deepcopy(train_args_continue_ctc)
+    train_args_continue_ctc_LR5["config"]["learning_rates"] =  list(np.linspace(5e-5, 5e-4, 120)) + list(
+        np.linspace(5e-4, 5e-5, 120)) + list(np.linspace(5e-5, 1e-7, 10))
+    train_job, _ = run_exp(
+        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub6_start1_accum2_lstm512_LR5_amp16_init_from_ctc_50eps/bs12",
+        datasets=train_data, train_args=train_args_continue_ctc_LR5, search_args=search_args)
+    train_job.hold()
+
+    # Sub-4 from here
     
 
     frontend_config = VGG4LayerActFrontendV1Config_mod(
@@ -216,10 +245,11 @@ def conformer_rnnt_ls960():
         "beam_size": 12,
         "returnn_vocab": label_datastream.vocab,
     }
-    train_job, _ = run_exp(
-        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub4_start20_lstm512_amp16/bs12",
-        datasets=train_data, train_args=train_args, search_args=search_args)
-    train_job.hold()
+    # Had NaN in training
+    # train_job, _ = run_exp(
+    #     prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub4_start20_lstm512_amp16/bs12",
+    #     datasets=train_data, train_args=train_args, search_args=search_args)
+    #  train_job.hold()
 
 
     train_args_continue_ctc = copy.deepcopy(train_args)

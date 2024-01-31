@@ -68,12 +68,13 @@ class GlowTTSMultiHeadAttentionV1(nn.Module):
             self.conv_k.bias.data.copy_(self.conv_q.bias.data)
         nn.init.xavier_uniform_(self.conv_v.weight)
 
-    def forward(self, x, c, attn_mask=None):
+    def forward(self, x, c, attn_mask=None, causal=False):
         """
 
         :param x: [B, T, F] if features_last else [B, F, T]
         :param c: [B, T, F] if features_last else [B, F, T]
         :param attn_mask: [B, T] if features_last else [B, 1, T]
+        :param causal: multiply attention mask with causal mask
         :return:
         """
         if self.features_last:
@@ -88,6 +89,11 @@ class GlowTTSMultiHeadAttentionV1(nn.Module):
             v = self.conv_v(c)
 
         attn_mask_full = attn_mask.unsqueeze(2) * attn_mask.unsqueeze(-1)
+
+        if causal:
+            causal_mask = torch.ones((1, 1, attn_mask_full.size(2), attn_mask_full.size(3))).tril(0)
+            attn_mask_full = attn_mask_full * causal_mask
+
         x, self.attn = self.attention(q, k, v, mask=attn_mask_full)
 
         x = self.conv_o(x)

@@ -3,14 +3,13 @@ The new version of data.py for the 2023 Slurm and Rescale/NeuroSys setups
 """
 from sisyphus import tk
 from functools import lru_cache
-from typing import Dict, List, Optional, Tuple
-
+from typing import List, Optional
 
 from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict, get_bliss_lexicon
 from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe_v2
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
-
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import BpeDatastream
+
 from i6_experiments.users.rossenbach.lexicon.bpe_lexicon import CreateBPELexiconJob
 
 from .common import TrainingDatasetSettings, TrainingDatasets, build_training_datasets, DATA_PREFIX
@@ -41,6 +40,13 @@ def get_bpe_datastream(librispeech_key: str, bpe_size: int, is_recog: bool) -> B
 
 
 def get_lexicon(librispeech_key: str, bpe_size: int) -> tk.Path:
+    """
+    Create BPE lexicon without unknown and silence
+
+    :param librispeech_key: which LibriSpeech part to use (will generate entries for training OOVs using G2P)
+    :param bpe_size: number of BPE splits
+    :return: path to a lexicon bliss xml file
+    """
     subword_nmt_repo = get_returnn_subword_nmt(
         commit_hash = "5015a45e28a958f800ef1c50e7880c0c9ef414cf",
         output_prefix=DATA_PREFIX
@@ -61,8 +67,11 @@ def get_lexicon(librispeech_key: str, bpe_size: int) -> tk.Path:
 
 def get_text_lexicon(librispeech_key: str, bpe_size: int) -> tk.Path:
     """
+    Get a bpe lexicon in line-based text format to be used for torchaudio decoding
 
-    :return:
+    :param librispeech_key: which LibriSpeech part to use (will generate entries for training OOVs using G2P)
+    :param bpe_size: number of BPE splits
+    :return: path to a lexicon text file
     """
     bliss_lex = get_lexicon(librispeech_key=librispeech_key, bpe_size=bpe_size)
     from i6_experiments.users.rossenbach.lexicon.conversion import BlissLexiconToWordLexicon
@@ -74,11 +83,16 @@ def build_bpe_training_datasets(
         librispeech_key: str,
         bpe_size: int,
         settings: TrainingDatasetSettings,
-        real_data_weight=1,
-        extra_zips=None
+        real_data_weight:int = 1,
+        extra_zips: Optional[List[tk.Path]] = None
 ) -> TrainingDatasets:
     """
+
+    :param librispeech_key: which LibriSpeech part to use (will generate entries for training OOVs using G2P)
+    :param bpe_size: number of BPE splits
     :param settings: configuration object for the dataset pipeline
+    :param real_data_weight: how often to repeat the original LibriSpeech data
+    :param extra_zips: additional (e.g. synthetic) data ogg-zips to include in the training
     """
     label_datastream = get_bpe_datastream(librispeech_key=librispeech_key, bpe_size=bpe_size, is_recog=False)
     

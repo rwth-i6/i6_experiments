@@ -25,26 +25,24 @@ from ...storage import duration_alignments, vocoders, add_synthetic_data
 
 
 
-def run_fastspeech_like_tts():
+def run_tacotron2_decoder_tts():
     """
-    New setup using the shared encoder for fastspeech style NAR-TTS system
     """
 
     config = {
         "optimizer": {"class": "adam", "epsilon": 1e-9},
-        "learning_rates": list(np.linspace(1e-4, 1e-3, 100)) + list(
-            np.linspace(1e-3, 1e-6, 100)),
+        "learning_rates":  list(np.linspace(5e-5, 5e-4, 100)) + list(np.linspace(5e-4, 5e-7, 100)),
         # "gradient_clip": 1.0,
         "gradient_clip_norm": 2.0,
         "use_learning_rate_control_always": True,
         #############
-        "batch_size": 300 * 16000,
+        "batch_size": 600 * 16000,
         "max_seq_length": {"audio_features": 30 * 16000},
         "batch_drop_last": True,  # otherwise might cause issues in indexing after local sort in train_step
         "max_seqs": 200,
     }
 
-    prefix = "experiments/jaist_project/standalone_2024/nar_tts/fastspeech_like/"
+    prefix = "experiments/jaist_project/standalone_2024/ar_tts/tacotron2_decoder/"
 
     def run_exp(name, params, net_module, config, duration_hdf, decoder_options, extra_decoder=None, use_custom_engine=False, debug=False):
         training_datasets = build_durationtts_training_dataset(duration_hdf=duration_hdf)
@@ -138,17 +136,17 @@ def run_fastspeech_like_tts():
 
     norm = (log_mel_datastream.additional_options["norm_mean"], log_mel_datastream.additional_options["norm_std_dev"])
 
-    net_module = "nar_tts.fastspeech_like.fastspeech_like_v1"
+    net_module = "ar_tts.tacotron2_decoding.tacotron2_decoding_v1"
 
-    from ...pytorch_networks.nar_tts.fastspeech_like.fastspeech_like_v1 import (
+    from ...pytorch_networks.ar_tts.tacotron2_decoding.tacotron2_decoding_v1 import (
         DbMelFeatureExtractionConfig,
-        FastSpeechDecoderConfig,
         TTSTransformerTextEncoderV1Config,
-        GlowTTSMultiHeadAttentionV1Config,
         SimpleConvDurationPredictorV1Config,
+        Tacotron2DecoderConfig,
         Config
     )
     from ...pytorch_networks.tts_shared.encoder.prenet import TTSEncoderPreNetV1Config
+    from ...pytorch_networks.tts_shared.encoder.rel_mhsa import GlowTTSMultiHeadAttentionV1Config
 
     assert isinstance(log_mel_datastream.options.feature_options, DBMelFilterbankOptions)
     fe_config = DbMelFeatureExtractionConfig(
@@ -196,23 +194,19 @@ def run_fastspeech_like_tts():
         dropout=0.1,
     )
 
-    mhsa_decoder_config = GlowTTSMultiHeadAttentionV1Config(
-        input_dim=256,
-        num_att_heads=2,
-        dropout=0.1,
-        att_weights_dropout=0.1,
-        window_size=16,  # one-sided, so technically 9
-        heads_share=True,
-    )
-
-    decoder_config = FastSpeechDecoderConfig(
-        target_channels=log_mel_datastream.options.num_feature_filters,
-        basic_dim=256,
-        conv_dim=1024,
-        conv_kernel_size=3,
-        num_layers=6,
-        dropout=0.1,
-        mhsa_config=mhsa_decoder_config,
+    decoder_config = Tacotron2DecoderConfig(
+        dlayers=2,
+        dunits=1024,
+        prenet_layers=2,
+        prenet_units=256,
+        postnet_layers=5,
+        postnet_chans=512,
+        postnet_filts=5,
+        use_batch_norm=True,
+        use_concate=True,
+        dropout_rate=0.5,
+        zoneout_rate=0.1,
+        reduction_factor=2,
     )
 
     model_config = Config(
@@ -243,69 +237,10 @@ def run_fastspeech_like_tts():
     decoder_options_synthetic["gl_momentum"] = 0.0
     decoder_options_synthetic["gl_iter"] = 1
     decoder_options_synthetic["create_plots"] = False
-    
-    
-    duration_hdf = duration_alignments["ctc.tts_aligner_1223.ctc_aligner_tts_fe_v8_tfstyle_v2_fullength"]
-    train, forward = run_exp(net_module + "_fromctc_v1_halfbatch", params, net_module, config,
-                             extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
 
-    generate_synthetic(net_module + "_fromctc_v1_halfbatch_syn", "train-clean-100",
-                       train.out_checkpoints[200], params, net_module,
-                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True)
-    
-    config_halflr_fp16 = copy.deepcopy(config)
-    config_halflr_fp16["learning_rates"] = list(np.linspace(5e-5, 5e-4, 100)) + list(np.linspace(5e-4, 5e-7, 100))
-    config_halflr_fp16["torch_amp_options"] = {"dtype": "bfloat16"}
-    train, forward = run_exp(net_module + "_fromctc_v1_halfbatch_fixlr_fp16", params, net_module, config_halflr_fp16,
-                             extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
-    # train.hold()
-    
-    generate_synthetic(net_module + "_fromctc_v1_halfbatch_fixlr_fp16_syn", "train-clean-100",
-                       train.out_checkpoints[200], params, net_module,
-                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True)
-    
-    generate_synthetic(net_module + "_fromctc_v1_halfbatch_fixlr_fp16_syn", "train-clean-360",
-                       train.out_checkpoints[200], params, net_module,
-                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True)
 
-    # Durations from "small GlowTTS"
     duration_hdf = duration_alignments["glow_tts.lukas_baseline_bs600_v2"]
-    train, forward = run_exp(net_module + "_fromglow_v1_halfbatch", params, net_module, config,
-                             extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
 
-    # config_run2 = copy.deepcopy(config)
-    # config_run2["random_seed"] = 43
-    # train, forward = run_exp(net_module + "_fromglow_v1_halfbatch_run2", params, net_module, config_run2,
-    #                          extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
-
-    # config_fp16 = copy.deepcopy(config)
-    # config_fp16["torch_amp_options"] = {"dtype": "bfloat16"}
-    # train, forward = run_exp(net_module + "_fromglow_v1_halfbatch_fp16", params, net_module, config_fp16,
-    #                          extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
-
-
-    train, forward = run_exp(net_module + "_fromglow_v1_halfbatch_fixlr_fp16", params, net_module, config_halflr_fp16,
+    train, forward = run_exp(net_module + "_fromglow_v1", params, net_module, config,
                              extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
     # train.hold()
-    generate_synthetic(net_module + "_fromglow_v1_halfbatch_fixlr_fp16_syn", "train-clean-100",
-                       train.out_checkpoints[200], params, net_module,
-                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True)
-    
-    generate_synthetic(net_module + "_fromglow_v1_halfbatch_fixlr_fp16_syn", "train-clean-360",
-                       train.out_checkpoints[200], params, net_module,
-                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True)
-
-
-    duration_hdf = duration_alignments["glow_tts.glow_tts_v1_bs600_v2_base256"]
-    train, forward = run_exp(net_module + "_fromglowbase256_v1_halfbatch_fixlr_fp16", params, net_module, config_halflr_fp16,
-                             extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
-    
-    generate_synthetic(net_module + "_fromglowbase256_v1_halfbatch_fixlr_fp16_syn", "train-clean-100",
-                       train.out_checkpoints[200], params, net_module,
-                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True)

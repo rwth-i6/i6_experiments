@@ -43,7 +43,7 @@ def train_gl_vocoder():
     }
 
     prefix = "experiments/jaist_project/standalone_2024/vocoder/simple_gl/"
-    training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", silence_preprocessed=False, partition_epoch=1)
+    training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", partition_epoch=1)
 
     def run_exp(name, params, net_module, config, use_custom_engine=False, debug=False, num_epochs=50):
         train_config = get_training_config(

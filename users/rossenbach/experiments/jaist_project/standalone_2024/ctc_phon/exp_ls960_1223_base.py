@@ -191,7 +191,7 @@ def eow_phon_ls960_1023_base():
             
     train_args_gc1 = copy.deepcopy(train_args)
     train_args_gc1["config"]["gradient_clip"] = 1.0
-    train_args_gc1["config"]["torch_amp_options"] =  {"dtype": "bfloat16"}
+    train_args_gc1["config"]["torch_amp_options"] = {"dtype": "bfloat16"}
     for lm_weight in [2.5, 3.0, 3.5]:
         for prior_scale in [0.0, 0.3, 0.5]:
             search_args = {
@@ -308,3 +308,11 @@ def eow_phon_ls960_1023_base():
                         lm_weight, prior_scale),
                     datasets=train_data, train_args=train_args_gc1_50eps, search_args=search_args, with_prior=True,
                     num_epochs=500, average_checkpoints=10)
+
+                search_args_fast_v1 = copy.deepcopy(search_args)
+                search_args_fast_v1["beam_size_token"] = 20
+                train, _ = run_exp(
+                    prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_large_LRv2_50epsJJ_halfspec_amp16/lm%.1f_prior%.2f_bs1024_th14_fastsearch_v1" % (
+                        lm_weight, prior_scale),
+                    datasets=train_data, train_args=train_args_gc1_50eps, search_args=search_args_fast_v1, with_prior=True,
+                    num_epochs=500)

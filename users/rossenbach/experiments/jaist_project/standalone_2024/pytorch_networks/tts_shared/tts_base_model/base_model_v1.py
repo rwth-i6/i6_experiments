@@ -46,7 +46,7 @@ class BaseTTSModelV1(nn.Module):
 
         self.spk_emb = nn.Embedding(num_speakers, speaker_embedding_size)
 
-    def extract_features(self, raw_audio, raw_audio_lengths):
+    def extract_features(self, raw_audio, raw_audio_lengths, time_last=True):
         """
 
         :param raw_audio: [B, T, 1]
@@ -58,7 +58,8 @@ class BaseTTSModelV1(nn.Module):
             y, y_lengths = self.feature_extraction(
                 squeezed_audio, raw_audio_lengths
             )  # [B, T, F]
-            y = y.transpose(1, 2)  # [B, F, T]
+            if time_last:
+                y = y.transpose(1, 2)  # [B, F, T]
         return y, y_lengths
 
     def forward_encoder(self, phon_labels, labels_lengths, speaker_label):

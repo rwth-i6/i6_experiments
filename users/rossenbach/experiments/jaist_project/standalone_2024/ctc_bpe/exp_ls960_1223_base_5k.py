@@ -306,3 +306,16 @@ def conformer_baseline_5k():
                 prefix_name + "conformer_1223_5k/i6modelsV1_VGG4LayerActFrontendV1_v6_sub6_LRv2_halfspec_start11_50eps_amp16/lm%.1f_prior%.2f_bs1024_th14" % (
                     lm_weight, prior_scale),
                 datasets=train_data, train_args=train_args_gc1_50eps, search_args=search_args, with_prior=True, num_epochs=500)
+    for lm_weight in [1.4, 1.6, 1.8]:
+        for prior_scale in [0.2, 0.3]:
+            search_args = {
+                **default_search_args,
+                "lm_weight": lm_weight,
+                "prior_scale": prior_scale,
+            }
+            train_job, _ = run_exp(
+                prefix_name + "conformer_1223_5k/i6modelsV1_VGG4LayerActFrontendV1_v6_sub6_LRv2_halfspec_start11_50eps_amp16/lm%.1f_prior%.2f_bs1024_th14" % (
+                    lm_weight, prior_scale),
+                datasets=train_data, train_args=train_args_gc1_50eps, search_args=search_args, with_prior=True, num_epochs=500)
+
+    add_ctc_model("bpe5k_i6modelsLV1_LRv2_sub6_ep50", train_job.out_checkpoints[500])

@@ -23,7 +23,7 @@ from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset
 
 from ..default_tools import MINI_RETURNN_ROOT, RETURNN_EXE
 
-DATA_PREFIX = "experiments/librispeech/2023_standalone/data/"
+DATA_PREFIX = ("experiments/jaist_project/standalone_2024/data/")
 
 # -------------- Dataclasses for configuration and data passing -------------------
 
@@ -42,6 +42,18 @@ class TrainingDatasets:
 
 @dataclass()
 class TrainingDatasetSettings:
+    """
+    A helper structure for the dataset settings that are configurable in RETURNN
+
+    Args:
+        custom_prcessing_function: the name of a python function added to the config
+            this function can be used to process the input waveform
+        partition_epoch: use this split of the data for one training epoch
+        epoch_wise_filters: can be used to limit e.g. the sequence lengths at the beginning of the training
+        seq_ordering: see RETURNN settings on sequence sorting
+        preemphasis: filter scale for high-pass z-filter
+        peak_normalization: normalize input utterance to unit amplitude peak
+    """
     # features settings
     custom_processing_function: Optional[str]
 
@@ -56,8 +68,13 @@ class TrainingDatasetSettings:
 
 
 @lru_cache()
-def get_audio_raw_datastream(preemphasis: Optional[float] = None, peak_normalization: bool = False) -> AudioRawDatastream:
+def get_audio_raw_datastream(
+        preemphasis: Optional[float] = None,
+        peak_normalization: bool = False
+) -> AudioRawDatastream:
     """
+    Return the datastream for raw-audio input settings for RETURNN
+
     :param preemphasis: set the pre-emphasis filter factor
     :param peak_normalization: normalize every utterance to peak amplitude 1
     """
@@ -68,12 +85,13 @@ def get_audio_raw_datastream(preemphasis: Optional[float] = None, peak_normaliza
     return audio_datastream
 
 
-def get_zip(name: str, bliss_dataset: tk.Path):
+def get_zip(name: str, bliss_dataset: tk.Path) -> tk.Path:
     """
+    Helper function to generate an ogg-zips from a bliss corpus already containing ogg files
 
-    :param name:
-    :param bliss_dataset:
-    :return:
+    :param name: name of the dataset
+    :param bliss_dataset: path to the bliss corpus xml
+    :return: path to ogg-zip file
     """
     zip_dataset_job = BlissToOggZipJob(
         bliss_corpus=bliss_dataset,
@@ -94,13 +112,15 @@ def build_training_datasets(
         dev_other_ogg: tk.Path,
         label_datastream: Datastream,
         settings: TrainingDatasetSettings,
-    ) -> TrainingDatasets:
+) -> TrainingDatasets:
     """
-    :param train_ogg:
-    :param dev_clean_ogg:
-    :param dev_other_ogg:
-    :param label_datastream:
-    :param settings:
+    generic dataset construction helper to be used by the phon/bpe specific variants
+
+    :param train_ogg: path to the train zip, potentially containing altered transcriptions
+    :param dev_clean_ogg: path to the ls dev-clean zip, potentially containing altered transcriptions
+    :param dev_other_ogg: path to the ls dev-other zip, potentially containing altered transcriptions
+    :param label_datastream: label datastream (e.g. phoneme or bpe related)
+    :param settings: settings object for the RETURNN data pipeline
     """
     audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
 
@@ -181,13 +201,14 @@ def build_test_dataset(
         dataset_key: str,
         preemphasis: Optional[float] = None,
         peak_normalization: bool = False,
-    ):
+    ) -> Tuple[Dataset, tk.Path]:
     """
+    Create ASR test set that only contains the audio stream
 
     :param dataset_key: e.g. dev-other, which test set to create
-    :param preemphasis:
-    :param peak_normalization:
-    :return:
+    :param preemphasis: see TrainingDatasetSettings
+    :param peak_normalization: see TrainingDatasetSettings
+    :return: tuple of the test dataset and a path to the corresponding bliss corpus file
     """
     ogg_zip_dict = get_ogg_zip_dict("corpora", returnn_root=MINI_RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
     bliss_dict = get_bliss_corpus_dict()

@@ -1,13 +1,13 @@
+"""
+Dataset helpers for aligner system or TTS systems that perform internal alignment
+
+Basically means that audio, phonemes and speaker is provided, but no extra duration HDF
+"""
 from dataclasses import dataclass
-import os
-from sisyphus import tk
-from typing import Dict
 
 from i6_core.returnn.dataset import SpeakerLabelHDFFromBlissJob
-from i6_core.returnn.oggzip import BlissToOggZipJob
 
 from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset, HDFDataset
-from i6_experiments.common.setups.returnn.datastreams.base import Datastream
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 
 from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech_tts_segments
@@ -22,6 +22,7 @@ from .tts_phon import (
 
 from ..default_tools import MINI_RETURNN_ROOT
 
+
 @dataclass(frozen=True)
 class AlignmentTrainingDatasets(TrainingDatasets):
     """
@@ -31,19 +32,18 @@ class AlignmentTrainingDatasets(TrainingDatasets):
     # train: Dataset
     # cv: Dataset
     joint: Dataset
-    # datastreams: Dict[str, Datastream]
 
 
 def build_training_dataset(
-        ls_corpus_key="train-clean-100",
-        silence_preprocessed=False,
-        partition_epoch=1
+        ls_corpus_key:str = "train-clean-100",
+        partition_epoch: int = 1
     ) -> AlignmentTrainingDatasets:
     """
 
-    :param center: do feature centering
+    :param ls_corpus_key: which LibriSpeech part to use
+    :param partition_epoch: partition factor for the training data
     """
-    bliss_dataset, zip_dataset = get_tts_bliss_and_zip(ls_corpus_key=ls_corpus_key, silence_preprocessed=silence_preprocessed)
+    bliss_dataset, zip_dataset = get_tts_bliss_and_zip(ls_corpus_key=ls_corpus_key)
 
     # segments for train-clean-100-tts-train and train-clean-100-tts-dev
     # (1004 segments for dev, 4 segments for each of the 251 speakers)

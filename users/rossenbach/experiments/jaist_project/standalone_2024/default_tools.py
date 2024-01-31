@@ -18,7 +18,7 @@ SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
 SCTK_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_SCTK_BINARY_PATH"
 
 from i6_core.tools.git import CloneGitRepositoryJob
-from i6_core.lm.kenlm import CompileKenLMJob, CreateBinaryLMJob
+from i6_core.lm.kenlm import CompileKenLMJob
 
 kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository
 KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries

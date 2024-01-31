@@ -30,9 +30,6 @@ class TTSTransformerTextEncoderV1Config():
         return TTSTransformerTextEncoderV1Config(**d)
 
 
-
-
-
 class DualConv(nn.Module):
     def __init__(self, base_channels, hidden_channels, kernel_size, p_dropout=0., activation=None):
         super().__init__()
@@ -49,11 +46,46 @@ class DualConv(nn.Module):
     def forward(self, x, x_mask):
         """
 
-        :param x: [B, F, T]
+        :param x: [B, base_channels, T]
         :param x_mask: [B, 1, T]
         :return:
         """
         x = self.conv_1(x * x_mask)
+        if self.activation == "gelu":
+          x = x * torch.sigmoid(1.702 * x)
+        else:
+          x = torch.relu(x)
+        x = self.drop(x)
+        x = self.conv_2(x * x_mask)
+        return x * x_mask
+
+
+class ConditionedDualConv(nn.Module):
+    def __init__(self, base_channels, hidden_channels, condition_channels, kernel_size, p_dropout=0., activation=None):
+        super().__init__()
+        self.base_channels = base_channels
+        self.hidden_channels = hidden_channels
+        self.kernel_size = kernel_size
+        self.p_dropout = p_dropout
+        self.activation = activation
+
+        self.conv_1 = nn.Conv1d(base_channels, hidden_channels, kernel_size, padding=kernel_size//2)
+        self.ff_cond = nn.Conv1d(condition_channels, hidden_channels, 1)
+        self.conv_2 = nn.Conv1d(hidden_channels, base_channels, kernel_size, padding=kernel_size//2)
+        self.drop = nn.Dropout(p_dropout)
+
+    def forward(self, x, x_mask, cond):
+        """
+
+        :param x: [B, base_channels, T]
+        :param x_mask: [B, 1, T]
+        :param cond: [B, condition_channels, 1]
+        :return:
+        """
+
+        cond_out = self.ff_cond(cond)
+
+        x = self.conv_1(x * x_mask) + cond_out
         if self.activation == "gelu":
           x = x * torch.sigmoid(1.702 * x)
         else:

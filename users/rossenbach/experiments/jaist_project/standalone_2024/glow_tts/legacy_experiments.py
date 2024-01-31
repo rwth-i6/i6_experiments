@@ -48,7 +48,7 @@ def get_flow_tts():
     }
 
     prefix = "experiments/jaist_project/standalone_2024/glow_tts/"
-    training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", silence_preprocessed=False, partition_epoch=1)
+    training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", partition_epoch=1)
 
     def run_exp(name, params, net_module, config, decoder_options, extra_decoder=None, use_custom_engine=False, debug=False, num_epochs=100):
         train_config = get_training_config(
@@ -209,7 +209,7 @@ def get_flow_tts():
         "config": asdict(model_config)
     }
     local_config = copy.deepcopy(config)
-    train = run_exp(net_module + "_v1", params, net_module, local_config, decoder_options=decoder_options, debug=True)
+    # train = run_exp(net_module + "_v1", params, net_module, local_config, decoder_options=decoder_options, debug=True)
     # train.hold()
     
     params = {
@@ -217,7 +217,7 @@ def get_flow_tts():
     }
     local_config = copy.deepcopy(config)
     local_config["batch_size"] = 600 * 16000
-    train = run_exp(net_module + "_bs600", params, net_module, local_config, decoder_options=decoder_options, debug=True)
+    # train = run_exp(net_module + "_bs600", params, net_module, local_config, decoder_options=decoder_options, debug=True)
     # train.hold()
 
     # With new GL decoder
@@ -298,7 +298,13 @@ def get_flow_tts():
 
     decoder_options_speedtest_07 = copy.deepcopy(decoder_options_speedtest)
     decoder_options_speedtest_07["glowtts_noise_scale"] = 0.7
+
     synthetic_corpus = generate_synthetic(net_module + "_bs600_v2_newgl_noise0.7_syn", "train-clean-100",
+                                          train.out_checkpoints[200], params, net_module,
+                                          extra_decoder="glow_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_speedtest_07, debug=True)
+
+    synthetic_corpus = generate_synthetic(net_module + "_bs600_v2_newgl_noise0.7_syn", "train-clean-360",
                                           train.out_checkpoints[200], params, net_module,
                                           extra_decoder="glow_tts.simple_gl_decoder",
                                           decoder_options=decoder_options_speedtest_07, debug=True)

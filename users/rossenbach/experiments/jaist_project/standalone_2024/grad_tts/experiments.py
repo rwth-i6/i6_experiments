@@ -15,12 +15,12 @@ from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPat
 from ..data.aligner import build_training_dataset
 from ..config import get_training_config, get_prior_config, get_forward_config
 from ..pipeline import training, extract_durations, tts_eval, tts_generation
-from ..data.tts_phon import get_tts_log_mel_datastream, build_fixed_speakers_generating_dataset, get_tts_extended_bliss
+from ..data.tts_phon import get_tts_log_mel_datastream, build_fixed_speakers_generating_dataset, get_tts_extended_bliss, build_durationtts_training_dataset
 
 
 
 from ..default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ..storage import add_duration, vocoders, add_synthetic_data
+from ..storage import add_duration, vocoders, add_synthetic_data, duration_alignments
 
 
 
@@ -45,11 +45,16 @@ def run_diffusion_tts():
     }
 
     prefix = "experiments/jaist_project/standalone_2024/grad_tts/"
-    training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", silence_preprocessed=False, partition_epoch=1)
+    training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", partition_epoch=1)
 
-    def run_exp(name, params, net_module, config, decoder_options, extra_decoder=None, use_custom_engine=False, debug=False, num_epochs=100):
+    def run_exp(name, params, net_module, config, decoder_options, extra_decoder=None, use_custom_engine=False, target_durations=None, debug=False, num_epochs=100):
+        if target_durations is not None:
+            training_datasets_ = build_durationtts_training_dataset(duration_hdf=target_durations, ls_corpus_key="train-clean-100")
+        else:
+            training_datasets_ = training_datasets
+
         train_config = get_training_config(
-            training_datasets=training_datasets,
+            training_datasets=training_datasets_,
             network_module=net_module,
             net_args=params,
             config=config,
@@ -62,6 +67,7 @@ def run_diffusion_tts():
             returnn_root=MINI_RETURNN_ROOT,
             prefix_name=prefix + name,
             num_epochs=num_epochs,
+            trigger=False,
         )
         forward_config = get_forward_config(
             network_module=net_module,
@@ -105,6 +111,7 @@ def run_diffusion_tts():
                 },
                 debug=debug,
             )
+            forward_config.config["max_seqs"] = 30
             forward_job = tts_generation(
                 prefix_name=prefix + name + f"/{target_ls_corpus}_split{i}",
                 returnn_config=forward_config,
@@ -253,6 +260,191 @@ def run_diffusion_tts():
     local_config = copy.deepcopy(config)
     decoder_options = copy.deepcopy(decoder_options_base)
     decoder_options["gradtts_num_steps"] = 10
-    train = run_exp(net_module + "_bs600_newgl_noise0.3", params, net_module, local_config, extra_decoder="grad_tts.simple_gl_decoder", decoder_options=decoder_options,
+    train = run_exp(net_module + "_bs600_newgl", params, net_module, local_config, extra_decoder="grad_tts.simple_gl_decoder", decoder_options=decoder_options,
                     debug=True, num_epochs=200)
     train.hold()
+
+
+    # net_module = "grad_tts.grad_tts_v1_ext_dur"
+    # duration_hdf = duration_alignments["glow_tts.lukas_baseline_bs600_v2"]
+    # print(duration_hdf)
+    # train = run_exp(net_module + "_bs600_newgl_extdurtest", params, net_module, local_config, extra_decoder="grad_tts.simple_gl_decoder", decoder_options=decoder_options,
+    #                 target_durations=duration_hdf, debug=True, num_epochs=200)
+    # train.hold()
+
+
+    
+    
+    from ..pytorch_networks.grad_tts.grad_tts_v2 import (
+        MuNetConfig,
+        Config,
+    )
+    
+    
+    munet_mhsa_config = GlowTTSMultiHeadAttentionV1Config(
+        input_dim=256,
+        num_att_heads=4,
+        dropout=0.1,
+        att_weights_dropout=0.1,
+        window_size=4,  # one-sided, so technically 9
+        heads_share=True,
+    )
+
+    mu_net_config = MuNetConfig(
+        num_layers=2,
+        input_dim=192,
+        basic_dim=256,
+        conv_dim=1024,
+        conv_kernel_size=3,
+        mhsa_config=munet_mhsa_config,
+        dropout=0.1
+    )
+
+    model_config = Config(
+        feature_extraction_config=fe_config,
+        encoder_config=encoder_config,
+        duration_predictor_config=duration_predictor_config,
+        mu_net_config=mu_net_config,
+        diffusion_decoder_config=decoder_config,
+        num_speakers=251,
+        speaker_embedding_size=256,
+        decoder_segment_num_frames=160,  # 2 seconds, just like in reference implementation
+    )
+
+    net_module = "grad_tts.grad_tts_v2"
+
+    params = {
+        "config": asdict(model_config)
+    }
+
+    vocoder = vocoders["blstm_gl_v1"]
+    decoder_options_base = {
+        "norm_mean": norm[0],
+        "norm_std_dev": norm[1],
+        "gl_net_checkpoint": vocoder.checkpoint,
+        "gl_net_config": vocoder.config,
+        "gradtts_num_steps": 4,
+        "gradtts_noise_scale": 0.5,
+
+    }
+
+    local_config = copy.deepcopy(config)
+    decoder_options = copy.deepcopy(decoder_options_base)
+    decoder_options["gradtts_num_steps"] = 10
+    train = run_exp(net_module + "_bs600_newgl_mu2", params, net_module, local_config,
+                    extra_decoder="grad_tts.simple_gl_decoder", decoder_options=decoder_options,
+                    debug=True, num_epochs=200)
+    train.hold()
+    
+    net_module = "grad_tts.grad_tts_v2_ext_dur"
+    duration_hdf = duration_alignments["glow_tts.lukas_baseline_bs600_v2"]
+    train = run_exp(net_module + "_bs300_newgl_extdurtest", params, net_module, local_config, extra_decoder="grad_tts.simple_gl_decoder", decoder_options=decoder_options,
+                    target_durations=duration_hdf, debug=True, num_epochs=200)
+    # train.hold()
+
+    decoder_options_syn = copy.deepcopy(decoder_options_base)
+    synthetic_corpus = generate_synthetic(net_module + "_bs300_newgl_extdurtest_syn", "train-clean-100",
+                                          train.out_checkpoints[200], params, net_module,
+                                          extra_decoder="grad_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_syn, debug=True)
+    
+    synthetic_corpus = generate_synthetic(net_module + "_bs300_newgl_extdurtest_syn", "train-clean-360",
+                                          train.out_checkpoints[200], params, net_module,
+                                          extra_decoder="grad_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_syn, debug=True)
+    
+    
+    # correct size
+    
+    prenet_config = TTSEncoderPreNetV1Config(
+        input_embedding_size=256,
+        hidden_dimension=256,
+        kernel_size=5,
+        num_layers=3,
+        dropout=0.5,
+        output_dimension=256,
+    )
+    mhsa_config = GlowTTSMultiHeadAttentionV1Config(
+        input_dim=256,
+        num_att_heads=2,
+        dropout=0.1,
+        att_weights_dropout=0.1,
+        window_size=4,  # one-sided, so technically 9
+        heads_share=True,
+    )
+    encoder_config = TTSTransformerTextEncoderV1Config(
+        num_layers=6,
+        vocab_size=training_datasets.datastreams["phonemes"].vocab_size,
+        basic_dim=256,
+        conv_dim=1024,
+        conv_kernel_size=3,
+        dropout=0.1,
+        mhsa_config=mhsa_config,
+        prenet_config=prenet_config,
+    )
+    duration_predictor_config = SimpleConvDurationPredictorV1Config(
+        num_convs=2,
+        hidden_dim=384,
+        kernel_size=3,
+        dropout=0.1,
+    )
+
+    munet_mhsa_config = GlowTTSMultiHeadAttentionV1Config(
+        input_dim=256,
+        num_att_heads=2,
+        dropout=0.1,
+        att_weights_dropout=0.1,
+        window_size=4,  # one-sided, so technically 9
+        heads_share=True,
+    )
+
+    mu_net_config = MuNetConfig(
+        num_layers=2,
+        input_dim=256,
+        basic_dim=256,
+        conv_dim=1024,
+        conv_kernel_size=3,
+        mhsa_config=munet_mhsa_config,
+        dropout=0.1
+    )
+    
+    decoder_config = DiffusionDecoderConfig(
+        n_feats=log_mel_datastream.options.num_feature_filters,
+        dim=64,
+        beta_min=0.05,
+        beta_max=20.0,
+        pe_scale=1000,
+    )
+
+    model_config = Config(
+        feature_extraction_config=fe_config,
+        encoder_config=encoder_config,
+        duration_predictor_config=duration_predictor_config,
+        mu_net_config=mu_net_config,
+        diffusion_decoder_config=decoder_config,
+        num_speakers=251,
+        speaker_embedding_size=256,
+        decoder_segment_num_frames=160,  # 2 seconds, just like in reference implementation
+    )
+
+    params_base256 = {
+        "config": asdict(model_config)
+    }
+
+    net_module = "grad_tts.grad_tts_v2_ext_dur"
+    duration_hdf = duration_alignments["glow_tts.glow_tts_v1_bs600_v2_base256"]
+    train = run_exp(net_module + "_bs300_newgl_extdurglowbase256", params_base256, net_module, local_config,
+                    extra_decoder="grad_tts.simple_gl_decoder", decoder_options=decoder_options,
+                    target_durations=duration_hdf, debug=True, num_epochs=200)
+    # train.hold()
+
+    decoder_options_syn = copy.deepcopy(decoder_options_base)
+    synthetic_corpus = generate_synthetic(net_module + "_bs300_newgl_extdurglowbase256_syn", "train-clean-100",
+                                          train.out_checkpoints[200], params_base256, net_module,
+                                          extra_decoder="grad_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_syn, debug=True)
+
+    synthetic_corpus = generate_synthetic(net_module + "_bs300_newgl__extdurglowbase256_syn", "train-clean-360",
+                                          train.out_checkpoints[200], params_base256, net_module,
+                                          extra_decoder="grad_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_syn, debug=True)

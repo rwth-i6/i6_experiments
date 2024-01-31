@@ -15,7 +15,7 @@ from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPat
 from ..data.aligner import build_training_dataset
 from ..config import get_training_config, get_prior_config, get_forward_config
 from ..pipeline import training, extract_durations, tts_eval, tts_generation
-from ..data.tts_phon import get_tts_log_mel_datastream, build_fixed_speakers_generating_dataset, get_tts_extended_bliss
+from ..data.tts_phon import get_tts_log_mel_datastream, build_fixed_speakers_generating_dataset, get_tts_extended_bliss, build_durationtts_training_dataset
 
 
 
@@ -48,11 +48,15 @@ def run_flow_tts():
     }
 
     prefix = "experiments/jaist_project/standalone_2024/glow_tts/"
-    training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", silence_preprocessed=False, partition_epoch=1)
+    training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", partition_epoch=1)
 
-    def run_exp(name, params, net_module, config, decoder_options, extra_decoder=None, use_custom_engine=False, debug=False, num_epochs=100):
+    def run_exp(name, params, net_module, config, decoder_options, extra_decoder=None, use_custom_engine=False, target_durations=None, debug=False, num_epochs=100):
+        if target_durations is not None:
+            training_datasets_ = build_durationtts_training_dataset(duration_hdf=target_durations, ls_corpus_key="train-clean-100")
+        else:
+            training_datasets_ = training_datasets
         train_config = get_training_config(
-            training_datasets=training_datasets,
+            training_datasets=training_datasets_,
             network_module=net_module,
             net_args=params,
             config=config,
@@ -361,13 +365,36 @@ def run_flow_tts():
     train = run_exp(net_module + "_bs600_v2_base256_newgl_noise0.7", params_base256, net_module, local_config, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
                     debug=True, num_epochs=200)
     # train.hold()
-    
-    synthetic_corpus = generate_synthetic(net_module + "_bs600_v2_base256_newgl_noise0.7_syn", "train-clean-100",
+    durations = local_extract_durations(net_module + "_bs600_v2_base256", train.out_checkpoints[200], params_base256, net_module, debug=True)
+
+    for noise_scale in [0.3, 0.7]:
+        decoder_options_local = copy.deepcopy(decoder_options_synthetic)
+        decoder_options_local["glowtts_noise_scale"] = 0.7
+
+        synthetic_corpus = generate_synthetic(net_module + "_bs600_v2_base256_newgl_noise%.1f_syn" % noise_scale, "train-clean-100",
+                                              train.out_checkpoints[200], params_base256, net_module,
+                                              extra_decoder="glow_tts.simple_gl_decoder",
+                                              decoder_options=decoder_options_local, debug=True)
+    for noise_scale in [0.7]:
+        decoder_options_local = copy.deepcopy(decoder_options_synthetic)
+        decoder_options_local["glowtts_noise_scale"] = 0.7
+
+        synthetic_corpus = generate_synthetic(net_module + "_bs600_v2_base256_newgl_noise%.1f_syn" % noise_scale, "train-clean-360",
+                                              train.out_checkpoints[200], params_base256, net_module,
+                                              extra_decoder="glow_tts.simple_gl_decoder",
+                                              decoder_options=decoder_options_local, debug=True)
+
+
+    net_module_extdur = "glow_tts.glow_tts_v1_ext_dur"
+    train = run_exp(net_module + "_bs600_v2_base256_newgl_extdur_noise0.7", params_base256, net_module_extdur, local_config, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
+                    target_durations=durations, debug=True, num_epochs=200)
+
+    synthetic_corpus = generate_synthetic(net_module + "_bs600_v2_base256_newgl_extdur_noise0.7_syn", "train-clean-100",
                                           train.out_checkpoints[200], params_base256, net_module,
                                           extra_decoder="glow_tts.simple_gl_decoder",
                                           decoder_options=decoder_options_synthetic, debug=True)
 
-    synthetic_corpus = generate_synthetic(net_module + "_bs600_v2_base256_newgl_noise0.7_syn", "train-clean-360",
+    synthetic_corpus = generate_synthetic(net_module + "_bs600_v2_base256_newgl_extdur_noise0.7_syn", "train-clean-360",
                                           train.out_checkpoints[200], params_base256, net_module,
                                           extra_decoder="glow_tts.simple_gl_decoder",
                                           decoder_options=decoder_options_synthetic, debug=True)
@@ -376,4 +403,6 @@ def run_flow_tts():
     local_config_fp16["torch_amp_options"] = {"dtype": "bfloat16"}
     train = run_exp(net_module + "_bs600_v2_base256_fp16_newgl_noise0.7", params_base256, net_module, local_config_fp16, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
                     debug=True, num_epochs=200)
-    train.hold()
+    # train.hold()
+    
+

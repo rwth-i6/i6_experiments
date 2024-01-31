@@ -160,7 +160,7 @@ def get_pytorch_raw_ctc_tts():
     duration_hdf = duration_alignments["ctc.tts_aligner_1223.ctc_aligner_tts_fe_v8_tfstyle_v2_fullength"]
     train, forward = run_exp(net_module + "_ctc_tts_fe_v8_tfstyle_v2_fulllength", params, net_module, config,
                              extra_decoder="nar_tts.legacy.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
-    # train.hold()
+    train.hold()
     
     duration_hdf = duration_alignments["glow_tts.lukas_baseline_bs600_v2"]
     train, forward = run_exp(net_module + "_fromglowtts1_fe_v8_tfstyle_v2_fulllength", params, net_module, config,

@@ -5,15 +5,12 @@ import torchaudio
 import multiprocessing
 import math
 import os
-import soundfile
 from typing import Any, Dict
-
-from IPython import embed
-
 
 from . import modules
 from . import commons
 from . import attentions
+
 try:
     from .monotonic_align.path import maximum_path
 except:
@@ -26,6 +23,7 @@ except:
     from .monotonic_align.path import maximum_path
 
 from ..tts_shared import DbMelFeatureExtraction, DbMelFeatureExtractionConfig
+from ..tts_shared.util import generate_path
 
 
 @dataclass
@@ -439,7 +437,7 @@ class Model(nn.Module):
         attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
 
         if gen:
-            attn = commons.generate_path(w_ceil.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
+            attn = generate_path(w_ceil.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
             z_m = torch.matmul(attn.squeeze(1).transpose(1, 2), x_m.transpose(1, 2)).transpose(1, 2)
             z_logs = torch.matmul(attn.squeeze(1).transpose(1, 2), x_logs.transpose(1, 2)).transpose(1, 2)
             logw_ = torch.log(1e-8 + torch.sum(attn, -1)) * x_mask
