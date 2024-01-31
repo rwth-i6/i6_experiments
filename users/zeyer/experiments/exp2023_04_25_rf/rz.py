@@ -72,15 +72,9 @@ def py():
 
     train_exp_aed_trafo(
         "v6-bhv20-f32-bs20k-accgrad1-mgpu2-wd1e_2-lrlin1e_5_438k-speedpertV2",
-        config_v6_f32_bs20k,
+        config_16gb_v6_f32_bs20k_accgrad1_mgpu2_wd1e_2_lrlin1e_5_438k,
         model_config={"behavior_version": 20},
         config_updates={
-            "__gpu_mem": 16,
-            "__num_processes": 2,
-            **_get_cfg_lrlin_oclr_by_bs_nep(20_000, 1000),
-            "accum_grad_multiple_step": 1,
-            "torch_distributed": {},
-            "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         },
@@ -88,15 +82,11 @@ def py():
 
     train_exp_aed_trafo(
         "v6-bhv20-f32-bs20k-accgrad10-mgpu2-wd1e_2-lrlin2e_5_438k-speedpertV2",
-        config_v6_f32_bs20k,
+        config_16gb_v6_f32_bs20k_accgrad1_mgpu2_wd1e_2_lrlin1e_5_438k,
         model_config={"behavior_version": 20},
         config_updates={
-            "__gpu_mem": 16,
-            "__num_processes": 2,
             **_get_cfg_lrlin_oclr_by_bs_nep(20_000, 1000, peak_lr=2e-3),
             "accum_grad_multiple_step": 10,
-            "torch_distributed": {},
-            "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         },
@@ -146,5 +136,16 @@ config_v6_f32_bs20k = dict_update_deep(
     config_v6_f32,
     {
         "batch_size": 20_000 * _batch_size_factor,  # 30k gives OOM on the 16GB GPU
+    },
+)
+config_16gb_v6_f32_bs20k_accgrad1_mgpu2_wd1e_2_lrlin1e_5_438k = dict_update_deep(
+    config_v6_f32_bs20k,
+    {
+        "__gpu_mem": 16,
+        "__num_processes": 2,
+        **_get_cfg_lrlin_oclr_by_bs_nep(20_000, 1000),
+        "accum_grad_multiple_step": 1,
+        "torch_distributed": {},
+        "optimizer.weight_decay": 1e-2,
     },
 )
