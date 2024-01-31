@@ -323,6 +323,8 @@ class TransducerSystem:
         return graph_compile_job.out_graph
 
     def _make_base_feature_flow(self, corpus_key: str, **kwargs):
+        if kwargs.pop("type", "") == "gammatone":
+            return features.gammatone_flow(**kwargs)
         audio_format = self.corpus_data[corpus_key].corpus_object.audio_format
         args = {
             "audio_format": audio_format,
