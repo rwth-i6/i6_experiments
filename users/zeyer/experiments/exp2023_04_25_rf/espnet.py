@@ -67,7 +67,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "torch_distributed": {"options": {"find_unused_parameters": True}},
             "accum_grad_multiple_step": 100,
         },
-        post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM in epoch 28
+        # post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM in epoch 28  # TODO fix
     )
 
     train_exp(
