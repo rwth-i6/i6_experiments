@@ -96,7 +96,7 @@ def run_exp() -> SummaryReport:
         epochs=[40, 80, num_subepochs],
         prior_scales=[0.4],
         lm_scales=[0.7],
-        feature_type=FeatureType.GAMMATONE,
+        feature_type=FeatureType.GAMMATONE_16K,
     )
 
     # ********** System **********

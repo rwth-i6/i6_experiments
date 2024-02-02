@@ -81,19 +81,12 @@ def make_context_1_conformer_transducer(
 
     joint_output, decoder_unit = label_context.add_context_1_decoder(
         network,
+        num_outputs=num_outputs,
         context_labels=context_labels,
         mask_non_blank=mask_non_blank,
         encoder="encoder",
+        output_args=output_args,
         **decoder_args,
-    )
-
-    add_softmax_output(
-        decoder_unit,
-        from_list=joint_output,
-        name="output",
-        num_outputs=num_outputs,
-        target="classes",
-        **output_args,
     )
 
     if loss_boost_scale:
@@ -212,19 +205,12 @@ def make_context_1_conformer_transducer_recog(
     #    layer_desc["param_version"] = 0
     #    layer_desc.pop("delay_sample_update")
 
-    joint_output, decoder_unit = label_context.add_context_1_decoder_recog(
+    label_context.add_context_1_decoder_recog(
         network,
         num_outputs=num_outputs,
         encoder="encoder",
         **decoder_args,
     )
-
-    decoder_unit["output"] = {
-        "class": "linear",
-        "from": joint_output,
-        "activation": "log_softmax",
-        "n_out": num_outputs,
-    }
 
     return network, python_code
 
@@ -274,19 +260,12 @@ def make_context_1_blstm_transducer(
 
     joint_output, decoder_unit = label_context.add_context_1_decoder(
         network,
+        num_outputs=num_outputs,
         context_labels=context_labels,
         mask_non_blank=mask_non_blank,
         encoder="encoder",
+        output_args=output_args,
         **decoder_args,
-    )
-
-    add_softmax_output(
-        decoder_unit,
-        from_list=joint_output,
-        name="output",
-        num_outputs=num_outputs,
-        target="classes",
-        **output_args,
     )
 
     if loss_boost_scale:
@@ -401,19 +380,12 @@ def make_context_1_blstm_transducer_recog(
     #    layer_desc["param_version"] = 0
     #    layer_desc.pop("delay_sample_update")
 
-    joint_output, decoder_unit = label_context.add_context_1_decoder_recog(
+    label_context.add_context_1_decoder_recog(
         network,
         num_outputs=num_outputs,
         encoder="encoder",
         **decoder_args,
     )
-
-    decoder_unit["output"] = {
-        "class": "linear",
-        "from": joint_output,
-        "activation": "log_softmax",
-        "n_out": num_outputs,
-    }
 
     return network, python_code
 

@@ -1,9 +1,7 @@
 import copy
-import itertools
-from typing import Dict, List, Tuple, Union
+from typing import Dict
 
 from i6_core import returnn
-from i6_core.lexicon import AddEowPhonemesToLexiconJob
 from i6_experiments.users.berger.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import mm
 from i6_core.lexicon.allophones import DumpStateTyingJob, StoreAllophonesJob
@@ -25,19 +23,18 @@ class Seq2SeqAlignmentFunctor(
         prior_config: returnn.ReturnnConfig,
         align_config: returnn.ReturnnConfig,
         align_corpus: dataclasses.NamedCorpusInfo,
-        epochs: List[types.EpochType] = [],
-        prior_scales: List[float] = [0],
+        epoch: types.EpochType,
+        prior_scale: float = 0,
         prior_args: Dict = {},
         label_unit: str = "phoneme",
         label_scorer_type: str = "precomputed-log-posterior",
         label_scorer_args: Dict = {},
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
         flow_args: Dict = {},
+        silence_phone: str = "<blank>",
         register_output: bool = False,
         **kwargs,
-    ) -> Union[Dict[Tuple[float, types.EpochType], dataclasses.AlignmentData], dataclasses.AlignmentData,]:
-        result = {}
-
+    ) -> dataclasses.AlignmentData:
         crp = copy.deepcopy(align_corpus.corpus_info.crp)
 
         mod_label_scorer_args = copy.deepcopy(label_scorer_args)
@@ -48,59 +45,57 @@ class Seq2SeqAlignmentFunctor(
             align_corpus.corpus_info, feature_type=feature_type, **flow_args
         )
 
-        for prior_scale, epoch in itertools.product(prior_scales, epochs):
-            tf_graph = self._make_tf_graph(
-                train_job=train_job.job,
-                returnn_config=align_config,
-                epoch=epoch,
-                label_scorer_type=label_scorer_type,
+        tf_graph = self._make_tf_graph(
+            train_job=train_job.job,
+            returnn_config=align_config,
+            epoch=epoch,
+            label_scorer_type=label_scorer_type,
+        )
+
+        checkpoint = self._get_checkpoint(train_job=train_job.job, epoch=epoch)
+        assert isinstance(checkpoint, returnn.Checkpoint)
+
+        if label_scorer_args.get("use_prior", False) and prior_scale:
+            prior_file = self._get_prior_file(prior_config=prior_config, checkpoint=checkpoint, **prior_args)
+            mod_label_scorer_args["prior_file"] = prior_file
+        else:
+            mod_label_scorer_args.pop("prior_file", None)
+        mod_label_scorer_args["prior_scale"] = prior_scale
+
+        label_scorer = custom_rasr.LabelScorer(label_scorer_type, **mod_label_scorer_args)
+
+        feature_flow = self._get_tf_feature_flow_for_label_scorer(
+            label_scorer=label_scorer,
+            base_feature_flow=base_feature_flow,
+            tf_graph=tf_graph,
+            checkpoint=checkpoint,
+        )
+
+        align = mm.Seq2SeqAlignmentJob(
+            crp=crp,
+            feature_flow=feature_flow,
+            label_scorer=label_scorer,
+            **kwargs,
+        )
+        exp_full = f"align_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
+
+        path = f"nn_align/{align_corpus.name}/{train_job.name}/{exp_full}"
+
+        align.set_vis_name(f"Alignment {path}")
+        align.add_alias(path)
+
+        if register_output:
+            tk.register_output(
+                f"{path}.alignment.cache.bundle",
+                align.out_alignment_bundle,
             )
 
-            checkpoint = self._get_checkpoint(train_job=train_job.job, epoch=epoch)
+        allophone_file = StoreAllophonesJob(crp=crp).out_allophone_file
+        state_tying_file = DumpStateTyingJob(crp=crp).out_state_tying
 
-            if label_scorer_args.get("use_prior", False) and prior_scale:
-                prior_file = self._get_prior_file(prior_config=prior_config, checkpoint=checkpoint, **prior_args)
-                mod_label_scorer_args["prior_file"] = prior_file
-            else:
-                mod_label_scorer_args.pop("prior_file", None)
-            mod_label_scorer_args["prior_scale"] = prior_scale
-
-            label_scorer = custom_rasr.LabelScorer(label_scorer_type, **mod_label_scorer_args)
-
-            feature_flow = self._get_tf_feature_flow_for_label_scorer(
-                label_scorer=label_scorer,
-                base_feature_flow=base_feature_flow,
-                tf_graph=tf_graph,
-                checkpoint=checkpoint,
-            )
-
-            align = mm.Seq2SeqAlignmentJob(
-                crp=crp,
-                feature_flow=feature_flow,
-                label_scorer=label_scorer,
-                **kwargs,
-            )
-
-            allophone_file = StoreAllophonesJob(crp=crp).out_allophone_file
-            state_tying_file = DumpStateTyingJob(crp=crp).out_state_tying
-            result[(prior_scale, epoch)] = dataclasses.AlignmentData(
-                alignment_cache_bundle=align.out_alignment_bundle,
-                allophone_file=allophone_file,
-                state_tying_file=state_tying_file,
-            )
-
-            exp_full = f"align_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
-
-            path = f"nn_align/{align_corpus.name}/{train_job.name}/{exp_full}"
-
-            align.set_vis_name(f"Alignment {path}")
-            align.add_alias(path)
-
-            if register_output:
-                tk.register_output(
-                    f"{path}.alignment.cache.bundle",
-                    align.out_alignment_bundle,
-                )
-        if len(result) == 1:
-            result = next(iter(result.values()))
-        return result
+        return dataclasses.AlignmentData(
+            alignment_cache_bundle=align.out_alignment_bundle,
+            allophone_file=allophone_file,
+            state_tying_file=state_tying_file,
+            silence_phone=silence_phone,
+        )

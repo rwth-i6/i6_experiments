@@ -1,9 +1,10 @@
 import copy
-import itertools
-from typing import Dict, List
+from typing import Dict
 
 from i6_core import mm, rasr, returnn
 from sisyphus import tk
+
+from i6_core.lexicon import DumpStateTyingJob, StoreAllophonesJob
 
 from ... import dataclasses
 from ... import types
@@ -23,14 +24,15 @@ class LegacyAlignmentFunctor(
         align_corpus: dataclasses.NamedCorpusInfo,
         num_inputs: int,
         num_classes: int,
-        epochs: List[types.EpochType] = [],
-        prior_scales: List[float] = [0],
+        epoch: types.EpochType,
+        prior_scale: float = 0,
         prior_args: Dict = {},
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
         flow_args: Dict = {},
+        silence_phone: str = "[SILENCE]",
         register_output: bool = False,
         **kwargs,
-    ) -> None:
+    ) -> dataclasses.AlignmentData:
         crp = copy.deepcopy(align_corpus.corpus_info.crp)
 
         acoustic_mixture_path = mm.CreateDummyMixturesJob(num_classes, num_inputs).out_mixtures
@@ -39,47 +41,57 @@ class LegacyAlignmentFunctor(
             align_corpus.corpus_info, feature_type=feature_type, **flow_args
         )
 
-        for prior_scale, epoch in itertools.product(prior_scales, epochs):
-            tf_graph = self._make_tf_graph(
-                train_job=train_job.job,
-                returnn_config=align_config,
-                epoch=epoch,
+        tf_graph = self._make_tf_graph(
+            train_job=train_job.job,
+            returnn_config=align_config,
+            epoch=epoch,
+        )
+
+        checkpoint = self._get_checkpoint(train_job.job, epoch)
+        assert isinstance(checkpoint, returnn.Checkpoint)
+        prior_file = self._get_prior_file(
+            prior_config=prior_config,
+            checkpoint=checkpoint,
+            **prior_args,
+        )
+
+        feature_scorer = rasr.PrecomputedHybridFeatureScorer(
+            prior_mixtures=acoustic_mixture_path,
+            priori_scale=prior_scale,
+            prior_file=prior_file,
+        )
+
+        feature_flow = self._make_tf_feature_flow(
+            base_feature_flow,
+            tf_graph,
+            checkpoint,
+        )
+
+        align = mm.AlignmentJob(
+            crp=crp,
+            feature_flow=feature_flow,
+            feature_scorer=feature_scorer,
+            **kwargs,
+        )
+
+        exp_full = f"align_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
+        path = f"nn_recog/{align_corpus.name}/{train_job.name}/{exp_full}"
+
+        align.set_vis_name(f"Alignment {path}")
+        align.add_alias(path)
+
+        if register_output:
+            tk.register_output(
+                f"{path}.alignment.cache.bundle",
+                align.out_alignment_bundle,
             )
 
-            checkpoint = self._get_checkpoint(train_job.job, epoch)
-            prior_file = self._get_prior_file(
-                prior_config=prior_config,
-                checkpoint=checkpoint,
-                **prior_args,
-            )
+        allophone_file = StoreAllophonesJob(crp=crp).out_allophone_file
+        state_tying_file = DumpStateTyingJob(crp=crp).out_state_tying
 
-            feature_scorer = rasr.PrecomputedHybridFeatureScorer(
-                prior_mixtures=acoustic_mixture_path,
-                priori_scale=prior_scale,
-                prior_file=prior_file,
-            )
-
-            feature_flow = self._make_tf_feature_flow(
-                base_feature_flow,
-                tf_graph,
-                checkpoint,
-            )
-
-            align = mm.AlignmentJob(
-                crp=crp,
-                feature_flow=feature_flow,
-                feature_scorer=feature_scorer,
-                **kwargs,
-            )
-
-            exp_full = f"align_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
-            path = f"nn_recog/{align_corpus.name}/{train_job.name}/{exp_full}"
-
-            align.set_vis_name(f"Alignment {path}")
-            align.add_alias(path)
-
-            if register_output:
-                tk.register_output(
-                    f"{path}.alignment.cache.bundle",
-                    align.out_alignment_bundle,
-                )
+        return dataclasses.AlignmentData(
+            alignment_cache_bundle=align.out_alignment_bundle,
+            allophone_file=allophone_file,
+            state_tying_file=state_tying_file,
+            silence_phone=silence_phone,
+        )

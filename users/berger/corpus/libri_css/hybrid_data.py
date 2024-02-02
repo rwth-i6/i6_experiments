@@ -26,6 +26,8 @@ def get_hybrid_data(
     ctc_lexicon: bool = False,
     use_augmented_lexicon: bool = True,
     add_all_allophones: bool = False,
+    add_sec_audio: bool = False,
+    add_mix_audio: bool = True,
 ) -> HybridSetupData:
     _, dev_data_inputs, test_data_inputs = get_data_inputs(
         dev_keys=dev_keys,
@@ -61,11 +63,14 @@ def get_hybrid_data(
 
     for key in ["train", "cv"]:
         dataset_builder = MetaDatasetBuilder()
-        for name, file in [
+        feature_list = [
             ("primary", hdf_files.primary_features_files),
-            ("secondary", hdf_files.secondary_features_files),
-            ("mix", hdf_files.mix_features_files),
-        ]:
+        ]
+        if add_sec_audio:
+            feature_list.append(("secondary", hdf_files.secondary_features_files))
+        if add_mix_audio:
+            feature_list.append(("mix", hdf_files.mix_features_files))
+        for name, file in feature_list:
             dataset_builder.add_hdf_dataset(
                 file,
                 name=f"features_{name}",

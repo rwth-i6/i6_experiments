@@ -25,7 +25,7 @@ def get_tedlium2_pytorch_data(
     rasr_arch: str = "linux-x86_64-standard",
     add_unknown: bool = False,
     augmented_lexicon: bool = True,
-    feature_type: FeatureType = FeatureType.GAMMATONE,
+    feature_type: FeatureType = FeatureType.GAMMATONE_16K,
 ) -> PytorchCTCSetupData:
     # ********** Data inputs **********
     train_data_inputs, dev_data_inputs, test_data_inputs = copy.deepcopy(
@@ -183,7 +183,7 @@ def get_tedlium2_tf_data(
     rasr_arch: str = "linux-x86_64-standard",
     add_unknown: bool = False,
     augmented_lexicon: bool = True,
-    feature_type: FeatureType = FeatureType.GAMMATONE,
+    feature_type: FeatureType = FeatureType.GAMMATONE_16K,
 ) -> CTCSetupData:
     # ********** Data inputs **********
     train_data_inputs, dev_data_inputs, test_data_inputs = copy.deepcopy(

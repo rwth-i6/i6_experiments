@@ -35,7 +35,8 @@ class Seq2SeqFunctor(RasrFunctor, ABC):
         base_feature_flow: rasr.FlowNetwork,
         tf_graph: tk.Path,
         checkpoint: returnn.Checkpoint,
-        feature_type: FeatureType = FeatureType.SAMPLES
+        feature_type: FeatureType = FeatureType.SAMPLES,
+        **_,
     ) -> rasr.FlowNetwork:
         if custom_rasr.LabelScorer.need_tf_flow(label_scorer.scorer_type):
             feature_flow = self._make_tf_feature_flow(base_feature_flow, tf_graph, checkpoint)
@@ -53,6 +54,7 @@ class Seq2SeqFunctor(RasrFunctor, ABC):
         label_scorer: custom_rasr.LabelScorer,
         base_feature_flow: rasr.FlowNetwork,
         onnx_model: tk.Path,
+        **kwargs,
     ) -> rasr.FlowNetwork:
         assert custom_rasr.LabelScorer.need_tf_flow(label_scorer.scorer_type)
-        return self._make_onnx_feature_flow(base_feature_flow, onnx_model)
+        return self._make_onnx_feature_flow(base_feature_flow, onnx_model, **kwargs)

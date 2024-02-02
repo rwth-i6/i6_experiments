@@ -1,10 +1,11 @@
 import copy
-import itertools
-from typing import Dict, List, Optional
+from typing import Dict
+
+from sisyphus import tk
+from i6_core.lexicon import DumpStateTyingJob, StoreAllophonesJob
 
 from i6_experiments.users.berger.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import mm, returnn
-from sisyphus import tk
 
 from ... import dataclasses
 from ... import types
@@ -24,18 +25,19 @@ class OptunaSeq2SeqAlignmentFunctor(
         prior_config: returnn.OptunaReturnnConfig,
         align_config: returnn.OptunaReturnnConfig,
         align_corpus: dataclasses.NamedCorpusInfo,
-        trial_nums: List[types.TrialType] = ["best"],
-        epochs: List[types.EpochType] = [],
-        prior_scales: List[float] = [0],
+        epoch: types.EpochType,
+        trial_num: types.TrialType = "best",
+        prior_scale: float = 0,
         prior_args: Dict = {},
         label_unit: str = "phoneme",
         label_scorer_type: str = "precomputed-log-posterior",
         label_scorer_args: Dict = {},
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
         flow_args: Dict = {},
+        silence_phone: str = "<blank>",
         register_output: bool = False,
         **kwargs,
-    ) -> None:
+    ) -> dataclasses.AlignmentData:
         crp = copy.deepcopy(align_corpus.corpus_info.crp)
 
         mod_label_scorer_args = copy.deepcopy(label_scorer_args)
@@ -46,58 +48,67 @@ class OptunaSeq2SeqAlignmentFunctor(
             align_corpus.corpus_info, feature_type=feature_type, **flow_args
         )
 
-        for prior_scale, epoch, trial_num in itertools.product(prior_scales, epochs, trial_nums):
-            tf_graph = self._make_tf_graph(
+        tf_graph = self._make_tf_graph(
+            train_job=train_job.job,
+            returnn_config=align_config,
+            epoch=epoch,
+            label_scorer_type=label_scorer_type,
+            trial_num=trial_num,
+        )
+
+        checkpoint = self._get_checkpoint(train_job=train_job.job, epoch=epoch, trial_num=trial_num)
+
+        if label_scorer_args.get("use_prior", False) and prior_scale:
+            prior_file = self._get_prior_file(
                 train_job=train_job.job,
-                returnn_config=align_config,
-                epoch=epoch,
-                label_scorer_type=label_scorer_type,
-                trial_num=trial_num,
-            )
-
-            checkpoint = self._get_checkpoint(train_job=train_job.job, epoch=epoch, trial_num=trial_num)
-
-            if label_scorer_args.get("use_prior", False) and prior_scale:
-                prior_file = self._get_prior_file(
-                    train_job=train_job.job,
-                    prior_config=prior_config,
-                    checkpoint=checkpoint,
-                    trial_num=trial_num,
-                    **prior_args,
-                )
-                mod_label_scorer_args["prior_file"] = prior_file
-            else:
-                mod_label_scorer_args.pop("prior_file", None)
-            mod_label_scorer_args["prior_scale"] = prior_scale
-
-            label_scorer = custom_rasr.LabelScorer(label_scorer_type, **mod_label_scorer_args)
-
-            feature_flow = self._get_tf_feature_flow_for_label_scorer(
-                label_scorer=label_scorer,
-                base_feature_flow=base_feature_flow,
-                tf_graph=tf_graph,
+                prior_config=prior_config,
                 checkpoint=checkpoint,
+                trial_num=trial_num,
+                **prior_args,
+            )
+            mod_label_scorer_args["prior_file"] = prior_file
+        else:
+            mod_label_scorer_args.pop("prior_file", None)
+        mod_label_scorer_args["prior_scale"] = prior_scale
+
+        label_scorer = custom_rasr.LabelScorer(label_scorer_type, **mod_label_scorer_args)
+
+        feature_flow = self._get_tf_feature_flow_for_label_scorer(
+            label_scorer=label_scorer,
+            base_feature_flow=base_feature_flow,
+            tf_graph=tf_graph,
+            checkpoint=checkpoint,
+        )
+
+        align = mm.Seq2SeqAlignmentJob(
+            crp=crp,
+            feature_flow=feature_flow,
+            label_scorer=label_scorer,
+            **kwargs,
+        )
+
+        exp_full = f"align_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
+
+        if trial_num == "best":
+            path = f"nn_align/{align_corpus.name}/{train_job.name}/trial-{trial_num}/{exp_full}"
+        else:
+            path = f"nn_align/{align_corpus.name}/{train_job.name}/trial-{trial_num:03d}/{exp_full}"
+
+        align.set_vis_name(f"Alignment {path}")
+        align.add_alias(path)
+
+        if register_output:
+            tk.register_output(
+                f"{path}.alignment.cache.bundle",
+                align.out_alignment_bundle,
             )
 
-            align = mm.Seq2SeqAlignmentJob(
-                crp=crp,
-                feature_flow=feature_flow,
-                label_scorer=label_scorer,
-                **kwargs,
-            )
+        allophone_file = StoreAllophonesJob(crp=crp).out_allophone_file
+        state_tying_file = DumpStateTyingJob(crp=crp).out_state_tying
 
-            exp_full = f"align_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
-
-            if trial_num == "best":
-                path = f"nn_align/{align_corpus.name}/{train_job.name}/trial-{trial_num}/{exp_full}"
-            else:
-                path = f"nn_align/{align_corpus.name}/{train_job.name}/trial-{trial_num:03d}/{exp_full}"
-
-            align.set_vis_name(f"Alignment {path}")
-            align.add_alias(path)
-
-            if register_output:
-                tk.register_output(
-                    f"{path}.alignment.cache.bundle",
-                    align.out_alignment_bundle,
-                )
+        return dataclasses.AlignmentData(
+            alignment_cache_bundle=align.out_alignment_bundle,
+            allophone_file=allophone_file,
+            state_tying_file=state_tying_file,
+            silence_phone=silence_phone,
+        )

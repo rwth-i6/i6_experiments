@@ -5,6 +5,7 @@ import numpy as np
 
 
 class LearningRateSchedules(Enum):
+    NONE = auto()
     Newbob = auto()
     NewbobAbs = auto()
     OCLR = auto()
@@ -27,7 +28,9 @@ def get_learning_rate_config(
     config = {}
     extra_python = []
 
-    if schedule == LearningRateSchedules.Newbob:
+    if schedule == LearningRateSchedules.NONE:
+        pass
+    elif schedule == LearningRateSchedules.Newbob:
         config.update(get_newbob_config(**kwargs))
     elif schedule == LearningRateSchedules.NewbobAbs:
         config.update(get_newbob_abs_config(**kwargs))

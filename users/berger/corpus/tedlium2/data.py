@@ -1,5 +1,8 @@
 from typing import Dict, Tuple
 
+from i6_core.bpe.train import ReturnnTrainBpeJob
+from i6_core.tools import CloneGitRepositoryJob
+from i6_experiments.common.datasets.tedlium2.textual_data import get_text_data_dict
 import i6_experiments.common.datasets.tedlium2.lexicon as tdl_lexicon
 from i6_experiments.common.baselines.tedlium2.data import get_corpus_data_inputs
 from i6_experiments.common.setups.rasr import util as rasr_util
@@ -85,3 +88,10 @@ def get_final_gmm_output():
     output_args.add_feature_to_extract("gt")
 
     return output_args
+
+
+def get_bpe(size: int) -> ReturnnTrainBpeJob:
+    txt_file = get_text_data_dict()["background-data"]
+    subword_nmt_repo = CloneGitRepositoryJob("https://github.com/albertz/subword-nmt.git").out_repository
+
+    return ReturnnTrainBpeJob(txt_file, size, subword_nmt_repo=subword_nmt_repo)

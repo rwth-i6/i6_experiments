@@ -1,5 +1,6 @@
 import copy
 import os
+from i6_core.returnn import CodeWrapper
 from i6_core.returnn.config import ReturnnConfig
 
 from sisyphus import gs, tk
@@ -19,6 +20,7 @@ from i6_experiments.users.berger.util import default_tools_v2
 from i6_models.assemblies.conformer import ConformerBlockV1Config, ConformerEncoderV1, ConformerEncoderV1Config
 from i6_models.config import ModuleFactoryV1
 from i6_models.parts.conformer import ConformerMHSAV1Config
+from i6_core.returnn import CodeWrapper
 
 # ********** Settings **********
 
@@ -29,7 +31,8 @@ num_subepochs = 250
 
 tools = copy.deepcopy(default_tools_v2)
 
-tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/onnx/arch/linux-x86_64-standard")
+# tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/onnx/arch/linux-x86_64-standard")
+tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard")
 # tools.returnn_root = tk.Path("/u/berger/repositories/MiniReturnn")
 
 
@@ -44,7 +47,11 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
         "dev": dev_data_config,
     }
     if variant == ConfigVariant.RECOG:
-        extra_config["model_outputs"] = {"classes": {"dim": num_outputs}}
+        extra_config["model_outputs"] = {
+            "log_probs": {
+                "dim": num_outputs,
+            }
+        }
 
     return get_returnn_config(
         num_epochs=num_subepochs,
@@ -89,7 +96,7 @@ def run_exp() -> SummaryReport:
         returnn_python_exe=tools.returnn_python_exe,
         rasr_binary_path=tools.rasr_binary_path,
         augmented_lexicon=True,
-        feature_type=FeatureType.GAMMATONE,
+        feature_type=FeatureType.GAMMATONE_16K,
     )
 
     # ********** Step args **********
@@ -97,18 +104,18 @@ def run_exp() -> SummaryReport:
     train_args = exp_args.get_ctc_train_step_args(num_epochs=num_subepochs, gpu_mem_rqmt=24)
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
-        epochs=[40, 80, 160, 240, 250, "best"],
+        epochs=["best"],
         prior_scales=[0.5],
         lm_scales=[1.1],
-        feature_type=FeatureType.GAMMATONE,
+        feature_type=FeatureType.GAMMATONE_16K,
     )
 
     # ********** System **********
 
     # tools.returnn_root = tk.Path("/u/berger/repositories/MiniReturnn")
-    tools.rasr_binary_path = tk.Path(
-        "/u/berger/repositories/rasr_versions/gen_seq2seq_onnx_apptainer/arch/linux-x86_64-standard"
-    )
+    # tools.rasr_binary_path = tk.Path(
+    #     "/u/berger/repositories/rasr_versions/gen_seq2seq_onnx_apptainer/arch/linux-x86_64-standard"
+    # )
     system = ReturnnSeq2SeqSystem(tools)
 
     system.init_corpora(

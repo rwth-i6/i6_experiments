@@ -401,7 +401,7 @@ def get_data_inputs(
     test_data_inputs = {}
 
     for dev_key in dev_keys:
-        test_data_inputs[dev_key] = helpers.RasrDataInput(
+        dev_data_inputs[dev_key] = helpers.RasrDataInput(
             corpus_object=eval_corpus_objects[dev_key],
             concurrent=40,
             lexicon=lexicon_config,

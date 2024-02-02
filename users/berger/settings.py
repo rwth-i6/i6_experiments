@@ -75,7 +75,14 @@ def worker_wrapper(job, task_name, call):
     }
     if type(job).__name__ not in wrapped_jobs:
         return call
-    binds = ["/work/asr4", "/work/asr3", "/work/common", "/u/corpora"]
+    binds = [
+        "/work/asr4",
+        "/work/asr3",
+        "/work/asr_archive",
+        "/work/common",
+        "/u/corpora",
+        "/u/zhou",
+    ]
     ts = {t.name(): t for t in job.tasks()}
     t = ts[task_name]
 
@@ -90,7 +97,7 @@ def worker_wrapper(job, task_name, call):
         app_call += ["-B", path]
 
     app_call += [
-        "/work/asr4/berger/apptainer/images/tf_2_8.sif",
+        "/work/asr4/berger/apptainer/images/i6_tensorflow-2.8_onnx-1.15.sif",
         "python3",
     ]
 
@@ -125,6 +132,9 @@ DEFAULT_ENVIRONMENT_SET["LD_LIBRARY_PATH"] = ":".join(
         "/usr/local/lib/python3.8/dist-packages/tensorflow/",
         "/usr/local/lib/python3.8/dist-packages/scipy/.libs",
         "/usr/local/lib/python3.8/dist-packages/numpy.libs",
+        "/usr/local/lib/python3.10/dist-packages/tensorflow/",
+        "/usr/local/lib/python3.10/dist-packages/scipy/.libs",
+        "/usr/local/lib/python3.10/dist-packages/numpy.libs",
         "/usr/local/cuda/extras/CUPTI/lib64",
         "/usr/local/cuda/compat/lib",
         "/usr/local/nvidia/lib",

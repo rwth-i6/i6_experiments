@@ -3,13 +3,12 @@ import itertools
 from typing import Dict, List
 
 from i6_core import mm, rasr, recognition, returnn
+from i6_experiments.users.berger.recipe.returnn.training import Backend, get_backend
 from sisyphus import tk
-
+from ..base import RecognitionFunctor
+from ..rasr_base import RasrFunctor, LatticeProcessingType
 from ... import dataclasses
 from ... import types
-from ..base import RecognitionFunctor
-from i6_experiments.users.berger.recipe.returnn.training import Backend, get_backend
-from ..rasr_base import RasrFunctor, LatticeProcessingType
 
 
 class AdvancedTreeSearchFunctor(
@@ -31,9 +30,11 @@ class AdvancedTreeSearchFunctor(
         lattice_to_ctm_kwargs: Dict = {},
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
         flow_args: Dict = {},
+        model_flow_args: Dict = {},
         lattice_processing_type: LatticeProcessingType = LatticeProcessingType.LatticeToCtm,
         **kwargs,
     ) -> List[Dict]:
+        assert recog_corpus is not None
         crp = copy.deepcopy(recog_corpus.corpus_info.crp)
         assert recog_corpus.corpus_info.scorer is not None
 
@@ -63,6 +64,7 @@ class AdvancedTreeSearchFunctor(
                     base_flow=base_feature_flow,
                     tf_graph=tf_graph,
                     tf_checkpoint=checkpoint,
+                    **model_flow_args,
                 )
             elif backend == Backend.PYTORCH:
                 assert isinstance(checkpoint, returnn.PtCheckpoint)
@@ -73,6 +75,7 @@ class AdvancedTreeSearchFunctor(
                 feature_flow = self._make_onnx_feature_flow(
                     base_flow=base_feature_flow,
                     onnx_model=onnx_model,
+                    **model_flow_args,
                 )
             else:
                 raise NotImplementedError

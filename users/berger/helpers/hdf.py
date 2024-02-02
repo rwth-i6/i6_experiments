@@ -1,7 +1,6 @@
 from typing import Any, Dict, List
 
 import i6_core.features as features
-import i6_core.rasr as rasr
 from i6_core import rasr
 from i6_core.meta.system import CorpusObject
 from i6_core.returnn import ReturnnDumpHDFJob
@@ -57,9 +56,9 @@ def build_rasr_feature_hdfs(
     rasr.crp_set_corpus(base_crp, corpus)
     base_crp.concurrent = split
 
-    feature_job = {"mfcc": features.MfccJob, "gt": features.GammatoneJob, "energy": features.EnergyJob,}[
-        feature_type
-    ](crp=base_crp, **feature_extraction_args)
+    feature_job = {"mfcc": features.MfccJob, "gt": features.GammatoneJob, "energy": features.EnergyJob}[feature_type](
+        crp=base_crp, **feature_extraction_args
+    )
     feature_job.set_keep_value(gs.JOB_DEFAULT_KEEP_VALUE - 20)
 
     hdf_files = []

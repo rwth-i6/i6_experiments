@@ -380,10 +380,10 @@ class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
                 config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.minimum_representation = la_opts[
                     "minimum_representation"
                 ]
-            if "lm_lookahead_scale" in la_opts:
-                config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.lm_lookahead_scale = la_opts[
-                    "lm_lookahead_scale"
-                ]
+            # if "lm_lookahead_scale" in la_opts:
+            #     config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.lm_lookahead_scale = la_opts[
+            #         "lm_lookahead_scale"
+            #     ]
             if "cache_low" in la_opts:
                 post_config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.cache_size_low = la_opts[
                     "cache_low"

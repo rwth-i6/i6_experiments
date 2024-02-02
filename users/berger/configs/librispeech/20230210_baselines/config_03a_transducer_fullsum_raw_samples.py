@@ -3,6 +3,7 @@ import os
 from typing import Dict
 
 import i6_core.rasr as rasr
+from i6_core.returnn import Checkpoint
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.users.berger.args.experiments import transducer as exp_args
 from i6_experiments.users.berger.args.returnn.config import get_returnn_config
@@ -46,7 +47,10 @@ def generate_returnn_config(
     model_preload: tk.Path,
 ) -> ReturnnConfig:
     if train:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_fullsum(
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer_fullsum(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
@@ -84,7 +88,10 @@ def generate_returnn_config(
             },
         )
     else:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
@@ -124,16 +131,16 @@ def generate_returnn_config(
         extern_data_kwargs={"dtype": "int16" if train else "float32"},
         extern_target_kwargs={"dtype": "int8" if train else "int32"},
         grad_noise=0.0,
-        grad_clip=20.0,
+        grad_clip=0.0,
         schedule=LearningRateSchedules.CONST_DECAY,
-        const_lr=5e-05,
+        const_lr=8e-05,
         decay_lr=1e-05,
         final_lr=1e-06,
-        batch_size=1_200_000,
-        accum_grad=2,
+        batch_size=480_000,
+        accum_grad=3,
         use_chunking=False,
         extra_config={
-            "max_seq_length": {"classes": 550},
+            "max_seq_length": {"classes": 600},
             "train": train_data_config,
             "dev": dev_data_config,
             "preload_from_files": {
@@ -150,20 +157,19 @@ def generate_returnn_config(
     return returnn_config
 
 
-def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: tk.Path) -> SummaryReport:
+def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Checkpoint) -> SummaryReport:
     assert tools.returnn_root is not None
     assert tools.returnn_python_exe is not None
+    assert tools.rasr_binary_path is not None
 
     data = get_librispeech_data(
         tools.returnn_root,
         tools.returnn_python_exe,
         rasr_binary_path=tools.rasr_binary_path,
         alignments=alignments,
-        add_unknown=False,
-        augmented_lexicon=False,
+        add_unknown_phoneme_and_mapping=False,
+        use_augmented_lexicon=False,
         use_wei_lexicon=True,
-        lm_name="4gram",
-        # lm_name="kazuki_transformer",
     )
 
     # ********** Returnn Configs **********
@@ -186,17 +192,17 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: tk.P
 
     train_args = exp_args.get_transducer_train_step_args(
         num_epochs=300,
-        gpu_mem_rqmt=24,
-        mem_rqmt=24,
+        # gpu_mem_rqmt=24,
+        # mem_rqmt=24,
     )
 
     recog_args = exp_args.get_transducer_recog_step_args(
         num_classes,
         # lm_scales=[0.5, 0.7, 0.9],
-        lm_scales=[0.7],
-        epochs=[80, 160, 240, 300, "best"],
+        lm_scales=[0.6, 0.7, 0.8],
+        epochs=[160, 300, "best"],
         # lookahead_options={"scale": 0.5},
-        search_parameters={"label-pruning": 11.2},
+        search_parameters={"label-pruning": 12.0},
     )
 
     # ********** System **********

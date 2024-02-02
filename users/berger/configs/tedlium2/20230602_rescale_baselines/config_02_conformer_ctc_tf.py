@@ -128,7 +128,7 @@ def run_exp() -> SummaryReport:
         returnn_python_exe=tools.returnn_python_exe,
         rasr_binary_path=tools.rasr_binary_path,
         augmented_lexicon=True,
-        feature_type=FeatureType.GAMMATONE,
+        feature_type=FeatureType.GAMMATONE_16K,
     )
 
     # ********** Step args **********
@@ -139,7 +139,7 @@ def run_exp() -> SummaryReport:
         epochs=[160, 240, 250],
         prior_scales=[0.3, 0.5, 0.9],
         lm_scales=[0.7, 1.1, 1.4, 2.0],
-        feature_type=FeatureType.GAMMATONE,
+        feature_type=FeatureType.GAMMATONE_16K,
     )
 
     # ********** System **********

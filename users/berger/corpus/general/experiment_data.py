@@ -36,3 +36,9 @@ class SMSHybridSetupData(BasicSetupData):
     scoring_corpora: Dict[str, tk.Path]
     python_prolog: Dict
     num_classes: int
+
+
+@dataclass
+class BpeSetupData(BasicSetupData):
+    bpe_lexicon: tk.Path
+    forward_data_config: Dict[str, Dict]

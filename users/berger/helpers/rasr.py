@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from typing import Dict, Optional, Union, List
-from i6_core.meta.system import CorpusObject
 
 import i6_core.rasr as rasr
 from i6_core import am, corpus, meta, rasr
@@ -31,8 +30,8 @@ class SeparatedCorpusObject:
     def corpus_file(self) -> tk.Path:
         return self.primary_corpus_file
 
-    def _get_corpus_object(self, corpus_file: tk.Path) -> CorpusObject:
-        c = CorpusObject()
+    def _get_corpus_object(self, corpus_file: tk.Path) -> meta.CorpusObject:
+        c = meta.CorpusObject()
         c.corpus_file = corpus_file
         c.audio_dir = self.audio_dir
         c.audio_format = self.audio_format
@@ -40,13 +39,13 @@ class SeparatedCorpusObject:
 
         return c
 
-    def get_primary_corpus_object(self) -> CorpusObject:
+    def get_primary_corpus_object(self) -> meta.CorpusObject:
         return self._get_corpus_object(self.primary_corpus_file)
 
-    def get_secondary_corpus_object(self) -> CorpusObject:
+    def get_secondary_corpus_object(self) -> meta.CorpusObject:
         return self._get_corpus_object(self.secondary_corpus_file)
 
-    def get_mix_corpus_object(self) -> CorpusObject:
+    def get_mix_corpus_object(self) -> meta.CorpusObject:
         return self._get_corpus_object(self.mix_corpus_file)
 
 

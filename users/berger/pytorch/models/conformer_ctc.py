@@ -51,15 +51,13 @@ class ConformerCTCModel(torch.nn.Module):
     ):
         with torch.no_grad():
             if self.feature_extraction is None:
+                assert audio_features_len is not None
                 x = audio_features
                 input_len = audio_features_len
             else:
                 x, input_len = self.feature_extraction(audio_features)
 
-            if input_len is not None and audio_features_len is not None:
-                sequence_mask = lengths_to_padding_mask(input_len)
-            else:
-                sequence_mask = None
+            sequence_mask = lengths_to_padding_mask(input_len)
 
             x = self.specaugment(x)  # [B, T, F]
 
@@ -67,9 +65,7 @@ class ConformerCTCModel(torch.nn.Module):
         logits = self.final_linear(x)  # [B, T, F]
         log_probs = torch.log_softmax(logits, dim=2)
 
-        if self.training:
-            return log_probs, sequence_mask
-        return log_probs
+        return log_probs, torch.sum(sequence_mask, dim=1).type(torch.int32)
 
 
 def get_train_serializer(
@@ -108,12 +104,13 @@ def get_recog_serializer(
         module_import_path=f"{__name__}.{ConformerCTCModel.__name__}",
         model_config=model_config,
         additional_serializer_objects=[
-            PartialImport(
-                code_object_path=f"{pytorch_package}.export.ctc.export",
-                hashed_arguments={"in_dim": in_dim},
-                unhashed_package_root="",
-                unhashed_arguments={},
-            ),
+            Import(f"{pytorch_package}.forward.basic.forward_step")
+            # PartialImport(
+            #     code_object_path=f"{pytorch_package}.export.ctc.export",
+            #     hashed_arguments={"in_dim": in_dim},
+            #     unhashed_package_root="",
+            #     unhashed_arguments={},
+            # ),
         ],
     )
 

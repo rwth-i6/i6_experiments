@@ -3,6 +3,7 @@ import os
 from typing import Dict, Tuple
 
 import i6_core.rasr as rasr
+from i6_core.returnn import Checkpoint
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.users.berger.args.experiments import ctc as exp_args
 from i6_experiments.users.berger.args.returnn.config import get_returnn_config
@@ -15,11 +16,11 @@ from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
-from i6_experiments.users.berger.systems.dataclasses import FeatureType, ReturnnConfigs
+from i6_experiments.users.berger.systems.dataclasses import AlignmentData, FeatureType, ReturnnConfigs
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.corpus.librispeech.ctc_data import (
-    get_librispeech_data_hdf,
+    get_librispeech_data,
 )
 from sisyphus import gs, tk
 
@@ -111,17 +112,17 @@ def generate_returnn_config(
     return returnn_config
 
 
-def run_exp() -> Tuple[SummaryReport, tk.Path, Dict]:
+def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
     assert tools.returnn_root is not None
     assert tools.returnn_python_exe is not None
     assert tools.rasr_binary_path is not None
 
-    data = get_librispeech_data_hdf(
+    data = get_librispeech_data(
         tools.returnn_root,
         tools.returnn_python_exe,
         rasr_binary_path=tools.rasr_binary_path,
-        add_unknown=False,
-        augmented_lexicon=False,
+        add_unknown_phoneme_and_mapping=False,
+        use_augmented_lexicon=False,
         use_wei_lexicon=True,
         test_keys=[
             "test-clean",
@@ -138,10 +139,9 @@ def run_exp() -> Tuple[SummaryReport, tk.Path, Dict]:
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)
     align_args = exp_args.get_ctc_align_step_args(num_classes)
-    recog_args["epochs"] = [80, 160, 240, 320, 400, 480, 500, "best"]
+    recog_args["epochs"] = [320, 400, 480, 500, "best"]
     recog_args["prior_scales"] = [0.3]
     recog_args["lm_scales"] = [0.9]
-    align_args["epochs"] = ["best"]
 
     # ********** System **********
 
@@ -179,19 +179,19 @@ def run_exp() -> Tuple[SummaryReport, tk.Path, Dict]:
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)
     system.run_test_recog_step(**recog_args)
-    # alignments = system.run_align_step(**align_args)
-    alignments = None
+    alignments = next(iter(system.run_align_step(**align_args).values()))
 
     train_job = system.get_train_job()
     model = GetBestCheckpointJob(
         model_dir=train_job.out_model_dir, learning_rates=train_job.out_learning_rates
     ).out_checkpoint
+    assert isinstance(model, Checkpoint)
 
     assert system.summary_report
     return system.summary_report, model, alignments
 
 
-def py() -> Tuple[SummaryReport, tk.Path, Dict]:
+def py() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
     filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
