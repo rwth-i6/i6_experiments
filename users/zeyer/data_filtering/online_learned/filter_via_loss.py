@@ -2,7 +2,7 @@
 Learned filter
 """
 
-from typing import Tuple
+from typing import Tuple, Dict
 import torch
 from torch import nn
 from .filter_base import LearnedDataFilterBase
@@ -71,7 +71,7 @@ def demo():
         # noinspection PyShadowingNames
         def forward(
             self, x: torch.Tensor, seq_lens: torch.Tensor, *, targets: torch.Tensor
-        ) -> Tuple[torch.Tensor, torch.Tensor]:
+        ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
             """
             :param x: [B,T,D]
             :param seq_lens: [B]
@@ -84,8 +84,10 @@ def demo():
             x = self.layer2(x).relu()  # [B',T,D]
             x = self.layer3(x)  # [B',T_,D]
             model_loss = torch.nn.functional.cross_entropy(x.permute(0, 2, 1), targets, reduction="none")  # [B',T_]
-            loss = model_loss.mean() + self.data_filter.score_estimator_loss(model_loss).mean()
-            return x, loss
+            return x, {
+                "model": model_loss.mean(),
+                "data_filter": self.data_filter.score_estimator_loss(model_loss).mean(),
+            }
 
     model = Model(5, 5)
     opt = torch.optim.Adam(model.parameters())
@@ -98,7 +100,8 @@ def demo():
         assert seq_lens.shape == x.shape[:1]
         _, loss = model(x, seq_lens=seq_lens, targets=targets)
         print("loss:", loss)
-        loss.backward()
+        total_loss = sum((v for v in loss.values()), torch.zeros((), device=x.device))
+        total_loss.backward()
         opt.step()
 
 
