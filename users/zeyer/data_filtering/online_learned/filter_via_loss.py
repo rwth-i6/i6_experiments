@@ -45,7 +45,8 @@ class LearnedDataFilterViaLoss(LearnedDataFilterBase):
             assert model_loss.shape == est_scores.shape
         else:
             raise Exception(f"unexpected model loss shape {model_loss.shape} ndim")
-        loss = torch.square(model_loss - est_scores)  # [B'] or [B',T']
+        real_loss = -model_loss  # e.g. positive log prob
+        loss = torch.square(real_loss - est_scores)  # [B'] or [B',T']
         if loss.ndim == 2:
             loss = loss.mean(dim=1)  # [B']
             loss = loss * (est_scores_time_size / est_scores_seq_lens)
