@@ -299,7 +299,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_updates={"learning_rate_warmup_steps": 450_000},
         post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
     )
-    train_exp(
+    train_exp(  # 5.60
         "base-24gb-v6-lrlin1e_5_800k",
         config_24gb_v6,
         config_updates={
