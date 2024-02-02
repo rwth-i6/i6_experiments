@@ -29,10 +29,8 @@ class LearnedDataFilterViaLoss(LearnedDataFilterBase):
         :return: loss [B']
         """
         assert self._estimated_scores is not None, "forward not called?"
-        est_scores = self.filter_batch(self._estimated_scores)  # [B',T']
-        est_scores_seq_lens = self.filter_batch(self._estimated_scores_seq_lens)  # [B']
-        est_scores_time_size = max(est_scores_seq_lens)
-        est_scores = est_scores[:, :est_scores_time_size]
+        est_scores, est_scores_seq_lens = self._get_filtered_estimated_scores()  # [B',T']
+        est_scores_time_size = est_scores.shape[1]
         model_loss = model_loss.detach()  # no gradient flow to the model loss
         if model_loss.ndim == 1:
             est_scores = est_scores.mean(dim=1)  # [B']

@@ -157,6 +157,13 @@ class LearnedDataFilterBase(nn.Module):
             y = y[(slice(None),) * time_axis + (slice(None, self._selected_max_time),)]
         return y
 
+    def _get_filtered_estimated_scores(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        est_scores = self.filter_batch(self._estimated_scores)  # [B',T']
+        est_scores_seq_lens = self.filter_batch(self._estimated_scores_seq_lens)  # [B']
+        est_scores_time_size = max(est_scores_seq_lens)
+        est_scores = est_scores[:, :est_scores_time_size]  # [B',T'_]
+        return est_scores, est_scores_seq_lens
+
 
 def _calc_seq_lens_after_conv(seq_lens: torch.Tensor, conv: torch.nn.Conv1d):
     return _ceil_div(seq_lens - conv.kernel_size[0] + 1 + conv.padding[0] * 2, conv.stride[0])
