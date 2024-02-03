@@ -159,7 +159,7 @@ def demo():
         assert seq_lens.shape == x.shape[:1]
         _, loss = model(x, seq_lens=seq_lens, targets=targets)
         print("loss:", loss)
-        total_loss = sum((v for v in loss.values()), torch.zeros((), device=x.device))
+        total_loss: torch.Tensor = sum(v for v in loss.values())
         total_loss.backward()
         opt.step()
 
