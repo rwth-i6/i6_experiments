@@ -146,7 +146,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
         config_updates={"aux_loss_layers": [12]},
     )
-    train_exp(
+    train_exp(  # 5.85 (vs 5.84). but bad on test? "test-clean": 3.42, "test-other": 6.14
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_100k-aux8",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
         config_updates={"aux_loss_layers": [8]},
