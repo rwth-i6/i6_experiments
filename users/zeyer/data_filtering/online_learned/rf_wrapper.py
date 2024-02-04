@@ -55,7 +55,14 @@ class LearnedDataFilter(PTModuleAsRFModule):
         new_x_dims = list(x.dims)
         new_x_dims[btd_axes[0]] = new_batch_dim
         new_x_dims[btd_axes[1]] = new_spatial_dim
-        new_x = Tensor(x.name + "_filtered", new_x_dims, dtype=x.dtype, raw_tensor=new_x_raw)
+        new_x = Tensor(
+            x.name + "_filtered",
+            new_x_dims,
+            dtype=x.dtype,
+            feature_dim=x.feature_dim,
+            sparse_dim=x.sparse_dim,
+            raw_tensor=new_x_raw,
+        )
         self._recent_spatial_dim = (spatial_dim, new_spatial_dim)
         self._recent_batch_dim = (batch_dim, new_batch_dim)
         return new_x, new_spatial_dim, new_batch_dim
@@ -86,5 +93,12 @@ class LearnedDataFilter(PTModuleAsRFModule):
                     new_dim = Dim(new_seq_lens)
                     dim_map[dim] = new_dim
                 new_x_raw = new_x_raw[(slice(None),) * axis + (slice(None, new_dim.get_dim_value()),)]
-        new_x = Tensor(x.name + "_filtered", new_x_dims, dtype=x.dtype, raw_tensor=new_x_raw)
+        new_x = Tensor(
+            x.name + "_filtered",
+            new_x_dims,
+            dtype=x.dtype,
+            feature_dim=x.feature_dim,
+            sparse_dim=x.sparse_dim,
+            raw_tensor=new_x_raw,
+        )
         return new_x, dim_map
