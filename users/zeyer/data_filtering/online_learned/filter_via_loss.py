@@ -31,10 +31,11 @@ class LearnedDataFilterViaLoss(LearnedDataFilterBase):
         assert self._estimated_scores is not None, "forward not called?"
         est_scores, est_scores_seq_lens = self._get_filtered_estimated_scores()  # [B',T']
         est_scores_time_size = est_scores.shape[1]
+        est_scores_mean_correction_factor = (est_scores_time_size / est_scores_seq_lens).to(est_scores.device)  # [B']
         model_loss = model_loss.detach()  # no gradient flow to the model loss
         if model_loss.ndim == 1:
             est_scores = est_scores.mean(dim=1)  # [B']
-            est_scores = est_scores * (est_scores_time_size / est_scores_seq_lens)
+            est_scores = est_scores * est_scores_mean_correction_factor
             assert model_loss.shape == est_scores.shape
         elif model_loss.ndim == 2:
             model_loss = model_loss[:, None]  # [B',1,T]
@@ -49,7 +50,7 @@ class LearnedDataFilterViaLoss(LearnedDataFilterBase):
         loss = torch.square(real_loss - est_scores)  # [B'] or [B',T']
         if loss.ndim == 2:
             loss = loss.mean(dim=1)  # [B']
-            loss = loss * (est_scores_time_size / est_scores_seq_lens)
+            loss = loss * est_scores_mean_correction_factor
         assert loss.shape == est_scores.shape[:1]  # [B']
         return loss
 

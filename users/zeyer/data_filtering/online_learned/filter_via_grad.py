@@ -109,11 +109,11 @@ class _ForwardWithEstimatedScores(torch.autograd.Function):
         mask = torch.range(0, est_scores_time_size)[None, :] < est_scores_seq_lens[:, None]  # [B',T'_]
         mask: torch.Tensor
         scores_diff = torch.where(mask.to(scores_diff.device), scores_diff, 0.0)
-        loss = scores_diff.square().mean() * (est_scores_time_size / est_scores_seq_lens.sum())
+        loss = scores_diff.square().mean() * (est_scores_time_size / est_scores_seq_lens.sum()).to(scores_diff.device)
         # noinspection PyProtectedMember
         filter_mod._set_score_estimator_loss(loss.detach())
         # compute MSE gradient manually to avoid dependency on PyTorch internals
-        estimated_scores_grad = 2 / est_scores_seq_lens.sum() * scores_diff
+        estimated_scores_grad = 2 / est_scores_seq_lens.sum().to(scores_diff.device) * scores_diff
         return input_grad, None, estimated_scores_grad, None, None
 
 

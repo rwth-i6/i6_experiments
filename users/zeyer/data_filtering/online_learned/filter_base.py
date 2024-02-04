@@ -125,7 +125,8 @@ class LearnedDataFilterBase(nn.Module):
     def _select_mask(self):
         est_scores = self._estimated_scores  # [B,T']
         est_scores = est_scores.mean(dim=1)  # [B]
-        est_scores = est_scores * (self._estimated_scores.shape[1] / self._estimated_scores_seq_lens)
+        corr_factor = (self._estimated_scores.shape[1] / self._estimated_scores_seq_lens).to(est_scores.device)  # [B']
+        est_scores = est_scores * corr_factor
         batch_size = est_scores.shape[0]
         self._selected_batch_num_entries = int(batch_size * self.batch_factor)
         _, indices = torch.topk(est_scores, self._selected_batch_num_entries)
