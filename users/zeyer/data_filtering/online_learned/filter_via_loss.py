@@ -52,6 +52,11 @@ class LearnedDataFilterViaLoss(LearnedDataFilterBase):
             loss = loss.mean(dim=1)  # [B']
             loss = loss * est_scores_mean_correction_factor
         assert loss.shape == est_scores.shape[:1]  # [B']
+
+        # We expect this is called at the very end, so once we get this, we can clean up.
+        # This could be important to free memory.
+        self.reset_step()
+
         return loss
 
 

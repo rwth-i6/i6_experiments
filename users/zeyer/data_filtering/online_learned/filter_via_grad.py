@@ -56,6 +56,9 @@ class LearnedDataFilterViaGrad(LearnedDataFilterBase):
 
     def _set_score_estimator_loss(self, loss: torch.Tensor):
         self._score_estimator_last_loss = loss
+        # This here is called in the backward pass, so once we get this, we can clean up.
+        # This could be important to free memory.
+        self.reset_step()
 
     def _real_scores_from_input_grad(self, grad: torch.Tensor, *, btd_axes: Tuple[int, int, int]) -> torch.Tensor:
         grad = grad.permute([btd_axes[0], btd_axes[2], btd_axes[1]])  # [B',D,T_]
