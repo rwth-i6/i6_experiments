@@ -247,6 +247,8 @@ def from_scratch_training(
         targets, dim_map = model.data_filter.filter_batch(targets)
         targets_spatial_dim = dim_map[targets_spatial_dim]
 
+    total_loss = rf.zeros((), device=data.device)
+
     if aux_loss_layers:
         for i, layer_idx in enumerate(aux_loss_layers):
             if layer_idx > len(model.encoder.layers):
@@ -266,6 +268,7 @@ def from_scratch_training(
                 custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
                 use_normalized_loss=use_normalized_loss,
             )
+            total_loss += aux_loss_scales[i] * aux_loss / rf.copy_to_device(targets_spatial_dim.get_size_tensor())
             # decoded, decoded_spatial_dim = rf.ctc_greedy_decode(aux_logits, in_spatial_dim=enc_spatial_dim)
             # error = rf.edit_distance(
             #     a=decoded, a_spatial_dim=decoded_spatial_dim, b=targets, b_spatial_dim=targets_spatial_dim
@@ -282,20 +285,19 @@ def from_scratch_training(
         state=model.decoder.default_initial_state(batch_dims=batch_dims),
     )
 
-    logits_packed, pack_dim = rf.pack_padded(logits, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False)
-    targets_packed, _ = rf.pack_padded(
-        targets, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim
-    )
-
-    log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
+    log_prob = rf.log_softmax(logits, axis=model.target_dim)
     log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
     loss = rf.cross_entropy(
-        target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
-    )
+        target=targets, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
+    )  # [B,T]
     loss.mark_as_loss("ce", scale=aed_loss_scale, use_normalized_loss=use_normalized_loss)
+    total_loss += aed_loss_scale * rf.reduce_mean(loss, axis=targets_spatial_dim)
 
-    best = rf.reduce_argmax(logits_packed, axis=model.target_dim)
-    frame_error = best != targets_packed
+    score_estimator_loss = model.data_filter.score_estimator_loss(model_loss=total_loss)
+    score_estimator_loss.mark_as_loss("score_estimator")
+
+    best = rf.reduce_argmax(logits, axis=model.target_dim)
+    frame_error = best != targets
     frame_error.mark_as_loss(name="fer", as_error=True)
 
 

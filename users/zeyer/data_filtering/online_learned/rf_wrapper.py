@@ -5,6 +5,7 @@ Wrapper for RETURNN frontend, to easily plug it into a rf.Sequential.
 from typing import Optional, Tuple, Dict
 import torch
 from returnn.tensor import Tensor, Dim
+import returnn.frontend as rf
 from returnn.torch.frontend.bridge import PTModuleAsRFModule
 from .filter_base import LearnedDataFilterBase as _LearnedDataFilterBasePT
 
@@ -103,3 +104,27 @@ class LearnedDataFilter(PTModuleAsRFModule):
             raw_tensor=new_x_raw,
         )
         return new_x, dim_map
+
+    def score_estimator_loss(self, model_loss: Optional[Tensor] = None) -> Tensor:
+        """
+        score estimator loss
+
+        :param model_loss: [B'] or [B',T_] or None
+        :return: [B'] or []
+        """
+        model_loss_raw = None
+        if model_loss is not None:
+            if model_loss.dims_set == {self._recent_batch_dim[1]}:
+                model_loss_raw = model_loss.raw_tensor
+            elif model_loss.dims_set == {self._recent_batch_dim[1], self._recent_spatial_dim[1]}:
+                model_loss_raw = model_loss.copy_compatible_to_dims_raw(
+                    (self._recent_batch_dim[1], self._recent_spatial_dim[1])
+                )
+            else:
+                raise ValueError(f"unexpected model loss {model_loss} shape")
+        if model_loss_raw is not None:
+            loss_raw = self.pt_module.score_estimator_loss(model_loss_raw)
+            return rf.convert_to_tensor(loss_raw, dims=[self._recent_batch_dim[1]], name="score_estimator_loss")
+        else:
+            loss_raw = self.pt_module.score_estimator_loss()
+            return rf.convert_to_tensor(loss_raw, dims=[], name="score_estimator_loss")
