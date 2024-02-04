@@ -1,4 +1,5 @@
 from typing import Optional, Any, Tuple, Dict
+import math
 import torch
 from torch import nn
 
@@ -130,7 +131,7 @@ class LearnedDataFilterBase(nn.Module):
         corr_factor = (self._estimated_scores.shape[1] / self._estimated_scores_seq_lens).to(est_scores.device)  # [B']
         est_scores = est_scores * corr_factor
         batch_size = est_scores.shape[0]
-        self._selected_batch_num_entries = int(batch_size * self.batch_factor)
+        self._selected_batch_num_entries = max(math.ceil(batch_size * self.batch_factor), 1)
         _, indices = torch.topk(est_scores, self._selected_batch_num_entries)
         mask = torch.full(est_scores.shape, False, dtype=torch.bool, device=est_scores.device)
         mask.index_fill_(0, indices, True)
