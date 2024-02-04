@@ -69,7 +69,7 @@ class LearnedDataFilter(PTModuleAsRFModule):
         return new_x, new_spatial_dim, new_batch_dim
 
     def filter_batch(self, x: Tensor, *, dim_map: Optional[Dict[Dim, Dim]] = None) -> Tuple[Tensor, Dict[Dim, Dim]]:
-        """filter"""
+        """filter batch"""
         dim_map: Dict[Dim, Dim] = dict(dim_map) if dim_map else {}
         batch_dim = self._recent_batch_dim[0]
         dim_map[batch_dim] = self._recent_batch_dim[1]

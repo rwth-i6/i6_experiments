@@ -164,13 +164,15 @@ class Model(rf.Module):
 
         # Copy inplace Sequential.__call__ and add our logic.
         assert type(self.encoder.layers) is rf.Sequential  # no subclass like SequentialLayerDrop
+        self.data_filter.pt_module.reset_step()
         train_flag = rf.get_run_ctx().train_flag
         assert isinstance(train_flag, bool)  # not implemented otherwise...
+        self.data_filter.pt_module.train(train_flag)
         for i, (name, module) in enumerate(self.encoder.layers.items()):
             x = module(x, spatial_dim=out_spatial_dim)
             if collected_outputs is not None:
                 collected_outputs[name] = x
-            if train_flag and i == self._data_filter_layer_idx - 1:
+            if i == self._data_filter_layer_idx - 1:
                 x, out_spatial_dim, new_batch_dim = self.data_filter(x, spatial_dim=out_spatial_dim)
 
         enc, enc_spatial_dim = x, out_spatial_dim

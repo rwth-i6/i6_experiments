@@ -123,6 +123,8 @@ class LearnedDataFilterBase(nn.Module):
         self._estimated_scores_seq_lens = scores_seq_lens
 
     def _select_mask(self):
+        if not self.training:
+            return  # no masking in eval
         est_scores = self._estimated_scores  # [B,T']
         est_scores = est_scores.mean(dim=1)  # [B]
         corr_factor = (self._estimated_scores.shape[1] / self._estimated_scores_seq_lens).to(est_scores.device)  # [B']
@@ -144,6 +146,9 @@ class LearnedDataFilterBase(nn.Module):
         :param time_axis: if specified, will shorten time by selected_max_time
         :return: shape [B', ...]
         """
+        if not self.training:
+            assert self._selected_batch_mask is None, "mismatch training flag"
+            return x
         assert self._selected_batch_mask is not None, "forward not called yet?"
         mask = self._selected_batch_mask[x.device]
         batch_size = mask.shape[0]
