@@ -40,29 +40,32 @@ class LearnedDataFilter(PTModuleAsRFModule):
         batch_dim: Dim
         assert spatial_dim.dyn_size_ext.dims == (batch_dim,)  # not implemented otherwise
 
-        if not train_flag:
-            self._recent_spatial_dim = (spatial_dim, spatial_dim)
-            self._recent_batch_dim = (batch_dim, batch_dim)
-            return x, spatial_dim, batch_dim
-
         btd_axes = (x.dims.index(batch_dims[0]), x.dims.index(spatial_dim), x.dims.index(x.feature_dim))
         seq_lens_raw = spatial_dim.dyn_size_ext.raw_tensor
         new_x_raw, new_seq_lens_raw = self.pt_module(x.raw_tensor, seq_lens=seq_lens_raw, btd_axes=btd_axes)
-        new_batch_dim = Dim(
-            Tensor(
-                batch_dim.name + "_filtered",
-                (),
-                dtype="int32",
-                raw_tensor=torch.tensor(new_x_raw.shape[btd_axes[0]], dtype=torch.int32),
+        new_batch_dim = (
+            Dim(
+                Tensor(
+                    batch_dim.name + "_filtered",
+                    (),
+                    dtype="int32",
+                    raw_tensor=torch.tensor(new_x_raw.shape[btd_axes[0]], dtype=torch.int32),
+                )
             )
+            if train_flag
+            else batch_dim
         )
-        new_spatial_dim = Dim(
-            Tensor(
-                spatial_dim.name + "_filtered",
-                [new_batch_dim],
-                dtype="int32",
-                raw_tensor=new_seq_lens_raw.to(torch.int32),
+        new_spatial_dim = (
+            Dim(
+                Tensor(
+                    spatial_dim.name + "_filtered",
+                    [new_batch_dim],
+                    dtype="int32",
+                    raw_tensor=new_seq_lens_raw.to(torch.int32),
+                )
             )
+            if train_flag
+            else spatial_dim
         )
         new_x_dims = list(x.dims)
         new_x_dims[btd_axes[0]] = new_batch_dim
