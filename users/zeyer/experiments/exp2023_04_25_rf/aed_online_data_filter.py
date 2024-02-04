@@ -272,7 +272,7 @@ def from_scratch_training(
             # )
             # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor())
 
-    batch_dims = data.remaining_dims(data_spatial_dim)
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
     input_labels = rf.shift_right(targets, axis=targets_spatial_dim, pad_value=model.bos_idx)
 
     logits, _ = model.decoder(
