@@ -27,6 +27,11 @@ class LearnedDataFilter(PTModuleAsRFModule):
         :param x: [batch_dim, spatial_dim, feature_dim]
         :return: filtered x, new spatial dim, new batch dim
         """
+        train_flag = rf.get_run_ctx().train_flag
+        assert isinstance(train_flag, bool)  # not implemented otherwise...
+        self.pt_module.reset_step()
+        self.pt_module.train(train_flag)
+
         assert x.feature_dim.dimension == self.pt_module.in_features
         assert spatial_dim in x.dims
         batch_dims = list(set(x.dims).difference({x.feature_dim, spatial_dim}))
@@ -34,6 +39,12 @@ class LearnedDataFilter(PTModuleAsRFModule):
         (batch_dim,) = batch_dims
         batch_dim: Dim
         assert spatial_dim.dyn_size_ext.dims == (batch_dim,)  # not implemented otherwise
+
+        if not train_flag:
+            self._recent_spatial_dim = (spatial_dim, spatial_dim)
+            self._recent_batch_dim = (batch_dim, batch_dim)
+            return x, spatial_dim, batch_dim
+
         btd_axes = (x.dims.index(batch_dims[0]), x.dims.index(spatial_dim), x.dims.index(x.feature_dim))
         seq_lens_raw = spatial_dim.dyn_size_ext.raw_tensor
         new_x_raw, new_seq_lens_raw = self.pt_module(x.raw_tensor, seq_lens=seq_lens_raw, btd_axes=btd_axes)
@@ -70,7 +81,13 @@ class LearnedDataFilter(PTModuleAsRFModule):
 
     def filter_batch(self, x: Tensor, *, dim_map: Optional[Dict[Dim, Dim]] = None) -> Tuple[Tensor, Dict[Dim, Dim]]:
         """filter batch"""
+        train_flag = rf.get_run_ctx().train_flag
+        assert isinstance(train_flag, bool)  # not implemented otherwise...
         dim_map: Dict[Dim, Dim] = dict(dim_map) if dim_map else {}
+        if not train_flag:
+            dim_map.update({dim: dim for dim in x.dims})
+            return x, dim_map
+
         batch_dim = self._recent_batch_dim[0]
         dim_map[batch_dim] = self._recent_batch_dim[1]
         batch_axis = x.dims.index(self._recent_batch_dim[0])
