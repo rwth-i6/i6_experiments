@@ -11,7 +11,7 @@ class ScoreEstimator(nn.Module):
     def __init__(
         self,
         in_features: int,
-        hidden_size: int,
+        hidden_size: int = None,
         *,
         kernel_size: int = 3,
         stride: int = 3,
@@ -19,6 +19,8 @@ class ScoreEstimator(nn.Module):
         super().__init__()
 
         self.in_features = in_features
+        if hidden_size is None:
+            hidden_size = max(in_features // 8, 10)
         self.hidden_size = hidden_size
 
         assert kernel_size % 2 == 1
@@ -171,3 +173,21 @@ def _calc_seq_lens_after_conv(seq_lens: torch.Tensor, conv: torch.nn.Conv1d):
 
 def _ceil_div(a, b):
     return -(-a // b)
+
+
+def make_learned_data_filter(opts: Dict[str, Any], *, in_features: int) -> LearnedDataFilterBase:
+    """
+    Some helper
+    """
+    from . import filter_via_loss, filter_via_grad
+
+    classes = {}
+    for mod in [filter_via_loss, filter_via_grad]:
+        for k, v in vars(mod).items():
+            if isinstance(v, type) and issubclass(v, LearnedDataFilterBase):
+                classes[k] = v
+
+    opts_ = dict(opts)
+    cls_name = opts_.pop("class", "LearnedDataFilterViaLoss")
+    cls = classes[cls_name]
+    return cls(in_features, **opts_)

@@ -11,6 +11,8 @@ from .configs import (
 )
 from .conformer_import_moh_att_2023_06_30 import train_exp as train_exp_aed_lstm
 from .aed import train_exp as train_exp_aed_trafo
+from .aed_online_data_filter import from_scratch_model_def as aed_online_data_filter_model_def
+from .aed_online_data_filter import from_scratch_training as aed_online_data_filter_train_def
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 
@@ -87,6 +89,18 @@ def py():
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(20_000, 1000, peak_lr=2e-3),
             "accum_grad_multiple_step": 10,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+        },
+    )
+
+    train_exp_aed_trafo(
+        "v6-bhv20-f32-bs20k-accgrad1-mgpu2-wd1e_2-lrlin1e_5_438k-speedpertV2-dataFilterV1",
+        config_16gb_v6_f32_bs20k_accgrad1_mgpu2_wd1e_2_lrlin1e_5_438k,
+        model_def=aed_online_data_filter_model_def,
+        model_config={"behavior_version": 20},
+        train_def=aed_online_data_filter_train_def,
+        config_updates={
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         },

@@ -93,6 +93,22 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
+    from .aed_online_data_filter import from_scratch_model_def as aed_online_data_filter_model_def
+    from .aed_online_data_filter import from_scratch_training as aed_online_data_filter_train_def
+
+    train_exp(
+        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-dataFilterV1",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        model_def=aed_online_data_filter_model_def,
+        model_config={"behavior_version": 20},  # new Trafo decoder defaults
+        train_def=aed_online_data_filter_train_def,
+        config_updates={
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+        },
+    )
+
     train_exp(  # 5.84, overfits more
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_100k",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_100k,
@@ -301,6 +317,8 @@ def train_exp(
     name: str,
     config: Dict[str, Any],
     *,
+    model_def: Optional[Union[ModelDefWithCfg, ModelDef[Model]]] = None,
+    train_def: Optional[TrainDef[Model]] = None,
     model_config: Optional[Dict[str, Any]] = None,
     config_updates: Optional[Dict[str, Any]] = None,
     config_deletes: Optional[Sequence[str]] = None,
@@ -335,16 +353,19 @@ def train_exp(
         task.train_dataset = copy.copy(task.train_dataset)
         task.train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
 
-    model_def = from_scratch_model_def
+    if not model_def:
+        model_def = from_scratch_model_def
     if model_config:
         model_def = ModelDefWithCfg(model_def, model_config)
+    if not train_def:
+        train_def = from_scratch_training
     model_with_checkpoint = train(
         prefix,
         task=task,
         config=config,
         post_config=dict_update_deep(post_config, post_config_updates),
         model_def=model_def,
-        train_def=from_scratch_training,
+        train_def=train_def,
         num_epochs=num_epochs,
         gpu_mem=gpu_mem,
         num_processes=num_processes,

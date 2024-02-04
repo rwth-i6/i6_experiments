@@ -41,6 +41,7 @@ class ModelDefWithCfg:
     """extended ModelDef"""
 
     def __init__(self, model_def: ModelDef[ModelT], config: Dict[str, Any]):
+        assert callable(model_def) and not isinstance(model_def, ModelDefWithCfg)
         self.model_def = model_def
         self.behavior_version = model_def.behavior_version
         self.backend = model_def.backend
