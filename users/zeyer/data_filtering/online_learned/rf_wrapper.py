@@ -92,6 +92,7 @@ class LearnedDataFilter(PTModuleAsRFModule):
                     new_seq_lens, _ = self.filter_batch(dim.dyn_size_ext)
                     new_dim = Dim(new_seq_lens)
                     dim_map[dim] = new_dim
+                new_x_dims[axis] = new_dim
                 new_x_raw = new_x_raw[(slice(None),) * axis + (slice(None, new_dim.get_dim_value()),)]
         new_x = Tensor(
             x.name + "_filtered",
