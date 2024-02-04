@@ -11,7 +11,7 @@ class ScoreEstimator(nn.Module):
     def __init__(
         self,
         in_features: int,
-        hidden_size: int = None,
+        hidden_size: Optional[int] = None,
         *,
         kernel_size: int = 3,
         stride: int = 3,
@@ -60,7 +60,7 @@ class LearnedDataFilterBase(nn.Module):
     def __init__(
         self,
         in_features: int,
-        hidden_size: int,
+        hidden_size: Optional[int] = None,
         *,
         batch_factor: float = 0.5,
         score_estimator_opts: Optional[Dict[str, Any]] = None,
@@ -175,7 +175,7 @@ def _ceil_div(a, b):
     return -(-a // b)
 
 
-def make_learned_data_filter(opts: Dict[str, Any], *, in_features: int) -> LearnedDataFilterBase:
+def make_learned_data_filter(data_filter_opts: Dict[str, Any], *, in_features: int) -> LearnedDataFilterBase:
     """
     Some helper
     """
@@ -187,7 +187,10 @@ def make_learned_data_filter(opts: Dict[str, Any], *, in_features: int) -> Learn
             if isinstance(v, type) and issubclass(v, LearnedDataFilterBase):
                 classes[k] = v
 
-    opts_ = dict(opts)
+    opts_ = dict(data_filter_opts)
     cls_name = opts_.pop("class", "LearnedDataFilterViaLoss")
     cls = classes[cls_name]
-    return cls(in_features, **opts_)
+    hidden_size = opts_.pop("hidden_size", None)
+    score_estimator_opts = dict(opts_.pop("score_estimator_opts", None) or {})
+    hidden_size = score_estimator_opts.pop("hidden_size", None) or hidden_size
+    return cls(in_features=in_features, hidden_size=hidden_size, score_estimator_opts=score_estimator_opts, **opts_)
