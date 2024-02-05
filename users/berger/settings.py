@@ -73,7 +73,7 @@ def worker_wrapper(job, task_name, call):
         "StoreAllophonesJob",
         "FeatureExtractionJob",
     }
-    if type(job).__name__ not in wrapped_jobs:
+    if type(job).__name__ not in wrapped_jobs or task_name == "create_files":
         return call
     binds = [
         "/work/asr4",
