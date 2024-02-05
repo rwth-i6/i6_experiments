@@ -288,7 +288,7 @@ def from_scratch_training(
     )  # [B,T]
     loss.mark_as_loss("ce", scale=aed_loss_scale, use_normalized_loss=use_normalized_loss)
     total_loss += aed_loss_scale * rf.reduce_mean(loss, axis=targets_spatial_dim)
-    print("total loss:", rf.reduce_mean(total_loss, axis=batch_dims).raw_tensor.cpu().detatch())
+    print("total loss:", rf.reduce_mean(total_loss, axis=batch_dims).raw_tensor.cpu().detach())
 
     score_estimator_loss = model.data_filter.score_estimator_loss(model_loss=total_loss)
     score_estimator_loss.mark_as_loss("score_estimator")
