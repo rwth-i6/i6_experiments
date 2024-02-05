@@ -9,6 +9,8 @@ from i6_core.returnn import RasrFeatureDumpHDFJob, RasrAlignmentDumpHDFJob, Blis
 from i6_core.text.processing import ConcatenateJob
 from i6_experiments.users.vieting.tools.report import Report
 
+from i6_experiments.users.berger.recipe.lexicon.modification import EnsureSilenceFirstJob
+from i6_experiments.users.vieting.jobs.returnn import PeakyAlignmentJob
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.experiments import get_datasets as get_datasets_ctc
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_system_v2 import (
     TransducerSystem,
@@ -47,6 +49,7 @@ def get_datasets_transducer(waveform=True):
         sparse=True,
         returnn_root=RETURNN_ROOT,
     )
+    targets_peaky = [PeakyAlignmentJob(hdf_file).out_hdf for hdf_file in targets.out_hdf_files]
     feature_caches_train = [tk.Path(
         "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/features/extraction/"
         f"FeatureExtraction.Gammatone.OKQT9hEV3Zgd/output/gt.cache.{idx}",
@@ -113,7 +116,7 @@ def get_datasets_transducer(waveform=True):
                 "ogg": dataset,
                 "alignment": {
                     "class": "HDFDataset",
-                    "files": targets.out_hdf_files,
+                    "files": targets_peaky,
                     "use_cache_manager": True,
                 },
             },
@@ -128,6 +131,10 @@ def get_datasets_transducer(waveform=True):
         returnn_datasets["dev"] = _add_targets_to_dataset(returnn_datasets["dev"])
         returnn_datasets["eval_datasets"]["devtrain"] = _add_targets_to_dataset(
             returnn_datasets["eval_datasets"]["devtrain"])
+        returnn_datasets["eval_datasets"]["dev.wei"] = copy.deepcopy(returnn_datasets["eval_datasets"]["devtrain"])
+        returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["alignment"]["seq_list_filter_file"] = (
+            segment_files["dev.wei"]
+        )
     else:
         features = RasrFeatureDumpHDFJob(feature_caches_train + feature_caches_dev, returnn_root=RETURNN_ROOT)
         returnn_datasets = {
@@ -142,7 +149,7 @@ def get_datasets_transducer(waveform=True):
                     },
                     "alignment": {
                         "class": "HDFDataset",
-                        "files": targets.out_hdf_files,
+                        "files": targets_peaky,
                         "use_cache_manager": True,
                         "seq_ordering": "laplace:.384",
                         "seq_list_filter_file": segment_files["train"],
@@ -163,7 +170,7 @@ def get_datasets_transducer(waveform=True):
                     },
                     "alignment": {
                         "class": "HDFDataset",
-                        "files": targets.out_hdf_files,
+                        "files": targets_peaky,
                         "use_cache_manager": True,
                         "seq_ordering": "sorted_reverse",
                         "seq_list_filter_file": segment_files["dev"],
@@ -176,14 +183,19 @@ def get_datasets_transducer(waveform=True):
             "devtrain": copy.deepcopy(returnn_datasets["dev"]),
             "dev.wei": copy.deepcopy(returnn_datasets["dev"]),
         }
-        returnn_datasets["eval_datasets"]["devtrain"]["datasets"]["alignment"]["seq_list_filter_file"] = segment_files["devtrain"]
-        returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["alignment"]["seq_list_filter_file"] = segment_files["dev.wei"]
+        returnn_datasets["eval_datasets"]["devtrain"]["datasets"]["alignment"]["seq_list_filter_file"] = (
+            segment_files["devtrain"]
+        )
+        returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["alignment"]["seq_list_filter_file"] = (
+            segment_files["dev.wei"]
+        )
 
     # retrieve silence lexicon
     nonword_phones = ["[LAUGHTER]", "[NOISE]", "[VOCALIZEDNOISE]"]
     recog_lexicon = AddEowPhonemesToLexiconJob(
         rasr_loss_lexicon.creator.bliss_lexicon, nonword_phones=nonword_phones
     ).out_lexicon
+    recog_lexicon = EnsureSilenceFirstJob(recog_lexicon).out_lexicon
     dev_corpora["hub5e00"].lexicon["filename"] = recog_lexicon
 
     return returnn_datasets, rasr_loss_corpus, rasr_loss_segments, rasr_loss_lexicon, dev_corpora
@@ -205,17 +217,16 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
     recog_args = {
         **{
             "lm_scales": [0.55],
-            "prior_scales": [0.5],
-            "epochs": [290],  # [130, 140, 150, "best"],
+            "epochs": [270, 280, 290, 300, "best"],
             "lookahead_options": {"lm_lookahead_scale": 0.55},
             "label_scorer_args": {
-                "use_prior": True,
                 "extra_args": {
                     "blank-label-index": 0,
                     "context-size": 1,
                     "label-scorer-type": "tf-ffnn-transducer",
                     "max-batch-size": 256,
-                    "reduction-factors": "2,2",
+                    "reduction-factors": 80 * 4,
+                    "reduction-subtrahend": 200 - 1,  # STFT window size - 1
                     "start-label-index": 89,
                     "transform-output-negate": True,
                     "use-start-label": True,
@@ -325,6 +336,18 @@ def run_rasr_gt_baseline():
             "do_specint": False,
             "add_features_output": True,
         },
+        "label_scorer_args": {
+            "extra_args": {
+                "blank-label-index": 0,
+                "context-size": 1,
+                "label-scorer-type": "tf-ffnn-transducer",
+                "max-batch-size": 256,
+                "reduction-factors": "2,2",
+                "start-label-index": 89,
+                "transform-output-negate": True,
+                "use-start-label": True,
+            },
+        },
     }
 
     nn_args, report_args_collection = get_nn_args_baseline(
@@ -378,7 +401,7 @@ def run_mel_baseline():
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
-            "lgm80_baseline": dict(
+            "bs15k_v0": dict(
                 returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
                 feature_args=feature_args,
                 lr_args={"dynamic_learning_rate": dynamic_learning_rate},
@@ -392,7 +415,7 @@ def run_mel_baseline():
         },
         num_epochs=300,
         evaluation_epochs=[270, 280, 290, 300],
-        prefix="viterbi_bs10k_",
+        prefix="viterbi_lgm80_",
     )
     report = run_nn_args(nn_args, report_args_collection, dev_corpora)
     return report
