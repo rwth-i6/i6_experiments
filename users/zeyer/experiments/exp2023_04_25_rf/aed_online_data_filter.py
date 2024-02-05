@@ -271,6 +271,7 @@ def from_scratch_training(
             # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor())
 
     batch_dims = targets.remaining_dims(targets_spatial_dim)
+    assert len(batch_dims) == 1  # just sanity check, in principle, it should support any other num batch dims
     input_labels = rf.shift_right(targets, axis=targets_spatial_dim, pad_value=model.bos_idx)
 
     logits, _ = model.decoder(
@@ -287,6 +288,7 @@ def from_scratch_training(
     )  # [B,T]
     loss.mark_as_loss("ce", scale=aed_loss_scale, use_normalized_loss=use_normalized_loss)
     total_loss += aed_loss_scale * rf.reduce_mean(loss, axis=targets_spatial_dim)
+    print("total loss:", rf.reduce_mean(total_loss, axis=batch_dims).raw_tensor.cpu().detatch())
 
     score_estimator_loss = model.data_filter.score_estimator_loss(model_loss=total_loss)
     score_estimator_loss.mark_as_loss("score_estimator")
