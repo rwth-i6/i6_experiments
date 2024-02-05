@@ -31,6 +31,7 @@ from i6_core.returnn.flow import (
 from i6_experiments.users.raissi.setups.common.data.factored_label import (
     LabelInfo,
     PhoneticContext,
+    RasrStateTying,
 )
 
 from i6_experiments.users.raissi.setups.common.decoder.config import (
@@ -686,6 +687,9 @@ class BASEFactoredHybridDecoder:
         lm_config: rasr.RasrConfig = None,
         create_lattice: bool = True,
         remove_or_set_concurrency: Union[bool, int] = False,
+        search_rqmt_update = None,
+        adv_search_extra_config: Optional[rasr.RasrConfig] = None,
+        adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
     ) -> RecognitionJobs:
         return self.recognize(
             label_info=label_info,
@@ -712,6 +716,9 @@ class BASEFactoredHybridDecoder:
             rtf_gpu=rtf_gpu,
             create_lattice=create_lattice,
             remove_or_set_concurrency=remove_or_set_concurrency,
+            search_rqmt_update=search_rqmt_update,
+            adv_search_extra_config=adv_search_extra_config,
+            adv_search_extra_post_config=adv_search_extra_post_config,
         )
 
     def recognize_ls_trafo_lm(
@@ -738,6 +745,7 @@ class BASEFactoredHybridDecoder:
         rtf_cpu: Optional[float] = None,
         create_lattice: bool = True,
         adv_search_extra_config: Optional[rasr.RasrConfig] = None,
+        adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
     ) -> RecognitionJobs:
         return self.recognize(
             add_sis_alias_and_output=add_sis_alias_and_output,
@@ -764,6 +772,7 @@ class BASEFactoredHybridDecoder:
             rtf_gpu=rtf_gpu,
             create_lattice=create_lattice,
             adv_search_extra_config=adv_search_extra_config,
+            adv_search_extra_post_config=adv_search_extra_post_config
         )
 
     def recognize(
@@ -794,6 +803,8 @@ class BASEFactoredHybridDecoder:
         rtf_gpu: Optional[float] = None,
         create_lattice: bool = True,
         adv_search_extra_config: Optional[rasr.RasrConfig] = None,
+        adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
+        search_rqmt_update = None,
         remove_or_set_concurrency: Union[bool, int] = False,
     ) -> RecognitionJobs:
         if isinstance(search_parameters, SearchParameters):
@@ -808,6 +819,8 @@ class BASEFactoredHybridDecoder:
         elif name_override is not None:
             name += f"{name_override}"
         else:
+            if search_parameters.beam_limit < 500_000:
+                name += f"Beamlim{search_parameters.beam_limit}"
             name += f"Beam{search_parameters.beam}-Lm{search_parameters.lm_scale}"
 
         search_crp = copy.deepcopy(self.crp)
@@ -872,6 +885,8 @@ class BASEFactoredHybridDecoder:
                 name += "-noTdp"
 
         state_tying = search_crp.acoustic_model_config.state_tying.type
+        if state_tying == RasrStateTying.cart:
+            cart_file = search_crp.acoustic_model_config.state_tying.file
 
         tdp_transition = (
             search_parameters.tdp_speech if search_parameters.tdp_scale is not None else (0.0, 0.0, "infinity", 0.0)
@@ -902,12 +917,15 @@ class BASEFactoredHybridDecoder:
         search_crp.acoustic_model_config.allophones["add-all"] = search_parameters.add_all_allophones
         search_crp.acoustic_model_config.allophones["add-from-lexicon"] = not search_parameters.add_all_allophones
 
-        search_crp.acoustic_model_config["state-tying"][
-            "use-boundary-classes"
-        ] = label_info.phoneme_state_classes.use_boundary()
-        search_crp.acoustic_model_config["state-tying"][
-            "use-word-end-classes"
-        ] = label_info.phoneme_state_classes.use_word_end()
+        if state_tying == RasrStateTying.cart:
+            search_crp.acoustic_model_config.state_tying.file = cart_file
+        else:
+            search_crp.acoustic_model_config["state-tying"][
+                "use-boundary-classes"
+            ] = label_info.phoneme_state_classes.use_boundary()
+            search_crp.acoustic_model_config["state-tying"][
+                "use-word-end-classes"
+            ] = label_info.phoneme_state_classes.use_word_end()
 
         # lm config update
         original_lm_config = search_crp.language_model_config
@@ -1024,8 +1042,13 @@ class BASEFactoredHybridDecoder:
             model_combination_config=model_combination_config,
             model_combination_post_config=None,
             extra_config=adv_search_extra_config,
-            extra_post_config=None,
+            extra_post_config=adv_search_extra_post_config,
         )
+
+
+        if search_rqmt_update is not None:
+            search.rqmt.update(search_rqmt_update)
+            search.cpu = 1
 
         if keep_value is not None:
             search.keep_value(keep_value)
@@ -1034,14 +1057,15 @@ class BASEFactoredHybridDecoder:
             search.add_alias(f"{pre_path}/{name}")
 
         if calculate_stats:
-            stat = ExtractSearchStatisticsJob(list(search.out_log_file.values()), self.crp.corpus_duration)
+            stat = ExtractSearchStatisticsJob(list(search.out_log_file.values()), 5.12)
 
             if add_sis_alias_and_output:
                 pre = f"{pre_path}-" if pre_path != "decoding" and pre_path != "decoding-gridsearch" else ""
                 stat.add_alias(f"{pre}statistics/{name}")
-                tk.register_output(f"{pre}statistics/rtf/{name}.rtf", stat.decoding_rtf)
-                tk.register_output(f"{pre}statistics/rtf/{name}.recognizer.rtf", stat.recognizer_rtf)
-                tk.register_output(f"{pre}statistics/rtf/{name}.stats", stat.ss_statistics)
+                tk.register_output(f"{pre}statistics/rtf/{name}.rtf", stat.overall_rtf)
+                #tk.register_output(f"{pre}statistics/rtf/{name}.rtf", stat.decoding_rtf)
+                #tk.register_output(f"{pre}statistics/rtf/{name}.recognizer.rtf", stat.recognizer_rtf)
+                #tk.register_output(f"{pre}statistics/rtf/{name}.stats", stat.ss_statistics)
         else:
             stat = None
 

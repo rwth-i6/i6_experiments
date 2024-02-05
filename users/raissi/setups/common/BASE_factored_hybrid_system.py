@@ -191,6 +191,8 @@ class BASEFactoredHybridSystem(NnSystem):
             "log_verbosity": 3,
         }
 
+        self.cart_state_tying_args = None  # just for simplicity
+
         # default to None to break it, set it in the config
         self.shuffling_params = {
             "shuffle_data": True,
@@ -398,9 +400,9 @@ class BASEFactoredHybridSystem(NnSystem):
         if self.label_info.state_tying == RasrStateTying.cart:
             crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
             assert (
-                self.label_info.state_tying_file is not None
+                self.cart_state_tying_args is not None
             ), "for cart state tying you need to set state tying file for label_info"
-            crp.acoustic_model_config.state_tying.file = self.label_info.state_tying_file
+            crp.acoustic_model_config.state_tying.file = self.cart_state_tying_args["cart"]
         else:
             if self.label_info.phoneme_state_classes.use_word_end():
                 crp.acoustic_model_config.state_tying.use_word_end_classes = (
@@ -422,7 +424,7 @@ class BASEFactoredHybridSystem(NnSystem):
 
         crp.lexicon_config.normalize_pronunciation = self.lexicon_args["norm_pronunciation"]
 
-    def reset_state_tying(self, crp_list = None, state_tying: RasrStateTying = RasrStateTying.diphone):
+    def reset_state_tying(self, crp_list=None, state_tying: RasrStateTying = RasrStateTying.diphone):
         # the default decoding state tying is no-tying-dense, unless nn_precomputed feature scorer is used
         if crp_list is None:
             crp_list = list(self.crp_names.keys())
@@ -604,7 +606,7 @@ class BASEFactoredHybridSystem(NnSystem):
                     types[t] = (types[t], "monostate")
 
         for crp_k in self.crp_names.keys():
-            if "train" in crp_k:
+            if "train" in self.crp_names[crp_k]:
                 self._update_crp_am_setting(
                     crp_key=self.crp_names[crp_k], tdp_type=types["train"], add_base_allophones=add_base_allophones
                 )

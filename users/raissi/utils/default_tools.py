@@ -35,6 +35,8 @@ u16_rasr_path_ted_common = tk.Path(
     hash_overwrite="TEDLIUM2_DEFAULT_RASR_BINARY_PATH",
 )
 
+u16_moritz_path = tk.Path("/work/tools/users/raissi/shared/mgunz/rasr_apptainer_tf2.3_u16/arch/linux-x86_64-standard", hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2")
+
 U16_RASR_BINARY_PATHS = {"TF1": u16_rasr_path_tf2, "TF2": u16_rasr_path_tf2, "TED_COMMON": u16_rasr_path_ted_common}
 u16_returnn_launcher_tf2 = tk.Path(
     "/u/raissi/bin/apptainer-launchers/u16/returnn_tf2.3_apptainer_u16_launcher.sh",
@@ -103,6 +105,12 @@ u16_default_tools = ToolPaths(
     returnn_root=RETURNN_ROOT,
     returnn_python_exe=U16_RETURNN_LAUNCHERS["TF2"],
     rasr_binary_path=U16_RASR_BINARY_PATHS["TF2"],
+)
+
+u16_default_tools_slow = ToolPaths(
+    returnn_root=RETURNN_ROOT,
+    returnn_python_exe=U16_RETURNN_LAUNCHERS["TF2"],
+    rasr_binary_path=u16_moritz_path,
 )
 
 u16_default_tools_returnn_fix = ToolPaths(

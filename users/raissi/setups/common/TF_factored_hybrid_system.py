@@ -373,7 +373,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         zero_weight: float = 1e-8,
         data_share: float = 0.3,
     ):
-        #if self.experiments[key]["graph"].get("inference", None) is None:
+        # if self.experiments[key]["graph"].get("inference", None) is None:
         #    self.set_graph_for_experiment(key)
 
         name = f"{self.experiments[key]['name']}/e{epoch}"
@@ -643,7 +643,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             RasrStateTying.diphone,
         ], "triphone state tying not possible in precomputed feature scorer due to memory constraint"
 
-
         if softmax_type == SingleSoftmaxType.TRAIN:
             self.label_info = dataclasses.replace(self.label_info, state_tying=state_tying)
             self.lexicon_args["norm_pronunciation"] = False
@@ -662,7 +661,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         if returnn_config is None:
             returnn_config = self.experiments[key]["returnn_config"]
 
-
         if state_tying == RasrStateTying.diphone:
             clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
             context_size = self.label_info.n_contexts
@@ -680,6 +678,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 log_softmax=log_softmax,
                 prepare_for_train=prepare_for_train,
             )
+
         elif state_tying == RasrStateTying.monophone:
             final_returnn_config = copy.deepcopy(returnn_config)
             context_time_tag = None
@@ -697,7 +696,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             additional_python_prolog=context_time_tag,
         )
         self.set_graph_for_experiment(key, graph_type_name=f"precomputed-{softmax_type}")
-
 
     def setup_returnn_config_and_graph_for_precomputed_decoding(
         self,
@@ -811,6 +809,9 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             self.setup_returnn_config_and_graph_for_single_softmax(
                 key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE
             )
+        else:
+            crp_list = [n for n in self.crp_names if "train" not in n]
+            self.reset_state_tying(crp_list=crp_list, state_tying=self.label_info.state_tying)
 
         graph = self.experiments[key]["graph"].get("inference", None)
         if graph is None:
@@ -820,8 +821,13 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         recog_args = self.get_parameters_for_decoder(context_type=context_type, prior_info=p_info)
 
         if dummy_mixtures is None:
+            n_labels = (
+                self.cart_state_tying_args["cart_labels"]
+                if self.label_info.state_tying == RasrStateTying.cart
+                else self.label_info.get_n_of_dense_classes()
+            )
             dummy_mixtures = mm.CreateDummyMixturesJob(
-                self.label_info.get_n_of_dense_classes(),
+                n_labels,
                 self.initial_nn_args["num_input"],
             ).out_mixtures
 
@@ -852,7 +858,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         return recognizer, recog_args
 
-    def  get_aligner_and_args(
+    def get_aligner_and_args(
         self,
         key: str,
         context_type: PhoneticContext,
@@ -887,6 +893,10 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             self.setup_returnn_config_and_graph_for_single_softmax(
                 key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE
             )
+
+        else:
+            crp_list = [n for n in self.crp_names if "align" in n]
+            self.reset_state_tying(crp_list=crp_list, state_tying=self.label_info.state_tying)
 
         graph = self.experiments[key]["graph"].get("inference", None)
         if graph is None:

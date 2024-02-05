@@ -29,7 +29,7 @@ class GeneralNetworkParams:
     frame_rate_reduction_ratio_factor: Optional[int] = 1
 
     def __post_init__(self):
-        if self.frame_rate_reduction_ratio_factor > 1:
+        if self.frame_rate_reduction_ratio_factor > 1 and self.chunking is not None:
             self.chunking = train_helpers.chunking_with_nfactor(self.chunking, self.frame_rate_reduction_ratio_factor)
 
 
@@ -43,4 +43,8 @@ default_conformer_viterbi = GeneralNetworkParams(chunking="400:200", l2=1e-6, sp
 
 frameshift40_conformer_viterbi = GeneralNetworkParams(
     l2=1e-6, chunking="400:200", specaug_args=asdict(default_sa_args), frame_rate_reduction_ratio_factor=4
+)
+
+frameshift40_conformer_fullsum = GeneralNetworkParams(
+    l2=5e-6, specaug_args=asdict(default_sa_args), frame_rate_reduction_ratio_factor=4
 )
