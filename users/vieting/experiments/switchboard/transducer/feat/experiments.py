@@ -5,7 +5,7 @@ from sisyphus import tk, gs
 from i6_core import corpus
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from i6_core.recognition import Hub5ScoreJob
-from i6_core.returnn import RasrFeatureDumpHDFJob, RasrAlignmentDumpHDFJob, BlissToOggZipJob
+from i6_core.returnn import ReturnnDumpHDFJob, RasrAlignmentDumpHDFJob, BlissToOggZipJob
 from i6_core.text.processing import ConcatenateJob
 from i6_experiments.users.vieting.tools.report import Report
 
@@ -50,28 +50,23 @@ def get_datasets_transducer(waveform=True):
         returnn_root=RETURNN_ROOT,
     )
     targets_peaky = [PeakyAlignmentJob(hdf_file).out_hdf for hdf_file in targets.out_hdf_files]
-    feature_caches_train = [tk.Path(
-        "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/features/extraction/"
-        f"FeatureExtraction.Gammatone.OKQT9hEV3Zgd/output/gt.cache.{idx}",
-        hash_overwrite=f"wei_ls960_gammatone_train_{idx}"
-    ) for idx in range(1, 101)]
     feature_cache_bundle_train = tk.Path(
         "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/features/extraction/"
         "FeatureExtraction.Gammatone.OKQT9hEV3Zgd/output/gt.cache.bundle",
         hash_overwrite="wei_ls960_gammatone_train_bundle",
         cached=False,
     )
-    feature_caches_dev = [tk.Path(
-        "/u/zhou/asr-exps/swb1/2020-07-27_neural_transducer/work/features/extraction/"
-        f"FeatureExtraction.Gammatone.pp9W8m2Z8mHU/output/gt.cache.{idx}",
-        hash_overwrite=f"wei_ls960_gammatone_dev_{idx}"
-    ) for idx in range(1, 11)]
     feature_cache_bundle_dev = tk.Path(
         "/u/zhou/asr-exps/swb1/2020-07-27_neural_transducer/work/features/extraction/"
         "FeatureExtraction.Gammatone.pp9W8m2Z8mHU/output/gt.cache.bundle",
         hash_overwrite="wei_ls960_gammatone_dev_bundle",
         cached=False,
     )
+    feature_bundle = ConcatenateJob(
+        [feature_cache_bundle_train, feature_cache_bundle_dev],
+        zip_out=False,
+        out_name="gt.cache.bundle",
+    ).out
 
     returnn_datasets["train"]["segment_file"] = corpus.FilterSegmentsByListJob(
         {1: returnn_datasets["train"]["segment_file"]},
@@ -93,11 +88,6 @@ def get_datasets_transducer(waveform=True):
 
     def _add_targets_to_dataset(dataset):
         ogg_zip_job = dataset["path"][0].creator
-        feature_bundle = ConcatenateJob(
-            [feature_cache_bundle_train, feature_cache_bundle_dev],
-            zip_out=False,
-            out_name="gt.cache.bundle",
-        ).out
         synced_ogg_zip_job = BlissToOggZipJob(
             bliss_corpus=ogg_zip_job.bliss_corpus,
             segments=ogg_zip_job.segments,
@@ -136,7 +126,16 @@ def get_datasets_transducer(waveform=True):
             segment_files["dev.wei"]
         )
     else:
-        features = RasrFeatureDumpHDFJob(feature_caches_train + feature_caches_dev, returnn_root=RETURNN_ROOT)
+        feat_dataset = {
+            "class": "SprintCacheDataset",
+            "data": {
+                "data": {
+                    "filename": feature_bundle,
+                    "data_type": "feat",
+                },
+            },
+        }
+        features = ReturnnDumpHDFJob(feat_dataset, returnn_root=RETURNN_ROOT)
         returnn_datasets = {
             "train": {
                 "class": "MetaDataset",
@@ -144,7 +143,7 @@ def get_datasets_transducer(waveform=True):
                 "datasets": {
                     "features": {
                         "class": "HDFDataset",
-                        "files": features.out_hdf_files,
+                        "files": [features.out_hdf],
                         "use_cache_manager": True,
                     },
                     "alignment": {
@@ -165,7 +164,7 @@ def get_datasets_transducer(waveform=True):
                 "datasets": {
                     "features": {
                         "class": "HDFDataset",
-                        "files": features.out_hdf_files,
+                        "files": [features.out_hdf],
                         "use_cache_manager": True,
                     },
                     "alignment": {
