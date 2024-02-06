@@ -439,16 +439,17 @@ def py():
     report_rasr_gt = run_rasr_gt_baseline()
     report_mel = run_mel_baseline()
 
-    # report_base = Report(
-    #     columns_start=["train_name", "wave_norm", "specaug", "lr", "batch_size"],
-    #     columns_end=["epoch", "recog_name", "lm", "optlm", "lm_scale", "prior_scale"],
-    # )
-    # report = Report.merge_reports([
-    #     report_base,
-    #     report_mel,
-    # ])
-    # tk.register_report(
-    #     os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report.csv"),
-    #     values=report.get_values(),
-    #     template=report.get_template(),
-    # )
+    report_base = Report(
+        columns_start=["train_name", "batch_size"],
+        columns_end=["epoch", "recog_name", "lm", "optlm", "lm_scale", "prior_scale"],
+    )
+    report = Report.merge_reports([
+        report_base,
+        report_rasr_gt,
+        report_mel,
+    ])
+    tk.register_report(
+        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report_swb_transducer.csv"),
+        values=report.get_values(),
+        template=report.get_template(),
+    )
