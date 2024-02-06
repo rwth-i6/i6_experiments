@@ -2,214 +2,21 @@ import copy
 import os.path
 from sisyphus import tk, gs
 
-from i6_core import corpus
-from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from i6_core.recognition import Hub5ScoreJob
-from i6_core.returnn import ReturnnDumpHDFJob, RasrAlignmentDumpHDFJob, BlissToOggZipJob
-from i6_core.text.processing import ConcatenateJob
 from i6_experiments.users.vieting.tools.report import Report
 
-from i6_experiments.users.berger.recipe.lexicon.modification import EnsureSilenceFirstJob
-from i6_experiments.users.vieting.jobs.returnn import PeakyAlignmentJob
-from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.experiments import get_datasets as get_datasets_ctc
+from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.experiments import (
+    run_mel_baseline as run_mel_baseline_ctc,
+)
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_system_v2 import (
     TransducerSystem,
     ReturnnConfigs,
     ScorerInfo,
 )
+from .data import get_returnn_datasets_transducer_viterbi
 from .baseline_args import get_nn_args as get_nn_args_baseline
 from .helpers.lr.oclr import dynamic_learning_rate
 from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT, RETURNN_EXE, SCTK_BINARY_PATH
-
-
-def get_datasets_transducer(features: str = "waveform", alignment: str = "ctc"):
-    returnn_datasets, rasr_loss_corpus, rasr_loss_segments, rasr_loss_lexicon, dev_corpora = get_datasets_ctc()
-
-    if alignment == "ctc":
-        raise NotImplementedError
-    elif alignment == "wei":
-        alignment_caches_train = [tk.Path(
-            "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/mm/alignment/AlignmentJob.fWmd1ZVWfcFA/output/"
-            f"alignment.cache.{idx}",
-            hash_overwrite=f"wei_ctc_blstm_ss4_alignment_train_{idx}"
-        ) for idx in range(1, 101)]
-        alignment_caches_dev = [tk.Path(
-            "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/mm/alignment/AlignmentJob.ETS2qXk7kdOY/output/"
-            f"alignment.cache.{idx}",
-            hash_overwrite=f"wei_ctc_blstm_ss4_alignment_dev_{idx}"
-        ) for idx in range(1, 11)]
-        allophone_file = tk.Path(
-            "/u/vieting/setups/swb/20230406_feat/dependencies/allophones",
-            hash_overwrite="SWB_ALLOPHONE_FILE_WEI"
-        )
-        state_tying_file = tk.Path(
-            "/u/vieting/setups/swb/20230406_feat/dependencies/state-tying",
-            hash_overwrite="SWB_STATE_TYING_FILE_MONO_EOW_NOCTX_WEI"
-        )
-        targets = RasrAlignmentDumpHDFJob(
-            alignment_caches=alignment_caches_train + alignment_caches_dev,
-            allophone_file=allophone_file,
-            state_tying_file=state_tying_file,
-            sparse=True,
-            returnn_root=RETURNN_ROOT,
-        )
-        targets_peaky = [PeakyAlignmentJob(hdf_file).out_hdf for hdf_file in targets.out_hdf_files]
-
-        returnn_datasets["train"]["segment_file"] = corpus.FilterSegmentsByListJob(
-            {1: returnn_datasets["train"]["segment_file"]},
-            targets.out_excluded_segments,
-        ).out_single_segment_files[1]
-        returnn_datasets["dev"]["segment_file"] = corpus.FilterSegmentsByListJob(
-            {1: returnn_datasets["dev"]["segment_file"]},
-            targets.out_excluded_segments,
-        ).out_single_segment_files[1]
-    else:
-        raise NotImplementedError
-
-    feature_cache_bundle_train = tk.Path(
-        "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/features/extraction/"
-        "FeatureExtraction.Gammatone.OKQT9hEV3Zgd/output/gt.cache.bundle",
-        hash_overwrite="wei_ls960_gammatone_train_bundle",
-        cached=False,
-    )
-    feature_cache_bundle_dev = tk.Path(
-        "/u/zhou/asr-exps/swb1/2020-07-27_neural_transducer/work/features/extraction/"
-        "FeatureExtraction.Gammatone.pp9W8m2Z8mHU/output/gt.cache.bundle",
-        hash_overwrite="wei_ls960_gammatone_dev_bundle",
-        cached=False,
-    )
-    feature_bundle = ConcatenateJob(
-        [feature_cache_bundle_train, feature_cache_bundle_dev],
-        zip_out=False,
-        out_name="gt.cache.bundle",
-    ).out
-
-    segment_files = {
-        "train": returnn_datasets["train"]["segment_file"],
-        "dev": returnn_datasets["dev"]["segment_file"],
-        "devtrain": returnn_datasets["eval_datasets"]["devtrain"]["segment_file"],
-        "dev.wei": tk.Path(
-            "/u/vieting/setups/swb/20230406_feat/dependencies/segments.wei.dev",
-            hash_overwrite="swb_segments_dev_wei",
-        ),
-    }
-
-    def _add_targets_to_dataset(dataset):
-        if alignment == "wei":
-            # Wei's alignment used DC-detection, so synchronize waveforms here
-            ogg_zip_job = dataset["path"][0].creator
-            synced_ogg_zip_job = BlissToOggZipJob(
-                bliss_corpus=ogg_zip_job.bliss_corpus,
-                segments=ogg_zip_job.segments,
-                rasr_cache=feature_bundle,
-                raw_sample_rate=ogg_zip_job.raw_sample_rate,
-                feat_sample_rate=ogg_zip_job.feat_sample_rate,
-                returnn_python_exe=ogg_zip_job.returnn_python_exe,
-                returnn_root=ogg_zip_job.returnn_root,
-            )
-            synced_ogg_zip_job.rqmt = {"time": 8.0, "cpu": 2}
-            dataset["path"] = [synced_ogg_zip_job.out_ogg_zip]
-        dataset = {
-            "class": "MetaDataset",
-            "data_map": {"classes": ("alignment", "data"), "data": ("ogg", "data")},
-            "datasets": {
-                "ogg": dataset,
-                "alignment": {
-                    "class": "HDFDataset",
-                    "files": targets_peaky,
-                    "use_cache_manager": True,
-                },
-            },
-            "seq_order_control_dataset": "ogg",
-            "partition_epoch": dataset.get("partition_epoch", 1),
-            "context_window": {"classes": 1, "data": 121},
-        }
-        return dataset
-
-    if features == "waveform":
-        returnn_datasets["train"] = _add_targets_to_dataset(returnn_datasets["train"])
-        returnn_datasets["dev"] = _add_targets_to_dataset(returnn_datasets["dev"])
-        returnn_datasets["eval_datasets"]["devtrain"] = _add_targets_to_dataset(
-            returnn_datasets["eval_datasets"]["devtrain"])
-        returnn_datasets["eval_datasets"]["dev.wei"] = copy.deepcopy(returnn_datasets["eval_datasets"]["devtrain"])
-        returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["alignment"]["seq_list_filter_file"] = (
-            segment_files["dev.wei"]
-        )
-    elif features == "wei":
-        feat_dataset = {
-            "class": "SprintCacheDataset",
-            "data": {
-                "data": {
-                    "filename": feature_bundle,
-                    "data_type": "feat",
-                },
-            },
-        }
-        features = ReturnnDumpHDFJob(feat_dataset, returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
-        returnn_datasets = {
-            "train": {
-                "class": "MetaDataset",
-                "data_map": {"classes": ("alignment", "data"), "data": ("features", "data")},
-                "datasets": {
-                    "features": {
-                        "class": "HDFDataset",
-                        "files": [features.out_hdf],
-                        "use_cache_manager": True,
-                    },
-                    "alignment": {
-                        "class": "HDFDataset",
-                        "files": targets_peaky,
-                        "use_cache_manager": True,
-                        "seq_ordering": "laplace:.384",
-                        "seq_list_filter_file": segment_files["train"],
-                        "partition_epoch": 6,
-                    },
-                },
-                "seq_order_control_dataset": "alignment",
-                "partition_epoch": 6,
-            },
-            "dev": {
-                "class": "MetaDataset",
-                "data_map": {"classes": ("alignment", "data"), "data": ("features", "data")},
-                "datasets": {
-                    "features": {
-                        "class": "HDFDataset",
-                        "files": [features.out_hdf],
-                        "use_cache_manager": True,
-                    },
-                    "alignment": {
-                        "class": "HDFDataset",
-                        "files": targets_peaky,
-                        "use_cache_manager": True,
-                        "seq_ordering": "sorted_reverse",
-                        "seq_list_filter_file": segment_files["dev"],
-                    },
-                },
-                "seq_order_control_dataset": "alignment",
-            },
-        }
-        returnn_datasets["eval_datasets"] = {
-            "devtrain": copy.deepcopy(returnn_datasets["dev"]),
-            "dev.wei": copy.deepcopy(returnn_datasets["dev"]),
-        }
-        returnn_datasets["eval_datasets"]["devtrain"]["datasets"]["alignment"]["seq_list_filter_file"] = (
-            segment_files["devtrain"]
-        )
-        returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["alignment"]["seq_list_filter_file"] = (
-            segment_files["dev.wei"]
-        )
-    else:
-        raise NotImplementedError
-
-    # retrieve silence lexicon
-    nonword_phones = ["[LAUGHTER]", "[NOISE]", "[VOCALIZEDNOISE]"]
-    recog_lexicon = AddEowPhonemesToLexiconJob(
-        rasr_loss_lexicon.creator.bliss_lexicon, nonword_phones=nonword_phones
-    ).out_lexicon
-    recog_lexicon = EnsureSilenceFirstJob(recog_lexicon).out_lexicon
-    dev_corpora["hub5e00"].lexicon["filename"] = recog_lexicon
-
-    return returnn_datasets, rasr_loss_corpus, rasr_loss_segments, rasr_loss_lexicon, dev_corpora
 
 
 def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", returnn_root=None, recog_args=None):
@@ -316,19 +123,13 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
 def run_rasr_gt_baseline():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
 
-    (
-        returnn_datasets,
-        rasr_loss_corpus_path,
-        rasr_loss_corpus_segments,
-        rasr_loss_lexicon_path,
-        dev_corpora,
-    ) = get_datasets_transducer(features="wei", alignment="wei")
+    returnn_datasets, dev_corpora = get_returnn_datasets_transducer_viterbi(
+        features="wei",
+        alignment="wei",
+        context_window={"classes": 1, "data": 121},
+    )
     returnn_args = {
         "batch_size": 15000,
-        "rasr_binary_path": RASR_BINARY_PATH,
-        "rasr_loss_corpus_path": rasr_loss_corpus_path,
-        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
-        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
         "datasets": returnn_datasets,
         "extra_args": {
             # data sequence is longer by factor 4 because of subsampling
@@ -385,51 +186,51 @@ def run_rasr_gt_baseline():
 
 def run_mel_baseline():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
+    reports = []
 
-    (
-        returnn_datasets,
-        rasr_loss_corpus_path,
-        rasr_loss_corpus_segments,
-        rasr_loss_lexicon_path,
-        dev_corpora,
-    ) = get_datasets_transducer(alignment="wei")
-    returnn_args = {
-        "batch_size": 15000,
-        "rasr_binary_path": RASR_BINARY_PATH,
-        "rasr_loss_corpus_path": rasr_loss_corpus_path,
-        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
-        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
-        "datasets": returnn_datasets,
-        "extra_args": {
-            # data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs. wave
-            "chunking": ({"classes": 64, "data": 64 * 4 * 80}, {"classes": 32, "data": 32 * 4 * 80}),
-            "gradient_clip": 20.0,
-            "learning_rate_control_error_measure": "sum_dev_score",
-            "min_learning_rate": 1e-6,
-        },
-    }
-    feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
+    for alignment in ["wei"]:#, "ctc"]:
+        prefix = "viterbi_lgm80_"
+        if alignment == "ctc":
+            prefix += f"align-ctc_"
+            _, alignment = run_mel_baseline_ctc()
+        returnn_datasets, dev_corpora = get_returnn_datasets_transducer_viterbi(
+            alignment=alignment,
+            context_window={"classes": 1, "data": 121},
+        )
+        returnn_args = {
+            "batch_size": 15000,
+            "datasets": returnn_datasets,
+            "extra_args": {
+                # data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs. wave
+                "chunking": ({"classes": 64, "data": 64 * 4 * 80}, {"classes": 32, "data": 32 * 4 * 80}),
+                "gradient_clip": 20.0,
+                "learning_rate_control_error_measure": "sum_dev_score",
+                "min_learning_rate": 1e-6,
+            },
+        }
+        feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
 
-    nn_args, report_args_collection = get_nn_args_baseline(
-        nn_base_args={
-            "bs15k_v0": dict(
-                returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
-                feature_args=feature_args,
-                lr_args={"dynamic_learning_rate": dynamic_learning_rate},
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "1e-3",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
-                },
-            ),
-        },
-        num_epochs=300,
-        evaluation_epochs=[270, 280, 290, 300],
-        prefix="viterbi_lgm80_",
-    )
-    report = run_nn_args(nn_args, report_args_collection, dev_corpora)
-    return report
+        nn_args, report_args_collection = get_nn_args_baseline(
+            nn_base_args={
+                "bs15k_v0": dict(
+                    returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
+                    feature_args=feature_args,
+                    lr_args={"dynamic_learning_rate": dynamic_learning_rate},
+                    report_args={
+                        "architecture": "conf-wei",
+                        "lr": "1e-3",
+                        "specaug": "wei_adapt_80dim",
+                        "wave_norm": "True",
+                    },
+                ),
+            },
+            num_epochs=300,
+            evaluation_epochs=[270, 280, 290, 300],
+            prefix=prefix,
+        )
+        report = run_nn_args(nn_args, report_args_collection, dev_corpora)
+        reports.append(report)
+    return Report.merge_reports(reports)
 
 
 def py():
