@@ -644,11 +644,20 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         ], "triphone state tying not possible in precomputed feature scorer due to memory constraint"
 
         if softmax_type == SingleSoftmaxType.TRAIN:
+            assert self.training_criterion == TrainingCriterion.FULLSUM, "you forgot to set the correct training criterion"
             self.label_info = dataclasses.replace(self.label_info, state_tying=state_tying)
             self.lexicon_args["norm_pronunciation"] = False
-            s.update_am_setting_for_all_crps(
-                train_tdp_type="heuristic",
-                eval_tdp_type="heuristic",
+            self.set_rasr_returnn_input_datas(
+                input_key="data_preparation",
+                is_cv_separate_from_train=True,
+                cv_corpus_key="dev-other",
+            )
+            #update all transition models and data
+            shift_factor = self.frame_rate_reduction_ratio_info.factor
+            tdp_type = "heuristic" if shift_factor == 1 else f"heuristic-{shift_factor}0ms"
+            self.update_am_setting_for_all_crps(
+                train_tdp_type=tdp_type,
+                eval_tdp_type="default",
                 add_base_allophones=False,
             )
         else:

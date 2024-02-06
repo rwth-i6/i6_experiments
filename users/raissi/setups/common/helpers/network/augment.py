@@ -730,7 +730,7 @@ def add_fast_bw_layer_to_network(
         assert prior is not None, "Hybrid HMM needs a transcription based prior for fullsum training"
 
     for attribute in ["loss", "loss_opts", "target"]:
-        del network[reference_layer][attribute]
+        network[reference_layer].pop(attribute, None)
 
     inputs = []
     out_denot = reference_layer.split("-")[0]

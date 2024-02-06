@@ -761,6 +761,7 @@ class BASEFactoredHybridSystem(NnSystem):
         config: Dict,
         prolog_additional_str: str = None,
         epilog_additional_str: str = None,
+        functions  = None,
         add_extern_data_for_fullsum=False,
     ):
         # this is not a returnn config, but the dict params
@@ -788,13 +789,16 @@ class BASEFactoredHybridSystem(NnSystem):
                 )
             )
 
-        config["python_epilog"] = {
-            "functions": [
+        if functions is None:
+            functions = [
                 train_helpers.specaugment.mask,
                 train_helpers.specaugment.random_mask,
                 train_helpers.specaugment.summary,
                 train_helpers.specaugment.transform,
-            ],
+            ]
+
+        config["python_epilog"] = {
+            "functions": functions,
         }
 
         if prolog_additional_str is not None:
