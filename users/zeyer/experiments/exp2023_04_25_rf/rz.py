@@ -72,7 +72,7 @@ def py():
         num_processes=2,
     )
 
-    train_exp_aed_trafo(
+    train_exp_aed_trafo(  # 5.11
         "v6-bhv20-f32-bs20k-accgrad1-mgpu2-wd1e_2-lrlin1e_5_438k-speedpertV2",
         config_16gb_v6_f32_bs20k_accgrad1_mgpu2_wd1e_2_lrlin1e_5_438k,
         model_config={"behavior_version": 20},
@@ -82,7 +82,7 @@ def py():
         },
     )
 
-    train_exp_aed_trafo(
+    train_exp_aed_trafo(  # 5.22
         "v6-bhv20-f32-bs20k-accgrad10-mgpu2-wd1e_2-lrlin2e_5_438k-speedpertV2",
         config_16gb_v6_f32_bs20k_accgrad1_mgpu2_wd1e_2_lrlin1e_5_438k,
         model_config={"behavior_version": 20},
