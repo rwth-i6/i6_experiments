@@ -22,34 +22,50 @@ from .helpers.lr.oclr import dynamic_learning_rate
 from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT, RETURNN_EXE, SCTK_BINARY_PATH
 
 
-def get_datasets_transducer(waveform=True):
+def get_datasets_transducer(features: str = "waveform", alignment: str = "ctc"):
     returnn_datasets, rasr_loss_corpus, rasr_loss_segments, rasr_loss_lexicon, dev_corpora = get_datasets_ctc()
-    alignment_caches_train = [tk.Path(
-        "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/mm/alignment/AlignmentJob.fWmd1ZVWfcFA/output/"
-        f"alignment.cache.{idx}",
-        hash_overwrite=f"wei_ctc_blstm_ss4_alignment_train_{idx}"
-    ) for idx in range(1, 101)]
-    alignment_caches_dev = [tk.Path(
-        "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/mm/alignment/AlignmentJob.ETS2qXk7kdOY/output/"
-        f"alignment.cache.{idx}",
-        hash_overwrite=f"wei_ctc_blstm_ss4_alignment_dev_{idx}"
-    ) for idx in range(1, 11)]
-    allophone_file = tk.Path(
-        "/u/vieting/setups/swb/20230406_feat/dependencies/allophones",
-        hash_overwrite="SWB_ALLOPHONE_FILE_WEI"
-    )
-    state_tying_file = tk.Path(
-        "/u/vieting/setups/swb/20230406_feat/dependencies/state-tying",
-        hash_overwrite="SWB_STATE_TYING_FILE_MONO_EOW_NOCTX_WEI"
-    )
-    targets = RasrAlignmentDumpHDFJob(
-        alignment_caches=alignment_caches_train + alignment_caches_dev,
-        allophone_file=allophone_file,
-        state_tying_file=state_tying_file,
-        sparse=True,
-        returnn_root=RETURNN_ROOT,
-    )
-    targets_peaky = [PeakyAlignmentJob(hdf_file).out_hdf for hdf_file in targets.out_hdf_files]
+
+    if alignment == "ctc":
+        raise NotImplementedError
+    elif alignment == "wei":
+        alignment_caches_train = [tk.Path(
+            "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/mm/alignment/AlignmentJob.fWmd1ZVWfcFA/output/"
+            f"alignment.cache.{idx}",
+            hash_overwrite=f"wei_ctc_blstm_ss4_alignment_train_{idx}"
+        ) for idx in range(1, 101)]
+        alignment_caches_dev = [tk.Path(
+            "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/mm/alignment/AlignmentJob.ETS2qXk7kdOY/output/"
+            f"alignment.cache.{idx}",
+            hash_overwrite=f"wei_ctc_blstm_ss4_alignment_dev_{idx}"
+        ) for idx in range(1, 11)]
+        allophone_file = tk.Path(
+            "/u/vieting/setups/swb/20230406_feat/dependencies/allophones",
+            hash_overwrite="SWB_ALLOPHONE_FILE_WEI"
+        )
+        state_tying_file = tk.Path(
+            "/u/vieting/setups/swb/20230406_feat/dependencies/state-tying",
+            hash_overwrite="SWB_STATE_TYING_FILE_MONO_EOW_NOCTX_WEI"
+        )
+        targets = RasrAlignmentDumpHDFJob(
+            alignment_caches=alignment_caches_train + alignment_caches_dev,
+            allophone_file=allophone_file,
+            state_tying_file=state_tying_file,
+            sparse=True,
+            returnn_root=RETURNN_ROOT,
+        )
+        targets_peaky = [PeakyAlignmentJob(hdf_file).out_hdf for hdf_file in targets.out_hdf_files]
+
+        returnn_datasets["train"]["segment_file"] = corpus.FilterSegmentsByListJob(
+            {1: returnn_datasets["train"]["segment_file"]},
+            targets.out_excluded_segments,
+        ).out_single_segment_files[1]
+        returnn_datasets["dev"]["segment_file"] = corpus.FilterSegmentsByListJob(
+            {1: returnn_datasets["dev"]["segment_file"]},
+            targets.out_excluded_segments,
+        ).out_single_segment_files[1]
+    else:
+        raise NotImplementedError
+
     feature_cache_bundle_train = tk.Path(
         "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/features/extraction/"
         "FeatureExtraction.Gammatone.OKQT9hEV3Zgd/output/gt.cache.bundle",
@@ -68,14 +84,6 @@ def get_datasets_transducer(waveform=True):
         out_name="gt.cache.bundle",
     ).out
 
-    returnn_datasets["train"]["segment_file"] = corpus.FilterSegmentsByListJob(
-        {1: returnn_datasets["train"]["segment_file"]},
-        targets.out_excluded_segments,
-    ).out_single_segment_files[1]
-    returnn_datasets["dev"]["segment_file"] = corpus.FilterSegmentsByListJob(
-        {1: returnn_datasets["dev"]["segment_file"]},
-        targets.out_excluded_segments,
-    ).out_single_segment_files[1]
     segment_files = {
         "train": returnn_datasets["train"]["segment_file"],
         "dev": returnn_datasets["dev"]["segment_file"],
@@ -87,18 +95,20 @@ def get_datasets_transducer(waveform=True):
     }
 
     def _add_targets_to_dataset(dataset):
-        ogg_zip_job = dataset["path"][0].creator
-        synced_ogg_zip_job = BlissToOggZipJob(
-            bliss_corpus=ogg_zip_job.bliss_corpus,
-            segments=ogg_zip_job.segments,
-            rasr_cache=feature_bundle,
-            raw_sample_rate=ogg_zip_job.raw_sample_rate,
-            feat_sample_rate=ogg_zip_job.feat_sample_rate,
-            returnn_python_exe=ogg_zip_job.returnn_python_exe,
-            returnn_root=ogg_zip_job.returnn_root,
-        )
-        synced_ogg_zip_job.rqmt = {"time": 8.0, "cpu": 2}
-        dataset["path"] = [synced_ogg_zip_job.out_ogg_zip]
+        if alignment == "wei":
+            # Wei's alignment used DC-detection, so synchronize waveforms here
+            ogg_zip_job = dataset["path"][0].creator
+            synced_ogg_zip_job = BlissToOggZipJob(
+                bliss_corpus=ogg_zip_job.bliss_corpus,
+                segments=ogg_zip_job.segments,
+                rasr_cache=feature_bundle,
+                raw_sample_rate=ogg_zip_job.raw_sample_rate,
+                feat_sample_rate=ogg_zip_job.feat_sample_rate,
+                returnn_python_exe=ogg_zip_job.returnn_python_exe,
+                returnn_root=ogg_zip_job.returnn_root,
+            )
+            synced_ogg_zip_job.rqmt = {"time": 8.0, "cpu": 2}
+            dataset["path"] = [synced_ogg_zip_job.out_ogg_zip]
         dataset = {
             "class": "MetaDataset",
             "data_map": {"classes": ("alignment", "data"), "data": ("ogg", "data")},
@@ -116,7 +126,7 @@ def get_datasets_transducer(waveform=True):
         }
         return dataset
 
-    if waveform:
+    if features == "waveform":
         returnn_datasets["train"] = _add_targets_to_dataset(returnn_datasets["train"])
         returnn_datasets["dev"] = _add_targets_to_dataset(returnn_datasets["dev"])
         returnn_datasets["eval_datasets"]["devtrain"] = _add_targets_to_dataset(
@@ -125,7 +135,7 @@ def get_datasets_transducer(waveform=True):
         returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["alignment"]["seq_list_filter_file"] = (
             segment_files["dev.wei"]
         )
-    else:
+    elif features == "wei":
         feat_dataset = {
             "class": "SprintCacheDataset",
             "data": {
@@ -135,7 +145,7 @@ def get_datasets_transducer(waveform=True):
                 },
             },
         }
-        features = ReturnnDumpHDFJob(feat_dataset, returnn_root=RETURNN_ROOT)
+        features = ReturnnDumpHDFJob(feat_dataset, returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
         returnn_datasets = {
             "train": {
                 "class": "MetaDataset",
@@ -188,6 +198,8 @@ def get_datasets_transducer(waveform=True):
         returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["alignment"]["seq_list_filter_file"] = (
             segment_files["dev.wei"]
         )
+    else:
+        raise NotImplementedError
 
     # retrieve silence lexicon
     nonword_phones = ["[LAUGHTER]", "[NOISE]", "[VOCALIZEDNOISE]"]
@@ -310,7 +322,7 @@ def run_rasr_gt_baseline():
         rasr_loss_corpus_segments,
         rasr_loss_lexicon_path,
         dev_corpora,
-    ) = get_datasets_transducer(waveform=False)
+    ) = get_datasets_transducer(features="wei", alignment="wei")
     returnn_args = {
         "batch_size": 15000,
         "rasr_binary_path": RASR_BINARY_PATH,
@@ -380,7 +392,7 @@ def run_mel_baseline():
         rasr_loss_corpus_segments,
         rasr_loss_lexicon_path,
         dev_corpora,
-    ) = get_datasets_transducer()
+    ) = get_datasets_transducer(alignment="wei")
     returnn_args = {
         "batch_size": 15000,
         "rasr_binary_path": RASR_BINARY_PATH,
