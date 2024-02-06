@@ -1043,106 +1043,11 @@ def conformer_baseline():
         partition_epoch=4,
     )
 
-    # att + ctc opts
-    search_args = copy.deepcopy(args)
-    for scales in [(0.4, 0.6), (0.7, 0.3), (0.85, 0.15)]:
-        for beam_size in [12]:
-            search_args["beam_size"] = beam_size
-            att_scale, ctc_scale = scales
-            search_args["decoder_args"] = CTCDecoderArgs(
-                add_att_dec=True,
-                att_scale=att_scale,
-                ctc_scale=ctc_scale,
-                att_masking_fix=True,
-                target_dim=1057,
-                target_embed_dim=256,
-            )
-            run_decoding(
-                f"opts_ctc{ctc_scale}_att{att_scale}_beam{beam_size}",
-                train_data,
-                checkpoint=train_job_avg_ckpt[name],
-                search_args=search_args,
-                bpe_size=BPE_1K,
-                test_sets=["dev"],
-                remove_label={"<s>", "<blank>"},
-                use_sclite=True,
-            )
-
-    # ctc greedy decoding
-    search_args["decoder_args"] = CTCDecoderArgs(target_dim=1057)
-
-    run_decoding(
-        f"ctc_greedy",
-        train_data,
-        checkpoint=train_job_avg_ckpt[name],
-        search_args=search_args,
-        bpe_size=BPE_1K,
-        test_sets=["dev"],
-        remove_label={"<s>", "<blank>"},
-        use_sclite=True,
-    )
-
     tedlium_lm_opts = {
         "lm_subnet": tedlium_lm.tedlium_lm_net,
         "load_on_init_opts": tedlium_lm.tedlium_lm_load_on_init,
         "name": "trafo",
     }
-
-    # ctc + lm decoding
-    # for beam_size, ctc_scale, lm_scale in product([12, 32], [1.0], [0.3, 0.4]):
-    #     search_args = copy.deepcopy(args)
-    #     search_args["beam_size"] = beam_size
-    #     lm_type = "trafo"
-    #     ext_lm_opts = tedlium_lm_opts
-    #     search_args["decoder_args"] = CTCDecoderArgs(
-    #         add_att_dec=False,
-    #         ctc_scale=ctc_scale,
-    #         add_ext_lm=True,
-    #         lm_type=lm_type,
-    #         ext_lm_opts=ext_lm_opts,
-    #         lm_scale=lm_scale,
-    #         target_dim=1057,
-    #         target_embed_dim=256,
-    #     )
-    #     run_decoding(
-    #         f"opts_ctc{ctc_scale}_lm{lm_scale}_beam{beam_size}",
-    #         train_data,
-    #         checkpoint=train_job_avg_ckpt[name],
-    #         search_args=search_args,
-    #         bpe_size=BPE_1K,
-    #         test_sets=["dev"],
-    #         remove_label={"<s>", "<blank>"},
-    #         use_sclite=True,
-    #     )
-
-    # ctc + att + lm decoding
-    # for beam_size, scales, lm_scale in product([48], [(0.7, 0.3)], [0.3, 0.35, 0.4]):
-    #     search_args = copy.deepcopy(args)
-    #     search_args["beam_size"] = beam_size
-    #     att_scale, ctc_scale = scales
-    #     # prior_scale = 0.3
-    #     lm_type = "lstm"
-    #     ext_lm_opts = tedlium_lm_opts
-    #     search_args["decoder_args"] = CTCDecoderArgs(
-    #         add_att_dec=True,
-    #         att_scale=att_scale,
-    #         ctc_scale=ctc_scale,
-    #         att_masking_fix=True,
-    #         add_ext_lm=True,
-    #         lm_type=lm_type,
-    #         ext_lm_opts=ext_lm_opts,
-    #         lm_scale=lm_scale,
-    #     )
-    #     run_decoding(
-    #         f"opts_ctc{ctc_scale}_att{att_scale}_lm{lm_scale}_beam{beam_size}",
-    #         train_data,
-    #         checkpoint=train_job_avg_ckpt[name],
-    #         search_args=search_args,
-    #         bpe_size=BPE_1K,
-    #         test_sets=["dev"],
-    #         remove_label={"<s>", "<blank>"},
-    #         use_sclite=True,
-    #     )
 
     # compute ctc prior
     prior_args = copy.deepcopy(args)
@@ -1154,7 +1059,7 @@ def conformer_baseline():
 
     # try prior correction
     for scales in [(0.7, 0.3, 0.4)]:
-        for beam_size in [12, 32, 64]:
+        for beam_size in []:
             search_args["beam_size"] = beam_size
             search_args["ctc_log_prior_file"] = prior_file
             att_scale, ctc_scale, prior_scale = scales
@@ -1216,70 +1121,11 @@ def conformer_baseline():
         partition_epoch=4,
     )
 
-    # att + ctc opts
-    prior_file_scale = compute_ctc_prior(
-        scale_ctc_name, prior_args, train_job_avg_ckpt[scale_ctc_name], bpe_size=BPE_1K
-    )
-    search_args = copy.deepcopy(args)
-    for scales in [(0.7, 0.3), (0.65, 0.35)]:
-        for beam_size in [12, 32, 64]:
-            for prior_scale in [0.4]:
-                search_args["beam_size"] = beam_size
-                search_args["ctc_log_prior_file"] = prior_file_scale
-                att_scale, ctc_scale = scales
-                search_args["decoder_args"] = CTCDecoderArgs(
-                    add_att_dec=True,
-                    att_scale=att_scale,
-                    ctc_scale=ctc_scale,
-                    att_masking_fix=True,
-                    target_dim=1057,
-                    target_embed_dim=256,
-                    ctc_prior_correction=True,
-                    prior_scale=prior_scale,
-                )
-                run_decoding(
-                    f"model_ctc_0.3_att_0.7/opts_ctc{ctc_scale}_att{att_scale}_prior{prior_scale}_beam{beam_size}",
-                    train_data,
-                    checkpoint=train_job_avg_ckpt[scale_ctc_name],
-                    search_args=search_args,
-                    bpe_size=BPE_1K,
-                    test_sets=["dev", "test"],
-                    remove_label={"<s>", "<blank>"},
-                    use_sclite=True,
-                )
+    # prior_file_scale = compute_ctc_prior(
+    #     scale_ctc_name, prior_args, train_job_avg_ckpt[scale_ctc_name], bpe_size=BPE_1K
+    # )
 
-    # separate encoders
-    # some model + ctc only
-    for beam_size, scales, prior_scale in product([32, 64], [(0.8, 0.2)], [0.4]):
-        search_args["beam_size"] = beam_size
-        search_args["ctc_log_prior_file"] = prior_file_ctc_only
-        att_scale, ctc_scale = scales
-        search_args["decoder_args"] = CTCDecoderArgs(
-            add_att_dec=True,
-            att_scale=att_scale,
-            ctc_scale=ctc_scale,
-            att_masking_fix=True,
-            target_dim=1057,
-            target_embed_dim=256,
-            ctc_prior_correction=True,
-            prior_scale=prior_scale,
-        )
-        search_args[
-            "second_encoder_ckpt"
-        ] = "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.9o6iL7eblZwa/output/models/epoch.400"
-        # search_args["second_encoder_ckpt"] = train_job_avg_ckpt[only_ctc_name]
-        run_decoding(
-            f"model_aed1.0ctc0.3__ctc_only/opts_ctc{ctc_scale}_att{att_scale}_prior{prior_scale}_beam{beam_size}",
-            train_data,
-            checkpoint=train_job_avg_ckpt[scale_ctc_name],
-            search_args=search_args,
-            bpe_size=BPE_1K,
-            test_sets=["dev", "test"],
-            remove_label={"<s>", "<blank>"},
-            use_sclite=True,
-        )
-
-    if True:
+    if False:
         # ctc greedy of separate encoder as sanity check
         search_args["beam_size"] = beam_size
         search_args["ctc_log_prior_file"] = prior_file_ctc_only
@@ -1320,13 +1166,37 @@ def conformer_baseline():
             partition_epoch=4,
         )
 
-        # att + ctc opts
         prior_file_scale = compute_ctc_prior(
             scale_ctc_name,
             prior_args,
             train_job_avg_ckpt[scale_ctc_name],
             bpe_size=BPE_1K,
         )
+
+    # ctc loss on different layer
+    for layer in [6,8,10]:
+        for scales in [(0.7, 0.3), (1.0, 1.0)]:
+            att_scale, ctc_scale = scales
+            scale_ctc_name = name + f"_ce{att_scale}_ctc{ctc_scale}_layer{layer}"
+            scale_ctc_args = copy.deepcopy(args)
+            scale_ctc_args["encoder_args"].ctc_loss_scale = ctc_scale
+            scale_ctc_args["decoder_args"].ce_loss_scale = att_scale
+            _, train_data = run_exp(
+                scale_ctc_name,
+                scale_ctc_args,
+                num_epochs=ep,
+                epoch_wise_filter=None,
+                bpe_size=BPE_1K,
+                partition_epoch=4,
+            )
+
+            prior_file_scale = compute_ctc_prior(
+                scale_ctc_name,
+                prior_args,
+                train_job_avg_ckpt[scale_ctc_name],
+                bpe_size=BPE_1K,
+            )
+
 
     # train very low ctc scale
     scale_ctc_args, exp_name = get_base_v1_args(
@@ -1352,21 +1222,33 @@ def conformer_baseline():
         bpe_size=BPE_1K,
     )
 
-    # att only with curriculum learning
-    att_only_args, exp_name = get_base_v1_args(
-        lr, ep, pretrain_reps=5, enc_drop=enc_drop
-    )
-    att_only_args["encoder_args"].with_ctc = False
-    exp_name = exp_name + "_noctc_currL1"
-    train_j, train_data = run_exp(
-        exp_name,
-        att_only_args,
-        num_epochs=ep,
-        epoch_wise_filter=[(1, 2, 400), (2, 4, 800)],
-        bpe_size=BPE_1K,
-        partition_epoch=4,
-        dev_score_key="dev_score",
-    )
+    for epoch_wise_filter in [
+        [(1, 2, 400), (2, 4, 800)],
+        [(1, 3, 400), (3, 5, 800)],
+        # [(1, 4, 400), (4, 5, 800)], # I think it hurts a bit
+        [(1, 3, 400), (3, 6, 800)],
+        [(1, 4, 400), (4, 6, 800)],
+        # [(1, 2, 400), (2, 6, 800)], # I think it hurts a bit
+        [(1, 2, 400), (2, 4, 800), (4, 6, 1000)],
+        # [(1, 6, 400), (6, 12, 800)], # This hurts a bit more
+    ]:
+        # att only with curriculum learning
+        att_only_args, exp_name = get_base_v1_args(
+            lr, ep, pretrain_reps=5, enc_drop=enc_drop
+        )
+        att_only_args["encoder_args"].with_ctc = False
+        epoch_wise_filter_str = str(epoch_wise_filter).replace(" ", "").replace("[", "").replace("]", "").replace("(", "").replace(")", "").replace(",", "_")
+        exp_name = exp_name + f"_noctc_currL_{epoch_wise_filter_str}"
+        train_j, train_data = run_exp(
+            exp_name,
+            att_only_args,
+            num_epochs=ep,
+            epoch_wise_filter=epoch_wise_filter,
+            bpe_size=BPE_1K,
+            partition_epoch=4,
+            dev_score_key="dev_score",
+        )
+
 
     # att only with adjusted specaugment
     att_only_args, exp_name = get_base_v1_args(
