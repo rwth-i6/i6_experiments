@@ -154,7 +154,6 @@ class Tacotron2Decoder(torch.nn.Module):
         if self.reduction_factor > 1:
             target_audio_features = target_audio_features[:, self.reduction_factor - 1 :: self.reduction_factor]
 
-
         # initialize hidden states of decoder
         c_list = [self._zero_state(h_t)]
         z_list = [self._zero_state(h_t)]
@@ -162,6 +161,7 @@ class Tacotron2Decoder(torch.nn.Module):
             c_list += [self._zero_state(h_t)]
             z_list += [self._zero_state(h_t)]
         prev_out = h_t.new_zeros(h_t.size(0), self.odim)
+
 
 
         # loop for an output sequence
@@ -204,10 +204,13 @@ class Tacotron2Decoder(torch.nn.Module):
     def inference(
         self,
         h_t,
-        h_lengths,
+        t_mask,
+        speaker_embedding,
     ):
         """Generate the sequence of features given the sequences of characters.
 
+        :param h_t: encoder outputs in (B, T, F)
+        :param h_t_mask: [B, 1, T]
         Args:
             h (Tensor): Input sequence of encoder hidden states (T, C).
 
@@ -230,38 +233,40 @@ class Tacotron2Decoder(torch.nn.Module):
         for _ in range(1, len(self.lstm)):
             c_list += [self._zero_state(h_t)]
             z_list += [self._zero_state(h_t)]
-        prev_out = h_t.new_zeros(1, self.odim)
+        prev_out = h_t.new_zeros(h_t.size(0), self.odim)
 
         # loop for an output sequence
         idx = 0
         outs, att_ws, probs = [], [], []
-        for h in h_t.transpose(0, 1):
+        for h in h_t.transpose(0, 1):  # [T, B, F]
             # updated index
             idx += self.reduction_factor
 
             prenet_out = self.prenet(prev_out) if self.prenet is not None else prev_out
-            xs = torch.cat([h, prenet_out], dim=1)
+            print(h.shape)
+            print(prenet_out.shape)
+            print(speaker_embedding.shape)
+            xs = torch.cat([h, prenet_out, speaker_embedding], dim=1)
             z_list[0], c_list[0] = self.lstm[0](xs, (z_list[0], c_list[0]))
             for i in range(1, len(self.lstm)):
                 z_list[i], c_list[i] = self.lstm[i](
                     z_list[i - 1], (z_list[i], c_list[i])
                 )
             zcs = (
-                torch.cat([z_list[-1], h], dim=1)
+                torch.cat([z_list[-1], h, speaker_embedding], dim=1)
                 if self.use_concate
                 else z_list[-1]
             )
-            outs += [self.feat_out(zcs).view(1, self.odim, -1)]  # [(1, odim, r), ...]
-            if self.output_activation_fn is not None:
-                prev_out = self.output_activation_fn(outs[-1][:, :, -1])  # (1, odim)
-            else:
-                prev_out = outs[-1][:, :, -1]  # (1, odim)
-
-        outs = torch.cat(outs, dim=2)  # (1, odim, L)
+            outs += [self.feat_out(zcs).view(-1, self.odim, self.reduction_factor)]  # [(B, odim, r), ...]
+            prev_out = outs[-1][:, :, -1]  # (B, odim)
+        outs = torch.cat(outs, dim=2)
+        print(outs.shape)
+        print(t_mask.shape)
+        outs = outs * t_mask  # (B, odim, L)
         if self.postnet is not None:
             outs = outs + self.postnet(outs)  # (1, odim, L)
 
-        return outs
+        return outs * t_mask
 
 
 @dataclass
@@ -377,7 +382,13 @@ class Model(BaseTTSModelV1):
         # path as [B, T, N]  x h as [B, N, F] -> [B, T, F]
         upsampled_h = torch.matmul(path.transpose(1, 2), h.transpose(1, 2))
 
-        output_features_after, output_features_before = self.decoder(h_t=upsampled_h, h_t_lengths=feature_lengths, target_audio_features=target_features, speaker_embedding=spk.squeeze(-1))
+        if raw_audio is None:
+            # inference
+            output_features = self.decoder.inference(h_t=upsampled_h, t_mask=t_mask, speaker_embedding=spk.squeeze(-1))
+            return output_features, target_features, feature_lengths, log_durations.squeeze(1)
+        else:
+            # Training
+            output_features_after, output_features_before = self.decoder(h_t=upsampled_h, h_t_lengths=feature_lengths, target_audio_features=target_features, speaker_embedding=spk.squeeze(-1))
 
         return output_features_after, output_features_before, target_features, feature_lengths, log_durations.squeeze(1)
         

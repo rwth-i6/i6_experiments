@@ -158,7 +158,6 @@ class Postnet(torch.nn.Module):
 
     def __init__(
         self,
-        idim,
         odim,
         n_layers=5,
         n_chans=512,
@@ -169,7 +168,6 @@ class Postnet(torch.nn.Module):
         """Initialize postnet module.
 
         Args:
-            idim (int): Dimension of the inputs.
             odim (int): Dimension of the outputs.
             n_layers (int, optional): The number of layers.
             n_filts (int, optional): The number of filter size.

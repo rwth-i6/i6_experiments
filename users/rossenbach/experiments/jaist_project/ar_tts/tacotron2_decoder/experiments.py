@@ -1,27 +1,20 @@
 import copy
-import os
 import numpy as np
 from sisyphus import tk
 from dataclasses import asdict
 
-from i6_core.corpus.transform import MergeCorporaJob, MergeStrategy
-from i6_core.corpus.convert import CorpusReplaceOrthFromReferenceCorpus
-from i6_core.returnn.oggzip import BlissToOggZipJob
-
-from i6_experiments.common.datasets.librispeech.corpus import get_bliss_corpus_dict
 from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterbankOptions
-from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob
 
 from ...data.tts_phon import build_durationtts_training_dataset
 from ...data.tts_phon import get_vocab_datastream
-from ...data.tts_phon import get_tts_log_mel_datastream, build_fixed_speakers_generating_dataset, get_tts_extended_bliss
+from ...data.tts_phon import get_tts_log_mel_datastream
 
 from ...config import get_training_config, get_forward_config
-from ...pipeline import training, tts_eval, tts_generation
+from ...pipeline import training, tts_eval_v2, generate_synthetic
 
 
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ...storage import duration_alignments, vocoders, add_synthetic_data
+from ...storage import duration_alignments, vocoders
 
 
 
@@ -71,7 +64,7 @@ def run_tacotron2_decoder_tts():
             returnn_root=MINI_RETURNN_ROOT,
             num_epochs=200
         )
-        forward_job = tts_eval(
+        forward_job = tts_eval_v2(
             prefix_name=prefix + name,
             returnn_config=forward_config,
             checkpoint=train_job.out_checkpoints[200],
@@ -80,53 +73,6 @@ def run_tacotron2_decoder_tts():
         )
         tk.register_output(prefix + name + "/audio_files", forward_job.out_files["audio_files"])
         return train_job, forward_job
-
-    def generate_synthetic(name, target_ls_corpus, checkpoint, params, net_module, decoder_options, extra_decoder=None, use_custom_engine=False, debug=False, splits=10):
-        # we want to get ls360 but with the vocab settings from ls100
-        asr_bliss = get_bliss_corpus_dict()[target_ls_corpus]
-        tts_bliss = get_tts_extended_bliss(ls_corpus_key=target_ls_corpus, lexicon_ls_corpus_key=target_ls_corpus)
-        generating_datasets = build_fixed_speakers_generating_dataset(
-            text_bliss=tts_bliss,
-            num_splits=splits,
-            ls_corpus_key="train-clean-100",  # this is always ls100
-        )
-        split_out_bliss = []
-        for i in range(splits):
-            forward_config = get_forward_config(
-                network_module=net_module,
-                net_args=params,
-                decoder=extra_decoder or net_module,
-                decoder_args=decoder_options,
-                config={
-                    "forward": generating_datasets.split_datasets[i].as_returnn_opts()
-                },
-                debug=debug,
-            )
-            forward_job = tts_generation(
-                prefix_name=prefix + name + f"/{target_ls_corpus}_split{i}",
-                returnn_config=forward_config,
-                checkpoint=checkpoint,
-                returnn_exe=RETURNN_EXE,
-                returnn_root=MINI_RETURNN_ROOT,
-            )
-            split_out_bliss.append(forward_job.out_files["out_corpus.xml.gz"])
-
-        merged_corpus = MergeCorporaWithPathResolveJob(
-            bliss_corpora=split_out_bliss, name=target_ls_corpus, merge_strategy=MergeStrategy.FLAT
-        ).out_merged_corpus
-        merged_corpus_with_text = CorpusReplaceOrthFromReferenceCorpus(
-            bliss_corpus=merged_corpus,
-            reference_bliss_corpus=asr_bliss,
-        ).out_corpus
-        ogg_zip_job = BlissToOggZipJob(
-            merged_corpus_with_text,
-            no_conversion=True,
-            returnn_python_exe=RETURNN_EXE,
-            returnn_root=MINI_RETURNN_ROOT
-        )
-        ogg_zip_job.add_alias(prefix + name + f"/{target_ls_corpus}/create_synthetic_zip")
-        add_synthetic_data(name + "_" + target_ls_corpus, ogg_zip_job.out_ogg_zip, merged_corpus_with_text)
-        return merged_corpus_with_text
 
     log_mel_datastream = get_tts_log_mel_datastream(ls_corpus_key="train-clean-100")
 
@@ -241,6 +187,19 @@ def run_tacotron2_decoder_tts():
 
     duration_hdf = duration_alignments["glow_tts.lukas_baseline_bs600_v2"]
 
-    train, forward = run_exp(net_module + "_fromglow_v1", params, net_module, config,
-                             extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
+    #train, forward = run_exp(net_module + "_fromglow_v1", params, net_module, config,
+    #                         extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
     # train.hold()
+
+    net_module = "ar_tts.tacotron2_decoding.tacotron2_decoding_v2"
+    train, forward = run_exp(net_module + "_fromglow_v1", params, net_module, config,
+                             extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
+    
+    generate_synthetic(prefix, net_module + "_fromglow_v1_syn", "train-clean-100",
+                       train.out_checkpoints[200], params, net_module,
+                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+                       decoder_options=decoder_options_synthetic, debug=True)
+    
+    duration_hdf = duration_alignments["glow_tts.glow_tts_v1_bs600_v2_base256"]
+    train, forward = run_exp(net_module + "_fromglowbase256_v1", params, net_module, config,
+                             extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)

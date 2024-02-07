@@ -235,12 +235,25 @@ def eow_phon_ls100_1023_base():
         "glow_tts.glow_tts_v1_bs600_newgl_noise0.7_syn_train-clean-100",
         "glow_tts.glow_tts_v1_bs600_newgl_noise0.7_cont100_syn_train-clean-100",
         "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_noise0.7_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_extdur_noise0.0_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_extdur_noise0.3_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_extdur_noise0.5_syn_train-clean-100",
         "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_extdur_noise0.7_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_extdur_noise0.7_syn_fixspk_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_extdur_noise1.0_syn_train-clean-100",
         "nar_tts.fastspeech_like.fastspeech_like_v1_fromctc_v1_halfbatch_syn_train-clean-100",
         "nar_tts.fastspeech_like.fastspeech_like_v1_fromctc_v1_halfbatch_fixlr_fp16_syn_train-clean-100",
         "nar_tts.fastspeech_like.fastspeech_like_v1_fromglow_v1_halfbatch_fixlr_fp16_syn_train-clean-100",
         "nar_tts.fastspeech_like.fastspeech_like_v1_fromglowbase256_v1_halfbatch_fixlr_fp16_syn_train-clean-100",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_fromglowbase256_v1_halfbatch_fixlr_fp16_syn_fixspk_train-clean-100",
         "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurtest_syn_train-clean-100",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_noise0.3_syn_train-clean-100",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_noise0.5_syn_train-clean-100",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_noise0.7_syn_train-clean-100",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_noise0.7_10steps_syn_train-clean-100",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_noise1.0_syn_train-clean-100",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_syn_fixspk_train-clean-100",
+        "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglow_v1_syn_train-clean-100",
     ]
     for syn_name in syn_names:
         syn_bliss = synthetic_bliss_data[syn_name]
@@ -297,7 +310,9 @@ def eow_phon_ls100_1023_base():
         "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_extdur_noise0.7_syn_train-clean-360",
         "nar_tts.fastspeech_like.fastspeech_like_v1_fromctc_v1_halfbatch_fixlr_fp16_syn_train-clean-360",
         "nar_tts.fastspeech_like.fastspeech_like_v1_fromglow_v1_halfbatch_fixlr_fp16_syn_train-clean-360",
-        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurtest_syn_train-clean-360",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_fromglowbase256_v1_halfbatch_fixlr_fp16_syn_train-clean-360",
+        # "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurtest_syn_train-clean-360",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_syn_train-clean-360",
     ]
     for syn_name in syn_names:
         syn_bliss = synthetic_bliss_data[syn_name]

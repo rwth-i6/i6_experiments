@@ -331,12 +331,14 @@ def build_fixed_speakers_generating_dataset(
         text_bliss: tk.Path,
         num_splits: int,
         ls_corpus_key: str = "train-clean-100",
+        randomize_speaker=True,
 ):
     """
 
     :param text_bliss:  corpus used for generation
     :param num_splits: split via segments for parallel generation
     :param ls_corpus_key: base corpus to take speakers from
+    :param randomize_speaker: Assign shuffled speakers from refrence corpus
     :return:
     """
     speaker_reference_bliss_dataset, _ = get_tts_bliss_and_zip(ls_corpus_key=ls_corpus_key)
@@ -347,6 +349,11 @@ def build_fixed_speakers_generating_dataset(
         bliss_corpus=text_bliss,
         speaker_reference_bliss_corpus=speaker_reference_bliss_dataset,
     ).out_corpus
+
+    if randomize_speaker:
+        speaker_bliss = generating_bliss
+    else:
+        speaker_bliss = text_bliss
 
     segments_dict = SegmentCorpusJob(generating_bliss, num_segments=num_splits).out_single_segment_files
 
@@ -359,7 +366,7 @@ def build_fixed_speakers_generating_dataset(
 
     # we currently assume that train and cv share the same corpus file
     speaker_label_job = SpeakerLabelHDFFromBlissJob(
-        bliss_corpus=generating_bliss,
+        bliss_corpus=speaker_bliss,
         returnn_root=MINI_RETURNN_ROOT,
     )
     joint_speaker_hdf = speaker_label_job.out_speaker_hdf

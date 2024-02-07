@@ -2,20 +2,30 @@
 Pipeline parts to create the necessary jobs for training / forwarding / search etc...
 """
 import copy
+import os.path
+from typing import Any, Dict, Optional
 
 from sisyphus import tk
 
-from i6_core.corpus.convert import CorpusToStmJob
+from i6_core.corpus.convert import CorpusToStmJob, CorpusReplaceOrthFromReferenceCorpus
+from i6_core.corpus.transform import MergeStrategy
 from i6_core.recognition.scoring import ScliteJob
+from i6_core.returnn.oggzip import BlissToOggZipJob
 
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.search import SearchWordsToCTMJob
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.forward import ReturnnForwardJobV2
 
-from i6_experiments.users.rossenbach.common_setups.returnn.datasets import GenericDataset
+from i6_experiments.common.datasets.librispeech import get_bliss_corpus_dict
+from i6_experiments.common.setups.returnn.datasets import Dataset
+from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob
+from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAMosPredictionJob
 
-from .default_tools import SCTK_BINARY_PATH
+from .config import get_forward_config
+from .data.tts_phon import get_tts_extended_bliss, build_fixed_speakers_generating_dataset
+from .default_tools import SCTK_BINARY_PATH, NISQA_REPO, RETURNN_EXE, MINI_RETURNN_ROOT
+from .storage import add_synthetic_data
 
 
 @tk.block()
@@ -25,7 +35,6 @@ def training(
         returnn_exe: tk.Path,
         returnn_root: tk.Path,
         num_epochs: int,
-        trigger: bool = False,
 ) -> ReturnnTrainingJob:
     """
     Perform RETURNN training
@@ -51,9 +60,6 @@ def training(
         num_epochs=num_epochs,
         **default_rqmt
     )
-    if trigger:
-        print(train_job)
-        assert False
     train_job.add_alias(prefix_name + "/training")
     tk.register_output(prefix_name + "/learning_rates", train_job.out_learning_rates)
 
@@ -64,7 +70,7 @@ def search_single(
         prefix_name: str,
         returnn_config: ReturnnConfig,
         checkpoint: tk.Path,
-        recognition_dataset: GenericDataset,
+        recognition_dataset: Dataset,
         recognition_bliss_corpus: tk.Path,
         returnn_exe: tk.Path,
         returnn_root: tk.Path,
@@ -262,6 +268,43 @@ def tts_eval(
     forward_job.add_alias(prefix_name + "/tts_eval_job")
     return forward_job
 
+
+@tk.block()
+def tts_eval_v2(
+        prefix_name,
+        returnn_config,
+        checkpoint,
+        returnn_exe,
+        returnn_root,
+        mem_rqmt=8,
+):
+    """
+    Run search for a specific test dataset
+
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: override the default memory requirement
+    """
+    forward_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=1,
+        device="cpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=["audio_files", "out_corpus.xml.gz"],
+    )
+    forward_job.add_alias(prefix_name + "/tts_eval_job")
+    evaluate_nisqa(prefix_name, forward_job.out_files["out_corpus.xml.gz"])
+    return forward_job
+
+
 @tk.block()
 def tts_generation(
         prefix_name,
@@ -269,7 +312,7 @@ def tts_generation(
         checkpoint,
         returnn_exe,
         returnn_root,
-        mem_rqmt=16,
+        mem_rqmt=32,
 ):
     """
     Run search for a specific test dataset
@@ -295,4 +338,90 @@ def tts_generation(
     )
     forward_job.add_alias(prefix_name + "/tts_eval_job")
     return forward_job
+
+
+def generate_synthetic(
+        prefix: str,
+        name: str,
+        target_ls_corpus_key: str,
+        checkpoint: tk.Path,
+        params: Dict[str, Any],
+        net_module: str,
+        decoder_options: Dict[str, Any],
+        extra_decoder: Optional[str] = None,
+        extra_forward_config: Optional[Dict[str, Any]] = None,
+        debug: bool = False,
+        splits: int = 10,
+        randomize_speaker: bool = True,
+        # use_n_subset=None,
+):
+    """
+    use a TTS system to create a synthetic corpus
+    """
+    # we want to get ls360 but with the vocab settings from ls100
+    asr_bliss = get_bliss_corpus_dict()[target_ls_corpus_key]
+    tts_bliss = get_tts_extended_bliss(ls_corpus_key=target_ls_corpus_key, lexicon_ls_corpus_key=target_ls_corpus_key)
+
+    #if use_n_subset:
+    #    from i6_core.corpus.segments import SegmentCorpusJob
+    #    from i6_core.text.processing import
+    #    segments = SegmentCorpusJob(asr_bliss,1).out_single_segment_files[1]
+
+    generating_datasets = build_fixed_speakers_generating_dataset(
+        text_bliss=tts_bliss,
+        num_splits=splits,
+        ls_corpus_key="train-clean-100",  # this is always ls100
+        randomize_speaker=randomize_speaker,
+    )
+    split_out_bliss = []
+    for i in range(splits):
+        forward_config = get_forward_config(
+            network_module=net_module,
+            net_args=params,
+            decoder=extra_decoder or net_module,
+            decoder_args=decoder_options,
+            config={
+                "forward": generating_datasets.split_datasets[i].as_returnn_opts()
+            },
+            debug=debug,
+        )
+        if extra_forward_config is not None:
+            forward_config.config.update(extra_forward_config)
+        forward_job = tts_generation(
+            prefix_name=prefix + name + f"/{target_ls_corpus_key}_split{i}",
+            returnn_config=forward_config,
+            checkpoint=checkpoint,
+            returnn_exe=RETURNN_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+        )
+        split_out_bliss.append(forward_job.out_files["out_corpus.xml.gz"])
+
+    merged_corpus = MergeCorporaWithPathResolveJob(
+        bliss_corpora=split_out_bliss, name=target_ls_corpus_key, merge_strategy=MergeStrategy.FLAT
+    ).out_merged_corpus
+    merged_corpus_with_text = CorpusReplaceOrthFromReferenceCorpus(
+        bliss_corpus=merged_corpus,
+        reference_bliss_corpus=asr_bliss,
+    ).out_corpus
+    ogg_zip_job = BlissToOggZipJob(
+        merged_corpus_with_text,
+        no_conversion=True,
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT
+    )
+    ogg_zip_job.add_alias(prefix + name + f"/{target_ls_corpus_key}/create_synthetic_zip")
+    add_synthetic_data(name + "_" + target_ls_corpus_key, ogg_zip_job.out_ogg_zip, merged_corpus_with_text)
+    return merged_corpus_with_text
+
+
+def evaluate_nisqa(
+        prefix_name: str,
+        bliss_corpus: tk.Path,
+):
+        predict_mos_job = NISQAMosPredictionJob(bliss_corpus, nisqa_repo=NISQA_REPO)
+        predict_mos_job.add_alias(prefix_name + "/nisqa_mos")
+        tk.register_output(os.path.join(prefix_name, "nisqa_mos/average"), predict_mos_job.out_mos_average)
+        tk.register_output(os.path.join(prefix_name, "nisqa_mos/min"), predict_mos_job.out_mos_min)
+        tk.register_output(os.path.join(prefix_name, "nisqa_mos/max"), predict_mos_job.out_mos_max)
+        tk.register_output(os.path.join(prefix_name, "nisqa_mos/std_dev"), predict_mos_job.out_mos_std_dev)
 
