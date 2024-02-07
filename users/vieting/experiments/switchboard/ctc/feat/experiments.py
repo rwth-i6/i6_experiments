@@ -1,100 +1,33 @@
 import copy
 import os.path
 from sisyphus import tk, gs
-from sisyphus.delayed_ops import DelayedFormat
 from typing import Any, Dict
 
-from i6_core.meta.system import CorpusObject
-from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from i6_core.returnn.config import CodeWrapper
 from i6_core.recognition import Hub5ScoreJob
 from i6_core.tools import CloneGitRepositoryJob
-from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00
-from i6_experiments.common.setups.rasr.util import RasrDataInput
-from i6_experiments.users.berger.recipe.lexicon.modification import DeleteEmptyOrthJob, MakeBlankLexiconJob
 from i6_experiments.users.vieting.tools.report import Report
-
-# TODO: run_gmm_system_from_common might be copied here for stability
-from i6_experiments.users.vieting.experiments.switchboard.hybrid.feat.experiments import run_gmm_system_from_common
+from i6_experiments.users.vieting.experiments.switchboard.transducer.feat.data import (
+    get_switchboard_data,
+    get_returnn_ogg_datasets,
+)
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_system_v2 import (
     TransducerSystem,
     ReturnnConfigs,
     ScorerInfo,
     SearchTypes,
 )
-
 from .baseline_args import get_nn_args as get_nn_args_baseline
-from .data import get_corpus_data_inputs_oggzip  # TODO: might be copied here for stability
 from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT, RETURNN_EXE, SCTK_BINARY_PATH
 
 
-def get_datasets(use_multi_proc_dataset=False, **kwargs):
-    gmm_system = run_gmm_system_from_common()
-
-    # TODO: get oggzip independent of GMM system
-    # noinspection PyTypeChecker
-    (
-        nn_train_data_inputs,
-        nn_cv_data_inputs,
-        nn_devtrain_data_inputs,
-        nn_dev_data_inputs,
-        nn_test_data_inputs,
-        train_corpus_path,
-        traincv_segments,
-    ) = get_corpus_data_inputs_oggzip(
-        gmm_system,
-        partition_epoch={"train": 6, "dev": 1},
-        returnn_root=RETURNN_ROOT,
-        returnn_python_exe=RETURNN_EXE,
-        **kwargs,
-    )
-
-    returnn_datasets = {
-        "train": nn_train_data_inputs["switchboard.train"].get_data_dict()["datasets"]["ogg"],
-        "dev": nn_cv_data_inputs["switchboard.cv"].get_data_dict()["datasets"]["ogg"],
-        "eval_datasets": {
-            "devtrain": nn_devtrain_data_inputs["switchboard.devtrain"].get_data_dict()["datasets"]["ogg"],
-        },
-    }
-
-    if use_multi_proc_dataset:
-        returnn_datasets["train"] = {
-            "class": "MultiProcDataset",
-            "dataset": nn_train_data_inputs["switchboard.train"].get_data_dict()["datasets"]["ogg"],
-            "num_workers": 2,
-            "buffer_size": 5,
-        }
-
-    lexicon = gmm_system.crp["switchboard"].lexicon_config.file
-    lexicon = DeleteEmptyOrthJob(lexicon).out_lexicon
-    rasr_loss_lexicon = MakeBlankLexiconJob(lexicon).out_lexicon
-    nonword_phones = ["[LAUGHTER]", "[NOISE]", "[VOCALIZEDNOISE]"]
-    recog_lexicon = AddEowPhonemesToLexiconJob(rasr_loss_lexicon, nonword_phones=nonword_phones).out_lexicon
-
-    rasr_loss_corpus = train_corpus_path
-    rasr_loss_segments = traincv_segments
-
-    hub5e00 = get_hub5e00()
-    corpus_object = CorpusObject()
-    corpus_object.corpus_file = hub5e00.bliss_corpus
-    corpus_object.audio_format = nn_dev_data_inputs["hub5e00"].crp.audio_format
-    corpus_object.duration = nn_dev_data_inputs["hub5e00"].crp.corpus_duration
-    dev_corpora = {
-        "hub5e00": RasrDataInput(
-            corpus_object=corpus_object,
-            lexicon={
-                "filename": recog_lexicon,
-                "normalize_pronunciation": False,
-                "add_all": True,
-                "add_from_lexicon": False,
-            },
-            lm={"filename": nn_dev_data_inputs["hub5e00"].crp.language_model_config.file, "type": "ARPA"},
-            stm=hub5e00.stm,
-            glm=hub5e00.glm,
-        )
-    }
-
-    return returnn_datasets, rasr_loss_corpus, rasr_loss_segments, rasr_loss_lexicon, dev_corpora
+def get_datasets():
+    returnn_datasets = get_returnn_ogg_datasets()
+    train_corpus, dev_corpora, segments = get_switchboard_data()
+    rasr_loss_lexicon = train_corpus.lexicon["filename"]
+    rasr_loss_corpus = train_corpus.corpus_object.corpus_file
+    rasr_loss_segments = segments["all_filtered"]
+    return returnn_datasets, rasr_loss_corpus, rasr_loss_segments, rasr_loss_lexicon, dev_corpora["ctc"]
 
 
 def run_test_mel():

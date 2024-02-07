@@ -81,8 +81,9 @@ def get_switchboard_data():
     lexicon_base = DeleteEmptyOrthJob(lexicon_base).out_lexicon
     lexicon_rasr_loss = MakeBlankLexiconJob(lexicon_base).out_lexicon
     non_word_phones = ["[LAUGHTER]", "[NOISE]", "[VOCALIZEDNOISE]"]
-    lexicon_recog = AddEowPhonemesToLexiconJob(lexicon_base, nonword_phones=non_word_phones).out_lexicon
-    lexicon_recog = EnsureSilenceFirstJob(lexicon_recog).out_lexicon
+    lexicon_recog_ctc = AddEowPhonemesToLexiconJob(lexicon_rasr_loss, nonword_phones=non_word_phones).out_lexicon
+    lexicon_recog_transducer = AddEowPhonemesToLexiconJob(lexicon_base, nonword_phones=non_word_phones).out_lexicon
+    lexicon_recog_transducer = EnsureSilenceFirstJob(lexicon_recog_transducer).out_lexicon
     lexicon_args = {
         "normalize_pronunciation": False,
         "add_all": True,
@@ -105,13 +106,24 @@ def get_switchboard_data():
     )
     hub5e00 = get_hub5e00()
     dev_corpora = {
-        "hub5e00": RasrDataInput(
-            corpus_object=get_hub5e00_corpus_object(),
-            lexicon={"filename": lexicon_recog, **lexicon_args},
-            lm=lm_args,
-            stm=hub5e00.stm,
-            glm=hub5e00.glm,
-        )
+        "ctc": {
+            "hub5e00": RasrDataInput(
+                corpus_object=get_hub5e00_corpus_object(),
+                lexicon={"filename": lexicon_recog_ctc, **lexicon_args},
+                lm=lm_args,
+                stm=hub5e00.stm,
+                glm=hub5e00.glm,
+            ),
+        },
+        "transducer": {
+            "hub5e00": RasrDataInput(
+                corpus_object=get_hub5e00_corpus_object(),
+                lexicon={"filename": lexicon_recog_transducer, **lexicon_args},
+                lm=lm_args,
+                stm=hub5e00.stm,
+                glm=hub5e00.glm,
+            ),
+        },
     }
 
     return train_corpus, dev_corpora, segments
@@ -356,7 +368,6 @@ def get_returnn_datasets_transducer_viterbi(
         if feature_key == "feat":
             dataset["datasets"]["features"] = dataset["datasets"].pop(feature_key)
             dataset["data_map"]["data"] = ("features", "data")
-            feature_key = "features"
         else:
             dataset["partition_epoch"] = dataset["datasets"][feature_key]["partition_epoch"]
-    return returnn_datasets, dev_corpora
+    return returnn_datasets, dev_corpora["transducer"]
