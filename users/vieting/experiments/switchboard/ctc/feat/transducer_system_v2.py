@@ -781,6 +781,7 @@ class TransducerSystem:
         align_corpus_key: str,
         trial_num: Optional[int] = None,
         epochs: List[EpochType] = [],
+        lm_scales: List[float] = [],
         prior_scales: List[float] = [0],
         prior_args: Dict = {},
         label_unit: str = "phoneme",
@@ -797,7 +798,7 @@ class TransducerSystem:
 
         base_feature_flow = self._make_base_feature_flow(align_corpus_key, **flow_args)
 
-        for prior_scale, epoch in itertools.product(prior_scales, epochs):
+        for lm_scale, prior_scale, epoch in itertools.product(lm_scales, prior_scales, epochs):
             tf_graph = self._make_tf_graph(
                 train_exp_name=train_exp_name,
                 returnn_config=self.returnn_configs[train_exp_name].align_config,
