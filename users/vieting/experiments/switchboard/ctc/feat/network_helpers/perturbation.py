@@ -143,7 +143,7 @@ class WaveformPerturbation:
                     audio = encoded_normalized_audio
                 else:
                     raise NotImplementedError(f"Codec {codec} not implemented.")
-        return output_audio
+        return audio
 
     @staticmethod
     def non_linearity_function(audio, sample_rate, random_state, factor):
