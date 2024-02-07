@@ -2,7 +2,7 @@
 Create data for switchboard transducer pipeline.
 """
 import copy
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from sisyphus import tk
 from i6_core import corpus
@@ -136,7 +136,7 @@ def get_returnn_base_data(
     """
     Get basic dataset with ogg input and hdf targets.
     """
-    train_corpus, dev_corpora, segments = get_switchboard_data()
+    train_corpus, _, segments = get_switchboard_data()
 
     # oggzip
     segments_ogg_parallel = corpus.SplitSegmentFileJob(segments["all"], concurrent=20).out_segment_path
@@ -212,15 +212,15 @@ def get_returnn_ogg_datasets(**kwargs) -> Dict[str, Dict]:
 
 def get_returnn_datasets_transducer_viterbi(
         features: str = "waveform",
-        alignment: str = "ctc",
+        alignment: Union[List[tk.Path], str] = "wei",
         partition_epoch: Optional[Dict[str, int]] = None,
         context_window: Optional[Dict[str, int]] = None,
 ):
-    train_corpus, dev_corpora, segments = get_switchboard_data()
+    _, _, segments = get_switchboard_data()
     returnn_datasets = get_returnn_base_data(partition_epoch, context_window)
-    if alignment == "ctc":
-        raise NotImplementedError
-    elif alignment == "wei":
+    sync_ogg_audio = False
+    if alignment == "wei":
+        sync_ogg_audio = True
         alignment_caches_train = [tk.Path(
             "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/mm/alignment/AlignmentJob.fWmd1ZVWfcFA/output/"
             f"alignment.cache.{idx}",
@@ -246,7 +246,7 @@ def get_returnn_datasets_transducer_viterbi(
             sparse=True,
             returnn_root=RETURNN_ROOT,
         )
-        targets_peaky = [PeakyAlignmentJob(hdf_file).out_hdf for hdf_file in targets.out_hdf_files]
+        alignment = [PeakyAlignmentJob(hdf_file).out_hdf for hdf_file in targets.out_hdf_files]
 
         returnn_datasets["train"].ogg_args["segment_file"] = corpus.FilterSegmentsByListJob(
             {1: returnn_datasets["train"].ogg_args["segment_file"]},
@@ -256,8 +256,9 @@ def get_returnn_datasets_transducer_viterbi(
             {1: returnn_datasets["dev"].ogg_args["segment_file"]},
             targets.out_excluded_segments,
         ).out_single_segment_files[1]
-    else:
-        raise NotImplementedError
+    assert isinstance(alignment, list)
+    assert len(alignment) > 0
+    assert isinstance(alignment[0], tk.Path)
 
     feature_cache_bundle_train = tk.Path(
         "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/features/extraction/"
@@ -288,7 +289,7 @@ def get_returnn_datasets_transducer_viterbi(
 
     def _add_targets_to_dataset(dataset: OggZipHdfDataInput) -> Dict[str, Any]:
         dataset = dataset.get_data_dict()
-        if alignment == "wei":
+        if sync_ogg_audio:
             # Wei's alignment used DC-detection, so synchronize waveforms here
             ogg_zip_job = dataset["datasets"]["ogg"]["path"][0].creator
             synced_ogg_zip_job = BlissToOggZipJob(
@@ -302,7 +303,7 @@ def get_returnn_datasets_transducer_viterbi(
             )
             synced_ogg_zip_job.rqmt = {"time": 8.0, "cpu": 2}
             dataset["datasets"]["ogg"]["path"] = [synced_ogg_zip_job.out_ogg_zip]
-        dataset["datasets"]["hdf"]["files"] = targets_peaky
+        dataset["datasets"]["hdf"]["files"] = alignment
         return dataset
 
     if features == "waveform":
@@ -328,7 +329,7 @@ def get_returnn_datasets_transducer_viterbi(
         for dataset in ["train", "dev"]:
             returnn_datasets[dataset] = HdfDataInput(
                 features=[features.out_hdf],
-                alignments=targets_peaky,
+                alignments=alignment,
                 seq_ordering=returnn_datasets[dataset].seq_ordering,
                 segment_file=returnn_datasets[dataset].ogg_args["segment_file"],
                 partition_epoch=returnn_datasets[dataset].partition_epoch,
@@ -370,4 +371,4 @@ def get_returnn_datasets_transducer_viterbi(
             dataset["data_map"]["data"] = ("features", "data")
         else:
             dataset["partition_epoch"] = dataset["datasets"][feature_key]["partition_epoch"]
-    return returnn_datasets, dev_corpora["transducer"]
+    return returnn_datasets
