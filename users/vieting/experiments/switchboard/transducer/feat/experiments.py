@@ -204,7 +204,7 @@ def run_rasr_gt_baseline():
             "type": "gammatone",
             "channels": 40,
             "maxfreq": 3800,
-            "warp_freqbreak":3700,
+            "warp_freqbreak": 3700,
             "do_specint": False,
             "add_features_output": True,
         },
@@ -278,14 +278,21 @@ def run_mel_baseline():
             "batch_size": 15000,
             "datasets": returnn_datasets,
             "extra_args": {
-                # data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs. wave
+                # data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
+                # raw waveform
                 "chunking": ({"classes": 64, "data": 64 * 4 * 80}, {"classes": 32, "data": 32 * 4 * 80}),
                 "gradient_clip": 20.0,
                 "learning_rate_control_error_measure": "sum_dev_score",
                 "min_learning_rate": 1e-6,
             },
         }
-        feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
+        feature_args = {
+            "class": "LogMelNetwork",
+            "wave_norm": True,
+            "frame_size": 200,
+            "frame_shift": 80,
+            "fft_size": 256,
+        }
 
         nn_args, report_args_collection = get_nn_args_baseline(
             nn_base_args={
