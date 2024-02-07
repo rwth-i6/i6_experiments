@@ -127,7 +127,7 @@ class WaveformPerturbation:
             prob = codec.pop("prob", 1.0)
             if random_state.random() < prob:
                 if codec.get("encoding") == "ULAW":
-                    # standard values for µ-law encoding
+                    # standard values for mu-law encoding
                     quantization_bits = 8
                     mu = 255.0
 
