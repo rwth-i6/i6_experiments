@@ -140,7 +140,7 @@ class WaveformPerturbation:
                     encoded_audio = np.sign(normalized_audio) * np.log1p(MU * np.abs(normalized_audio)) / np.log1p(MU)
                     encoded_audio = ((encoded_audio + 1) / 2 * (2**quantization_bits - 1)).astype(np.float64)
 
-                    # normalise encoded audio
+                    # normalize encoded audio
                     encoded_normalized_audio = (encoded_audio - encoded_audio.min()) / (
                         encoded_audio.max() - encoded_audio.min()
                     )
