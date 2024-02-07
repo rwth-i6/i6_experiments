@@ -182,6 +182,12 @@ def run_rasr_gt_baseline():
         alignment="wei",
         context_window={"classes": 1, "data": 121},
     )
+    returnn_datasets_legacy = get_returnn_datasets_transducer_viterbi(
+        features="wei",
+        alignment="wei",
+        context_window={"classes": 1, "data": 121},
+        legacy_feature_dump=True,
+    )
     returnn_args = {
         "batch_size": 15000,
         "datasets": returnn_datasets,
@@ -219,6 +225,22 @@ def run_rasr_gt_baseline():
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
             "bs15k_v0": dict(
+                returnn_args={
+                    "conformer_type": "wei",
+                    "specaug_old": {"max_feature": 4},
+                    **returnn_args,
+                    **{"datasets": returnn_datasets_legacy},
+                },
+                num_inputs=40,
+                lr_args={"dynamic_learning_rate": dynamic_learning_rate},
+                report_args={
+                    "architecture": "conf-wei",
+                    "lr": "1e-3",
+                    "specaug": "wei_adapt_80dim",
+                    "wave_norm": "True",
+                },
+            ),
+            "bs15k_v0.1": dict(
                 returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 4}, **returnn_args},
                 num_inputs=40,
                 lr_args={"dynamic_learning_rate": dynamic_learning_rate},

@@ -23,8 +23,8 @@ from i6_experiments.users.berger.recipe.lexicon.modification import (
     MakeBlankLexiconJob,
 )
 from i6_experiments.users.vieting.jobs.returnn import PeakyAlignmentJob
-from i6_experiments.users.vieting.util.returnn import iterate_returnn_datasets
 from .default_tools import RETURNN_ROOT, RETURNN_EXE
+import i6_experiments.users.vieting.util.returnn as returnn_util
 
 
 def get_switchboard_data():
@@ -215,12 +215,32 @@ def get_returnn_datasets_transducer_viterbi(
         alignment: Union[List[tk.Path], str] = "wei",
         partition_epoch: Optional[Dict[str, int]] = None,
         context_window: Optional[Dict[str, int]] = None,
-):
+        keep_hashes: Optional[bool] = None,
+        legacy_feature_dump: bool = False,
+) -> Dict[str, Dict]:
+    if keep_hashes is None:
+        keep_hashes = alignment == "wei"
     _, _, segments = get_switchboard_data()
     returnn_datasets = get_returnn_base_data(partition_epoch, context_window)
-    sync_ogg_audio = False
+    feature_cache_bundle_train = tk.Path(
+        "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/features/extraction/"
+        "FeatureExtraction.Gammatone.OKQT9hEV3Zgd/output/gt.cache.bundle",
+        hash_overwrite="wei_ls960_gammatone_train_bundle",
+        cached=False,
+    )
+    feature_cache_bundle_dev = tk.Path(
+        "/u/zhou/asr-exps/swb1/2020-07-27_neural_transducer/work/features/extraction/"
+        "FeatureExtraction.Gammatone.pp9W8m2Z8mHU/output/gt.cache.bundle",
+        hash_overwrite="wei_ls960_gammatone_dev_bundle",
+        cached=False,
+    )
+    feature_bundle = ConcatenateJob(
+        [feature_cache_bundle_train, feature_cache_bundle_dev],
+        zip_out=False,
+        out_name="gt.cache.bundle",
+    ).out
+
     if alignment == "wei":
-        sync_ogg_audio = True
         alignment_caches_train = [tk.Path(
             "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/mm/alignment/AlignmentJob.fWmd1ZVWfcFA/output/"
             f"alignment.cache.{idx}",
@@ -256,27 +276,24 @@ def get_returnn_datasets_transducer_viterbi(
             {1: returnn_datasets["dev"].ogg_args["segment_file"]},
             targets.out_excluded_segments,
         ).out_single_segment_files[1]
+
+        # Wei's alignment used DC-detection, so synchronize waveforms here
+        ogg_zip_job = returnn_datasets["train"].oggzip_files[0].creator
+        synced_ogg_zip_job = BlissToOggZipJob(
+            bliss_corpus=ogg_zip_job.bliss_corpus,
+            segments=ogg_zip_job.segments,
+            rasr_cache=feature_bundle,
+            raw_sample_rate=ogg_zip_job.raw_sample_rate,
+            feat_sample_rate=ogg_zip_job.feat_sample_rate,
+            returnn_python_exe=ogg_zip_job.returnn_python_exe,
+            returnn_root=ogg_zip_job.returnn_root,
+        )
+        synced_ogg_zip_job.rqmt = {"time": 8.0, "cpu": 2}
+        for dataset in returnn_util.iterate_returnn_datasets(returnn_datasets):
+            dataset.oggzip_files = [synced_ogg_zip_job.out_ogg_zip]
     assert isinstance(alignment, list)
     assert len(alignment) > 0
     assert isinstance(alignment[0], tk.Path)
-
-    feature_cache_bundle_train = tk.Path(
-        "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/features/extraction/"
-        "FeatureExtraction.Gammatone.OKQT9hEV3Zgd/output/gt.cache.bundle",
-        hash_overwrite="wei_ls960_gammatone_train_bundle",
-        cached=False,
-    )
-    feature_cache_bundle_dev = tk.Path(
-        "/u/zhou/asr-exps/swb1/2020-07-27_neural_transducer/work/features/extraction/"
-        "FeatureExtraction.Gammatone.pp9W8m2Z8mHU/output/gt.cache.bundle",
-        hash_overwrite="wei_ls960_gammatone_dev_bundle",
-        cached=False,
-    )
-    feature_bundle = ConcatenateJob(
-        [feature_cache_bundle_train, feature_cache_bundle_dev],
-        zip_out=False,
-        out_name="gt.cache.bundle",
-    ).out
 
     segments.update({
         "train": returnn_datasets["train"].ogg_args["segment_file"],
@@ -287,88 +304,86 @@ def get_returnn_datasets_transducer_viterbi(
         ),
     })
 
-    def _add_targets_to_dataset(dataset: OggZipHdfDataInput) -> Dict[str, Any]:
-        dataset = dataset.get_data_dict()
-        if sync_ogg_audio:
-            # Wei's alignment used DC-detection, so synchronize waveforms here
-            ogg_zip_job = dataset["datasets"]["ogg"]["path"][0].creator
-            synced_ogg_zip_job = BlissToOggZipJob(
-                bliss_corpus=ogg_zip_job.bliss_corpus,
-                segments=ogg_zip_job.segments,
-                rasr_cache=feature_bundle,
-                raw_sample_rate=ogg_zip_job.raw_sample_rate,
-                feat_sample_rate=ogg_zip_job.feat_sample_rate,
-                returnn_python_exe=ogg_zip_job.returnn_python_exe,
-                returnn_root=ogg_zip_job.returnn_root,
-            )
-            synced_ogg_zip_job.rqmt = {"time": 8.0, "cpu": 2}
-            dataset["datasets"]["ogg"]["path"] = [synced_ogg_zip_job.out_ogg_zip]
-        dataset["datasets"]["hdf"]["files"] = alignment
-        return dataset
-
     if features == "waveform":
-        returnn_datasets["train"] = _add_targets_to_dataset(returnn_datasets["train"])
-        returnn_datasets["dev"] = _add_targets_to_dataset(returnn_datasets["dev"])
-        returnn_datasets["eval_datasets"]["devtrain"] = _add_targets_to_dataset(
-            returnn_datasets["eval_datasets"]["devtrain"])
-        returnn_datasets["eval_datasets"]["dev.wei"] = copy.deepcopy(returnn_datasets["eval_datasets"]["devtrain"])
-        returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["hdf"]["seq_list_filter_file"] = (
-            segments["dev.wei"]
-        )
+        for dataset in returnn_util.iterate_returnn_datasets(returnn_datasets):
+            dataset.alignments = alignment
+        returnn_util.instanciate_returnn_data_inputs(returnn_datasets)
+        if keep_hashes:
+            returnn_datasets["eval_datasets"]["dev.wei"] = copy.deepcopy(returnn_datasets["eval_datasets"]["devtrain"])
+            returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["hdf"]["seq_list_filter_file"] = (
+                segments["dev.wei"]
+            )
     elif features == "wei":
-        feat_dataset = {
-            "class": "SprintCacheDataset",
-            "data": {
+        if legacy_feature_dump:
+            from i6_core.returnn import RasrFeatureDumpHDFJob
+            feature_caches_train = [tk.Path(
+                "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/features/extraction/"
+                f"FeatureExtraction.Gammatone.OKQT9hEV3Zgd/output/gt.cache.{idx}",
+                hash_overwrite=f"wei_ls960_gammatone_train_{idx}"
+            ) for idx in range(1, 101)]
+            feature_caches_dev = [tk.Path(
+                "/u/zhou/asr-exps/swb1/2020-07-27_neural_transducer/work/features/extraction/"
+                f"FeatureExtraction.Gammatone.pp9W8m2Z8mHU/output/gt.cache.{idx}",
+                hash_overwrite=f"wei_ls960_gammatone_dev_{idx}"
+            ) for idx in range(1, 11)]
+            features = RasrFeatureDumpHDFJob(feature_caches_train + feature_caches_dev, returnn_root=RETURNN_ROOT)
+            feature_hdf_list = features.out_hdf_files
+        else:
+            feat_dataset = {
+                "class": "SprintCacheDataset",
                 "data": {
-                    "filename": feature_bundle,
-                    "data_type": "feat",
+                    "data": {
+                        "filename": feature_bundle,
+                        "data_type": "feat",
+                    },
                 },
-            },
-        }
-        features = ReturnnDumpHDFJob(feat_dataset, returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
+            }
+            features = ReturnnDumpHDFJob(feat_dataset, returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
+            feature_hdf_list = [features.out_hdf]
         for dataset in ["train", "dev"]:
-            returnn_datasets[dataset] = HdfDataInput(
-                features=[features.out_hdf],
+            hdf_input = HdfDataInput(
+                features=feature_hdf_list,
                 alignments=alignment,
                 seq_ordering=returnn_datasets[dataset].seq_ordering,
                 segment_file=returnn_datasets[dataset].ogg_args["segment_file"],
                 partition_epoch=returnn_datasets[dataset].partition_epoch,
             )
-            returnn_datasets[dataset].meta_dataset.seq_order_control_dataset = "alignment"
-            returnn_datasets[dataset] = returnn_datasets[dataset].get_data_dict()
-            returnn_datasets[dataset]["datasets"]["feat"].pop("partition_epoch")
-            if returnn_datasets[dataset]["datasets"]["align"]["partition_epoch"] == 1:
-                returnn_datasets[dataset]["datasets"]["align"].pop("partition_epoch")
-            else:
-                returnn_datasets[dataset]["partition_epoch"] = (
-                    returnn_datasets[dataset]["datasets"]["align"]["partition_epoch"]
-                )
-        returnn_datasets["eval_datasets"] = {
-            "devtrain": copy.deepcopy(returnn_datasets["dev"]),
-            "dev.wei": copy.deepcopy(returnn_datasets["dev"]),
-        }
+            returnn_datasets[dataset] = hdf_input.get_data_dict()
+            if keep_hashes:
+                returnn_datasets[dataset]["seq_order_control_dataset"] = "alignment"
+                returnn_datasets[dataset]["datasets"]["feat"].pop("partition_epoch")
+                if returnn_datasets[dataset]["datasets"]["align"]["partition_epoch"] == 1:
+                    returnn_datasets[dataset]["datasets"]["align"].pop("partition_epoch")
+                else:
+                    returnn_datasets[dataset]["partition_epoch"] = (
+                        returnn_datasets[dataset]["datasets"]["align"]["partition_epoch"]
+                    )
+        returnn_datasets["eval_datasets"] = {"devtrain": copy.deepcopy(returnn_datasets["dev"])}
         returnn_datasets["eval_datasets"]["devtrain"]["datasets"]["align"]["seq_list_filter_file"] = (
             segments["devtrain"]
         )
-        returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["align"]["seq_list_filter_file"] = (
-            segments["dev.wei"]
-        )
+        if keep_hashes:
+            returnn_datasets["eval_datasets"]["dev.wei"] = copy.deepcopy(returnn_datasets["dev"])
+            returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["align"]["seq_list_filter_file"] = (
+                segments["dev.wei"]
+            )
     else:
         raise NotImplementedError
 
     # preserve hash
-    for dataset in iterate_returnn_datasets(returnn_datasets):
-        alignment_key = "hdf" if "hdf" in dataset["datasets"] else "align"
-        feature_key = "features"
-        if "ogg" in dataset["datasets"]:
-            feature_key = "ogg"
-        if "feat" in dataset["datasets"]:
-            feature_key = "feat"
-        dataset["datasets"]["alignment"] = dataset["datasets"].pop(alignment_key)
-        dataset["data_map"]["classes"] = ("alignment", "data")
-        if feature_key == "feat":
-            dataset["datasets"]["features"] = dataset["datasets"].pop(feature_key)
-            dataset["data_map"]["data"] = ("features", "data")
-        else:
-            dataset["partition_epoch"] = dataset["datasets"][feature_key]["partition_epoch"]
+    if keep_hashes:
+        for dataset in returnn_util.iterate_returnn_datasets(returnn_datasets):
+            alignment_key = "hdf" if "hdf" in dataset["datasets"] else "align"
+            feature_key = "features"
+            if "ogg" in dataset["datasets"]:
+                feature_key = "ogg"
+            if "feat" in dataset["datasets"]:
+                feature_key = "feat"
+            dataset["datasets"]["alignment"] = dataset["datasets"].pop(alignment_key)
+            dataset["data_map"]["classes"] = ("alignment", "data")
+            if feature_key == "feat":
+                dataset["datasets"]["features"] = dataset["datasets"].pop(feature_key)
+                dataset["data_map"]["data"] = ("features", "data")
+            else:
+                dataset["partition_epoch"] = dataset["datasets"][feature_key]["partition_epoch"]
     return returnn_datasets
