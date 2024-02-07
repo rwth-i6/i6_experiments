@@ -599,7 +599,7 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
             values=report.get_values(),
             template=report.get_template(),
         )
-    return report
+    return report, ctc_nn_system
 
 
 def run_mel_baseline():
@@ -646,8 +646,8 @@ def run_mel_baseline():
         num_epochs=450,
         prefix="conformer_bs10k_",
     )
-    report = run_nn_args(nn_args, report_args_collection, dev_corpora)
-    return report
+    report, ctc_nn_system = run_nn_args(nn_args, report_args_collection, dev_corpora)
+    return report, ctc_nn_system
 
 
 def run_scf_baseline():
@@ -714,7 +714,7 @@ def run_scf_baseline():
         commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
     ).out_repository
     returnn_root.hash_overwrite = "returnn_conv_padding"
-    report = run_nn_args(
+    report, ctc_nn_system = run_nn_args(
         nn_args,
         report_args_collection,
         dev_corpora,
@@ -839,7 +839,7 @@ def run_scf_audio_perturbation():
         commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
     ).out_repository
     returnn_root.hash_overwrite = "returnn_conv_padding"
-    report = run_nn_args(
+    report, ctc_nn_system = run_nn_args(
         nn_args,
         report_args_collection,
         dev_corpora,
@@ -925,7 +925,7 @@ def run_scf_specaug_sort():
         commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
     ).out_repository
     returnn_root.hash_overwrite = "returnn_conv_padding"
-    report = run_nn_args(
+    report, ctc_nn_system = run_nn_args(
         nn_args, report_args_collection, dev_corpora, returnn_root=returnn_root,
         recog_args={"epochs": [350, 400, 450, "best"]},
     )
@@ -1067,7 +1067,7 @@ def py():
     """
     called if the file is passed to sis manager, used to run all experiments (replacement for main)
     """
-    report_mel = run_mel_baseline()
+    report_mel, _ = run_mel_baseline()
     report_scf = run_scf_baseline()
     report_scf_specaug_sort = run_scf_specaug_sort()
 
