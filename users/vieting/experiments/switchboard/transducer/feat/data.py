@@ -82,8 +82,8 @@ def get_switchboard_data():
     lexicon_rasr_loss = MakeBlankLexiconJob(lexicon_base).out_lexicon
     non_word_phones = ["[LAUGHTER]", "[NOISE]", "[VOCALIZEDNOISE]"]
     lexicon_recog_ctc = AddEowPhonemesToLexiconJob(lexicon_rasr_loss, nonword_phones=non_word_phones).out_lexicon
-    lexicon_recog_transducer = AddEowPhonemesToLexiconJob(lexicon_base, nonword_phones=non_word_phones).out_lexicon
-    lexicon_recog_transducer = EnsureSilenceFirstJob(lexicon_recog_transducer).out_lexicon
+    lexicon_transducer = AddEowPhonemesToLexiconJob(lexicon_base, nonword_phones=non_word_phones).out_lexicon
+    lexicon_transducer = EnsureSilenceFirstJob(lexicon_transducer).out_lexicon
     lexicon_args = {
         "normalize_pronunciation": False,
         "add_all": True,
@@ -118,7 +118,7 @@ def get_switchboard_data():
         "transducer": {
             "hub5e00": RasrDataInput(
                 corpus_object=get_hub5e00_corpus_object(),
-                lexicon={"filename": lexicon_recog_transducer, **lexicon_args},
+                lexicon={"filename": lexicon_transducer, **lexicon_args},
                 lm=lm_args,
                 stm=hub5e00.stm,
                 glm=hub5e00.glm,
