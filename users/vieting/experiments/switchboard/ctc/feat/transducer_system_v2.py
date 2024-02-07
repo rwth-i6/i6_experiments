@@ -170,7 +170,7 @@ class TransducerSystem:
         self.corpus_data = corpus_data
 
         for key in all_keys:
-            self.crp[key] = self._get_crp(corpus_data[key], am_args)
+            self.crp[key] = self.get_crp(corpus_data[key], am_args)
 
         for key in set(dev_keys + test_keys):
             self._set_scorer(key, scorer_info or ScorerInfo())
@@ -183,7 +183,7 @@ class TransducerSystem:
 
     # -------------------- Helpers ---------------------
 
-    def _get_crp(self, data: RasrDataInput, am_args: Dict = {}) -> rasr.CommonRasrParameters:
+    def get_crp(self, data: RasrDataInput, am_args: Dict = {}) -> rasr.CommonRasrParameters:
         crp = rasr.CommonRasrParameters(self.base_crp)
 
         rasr.crp_set_corpus(crp, data.corpus_object)

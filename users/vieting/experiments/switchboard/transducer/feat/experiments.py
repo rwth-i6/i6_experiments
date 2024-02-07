@@ -55,7 +55,7 @@ def get_ctc_alignment() -> List[tk.Path]:
     train_corpus.concurrent = 100
     train_corpus.lexicon = dev_corpora["ctc"]["hub5e00"].lexicon
     ctc_nn_system.corpus_data["train"] = train_corpus
-    ctc_nn_system.crp["train"] = ctc_nn_system._get_crp(train_corpus, am_args)
+    ctc_nn_system.crp["train"] = ctc_nn_system.get_crp(train_corpus, am_args)
     allophone_file = StoreAllophonesJob(crp=ctc_nn_system.crp["train"]).out_allophone_file
     state_tying_job = DumpStateTyingJob(ctc_nn_system.crp["train"]).out_state_tying
     ctc_nn_system.crp["train"].acoustic_model_config.allophones.add_from_file = allophone_file
