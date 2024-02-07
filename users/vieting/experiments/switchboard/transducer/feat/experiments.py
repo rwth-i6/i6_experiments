@@ -1,10 +1,12 @@
 import copy
 import os.path
+from typing import List
 from sisyphus import tk, gs
 
+from i6_core.lexicon import DumpStateTyingJob, StoreAllophonesJob
 from i6_core.recognition import Hub5ScoreJob
 from i6_experiments.users.vieting.tools.report import Report
-
+from i6_experiments.users.berger.helpers.hdf import build_hdf_from_alignment
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.experiments import (
     run_mel_baseline as run_mel_baseline_ctc,
 )
@@ -13,10 +15,61 @@ from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_sy
     ReturnnConfigs,
     ScorerInfo,
 )
-from .data import get_returnn_datasets_transducer_viterbi
+from .data import get_switchboard_data, get_returnn_datasets_transducer_viterbi
 from .baseline_args import get_nn_args as get_nn_args_baseline
 from .helpers.lr.oclr import dynamic_learning_rate
 from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT, RETURNN_EXE, SCTK_BINARY_PATH
+
+
+def get_ctc_alignment() -> List[tk.Path]:
+    train_corpus, dev_corpora, _ = get_switchboard_data()
+    _, ctc_nn_system = run_mel_baseline_ctc()
+    am_args = {
+        "state_tying": "monophone",
+        "states_per_phone": 1,
+        "tdp_transition": (0, 0, "infinity", 0),
+        "tdp_silence": (0, 0, "infinity", 0),
+        "phon_history_length": 0,
+        "phon_future_length": 0,
+    }
+    align_args = {
+        "epochs": ["best"],
+        "lm_scales": [0.7],
+        "prior_scales": [0.3],
+        "use_gpu": False,
+        "alignment_options": {
+            "label-pruning": 50,
+            "label-pruning-limit": 100000,
+        },
+        "align_node_options": {
+            "allophone-state-graph-builder.topology": "rna",  # No label loop for transducer
+        },
+        "label_scorer_args": {
+            "use_prior": True,
+            "extra_args": {
+                "blank_label_index": 0,
+            },
+        },
+        "rtf": 5,
+    }
+    train_corpus.concurrent = 100
+    train_corpus.lexicon = dev_corpora["ctc"]["hub5e00"].lexicon
+    ctc_nn_system.corpus_data["train"] = train_corpus
+    ctc_nn_system.crp["train"] = ctc_nn_system._get_crp(train_corpus, am_args)
+    allophone_file = StoreAllophonesJob(crp=ctc_nn_system.crp["train"]).out_allophone_file
+    state_tying_job = DumpStateTyingJob(ctc_nn_system.crp["train"]).out_state_tying
+    ctc_nn_system.crp["train"].acoustic_model_config.allophones.add_from_file = allophone_file
+    ctc_nn_system.align_corpora = ["train"]
+    ctc_nn_system.run_align_step(align_args)
+    alignment = build_hdf_from_alignment(
+        alignment_cache=ctc_nn_system.alignments["train"].alternatives["bundle"],
+        allophone_file=allophone_file,
+        state_tying_file=state_tying_job,
+        silence_phone="<blank>",
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=RETURNN_ROOT,
+    )
+    return [alignment]
 
 
 def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", returnn_root=None, recog_args=None):
@@ -123,7 +176,8 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
 def run_rasr_gt_baseline():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
 
-    returnn_datasets, dev_corpora = get_returnn_datasets_transducer_viterbi(
+    _, dev_corpora, _ = get_switchboard_data()
+    returnn_datasets = get_returnn_datasets_transducer_viterbi(
         features="wei",
         alignment="wei",
         context_window={"classes": 1, "data": 121},
@@ -180,7 +234,7 @@ def run_rasr_gt_baseline():
         evaluation_epochs=[270, 280, 290, 300],
         prefix="viterbi_rasrgt_",
     )
-    report = run_nn_args(nn_args, report_args_collection, dev_corpora, recog_args=recog_args)
+    report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"], recog_args=recog_args)
     return report
 
 
@@ -188,12 +242,13 @@ def run_mel_baseline():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
     reports = []
 
-    for alignment in ["wei"]:#, "ctc"]:
+    _, dev_corpora, _ = get_switchboard_data()
+    for alignment in ["wei", "ctc"]:
         prefix = "viterbi_lgm80_"
         if alignment == "ctc":
             prefix += f"align-ctc_"
-            _, alignment = run_mel_baseline_ctc()
-        returnn_datasets, dev_corpora = get_returnn_datasets_transducer_viterbi(
+            alignment = get_ctc_alignment()
+        returnn_datasets = get_returnn_datasets_transducer_viterbi(
             alignment=alignment,
             context_window={"classes": 1, "data": 121},
         )
@@ -228,7 +283,7 @@ def run_mel_baseline():
             evaluation_epochs=[270, 280, 290, 300],
             prefix=prefix,
         )
-        report = run_nn_args(nn_args, report_args_collection, dev_corpora)
+        report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"])
         reports.append(report)
     return Report.merge_reports(reports)
 
