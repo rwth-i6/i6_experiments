@@ -791,6 +791,128 @@ def run_scf_baseline():
     return report
 
 
+def run_scf_frozen_features():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
+
+    (
+        returnn_datasets,
+        rasr_loss_corpus_path,
+        rasr_loss_corpus_segments,
+        rasr_loss_lexicon_path,
+        dev_corpora,
+    ) = get_datasets()
+    returnn_args = {
+        "batch_size": 5000,
+        "rasr_binary_path": RASR_BINARY_PATH,
+        "rasr_loss_corpus_path": rasr_loss_corpus_path,
+        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
+        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
+        "datasets": returnn_datasets,
+        "conformer_type": "wei",
+        "specaug_old": {"max_feature": 15},
+    }
+    feature_args = {
+        "class": "ScfNetwork",
+        "size_tf": 256 // 2,
+        "stride_tf": 10 // 2,
+        "preemphasis": 0.97,
+        "wave_norm": True,
+    }
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args={
+            "scf_baseline": dict(
+                returnn_args={
+                    "staged_opts": {
+                        1: "freeze_features",
+                        16: "unfreeze_features",
+                    },
+                    "extra_args": {
+                        "accum_grad_multiple_step": 2,
+                        "conv_pad_seq_len_to_power": 1.5,
+                        "preload_from_files": {
+                            "existing-model": {
+                                "filename": "/u/maximilian.kannen/setups/20230406_feat/work/i6_core/returnn/training/ReturnnTrainingJob.xUBplWqSsRII/output/models/epoch.016.index",
+                                "init_for_train": True,
+                                "var_name_mapping": {
+                                    "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
+                                    "/conv_l/W": "features/conv_l/W",
+                                    "/conv_l_act/bias": "features/conv_l_act/bias",
+                                    "/conv_l_act/scale": "features/conv_l_act/scale",
+                                },
+                                "prefix": "features",
+                            },
+                        },
+                    },
+                    **returnn_args,
+                },
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 180,
+                    "decrease_epochs": 180,
+                    "final_epochs": 0,
+                },
+                report_args={
+                    "architecture": "conf-wei",
+                    "lr": "wei_peak_4e-4_e450_cycle360",
+                    "specaug": "wei_adapt_80dim",
+                    "wave_norm": "True",
+                    "preemphasis": "0.97",
+                },
+            ),
+            "epoch_256_freezing": dict(
+                returnn_args={
+                    "staged_opts": {
+                        256: "freeze_features",
+                    },
+                    "extra_args": {
+                        "accum_grad_multiple_step": 2,
+                        "conv_pad_seq_len_to_power": 1.5,
+                    },
+                    **returnn_args,
+                },
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 180,
+                    "decrease_epochs": 180,
+                    "final_epochs": 0,
+                },
+                report_args={
+                    "architecture": "conf-wei",
+                    "lr": "wei_peak_4e-4_e450_cycle360",
+                    "specaug": "wei_adapt_80dim",
+                    "wave_norm": "True",
+                    "preemphasis": "0.97",
+                },
+            ),
+        },
+        num_epochs=450,
+        evaluation_epochs=[350, 400, 450],
+        prefix="conformer_bs2x5k_frozen_features_",
+    )
+
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
+    ).out_repository
+    returnn_root.hash_overwrite = "returnn_conv_padding"
+    report = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        "report_scf_frozen_features.csv",
+        returnn_root=returnn_root,
+        recog_args={"epochs": [350, 400, 450, "best"]},
+    )
+    return report
+
+
 def run_scf_audio_perturbation():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
 
