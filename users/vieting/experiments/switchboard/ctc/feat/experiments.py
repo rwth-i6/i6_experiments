@@ -818,6 +818,14 @@ def run_scf_frozen_features():
         "preemphasis": 0.97,
         "wave_norm": True,
     }
+    lr_args={
+        "peak_lr": 4e-4,
+        "start_lr": 1.325e-05,
+        "end_lr": 1e-5,
+        "increase_epochs": 180,
+        "decrease_epochs": 180,
+        "final_epochs": 0,
+    }
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
@@ -847,14 +855,7 @@ def run_scf_frozen_features():
                     **returnn_args,
                 },
                 feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 180,
-                    "decrease_epochs": 180,
-                    "final_epochs": 0,
-                },
+                lr_args=lr_args,
                 report_args={
                     "architecture": "conf-wei",
                     "lr": "wei_peak_4e-4_e450_cycle360",
@@ -875,14 +876,7 @@ def run_scf_frozen_features():
                     **returnn_args,
                 },
                 feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 180,
-                    "decrease_epochs": 180,
-                    "final_epochs": 0,
-                },
+                lr_args=lr_args,
                 report_args={
                     "architecture": "conf-wei",
                     "lr": "wei_peak_4e-4_e450_cycle360",
