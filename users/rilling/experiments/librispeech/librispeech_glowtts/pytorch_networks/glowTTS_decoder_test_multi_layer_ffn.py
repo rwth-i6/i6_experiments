@@ -385,54 +385,43 @@ class Model(nn.Module):
             self.emb_g = nn.Embedding(n_speakers, gin_channels)
             nn.init.uniform_(self.emb_g.weight, -0.1, 0.1)
 
+        self.ffn = nn.Sequential(
+            nn.Linear(out_channels, 512),
+            nn.ReLU(),
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Linear(512, n_vocab + 1),
+        )
+
     def forward(
         self, x, x_lengths, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, noise_scale=1.0, length_scale=1.0
     ):
-        if not gen:
-            with torch.no_grad():
-                squeezed_audio = torch.squeeze(raw_audio)
-                y, y_lengths = self.feature_extraction(squeezed_audio, raw_audio_lengths)  # [B, T, F]
-                y = y.transpose(1, 2)  # [B, F, T]
-        else:
-            y, y_lengths = (None, None)
+        with torch.no_grad():
+            squeezed_audio = torch.squeeze(raw_audio)
+            y, y_lengths = self.feature_extraction(squeezed_audio, raw_audio_lengths)  # [B, T, F]
+            y = y.transpose(1, 2)  # [B, F, T]
 
-        if g is not None:
-            g = nn.functional.normalize(self.emb_g(g.squeeze(-1))).unsqueeze(-1)
-        x_m, x_logs, logw, x_mask = self.encoder(x, x_lengths, g=g)  # mean, std logs, duration logs, mask
+            if g is not None:
+                g = nn.functional.normalize(self.emb_g(g.squeeze(-1))).unsqueeze(-1)
+            x_m, x_logs, logw, x_mask = self.encoder(x, x_lengths, g=g)  # mean, std logs, duration logs, mask
 
-        if gen:  # durations from dp only used during generation
-            w = torch.exp(logw) * x_mask * length_scale  # durations
-            w_ceil = torch.ceil(w)  # durations ceiled
-            y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
-            y_max_length = None
-        else:
             y_max_length = y.size(2)
 
-        y, y_lengths, y_max_length = self.preprocess(y, y_lengths, y_max_length)
-        z_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, y_max_length), 1).to(x_mask.dtype)
-        attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
+            y, y_lengths, y_max_length = self.preprocess(y, y_lengths, y_max_length)
+            z_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, y_max_length), 1).to(x_mask.dtype)
+            attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
 
-        if gen:
-            attn = commons.generate_path(w_ceil.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
-            z_m = torch.matmul(attn.squeeze(1).transpose(1, 2), x_m.transpose(1, 2)).transpose(1, 2)
-            z_logs = torch.matmul(attn.squeeze(1).transpose(1, 2), x_logs.transpose(1, 2)).transpose(1, 2)
-            logw_ = torch.log(1e-8 + torch.sum(attn, -1)) * x_mask
-
-            z = (z_m + torch.exp(z_logs) * torch.randn_like(z_m) * noise_scale) * z_mask
-            y, logdet = self.decoder(z, z_mask, g=g, reverse=True)
-            return (y, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_)
-        else:
             z, logdet = self.decoder(y, z_mask, g=g, reverse=False)
-            with torch.no_grad():
-                x_s_sq_r = torch.exp(-2 * x_logs)
-                logp1 = torch.sum(-0.5 * math.log(2 * math.pi) - x_logs, [1]).unsqueeze(-1)  # [b, t, 1]
-                logp2 = torch.matmul(x_s_sq_r.transpose(1, 2), -0.5 * (z**2))  # [b, t, d] x [b, d, t'] = [b, t, t']
-                logp3 = torch.matmul((x_m * x_s_sq_r).transpose(1, 2), z)  # [b, t, d] x [b, d, t'] = [b, t, t']
-                logp4 = torch.sum(-0.5 * (x_m**2) * x_s_sq_r, [1]).unsqueeze(-1)  # [b, t, 1]
-                logp = logp1 + logp2 + logp3 + logp4  # [b, t, t']
 
-                attn = maximum_path(logp, attn_mask.squeeze(1)).unsqueeze(1).detach()
-                # embed()
+            x_s_sq_r = torch.exp(-2 * x_logs)
+            logp1 = torch.sum(-0.5 * math.log(2 * math.pi) - x_logs, [1]).unsqueeze(-1)  # [b, t, 1]
+            logp2 = torch.matmul(x_s_sq_r.transpose(1, 2), -0.5 * (z**2))  # [b, t, d] x [b, d, t'] = [b, t, t']
+            logp3 = torch.matmul((x_m * x_s_sq_r).transpose(1, 2), z)  # [b, t, d] x [b, d, t'] = [b, t, t']
+            logp4 = torch.sum(-0.5 * (x_m**2) * x_s_sq_r, [1]).unsqueeze(-1)  # [b, t, 1]
+            logp = logp1 + logp2 + logp3 + logp4  # [b, t, t']
+
+            attn = maximum_path(logp, attn_mask.squeeze(1)).unsqueeze(1).detach()
+            # embed()
 
             z_m = torch.matmul(attn.squeeze(1).transpose(1, 2), x_m.transpose(1, 2)).transpose(
                 1, 2
@@ -442,7 +431,11 @@ class Model(nn.Module):
             )  # [b, t', t], [b, t, d] -> [b, d, t']
 
             logw_ = torch.log(1e-8 + torch.sum(attn, -1)) * x_mask
-            return (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), y_lengths, (attn, logw, logw_)
+
+        linear_out = self.ffn(z.transpose(1, 2))
+
+        return (linear_out, attn, y_lengths)
+        # return (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), y_lengths, (attn, logw, logw_)
 
     def preprocess(self, y, y_lengths, y_max_length):
         if y_max_length is not None:
@@ -474,165 +467,46 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     # print(f"phoneme length: {phonemes_len}")
     # print(f"audio_feature shape: {audio_features.shape}")
     # print(f"audio_feature length: {audio_features_len}")
-    (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), y_lengths, (attn, logw, logw_) = model(
-        phonemes, phonemes_len, audio_features, audio_features_len, speaker_labels
-    )
+    logits, attn, y_lengths = model(phonemes, phonemes_len, audio_features, audio_features_len, speaker_labels)
+
     # embed()
+    upsampled_phonemes = torch.matmul(attn.squeeze(1).transpose(1, 2), phonemes.float().unsqueeze(-1)).squeeze(-1)
 
-    l_mle = commons.mle_loss(z, z_m, z_logs, logdet, z_mask)
-    l_dp = commons.duration_loss(logw, logw_, phonemes_len)
+    mask = commons.sequence_mask(y_lengths)
+    ce_losses = nn.functional.cross_entropy(logits.transpose(1, 2), upsampled_phonemes.long(), reduction="none")
+    # breakpoint()
+    ce_loss = (ce_losses * mask.float()).sum() / mask.float().sum()
 
-    run_ctx.mark_as_loss(name="mle", loss=l_mle)
-    run_ctx.mark_as_loss(name="dp", loss=l_dp)
+    # l_mle = commons.mle_loss(z, z_m, z_logs, logdet, z_mask)
+    # l_dp = commons.duration_loss(logw, logw_, phonemes_len)
+
+    # run_ctx.mark_as_loss(name="mle", loss=l_mle)
+    # run_ctx.mark_as_loss(name="dp", loss=l_dp)
+    run_ctx.mark_as_loss(name="ce", loss=ce_loss)
 
 
 ############# FORWARD STUFF ################
 import numpy as np
-from scipy.sparse import coo_matrix
-from scipy.sparse.csgraph import dijkstra
-
-
-def forward_init_hook_spectrograms(run_ctx, **kwargs):
-    run_ctx.hdf_writer = SimpleHDFWriter("output.hdf", dim=80, ndim=2)
-    run_ctx.pool = multiprocessing.Pool(8)
-
-
-def forward_finish_hook_spectrograms(run_ctx, **kwargs):
-    run_ctx.hdf_writer.close()
-
-
-def forward_init_hook_durations(run_ctx, **kwargs):
-    run_ctx.hdf_writer = SimpleHDFWriter("output.hdf", dim=80, ndim=1)
-    run_ctx.pool = multiprocessing.Pool(8)
-
-
-def forward_finish_hook_durations(run_ctx, **kwargs):
-    run_ctx.hdf_writer.close()
-
-
-def forward_init_hook_latent_space(run_ctx, **kwargs):
-    run_ctx.hdf_writer_samples = SimpleHDFWriter("samples.hdf", dim=80, ndim=2)
-    run_ctx.hdf_writer_mean = SimpleHDFWriter("mean.hdf", dim=80, ndim=2)
-    run_ctx.pool = multiprocessing.Pool(8)
-
-
-def forward_finish_hook_latent_space(run_ctx, **kwargs):
-    run_ctx.hdf_writer_samples.close()
-    run_ctx.hdf_writer_mean.close()
 
 
 def forward_init_hook(run_ctx, **kwargs):
-    import json
-    import utils
-    from utils import AttrDict
-    from inference import load_checkpoint
-    from generator import UnivNet as Generator
-    import numpy as np
-
-    with open("/u/lukas.rilling/experiments/glow_tts_asr_v2/config_univ.json") as f:
-        data = f.read()
-
-    json_config = json.loads(data)
-    h = AttrDict(json_config)
-
-    generator = Generator(h).to(run_ctx.device)
-
-    state_dict_g = load_checkpoint(
-        "/work/asr3/rossenbach/rilling/vocoder/univnet/glow_finetuning/g_01080000", run_ctx.device
-    )
-    generator.load_state_dict(state_dict_g["generator"])
-
-    run_ctx.generator = generator
+    run_ctx.hdf_writer = SimpleHDFWriter("output.hdf", dim=1, ndim=1)
+    run_ctx.pool = multiprocessing.Pool(8)
 
 
 def forward_finish_hook(run_ctx, **kwargs):
-    pass
-
-
-MAX_WAV_VALUE = 32768.0
+    run_ctx.hdf_writer.close()
 
 
 def forward_step(*, model: Model, data, run_ctx, **kwargs):
-    phonemes = data["phonemes"]  # [B, N] (sparse)
-    phonemes_len = data["phonemes:size1"]  # [B]
-    speaker_labels = data["speaker_labels"]  # [B, 1] (sparse)
-    audio_features = data["audio_features"]
-
-    tags = data["seq_tag"]
-
-    (log_mels, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(
-        phonemes,
-        phonemes_len,
-        g=speaker_labels,
-        gen=True,
-        noise_scale=kwargs["noise_scale"],
-        length_scale=kwargs["length_scale"],
-    )
-
-    noise = torch.randn([1, 64, log_mels.shape[-1]]).to(device=log_mels.device)
-    audios = run_ctx.generator.forward(noise, log_mels)
-    audios = audios * MAX_WAV_VALUE
-    audios = audios.cpu().numpy().astype("int16")
-
-    # mels_gt = audio_features.transpose(1, 2)
-    # noise = torch.randn([1, 64, mels_gt.shape[-1]]).to(device=mels_gt.device)
-    # audios_gt = run_ctx.generator.forward(noise, mels_gt)
-    # audios_gt = audios_gt * MAX_WAV_VALUE
-    # audios_gt = audios_gt.cpu().numpy().astype("int16")
-
-    if not os.path.exists("/var/tmp/lukas.rilling/"):
-        os.makedirs("/var/tmp/lukas.rilling/")
-    if not os.path.exists("/var/tmp/lukas.rilling/out"):
-        os.makedirs("/var/tmp/lukas.rilling/out/", exist_ok=True)
-    for audio, tag in zip(audios, tags):
-        soundfile.write(f"/var/tmp/lukas.rilling/out/" + tag.replace("/", "_") + ".wav", audio[0], 16000)
-        # soundfile.write(f"/var/tmp/lukas.rilling/out/" + tag.replace("/", "_") + "_gt.wav", audio_gt[0], 16000)
-
-
-def forward_step_spectrograms(*, model: Model, data, run_ctx, **kwargs):
-    tags = data["seq_tag"]
-    audio_features = data["audio_features"]  # [B, T, F]
-    audio_features = audio_features.transpose(
-        1, 2
-    )  # [B, F, T] necessary because glowTTS expects the channels to be in the 2nd dimension
-    audio_features_len = data["audio_features:size1"]  # [B]
-
-    # perform local length sorting for more efficient packing
-    audio_features_len, indices = torch.sort(audio_features_len, descending=True)
-
-    audio_features = audio_features[indices, :, :]
-    phonemes = data["phonemes"][indices, :]  # [B, T] (sparse)
-    phonemes_len = data["phonemes:size1"][indices]  # [B, T]
-    speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
-    tags = list(np.array(tags)[indices.detach().cpu().numpy()])
-
-    (y, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(
-        phonemes,
-        phonemes_len,
-        g=speaker_labels,
-        gen=True,
-        noise_scale=kwargs["noise_scale"],
-        length_scale=kwargs["length_scale"],
-    )
-    spectograms = y.transpose(2, 1).detach().cpu().numpy()  # [B, T, F]
-
-    run_ctx.hdf_writer.insert_batch(spectograms, y_lengths.detach().cpu().numpy(), tags)
-
-
-def forward_step_durations(*, model: Model, data, run_ctx, **kwargs):
-    """Forward Step to output durations in HDF file
-    Currently unused due to the name. Only "forward_step" is used in ReturnnForwardJob.
-    Rename to use it as the forward step function.
-
+    """
     :param Model model: _description_
     :param _type_ data: _description_
     :param _type_ run_ctx: _description_
     """
     tags = data["seq_tag"]
     audio_features = data["audio_features"]  # [B, T, F]
-    audio_features = audio_features.transpose(
-        1, 2
-    )  # [B, F, T] necessary because glowTTS expects the channels to be in the 2nd dimension
+    # audio_features = audio_features.transpose(1, 2) # [B, F, T] necessary because glowTTS expects the channels to be in the 2nd dimension
     audio_features_len = data["audio_features:size1"]  # [B]
 
     # perform local length sorting for more efficient packing
@@ -644,45 +518,21 @@ def forward_step_durations(*, model: Model, data, run_ctx, **kwargs):
     speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
     tags = list(np.array(tags)[indices.detach().cpu().numpy()])
 
+    # print(f"phoneme shape: {phonemes.shape}")
+    # print(f"phoneme length: {phonemes_len}")
+    # print(f"audio_feature shape: {audio_features.shape}")
+    # print(f"audio_feature length: {audio_features_len}")
+    logits, attn, y_lengths = model(phonemes, phonemes_len, audio_features, audio_features_len, speaker_labels)
+
     # embed()
-    (y, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(
-        phonemes, phonemes_len, g=speaker_labels, gen=True
+    upsampled_phonemes = torch.matmul(attn.squeeze(1).transpose(1, 2), phonemes.float().unsqueeze(-1)).squeeze(-1)
+
+    mask = commons.sequence_mask(y_lengths)
+    pred = torch.softmax(logits, dim=2).argmax(dim=2)
+
+    accuracies = (
+        (((pred == upsampled_phonemes) * mask).sum(dim=1) / y_lengths).unsqueeze(-1).unsqueeze(-1).detach().cpu()
     )
-    # embed()
-    numpy_logprobs = logw.detach().cpu().numpy()
 
-    durations_with_pad = np.round(np.exp(numpy_logprobs) * x_mask.detach().cpu().numpy())
-    durations = durations_with_pad.squeeze(1)
-    for tag, duration, feat_len, phon_len in zip(tags, durations, audio_features_len, phonemes_len):
-        # d = duration[:phon_len]
-        # total_sum = np.sum(duration)
-        # assert total_sum == feat_len
-
-        # assert len(d) == phon_len
-        run_ctx.hdf_writer.insert_batch(np.asarray([duration[:phon_len]]), [phon_len.cpu().numpy()], [tag])
-
-
-def forward_step_latent_space(*, model: Model, data, run_ctx, **kwargs):
-    tags = data["seq_tag"]
-    audio_features = data["audio_features"]  # [B, T, F]
-    audio_features = audio_features.transpose(
-        1, 2
-    )  # [B, F, T] necessary because glowTTS expects the channels to be in the 2nd dimension
-    audio_features_len = data["audio_features:size1"]  # [B]
-
-    # perform local length sorting for more efficient packing
-    audio_features_len, indices = torch.sort(audio_features_len, descending=True)
-
-    audio_features = audio_features[indices, :, :]
-    phonemes = data["phonemes"][indices, :]  # [B, T] (sparse)
-    phonemes_len = data["phonemes:size1"][indices]  # [B, T]
-    speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
-    tags = list(np.array(tags)[indices.detach().cpu().numpy()])
-
-    (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), y_lengths, (attn, logw, logw_) = model(
-        phonemes, phonemes_len, audio_features, audio_features_len, g=speaker_labels, gen=False
-    )
-    samples = z.transpose(2, 1).detach().cpu().numpy()  # [B, T, F]
-    means = z_m.transpose(2, 1).detach().cpu().numpy()
-    run_ctx.hdf_writer_samples.insert_batch(samples, y_lengths.detach().cpu().numpy(), tags)
-    run_ctx.hdf_writer_mean.insert_batch(means, y_lengths.detach().cpu().numpy(), tags)
+    for tag, acc in zip(tags, accuracies):
+        run_ctx.hdf_writer.insert_batch(np.array(acc), [1], [tag])

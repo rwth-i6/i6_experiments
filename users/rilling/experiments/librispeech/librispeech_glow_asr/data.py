@@ -376,3 +376,38 @@ def build_test_dataset(librispeech_key: str, dataset_key: str, silence_preproces
     )
 
     return test_dataset, bliss_dict[dataset_key]
+
+
+# @lru_cache()
+# def build_test_dataset_with_phon_labels(librispeech_key: str, dataset_key: str, silence_preprocessing=False):
+#     """
+
+#     :param librispeech_key: base librispeech training set for vocab generation
+#     :param dataset_key: test dataset to generate
+#     :param silence_preprocessing: use a setup with silence preprocessing
+#     """
+#     assert silence_preprocessing is False
+
+#     _, test_ogg = get_test_bliss_and_zip(dataset_key)
+#     bliss_dict = get_bliss_corpus_dict()
+#     audio_datastream = get_audio_raw_datastream()
+#     train_bpe_datastream = get_vocab_datastream(corpus_key=dataset_key, with_blank=True)
+
+#     datastreams = {
+#         "raw_audio": audio_datastream,
+#         "phon_labels": train_bpe_datastream,
+#     }
+
+#     data_map = {"raw_audio": ("zip_dataset", "data"), "phon_labels": ("zip_dataset", "classes")}
+
+#     test_zip_dataset = OggZipDataset(
+#         files=[test_ogg],
+#         audio_options=audio_datastream.as_returnn_audio_opts(),
+#         target_options=train_bpe_datastream.as_returnn_targets_opts(),
+#         seq_ordering="sorted_reverse",
+#     )
+#     test_dataset = MetaDataset(
+#         data_map=data_map, datasets={"zip_dataset": test_zip_dataset}, seq_order_control_dataset="zip_dataset"
+#     )
+
+#     return test_dataset, bliss_dict[dataset_key]

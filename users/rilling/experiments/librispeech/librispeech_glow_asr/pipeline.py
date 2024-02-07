@@ -137,6 +137,45 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
     tk.register_output(os.path.join(prefix_name, "report"), report)
     return format_string_report, values_report
 
+def compute_phoneme_pred_accuracy(
+        prefix_name,
+        returnn_config,
+        checkpoint,
+        recognition_datasets,
+        returnn_exe,
+        returnn_root,
+        mem_rqmt=8,
+        ):
+    """Replaces the search job for the "encoding_test" experiments, where a simple model is asked 
+    to predict the phonemes from the latent variables of a glowTTS setup. These experiments output an hdf with 
+    the total accuracy on each batch and there is no need to perform a search on these.
+
+    :param _type_ prefix_name: _description_
+    :param _type_ returnn_config: _description_
+    :param _type_ checkpoint: _description_
+    :param GenericDataset recognition_dataset: _description_
+    :param _type_ recognition_bliss_corpus: _description_
+    :param _type_ returnn_exe: _description_
+    :param _type_ returnn_root: _description_
+    :param int mem_rqmt: _description_, defaults to 8
+    """   
+    for key, (recognition_dataset, test_dataset_reference) in recognition_datasets.items():
+
+        returnn_config = copy.deepcopy(returnn_config)
+        returnn_config.config["forward"] = recognition_dataset.as_returnn_opts()
+        search_job = ReturnnForwardJob(
+            model_checkpoint=checkpoint,
+            returnn_config=returnn_config,
+            log_verbosity=5,
+            mem_rqmt=mem_rqmt,
+            time_rqmt=4,
+            returnn_python_exe=returnn_exe,
+            returnn_root=returnn_root,
+            device="cpu",
+        )
+        search_job.add_alias(prefix_name + "/forward")
+        tk.register_output(prefix_name + "/forward", search_job.out_hdf_files["output.hdf"])
+        return search_job
 
 @tk.block()
 def compute_prior(
@@ -170,4 +209,3 @@ def compute_prior(
     )
     search_job.add_alias(prefix_name + "/prior_job")
     return search_job.out_files["prior.txt"]
-

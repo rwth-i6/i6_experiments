@@ -19,7 +19,7 @@ def glowTTS_training(config, returnn_exe, returnn_root, prefix, num_epochs=65):
 
     return train_job
 
-def glowTTS_forward(checkpoint, config, returnn_exe, returnn_root, prefix, alias_addition=None, target="audio", extra_evaluation_epoch=None, joint_data=False):
+def glowTTS_forward(checkpoint, config, returnn_exe, returnn_root, prefix, alias_addition=None, target="audio", extra_evaluation_epoch=None, joint_data=False, device="gpu"):
     hdf_outputs = [] if target != "audio" else ["/var/tmp/lukas.rilling/out"]
     if target == "audio":
         hdf_outputs = ["/var/tmp/lukas.rilling/out"]
@@ -35,7 +35,8 @@ def glowTTS_forward(checkpoint, config, returnn_exe, returnn_root, prefix, alias
         hdf_outputs=hdf_outputs,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
-        mem_rqmt=20
+        mem_rqmt=20,
+        device=device
     )
 
     if (target == "spectrogram" and joint_data):

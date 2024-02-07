@@ -45,6 +45,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
         train_data_forward=False,
         keep_epochs=None,
         skip_forward=False,
+        forward_device="gpu"
     ):
         exp = {}
 
@@ -124,6 +125,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
                 returnn_exe=RETURNN_PYTORCH_EXE,
                 returnn_root=MINI_RETURNN_ROOT,
                 prefix=prefix + name,
+                device=forward_device
             )
             exp["forward_job"] = forward_job
 
@@ -467,6 +469,8 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
         spectrogram_foward=True,
     )
 
+    experiments[net_module + "/enc768/mean_only/not_silence_preprocessed"] = exp_dict
+
     train_args_silence = copy.deepcopy(train_args)
     train_args_silence["net_args"]["fe_config"] = asdict(fe_config_silence_preprocessed)
     exp_dict = run_exp(
@@ -490,6 +494,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
         spectrogram_foward=True,
     )
     experiments[net_module + "/enc768/200ep/not_silence_preprocessed"] = exp_dict
+    experiments[net_module + "/enc768/with_sigma/not_silence_preprocessed"] = exp_dict
 
     exp_dict = run_exp(
         net_module + "/enc768/with_sigma/silence_preprocessed",
@@ -1006,6 +1011,345 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
         dataset=training_datasets,
         num_epochs=100,
         forward_args=forward_args,
+    )
+
+    #  ============================== Decoder Z Test ==============================
+    train_args_decoder_z_test = copy.deepcopy(train_args_alternative_lr)
+    train_args_decoder_z_test["config"]["learning_rates"] = list(
+        np.concatenate((np.linspace(1e-5, 5 * 1e-4, 50), np.linspace(5 * 1e-4, 1e-5, 50)))
+    )
+
+    net_module = "glowTTS_decoder_test_simple_linear"
+    train_args_decoder_z_test["network_module"] = net_module
+
+    glowTTS_train_job = experiments["glowTTS/enc192/100ep/not_silence_preprocessed"]["train_job"]
+    train_args_decoder_z_test["config"]["preload_from_files"] = {
+        "glowTTS": {
+            "filename": glowTTS_train_job.out_checkpoints[glowTTS_train_job.returnn_config.get("num_epochs", 100)],
+            "init_for_train": True,
+            "ignore_missing": True,
+        }
+    }
+
+    exp_dict = run_exp(
+        "decoder_test/enc192/" + net_module,
+        train_args_decoder_z_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu"
+    )
+
+    net_module = "glowTTS_decoder_test_multi_layer_ffn"
+    train_args_decoder_z_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc192/" + net_module,
+        train_args_decoder_z_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu"
+    )
+
+    net_module = "glowTTS_decoder_test_blstm"
+    train_args_decoder_z_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc192/" + net_module,
+        train_args_decoder_z_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu"
+    )
+
+    net_module = "glowTTS_encoder_sample_test_simple_linear"
+    train_args_encoder_sample_test = copy.deepcopy(train_args_decoder_z_test)
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc192/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_multi_layer_ffn"
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc192/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_blstm"
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc192/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_maxlike_alignment_simple_linear"
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc192/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_maxlike_alignment_multi_layer_ffn"
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc192/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_maxlike_alignment_blstm"
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc192/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    glowTTS_train_job = experiments["glowTTS/enc768/mean_only/not_silence_preprocessed"]["train_job"]
+    train_args_decoder_z_test["config"]["preload_from_files"] = {
+        "glowTTS": {
+            "filename": glowTTS_train_job.out_checkpoints[glowTTS_train_job.returnn_config.get("num_epochs", 100)],
+            "init_for_train": True,
+            "ignore_missing": True,
+        }
+    }
+
+    train_args_decoder_z_test["net_args"]["filter_channels"] = 768
+    train_args_decoder_z_test["net_args"]["mean_only"] = True
+
+    net_module = "glowTTS_decoder_test_simple_linear"
+    train_args_decoder_z_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/mean_only/" + net_module,
+        train_args_decoder_z_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_decoder_test_multi_layer_ffn"
+    train_args_decoder_z_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/mean_only/" + net_module,
+        train_args_decoder_z_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_decoder_test_blstm"
+    train_args_decoder_z_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/mean_only/" + net_module,
+        train_args_decoder_z_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_simple_linear"
+    train_args_encoder_sample_test = copy.deepcopy(train_args_decoder_z_test)
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/mean_only/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_multi_layer_ffn"
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/mean_only/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_blstm"
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/mean_only/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_maxlike_alignment_simple_linear"
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/mean_only/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_maxlike_alignment_multi_layer_ffn"
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/mean_only/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_maxlike_alignment_blstm"
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/mean_only/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    glowTTS_train_job = experiments["glowTTS/enc768/with_sigma/not_silence_preprocessed"]["train_job"]
+    train_args_decoder_z_test["config"]["preload_from_files"] = {
+        "glowTTS": {
+            "filename": glowTTS_train_job.out_checkpoints[glowTTS_train_job.returnn_config.get("num_epochs", 100)],
+            "init_for_train": True,
+            "ignore_missing": True,
+        }
+    }
+
+    train_args_decoder_z_test["net_args"]["mean_only"] = False
+
+    net_module = "glowTTS_decoder_test_simple_linear"
+    train_args_decoder_z_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/with_sigma/" + net_module,
+        train_args_decoder_z_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_decoder_test_multi_layer_ffn"
+    train_args_decoder_z_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/with_sigma/" + net_module,
+        train_args_decoder_z_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_decoder_test_blstm"
+    train_args_decoder_z_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/with_sigma/" + net_module,
+        train_args_decoder_z_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_simple_linear"
+    train_args_encoder_sample_test = copy.deepcopy(train_args_decoder_z_test)
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/with_sigma/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_multi_layer_ffn"
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/with_sigma/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_blstm"
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/with_sigma/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_maxlike_alignment_simple_linear"
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/with_sigma/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_maxlike_alignment_multi_layer_ffn"
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/with_sigma/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
+    )
+
+    net_module = "glowTTS_encoder_sample_test_maxlike_alignment_blstm"
+    train_args_encoder_sample_test["network_module"] = net_module
+    exp_dict = run_exp(
+        "decoder_test/enc768/with_sigma/" + net_module,
+        train_args_encoder_sample_test,
+        dataset=training_datasets,
+        num_epochs=100,
+        forward_args=forward_args,
+        forward_device="cpu",
     )
 
     return experiments
