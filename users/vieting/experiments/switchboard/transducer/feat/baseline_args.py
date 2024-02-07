@@ -10,7 +10,7 @@ from i6_experiments.users.vieting.models.tf_networks.features import (
     ScfNetwork,
     PreemphasisNetwork,
 )
-from ...ctc.feat.network_helpers.learning_rates import oclr_default_schedule
+from i6_experiments.users.vieting.jobs.returnn import PeakyAlignmentJob
 from ...ctc.feat.network_helpers.perturbation import get_code_for_perturbation
 from .viterbi_transducer import make_conformer_viterbi_transducer_model
 
@@ -139,10 +139,13 @@ def get_returnn_config(
     base_config = {
         "extern_data": {
             "data": {"dim": num_inputs},
-            "classes": {"dim": num_outputs, "dtype": "int32" if recognition else "uint16", "sparse": True},
+            "classes": {"dim": num_outputs, "dtype": "int8", "sparse": True},
         },
         **datasets,
     }
+    alignment_dataset = datasets["train"]["datasets"][datasets["train"]["data_map"]["classes"][0]]
+    if isinstance(alignment_dataset["files"][0].creator, PeakyAlignmentJob):
+        base_config["extern_data"]["classes"]["dtype"] = "int32" if recognition else "uint16"
     base_post_config = {
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
