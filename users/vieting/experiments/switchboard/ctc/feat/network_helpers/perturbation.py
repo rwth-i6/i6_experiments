@@ -73,7 +73,9 @@ class WaveformPerturbation:
         if codecs:
             self._perturbations.append(functools.partial(self.apply_codecs, codecs=codecs))
         if non_linearity:
-            self._perturbations.append(functools.partial(self.non_linearity_function, factor=PerturbationFactor(**non_linearity)))
+            self._perturbations.append(
+                functools.partial(self.non_linearity_function, factor=PerturbationFactor(**non_linearity))
+            )
 
     def run(self, audio, sample_rate, random_state):
         import numpy as np
@@ -126,8 +128,8 @@ class WaveformPerturbation:
             prob = codec.pop("prob", 1.0)
             if random_state.random() < prob:
                 if codec.get("encoding") == "ULAW":
-                    #standard values for µ-law encoding
-                    quantization_bits=8
+                    # standard values for µ-law encoding
+                    quantization_bits = 8
                     MU = 255.0
 
                     # ensure audio is normalised
@@ -138,9 +140,11 @@ class WaveformPerturbation:
                     encoded_audio = np.sign(normalized_audio) * np.log1p(MU * np.abs(normalized_audio)) / np.log1p(MU)
                     encoded_audio = ((encoded_audio + 1) / 2 * (2**quantization_bits - 1)).astype(np.float64)
 
-                    #normalise encoded audio
-                    encoded_normalized_audio = (encoded_audio - encoded_audio.min()) / (encoded_audio.max() - encoded_audio.min())
-    
+                    # normalise encoded audio
+                    encoded_normalized_audio = (encoded_audio - encoded_audio.min()) / (
+                        encoded_audio.max() - encoded_audio.min()
+                    )
+
                     output_audio = encoded_normalized_audio
                 else:
                     raise NotImplementedError(f"Codec {codec} not implemented.")
