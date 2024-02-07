@@ -130,7 +130,7 @@ class WaveformPerturbation:
                 if codec.get("encoding") == "ULAW":
                     # standard values for µ-law encoding
                     quantization_bits = 8
-                    MU = 255.0
+                    mu = 255.0
 
                     # ensure audio is normalised
                     max_amplitude = np.max(np.abs(output_audio))
