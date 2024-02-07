@@ -260,7 +260,7 @@ class OggZipRasrCacheDataInput:
         self.rasr_args = rasr_args
         self.acoustic_mixtures = acoustic_mixtures
 
-    def get_data_dict(self):
+    def get_data_dict(self) -> Dict[str, Any]:
         return {
             "class": "MetaDataset",
             "data_map": {"classes": ("rasr", "classes"), "data": ("ogg", "data")},
@@ -335,7 +335,7 @@ class OggZipExternRasrDataInput:
         self.rasr_args = rasr_args
         self.acoustic_mixtures = acoustic_mixtures
 
-    def get_data_dict(self):
+    def get_data_dict(self) -> Dict[str, Any]:
         return {
             "class": "MetaDataset",
             "data_map": {"classes": ("rasr", "classes"), "data": ("ogg", "data")},
@@ -396,7 +396,7 @@ class OggZipHdfDataInput:
         self.hdf_args = hdf_args
         self.acoustic_mixtures = acoustic_mixtures
 
-    def get_data_dict(self):
+    def get_data_dict(self) -> Dict[str, Any]:
         return {
             "class": "MetaDataset",
             "data_map": {"classes": ("hdf", "classes"), "data": ("ogg", "data")},
@@ -474,7 +474,7 @@ class HdfDataInput:
             additional_options={**(self.meta_args or {})},
         )
 
-    def get_data_dict(self):
+    def get_data_dict(self) -> Dict[str, Any]:
         return self.meta_dataset.as_returnn_opts()
 
     def get_dataset_object(self):
@@ -514,7 +514,7 @@ class NextGenHdfDataInput:
 
         assert sorted(list(streams.keys())) == sorted([x[0] for x in data_map.values()])
 
-    def get_data_dict(self):
+    def get_data_dict(self) -> Dict[str, Any]:
         d = {
             "class": "MetaDataset",
             "data_map": {},
@@ -547,7 +547,7 @@ class ReturnnRawAlignmentHdfTrainingDataInput:
     returnn_root: tk.Path
     seq_ordering: str
 
-    def get_data_dict(self):
+    def get_data_dict(self) -> Dict[str, Any]:
         raw_hdf_path = BlissToPcmHDFJob(
             bliss_corpus=self.bliss_corpus,
             returnn_root=self.returnn_root,
