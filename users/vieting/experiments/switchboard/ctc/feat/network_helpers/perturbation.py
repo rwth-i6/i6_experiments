@@ -123,7 +123,6 @@ class WaveformPerturbation:
 
     @staticmethod
     def apply_codecs(audio, sample_rate, random_state, codecs):
-        output_audio = audio
         for codec in codecs:
             prob = codec.pop("prob", 1.0)
             if random_state.random() < prob:
@@ -132,12 +131,8 @@ class WaveformPerturbation:
                     quantization_bits = 8
                     mu = 255.0
 
-                    # ensure audio is normalised
-                    max_amplitude = np.max(np.abs(output_audio))
-                    normalized_audio = audio / max_amplitude
-
-                    # µ-law encoding formula
-                    encoded_audio = np.sign(normalized_audio) * np.log1p(MU * np.abs(normalized_audio)) / np.log1p(MU)
+                    # mu-law encoding formula
+                    encoded_audio = np.sign(audio) * np.log1p(mu * np.abs(audio)) / np.log1p(mu)
                     encoded_audio = ((encoded_audio + 1) / 2 * (2**quantization_bits - 1)).astype(np.float64)
 
                     # normalize encoded audio
@@ -145,7 +140,7 @@ class WaveformPerturbation:
                         encoded_audio.max() - encoded_audio.min()
                     )
 
-                    output_audio = encoded_normalized_audio
+                    audio = encoded_normalized_audio
                 else:
                     raise NotImplementedError(f"Codec {codec} not implemented.")
         return output_audio
