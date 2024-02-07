@@ -82,7 +82,7 @@ def get_nn_args_single(
     if preemphasis:
         for layer in feature_net["subnetwork"]:
             layer_config = feature_net["subnetwork"][layer]
-            if layer_config.get('class') != 'variable':
+            if layer_config.get("class") != "variable":
                 if feature_net["subnetwork"][layer].get("from") == "data":
                     feature_net["subnetwork"][layer]["from"] = "preemphasis"
         feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork()
