@@ -145,10 +145,7 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
             "phon_future_length": 0,
         },
         scorer_info=score_info,
-        report=Report(
-            columns_start=["train_name"],
-            columns_end=["lm_scale", "prior_scale", "sub", "del", "ins", "wer"],
-        ),
+        report=Report(),
     )
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_lexicon = False
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_all = True
@@ -162,7 +159,6 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
 
     assert ctc_nn_system.report is not None
     report = ctc_nn_system.report
-    report.delete_redundant_columns()
     report.delete_redundant_rows()
     if report_name:
         tk.register_report(
@@ -227,6 +223,10 @@ def run_rasr_gt_baseline():
             },
         },
     }
+    common_args = {
+        "num_inputs": 40,
+        "lr_args": {"dynamic_learning_rate": dynamic_learning_rate},
+    }
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
@@ -237,25 +237,13 @@ def run_rasr_gt_baseline():
                     **returnn_args,
                     **{"datasets": returnn_datasets_legacy},
                 },
-                num_inputs=40,
-                lr_args={"dynamic_learning_rate": dynamic_learning_rate},
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "1e-3",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
-                },
+                report_args={"alignment": "wei", "dataset_hash": "legacy-0"},
+                **common_args,
             ),
             "bs15k_v0.1": dict(
                 returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 4}, **returnn_args},
-                num_inputs=40,
-                lr_args={"dynamic_learning_rate": dynamic_learning_rate},
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "1e-3",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
-                },
+                report_args={"alignment": "wei", "dataset_hash": "legacy-1"},
+                **common_args,
             ),
             "bs15k_v1": dict(
                 returnn_args={
@@ -264,14 +252,8 @@ def run_rasr_gt_baseline():
                     **returnn_args,
                     **{"datasets": returnn_datasets_hash_break},
                 },
-                num_inputs=40,
-                lr_args={"dynamic_learning_rate": dynamic_learning_rate},
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "1e-3",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
-                },
+                report_args={"alignment": "wei", "dataset_hash": "legacy-0"},
+                **common_args,
             ),
         },
         num_epochs=300,
@@ -284,7 +266,6 @@ def run_rasr_gt_baseline():
 
 def run_mel_baseline():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
-    reports = []
 
     _, dev_corpora, _ = get_switchboard_data()
     returnn_datasets = get_returnn_datasets_transducer_viterbi(context_window={"classes": 1, "data": 121})
@@ -317,41 +298,27 @@ def run_mel_baseline():
         "frame_shift": 80,
         "fft_size": 256,
     }
+    common_args = {
+        "feature_args": feature_args,
+        "lr_args": {"dynamic_learning_rate": dynamic_learning_rate},
+    }
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
             "bs15k_v0": dict(
                 returnn_args=returnn_args,
-                feature_args=feature_args,
-                lr_args={"dynamic_learning_rate": dynamic_learning_rate},
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "1e-3",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
-                },
+                report_args={"alignment": "wei", "dataset_hash": "legacy-1"},
+                **common_args,
             ),
             "bs15k_v1": dict(
                 returnn_args={**returnn_args, **{"datasets": returnn_datasets_hash_break}},
-                feature_args=feature_args,
-                lr_args={"dynamic_learning_rate": dynamic_learning_rate},
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "1e-3",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
-                },
+                report_args={"alignment": "wei"},
+                **common_args,
             ),
-            "bs15k_v1_align-ctc-e-401": dict(
+            "bs15k_v1_align-ctc-conf-e401": dict(
                 returnn_args={**returnn_args, **{"datasets": returnn_datasets_align_ctc}},
-                feature_args=feature_args,
-                lr_args={"dynamic_learning_rate": dynamic_learning_rate},
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "1e-3",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
-                },
+                report_args={"alignment": "ctc-conf-e401"},
+                **common_args,
             ),
         },
         num_epochs=300,
@@ -359,8 +326,7 @@ def run_mel_baseline():
         prefix="viterbi_lgm80_",
     )
     report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"])
-    reports.append(report)
-    return Report.merge_reports(reports)
+    return report
 
 
 def py():
@@ -371,14 +337,15 @@ def py():
     report_mel = run_mel_baseline()
 
     report_base = Report(
-        columns_start=["train_name", "batch_size"],
-        columns_end=["epoch", "recog_name", "lm", "optlm", "lm_scale", "prior_scale"],
+        columns_start=["train_name", "features", "alignment"],
+        columns_end=["epoch", "recog_name", "lm_scale", "ins", "del", "sub", "wer"],
     )
     report = Report.merge_reports([
         report_base,
         report_rasr_gt,
         report_mel,
     ])
+    report.delete_redundant_columns()
     tk.register_report(
         os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report_swb_transducer.csv"),
         values=report.get_values(),
