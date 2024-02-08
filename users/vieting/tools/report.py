@@ -91,7 +91,7 @@ class Report:
     def merge_reports(cls, report_list: List):
         if len(report_list) == 0:
             return Report()
-        report = report_list.pop()
+        report = report_list.pop(0)
         for rprt in report_list:
             report.merge_report(rprt)
         return report
