@@ -232,7 +232,6 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
         gpu_mem_rqmt=11,
     )
     system.run_train_step(**train_args)
-    recog_args["epochs"] = [160, 240, 320, 400, "best"]
     system.run_dev_recog_step(**recog_args)
 
     assert system.summary_report
