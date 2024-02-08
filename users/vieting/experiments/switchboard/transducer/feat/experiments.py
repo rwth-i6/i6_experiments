@@ -33,7 +33,7 @@ def get_ctc_alignment() -> List[tk.Path]:
         "phon_future_length": 0,
     }
     align_args = {
-        "epochs": ["best"],
+        "epochs": [401],
         "lm_scales": [0.7],
         "prior_scales": [0.3],
         "use_gpu": False,
@@ -287,76 +287,79 @@ def run_mel_baseline():
     reports = []
 
     _, dev_corpora, _ = get_switchboard_data()
-    for alignment in ["wei", "ctc"]:
-        prefix = "viterbi_lgm80_"
-        if alignment == "ctc":
-            prefix += f"align-ctc_"
-            alignment = get_ctc_alignment()
-        returnn_datasets = get_returnn_datasets_transducer_viterbi(
-            alignment=alignment,
-            context_window={"classes": 1, "data": 121},
-        )
-        returnn_datasets_hash_break = get_returnn_datasets_transducer_viterbi(
-            alignment=alignment,
-            context_window={"classes": 1, "data": 121},
-            keep_hashes=False,
-        )
-        returnn_args = {
-            "batch_size": 15000,
-            "datasets": returnn_datasets,
-            "extra_args": {
-                # data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
-                # raw waveform
-                "chunking": ({"classes": 64, "data": 64 * 4 * 80}, {"classes": 32, "data": 32 * 4 * 80}),
-                "gradient_clip": 20.0,
-                "learning_rate_control_error_measure": "sum_dev_score",
-                "min_learning_rate": 1e-6,
-            },
-        }
-        feature_args = {
-            "class": "LogMelNetwork",
-            "wave_norm": True,
-            "frame_size": 200,
-            "frame_shift": 80,
-            "fft_size": 256,
-        }
+    returnn_datasets = get_returnn_datasets_transducer_viterbi(context_window={"classes": 1, "data": 121})
+    returnn_datasets_hash_break = get_returnn_datasets_transducer_viterbi(
+        context_window={"classes": 1, "data": 121},
+        keep_hashes=False,
+    )
+    returnn_datasets_align_ctc = get_returnn_datasets_transducer_viterbi(
+        alignment=get_ctc_alignment(),
+        context_window={"classes": 1, "data": 121},
+        keep_hashes=False,
+    )
+    returnn_args = {
+        "batch_size": 15000,
+        "datasets": returnn_datasets,
+        "extra_args": {
+            # data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
+            # raw waveform
+            "chunking": ({"classes": 64, "data": 64 * 4 * 80}, {"classes": 32, "data": 32 * 4 * 80}),
+            "gradient_clip": 20.0,
+            "learning_rate_control_error_measure": "sum_dev_score",
+            "min_learning_rate": 1e-6,
+        },
+        "specaug_old": {"max_feature": 8},
+    }
+    feature_args = {
+        "class": "LogMelNetwork",
+        "wave_norm": True,
+        "frame_size": 200,
+        "frame_shift": 80,
+        "fft_size": 256,
+    }
 
-        nn_args, report_args_collection = get_nn_args_baseline(
-            nn_base_args={
-                "bs15k_v0": dict(
-                    returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
-                    feature_args=feature_args,
-                    lr_args={"dynamic_learning_rate": dynamic_learning_rate},
-                    report_args={
-                        "architecture": "conf-wei",
-                        "lr": "1e-3",
-                        "specaug": "wei_adapt_80dim",
-                        "wave_norm": "True",
-                    },
-                ),
-                "bs15k_v1": dict(
-                    returnn_args={
-                        "conformer_type": "wei",
-                        "specaug_old": {"max_feature": 8},
-                        **returnn_args,
-                        **{"datasets": returnn_datasets_hash_break},
-                    },
-                    feature_args=feature_args,
-                    lr_args={"dynamic_learning_rate": dynamic_learning_rate},
-                    report_args={
-                        "architecture": "conf-wei",
-                        "lr": "1e-3",
-                        "specaug": "wei_adapt_80dim",
-                        "wave_norm": "True",
-                    },
-                ),
-            },
-            num_epochs=300,
-            evaluation_epochs=[270, 280, 290, 300],
-            prefix=prefix,
-        )
-        report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"])
-        reports.append(report)
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args={
+            "bs15k_v0": dict(
+                returnn_args=returnn_args,
+                feature_args=feature_args,
+                lr_args={"dynamic_learning_rate": dynamic_learning_rate},
+                report_args={
+                    "architecture": "conf-wei",
+                    "lr": "1e-3",
+                    "specaug": "wei_adapt_80dim",
+                    "wave_norm": "True",
+                },
+            ),
+            "bs15k_v1": dict(
+                returnn_args={**returnn_args, **{"datasets": returnn_datasets_hash_break}},
+                feature_args=feature_args,
+                lr_args={"dynamic_learning_rate": dynamic_learning_rate},
+                report_args={
+                    "architecture": "conf-wei",
+                    "lr": "1e-3",
+                    "specaug": "wei_adapt_80dim",
+                    "wave_norm": "True",
+                },
+            ),
+            "bs15k_v1_align-ctc-e-401": dict(
+                returnn_args={**returnn_args, **{"datasets": returnn_datasets_align_ctc}},
+                feature_args=feature_args,
+                lr_args={"dynamic_learning_rate": dynamic_learning_rate},
+                report_args={
+                    "architecture": "conf-wei",
+                    "lr": "1e-3",
+                    "specaug": "wei_adapt_80dim",
+                    "wave_norm": "True",
+                },
+            ),
+        },
+        num_epochs=300,
+        evaluation_epochs=[270, 280, 290, 300],
+        prefix="viterbi_lgm80_",
+    )
+    report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"])
+    reports.append(report)
     return Report.merge_reports(reports)
 
 
