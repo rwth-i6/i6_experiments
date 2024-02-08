@@ -43,6 +43,8 @@ def generate_returnn_config(
     am_args: dict,
     train_data_config: dict,
     dev_data_config: dict,
+    num_epochs: int = 300,
+    peak_lr: float = 8e-04,
 ) -> ReturnnConfig:
     if train:
         network_dict, extra_python = ctc_model.make_blstm_fullsum_ctc_model(
@@ -82,7 +84,7 @@ def generate_returnn_config(
     returnn_config = get_returnn_config(
         network=network_dict,
         target=None,
-        num_epochs=300,
+        num_epochs=num_epochs,
         num_inputs=40,
         extra_python=extra_python,
         extern_data_config=True,
@@ -90,9 +92,9 @@ def generate_returnn_config(
         grad_clip=0.0,
         schedule=LearningRateSchedules.OCLR,
         initial_lr=1e-05,
-        peak_lr=8e-04,
+        peak_lr=peak_lr,
         final_lr=1e-05,
-        cycle_epoch=120,
+        cycle_epoch=4 * num_epochs // 10,
         batch_size=10000,
         use_chunking=False,
         extra_config={
@@ -127,10 +129,10 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)
     align_args = exp_args.get_ctc_align_step_args(num_classes)
-    recog_args["epochs"] = [20, 40, 80, 160, 240, 300, "best"]
+    recog_args["epochs"] = [160, 240, 300, "best"]
     recog_args["feature_type"] = FeatureType.GAMMATONE_8K
-    recog_args["prior_scales"] = [0.3]
-    recog_args["lm_scales"] = [0.7]
+    recog_args["prior_scales"] = [0.3, 0.5]
+    recog_args["lm_scales"] = [0.5, 0.7, 0.9]
     align_args["feature_type"] = FeatureType.GAMMATONE_8K
 
     recog_am_args = copy.deepcopy(exp_args.ctc_recog_am_args)
@@ -178,12 +180,21 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
         "dev_data_config": data.cv_data_config,
     }
 
-    for ordering in ["laplace:.1000", "laplace:.100", "laplace:.50", "laplace:.25", "laplace:.10", "random"]:
+    for ordering in [
+        "laplace:.1000",
+        "laplace:.100",
+        "laplace:.50",
+        "laplace:.25",
+        "laplace:.10",
+        "random",
+    ]:
         mod_train_data_config = copy.deepcopy(data.train_data_config)
         mod_train_data_config["seq_ordering"] = ordering
 
         train_config = generate_returnn_config(
-            train=True, train_data_config=mod_train_data_config, **config_generator_kwargs
+            train=True,
+            train_data_config=mod_train_data_config,
+            **config_generator_kwargs,
         )
         recog_config = generate_returnn_config(
             train=False, train_data_config=mod_train_data_config, **config_generator_kwargs
@@ -199,10 +210,39 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)
     # system.run_test_recog_step(**recog_args)
+
     alignments = next(iter(system.run_align_step(exp_names=["BLSTM_CTC_order-laplace:.1000"], **align_args).values()))
 
     model = system.get_train_job("BLSTM_CTC_order-laplace:.1000").out_checkpoints[300]
     assert isinstance(model, Checkpoint)
+
+    system.cleanup_experiments()
+
+    mod_train_data_config = copy.deepcopy(data.train_data_config)
+    mod_train_data_config["seq_ordering"] = "laplace:.384"
+    train_config = generate_returnn_config(
+        train=True,
+        train_data_config=mod_train_data_config,
+        num_epochs=400,
+        **config_generator_kwargs,
+    )
+    recog_config = generate_returnn_config(
+        train=False, train_data_config=mod_train_data_config, **config_generator_kwargs
+    )
+
+    returnn_configs = ReturnnConfigs(
+        train_config=train_config,
+        recog_configs={"recog": recog_config},
+    )
+
+    system.add_experiment_configs(f"BLSTM_CTC_order-laplace:.384", returnn_configs)
+    train_args = exp_args.get_ctc_train_step_args(
+        num_epochs=400,
+        gpu_mem_rqmt=11,
+    )
+    system.run_train_step(**train_args)
+    recog_args["epochs"] = [160, 240, 320, 400, "best"]
+    system.run_dev_recog_step(**recog_args)
 
     assert system.summary_report
     return system.summary_report, model, alignments

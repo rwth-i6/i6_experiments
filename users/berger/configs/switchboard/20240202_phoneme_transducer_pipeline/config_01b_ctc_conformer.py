@@ -43,6 +43,7 @@ def generate_returnn_config(
     am_args: dict,
     train_data_config: dict,
     dev_data_config: dict,
+    num_epochs: int = 300,
 ) -> ReturnnConfig:
     if train:
         network_dict, extra_python = ctc_model.make_conformer_fullsum_ctc_model(
@@ -78,7 +79,7 @@ def generate_returnn_config(
     returnn_config = get_returnn_config(
         network=network_dict,
         target=None,
-        num_epochs=300,
+        num_epochs=num_epochs,
         num_inputs=40,
         python_prolog=[
             "import sys",
@@ -92,6 +93,7 @@ def generate_returnn_config(
         initial_lr=1e-05,
         peak_lr=4e-04,
         final_lr=1e-05,
+        cycle_epoch=160 if num_epochs == 400 else 135,
         batch_size=10000,
         use_chunking=False,
         extra_config={
@@ -126,10 +128,10 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)
     align_args = exp_args.get_ctc_align_step_args(num_classes)
-    recog_args["epochs"] = [20, 40, 80, 160, 240, 300, "best"]
+    recog_args["epochs"] = [160, 240, 300, "best"]
     recog_args["feature_type"] = FeatureType.GAMMATONE_8K
-    recog_args["prior_scales"] = [0.3]
-    recog_args["lm_scales"] = [0.7]
+    recog_args["prior_scales"] = [0.3, 0.5]
+    recog_args["lm_scales"] = [0.5, 0.7, 0.9]
     align_args["feature_type"] = FeatureType.GAMMATONE_8K
 
     recog_am_args = copy.deepcopy(exp_args.ctc_recog_am_args)
@@ -204,6 +206,34 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
 
     model = system.get_train_job("Conformer_CTC_order-laplace:.1000").out_checkpoints[300]
     assert isinstance(model, Checkpoint)
+
+    system.cleanup_experiments()
+
+    mod_train_data_config = copy.deepcopy(data.train_data_config)
+    mod_train_data_config["seq_ordering"] = "laplace:.384"
+    train_config = generate_returnn_config(
+        train=True,
+        train_data_config=mod_train_data_config,
+        num_epochs=400,
+        **config_generator_kwargs,
+    )
+    recog_config = generate_returnn_config(
+        train=False, train_data_config=mod_train_data_config, **config_generator_kwargs
+    )
+
+    returnn_configs = ReturnnConfigs(
+        train_config=train_config,
+        recog_configs={"recog": recog_config},
+    )
+
+    system.add_experiment_configs(f"Conformer_CTC_order-laplace:.384", returnn_configs)
+    train_args = exp_args.get_ctc_train_step_args(
+        num_epochs=400,
+        gpu_mem_rqmt=11,
+    )
+    system.run_train_step(**train_args)
+    recog_args["epochs"] = [160, 240, 320, 400, "best"]
+    system.run_dev_recog_step(**recog_args)
 
     assert system.summary_report
     return system.summary_report, model, alignments

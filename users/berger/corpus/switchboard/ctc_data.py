@@ -88,10 +88,10 @@ def get_switchboard_data(
 
     # ********** Recog lexicon **********
 
-    # recog_lexicon = AddEowPhonemesToLexiconJob(
-    #     train_lexicon, nonword_phones=["[NOISE]", "[VOCALIZEDNOISE]", "[LAUGHTER]"]
-    # ).out_lexicon
-    recog_lexicon = tk.Path("/work/asr4/berger/dependencies/switchboard/lexicon/lexicon.xml")
+    recog_lexicon = AddEowPhonemesToLexiconJob(
+        train_lexicon, nonword_phones=["[NOISE]", "[VOCALIZEDNOISE]", "[LAUGHTER]"]
+    ).out_lexicon
+    # recog_lexicon = tk.Path("/work/asr4/berger/dependencies/switchboard/lexicon/lexicon.xml")
 
     for rasr_input in {**dev_data_inputs, **test_data_inputs}.values():
         rasr_input.lexicon.filename = recog_lexicon
