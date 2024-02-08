@@ -188,6 +188,12 @@ def run_rasr_gt_baseline():
         context_window={"classes": 1, "data": 121},
         legacy_feature_dump=True,
     )
+    returnn_datasets_hash_break = get_returnn_datasets_transducer_viterbi(
+        features="wei",
+        alignment="wei",
+        context_window={"classes": 1, "data": 121},
+        keep_hashes=False,
+    )
     returnn_args = {
         "batch_size": 15000,
         "datasets": returnn_datasets,
@@ -251,6 +257,22 @@ def run_rasr_gt_baseline():
                     "wave_norm": "True",
                 },
             ),
+            "bs15k_v1": dict(
+                returnn_args={
+                    "conformer_type": "wei",
+                    "specaug_old": {"max_feature": 4},
+                    **returnn_args,
+                    **{"datasets": returnn_datasets_hash_break},
+                },
+                num_inputs=40,
+                lr_args={"dynamic_learning_rate": dynamic_learning_rate},
+                report_args={
+                    "architecture": "conf-wei",
+                    "lr": "1e-3",
+                    "specaug": "wei_adapt_80dim",
+                    "wave_norm": "True",
+                },
+            ),
         },
         num_epochs=300,
         evaluation_epochs=[270, 280, 290, 300],
@@ -273,6 +295,11 @@ def run_mel_baseline():
         returnn_datasets = get_returnn_datasets_transducer_viterbi(
             alignment=alignment,
             context_window={"classes": 1, "data": 121},
+        )
+        returnn_datasets_hash_break = get_returnn_datasets_transducer_viterbi(
+            alignment=alignment,
+            context_window={"classes": 1, "data": 121},
+            keep_hashes=False,
         )
         returnn_args = {
             "batch_size": 15000,
@@ -298,6 +325,22 @@ def run_mel_baseline():
             nn_base_args={
                 "bs15k_v0": dict(
                     returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
+                    feature_args=feature_args,
+                    lr_args={"dynamic_learning_rate": dynamic_learning_rate},
+                    report_args={
+                        "architecture": "conf-wei",
+                        "lr": "1e-3",
+                        "specaug": "wei_adapt_80dim",
+                        "wave_norm": "True",
+                    },
+                ),
+                "bs15k_v1": dict(
+                    returnn_args={
+                        "conformer_type": "wei",
+                        "specaug_old": {"max_feature": 8},
+                        **returnn_args,
+                        **{"datasets": returnn_datasets_hash_break},
+                    },
                     feature_args=feature_args,
                     lr_args={"dynamic_learning_rate": dynamic_learning_rate},
                     report_args={
