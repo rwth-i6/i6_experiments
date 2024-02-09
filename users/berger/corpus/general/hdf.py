@@ -8,7 +8,7 @@ from i6_experiments.users.berger.args.jobs.rasr_init_args import (
     get_feature_extraction_args_16kHz,
     get_feature_extraction_args_8kHz,
 )
-from i6_experiments.users.berger.helpers import build_rasr_feature_hdfs, RasrDataInput
+from i6_experiments.users.berger.helpers import build_rasr_feature_hdfs, RasrDataInput, SeparatedCorpusObject
 
 
 def build_feature_hdf_dataset_config(
@@ -102,3 +102,55 @@ def build_feature_alignment_meta_dataset_config(
         name="classes", dataset_config=alignment_hdf_config, key_mapping={"data": "classes"}, control=True
     )
     return dataset_builder.get_dict()
+
+
+def build_multi_speaker_feature_hdf_files(
+    data_inputs: List[RasrDataInput],
+    feature_type: FeatureType,
+    returnn_root: tk.Path,
+    returnn_python_exe: tk.Path,
+    rasr_binary_path: tk.Path,
+    rasr_arch: str = "linux-x86_64-standard",
+    dc_detection: bool = False,
+    single_hdf: bool = False,
+) -> dict:
+    feature_hdfs = {}
+
+    if feature_type in {
+        FeatureType.CONCAT_SEC_GAMMATONE_16K,
+        FeatureType.CONCAT_MIX_GAMMATONE_16K,
+        FeatureType.CONCAT_SEC_MIX_GAMMATONE_16K,
+    }:
+        gt_args = get_feature_extraction_args_16kHz(dc_detection=dc_detection)["gt"]
+
+        feature_hdfs_prim = []
+        feature_hdfs_sec = []
+        feature_hdfs_mix = []
+
+        for data_input in data_inputs:
+            assert isinstance(data_input.corpus_object, SeparatedCorpusObject)
+            for hdfs_list, subobject in [
+                (feature_hdfs_prim, data_input.corpus_object.get_primary_corpus_object()),
+                (feature_hdfs_sec, data_input.corpus_object.get_secondary_corpus_object()),
+                (feature_hdfs_mix, data_input.corpus_object.get_mix_corpus_object()),
+            ]:
+                hdfs_list += build_rasr_feature_hdfs(
+                    subobject,
+                    split=data_input.concurrent,
+                    feature_type="gt",
+                    feature_extraction_args=gt_args,
+                    returnn_python_exe=returnn_python_exe,
+                    returnn_root=returnn_root,
+                    rasr_binary_path=rasr_binary_path,
+                    rasr_arch=rasr_arch,
+                    single_hdf=single_hdf,
+                )
+        feature_hdfs["primary"] = feature_hdfs_prim
+        if feature_type in {FeatureType.CONCAT_SEC_GAMMATONE_16K, FeatureType.CONCAT_SEC_MIX_GAMMATONE_16K}:
+            feature_hdfs["secondary"] = feature_hdfs_sec
+        if feature_type in {FeatureType.CONCAT_MIX_GAMMATONE_16K, FeatureType.CONCAT_SEC_MIX_GAMMATONE_16K}:
+            feature_hdfs["mix"] = feature_hdfs_sec
+    else:
+        raise NotImplementedError
+
+    return feature_hdfs
