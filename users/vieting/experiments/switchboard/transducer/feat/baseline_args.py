@@ -64,22 +64,33 @@ def get_nn_args_single(
     if feature_args is not None:
         preemphasis = feature_args.pop("preemphasis", None)
         wave_norm = feature_args.pop("wave_norm", False)
+        wave_cast = feature_args.pop("wave_cast", False)
         feature_network_class = {
             "LogMelNetwork": LogMelNetwork,
             "GammatoneNetwork": GammatoneNetwork,
             "ScfNetwork": ScfNetwork,
         }[feature_args.pop("class")]
         feature_net = feature_network_class(**feature_args).get_as_subnetwork()
-        if preemphasis:
+        source_layer = "data"
+        if wave_cast:
             for layer in feature_net["subnetwork"]:
-                if feature_net["subnetwork"][layer].get("from", "data") == "data":
-                    feature_net["subnetwork"][layer]["from"] = "preemphasis"
-            feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork()
+                if feature_net["subnetwork"][layer].get("from") == source_layer:
+                    feature_net["subnetwork"][layer]["from"] = "wave_cast"
+            feature_net["subnetwork"]["wave_cast"] = {"class": "cast", "dtype": "float32", "from": source_layer}
+            source_layer = "wave_cast"
         if wave_norm:
             for layer in feature_net["subnetwork"]:
-                if feature_net["subnetwork"][layer].get("from") == "data":
+                if feature_net["subnetwork"][layer].get("from") == source_layer:
                     feature_net["subnetwork"][layer]["from"] = "wave_norm"
-            feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": "data"}
+            feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": source_layer}
+            source_layer = "wave_norm"
+        if preemphasis:
+            assert source_layer == "data", "not yet implemented, needs to be fixed in PreemphasisNetwork"
+            for layer in feature_net["subnetwork"]:
+                if feature_net["subnetwork"][layer].get("from", "data") == source_layer:
+                    feature_net["subnetwork"][layer]["from"] = "preemphasis"
+            feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork()
+            source_layer = "preemphasis"
     else:
         feature_net = None
 
