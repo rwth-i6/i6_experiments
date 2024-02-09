@@ -277,8 +277,7 @@ def run_mel_baseline():
     )
     returnn_datasets_align_ctc = get_returnn_datasets_transducer_viterbi(
         alignment=get_ctc_alignment(),
-        context_window={"classes": 1, "data": 121},
-        keep_hashes=False,
+        features="waveform_pcm",
     )
     returnn_args = {
         "batch_size": 15000,
@@ -293,6 +292,20 @@ def run_mel_baseline():
         },
         "specaug_old": {"max_feature": 8},
     }
+    returnn_args_ctc_align = copy.deepcopy(returnn_args)
+    returnn_args_ctc_align["datasets"] = returnn_datasets_align_ctc
+    returnn_args_ctc_align["extra_args"]["extern_data"] = {
+        "data": {"dim": 1, "dtype": "int16"},
+        "classes": {"dim": 88, "dtype": "int8", "sparse": True},
+    }
+    returnn_args_ctc_align["extra_args"]["min_chunk_size"] = {"classes": 1, "data": 200}
+    # Data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
+    # raw waveform. Also, there are frame size - frame shift more samples at the end. This should be more correct than
+    # the version above.
+    returnn_args_ctc_align["extra_args"]["chunking"] = (
+        {"classes": 64, "data": 64 * 4 * 80 + 200 - 80},
+        {"classes": 32, "data": 32 * 4 * 80},
+    )
     feature_args = {
         "class": "LogMelNetwork",
         "wave_norm": True,
@@ -318,9 +331,10 @@ def run_mel_baseline():
                 **common_args,
             ),
             "bs15k_v1_align-ctc-conf-e401": dict(
-                returnn_args={**returnn_args, **{"datasets": returnn_datasets_align_ctc}},
+                returnn_args=returnn_args_ctc_align,
                 report_args={"alignment": "ctc-conf-e401"},
-                **common_args,
+                lr_args={"dynamic_learning_rate": dynamic_learning_rate},
+                feature_args={"wave_cast": True, **feature_args}
             ),
         },
         num_epochs=300,
