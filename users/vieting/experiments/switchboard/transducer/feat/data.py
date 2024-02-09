@@ -8,7 +8,7 @@ from sisyphus import tk
 from i6_core import corpus
 from i6_core import text
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
-from i6_core.returnn import ReturnnDumpHDFJob, RasrAlignmentDumpHDFJob, BlissToOggZipJob
+from i6_core.returnn import ReturnnDumpHDFJob, RasrAlignmentDumpHDFJob, BlissToOggZipJob, BlissToPcmHDFJob
 from i6_core.text.processing import ConcatenateJob
 from i6_experiments.common.datasets.switchboard import (
     get_train_corpus_object_ldc,
@@ -220,7 +220,7 @@ def get_returnn_datasets_transducer_viterbi(
 ) -> Dict[str, Dict]:
     if keep_hashes is None:
         keep_hashes = alignment == "wei"
-    _, _, segments = get_switchboard_data()
+    train_corpus, _, segments = get_switchboard_data()
     returnn_datasets = get_returnn_base_data(partition_epoch, context_window)
     feature_cache_bundle_train = tk.Path(
         "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/features/extraction/"
@@ -313,6 +313,26 @@ def get_returnn_datasets_transducer_viterbi(
             returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["hdf"]["seq_list_filter_file"] = (
                 segments["dev.wei"]
             )
+    elif features == "waveform_pcm":
+        for dataset in returnn_util.iterate_returnn_datasets(returnn_datasets):
+            dataset.alignments = alignment
+            waveform_pcm = BlissToPcmHDFJob(
+                bliss_corpus=train_corpus.corpus_object.corpus_file,
+                rounding=BlissToPcmHDFJob.RoundingScheme.rasr_compatible,
+                returnn_root=RETURNN_ROOT,
+            )
+            hdf_input = HdfDataInput(
+                features=[waveform_pcm.out_hdf],
+                alignments=alignment,
+                seq_ordering=dataset.seq_ordering,
+                segment_file=dataset.ogg_args["segment_file"],
+                partition_epoch=dataset.partition_epoch,
+            )
+            dataset.replacement_hdf = hdf_input
+        returnn_datasets["train"] = returnn_datasets["train"].replacement_hdf
+        returnn_datasets["dev"] = returnn_datasets["dev"].replacement_hdf
+        returnn_datasets["eval_datasets"]["devtrain"] = returnn_datasets["eval_datasets"]["devtrain"].replacement_hdf
+        returnn_util.instanciate_returnn_data_inputs(returnn_datasets)
     elif features == "wei":
         if legacy_feature_dump:
             from i6_core.returnn import RasrFeatureDumpHDFJob
