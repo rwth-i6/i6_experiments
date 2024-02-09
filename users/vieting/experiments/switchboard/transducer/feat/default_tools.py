@@ -17,6 +17,11 @@ RASR_BINARY_PATH = tk.Path(  # tested with /work/tools22/users/vieting/u20_tf28_
     hash_overwrite="SWITCHBOARD_DEFAULT_RASR_BINARY_PATH",
 )
 
+RASR_BINARY_PATH_PRECISION = tk.Path(  # tested with /work/tools22/users/vieting/u20_tf28_sis.sif
+    "/work/asr4/vieting/programs/rasr/20240209/rasr/arch/linux-x86_64-standard",
+    hash_overwrite="SWITCHBOARD_PRECISION_RASR_BINARY_PATH",  # adds fix for segment start and end time precision
+)
+
 SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
 SCTK_BINARY_PATH.hash_overwrite = "SWITCHBOARD_DEFAULT_SCTK_BINARY_PATH"
 

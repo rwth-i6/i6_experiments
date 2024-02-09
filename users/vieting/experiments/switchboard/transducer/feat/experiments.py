@@ -18,7 +18,7 @@ from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_sy
 from .data import get_switchboard_data, get_returnn_datasets_transducer_viterbi
 from .baseline_args import get_nn_args as get_nn_args_baseline
 from .helpers.lr.oclr import dynamic_learning_rate
-from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT, RETURNN_EXE, SCTK_BINARY_PATH
+from .default_tools import RASR_BINARY_PATH, RASR_BINARY_PATH_PRECISION, RETURNN_ROOT, RETURNN_EXE, SCTK_BINARY_PATH
 
 
 def get_ctc_alignment() -> List[tk.Path]:
@@ -60,6 +60,8 @@ def get_ctc_alignment() -> List[tk.Path]:
     state_tying_job = DumpStateTyingJob(ctc_nn_system.crp["train"]).out_state_tying
     ctc_nn_system.crp["train"].acoustic_model_config.allophones.add_from_file = allophone_file
     ctc_nn_system.align_corpora = ["train"]
+    ctc_nn_system.rasr_binary_path = RASR_BINARY_PATH_PRECISION
+    ctc_nn_system.base_crp.set_executables(rasr_binary_path=ctc_nn_system.rasr_binary_path)
     ctc_nn_system.run_align_step(align_args)
     alignment = build_hdf_from_alignment(
         alignment_cache=ctc_nn_system.alignments["train"].alternatives["bundle"],
