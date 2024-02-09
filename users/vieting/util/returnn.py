@@ -1,11 +1,13 @@
 """
 Collection of utils for RETURNN.
 """
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, Union
 from i6_experiments.common.setups.rasr.util.nn.data import AllowedReturnnTrainingDataInput
 
 
-def iterate_returnn_datasets(datasets: Dict[str, Dict]) -> Iterable[Dict[str, Any]]:
+def iterate_returnn_datasets(
+    datasets: Dict[str, Dict]
+) -> Iterable[Union[Dict[str, Any], AllowedReturnnTrainingDataInput]]:
     """
     RETURNN datasets are often stored in a nested dict, e.g., like
 
