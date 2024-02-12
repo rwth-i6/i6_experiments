@@ -112,7 +112,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
-    train_exp(
+    train_exp(  # 5.38
         "v6-11gb-f32-bs8k-lr2e_3-warmup500k-accgrad4-mgpu4-pavg100-wd1e_4-EBranchformer",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         {
