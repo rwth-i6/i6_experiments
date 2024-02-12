@@ -23,6 +23,7 @@ from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPat
 from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAMosPredictionJob
 
 from .config import get_forward_config
+from .data.aligner import build_training_dataset
 from .data.tts_phon import get_tts_extended_bliss, build_fixed_speakers_generating_dataset
 from .default_tools import SCTK_BINARY_PATH, NISQA_REPO, RETURNN_EXE, MINI_RETURNN_ROOT
 from .storage import add_synthetic_data
@@ -269,7 +270,6 @@ def tts_eval(
     return forward_job
 
 
-@tk.block()
 def tts_eval_v2(
         prefix_name,
         returnn_config,
@@ -353,7 +353,7 @@ def generate_synthetic(
         debug: bool = False,
         splits: int = 10,
         randomize_speaker: bool = True,
-        # use_n_subset=None,
+        use_subset=False,
 ):
     """
     use a TTS system to create a synthetic corpus
@@ -362,10 +362,28 @@ def generate_synthetic(
     asr_bliss = get_bliss_corpus_dict()[target_ls_corpus_key]
     tts_bliss = get_tts_extended_bliss(ls_corpus_key=target_ls_corpus_key, lexicon_ls_corpus_key=target_ls_corpus_key)
 
-    #if use_n_subset:
-    #    from i6_core.corpus.segments import SegmentCorpusJob
-    #    from i6_core.text.processing import
-    #    segments = SegmentCorpusJob(asr_bliss,1).out_single_segment_files[1]
+    if use_subset:
+        from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
+        from i6_core.corpus.filter import FilterCorpusBySegmentsJob
+        # from i6_core.text.processing import
+        segments = SegmentCorpusJob(asr_bliss,1).out_single_segment_files[1]
+        segment_split = ShuffleAndSplitSegmentsJob(
+            segment_file=segments,
+            split={"100-from-360": 0.2743765262368527, "rest": 0.7256234737631473}
+        )
+        sub100_segments = segment_split.out_segments["100-from-360"]
+        asr_bliss = FilterCorpusBySegmentsJob(
+            bliss_corpus=asr_bliss,
+            segment_file=sub100_segments,
+            compressed=True,
+            delete_empty_recordings=True
+        ).out_corpus
+        tts_bliss = FilterCorpusBySegmentsJob(
+            bliss_corpus=tts_bliss,
+            segment_file=sub100_segments,
+            compressed=True,
+            delete_empty_recordings=True
+        ).out_corpus
 
     generating_datasets = build_fixed_speakers_generating_dataset(
         text_bliss=tts_bliss,
@@ -388,7 +406,7 @@ def generate_synthetic(
         if extra_forward_config is not None:
             forward_config.config.update(extra_forward_config)
         forward_job = tts_generation(
-            prefix_name=prefix + name + f"/{target_ls_corpus_key}_split{i}",
+            prefix_name=prefix + name + f"/{target_ls_corpus_key + ('-sub100' if use_subset else '')}_split{i}",
             returnn_config=forward_config,
             checkpoint=checkpoint,
             returnn_exe=RETURNN_EXE,
@@ -409,19 +427,42 @@ def generate_synthetic(
         returnn_python_exe=RETURNN_EXE,
         returnn_root=MINI_RETURNN_ROOT
     )
-    ogg_zip_job.add_alias(prefix + name + f"/{target_ls_corpus_key}/create_synthetic_zip")
-    add_synthetic_data(name + "_" + target_ls_corpus_key, ogg_zip_job.out_ogg_zip, merged_corpus_with_text)
+    ogg_zip_job.add_alias(prefix + name + f"/{target_ls_corpus_key + ('-sub100' if use_subset else '')}/create_synthetic_zip")
+    add_synthetic_data(name + "_" + target_ls_corpus_key + ("-sub100" if use_subset else ""), ogg_zip_job.out_ogg_zip, merged_corpus_with_text)
     return merged_corpus_with_text
+
+
+def cross_validation_nisqa(prefix, name, params, net_module, checkpoint, decoder_options, extra_decoder=None, debug=False):
+    training_datasets = build_training_dataset()
+    forward_config = get_forward_config(
+        network_module=net_module,
+        net_args=params,
+        decoder=extra_decoder or net_module,
+        decoder_args=decoder_options,
+        config={
+            "forward": training_datasets.cv.as_returnn_opts()
+        },
+        debug=debug,
+    )
+    forward_job = tts_eval_v2(
+        prefix_name=prefix + name,
+        returnn_config=forward_config,
+        checkpoint=checkpoint,
+        returnn_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+    )
+    tk.register_output(prefix + name + "/audio_files", forward_job.out_files["audio_files"])
+    return forward_job
 
 
 def evaluate_nisqa(
         prefix_name: str,
         bliss_corpus: tk.Path,
 ):
-        predict_mos_job = NISQAMosPredictionJob(bliss_corpus, nisqa_repo=NISQA_REPO)
-        predict_mos_job.add_alias(prefix_name + "/nisqa_mos")
-        tk.register_output(os.path.join(prefix_name, "nisqa_mos/average"), predict_mos_job.out_mos_average)
-        tk.register_output(os.path.join(prefix_name, "nisqa_mos/min"), predict_mos_job.out_mos_min)
-        tk.register_output(os.path.join(prefix_name, "nisqa_mos/max"), predict_mos_job.out_mos_max)
-        tk.register_output(os.path.join(prefix_name, "nisqa_mos/std_dev"), predict_mos_job.out_mos_std_dev)
+    predict_mos_job = NISQAMosPredictionJob(bliss_corpus, nisqa_repo=NISQA_REPO)
+    predict_mos_job.add_alias(prefix_name + "/nisqa_mos")
+    tk.register_output(os.path.join(prefix_name, "nisqa_mos/average"), predict_mos_job.out_mos_average)
+    tk.register_output(os.path.join(prefix_name, "nisqa_mos/min"), predict_mos_job.out_mos_min)
+    tk.register_output(os.path.join(prefix_name, "nisqa_mos/max"), predict_mos_job.out_mos_max)
+    tk.register_output(os.path.join(prefix_name, "nisqa_mos/std_dev"), predict_mos_job.out_mos_std_dev)
 

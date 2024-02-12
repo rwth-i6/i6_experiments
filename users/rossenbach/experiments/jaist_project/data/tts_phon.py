@@ -57,7 +57,7 @@ def get_text_lexicon(corpus_key="train-clean-100") -> tk.Path:
     word_lexicon = BlissLexiconToWordLexicon(bliss_lex).out_lexicon
     return word_lexicon
 
-def get_tts_extended_bliss(ls_corpus_key, lexicon_ls_corpus_key: Optional[str] = None) -> tk.Path:
+def get_tts_extended_bliss(ls_corpus_key, lexicon_ls_corpus_key: Optional[str] = None, verify_lexicon=False) -> tk.Path:
     """
     get a modified ls corpus using the TTS processing
 
@@ -66,9 +66,10 @@ def get_tts_extended_bliss(ls_corpus_key, lexicon_ls_corpus_key: Optional[str] =
     :return:
     """
     ls_bliss = get_bliss_corpus_dict(audio_format="ogg")[ls_corpus_key]
+    lexicon = get_librispeech_lexicon(corpus_key=lexicon_ls_corpus_key or ls_corpus_key)
     tts_ls_bliss = process_corpus_text_with_extended_lexicon(
         bliss_corpus=ls_bliss,
-        lexicon=get_librispeech_lexicon(corpus_key=lexicon_ls_corpus_key or ls_corpus_key))
+        lexicon=lexicon)
 
     return tts_ls_bliss
 

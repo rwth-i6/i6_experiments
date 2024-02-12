@@ -3,12 +3,9 @@ Decoder module originally taken and modified from ESPNet:
 
 https://github.com/espnet/espnet/blob/master/espnet/nets/pytorch_backend/tacotron2/decoder.py
 """
-
 from dataclasses import dataclass
 import torch
 from typing import Any, Dict
-
-
 
 from ...tts_shared.tts_base_model.base_model_v1 import BaseTTSModelV1
 from ...tts_shared import DbMelFeatureExtractionConfig
@@ -16,7 +13,8 @@ from ...tts_shared.encoder.transformer import TTSTransformerTextEncoderV1Config,
 from ...tts_shared.encoder.duration_predictor import SimpleConvDurationPredictorV1Config
 from ...tts_shared.util import sequence_mask
 
-from .espnet_tacotron import decoder_init, Prenet, Postnet, ZoneOutCell
+from ...tts_shared.espnet_tacotron import decoder_init, Prenet, Postnet, ZoneOutCell
+
 
 @dataclass
 class Tacotron2DecoderConfig():

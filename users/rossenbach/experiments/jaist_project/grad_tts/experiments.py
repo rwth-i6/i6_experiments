@@ -1,23 +1,14 @@
 import copy
-import os
-import numpy as np
 from sisyphus import tk
 from dataclasses import asdict
 
-from i6_core.corpus.transform import MergeCorporaJob, MergeStrategy
-from i6_core.corpus.convert import CorpusReplaceOrthFromReferenceCorpus
-from i6_core.returnn.oggzip import BlissToOggZipJob
 
-from i6_experiments.common.datasets.librispeech.corpus import get_bliss_corpus_dict
 from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterbankOptions
-from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob
 
 from ..data.aligner import build_training_dataset
 from ..config import get_training_config, get_prior_config, get_forward_config
-from ..pipeline import training, extract_durations, tts_eval_v2, generate_synthetic
+from ..pipeline import training, extract_durations, tts_eval_v2, generate_synthetic, cross_validation_nisqa
 from ..data.tts_phon import get_tts_log_mel_datastream, build_fixed_speakers_generating_dataset, get_tts_extended_bliss, build_durationtts_training_dataset
-
-
 
 from ..default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ..storage import add_duration, vocoders, add_synthetic_data, duration_alignments
@@ -391,11 +382,19 @@ def run_diffusion_tts():
                     extra_decoder="grad_tts.simple_gl_decoder", decoder_options=decoder_options,
                     target_durations=duration_hdf, debug=True, num_epochs=200)
     # train.hold()
+    
 
     decoder_options_syn = copy.deepcopy(decoder_options_base)
     decoder_options_syn["gl_momentum"] = 0.0
     decoder_options_syn["gl_iter"] = 1
     decoder_options_syn["create_plots"] = False
+
+    # nisqa synthetic
+    cross_validation_nisqa(prefix, net_module + "_bs300_newgl_extdurglowbase256_noglnisqa", params_base256, net_module,
+                           checkpoint=train.out_checkpoints[200],
+                           decoder_options=decoder_options_syn,
+                           extra_decoder="grad_tts.simple_gl_decoder")
+
     for noise_scale in [0.3, 0.5, 0.7, 1.0]:
         decoder_options_syn_local = copy.deepcopy(decoder_options_syn)
         decoder_options_syn_local["gradtts_noise_scale"] = noise_scale
@@ -423,9 +422,31 @@ def run_diffusion_tts():
                                           extra_forward_config={"max_seqs": 30},
                                           decoder_options=decoder_options_syn, debug=True,
                                           randomize_speaker=False)
+    
+    synthetic_corpus = generate_synthetic(prefix, net_module + "_bs300_newgl_extdurglowbase256_syn", "train-clean-360",
+                                          train.out_checkpoints[200], params_base256, net_module,
+                                          extra_decoder="grad_tts.simple_gl_decoder",
+                                          extra_forward_config={"max_seqs": 30},
+                                          decoder_options=decoder_options_syn, debug=True, use_subset=True)
 
     synthetic_corpus = generate_synthetic(prefix, net_module + "_bs300_newgl_extdurglowbase256_syn", "train-clean-360",
                                           train.out_checkpoints[200], params_base256, net_module,
                                           extra_decoder="grad_tts.simple_gl_decoder",
                                           extra_forward_config={"max_seqs": 30},
                                           decoder_options=decoder_options_syn, debug=True)
+
+
+    local_config = copy.deepcopy(config)
+    local_config["learning_rates"] = [1e-4] * 400
+    local_config["optimizer"] = {"class": "adam", "epsilon": 1e-8}  # grad TTS does not use any custom optimizer settings over PyTorch
+    train = run_exp(net_module + "_bs300_newgl_extdurglowbase256_400epochs", params_base256, net_module, local_config,
+                    extra_decoder="grad_tts.simple_gl_decoder", decoder_options=decoder_options,
+                    target_durations=duration_hdf, debug=True, num_epochs=400)
+
+
+    #synthetic_corpus = generate_synthetic(prefix, net_module + "_bs300_newgl_extdurglowbase256_noise%.1f_syn" % noise_scale,
+    #                                  "train-clean-100",
+    #                                  train.out_checkpoints[200], params_base256, net_module,
+    #                                  extra_decoder="grad_tts.simple_gl_decoder",
+    #                                  extra_forward_config={"max_seqs": 30},
+    #                                  decoder_options=decoder_options_syn_local, debug=True)

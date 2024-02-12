@@ -8,7 +8,7 @@ from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterba
 
 from ..data.aligner import build_training_dataset
 from ..config import get_training_config, get_forward_config
-from ..pipeline import training, extract_durations, tts_eval_v2, generate_synthetic
+from ..pipeline import training, extract_durations, tts_eval_v2, generate_synthetic, cross_validation_nisqa
 from ..data.tts_phon import get_tts_log_mel_datastream, build_durationtts_training_dataset
 
 from ..default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
@@ -80,6 +80,8 @@ def run_flow_tts():
         )
         tk.register_output(prefix + name + "/audio_files", forward_job.out_files["audio_files"])
         return train_job
+
+
 
 
     def local_extract_durations(name, checkpoint, params, net_module, use_custom_engine=False, debug=False):
@@ -332,6 +334,10 @@ def run_flow_tts():
     train = run_exp(net_module + "_bs600_v2_base256_newgl_extdur_noise0.7", params_base256, net_module_extdur, local_config, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
                     target_durations=durations, debug=True, num_epochs=200)
 
+    # perform NISQA also for synthesis condition
+    cross_validation_nisqa(prefix, net_module + "_bs600_v2_base256_newgl_extdur_noise0.7_noglnisqa", params_base256, net_module_extdur, checkpoint=train.out_checkpoints[200],
+                           decoder_options=decoder_options_synthetic, extra_decoder="glow_tts.simple_gl_decoder")
+
     for noise in [0.0, 0.3, 0.5, 0.7, 1.0]:
         decoder_options_synthetic_noise = copy.deepcopy(decoder_options_synthetic)
         decoder_options_synthetic_noise["glowtts_noise_scale"] = noise
@@ -341,12 +347,20 @@ def run_flow_tts():
                                               decoder_options=decoder_options_synthetic_noise, debug=True)
 
         if noise == 0.7:
+            # fixed speaker
             synthetic_corpus = generate_synthetic(prefix, net_module + "_bs600_v2_base256_newgl_extdur_noise%.1f_syn_fixspk" % noise,
                                                   "train-clean-100",
                                                   train.out_checkpoints[200], params_base256, net_module,
                                                   extra_decoder="glow_tts.simple_gl_decoder",
                                                   decoder_options=decoder_options_synthetic_noise, debug=True,
                                                   randomize_speaker=False)
+            # text from 360
+            synthetic_corpus = generate_synthetic(prefix, net_module + "_bs600_v2_base256_newgl_extdur_noise%.1f_syn" % noise,
+                                                  "train-clean-360",
+                                                  train.out_checkpoints[200], params_base256, net_module,
+                                                  extra_decoder="glow_tts.simple_gl_decoder",
+                                                  decoder_options=decoder_options_synthetic_noise, debug=True,
+                                                  use_subset=True)
 
     synthetic_corpus = generate_synthetic(prefix, net_module + "_bs600_v2_base256_newgl_extdur_noise0.7_syn", "train-clean-360",
                                           train.out_checkpoints[200], params_base256, net_module,
@@ -359,13 +373,43 @@ def run_flow_tts():
                     debug=True, num_epochs=200)
     # train.hold()
     
+    # 400 epochs stuff
 
     local_config_longer = copy.deepcopy(config)
     local_config_longer["batch_size"] = 600 * 16000
     local_config_longer["learning_rates"] = list(np.linspace(5e-5, 5e-4, 100)) + list(np.linspace(5e-4, 5e-7, 300))
     train = run_exp(net_module + "_bs600_v2_longer_base256_newgl_extdur_noise0.7", params_base256, net_module_extdur, local_config_longer, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
                     target_durations=durations, debug=True, num_epochs=400)
+    
+    # perform NISQA also for synthesis condition
+    #cross_validation_nisqa(prefix, net_module + "_bs600_v2_longer_base256_newgl_extdur_noise0.7_noglnisqa", params_base256, net_module_extdur, checkpoint=train.out_checkpoints[400],
+    #                       decoder_options=decoder_options_synthetic, extra_decoder="glow_tts.simple_gl_decoder")
 
+    for momentum in [0.0, 0.9, 0.99]:
+        for iter in [1, 8, 16, 32, 64]:
+            decoder_options_half_gl = copy.deepcopy(decoder_options_synthetic)
+            decoder_options_half_gl["gl_momentum"] = momentum
+            decoder_options_half_gl["gl_iter"] = iter
+            cross_validation_nisqa(prefix, net_module + "_bs600_v2_longer_base256_newgl_extdur_noise0.7_nisqa_ablations/mom%.2f_gl%i" % (momentum, iter), params_base256, net_module_extdur, checkpoint=train.out_checkpoints[400],
+                                   decoder_options=decoder_options_half_gl, extra_decoder="glow_tts.simple_gl_decoder")
+
+    synthetic_corpus = generate_synthetic(prefix, net_module + "_bs600_v2_longer_base256_newgl_extdur_noise0.7_syn",
+                                          "train-clean-100",
+                                          train.out_checkpoints[400], params_base256, net_module,
+                                          extra_decoder="glow_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_synthetic, debug=True)
+
+
+    for iter in [16, 32, 64]:
+        decoder_options_half_gl = copy.deepcopy(decoder_options_synthetic)
+        decoder_options_half_gl["gl_momentum"] = 0.99
+        decoder_options_half_gl["gl_iter"] = iter
+
+        synthetic_corpus = generate_synthetic(prefix, net_module + "_bs600_v2_longer_base256_newgl%i_extdur_noise0.7_syn" % iter,
+                                              "train-clean-100",
+                                              train.out_checkpoints[400], params_base256, net_module,
+                                              extra_decoder="glow_tts.simple_gl_decoder",
+                                              decoder_options=decoder_options_half_gl, debug=True)
     """
     Kind of trying to replicate what was exactly in the original paper, just based on epochs and with longer warmup
     """
@@ -373,8 +417,19 @@ def run_flow_tts():
     local_config_longer_noam = copy.deepcopy(config)
     local_config_longer_noam["optimizer"] = {"class": "adam", "epsilon": 1e-9, "betas": (0.9, 0.98)}
     local_config_longer_noam["learning_rates"] = controlled_noam(20, 380, 1e-3, 1e-4)
-    train = run_exp(net_module + "_bs600_v2_longer_noam_base256_newgl_extdur_noise0.7", params_base256, net_module_extdur, local_config_longer_noam, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
+    train = run_exp(net_module + "_bs300_v2_longer_noam_base256_newgl_extdur_noise0.7", params_base256, net_module_extdur, local_config_longer_noam, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
                     target_durations=durations, debug=True, num_epochs=400)
+
+    local_config_longer_noam_bs600 = copy.deepcopy(local_config_longer_noam)
+    local_config_longer_noam_bs600["batch_size"] = 600 * 16000
+    train = run_exp(net_module + "_bs600_v2_longer_noam_base256_newgl_extdur_noise0.7", params_base256, net_module_extdur, local_config_longer_noam_bs600, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
+                    target_durations=durations, debug=True, num_epochs=400)
+    
+    synthetic_corpus = generate_synthetic(prefix, net_module + "_bs600_v2_longer_noam_base256_newgl_extdur_noise0.7_syn",
+                                          "train-clean-100",
+                                          train.out_checkpoints[400], params_base256, net_module,
+                                          extra_decoder="glow_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_synthetic, debug=True)
 
 
 

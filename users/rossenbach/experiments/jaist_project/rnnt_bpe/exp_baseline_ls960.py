@@ -193,6 +193,23 @@ def conformer_rnnt_ls960():
     train_job, _ = run_exp(
         prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub6_start1_accum2_lstm512_LR5_amp16_init_from_ctc_50eps/bs1",
         datasets=train_data, train_args=train_args_continue_ctc_LR5, search_args=search_args_greedy)
+    
+    # continue even further
+    train_args_continue_ctc_LR2 = copy.deepcopy(train_args_continue_ctc)
+    train_args_continue_ctc_LR2["config"]["learning_rates"] =  list(np.linspace(5e-5, 2e-4,20)) + list(
+        np.linspace(2e-4, 5e-5, 220)) + list(np.linspace(5e-5, 1e-7, 10))
+    train_args_continue_ctc_LR2["config"]["preload_from_files"] = {
+        "encoder": {
+            "filename": train_job.out_checkpoints[250],
+            "init_for_train": True,
+            "ignore_missing": True,
+        }
+    }
+    train_job, _ = run_exp(
+        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub6_start1_accum2_lstm512_LR5_amp16_init_from_ctc_50eps_rnnt_25eps/bs12",
+        datasets=train_data, train_args=train_args_continue_ctc_LR2, search_args=search_args)
+
+    train_job.hold()
 
 
     # train_job.hold()

@@ -10,7 +10,7 @@ from ...data.tts_phon import get_vocab_datastream
 from ...data.tts_phon import get_tts_log_mel_datastream
 
 from ...config import get_training_config, get_forward_config
-from ...pipeline import training, tts_eval_v2, generate_synthetic
+from ...pipeline import training, tts_eval_v2, generate_synthetic, cross_validation_nisqa
 
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...storage import duration_alignments, vocoders
@@ -37,7 +37,7 @@ def run_fastspeech_like_tts():
 
     prefix = "experiments/jaist_project/standalone_2024/nar_tts/fastspeech_like/"
 
-    def run_exp(name, params, net_module, config, duration_hdf, decoder_options, extra_decoder=None, use_custom_engine=False, debug=False):
+    def run_exp(name, params, net_module, config, duration_hdf, decoder_options, extra_decoder=None, use_custom_engine=False, debug=False, num_epochs=200):
         training_datasets = build_durationtts_training_dataset(duration_hdf=duration_hdf)
         training_config = get_training_config(
             training_datasets=training_datasets,
@@ -62,12 +62,12 @@ def run_fastspeech_like_tts():
             returnn_config=training_config,
             returnn_exe=RETURNN_EXE,
             returnn_root=MINI_RETURNN_ROOT,
-            num_epochs=200
+            num_epochs=num_epochs
         )
         forward_job = tts_eval_v2(
             prefix_name=prefix + name,
             returnn_config=forward_config,
-            checkpoint=train_job.out_checkpoints[200],
+            checkpoint=train_job.out_checkpoints[num_epochs],
             returnn_exe=RETURNN_EXE,
             returnn_root=MINI_RETURNN_ROOT,
         )
@@ -233,6 +233,11 @@ def run_fastspeech_like_tts():
 
     train, forward = run_exp(net_module + "_fromglow_v1_halfbatch_fixlr_fp16", params, net_module, config_halflr_fp16,
                              extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
+    
+    # nisqa synthetic
+    cross_validation_nisqa(prefix, net_module + "_fromglow_v1_halfbatch_fixlr_fp16_noglnisqa", params, net_module, checkpoint=train.out_checkpoints[200],
+                           decoder_options=decoder_options_synthetic, extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder")
+
     # train.hold()
     generate_synthetic(prefix, net_module + "_fromglow_v1_halfbatch_fixlr_fp16_syn", "train-clean-100",
                        train.out_checkpoints[200], params, net_module,
@@ -263,4 +268,23 @@ def run_fastspeech_like_tts():
     generate_synthetic(prefix, net_module + "_fromglowbase256_v1_halfbatch_fixlr_fp16_syn", "train-clean-360",
                        train.out_checkpoints[200], params, net_module,
                        extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+                       decoder_options=decoder_options_synthetic, debug=True, use_subset=True)
+
+    generate_synthetic(prefix, net_module + "_fromglowbase256_v1_halfbatch_fixlr_fp16_syn", "train-clean-360",
+                       train.out_checkpoints[200], params, net_module,
+                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
                        decoder_options=decoder_options_synthetic, debug=True)
+    
+    from recipe.i6_experiments.users.rossenbach.common_setups.lr_scheduling import controlled_noam
+    config_longer_noam = copy.deepcopy(config)
+    config_longer_noam["optimizer"] = {"class": "adam", "epsilon": 1e-9, "betas": (0.9, 0.98)}
+    config_longer_noam["learning_rates"] = controlled_noam(20, 380, 1e-3, 1e-4)
+    config_longer_noam["torch_amp_options"] = {"dtype": "bfloat16"}
+    train, forward = run_exp(net_module + "_fromglowbase256_v1_bs300_noam_400eps_fp16", params, net_module, config_longer_noam,
+                             extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400)
+
+    config_longer_oclr = copy.deepcopy(config)
+    config_longer_oclr["learning_rates"] = list(np.linspace(5e-5, 5e-4, 100)) + list(np.linspace(5e-4, 5e-7, 300))
+    config_longer_oclr["torch_amp_options"] = {"dtype": "bfloat16"}
+    train, forward = run_exp(net_module + "_fromglowbase256_v1_bs300_400eps_fp16", params, net_module, config_longer_oclr,
+                             extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400)

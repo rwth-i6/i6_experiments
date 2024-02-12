@@ -10,7 +10,7 @@ from ...data.tts_phon import get_vocab_datastream
 from ...data.tts_phon import get_tts_log_mel_datastream
 
 from ...config import get_training_config, get_forward_config
-from ...pipeline import training, tts_eval_v2, generate_synthetic
+from ...pipeline import training, tts_eval_v2, generate_synthetic, cross_validation_nisqa
 
 
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
@@ -37,7 +37,7 @@ def run_tacotron2_decoder_tts():
 
     prefix = "experiments/jaist_project/standalone_2024/ar_tts/tacotron2_decoder/"
 
-    def run_exp(name, params, net_module, config, duration_hdf, decoder_options, extra_decoder=None, use_custom_engine=False, debug=False):
+    def run_exp(name, params, net_module, config, duration_hdf, decoder_options, extra_decoder=None, use_custom_engine=False, debug=False, num_epochs=200):
         training_datasets = build_durationtts_training_dataset(duration_hdf=duration_hdf)
         training_config = get_training_config(
             training_datasets=training_datasets,
@@ -62,12 +62,12 @@ def run_tacotron2_decoder_tts():
             returnn_config=training_config,
             returnn_exe=RETURNN_EXE,
             returnn_root=MINI_RETURNN_ROOT,
-            num_epochs=200
+            num_epochs=num_epochs
         )
         forward_job = tts_eval_v2(
             prefix_name=prefix + name,
             returnn_config=forward_config,
-            checkpoint=train_job.out_checkpoints[200],
+            checkpoint=train_job.out_checkpoints[num_epochs],
             returnn_exe=RETURNN_EXE,
             returnn_root=MINI_RETURNN_ROOT,
         )
@@ -203,3 +203,42 @@ def run_tacotron2_decoder_tts():
     duration_hdf = duration_alignments["glow_tts.glow_tts_v1_bs600_v2_base256"]
     train, forward = run_exp(net_module + "_fromglowbase256_v1", params, net_module, config,
                              extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
+
+    # nisqa synthetic
+    cross_validation_nisqa(prefix, net_module + "_fromglowbase256_v1_noglnisqa", params, net_module, checkpoint=train.out_checkpoints[200],
+                           decoder_options=decoder_options_synthetic, extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder")
+    
+    generate_synthetic(prefix, net_module + "_fromglowbase256_v1_syn", "train-clean-100",
+                       train.out_checkpoints[200], params, net_module,
+                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+                       decoder_options=decoder_options_synthetic, debug=True)
+
+    # with gl32
+    decoder_options_synthetic_gl32 = copy.deepcopy(decoder_options_synthetic)
+    decoder_options_synthetic_gl32["gl_momentum"] = 0.99
+    decoder_options_synthetic_gl32["gl_iter"] = 32
+
+    generate_synthetic(prefix, net_module + "_fromglowbase256_v1_gl32_syn", "train-clean-100",
+                       train.out_checkpoints[200], params, net_module,
+                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+                       decoder_options=decoder_options_synthetic_gl32, debug=True)
+
+    generate_synthetic(prefix, net_module + "_fromglowbase256_v1_syn_fixspk", "train-clean-100",
+                       train.out_checkpoints[200], params, net_module,
+                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+                       decoder_options=decoder_options_synthetic, debug=True, randomize_speaker=False)
+
+    generate_synthetic(prefix, net_module + "_fromglowbase256_v1_syn", "train-clean-360",
+                       train.out_checkpoints[200], params, net_module,
+                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+                       decoder_options=decoder_options_synthetic, debug=True, use_subset=True)
+
+    generate_synthetic(prefix, net_module + "_fromglowbase256_v1_syn", "train-clean-360",
+                       train.out_checkpoints[200], params, net_module,
+                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+                       decoder_options=decoder_options_synthetic, debug=True)
+
+    config_400eps = copy.deepcopy(config)
+    config_400eps["learning_rates"] = list(np.linspace(5e-5, 5e-4, 100)) + list(np.linspace(5e-4, 5e-7, 300))
+    train, forward = run_exp(net_module + "_fromglowbase256_400eps_v1", params, net_module, config_400eps,
+                             extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400)
