@@ -81,6 +81,8 @@ from i6_experiments.users.raissi.setups.common.decoder.config import (
 from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
 from i6_experiments.users.raissi.setups.common.util.hdf import RasrFeaturesToHdf
 from i6_experiments.users.raissi.costum.returnn.rasr_returnn_bw import ReturnnRasrTrainingBWJob
+from i6_experiments.users.raissi.costum.returnn.rasr_returnn_vit import ReturnnRasrTrainingVITJob
+
 from i6_experiments.users.raissi.costum.corpus.segments import SegmentCorpusNoPrefixJob
 
 # -------------------- Init --------------------
@@ -205,7 +207,8 @@ class BASEFactoredHybridSystem(NnSystem):
         self.trainers = {
             "returnn": returnn.ReturnnTrainingJob,
             "rasr-returnn": returnn.ReturnnRasrTrainingJob,
-            "rasr-returnn-costum": ReturnnRasrTrainingBWJob,
+            "rasr-returnn-costum-vit": ReturnnRasrTrainingVITJob,
+            "rasr-returnn-costum-bw": ReturnnRasrTrainingBWJob,
         }
         self.recognizers = {"base": BASEFactoredHybridDecoder}
         self.aligners = {"base": BASEFactoredHybridAligner}
@@ -232,6 +235,9 @@ class BASEFactoredHybridSystem(NnSystem):
         for k in all_names:
             if "train" in k:
                 crp_n = f"{self.train_key}.{k}"
+                if "cv" in k:
+                    if len(self.cv_corpora) :
+                        crp_n = self.cv_corpora[-1]
                 self.crp_names[k] = crp_n
                 self._add_feature_and_alignment_for_crp_with_existing_crp(
                     existing_crp_key=self.train_key, new_crp_key=crp_n
@@ -267,6 +273,7 @@ class BASEFactoredHybridSystem(NnSystem):
         devtrain_data = devtrain_data if devtrain_data is not None else {}
         dev_data = dev_data if dev_data is not None else {}
         test_data = test_data if test_data is not None else {}
+
 
         self._assert_corpus_name_unique(train_data, cv_data, devtrain_data, dev_data, test_data)
 
@@ -761,8 +768,10 @@ class BASEFactoredHybridSystem(NnSystem):
         config: Dict,
         prolog_additional_str: str = None,
         epilog_additional_str: str = None,
-        functions  = None,
-        add_extern_data_for_fullsum=False,
+        functions=None,
+        label_time_tag: str =None,
+        add_extern_data_for_fullsum: bool =False,
+
     ):
         # this is not a returnn config, but the dict params
         assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
@@ -778,7 +787,6 @@ class BASEFactoredHybridSystem(NnSystem):
         }
 
         if self.training_criterion != TrainingCriterion.FULLSUM or add_extern_data_for_fullsum:
-            label_time_tag = None
             if self.frame_rate_reduction_ratio_info.factor == 1:
                 label_time_tag = self.frame_rate_reduction_ratio_info.time_tag_name
             config["extern_data"].update(
@@ -991,6 +999,47 @@ class BASEFactoredHybridSystem(NnSystem):
             experiment_key=experiment_key, returnn_config=returnn_config, on_2080=on_2080, nn_train_args=nn_train_args
         )
 
+    def get_feature_and_alignment_flows_for_training(self, data):
+        if data.feature_flow is not None:
+            feature_flow = data.feature_flow
+        else:
+            if isinstance(data.features, rasr.FlagDependentFlowAttribute):
+                feature_path = data.features
+            elif isinstance(data.features, (MultiPath, MultiOutputPath)):
+                feature_path = rasr.FlagDependentFlowAttribute(
+                    "cache_mode",
+                    {
+                        "task_dependent": data.features,
+                    },
+                )
+            elif isinstance(data.features, tk.Path):
+                feature_path = rasr.FlagDependentFlowAttribute(
+                    "cache_mode",
+                    {
+                        "bundle": data.features,
+                    },
+                )
+            else:
+                raise NotImplementedError
+
+            feature_flow = features.basic_cache_flow(feature_path)
+            if isinstance(data.features, tk.Path):
+                feature_flow.flags = {"cache_mode": "bundle"}
+
+        if isinstance(data.alignments, rasr.FlagDependentFlowAttribute):
+            alignments = copy.deepcopy(data.alignments)
+            net = rasr.FlowNetwork()
+            net.flags = {"cache_mode": "bundle"}
+            alignments = alignments.get(net)
+        elif isinstance(data.alignments, (MultiPath, MultiOutputPath)):
+            raise NotImplementedError
+        elif isinstance(data.alignments, tk.Path):
+            alignments = data.alignments
+        else:
+            raise NotImplementedError
+
+        return feature_flow, alignments
+
     def returnn_rasr_training(
         self,
         experiment_key,
@@ -1018,49 +1067,23 @@ class BASEFactoredHybridSystem(NnSystem):
             returnn_config = nn_train_args.pop("returnn_config")
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
-        assert train_data.feature_flow == dev_data.feature_flow
-        assert train_data.features == dev_data.features
-        assert train_data.alignments == dev_data.alignments
-
-        if train_data.feature_flow is not None:
-            feature_flow = train_data.feature_flow
+        if (
+            train_data.feature_flow == dev_data.feature_flow
+            and train_data.features == dev_data.features
+            and train_data.alignments == dev_data.alignments
+        ):
+            trainer = self.trainers["rasr-returnn"]
+            feature_flow, alignments = self.get_feature_and_alignment_flows_for_training(data=train_data)
         else:
-            if isinstance(train_data.features, rasr.FlagDependentFlowAttribute):
-                feature_path = train_data.features
-            elif isinstance(train_data.features, (MultiPath, MultiOutputPath)):
-                feature_path = rasr.FlagDependentFlowAttribute(
-                    "cache_mode",
-                    {
-                        "task_dependent": train_data.features,
-                    },
-                )
-            elif isinstance(train_data.features, tk.Path):
-                feature_path = rasr.FlagDependentFlowAttribute(
-                    "cache_mode",
-                    {
-                        "bundle": train_data.features,
-                    },
-                )
-            else:
-                raise NotImplementedError
+            trainer = self.trainers["rasr-returnn-costum-vit"]
+            feature_flow = {"train": None, "dev": None}
+            alignments = {"train": None, "dev": None}
+            feature_flow["train"], alignments["train"] = self.get_feature_and_alignment_flows_for_training(
+                data=train_data
+            )
+            feature_flow["dev"], alignments["dev"] = self.get_feature_and_alignment_flows_for_training(data=dev_data)
 
-            feature_flow = features.basic_cache_flow(feature_path)
-            if isinstance(train_data.features, tk.Path):
-                feature_flow.flags = {"cache_mode": "bundle"}
-
-        if isinstance(train_data.alignments, rasr.FlagDependentFlowAttribute):
-            alignments = copy.deepcopy(train_data.alignments)
-            net = rasr.FlowNetwork()
-            net.flags = {"cache_mode": "bundle"}
-            alignments = alignments.get(net)
-        elif isinstance(train_data.alignments, (MultiPath, MultiOutputPath)):
-            raise NotImplementedError
-        elif isinstance(train_data.alignments, tk.Path):
-            alignments = train_data.alignments
-        else:
-            raise NotImplementedError
-
-        train_job = returnn.ReturnnRasrTrainingJob(
+        train_job = trainer(
             train_crp=train_crp,
             dev_crp=dev_crp,
             feature_flow=feature_flow,
@@ -1104,7 +1127,7 @@ class BASEFactoredHybridSystem(NnSystem):
             returnn_config = nn_train_args.pop("returnn_config")
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
-        train_job = self.trainers["rasr-returnn-costum"](
+        train_job = self.trainers["rasr-returnn-costum-bw"](
             train_crp=train_crp,
             dev_crp=dev_crp,
             feature_flows={"train": train_data.feature_flow, "dev": dev_data.feature_flow},

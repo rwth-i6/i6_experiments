@@ -28,17 +28,19 @@ import i6_core.text as text
 from i6_core.util import MultiPath, MultiOutputPath
 
 # common modules
+from i6_experiments.common.setups.rasr.util import (
+    OggZipHdfDataInput,
+    RasrInitArgs,
+    RasrDataInput,
+)
+
+from i6_experiments.users.berger.network.helpers.conformer_wei import add_initial_conv, add_conformer_stack
+
 from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import (
     BASEFactoredHybridSystem,
     Experiment,
     TrainingCriterion,
     SingleSoftmaxType,
-)
-
-from i6_experiments.common.setups.rasr.util import (
-    OggZipHdfDataInput,
-    RasrInitArgs,
-    RasrDataInput,
 )
 
 import i6_experiments.users.raissi.setups.common.encoder as encoder_archs
@@ -81,6 +83,7 @@ from i6_experiments.users.raissi.setups.common.decoder.config import (
     SearchParameters,
     AlignmentParameters,
 )
+
 
 # -------------------- Init --------------------
 
@@ -223,6 +226,46 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 network["classes_"]["from"] = "slice_classes"
         return network
 
+    def get_conformer_network_zhou_variant(
+        self,
+        conf_model_dim: int,
+        out_layer_name: str = "encoder-output",
+        auxilary_loss_layers: list = [6],
+        frame_rate_reduction_ratio_info: Optional[net_helpers.FrameRateReductionRatioinfo] = None,
+    ):
+
+        if frame_rate_reduction_ratio_info is None:
+            frame_rate_reduction_ratio_info = self.frame_rate_reduction_ratio_info
+        encoder_net = {}
+        from_list = add_initial_conv(network=encoder_net, linear_size=conf_model_dim, from_list="data")
+        add_conformer_stack(encoder_net, from_list=from_list)
+        encoder_net[out_layer_name] = {
+            "class": "copy",
+            "from": "conformer_12_output",
+            "n_out": conf_model_dim,
+        }
+        for aux_p in auxilary_loss_layers:
+            aux_p_str = f"aux_{aux_p:03d}_"
+            encoder_net[f"{aux_p_str}encoder"] = {
+                "class": "copy",
+                "from": f"conformer_{aux_p}_output",
+                "n_out": conf_model_dim,
+            }
+
+        if self.training_criterion != TrainingCriterion.FULLSUM:
+            network = net_helpers.augment.augment_net_with_label_pops(
+                encoder_net, label_info=self.label_info, frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info
+            )
+            if frame_rate_reduction_ratio_info.factor > 1 and frame_rate_reduction_ratio_info.single_state_alignment:
+                network["slice_classes"] = {
+                    "class": "slice",
+                    "from": network["classes_"]["from"],
+                    "axis": "T",
+                    "slice_step": frame_rate_reduction_ratio_info.factor,
+                }
+                network["classes_"]["from"] = "slice_classes"
+
+        return network
     # -------------------- Decoding --------------------
     def _compute_returnn_rasr_priors(
         self,
@@ -644,7 +687,9 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         ], "triphone state tying not possible in precomputed feature scorer due to memory constraint"
 
         if softmax_type == SingleSoftmaxType.TRAIN:
-            assert self.training_criterion == TrainingCriterion.FULLSUM, "you forgot to set the correct training criterion"
+            assert (
+                self.training_criterion == TrainingCriterion.FULLSUM
+            ), "you forgot to set the correct training criterion"
             self.label_info = dataclasses.replace(self.label_info, state_tying=state_tying)
             self.lexicon_args["norm_pronunciation"] = False
             self.set_rasr_returnn_input_datas(
@@ -652,7 +697,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 is_cv_separate_from_train=True,
                 cv_corpus_key="dev-other",
             )
-            #update all transition models and data
+            # update all transition models and data
             shift_factor = self.frame_rate_reduction_ratio_info.factor
             tdp_type = "heuristic" if shift_factor == 1 else f"heuristic-{shift_factor}0ms"
             self.update_am_setting_for_all_crps(

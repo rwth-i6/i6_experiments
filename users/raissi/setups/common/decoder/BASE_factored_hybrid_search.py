@@ -46,6 +46,7 @@ from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_feature_s
 )
 from i6_experiments.users.raissi.setups.common.decoder.statistics import ExtractSearchStatisticsJob
 from i6_experiments.users.raissi.setups.common.util.tdp import format_tdp_val, format_tdp
+from i6_experiments.users.raissi.setups.common.util.argmin import ComputeArgminJob
 from i6_experiments.users.raissi.setups.common.data.typings import (
     TDP,
     Float,
@@ -1218,7 +1219,7 @@ class BASEFactoredHybridDecoder:
                 rerun_after_opt_lm=False,
                 search_parameters=dataclasses.replace(
                     recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_speech=tdp_sp
-                ).with_prior_scale(left=l, center=c, right=r),
+                ).with_prior_scale(left=l, center=c, right=r, diphone=c),
                 remove_or_set_concurrency=False,
             )
             for ((c, l, r), tdp, tdp_sl, tdp_sp) in itertools.product(prior_scales, tdp_scales, tdp_sil, tdp_speech)
@@ -1235,21 +1236,16 @@ class BASEFactoredHybridDecoder:
             recog_jobs.search.set_keep_value(keep_value)
 
             recog_jobs.search.add_alias(pre_name)
-            tk.register_output(f"{pre_name}.err", recog_jobs.sclite.out_num_errors)
-            tk.register_output(f"{pre_name}.wer", recog_jobs.sclite.out_wer)
+            tk.register_output(f"{pre_name}.wer", recog_jobs.sclite.out_report_dir)
 
         best_overall_wer = ComputeArgminJob({k: v.sclite.out_wer for k, v in jobs.items()})
         best_overall_n = ComputeArgminJob(jobs_num_e)
         tk.register_output(
-            f"scales-best/{self.name}/args",
+            f"decoding/scales-best/{self.name}/args",
             best_overall_n.out_argmin,
         )
         tk.register_output(
-            f"scales-best/{self.name}/num_err",
-            best_overall_n.out_min,
-        )
-        tk.register_output(
-            f"scales-best/{self.name}/wer",
+            f"decoding/scales-best/{self.name}/wer",
             best_overall_wer.out_min,
         )
 
@@ -1274,6 +1270,8 @@ class BASEFactoredHybridDecoder:
         best_center_prior = best_priors[0]
         if self.context_type.is_monophone():
             return base_cfg.with_prior_scale(center=best_center_prior)
+        if self.context_type.is_joint_diphone():
+            return base_cfg.with_prior_scale(diphone=best_center_prior)
 
         best_left_prior = best_priors[1]
         if self.context_type.is_diphone():
