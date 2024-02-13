@@ -1005,7 +1005,11 @@ class BASEFactoredHybridDecoder:
         elif self.feature_scorer_type.is_nnprecomputed():
             scale = 1.0
             if search_parameters.posterior_scales is not None:
-                scale = search_parameters.posterior_scales["joint-diphone-scale"]
+                if context_type.is_joint_diphone():
+                    scale = search_parameters.posterior_scales["joint-diphone-scale"]
+                elif context_type.is_monophone():
+                    scale = search_parameters.posterior_scales["center-state-scale"]
+
                 name += f"-Am{scale}"
             feature_scorer = get_nn_precomputed_feature_scorer(
                 posterior_scale=scale,
@@ -1455,7 +1459,10 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
         elif self.feature_scorer_type.is_nnprecomputed():
             scale = 1.0
             if alignment_parameters.posterior_scales is not None:
-                scale = alignment_parameters.posterior_scales["joint-diphone-scale"]
+                if context_type.is_joint_diphone():
+                    scale = alignment_parameters.posterior_scales["joint-diphone-scale"]
+                elif context_type.is_monophone():
+                    scale = alignment_parameters.posterior_scales["center-state-scale"]
                 name += f"-Am{scale}"
             feature_scorer = get_nn_precomputed_feature_scorer(
                 posterior_scale=scale,

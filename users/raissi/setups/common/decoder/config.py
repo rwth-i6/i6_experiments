@@ -354,7 +354,7 @@ class AlignmentParameters:
     @classmethod
     def default_monophone(cls, *, priors: PriorInfo) -> "AlignmentParameters":
         return cls(
-            tdp_scale=0.4,
+            tdp_scale=1.0,
             pron_scale=2.0,
             prior_info=priors.with_scale(0.2),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
@@ -366,7 +366,7 @@ class AlignmentParameters:
     @classmethod
     def default_diphone(cls, *, priors: PriorInfo) -> "AlignmentParameters":
         return cls(
-            tdp_scale=0.4,
+            tdp_scale=1.0,
             pron_scale=2.0,
             prior_info=priors.with_scale(center=0.2, left=0.1),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
@@ -378,7 +378,7 @@ class AlignmentParameters:
     @classmethod
     def default_triphone(cls, *, priors: PriorInfo) -> "AlignmentParameters":
         return cls(
-            tdp_scale=0.6,
+            tdp_scale=1.0,
             pron_scale=2.0,
             prior_info=priors.with_scale(center=0.2, left=0.1, right=0.1),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
@@ -390,7 +390,7 @@ class AlignmentParameters:
     @classmethod
     def default_joint_diphone(cls, *, priors: PriorInfo) -> "AlignmentParameters":
         return cls(
-            tdp_scale=0.4,
+            tdp_scale=1.0,
             pron_scale=2.0,
             prior_info=priors.with_scale(diphone=0.4),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
