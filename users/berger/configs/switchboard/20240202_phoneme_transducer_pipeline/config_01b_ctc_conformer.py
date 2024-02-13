@@ -116,6 +116,7 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
         returnn_python_exe=tools.returnn_python_exe,
         rasr_binary_path=tools.rasr_binary_path,
         feature_type=FeatureType.GAMMATONE_8K,
+        augmented_lexicon=True,
         test_keys=["hub5e01"],
     )
 
@@ -128,7 +129,7 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)
     align_args = exp_args.get_ctc_align_step_args(num_classes)
-    recog_args["epochs"] = [160, 240, 300, "best"]
+    recog_args["epochs"] = [160, 300, "best"]
     recog_args["feature_type"] = FeatureType.GAMMATONE_8K
     recog_args["prior_scales"] = [0.3, 0.5]
     recog_args["lm_scales"] = [0.5, 0.7, 0.9]
@@ -179,7 +180,15 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
         "dev_data_config": data.cv_data_config,
     }
 
-    for ordering in ["laplace:.1000", "laplace:.100", "laplace:.50", "laplace:.25", "laplace:.10", "random"]:
+    for ordering in [
+        # "laplace:.1000",
+        "laplace:.384",
+        # "laplace:.100",
+        # "laplace:.50",
+        # "laplace:.25",
+        # "laplace:.10",
+        # "random",
+    ]:
         mod_train_data_config = copy.deepcopy(data.train_data_config)
         mod_train_data_config["seq_ordering"] = ordering
 
@@ -201,10 +210,10 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
     system.run_dev_recog_step(**recog_args)
     # system.run_test_recog_step(**recog_args)
     alignments = next(
-        iter(system.run_align_step(exp_names=["Conformer_CTC_order-laplace:.1000"], **align_args).values())
+        iter(system.run_align_step(exp_names=["Conformer_CTC_order-laplace:.384"], **align_args).values())
     )
 
-    model = system.get_train_job("Conformer_CTC_order-laplace:.1000").out_checkpoints[300]
+    model = system.get_train_job("Conformer_CTC_order-laplace:.384").out_checkpoints[300]
     assert isinstance(model, Checkpoint)
 
     system.cleanup_experiments()
@@ -226,7 +235,7 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
         recog_configs={"recog": recog_config},
     )
 
-    system.add_experiment_configs(f"Conformer_CTC_order-laplace:.384", returnn_configs)
+    system.add_experiment_configs(f"Conformer_CTC_order-laplace:.384_400ep", returnn_configs)
     train_args = exp_args.get_ctc_train_step_args(
         num_epochs=400,
         gpu_mem_rqmt=11,

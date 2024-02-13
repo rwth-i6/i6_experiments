@@ -1,3 +1,4 @@
+from sisyphus import tk
 import copy
 from typing import Dict, List, Tuple, Optional
 from i6_core.corpus import FilterCorpusBySegmentsJob, FilterSegmentsByListJob, SegmentCorpusJob
@@ -23,6 +24,7 @@ def get_data_inputs(
     test_keys: Optional[List[str]] = None,
     lm_names: Optional[List[str]] = None,
     ctc_lexicon: bool = False,
+    augmented_lexicon: bool = False,
     filter_unk_from_corpus: bool = True,
     add_all_allophones: bool = False,
 ) -> Tuple[Dict[str, helpers.RasrDataInput], ...]:
@@ -44,7 +46,10 @@ def get_data_inputs(
 
     lms = {lm_name: get_lm(lm_name) for lm_name in lm_names}
 
-    bliss_lexicon = swb_dataset.get_bliss_lexicon()
+    if augmented_lexicon:
+        bliss_lexicon = tk.Path("/work/asr4/berger/dependencies/switchboard/lexicon/wei_train_ctc.lexicon.orig.xml")
+    else:
+        bliss_lexicon = swb_dataset.get_bliss_lexicon()
     bliss_lexicon = EnsureSilenceFirstJob(bliss_lexicon).out_lexicon
 
     if ctc_lexicon:

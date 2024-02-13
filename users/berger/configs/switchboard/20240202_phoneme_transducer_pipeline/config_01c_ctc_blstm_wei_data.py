@@ -11,7 +11,6 @@ from i6_experiments.users.berger.args.returnn.config import get_returnn_config
 from i6_experiments.users.berger.args.returnn.learning_rates import (
     LearningRateSchedules,
 )
-from i6_experiments.users.berger.recipe.mm.alignment import ComputeTSEJob
 import i6_experiments.users.berger.network.models.fullsum_ctc as ctc_model
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
@@ -118,8 +117,8 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
         returnn_python_exe=tools.returnn_python_exe,
         rasr_binary_path=tools.rasr_binary_path,
         feature_type=FeatureType.GAMMATONE_8K,
-        augmented_lexicon=True,
         test_keys=["hub5e01"],
+        use_wei_data=True,
     )
 
     # ********** Step args **********
@@ -131,10 +130,10 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)
     align_args = exp_args.get_ctc_align_step_args(num_classes)
-    recog_args["epochs"] = [160, 300, "best"]
+    recog_args["epochs"] = [160, 240, 250, 260, 270, 280, 290, 300, "best"]
     recog_args["feature_type"] = FeatureType.GAMMATONE_8K
-    recog_args["prior_scales"] = [0.3, 0.5]
-    recog_args["lm_scales"] = [0.5, 0.7, 0.9]
+    recog_args["prior_scales"] = [0.3]
+    recog_args["lm_scales"] = [0.9]
     align_args["feature_type"] = FeatureType.GAMMATONE_8K
 
     recog_am_args = copy.deepcopy(exp_args.ctc_recog_am_args)
@@ -148,7 +147,7 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
     loss_am_args.update(
         {
             "state_tying": "lookup",
-            "state_tying_file": tk.Path("/work/asr4/berger/dependencies/switchboard/state_tying/eow-state-tying"),
+            "state_tying_file": tk.Path("/work/asr4/berger/dependencies/switchboard/state_tying/wei_mono-eow"),
             "tying_type": "global-and-nonword",
             "nonword_phones": ["[NOISE]", "[VOCALIZEDNOISE]", "[LAUGHTER]"],
             "phon_history_length": 0,
@@ -182,57 +181,13 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
         "dev_data_config": data.cv_data_config,
     }
 
-    for ordering in [
-        # "laplace:.1000",
-        "laplace:.384",
-        # "laplace:.100",
-        # "laplace:.50",
-        # "laplace:.25",
-        # "laplace:.10",
-        # "random",
-    ]:
-        mod_train_data_config = copy.deepcopy(data.train_data_config)
-        mod_train_data_config["seq_ordering"] = ordering
-
-        train_config = generate_returnn_config(
-            train=True,
-            train_data_config=mod_train_data_config,
-            **config_generator_kwargs,
-        )
-        recog_config = generate_returnn_config(
-            train=False, train_data_config=mod_train_data_config, **config_generator_kwargs
-        )
-
-        returnn_configs = ReturnnConfigs(
-            train_config=train_config,
-            recog_configs={"recog": recog_config},
-        )
-
-        system.add_experiment_configs(f"BLSTM_CTC_order-{ordering}", returnn_configs)
-
-    system.run_train_step(**train_args)
-    system.run_dev_recog_step(**recog_args)
-    # system.run_test_recog_step(**recog_args)
-
-    alignments = next(iter(system.run_align_step(exp_names=["BLSTM_CTC_order-laplace:.384"], **align_args).values()))
-    # alignments = next(iter(system.run_align_step(exp_names=["BLSTM_CTC_order-laplace:.1000"], **align_args).values()))
-
-    model = system.get_train_job("BLSTM_CTC_order-laplace:.384").out_checkpoints[300]
-    # model = system.get_train_job("BLSTM_CTC_order-laplace:.1000").out_checkpoints[300]
-    assert isinstance(model, Checkpoint)
-
-    system.cleanup_experiments()
-
-    mod_train_data_config = copy.deepcopy(data.train_data_config)
-    mod_train_data_config["seq_ordering"] = "laplace:.384"
     train_config = generate_returnn_config(
         train=True,
-        train_data_config=mod_train_data_config,
-        num_epochs=400,
+        train_data_config=data.train_data_config,
         **config_generator_kwargs,
     )
     recog_config = generate_returnn_config(
-        train=False, train_data_config=mod_train_data_config, **config_generator_kwargs
+        train=False, train_data_config=data.train_data_config, **config_generator_kwargs
     )
 
     returnn_configs = ReturnnConfigs(
@@ -240,13 +195,16 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
         recog_configs={"recog": recog_config},
     )
 
-    system.add_experiment_configs(f"BLSTM_CTC_order-laplace:.384_400ep", returnn_configs)
-    train_args = exp_args.get_ctc_train_step_args(
-        num_epochs=400,
-        gpu_mem_rqmt=11,
-    )
+    system.add_experiment_configs("BLSTM_CTC", returnn_configs)
+
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)
+    # system.run_test_recog_step(**recog_args)
+
+    alignments = next(iter(system.run_align_step(exp_names=["BLSTM_CTC"], **align_args).values()))
+
+    model = system.get_train_job("BLSTM_CTC").out_checkpoints[300]
+    assert isinstance(model, Checkpoint)
 
     assert system.summary_report
     return system.summary_report, model, alignments
@@ -257,12 +215,6 @@ def py() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
     summary_report, model, alignments = run_exp()
-
-    train_alignment = alignments["train-other-960_align"].alignment_cache_bundle
-    compute_tse_job = ComputeTSEJob(
-        alignment_cache=alignments["train-other-960_align"].alignment_cache_bundle,
-    )
-    tk.register_output(c)
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 

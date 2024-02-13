@@ -46,14 +46,16 @@ def get_switchboard_data(
 
     if use_wei_data:
         config_file = tk.Path("/work/asr4/berger/dependencies/switchboard/data/wei_train_ctc/sprint.train.config")
+        feature_flow_file = tk.Path("/work/asr4/berger/dependencies/switchboard/data/wei_train_ctc/train.feature.flow")
         train_data_config = {
             "class": "ExternSprintDataset",
             "partitionEpoch": 6,
             "sprintConfigStr": f"--config={config_file} --*.LOGFILE=nn-trainer.train.log --*.TASK=1 "
             f"--*.corpus.segment-order-shuffle=true --*.segment-order-sort-by-time-length=true "
-            f"--*.segment-order-sort-by-time-length-chunk-size=300",
+            f"--*.segment-order-sort-by-time-length-chunk-size=300 --feature-extraction.file={feature_flow_file}",
             "sprintTrainerExecPath": rasr_binary_path.join_right(f"nn-trainer.{rasr_arch}"),
         }
+        train_lexicon = tk.Path("/work/asr4/berger/dependencies/switchboard/lexicon/wei_train_ctc.lexicon.xml")
     else:
         train_data_config = build_feature_hdf_dataset_config(
             data_inputs=[train_data_inputs[train_key]],
@@ -68,19 +70,19 @@ def get_switchboard_data(
                 "seq_ordering": "laplace:.1000",
             },
         )
-
-    train_lexicon = train_data_inputs[train_key].lexicon.filename
+        train_lexicon = train_data_inputs[train_key].lexicon.filename
 
     # ********** CV data **********
 
     if use_wei_data:
         config_file = tk.Path("/work/asr4/berger/dependencies/switchboard/data/wei_train_ctc/sprint.dev.config")
+        feature_flow_file = tk.Path("/work/asr4/berger/dependencies/switchboard/data/wei_train_ctc/dev.feature.flow")
         cv_data_config = {
             "class": "ExternSprintDataset",
             "partitionEpoch": 6,
-            "sprintConfigStr": f"--config={config_file} --*.LOGFILE=nn-trainer.train.log --*.TASK=1 "
+            "sprintConfigStr": f"--config={config_file} --*.LOGFILE=nn-trainer.dev.log --*.TASK=1 "
             f"--*.corpus.segment-order-shuffle=true --*.segment-order-sort-by-time-length=true "
-            f"--*.segment-order-sort-by-time-length-chunk-size=300",
+            f"--*.segment-order-sort-by-time-length-chunk-size=50 --feature-extraction.file={feature_flow_file}",
             "sprintTrainerExecPath": rasr_binary_path.join_right(f"nn-trainer.{rasr_arch}"),
         }
     else:
