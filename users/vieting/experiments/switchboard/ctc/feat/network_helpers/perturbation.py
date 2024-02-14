@@ -130,13 +130,10 @@ class WaveformPerturbation:
                     # check if youdio is in the right range for mu-law encoding
                     if np.max(np.abs(audio)) > 1.0:
                         raise ValueError("Audio must be in the range [-1, 1] for mu-law encoding.")
-
                     # standard value for mu-law encoding
                     mu = 255.0
-
                     # mu-law encoding formula
-                    encoded_audio = np.sign(audio) * np.log1p(mu * np.abs(audio)) / np.log1p(mu)
-                    audio = encoded_audio
+                    audio = np.sign(audio) * np.log1p(mu * np.abs(audio)) / np.log1p(mu)
                 else:
                     raise NotImplementedError(f"Codec {codec} not implemented.")
         return audio
