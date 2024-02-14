@@ -258,11 +258,20 @@ def py() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
 
     summary_report, model, alignments = run_exp()
 
-    train_alignment = alignments["train-other-960_align"].alignment_cache_bundle
+    train_alignment = alignments["train_align"]
     compute_tse_job = ComputeTSEJob(
-        alignment_cache=alignments["train-other-960_align"].alignment_cache_bundle,
+        alignment_cache=train_alignment.alignment_cache_bundle,
+        allophone_file=train_alignment.allophone_file,
+        silence_phone=train_alignment.silence_phone,
+        upsample_factor=4,
+        ref_alignment_cache=tk.Path("/work/asr4/berger/20220711_alignment_plotting/bundles/ref_gmm.bundle"),
+        ref_allophone_file=tk.Path(
+            "/work/asr4/raissi/ms-thesis-setups/lm-sa-swb/2022-03--fullsum/work/allophones/StoreAllophones.wNiR4cF7cdOE/output/allophones"
+        ),
+        ref_silence_phone="[SILENCE]",
+        ref_upsample_factor=1,
     )
-    tk.register_output(c)
+    tk.register_output(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/tse", compute_tse_job.out_tse_frames)
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 
