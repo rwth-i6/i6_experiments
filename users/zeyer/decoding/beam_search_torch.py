@@ -53,7 +53,7 @@ def beam_search(
     out_seq_len = torch.full([batch_size, beam_size], 0, device=device)
     seq_log_prob = torch.full([batch_size, beam_size], 0.0, device=device)
 
-    masked_finished_log_prob = torch.where(torch.arange(0, opts.num_labels) == opts.eos_label, 0.0, -1.0e30)
+    masked_finished_log_prob = torch.where(torch.arange(0, opts.num_labels) == opts.eos_label, 0.0, -1.0e30)  # [Vocab]
 
     i = 0
     seq_targets = []
@@ -65,7 +65,7 @@ def beam_search(
         )  # [Batch,InBeam,Vocab]
 
         # Filter out finished beams
-        label_log_prob = torch.where(ended, masked_finished_log_prob, label_log_prob)
+        label_log_prob = torch.where(ended[:, :, None], masked_finished_log_prob[None, None, :], label_log_prob)
         seq_log_prob = seq_log_prob[:, :, None] + label_log_prob  # [Batch,InBeam,Vocab]
         seq_log_prob, (backrefs, target) = top_k_nd(seq_log_prob, k=opts.beam_size, dim=[1, 2])  # all [Batch,Beam]
         beam_size = seq_log_prob.shape[1]
@@ -93,6 +93,7 @@ def beam_search(
             )
 
     if i > 0 and opts.length_normalization_exponent != 0:
+        # All seq_log_prob will be normalized by (1/(out_seq_len+1)**length_normalization_exponent.
         seq_log_prob *= (1 / i) ** opts.length_normalization_exponent
 
     # Backtrack via backrefs, resolve beams.
