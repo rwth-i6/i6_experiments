@@ -267,8 +267,9 @@ def run_rasr_gt_baseline():
 
 
 def run_mel_baseline():
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
+    ctc_alignment = get_ctc_alignment()
 
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
     _, dev_corpora, _ = get_switchboard_data()
     returnn_datasets = get_returnn_datasets_transducer_viterbi(context_window={"classes": 1, "data": 121})
     returnn_datasets_hash_break = get_returnn_datasets_transducer_viterbi(
@@ -276,7 +277,7 @@ def run_mel_baseline():
         keep_hashes=False,
     )
     returnn_datasets_align_ctc = get_returnn_datasets_transducer_viterbi(
-        alignment=get_ctc_alignment(),
+        alignment=ctc_alignment,
         features="waveform_pcm",
     )
     returnn_args = {
@@ -341,8 +342,12 @@ def run_mel_baseline():
         evaluation_epochs=[270, 280, 290, 300],
         prefix="viterbi_lgm80_",
     )
-    report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"])
-    return report
+    config = copy.deepcopy(nn_args.returnn_recognition_configs["viterbi_lgm80_bs15k_v1_align-ctc-conf-e401"].config)
+    config["extern_data"]["data"]["dtype"] = "float32"
+    config["extern_data"]["classes"]["dtype"] = "int32"
+    nn_args.returnn_recognition_configs["viterbi_lgm80_bs15k_v1_align-ctc-conf-e401"].config = config
+    nn_system, report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"])
+    return nn_system, report
 
 
 def py():
