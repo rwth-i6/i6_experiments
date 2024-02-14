@@ -10,7 +10,12 @@ from returnn.frontend.tensor_array import TensorArray
 
 from i6_experiments.users.zeyer.model_interfaces import RecogDef
 
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.blank_collapse import (
+    blank_collapse_batched,
+)
+
 import torch
+import numpy
 
 def model_recog_ctc(
     *,
@@ -49,6 +54,38 @@ def model_recog_ctc(
     ctc_out = enc_args["ctc"].copy_transpose(
         (batch_size_dim, enc_spatial_dim, model.target_dim_w_b)
     )  # [B,T,V+1]
+
+
+    ctc_out_raw = ctc_out.raw_tensor
+    hlens = max_seq_len.raw_tensor
+
+    ctc_spatial_dim = enc_spatial_dim
+    if model.search_args.get("blank_collapse", False):
+        col_probs, col_lens = blank_collapse_batched(
+            ctc_out_raw.to("cpu"),
+            hlens,
+            model.search_args.get("blank_threshold", 0.0),
+            model.search_args.get("blank_idx", 10025),
+        )
+        ctc_spatial_dim = enc_spatial_dim.copy(description="ctc-spatial")
+        hlens = col_lens.to(torch.int32)
+        ctc_spatial_dim.dyn_size_ext.raw_tensor = hlens
+        ctc_out_raw = col_probs.to("cuda")
+        ctc_out.raw_tensor = ctc_out_raw
+
+    if model.search_args.get("prior_corr", False):
+        ctc_log_prior = numpy.loadtxt(
+            model.search_args.get("ctc_prior_file", None), dtype="float32"
+        )
+        ctc_out_raw = ctc_out_raw - (
+            torch.tensor(ctc_log_prior)
+            .repeat(ctc_out_raw.shape[0], ctc_out_raw.shape[1], 1)
+            .to("cuda")
+            * model.search_args.get("prior_scale", 0.3)
+        )
+        if model.search_args.get("prior_corr_renorm", False):
+            ctc_out_raw = ctc_out_raw - torch.logsumexp(ctc_out_raw, dim=2, keepdim=True)
+        ctc_out.raw_tensor = ctc_out_raw
 
     enc_args.pop("ctc")
 

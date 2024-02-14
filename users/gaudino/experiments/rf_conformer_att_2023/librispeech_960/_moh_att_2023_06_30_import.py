@@ -9,14 +9,25 @@ import numpy
 from sisyphus import tk
 
 from i6_core.returnn.training import Checkpoint
-from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
+from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import (
+    ConvertTfCheckpointToRfPtJob,
+)
 
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, batch_dim, TensorDict
 
-from .conformer_import_moh_att_2023_06_30 import Model, MakeModel, from_scratch_training, model_recog
-from .model_recogs.model_recog_ctc_greedy import model_recog_ctc
-from .model_recogs.model_recog_time_sync import model_recog_time_sync
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.conformer_import_moh_att_2023_06_30 import (
+    Model,
+    MakeModel,
+    from_scratch_training,
+    model_recog,
+)
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_ctc_greedy import (
+    model_recog_ctc,
+)
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_time_sync import (
+    model_recog_time_sync,
+)
 from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 
 # From Mohammad, 2023-06-29
@@ -165,8 +176,12 @@ _add_params()
 def map_param_func_v3(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
     """map params, TF to RF"""
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
-    from i6_experiments.users.zeyer.returnn.convert.params import numpy as convert_params_np
-    from i6_experiments.users.zeyer.returnn.convert.params import tf_to_rf_np as convert_params_tf_to_rf_np
+    from i6_experiments.users.zeyer.returnn.convert.params import (
+        numpy as convert_params_np,
+    )
+    from i6_experiments.users.zeyer.returnn.convert.params import (
+        tf_to_rf_np as convert_params_tf_to_rf_np,
+    )
 
     assert isinstance(reader, CheckpointReader)
     assert isinstance(var, rf.Parameter)
@@ -185,7 +200,9 @@ def map_param_func_v3(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
         assert (
             value.shape == var.batch_shape
         ), f"new param {name} {var.batch_shape} vs ckpt param {var_name} {value.shape}"
-        assert value.dtype.name == var.dtype, f"new param {name} {var.dtype} vs ckpt param {var_name} {value.dtype}"
+        assert (
+            value.dtype.name == var.dtype
+        ), f"new param {name} {var.dtype} vs ckpt param {var_name} {value.dtype}"
         return value
 
     if name == "s.ff_weight":
@@ -204,7 +221,9 @@ def map_param_func_v3(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
 
     if name == "s.bias":
         value = reader.get_tensor("output/rec/s/rec/lstm_cell/bias")
-        value = convert_params_np.convert_tf_lstm_to_native_lstm_bias(value, forget_gate_bias=1.0)
+        value = convert_params_np.convert_tf_lstm_to_native_lstm_bias(
+            value, forget_gate_bias=1.0
+        )
         assert value.shape == var.batch_shape, name
         assert value.dtype.name == var.dtype, name
         return value
@@ -228,7 +247,11 @@ def map_param_func_v3(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
 
 # See comment below, use `py = test_import` to easily run this.
 def test_import_forward():
-    from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
+    from returnn.frontend.encoder.conformer import (
+        ConformerEncoder,
+        ConformerEncoderLayer,
+        ConformerConvSubsample,
+    )
     from pprint import pprint
 
     # Pick some layers to check outputs for equality.
@@ -238,13 +261,48 @@ def test_import_forward():
         "source": (Model.encode, 0, "source", -1),
         "conv_merged": (ConformerEncoder.__call__, 0, "x_subsample", 0),
         "source_linear": (ConformerEncoder.__call__, 0, "x_linear", 0),
-        "conformer_block_01_ffmod_1_drop2": (ConformerEncoderLayer.__call__, 0, "x_ffn1", 0),
-        "conformer_block_01_ffmod_1_res": (ConformerEncoderLayer.__call__, 0, "x_ffn1_out", 0),
-        "conformer_block_01_self_att_ln": (ConformerEncoderLayer.__call__, 0, "x_mhsa_ln", 0),
-        "conformer_block_01_self_att_linear": (ConformerEncoderLayer.__call__, 0, "x_mhsa", 0),
-        "conformer_block_01_self_att_res": (ConformerEncoderLayer.__call__, 0, "x_mhsa_out", 0),
-        "conformer_block_01_conv_mod_res": (ConformerEncoderLayer.__call__, 0, "x_conv_out", 0),
-        "conformer_block_01_ffmod_2_res": (ConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
+        "conformer_block_01_ffmod_1_drop2": (
+            ConformerEncoderLayer.__call__,
+            0,
+            "x_ffn1",
+            0,
+        ),
+        "conformer_block_01_ffmod_1_res": (
+            ConformerEncoderLayer.__call__,
+            0,
+            "x_ffn1_out",
+            0,
+        ),
+        "conformer_block_01_self_att_ln": (
+            ConformerEncoderLayer.__call__,
+            0,
+            "x_mhsa_ln",
+            0,
+        ),
+        "conformer_block_01_self_att_linear": (
+            ConformerEncoderLayer.__call__,
+            0,
+            "x_mhsa",
+            0,
+        ),
+        "conformer_block_01_self_att_res": (
+            ConformerEncoderLayer.__call__,
+            0,
+            "x_mhsa_out",
+            0,
+        ),
+        "conformer_block_01_conv_mod_res": (
+            ConformerEncoderLayer.__call__,
+            0,
+            "x_conv_out",
+            0,
+        ),
+        "conformer_block_01_ffmod_2_res": (
+            ConformerEncoderLayer.__call__,
+            0,
+            "x_ffn2_out",
+            0,
+        ),
         "conformer_block_01": (ConformerEncoderLayer.__call__, 1, "inp", 0),
         "encoder": (Model.encode, 0, "enc", 0),
         "inv_fertility": (Model.encode, 0, "inv_fertility", 0),
@@ -275,7 +333,9 @@ def test_import_forward():
         dyn_size_ext=Tensor("time_size", dims=[batch_dim], dtype="int32"),
     )
     target_dim = Dim(name="target", dimension=10_025, kind=Dim.Types.Feature)
-    target_dim.vocab = Vocabulary.create_vocab_from_labels([str(i) for i in range(target_dim.dimension)], eos_label=0)
+    target_dim.vocab = Vocabulary.create_vocab_from_labels(
+        [str(i) for i in range(target_dim.dimension)], eos_label=0
+    )
     data = Tensor("data", dim_tags=[batch_dim, time_dim])
     target_spatial_dim = Dim(
         name="target_spatial",
@@ -283,7 +343,9 @@ def test_import_forward():
         kind=Dim.Types.Spatial,
         dyn_size_ext=Tensor("target_spatial_size", dims=[batch_dim], dtype="int32"),
     )
-    target = Tensor("target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim)
+    target = Tensor(
+        "target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim
+    )
 
     from ._moh_att_2023_04_24_BxqgICRSGkgb_net_dict import net_dict
 
@@ -297,7 +359,10 @@ def test_import_forward():
             network=net_dict,
             extern_data={
                 "audio_features": {"dim_tags": data.dims},
-                "bpe_labels": {"dim_tags": target.dims, "sparse_dim": target.sparse_dim},
+                "bpe_labels": {
+                    "dim_tags": target.dims,
+                    "sparse_dim": target.sparse_dim,
+                },
             },
         )
     )
@@ -318,13 +383,17 @@ def test_import_forward():
     extern_data = TensorDict()
     extern_data.update(config.typed_dict["extern_data"], auto_convert=True)
     tensor_dict_fill_random_numpy_(
-        extern_data, dyn_dim_max_sizes={time_dim: 2000}, dyn_dim_min_sizes={time_dim: 1000}
+        extern_data,
+        dyn_dim_max_sizes={time_dim: 2000},
+        dyn_dim_min_sizes={time_dim: 1000},
     )  # raw sample level
     extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
     extern_data.reset_content()
 
     tf1 = tf.compat.v1
-    with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
+    with tf1.Graph().as_default() as graph, tf1.Session(
+        graph=graph
+    ).as_default() as session:
         net = TFNetwork(config=config)
         net.construct_from_dict(config.typed_dict["network"])
         if _load_existing_ckpt_in_test:
@@ -342,8 +411,13 @@ def test_import_forward():
         print("*** Forwarding ...")
 
         extern_data_tf_raw_dict = net.extern_data.as_raw_tensor_dict()
-        assert set(extern_data_tf_raw_dict.keys()) == set(extern_data_numpy_raw_dict.keys())
-        feed_dict = {extern_data_tf_raw_dict[k]: extern_data_numpy_raw_dict[k] for k in extern_data_numpy_raw_dict}
+        assert set(extern_data_tf_raw_dict.keys()) == set(
+            extern_data_numpy_raw_dict.keys()
+        )
+        feed_dict = {
+            extern_data_tf_raw_dict[k]: extern_data_numpy_raw_dict[k]
+            for k in extern_data_numpy_raw_dict
+        }
         fetches = net.get_fetches_dict()
         old_model_outputs_data = {}
         for old_layer_name, _ in _layer_mapping.items():
@@ -355,8 +429,12 @@ def test_import_forward():
                 if tag.is_batch_dim():
                     fetches[f"layer:{old_layer_name}:size{i}"] = tag.get_dim_value()
                 elif tag.dyn_size_ext:
-                    old_model_outputs_data[f"{old_layer_name}:size{i}"] = tag.dyn_size_ext
-                    fetches[f"layer:{old_layer_name}:size{i}"] = tag.dyn_size_ext.placeholder
+                    old_model_outputs_data[
+                        f"{old_layer_name}:size{i}"
+                    ] = tag.dyn_size_ext
+                    fetches[
+                        f"layer:{old_layer_name}:size{i}"
+                    ] = tag.dyn_size_ext.placeholder
         old_model_outputs_fetch = session.run(fetches, feed_dict=feed_dict)
 
     def _make_new_model():
@@ -403,7 +481,9 @@ def test_import_forward():
         from_scratch_training,
     ]
     code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
-    captured_tensors = {}  # func -> (list of calls) -> tensor local name -> (list of versions) -> tensor
+    captured_tensors = (
+        {}
+    )  # func -> (list of calls) -> tensor local name -> (list of versions) -> tensor
 
     def _trace_func(frame, event, arg):
         """
@@ -442,12 +522,20 @@ def test_import_forward():
             for k in new_var_path:
                 new_out = new_out[k]
         except KeyError as exc:
-            raise Exception(f"{exc.__class__.__name__} {exc}, new_var_path: {new_var_path}")
-        assert isinstance(new_out, Tensor), f"new_out: {new_out}, new_var_path: {new_var_path}"
+            raise Exception(
+                f"{exc.__class__.__name__} {exc}, new_var_path: {new_var_path}"
+            )
+        assert isinstance(
+            new_out, Tensor
+        ), f"new_out: {new_out}, new_var_path: {new_var_path}"
         old_out = old_model_outputs_data[old_layer_name]
         assert old_out.batch_ndim == new_out.batch_ndim
-        mapped_axes = new_out.find_matching_dim_map(old_out, list(range(old_out.batch_ndim)))
-        out = new_out.copy_transpose([mapped_axes[i] for i in range(old_out.batch_ndim)])
+        mapped_axes = new_out.find_matching_dim_map(
+            old_out, list(range(old_out.batch_ndim))
+        )
+        out = new_out.copy_transpose(
+            [mapped_axes[i] for i in range(old_out.batch_ndim)]
+        )
         fetches["layer:" + old_layer_name] = out.raw_tensor
         for i, tag in enumerate(out.dim_tags):
             if tag.dyn_size_ext:
@@ -470,18 +558,30 @@ def test_import_forward():
             old_v = old_model_outputs_fetch["layer:" + old_layer_name]
             new_v = new_model_outputs_fetch["layer:" + old_layer_name]
             for i, tag in enumerate(out.dim_tags):
-                if tag.dyn_size_ext and tag.dyn_size_ext.dim_tags:  # dynamic, and not scalar dyn sizes
-                    assert tag.dyn_size_ext.dim_tags == (batch_dim,)  # not implemented otherwise
-                    assert out.batch_dim_axis == 0  # not implemented otherwise but should be ensured above
+                if (
+                    tag.dyn_size_ext and tag.dyn_size_ext.dim_tags
+                ):  # dynamic, and not scalar dyn sizes
+                    assert tag.dyn_size_ext.dim_tags == (
+                        batch_dim,
+                    )  # not implemented otherwise
+                    assert (
+                        out.batch_dim_axis == 0
+                    )  # not implemented otherwise but should be ensured above
                     size_v = old_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
                     for b in range(old_v.shape[0]):
-                        idx = tuple([slice(b, b + 1)] + [slice(None, None)] * (i - 1) + [slice(size_v[b], None)])
+                        idx = tuple(
+                            [slice(b, b + 1)]
+                            + [slice(None, None)] * (i - 1)
+                            + [slice(size_v[b], None)]
+                        )
                         old_v[idx] = 0
                         new_v[idx] = 0
             print(f"* Comparing {out}: {old_layer_name!r} vs {new_var_path!r}")
             assert old_v.shape == new_v.shape
             if target_spatial_dim in out.dim_tags:
-                assert out.get_axis_from_description(target_spatial_dim) == 1  # not implemented otherwise
+                assert (
+                    out.get_axis_from_description(target_spatial_dim) == 1
+                )  # not implemented otherwise
                 out = out.copy_template_excluding_axis(1)
                 print("** comparing out_step", out_step, out)
                 old_v = old_v[:, out_step]
@@ -497,7 +597,9 @@ def test_import_forward():
             count_mismatches = 0
             for idx in sorted(numpy.ndindex(old_v.shape), key=sum):
                 if numpy.isnan(old_v[idx]) and numpy.isnan(new_v[idx]):
-                    remarks.append("[%s]:? (both are nan)" % ",".join([str(i) for i in idx]))
+                    remarks.append(
+                        "[%s]:? (both are nan)" % ",".join([str(i) for i in idx])
+                    )
                     count_mismatches += 1
                     continue
                 close = numpy.allclose(old_v[idx], new_v[idx], rtol=rtol, atol=atol)
@@ -542,15 +644,23 @@ def test_import_search():
         dyn_size_ext=Tensor("time_size", dims=[batch_dim], dtype="int32"),
     )
     target_dim = Dim(name="target", dimension=10_025, kind=Dim.Types.Feature)
-    target_dim.vocab = Vocabulary.create_vocab_from_labels([str(i) for i in range(target_dim.dimension)], eos_label=0)
-    data = Tensor("data", dim_tags=[batch_dim, time_dim, Dim(1, name="dummy-feature")], feature_dim_axis=-1)
+    target_dim.vocab = Vocabulary.create_vocab_from_labels(
+        [str(i) for i in range(target_dim.dimension)], eos_label=0
+    )
+    data = Tensor(
+        "data",
+        dim_tags=[batch_dim, time_dim, Dim(1, name="dummy-feature")],
+        feature_dim_axis=-1,
+    )
     target_spatial_dim = Dim(
         name="target_spatial",
         dimension=None,
         kind=Dim.Types.Spatial,
         dyn_size_ext=Tensor("target_spatial_size", dims=[batch_dim], dtype="int32"),
     )
-    target = Tensor("target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim)
+    target = Tensor(
+        "target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim
+    )
 
     num_layers = 12
 
@@ -561,7 +671,10 @@ def test_import_search():
             log_verbositiy=5,
             extern_data={
                 "audio_features": {"dim_tags": data.dims, "feature_dim_axis": -1},
-                "bpe_labels": {"dim_tags": target.dims, "sparse_dim": target.sparse_dim},
+                "bpe_labels": {
+                    "dim_tags": target.dims,
+                    "sparse_dim": target.sparse_dim,
+                },
             },
         )
     )
@@ -614,18 +727,25 @@ def test_import_search():
     dataset = init_dataset(search_data_opts)
     dataset.init_seq_order(
         epoch=1,
-        seq_list=["dev-other/5543-27761-0074/5543-27761-0074"],
-        # seq_list=[f"dev-other/116-288045-{i:04d}/116-288045-{i:04d}" for i in range(33)],
+        # seq_list=["dev-other/5543-27761-0074/5543-27761-0074"],
+        seq_list=[
+            f"dev-other/116-288045-{i:04d}/116-288045-{i:04d}" for i in range(33)
+        ],
     )
     batch_num_seqs = 1
     # batch_num_seqs = 10
     dataset.load_seqs(0, batch_num_seqs)
     batch = Batch()
     for seq_idx in range(batch_num_seqs):
-        batch.add_sequence_as_slice(seq_idx=seq_idx, seq_start_frame=0, length=dataset.get_seq_length(seq_idx))
+        batch.add_sequence_as_slice(
+            seq_idx=seq_idx, seq_start_frame=0, length=dataset.get_seq_length(seq_idx)
+        )
     batches = BatchSetGenerator(dataset, generator=iter([batch]))
     data_provider = FeedDictDataProvider(
-        extern_data=extern_data, data_keys=list(extern_data.data.keys()), dataset=dataset, batches=batches
+        extern_data=extern_data,
+        data_keys=list(extern_data.data.keys()),
+        dataset=dataset,
+        batches=batches,
     )
     batch_data = data_provider.get_next_batch()
 
@@ -635,11 +755,15 @@ def test_import_search():
         if key_seq_lens in batch_data:
             seq_lens = data.dims[1]
             if not seq_lens.dyn_size_ext:
-                seq_lens.dyn_size_ext = Tensor(key_seq_lens, dims=[batch_dim], dtype="int32")
+                seq_lens.dyn_size_ext = Tensor(
+                    key_seq_lens, dims=[batch_dim], dtype="int32"
+                )
             seq_lens.dyn_size_ext.placeholder = batch_data[key_seq_lens]
     if not batch_dim.dyn_size_ext:
         batch_dim.dyn_size_ext = Tensor("batch_dim", dims=[], dtype="int32")
-    batch_dim.dyn_size_ext.placeholder = numpy.array(batch_data["batch_dim"], dtype="int32")
+    batch_dim.dyn_size_ext.placeholder = numpy.array(
+        batch_data["batch_dim"], dtype="int32"
+    )
     extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
     extern_data.reset_content()
 
@@ -652,7 +776,7 @@ def test_import_search():
 
     print("*** Create new model")
     ctc_only = False
-    time_sync = True
+    time_sync = False
     time_sync_search_args = {
         "beam_size": 2,
         "att_scale": 0.65,
@@ -660,7 +784,11 @@ def test_import_search():
         "mask_eos": False,
     }
     search_args = {
-        "beam_size": 2,
+        "beam_size": 12,
+        "use_ctc": True,
+        "att_scale": 0.0,
+        "ctc_scale": 1.0,
+        "ctc_state_fix": True,
     }
     if time_sync:
         search_args = time_sync_search_args
@@ -669,7 +797,13 @@ def test_import_search():
         "add_lstm_lm": True,
     }
     # returnn/torch/fonrtend/_backend 1635: sizes_raw = torch.reshape(sizes.raw_tensor, [batch_dim]).to('cpu')
-    new_model = MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers, search_args=search_args, model_args=model_args)
+    new_model = MakeModel.make_model(
+        in_dim,
+        target_dim,
+        num_enc_layers=num_layers,
+        search_args=search_args,
+        model_args=model_args,
+    )
 
     from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
 
@@ -689,7 +823,9 @@ def test_import_search():
 
     cuda = torch.device("cuda")
     pt_module.to(cuda)
-    extern_data["audio_features"].raw_tensor = extern_data["audio_features"].raw_tensor.to(cuda)
+    extern_data["audio_features"].raw_tensor = extern_data[
+        "audio_features"
+    ].raw_tensor.to(cuda)
 
     print("*** Search ...")
 
@@ -703,7 +839,12 @@ def test_import_search():
                     data_spatial_dim=time_dim,
                 )
             elif time_sync:
-                seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog_time_sync(
+                (
+                    seq_targets,
+                    seq_log_prob,
+                    out_spatial_dim,
+                    beam_dim,
+                ) = model_recog_time_sync(
                     model=new_model,
                     data=extern_data["audio_features"],
                     data_spatial_dim=time_dim,
@@ -714,11 +855,14 @@ def test_import_search():
                     data=extern_data["audio_features"],
                     data_spatial_dim=time_dim,
                 )
-    print(seq_targets, seq_targets.raw_tensor) # seq_targets [T,Batch,Beam]
+    print(seq_targets, seq_targets.raw_tensor)  # seq_targets [T,Batch,Beam]
     print("Out spatial dim:", out_spatial_dim)
 
     # serialize output
-    vocab_1 = Vocabulary("/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab", eos_label=0)
+    vocab_1 = Vocabulary(
+        "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab",
+        eos_label=0,
+    )
     for batch_idx in range(batch_dim.get_dim_value()):
         # process seq
         hyps = seq_targets.raw_tensor[:, batch_idx, :]
@@ -738,7 +882,6 @@ def test_import_search():
             hyp_ids = hyps[: hyps_len[i], i]
             hyp_serialized = vocab_1.get_seq_labels(hyp_ids)
             print(f"  ({score!r}, {hyp_serialized!r}),\n")
-
 
 
 # `py` is the default sis config function name. so when running this directly, run the import test.

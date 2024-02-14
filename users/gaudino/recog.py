@@ -107,6 +107,7 @@ def recog_model(
     *,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
+    device: Optional[str] = "gpu",
     dev_sets: Optional[Collection[str]] = None,
     model_args: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
@@ -126,6 +127,7 @@ def recog_model(
             recog_def=recog_def,
             search_post_config=search_post_config,
             search_mem_rqmt=search_mem_rqmt,
+            device=device,
             recog_post_proc_funcs=task.recog_post_proc_funcs,
             model_args=model_args,
             search_args=search_args,
@@ -143,6 +145,7 @@ def search_dataset(
     recog_def: RecogDef,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
+    device: Optional[str] = "gpu",
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     model_args: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
@@ -173,11 +176,13 @@ def search_dataset(
                 post_config=search_post_config,
                 model_args=model_args,
                 search_args=search_args,
+                device=device
             ),
             output_files=[_v2_forward_out_filename],
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
             returnn_root=tools_paths.get_returnn_root(),
             mem_rqmt=search_mem_rqmt,
+            device=device,
         )
         forward_job.add_alias(prefix_name + "/forward_job")
         res = forward_job.out_files[_v2_forward_out_filename]
@@ -291,6 +296,7 @@ def search_config_v2(
     post_config: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
     model_args: Optional[Dict[str, Any]] = None,
+    device: Optional[str] = "gpu"
 ) -> ReturnnConfig:
     returnn_recog_config_dict = dict(
         backend=model_def.backend,
@@ -330,6 +336,7 @@ def search_config_v2(
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
                             "version": 3,
+                            "device": device,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
@@ -347,10 +354,12 @@ def search_config_v2(
         sort_config=False,
     )
 
+    batch_size = 20000 * (search_args.get("bsf", 0) if search_args.get("bsf", 0) > 0 else model_def.batch_size_factor)
+
     (returnn_recog_config.config if recog_def.batch_size_dependent else returnn_recog_config.post_config).update(
         dict(
             batching="sorted",
-            batch_size=20000 * model_def.batch_size_factor,
+            batch_size=batch_size,
             max_seqs=model_def.max_seqs,
         )
     )
@@ -422,6 +431,10 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     data_spatial_dim = data.get_time_dim_tag()
     recog_def = config.typed_value("_recog_def")
     recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim)
+
+    # print sequence tag
+    # print(extern_data["seq_tag"].raw_tensor)
+
     # recog results including beam {batch, beam, out_spatial},
     # log probs {batch, beam},
     # out_spatial_dim,

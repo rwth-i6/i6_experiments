@@ -19,4 +19,4 @@ def get_prefix_for_config(src_filename: str):
     src_filename = src_filename[len(_my_dir) + 1 :]
     assert "/" not in src_filename, f"unexpected path separator in {src_filename}"
     exp_name = src_filename[:-3]
-    return "tedlium_exp2023_10_23_rf/" + exp_name
+    return "tedlium_exp2024_02_02_rf/" + exp_name

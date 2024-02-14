@@ -38,6 +38,7 @@ def forward_model(
     model_args: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
     prefix_name: str,
+    forward_lm: bool = False,
 ) -> ScoreResultCollection:
     """recog"""
     if dev_sets is not None:
@@ -50,7 +51,7 @@ def forward_model(
         recog_out = forward_dataset(dataset=dataset, model=model, recog_def=recog_def,
                                     search_post_config=search_post_config, search_mem_rqmt=search_mem_rqmt,
                                     recog_post_proc_funcs=task.recog_post_proc_funcs, model_args=model_args,
-                                    search_args=search_args, prefix_name=prefix_name)
+                                    search_args=search_args, prefix_name=prefix_name, forward_lm=forward_lm)
         # score_out = task.score_recog_output_func(dataset, recog_out)
         # outputs[name] = score_out
     return recog_out
@@ -67,6 +68,7 @@ def forward_dataset(
     model_args: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
     prefix_name: str,
+    forward_lm: bool = False,
 ) -> RecogOutput:
     """
     recog on the specific dataset
@@ -74,7 +76,7 @@ def forward_dataset(
     forward_job = ReturnnForwardJobV2(
         model_checkpoint=model.checkpoint,
         returnn_config=forward_config(dataset, model.definition, recog_def, post_config=search_post_config,
-                                      search_args=search_args, model_args=model_args),
+                                      search_args=search_args, model_args=model_args, forward_lm=forward_lm),
         output_files=[_v2_forward_out_filename],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
@@ -113,6 +115,7 @@ def forward_config(
     post_config: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
     model_args: Optional[Dict[str, Any]] = None,
+    forward_lm: bool = False,
 ) -> ReturnnConfig:
     returnn_recog_config_dict = dict(
         backend=model_def.backend,
@@ -145,8 +148,8 @@ def forward_config(
                     serialization.Import(model_def, import_as="_model_def", ignore_import_as_for_hash=True),
                     serialization.Import(_returnn_v2_get_model, import_as="get_model"),
                     serialization.Import(recog_def, import_as="_recog_def", ignore_import_as_for_hash=True),
-                    serialization.Import(_returnn_v2_forward_step, import_as="forward_step"),
-                    serialization.Import(_returnn_v2_get_forward_callback, import_as="forward_callback"),
+                    serialization.Import(_returnn_v2_forward_lm_step if forward_lm else _returnn_v2_forward_step, import_as="forward_step"),
+                    serialization.Import(_returnn_v2_get_forward_lm_callback if forward_lm else _returnn_v2_get_forward_callback, import_as="forward_callback"),
                     serialization.ExplicitHash(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
@@ -255,6 +258,25 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     rf.get_run_ctx().mark_as_output(scores, "scores", dims=[batch_dim, beam_dim])
 
 
+def _returnn_v2_forward_lm_step(*, model, extern_data: TensorDict, **_kwargs_unused):
+    import returnn.frontend as rf
+    from returnn.tensor import batch_dim
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    default_input_key = config.typed_value("default_input")
+    default_target_key = config.typed_value("target")
+    data = extern_data[default_input_key]
+    target = extern_data[default_target_key]
+    data_spatial_dim = data.get_time_dim_tag()
+    recog_def = config.typed_value("_recog_def")
+    recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, ground_truth=target)
+
+    hyps, scores = recog_out
+    rf.get_run_ctx().mark_as_output(hyps, "hyps", dims=[batch_dim, hyps.dims[1]])
+    rf.get_run_ctx().mark_as_output(scores, "scores", dims=[batch_dim])
+
+
 _v2_forward_out_filename = "output.py.gz"
 
 
@@ -290,6 +312,42 @@ def _returnn_v2_get_forward_callback():
                 hyp_ids = hyps.raw_tensor[i, : hyps_len_raw[i]]
                 hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
                 self.out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
+            self.out_file.write("],\n")
+
+        def finish(self):
+            self.out_file.write("}\n")
+            self.out_file.close()
+
+    return _ReturnnRecogV2ForwardCallbackIface()
+
+
+def _returnn_v2_get_forward_lm_callback():
+    from returnn.tensor import Tensor, TensorDict
+    from returnn.forward_iface import ForwardCallbackIface
+
+    class _ReturnnRecogV2ForwardCallbackIface(ForwardCallbackIface):
+        def __init__(self):
+            self.out_file = None
+
+        def init(self, *, model):
+            import gzip
+
+            self.out_file = gzip.open(_v2_forward_out_filename, "wt")
+            self.out_file.write("{\n")
+
+        def process_seq(self, *, seq_tag: str, outputs: TensorDict):
+            import numpy as np
+            hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
+            scores: Tensor = outputs["scores"]  # [beam]
+            assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
+            assert hyps.dims[0].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
+            hyps_len_raw = hyps.dims[0].dyn_size_ext.raw_tensor # [beam]
+            # Consistent to old search task, list[(float,str)].
+            self.out_file.write(f"{seq_tag!r}: [\n")
+            score = float(scores.raw_tensor)
+            hyp_ids = hyps.raw_tensor[: hyps_len_raw]
+            hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
+            self.out_file.write(f"  ({score!r}, {int(hyps_len_raw)!r}, {hyp_serialized!r}),\n")
             self.out_file.write("],\n")
 
         def finish(self):

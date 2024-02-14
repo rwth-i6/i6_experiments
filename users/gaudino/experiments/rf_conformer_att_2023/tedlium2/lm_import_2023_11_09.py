@@ -13,7 +13,6 @@ import functools
 
 # from .base import ISeqDownsamplingEncoder
 
-
 class TrafoLMLayer(rf.Module):
     """
     Represents a conformer block
@@ -70,7 +69,7 @@ class TrafoLMLayer(rf.Module):
             num_heads=num_heads,
             att_dropout=att_dropout,
             with_bias=False,
-            att_left_only=False,
+            # att_left_only=False,
             # att_left_only=True,
         )
         if self_att_opts:
@@ -110,7 +109,7 @@ class TrafoLMLayer(rf.Module):
         return res, new_state
 
 
-class Ted2_Trafo_LM_Model(rf.Module):
+class Trafo_LM_Model(rf.Module):
     """Model definition"""
 
     def __init__(
@@ -118,36 +117,37 @@ class Ted2_Trafo_LM_Model(rf.Module):
         in_dim: Dim,
         target_dim: Dim,
         *,
-        layer_out_dim: Dim = Dim(768, name="trafo-lm-default-out-dim"),
-        layer_ff_dim: Dim = Dim(4096, name="trafo-lm-default-ff-dim"),
-        embed_dim: Dim = Dim(128, name="trafo-lm-default-embed-dim"),
+        layer_out_dim: int = 768, # default values for ted2 trafo lm
+        layer_ff_dim: int = 4096,
+        embed_dim: int = 128,
         num_layers: int = 30,
+        att_num_heads: int = 12,
         search_args: Optional[Dict[str, Any]] = None,
     ):
-        super(Ted2_Trafo_LM_Model, self).__init__()
+        super(Trafo_LM_Model, self).__init__()
 
         self.in_dim = in_dim
         self.target_dim = target_dim
-        self.layer_out_dim = layer_out_dim
-        self.layer_ff_dim = layer_ff_dim
-        self.embed_dim = embed_dim
+        self.layer_out_dim = Dim(layer_out_dim, name="trafo-lm-layer-out-dim")
+        self.layer_ff_dim = Dim(layer_ff_dim, name="trafo-lm-layer-ff-dim")
+        self.embed_dim = Dim(embed_dim, name="trafo-lm-embed-dim")
         self.num_layers = num_layers
 
-        self.target_embed_raw = rf.Embedding(in_dim, embed_dim)
+        self.target_embed_raw = rf.Embedding(self.in_dim, self.embed_dim)
         self.pos_enc = functools.partial(
-            rf.sinusoidal_positional_encoding, feat_dim=embed_dim, dtype=self.target_embed_raw.weight.dtype
+            rf.sinusoidal_positional_encoding, feat_dim=self.embed_dim, dtype=self.target_embed_raw.weight.dtype
         )
 
         self.target_embed_lin = rf.Linear(
-            self.target_embed_raw.out_dim, layer_out_dim, with_bias=False
+            self.target_embed_raw.out_dim, self.layer_out_dim, with_bias=False
         )
 
         trafo_layer_opts_ = dict(
-            out_dim=layer_out_dim,
-            ff_dim=layer_ff_dim,
+            out_dim=self.layer_out_dim,
+            ff_dim=self.layer_ff_dim,
             ff_activation=rf.relu,
             dropout=0.0,
-            num_heads=12,
+            num_heads=att_num_heads,
             att_dropout=0.0,
         )
 
@@ -157,13 +157,16 @@ class Ted2_Trafo_LM_Model(rf.Module):
             _copy.deepcopy(trafo_lm_layer) for _ in range(num_layers)
         )
 
-        self.decoder = rf.LayerNorm(layer_out_dim)
-        self.output = rf.Linear(layer_out_dim, target_dim)
+        self.decoder = rf.LayerNorm(self.layer_out_dim)
+        self.output = rf.Linear(self.layer_out_dim, target_dim)
 
-    def default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
+    def default_initial_state(self, *, batch_dims: Sequence[Dim], use_batch_dims_for_pos:bool=False) -> rf.State:
         """default initial state"""
         state = rf.State({k: v.default_initial_state(batch_dims=batch_dims) for k, v in self.layers.items()})
-        state.pos = rf.zeros((), dtype="int32", device="cpu")
+        if use_batch_dims_for_pos:
+            state.pos = rf.zeros(batch_dims, dtype="int32", device="cpu")
+        else:
+            state.pos = rf.zeros((), dtype="int32", device="cpu")
         return state
 
     def __call__(
@@ -225,13 +228,16 @@ class MakeModel:
         self,
         in_dim: int,
         target_dim: int,
+        *,
         # eos_label: int = 0,
         # num_enc_layers: int = 12,
+        model_args: Optional[Dict[str, Any]] = None,
     ):
         self.in_dim = in_dim
         self.target_dim = target_dim
+        self.model_args = model_args
 
-    def __call__(self) -> Ted2_Trafo_LM_Model:
+    def __call__(self) -> Trafo_LM_Model:
         from returnn.datasets.util.vocabulary import Vocabulary
 
         in_dim = Dim(name="in", dimension=self.in_dim, kind=Dim.Types.Feature)
@@ -239,23 +245,25 @@ class MakeModel:
             name="target", dimension=self.target_dim, kind=Dim.Types.Feature
         )
         target_dim.vocab = Vocabulary.create_vocab_from_labels(
-            [str(i) for i in range(target_dim.dimension)], eos_label=self.eos_label
+            [str(i) for i in range(target_dim.dimension)], eos_label=0
         )
 
-        return self.make_model(in_dim, target_dim)
+        return self.make_model(in_dim, target_dim, model_args=self.model_args)
 
     @classmethod
     def make_model(
         cls,
         in_dim: Dim,
         target_dim: Dim,
-        # *,
-        # search_args: Optional[Dict[str, Any]],
+        *,
+        model_args: Optional[Dict[str, Any]] = None,
+        search_args: Optional[Dict[str, Any]] = None,
         # num_enc_layers: int = 12,
-    ) -> Ted2_Trafo_LM_Model:
+    ) -> Trafo_LM_Model:
         """make"""
-        return Ted2_Trafo_LM_Model(
-            in_dim,
+        return Trafo_LM_Model(
+            in_dim=in_dim,
             # num_enc_layers=num_enc_layers,
             target_dim=target_dim,
+            **(model_args if model_args else {}),
         )

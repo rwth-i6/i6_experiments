@@ -4,6 +4,7 @@ from typing import Dict, Optional
 
 import os
 import sys
+import torch
 import numpy
 
 from sisyphus import tk
@@ -18,7 +19,15 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
     MakeModel,
 )
 
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.lm_import_2023_11_09 import (
+    MakeModel as MakeModelLM,
+)
+
 import returnn.frontend as rf
+
+from i6_core.returnn.training import Checkpoint
+
+from itertools import product
 
 
 _returnn_tf_ckpt_filename = "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.yB4JK4GDCxWG/output/model/average"
@@ -41,6 +50,90 @@ _ted2_lm_ckpt_filename = "/work/asr4/michel/setups-data/language_modelling/tedli
 #     # converter.run()
 #     return converter.out_checkpoint
 
+models = {
+    "model_baseline": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "work/i6_core/returnn/training/AverageTFCheckpointsJob.yB4JK4GDCxWG/output/model/average.index"
+            )
+        ),
+    },
+    # ctcScale models
+    "model_ctc0.43_att1.0": {  # ctcScale 0.3
+        "ckpt": Checkpoint(
+            tk.Path(
+                "work/i6_core/returnn/training/AverageTFCheckpointsJob.nCrQhRfqIRiZ/output/model/average.index"
+            )
+        ),
+    },
+    "model_ctc0.25_att1.0": {  # ctcScale 0.2
+        "ckpt": Checkpoint(
+            tk.Path(
+                "work/i6_core/returnn/training/AverageTFCheckpointsJob.CknpN55pjOHo/output/model/average.index"
+            )
+        ),
+    },
+    "model_ctc0.2_att1.0": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "work/i6_core/returnn/training/AverageTFCheckpointsJob.ro9g9W6DBJpW/output/model/average.index"
+            )
+        ),
+    },
+    # 1-y models
+    "model_ctc0.3_att0.7": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "work/i6_core/returnn/training/AverageTFCheckpointsJob.jGxeW6yzeoG7/output/model/average.index"
+            )
+        ),
+    },
+    "model_ctc0.2_att0.8": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "work/i6_core/returnn/training/AverageTFCheckpointsJob.6qWPnvXHalfJ/output/model/average.index"
+            )
+        ),
+    },
+    "model_ctc0.1_att0.9": {  # pre 4
+        "ckpt": Checkpoint(
+            tk.Path(
+                "work/i6_core/returnn/training/AverageTFCheckpointsJob.MEtpESN5M4oD/output/model/average.index"
+            )
+        ),
+    },
+    "model_ctc0.001_att0.999": {  # pre 4
+        "ckpt": Checkpoint(
+            tk.Path(
+                "work/i6_core/returnn/training/AverageTFCheckpointsJob.eEEAEAZQiFvO/output/model/average.index"
+            )
+        ),
+    },
+    # att only
+    "model_att_only_currL": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "work/i6_core/returnn/training/AverageTFCheckpointsJob.io6cKw6ETnHp/output/model/average.index"
+            )
+        ),
+    },
+    "model_att_only_adjSpec": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "work/i6_core/returnn/training/AverageTFCheckpointsJob.9f6nlw1UOxVO/output/model/average.index"
+            )
+        ),
+    },
+    # ctc only
+    "model_ctc_only": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.9o6iL7eblZwa/output/models/epoch.400.index"
+            )
+        ),  # last
+    },
+}
+
 
 def convert_checkpoint(
     *,
@@ -55,8 +148,6 @@ def convert_checkpoint(
     from returnn.torch.frontend.bridge import rf_module_to_pt_module
     from returnn.util.basic import model_epoch_from_filename
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
-    import torch
-    import numpy
 
     search_args = {
         "add_lstm_lm": False,
@@ -149,6 +240,48 @@ def convert_checkpoint(
         # assert os.path.exists(self.out_checkpoint.get_path())
 
 
+def convert_lm(ckpt_path_lm, out_dir, model_target_dim, model_args):
+    from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
+    from returnn.torch.frontend.bridge import rf_module_to_pt_module
+
+    print("Loading checkpoint...")
+    reader_lm = CheckpointReader(ckpt_path_lm)
+
+    print("Creating model...")
+    rf.select_backend_torch()
+    model = MakeModelLM(model_target_dim, model_target_dim, model_args=model_args)()
+
+    print("Create ParamMapping...")
+    param_mapping = {}
+    _add_params_trafo_lm(param_mapping)
+
+    print("Mapping parameters...")
+    for name, param in model.named_parameters():
+        assert isinstance(name, str)
+        assert isinstance(param, rf.Parameter)
+        value = map_param_func_trafo_lm(reader_lm, name, param, param_mapping)
+
+        assert isinstance(value, numpy.ndarray)
+        # noinspection PyProtectedMember
+        param._raw_backend.set_parameter_initial_value(param, value)
+
+    epoch = 1
+    step = 0
+
+    print("Converting rf module to pt module...")
+    ckpt_name = os.path.basename(ckpt_path_lm)
+    pt_model = rf_module_to_pt_module(model)
+
+    save_model = True
+    if save_model:
+        os.makedirs(out_dir, exist_ok=True)
+        filename = out_dir + "/" + ckpt_name + ".pt"
+        print(f"Saving PyTorch model checkpoint: {filename}")
+        torch.save(
+            {"model": pt_model.state_dict(), "epoch": epoch, "step": step}, filename
+        )
+
+
 def _add_params_trafo_lm(param_mapping: Dict[str, str]):
     # add params of trafo lm
     for layer_idx in range(30):
@@ -185,8 +318,10 @@ def _add_params_conformer(param_mapping: Dict[str, str], prefix: str):
         orig_name = "conv0" if layer_idx == 0 else f"subsample_conv{layer_idx - 1}"
         param_mapping.update(
             {
-                prefix + f"encoder.input_layer.conv_layers.{layer_idx}.filter": f"{orig_name}/W",
-                prefix + f"encoder.input_layer.conv_layers.{layer_idx}.bias": f"{orig_name}/bias",
+                prefix
+                + f"encoder.input_layer.conv_layers.{layer_idx}.filter": f"{orig_name}/W",
+                prefix
+                + f"encoder.input_layer.conv_layers.{layer_idx}.bias": f"{orig_name}/bias",
             }
         )
     param_mapping.update(
@@ -390,18 +525,42 @@ def map_param_func_trafo_lm(
     raise NotImplementedError(f"cannot map {name!r} {var}")
 
 
-if __name__ == "__main__":
-    model_args = {
-        "target_embed_dim": 256,
-        "add_ted2_trafo_lm": True,
-        "encoder_ctc": True,
-    }
-    out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/model_baseline__ctc_only__trafo_lm_24_01_19"
+def import_models():
+    for model_name, sep_enc in product(models.keys(), [True, False]):
+        model_args = {
+            "target_embed_dim": 256,
+            "add_ted2_trafo_lm": False,
+            "encoder_ctc": sep_enc,
+        }
 
-    convert_checkpoint(
-        model_args=model_args,
-        ckpt_path=_returnn_tf_ckpt_filename,
-        ckpt_path_lm=_ted2_lm_ckpt_filename,
-        ckpt_path_sep="/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.9o6iL7eblZwa/output/models/epoch.400",
-        out_dir=out_dir,
+        print(
+            f"Converting model {model_name}"
+            + (" with separate ctc only encoder" if sep_enc else "")
+            + " ..."
+        )
+        out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/"
+        out_dir_postfix = model_name + ("__ctc_only" if sep_enc else "") + "_24_02_02"
+
+        convert_checkpoint(
+            model_args=model_args,
+            ckpt_path=models[model_name]["ckpt"].ckpt_path,
+            ckpt_path_lm=None,
+            ckpt_path_sep=models["model_ctc_only"]["ckpt"].ckpt_path
+            if sep_enc
+            else None,
+            out_dir=out_dir + out_dir_postfix,
+        )
+        print(
+            f"Model {model_name}"
+            + (" with separate ctc only encoder" if sep_enc else "")
+            + " converted."
+        )
+
+
+if __name__ == "__main__":
+    # import_models()
+    convert_lm(
+        _ted2_lm_ckpt_filename,
+        "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/trafo_lm_only_24_02_05",
+        1057,
     )

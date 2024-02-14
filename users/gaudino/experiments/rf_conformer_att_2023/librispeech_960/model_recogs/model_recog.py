@@ -15,7 +15,7 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, Trai
 import torch
 import numpy
 
-_ctc_prior_filename = "/u/luca.gaudino/debug/ctc/prior.txt"
+# _ctc_prior_filename = "/u/luca.gaudino/debug/ctc/prior.txt"
 # _ctc_prior_filename = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZdcvhAOyWl95/output/prior.txt"
 
 
@@ -119,11 +119,11 @@ def model_recog(
         hlens = max_seq_len.raw_tensor
 
         if model.search_args.get("prior_corr", False):
-            ctc_log_prior = numpy.loadtxt(model.search_args.get("prior_file", _ctc_prior_filename), dtype="float32")
+            ctc_log_prior = numpy.loadtxt(model.search_args.get("prior_file", model.search_args.get("ctc_prior_file", "")), dtype="float32")
             ctc_out = ctc_out - (
                 torch.tensor(ctc_log_prior)
                 .repeat(ctc_out.shape[0], ctc_out.shape[1], 1)
-                .to("cuda")
+                .to(ctc_out.device)
                 * model.search_args["prior_scale"]
             )
             ctc_out = ctc_out - torch.logsumexp(ctc_out, dim=2, keepdim=True)
@@ -252,9 +252,16 @@ def model_recog(
         i += 1
 
         if model.search_args.get("use_ctc", False):
+            best_ids = target
+            if model.search_args.get("ctc_state_fix", False):
+                # if i >= 1:
+                #     best_ids = target + model.target_dim.get_dim_value()
+                best_ids = target + backrefs * (model.target_dim.get_dim_value() + 1)
+
+            # breakpoint()
             # ctc state selection
             ctc_state = ctc_prefix_scorer.index_select_state(
-                ctc_state, target.raw_tensor
+                ctc_state, best_ids.raw_tensor
             )
             target_ctc = torch.flatten(target.raw_tensor)
 

@@ -85,19 +85,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
     target_dim = targets.feature_dim_or_sparse_dim
 
-    new_chkpt_path = ConvertTfCheckpointToRfPtJob(
-        checkpoint=TfCheckpoint(
-            index_path=generic_job_output(_returnn_tf_ckpt_filename)
-        ),
-        make_model_func=MakeModel(
-            in_dim=_log_mel_feature_dim,
-            target_dim=target_dim.dimension,
-            eos_label=_get_eos_idx(target_dim),
-        ),
-        map_func=map_param_func_v3,
-    ).out_checkpoint
-
-    # att + ctc decoding
+    # load baseline model w trafo lm
     new_chkpt_path = tk.Path(
         _torch_ckpt_filename_w_trafo_lm, hash_overwrite="torch_ckpt"
     )
@@ -110,28 +98,28 @@ def sis_run_with_prefix(prefix_name: str = None):
         "add_ted2_trafo_lm": True,
     }
 
+    # single model experiments
+    model_name = "/model_baseline"
+    prefix_name = prefix_name + model_name
+    bsf = 20
+
     # att only
-    for beam_size in [6]:
-        lm_scale = 0.1
+    for beam_size in [12, 18, 32]:
         search_args = {
             "beam_size": beam_size,
-            "lm_scale": lm_scale,
-            "add_trafo_lm": True,
-            "bsf": "bsf40_1",
+            # "lm_scale": lm_scale,
+            # "add_trafo_lm": True,
+            "bsf": bsf,
         }
-
-        dev_sets = ["dev"]  # only dev-other for testing
-        # dev_sets = None  # all
         name = (
             prefix_name
-            # + f"/bsf160_att_beam{beam_size}"
-            + f"/bsf40_att_trafo_lm{lm_scale}_beam{beam_size}"
+            + f"/bsf{bsf}/att_beam{beam_size}"
         )
         res, _ = recog_model(
             task,
             model_with_checkpoint,
             model_recog,
-            dev_sets=dev_sets,
+            dev_sets=["dev"], # set to None for all
             model_args=model_args,
             search_args=search_args,
             prefix_name=name,
@@ -141,29 +129,66 @@ def sis_run_with_prefix(prefix_name: str = None):
             res.output,
         )
 
-    # ctc greedy
-    for beam_size in [1]:
-        lm_scale = 0.1
+    # ctc greedy: dev 8.9
+    # ctc greedy prior 0.15: 8.79
+    for beam_size, prior_scale in product([1], [0.0, 0.15]):
         search_args = {
             "beam_size": beam_size,
             "blank_idx": 1057,
-            "bsf": "bsf40_2",
-            "blank_collapse": True,
-            "blank_threshold": -0.05, # in log space
+            "bsf": bsf,
+            # "blank_collapse": True,
+            # "blank_threshold": -0.05, # in log space
+            "prior_corr": True if prior_scale > 0 else False,
+            "prior_scale": prior_scale,
+            "ctc_prior_file": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.2UG8sLxHNTMO/output/prior.txt",
         }
 
-        dev_sets = ["dev"]  # only dev-other for testing
-        # dev_sets = None  # all
         name = (
             prefix_name
-            # + f"/bsf160_att_beam{beam_size}"
-            + f"/bsf40_ctc_greedy_blank_collapse"
+            + f"/bsf{bsf}/ctc_greedy"
+            + (f"_prior{prior_scale}" if prior_scale > 0 else "")
         )
         res, _ = recog_model(
             task,
             model_with_checkpoint,
             model_recog_ctc,
-            dev_sets=dev_sets,
+            dev_sets=["dev"], # set to None for all
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            res.output,
+        )
+
+    # ctc prefix search
+    for beam_size, prior_scale in product([1 ,6 ,12], [0.0, 0.1, 0.15, 0.2, 0.3]):
+        search_args = {
+            "beam_size": beam_size,
+            "blank_idx": 1057,
+            "bsf": bsf,
+            "use_ctc": True,
+            "ctc_scale": 1.0,
+            "att_scale": 0.0,
+            # "blank_collapse": True,
+            # "blank_threshold": -0.05, # in log space
+            "prior_corr": True if prior_scale > 0 else False,
+            "prior_scale": prior_scale,
+            "ctc_prior_file": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.2UG8sLxHNTMO/output/prior.txt",
+        }
+
+        name = (
+            prefix_name
+            + f"/bsf{bsf}/ctc_prefix_search"
+            + (f"_prior{prior_scale}" if prior_scale > 0 else "")
+            + f"_beam{beam_size}"
+        )
+        res, _ = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog,
+            dev_sets=["dev"], # set to None for all
             model_args=model_args,
             search_args=search_args,
             prefix_name=name,
@@ -174,28 +199,25 @@ def sis_run_with_prefix(prefix_name: str = None):
         )
 
     # att + ctc opts
-    for scales, beam_size in product([(0.65, 0.35, 0.3)], [6, 12, 32]):
-        att_scale, ctc_scale, prior_scale = scales
+    for scales, beam_size in product([(0.5, 0.5), (0.6, 0.4), (0.65, 0.35), (0.7, 0.3), (0.8, 0.2), (0.9, 0.1)], [12]):
+        att_scale, ctc_scale = scales
         name = (
             prefix_name
-            + f"/bsf40_opts_att{att_scale}_ctc{ctc_scale}_beam{beam_size}"
+            + f"/bsf{bsf}/opts_att{att_scale}_ctc{ctc_scale}_beam{beam_size}"
         )
         search_args = {
             "beam_size": beam_size,
             "att_scale": att_scale,
             "ctc_scale": ctc_scale,
-            "bsf": "bsf40",
+            "bsf": bsf,
         }
-
-        dev_sets = ["dev"]  # only dev for testing
-        # dev_sets = None  # all
 
         # first recog
         recog_res, recog_out = recog_model(
             task,
             model_with_checkpoint,
             model_recog_time_sync,
-            dev_sets=dev_sets,
+            dev_sets=["dev"], # set to None for all
             model_args=model_args,
             search_args=search_args,
             prefix_name=name,
@@ -206,7 +228,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         )
 
     # att + ctc + trafo lm opts
-    for scales, beam_size in product([(0.65, 0.35, 0.1)], [6]):
+    for scales, beam_size in product([(0.65, 0.35, 0.1)], []):
         att_scale, ctc_scale, lm_scale = scales
         name = (
             prefix_name
@@ -243,29 +265,25 @@ def sis_run_with_prefix(prefix_name: str = None):
         )
 
     # att + ctc opls
-    for scales, beam_size in product([(0.6, 0.4), (0.65, 0.35), (0.7, 0.3)], [32]):
+    for scales, beam_size in product([(0.6, 0.4), (0.65, 0.35), (0.7, 0.3)], [12, 32]):
         att_scale, ctc_scale = scales
         name = (
             prefix_name
-            + f"/bsf40_opls_att{att_scale}_ctc{ctc_scale}_beam{beam_size}"
+            + f"/bsf{bsf}/opls_att{att_scale}_ctc{ctc_scale}_beam{beam_size}"
         )
         search_args = {
             "beam_size": beam_size,
             "att_scale": att_scale,
             "use_ctc": True,
             "ctc_scale": ctc_scale,
-            "bsf": "bsf40",
+            "bsf": bsf,
         }
 
-        dev_sets = ["dev"]  # only dev for testing
-        # dev_sets = None  # all
-
-        # first recog
         recog_res, recog_out = recog_model(
             task,
             model_with_checkpoint,
             model_recog,
-            dev_sets=dev_sets,
+            dev_sets=["dev"],
             model_args=model_args,
             search_args=search_args,
             prefix_name=name,
@@ -276,22 +294,23 @@ def sis_run_with_prefix(prefix_name: str = None):
         )
 
     # ctc + trafo lm
-    for scales, beam_size in product([(0.7, 0.3, 0.0)], [12,32]):
+    for scales, beam_size in product([(1.0, 0.0, 0.0), (1.0, 0.1, 0.0)], []):
         ctc_scale, lm_scale, prior_scale = scales
         name = (
             prefix_name
-            + f"/bsf40_ctc{ctc_scale}_trafolm{lm_scale}_beam{beam_size}_blank_collapse"
+            + f"/bsf10_ctc{ctc_scale}_trafolm{lm_scale}_beam{beam_size}_add_eos"
         )
         search_args = {
             "beam_size": beam_size,
-            "att_scale": 1.0,
+            "att_scale": 0.0,
             "ctc_scale": ctc_scale,
             "add_trafo_lm": True,
             "lm_scale": lm_scale,
             "bsf": "bsf40_5",
             "remove_trafo_lm_eos": True,
-            "blank_collapse": True,
-            "blank_threshold": -0.05, # in log space
+            "add_eos_to_end": True,
+            # "blank_collapse": True,
+            # "blank_threshold": -0.05, # in log space
         }
 
         dev_sets = ["dev"]  # only dev for testing
@@ -329,7 +348,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     }
 
     # sep encoder baseline + ctc only - opls + trafo lm
-    for scales, beam_size in product([(0.7, 0.3, 0.1), (0.7, 0.3, 0.3)], [6, 12]):
+    for scales, beam_size in product([(0.7, 0.3, 0.1), (0.7, 0.3, 0.3)], []):
         model_name = "/model_baseline__ctc_only"
         att_scale, ctc_scale, lm_scale = scales
         search_args = {
@@ -349,7 +368,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             prefix_name
             + model_name
             # + f"/bsf160_att_beam{beam_size}"
-            + f"/bsf40_opls_att{att_scale}_ctc{ctc_scale}_trafo_lm{lm_scale}_beam{beam_size}"
+            + f"/bsf10_opls_att{att_scale}_ctc{ctc_scale}_trafo_lm{lm_scale}_beam{beam_size}"
         )
         res, _ = recog_model(
             task,
@@ -364,69 +383,5 @@ def sis_run_with_prefix(prefix_name: str = None):
             name + f"/recog_results",
             res.output,
         )
-
-    # # att + espnet ctc prefix scorer
-    # for scales in [(0.7,0.3), (0.65,0.35), (0.75,0.25)]:
-    #     for beam_size in [12]:
-    #         att_scale, ctc_scale = scales
-    #         search_args = {
-    #             "beam_size": beam_size,
-    #             # att decoder args
-    #             "att_scale": att_scale,
-    #             "ctc_scale": ctc_scale,
-    #             "use_ctc": True,
-    #             "mask_eos": True,
-    #             "prior_corr": False,
-    #             "prior_scale": 0.2,
-    #             "prior_file": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.2UG8sLxHNTMO/output/prior.txt",
-    #             "length_normalization_exponent": 1.0,  # 0.0 for disabled
-    #             # "window_margin": 10,
-    #             "rescore_w_ctc": False,
-    #         }
-    #         dev_sets = ["dev"]  # only dev-other for testing
-    #         # dev_sets = None  # all
-    #         res = recog_model(
-    #             task,
-    #             model_with_checkpoint,
-    #             model_recog,
-    #             dev_sets=dev_sets,
-    #             model_args=model_args,
-    #             search_args=search_args,
-    #         )
-    #         tk.register_output(
-    #             prefix_name
-    #             + f"/bsf40_espnet_att{att_scale}_ctc{ctc_scale}_beam{beam_size}"
-    #             + f"/recog_results",
-    #             res.output,
-    #         )
-    #
-    # # opts att + ctc
-    # for scales in [(0.7,0.3), (0.65,0.35), (0.75,0.25)]:
-    #     for beam_size in [12]:
-    #         att_scale, ctc_scale = scales
-    #         search_args = {
-    #             "beam_size": beam_size,
-    #             "att_scale": att_scale,
-    #             "ctc_scale": ctc_scale,
-    #             "use_ctc": True,
-    #             "mask_eos": True,
-    #         }
-    #         dev_sets = ["dev"]  # only dev-other for testing
-    #         # dev_sets = None  # all
-    #         res = recog_model(
-    #             task,
-    #             model_with_checkpoint,
-    #             model_recog_time_sync,
-    #             dev_sets=dev_sets,
-    #             model_args=model_args,
-    #             search_args=search_args,
-    #         )
-    #         tk.register_output(
-    #             prefix_name
-    #             + f"/bsf40_opts_att{att_scale}_ctc{ctc_scale}_beam{beam_size}"
-    #             + f"/recog_results",
-    #             res.output,
-    #         )
-
 
 py = sis_run_with_prefix
