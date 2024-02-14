@@ -2,7 +2,7 @@
 Beam search
 """
 
-from typing import Union, Sequence, Dict, Tuple
+from typing import Sequence, Tuple, List
 
 from dataclasses import dataclass
 import functools
@@ -60,10 +60,9 @@ def beam_search(
 
         # Filter out finished beams
         label_log_prob = torch.where(ended, masked_finished_log_prob, label_log_prob)
-        seq_log_prob = seq_log_prob[:, :, None] + label_log_prob  # Batch, InBeam, Vocab
-        seq_log_prob, (backrefs, target), beam_size = top_k(
-            seq_log_prob, k=opts.beam_size, axis=[1, 2]
-        )  # seq_log_prob, backrefs, target: Batch, Beam
+        seq_log_prob = seq_log_prob[:, :, None] + label_log_prob  # [Batch,InBeam,Vocab]
+        seq_log_prob, (backrefs, target) = top_k(seq_log_prob, k=opts.beam_size, dim=[1, 2])  # all [Batch,Beam]
+        beam_size = seq_log_prob.shape[1]
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
         state = pytree.tree_map(functools.partial(gather, indices=backrefs), new_state)
@@ -92,12 +91,12 @@ def beam_search(
 
     # Backtrack via backrefs, resolve beams.
     seq_targets_ = []
-    indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
+    indices = torch.arange(beam_size)[None, :].expand(batch_size, -1)  # [Batch,FinalBeam] -> FinalBeam
     for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
-        # indices: FinalBeam -> Beam
-        # backrefs: Beam -> PrevBeam
+        # indices: [Batch,FinalBeam] -> Beam
+        # backrefs: [Batch,Beam] -> PrevBeam
         seq_targets_.insert(0, gather(target, indices=indices))
-        indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
+        indices = gather(backrefs, indices=indices)  # [Batch,FinalBeam] -> PrevBeam
 
     out_spatial_dim = Dim(out_seq_len, name="out-spatial")
     seq_targets = torch.stack(seq_targets_, axis=out_spatial_dim)
@@ -105,8 +104,23 @@ def beam_search(
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 
 
-def top_k(values: torch.Tensor, *, k: int, axis: Union[int, Sequence[int]]):
-    pass
+# noinspection PyShadowingBuiltins
+def top_k(
+    source: torch.Tensor, *, k: int, dim: Sequence[int], sorted: bool = True
+) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+    # Derived from returnn.torch.frontend._backend.TorchBackend.top_k.
+    # Move axis to the end, in the right order.
+    dim = [(d + source.ndim) % source.ndim for d in dim]
+    source = source.permute([d for d in range(source.ndim) if d not in dim] + list(dim))
+    source_flat = source.flatten(start_dim=source.ndim - len(dim))
+    values, indices = torch.topk(source_flat, k=k, dim=-1, largest=True, sorted=sorted)
+    indices_out = []
+    for i in reversed(list(range(len(dim)))):
+        a_dim = source.shape[source.ndim - len(dim) + i]
+        indices_out = indices % a_dim
+        indices = indices // a_dim
+        indices_out.insert(0, indices_out)
+    return values, indices_out
 
 
 def gather(values: torch.Tensor, *, indices: torch.Tensor) -> torch.Tensor:
