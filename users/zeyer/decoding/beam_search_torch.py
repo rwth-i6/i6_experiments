@@ -7,6 +7,8 @@ from typing import Sequence, Tuple, List
 from dataclasses import dataclass
 import functools
 import torch
+
+# noinspection PyProtectedMember
 from torch.utils import _pytree as pytree
 
 from .interface_torch import LabelScorer
@@ -15,7 +17,7 @@ from .interface_torch import LabelScorer
 @dataclass
 class BeamSearchOpts:
     beam_size: int  # e.g. 12
-    length_normalization_exponent: float  #  e.g. 1 to enable, 0 to disable
+    length_normalization_exponent: float  # e.g. 1 to enable, 0 to disable
     bos_label: int
     eos_label: int
     num_labels: int
@@ -28,7 +30,7 @@ def beam_search(
     max_seq_len: torch.Tensor,
     device: torch.device,
     opts: BeamSearchOpts,
-):
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     beam search
 
@@ -37,6 +39,10 @@ def beam_search(
     :param max_seq_len: e.g. use encoder length. shape [Batch]
     :param device:
     :param opts:
+    :return: seq_targets, seq_log_prob, out_seq_len:
+        seq_targets: [Batch,FinalBeam,OutSeqLen]
+        seq_log_prob: [Batch,FinalBeam]
+        out_seq_len: [Batch,FinalBeam]
     """
     # Eager-mode implementation of beam search.
     # Initial state.
@@ -65,9 +71,9 @@ def beam_search(
         beam_size = seq_log_prob.shape[1]
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
-        state = pytree.tree_map(functools.partial(gather, indices=backrefs), new_state)
-        ended = gather(ended, indices=backrefs)
-        out_seq_len = gather(out_seq_len, indices=backrefs)
+        state = pytree.tree_map(functools.partial(batch_gather, indices=backrefs), new_state)  # [Batch,Beam,...]
+        ended = batch_gather(ended, indices=backrefs)  # [Batch,Beam]
+        out_seq_len = batch_gather(out_seq_len, indices=backrefs)  # [Batch,Beam]
         i += 1
 
         ended = ended | (target == opts.eos_label)
@@ -95,13 +101,12 @@ def beam_search(
     for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
         # indices: [Batch,FinalBeam] -> Beam
         # backrefs: [Batch,Beam] -> PrevBeam
-        seq_targets_.insert(0, gather(target, indices=indices))
-        indices = gather(backrefs, indices=indices)  # [Batch,FinalBeam] -> PrevBeam
+        seq_targets_.insert(0, batch_gather(target, indices=indices))  # [Batch,FinalBeam]
+        indices = batch_gather(backrefs, indices=indices)  # [Batch,FinalBeam] -> PrevBeam
 
-    out_spatial_dim = Dim(out_seq_len, name="out-spatial")
-    seq_targets = torch.stack(seq_targets_, axis=out_spatial_dim)
+    seq_targets = torch.stack(seq_targets_, dim=2)  # [Batch,FinalBeam,OutSeqLen]
 
-    return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
+    return seq_targets, seq_log_prob, out_seq_len
 
 
 # noinspection PyShadowingBuiltins
@@ -123,10 +128,28 @@ def top_k_nd(
     return values, indices_out
 
 
-def gather(values: torch.Tensor, *, indices: torch.Tensor) -> torch.Tensor:
+def batch_gather(values: torch.Tensor, *, indices: torch.Tensor) -> torch.Tensor:
     """
     :param values: shape [Batch,Indices,ValuesDims...], e.g. [Batch,InBeam,...]
     :param indices: shape [Batch,IndicesDims...] -> Indices, e.g. [Batch,OutBeam] -> InBeam
-    :return: shape [Batch,IndicesDims...,ValuesDims...]
+    :return: shape [Batch,IndicesDims...,ValuesDims...], e.g. [Batch,OutBeam,...]
     """
-    pass
+    # Derived from returnn.torch.frontend._backend.TorchBackend.gather.
+    # Case indices.dims_set.intersection(source.dims_set - {axis}).
+    # We cannot use index_select in this case. Need to fallback to gather.
+    assert indices.shape[0] == values.shape[0]
+    num_index_own_dims = indices.ndim - 1
+    if num_index_own_dims == 1:
+        indices_flat = indices  # good
+    elif num_index_own_dims == 0:
+        indices_flat = indices[:, None]
+    else:
+        indices_flat = indices.flatten(1)
+    out = torch.gather(values, dim=1, index=indices_flat.type(torch.int64))
+    if num_index_own_dims == 1:
+        pass  # nothing to do
+    elif num_index_own_dims == 0:
+        out = out.squeeze(1)
+    else:
+        out = out.unflatten(1, indices.shape[1:])
+    return out
