@@ -28,9 +28,25 @@ def get_base_returnn_dict_v2(debug=False):
 
     return params
 
+def get_base_returnn_dict_v3(debug=False):
+
+    params = get_base_returnn_dict(debug=debug)
+    params["gradient_clip"] = 0.0
+    params["batching"] = "random"
+
+    return params
+
 def get_base_returnn_dict_zhou(debug=False):
 
     params = get_base_returnn_dict(debug=debug)
     params["gradient_clip"] = 20.0
+
+    return params
+
+def get_base_returnn_dict_zhou_v2(debug=False):
+
+    params = get_base_returnn_dict(debug=debug)
+    params["gradient_clip"] = 20.0
+    params["batching"] = "random"
 
     return params

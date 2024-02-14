@@ -72,9 +72,9 @@ from i6_experiments.users.raissi.setups.common.helpers.priors import (
 )
 
 from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import (
-    BASEFactoredHybridDecoder,
     RasrFeatureScorer,
 )
+
 
 from i6_experiments.users.raissi.setups.common.decoder.config import (
     PriorInfo,
