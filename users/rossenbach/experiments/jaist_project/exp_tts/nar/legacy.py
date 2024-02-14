@@ -4,16 +4,16 @@ import numpy as np
 from sisyphus import tk
 from dataclasses import asdict
 
-from ...data.tts_phon import build_durationtts_training_dataset
-from ...data.tts_phon import get_tts_log_mel_datastream, get_vocab_datastream
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon import build_durationtts_training_dataset
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon import get_tts_log_mel_datastream, get_vocab_datastream
 
-from ...config import get_training_config, get_forward_config
-from ...pipeline import training, tts_eval
+from i6_experiments.users.rossenbach.experiments.jaist_project.config import get_training_config, get_forward_config
+from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import training, tts_eval
 
 from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterbankOptions
 
-from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ...storage import duration_alignments, vocoders
+from i6_experiments.users.rossenbach.experiments.jaist_project.default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
+from i6_experiments.users.rossenbach.experiments.jaist_project.storage import duration_alignments, vocoders
 
 
 

@@ -367,6 +367,8 @@ def run_flow_tts():
                                           extra_decoder="glow_tts.simple_gl_decoder",
                                           decoder_options=decoder_options_synthetic, debug=True)
 
+
+    # FP16 yields the same training scores, but now we did most of the stuff without it so keep it that way. Also speedup was for some reason not that much...
     local_config_fp16 = copy.deepcopy(local_config)
     local_config_fp16["torch_amp_options"] = {"dtype": "bfloat16"}
     train = run_exp(net_module + "_bs600_v2_base256_fp16_newgl_noise0.7", params_base256, net_module, local_config_fp16, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
@@ -410,6 +412,21 @@ def run_flow_tts():
                                               train.out_checkpoints[400], params_base256, net_module,
                                               extra_decoder="glow_tts.simple_gl_decoder",
                                               decoder_options=decoder_options_half_gl, debug=True)
+
+
+
+    # also with std prediction once
+    model_config_base256_withsigma = copy.deepcopy(model_config_base256)
+    model_config_base256_withsigma.mean_only = False
+    params_base256_withsigma = {
+        "config": asdict(model_config_base256_withsigma)
+    }
+    train = run_exp(net_module + "_bs600_v2_withsigma_longer_base256_newgl_extdur_noise0.7", params_base256_withsigma, net_module_extdur, local_config_longer, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
+                    target_durations=durations, debug=True, num_epochs=400)
+
+    """
+    """
+
     """
     Kind of trying to replicate what was exactly in the original paper, just based on epochs and with longer warmup
     """
@@ -432,5 +449,21 @@ def run_flow_tts():
                                           decoder_options=decoder_options_synthetic, debug=True)
 
 
+    # Checking if gradient clipping makes a problem here
+
+    local_config_longer_noam_bs600_gradclip5 = copy.deepcopy(local_config_longer_noam_bs600)
+    local_config_longer_noam_bs600_gradclip5.pop("gradient_clip_norm")
+    local_config_longer_noam_bs600_gradclip5["gradient_clip"] = 5
+
+    train = run_exp(net_module + "_bs600_v2_longer_noam_base256_newgl_extdur_clip5_noise0.7", params_base256, net_module_extdur, local_config_longer_noam_bs600_gradclip5, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
+                    target_durations=durations, debug=True, num_epochs=400)
+    train.hold()
 
 
+    # also do the same for the "normal" one
+    local_config_longer_gradclip5 = copy.deepcopy(local_config_longer)
+    local_config_longer_gradclip5.pop("gradient_clip_norm")
+    local_config_longer_gradclip5["gradient_clip"] = 5
+    train = run_exp(net_module + "_bs600_v2_longerbase256_newgl_extdur_clip5_noise0.7", params_base256, net_module_extdur, local_config_longer_gradclip5, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
+                    target_durations=durations, debug=True, num_epochs=400)
+    train.hold()

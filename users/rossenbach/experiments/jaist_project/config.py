@@ -40,7 +40,7 @@ def get_training_config(
     # changing these does not change the hash
     base_post_config = {
         "cleanup_old_models": True,
-        "stop_on_nonfinite_train_score": True,  # this might break now with True
+        "stop_on_nonfinite_train_score": True,
         "num_workers_per_gpu": 2,
         "backend": "torch"
     }
@@ -155,12 +155,10 @@ def get_forward_config(
     post_config = {
     }
 
+    # changeing these does change the hash
     base_config = {
-        #############
         "batch_size": 1000 * 16000,
         "max_seqs": 240,
-        #############
-        # dataset is added later in the pipeline during search_single
     }
     config = {**base_config, **copy.deepcopy(config)}
     post_config["backend"] = "torch"

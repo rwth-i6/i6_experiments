@@ -209,12 +209,17 @@ def conformer_rnnt_ls960():
         prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub6_start1_accum2_lstm512_LR5_amp16_init_from_ctc_50eps_rnnt_25eps/bs12",
         datasets=train_data, train_args=train_args_continue_ctc_LR2, search_args=search_args)
 
-    train_job.hold()
+    # train_job.hold()
 
+    search_args_greedy = copy.deepcopy(search_args)
+    search_args_greedy["beam_size"] = 1
+    train_job, _ = run_exp(
+        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub6_start1_accum2_lstm512_LR5_amp16_init_from_ctc_50eps_rnnt_25eps/bs1",
+        datasets=train_data, train_args=train_args_continue_ctc_LR2, search_args=search_args_greedy)
 
     # train_job.hold()
 
-    # Sub-4 from here
+    # Sub-4 from here ------------------------------------------------------------------
     
 
     frontend_config = VGG4LayerActFrontendV1Config_mod(

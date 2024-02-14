@@ -1,24 +1,20 @@
 import copy
 import numpy as np
-from sisyphus import tk
 from dataclasses import asdict
 
 from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterbankOptions
 
-from ...data.tts_phon import build_durationtts_training_dataset
-from ...data.tts_phon import get_vocab_datastream
-from ...data.tts_phon import get_tts_log_mel_datastream
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon import get_vocab_datastream
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon import get_tts_log_mel_datastream
 
-from ...config import get_training_config, get_forward_config
-from ...pipeline import training, tts_eval_v2, generate_synthetic, cross_validation_nisqa
+from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import generate_synthetic, cross_validation_nisqa, tts_training
 
-from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ...storage import duration_alignments, vocoders
+from i6_experiments.users.rossenbach.experiments.jaist_project.storage import duration_alignments, vocoders
 
 
 def run_fastspeech_like_tts():
     """
-    New setup using the shared encoder for fastspeech style NAR-TTS system
+    TTS experiments using the shared encoder and a Fastspeech-style Transformer decoder
     """
 
     config = {
@@ -31,48 +27,11 @@ def run_fastspeech_like_tts():
         #############
         "batch_size": 300 * 16000,
         "max_seq_length": {"audio_features": 30 * 16000},
-        "batch_drop_last": True,  # otherwise might cause issues in indexing after local sort in train_step
+        "batch_drop_last": True,  # this is an unnecessary leftover from ASR
         "max_seqs": 200,
     }
 
-    prefix = "experiments/jaist_project/standalone_2024/nar_tts/fastspeech_like/"
-
-    def run_exp(name, params, net_module, config, duration_hdf, decoder_options, extra_decoder=None, use_custom_engine=False, debug=False, num_epochs=200):
-        training_datasets = build_durationtts_training_dataset(duration_hdf=duration_hdf)
-        training_config = get_training_config(
-            training_datasets=training_datasets,
-            network_module=net_module,
-            net_args=params,
-            config=config,
-            debug=debug,
-            use_custom_engine=use_custom_engine,
-        )  # implicit reconstruction loss
-        forward_config = get_forward_config(
-            network_module=net_module,
-            net_args=params,
-            decoder=extra_decoder or net_module,
-            decoder_args=decoder_options,
-            config={
-                "forward": training_datasets.cv.as_returnn_opts()
-            },
-            debug=debug,
-        )
-        train_job = training(
-            prefix_name=prefix + name,
-            returnn_config=training_config,
-            returnn_exe=RETURNN_EXE,
-            returnn_root=MINI_RETURNN_ROOT,
-            num_epochs=num_epochs
-        )
-        forward_job = tts_eval_v2(
-            prefix_name=prefix + name,
-            returnn_config=forward_config,
-            checkpoint=train_job.out_checkpoints[num_epochs],
-            returnn_exe=RETURNN_EXE,
-            returnn_root=MINI_RETURNN_ROOT,
-        )
-        tk.register_output(prefix + name + "/audio_files", forward_job.out_files["audio_files"])
-        return train_job, forward_job
+    prefix = "experiments/jaist_project/nar_tts/fastspeech_like/"
 
     log_mel_datastream = get_tts_log_mel_datastream(ls_corpus_key="train-clean-100")
 
@@ -181,110 +140,119 @@ def run_fastspeech_like_tts():
     vocoder = vocoders["blstm_gl_v1"]
     decoder_options["gl_net_checkpoint"] = vocoder.checkpoint
     decoder_options["gl_net_config"] = vocoder.config
+        
+
+    # for synthetic data generation no plotting and a single GL iteration
+    decoder_options_syn_gl1 = copy.deepcopy(decoder_options)
+    decoder_options_syn_gl1["gl_momentum"] = 0.0
+    decoder_options_syn_gl1["gl_iter"] = 1
+    decoder_options_syn_gl1["create_plots"] = False
     
-    
-    decoder_options_synthetic = copy.deepcopy(decoder_options)
-    decoder_options_synthetic["gl_momentum"] = 0.0
-    decoder_options_synthetic["gl_iter"] = 1
-    decoder_options_synthetic["create_plots"] = False
-    
-    
+    # ------------------------------------------------------------------------------------------------------------------
+    # Initial Experiments (relevant experiments see below)
+    # ------------------------------------------------------------------------------------------------------------------
+
     duration_hdf = duration_alignments["ctc.tts_aligner_1223.ctc_aligner_tts_fe_v8_tfstyle_v2_fullength"]
-    train, forward = run_exp(net_module + "_fromctc_v1_halfbatch", params, net_module, config,
+    train, forward = tts_training(prefix, net_module + "_fromctc_v1_halfbatch", params, net_module, config,
                              extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
 
     generate_synthetic(prefix, net_module + "_fromctc_v1_halfbatch_syn", "train-clean-100",
                        train.out_checkpoints[200], params, net_module,
                        extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True)
+                       decoder_options=decoder_options_syn_gl1, debug=True)
     
     config_halflr_fp16 = copy.deepcopy(config)
     config_halflr_fp16["learning_rates"] = list(np.linspace(5e-5, 5e-4, 100)) + list(np.linspace(5e-4, 5e-7, 100))
     config_halflr_fp16["torch_amp_options"] = {"dtype": "bfloat16"}
-    train, forward = run_exp(net_module + "_fromctc_v1_halfbatch_fixlr_fp16", params, net_module, config_halflr_fp16,
+    train, forward = tts_training(prefix, net_module + "_fromctc_v1_halfbatch_fixlr_fp16", params, net_module, config_halflr_fp16,
                              extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
-    # train.hold()
-    
+
     generate_synthetic(prefix, net_module + "_fromctc_v1_halfbatch_fixlr_fp16_syn", "train-clean-100",
                        train.out_checkpoints[200], params, net_module,
                        extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True)
+                       decoder_options=decoder_options_syn_gl1, debug=True)
     
     generate_synthetic(prefix, net_module + "_fromctc_v1_halfbatch_fixlr_fp16_syn", "train-clean-360",
                        train.out_checkpoints[200], params, net_module,
                        extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True)
+                       decoder_options=decoder_options_syn_gl1, debug=True)
 
     # Durations from "small GlowTTS"
     duration_hdf = duration_alignments["glow_tts.lukas_baseline_bs600_v2"]
-    train, forward = run_exp(net_module + "_fromglow_v1_halfbatch", params, net_module, config,
+    train, forward = tts_training(prefix, net_module + "_fromglow_v1_halfbatch", params, net_module, config,
                              extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
 
-    # config_run2 = copy.deepcopy(config)
-    # config_run2["random_seed"] = 43
-    # train, forward = run_exp(net_module + "_fromglow_v1_halfbatch_run2", params, net_module, config_run2,
-    #                          extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
-
-    # config_fp16 = copy.deepcopy(config)
-    # config_fp16["torch_amp_options"] = {"dtype": "bfloat16"}
-    # train, forward = run_exp(net_module + "_fromglow_v1_halfbatch_fp16", params, net_module, config_fp16,
-    #                          extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
-
-
-    train, forward = run_exp(net_module + "_fromglow_v1_halfbatch_fixlr_fp16", params, net_module, config_halflr_fp16,
+    train, forward = tts_training(prefix, net_module + "_fromglow_v1_halfbatch_fixlr_fp16", params, net_module, config_halflr_fp16,
                              extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
     
     # nisqa synthetic
     cross_validation_nisqa(prefix, net_module + "_fromglow_v1_halfbatch_fixlr_fp16_noglnisqa", params, net_module, checkpoint=train.out_checkpoints[200],
-                           decoder_options=decoder_options_synthetic, extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder")
+                           decoder_options=decoder_options_syn_gl1, extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder")
 
-    # train.hold()
     generate_synthetic(prefix, net_module + "_fromglow_v1_halfbatch_fixlr_fp16_syn", "train-clean-100",
                        train.out_checkpoints[200], params, net_module,
                        extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True)
+                       decoder_options=decoder_options_syn_gl1, debug=True)
     
     generate_synthetic(prefix, net_module + "_fromglow_v1_halfbatch_fixlr_fp16_syn", "train-clean-360",
                        train.out_checkpoints[200], params, net_module,
                        extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True)
+                       decoder_options=decoder_options_syn_gl1, debug=True)
 
+    # ------------------------------------------------------------------------------------------------------------------
+    # Relevant Experiments
+    # ------------------------------------------------------------------------------------------------------------------
 
+    # using the 200 epochs default GlowTTS alignment
     duration_hdf = duration_alignments["glow_tts.glow_tts_v1_bs600_v2_base256"]
-    train, forward = run_exp(net_module + "_fromglowbase256_v1_halfbatch_fixlr_fp16", params, net_module, config_halflr_fp16,
+
+    train, forward = tts_training(prefix, net_module + "_glow256align_200eps_bs300_oclr_fp16", params, net_module, config_halflr_fp16,
                              extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
     
-    generate_synthetic(prefix, net_module + "_fromglowbase256_v1_halfbatch_fixlr_fp16_syn", "train-clean-100",
+    generate_synthetic(prefix, net_module + "_glow256align_200eps_bs300_oclr_fp16_syn", "train-clean-100",
                        train.out_checkpoints[200], params, net_module,
                        extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True)
+                       decoder_options=decoder_options_syn_gl1, debug=True)
     
-    generate_synthetic(prefix, net_module + "_fromglowbase256_v1_halfbatch_fixlr_fp16_syn_fixspk", "train-clean-100",
+    generate_synthetic(prefix, net_module + "_glow256align_200eps_bs300_oclr_fp16_syn_fixspk", "train-clean-100",
                        train.out_checkpoints[200], params, net_module,
                        extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True,
+                       decoder_options=decoder_options_syn_gl1, debug=True,
                        randomize_speaker=False)
 
-    generate_synthetic(prefix, net_module + "_fromglowbase256_v1_halfbatch_fixlr_fp16_syn", "train-clean-360",
+    generate_synthetic(prefix, net_module + "_glow256align_200eps_bs300_oclr_fp16_syn", "train-clean-360",
                        train.out_checkpoints[200], params, net_module,
                        extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True, use_subset=True)
+                       decoder_options=decoder_options_syn_gl1, debug=True, use_subset=True)
 
-    generate_synthetic(prefix, net_module + "_fromglowbase256_v1_halfbatch_fixlr_fp16_syn", "train-clean-360",
+    generate_synthetic(prefix, net_module + "_glow256align_200eps_bs300_oclr_fp16_syn", "train-clean-360",
                        train.out_checkpoints[200], params, net_module,
                        extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True)
-    
+                       decoder_options=decoder_options_syn_gl1, debug=True)
+
+
+    # training for 400 epochs
+
     from recipe.i6_experiments.users.rossenbach.common_setups.lr_scheduling import controlled_noam
     config_longer_noam = copy.deepcopy(config)
     config_longer_noam["optimizer"] = {"class": "adam", "epsilon": 1e-9, "betas": (0.9, 0.98)}
     config_longer_noam["learning_rates"] = controlled_noam(20, 380, 1e-3, 1e-4)
     config_longer_noam["torch_amp_options"] = {"dtype": "bfloat16"}
-    train, forward = run_exp(net_module + "_fromglowbase256_v1_bs300_noam_400eps_fp16", params, net_module, config_longer_noam,
+    train, forward = tts_training(prefix, net_module + "_glow256align_400eps_bs300_noam_fp16", params, net_module, config_longer_noam,
                              extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400)
+
+    generate_synthetic(prefix, net_module + "_glow256align_400eps_bs300_noam_fp16_syn", "train-clean-100",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+                       decoder_options=decoder_options_syn_gl1, debug=True)
 
     config_longer_oclr = copy.deepcopy(config)
     config_longer_oclr["learning_rates"] = list(np.linspace(5e-5, 5e-4, 100)) + list(np.linspace(5e-4, 5e-7, 300))
     config_longer_oclr["torch_amp_options"] = {"dtype": "bfloat16"}
-    train, forward = run_exp(net_module + "_fromglowbase256_v1_bs300_400eps_fp16", params, net_module, config_longer_oclr,
+    train, forward = tts_training(prefix, net_module + "_glow256align_400eps_bs300_oclr_fp16", params, net_module, config_longer_oclr,
                              extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400)
+
+    generate_synthetic(prefix, net_module + "_glow256align_400eps_bs300_oclr_fp16_syn", "train-clean-100",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+                       decoder_options=decoder_options_syn_gl1, debug=True)

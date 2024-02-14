@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 import torch
 from torch import nn
-import math
-import os
 from typing import Any, Dict
 
 
@@ -11,10 +9,9 @@ from ...tts_shared.tts_base_model.base_model_v1 import BaseTTSModelV1
 from ...tts_shared import DbMelFeatureExtractionConfig
 from ...tts_shared.encoder.transformer import TTSTransformerTextEncoderV1Config, ConvLayerNorm, DualConv
 from ...tts_shared.encoder.duration_predictor import SimpleConvDurationPredictorV1Config
-from ...tts_shared.encoder.rel_mhsa import GlowTTSMultiHeadAttentionV1, GlowTTSMultiHeadAttentionV1Config
 from ...tts_shared.util import sequence_mask
 
-from ...tts_shared.espnet_tacotron import decoder_init, Prenet, Postnet, ZoneOutCell
+from ...tts_shared.espnet_tacotron import decoder_init, Prenet, Postnet
 
 
 @dataclass
@@ -28,10 +25,12 @@ class NarTacotronDecoderConfig():
     """
     target_channels: int
     basic_dim: int
-    conv_dim: int
-    conv_kernel_size: int
-    num_layers: int
-    dropout: float
+    num_lstm_layers: int
+    lstm_dropout: float
+    post_conv_dim: int
+    post_conv_kernel_size: int
+    post_conv_num_layers: int
+    post_conv_dropout: float
     reduction_factor: int
 
     @classmethod
@@ -49,49 +48,62 @@ class NarTacotronDecoder(torch.nn.Module):
         self.lstm_stack = nn.LSTM(
             input_size=(encoder_hidden_size * cfg.reduction_factor) + speaker_embedding_size,
             hidden_size=cfg.basic_dim,
-            num_layers=cfg.num_layers,
+            num_layers=cfg.num_lstm_layers,
             bidirectional=True,
             batch_first=True,
-            dropout=cfg.dropout
+            dropout=cfg.lstm_dropout
         )
 
-
-        self.output_linear = nn.Conv1d(
-            in_channels=cfg.basic_dim,
-            out_channels=cfg.target_channels,
-            kernel_size=1,
-            padding="same"
+        self.output_linear = nn.Linear(
+            in_features=cfg.basic_dim * 2,
+            out_features=cfg.target_channels * cfg.reduction_factor,
         )
 
+        self.postnet = Postnet(
+            odim=cfg.target_channels,
+            n_layers=cfg.post_conv_num_layers,
+            n_chans=cfg.post_conv_dim,
+            n_filts=cfg.post_conv_kernel_size,
+            dropout_rate=cfg.post_conv_dropout
+        )
 
-    def forward(self, h_upsampled, s_lengths, s_mask, speaker_embedding):
+    def forward(self, h_upsampled, h_lengths, speaker_embedding):
         """
 
         :param h_upsampled: [B, T, encoder base_dim]
-        :param s_lengths: [B]
-        :param s_mask: [B, T, 1]
+        :param h_lengths: [B]
         :param speaker_embedding: [B, 1, speaker embedding size]
         :return: target features: [B, target_channels, T]
         """
-        spk_extended = speaker_embedding.expand(-1, h_upsampled.size(-1), -1)  # [B, emb] -> [B, T, emb]
-        s = torch.concat([h_upsampled, spk_extended], dim=2)
-    
+
         # this is basically in order to achieve a "zip longest, the last y is not needed anyways"
-        missing_frames = s.size(1) % self.cfg.reduction_factor
-        s = torch.nn.functional.pad(s, [0, 0, 0, missing_frames])
-    
-        blstm_packed_in = nn.utils.rnn.pack_padded_sequence(s, s_lengths.to("cpu"), batch_first=True)
+        missing_frames = h_upsampled.size(1) % self.cfg.reduction_factor
+        h_t = torch.nn.functional.pad(h_upsampled, [0, 0, 0, missing_frames])
+        t_mask = sequence_mask(h_lengths, max_length=h_t.size(1)).unsqueeze(2)
+
+        stacked_h_t = h_t.view(h_t.size(0), -1, h_t.size(2) * self.cfg.reduction_factor)  # [B, T/2, 2F]
+        # ceiled lengths
+        stacked_lengths = (h_lengths + self.cfg.reduction_factor - 1) // self.cfg.reduction_factor
+
+        spk_extended = speaker_embedding.expand(-1, stacked_h_t.size(1), -1)  # [B, emb] -> [B, T/2, emb]
+        stacked_h_t = torch.concat([stacked_h_t, spk_extended], dim=2)
+
+        blstm_packed_in = nn.utils.rnn.pack_padded_sequence(stacked_h_t, stacked_lengths.to("cpu"), batch_first=True, enforce_sorted=False)
         blstm_packed_out, _ = self.lstm_stack(blstm_packed_in)
         blstm_out, _ = nn.utils.rnn.pad_packed_sequence(
             blstm_packed_out, padding_value=0.0, batch_first=True
         )  # [B, T, F]
-        blstm_out = self.output_dropout(blstm_out)
 
-        s = s * s_mask
+        out_features = self.output_linear(blstm_out)
 
-        out_features = self.output_linear(s) * s_mask
+        # unpack features
+        out_features = out_features.view(h_t.size(0), -1, self.cfg.target_channels) * t_mask  # 2 because of "B"LSTM
 
-        return out_features
+        out_postnet = self.postnet(out_features.transpose(1, 2)).transpose(1, 2)  # conv operates in [B, F, T]
+
+        final_features = (out_features + out_postnet) * t_mask
+
+        return out_features, final_features
 
 
 @dataclass
@@ -105,7 +117,7 @@ class Config():
     feature_extraction_config: DbMelFeatureExtractionConfig
     encoder_config: TTSTransformerTextEncoderV1Config
     duration_predictor_config: SimpleConvDurationPredictorV1Config
-    decoder_config: FastSpeechDecoderConfig
+    decoder_config: NarTacotronDecoderConfig
 
     num_speakers: int
     speaker_embedding_size: int
@@ -116,7 +128,7 @@ class Config():
         d["feature_extraction_config"] = DbMelFeatureExtractionConfig(**d["feature_extraction_config"])
         d["encoder_config"] = TTSTransformerTextEncoderV1Config.from_dict(d["encoder_config"])
         d["duration_predictor_config"] = SimpleConvDurationPredictorV1Config(**d["duration_predictor_config"])
-        d["decoder_config"] = FastSpeechDecoderConfig.from_dict(d["decoder_config"])
+        d["decoder_config"] = NarTacotronDecoderConfig.from_dict(d["decoder_config"])
         return Config(**d)
 
 
@@ -144,7 +156,7 @@ class Model(BaseTTSModelV1):
             speaker_embedding_size=config.speaker_embedding_size,
         )
 
-        self.decoder = FastSpeechDecoder(
+        self.decoder = NarTacotronDecoder(
             cfg=config.decoder_config,
             encoder_hidden_size=config.encoder_config.basic_dim,
             speaker_embedding_size=config.speaker_embedding_size,
@@ -170,7 +182,8 @@ class Model(BaseTTSModelV1):
         if raw_audio is not None:
             target_features, y_lengths = self.extract_features(
                 raw_audio=raw_audio.squeeze(-1),
-                raw_audio_lengths=raw_audio_lengths
+                raw_audio_lengths=raw_audio_lengths,
+                time_last=False
             )
         else:
             target_features, y_lengths = (None, None)
@@ -204,9 +217,9 @@ class Model(BaseTTSModelV1):
         # path as [B, T, N]  x h as [B, N, F] -> [B, T, F]
         upsampled_h = torch.matmul(path.transpose(1, 2), h.transpose(1, 2))
 
-        output_features = self.decoder(h_upsampled=upsampled_h, s_mask=t_mask.transpose(1, 2), speaker_embedding=spk.transpose(1, 2))
+        output_features_before, output_features_after = self.decoder(h_upsampled=upsampled_h, h_lengths=feature_lengths, speaker_embedding=spk.transpose(1, 2))
 
-        return output_features, target_features, feature_lengths, log_durations.squeeze(1)
+        return output_features_before, output_features_after, target_features, feature_lengths, log_durations.squeeze(1)
         
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):
@@ -218,15 +231,20 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     durations = data["durations"]  # [B, N]
     durations_len = data["durations:size1"]  # [B]
 
-    output_features, target_features, features_lengths, log_durations = model(
+    output_features_before, output_features_after, target_features, features_lengths, log_durations = model(
         phonemes, phonemes_len, speaker_labels, raw_samples, audio_features_len, durations,
     )
 
+    # frames might be drop depending on reduction factor, so adapt
+    output_features_before = output_features_before[:, :target_features.size(1), :]
+    output_features_after = output_features_after[:, :target_features.size(1), :]
 
     log_duration_targets = torch.log(torch.clamp_min(durations, 1))
-    l_l1 = torch.sum(torch.abs(output_features - target_features)) / model.config.decoder_config.target_channels
+    l_l1_before = torch.sum(torch.abs(output_features_before - target_features)) / model.config.decoder_config.target_channels
+    l_l1_after = torch.sum(torch.abs(output_features_after - target_features)) / model.config.decoder_config.target_channels
     l_dp = torch.sum((log_durations - log_duration_targets) ** 2)
 
-    run_ctx.mark_as_loss(name="l1", loss=l_l1, inv_norm_factor=torch.sum(features_lengths))
+    run_ctx.mark_as_loss(name="l1_before", loss=l_l1_before, inv_norm_factor=torch.sum(features_lengths))
+    run_ctx.mark_as_loss(name="l1_after", loss=l_l1_after, inv_norm_factor=torch.sum(features_lengths))
     run_ctx.mark_as_loss(name="dp", loss=l_dp, inv_norm_factor=torch.sum(phonemes_len))
 

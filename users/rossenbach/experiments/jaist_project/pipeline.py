@@ -3,7 +3,7 @@ Pipeline parts to create the necessary jobs for training / forwarding / search e
 """
 import copy
 import os.path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from sisyphus import tk
 
@@ -22,9 +22,9 @@ from i6_experiments.common.setups.returnn.datasets import Dataset
 from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob
 from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAMosPredictionJob
 
-from .config import get_forward_config
+from .config import get_forward_config, get_training_config
 from .data.aligner import build_training_dataset
-from .data.tts_phon import get_tts_extended_bliss, build_fixed_speakers_generating_dataset
+from .data.tts_phon import get_tts_extended_bliss, build_fixed_speakers_generating_dataset, build_durationtts_training_dataset
 from .default_tools import SCTK_BINARY_PATH, NISQA_REPO, RETURNN_EXE, MINI_RETURNN_ROOT
 from .storage import add_synthetic_data
 
@@ -465,4 +465,69 @@ def evaluate_nisqa(
     tk.register_output(os.path.join(prefix_name, "nisqa_mos/min"), predict_mos_job.out_mos_min)
     tk.register_output(os.path.join(prefix_name, "nisqa_mos/max"), predict_mos_job.out_mos_max)
     tk.register_output(os.path.join(prefix_name, "nisqa_mos/std_dev"), predict_mos_job.out_mos_std_dev)
+
+
+def tts_training(
+        prefix: str,
+        name: str,
+        params: Dict[str, Any],
+        net_module: str,
+        config: Dict[str, Any],
+        duration_hdf: tk.Path,
+        decoder_options: Dict[str, Any],
+        extra_decoder: Optional[str] = None,
+        use_custom_engine:bool = False,
+        debug: bool = False,
+        num_epochs=200
+) -> Tuple[ReturnnTrainingJob, ReturnnForwardJobV2]:
+    """
+
+    :param prefix:
+    :param name:
+    :param params:
+    :param net_module:
+    :param config:
+    :param duration_hdf:
+    :param decoder_options:
+    :param extra_decoder:
+    :param use_custom_engine:
+    :param debug:
+    :param num_epochs:
+    :return:
+    """
+    training_datasets = build_durationtts_training_dataset(duration_hdf=duration_hdf)
+    training_config = get_training_config(
+        training_datasets=training_datasets,
+        network_module=net_module,
+        net_args=params,
+        config=config,
+        debug=debug,
+        use_custom_engine=use_custom_engine,
+    )  # implicit reconstruction loss
+    forward_config = get_forward_config(
+        network_module=net_module,
+        net_args=params,
+        decoder=extra_decoder or net_module,
+        decoder_args=decoder_options,
+        config={
+            "forward": training_datasets.cv.as_returnn_opts()
+        },
+        debug=debug,
+    )
+    train_job = training(
+        prefix_name=prefix + name,
+        returnn_config=training_config,
+        returnn_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+        num_epochs=num_epochs
+    )
+    forward_job = tts_eval_v2(
+        prefix_name=prefix + name,
+        returnn_config=forward_config,
+        checkpoint=train_job.out_checkpoints[num_epochs],
+        returnn_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+    )
+    tk.register_output(prefix + name + "/audio_files", forward_job.out_files["audio_files"])
+    return train_job, forward_job
 

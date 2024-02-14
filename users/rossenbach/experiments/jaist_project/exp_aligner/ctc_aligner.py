@@ -4,15 +4,15 @@ import numpy as np
 from sisyphus import tk
 from dataclasses import asdict
 
-from ...data.aligner import build_training_dataset
-from ...config import get_training_config, get_prior_config, get_forward_config
-from ...pipeline import training, extract_durations
-from ...data.tts_phon import get_tts_log_mel_datastream
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.aligner import build_training_dataset
+from i6_experiments.users.rossenbach.experiments.jaist_project.config import get_training_config, get_prior_config, get_forward_config
+from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import training, extract_durations
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon import get_tts_log_mel_datastream
 
 from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterbankOptions
 
-from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ...storage import add_duration
+from i6_experiments.users.rossenbach.experiments.jaist_project.default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
+from i6_experiments.users.rossenbach.experiments.jaist_project.storage import add_duration
 
 
 
@@ -125,7 +125,7 @@ def get_ctc_alignment():
 
     norm = (log_mel_datastream.additional_options["norm_mean"], log_mel_datastream.additional_options["norm_std_dev"])
 
-    from ...pytorch_networks.ctc.tts_aligner_1223.ctc_aligner_tts_fe_v7 import DbMelFeatureExtractionConfig, TTSPredictorConfig, Config
+    from ..pytorch_networks.ctc.tts_aligner_1223.ctc_aligner_tts_fe_v7 import DbMelFeatureExtractionConfig, TTSPredictorConfig, Config
     assert isinstance(log_mel_datastream.options.feature_options, DBMelFilterbankOptions)
     fe_config = DbMelFeatureExtractionConfig(
         sample_rate=log_mel_datastream.options.sample_rate,
