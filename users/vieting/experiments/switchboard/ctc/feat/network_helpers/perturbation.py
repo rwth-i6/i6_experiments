@@ -127,13 +127,12 @@ class WaveformPerturbation:
             prob = codec.pop("prob", 1.0)
             if random_state.random() < prob:
                 if codec.get("encoding") == "ULAW":
-                    # standard values for mu-law encoding
-                    quantization_bits = 8
+                    # standard value for mu-law encoding
                     mu = 255.0
 
                     # mu-law encoding formula
                     encoded_audio = np.sign(audio) * np.log1p(mu * np.abs(audio)) / np.log1p(mu)
-                    encoded_audio = ((encoded_audio + 1) / 2 * (2**quantization_bits - 1)).astype(np.float64)
+                    encoded_audio = ((encoded_audio + 1) / 2 * 255).astype(np.float32)
 
                     audio = encoded_audio
                 else:
