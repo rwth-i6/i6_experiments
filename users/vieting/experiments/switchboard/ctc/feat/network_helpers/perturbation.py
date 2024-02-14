@@ -136,8 +136,6 @@ class WaveformPerturbation:
 
                     # mu-law encoding formula
                     encoded_audio = np.sign(audio) * np.log1p(mu * np.abs(audio)) / np.log1p(mu)
-                    encoded_audio = ((encoded_audio + 1) / 2 * 255).astype(np.float32)
-
                     audio = encoded_audio
                 else:
                     raise NotImplementedError(f"Codec {codec} not implemented.")
