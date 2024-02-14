@@ -127,7 +127,7 @@ class WaveformPerturbation:
             prob = codec.pop("prob", 1.0)
             if random_state.random() < prob:
                 if codec.get("encoding") == "ULAW":
-                    # check if youdio is in the right range for mu-law encoding
+                    # check if audio is in the right range for mu-law encoding
                     if np.max(np.abs(audio)) > 1.0:
                         raise ValueError("Audio must be in the range [-1, 1] for mu-law encoding.")
                     # standard value for mu-law encoding
