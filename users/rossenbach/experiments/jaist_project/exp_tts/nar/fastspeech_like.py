@@ -31,7 +31,7 @@ def run_fastspeech_like_tts():
         "max_seqs": 200,
     }
 
-    prefix = "experiments/jaist_project/nar_tts/fastspeech_like/"
+    prefix = "experiments/jaist_project/tts/nar/fastspeech_like/"
 
     log_mel_datastream = get_tts_log_mel_datastream(ls_corpus_key="train-clean-100")
 

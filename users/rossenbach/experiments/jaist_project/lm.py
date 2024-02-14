@@ -20,5 +20,5 @@ def get_4gram_binary_lm() -> tk.Path:
         arpa_lm=get_arpa_lm_dict()["4gram"],
         kenlm_binary_folder=KENLM_BINARY_PATH
     )
-    arpa_4gram_binary_lm_job.add_alias("experiments/jaist_project/standalone_2024/lm/create_4gram_binary_lm")
+    arpa_4gram_binary_lm_job.add_alias("experiments/jaist_project/lm/create_4gram_binary_lm")
     return arpa_4gram_binary_lm_job.out_lm

@@ -6,13 +6,13 @@ from dataclasses import asdict
 
 from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterbankOptions
 
-from ..data.aligner import build_training_dataset
-from ..config import get_training_config, get_prior_config, get_forward_config
-from ..pipeline import training, extract_durations, tts_eval_v2, generate_synthetic, cross_validation_nisqa
-from ..data.tts_phon import get_tts_log_mel_datastream, build_fixed_speakers_generating_dataset, get_tts_extended_bliss, build_durationtts_training_dataset
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.aligner import build_training_dataset
+from i6_experiments.users.rossenbach.experiments.jaist_project.config import get_training_config, get_prior_config, get_forward_config
+from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import training, extract_durations, tts_eval_v2, generate_synthetic, cross_validation_nisqa
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon import get_tts_log_mel_datastream, build_fixed_speakers_generating_dataset, get_tts_extended_bliss, build_durationtts_training_dataset
 
-from ..default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ..storage import add_duration, vocoders, add_synthetic_data, duration_alignments
+from i6_experiments.users.rossenbach.experiments.jaist_project.default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
+from i6_experiments.users.rossenbach.experiments.jaist_project.storage import add_duration, vocoders, add_synthetic_data, duration_alignments
 
 
 
@@ -36,7 +36,7 @@ def run_diffusion_tts():
         "max_seqs": 200,
     }
 
-    prefix = "experiments/jaist_project/standalone_2024/grad_tts/"
+    prefix = "experiments/jaist_project/tts/grad_tts/"
     training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", partition_epoch=1)
 
     def run_exp(name, params, net_module, config, decoder_options, extra_decoder=None, use_custom_engine=False, target_durations=None, debug=False, num_epochs=100):
@@ -111,11 +111,11 @@ def run_diffusion_tts():
 
     norm = (log_mel_datastream.additional_options["norm_mean"], log_mel_datastream.additional_options["norm_std_dev"])
 
-    from ..pytorch_networks.tts_shared.encoder.transformer import (
+    from ...pytorch_networks.tts_shared.encoder.transformer import (
         GlowTTSMultiHeadAttentionV1Config,
         TTSEncoderPreNetV1Config
     )
-    from ..pytorch_networks.grad_tts.grad_tts_v1 import (
+    from ...pytorch_networks.grad_tts.grad_tts_v1 import (
         DbMelFeatureExtractionConfig,
         TTSTransformerTextEncoderV1Config,
         SimpleConvDurationPredictorV1Config,
@@ -220,7 +220,7 @@ def run_diffusion_tts():
 
     
     
-    from ..pytorch_networks.grad_tts.grad_tts_v2 import (
+    from ...pytorch_networks.grad_tts.grad_tts_v2 import (
         MuNetConfig,
         Config,
     )

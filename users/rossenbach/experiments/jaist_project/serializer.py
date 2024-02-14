@@ -53,7 +53,7 @@ def get_pytorch_serializer_v3(
         url="https://github.com/rwth-i6/i6_models",
         commit="933c6c13f7d6c74e5a59af0257e17c208dae9da3",
         checkout_folder_name="i6_models"
-    ).out_repository
+    ).out_repository.copy()
     #i6_models_repo = tk.Path("/u/rossenbach/experiments/tts_asr_2023_pycharm/i6_models")
     i6_models_repo.hash_overwrite = "LIBRISPEECH_DEFAULT_I6_MODELS"
     i6_models = ExternalImport(import_path=i6_models_repo)

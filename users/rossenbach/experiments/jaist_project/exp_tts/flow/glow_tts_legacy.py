@@ -12,15 +12,15 @@ from i6_experiments.common.datasets.librispeech.corpus import get_bliss_corpus_d
 from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterbankOptions
 from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob
 
-from ..data.aligner import build_training_dataset
-from ..config import get_training_config, get_prior_config, get_forward_config
-from ..pipeline import training, extract_durations, tts_eval, tts_generation
-from ..data.tts_phon import get_tts_log_mel_datastream, build_fixed_speakers_generating_dataset, get_tts_extended_bliss
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.aligner import build_training_dataset
+from i6_experiments.users.rossenbach.experiments.jaist_project.config import get_training_config, get_prior_config, get_forward_config
+from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import training, extract_durations, tts_eval, tts_generation
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon import get_tts_log_mel_datastream, build_fixed_speakers_generating_dataset, get_tts_extended_bliss
 
 
 
-from ..default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ..storage import add_duration, vocoders, add_synthetic_data
+from i6_experiments.users.rossenbach.experiments.jaist_project.default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
+from i6_experiments.users.rossenbach.experiments.jaist_project.storage import add_duration, vocoders, add_synthetic_data
 
 
 
@@ -47,7 +47,7 @@ def get_flow_tts():
         "max_seqs": 200,
     }
 
-    prefix = "experiments/jaist_project/standalone_2024/glow_tts/"
+    prefix = "experiments/jaist_project/tts/glow_tts_legacy/"
     training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", partition_epoch=1)
 
     def run_exp(name, params, net_module, config, decoder_options, extra_decoder=None, use_custom_engine=False, debug=False, num_epochs=100):
@@ -166,7 +166,7 @@ def get_flow_tts():
 
     norm = (log_mel_datastream.additional_options["norm_mean"], log_mel_datastream.additional_options["norm_std_dev"])
 
-    from ..pytorch_networks.glow_tts.lukas_baseline import DbMelFeatureExtractionConfig, Config
+    from ...pytorch_networks.glow_tts.lukas_baseline import DbMelFeatureExtractionConfig, Config
     assert isinstance(log_mel_datastream.options.feature_options, DBMelFilterbankOptions)
     fe_config = DbMelFeatureExtractionConfig(
         sample_rate=log_mel_datastream.options.sample_rate,

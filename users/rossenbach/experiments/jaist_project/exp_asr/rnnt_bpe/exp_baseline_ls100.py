@@ -8,19 +8,19 @@ from typing import cast
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream
 
-from ..lm import get_4gram_binary_lm
-from ..data.bpe import build_bpe_training_datasets, TrainingDatasetSettings, get_text_lexicon
-from ..data.common import build_test_dataset
-from ..default_tools import RETURNN_EXE, MINI_RETURNN_ROOT, KENLM_BINARY_PATH
+from i6_experiments.users.rossenbach.experiments.jaist_project.lm import get_4gram_binary_lm
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.bpe import build_bpe_training_datasets, TrainingDatasetSettings, get_text_lexicon
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.common import build_test_dataset
+from i6_experiments.users.rossenbach.experiments.jaist_project.default_tools import RETURNN_EXE, MINI_RETURNN_ROOT, KENLM_BINARY_PATH
 
-from ..pipeline import training, search, compute_prior
+from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import training, search, compute_prior
 
-from ..config import get_training_config, get_forward_config, get_prior_config
-from ..storage import synthetic_ogg_zip_data
+from i6_experiments.users.rossenbach.experiments.jaist_project.config import get_training_config, get_forward_config, get_prior_config
+from i6_experiments.users.rossenbach.experiments.jaist_project.storage import synthetic_ogg_zip_data
 
 
 def conformer_rnnt_ls100():
-    prefix_name = "experiments/jaist_project/standalone_2024/ls100_rnnt_bpe/"
+    prefix_name = "experiments/jaist_project/asr/ls100_rnnt_bpe/"
 
     BPE_SIZE = 300
 
@@ -102,7 +102,7 @@ def conformer_rnnt_ls100():
     
     #### New experiments with corrected FF-Dim
 
-    from ..pytorch_networks.rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v7_cfg import \
+    from ...pytorch_networks.rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v7_cfg import \
         SpecaugConfig, VGG4LayerActFrontendV1Config_mod, ModelConfig, PredictorConfig
 
     specaug_config = SpecaugConfig(

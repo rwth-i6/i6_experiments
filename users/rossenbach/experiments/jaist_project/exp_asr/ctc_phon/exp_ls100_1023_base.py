@@ -7,19 +7,19 @@ from typing import cast
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream
 
-from ..data.phon import build_eow_phon_training_datasets, TrainingDatasetSettings, get_text_lexicon
-from ..data.common import build_test_dataset
-from ..default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ..lm import get_4gram_binary_lm
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.phon import build_eow_phon_training_datasets, TrainingDatasetSettings, get_text_lexicon
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.common import build_test_dataset
+from i6_experiments.users.rossenbach.experiments.jaist_project.default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
+from i6_experiments.users.rossenbach.experiments.jaist_project.lm import get_4gram_binary_lm
 
-from ..pipeline import training, search, compute_prior
+from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import training, search, compute_prior
 
-from ..config import get_training_config, get_forward_config, get_prior_config
-from ..storage import synthetic_bliss_data
+from i6_experiments.users.rossenbach.experiments.jaist_project.config import get_training_config, get_forward_config, get_prior_config
+from i6_experiments.users.rossenbach.experiments.jaist_project.storage import synthetic_bliss_data
 
 
 def eow_phon_ls100_1023_base():
-    prefix_name = "experiments/jaist_project/standalone_2024/ls100_ctc_eow_phon/"
+    prefix_name = "experiments/jaist_project/asr/ls100_ctc_eow_phon/"
 
     train_settings = TrainingDatasetSettings(
         custom_processing_function=None,
@@ -108,7 +108,7 @@ def eow_phon_ls100_1023_base():
         return train_job, search_jobs
     
     
-    from ..pytorch_networks.ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_cfg import \
+    from ...pytorch_networks.ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_cfg import \
         SpecaugConfig, VGG4LayerActFrontendV1Config_mod, ModelConfig, LogMelFeatureExtractionV1Config
 
     fe_config = LogMelFeatureExtractionV1Config(
@@ -455,7 +455,7 @@ def eow_phon_ls100_1023_base():
 
     # Test Glow-TTS MHSA
 
-    from ..pytorch_networks.ctc.conformer_1023.i6modelsV1_TTSRelMHSA_VGG4LayerActFrontendV1_v1_cfg import \
+    from ...pytorch_networks.ctc.conformer_1023.i6modelsV1_TTSRelMHSA_VGG4LayerActFrontendV1_v1_cfg import \
         SpecaugConfig, VGG4LayerActFrontendV1Config_mod, ModelConfig, LogMelFeatureExtractionV1Config
 
     fe_config = LogMelFeatureExtractionV1Config(

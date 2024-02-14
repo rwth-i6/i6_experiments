@@ -7,15 +7,15 @@ from dataclasses import asdict
 
 from i6_core.tools.git import CloneGitRepositoryJob
 
-from ..data.aligner import build_training_dataset
-from ..config import get_training_config, get_prior_config, get_forward_config
-from ..pipeline import training, extract_durations, tts_eval
-from ..data.tts_phon import get_tts_log_mel_datastream
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.aligner import build_training_dataset
+from i6_experiments.users.rossenbach.experiments.jaist_project.config import get_training_config, get_prior_config, get_forward_config
+from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import training, extract_durations, tts_eval
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon import get_tts_log_mel_datastream
 
 from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterbankOptions
 
-from ..default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ..storage import add_duration
+from i6_experiments.users.rossenbach.experiments.jaist_project.default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
+from i6_experiments.users.rossenbach.experiments.jaist_project.storage import add_duration
 
 MINI_RETURNN_ROOT = CloneGitRepositoryJob("https://github.com/JackTemaki/MiniReturnn", commit="c1d208106c281a8586826b5309899b960036a6d4").out_repository
 MINI_RETURNN_ROOT.hash_overwrite="LIBRISPEECH_DEFAULT_RETURNN_ROOT"
@@ -61,7 +61,7 @@ def train_vocoder():
 
     }
 
-    prefix = "experiments/jaist_project/standalone_2024/vocoder/univnet/"
+    prefix = "experiments/jaist_project/vocoder/univnet/"
     training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", partition_epoch=1)
 
     def run_exp(name, params, net_module, config, post_config, use_custom_engine=False, debug=False, num_epochs=200):
@@ -91,7 +91,7 @@ def train_vocoder():
 
     norm = (log_mel_datastream.additional_options["norm_mean"], log_mel_datastream.additional_options["norm_std_dev"])
 
-    from ..pytorch_networks.vocoder.univnet.timur_univnet import UnivNetConfig, UnivNetGeneratorConfig, DbMelFeatureExtractionConfig
+    from ...pytorch_networks.vocoder.univnet.timur_univnet import UnivNetConfig, UnivNetGeneratorConfig, DbMelFeatureExtractionConfig
     assert isinstance(log_mel_datastream.options.feature_options, DBMelFilterbankOptions)
     fe_config = DbMelFeatureExtractionConfig(
         sample_rate=log_mel_datastream.options.sample_rate,

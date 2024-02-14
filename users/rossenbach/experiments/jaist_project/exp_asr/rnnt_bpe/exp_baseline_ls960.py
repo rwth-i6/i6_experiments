@@ -8,18 +8,18 @@ from typing import cast
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream
 
-from ..lm import get_4gram_binary_lm
-from ..data.bpe import build_bpe_training_datasets, TrainingDatasetSettings, get_text_lexicon
-from ..data.common import build_test_dataset
-from ..default_tools import RETURNN_EXE, MINI_RETURNN_ROOT, KENLM_BINARY_PATH
+from i6_experiments.users.rossenbach.experiments.jaist_project.lm import get_4gram_binary_lm
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.bpe import build_bpe_training_datasets, TrainingDatasetSettings, get_text_lexicon
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.common import build_test_dataset
+from i6_experiments.users.rossenbach.experiments.jaist_project.default_tools import RETURNN_EXE, MINI_RETURNN_ROOT, KENLM_BINARY_PATH
 
-from ..pipeline import training, search, compute_prior
+from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import training, search, compute_prior
 
-from ..config import get_training_config, get_forward_config, get_prior_config
-from ..storage import ctc_models
+from i6_experiments.users.rossenbach.experiments.jaist_project.config import get_training_config, get_forward_config, get_prior_config
+from i6_experiments.users.rossenbach.experiments.jaist_project.storage import ctc_models
 
 def conformer_rnnt_ls960():
-    prefix_name = "experiments/jaist_project/standalone_2024/rnnt_bpe/"
+    prefix_name = "experiments/jaist_project/asr/rnnt_bpe/"
 
     BPE_SIZE = 5000
 
@@ -91,7 +91,7 @@ def conformer_rnnt_ls960():
     
     #### New experiments with corrected FF-Dim
 
-    from ..pytorch_networks.rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v7_cfg import \
+    from ...pytorch_networks.rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v7_cfg import \
         SpecaugConfig, VGG4LayerActFrontendV1Config_mod, ModelConfig, PredictorConfig
 
     specaug_config = SpecaugConfig(
@@ -297,7 +297,7 @@ def conformer_rnnt_ls960():
 
 
     # with aux loss
-    from ..pytorch_networks.rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v8_cfg import ModelConfig
+    from ...pytorch_networks.rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v8_cfg import ModelConfig
     model_config_v8_sub4_512lstm = ModelConfig(
         frontend_config=frontend_config,
         specaug_config=specaug_config,

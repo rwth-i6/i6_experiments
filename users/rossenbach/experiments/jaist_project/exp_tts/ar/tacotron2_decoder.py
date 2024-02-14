@@ -5,16 +5,16 @@ from dataclasses import asdict
 
 from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterbankOptions
 
-from ...data.tts_phon import build_durationtts_training_dataset
-from ...data.tts_phon import get_vocab_datastream
-from ...data.tts_phon import get_tts_log_mel_datastream
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon import build_durationtts_training_dataset
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon import get_vocab_datastream
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon import get_tts_log_mel_datastream
 
-from ...config import get_training_config, get_forward_config
-from ...pipeline import training, tts_eval_v2, generate_synthetic, cross_validation_nisqa
+from i6_experiments.users.rossenbach.experiments.jaist_project.config import get_training_config, get_forward_config
+from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import training, tts_eval_v2, generate_synthetic, cross_validation_nisqa
 
 
-from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ...storage import duration_alignments, vocoders
+from i6_experiments.users.rossenbach.experiments.jaist_project.default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
+from i6_experiments.users.rossenbach.experiments.jaist_project.storage import duration_alignments, vocoders
 
 
 
@@ -35,7 +35,7 @@ def run_tacotron2_decoder_tts():
         "max_seqs": 200,
     }
 
-    prefix = "experiments/jaist_project/standalone_2024/ar_tts/tacotron2_decoder/"
+    prefix = "experiments/jaist_project/tts/ar/tacotron2_decoder/"
 
     def run_exp(name, params, net_module, config, duration_hdf, decoder_options, extra_decoder=None, use_custom_engine=False, debug=False, num_epochs=200):
         training_datasets = build_durationtts_training_dataset(duration_hdf=duration_hdf)
