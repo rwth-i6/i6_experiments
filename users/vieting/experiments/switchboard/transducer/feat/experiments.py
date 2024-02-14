@@ -128,13 +128,13 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
     score_info.job_type = Hub5ScoreJob
     score_info.score_kwargs = {"glm": dev_corpora["hub5e00"].glm, "sctk_binary_path": SCTK_BINARY_PATH}
 
-    ctc_nn_system = TransducerSystem(
+    nn_system = TransducerSystem(
         returnn_root=returnn_root or RETURNN_ROOT,
         returnn_python_exe=RETURNN_EXE,
         rasr_binary_path=RASR_BINARY_PATH,
         require_native_lstm=False,
     )
-    ctc_nn_system.init_system(
+    nn_system.init_system(
         returnn_configs=returnn_configs,
         dev_keys=["hub5e00"],
         corpus_data=dev_corpora,
@@ -149,18 +149,18 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
         scorer_info=score_info,
         report=Report(),
     )
-    ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_lexicon = False
-    ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_all = True
-    ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_file = tk.Path(
+    nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_lexicon = False
+    nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_all = True
+    nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_file = tk.Path(
         "/u/vieting/setups/swb/20230406_feat/dependencies/allophones",
         hash_overwrite="SWB_ALLOPHONE_FILE_WEI",
         cached=True,
     )
-    ctc_nn_system.run_train_step(nn_args.training_args)
-    ctc_nn_system.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
+    nn_system.run_train_step(nn_args.training_args)
+    nn_system.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
 
-    assert ctc_nn_system.report is not None
-    report = ctc_nn_system.report
+    assert nn_system.report is not None
+    report = nn_system.report
     report.delete_redundant_rows()
     if report_name:
         tk.register_report(
@@ -168,7 +168,7 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
             values=report.get_values(),
             template=report.get_template(),
         )
-    return report
+    return nn_system, report
 
 
 def run_rasr_gt_baseline():
