@@ -5,15 +5,17 @@ Beam search
 from typing import Union, Sequence, Dict, Tuple
 
 from dataclasses import dataclass
+import functools
 import torch
+from torch.utils import _pytree as pytree
 
 from .interface_torch import LabelScorer
 
 
 @dataclass
 class BeamSearchOpts:
-    beam_size: int
-    length_normalization_exponent: float
+    beam_size: int  # e.g. 12
+    length_normalization_exponent: float  #  e.g. 1 to enable, 0 to disable
     bos_label: int
     eos_label: int
     num_labels: int
@@ -30,21 +32,22 @@ def beam_search(
     """
     beam search
 
-    :param beam_size: e.g. 12
-    :param length_normalization_exponent: e.g. 1 to enable, 0 to disable
+    :param label_scorer:
+    :param batch_size:
     :param max_seq_len: e.g. use encoder length. shape [Batch]
-
+    :param device:
+    :param opts:
     """
     # Eager-mode implementation of beam search.
     # Initial state.
-    cur_beam_size = 1
+    beam_size = 1
     state = label_scorer.get_initial_state(batch_size=batch_size, device=device)
-    target = torch.full([batch_size, cur_beam_size], opts.bos_label, device=device)
-    ended = torch.full([batch_size, cur_beam_size], False, device=device)
-    out_seq_len = torch.full([batch_size, cur_beam_size], 0, device=device)
-    seq_log_prob = torch.full([batch_size, cur_beam_size], 0.0, device=device)
+    target = torch.full([batch_size, beam_size], opts.bos_label, device=device)
+    ended = torch.full([batch_size, beam_size], False, device=device)
+    out_seq_len = torch.full([batch_size, beam_size], 0, device=device)
+    seq_log_prob = torch.full([batch_size, beam_size], 0.0, device=device)
 
-    masked_finished_log_prob = torch.where(torch.range(0, opts.num_labels) == opts.eos_label, 0.0, -1.0e30)
+    masked_finished_log_prob = torch.where(torch.arange(0, opts.num_labels) == opts.eos_label, 0.0, -1.0e30)
 
     i = 0
     seq_targets = []
@@ -58,29 +61,29 @@ def beam_search(
         # Filter out finished beams
         label_log_prob = torch.where(ended, masked_finished_log_prob, label_log_prob)
         seq_log_prob = seq_log_prob[:, :, None] + label_log_prob  # Batch, InBeam, Vocab
-        seq_log_prob, (backrefs, target) = top_k(
+        seq_log_prob, (backrefs, target), beam_size = top_k(
             seq_log_prob, k=opts.beam_size, axis=[1, 2]
         )  # seq_log_prob, backrefs, target: Batch, Beam
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
-        decoder_state = tree.map_structure(functools.partial(_gather_backrefs, backrefs=backrefs), decoder_state)
-        ended = rf.gather(ended, indices=backrefs)
-        out_seq_len = rf.gather(out_seq_len, indices=backrefs)
+        state = pytree.tree_map(functools.partial(gather, indices=backrefs), new_state)
+        ended = gather(ended, indices=backrefs)
+        out_seq_len = gather(out_seq_len, indices=backrefs)
         i += 1
 
-        ended = rf.logical_or(ended, target == model.eos_idx)
-        ended = rf.logical_or(ended, rf.copy_to_device(i >= max_seq_len))
-        if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
+        ended = ended | (target == opts.eos_label)
+        ended = ended | (i >= max_seq_len)[:, None]  # [Batch,Beam]
+        if ended.all():
             break
-        out_seq_len = out_seq_len + rf.where(ended, 0, 1)
+        out_seq_len = out_seq_len + torch.where(ended, 0, 1)
 
         if i > 1 and opts.length_normalization_exponent != 0:
             # Length-normalized scores, so we evaluate score_t/len.
             # If seq ended, score_i/i == score_{i-1}/(i-1), thus score_i = score_{i-1}*(i/(i-1))
             # Because we count with EOS symbol, shifted by one.
-            seq_log_prob *= rf.where(
+            seq_log_prob *= torch.where(
                 ended,
-                (i / (i - 1)) ** length_normalization_exponent,
+                (i / (i - 1)) ** opts.length_normalization_exponent,
                 1.0,
             )
 
@@ -93,14 +96,11 @@ def beam_search(
     for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
         # indices: FinalBeam -> Beam
         # backrefs: Beam -> PrevBeam
-        seq_targets_.insert(0, rf.gather(target, indices=indices))
+        seq_targets_.insert(0, gather(target, indices=indices))
         indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
 
-    seq_targets__ = TensorArray(seq_targets_[0])
-    for target in seq_targets_:
-        seq_targets__ = seq_targets__.push_back(target)
     out_spatial_dim = Dim(out_seq_len, name="out-spatial")
-    seq_targets = seq_targets__.stack(axis=out_spatial_dim)
+    seq_targets = torch.stack(seq_targets_, axis=out_spatial_dim)
 
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 
