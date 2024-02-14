@@ -61,7 +61,7 @@ def beam_search(
         # Filter out finished beams
         label_log_prob = torch.where(ended, masked_finished_log_prob, label_log_prob)
         seq_log_prob = seq_log_prob[:, :, None] + label_log_prob  # [Batch,InBeam,Vocab]
-        seq_log_prob, (backrefs, target) = top_k(seq_log_prob, k=opts.beam_size, dim=[1, 2])  # all [Batch,Beam]
+        seq_log_prob, (backrefs, target) = top_k_nd(seq_log_prob, k=opts.beam_size, dim=[1, 2])  # all [Batch,Beam]
         beam_size = seq_log_prob.shape[1]
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
@@ -105,7 +105,7 @@ def beam_search(
 
 
 # noinspection PyShadowingBuiltins
-def top_k(
+def top_k_nd(
     source: torch.Tensor, *, k: int, dim: Sequence[int], sorted: bool = True
 ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
     # Derived from returnn.torch.frontend._backend.TorchBackend.top_k.
