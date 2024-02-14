@@ -12,7 +12,7 @@ from i6_experiments.users.vieting.models.tf_networks.features import (
 )
 from i6_experiments.users.vieting.jobs.returnn import PeakyAlignmentJob
 from ...ctc.feat.network_helpers.perturbation import get_code_for_perturbation
-from .viterbi_transducer import make_conformer_viterbi_transducer_model
+from .helpers.transducer import make_conformer_transducer_model
 
 RECURSION_LIMIT = """
 import sys
@@ -138,6 +138,7 @@ def get_returnn_config(
     rasr_loss_args: Optional[Dict[str, tk.Path]] = None,
     lr_args: Optional[Dict[str, Any]] = None,
     conformer_type: str = "wei",
+    conformer_args: Optional[Dict] = None,
     specaug_old: Optional[Dict[str, Any]] = None,
     am_args: Optional[Dict[str, Any]] = None,
     batch_size: Union[int, Dict[str, int]] = 10000,
@@ -154,9 +155,10 @@ def get_returnn_config(
         },
         **datasets,
     }
-    alignment_dataset = datasets["train"]["datasets"][datasets["train"]["data_map"]["classes"][0]]
-    if isinstance(alignment_dataset["files"][0].creator, PeakyAlignmentJob):
-        base_config["extern_data"]["classes"]["dtype"] = "int32" if recognition else "uint16"
+    if datasets["train"]["class"] == "MetaDataset":
+        alignment_dataset = datasets["train"]["datasets"][datasets["train"]["data_map"]["classes"][0]]
+        if isinstance(alignment_dataset["files"][0].creator, PeakyAlignmentJob):
+            base_config["extern_data"]["classes"]["dtype"] = "int32" if recognition else "uint16"
     base_post_config = {
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
@@ -188,8 +190,9 @@ def get_returnn_config(
     }
     lr_args = lr_args or {}
 
-    network, prolog = make_conformer_viterbi_transducer_model(
+    network, prolog = make_conformer_transducer_model(
         num_outputs=num_outputs,
+        conformer_args=(conformer_args or {}),
         output_args={
             "am_args": am_args,
             **(rasr_loss_args or {}),
@@ -254,6 +257,6 @@ def get_returnn_config(
         post_config=base_post_config,
         staged_network_dict=staged_network_dict,
         hash_full_python_code=True,
-        python_prolog=RECURSION_LIMIT if recognition else [RECURSION_LIMIT] + prolog,
+        python_prolog=[RECURSION_LIMIT] + prolog,
         pprint_kwargs={"sort_dicts": False},
     )

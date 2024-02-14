@@ -18,7 +18,8 @@ from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_sy
 from .data import get_switchboard_data, get_returnn_datasets_transducer_viterbi
 from .baseline_args import get_nn_args as get_nn_args_baseline
 from .helpers.lr.oclr import dynamic_learning_rate
-from .default_tools import RASR_BINARY_PATH, RASR_BINARY_PATH_PRECISION, RETURNN_ROOT, RETURNN_EXE, SCTK_BINARY_PATH
+from .helpers.lr.fullsum import dynamic_learning_rate as dynamic_learning_rate_fullsum
+from .default_tools import RASR_BINARY_PATH, RASR_BINARY_PATH_PRECISION, RETURNN_ROOT, RETURNN_ROOT_FULLSUM, RETURNN_EXE, SCTK_BINARY_PATH
 
 
 def get_ctc_alignment() -> List[tk.Path]:
@@ -171,7 +172,7 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
     return nn_system, report
 
 
-def run_rasr_gt_baseline():
+def run_rasr_gt_stage1():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
 
     _, dev_corpora, _ = get_switchboard_data()
@@ -262,11 +263,11 @@ def run_rasr_gt_baseline():
         evaluation_epochs=[270, 280, 290, 300],
         prefix="viterbi_rasrgt_",
     )
-    report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"], recog_args=recog_args)
-    return report
+    nn_system, report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"], recog_args=recog_args)
+    return nn_system, report
 
 
-def run_mel_baseline():
+def run_mel_stage1():
     ctc_alignment = get_ctc_alignment()
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
@@ -350,12 +351,105 @@ def run_mel_baseline():
     return nn_system, report
 
 
+def run_mel_stage2():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
+
+    nn_system_stage1, _ = run_mel_stage1()
+    _, dev_corpora, _ = get_switchboard_data()
+    returnn_datasets = get_returnn_datasets_transducer_viterbi(keep_hashes=False)
+    returnn_args = {
+        "batch_size": 3000,
+        "datasets": returnn_datasets,
+        "extra_args": {
+            "accum_grad_multiple_step": 3,
+            "gradient_clip": 0.0,
+            "min_learning_rate": 1e-6,
+            "max_seq_length": {'classes': 600},
+            "preload_from_files": {
+                "viterbi": {
+                    "filename": nn_system_stage1.train_jobs["viterbi_lgm80_bs15k_v1"].out_checkpoints[280],
+                    "ignore_missing": True,
+                    "init_for_train": True,
+                },
+            },
+        },
+        "specaug_old": {"max_feature": 8},
+        "rasr_loss_args": {"transducer_training_stage": "fullsum"},
+        "conformer_args": {"dropout": 0.25, "batch_norm_freeze": True},
+    }
+    returnn_args_keep_hash = copy.deepcopy(returnn_args)
+    returnn_args_keep_hash["extra_args"]["learning_rate_control_error_measure"] = "sum_dev_score"
+    feature_args = {
+        "class": "LogMelNetwork",
+        "wave_norm": True,
+        "frame_size": 200,
+        "frame_shift": 80,
+        "fft_size": 256,
+    }
+    recog_args = {
+        "lm_scales": [0.75],
+        "label_scorer_args": {
+            "extra_args": {
+                "blank-label-index": 0,
+                "context-size": 1,
+                "label-scorer-type": "tf-ffnn-transducer",
+                "max-batch-size": 256,
+                "reduction-factors": 80 * 4,
+                "reduction-subtrahend": 200 - 1,  # STFT window size - 1
+                "start-label-index": 89,
+                "transform-output-negate": True,
+                "use-start-label": True,
+            },
+        },
+        "search_parameters": {
+            "allow-blank-label": True,
+            "allow-label-recombination": True,
+            "allow-word-end-recombination": True,
+            "create-lattice": True,
+            "full-sum-decoding": True,
+            "label-pruning": 13.5,
+            "label-pruning-limit": 20000,
+            "recombination-lm.type": "simple-history",
+            "separate-recombination-lm": True,
+            "word-end-pruning": 0.8,
+            "word-end-pruning-limit": 2000,
+        },
+        "epochs": [27, "best"],
+    }
+    common_args = {
+        "feature_args": feature_args,
+        "lr_args": {"dynamic_learning_rate": dynamic_learning_rate_fullsum},
+    }
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args={
+            "bs15k_v1": dict(
+                returnn_args=returnn_args_keep_hash,
+                report_args={"stage": "fullsum"},
+                **common_args,
+            ),
+        },
+        num_epochs=240,
+        evaluation_epochs=[200, 210, 220, 230, 240],
+        prefix="fullsum_lgm80_",
+    )
+    nn_system, report = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora["transducer"],
+        returnn_root=RETURNN_ROOT_FULLSUM,
+        recog_args=recog_args,
+    )
+    return nn_system, report
+
+
 def py():
     """
     called if the file is passed to sis manager, used to run all experiments (replacement for main)
     """
-    report_rasr_gt = run_rasr_gt_baseline()
-    report_mel = run_mel_baseline()
+    _, report_rasr_gt_stage1 = run_rasr_gt_stage1()
+    _, report_mel_stage1 = run_mel_stage1()
+    _, report_mel_stage2 = run_mel_stage2()
 
     report_base = Report(
         columns_start=["train_name", "features", "alignment"],
@@ -363,8 +457,9 @@ def py():
     )
     report = Report.merge_reports([
         report_base,
-        report_rasr_gt,
-        report_mel,
+        report_rasr_gt_stage1,
+        report_mel_stage1,
+        report_mel_stage2,
     ])
     report.delete_redundant_columns()
     tk.register_report(

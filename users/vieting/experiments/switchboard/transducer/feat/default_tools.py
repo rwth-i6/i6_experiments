@@ -40,3 +40,8 @@ RETURNN_ROOT = CloneGitRepositoryJob(
     checkout_folder_name="returnn",
 ).out_repository
 RETURNN_ROOT.hash_overwrite = "SWITCHBOARD_TRANSDUCER_RETURNN_ROOT"
+
+RETURNN_ROOT_FULLSUM = tk.Path(
+    "/work/asr4/vieting/programs/returnn/dev/20240209/returnn/",
+    hash_overwrite="SWITCHBOARD_TRANSDUCER_RETURNN_ROOT_FULLSUM",
+)
