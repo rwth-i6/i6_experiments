@@ -24,7 +24,6 @@ All models are implemented using PyTorch and trained with the lightweight "Mini-
 For simplicity we use the torchaudio CTC and RNN-T decoders. The torchaudio CTC decoder uses Flashlight (written in c++) for the lexicon
 based search. The torchaudio RNN-T decoder does lexicon-free beam search and is implemented purely in Python and PyTorch.
 
-
 Model Structure
 ===============
 
@@ -32,15 +31,11 @@ Text-To-Speech
 --------------
 
 All TTS systems are designed to use the same encoder and duration predictor structure.
-The code and structure are derived from https://github.com/jaywalnut310/glow-tts,
+The code and structure are derived from [GlowTTS](https://github.com/jaywalnut310/glow-tts),
 which follows the FastSpeech Transformer architecture.
 
-<table>
-<tr>
-<td><img src="docs/figures/encoder.svg" alt="Glow-TTS at training" height="400"></td>
-<td>
-The code parts for the encoder can be found under [pytorch_networks/tts_shared/encoder](https://github.com/rwth-i6/i6_experiments/tree/main/users/rossenbach/experiments/jaist_project/pytorch_networks/tts_shared/encoder) .
-A template class for all the TTS models is under [pytorch_networks/tts_shared/tts_base_model](https://github.com/rwth-i6/i6_experiments/tree/main/users/rossenbach/experiments/jaist_project/pytorch_networks/tts_shared/tts_base_model)
-</td>
-</tr>
-</table>
+![Encoder](/users/rossenbach/experiments/jaist_project/docs/figures/encoder.svg)
+
+The code parts for the encoder can be found under [pytorch_networks/tts_shared/encoder](/users/rossenbach/experiments/jaist_project/pytorch_networks/tts_shared/encoder) .
+A template class for all the TTS models is under [pytorch_networks/tts_shared/tts_base_model](/users/rossenbach/experiments/jaist_project/pytorch_networks/tts_shared/tts_base_model)
+
