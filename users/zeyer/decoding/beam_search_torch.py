@@ -141,11 +141,12 @@ def batch_gather(values: torch.Tensor, *, indices: torch.Tensor) -> torch.Tensor
     assert indices.shape[0] == values.shape[0]
     num_index_own_dims = indices.ndim - 1
     if num_index_own_dims == 1:
-        indices_flat = indices  # good
+        indices_flat = indices  # good, [Batch,IndexDim]
     elif num_index_own_dims == 0:
-        indices_flat = indices[:, None]
+        indices_flat = indices[:, None]  # [Batch,IndexDim=1]
     else:
-        indices_flat = indices.flatten(1)
+        indices_flat = indices.flatten(1)  # [Batch,FlatIndexDim]
+    indices_flat = indices_flat.reshape(list(indices_flat.shape) + [1] * (values.ndim - 2))  # [Batch,IndexDim,1s...]
     out = torch.gather(values, dim=1, index=indices_flat.type(torch.int64))
     if num_index_own_dims == 1:
         pass  # nothing to do
