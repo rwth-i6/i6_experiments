@@ -2,16 +2,17 @@
 Beam search
 """
 
-from typing import Sequence, Tuple, List
+from __future__ import annotations
+from typing import Sequence, Tuple, List, TypeVar
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dataclass_replace
 import functools
 import torch
 
 # noinspection PyProtectedMember
 from torch.utils import _pytree as pytree
 
-from .interface_torch import LabelScorerIntf
+from .interface_torch import LabelScorerIntf, StateObjTensorExt, StateObjIgnored
 
 
 @dataclass
@@ -70,7 +71,7 @@ def beam_search(
         beam_size = seq_log_prob.shape[1]
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
-        state = pytree.tree_map(functools.partial(batch_gather, indices=backrefs), new_state)  # [Batch,Beam,...]
+        state = pytree.tree_map(functools.partial(batch_gather_, indices=backrefs), new_state)  # [Batch,Beam,...]
         ended = batch_gather(ended, indices=backrefs)  # [Batch,Beam]
         out_seq_len = batch_gather(out_seq_len, indices=backrefs)  # [Batch,Beam]
         i += 1
@@ -153,3 +154,20 @@ def batch_gather(values: torch.Tensor, *, indices: torch.Tensor) -> torch.Tensor
     else:
         out = out.unflatten(1, indices.shape[1:])
     return out
+
+
+T = TypeVar("T")
+
+
+def batch_gather_(values: T, *, indices: torch.Tensor) -> T:
+    """calls :func:`batch_gather`"""
+    if isinstance(values, torch.Tensor):
+        return batch_gather(values, indices=indices)
+    elif isinstance(values, StateObjTensorExt):
+        return dataclass_replace(values, tensor=batch_gather(values=values.tensor, indices=indices))
+    elif isinstance(values, StateObjIgnored):
+        return dataclass_replace(values)
+    elif values is None:
+        return None
+    else:
+        raise TypeError(f"batch_gather_: unexpected {values} ({type(values).__name__})")

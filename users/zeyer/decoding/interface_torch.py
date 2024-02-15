@@ -2,8 +2,12 @@
 Generic interface for decoding.
 """
 
-from typing import Any, Dict, Tuple
-import torch
+from __future__ import annotations
+from typing import Optional, Any, Dict, Tuple, TYPE_CHECKING
+from dataclasses import dataclass
+
+if TYPE_CHECKING:
+    import torch
 
 
 class LabelScorerIntf:
@@ -16,6 +20,14 @@ class LabelScorerIntf:
 
     If there is some encoder output, or any precomputed output to be reused inside,
     this can be stored as attrib, e.g. via __init__.
+
+    ``state`` is any nested structure (to be used with PyTorch _pytree or similar),
+    and allows the following leaf types:
+
+    * :class:`torch.Tensor`
+    * :class:`StateObjTensorExt`
+    * :class:`StateObjIgnored`
+    * ``None``
     """
 
     def get_initial_state(self, *, batch_size: int, device: torch.device) -> Any:
@@ -41,6 +53,26 @@ class LabelScorerIntf:
             state: all tensors are expected to have shape [Batch, Beam, ...].
         """
         raise NotImplementedError
+
+
+@dataclass
+class StateObjTensorExt:
+    """
+    Can be used in ``state`` to represent a tensor with additional objects attached.
+    The additional objects will be ignored in transformations.
+    """
+
+    tensor: torch.Tensor
+    extra: Any
+
+
+@dataclass
+class StateObjIgnored:
+    """
+    Can be used in ``state`` to wrap some other object, which will be ignored in transformations.
+    """
+
+    content: Any
 
 
 class ShallowFusedLabelScorers(LabelScorerIntf):
