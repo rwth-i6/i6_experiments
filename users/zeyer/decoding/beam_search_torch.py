@@ -146,14 +146,16 @@ def batch_gather(values: torch.Tensor, *, indices: torch.Tensor) -> torch.Tensor
         indices_flat = indices[:, None]  # [Batch,IndexDim=1]
     else:
         indices_flat = indices.flatten(1)  # [Batch,FlatIndexDim]
-    indices_flat = indices_flat.reshape(list(indices_flat.shape) + [1] * (values.ndim - 2))  # [Batch,IndexDim,1s...]
-    out = torch.gather(values, dim=1, index=indices_flat.type(torch.int64))
+    indices_flat_bc = indices_flat.reshape(list(indices_flat.shape) + [1] * (values.ndim - 2))  # [Batch,IndexDim,1s...]
+    indices_flat_exp = indices_flat_bc.expand(indices_flat.shape + values.shape[2:])  # [Batch,IndexDim,ValuesDims...]
+    out = torch.gather(values, dim=1, index=indices_flat_exp.type(torch.int64))
     if num_index_own_dims == 1:
         pass  # nothing to do
     elif num_index_own_dims == 0:
         out = out.squeeze(1)
     else:
         out = out.unflatten(1, indices.shape[1:])
+    assert out.shape == indices.shape + values.shape[2:]
     return out
 
 
