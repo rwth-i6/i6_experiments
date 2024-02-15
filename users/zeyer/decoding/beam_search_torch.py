@@ -125,9 +125,9 @@ def top_k_nd(
     indices_out = []
     for i in reversed(list(range(len(dim)))):
         a_dim = source.shape[source.ndim - len(dim) + i]
-        indices_out = indices % a_dim
+        indices_out_ = indices % a_dim
         indices = indices // a_dim
-        indices_out.insert(0, indices_out)
+        indices_out.insert(0, indices_out_)
     return values, indices_out
 
 
