@@ -1016,10 +1016,7 @@ def get_label_scorer_pure_torch(
             beam_dim = Dim(1, name="initial-beam")
             batch_dims_ = [batch_dim, beam_dim]
             decoder_state = model.decoder.default_initial_state(batch_dims=batch_dims_)
-            return tree.map_structure(
-                functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim),
-                decoder_state,
-            )
+            return tree.map_structure(functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim), decoder_state)
 
         def score_and_update_state(
             self,
@@ -1038,11 +1035,13 @@ def get_label_scorer_pure_torch(
                     )
                     tensor.raw_tensor = v.tensor
                     return tensor
+                elif isinstance(v, StateObjIgnored):
+                    return v.content
                 else:
                     raise TypeError(f"_map_raw_to_tensor: unexpected {v} ({type(v).__name__})")
 
             logits, decoder_state = model.decoder(
-                Tensor("prev_label", [batch_dim, beam_dim], "int32", raw_tensor=prev_label),
+                rf.convert_to_tensor(prev_label, dims=[batch_dim, beam_dim], sparse_dim=model.target_dim),
                 spatial_dim=single_step_dim,
                 encoder=enc,
                 state=tree.map_structure(_map_raw_to_tensor, prev_state),
@@ -1052,19 +1051,20 @@ def get_label_scorer_pure_torch(
 
             return (
                 self._map_tensor_to_raw(label_log_prob, beam_dim=beam_dim).tensor,
-                tree.map_structure(
-                    functools.partial(self._map_tensor_to_raw, batch_dim=batch_dim, beam_dim=beam_dim),
-                    decoder_state,
-                ),
+                tree.map_structure(functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim), decoder_state),
             )
 
         @staticmethod
         def _map_tensor_to_raw(v, *, beam_dim: Dim):
             if isinstance(v, Tensor):
+                if beam_dim not in v.dims:
+                    return StateObjIgnored(v)
                 batch_dims_ = [batch_dim, beam_dim]
                 v = v.copy_transpose(batch_dims_ + [dim for dim in v.dims if dim not in batch_dims_])
                 raw = v.raw_tensor
                 return StateObjTensorExt(raw, v.copy_template())
+            elif isinstance(v, Dim):
+                return StateObjIgnored(v)
             else:
                 raise TypeError(f"_map_tensor_to_raw: unexpected {v} ({type(v).__name__})")
 
