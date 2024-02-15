@@ -57,7 +57,7 @@ A template class for all the TTS models is under [pytorch_networks/tts_shared/tt
 The setup includes an implementation of the following 4 TTS decoder architectures, depicted in a simplifying sketch:
 
 
-![Encoder](/users/rossenbach/experiments/jaist_project/docs/figures/tts_deocder.svg)
+![Decoder](/users/rossenbach/experiments/jaist_project/docs/figures/tts_decocder.svg)
 
 a) Transformer TTS: This encoder is a simple Transformer with convolution layers instead of feed-forward layers.
 
