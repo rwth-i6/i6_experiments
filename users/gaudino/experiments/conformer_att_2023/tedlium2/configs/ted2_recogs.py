@@ -429,46 +429,52 @@ def otps_recogs_additonal_trainings():
                 )
             ),
             "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.X7XyfXQgD3xG/output/prior.txt",
+            "enc_layer_w_ctc": 6,
         },
-          "model_ctc0.3_att0.7_lay8": {
+        "model_ctc0.3_att0.7_lay8": {
             "ckpt": Checkpoint(
                 tk.Path(
                     "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/training/AverageTFCheckpointsJob.BJm3qbEaW5Tx/output/model/average.index"
                 )
             ),
             "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.eP7zoAFYv3og/output/prior.txt",
+            "enc_layer_w_ctc": 8,
         },
-          "model_ctc0.3_att0.7_lay10": {
+        "model_ctc0.3_att0.7_lay10": {
             "ckpt": Checkpoint(
                 tk.Path(
                     "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/training/AverageTFCheckpointsJob.kXhiucifOrAt/output/model/average.index"
                 )
             ),
             "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.xE5gRKwcIqiU/output/prior.txt",
+            "enc_layer_w_ctc": 10,
         },
-          "model_ctc1.0_att1.0_lay6": {
+        "model_ctc1.0_att1.0_lay6": {
             "ckpt": Checkpoint(
                 tk.Path(
                     "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/training/AverageTFCheckpointsJob.blMBlPQmI98T/output/model/average.index"
                 )
             ),
             "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.n7bJXRdAxMzQ/output/prior.txt",
+            "enc_layer_w_ctc": 6,
         },
-          "model_ctc1.0_att1.0_lay8": {
+        "model_ctc1.0_att1.0_lay8": {
             "ckpt": Checkpoint(
                 tk.Path(
                     "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/training/AverageTFCheckpointsJob.u6FZCXVWY47j/output/model/average.index"
                 )
             ),
             "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.vDNVuXdu71fC/output/prior.txt",
+            "enc_layer_w_ctc": 8,
         },
-          "model_ctc1.0_att1.0_lay10": {
+        "model_ctc1.0_att1.0_lay10": {
             "ckpt": Checkpoint(
                 tk.Path(
                     "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/training/AverageTFCheckpointsJob.Pxff6AKX9mkH/output/model/average.index"
                 )
             ),
             "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.sCesAfPOg838/output/prior.txt",
+            "enc_layer_w_ctc": 10,
         },
         # att only
         "model_att_only_currL": {
@@ -498,6 +504,12 @@ def otps_recogs_additonal_trainings():
         },
     }
 
+    def adjust_enc_args_to_model_name(enc_args, model_name):
+        new_enc_args = copy.deepcopy(enc_args)
+        if "enc_layer_w_ctc" in models[model_name].keys():
+            new_enc_args.enc_layer_w_ctc = models[model_name]["enc_layer_w_ctc"]
+        return new_enc_args
+
     def get_train_data(**kwargs):
         train_data = build_training_datasets(
             bpe_size=1000,
@@ -514,11 +526,28 @@ def otps_recogs_additonal_trainings():
 
     train_data_baseline = get_train_data()
 
+    # att only decoding
+    search_args = copy.deepcopy(args)
+    # for model_name, beam_size in product(list(models.keys())[:-1], [12, 24]):
+    for model_name, beam_size in product(["model_baseline"], [12, 24]):
+        search_args["encoder_args"] = adjust_enc_args_to_model_name(search_args["encoder_args"], model_name)
+        run_decoding(
+            model_name + f"/att_only_beam{beam_size}",
+            train_data_baseline,
+            checkpoint=models[model_name]["ckpt"],
+            search_args=search_args,
+            bpe_size=BPE_1K,
+            test_sets=["dev", "test"],
+            remove_label={"<s>", "<blank>"},
+            use_sclite=True,
+        )
+
     # ctc greedy decoding
     search_args = copy.deepcopy(args)
     search_args["decoder_args"] = CTCDecoderArgs(target_dim=1057)
 
     for model_name in list(models.keys())[:-3] + ["model_ctc_only"]:
+        search_args["encoder_args"] = adjust_enc_args_to_model_name(search_args["encoder_args"], model_name)
         run_decoding(
             model_name + f"/ctc_greedy",
             train_data_baseline,
@@ -533,55 +562,56 @@ def otps_recogs_additonal_trainings():
     # ctc prior correction
     ctc_prior_model_names = {
         "model_baseline": {
-            "prior_scale": [0.15], # dev/test 8.39/8.01 -> 8.19/7.92
+            "prior_scale": [0.15],  # dev/test 8.39/8.01 -> 8.19/7.92
         },
-        "model_ctc0.43_att1.0": { # dev/test 8.62/7.97 -> 8.58/7.86
+        "model_ctc0.43_att1.0": {  # dev/test 8.62/7.97 -> 8.58/7.86
             "prior_scale": [0.15],
         },
         "model_ctc0.25_att1.0": {
-            "prior_scale": [0.22], # dev/test 9.03/8.32 -> 8.79/8.25
+            "prior_scale": [0.22],  # dev/test 9.03/8.32 -> 8.79/8.25
         },
-        "model_ctc0.2_att1.0": { # dev/test 9.56/8.67 -> 9.38/8.65
+        "model_ctc0.2_att1.0": {  # dev/test 9.56/8.67 -> 9.38/8.65
             "prior_scale": [0.2],
         },
         "model_ctc0.3_att0.7": {
-            "prior_scale": [0.25], # dev/test 8.58/8.15 -> 8.46/8.11
+            "prior_scale": [0.25],  # dev/test 8.58/8.15 -> 8.46/8.11
         },
         "model_ctc0.2_att0.8": {
-            "prior_scale": [0.22], # dev/test 9.05/8.35 -> 8.78/8.33
+            "prior_scale": [0.22],  # dev/test 9.05/8.35 -> 8.78/8.33
         },
         "model_ctc0.1_att0.9": {
-            "prior_scale": [0.17], # dev/test 9.92/9.22 -> 9.84/9.20
+            "prior_scale": [0.17],  # dev/test 9.92/9.22 -> 9.84/9.20
         },
         "model_ctc0.001_att0.999": {
-            "prior_scale": [0.2], # dev/test 27.00/25.10 -> 26.32/24.76
+            "prior_scale": [0.2],  # dev/test 27.00/25.10 -> 26.32/24.76
         },
         "model_ctc0.3_att0.7_lay6": {
-            "prior_scale": [0.1, 0.15, 0.2 , 0.25, 0.3],
+            "prior_scale": [0.15, 0.2],
         },
         "model_ctc0.3_att0.7_lay8": {
-            "prior_scale": [0.1, 0.15, 0.2 , 0.25, 0.3],
+            "prior_scale": [0.2], # dev/test 9.68/ -> 9.66/
         },
         "model_ctc0.3_att0.7_lay10": {
-            "prior_scale": [0.1, 0.15, 0.2 , 0.25, 0.3],
+            "prior_scale": [0.2], # dev/test 9.26/ -> 9.01/
         },
         "model_ctc1.0_att1.0_lay6": {
-            "prior_scale": [0.1, 0.15, 0.2 , 0.25, 0.3],
+            "prior_scale": [0.2], # dev/test 10.34/ -> 10.22/
         },
         "model_ctc1.0_att1.0_lay8": {
-            "prior_scale": [0.1, 0.15, 0.2 , 0.25, 0.3],
+            "prior_scale": [0.15], # dev/test 9.53/ -> 9.4/
         },
         "model_ctc1.0_att1.0_lay10": {
-            "prior_scale": [0.1, 0.15, 0.2 , 0.25, 0.3],
+            "prior_scale": [0.1, 0.15, 0.2, 0.25, 0.3], # dev/test 9.38/ -> 9.03/
         },
         "model_ctc_only": {
-            "prior_scale": [0.17], # dev/test 9.27/8.46 -> 9.23/8.37
+            "prior_scale": [0.17],  # dev/test 9.27/8.46 -> 9.23/8.37
         },
     }
 
     for model_name in ctc_prior_model_names.keys():
         for prior_scale in ctc_prior_model_names[model_name]["prior_scale"]:
             search_args = copy.deepcopy(args)
+            search_args["encoder_args"] = adjust_enc_args_to_model_name(search_args["encoder_args"], model_name)
             search_args["ctc_log_prior_file"] = models[model_name]["prior"]
             search_args["decoder_args"] = CTCDecoderArgs(
                 ctc_prior_correction=True,
@@ -594,40 +624,10 @@ def otps_recogs_additonal_trainings():
                 checkpoint=models[model_name]["ckpt"],
                 search_args=search_args,
                 bpe_size=BPE_1K,
-                test_sets=["dev"],
+                test_sets=["dev", "test"],
                 remove_label={"<s>", "<blank>"},
                 use_sclite=True,
             )
-
-    search_args = copy.deepcopy(args)
-    for scales in [(0.7, 0.3)]:
-        for beam_size in [55]:
-            for prior_scale in [0.4]:
-                search_args["beam_size"] = beam_size
-                search_args["ctc_log_prior_file"] = models["model_ctc0.3_att0.7"][
-                    "prior"
-                ]
-                att_scale, ctc_scale = scales
-                search_args["decoder_args"] = CTCDecoderArgs(
-                    add_att_dec=True,
-                    att_scale=att_scale,
-                    ctc_scale=ctc_scale,
-                    att_masking_fix=True,
-                    target_dim=1057,
-                    target_embed_dim=256,
-                    ctc_prior_correction=True,
-                    prior_scale=prior_scale,
-                )
-                run_decoding(
-                    f"model_ctc_0.43_att_1.0/opts_ctc{ctc_scale}_att{att_scale}_prior{prior_scale}_beam{beam_size}",
-                    train_data_baseline,
-                    checkpoint=models["model_ctc0.43_att1.0"]["ckpt"],
-                    search_args=search_args,
-                    bpe_size=BPE_1K,
-                    test_sets=["dev"],
-                    remove_label={"<s>", "<blank>"},
-                    use_sclite=True,
-                )
 
     from i6_experiments.users.gaudino.models.asr.lm.tedlium_lm import (
         tedlium_lm_net,
@@ -635,11 +635,11 @@ def otps_recogs_additonal_trainings():
         tedlium_lm_load_on_init,
     )
 
-    # try ctc + trafo lm
+    # try ctc + trafo lm # TODO: move these to separate file
     search_args = copy.deepcopy(args)
     for scales, beam_size, model_name in product(
-        [(1.0, 0.1), (1.0, 0.2), (1.0, 0.3), (1.0, 0.4), (1.0, 0.5), (1.0, 0.6) ],
-        [12 ,32],
+        [(1.0, 0.1), (1.0, 0.2), (1.0, 0.3), (1.0, 0.4), (1.0, 0.5), (1.0, 0.6)],
+        [12, 32],
         ["model_baseline", "model_ctc_only"],
     ):
         search_args["beam_size"] = beam_size
@@ -717,10 +717,19 @@ def otps_recogs_additonal_trainings():
 
     for model_name, scales, beam_size in product(
         list(joint_training_model_names.keys())[-6:],
-        [(0.6, 0.4), (0.65,0.35), (0.7, 0.3), (0.75, 0.25), (0.8, 0.2), (0.85, 0.15), (0.9, 0.1)],
+        [
+            (0.6, 0.4),
+            (0.65, 0.35),
+            (0.7, 0.3),
+            (0.75, 0.25),
+            (0.8, 0.2),
+            (0.85, 0.15),
+            (0.9, 0.1),
+        ],
         [12],
     ):
         # for scales in joint_training_model_names[model_name]["scales"]:
+        search_args["encoder_args"] = adjust_enc_args_to_model_name(search_args["encoder_args"], model_name)
         search_args["beam_size"] = beam_size
         search_args["ctc_log_prior_file"] = models[model_name]["prior"]
         att_scale, ctc_scale = scales
@@ -812,10 +821,11 @@ def otps_recogs_additonal_trainings():
 
     for first_model_name, scales, beam_size in product(
         list(joint_training_model_names_2.keys())[-6:],
-        [(0.6,0.4), (0.65,0.35), (0.7, 0.3), (0.75, 0.25), (0.8, 0.2), (0.85, 0.15)],
+        [(0.6, 0.4), (0.65, 0.35), (0.7, 0.3), (0.75, 0.25), (0.8, 0.2), (0.85, 0.15)],
         # [0.55, 0.6, 0.65, 0.7, 0.75],
         [12],
     ):
+        search_args["encoder_args"] = adjust_enc_args_to_model_name(search_args["encoder_args"], model_name)
         search_args["beam_size"] = beam_size
         search_args["ctc_log_prior_file"] = models["model_ctc_only"]["prior"]
         att_scale, ctc_scale = scales
@@ -845,4 +855,3 @@ def otps_recogs_additonal_trainings():
             remove_label={"<s>", "<blank>"},
             use_sclite=True,
         )
-
