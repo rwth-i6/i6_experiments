@@ -19,7 +19,7 @@ from i6_experiments.users.rossenbach.experiments.jaist_project.config import get
 from i6_experiments.users.rossenbach.experiments.jaist_project.storage import synthetic_ogg_zip_data
 
 
-def conformer_rnnt_ls100():
+def run_rnnt_ls100_synthetic_data():
     prefix_name = "experiments/jaist_project/asr/ls100_rnnt_bpe/"
 
     BPE_SIZE = 300
@@ -182,10 +182,18 @@ def conformer_rnnt_ls100():
         prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub4_start20_lstm256_amp16_continue/bs12",
         datasets=train_data, train_args=train_args_resume, search_args=search_args)
 
-    # same with speed perturb
-    train_args_speedpert = copy.deepcopy(train_args)
-    train_args_speedpert["use_speed_perturbation"] = True
+
+    # resume with test synthetic data
+    syn_name = "glow_tts.lukas_baseline_bs600_v2_newgl_noise0.3_syn_train-clean-360"
+    syn_ogg_zip = synthetic_ogg_zip_data[syn_name]
+    syn_train_data = build_bpe_training_datasets(
+        librispeech_key="train-clean-100",
+        bpe_size=BPE_SIZE,
+        settings=train_settings_syn_training,
+        real_data_weight=3,
+        extra_zips=[syn_ogg_zip],
+    )
 
     train_job, _ = run_exp(
-        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub4_start20_lstm256_amp16_speedpert/bs12",
-        datasets=train_data, train_args=train_args_speedpert, search_args=search_args)
+        prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub4_start20_lstm256_amp16_continue_syn/{syn_name}/bs12",
+        datasets=syn_train_data, train_args=train_args_resume, search_args=search_args)

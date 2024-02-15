@@ -180,7 +180,12 @@ def run_tacotron2_like_tts():
 
     local_config = copy.deepcopy(config)
     duration_hdf = duration_alignments["glow_tts.glow_tts_v1_bs600_v2_base256"]
-    train, forward = run_exp(net_module + "_fromglowbase256_v1_bs600", params, net_module,
+    train, forward = run_exp(net_module + "_glow256align_200eps_bs600_oclr", params, net_module,
                              local_config,
                              extra_decoder="nar_tts.tacotron2_like.simple_gl_decoder", decoder_options=decoder_options,
                              duration_hdf=duration_hdf, debug=True)
+    
+    generate_synthetic(prefix, net_module + "_glow256align_200eps_bs600_oclr_syn", "train-clean-100",
+                       train.out_checkpoints[200], params, net_module,
+                       extra_decoder="nar_tts.tacotron2_like.simple_gl_decoder",
+                       decoder_options=decoder_options_synthetic, debug=True)

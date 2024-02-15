@@ -66,7 +66,7 @@ def training(
 
     return train_job
 
-@tk.block()
+
 def search_single(
         prefix_name: str,
         returnn_config: ReturnnConfig,
@@ -119,6 +119,30 @@ def search_single(
     tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
 
     return sclite_job.out_wer, search_job
+
+
+def run_swer_evaluation(
+        prefix_name: str,
+        asr_returnn_config: ReturnnConfig,
+        asr_checkpoint: tk.Path,
+        synthetic_bliss: tk.Path,
+        preemphasis: float,
+        peak_normalization: bool,
+    ):
+    from .data.common import build_swer_test_dataset, get_cv_bliss
+    search_single(
+        prefix_name=prefix_name,
+        returnn_config=asr_returnn_config,
+        checkpoint=asr_checkpoint,
+        recognition_dataset=build_swer_test_dataset(
+            synthetic_bliss=synthetic_bliss,
+            preemphasis=preemphasis,
+            peak_normalization=peak_normalization
+        ),
+        recognition_bliss_corpus=get_cv_bliss(),
+        returnn_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT
+    )
 
 
 @tk.block()

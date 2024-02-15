@@ -19,7 +19,7 @@ from i6_experiments.users.rossenbach.experiments.jaist_project.config import get
 from i6_experiments.users.rossenbach.experiments.jaist_project.storage import synthetic_ogg_zip_data
 
 
-def conformer_baseline():
+def run_ctc_bpe_synthetic_data():
     prefix_name = "experiments/jaist_project/asr/ls100_ctc_bpe/"
 
     BPE_SIZE = 300
@@ -189,24 +189,6 @@ def conformer_baseline():
         "network_module": "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6",
         "net_args": {"model_config_dict": asdict(model_config)},
     }
-    for lm_weight in [1.6, 1.8, 2.0, 2.2]:
-        for prior_scale in [0.3, 0.5]:
-            search_args = {
-                **default_search_args,
-                "lm_weight": lm_weight,
-                "prior_scale": prior_scale,
-            }
-            run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_start11/lm%.1f_prior%.2f_bs1024_th14" % (
-                    lm_weight, prior_scale),
-                datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
-            
-            
-    train_args = {
-        **copy.deepcopy(train_args_adamw03_accum2_jjlr),
-        "network_module": "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6",
-        "net_args": {"model_config_dict": asdict(model_config)},
-    }
     train_args["config"]["torch_amp_options"] =  {"dtype": "bfloat16"}
     for lm_weight in [1.6, 1.8, 2.0, 2.2]:
         for prior_scale in [0.0, 0.3, 0.5]:
@@ -244,33 +226,16 @@ def conformer_baseline():
                     lm_weight, prior_scale),
                 datasets=train_data, train_args=train_args_resume, search_args=search_args, with_prior=True)
             
-
-    frontend_config_smaller = copy.deepcopy(frontend_config)
-    frontend_config_smaller.out_features = 144
-    model_config_conformer_s = ModelConfig(
-        feature_extraction_config=fe_config,
-        frontend_config=frontend_config_smaller,
-        specaug_config=specaug_config,
-        label_target_size=vocab_size_without_blank,
-        conformer_size=144,
-        num_layers=16,
-        num_heads=4,
-        ff_dim=144 * 4,
-        att_weights_dropout=0.1,
-        conv_dropout=0.1,
-        ff_dropout=0.1,
-        mhsa_dropout=0.1,
-        conv_kernel_size=31,
-        final_dropout=0.1,
-        specauc_start_epoch=11,
+    # resume with test synthetic data
+    syn_name = "glow_tts.lukas_baseline_bs600_v2_newgl_noise0.3_syn_train-clean-360"
+    syn_ogg_zip = synthetic_ogg_zip_data[syn_name]
+    syn_train_data = build_bpe_training_datasets(
+        librispeech_key="train-clean-100",
+        bpe_size=BPE_SIZE,
+        settings=train_settings_syn_training,
+        real_data_weight=3,
+        extra_zips=[syn_ogg_zip],
     )
-    
-    train_args = {
-        **copy.deepcopy(train_args_adamw03_accum2_jjlr),
-        "network_module": "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6",
-        "net_args": {"model_config_dict": asdict(model_config_conformer_s)},
-    }
-    train_args["config"]["torch_amp_options"] =  {"dtype": "bfloat16"}
     for lm_weight in [1.6, 1.8, 2.0, 2.2]:
         for prior_scale in [0.3, 0.5]:
             search_args = {
@@ -279,6 +244,6 @@ def conformer_baseline():
                 "prior_scale": prior_scale,
             }
             run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_conformer_s_start11_amp16/lm%.1f_prior%.2f_bs1024_th14" % (
+                prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_start11_amp16_resume_syn/{syn_name}/lm%.1f_prior%.2f_bs1024_th14" % (
                     lm_weight, prior_scale),
-                datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+                datasets=syn_train_data, train_args=train_args_resume, search_args=search_args, with_prior=True)

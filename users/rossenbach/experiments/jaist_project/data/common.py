@@ -23,7 +23,7 @@ from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset
 
 from ..default_tools import MINI_RETURNN_ROOT, RETURNN_EXE
 
-DATA_PREFIX = ("experiments/jaist_project/standalone_2024/data/")
+DATA_PREFIX = ("experiments/jaist_project/data/")
 
 # -------------- Dataclasses for configuration and data passing -------------------
 
@@ -103,6 +103,24 @@ def get_zip(name: str, bliss_dataset: tk.Path) -> tk.Path:
 
     return zip_dataset_job.out_ogg_zip
 
+
+def get_cv_bliss():
+    """
+    Build the 1004 sequences tts bliss corpus
+
+    used only for SWER calculation
+    """
+    from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech_tts_segments
+    train_segments, cv_segments = get_librispeech_tts_segments(ls_corpus_key="train-clean-100")
+    train_clean_100_bliss = get_bliss_corpus_dict(audio_format="ogg")["train-clean-100"]
+    from i6_core.corpus.filter import FilterCorpusBySegmentsJob
+    tts_cv_bliss = FilterCorpusBySegmentsJob(
+        bliss_corpus=train_clean_100_bliss,
+        segment_file=cv_segments,
+        compressed=True,
+        delete_empty_recordings=True
+    ).out_corpus
+    return tts_cv_bliss
 
 # --------------------------- Dataset functions  -----------------------------------
 
@@ -230,3 +248,34 @@ def build_test_dataset(
     )
 
     return test_dataset, bliss_dict[dataset_key]
+
+def build_swer_test_dataset(synthetic_bliss, preemphasis: Optional[float] = None, peak_normalization: bool = False):
+    """
+
+    :param synthetic_bliss:
+    :param preemphasis:
+    :param peak_normalization:
+    """
+    zip_dataset_job = BlissToOggZipJob(
+        bliss_corpus=synthetic_bliss,
+        no_conversion=True,  # for Librispeech we are already having ogg
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+    )
+
+    audio_datastream = get_audio_raw_datastream(preemphasis, peak_normalization)
+
+    data_map = {"raw_audio": ("zip_dataset", "data")}
+
+    test_zip_dataset = OggZipDataset(
+        files=[zip_dataset_job.out_ogg_zip],
+        audio_options=audio_datastream.as_returnn_audio_opts(),
+        seq_ordering="sorted_reverse"
+    )
+    test_dataset = MetaDataset(
+        data_map=data_map,
+        datasets={"zip_dataset": test_zip_dataset},
+        seq_order_control_dataset="zip_dataset"
+    )
+
+    return test_dataset

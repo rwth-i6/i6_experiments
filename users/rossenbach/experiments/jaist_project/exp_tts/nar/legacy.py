@@ -47,7 +47,7 @@ def get_pytorch_raw_ctc_tts():
         "max_seqs": 200,
     }
 
-    prefix = "experiments/jaist_project/standalone_2024/nar_tts/simple/"
+    prefix = "experiments/jaist_project/tts/nar/legacy/"
 
     def run_exp(name, params, net_module, config, duration_hdf, decoder_options, extra_decoder=None, use_custom_engine=False, debug=False):
         training_datasets = build_durationtts_training_dataset(duration_hdf=duration_hdf)

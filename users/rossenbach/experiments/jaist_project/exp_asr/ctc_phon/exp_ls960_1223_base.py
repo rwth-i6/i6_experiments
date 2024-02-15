@@ -7,14 +7,16 @@ from typing import cast
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream
 
-from i6_experiments.users.rossenbach.experiments.jaist_project.data.phon import build_eow_phon_training_datasets, TrainingDatasetSettings, get_text_lexicon
-from i6_experiments.users.rossenbach.experiments.jaist_project.data.common import build_test_dataset
-from i6_experiments.users.rossenbach.experiments.jaist_project.default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from i6_experiments.users.rossenbach.experiments.jaist_project.lm import get_4gram_binary_lm
+from ...data.phon import build_eow_phon_training_datasets, TrainingDatasetSettings, get_text_lexicon
+from ...data.common import build_test_dataset
+from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
+from ...lm import get_4gram_binary_lm
 
-from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import training, search, compute_prior
+from ...pipeline import training, search, compute_prior
 
-from i6_experiments.users.rossenbach.experiments.jaist_project.config import get_training_config, get_forward_config, get_prior_config
+from ...config import get_training_config, get_forward_config, get_prior_config
+
+from ...storage import add_asr_recognizer, ASRRecognizerSystem
 
 
 def eow_phon_ls960_1023_base():
@@ -51,7 +53,7 @@ def eow_phon_ls960_1023_base():
 
     # ---------------------------------------------------------------------------------------------------------------- #
 
-    def run_exp(ft_name, datasets, train_args, search_args=None, with_prior=False, num_epochs=250, decoder="ctc.decoder.flashlight_phoneme_ctc", average_checkpoints=None):
+    def run_exp(ft_name, datasets, train_args, search_args=None, with_prior=False, num_epochs=250, decoder="ctc.decoder.flashlight_phoneme_ctc", average_checkpoints=None, store_system_with_name=None):
         training_name = "/".join(ft_name.split("/")[:-1])
         search_args = search_args if search_args is not None else {}
 
@@ -89,6 +91,15 @@ def eow_phon_ls960_1023_base():
         _, _, search_jobs = search(ft_name + "/last_%i" % num_epochs, returnn_search_config,
                                    checkpoint, test_dataset_tuples, RETURNN_EXE,
                                    MINI_RETURNN_ROOT)
+
+        if store_system_with_name is not None:
+            system = ASRRecognizerSystem(
+                config=returnn_search_config,
+                checkpoint=checkpoint,
+                preemphasis=0.97,
+                peak_normalization=True
+            )
+            add_asr_recognizer(name=store_system_with_name, system=system)
 
         return train_job, search_jobs
     
@@ -291,7 +302,7 @@ def eow_phon_ls960_1023_base():
     train_args_gc1_50eps["config"]["learning_rates"] = list(np.linspace(7e-6, 5e-4, 240)) + list(
                 np.linspace(5e-4, 5e-5, 240)) + list(np.linspace(5e-5, 1e-7, 20))
     train_args_gc1_50eps["post_config"] = {"cleanup_old_models": {'keep_last_n': 10}}
-    for lm_weight in [2.5, 3.0, 3.5]:
+    for lm_weight in [2.0, 2.5, 3.0, 3.5]:
         for prior_scale in [0.0, 0.3, 0.5]:
             search_args = {
                 **default_search_args,
@@ -316,3 +327,25 @@ def eow_phon_ls960_1023_base():
                         lm_weight, prior_scale),
                     datasets=train_data, train_args=train_args_gc1_50eps, search_args=search_args_fast_v1, with_prior=True,
                     num_epochs=500)
+
+    search_args_lowlm = {
+        **default_search_args,
+        "lm_weight": 0.01,
+        "beam_size_token": 2, # pick only 2 best candidates
+        "beam_size": 64,
+        "prior_scale": 0.0,
+    }
+    train, _ = run_exp(
+        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_large_LRv2_50epsJJ_halfspec_amp16/lowlm_pick2",
+        datasets=train_data, train_args=train_args_gc1_50eps, search_args=search_args_lowlm, with_prior=False, num_epochs=500,
+        store_system_with_name="ls960_eow_phon_ctc_50eps_lowlm")
+
+    for blank_log_penalty in [0.1, 0.2, 0.3]:
+        search_args_lowlm_prior = copy.deepcopy(search_args_lowlm)
+        search_args_lowlm_prior["blank_log_penalty"] = blank_log_penalty
+        train, _ = run_exp(
+            prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_large_LRv2_50epsJJ_halfspec_amp16/lowlm_pick2_epspen%.1f" % blank_log_penalty,
+            datasets=train_data, train_args=train_args_gc1_50eps, search_args=search_args_lowlm_prior, with_prior=False,
+            num_epochs=500,
+            #store_system_with_name="ls960_eow_phon_ctc_50eps_lowlm"
+        )

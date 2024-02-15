@@ -18,7 +18,7 @@ from i6_experiments.users.rossenbach.experiments.jaist_project.config import get
 from i6_experiments.users.rossenbach.experiments.jaist_project.storage import synthetic_bliss_data
 
 
-def eow_phon_ls100_1023_base():
+def eow_phon_ls100_1023_synthetic():
     prefix_name = "experiments/jaist_project/asr/ls100_ctc_eow_phon/"
 
     train_settings = TrainingDatasetSettings(
@@ -190,20 +190,7 @@ def eow_phon_ls100_1023_base():
         "network_module": "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6",
         "net_args": {"model_config_dict": asdict(model_config)},
     }
-    # diverged with hiccup
-    # for lm_weight in [1.6, 1.8, 2.0, 2.2]:
-    #     for prior_scale in [0.3, 0.5]:
-    #         search_args = {
-    #             **default_search_args,
-    #             "lm_weight": lm_weight,
-    #             "prior_scale": prior_scale,
-    #         }
-    #         run_exp(
-    #             prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR/lm%.1f_prior%.2f_bs1024_th14" % (
-    #                 lm_weight, prior_scale),
-    #             datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
-            
-            
+
     train_args_gc1 = copy.deepcopy(train_args)
     train_args_gc1["config"]["gradient_clip"] = 1.0
     train_args_gc1["config"]["torch_amp_options"] =  {"dtype": "bfloat16"}
@@ -225,195 +212,122 @@ def eow_phon_ls100_1023_base():
                         lm_weight, prior_scale),
                     datasets=train_data, train_args=train_args_gc1, search_args=search_args, with_prior=True, eval_mode="test")
 
+    # Synthetic solo training
+    syn_names = [
+        "glow_tts.lukas_baseline_bs600_v2_newgl_noise0.0_syn_train-clean-100",
+        "glow_tts.lukas_baseline_bs600_v2_newgl_noise0.3_syn_train-clean-100",
+        "glow_tts.lukas_baseline_bs600_v2_newgl_noise0.5_syn_train-clean-100",
+        "glow_tts.lukas_baseline_bs600_v2_newgl_noise0.7_syn_train-clean-100",
+        "glow_tts.lukas_baseline_bs600_v2_newgl_noise1.0_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_newgl_noise0.7_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_newgl_noise0.7_cont100_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_noise0.7_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_extdur_noise0.0_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_extdur_noise0.3_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_extdur_noise0.5_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_extdur_noise0.7_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_extdur_noise0.7_syn_fixspk_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_extdur_noise1.0_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_extdur_noise0.7_syn_train-clean-360-sub100",
+        "glow_tts.glow_tts_v1_bs600_v2_longer_base256_newgl_extdur_noise0.7_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_longer_noam_base256_newgl_extdur_noise0.7_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_longer_base256_newgl16_extdur_noise0.7_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_longer_base256_newgl32_extdur_noise0.7_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_longer_base256_newgl64_extdur_noise0.7_syn_train-clean-100",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_fromctc_v1_halfbatch_syn_train-clean-100",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_fromctc_v1_halfbatch_fixlr_fp16_syn_train-clean-100",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_fromglow_v1_halfbatch_fixlr_fp16_syn_train-clean-100",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_glow256align_200eps_bs300_oclr_fp16_syn_train-clean-100",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_glow256align_200eps_bs300_oclr_fp16_syn_fixspk_train-clean-100",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_glow256align_200eps_bs300_oclr_fp16_syn_train-clean-360-sub100",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_glow256align_400eps_bs300_oclr_fp16_syn_train-clean-100",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_glow256align_400eps_bs300_noam_fp16_syn_train-clean-100",
+        "nar_tts.tacotron2_like.tacotron2_like_vanilla_blstm_glow256align_200eps_bs600_oclr_syn_train-clean-100",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurtest_syn_train-clean-100",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_noise0.3_syn_train-clean-100",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_noise0.5_syn_train-clean-100",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_noise0.7_syn_train-clean-100",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_noise0.7_10steps_syn_train-clean-100",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_noise1.0_syn_train-clean-100",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_noise0.5_syn_fixspk_train-clean-100",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_noise0.5_syn_train-clean-360-sub100",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_400eps_noise0.7_syn_train-clean-100",
+        "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglow_v1_syn_train-clean-100",
+        "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglowbase256_v1_syn_train-clean-100",
+        "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglowbase256_v1_gl32_syn_train-clean-100",
+        "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglowbase256_v1_syn_fixspk_train-clean-100",
+        "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglowbase256_v1_syn_train-clean-360-sub100",
+    ]
+
+    for syn_name in syn_names:
+        syn_bliss = synthetic_bliss_data[syn_name]
+        syn_train_data = build_eow_phon_training_datasets(
+            librispeech_key="train-clean-100",
+            settings=train_settings,
+            real_data_weight=0,
+            extra_bliss=[syn_bliss],
+            # This is a tricky one, since we are having data from LibriSpeech 360 we also need that g2p vocab in order for it to work
+            lexicon_librispeech_key="train-clean-460" if syn_name.endswith("sub100") else "train-clean-100",
+        )
+        for lm_weight in [2.5, 3.0, 3.5]:
+            for prior_scale in [0.0, 0.3, 0.5]:
+                search_args = {
+                    **default_search_args,
+                    "lm_weight": lm_weight,
+                    "prior_scale": prior_scale,
+                }
+                train_args_tmp = copy.deepcopy(train_args_gc1)
+                # somehow training diverged, run with a new seed
+                if syn_name ==  "glow_tts.lukas_baseline_bs600_v2_newgl_noise1.0_syn_train-clean-100":
+                    train_args_tmp["config"]["random_seed"] = 43  # default is obviously 42
+                train_job, _ = run_exp(
+                    prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16_syn/{syn_name}/lm%.1f_prior%.2f_bs1024_th14" % (
+                        lm_weight, prior_scale),
+                    datasets=syn_train_data, train_args=train_args_tmp, search_args=search_args, with_prior=True)
+                if syn_name == "glow_tts.lukas_baseline_bs600_v2_newgl_noise0.7_syn_train-clean-100" and lm_weight == 3.5:
+                    train_job, _ = run_exp(
+                        prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16_syn/{syn_name}/lm%.1f_prior%.2f_bs1024_th14_best" % (
+                            lm_weight, prior_scale),
+                        datasets=syn_train_data, train_args=train_args_tmp, search_args=search_args, with_prior=True, use_best=True)
+
     # Resume
     
     # resume training, this is the "reference" model for combined training, but has even worse WER than none resume
     train_args_resume = copy.deepcopy(train_args_gc1)
     train_args_resume["config"]["import_model_train_epoch1"] = train_job_base.out_checkpoints[250]
-    for lm_weight in [2.5, 3.0, 3.5]:
-        for prior_scale in [0.0, 0.3, 0.5]:
-            search_args = {
-                **default_search_args,
-                "lm_weight": lm_weight,
-                "prior_scale": prior_scale,
-            }
-            train_job, _ = run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16_resume/lm%.1f_prior%.2f_bs1024_th14" % (
-                    lm_weight, prior_scale),
-                datasets=train_data, train_args=train_args_resume, search_args=search_args, with_prior=True)
-
-    # longer training
-
-    train_args_gc1_300ep = copy.deepcopy(train_args)
-    train_args_gc1_300ep["config"]["gradient_clip"] = 1.0
-    train_args_gc1_300ep["config"]["torch_amp_options"] =  {"dtype": "bfloat16"}
-    train_args_gc1_300ep["config"]["learning_rates"] = list(np.linspace(7e-6, 7e-4, 140)) + list(
-                np.linspace(7e-4, 7e-5, 140)) + list(np.linspace(7e-5, 1e-8, 30))
-    for lm_weight in [2.5, 3.0, 3.5]:
-        for prior_scale in [0.0, 0.3, 0.5]:
-            search_args = {
-                **default_search_args,
-                "lm_weight": lm_weight,
-                "prior_scale": prior_scale,
-            }
-            run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16_ep300/lm%.1f_prior%.2f_bs1024_th14" % (
-                    lm_weight, prior_scale),
-                datasets=train_data, train_args=train_args_gc1_300ep, search_args=search_args, with_prior=True, num_epochs=300)
 
 
-    # longer training V2, this was not good....
-    model_config_fixspec = copy.deepcopy(model_config)
-    model_config_fixspec.specaug_config.max_dim_feat = 8
+    # Synthetic combined training
+    syn_names = [
+        "glow_tts.lukas_baseline_bs600_v2_newgl_noise0.3_syn_train-clean-360",
+        "glow_tts.lukas_baseline_bs600_v2_newgl_noise0.7_syn_train-clean-360",
+        "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_noise0.7_syn_train-clean-360",
+        "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_extdur_noise0.7_syn_train-clean-360",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_fromctc_v1_halfbatch_fixlr_fp16_syn_train-clean-360",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_fromglow_v1_halfbatch_fixlr_fp16_syn_train-clean-360",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_glow256align_200eps_bs300_oclr_fp16_syn_train-clean-360",
+        # "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurtest_syn_train-clean-360",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_noise0.5_syn_train-clean-360",
+        "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglowbase256_v1_syn_train-clean-360",
+    ]
+    for syn_name in syn_names:
+        syn_bliss = synthetic_bliss_data[syn_name]
+        syn_train_data = build_eow_phon_training_datasets(
+            librispeech_key="train-clean-100",
+            settings=train_settings_syn_training,
+            real_data_weight=3,
+            extra_bliss=[syn_bliss],
+            lexicon_librispeech_key="train-clean-460",
+        )
 
-    train_args_gc1_300ep = copy.deepcopy(train_args)
-    train_args_gc1_300ep["net_args"] =  {"model_config_dict": asdict(model_config_fixspec)}
-    train_args_gc1_300ep["config"]["gradient_clip"] = 1.0
-    train_args_gc1_300ep["config"]["torch_amp_options"] =  {"dtype": "bfloat16"}
-    train_args_gc1_300ep["config"]["learning_rates"] = list(np.linspace(7e-6, 7e-4, 140)) + list(
-                np.linspace(7e-4, 7e-5, 140)) + list(np.linspace(7e-5, 1e-8, 30))
-    for lm_weight in [2.5, 3.0, 3.5]:
-        for prior_scale in [0.0, 0.3, 0.5]:
-            search_args = {
-                **default_search_args,
-                "lm_weight": lm_weight,
-                "prior_scale": prior_scale,
-            }
-            run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_halfspec_amp16_ep300/lm%.1f_prior%.2f_bs1024_th14" % (
-                    lm_weight, prior_scale),
-                datasets=train_data, train_args=train_args_gc1_300ep, search_args=search_args, with_prior=True, num_epochs=300)
-
-
-    train_args_gc1_speedpert = copy.deepcopy(train_args_gc1)
-    train_args_gc1_speedpert["use_speed_perturbation"] = True
-    for lm_weight in [2.5, 3.0, 3.5]:
-        for prior_scale in [0.0, 0.3, 0.5]:
-            search_args = {
-                **default_search_args,
-                "lm_weight": lm_weight,
-                "prior_scale": prior_scale,
-            }
-            run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_sp_amp16/lm%.1f_prior%.2f_bs1024_th14" % (
-                    lm_weight, prior_scale),
-                datasets=train_data, train_args=train_args_gc1_speedpert, search_args=search_args, with_prior=True, num_epochs=250)
-
-
-
-    frontend_config_smaller = copy.deepcopy(frontend_config)
-    frontend_config_smaller.out_features = 144
-    model_config_conformer_s = ModelConfig(
-        feature_extraction_config=fe_config,
-        frontend_config=frontend_config_smaller,
-        specaug_config=specaug_config,
-        label_target_size=vocab_size_without_blank,
-        conformer_size=144,
-        num_layers=16,
-        num_heads=4,
-        ff_dim=144 * 4,
-        att_weights_dropout=0.1,
-        conv_dropout=0.1,
-        ff_dropout=0.1,
-        mhsa_dropout=0.1,
-        conv_kernel_size=31,
-        final_dropout=0.1,
-        specauc_start_epoch=1,
-    )
-
-    train_args = {
-        **copy.deepcopy(train_args_adamw03_accum2_jjlr),
-        "network_module": "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6",
-        "net_args": {"model_config_dict": asdict(model_config_conformer_s)},
-    }
-    train_args["config"]["torch_amp_options"] = {"dtype": "bfloat16"}
-    for lm_weight in [2.5, 3.0, 3.5]:
-        for prior_scale in [0.3, 0.5]:
-            search_args = {
-                **default_search_args,
-                "lm_weight": lm_weight,
-                "prior_scale": prior_scale,
-            }
-            train, _ = run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_conformer_s_amp16/lm%.1f_prior%.2f_bs1024_th14" % (
-                    lm_weight, prior_scale),
-                datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
-            # train.hold()
-
-    # Test Glow-TTS MHSA
-
-    from ...pytorch_networks.ctc.conformer_1023.i6modelsV1_TTSRelMHSA_VGG4LayerActFrontendV1_v1_cfg import \
-        SpecaugConfig, VGG4LayerActFrontendV1Config_mod, ModelConfig, LogMelFeatureExtractionV1Config
-
-    fe_config = LogMelFeatureExtractionV1Config(
-        sample_rate=16000,
-        win_size=0.025,
-        hop_size=0.01,
-        f_min=60,
-        f_max=7600,
-        min_amp=1e-10,
-        num_filters=80,
-        center=False,
-    )
-    specaug_config = SpecaugConfig(
-        repeat_per_n_frames=25,
-        max_dim_time=20,
-        max_dim_feat=12,
-        num_repeat_feat=5,
-    )
-    frontend_config = VGG4LayerActFrontendV1Config_mod(
-        in_features=80,
-        conv1_channels=32,
-        conv2_channels=64,
-        conv3_channels=64,
-        conv4_channels=32,
-        conv_kernel_size=(3, 3),
-        conv_padding=None,
-        pool1_kernel_size=(2, 1),
-        pool1_stride=(2, 1),
-        pool1_padding=None,
-        pool2_kernel_size=(2, 1),
-        pool2_stride=(2, 1),
-        pool2_padding=None,
-        activation_str="ReLU",
-        out_features=384,
-        activation=None,
-    )
-    model_config = ModelConfig(
-        feature_extraction_config=fe_config,
-        frontend_config=frontend_config,
-        specaug_config=specaug_config,
-        label_target_size=vocab_size_without_blank,
-        conformer_size=384,
-        num_layers=12,
-        num_heads=4,
-        ff_dim=1536,
-        att_weights_dropout=0.2,
-        conv_dropout=0.2,
-        ff_dropout=0.2,
-        mhsa_dropout=0.2,
-        mhsa_window_size=16,
-        conv_kernel_size=31,
-        final_dropout=0.2,
-        specauc_start_epoch=1,
-    )
-
-    train_args = {
-        **copy.deepcopy(train_args_adamw03_accum2_jjlr),
-        "network_module": "ctc.conformer_1023.i6modelsV1_TTSRelMHSA_VGG4LayerActFrontendV1_v1",
-        "net_args": {"model_config_dict": asdict(model_config)},
-        "debug": True,
-    }
-    train_args["config"]["torch_amp_options"] = {"dtype": "bfloat16"}
-    train_args["config"]["gradient_clip"] = 0.005
-    for lm_weight in [2.5, 3.0, 3.5]:
-        for prior_scale in [0.3, 0.5]:
-            search_args = {
-                **default_search_args,
-                "lm_weight": lm_weight,
-                "prior_scale": prior_scale,
-            }
-            train, _ = run_exp(
-                prefix_name + "conformer_1023/i6modelsV1_TTSRelMHSA_VGG4LayerActFrontendV1_v1_JJLR_amp16/lm%.1f_prior%.2f_bs1024_th14" % (
-                    lm_weight, prior_scale),
-                datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
+        for lm_weight in [2.5, 3.0, 3.5]:
+            for prior_scale in [0.0, 0.3, 0.5]:
+                search_args = {
+                    **default_search_args,
+                    "lm_weight": lm_weight,
+                    "prior_scale": prior_scale,
+                }
+                train_job, _ = run_exp(
+                    prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16_resume_syn/{syn_name}/lm%.1f_prior%.2f_bs1024_th14" % (
+                        lm_weight, prior_scale),
+                    datasets=syn_train_data, train_args=train_args_resume, search_args=search_args, with_prior=True)

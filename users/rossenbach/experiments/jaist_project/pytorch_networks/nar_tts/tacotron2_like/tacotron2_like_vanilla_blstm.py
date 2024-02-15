@@ -219,6 +219,11 @@ class Model(BaseTTSModelV1):
 
         output_features_before, output_features_after = self.decoder(h_upsampled=upsampled_h, h_lengths=feature_lengths, speaker_embedding=spk.transpose(1, 2))
 
+        # frames might be drop depending on reduction factor, so adapt
+        max_length = torch.max(torch.sum(upsampler_durations, dim=1)).cpu().int()
+        output_features_before = output_features_before[:, :max_length, :]
+        output_features_after = output_features_after[:, :max_length, :]
+
         return output_features_before, output_features_after, target_features, feature_lengths, log_durations.squeeze(1)
         
 
@@ -234,10 +239,6 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     output_features_before, output_features_after, target_features, features_lengths, log_durations = model(
         phonemes, phonemes_len, speaker_labels, raw_samples, audio_features_len, durations,
     )
-
-    # frames might be drop depending on reduction factor, so adapt
-    output_features_before = output_features_before[:, :target_features.size(1), :]
-    output_features_after = output_features_after[:, :target_features.size(1), :]
 
     log_duration_targets = torch.log(torch.clamp_min(durations, 1))
     l_l1_before = torch.sum(torch.abs(output_features_before - target_features)) / model.config.decoder_config.target_channels
