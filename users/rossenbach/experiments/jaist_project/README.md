@@ -39,8 +39,8 @@ which follows the FastSpeech Transformer architecture.
 <tr>
 <td><img src="docs/figures/encoder.svg" alt="Glow-TTS at training" height="400"></td>
 <td>
-The code parts for the encoder can be found under `pytorch_networks/tts_shared/encoder <https://github.com/rwth-i6/i6_experiments/tree/main/users/rossenbach/experiments/jaist_project/pytorch_networks/tts_shared/encoder>`_.
-A template class for all the TTS models is under `pytorch_networks/tts_shared/tts_base_model <https://github.com/rwth-i6/i6_experiments/tree/main/users/rossenbach/experiments/jaist_project/pytorch_networks/tts_shared/tts_base_model>`_
+The code parts for the encoder can be found under [pytorch_networks/tts_shared/encoder](https://github.com/rwth-i6/i6_experiments/tree/main/users/rossenbach/experiments/jaist_project/pytorch_networks/tts_shared/encoder) .
+A template class for all the TTS models is under [pytorch_networks/tts_shared/tts_base_model](https://github.com/rwth-i6/i6_experiments/tree/main/users/rossenbach/experiments/jaist_project/pytorch_networks/tts_shared/tts_base_model)
 </td>
 </tr>
 </table>

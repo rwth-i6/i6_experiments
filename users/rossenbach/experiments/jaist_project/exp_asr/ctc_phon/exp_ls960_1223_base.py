@@ -349,3 +349,27 @@ def eow_phon_ls960_1023_base():
             num_epochs=500,
             #store_system_with_name="ls960_eow_phon_ctc_50eps_lowlm"
         )
+        
+    search_args_narrow_beam_normal_lm = {
+        **default_search_args,
+        "lm_weight": 2.5,
+        "beam_size_token": 2, # pick only 2 best candidates
+        "beam_size": 64,
+        "prior_scale": 0.3,
+    }
+    train, _ = run_exp(
+        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_large_LRv2_50epsJJ_halfspec_amp16/narrow_beam_normal_lm",
+        datasets=train_data, train_args=train_args_gc1_50eps, search_args=search_args_narrow_beam_normal_lm, with_prior=False, num_epochs=500,
+        #store_system_with_name="ls960_eow_phon_ctc_50eps_lowlm"
+        )
+
+    search_args_normal_beam_no_lm = {
+        **default_search_args,
+        "lm_weight": 0.01,
+        "prior_scale": 0.3
+    }
+    train, _ = run_exp(
+        prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_large_LRv2_50epsJJ_halfspec_amp16/search_args_normal_beam_no_lm",
+        datasets=train_data, train_args=train_args_gc1_50eps, search_args=search_args_normal_beam_no_lm, with_prior=False, num_epochs=500,
+        #store_system_with_name="ls960_eow_phon_ctc_50eps_lowlm"
+    )
