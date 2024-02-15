@@ -47,7 +47,7 @@ def get_conformer_coupling_glow(x_vector_exp):
     :return: durations_hdf
     """
 
-    prefix = "experiments/librispeech/joint_training/raw_audio/conformer_coupling/"
+    prefix = "experiments/librispeech/joint_training/conformer_coupling/raw_audio/"
     experiments = {}
 
     def run_exp(
