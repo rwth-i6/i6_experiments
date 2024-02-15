@@ -11,7 +11,7 @@ import torch
 # noinspection PyProtectedMember
 from torch.utils import _pytree as pytree
 
-from .interface_torch import LabelScorer
+from .interface_torch import LabelScorerIntf
 
 
 @dataclass
@@ -24,7 +24,7 @@ class BeamSearchOpts:
 
 
 def beam_search(
-    label_scorer: LabelScorer,
+    label_scorer: LabelScorerIntf,
     *,
     batch_size: int,
     max_seq_len: torch.Tensor,
@@ -59,10 +59,9 @@ def beam_search(
     seq_targets = []
     seq_backrefs = []
     while True:
-        new_state = label_scorer.update_state(prev_state=state, prev_label=target)
-        label_log_prob = label_scorer.score(
-            prev_state=state, prev_label=target, state=new_state
-        )  # [Batch,InBeam,Vocab]
+        label_log_prob, new_state = label_scorer.score_and_update_state(prev_state=state, prev_label=target)
+        # label_log_prob: [Batch,InBeam,Vocab]
+        # new_state: all tensors have [Batch,InBeam,...]
 
         # Filter out finished beams
         label_log_prob = torch.where(ended[:, :, None], masked_finished_log_prob[None, None, :], label_log_prob)

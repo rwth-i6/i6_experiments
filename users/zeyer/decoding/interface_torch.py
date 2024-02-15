@@ -6,7 +6,7 @@ from typing import Any, Dict, Tuple
 import torch
 
 
-class LabelScorer:
+class LabelScorerIntf:
     """
     Gives a score per label.
 
@@ -26,65 +26,42 @@ class LabelScorer:
         """
         raise NotImplementedError
 
-    def update_state(
+    def score_and_update_state(
         self,
         *,
         prev_state: Any,
         prev_label: torch.Tensor,
-    ) -> Any:
+    ) -> Tuple[torch.Tensor, Any]:
         """
         :param prev_state: state of the scorer (decoder). any nested structure.
             all tensors are expected to have shape [Batch, Beam, ...].
         :param prev_label: shape [Batch, Beam] -> index in [0...Label-1]
-        :return: state. all tensors are expected to have shape [Batch, Beam, ...].
-        """
-        raise NotImplementedError
-
-    def score(
-        self,
-        *,
-        prev_state: Any,
-        prev_label: torch.Tensor,
-        state: Any,
-    ) -> torch.Tensor:
-        """
-        :param prev_state: see update_state
-        :param prev_label: see update_state
-        :param state: output of update_state
-        :return: shape [Batch, Beam, Label], log-prob-like scores
+        :return: (scores, state).
+            scores: shape [Batch, Beam, Label], log-prob-like scores
+            state: all tensors are expected to have shape [Batch, Beam, ...].
         """
         raise NotImplementedError
 
 
-class ShallowFusedLabelScorers(LabelScorer):
-    def __init__(self, label_scorers: Dict[str, Tuple[LabelScorer, float]]):
+class ShallowFusedLabelScorers(LabelScorerIntf):
+    def __init__(self, label_scorers: Dict[str, Tuple[LabelScorerIntf, float]]):
         """
         :param label_scorers: keys are some arbitrary name, value is label scorer and scale for the log-prob
         """
         self.label_scores = label_scorers
 
-    def update_state(
+    def score_and_update_state(
         self,
         *,
         prev_state: Any,
         prev_label: torch.Tensor,
-    ) -> Any:
-        """update state"""
-        return {
-            k: v.update_state(prev_state=prev_state[k], prev_label=prev_label)
-            for k, (v, _) in self.label_scores.items()
-        }
-
-    def score(
-        self,
-        *,
-        prev_state: Any,
-        prev_label: torch.Tensor,
-        state: Any,
-    ) -> torch.Tensor:
-        """score"""
+    ) -> Tuple[torch.Tensor, Any]:
+        """score and update state"""
+        state = {}
         score = None
         for k, (v, scale) in self.label_scores.items():
-            score_ = v.score(prev_state=prev_state[k], prev_label=prev_label, state=state[k]) * scale
+            score_, state_ = v.score_and_update_state(prev_state=prev_state[k], prev_label=prev_label)
+            state[k] = state_
+            score_ = score_ * scale
             score = score_ if score is None else (score_ + score)
-        return score
+        return score, state
