@@ -1177,9 +1177,10 @@ def conformer_baseline():
     for layer in [6,8,10]:
         for scales in [(0.7, 0.3), (1.0, 1.0)]:
             att_scale, ctc_scale = scales
-            scale_ctc_name = name + f"_ce{att_scale}_ctc{ctc_scale}_layer{layer}"
+            scale_ctc_name = name + f"_ce{att_scale}_ctc{ctc_scale}_encLayerCtc{layer}"
             scale_ctc_args = copy.deepcopy(args)
             scale_ctc_args["encoder_args"].ctc_loss_scale = ctc_scale
+            scale_ctc_args["encoder_args"].enc_layer_w_ctc = layer
             scale_ctc_args["decoder_args"].ce_loss_scale = att_scale
             _, train_data = run_exp(
                 scale_ctc_name,

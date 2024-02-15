@@ -5,14 +5,6 @@
 #     "target": "bpe_labels",
 # },
 tedlium_lm_net = {
-    ### Try this fix _2
-    # "prev_output_reinterpret": {
-    #     "class": "reinterpret_data",
-    #     "from": "data",
-    #     "set_sparse": True,
-    #     "set_sparse_dim": 1057,
-    # },
-    ###
     "target_embed_raw": {
         "class": "linear",
         "activation": None,
@@ -23,14 +15,14 @@ tedlium_lm_net = {
         # "distribution='uniform', scale=1.0)",
         # "param_device": "CPU", # this breaks mask computation layer
     },
-    "target_embed_with_pos": {
-        "class": "positional_encoding",
-        "from": "target_embed_raw",
-        "add_to_input": True,
-    },
+    # "target_embed_with_pos": {
+    #     "class": "positional_encoding",
+    #     "from": "target_embed_raw",
+    #     "add_to_input": True,
+    # }, # Willys setup does not use positional encoding
     "target_embed": {
         "class": "dropout",
-        "from": "target_embed_with_pos",
+        "from": "target_embed_raw", # target_embed_with_pos
         "dropout": 0.0,
     },
     "target_embed_lin": {
@@ -82,7 +74,7 @@ tedlium_lm_net = {
     },
     "dec_0_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_0_ff_laynorm",
         "n_out": 4096,
@@ -147,7 +139,7 @@ tedlium_lm_net = {
     },
     "dec_1_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_1_ff_laynorm",
         "n_out": 4096,
@@ -212,7 +204,7 @@ tedlium_lm_net = {
     },
     "dec_2_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_2_ff_laynorm",
         "n_out": 4096,
@@ -277,7 +269,7 @@ tedlium_lm_net = {
     },
     "dec_3_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_3_ff_laynorm",
         "n_out": 4096,
@@ -342,7 +334,7 @@ tedlium_lm_net = {
     },
     "dec_4_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_4_ff_laynorm",
         "n_out": 4096,
@@ -407,7 +399,7 @@ tedlium_lm_net = {
     },
     "dec_5_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_5_ff_laynorm",
         "n_out": 4096,
@@ -472,7 +464,7 @@ tedlium_lm_net = {
     },
     "dec_6_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_6_ff_laynorm",
         "n_out": 4096,
@@ -537,7 +529,7 @@ tedlium_lm_net = {
     },
     "dec_7_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_7_ff_laynorm",
         "n_out": 4096,
@@ -602,7 +594,7 @@ tedlium_lm_net = {
     },
     "dec_8_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_8_ff_laynorm",
         "n_out": 4096,
@@ -667,7 +659,7 @@ tedlium_lm_net = {
     },
     "dec_9_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_9_ff_laynorm",
         "n_out": 4096,
@@ -732,7 +724,7 @@ tedlium_lm_net = {
     },
     "dec_10_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_10_ff_laynorm",
         "n_out": 4096,
@@ -800,7 +792,7 @@ tedlium_lm_net = {
     },
     "dec_11_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_11_ff_laynorm",
         "n_out": 4096,
@@ -868,7 +860,7 @@ tedlium_lm_net = {
     },
     "dec_12_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_12_ff_laynorm",
         "n_out": 4096,
@@ -936,7 +928,7 @@ tedlium_lm_net = {
     },
     "dec_13_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_13_ff_laynorm",
         "n_out": 4096,
@@ -1004,7 +996,7 @@ tedlium_lm_net = {
     },
     "dec_14_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_14_ff_laynorm",
         "n_out": 4096,
@@ -1072,7 +1064,7 @@ tedlium_lm_net = {
     },
     "dec_15_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_15_ff_laynorm",
         "n_out": 4096,
@@ -1140,7 +1132,7 @@ tedlium_lm_net = {
     },
     "dec_16_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_16_ff_laynorm",
         "n_out": 4096,
@@ -1208,7 +1200,7 @@ tedlium_lm_net = {
     },
     "dec_17_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_17_ff_laynorm",
         "n_out": 4096,
@@ -1276,7 +1268,7 @@ tedlium_lm_net = {
     },
     "dec_18_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_18_ff_laynorm",
         "n_out": 4096,
@@ -1344,7 +1336,7 @@ tedlium_lm_net = {
     },
     "dec_19_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_19_ff_laynorm",
         "n_out": 4096,
@@ -1412,7 +1404,7 @@ tedlium_lm_net = {
     },
     "dec_20_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_20_ff_laynorm",
         "n_out": 4096,
@@ -1480,7 +1472,7 @@ tedlium_lm_net = {
     },
     "dec_21_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_21_ff_laynorm",
         "n_out": 4096,
@@ -1548,7 +1540,7 @@ tedlium_lm_net = {
     },
     "dec_22_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_22_ff_laynorm",
         "n_out": 4096,
@@ -1616,7 +1608,7 @@ tedlium_lm_net = {
     },
     "dec_23_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_23_ff_laynorm",
         "n_out": 4096,
@@ -1684,7 +1676,7 @@ tedlium_lm_net = {
     },
     "dec_24_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_24_ff_laynorm",
         "n_out": 4096,
@@ -1752,7 +1744,7 @@ tedlium_lm_net = {
     },
     "dec_25_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_25_ff_laynorm",
         "n_out": 4096,
@@ -1820,7 +1812,7 @@ tedlium_lm_net = {
     },
     "dec_26_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_26_ff_laynorm",
         "n_out": 4096,
@@ -1888,7 +1880,7 @@ tedlium_lm_net = {
     },
     "dec_27_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_27_ff_laynorm",
         "n_out": 4096,
@@ -1956,7 +1948,7 @@ tedlium_lm_net = {
     },
     "dec_28_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_28_ff_laynorm",
         "n_out": 4096,
@@ -2024,7 +2016,7 @@ tedlium_lm_net = {
     },
     "dec_29_ff_conv1": {
         "class": "linear",
-        "activation": "relu",
+        "activation": "gelu",
         "with_bias": True,
         "from": "dec_29_ff_laynorm",
         "n_out": 4096,

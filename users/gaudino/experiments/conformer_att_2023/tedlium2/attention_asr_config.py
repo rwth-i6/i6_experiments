@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, List
 from dataclasses import dataclass, asdict
 
 from i6_experiments.users.gaudino.models.asr.decoder.ctc_decoder import CTCDecoder
-from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder import (
+from i6_experiments.users.gaudino.models.asr.encoder.conformer_encoder import (
     ConformerEncoder,
 )
 from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder import (
@@ -411,6 +411,7 @@ class ConformerEncoderArgs(EncoderArgs):
     ctc_self_align_delay: Optional[int] = None
     ctc_self_align_scale: float = 0.5
     ctc_dropout: float = 0.0
+    enc_layer_w_ctc: Optional[int] = None
 
     # param init
     ff_init: Optional[str] = None
