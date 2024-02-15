@@ -59,7 +59,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         config_updates={"optimizer.weight_decay": 1e-2},
     )
 
-    train_exp(  # 5.11 (!!)
+    model = train_exp(  # 5.11 (!!)
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         model_config={"behavior_version": 20},  # new Trafo decoder defaults
@@ -68,6 +68,11 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         },
+    )
+    _recog(
+        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2/recog_last_pure_torch",
+        model.get_last_fixed_epoch(),
+        model_recog_pure_torch,
     )
 
     train_exp(  # 5.18 (but "test-other": 6.4)
@@ -321,13 +326,13 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
     _sis_prefix = prefix_name
 
 
-def _recog(name: str, model_with_checkpoint: ModelWithCheckpoint):
+def _recog(name: str, model_with_checkpoint: ModelWithCheckpoint, recog_def: RecogDef):
     from sisyphus import tk
     from i6_experiments.users.zeyer.recog import recog_model
 
     task = _get_ls_task()
 
-    res = recog_model(task, model_with_checkpoint, model_recog)
+    res = recog_model(task, model_with_checkpoint, recog_def=recog_def)
     tk.register_output(_sis_prefix + "/" + name, res.output)
 
 
@@ -934,3 +939,140 @@ model_recog: RecogDef[Model]
 model_recog.output_with_beam = True
 model_recog.output_blank_label = None
 model_recog.batch_size_dependent = False
+
+
+def model_recog_pure_torch(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    max_seq_len: Optional[int] = None,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Function is run within RETURNN.
+
+    Earlier we used the generic beam_search function,
+    but now we just directly perform the search here,
+    as this is overall simpler and shorter.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    from i6_experiments.users.zeyer.decoding.beam_search_torch import beam_search, BeamSearchOpts
+
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+    assert len(batch_dims) == 1, batch_dims  # not implemented otherwise, simple to add...
+    batch_dim = batch_dims[0]
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    if max_seq_len is None:
+        max_seq_len = enc_spatial_dim.get_size_tensor()
+    else:
+        max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
+    print("** max seq len:", max_seq_len.raw_tensor)
+
+    label_scorer = get_label_scorer_pure_torch(model=model, batch_dim=batch_dim, enc=enc)
+    (
+        seq_targets,  # [Batch,FinalBeam,OutSeqLen]
+        seq_log_prob,  # [Batch,FinalBeam]
+        out_seq_len,  # [Batch,FinalBeam]
+    ) = beam_search(
+        label_scorer,
+        batch_size=batch_dim.get_dim_value(),
+        max_seq_len=max_seq_len.copy_compatible_to_dims_raw([batch_dim]),
+        device=data.raw_tensor.device,
+        opts=BeamSearchOpts(
+            beam_size=12,
+            length_normalization_exponent=1.0,
+            bos_label=model.bos_idx,
+            eos_label=model.eos_idx,
+            num_labels=model.target_dim.dimension,
+        ),
+    )
+    beam_dim = Dim(seq_log_prob.shape[1], name="beam")
+    out_spatial_dim = Dim(rf.convert_to_tensor(out_seq_len, dims=[batch_dim, beam_dim], name="out_spatial"))
+    seq_targets_t = rf.convert_to_tensor(seq_targets, dims=[batch_dim, beam_dim, out_spatial_dim])
+    seq_log_prob_t = rf.convert_to_tensor(seq_log_prob, dims=[batch_dim, beam_dim])
+    return seq_targets_t, seq_log_prob_t, out_spatial_dim, beam_dim
+
+
+def get_label_scorer_pure_torch(
+    *,
+    model: Model,
+    batch_dim: Dim,
+    enc: rf.State,
+):
+    import torch
+    import functools
+    from i6_experiments.users.zeyer.decoding.interface_torch import LabelScorerIntf, StateObjTensorExt, StateObjIgnored
+
+    class LabelScorer(LabelScorerIntf):
+        """label scorer"""
+
+        def get_initial_state(self, *, batch_size: int, device: torch.device) -> Any:
+            """Initial state."""
+            beam_dim = Dim(1, name="initial-beam")
+            batch_dims_ = [batch_dim, beam_dim]
+            decoder_state = model.decoder.default_initial_state(batch_dims=batch_dims_)
+            return tree.map_structure(
+                functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim),
+                decoder_state,
+            )
+
+        def score_and_update_state(
+            self,
+            *,
+            prev_state: Any,
+            prev_label: torch.Tensor,
+        ) -> Tuple[torch.Tensor, Any]:
+            """update state"""
+            beam_dim = Dim(prev_label.shape[1], name="beam")
+
+            def _map_raw_to_tensor(v):
+                if isinstance(v, StateObjTensorExt):
+                    tensor: Tensor = v.extra
+                    tensor = tensor.copy_template_new_dim_tags(
+                        (batch_dim, beam_dim) + tensor.dims[2:], keep_special_axes=True
+                    )
+                    tensor.raw_tensor = v.tensor
+                    return tensor
+                else:
+                    raise TypeError(f"_map_raw_to_tensor: unexpected {v} ({type(v).__name__})")
+
+            logits, decoder_state = model.decoder(
+                Tensor("prev_label", [batch_dim, beam_dim], "int32", raw_tensor=prev_label),
+                spatial_dim=single_step_dim,
+                encoder=enc,
+                state=tree.map_structure(_map_raw_to_tensor, prev_state),
+            )
+            label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
+            assert set(label_log_prob.dims) == {batch_dim, beam_dim, model.target_dim}
+
+            return (
+                self._map_tensor_to_raw(label_log_prob, beam_dim=beam_dim).tensor,
+                tree.map_structure(
+                    functools.partial(self._map_tensor_to_raw, batch_dim=batch_dim, beam_dim=beam_dim),
+                    decoder_state,
+                ),
+            )
+
+        @staticmethod
+        def _map_tensor_to_raw(v, *, beam_dim: Dim):
+            if isinstance(v, Tensor):
+                batch_dims_ = [batch_dim, beam_dim]
+                v = v.copy_transpose(batch_dims_ + [dim for dim in v.dims if dim not in batch_dims_])
+                raw = v.raw_tensor
+                return StateObjTensorExt(raw, v.copy_template())
+            else:
+                raise TypeError(f"_map_tensor_to_raw: unexpected {v} ({type(v).__name__})")
+
+    return LabelScorer()
+
+
+# RecogDef API
+model_recog_pure_torch: RecogDef[Model]
+model_recog_pure_torch.output_with_beam = True
+model_recog_pure_torch.output_blank_label = None
+model_recog_pure_torch.batch_size_dependent = False
