@@ -993,7 +993,9 @@ def model_recog_pure_torch(
     )
     beam_dim = Dim(seq_log_prob.shape[1], name="beam")
     out_spatial_dim = Dim(rf.convert_to_tensor(out_seq_len, dims=[batch_dim, beam_dim], name="out_spatial"))
-    seq_targets_t = rf.convert_to_tensor(seq_targets, dims=[batch_dim, beam_dim, out_spatial_dim])
+    seq_targets_t = rf.convert_to_tensor(
+        seq_targets, dims=[batch_dim, beam_dim, out_spatial_dim], sparse_dim=model.target_dim
+    )
     seq_log_prob_t = rf.convert_to_tensor(seq_log_prob, dims=[batch_dim, beam_dim])
     return seq_targets_t, seq_log_prob_t, out_spatial_dim, beam_dim
 
