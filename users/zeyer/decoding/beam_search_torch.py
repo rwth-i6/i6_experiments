@@ -54,7 +54,9 @@ def beam_search(
     out_seq_len = torch.full([batch_size, beam_size], 0, device=device)
     seq_log_prob = torch.full([batch_size, beam_size], 0.0, device=device)
 
-    masked_finished_log_prob = torch.where(torch.arange(0, opts.num_labels) == opts.eos_label, 0.0, -1.0e30)  # [Vocab]
+    masked_finished_log_prob = torch.where(
+        torch.arange(0, opts.num_labels, device=device) == opts.eos_label, 0.0, -1.0e30
+    )  # [Vocab]
 
     i = 0
     seq_targets = []
