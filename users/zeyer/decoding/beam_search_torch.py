@@ -8,9 +8,7 @@ from typing import Sequence, Tuple, List, TypeVar
 from dataclasses import dataclass, replace as dataclass_replace
 import functools
 import torch
-
-# noinspection PyProtectedMember
-from torch.utils import _pytree as pytree
+import tree
 
 from .interface_torch import LabelScorerIntf, StateObjTensorExt, StateObjIgnored
 
@@ -73,7 +71,7 @@ def beam_search(
         beam_size = seq_log_prob.shape[1]
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
-        state = pytree.tree_map(functools.partial(batch_gather_, indices=backrefs), new_state)  # [Batch,Beam,...]
+        state = tree.map_structure(functools.partial(batch_gather_, indices=backrefs), new_state)  # [Batch,Beam,...]
         ended = batch_gather(ended, indices=backrefs)  # [Batch,Beam]
         out_seq_len = batch_gather(out_seq_len, indices=backrefs)  # [Batch,Beam]
         i += 1
