@@ -98,7 +98,7 @@ def beam_search(
 
     # Backtrack via backrefs, resolve beams.
     seq_targets_ = []
-    indices = torch.arange(beam_size)[None, :].expand(batch_size, -1)  # [Batch,FinalBeam] -> FinalBeam
+    indices = torch.arange(beam_size, device=device)[None, :].expand(batch_size, -1)  # [Batch,FinalBeam] -> FinalBeam
     for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
         # indices: [Batch,FinalBeam] -> Beam
         # backrefs: [Batch,Beam] -> PrevBeam
