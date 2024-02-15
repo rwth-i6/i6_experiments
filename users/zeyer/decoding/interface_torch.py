@@ -3,7 +3,7 @@ Generic interface for decoding.
 """
 
 from __future__ import annotations
-from typing import Optional, Any, Dict, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Tuple, TYPE_CHECKING
 from dataclasses import dataclass
 
 if TYPE_CHECKING:
