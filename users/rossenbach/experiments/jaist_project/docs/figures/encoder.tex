@@ -24,8 +24,9 @@
 	\begin{tikzpicture}[
 	    auto,
 	    background rectangle/.style={fill=white}, show background rectangle,
-        halfbox/.style={rectangle, minimum size=1.20cm, draw, font=\Large},
-	    box/.style={rectangle, minimum size=2.00cm, draw, font=\Large},
+	    onlytext/.style={align=center, font=\LARGE},
+        halfbox/.style={rectangle, minimum size=1.20cm, draw, font=\LARGE},
+	    box/.style={rectangle, minimum size=2.00cm, draw, font=\LARGE},
 	    halforangebox/.style={halfbox, fill=blind_orange!80},
 	    orangebox/.style={box, fill=blind_orange!80},
 	    normalline/.style={->, line width=0.5mm},
@@ -33,10 +34,10 @@
 	]
 	% Encoder
     \node[halforangebox, align=center] (prenet) at (0, 0) {Pre-Net};
-    \node[rectangle, align=center, below=0.5cm of prenet] (inlabel) {$a_1 ... a_N$};
+    \node[onlytext, below=0.5cm of prenet] (inlabel) {$a_1 ... a_N$};
     \node[orangebox, align=center, above=0.5cm of prenet] (encoder) {Transformer\\Encoder};
     \node[orangebox, align=center, right=2.5cm of encoder] (dp) {Duration\\Predictor};
-    \node[below=0.5cm of dp] (dpspk) {${spk}_i$};
+    \node[onlytext, below=0.5cm of dp] (dpspk) {${spk}_i$};
 
     %Upsamling stuff
     \def \statesep {0.3cm}
@@ -47,7 +48,7 @@
 
     \node [draw=black!50, fit={(estate1) (estate2) (estate3)}] (estatebox) {};
 
-    \node [right=0.0cm of estatebox] (estatelabel) {\large x N};
+    \node [onlytext, right=0.0cm of estatebox] (estatelabel) {x N};
 
     \node[state, above=1cm of estate2, fill=blind_blue2!80] (dstate3) {};
     \node[state, left=\statesep of dstate3, fill=blind_red!80] (dstate2) {};
@@ -65,7 +66,7 @@
 
     \draw [normalline] (estate3.north) -- (dstate5.south);
 
-    \node [right=0.0cm of dstatebox] (dstatelabel) {\large x T};
+    \node [onlytext, right=0.0cm of dstatebox] (dstatelabel) {x T};
 
     \coordinate (aligncenter) at ($(estate1.north)!.5!(dstate3.south)$);
 
@@ -74,9 +75,9 @@
     \path let \p1 = (dp), \p2 = (aligncenter) in node at (\x1, \y2) [box, align=center, fill=blind_blue!80] (alignment)  {Alignment};
 
     % Decoder
-    \node[box,fill=blind_red!80, align=center, above=1.0cm of upsamplebox] (decoder) {\Large Decoder};
-    \node[right=1cm of decoder] (decspk) {${spk}_i$};
-    \node[above=1.0cm of decoder] (logmel) {$x_1 ... x_T$};
+    \node[box,fill=blind_red!80, align=center, above=1.0cm of upsamplebox] (decoder) {Decoder};
+    \node[right=1cm of decoder] (decspk) {\Large ${spk}_i$};
+    \node[above=1.0cm of decoder] (logmel) {\Large $x_1 ... x_T$};
 
     % connection lines
     \draw [normalline] (inlabel) -- (prenet);
