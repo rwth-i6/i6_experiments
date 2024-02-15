@@ -34,7 +34,7 @@ def get_glow_joint(x_vector_exp):
     :return: durations_hdf
     """
 
-    prefix = "experiments/librispeech/joint_training/raw_audio/"
+    prefix = "experiments/librispeech/joint_training/default/raw_audio/"
     experiments = {}
 
     def run_exp(
@@ -520,6 +520,7 @@ def get_glow_joint(x_vector_exp):
         search_args=default_search_args,
         asr_search=False,
     )
+    experiments[net_module] = exp_dict
 
     train_args_glowTTS_only_TTS_lr = copy.deepcopy(train_args_glowTTS_only)
     train_args_glowTTS_only_TTS_lr["config"]["learning_rates"] = list(np.linspace(1e-5, 5e-4, 125)) + list(
@@ -618,6 +619,7 @@ def get_glow_joint(x_vector_exp):
         asr_search=False,
         use_speaker_labels_in_dev=True,
     )
+    experiments[net_module] = exp_dict
 
     net_module = "glowTTS_ASR_conformer_x_vector_trainXvector"
     train_args_train_xvector = copy.deepcopy(train_args)
@@ -928,7 +930,7 @@ def get_glow_joint(x_vector_exp):
             search_args={**default_search_args, **{"lm_weight": lm}},
             tts_forward=False,
         )
-    
+
     net_module = "glow_ASR_conformer_specaugment_before_xvector_control"
     train_args_glow_conformer_specaugment_before_x_vector_control = copy.deepcopy(train_args_glow_conformer)
     train_args_glow_conformer_specaugment_before_x_vector_control["network_module"] = net_module
@@ -942,6 +944,63 @@ def get_glow_joint(x_vector_exp):
         search_args=default_search_args,
         tts_forward=False,
     )
+
+    net_module = "glow_ASR_conformer_specaugment_before_xvector_v2"
+    train_args_glow_conformer_specaugment_before_x_vector_v2 = copy.deepcopy(
+        train_args_glow_conformer_specaugment_before_x_vector
+    )
+    train_args_glow_conformer_specaugment_before_x_vector_v2["network_module"] = net_module
+    exp_dict = run_exp(
+        net_module,
+        train_args_glow_conformer_specaugment_before_x_vector_v2,
+        training_datasets,
+        asr_test_datasets,
+        250,
+        forward_args=forward_args,
+        search_args=default_search_args,
+        tts_forward=False,
+    )
+
+    for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
+        exp_dict = run_exp(
+            net_module + f"/tuning/lm_{lm}",
+            train_args_glow_conformer_specaugment_before_x_vector_v2,
+            training_datasets,
+            asr_test_datasets,
+            250,
+            forward_args=forward_args,
+            search_args={**default_search_args, **{"lm_weight": lm}},
+            tts_forward=False,
+        )
+
+    net_module = "glow_ASR_conformer_specaugment_before_xvector_v3"
+    train_args_glow_conformer_specaugment_before_x_vector_v3 = copy.deepcopy(
+        train_args_glow_conformer_specaugment_before_x_vector_v2
+    )
+    train_args_glow_conformer_specaugment_before_x_vector_v3["network_module"] = net_module
+    train_args_glow_conformer_specaugment_before_x_vector_v3["net_args"]["model_config"]["gin_channels"] = 256
+    exp_dict = run_exp(
+        net_module,
+        train_args_glow_conformer_specaugment_before_x_vector_v3,
+        training_datasets,
+        asr_test_datasets,
+        250,
+        forward_args=forward_args,
+        search_args=default_search_args,
+        tts_forward=False,
+    )
+
+    for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
+        exp_dict = run_exp(
+            net_module + f"/tuning/lm_{lm}",
+            train_args_glow_conformer_specaugment_before_x_vector_v3,
+            training_datasets,
+            asr_test_datasets,
+            250,
+            forward_args=forward_args,
+            search_args={**default_search_args, **{"lm_weight": lm}},
+            tts_forward=False,
+        )
 
     net_module = "glow_ASR_conformer_xvector"
     train_args_glow_conformer_xvector = copy.deepcopy(train_args_spec_augment)
