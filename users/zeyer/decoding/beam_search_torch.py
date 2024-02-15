@@ -77,7 +77,7 @@ def beam_search(
         i += 1
 
         ended = ended | (target == opts.eos_label)
-        ended = ended | (i >= max_seq_len)[:, None]  # [Batch,Beam]
+        ended = ended | (i >= max_seq_len)[:, None].to(device)  # [Batch,Beam]
         if ended.all():
             break
         out_seq_len = out_seq_len + torch.where(ended, 0, 1)
