@@ -43,9 +43,10 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
         latent_space_forward=False,
         joint_data_forward=False,
         train_data_forward=False,
+        joint_durations_forward=False,
         keep_epochs=None,
         skip_forward=False,
-        forward_device="gpu"
+        forward_device="gpu",
     ):
         exp = {}
 
@@ -202,6 +203,27 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
                         target="durations",
                     )
                     exp["forward_job_durations"] = forward_job
+
+                if joint_durations_forward:
+                    forward_config_durations = get_forward_config(
+                        returnn_common_root=RETURNN_COMMON,
+                        forward_dataset=dataset,
+                        **args,
+                        forward_args=forward_args,
+                        pytorch_mode=True,
+                        target="durations",
+                        joint_data=True,
+                    )
+
+                    forward_job = glowTTS_forward(
+                        checkpoint=train_job.out_checkpoints[num_epochs],
+                        config=forward_config_durations,
+                        returnn_exe=RETURNN_PYTORCH_EXE,
+                        returnn_root=MINI_RETURNN_ROOT,
+                        prefix=prefix + name + "/joint_dataset",
+                        target="durations",
+                    )
+                    exp["forward_job_joint_durations"] = forward_job
 
                 if latent_space_forward:
                     forward_config_latent_space = get_forward_config(
@@ -646,6 +668,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict):
         latent_space_forward=True,
         joint_data_forward=True,
         train_data_forward=True,
+        joint_durations_forward=True,
         keep_epochs={100},
     )
     experiments[net_module + "/enc192/200ep/long_cooldown/not_silence_preprocessed"] = exp_dict
