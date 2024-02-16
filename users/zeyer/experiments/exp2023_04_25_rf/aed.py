@@ -941,7 +941,7 @@ model_recog.output_blank_label = None
 model_recog.batch_size_dependent = False
 
 
-def model_recog_pure_torch_v2(
+def model_recog_pure_torch(
     *,
     model: Model,
     data: Tensor,
@@ -1074,7 +1074,7 @@ def get_label_scorer_pure_torch(
 
 
 # RecogDef API
-model_recog_pure_torch_v2: RecogDef[Model]
-model_recog_pure_torch_v2.output_with_beam = True
-model_recog_pure_torch_v2.output_blank_label = None
-model_recog_pure_torch_v2.batch_size_dependent = False
+model_recog_pure_torch: RecogDef[Model]
+model_recog_pure_torch.output_with_beam = True
+model_recog_pure_torch.output_blank_label = None
+model_recog_pure_torch.batch_size_dependent = False
