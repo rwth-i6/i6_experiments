@@ -74,27 +74,27 @@ def beam_search(
         state = tree.map_structure(functools.partial(batch_gather_, indices=backrefs), new_state)  # [Batch,Beam,...]
         ended = batch_gather(ended, indices=backrefs)  # [Batch,Beam]
         out_seq_len = batch_gather(out_seq_len, indices=backrefs)  # [Batch,Beam]
+        out_seq_len = out_seq_len + torch.where(ended, 0, 1)
         i += 1
 
         ended = ended | (target == opts.eos_label)
         ended = ended | (i >= max_seq_len)[:, None].to(device)  # [Batch,Beam]
         if ended.all():
             break
-        out_seq_len = out_seq_len + torch.where(ended, 0, 1)
 
-        if i > 1 and opts.length_normalization_exponent != 0:
+        if opts.length_normalization_exponent != 0:
             # Length-normalized scores, so we evaluate score_t/len.
             # If seq ended, score_i/i == score_{i-1}/(i-1), thus score_i = score_{i-1}*(i/(i-1))
             # Because we count with EOS symbol, shifted by one.
             seq_log_prob *= torch.where(
                 ended,
-                (i / (i - 1)) ** opts.length_normalization_exponent,
+                ((i + 1) / i) ** opts.length_normalization_exponent,
                 1.0,
             )
 
-    if i > 1 and opts.length_normalization_exponent != 0:
+    if opts.length_normalization_exponent != 0:
         # All seq_log_prob will be normalized by (1/(out_seq_len+1)**length_normalization_exponent.
-        seq_log_prob *= (1 / (i - 1)) ** opts.length_normalization_exponent
+        seq_log_prob *= (1 / i) ** opts.length_normalization_exponent
 
     # Backtrack via backrefs, resolve beams.
     seq_targets_ = []

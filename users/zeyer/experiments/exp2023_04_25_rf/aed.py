@@ -72,7 +72,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     _recog(
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2/recog_last_pure_torch",
         model.get_last_fixed_epoch(),
-        model_recog_pure_torch,
+        model_recog_pure_torch_v2,
     )
 
     train_exp(  # 5.18 (but "test-other": 6.4)
@@ -941,7 +941,7 @@ model_recog.output_blank_label = None
 model_recog.batch_size_dependent = False
 
 
-def model_recog_pure_torch(
+def model_recog_pure_torch_v2(
     *,
     model: Model,
     data: Tensor,
@@ -1074,7 +1074,7 @@ def get_label_scorer_pure_torch(
 
 
 # RecogDef API
-model_recog_pure_torch: RecogDef[Model]
-model_recog_pure_torch.output_with_beam = True
-model_recog_pure_torch.output_blank_label = None
-model_recog_pure_torch.batch_size_dependent = False
+model_recog_pure_torch_v2: RecogDef[Model]
+model_recog_pure_torch_v2.output_with_beam = True
+model_recog_pure_torch_v2.output_blank_label = None
+model_recog_pure_torch_v2.batch_size_dependent = False
