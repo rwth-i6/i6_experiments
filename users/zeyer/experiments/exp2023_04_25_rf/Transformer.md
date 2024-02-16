@@ -106,3 +106,5 @@ Via https://huggingface.co/transformers/v3.5.1/_modules/transformers/modeling_t5
   - Check ZipFormer
 
 - Check ZipFormer for many things...
+
+- Adaptive layer norm (adaLN) (e.g. as in https://arxiv.org/pdf/2212.09748.pdf)
