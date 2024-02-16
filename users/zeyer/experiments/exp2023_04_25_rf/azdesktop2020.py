@@ -4,7 +4,7 @@ Experiments for azDesktop2020 (local computer).
 
 from __future__ import annotations
 from .conformer_import_moh_att_2023_06_30 import (
-    config,
+    config_11gb,
     post_config,
     from_scratch_model_def,
     from_scratch_training,
@@ -28,7 +28,7 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
 
-    config_ = config.copy()
+    config_ = config_11gb.copy()
     config_.update(
         {
             "torch_amp": "bfloat16",

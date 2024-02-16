@@ -91,7 +91,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # RF recog: {"dev-clean": 2.25, "dev-other": 5.34, "test-clean": 2.42, "test-other": 5.56}
     _recog_imported()
 
-    train_exp("from-scratch-train", config, gpu_mem=11)
+    train_exp("from-scratch-train", config_11gb, gpu_mem=11)
 
     # train_exp(  # dev-other 7.6
     #     "base-24gb-bs30k-f32",

@@ -12,7 +12,7 @@ from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piec
 
 _batch_size_factor = 160
 
-config = dict(
+config_11gb = dict(
     batching="laplace:.1000",
     batch_size=15_000 * _batch_size_factor,
     max_seqs=200,
@@ -38,7 +38,7 @@ post_config = dict(
     torch_dataloader_opts=dict(num_workers=1),
 )
 
-config_24gb = config.copy()
+config_24gb = config_11gb.copy()
 config_24gb.update(
     dict(
         torch_amp="bfloat16",
