@@ -70,9 +70,14 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
     _recog(
-        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2/recog_last_pure_torch",
+        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2/recog_last_v1",
         model.get_last_fixed_epoch(),
         model_recog_pure_torch,
+        {
+            "beam_search_version": 1,
+            "beam_size": 12,
+            "length_normalization_exponent": 1.0,
+        },
     )
 
     train_exp(  # 5.18 (but "test-other": 6.4)
@@ -326,13 +331,18 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
     _sis_prefix = prefix_name
 
 
-def _recog(name: str, model_with_checkpoint: ModelWithCheckpoint, recog_def: RecogDef):
+def _recog(
+    name: str,
+    model_with_checkpoint: ModelWithCheckpoint,
+    recog_def: RecogDef,
+    recog_config: Optional[Dict[str, Any]] = None,
+):
     from sisyphus import tk
     from i6_experiments.users.zeyer.recog import recog_model
 
     task = _get_ls_task()
 
-    res = recog_model(task, model_with_checkpoint, recog_def=recog_def)
+    res = recog_model(task, model_with_checkpoint, recog_def=recog_def, config=recog_config)
     tk.register_output(_sis_prefix + "/" + name, res.output)
 
 
@@ -961,7 +971,10 @@ def model_recog_pure_torch(
         out_spatial_dim,
         final beam_dim
     """
-    from i6_experiments.users.zeyer.decoding.beam_search_torch import beam_search, BeamSearchOpts
+    from i6_experiments.users.zeyer.decoding.beam_search_torch import beam_search, beam_search_v2, BeamSearchOpts
+    from returnn.config import get_global_config
+
+    config = get_global_config()
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     assert len(batch_dims) == 1, batch_dims  # not implemented otherwise, simple to add...
@@ -978,14 +991,14 @@ def model_recog_pure_torch(
         seq_targets,  # [Batch,FinalBeam,OutSeqLen]
         seq_log_prob,  # [Batch,FinalBeam]
         out_seq_len,  # [Batch,FinalBeam]
-    ) = beam_search(
+    ) = {1: beam_search, 2: beam_search_v2}[config.int("beam_search_version", 1)](
         label_scorer,
         batch_size=batch_dim.get_dim_value(),
         max_seq_len=max_seq_len.copy_compatible_to_dims_raw([batch_dim]),
         device=data.raw_tensor.device,
         opts=BeamSearchOpts(
-            beam_size=12,
-            length_normalization_exponent=1.0,
+            beam_size=config.int("beam_size", 12),
+            length_normalization_exponent=config.float("length_normalization_exponent", 1.0),
             bos_label=model.bos_idx,
             eos_label=model.eos_idx,
             num_labels=model.target_dim.dimension,
