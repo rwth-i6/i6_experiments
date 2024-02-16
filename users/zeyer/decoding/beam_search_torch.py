@@ -92,9 +92,9 @@ def beam_search(
                 1.0,
             )
 
-    if i > 0 and opts.length_normalization_exponent != 0:
+    if i > 1 and opts.length_normalization_exponent != 0:
         # All seq_log_prob will be normalized by (1/(out_seq_len+1)**length_normalization_exponent.
-        seq_log_prob *= (1 / i) ** opts.length_normalization_exponent
+        seq_log_prob *= (1 / (i - 1)) ** opts.length_normalization_exponent
 
     # Backtrack via backrefs, resolve beams.
     seq_targets_ = []
