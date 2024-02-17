@@ -117,7 +117,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
-    train_exp(  # 5.44 ("test-other": 6.34), worse than speedpertV2 (5.11)
+    model = train_exp(  # 5.44 ("test-other": 6.34), worse than speedpertV2 (5.11)
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV3",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         model_config={"behavior_version": 20},  # new Trafo decoder defaults
@@ -127,6 +127,30 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "speed_pert_discrete_values": [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1],
         },
     )
+    for name, recog_config in {
+        "beam12": {
+            "beam_search_version": 3,
+            "beam_size": 12,
+            "length_normalization_exponent": 1.0,
+        },
+        "beam60": {
+            "beam_search_version": 3,
+            "beam_size": 60,
+            "length_normalization_exponent": 1.0,
+        },
+        "beam60-lenReward01": {
+            "beam_search_version": 3,
+            "beam_size": 60,
+            "length_normalization_exponent": 0.0,
+            "length_reward": 0.1,
+        },
+    }.items():
+        _recog(
+            "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV3/recog_last_" + name,
+            model.get_last_fixed_epoch(),
+            model_recog_pure_torch,
+            recog_config,
+        )
 
     from .aed_online_data_filter import from_scratch_model_def as aed_online_data_filter_model_def
     from .aed_online_data_filter import from_scratch_training as aed_online_data_filter_train_def
