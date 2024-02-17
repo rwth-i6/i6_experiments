@@ -17,6 +17,7 @@ from .interface_torch import LabelScorerIntf, StateObjTensorExt, StateObjIgnored
 class BeamSearchOpts:
     beam_size: int  # e.g. 12
     length_normalization_exponent: float  # e.g. 1 to enable, 0 to disable
+    length_reward: float
     bos_label: int
     eos_label: int
     num_labels: int
@@ -44,6 +45,7 @@ def beam_search(
         out_seq_len: [Batch,FinalBeam]
     """
     # Eager-mode implementation of beam search.
+    assert opts.length_reward == 0  # not implemented here
     # Initial state.
     beam_size = 1
     state = label_scorer.get_initial_state(batch_size=batch_size, device=device)
@@ -153,6 +155,8 @@ def beam_search_v3(
         # new_state: all tensors have [Batch,InBeam,...]
 
         # Filter out finished beams
+        if opts.length_reward:
+            seq_log_prob += torch.where(ended, opts.length_reward, 0.0)
         label_log_prob = torch.where(ended[:, :, None], masked_finished_log_prob[None, None, :], label_log_prob)
         seq_log_prob = seq_log_prob[:, :, None] + label_log_prob  # [Batch,InBeam,Vocab]
         seq_log_prob, (backrefs, target) = top_k_nd(seq_log_prob, k=opts.beam_size, dim=[1, 2])  # all [Batch,Beam]

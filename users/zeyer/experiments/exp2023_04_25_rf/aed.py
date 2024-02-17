@@ -89,6 +89,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_normalization_exponent": 1.0,
         },
     )
+    _recog(
+        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2/recog_last_v3-lenReward01",
+        model.get_last_fixed_epoch(),
+        model_recog_pure_torch,
+        {
+            "beam_search_version": 3,
+            "beam_size": 12,
+            "length_normalization_exponent": 0.0,
+            "length_reward": 0.1,
+        },
+    )
 
     train_exp(  # 5.18 (but "test-other": 6.4)
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin2e_5_295k-speedpertV2",
@@ -1019,6 +1030,7 @@ def model_recog_pure_torch(
         opts=BeamSearchOpts(
             beam_size=config.int("beam_size", 12),
             length_normalization_exponent=config.float("length_normalization_exponent", 1.0),
+            length_reward=config.float("length_reward", 0.0),
             bos_label=model.bos_idx,
             eos_label=model.eos_idx,
             num_labels=model.target_dim.dimension,
