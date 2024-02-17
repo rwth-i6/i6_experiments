@@ -110,7 +110,7 @@ def beam_search(
     return seq_targets, seq_log_prob, out_seq_len
 
 
-def beam_search_v2(
+def beam_search_v3(
     label_scorer: LabelScorerIntf,
     *,
     batch_size: int,
@@ -162,7 +162,6 @@ def beam_search_v2(
         state = tree.map_structure(functools.partial(batch_gather_, indices=backrefs), new_state)  # [Batch,Beam,...]
         ended = batch_gather(ended, indices=backrefs)  # [Batch,Beam]
         out_seq_len = batch_gather(out_seq_len, indices=backrefs)  # [Batch,Beam]
-        out_seq_len = out_seq_len + torch.where(ended, 0, 1)
         i += 1
 
         ended = ended | (target == opts.eos_label)
@@ -179,6 +178,8 @@ def beam_search_v2(
                 ((i + 1) / i) ** opts.length_normalization_exponent,
                 1.0,
             )
+
+        out_seq_len = out_seq_len + torch.where(ended, 0, 1)
 
     if opts.length_normalization_exponent != 0:
         # All seq_log_prob will be normalized by (1/(out_seq_len+1)**length_normalization_exponent.

@@ -80,11 +80,11 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
     _recog(
-        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2/recog_last_v2",
+        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2/recog_last_v3",
         model.get_last_fixed_epoch(),
         model_recog_pure_torch,
         {
-            "beam_search_version": 2,
+            "beam_search_version": 3,
             "beam_size": 12,
             "length_normalization_exponent": 1.0,
         },
@@ -983,7 +983,7 @@ def model_recog_pure_torch(
     """
     import torch
     import time
-    from i6_experiments.users.zeyer.decoding.beam_search_torch import beam_search, beam_search_v2, BeamSearchOpts
+    from i6_experiments.users.zeyer.decoding.beam_search_torch import beam_search, beam_search_v3, BeamSearchOpts
     from returnn.config import get_global_config
 
     config = get_global_config()
@@ -1011,7 +1011,7 @@ def model_recog_pure_torch(
         seq_targets,  # [Batch,FinalBeam,OutSeqLen]
         seq_log_prob,  # [Batch,FinalBeam]
         out_seq_len,  # [Batch,FinalBeam]
-    ) = {1: beam_search, 2: beam_search_v2}[config.int("beam_search_version", 1)](
+    ) = {1: beam_search, 3: beam_search_v3}[config.int("beam_search_version", 1)](
         label_scorer,
         batch_size=batch_dim.get_dim_value(),
         max_seq_len=max_seq_len.copy_compatible_to_dims_raw([batch_dim]),
