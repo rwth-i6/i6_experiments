@@ -1028,7 +1028,7 @@ def model_recog_pure_torch(
             (
                 f"enc {enc_end_time - start_time} ns",
                 f"dec {search_end_time- enc_end_time} ns",
-                f"batch size {data.get_batch_dim()}",
+                f"batch size {data.get_batch_dim_tag().get_dim_value()}",
                 f"enc len {enc_spatial_dim.get_dim_value()}",
                 f"out len {out_spatial_dim.get_dim_value()}",
             )
