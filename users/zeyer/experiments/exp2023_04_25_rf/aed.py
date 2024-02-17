@@ -971,10 +971,14 @@ def model_recog_pure_torch(
         out_spatial_dim,
         final beam_dim
     """
+    import torch
+    import time
     from i6_experiments.users.zeyer.decoding.beam_search_torch import beam_search, beam_search_v2, BeamSearchOpts
     from returnn.config import get_global_config
 
     config = get_global_config()
+
+    start_time = time.perf_counter_ns()
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     assert len(batch_dims) == 1, batch_dims  # not implemented otherwise, simple to add...
@@ -985,6 +989,12 @@ def model_recog_pure_torch(
     else:
         max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
     print("** max seq len:", max_seq_len.raw_tensor)
+
+    if data.raw_tensor.device.type == "cuda":
+        # Just so that timing of encoder is correct.
+        torch.cuda.synchronize(data.raw_tensor.device)
+
+    enc_end_time = time.perf_counter_ns()
 
     label_scorer = get_label_scorer_pure_torch(model=model, batch_dim=batch_dim, enc=enc)
     (
@@ -1010,6 +1020,21 @@ def model_recog_pure_torch(
         seq_targets, dims=[batch_dim, beam_dim, out_spatial_dim], sparse_dim=model.target_dim
     )
     seq_log_prob_t = rf.convert_to_tensor(seq_log_prob, dims=[batch_dim, beam_dim])
+
+    search_end_time = time.perf_counter_ns()
+    print(
+        "TIMINGS:",
+        ", ".join(
+            (
+                f"enc {enc_end_time - start_time} ns",
+                f"dec {search_end_time- enc_end_time} ns",
+                f"batch size {data.get_batch_dim()}",
+                f"enc len {enc_spatial_dim.get_dim_value()}",
+                f"out len {out_spatial_dim.get_dim_value()}",
+            )
+        ),
+    )
+
     return seq_targets_t, seq_log_prob_t, out_spatial_dim, beam_dim
 
 
