@@ -69,37 +69,41 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         },
     )
-    _recog(
-        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2/recog_last_v1",
-        model.get_last_fixed_epoch(),
-        model_recog_pure_torch,
-        {
+    for name, recog_config in {
+        "v1": {
             "beam_search_version": 1,
             "beam_size": 12,
             "length_normalization_exponent": 1.0,
         },
-    )
-    _recog(
-        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2/recog_last_v3",
-        model.get_last_fixed_epoch(),
-        model_recog_pure_torch,
-        {
+        "v3": {
             "beam_search_version": 3,
             "beam_size": 12,
             "length_normalization_exponent": 1.0,
         },
-    )
-    _recog(
-        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2/recog_last_v3-lenReward01",
-        model.get_last_fixed_epoch(),
-        model_recog_pure_torch,
-        {
+        "v3-lenReward01": {
             "beam_search_version": 3,
             "beam_size": 12,
             "length_normalization_exponent": 0.0,
             "length_reward": 0.1,
         },
-    )
+        "v3-beam60": {
+            "beam_search_version": 3,
+            "beam_size": 60,
+            "length_normalization_exponent": 1.0,
+        },
+        "v3-beam60-lenReward01": {
+            "beam_search_version": 3,
+            "beam_size": 60,
+            "length_normalization_exponent": 0.0,
+            "length_reward": 0.1,
+        },
+    }.items():
+        _recog(
+            "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2/recog_last_" + name,
+            model.get_last_fixed_epoch(),
+            model_recog_pure_torch,
+            recog_config,
+        )
 
     train_exp(  # 5.18 (but "test-other": 6.4)
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin2e_5_295k-speedpertV2",
