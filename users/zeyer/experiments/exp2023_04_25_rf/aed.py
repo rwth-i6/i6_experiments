@@ -79,6 +79,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_normalization_exponent": 1.0,
         },
     )
+    _recog(
+        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2/recog_last_v2",
+        model.get_last_fixed_epoch(),
+        model_recog_pure_torch,
+        {
+            "beam_search_version": 2,
+            "beam_size": 12,
+            "length_normalization_exponent": 1.0,
+        },
+    )
 
     train_exp(  # 5.18 (but "test-other": 6.4)
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin2e_5_295k-speedpertV2",
