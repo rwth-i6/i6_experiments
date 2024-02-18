@@ -197,6 +197,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_reward": 0.05,
         },
         "beam60-lenReward_005-batch50": {
+            # {"dev-clean": 2.61, "dev-other": 5.41, "test-clean": 2.83, "test-other": 6.48}
             "beam_search_version": 3,
             "beam_size": 60,
             "__batch_size_dependent": True,
