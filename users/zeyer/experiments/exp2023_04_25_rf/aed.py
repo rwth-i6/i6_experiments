@@ -134,6 +134,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     for name, recog_config in {
         "beam12-batch200": {
             # {"dev-clean": 2.64, "dev-other": 5.44, "test-clean": 2.65, "test-other": 6.33}
+            # WTF, why is dev-other here much better? test-clean as well.
             "beam_search_version": 3,
             "beam_size": 12,
             "length_normalization_exponent": 1.0,
@@ -141,6 +142,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
         "beam12-batch1": {
             # {"dev-clean": 3.38, "dev-other": 6.23, "test-clean": 2.9, "test-other": 6.26}
+            # WTF, why is this so much worse than batch50?
             "beam_search_version": 3,
             "beam_size": 12,
             "length_normalization_exponent": 1.0,
@@ -157,6 +159,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_normalization_exponent": 1.0,
         },
         "beam60-batch1": {
+            # {"dev-clean": 2.89, "dev-other": 6.21, "test-clean": 2.84, "test-other": 6.58}
             "beam_search_version": 3,
             "beam_size": 60,
             "__batch_size_dependent": True,
