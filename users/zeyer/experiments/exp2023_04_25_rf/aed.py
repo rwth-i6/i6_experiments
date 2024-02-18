@@ -167,6 +167,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_normalization_exponent": 1.0,
         },
         "beam60-lenReward01-batch50": {
+            # {"dev-clean": 2.61, "dev-other": 5.4, "test-clean": 2.82, "test-other": 6.5}
             "beam_search_version": 4,
             "beam_size": 60,
             "__batch_size_dependent": True,
@@ -176,6 +177,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_reward": 0.1,
         },
         "beam60-lenReward02-batch50": {
+            # {"dev-clean": 2.84, "dev-other": 5.39, "test-clean": 2.82, "test-other": 6.49}
             "beam_search_version": 4,
             "beam_size": 60,
             "__batch_size_dependent": True,
@@ -185,6 +187,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_reward": 0.2,
         },
         "beam60-lenReward005-batch50": {
+            # {"dev-clean": 2.61, "dev-other": 5.41, "test-clean": 2.83, "test-other": 6.48}
             "beam_search_version": 4,
             "beam_size": 60,
             "__batch_size_dependent": True,
@@ -194,6 +197,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_reward": 0.05,
         },
         "beam60-lenReward_005-batch50": {
+            # {"dev-clean": 3.76, "dev-other": 5.86, "test-clean": 3.6, "test-other": 6.26}
             "beam_search_version": 4,
             "beam_size": 60,
             "__batch_size_dependent": True,
