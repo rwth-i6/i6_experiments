@@ -96,12 +96,13 @@ def sis_run_with_prefix(prefix_name: str = None):
     model_args = {
         "target_embed_dim": 256,
         "add_ted2_trafo_lm": True,
+        "mel_normalization": True,
     }
 
     # single model experiments
-    model_name = "/model_baseline"
+    bsf = 10
+    model_name = f"/bsf{bsf}/model_baseline"
     prefix_name = prefix_name + model_name
-    bsf = 20
 
     # att only
     for beam_size in [12, 18, 32]:
@@ -110,10 +111,11 @@ def sis_run_with_prefix(prefix_name: str = None):
             # "lm_scale": lm_scale,
             # "add_trafo_lm": True,
             "bsf": bsf,
+            "hash_override": "v1",
         }
         name = (
             prefix_name
-            + f"/bsf{bsf}/att_beam{beam_size}"
+            + f"/att_beam{beam_size}"
         )
         res, _ = recog_model(
             task,
@@ -129,8 +131,8 @@ def sis_run_with_prefix(prefix_name: str = None):
             res.output,
         )
 
-    # ctc greedy: dev 8.9
-    # ctc greedy prior 0.15: 8.79
+    # ctc greedy
+    # ctc greedy prior 0.15
     for beam_size, prior_scale in product([1], [0.0, 0.15]):
         search_args = {
             "beam_size": beam_size,
@@ -141,11 +143,12 @@ def sis_run_with_prefix(prefix_name: str = None):
             "prior_corr": True if prior_scale > 0 else False,
             "prior_scale": prior_scale,
             "ctc_prior_file": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.2UG8sLxHNTMO/output/prior.txt",
+            "hash_override": "v1",
         }
 
         name = (
             prefix_name
-            + f"/bsf{bsf}/ctc_greedy"
+            + f"/ctc_greedy"
             + (f"_prior{prior_scale}" if prior_scale > 0 else "")
         )
         res, _ = recog_model(
@@ -163,7 +166,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         )
 
     # ctc prefix search
-    for beam_size, prior_scale in product([1 ,6 ,12], [0.0, 0.1, 0.15, 0.2, 0.3]):
+    for beam_size, prior_scale in product([], [0.0, 0.1, 0.15, 0.2, 0.3]):
         search_args = {
             "beam_size": beam_size,
             "blank_idx": 1057,
@@ -180,7 +183,7 @@ def sis_run_with_prefix(prefix_name: str = None):
 
         name = (
             prefix_name
-            + f"/bsf{bsf}/ctc_prefix_search"
+            + f"/ctc_prefix_search"
             + (f"_prior{prior_scale}" if prior_scale > 0 else "")
             + f"_beam{beam_size}"
         )
@@ -199,11 +202,11 @@ def sis_run_with_prefix(prefix_name: str = None):
         )
 
     # att + ctc opts
-    for scales, beam_size in product([(0.5, 0.5), (0.6, 0.4), (0.65, 0.35), (0.7, 0.3), (0.8, 0.2), (0.9, 0.1)], [12]):
+    for scales, beam_size in product([(0.5, 0.5), (0.6, 0.4), (0.65, 0.35), (0.7, 0.3), (0.8, 0.2), (0.9, 0.1)], []):
         att_scale, ctc_scale = scales
         name = (
             prefix_name
-            + f"/bsf{bsf}/opts_att{att_scale}_ctc{ctc_scale}_beam{beam_size}"
+            + f"/opts_att{att_scale}_ctc{ctc_scale}_beam{beam_size}"
         )
         search_args = {
             "beam_size": beam_size,
@@ -265,11 +268,11 @@ def sis_run_with_prefix(prefix_name: str = None):
         )
 
     # att + ctc opls
-    for scales, beam_size in product([(0.6, 0.4), (0.65, 0.35), (0.7, 0.3)], [12, 32]):
+    for scales, beam_size in product([(0.6, 0.4), (0.65, 0.35), (0.7, 0.3)], []):
         att_scale, ctc_scale = scales
         name = (
             prefix_name
-            + f"/bsf{bsf}/opls_att{att_scale}_ctc{ctc_scale}_beam{beam_size}"
+            + f"/opls_att{att_scale}_ctc{ctc_scale}_beam{beam_size}"
         )
         search_args = {
             "beam_size": beam_size,

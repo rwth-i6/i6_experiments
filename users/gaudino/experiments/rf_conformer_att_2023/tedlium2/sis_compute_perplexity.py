@@ -66,16 +66,20 @@ def sis_run_with_prefix(prefix_name: str = None):
         definition=lm_model_def, checkpoint=new_chkpt
     )
 
-    # compute perplexity
-    name = prefix_name + "/ted2lm"
+    model_args = {
+        "ff_activation": "gelu",
+        "use_pos_enc": False,
+    }
 
+    # compute perplexity
+    name = prefix_name + "/ted2lm_gelu_no_pos_enc"
 
     forward_out = forward_model(
         task_ted2,
         model_with_checkpoint,
         model_forward_lm,
         dev_sets=["dev"],
-        # model_args=model_args,
+        model_args=model_args,
         # search_args=search_args,
         prefix_name=name,
         forward_lm=True,

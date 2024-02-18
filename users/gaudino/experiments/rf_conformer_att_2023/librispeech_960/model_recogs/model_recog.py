@@ -177,6 +177,7 @@ def model_recog(
             trafo_lm_out = model.trafo_lm(target, state=trafo_lm_state, spatial_dim=single_step_dim)
             trafo_lm_state = trafo_lm_out["state"]
             trafo_log_prob = rf.log_softmax(trafo_lm_out["output"], axis=model.target_dim)
+            # breakpoint()
             if i > 0:
                 label_log_prob = (
                     label_log_prob + model.search_args["lm_scale"] * trafo_log_prob
@@ -253,12 +254,11 @@ def model_recog(
 
         if model.search_args.get("use_ctc", False):
             best_ids = target
-            if model.search_args.get("ctc_state_fix", False):
+            if model.search_args.get("ctc_state_fix", True):
                 # if i >= 1:
                 #     best_ids = target + model.target_dim.get_dim_value()
                 best_ids = target + backrefs * (model.target_dim.get_dim_value() + 1)
 
-            # breakpoint()
             # ctc state selection
             ctc_state = ctc_prefix_scorer.index_select_state(
                 ctc_state, best_ids.raw_tensor

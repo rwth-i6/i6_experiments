@@ -85,47 +85,30 @@ def test_import_search():
     debug.install_native_signal_handler()
     debug.init_faulthandler()
 
-    # dataset = "tedlium2"
-    dataset = "librispeech960"
+    dataset = "tedlium2"
+    # dataset = "librispeech960"
 
     if dataset == "tedlium2":
         target_dimension = 1057
         search_data_opts = search_data_opts_ted2
         seq_list = [f"TED-LIUM-realease2/AlGore_2009/{i}" for i in range(1, 34)]
-        batch_num_seqs = 10
+        seq_list = ["TED-LIUM-realease2/BlaiseAguerayArcas_2007/22"]
+
+        batch_num_seqs = 1
         model_args = {
             "add_trafo_lm": True,
             "target_embed_dim": 256,
+            "mel_normalization": True,
         }
         pt_checkpoint_path = _tedlium2_ckpt_path_w_trafo_lm
     elif dataset == "librispeech960":
         target_dimension = 10025
         search_data_opts = search_data_opts_librispeech960
-        # seq_list=[f"dev-other/116-288045-{i:04d}/116-288045-{i:04d}" for i in range(33)]
+        seq_list=[f"dev-other/116-288045-{i:04d}/116-288045-{i:04d}" for i in range(33)]
         # seq_list=["dev-other/1585-131718-0004/1585-131718-0004", "dev-other/1255-90413-0020/1255-90413-0020"]
-        seq_list_1 = [
-            "dev-other/6267-65525-0054/6267-65525-0054",
-            "dev-other/7601-175351-0010/7601-175351-0010",
-            "dev-other/1585-131718-0004/1585-131718-0004",  # this is the one
-        ]
 
-        seq_list_2 = [
-            "dev-other/6455-67803-0012/6455-67803-0012",
-            "dev-other/6467-94831-0045/6467-94831-0045",
-            "dev-other/6841-88291-0018/6841-88291-0018",
-            "dev-other/700-122866-0007/700-122866-0007",
-            "dev-other/6841-88291-0007/6841-88291-0007",
-            "dev-other/6841-88291-0044/6841-88291-0044",
-            # orig pos ?
-            "dev-other/1650-167613-0026/1650-167613-0026",
-            "dev-other/1650-173551-0001/1650-173551-0001",
-            "dev-other/1686-142278-0071/1686-142278-0071",
-            "dev-other/1255-90413-0020/1255-90413-0020",  # this is the one
-        ]
-
-        seq_list = seq_list_2
-
-        batch_num_seqs = max(10, len(seq_list))
+        batch_num_seqs = 10
+        # batch_num_seqs = max(10, len(seq_list))
         model_args = {
             "add_trafo_lm": True,
             "trafo_lm_args": {
@@ -233,7 +216,7 @@ def test_import_search():
 
     print("*** Create new model")
     ctc_only = False
-    time_sync = True
+    time_sync = False
     time_sync_search_args = {
         "beam_size": 12,
         # "att_scale": 0.0,
@@ -244,13 +227,15 @@ def test_import_search():
         # "add_eos_to_end": True,
     }
     search_args = {
-        "beam_size": 6,
-        "att_scale": 0.0,
-        "ctc_scale": 1.0,
-        "use_ctc": True,
-        "prior_corr": True,
-        "prior_scale": 0.5,
-        "ctc_prior_file": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.2UG8sLxHNTMO/output/prior.txt",  # ted2 baseline
+        "beam_size": 12,
+        "att_scale": 1.0,
+        # "add_trafo_lm": True,
+        # "lm_scale": 0.5,
+        # "ctc_scale": 1.0,
+        # "use_ctc": True,
+        # "prior_corr": True,
+        # "prior_scale": 0.5,
+        # "ctc_prior_file": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.2UG8sLxHNTMO/output/prior.txt",  # ted2 baseline
     }
     if time_sync:
         search_args = time_sync_search_args
@@ -277,7 +262,6 @@ def test_import_search():
     print("*** Load new model params from disk")
     pt_module = rf_module_to_pt_module(new_model)
     checkpoint_state = torch.load(pt_checkpoint_path)
-    # checkpoint_state = torch.load(pt_checkpoint_path.get_path())
     pt_module.load_state_dict(checkpoint_state["model"])
 
     cuda = torch.device("cuda")

@@ -122,6 +122,8 @@ class Trafo_LM_Model(rf.Module):
         embed_dim: int = 128,
         num_layers: int = 30,
         att_num_heads: int = 12,
+        ff_activation: str = "relu",
+        use_pos_enc: bool = True, # False for Tedlium2 LM
         search_args: Optional[Dict[str, Any]] = None,
     ):
         super(Trafo_LM_Model, self).__init__()
@@ -133,19 +135,24 @@ class Trafo_LM_Model(rf.Module):
         self.embed_dim = Dim(embed_dim, name="trafo-lm-embed-dim")
         self.num_layers = num_layers
 
+        self.use_pos_enc = use_pos_enc
+
         self.target_embed_raw = rf.Embedding(self.in_dim, self.embed_dim)
-        self.pos_enc = functools.partial(
-            rf.sinusoidal_positional_encoding, feat_dim=self.embed_dim, dtype=self.target_embed_raw.weight.dtype
-        )
+        if self.use_pos_enc:
+            self.pos_enc = functools.partial(
+                rf.sinusoidal_positional_encoding, feat_dim=self.embed_dim, dtype=self.target_embed_raw.weight.dtype
+            )
 
         self.target_embed_lin = rf.Linear(
             self.target_embed_raw.out_dim, self.layer_out_dim, with_bias=False
         )
 
+        self.ff_activation = ff_activation
+
         trafo_layer_opts_ = dict(
             out_dim=self.layer_out_dim,
             ff_dim=self.layer_ff_dim,
-            ff_activation=rf.relu,
+            ff_activation=rf.gelu if self.ff_activation=="gelu" else rf.relu, # rf.gelu for tedlium2 trafo lm
             dropout=0.0,
             num_heads=att_num_heads,
             att_dropout=0.0,
@@ -185,7 +192,10 @@ class Trafo_LM_Model(rf.Module):
         # target_embed_with_pos, pos_emb_spatial_dim = self.target_embed_with_pos(
         #     target_embed_raw
         # )
-        target_embed_with_pos = target_embed_raw + self.pos_enc(spatial_dim=spatial_dim, offset=state.pos)
+        if self.use_pos_enc:
+            target_embed_with_pos = target_embed_raw + self.pos_enc(spatial_dim=spatial_dim, offset=state.pos)
+        else:
+            target_embed_with_pos = target_embed_raw
 
         target_embed = rf.dropout(target_embed_with_pos, 0.0)
 

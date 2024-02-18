@@ -347,7 +347,7 @@ def test_import_forward():
         "target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim
     )
 
-    from ._moh_att_2023_04_24_BxqgICRSGkgb_net_dict import net_dict
+    from i6_experiments.users.zeyer.experiments.exp2023_04_25_rf._moh_att_2023_04_24_BxqgICRSGkgb_net_dict import net_dict
 
     num_layers = 12
 
