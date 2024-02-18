@@ -380,13 +380,16 @@ def search_config_v2(
         sort_config=False,
     )
 
-    (returnn_recog_config.config if recog_def.batch_size_dependent else returnn_recog_config.post_config).update(
-        dict(
-            batching="sorted",
-            batch_size=20000 * model_def.batch_size_factor,
-            max_seqs=200,
-        )
-    )
+    for k, v in dict(
+        batching="sorted",
+        batch_size=20000 * model_def.batch_size_factor,
+        max_seqs=200,
+    ).items():
+        if k in returnn_recog_config.config:
+            v = returnn_recog_config.config.pop(k)
+        if k in returnn_recog_config.post_config:
+            v = returnn_recog_config.post_config.pop(k)
+        (returnn_recog_config.config if recog_def.batch_size_dependent else returnn_recog_config.post_config)[k] = v
 
     if post_config:
         returnn_recog_config.post_config.update(post_config)
