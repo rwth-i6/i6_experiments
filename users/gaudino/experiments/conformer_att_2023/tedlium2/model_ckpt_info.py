@@ -69,6 +69,7 @@ models = {
         ),
         "prior": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.mhjgjO6IUEPB/output/prior.txt",
     },
+    # ctc loss different layers
     "model_ctc0.3_att0.7_lay6": {
         "ckpt": Checkpoint(
             tk.Path(
@@ -131,6 +132,7 @@ models = {
             )
         ),
         "prior": "",
+        "no_ctc": True,
     },
     "model_att_only_adjSpec": {
         "ckpt": Checkpoint(
@@ -139,6 +141,7 @@ models = {
             )
         ),
         "prior": "",
+        "no_ctc": True,
     },
     # ctc only
     "model_ctc_only": {
@@ -149,5 +152,6 @@ models = {
         ),  # last
         "prior": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.Ow9jQN0VEdlo/output/prior.txt",
         # how is this computed?
+        "ctc_only": True,
     },
 }
