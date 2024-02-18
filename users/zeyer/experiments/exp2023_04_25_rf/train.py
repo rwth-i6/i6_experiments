@@ -19,6 +19,7 @@ def train(
     task: Task,
     config: Dict[str, Any],
     post_config: Optional[Dict[str, Any]] = None,
+    env_updates: Optional[Dict[str, str]] = None,
     epilog: Sequence[serialization.SerializerObject] = (),
     model_def: Union[ModelDefWithCfg, ModelDef[ModelT]],
     train_def: TrainDef[ModelT],
@@ -155,6 +156,9 @@ def train(
     returnn_train_job.add_alias(prefix_name + "/train")
     if gpu_mem:
         returnn_train_job.rqmt["gpu_mem"] = gpu_mem
+    if env_updates:
+        for k, v in env_updates.items():
+            returnn_train_job.set_env(k, v)
 
     return ModelWithCheckpoints.from_training_job(definition=model_def, training_job=returnn_train_job)
 

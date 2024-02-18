@@ -67,7 +67,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "torch_distributed": {"options": {"find_unused_parameters": True}},
             "accum_grad_multiple_step": 100,
         },
-        # post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM in epoch 28  # TODO fix
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM in epoch 28 and later...
     )
 
     train_exp(  # 6.52
@@ -281,6 +281,7 @@ def train_exp(
     config_updates: Optional[Dict[str, Any]] = None,
     config_deletes: Optional[Sequence[str]] = None,
     post_config_updates: Optional[Dict[str, Any]] = None,
+    env_updates: Optional[Dict[str, str]] = None,
     num_epochs: int = 2000,
     gpu_mem: Optional[int] = 24,
     num_processes: Optional[int] = None,
@@ -317,6 +318,7 @@ def train_exp(
         task=task,
         config=config,
         post_config=dict_update_deep(post_config, post_config_updates),
+        env_updates=env_updates,
         model_def=ModelDefWithCfg(from_scratch_model_def, model_config),
         train_def=from_scratch_training,
         num_epochs=num_epochs,
