@@ -1104,7 +1104,8 @@ def model_recog_pure_torch(
     """
     import torch
     import time
-    from i6_experiments.users.zeyer.decoding.beam_search_torch import beam_search, beam_search_v4, BeamSearchOpts
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search import BeamSearchOpts, beam_search
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v4 import beam_search_v4
     from returnn.config import get_global_config
 
     config = get_global_config()
@@ -1181,7 +1182,11 @@ def get_label_scorer_pure_torch(
 ):
     import torch
     import functools
-    from i6_experiments.users.zeyer.decoding.interface_torch import LabelScorerIntf, StateObjTensorExt, StateObjIgnored
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.interface import (
+        LabelScorerIntf,
+        StateObjTensorExt,
+        StateObjIgnored,
+    )
 
     class LabelScorer(LabelScorerIntf):
         """label scorer"""
