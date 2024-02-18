@@ -191,6 +191,15 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_normalization_exponent": 0.0,
             "length_reward": 0.05,
         },
+        "beam60-lenNorm0-lenReward0-batch50": {
+            "beam_search_version": 3,
+            "beam_size": 60,
+            "__batch_size_dependent": True,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "length_normalization_exponent": 0.0,
+            "length_reward": 0.0,
+        },
     }.items():
         _recog(
             "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV3/recog_last_" + name,
