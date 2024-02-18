@@ -89,13 +89,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "v3-beam60": {
             "beam_search_version": 3,
             "beam_size": 60,
-            "max_seqs": 75,
+            "max_seqs": 50,
             "length_normalization_exponent": 1.0,
         },
         "v3-beam60-lenReward01": {
             "beam_search_version": 3,
             "beam_size": 60,
-            "max_seqs": 75,
+            "max_seqs": 50,
             "length_normalization_exponent": 0.0,
             "length_reward": 0.1,
         },
@@ -138,13 +138,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "beam60": {
             "beam_search_version": 3,
             "beam_size": 60,
-            "max_seqs": 75,
+            "max_seqs": 50,
             "length_normalization_exponent": 1.0,
         },
         "beam60-lenReward01": {
             "beam_search_version": 3,
             "beam_size": 60,
-            "max_seqs": 75,
+            "max_seqs": 50,
             "length_normalization_exponent": 0.0,
             "length_reward": 0.1,
         },
