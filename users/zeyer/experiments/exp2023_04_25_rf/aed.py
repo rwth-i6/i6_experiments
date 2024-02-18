@@ -168,6 +168,12 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
         "beam60-lenReward01-batch50": {
             # {"dev-clean": 2.61, "dev-other": 5.4, "test-clean": 2.82, "test-other": 6.5}
+            # test-other: work/i6_core/recognition/scoring/ScliteJob.Acv12UewxtG0/output
+            # Percent Substitution      =    4.4%   (2280)
+            # Percent Deletions         =    0.6%   ( 292)
+            # Percent Insertions        =    1.6%   ( 830)
+            # work/i6_core/returnn/forward/ReturnnForwardJobV2.ALH3cRPRSWkr/output/output.py.gz
+            # lots of insertions, repeating loop at end: 4294-14317-0014
             "beam_search_version": 4,
             "beam_size": 60,
             "__batch_size_dependent": True,
@@ -209,6 +215,9 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "beam60-lenNorm0-lenReward0-batch50": {
             # {"dev-clean": 2.64, "dev-other": 5.4, "test-clean": 2.82, "test-other": 6.02}
             # test-other: work/i6_core/recognition/scoring/ScliteJob.hHxGodUNMmaC/output
+            # Percent Substitution      =    4.3%   (2254)
+            # Percent Deletions         =    0.9%   ( 477)
+            # Percent Insertions        =    0.8%   ( 422)
             "beam_search_version": 3,
             "beam_size": 60,
             "__batch_size_dependent": True,
