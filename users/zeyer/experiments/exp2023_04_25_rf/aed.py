@@ -167,13 +167,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_normalization_exponent": 1.0,
         },
         "beam60-lenReward01-batch50": {
-            # {"dev-clean": 5.61, "dev-other": 7.85, "test-clean": 6.78, "test-other": 7.96}
-            # work/i6_core/recognition/scoring/ScliteJob.aHtNXtobCjMe/output
-            # more deletions. sometimes empty seq (2033-164915-0013).
-            # i6_core/returnn/forward/ReturnnForwardJobV2.CepLCfMCo5CT
-            # 'test-other/4294-14317-0014/4294-14317-0014': [(48.01500701904297, ''), ... ??
-            # how can empty seq be such large score? sth is wrong
-            "beam_search_version": 3,
+            "beam_search_version": 4,
             "beam_size": 60,
             "__batch_size_dependent": True,
             "max_seqs": 50,
@@ -182,8 +176,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_reward": 0.1,
         },
         "beam60-lenReward02-batch50": {
-            # {"dev-clean": 13.78, "dev-other": 13.17, "test-clean": 14.31, "test-other": 13.26}
-            "beam_search_version": 3,
+            "beam_search_version": 4,
             "beam_size": 60,
             "__batch_size_dependent": True,
             "max_seqs": 50,
@@ -192,8 +185,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_reward": 0.2,
         },
         "beam60-lenReward005-batch50": {
-            # {"dev-clean": 3.76, "dev-other": 5.86, "test-clean": 3.6, "test-other": 6.26}
-            "beam_search_version": 3,
+            "beam_search_version": 4,
             "beam_size": 60,
             "__batch_size_dependent": True,
             "max_seqs": 50,
@@ -202,8 +194,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_reward": 0.05,
         },
         "beam60-lenReward_005-batch50": {
-            # {"dev-clean": 2.61, "dev-other": 5.41, "test-clean": 2.83, "test-other": 6.48}
-            "beam_search_version": 3,
+            "beam_search_version": 4,
             "beam_size": 60,
             "__batch_size_dependent": True,
             "max_seqs": 50,
@@ -1100,7 +1091,7 @@ def model_recog_pure_torch(
     """
     import torch
     import time
-    from i6_experiments.users.zeyer.decoding.beam_search_torch import beam_search, beam_search_v3, BeamSearchOpts
+    from i6_experiments.users.zeyer.decoding.beam_search_torch import beam_search, beam_search_v4, BeamSearchOpts
     from returnn.config import get_global_config
 
     config = get_global_config()
@@ -1123,12 +1114,15 @@ def model_recog_pure_torch(
 
     enc_end_time = time.perf_counter_ns()
 
+    beam_search_version = config.int("beam_search_version", 1)
+    if beam_search_version == 3 and config.float("length_reward", 0.0):
+        raise Exception("There was a bug in length_reward in v3. Fixed now.")
     label_scorer = get_label_scorer_pure_torch(model=model, batch_dim=batch_dim, enc=enc)
     (
         seq_targets,  # [Batch,FinalBeam,OutSeqLen]
         seq_log_prob,  # [Batch,FinalBeam]
         out_seq_len,  # [Batch,FinalBeam]
-    ) = {1: beam_search, 3: beam_search_v3}[config.int("beam_search_version", 1)](
+    ) = {1: beam_search, 3: beam_search_v4, 4: beam_search_v4}[beam_search_version](
         label_scorer,
         batch_size=batch_dim.get_dim_value(),
         max_seq_len=max_seq_len.copy_compatible_to_dims_raw([batch_dim]),

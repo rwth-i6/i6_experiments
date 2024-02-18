@@ -112,7 +112,7 @@ def beam_search(
     return seq_targets, seq_log_prob, out_seq_len
 
 
-def beam_search_v3(
+def beam_search_v4(
     label_scorer: LabelScorerIntf,
     *,
     batch_size: int,
@@ -156,7 +156,7 @@ def beam_search_v3(
 
         # Filter out finished beams
         if opts.length_reward:
-            seq_log_prob += torch.where(ended, opts.length_reward, 0.0)
+            seq_log_prob += torch.where(ended, 0.0, opts.length_reward)
         label_log_prob = torch.where(ended[:, :, None], masked_finished_log_prob[None, None, :], label_log_prob)
         seq_log_prob = seq_log_prob[:, :, None] + label_log_prob  # [Batch,InBeam,Vocab]
         seq_log_prob, (backrefs, target) = top_k_nd(seq_log_prob, k=opts.beam_size, dim=[1, 2])  # all [Batch,Beam]
