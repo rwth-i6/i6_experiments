@@ -168,6 +168,11 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
         "beam60-lenReward01-batch50": {
             # {"dev-clean": 5.61, "dev-other": 7.85, "test-clean": 6.78, "test-other": 7.96}
+            # work/i6_core/recognition/scoring/ScliteJob.aHtNXtobCjMe/output
+            # more deletions. sometimes empty seq (2033-164915-0013).
+            # i6_core/returnn/forward/ReturnnForwardJobV2.CepLCfMCo5CT
+            # 'test-other/4294-14317-0014/4294-14317-0014': [(48.01500701904297, ''), ... ??
+            # how can empty seq be such large score? sth is wrong
             "beam_search_version": 3,
             "beam_size": 60,
             "__batch_size_dependent": True,
@@ -208,6 +213,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
         "beam60-lenNorm0-lenReward0-batch50": {
             # {"dev-clean": 2.64, "dev-other": 5.4, "test-clean": 2.82, "test-other": 6.02}
+            # test-other: work/i6_core/recognition/scoring/ScliteJob.hHxGodUNMmaC/output
             "beam_search_version": 3,
             "beam_size": 60,
             "__batch_size_dependent": True,
