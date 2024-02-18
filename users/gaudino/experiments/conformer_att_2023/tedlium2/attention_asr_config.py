@@ -673,11 +673,16 @@ def create_config(
     enable_mixup_in_pretrain=True,
     seq_train_opts=None,
     second_encoder_ckpt=None,
+    second_encoder_args_update_dict={},
+    hash_override_version=None,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
 
     exp_config["extern_data"] = training_datasets.extern_data
+
+    if hash_override_version is not None:
+        exp_config["hash_override_version"] = hash_override_version
 
     if not is_recog:
         exp_config["train"] = training_datasets.train.as_returnn_opts()
@@ -827,12 +832,15 @@ def create_config(
     conformer_encoder = encoder_type(**encoder_args)
     conformer_encoder.create_network()
 
+    second_encoder_args = copy.deepcopy(encoder_args)
+    second_encoder_args.update(second_encoder_args_update_dict)
+
     if second_encoder_ckpt:
         add_second_encoder(
             conformer_encoder,
             second_encoder_ckpt,
             encoder_type,
-            encoder_args,
+            second_encoder_args,
         )
 
     decoder_args = asdict(decoder_args)

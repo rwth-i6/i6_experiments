@@ -1147,7 +1147,7 @@ def conformer_baseline():
         )
 
     # # additional trainings
-    for scales in [(0.3, 0.7), (0.2, 0.8), (0.1, 0.9), (0.8, 0.2), (0.7, 0.3), (0.9, 0.1)]:
+    for scales in [(0.9, 0.1), (0.8, 0.2), (0.7, 0.3), (0.6, 0.4), (0.5, 0.5), (0.4, 0.6),  (0.3, 0.7), (0.2, 0.8), (0.1, 0.9)]:
         # for scales in []:
         # train scale CTC
         att_scale, ctc_scale = scales
