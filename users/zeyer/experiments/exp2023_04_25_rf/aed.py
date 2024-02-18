@@ -189,7 +189,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
             "length_normalization_exponent": 0.0,
-            "length_reward": 0.1,
+            "length_reward": 0.05,
         },
     }.items():
         _recog(
