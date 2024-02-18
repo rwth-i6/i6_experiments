@@ -140,6 +140,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "__batch_size_dependent": True,
         },
         "beam12-batch1": {
+            # {"dev-clean": 3.38, "dev-other": 6.23, "test-clean": 2.9, "test-other": 6.26}
             "beam_search_version": 3,
             "beam_size": 12,
             "length_normalization_exponent": 1.0,
