@@ -132,25 +132,51 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
     for name, recog_config in {
-        "beam12": {
+        "beam12-batch200": {
             "beam_search_version": 3,
             "beam_size": 12,
             "length_normalization_exponent": 1.0,
+            "__batch_size_dependent": True,
         },
-        "beam60": {
+        "beam12-batch1": {
+            "beam_search_version": 3,
+            "beam_size": 12,
+            "length_normalization_exponent": 1.0,
+            "__batch_size_dependent": True,
+            "max_seqs": 1,
+        },
+        "beam60-batch50": {
             "beam_search_version": 3,
             "beam_size": 60,
+            "__batch_size_dependent": True,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
             "length_normalization_exponent": 1.0,
         },
-        "beam60-lenReward01": {
+        "beam60-batch1": {
             "beam_search_version": 3,
             "beam_size": 60,
+            "__batch_size_dependent": True,
+            "max_seqs": 1,
+            "length_normalization_exponent": 1.0,
+        },
+        "beam60-lenReward01-batch50": {
+            "beam_search_version": 3,
+            "beam_size": 60,
+            "__batch_size_dependent": True,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
             "length_normalization_exponent": 0.0,
             "length_reward": 0.1,
+        },
+        "beam60-lenReward02-batch50": {
+            "beam_search_version": 3,
+            "beam_size": 60,
+            "__batch_size_dependent": True,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "length_normalization_exponent": 0.0,
+            "length_reward": 0.2,
         },
     }.items():
         _recog(
