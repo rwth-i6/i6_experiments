@@ -1131,6 +1131,13 @@ def model_recog_pure_torch(
     beam_search_version = config.int("beam_search_version", 1)
     if beam_search_version == 3 and config.float("length_reward", 0.0):
         raise Exception("There was a bug in length_reward in v3. Fixed now.")
+    beam_search_opts = (config.typed_value("beam_search_opts", None) or {}).copy()
+    if beam_search_opts.get("beam_size") is None:
+        beam_search_opts["beam_size"] = config.int("beam_size", 12)
+    if beam_search_opts.get("length_normalization_exponent") is None:
+        beam_search_opts["length_normalization_exponent"] = config.float("length_normalization_exponent", 1.0)
+    if beam_search_opts.get("length_reward") is None:
+        beam_search_opts["length_reward"] = config.float("length_reward", 0.0)
     label_scorer = get_label_scorer_pure_torch(model=model, batch_dim=batch_dim, enc=enc)
     (
         seq_targets,  # [Batch,FinalBeam,OutSeqLen]
@@ -1142,9 +1149,7 @@ def model_recog_pure_torch(
         max_seq_len=max_seq_len.copy_compatible_to_dims_raw([batch_dim]),
         device=data.raw_tensor.device,
         opts=BeamSearchOpts(
-            beam_size=config.int("beam_size", 12),
-            length_normalization_exponent=config.float("length_normalization_exponent", 1.0),
-            length_reward=config.float("length_reward", 0.0),
+            **beam_search_opts,
             bos_label=model.bos_idx,
             eos_label=model.eos_idx,
             num_labels=model.target_dim.dimension,
