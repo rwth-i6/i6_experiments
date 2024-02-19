@@ -64,3 +64,15 @@ frameshift40_conformer_fullsum = GeneralNetworkParams(
 frameshift40_conformer_viterbi_zhou = GeneralNetworkParams(
     l2=5e-6, chunking="256:128", frame_rate_reduction_ratio_factor=4, auxilary_loss_layers=[6, 12]
 )
+frameshift40_conformer_viterbi_mix_48 = GeneralNetworkParams(
+    l2=5e-6, chunking="256:128", frame_rate_reduction_ratio_factor=4, auxilary_loss_layers=[4,8]
+)
+
+frameshift40_conformer_viterbi_mix_369 = GeneralNetworkParams(
+    l2=5e-6, chunking="256:128", frame_rate_reduction_ratio_factor=4, auxilary_loss_layers=[3,6,9]
+)
+
+frameshift40_conformer_viterbi_mix_base = GeneralNetworkParams(
+    l2=5e-6, chunking="256:128", frame_rate_reduction_ratio_factor=4, auxilary_loss_layers=[6]
+)
+

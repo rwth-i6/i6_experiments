@@ -1,4 +1,9 @@
+from dataclasses import dataclass
+from typing import Dict
+
 from i6_core.meta.system import CorpusObject
+from i6_experiments.common.setups.rasr.util import RasrDataInput
+
 
 @dataclass()
 class CorpusData:
@@ -17,3 +22,5 @@ def get_corpus_object(bliss_corpus, duration, audio_dir =None, audio_format="wav
     corpus_object.audio_format = audio_format
     corpus_object.audio_dir = audio_dir
     corpus_object.duration = duration
+
+    return corpus_object

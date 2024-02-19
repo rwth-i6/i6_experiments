@@ -45,7 +45,7 @@ from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_sear
     BASEFactoredHybridDecoder,
     round2,
     RasrFeatureScorer,
-    ecodingTensorMap,
+    DecodingTensorMap,
     RecognitionJobs,
     check_prior_info,
     get_factored_feature_scorer,
@@ -81,9 +81,10 @@ class SWBFactoredHybridDecoder(BASEFactoredHybridDecoder):
         silence_id=3,
         set_batch_major_for_feature_scorer: bool = True,
         tf_library: Optional[Union[str, Path]] = None,
+        lm_gc_simple_hash=None,
         gpu=False,
     ):
-        super.__init__(
+        super().__init__(
             name=name,
             crp=crp,
             context_type=context_type,
@@ -98,6 +99,7 @@ class SWBFactoredHybridDecoder(BASEFactoredHybridDecoder):
             silence_id=silence_id,
             set_batch_major_for_feature_scorer=set_batch_major_for_feature_scorer,
             tf_library=tf_library,
+            lm_gc_simple_hash=lm_gc_simple_hash,
             gpu=gpu,
         )
 
@@ -177,12 +179,8 @@ class SWBFactoredHybridDecoder(BASEFactoredHybridDecoder):
         rnn_lm_config.loader.required_libraries = Path(self.native_lstm_path)
 
         rnn_lm_config.input_map.info_0.param_name = "word"
-        rnn_lm_config.input_map.info_0.tensor_name = (
-            "extern_data/placeholders/delayed/delayed"
-        )
-        rnn_lm_config.input_map.info_0.seq_length_tensor_name = (
-            "extern_data/placeholders/delayed/delayed_dim0_size"
-        )
+        rnn_lm_config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
+        rnn_lm_config.input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/delayed/delayed_dim0_size"
 
         rnn_lm_config.output_map.info_0.param_name = "softmax"
         rnn_lm_config.output_map.info_0.tensor_name = "output/output_batch_major"
@@ -190,9 +188,7 @@ class SWBFactoredHybridDecoder(BASEFactoredHybridDecoder):
         kazuki_fake_nce_lm = copy.deepcopy(rnn_lm_config)
         tfrnn_dir = "/work/asr3/beck/setups/swb1/2018-06-08_nnlm_decoding/dependencies/tfrnn_nce"
         kazuki_fake_nce_lm.vocab_file = Path("%s/vocabmap.freq_sorted.txt" % tfrnn_dir)
-        kazuki_fake_nce_lm.loader.meta_graph_file = Path(
-            "%s/inference.meta" % tfrnn_dir
-        )
+        kazuki_fake_nce_lm.loader.meta_graph_file = Path("%s/inference.meta" % tfrnn_dir)
         kazuki_fake_nce_lm.loader.saved_model_file = sprint.StringWrapper(
             "%s/network.018" % tfrnn_dir, Path("%s/network.018.index" % tfrnn_dir)
         )
@@ -219,12 +215,8 @@ class SWBFactoredHybridDecoder(BASEFactoredHybridDecoder):
         rnn_lm_config.loader.required_libraries = Path(self.native_lstm_path)
 
         rnn_lm_config.input_map.info_0.param_name = "word"
-        rnn_lm_config.input_map.info_0.tensor_name = (
-            "extern_data/placeholders/delayed/delayed"
-        )
-        rnn_lm_config.input_map.info_0.seq_length_tensor_name = (
-            "extern_data/placeholders/delayed/delayed_dim0_size"
-        )
+        rnn_lm_config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
+        rnn_lm_config.input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/delayed/delayed_dim0_size"
 
         rnn_lm_config.output_map.info_0.param_name = "softmax"
         rnn_lm_config.output_map.info_0.tensor_name = "output/output_batch_major"
@@ -480,7 +472,8 @@ class SWBFactoredHybridDecoder(BASEFactoredHybridDecoder):
             tdp_transition=tdp_transition,
             tdp_silence=tdp_silence,
             tdp_nonword=tdp_non_word,
-            nonword_phones=search_parameters.non_word_phonemes,
+            nonword_phones="[LAUGHTER],[NOISE],[VOCALIZEDNOISE]",
+            #search_parameters.non_word_phonemes,
             tying_type="global-and-nonword",
         )
 
@@ -610,7 +603,6 @@ class SWBFactoredHybridDecoder(BASEFactoredHybridDecoder):
             rtf=rtf_gpu if rtf_gpu is not None and gpu else rtf_cpu if rtf_cpu is not None else rqms["rtf"],
             mem=rqms["mem"] if mem_rqmt is None else mem_rqmt,
             cpu=2 if cpu_rqmt is None else cpu_rqmt,
-            lmgc_scorer=rasr.DiagonalMaximumScorer(self.mixtures) if self.lm_gc_simple_hash else None,
             create_lattice=create_lattice,
             # separate_lm_image_gc_generation=True,
             model_combination_config=model_combination_config,
@@ -663,9 +655,9 @@ class SWBFactoredHybridDecoder(BASEFactoredHybridDecoder):
             fill_empty_segments=True,
         )
 
-        scorer = recog.Hub5Score(
-            ref=self.eval_files["ref"], glm=self.eval_files["glm"], hyp=lat2ctm.ctm_file
-        )
+        s_kwrgs = copy.deepcopy(self.eval_files)
+        s_kwrgs["hyp"] = lat2ctm.out_ctm_file
+        scorer = recog.Hub5ScoreJob(**s_kwrgs)
 
         if add_sis_alias_and_output:
             tk.register_output(f"{pre_path}/{name}.wer", scorer.out_report_dir)
@@ -678,10 +670,11 @@ class SWBFactoredHybridDecoder(BASEFactoredHybridDecoder):
                 lattice_cache=search.out_lattice_bundle,
                 initial_am_scale=pron_scale,
                 initial_lm_scale=search_parameters.lm_scale,
-                scorer_cls=recog.ScliteJob,
+                scorer_cls=recog.Hub5ScoreJob,
                 scorer_kwargs=s_kwrgs,
                 opt_only_lm_scale=only_lm_opt,
             )
+            opt.rqmt = None
 
             if add_sis_alias_and_output:
                 tk.register_output(

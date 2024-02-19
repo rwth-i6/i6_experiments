@@ -2,7 +2,7 @@ __all__ = ["concurrent", "corpora", "lexica", "stm_path", "glm_path", "feature_b
 
 from sisyphus import tk
 
-Path = setup_path(__package__)
+Path = tk.setup_path(__package__)
 
 SWB_ROOT = "/u/corpora/speech/switchboard-1/"
 HUB500_ROOT = "/u/corpora/speech/hub-5-00/"
@@ -89,24 +89,24 @@ glm_path = {
 prepath_dependencies = "/work/asr4/raissi/ms-thesis-setups/lm-sa-swb/dependencies"
 prepath_work_folder = "/work/asr3/raissi/master-thesis/raissi/work"
 feature_bundles = {
-    "train": ("/").join(
+    "train": Path(("/").join(
         [
             prepath_work_folder,
-            "features/extraction/FeatureExtraction.Gammatone.dVkMNkHYPXb4/output/output/gt.cache.bundle",
+            "features/extraction/FeatureExtraction.Gammatone.Jlfrg2riiRX3/output/gt.cache.bundle",
         ]
-    ),
-    "hub00": ("/").join(
+    ), hash_overwrite="legacy_train_features"),
+    "hub500": Path(("/").join(
         [
             prepath_work_folder,
-            "features/extraction/FeatureExtraction.Gammatone.Jlfrg2riiRX3/output/output/gt.cache.bundle",
+            "features/extraction/FeatureExtraction.Gammatone.dVkMNkHYPXb4/output/gt.cache.bundle",
         ]
-    ),
-    "hub01": ("/").join(
+    ), hash_overwrite="legacy_dev_features"),
+    "hub501": Path(("/").join(
         [
             prepath_dependencies,
             "hub5-01/gammatone/FeatureExtraction.Gammatone.osrT6JyBKDB2/output/gt.cache.bundle",
         ]
-    ),
+    ), hash_overwrite="legacy_eval_features"),
 }
 
 

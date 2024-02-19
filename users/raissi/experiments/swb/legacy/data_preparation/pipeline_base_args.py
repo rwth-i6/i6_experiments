@@ -1,6 +1,9 @@
-from sisyphus import tk
+
 import copy
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Union
+from IPython import embed
+
+from sisyphus import tk
 from i6_core.corpus import FilterCorpusBySegmentsJob, FilterSegmentsByListJob, SegmentCorpusJob
 
 from i6_experiments.common.setups.rasr import util as rasr_util
@@ -37,8 +40,8 @@ def get_lexicon_config(lexicon_path, normalize_pronunciation=False):
 
 def get_data_inputs_with_paths(
     train_key: str = "train",
-    dev_keys: str = "dev_zoltan",
-    test_keys: str = "hub5-01",
+    dev_keys: str = ["dev_zoltan"],
+    test_keys: str = ["hub5-01"],
     lm_name: str = "fisher_4gram",
     filter_short_segments: bool = True,
 ):
@@ -66,23 +69,27 @@ def get_data_inputs_with_paths(
     train_data_inputs[train_key] = rasr_util.RasrDataInput(
         corpus_object=train_corpus_object,
         concurrent=concurrent[train_key],
-        lexicon=lexicon_config,
+        lexicon=get_lexicon_config(lexicon_path=lexica[train_key]),
     )
-
+    eval_lm = {
+        "filename": get_lm(lm_name).filename,
+        "type": "ARPA",
+        "scale": 10,
+    }
     for dev_key in dev_keys:
         dev_data_inputs["hub500"] = rasr_util.RasrDataInput(
             corpus_object=get_swb_corpus_object(corpus_name="eval", mapping=dev_key),
-            concurrent=concurrent[dev_key],
+            concurrent=concurrent["dev"],
             lexicon=get_lexicon_config(lexicon_path=lexica["eval"]),
-            lm=get_lm(lm_name),
+            lm=eval_lm,
         )
 
     for test_key in test_keys:
         test_data_inputs["hub501"] = rasr_util.RasrDataInput(
             corpus_object=get_swb_corpus_object(corpus_name="eval", mapping=test_key),
-            concurrent=concurrent[test_key],
+            concurrent=concurrent["eval"],
             lexicon=get_lexicon_config(lexicon_path=lexica["eval"]),
-            lm=get_lm(lm_name),
+            lm=eval_lm,
         )
 
     return CorpusData(
@@ -92,7 +99,7 @@ def get_data_inputs_with_paths(
     )
 
 
-def get_final_output(name="final"):
+def get_final_output(name="final", extract_features=False):
     output_args = rasr_util.OutputArgs(name)
 
     output_args.define_corpus_type("train", "train")

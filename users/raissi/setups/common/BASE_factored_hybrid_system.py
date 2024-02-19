@@ -220,6 +220,7 @@ class BASEFactoredHybridSystem(NnSystem):
 
         # keys when you have different dev and test sets
         self.train_key = None
+        self.cv_num_segments = 100
 
         self.set_initial_nn_args(initial_nn_args=initial_nn_args)
 
@@ -236,7 +237,7 @@ class BASEFactoredHybridSystem(NnSystem):
             if "train" in k:
                 crp_n = f"{self.train_key}.{k}"
                 if "cv" in k:
-                    if len(self.cv_corpora) :
+                    if len(self.cv_corpora):
                         crp_n = self.cv_corpora[-1]
                 self.crp_names[k] = crp_n
                 self._add_feature_and_alignment_for_crp_with_existing_crp(
@@ -274,7 +275,6 @@ class BASEFactoredHybridSystem(NnSystem):
         dev_data = dev_data if dev_data is not None else {}
         test_data = test_data if test_data is not None else {}
 
-
         self._assert_corpus_name_unique(train_data, cv_data, devtrain_data, dev_data, test_data)
 
         self.train_input_data = train_data
@@ -304,9 +304,14 @@ class BASEFactoredHybridSystem(NnSystem):
             self.feature_flows[existing_crp_key][self.nn_feature_type] is not None
         ), f"you need to set the features for {existing_crp_key} first"
         self.alignments[new_crp_key] = self.alignments[existing_crp_key]
+
+        if self.nn_feature_type not in self.feature_caches[existing_crp_key]:
+            self.feature_caches[existing_crp_key][self.nn_feature_type] = {}
+
         self.feature_caches[new_crp_key] = {
             self.nn_feature_type: self.feature_caches[existing_crp_key][self.nn_feature_type]
         }
+
         self.feature_bundles[new_crp_key] = {
             self.nn_feature_type: self.feature_bundles[existing_crp_key][self.nn_feature_type]
         }
@@ -330,7 +335,6 @@ class BASEFactoredHybridSystem(NnSystem):
         sys_in.features = self.feature_caches[corpus_key]
         if corpus_key in self.alignments:
             sys_in.alignments = self.alignments[corpus_key]
-
         for feat_name in extract_features:
             tk.register_output(
                 f"features/{corpus_key}_{feat_name}_features.bundle",
@@ -647,7 +651,7 @@ class BASEFactoredHybridSystem(NnSystem):
                 nn_train_data_inputs,
                 nn_cv_data_inputs,
                 nn_devtrain_data_inputs,
-            ) = self.prepare_rasr_train_data_with_cv_from_train(input_key)
+            ) = self.prepare_rasr_train_data_with_cv_from_train(input_key, cv_num_segments=self.cv_num_segments)
 
         nn_train_data_inputs[self.crp_names["align.train"]] = nn_train_align_data
 
@@ -769,9 +773,8 @@ class BASEFactoredHybridSystem(NnSystem):
         prolog_additional_str: str = None,
         epilog_additional_str: str = None,
         functions=None,
-        label_time_tag: str =None,
-        add_extern_data_for_fullsum: bool =False,
-
+        label_time_tag: str = None,
+        add_extern_data_for_fullsum: bool = False,
     ):
         # this is not a returnn config, but the dict params
         assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
@@ -1220,13 +1223,13 @@ class BASEFactoredHybridSystem(NnSystem):
             if step_name.startswith("extract"):
                 if step_args is None:
                     step_args = self.rasr_init_args.feature_extraction_args
-                step_args[self.nn_feature_type]["prefix"] = "features/"
-                for all_c in all_corpora:
-                    self.feature_caches[all_c] = {}
-                    self.feature_bundles[all_c] = {}
-                    self.feature_flows[all_c] = {}
-
-                self.extract_features(step_args, corpus_list=all_corpora)
+                    for all_c in all_corpora:
+                        self.feature_caches[all_c] = {}
+                        self.feature_bundles[all_c] = {}
+                        self.feature_flows[all_c] = {}
+                if step_args[self.nn_feature_type] is not None:
+                    step_args[self.nn_feature_type]["prefix"] = "features/"
+                    self.extract_features(step_args, corpus_list=all_corpora)
             # -----------Set alignments if needed-------
             # here you might one to align cv with a given aligner
             if step_name.startswith("alignment"):

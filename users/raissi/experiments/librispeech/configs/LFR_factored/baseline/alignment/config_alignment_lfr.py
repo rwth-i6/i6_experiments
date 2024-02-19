@@ -230,7 +230,7 @@ def get_system(key, lr=4e-4, num_epochs=None, am_scale=1.0, tdp_scale=0.1):
 
 
 
-get_system(key='exp2', am_scale=1.0, tdp_scale=0.1)
+#get_system(key='exp2', am_scale=1.0, tdp_scale=0.1)
 #WER 9.0, TSE 57ms
 
 #get_system(key='exp3', am_scale=0.5, tdp_scale=0.1)

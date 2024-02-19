@@ -59,7 +59,28 @@ CONF_SA_CONFIG = {
 L2 = 1e-6
 LABEL_SMOOTHING = 0.2
 
+
+CONF_FH_DECODING_TENSOR_CONFIG_TF1 = dataclasses.replace(
+    DecodingTensorMap.default(),
+    in_encoder_output="length_masked/strided_slice",
+    in_seq_length="extern_data/placeholders/centerState/centerState_dim0_size",
+    out_encoder_output="encoder-output/output_batch_major",
+    out_right_context="right-output/output_batch_major",
+    out_left_context="left-output/output_batch_major",
+    out_center_state="center-output/output_batch_major",
+)
+
 CONF_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
+    DecodingTensorMap.default(),
+    in_encoder_output="length_masked/strided_slice",
+    in_seq_length="extern_data/placeholders/centerState/centerState_dim0_size",
+    out_encoder_output="encoder__output/output_batch_major",
+    out_right_context="right__output/output_batch_major",
+    out_left_context="left__output/output_batch_major",
+    out_center_state="center__output/output_batch_major",
+)
+
+CONF_FH_DECODING_TENSOR_CONFIG_10ms = dataclasses.replace(
     DecodingTensorMap.default(),
     in_encoder_output="length_masked/strided_slice",
     in_seq_length="extern_data/placeholders/centerState/centerState_dim0_size",

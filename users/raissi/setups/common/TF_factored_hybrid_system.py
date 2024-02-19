@@ -96,8 +96,8 @@ class ExtraReturnnCode(TypedDict):
 
 
 class Graphs(TypedDict):
-    train: Optional[tk.Path]
-    inference: Optional[tk.Path]
+    train: Optional[Path]
+    inference: Optional[Path]
 
 
 class ExtraReturnnCode(TypedDict):
@@ -129,8 +129,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         self,
         returnn_root: Optional[str] = None,
         returnn_python_home: Optional[str] = None,
-        returnn_python_exe: Optional[tk.Path] = None,
-        rasr_binary_path: Optional[tk.Path] = None,
+        returnn_python_exe: Optional[Path] = None,
+        rasr_binary_path: Optional[Path] = None,
         rasr_init_args: RasrInitArgs = None,
         train_data: Dict[str, RasrDataInput] = None,
         dev_data: Dict[str, RasrDataInput] = None,
@@ -151,7 +151,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         self.graphs = {}
         # inference related
-        self.native_lstm2_path: Optional[tk.Path] = None
+        self.native_lstm2_path: Optional[Path] = None
 
     # -------------------- External helpers --------------------
     def get_model_checkpoint(self, model_job, epoch):
@@ -266,6 +266,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 network["classes_"]["from"] = "slice_classes"
 
         return network
+
     # -------------------- Decoding --------------------
     def _compute_returnn_rasr_priors(
         self,
@@ -319,7 +320,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                         "task_dependent": train_data.features,
                     },
                 )
-            elif isinstance(train_data.features, tk.Path):
+            elif isinstance(train_data.features, Path):
                 feature_path = rasr.FlagDependentFlowAttribute(
                     "cache_mode",
                     {
@@ -330,7 +331,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 raise NotImplementedError
 
             feature_flow = features.basic_cache_flow(feature_path)
-            if isinstance(train_data.features, tk.Path):
+            if isinstance(train_data.features, Path):
                 feature_flow.flags = {"cache_mode": "bundle"}
 
         assert isinstance(returnn_config, returnn.ReturnnConfig)
@@ -412,6 +413,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         state_tying: RasrStateTying = RasrStateTying.monophone,
         returnn_config: Optional[returnn.ReturnnConfig] = None,
         output_layer_name: str = "output",
+        checkpoint: Optional[Path] = None,
         smoothen: bool = False,
         zero_weight: float = 1e-8,
         data_share: float = 0.3,
@@ -442,6 +444,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             dev_corpus_key=dev_corpus_key,
             returnn_config=config,
             share=data_share,
+            checkpoint=checkpoint,
         )
 
         job.add_alias(f"priors/{name}/single_prior")
@@ -833,12 +836,12 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         epoch: int,
         crp_corpus: str,
         recognizer_key: str = "base",
-        model_path: Optional[tk.Path] = None,
+        model_path: Optional[Path] = None,
         gpu=False,
         is_multi_encoder_output=False,
         set_batch_major_for_feature_scorer: bool = True,
-        tf_library: Union[tk.Path, str, List[tk.Path], List[str], None] = None,
-        dummy_mixtures: Optional[tk.Path] = None,
+        tf_library: Union[Path, str, List[Path], List[str], None] = None,
+        dummy_mixtures: Optional[Path] = None,
         lm_gc_simple_hash: Optional[bool] = None,
         crp: Optional[rasr.RasrConfig] = None,
         **decoder_kwargs,
@@ -889,6 +892,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         if model_path is None:
             model_path = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+
         recognizer = self.recognizers[recognizer_key](
             name=name,
             crp=self.crp[crp_corpus] if crp is None else crp,
@@ -904,9 +908,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             set_batch_major_for_feature_scorer=set_batch_major_for_feature_scorer,
             silence_id=self.label_info.sil_id,
             gpu=gpu,
-            lm_gc_simple_hash=lm_gc_simple_hash
-            if (lm_gc_simple_hash is not None and lm_gc_simple_hash) or self.lm_gc_simple_hash
-            else None,
+            lm_gc_simple_hash=lm_gc_simple_hash if (lm_gc_simple_hash is not None and lm_gc_simple_hash) else None,
             **decoder_kwargs,
         )
 
@@ -920,13 +922,13 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         epoch: int,
         crp_corpus: str,
         aligner_key: str = "base",
-        model_path: Optional[tk.Path] = None,
-        feature_path: Optional[tk.Path] = None,
+        model_path: Optional[Path] = None,
+        feature_path: Optional[Path] = None,
         gpu: bool = False,
         is_multi_encoder_output: bool = False,
         set_batch_major_for_feature_scorer: bool = True,
-        tf_library: Union[tk.Path, str, List[tk.Path], List[str], None] = None,
-        dummy_mixtures: Optional[tk.Path] = None,
+        tf_library: Union[Path, str, List[Path], List[str], None] = None,
+        dummy_mixtures: Optional[Path] = None,
         crp: Optional[rasr.RasrConfig] = None,
         **aligner_kwargs,
     ):

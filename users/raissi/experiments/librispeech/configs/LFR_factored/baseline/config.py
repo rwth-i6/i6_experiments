@@ -9,7 +9,8 @@ ZHOU_SUBSAMPLED_ALIGNMENT = "/work/asr3/raissi/shared_workspaces/gunz/dependenci
 ZHOU_ALLOPHONES = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/allophones/ls-960/zhou-allophones"
 
 ALIGN_GMM_MONO_10MS = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/alignments/ls-960/mono/AlignmentJob.lZiXlFMiSb0C/output/alignment.cache.bundle"
-ALIGN_GMM_TRI_10MS = "/work/asr4/raissi/setups/librispeech/960-ls/work/i6_core/mm/alignment/AlignmentJob.hK21a0UU4iiJ/output/alignment.cache.bundle"
+ALIGN_GMM_TRI_10MS = "/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/mm/alignment/AlignmentJob.oyZ7O0XJcO20/output/alignment.cache.bundle"
+#"/work/asr4/raissi/setups/librispeech/960-ls/work/i6_core/mm/alignment/AlignmentJob.hK21a0UU4iiJ/output/alignment.cache.bundle"
 ALIGN_GMM_TRI_ALLOPHONES = "/work/asr4/raissi/setups/librispeech/960-ls/2022-03--adapt_pipeline/work/i6_core/lexicon/allophones/StoreAllophonesJob.bJ8Qty3dD2cO/output/allophones"
 ALIGN_BLSTM_40MS = "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/alignments/40ms/blstm-1-lr-v6-ss-4-mp2,3-mp2,4-bw0.3-pC0.6-tdp1.0/alignment.cache.bundle"
 
@@ -45,6 +46,17 @@ CONF_CHUNKING_10MS = "400:200"  # divides cleanly by 2, 4, 8
 CONF_CHUNKING_30MS = "402:201"  # divides cleanly 3
 CONF_CHUNKING_60MS = "402:198"  # divides cleanly 6
 
+CONF_FH_DECODING_TENSOR_CONFIG_TF1 = dataclasses.replace(
+    DecodingTensorMap.default(),
+    in_encoder_output="length_masked/strided_slice",
+    in_seq_length="extern_data/placeholders/centerState/centerState_dim0_size",
+    out_encoder_output="encoder-output/output_batch_major",
+    out_right_context="right-output/output_batch_major",
+    out_left_context="left-output/output_batch_major",
+    out_center_state="center-output/output_batch_major",
+)
+
+
 
 CONF_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
     DecodingTensorMap.default(),
@@ -56,6 +68,7 @@ CONF_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
     out_center_state="center__output/output_batch_major",
     out_joint_diphone="output/output_batch_major",
 )
+
 
 BLSTM_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
     CONF_FH_DECODING_TENSOR_CONFIG,

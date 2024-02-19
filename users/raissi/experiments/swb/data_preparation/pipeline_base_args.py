@@ -1,6 +1,6 @@
 from sisyphus import tk
 import copy
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Union
 from i6_core.corpus import FilterCorpusBySegmentsJob, FilterSegmentsByListJob, SegmentCorpusJob
 import i6_experiments.common.datasets.switchboard as swb_dataset
 from i6_experiments.common.datasets.switchboard.constants import concurrent
@@ -158,6 +158,11 @@ def get_init_args(
 
     costa_args = {"eval_recordings": False, "eval_lm": False}
 
+    feature_extraction_args = {
+        "gt": None
+
+    }
+
     am_args = {
         "state_tying": "monophone",
         "states_per_phone": 3,
@@ -179,10 +184,13 @@ def get_init_args(
     if am_extra_args is not None:
         am_args.update(am_extra_args)
 
+
+
+
     #ToDo check feature extraction
     return rasr_util.RasrInitArgs(
         costa_args=costa_args,
         am_args=am_args,
-        feature_extraction_args={}
+        feature_extraction_args=feature_extraction_args,
     )
 
