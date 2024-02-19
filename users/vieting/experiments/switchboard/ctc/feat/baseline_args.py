@@ -102,12 +102,6 @@ def get_nn_args_single(
 
     recog_args = returnn_args.copy() if returnn_args else {}
 
-    if "extra_args" in recog_args:
-        if "audio_perturb_args" in recog_args["extra_args"]:
-            del recog_args["extra_args"]["audio_perturb_args"]
-        if "audio_perturb_runner" in recog_args["extra_args"]:
-            del recog_args["extra_args"]["audio_perturb_runner"]
-
     returnn_recog_config = get_returnn_config(
         num_inputs=1,
         num_outputs=num_outputs,
@@ -203,10 +197,9 @@ def get_returnn_config(
         recognition=recognition,
     )
 
-    if audio_perturbation:
+    if audio_perturbation and not recognition::
         prolog += get_code_for_perturbation()
-        if recognition and "pre_process" in datasets["dev"]["audio"]:
-            del datasets["dev"]["audio"]["pre_process"]
+        
     for layer in list(network.keys()):
         if network[layer]["from"] == "data":
             network[layer]["from"] = "features"
@@ -215,6 +208,13 @@ def get_returnn_config(
             network[layer]["from"] = "features"
     network["features"] = feature_net
     if recognition:
+
+        if  "pre_process" in datasets["dev"]["audio"]:
+            del datasets["dev"]["audio"]["pre_process"]
+
+        extra_args.pop("audio_parturb_args", None)
+        extra_args.pop("audio_parturb_runner", None)
+
         for layer in list(network.keys()):
             if "aux" in layer:
                 network.pop(layer)
