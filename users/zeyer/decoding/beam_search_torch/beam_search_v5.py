@@ -6,12 +6,21 @@ from __future__ import annotations
 from typing import Optional, Tuple, Dict
 
 import functools
+from dataclasses import dataclass
 import torch
 import tree
 
 from .interface import LabelScorerIntf
 from .utils import top_k_nd, batch_gather, batch_gather_, combine_individual_seq_scores
-from .beam_search import BeamSearchOpts
+
+
+@dataclass
+class BeamSearchOptsV5:
+    beam_size: int  # e.g. 12
+    length_normalization_exponent: float  # e.g. 1 to enable, 0 to disable
+    bos_label: int
+    eos_label: int
+    num_labels: int
 
 
 def beam_search_v5(
@@ -20,7 +29,7 @@ def beam_search_v5(
     batch_size: int,
     max_seq_len: torch.Tensor,
     device: torch.device,
-    opts: BeamSearchOpts,
+    opts: BeamSearchOptsV5,
     out_individual_seq_scores: Optional[Dict[str, torch.Tensor]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
@@ -38,7 +47,6 @@ def beam_search_v5(
         out_seq_len: [Batch,FinalBeam]
     """
     # Eager-mode implementation of beam search.
-    assert opts.length_reward == 0  # length reward is supposed to be done via LengthRewardScorer
 
     # Initial state.
     beam_size = 1

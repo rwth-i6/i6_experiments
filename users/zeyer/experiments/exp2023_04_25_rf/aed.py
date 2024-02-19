@@ -1119,7 +1119,7 @@ def model_recog_pure_torch(
     from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search import BeamSearchOpts, beam_search
     from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v3 import beam_search_v3
     from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v4 import beam_search_v4
-    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v5 import beam_search_v5
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v5 import BeamSearchOptsV5, beam_search_v5
     from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.length_reward import LengthRewardScorer
     from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.shallow_fusion import ShallowFusedLabelScorers
     from returnn.config import get_global_config
@@ -1146,6 +1146,10 @@ def model_recog_pure_torch(
 
     beam_search_version = config.int("beam_search_version", 1)
     beam_search_func = {1: beam_search, 3: beam_search_v3, 4: beam_search_v4, 5: beam_search_v5}[beam_search_version]
+    if beam_search_version >= 5:
+        beam_search_opts_cls = BeamSearchOptsV5
+    else:
+        beam_search_opts_cls = BeamSearchOpts
     beam_search_opts = (config.typed_value("beam_search_opts", None) or {}).copy()
     if beam_search_opts.get("beam_size") is None:
         beam_search_opts["beam_size"] = config.int("beam_size", 12)
@@ -1184,7 +1188,7 @@ def model_recog_pure_torch(
         batch_size=batch_dim.get_dim_value(),
         max_seq_len=max_seq_len.copy_compatible_to_dims_raw([batch_dim]),
         device=data.raw_tensor.device,
-        opts=BeamSearchOpts(
+        opts=beam_search_opts_cls(
             **beam_search_opts,
             bos_label=model.bos_idx,
             eos_label=model.eos_idx,
