@@ -1105,6 +1105,7 @@ def model_recog_pure_torch(
     import torch
     import time
     from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search import BeamSearchOpts, beam_search
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v3 import beam_search_v3
     from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v4 import beam_search_v4
     from returnn.config import get_global_config
 
@@ -1129,8 +1130,6 @@ def model_recog_pure_torch(
     enc_end_time = time.perf_counter_ns()
 
     beam_search_version = config.int("beam_search_version", 1)
-    if beam_search_version == 3 and config.float("length_reward", 0.0):
-        raise Exception("There was a bug in length_reward in v3. Fixed now.")
     beam_search_opts = (config.typed_value("beam_search_opts", None) or {}).copy()
     if beam_search_opts.get("beam_size") is None:
         beam_search_opts["beam_size"] = config.int("beam_size", 12)
@@ -1143,7 +1142,7 @@ def model_recog_pure_torch(
         seq_targets,  # [Batch,FinalBeam,OutSeqLen]
         seq_log_prob,  # [Batch,FinalBeam]
         out_seq_len,  # [Batch,FinalBeam]
-    ) = {1: beam_search, 3: beam_search_v4, 4: beam_search_v4}[beam_search_version](
+    ) = {1: beam_search, 3: beam_search_v3, 4: beam_search_v4}[beam_search_version](
         label_scorer,
         batch_size=batch_dim.get_dim_value(),
         max_seq_len=max_seq_len.copy_compatible_to_dims_raw([batch_dim]),
