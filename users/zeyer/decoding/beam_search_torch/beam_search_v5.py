@@ -38,6 +38,8 @@ def beam_search_v5(
         out_seq_len: [Batch,FinalBeam]
     """
     # Eager-mode implementation of beam search.
+    assert opts.length_reward == 0  # length reward is supposed to be done via LengthRewardScorer
+
     # Initial state.
     beam_size = 1
     state = label_scorer.get_initial_state(batch_size=batch_size, device=device)
