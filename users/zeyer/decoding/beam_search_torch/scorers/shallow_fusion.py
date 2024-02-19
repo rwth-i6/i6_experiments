@@ -15,6 +15,13 @@ class ShallowFusedLabelScorers(LabelScorerIntf):
         """
         self.label_scorers: Dict[str, Tuple[LabelScorerIntf, float]] = label_scorers or {}
 
+    def get_initial_state(self, *, batch_size: int, device: torch.device) -> Any:
+        """initial state"""
+        state = {}
+        for k, (v, scale) in self.label_scorers.items():
+            state[k] = v.get_initial_state(batch_size=batch_size, device=device)
+        return state
+
     def score_and_update_state(
         self,
         *,
