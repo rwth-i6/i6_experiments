@@ -49,10 +49,39 @@ class LabelScorerIntf:
             all tensors are expected to have shape [Batch, Beam, ...].
         :param prev_label: shape [Batch, Beam] -> index in [0...Label-1]
         :return: (scores, state).
-            scores: shape [Batch, Beam, Label], log-prob-like scores
+            scores: shape [Batch, Beam, Label], log-prob-like scores.
+                Broadcasting is allowed for any of the dims (e.g. think of :class:`LengthRewardScorer`).
             state: all tensors are expected to have shape [Batch, Beam, ...].
         """
         raise NotImplementedError
+
+    def seq_score_ext_and_update_state(
+        self,
+        prev_seq_scores: torch.Tensor,
+        *,
+        prev_state: Any,
+        prev_label: torch.Tensor,
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], Any]:
+        """
+        This provides a default implementation,
+        but we might be able to do it more efficient in some cases
+        like :class:`ShallowFusedLabelScorers` with broadcasting in scores.
+
+        :param prev_seq_scores: shape [Batch, Beam], log-prob-like scores for the prev partial sequence.
+            Broadcasting is allowed in any dim.
+        :param prev_state: state of the scorer (decoder). any nested structure.
+            all tensors are expected to have shape [Batch, Beam, ...].
+        :param prev_label: shape [Batch, Beam] -> index in [0...Label-1]
+        :return: (seq_scores_exp, state).
+            seq_scores_exp: shape [Batch, Beam, Label], log-prob-like scores for the partial sequence.
+                This is basically prev_seq_scores[:,:,None] + scores.
+            individual_scores: shape [Batch, Beam, Label], log-prob-like scores.
+                Broadcasting allowed in any dim.
+                Keys are arbitrary, used for reporting.
+            state: all tensors are expected to have shape [Batch, Beam, ...].
+        """
+        scores, state = self.score_and_update_state(prev_state=prev_state, prev_label=prev_label)
+        return prev_seq_scores[:, :, None] + scores, {"main": scores}, state
 
 
 @dataclass
@@ -73,27 +102,3 @@ class StateObjIgnored:
     """
 
     content: Any
-
-
-class ShallowFusedLabelScorers(LabelScorerIntf):
-    def __init__(self, label_scorers: Dict[str, Tuple[LabelScorerIntf, float]]):
-        """
-        :param label_scorers: keys are some arbitrary name, value is label scorer and scale for the log-prob
-        """
-        self.label_scores = label_scorers
-
-    def score_and_update_state(
-        self,
-        *,
-        prev_state: Any,
-        prev_label: torch.Tensor,
-    ) -> Tuple[torch.Tensor, Any]:
-        """score and update state"""
-        state = {}
-        score = None
-        for k, (v, scale) in self.label_scores.items():
-            score_, state_ = v.score_and_update_state(prev_state=prev_state[k], prev_label=prev_label)
-            state[k] = state_
-            score_ = score_ * scale
-            score = score_ if score is None else (score_ + score)
-        return score, state

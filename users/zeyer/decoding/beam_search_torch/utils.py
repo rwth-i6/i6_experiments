@@ -43,6 +43,9 @@ def batch_gather(values: torch.Tensor, *, indices: torch.Tensor) -> torch.Tensor
     # We cannot use index_select in this case. Need to fallback to gather.
     assert indices.shape[0] == values.shape[0]
     num_index_own_dims = indices.ndim - 1
+    if values.shape[1] == 1:  # broadcast case
+        assert num_index_own_dims == 1  # not implemented otherwise, maybe also unexpected
+        return values
     if num_index_own_dims == 1:
         indices_flat = indices  # good, [Batch,IndexDim]
     elif num_index_own_dims == 0:
