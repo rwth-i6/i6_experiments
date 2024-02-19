@@ -995,9 +995,10 @@ class CTCDecoder:
 
         # masked computaiton specific
         if self.lm_type == "lstm":
-            ext_lm_subnet["input"]["from"] = "base:prev_output_reinterpret"
+            ext_lm_subnet["input"]["from"] = "data"
         elif self.lm_type == "trafo":
             ext_lm_subnet["target_embed_raw"]["from"] = "data"
+            pass
         elif self.lm_type == "trafo_ted":
             pass
 
@@ -1091,7 +1092,7 @@ class CTCDecoder:
                 "lm_output": {
                     "class": "masked_computation",
                     "mask": "prev_mask",
-                    "from": [],
+                    "from": "prev_output_reinterpret",
                     "unit": self.get_lm_subnet_unit(),
                 },
                 "lm_output_prob": {
