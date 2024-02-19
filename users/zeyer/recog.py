@@ -542,14 +542,11 @@ def _returnn_v2_get_forward_callback():
 
             if self.out_ext_file:
                 self.out_ext_file.write(f"{seq_tag!r}: [\n")
+                for v in outputs.data.values():
+                    assert v.dims[0].dimension == num_beam
                 for i in range(num_beam):
-                    self.out_ext_file.write("  {\n")
-                    for k, v in outputs.data.items():
-                        if k in {"hyps", "scores"}:
-                            continue
-                        assert v.dims[0].dimension == num_beam
-                        self.out_ext_file.write(f"    {k!r}: {v.raw_tensor[i].tolist()!r},\n")
-                    self.out_ext_file.write("  },\n")
+                    d = {k: v.raw_tensor[i].tolist() for k, v in outputs.data.items() if k not in {"hyps", "scores"}}
+                    self.out_ext_file.write(f"  {d!r},\n")
                 self.out_ext_file.write("],\n")
 
         def finish(self):
