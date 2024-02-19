@@ -47,7 +47,8 @@ class ShallowFusedLabelScorers(LabelScorerIntf):
             score_, state_ = v.score_and_update_state(prev_state=prev_state[k], prev_label=prev_label)
             state[k] = state_
             individual_scores[k] = score_
-            score_ = score_ * scale
+            if scale != 1:
+                score_ = score_ * scale
             if score_.shape[-1] == 1:  # broadcast over label
                 seq_score = seq_score + score_
             else:
