@@ -41,15 +41,8 @@ def batch_gather(values: torch.Tensor, *, indices: torch.Tensor) -> torch.Tensor
     # Derived from returnn.torch.frontend._backend.TorchBackend.gather.
     # Case indices.dims_set.intersection(source.dims_set - {axis}).
     # We cannot use index_select in this case. Need to fallback to gather.
-    num_index_own_dims = indices.ndim - 1
-    if values.shape[0] == 1:  # broadcast case
-        assert values.shape[1] == 1  # broadcast here as well
-        assert num_index_own_dims == 1  # not implemented otherwise, maybe also unexpected
-        return values
     assert indices.shape[0] == values.shape[0]
-    if values.shape[1] == 1:  # broadcast case
-        assert num_index_own_dims == 1  # not implemented otherwise, maybe also unexpected
-        return values
+    num_index_own_dims = indices.ndim - 1
     if num_index_own_dims == 1:
         indices_flat = indices  # good, [Batch,IndexDim]
     elif num_index_own_dims == 0:
@@ -95,17 +88,19 @@ def combine_individual_seq_scores(
 ) -> Dict[str, torch.Tensor]:
     """
     :param prev_individual_seq_scores: key -> [Batch,InBeam]
-    :param individual_scores: [Batch|1,InBeam|1,Vocab|1]
+    :param individual_scores: key -> [Batch|1,InBeam|1,Vocab|1]
     :param beam_backrefs: [OutBeam] -> InBeam
     :param labels: [Batch,OutBeam] -> Vocab
     :return: individual_seq_scores: key -> [Batch,OutBeam]
     """
     individual_seq_scores = {}
     for k, score_ext in individual_scores.items():
-        score_ext: torch.Tensor  # [Batch,
+        score_ext: torch.Tensor  # [Batch|1,InBeam|1,Vocab|1]
         score = _gather_label_score(score_ext, beam_backrefs=beam_backrefs, labels=labels)  # [Batch|1,OutBeam|1]
         if k in prev_individual_seq_scores:
-            prev_seq_score = batch_gather(prev_individual_seq_scores[k], indices=beam_backrefs)
+            prev_seq_score = prev_individual_seq_scores[k]  # [Batch|1,InBeam|1]
+            if prev_seq_score.shape[1] > 1:
+                prev_seq_score = batch_gather(prev_seq_score, indices=beam_backrefs)
             seq_score = prev_seq_score + score
         else:
             seq_score = score
@@ -115,20 +110,20 @@ def combine_individual_seq_scores(
 
 def _gather_label_score(score_ext: torch.Tensor, *, beam_backrefs: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     """
-    :param score_ext: [Batch|1,InBeam|1,Vocab|1]
+    :param score_ext: [Batch|1,InBeam|1,Vocab|1].
+        broadcast in InBeam only expected together with broadcast in Batch.
     :param beam_backrefs: [Batch,OutBeam] -> InBeam
     :param labels: [Batch,OutBeam] -> Vocab
     :return: [Batch|1,OutBeam|1]
     """
     # Derived from batch_gather.
-    if score_ext.shape[0] == 1:  # broadcast
+    if score_ext.shape[0] == 1 < beam_backrefs.shape[0]:  # broadcast
         assert score_ext.shape[1] == 1  # also expect broadcast, not yet implemented otherwise
         assert score_ext.shape[2] == 1  # not yet implemented otherwise
         return score_ext.squeeze(2)  # [Batch=1,OutBeam=1]
-    if score_ext.shape[1] == 1:  # broadcast
-        assert score_ext.shape[2] == 1  # not yet implemented otherwise
+    if score_ext.shape[1] == 1 and score_ext.shape[2] == 1:  # broadcast
         return score_ext.squeeze(2)  # [Batch,OutBeam=1]
-    if score_ext.shape[2] == 2:  # broadcast
+    if score_ext.shape[2] == 1:  # broadcast
         score_ext = batch_gather(score_ext, indices=beam_backrefs)  # [Batch,OutBeam,Vocab=1]
         return score_ext.squeeze(2)  # [Batch,OutBeam]
     # score_ext: [Batch,InBeam,Vocab], no broadcasting

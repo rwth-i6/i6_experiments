@@ -1221,7 +1221,9 @@ def model_recog_pure_torch(
     extra_recog_results = {}
     if out_individual_seq_scores:
         for k, v in out_individual_seq_scores.items():
-            extra_recog_results[f"score:{k}"] = rf.convert_to_tensor(v, dims=[batch_dim, beam_dim])
+            extra_recog_results[f"score:{k}"] = rf.convert_to_tensor(
+                v.expand(batch_dim.get_dim_value(), beam_dim.get_dim_value()), dims=[batch_dim, beam_dim]
+            )
 
     return seq_targets_t, seq_log_prob_t, extra_recog_results, out_spatial_dim, beam_dim
 
