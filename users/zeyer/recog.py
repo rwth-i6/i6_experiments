@@ -547,7 +547,8 @@ def _returnn_v2_get_forward_callback():
                     for k, v in outputs.data.items():
                         if k in {"hyps", "scores"}:
                             continue
-                        self.out_ext_file.write(f"    {k!r}: {v.raw_tensor.tolist()!r},\n")
+                        assert v.dims[0].dimension == num_beam
+                        self.out_ext_file.write(f"    {k!r}: {v.raw_tensor[i].tolist()!r},\n")
                     self.out_ext_file.write("  },\n")
                 self.out_ext_file.write("],\n")
 
