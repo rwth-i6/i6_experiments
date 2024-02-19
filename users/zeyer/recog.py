@@ -188,12 +188,15 @@ def search_dataset(
         )
         res = search_job.out_search_file
     else:
+        out_files = [_v2_forward_out_filename]
+        if config and config.get("__recog_def_ext", False):
+            out_files.append(_v2_forward_ext_out_filename)
         forward_job = ReturnnForwardJobV2(
             model_checkpoint=model.checkpoint,
             returnn_config=search_config_v2(
                 dataset, model.definition, recog_def, config=config, post_config=search_post_config
             ),
-            output_files=[_v2_forward_out_filename],
+            output_files=out_files,
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
             returnn_root=tools_paths.get_returnn_root(),
             mem_rqmt=search_mem_rqmt,
@@ -452,7 +455,7 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
 
 def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     import returnn.frontend as rf
-    from returnn.tensor import batch_dim
+    from returnn.tensor import Tensor, Dim, batch_dim
     from returnn.config import get_global_config
 
     config = get_global_config()
@@ -461,31 +464,59 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     data_spatial_dim = data.get_time_dim_tag()
     recog_def = config.typed_value("_recog_def")
     recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim)
-    # recog results including beam {batch, beam, out_spatial},
-    # log probs {batch, beam},
-    # out_spatial_dim,
-    # final beam_dim
-    hyps, scores, out_spatial_dim, beam_dim = recog_out
+    if len(recog_out) == 5:
+        # recog results including beam {batch, beam, out_spatial},
+        # log probs {batch, beam},
+        # extra outputs {batch, beam, ...},
+        # out_spatial_dim,
+        # final beam_dim
+        assert len(recog_out) == 5, f"mismatch, got {len(recog_out)} outputs with recog_def_ext=True"
+        hyps, scores, extra, out_spatial_dim, beam_dim = recog_out
+    elif len(recog_out) == 4:
+        # same without extra outputs
+        assert len(recog_out) == 4, f"mismatch, got {len(recog_out)} outputs recog_def_ext=False"
+        hyps, scores, out_spatial_dim, beam_dim = recog_out
+        extra = {}
+    else:
+        raise ValueError(f"unexpected num outputs {len(recog_out)} from recog_def")
+    assert isinstance(hyps, Tensor) and isinstance(scores, Tensor)
+    assert isinstance(out_spatial_dim, Dim) and isinstance(beam_dim, Dim)
     rf.get_run_ctx().mark_as_output(hyps, "hyps", dims=[batch_dim, beam_dim, out_spatial_dim])
     rf.get_run_ctx().mark_as_output(scores, "scores", dims=[batch_dim, beam_dim])
+    assert isinstance(extra, dict)
+    for k, v in extra.items():
+        assert isinstance(k, str) and isinstance(v, Tensor)
+        assert v.dims[:2] == (batch_dim, beam_dim)
+        rf.get_run_ctx().mark_as_output(v, k, dims=v.dims)
 
 
 _v2_forward_out_filename = "output.py.gz"
+_v2_forward_ext_out_filename = "output_ext.py.gz"
 
 
 def _returnn_v2_get_forward_callback():
+    from typing import TextIO
     from returnn.tensor import Tensor, TensorDict
     from returnn.forward_iface import ForwardCallbackIface
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    recog_def_ext = config.bool("__recog_def_ext", False)
 
     class _ReturnnRecogV2ForwardCallbackIface(ForwardCallbackIface):
         def __init__(self):
-            self.out_file = None
+            self.out_file: Optional[TextIO] = None
+            self.out_ext_file: Optional[TextIO] = None
 
         def init(self, *, model):
             import gzip
 
             self.out_file = gzip.open(_v2_forward_out_filename, "wt")
             self.out_file.write("{\n")
+
+            if recog_def_ext:
+                self.out_ext_file = gzip.open(_v2_forward_ext_out_filename, "wt")
+                self.out_ext_file.write("{\n")
 
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
             hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
@@ -509,9 +540,23 @@ def _returnn_v2_get_forward_callback():
                 self.out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
             self.out_file.write("],\n")
 
+            if self.out_ext_file:
+                self.out_ext_file.write(f"{seq_tag!r}: [\n")
+                for i in range(num_beam):
+                    self.out_ext_file.write("  {\n")
+                    for k, v in outputs.data.items():
+                        if k in {"hyps", "scores"}:
+                            continue
+                        self.out_ext_file.write(f"    {k!r}: {v.raw_tensor.tolist()!r},\n")
+                    self.out_ext_file.write("  },\n")
+                self.out_ext_file.write("],\n")
+
         def finish(self):
             self.out_file.write("}\n")
             self.out_file.close()
+            if self.out_ext_file:
+                self.out_ext_file.write("}\n")
+                self.out_ext_file.close()
 
     return _ReturnnRecogV2ForwardCallbackIface()
 

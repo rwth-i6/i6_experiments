@@ -182,6 +182,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_normalization_exponent": 0.0,
             "length_reward": 0.1,
         },
+        "beam60-lenReward01-batch50-v5": {  # TODO temp test v5
+            "beam_search_version": 5,
+            "__batch_size_dependent": True,
+            "__recog_def_ext": True,
+            "beam_search_collect_individual_seq_scores": True,
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "length_normalization_exponent": 0.0,
+            "length_reward": 0.1,
+        },
         "beam60-lenReward02-batch50": {
             # {"dev-clean": 2.84, "dev-other": 5.39, "test-clean": 2.82, "test-other": 6.49}
             "beam_search_version": 4,
@@ -1088,7 +1099,7 @@ def model_recog_pure_torch(
     data: Tensor,
     data_spatial_dim: Dim,
     max_seq_len: Optional[int] = None,
-) -> Tuple[Tensor, Tensor, Dim, Dim]:
+) -> Tuple[Tensor, Tensor, Dict[str, Tensor], Dim, Dim]:
     """
     Function is run within RETURNN.
 
@@ -1099,6 +1110,7 @@ def model_recog_pure_torch(
     :return:
         recog results including beam {batch, beam, out_spatial},
         log probs {batch, beam},
+        recog results info: key -> {batch, beam},
         out_spatial_dim,
         final beam_dim
     """
@@ -1107,6 +1119,9 @@ def model_recog_pure_torch(
     from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search import BeamSearchOpts, beam_search
     from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v3 import beam_search_v3
     from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v4 import beam_search_v4
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v5 import beam_search_v5
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.length_reward import LengthRewardScorer
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.shallow_fusion import ShallowFusedLabelScorers
     from returnn.config import get_global_config
 
     config = get_global_config()
@@ -1130,6 +1145,7 @@ def model_recog_pure_torch(
     enc_end_time = time.perf_counter_ns()
 
     beam_search_version = config.int("beam_search_version", 1)
+    beam_search_func = {1: beam_search, 3: beam_search_v3, 4: beam_search_v4, 5: beam_search_v5}[beam_search_version]
     beam_search_opts = (config.typed_value("beam_search_opts", None) or {}).copy()
     if beam_search_opts.get("beam_size") is None:
         beam_search_opts["beam_size"] = config.int("beam_size", 12)
@@ -1137,12 +1153,33 @@ def model_recog_pure_torch(
         beam_search_opts["length_normalization_exponent"] = config.float("length_normalization_exponent", 1.0)
     if beam_search_opts.get("length_reward") is None:
         beam_search_opts["length_reward"] = config.float("length_reward", 0.0)
-    label_scorer = get_label_scorer_pure_torch(model=model, batch_dim=batch_dim, enc=enc)
+    extra = {}
+    out_individual_seq_scores = None
+    if beam_search_version >= 5 and config.bool("beam_search_collect_individual_seq_scores", False):
+        out_individual_seq_scores = {}
+        extra["out_individual_seq_scores"] = out_individual_seq_scores
+    coverage_scale = beam_search_opts.pop("attention_coverage_scale", 0.0)
+    label_scorer = ShallowFusedLabelScorers()
+    if coverage_scale:
+        s1, s2 = get_label_scorer_and_coverage_scorer_pure_torch(model=model, batch_dim=batch_dim, enc=enc)
+        # Note: insertion order matters here, we want that decoder is scored first.
+        label_scorer.label_scorers["decoder"] = (s1, 1.0)
+        label_scorer.label_scorers["attention_coverage"] = (s2, coverage_scale)
+    else:
+        label_scorer.label_scorers["decoder"] = (
+            get_label_scorer_pure_torch(model=model, batch_dim=batch_dim, enc=enc),
+            1.0,
+        )
+    if beam_search_version >= 5:
+        len_reward = beam_search_opts.pop("length_reward", 0.0)
+        label_scorer.label_scorers["length_reward"] = (LengthRewardScorer(), len_reward)
+
+    # Beam search happening here:
     (
         seq_targets,  # [Batch,FinalBeam,OutSeqLen]
         seq_log_prob,  # [Batch,FinalBeam]
         out_seq_len,  # [Batch,FinalBeam]
-    ) = {1: beam_search, 3: beam_search_v3, 4: beam_search_v4}[beam_search_version](
+    ) = beam_search_func(
         label_scorer,
         batch_size=batch_dim.get_dim_value(),
         max_seq_len=max_seq_len.copy_compatible_to_dims_raw([batch_dim]),
@@ -1153,7 +1190,9 @@ def model_recog_pure_torch(
             eos_label=model.eos_idx,
             num_labels=model.target_dim.dimension,
         ),
+        **extra,
     )
+
     beam_dim = Dim(seq_log_prob.shape[1], name="beam")
     out_spatial_dim = Dim(rf.convert_to_tensor(out_seq_len, dims=[batch_dim, beam_dim], name="out_spatial"))
     seq_targets_t = rf.convert_to_tensor(
@@ -1175,7 +1214,12 @@ def model_recog_pure_torch(
         ),
     )
 
-    return seq_targets_t, seq_log_prob_t, out_spatial_dim, beam_dim
+    extra_recog_results = {}
+    if out_individual_seq_scores:
+        for k, v in out_individual_seq_scores.items():
+            extra_recog_results[f"score:{k}"] = rf.convert_to_tensor(v, dims=[batch_dim, beam_dim])
+
+    return seq_targets_t, seq_log_prob_t, extra_recog_results, out_spatial_dim, beam_dim
 
 
 def get_label_scorer_pure_torch(
