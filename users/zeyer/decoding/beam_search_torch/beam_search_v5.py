@@ -81,9 +81,12 @@ def beam_search_v5(
         seq_backrefs.append(backrefs)
         if out_individual_seq_scores is not None:
             out_individual_seq_scores.update(
-                combine_individual_seq_scores(
-                    out_individual_seq_scores, individual_scores, beam_backrefs=backrefs, labels=target
-                )
+                {
+                    k: torch.where(ended, out_individual_seq_scores[k], v)
+                    for k, v in combine_individual_seq_scores(
+                        out_individual_seq_scores, individual_scores, beam_backrefs=backrefs, labels=target
+                    ).items()
+                }
             )
         state = tree.map_structure(functools.partial(batch_gather_, indices=backrefs), new_state)  # [Batch,Beam,...]
         ended = batch_gather(ended, indices=backrefs)  # [Batch,Beam]
