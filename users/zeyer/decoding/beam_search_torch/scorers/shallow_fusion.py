@@ -9,11 +9,11 @@ from ..interface import LabelScorerIntf
 
 
 class ShallowFusedLabelScorers(LabelScorerIntf):
-    def __init__(self, label_scorers: Dict[str, Tuple[LabelScorerIntf, float]]):
+    def __init__(self, label_scorers: Dict[str, Tuple[LabelScorerIntf, float]] = None):
         """
         :param label_scorers: keys are some arbitrary name, value is label scorer and scale for the log-prob
         """
-        self.label_scores = label_scorers
+        self.label_scorers: Dict[str, Tuple[LabelScorerIntf, float]] = label_scorers or {}
 
     def score_and_update_state(
         self,
@@ -24,7 +24,7 @@ class ShallowFusedLabelScorers(LabelScorerIntf):
         """score and update state"""
         state = {}
         score = None
-        for k, (v, scale) in self.label_scores.items():
+        for k, (v, scale) in self.label_scorers.items():
             score_, state_ = v.score_and_update_state(prev_state=prev_state[k], prev_label=prev_label)
             state[k] = state_
             score_ = score_ * scale
@@ -43,7 +43,7 @@ class ShallowFusedLabelScorers(LabelScorerIntf):
         state = {}
         seq_score = prev_seq_scores[:, :, None]  # [Batch,Beam,1]
         seq_score_ext = None  # [Batch,Beam,Label]
-        for k, (v, scale) in self.label_scores.items():
+        for k, (v, scale) in self.label_scorers.items():
             score_, state_ = v.score_and_update_state(prev_state=prev_state[k], prev_label=prev_label)
             state[k] = state_
             individual_scores[k] = score_
