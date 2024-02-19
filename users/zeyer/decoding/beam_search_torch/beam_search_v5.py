@@ -82,7 +82,7 @@ def beam_search_v5(
         if out_individual_seq_scores is not None:
             out_individual_seq_scores.update(
                 {
-                    k: torch.where(ended, out_individual_seq_scores[k], v)
+                    k: torch.where(ended, out_individual_seq_scores[k], v) if out_individual_seq_scores else v
                     for k, v in combine_individual_seq_scores(
                         out_individual_seq_scores, individual_scores, beam_backrefs=backrefs, labels=target
                     ).items()
