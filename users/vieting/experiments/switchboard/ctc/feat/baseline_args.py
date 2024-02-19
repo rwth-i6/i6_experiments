@@ -91,7 +91,7 @@ def get_nn_args_single(
     for layer in feature_net["subnetwork"]:
         if layer not in ["wave_norm", "preemphasis"]:
             layer_config = feature_net["subnetwork"][layer]
-            if layer_config.get("class") != "variable" and layer_config.get("from") == "data":
+            if layer_config.get("class") != "variable" and layer_config.get("from", "data") == "data":
                 feature_net["subnetwork"][layer]["from"] = source_layer
 
     returnn_config = get_returnn_config(
