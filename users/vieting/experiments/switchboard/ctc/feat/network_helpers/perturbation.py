@@ -73,7 +73,9 @@ class WaveformPerturbation:
         if codecs:
             self._perturbations.append(functools.partial(self.apply_codecs, codecs=codecs))
         if non_linearity:
-            self._perturbations.append(functools.partial(self.non_linearity_function, factor=PerturbationFactor(**non_linearity)))
+            self._perturbations.append(
+                functools.partial(self.non_linearity_function, factor=PerturbationFactor(**non_linearity))
+            )
 
     def run(self, audio, sample_rate, random_state):
         import numpy as np
@@ -121,17 +123,20 @@ class WaveformPerturbation:
 
     @staticmethod
     def apply_codecs(audio, sample_rate, random_state, codecs):
-        import sox
-
-        tfm = sox.Transformer()
         for codec in codecs:
             prob = codec.pop("prob", 1.0)
             if random_state.random() < prob:
                 if codec.get("encoding") == "ULAW":
-                    tfm.set_output_format(encoding="u-law")
+                    # check if audio is in the right range for mu-law encoding
+                    if np.max(np.abs(audio)) > 1.0:
+                        raise ValueError("Audio must be in the range [-1, 1] for mu-law encoding.")
+                    # standard value for mu-law encoding
+                    mu = 255.0
+                    # mu-law encoding formula
+                    audio = np.sign(audio) * np.log1p(mu * np.abs(audio)) / np.log1p(mu)
                 else:
                     raise NotImplementedError(f"Codec {codec} not implemented.")
-        return tfm.build_array(input_array=audio, sample_rate_in=sample_rate)
+        return audio
 
     @staticmethod
     def non_linearity_function(audio, sample_rate, random_state, factor):
