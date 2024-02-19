@@ -1255,6 +1255,146 @@ def get_label_scorer_pure_torch(
     return LabelScorer()
 
 
+def get_label_scorer_and_coverage_scorer_pure_torch(
+    *,
+    model: Model,
+    batch_dim: Dim,
+    enc: rf.State,
+):
+    import torch
+    import functools
+    from returnn.frontend.decoder.transformer import TransformerDecoderLayer
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.interface import (
+        LabelScorerIntf,
+        StateObjTensorExt,
+        StateObjIgnored,
+    )
+
+    accum_att_weights = rf.zeros(())  # [Batch,Beam,kv_axis]
+    accum_att_weights_dec_frame: Tensor  # [Batch,Beam,kv_axis]
+    beam_dim: Dim
+    enc_spatial_dim: Dim
+
+    def hooked_cross_att(self: rf.CrossAttention, q: Tensor, k: Tensor, v: Tensor, *, kv_axis: Dim) -> Tensor:
+        """apply attention"""
+        nonlocal enc_spatial_dim
+        enc_spatial_dim = kv_axis
+        nonlocal accum_att_weights_dec_frame
+        # Standard dot attention, inline rf.dot_attention.
+        q *= self.key_dim_per_head.dimension**-0.5
+        energy = rf.matmul(q, k, reduce=self.key_dim_per_head)
+        att_weights = rf.softmax(energy, axis=kv_axis)
+        accum_att_weights_dec_frame = rf.maximum(accum_att_weights, rf.reduce_max(att_weights, axis=self.num_heads))
+        # Masking not needed because softmax should already have masked,
+        # so we have 0.0 att weights for padded frames.
+        att = rf.matmul(att_weights, v, reduce=kv_axis, use_mask=False)
+        if v.feature_dim in att.dims:
+            att.feature_dim = v.feature_dim
+        output, _ = rf.merge_dims(att, dims=(self.num_heads, self.value_dim_per_head), out_dim=self.value_dim_total)
+        if self.proj:
+            output = self.proj(output)
+        return output
+
+    for layer in model.decoder.layers:
+        layer: TransformerDecoderLayer
+        layer.cross_att.attention = functools.partial(hooked_cross_att, self=layer.cross_att)
+
+    class LabelScorer(LabelScorerIntf):
+        """label scorer"""
+
+        def get_initial_state(self, *, batch_size: int, device: torch.device) -> Any:
+            """Initial state."""
+            beam_dim = Dim(1, name="initial-beam")
+            batch_dims_ = [batch_dim, beam_dim]
+            decoder_state = model.decoder.default_initial_state(batch_dims=batch_dims_)
+            return tree.map_structure(functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim), decoder_state)
+
+        def score_and_update_state(
+            self,
+            *,
+            prev_state: Any,
+            prev_label: torch.Tensor,
+        ) -> Tuple[torch.Tensor, Any]:
+            """update state"""
+            nonlocal beam_dim
+            beam_dim = Dim(prev_label.shape[1], name="beam")
+
+            def _map_raw_to_tensor(v):
+                if isinstance(v, StateObjTensorExt):
+                    tensor: Tensor = v.extra
+                    tensor = tensor.copy_template_new_dim_tags(
+                        (batch_dim, beam_dim) + tensor.dims[2:], keep_special_axes=True
+                    )
+                    tensor.raw_tensor = v.tensor
+                    return tensor
+                elif isinstance(v, StateObjIgnored):
+                    return v.content
+                else:
+                    raise TypeError(f"_map_raw_to_tensor: unexpected {v} ({type(v).__name__})")
+
+            nonlocal accum_att_weights, accum_att_weights_dec_frame
+            accum_att_weights_dec_frame = rf.zeros(())
+            logits, decoder_state = model.decoder(
+                rf.convert_to_tensor(prev_label, dims=[batch_dim, beam_dim], sparse_dim=model.target_dim),
+                spatial_dim=single_step_dim,
+                encoder=enc,
+                state=tree.map_structure(_map_raw_to_tensor, prev_state),
+            )
+            accum_att_weights += accum_att_weights_dec_frame
+            label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
+            assert set(label_log_prob.dims) == {batch_dim, beam_dim, model.target_dim}
+
+            return (
+                self._map_tensor_to_raw(label_log_prob, beam_dim=beam_dim).tensor,
+                tree.map_structure(functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim), decoder_state),
+            )
+
+        @staticmethod
+        def _map_tensor_to_raw(v, *, beam_dim: Dim):
+            if isinstance(v, Tensor):
+                if beam_dim not in v.dims:
+                    return StateObjIgnored(v)
+                batch_dims_ = [batch_dim, beam_dim]
+                v = v.copy_transpose(batch_dims_ + [dim for dim in v.dims if dim not in batch_dims_])
+                raw = v.raw_tensor
+                return StateObjTensorExt(raw, v.copy_template())
+            elif isinstance(v, Dim):
+                return StateObjIgnored(v)
+            else:
+                raise TypeError(f"_map_tensor_to_raw: unexpected {v} ({type(v).__name__})")
+
+    class CoverageScorer(LabelScorerIntf):
+        """coverage
+
+        Google NMT: https://arxiv.org/pdf/1609.08144.pdf
+        Alternative: https://arxiv.org/abs/1612.02695
+        Another alternative: https://arxiv.org/pdf/2105.00982.pdf
+        """
+
+        def get_initial_state(self, *, batch_size: int, device: torch.device) -> Any:
+            """Initial state."""
+            return {"prev_score": torch.zeros([batch_size, 1], device=device)}
+
+        def score_and_update_state(
+            self,
+            *,
+            prev_state: Any,
+            prev_label: torch.Tensor,
+        ) -> Tuple[torch.Tensor, Any]:
+            """update state"""
+            prev_label  # noqa  # unused
+            # We assume the label scorer has run before us (make sure by right ordering).
+            assert set(accum_att_weights.dims) == {batch_dim, beam_dim, enc_spatial_dim}
+            # log1p, to avoid having lots of negative numbers. So this starts more around 0.0.
+            coverage_score_raw = rf.reduce_sum(
+                rf.log1p(rf.minimum(accum_att_weights, 1.0)), axis=enc_spatial_dim
+            ).copy_compatible_to_dims_raw((batch_dim, beam_dim))
+            state = {"prev_score": coverage_score_raw}
+            return (coverage_score_raw - prev_state["prev_score"])[:, :, None], state
+
+    return LabelScorer(), CoverageScorer()
+
+
 # RecogDef API
 model_recog_pure_torch: RecogDef[Model]
 model_recog_pure_torch.output_with_beam = True
