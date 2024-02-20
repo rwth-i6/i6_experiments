@@ -1422,7 +1422,8 @@ def model_recog_pure_torch(
         )
     if beam_search_version >= 5:
         len_reward = beam_search_opts.pop("length_reward", 0.0)
-        label_scorer.label_scorers["length_reward"] = (LengthRewardScorer(), len_reward)
+        if len_reward:
+            label_scorer.label_scorers["length_reward"] = (LengthRewardScorer(), len_reward)
 
     # Beam search happening here:
     (
