@@ -18,7 +18,7 @@ from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
-from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, FeatureType
+from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, FeatureType, SummaryKey
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.recipe.returnn.training import (
@@ -204,7 +204,21 @@ def run_exp(alignments: Dict[str, AlignmentData], ctc_model_checkpoint: Checkpoi
 
     # ********** System **********
 
-    system = ReturnnSeq2SeqSystem(tools)
+    system = ReturnnSeq2SeqSystem(
+        tools,
+        summary_keys=[
+            SummaryKey.TRAIN_NAME,
+            SummaryKey.CORPUS,
+            SummaryKey.EPOCH,
+            SummaryKey.PRIOR,
+            SummaryKey.LM,
+            SummaryKey.WER,
+            SummaryKey.SUB,
+            SummaryKey.INS,
+            SummaryKey.DEL,
+            SummaryKey.ERR,
+        ],
+    )
 
     # ********** Returnn Configs **********
 

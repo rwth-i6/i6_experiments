@@ -1,9 +1,10 @@
 __all__ = [
     "BlissCorpusToTargetHdfJob",
+    "MatchLengthsJob",
 ]
 
 from functools import lru_cache
-from typing import Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set
 from i6_core.lib import corpus, lexicon
 from i6_core.util import uopen
 
@@ -128,3 +129,103 @@ class BlissCorpusToTargetHdfJob(Job):
                 seq_tag=[segment.fullname()],
             )
         out_hdf_writer.close()
+
+
+class MatchLengthsJob(Job):
+    def __init__(
+        self,
+        data_hdf: tk.Path,
+        match_hdfs: List[tk.Path],
+        match_len_transform_func: Optional[Callable[[int], int]] = None,
+    ) -> None:
+        self.data_hdf = data_hdf
+        self.match_hdfs = match_hdfs
+        if match_len_transform_func is None:
+            self.match_len_transform_func = lambda i: i
+        else:
+            self.match_len_transform_func = match_len_transform_func
+
+        self.out_hdf = self.output_path("data.hdf")
+
+    def tasks(self):
+        yield Task("run", resume="run", mini_task=True)
+
+    def run(self) -> None:
+        import h5py
+        import numpy as np
+
+        hdf_file = h5py.File(self.data_hdf)
+        match_hdf_files = [h5py.File(match_hdf) for match_hdf in self.match_hdfs]
+
+        def copy_data_group(src, key, dest):
+            src_data = src[key]
+            if isinstance(src_data, h5py.Dataset):
+                dest.create_dataset(key, data=src_data[:])
+                for attr_key, attr_val in src_data.attrs.items():
+                    dest[key].attrs[attr_key] = attr_val
+            if isinstance(src_data, h5py.Group):
+                dest.create_group(key)
+                for attr_key, attr_val in src_data.attrs.items():
+                    dest[key].attrs[attr_key] = attr_val
+                for sub_key in src_data:
+                    copy_data_group(src_data, sub_key, dest[key])
+
+        out_hdf = h5py.File(self.out_hdf, "w")
+        for attr_key, attr_val in hdf_file.attrs.items():
+            out_hdf.attrs[attr_key] = attr_val
+
+        match_length_map = {}
+        for match_hdf_file in match_hdf_files:
+            match_length_map.update(
+                dict(
+                    zip(
+                        match_hdf_file["seqTags"],
+                        [self.match_len_transform_func(length[0]) for length in match_hdf_file["seqLengths"]],
+                    )
+                )
+            )
+
+        matched_inputs = []
+        matched_lengths = []
+        current_begin_pos = 0
+        num_mismatches = 0
+        for tag, length in zip(hdf_file["seqTags"], [length[0] for length in hdf_file["seqLengths"]]):
+            target_length = match_length_map.get(tag, length)
+
+            if target_length == length:
+                matched_seq = hdf_file["inputs"][current_begin_pos : current_begin_pos + length]
+            elif length < target_length:
+                pad_value = hdf_file["inputs"][current_begin_pos + length - 1]
+                pad_list = np.array([pad_value for _ in range(target_length - length)])
+                matched_seq = np.concatenate(
+                    [hdf_file["inputs"][current_begin_pos : current_begin_pos + length], pad_list], axis=0
+                )
+                print(
+                    f"Length for segment {tag} is shorter ({length}) than the target ({target_length}). Append {pad_list}."
+                )
+                num_mismatches += 1
+            else:  # length > target_length
+                print(
+                    f"Length for segment {tag} is longer ({length}) than the target ({target_length}). Cut off {hdf_file['inputs'][current_begin_pos + target_length : current_begin_pos + length]}."
+                )
+                matched_seq = hdf_file["inputs"][current_begin_pos : current_begin_pos + target_length]
+                num_mismatches += 1
+
+            assert len(matched_seq) == target_length
+            matched_inputs.extend(matched_seq)
+            matched_lengths.append([target_length])
+            current_begin_pos += length
+
+        print(f"Finished processing. Corrected {num_mismatches} mismatched lengths in total.")
+
+        matched_inputs = np.array(matched_inputs, dtype=hdf_file["inputs"].dtype)
+        matched_lengths = np.array(matched_lengths, dtype=hdf_file["seqLengths"].dtype)
+
+        out_hdf.create_dataset("inputs", data=matched_inputs)
+        for attr_key, attr_val in hdf_file["inputs"].attrs.items():
+            out_hdf["inputs"].attrs[attr_key] = attr_val
+        copy_data_group(hdf_file, "seqTags", out_hdf)
+        out_hdf.create_dataset("seqLengths", data=matched_lengths)
+        for attr_key, attr_val in hdf_file["seqLengths"].attrs.items():
+            out_hdf["seqLengths"].attrs[attr_key] = attr_val
+        copy_data_group(hdf_file, "targets", out_hdf)

@@ -201,7 +201,7 @@ def get_seq2seq_lookahead_options(
         "cache_high": chigh,
     }
     if scale is not None:
-        lmla_options["scale"] = scale
+        lmla_options["lm_lookahead_scale"] = scale
 
     return lmla_options
 

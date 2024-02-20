@@ -16,7 +16,7 @@ from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
-from i6_experiments.users.berger.systems.dataclasses import AlignmentData, FeatureType, ReturnnConfigs
+from i6_experiments.users.berger.systems.dataclasses import AlignmentData, FeatureType, ReturnnConfigs, SummaryKey
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.corpus.librispeech.ctc_data import (
@@ -145,7 +145,21 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
 
     # ********** System **********
 
-    system = ReturnnSeq2SeqSystem(tools)
+    system = ReturnnSeq2SeqSystem(
+        tools,
+        summary_keys=[
+            SummaryKey.TRAIN_NAME,
+            SummaryKey.CORPUS,
+            SummaryKey.EPOCH,
+            SummaryKey.PRIOR,
+            SummaryKey.LM,
+            SummaryKey.WER,
+            SummaryKey.SUB,
+            SummaryKey.INS,
+            SummaryKey.DEL,
+            SummaryKey.ERR,
+        ],
+    )
 
     system.init_corpora(
         dev_keys=data.dev_keys,

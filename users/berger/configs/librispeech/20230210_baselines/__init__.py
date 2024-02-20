@@ -1,5 +1,8 @@
+from typing import List
 from sisyphus import tk
+import copy
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
+from i6_experiments.users.berger.systems.dataclasses import SummaryKey
 
 # from i6_experiments.common.baselines.librispeech.ls960.gmm import (
 #     baseline_config as gmm_config,
@@ -34,27 +37,25 @@ def main() -> SummaryReport:
 
     summary_report = SummaryReport()
 
-    summary_report.merge_report(py_01a()[0], update_structure=True, collapse_rows=True)
-    summary_report.merge_report(py_01b()[0], collapse_rows=True)
-    summary_report.merge_report(py_01c()[0], collapse_rows=True)
-    summary_report.merge_report(py_01d()[0], collapse_rows=True)
-    summary_report.merge_report(py_01e()[0], collapse_rows=True)
-    summary_report.merge_report(py_02a()[0], collapse_rows=True)
-    summary_report.merge_report(py_02b()[0], collapse_rows=True)
-    # summary_report.merge_report(py_02c()[0], collapse_rows=True)
-    # summary_report.merge_report(py_02d()[0], collapse_rows=True)
-    summary_report.merge_report(py_03a(), collapse_rows=True)
-    summary_report.merge_report(py_03b(), collapse_rows=True)
-    # summary_report.merge_report(py_03c(), collapse_rows=True)
+    sub_reports: List[SummaryReport] = []
 
-    # summary_report.merge_report(py_test_1()[0], collapse_rows=True)
-    # summary_report.merge_report(py_test_2()[0], collapse_rows=True)
-    # summary_report.merge_report(py_test_3()[0], collapse_rows=True)
-    # summary_report.merge_report(py_test_4()[0], collapse_rows=True)
-    # summary_report.merge_report(py_test_5()[0], collapse_rows=True)
-    # summary_report.merge_report(py_test_6()[0], collapse_rows=True)
-    # summary_report.merge_report(py_test_7()[0], collapse_rows=True)
-    # summary_report.merge_report(py_test_8()[0], collapse_rows=True)
+    sub_reports.append(copy.deepcopy(py_01a()[0]))
+    sub_reports.append(copy.deepcopy(py_01b()[0]))
+    sub_reports.append(copy.deepcopy(py_01c()[0]))
+    sub_reports.append(copy.deepcopy(py_01d()[0]))
+    sub_reports.append(copy.deepcopy(py_01e()[0]))
+    sub_reports.append(copy.deepcopy(py_02a()[0]))
+    sub_reports.append(copy.deepcopy(py_02b()[0]))
+    sub_reports.append(copy.deepcopy(py_03a()))
+    sub_reports.append(copy.deepcopy(py_03b()))
+
+    for report in sub_reports:
+        report.collapse(
+            [SummaryKey.CORPUS.value], best_selector_key=SummaryKey.ERR.value
+        )  # Keep one row for each recognition corpus
+        summary_report.merge_report(report, update_structure=True)
+
+    summary_report.set_col_sort_key([SummaryKey.ERR.value, SummaryKey.WER.value, SummaryKey.CORPUS.value])
 
     tk.register_report("summary.report", summary_report)
 

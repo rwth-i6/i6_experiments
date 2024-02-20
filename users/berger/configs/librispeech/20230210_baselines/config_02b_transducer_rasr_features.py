@@ -18,13 +18,14 @@ from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
-from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, FeatureType
+from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, FeatureType, SummaryKey
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.recipe.returnn.training import (
     GetBestCheckpointJob,
 )
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
+from i6_experiments.users.berger.recipe.returnn.hdf import MatchLengthsJob
 from .config_01b_ctc_blstm_rasr_features import py as py_ctc_blstm
 from .config_01d_ctc_conformer_rasr_features import py as py_ctc_conf
 from sisyphus import gs, tk
@@ -167,8 +168,17 @@ def generate_returnn_config(
     return returnn_config
 
 
+def subsample_by_4(orig_len: int) -> int:
+    return -(-orig_len // 4)
+
+
 def run_exp(
-    alignments: Dict[str, AlignmentData], ctc_model_checkpoint: Optional[Checkpoint] = None, name_suffix: str = ""
+    alignments: Dict[str, AlignmentData],
+    ctc_model_checkpoint: Optional[Checkpoint] = None,
+    name_suffix: str = "",
+    data_control_train: bool = False,
+    data_control_cv: bool = False,
+    match_lengths: bool = False,
 ) -> Tuple[SummaryReport, Checkpoint]:
     assert tools.returnn_root is not None
     assert tools.returnn_python_exe is not None
@@ -182,10 +192,32 @@ def run_exp(
         add_unknown_phoneme_and_mapping=False,
         use_augmented_lexicon=False,
         use_wei_lexicon=True,
-        # augmented_lexicon=True,
+        # use_augmented_lexicon=True,
         # use_wei_lexicon=False,
         feature_type=FeatureType.GAMMATONE_16K,
     )
+
+    changed_data_configs = []
+    if data_control_train:
+        changed_data_configs.append(data.train_data_config)
+    if data_control_cv:
+        changed_data_configs.append(data.cv_data_config)
+    for data_config in changed_data_configs:
+        data_config["datasets"]["data"].update(
+            {
+                "seq_ordering": data_config["datasets"]["classes"]["seq_ordering"],
+                "partition_epoch": data_config["datasets"]["classes"]["partition_epoch"],
+            }
+        )
+        del data_config["datasets"]["classes"]["seq_ordering"]
+        del data_config["datasets"]["classes"]["partition_epoch"]
+        data_config["seq_order_control_dataset"] = "data"
+    if match_lengths:
+        for data_config in [data.train_data_config, data.cv_data_config]:
+            data_config["datasets"]["classes"]["files"] = [
+                MatchLengthsJob(file, data_config["datasets"]["data"]["files"], subsample_by_4).out_hdf
+                for file in data_config["datasets"]["classes"]["files"]
+            ]
 
     # ********** Step args **********
 
@@ -207,23 +239,37 @@ def run_exp(
 
     # ********** System **********
 
-    system = ReturnnSeq2SeqSystem(tools)
+    system = ReturnnSeq2SeqSystem(
+        tools,
+        summary_keys=[
+            SummaryKey.TRAIN_NAME,
+            SummaryKey.CORPUS,
+            SummaryKey.EPOCH,
+            SummaryKey.PRIOR,
+            SummaryKey.LM,
+            SummaryKey.WER,
+            SummaryKey.SUB,
+            SummaryKey.INS,
+            SummaryKey.DEL,
+            SummaryKey.ERR,
+        ],
+    )
 
     # ********** Returnn Configs **********
 
     for label_smoothing, loss_boost_v2, peak_lr, loss_boost_scale, ctc_init in [
-        (None, True, 4e-04, 5.0, False),
-        (None, True, 8e-04, 5.0, False),
-        # (None, False, 4e-04, 5.0, False),
-        # (None, False, 8e-04, 5.0, False),
-        # (None, False, 4e-04, 5.0, True),
-        # (None, False, 8e-04, 5.0, True),
-        (0.2, True, 4e-04, 5.0, False),
-        (0.2, True, 8e-04, 5.0, False),
-        # (0.2, False, 4e-04, 5.0, False),
-        # (0.2, False, 8e-04, 5.0, False),
+        #        (None, True, 4e-04, 5.0, False),
+        #        (None, True, 8e-04, 5.0, False),
+        #        # (None, False, 4e-04, 5.0, False),
+        #        # (None, False, 8e-04, 5.0, False),
+        #        # (None, False, 4e-04, 5.0, True),
+        #        # (None, False, 8e-04, 5.0, True),
+        #        (0.2, True, 4e-04, 5.0, False),
+        #        (0.2, True, 8e-04, 5.0, False),
+        #        # (0.2, False, 4e-04, 5.0, False),
+        #        # (0.2, False, 8e-04, 5.0, False),
         (None, False, 8e-04, 0.0, False),
-        (None, False, 8e-04, 0.0, True),
+        #        (None, False, 8e-04, 0.0, True),
     ]:
         ctc_init = ctc_init and (ctc_model_checkpoint is not None)
         train_config = generate_returnn_config(
@@ -294,7 +340,47 @@ def py() -> Tuple[SummaryReport, Checkpoint]:
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
     summary_report, model = run_exp(alignments_blstm, ctc_model, name_suffix="blstm-align")
+    # summary_report.merge_report(
+    #     run_exp(alignments_conf, name_suffix="conf-align", data_control_train=False, data_control_cv=True)[0]
+    # )
     summary_report.merge_report(run_exp(alignments_conf, name_suffix="conf-align")[0])
+
+    alignments_nour = {}
+
+    for key, path in [
+        (
+            "train-other-960_align",
+            tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.0a7MCFFN37Bg/output/alignment.cache.bundle"
+            ),
+        ),
+        (
+            "dev-clean_align",
+            tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.HjJgbxdZhWZj/output/alignment.cache.bundle"
+            ),
+        ),
+        (
+            "dev-other_align",
+            tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.UatqVP2YM55f/output/alignment.cache.bundle"
+            ),
+        ),
+    ]:
+        alignments_nour[key] = AlignmentData(
+            alignment_cache_bundle=path,
+            allophone_file=tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_core/lexicon/allophones/StoreAllophonesJob.8Nygr67IZfVG/output/allophones"
+            ),
+            state_tying_file=tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_core/lexicon/allophones/DumpStateTyingJob.6w7HRWTGkgEd/output/state-tying"
+            ),
+            silence_phone="<blank>",
+        )
+    report, model = run_exp(
+        alignments_nour, name_suffix="nour-align", data_control_train=True, data_control_cv=False, match_lengths=True
+    )
+    summary_report.merge_report(report)
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 

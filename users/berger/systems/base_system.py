@@ -22,6 +22,7 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
         self,
         tool_paths: ToolPaths,
         summary_keys: Optional[List[dataclasses.SummaryKey]] = None,
+        summary_sort_keys: Optional[List[dataclasses.SummaryKey]] = None,
     ) -> None:
         self._tool_paths = tool_paths
 
@@ -47,9 +48,11 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
 
         if summary_keys is None:
             summary_keys = list(dataclasses.SummaryKey)
+        if summary_sort_keys is None:
+            summary_sort_keys = [dataclasses.SummaryKey.ERR, dataclasses.SummaryKey.WER]
         self.summary_report = custom_summary.SummaryReport(
             [key.value for key in summary_keys],
-            dataclasses.SummaryKey.WER.value,
+            [key.value for key in summary_sort_keys],
         )
 
         self._functors = self._initialize_functors()

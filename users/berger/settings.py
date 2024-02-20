@@ -82,6 +82,7 @@ def worker_wrapper(job, task_name, call):
         "/work/common",
         "/u/corpora",
         "/u/zhou",
+        "/work/asr3/raissi",
     ]
     ts = {t.name(): t for t in job.tasks()}
     t = ts[task_name]

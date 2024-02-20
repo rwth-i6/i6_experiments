@@ -18,7 +18,7 @@ from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
-from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, FeatureType
+from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, FeatureType, SummaryKey
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
@@ -165,7 +165,7 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
         # use_wei_lexicon=False,
         use_augmented_lexicon=False,
         use_wei_lexicon=True,
-        lm_names=["4gram", "kazuki_transformer"],
+        lm_names=["4gram"],
         feature_type=FeatureType.GAMMATONE_16K,
         # lm_name="kazuki_transformer",
     )
@@ -214,7 +214,22 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
 
     # ********** System **********
 
-    system = ReturnnSeq2SeqSystem(tools)
+    system = ReturnnSeq2SeqSystem(
+        tools,
+        summary_keys=[
+            SummaryKey.TRAIN_NAME,
+            SummaryKey.CORPUS,
+            SummaryKey.RECOG_NAME,
+            SummaryKey.EPOCH,
+            SummaryKey.PRIOR,
+            SummaryKey.LM,
+            SummaryKey.WER,
+            SummaryKey.SUB,
+            SummaryKey.INS,
+            SummaryKey.DEL,
+            SummaryKey.ERR,
+        ],
+    )
 
     # ********** Returnn Configs **********
 
@@ -260,13 +275,13 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
     system.run_train_step(**train_args)
 
     system.run_recog_step_for_corpora(corpora=["dev-clean_4gram", "dev-other_4gram"], **recog_args)
-    system.run_recog_step_for_corpora(
-        corpora=["dev-clean_kazuki_transformer", "dev-other_kazuki_transformer"], **trafo_recog_args
-    )
+    # system.run_recog_step_for_corpora(
+    #     corpora=["dev-clean_kazuki_transformer", "dev-other_kazuki_transformer"], **trafo_recog_args
+    # )
     system.run_recog_step_for_corpora(corpora=["test-clean_4gram", "test-other_4gram"], **recog_args)
-    system.run_recog_step_for_corpora(
-        corpora=["test-clean_kazuki_transformer", "test-other_kazuki_transformer"], **trafo_recog_args
-    )
+    # system.run_recog_step_for_corpora(
+    #     corpora=["test-clean_kazuki_transformer", "test-other_kazuki_transformer"], **trafo_recog_args
+    # )
 
     assert system.summary_report
     return system.summary_report
