@@ -211,7 +211,37 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_scale": 3.0,
             },
         },
+        "beam60-lenNorm02-cov005-covLog-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.2,
+                "attention_coverage_scale": 0.05,
+                "attention_coverage_opts": {"type": "log"},
+            },
+        },
         "beam60-lenNorm02-cov02-covLog-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.2,
+                "attention_coverage_scale": 0.2,
+                "attention_coverage_opts": {"type": "log"},
+            },
+        },
+        "beam60-lenNorm02-cov02-covLogEps01-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.2,
+                "attention_coverage_scale": 0.2,
+                "attention_coverage_opts": {"type": "log", "eps": 0.1, "clip_min": 0.0},
+            },
+        },
+        "beam60-lenNorm02-cov2-covLog-batch50": {
             # {"dev-clean": 38.31, "dev-other": 42.15, "test-clean": 40.45, "test-other": 44.72}
             "beam_size": 60,
             "max_seqs": 50,
@@ -222,7 +252,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_opts": {"type": "log"},
             },
         },
-        "beam60-lenNorm02-cov02-covLogEps01-batch50": {
+        "beam60-lenNorm02-cov2-covLogEps01-batch50": {
             # {"dev-clean": 17.98, "dev-other": 20.82, "test-clean": 21.22, "test-other": 24.63}
             "beam_size": 60,
             "max_seqs": 50,
@@ -233,7 +263,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_opts": {"type": "log", "eps": 0.1, "clip_min": 0.0},
             },
         },
-        "beam60-lenNorm02-cov02-covLogEps01-covRescale-batch50": {
+        "beam60-lenNorm02-cov2-covLogEps01-covRescale-batch50": {
             # {"dev-clean": 40.54, "dev-other": 48.15, "test-clean": 40.77, "test-other": 48.35}
             "beam_size": 60,
             "max_seqs": 50,
