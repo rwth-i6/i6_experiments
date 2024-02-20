@@ -191,6 +191,25 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_scale": 1.0,
             },
         },
+        "beam60-lenNorm02-cov2-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.2,
+                "attention_coverage_scale": 2.0,
+            },
+        },
+        "beam60-lenNorm02-cov02-covLog-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.2,
+                "attention_coverage_scale": 2.0,
+                "attention_coverage_opts": {"type": "log"},
+            },
+        },
         "beam60-batch1": {
             # {"dev-clean": 2.89, "dev-other": 6.21, "test-clean": 2.84, "test-other": 6.58}
             "beam_size": 60,
@@ -1180,9 +1199,12 @@ def model_recog_pure_torch(
         out_individual_seq_scores = {}
         extra["out_individual_seq_scores"] = out_individual_seq_scores
     coverage_scale = beam_search_opts.pop("attention_coverage_scale", 0.0)
+    coverage_opts = beam_search_opts.pop("attention_coverage_opts", {})
     label_scorer = ShallowFusedLabelScorers()
     if coverage_scale:
-        s1, s2 = get_label_scorer_and_coverage_scorer_pure_torch(model=model, batch_dim=batch_dim, enc=enc)
+        s1, s2 = get_label_scorer_and_coverage_scorer_pure_torch(
+            model=model, batch_dim=batch_dim, enc=enc, coverage_opts=coverage_opts
+        )
         # Note: insertion order matters here, we want that decoder is scored first.
         label_scorer.label_scorers["decoder"] = (s1, 1.0)
         label_scorer.label_scorers["attention_coverage"] = (s2, coverage_scale)
@@ -1223,8 +1245,8 @@ def model_recog_pure_torch(
 
     search_end_time = time.perf_counter_ns()
     data_seq_len_sum = rf.reduce_sum(data_spatial_dim.dyn_size_ext, axis=data_spatial_dim.dyn_size_ext.dims)
-    data_seq_len_sum_secs = data_seq_len_sum.raw_tensor * _batch_size_factor / 100.
-    data_seq_len_max_seqs = data_spatial_dim.get_dim_value() * _batch_size_factor / 100.
+    data_seq_len_sum_secs = data_seq_len_sum.raw_tensor * _batch_size_factor / 100.0
+    data_seq_len_max_seqs = data_spatial_dim.get_dim_value() * _batch_size_factor / 100.0
     print(
         "TIMINGS:",
         ", ".join(
@@ -1332,6 +1354,7 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
     model: Model,
     batch_dim: Dim,
     enc: rf.State,
+    coverage_opts: Optional[Dict[str, Any]] = None,
 ):
     import torch
     import functools
@@ -1341,6 +1364,8 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
         StateObjTensorExt,
         StateObjIgnored,
     )
+
+    coverage_opts = coverage_opts or {}
 
     accum_att_weights = rf.zeros(())  # [Batch,Beam,kv_axis]
     accum_att_weights_dec_frame: Tensor  # [Batch,Beam,kv_axis]
@@ -1464,10 +1489,15 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             prev_label  # noqa  # unused
             # We assume the label scorer has run before us (make sure by right ordering).
             assert set(accum_att_weights.dims) == {batch_dim, beam_dim, enc_spatial_dim}
-            # log1p, to avoid having lots of negative numbers. So this starts more around 0.0.
-            coverage_score_raw = rf.reduce_sum(
-                rf.log1p(rf.minimum(accum_att_weights, 1.0)), axis=enc_spatial_dim
-            ).copy_compatible_to_dims_raw((batch_dim, beam_dim))
+            cov_type = coverage_opts.get("type", "log1p")
+            if cov_type == "log1p":  # log1p, to avoid having lots of negative numbers. So this starts more around 0.0.
+                coverage_score = rf.log1p(rf.minimum(accum_att_weights, 1.0))
+            elif cov_type == "log":  # orig Google NMT: https://arxiv.org/pdf/1609.08144.pdf, but clipped
+                coverage_score = rf.log(rf.clip_by_value(accum_att_weights, 0.01, 1.0))
+            else:
+                raise ValueError(f"invalid coverage opts type {cov_type!r}")
+            coverage_score = rf.reduce_sum(coverage_score, axis=enc_spatial_dim)
+            coverage_score_raw = coverage_score.copy_compatible_to_dims_raw((batch_dim, beam_dim))
             state = {"prev_score": coverage_score_raw}
             return (coverage_score_raw - prev_state["prev_score"])[:, :, None], state
 
