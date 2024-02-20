@@ -370,6 +370,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "neg_attention_coverage_opts": {"type": "indicator", "threshold": 2},
             },
         },
+        "beam60-lenNorm0-cov05-covInd-modAttAvg-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.0,
+                "attention_coverage_scale": 0.5,
+                "attention_coverage_opts": {"type": "indicator", "model_att_reduce_type": "avg"},
+            },
+        },
         "beam60-batch1": {
             # {"dev-clean": 2.89, "dev-other": 6.21, "test-clean": 2.84, "test-other": 6.58}
             "beam_size": 60,
@@ -1558,6 +1568,8 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
     beam_dim: Dim
     enc_spatial_dim: Dim
 
+    model_att_reduce_type = coverage_opts.get("model_att_reduce_type", "max")
+
     def hooked_cross_att(self: rf.CrossAttention, q: Tensor, k: Tensor, v: Tensor, *, kv_axis: Dim) -> Tensor:
         """apply attention"""
         nonlocal enc_spatial_dim
@@ -1567,7 +1579,12 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
         q *= self.key_dim_per_head.dimension**-0.5
         energy = rf.matmul(q, k, reduce=self.key_dim_per_head)
         att_weights = rf.softmax(energy, axis=kv_axis)
-        att_weights_dec_frame = rf.maximum(att_weights_dec_frame, rf.reduce_max(att_weights, axis=self.num_heads))
+        if model_att_reduce_type == "max":
+            att_weights_dec_frame = rf.maximum(att_weights_dec_frame, rf.reduce_max(att_weights, axis=self.num_heads))
+        elif model_att_reduce_type == "avg":
+            att_weights_dec_frame += rf.reduce_mean(att_weights, axis=self.num_heads) * (1 / len(model.decoder.layers))
+        else:
+            raise ValueError(f"invalid model_att_reduce_type {model_att_reduce_type!r}")
         # Masking not needed because softmax should already have masked,
         # so we have 0.0 att weights for padded frames.
         att = rf.matmul(att_weights, v, reduce=kv_axis, use_mask=False)
