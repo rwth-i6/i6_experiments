@@ -14,6 +14,7 @@ from .config_01d_ctc_conformer_rasr_features import py as py_01d
 from .config_01e_ctc_conformer_rasr_features_dc import py as py_01e
 from .config_02a_transducer_raw_samples import py as py_02a
 from .config_02b_transducer_rasr_features import py as py_02b
+from .config_02e_transducer_rasr_features_tinaconf import py as py_02e
 
 # from .config_02c_transducer_wei import py as py_02c
 # from .config_02d_transducer_rasr_features_dc import py as py_02d
@@ -46,6 +47,7 @@ def main() -> SummaryReport:
     sub_reports.append(copy.deepcopy(py_01e()[0]))
     sub_reports.append(copy.deepcopy(py_02a()[0]))
     sub_reports.append(copy.deepcopy(py_02b()[0]))
+    sub_reports.append(copy.deepcopy(py_02e()))
     sub_reports.append(copy.deepcopy(py_03a()))
     sub_reports.append(copy.deepcopy(py_03b()))
 

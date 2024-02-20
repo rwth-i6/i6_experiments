@@ -3,6 +3,7 @@ import os
 from typing import Dict, Tuple, Optional
 
 import i6_core.rasr as rasr
+import i6_experiments.users.berger.network.models.context_1_transducer_tinaconf as transducer_model
 from i6_core.returnn import Checkpoint
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.users.berger.args.experiments import transducer as exp_args
@@ -13,21 +14,15 @@ from i6_experiments.users.berger.args.returnn.learning_rates import (
 from i6_experiments.users.berger.corpus.librispeech.viterbi_transducer_data import (
     get_librispeech_data,
 )
-import i6_experiments.users.berger.network.models.context_1_transducer as transducer_model
+from i6_experiments.users.berger.recipe.returnn.hdf import MatchLengthsJob
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
+from i6_experiments.users.berger.systems.dataclasses import AlignmentData
+from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, FeatureType, SummaryKey
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
-from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, FeatureType, SummaryKey
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
-from i6_experiments.users.berger.recipe.returnn.training import (
-    GetBestCheckpointJob,
-)
-from i6_experiments.users.berger.systems.dataclasses import AlignmentData
-from i6_experiments.users.berger.recipe.returnn.hdf import MatchLengthsJob
-from .config_01b_ctc_blstm_rasr_features import py as py_ctc_blstm
-from .config_01d_ctc_conformer_rasr_features import py as py_ctc_conf
 from sisyphus import gs, tk
 
 tools = copy.deepcopy(default_tools)
@@ -38,6 +33,7 @@ rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 
 num_classes = 79
+num_epochs = 300
 
 
 # ********** Return Config **********
@@ -51,19 +47,14 @@ def generate_returnn_config(
     **kwargs,
 ) -> ReturnnConfig:
     if train:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer(
+        network_dict, extra_python = transducer_model.make_context_1_conformer_transducer(
+            num_inputs=50,
             num_outputs=num_classes,
             specaug_args={
                 "max_time_num": 1,
                 "max_time": 15,
                 "max_feature_num": 5,
                 "max_feature": 5,
-            },
-            conformer_args={
-                "num_blocks": 12,
-                "size": 512,
-                "dropout": 0.1,
-                "l2": 5e-06,
             },
             decoder_args={
                 "dec_mlp_args": {
@@ -89,12 +80,9 @@ def generate_returnn_config(
             loss_boost_v2=kwargs.get("loss_boost_v2", False),
         )
     else:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
+        network_dict, extra_python = transducer_model.make_context_1_conformer_transducer_recog(
+            num_inputs=50,
             num_outputs=num_classes,
-            conformer_args={
-                "num_blocks": 12,
-                "size": 512,
-            },
             decoder_args={
                 "dec_mlp_args": {
                     "num_layers": 2,
@@ -137,7 +125,7 @@ def generate_returnn_config(
     returnn_config = get_returnn_config(
         network=network_dict,
         target="classes",
-        num_epochs=400,
+        num_epochs=num_epochs,
         python_prolog=[
             "import sys",
             "sys.setrecursionlimit(10 ** 6)",
@@ -148,13 +136,13 @@ def generate_returnn_config(
         extern_target_kwargs={"dtype": "int8" if train else "int32"},
         extern_data_config=True,
         grad_noise=0.0,
-        grad_clip=20.0,
+        grad_clip=0.0,
         schedule=LearningRateSchedules.OCLR_STEP,
-        initial_lr=8e-05,
-        peak_lr=kwargs.get("peak_lr", 8e-04),
+        initial_lr=1e-03 / 30,
+        peak_lr=1e-03,
         final_lr=1e-06,
         n_steps_per_epoch=2450,
-        batch_size=15000,
+        batch_size=12500,
         extra_config=extra_config,
     )
     returnn_config = serialize_dim_tags(returnn_config)
@@ -184,10 +172,10 @@ def run_exp(
         rasr_binary_path=tools.rasr_binary_path,
         alignments=alignments,
         add_unknown_phoneme_and_mapping=False,
-        # use_augmented_lexicon=False,
-        # use_wei_lexicon=True,
-        use_augmented_lexicon=True,
-        use_wei_lexicon=False,
+        use_augmented_lexicon=False,
+        use_wei_lexicon=True,
+        # use_augmented_lexicon=True,
+        # use_wei_lexicon=False,
         feature_type=FeatureType.GAMMATONE_16K,
     )
 
@@ -196,6 +184,9 @@ def run_exp(
         changed_data_configs.append(data.train_data_config)
     if data_control_cv:
         changed_data_configs.append(data.cv_data_config)
+
+    data.train_data_config["datasets"]["classes"]["seq_ordering"] = "laplace:.384"
+
     for data_config in changed_data_configs:
         data_config["datasets"]["data"].update(
             {
@@ -216,14 +207,14 @@ def run_exp(
     # ********** Step args **********
 
     train_args = exp_args.get_transducer_train_step_args(
-        num_epochs=400,
-        gpu_mem_rqmt=24,
+        num_epochs=num_epochs,
+        gpu_mem_rqmt=11,
     )
 
     recog_args = exp_args.get_transducer_recog_step_args(
         num_classes,
-        lm_scales=[0.5, 0.6, 0.7],
-        epochs=[320, 400, "best"],
+        lm_scales=[0.7],
+        epochs=[300],
         # lookahead_options={"scale": 0.5},
         search_parameters={"label-pruning": 12.0},
         feature_type=FeatureType.GAMMATONE_16K,
@@ -251,55 +242,27 @@ def run_exp(
 
     # ********** Returnn Configs **********
 
-    for label_smoothing, loss_boost_v2, peak_lr, loss_boost_scale, ctc_init in [
-        #        (None, True, 4e-04, 5.0, False),
-        #        (None, True, 8e-04, 5.0, False),
-        #        # (None, False, 4e-04, 5.0, False),
-        #        # (None, False, 8e-04, 5.0, False),
-        #        # (None, False, 4e-04, 5.0, True),
-        #        # (None, False, 8e-04, 5.0, True),
-        #        (0.2, True, 4e-04, 5.0, False),
-        #        (0.2, True, 8e-04, 5.0, False),
-        #        # (0.2, False, 4e-04, 5.0, False),
-        #        # (0.2, False, 8e-04, 5.0, False),
-        (None, False, 8e-04, 0.0, False),
-        #        (None, False, 8e-04, 0.0, True),
-    ]:
-        ctc_init = ctc_init and (ctc_model_checkpoint is not None)
-        train_config = generate_returnn_config(
-            train=True,
-            train_data_config=data.train_data_config,
-            dev_data_config=data.cv_data_config,
-            label_smoothing=label_smoothing,
-            loss_boost_v2=loss_boost_v2,
-            loss_boost_scale=loss_boost_scale,
-            peak_lr=peak_lr,
-            model_preload=ctc_model_checkpoint if ctc_init else None,
-        )
-        recog_config = generate_returnn_config(
-            train=False,
-            train_data_config=data.train_data_config,
-            dev_data_config=data.cv_data_config,
-        )
+    train_config = generate_returnn_config(
+        train=True,
+        train_data_config=data.train_data_config,
+        dev_data_config=data.cv_data_config,
+        label_smoothing=None,
+        loss_boost_v2=False,
+        loss_boost_scale=0.0,
+        model_preload=None,
+    )
+    recog_config = generate_returnn_config(
+        train=False,
+        train_data_config=data.train_data_config,
+        dev_data_config=data.cv_data_config,
+    )
 
-        returnn_configs = ReturnnConfigs(
-            train_config=train_config,
-            recog_configs={"recog": recog_config},
-        )
+    returnn_configs = ReturnnConfigs(
+        train_config=train_config,
+        recog_configs={"recog": recog_config},
+    )
 
-        suffix = f"lr-{peak_lr}"
-        if loss_boost_scale:
-            if loss_boost_v2:
-                suffix += "_loss-boost-v2"
-            else:
-                suffix += "_loss-boost"
-        if label_smoothing:
-            suffix += f"_ls-{label_smoothing}"
-
-        if ctc_init:
-            suffix += "_ctc-init"
-
-        system.add_experiment_configs(f"Conformer_Transducer_Viterbi_{suffix}_{name_suffix}", returnn_configs)
+    system.add_experiment_configs(f"Conformer_Transducer_Viterbi_{name_suffix}", returnn_configs)
 
     system.init_corpora(
         dev_keys=data.dev_keys,
@@ -315,64 +278,104 @@ def run_exp(
     system.run_dev_recog_step(**recog_args)
     system.run_test_recog_step(**recog_args)
 
-    train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_lr-0.0008_{name_suffix}")
+    train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_{name_suffix}")
     # model = GetBestCheckpointJob(
     #     model_dir=train_job.out_model_dir, learning_rates=train_job.out_learning_rates
     # ).out_checkpoint
-    model = train_job.out_checkpoints[400]
+    model = train_job.out_checkpoints[300]
     assert isinstance(model, Checkpoint)
 
     assert system.summary_report
     return system.summary_report, model
 
 
-def py() -> Tuple[SummaryReport, Checkpoint]:
-    _, _, alignments_blstm = py_ctc_blstm()
-    _, ctc_model, alignments_conf = py_ctc_conf()
-
+def py() -> SummaryReport:
     filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
-    summary_report, model = run_exp(alignments_blstm, ctc_model, name_suffix="blstm-align")
-    # summary_report.merge_report(run_exp(alignments_conf, name_suffix="conf-align")[0])
+    summary_report = SummaryReport()
 
     alignments_nour = {}
 
-    for key, path in [
-        (
-            "train-other-960_align",
-            tk.Path(
+    alignment_paths_nour = {
+        0.1: {
+            "train-other-960_align": tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.waHWItDFeH4p/output/alignment.cache.bundle"
+            ),
+            "dev-clean_align": tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.39RvKswiwE5X/output/alignment.cache.bundle"
+            ),
+            "dev-other_align": tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.UQcQtRgFJtri/output/alignment.cache.bundle"
+            ),
+        },
+        0.3: {
+            "train-other-960_align": tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.4bWrFMO9rBP7/output/alignment.cache.bundle"
+            ),
+            "dev-clean_align": tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.WAPZqf6YGRqV/output/alignment.cache.bundle"
+            ),
+            "dev-other_align": tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.8e6a0qmzOKPS/output/alignment.cache.bundle"
+            ),
+        },
+        0.5: {
+            "train-other-960_align": tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.9F7XAOE5SW6a/output/alignment.cache.bundle"
+            ),
+            "dev-clean_align": tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.NZ9KCbM3iaUM/output/alignment.cache.bundle"
+            ),
+            "dev-other_align": tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.NrLiIv3mx2Mi/output/alignment.cache.bundle"
+            ),
+        },
+        0.7: {
+            "train-other-960_align": tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.nOX1kOQx5Txi/output/alignment.cache.bundle"
+            ),
+            "dev-clean_align": tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.WhaHQ8VtCQWb/output/alignment.cache.bundle"
+            ),
+            "dev-other_align": tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.Z7Yc9kH2BYOc/output/alignment.cache.bundle"
+            ),
+        },
+        1.0: {
+            "train-other-960_align": tk.Path(
                 "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.0a7MCFFN37Bg/output/alignment.cache.bundle"
             ),
-        ),
-        (
-            "dev-clean_align",
-            tk.Path(
+            "dev-clean_align": tk.Path(
                 "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.HjJgbxdZhWZj/output/alignment.cache.bundle"
             ),
-        ),
-        (
-            "dev-other_align",
-            tk.Path(
+            "dev-other_align": tk.Path(
                 "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.UatqVP2YM55f/output/alignment.cache.bundle"
             ),
-        ),
-    ]:
-        alignments_nour[key] = AlignmentData(
-            alignment_cache_bundle=path,
-            allophone_file=tk.Path(
-                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_core/lexicon/allophones/StoreAllophonesJob.8Nygr67IZfVG/output/allophones"
-            ),
-            state_tying_file=tk.Path(
-                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_core/lexicon/allophones/DumpStateTyingJob.6w7HRWTGkgEd/output/state-tying"
-            ),
-            silence_phone="<blank>",
+        },
+    }
+
+    for am_scale, alignment_paths in alignment_paths_nour.items():
+        for key, path in alignment_paths.items():
+            alignments_nour[key] = AlignmentData(
+                alignment_cache_bundle=path,
+                allophone_file=tk.Path(
+                    "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_core/lexicon/allophones/StoreAllophonesJob.8Nygr67IZfVG/output/allophones"
+                ),
+                state_tying_file=tk.Path(
+                    "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_core/lexicon/allophones/DumpStateTyingJob.6w7HRWTGkgEd/output/state-tying"
+                ),
+                silence_phone="<blank>",
+            )
+        report, model = run_exp(
+            alignments_nour,
+            name_suffix=f"nour-align-am-{am_scale}",
+            data_control_train=True,
+            data_control_cv=False,
+            match_lengths=True,
         )
-    # report, model = run_exp(
-    #     alignments_nour, name_suffix="nour-align", data_control_train=True, data_control_cv=False, match_lengths=True
-    # )
-    # summary_report.merge_report(report)
+        summary_report.merge_report(report, update_structure=True)
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 
-    return summary_report, model
+    return summary_report
