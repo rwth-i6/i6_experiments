@@ -369,6 +369,14 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_normalization_exponent": 0.0,
             "length_reward": 0.0,
         },
+        "beam60-lenNorm0-lenReward0-zeros01-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "length_normalization_exponent": 0.0,
+            "length_reward": 0.0,
+            "data_concat_zeros": 0.1,
+        },
     }.items():
         _recog(
             "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV3/recog_last_" + name,
@@ -1265,6 +1273,13 @@ def model_recog_pure_torch(
     config = get_global_config()
 
     start_time = time.perf_counter_ns()
+
+    data_concat_zeros = config.float("data_concat_zeros", 0)
+    if data_concat_zeros:
+        data_concat_zeros_dim = Dim(int(data_concat_zeros * _batch_size_factor * 100), name="data_concat_zeros")
+        data, data_spatial_dim = rf.concat(
+            (data, data_spatial_dim), (rf.zeros([data_concat_zeros_dim]), data_concat_zeros_dim)
+        )
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     assert len(batch_dims) == 1, batch_dims  # not implemented otherwise, simple to add...
