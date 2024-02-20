@@ -183,6 +183,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_reward": 0.1,
         },
         "beam60-lenReward01-batch50-v5": {  # TODO temp test v5
+            # {"dev-clean": 2.61, "dev-other": 5.4, "test-clean": 2.82, "test-other": 6.5}
+            # test-other: i6_core/returnn/forward/ReturnnForwardJobV2.RL1Gfmz1ENo2
             "beam_search_version": 5,
             "__batch_size_dependent": True,
             "__recog_def_ext": True,
