@@ -21,8 +21,8 @@ from .baseline_args import get_nn_args as get_nn_args_baseline
 from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT, RETURNN_EXE, SCTK_BINARY_PATH
 
 
-def get_datasets():
-    returnn_datasets = get_returnn_ogg_datasets()
+def get_datasets(use_multi_proc_dataset=False, **kwargs):
+    returnn_datasets = get_returnn_ogg_datasets(use_multi_proc_dataset, **kwargs)
     train_corpus, dev_corpora, segments = get_switchboard_data()
     rasr_loss_lexicon = train_corpus.lexicon["filename"]
     rasr_loss_corpus = train_corpus.corpus_object.corpus_file
