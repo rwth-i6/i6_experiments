@@ -1278,7 +1278,7 @@ def model_recog_pure_torch(
     if data_concat_zeros:
         data_concat_zeros_dim = Dim(int(data_concat_zeros * _batch_size_factor * 100), name="data_concat_zeros")
         data, data_spatial_dim = rf.concat(
-            (data, data_spatial_dim), (rf.zeros([data_concat_zeros_dim]), data_concat_zeros_dim)
+            (data, data_spatial_dim), (rf.zeros([data_concat_zeros_dim]), data_concat_zeros_dim), allow_broadcast=True
         )
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
