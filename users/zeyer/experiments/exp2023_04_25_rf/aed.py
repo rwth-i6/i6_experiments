@@ -370,6 +370,18 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "neg_attention_coverage_opts": {"type": "indicator", "threshold": 2},
             },
         },
+        "beam60-lenNorm0-cov05-covInd-modAttAvg-negCovRelu05_15-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.0,
+                "attention_coverage_scale": 0.5,
+                "attention_coverage_opts": {"type": "indicator", "model_att_reduce_type": "avg"},
+                "neg_attention_coverage_scale": 0.5,
+                "neg_attention_coverage_opts": {"type": "relu_upper", "threshold": 1.5},
+            },
+        },
         "beam60-lenNorm0-cov05-covInd-modAttAvg-batch50": {
             "beam_size": 60,
             "max_seqs": 50,
@@ -1706,6 +1718,9 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             elif cov_type == "indicator":
                 threshold = self.opts.get("threshold", 0.5)
                 coverage_score = rf.where(accum_att_weights_ >= threshold, 1.0, 0.0)
+            elif cov_type == "relu_upper":
+                threshold = self.opts.get("threshold", 0.5)
+                coverage_score = rf.where(accum_att_weights_ >= threshold, accum_att_weights_ - threshold, 0.0)
             else:
                 raise ValueError(f"invalid coverage opts type {cov_type!r}")
             coverage_score = rf.reduce_sum(coverage_score, axis=enc_spatial_dim)
