@@ -234,6 +234,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
         },
         "beam60-lenNorm02-cov02-covLogEps01-covRescale-batch50": {
+            # {"dev-clean": 40.54, "dev-other": 48.15, "test-clean": 40.77, "test-other": 48.35}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -244,6 +245,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
         },
         "beam60-lenNorm02-cov02-covInd-batch50": {
+            # {"dev-clean": 2.6, "dev-other": 5.41, "test-clean": 2.59, "test-other": 6.49}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
