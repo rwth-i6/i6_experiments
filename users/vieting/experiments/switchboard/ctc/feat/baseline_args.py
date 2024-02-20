@@ -79,16 +79,19 @@ def get_nn_args_single(
         "ScfNetwork": ScfNetwork,
     }[feature_args.pop("class")]
     feature_net = feature_network_class(**feature_args).get_as_subnetwork()
-    if preemphasis:
-        for layer in feature_net["subnetwork"]:
-            if feature_net["subnetwork"][layer].get("from", "data") == "data":
-                feature_net["subnetwork"][layer]["from"] = "preemphasis"
-        feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork()
+    source_layer = "data"
+
     if wave_norm:
-        for layer in feature_net["subnetwork"]:
-            if feature_net["subnetwork"][layer].get("from") == "data":
-                feature_net["subnetwork"][layer]["from"] = "wave_norm"
-        feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": "data"}
+        feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": source_layer}
+        source_layer = "wave_norm"
+    if preemphasis:
+        feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork(source=source_layer)
+        source_layer = "preemphasis"
+    for layer in feature_net["subnetwork"]:
+        if layer not in ["wave_norm", "preemphasis"]:
+            layer_config = feature_net["subnetwork"][layer]
+            if layer_config.get("class") != "variable" and layer_config.get("from", "data") == "data":
+                feature_net["subnetwork"][layer]["from"] = source_layer
 
     returnn_config = get_returnn_config(
         num_inputs=1,
