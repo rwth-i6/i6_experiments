@@ -1322,7 +1322,9 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
         q *= self.key_dim_per_head.dimension**-0.5
         energy = rf.matmul(q, k, reduce=self.key_dim_per_head)
         att_weights = rf.softmax(energy, axis=kv_axis)
-        accum_att_weights_dec_frame = rf.maximum(accum_att_weights, rf.reduce_max(att_weights, axis=self.num_heads))
+        accum_att_weights_dec_frame = rf.maximum(
+            accum_att_weights_dec_frame, rf.reduce_max(att_weights, axis=self.num_heads)
+        )
         # Masking not needed because softmax should already have masked,
         # so we have 0.0 att weights for padded frames.
         att = rf.matmul(att_weights, v, reduce=kv_axis, use_mask=False)
@@ -1345,6 +1347,7 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             beam_dim = Dim(1, name="initial-beam")
             batch_dims_ = [batch_dim, beam_dim]
             decoder_state = model.decoder.default_initial_state(batch_dims=batch_dims_)
+            decoder_state["accum_att_weights"] = rf.zeros(batch_dims_)
             return tree.map_structure(functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim), decoder_state)
 
         def score_and_update_state(
@@ -1370,15 +1373,19 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
                 else:
                     raise TypeError(f"_map_raw_to_tensor: unexpected {v} ({type(v).__name__})")
 
+            prev_state = tree.map_structure(_map_raw_to_tensor, prev_state)
+
             nonlocal accum_att_weights, accum_att_weights_dec_frame
+            accum_att_weights = prev_state["accum_att_weights"]
             accum_att_weights_dec_frame = rf.zeros(())
             logits, decoder_state = model.decoder(
                 rf.convert_to_tensor(prev_label, dims=[batch_dim, beam_dim], sparse_dim=model.target_dim),
                 spatial_dim=single_step_dim,
                 encoder=enc,
-                state=tree.map_structure(_map_raw_to_tensor, prev_state),
+                state=prev_state,
             )
             accum_att_weights += accum_att_weights_dec_frame
+            decoder_state["accum_att_weights"] = accum_att_weights
             label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
             assert set(label_log_prob.dims) == {batch_dim, beam_dim, model.target_dim}
 
