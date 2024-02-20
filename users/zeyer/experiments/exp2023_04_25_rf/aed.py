@@ -233,6 +233,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_opts": {"type": "log", "eps": 0.1, "clip_min": 0.0},
             },
         },
+        "beam60-lenNorm02-cov02-covLogEps01-covRescale-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.2,
+                "attention_coverage_scale": 2.0,
+                "attention_coverage_opts": {"type": "log", "eps": 0.1, "clip_min": 0.0, "rescale": True},
+            },
+        },
         "beam60-lenNorm02-cov02-covInd-batch50": {
             "beam_size": 60,
             "max_seqs": 50,
@@ -1521,20 +1531,23 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             """update state"""
             prev_label  # noqa  # unused
             # We assume the label scorer has run before us (make sure by right ordering).
-            assert set(accum_att_weights.dims) == {batch_dim, beam_dim, enc_spatial_dim}
+            accum_att_weights_ = accum_att_weights
+            assert set(accum_att_weights_.dims) == {batch_dim, beam_dim, enc_spatial_dim}
             cov_type = coverage_opts.get("type", "log1p")
             # TODO variant where too high values get also penalized...
             #    in range [0,1] like now. in range [1,1.5] or so maybe fine (clipped to 1).
             #    then penalize for more, i.e. became lower again...
+            if coverage_opts.get("rescale", False):
+                accum_att_weights_ /= rf.maximum(rf.reduce_max(accum_att_weights_, axis=enc_spatial_dim), 1.0)
             if cov_type == "log1p":  # log1p, to avoid having lots of negative numbers. So this starts more around 0.0.
-                coverage_score = rf.log1p(rf.minimum(accum_att_weights, 1.0))
+                coverage_score = rf.log1p(rf.minimum(accum_att_weights_, 1.0))
             elif cov_type == "log":  # orig Google NMT: https://arxiv.org/pdf/1609.08144.pdf, but clipped
                 eps = coverage_opts.get("eps", 0.0)
                 clip_min = coverage_opts.get("clip_min", 0.01)
-                coverage_score = rf.log(rf.clip_by_value(accum_att_weights, clip_min, 1.0) + eps)
+                coverage_score = rf.log(rf.clip_by_value(accum_att_weights_, clip_min, 1.0) + eps)
             elif cov_type == "indicator":
                 threshold = coverage_opts.get("threshold", 0.5)
-                coverage_score = rf.where(accum_att_weights >= threshold, 1.0, 0.0)
+                coverage_score = rf.where(accum_att_weights_ >= threshold, 1.0, 0.0)
             else:
                 raise ValueError(f"invalid coverage opts type {cov_type!r}")
             coverage_score = rf.reduce_sum(coverage_score, axis=enc_spatial_dim)
