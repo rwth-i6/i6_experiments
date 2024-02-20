@@ -244,6 +244,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_opts": {"type": "log", "eps": 0.1, "clip_min": 0.0, "rescale": True},
             },
         },
+        "beam60-lenNorm0-cov02-covInd-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.0,
+                "attention_coverage_scale": 0.2,
+                "attention_coverage_opts": {"type": "indicator"},
+            },
+        },
         "beam60-lenNorm02-cov02-covInd-batch50": {
             # {"dev-clean": 2.6, "dev-other": 5.41, "test-clean": 2.59, "test-other": 6.49}
             "beam_size": 60,
@@ -253,6 +263,28 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_normalization_exponent": 0.2,
                 "attention_coverage_scale": 0.2,
                 "attention_coverage_opts": {"type": "indicator"},
+            },
+        },
+        "beam60-lenNorm02-cov05-covInd-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.2,
+                "attention_coverage_scale": 0.5,
+                "attention_coverage_opts": {"type": "indicator"},
+            },
+        },
+        "beam60-lenNorm02-cov05-covInd-negCov05-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.2,
+                "attention_coverage_scale": 0.5,
+                "attention_coverage_opts": {"type": "indicator"},
+                "neg_attention_coverage_scale": 0.5,
+                "neg_attention_coverage_opts": {"type": "indicator", "threshold": 1.5},
             },
         },
         "beam60-batch1": {
@@ -1245,14 +1277,21 @@ def model_recog_pure_torch(
         extra["out_individual_seq_scores"] = out_individual_seq_scores
     coverage_scale = beam_search_opts.pop("attention_coverage_scale", 0.0)
     coverage_opts = beam_search_opts.pop("attention_coverage_opts", {})
+    neg_coverage_scale = beam_search_opts.pop("neg_attention_coverage_scale", 0.0)
+    neg_coverage_opts = beam_search_opts.pop("neg_attention_coverage_opts", {})
     label_scorer = ShallowFusedLabelScorers()
     if coverage_scale:
-        s1, s2 = get_label_scorer_and_coverage_scorer_pure_torch(
-            model=model, batch_dim=batch_dim, enc=enc, coverage_opts=coverage_opts
+        label_scorer.label_scorers.update(
+            get_label_scorer_and_coverage_scorer_pure_torch(
+                model=model,
+                batch_dim=batch_dim,
+                enc=enc,
+                coverage_opts=coverage_opts,
+                coverage_scale=coverage_scale,
+                neg_coverage_scale=neg_coverage_scale,
+                neg_coverage_opts=neg_coverage_opts,
+            )
         )
-        # Note: insertion order matters here, we want that decoder is scored first.
-        label_scorer.label_scorers["decoder"] = (s1, 1.0)
-        label_scorer.label_scorers["attention_coverage"] = (s2, coverage_scale)
     else:
         label_scorer.label_scorers["decoder"] = (
             get_label_scorer_pure_torch(model=model, batch_dim=batch_dim, enc=enc),
@@ -1401,7 +1440,10 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
     model: Model,
     batch_dim: Dim,
     enc: rf.State,
+    coverage_scale: float,
     coverage_opts: Optional[Dict[str, Any]] = None,
+    neg_coverage_scale: float = 0.0,
+    neg_coverage_opts: Optional[Dict[str, Any]] = None,
 ):
     import torch
     import functools
@@ -1411,8 +1453,6 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
         StateObjTensorExt,
         StateObjIgnored,
     )
-
-    coverage_opts = coverage_opts or {}
 
     accum_att_weights = rf.zeros(())  # [Batch,Beam,kv_axis]
     accum_att_weights_dec_frame: Tensor  # [Batch,Beam,kv_axis]
@@ -1522,6 +1562,9 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
         Another alternative: https://arxiv.org/pdf/2105.00982.pdf
         """
 
+        def __init__(self, opts: Dict[str, Any]):
+            self.opts = opts
+
         def get_initial_state(self, *, batch_size: int, device: torch.device) -> Any:
             """Initial state."""
             return {"prev_score": torch.zeros([batch_size, 1], device=device)}
@@ -1537,20 +1580,17 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             # We assume the label scorer has run before us (make sure by right ordering).
             accum_att_weights_ = accum_att_weights
             assert set(accum_att_weights_.dims) == {batch_dim, beam_dim, enc_spatial_dim}
-            cov_type = coverage_opts.get("type", "log1p")
-            # TODO variant where too high values get also penalized...
-            #    in range [0,1] like now. in range [1,1.5] or so maybe fine (clipped to 1).
-            #    then penalize for more, i.e. became lower again...
-            if coverage_opts.get("rescale", False):
+            cov_type = self.opts.get("type", "log1p")
+            if self.opts.get("rescale", False):
                 accum_att_weights_ /= rf.maximum(rf.reduce_max(accum_att_weights_, axis=enc_spatial_dim), 1.0)
             if cov_type == "log1p":  # log1p, to avoid having lots of negative numbers. So this starts more around 0.0.
                 coverage_score = rf.log1p(rf.minimum(accum_att_weights_, 1.0))
             elif cov_type == "log":  # orig Google NMT: https://arxiv.org/pdf/1609.08144.pdf, but clipped
-                eps = coverage_opts.get("eps", 0.0)
-                clip_min = coverage_opts.get("clip_min", 0.01)
+                eps = self.opts.get("eps", 0.0)
+                clip_min = self.opts.get("clip_min", 0.01)
                 coverage_score = rf.log(rf.clip_by_value(accum_att_weights_, clip_min, 1.0) + eps)
             elif cov_type == "indicator":
-                threshold = coverage_opts.get("threshold", 0.5)
+                threshold = self.opts.get("threshold", 0.5)
                 coverage_score = rf.where(accum_att_weights_ >= threshold, 1.0, 0.0)
             else:
                 raise ValueError(f"invalid coverage opts type {cov_type!r}")
@@ -1559,7 +1599,12 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             state = {"prev_score": coverage_score_raw}
             return (coverage_score_raw - prev_state["prev_score"])[:, :, None], state
 
-    return LabelScorer(), CoverageScorer()
+    # Note: insertion order matters here, we want that decoder is scored first.
+    res = {"decoder": (LabelScorer(), 1.0), "attention_coverage": (CoverageScorer(coverage_opts or {}), coverage_scale)}
+    if neg_coverage_scale:
+        # Idea: Too much attention on some frames (e.g. repetitions) is scored negatively.
+        res["attention_neg_coverage"] = (CoverageScorer(neg_coverage_opts or {}), -neg_coverage_scale)
+    return res
 
 
 # RecogDef API
