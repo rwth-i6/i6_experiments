@@ -202,6 +202,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
         },
         "beam60-lenNorm02-cov3-batch50": {
+            # {"dev-clean": 3.53, "dev-other": 6.62, "test-clean": 3.76, "test-other": 6.76}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -222,6 +223,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
         },
         "beam60-lenNorm02-cov02-covLogEps01-batch50": {
+            # {"dev-clean": 17.98, "dev-other": 20.82, "test-clean": 21.22, "test-other": 24.63}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -1511,6 +1513,9 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             # We assume the label scorer has run before us (make sure by right ordering).
             assert set(accum_att_weights.dims) == {batch_dim, beam_dim, enc_spatial_dim}
             cov_type = coverage_opts.get("type", "log1p")
+            # TODO variant where too high values get also penalized...
+            #    in range [0,1] like now. in range [1,1.5] or so maybe fine (clipped to 1).
+            #    then penalize for more, i.e. became lower again...
             if cov_type == "log1p":  # log1p, to avoid having lots of negative numbers. So this starts more around 0.0.
                 coverage_score = rf.log1p(rf.minimum(accum_att_weights, 1.0))
             elif cov_type == "log":  # orig Google NMT: https://arxiv.org/pdf/1609.08144.pdf, but clipped
