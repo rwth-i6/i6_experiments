@@ -245,6 +245,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
         },
         "beam60-lenNorm0-cov02-covInd-batch50": {
+            # {"dev-clean": 2.59, "dev-other": 5.4, "test-clean": 2.59, "test-other": 6.47}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -266,6 +267,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
         },
         "beam60-lenNorm02-cov05-covInd-batch50": {
+            # {"dev-clean": 2.59, "dev-other": 5.48, "test-clean": 2.59, "test-other": 5.96}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -275,7 +277,18 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_opts": {"type": "indicator"},
             },
         },
-        "beam60-lenNorm02-cov05-covInd-negCov05-batch50": {
+        "beam60-lenNorm02-cov1-covInd-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.2,
+                "attention_coverage_scale": 1.0,
+                "attention_coverage_opts": {"type": "indicator"},
+            },
+        },
+        "beam60-lenNorm02-cov05-covInd-negCov05_15-batch50": {
+            # {"dev-clean": 3.78, "dev-other": 6.66, "test-clean": 3.95, "test-other": 7.24}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -285,6 +298,18 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_opts": {"type": "indicator"},
                 "neg_attention_coverage_scale": 0.5,
                 "neg_attention_coverage_opts": {"type": "indicator", "threshold": 1.5},
+            },
+        },
+        "beam60-lenNorm02-cov05-covInd-negCov04_2-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.2,
+                "attention_coverage_scale": 0.5,
+                "attention_coverage_opts": {"type": "indicator"},
+                "neg_attention_coverage_scale": 0.4,
+                "neg_attention_coverage_opts": {"type": "indicator", "threshold": 2},
             },
         },
         "beam60-batch1": {
