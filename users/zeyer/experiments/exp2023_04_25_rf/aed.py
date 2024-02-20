@@ -201,6 +201,15 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_scale": 2.0,
             },
         },
+        "beam60-lenNorm02-cov3-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.2,
+                "attention_coverage_scale": 3.0,
+            },
+        },
         "beam60-lenNorm02-cov02-covLog-batch50": {
             # {"dev-clean": 38.31, "dev-other": 42.15, "test-clean": 40.45, "test-other": 44.72}
             "beam_size": 60,
@@ -210,6 +219,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_normalization_exponent": 0.2,
                 "attention_coverage_scale": 2.0,
                 "attention_coverage_opts": {"type": "log"},
+            },
+        },
+        "beam60-lenNorm02-cov02-covLogEps01-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.2,
+                "attention_coverage_scale": 2.0,
+                "attention_coverage_opts": {"type": "log", "eps": 0.1, "clip_min": 0.0},
             },
         },
         "beam60-batch1": {
@@ -1495,7 +1514,9 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             if cov_type == "log1p":  # log1p, to avoid having lots of negative numbers. So this starts more around 0.0.
                 coverage_score = rf.log1p(rf.minimum(accum_att_weights, 1.0))
             elif cov_type == "log":  # orig Google NMT: https://arxiv.org/pdf/1609.08144.pdf, but clipped
-                coverage_score = rf.log(rf.clip_by_value(accum_att_weights, 0.01, 1.0))
+                eps = coverage_opts.get("eps", 0.0)
+                clip_min = coverage_opts.get("clip_min", 0.01)
+                coverage_score = rf.log(rf.clip_by_value(accum_att_weights, clip_min, 1.0) + eps)
             else:
                 raise ValueError(f"invalid coverage opts type {cov_type!r}")
             coverage_score = rf.reduce_sum(coverage_score, axis=enc_spatial_dim)
