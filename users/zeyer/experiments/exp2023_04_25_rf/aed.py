@@ -266,6 +266,27 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_opts": {"type": "indicator"},
             },
         },
+        "beam60-lenNorm0-cov05-covInd-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.0,
+                "attention_coverage_scale": 0.5,
+                "attention_coverage_opts": {"type": "indicator"},
+            },
+        },
+        "beam60-lenNorm0-cov05-covInd-zeros01-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.0,
+                "attention_coverage_scale": 0.5,
+                "attention_coverage_opts": {"type": "indicator"},
+            },
+            "data_concat_zeros": 0.1,
+        },
         "beam60-lenNorm02-cov05-covInd-batch50": {
             # {"dev-clean": 2.59, "dev-other": 5.48, "test-clean": 2.59, "test-other": 5.96}
             "beam_size": 60,
@@ -278,6 +299,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
         },
         "beam60-lenNorm02-cov1-covInd-batch50": {
+            # {"dev-clean": 2.85, "dev-other": 5.97, "test-clean": 3.23, "test-other": 6.29}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -301,6 +323,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
         },
         "beam60-lenNorm02-cov05-covInd-negCov04_2-batch50": {
+            # {"dev-clean": 2.92, "dev-other": 5.93, "test-clean": 2.97, "test-other": 6.46}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
