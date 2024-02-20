@@ -212,6 +212,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
         },
         "beam60-lenNorm02-cov005-covLog-batch50": {
+            # {"dev-clean": 2.6, "dev-other": 5.37, "test-clean": 2.81, "test-other": 6.48}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -222,6 +223,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
         },
         "beam60-lenNorm02-cov02-covLog-batch50": {
+            # {"dev-clean": 2.59, "dev-other": 5.4, "test-clean": 2.68, "test-other": 6.47}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -232,6 +234,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
         },
         "beam60-lenNorm02-cov02-covLogEps01-batch50": {
+            # {"dev-clean": 2.6, "dev-other": 5.41, "test-clean": 2.6, "test-other": 6.46}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
