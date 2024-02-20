@@ -159,11 +159,15 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
 
     # -------------------- run functions  --------------------
 
-    def run_train_step(self, exp_names: Optional[List[str]] = None, **kwargs) -> None:
+    def run_train_step(
+        self, exp_names: Optional[List[str]] = None, train_descriptor: Optional[str] = None, **kwargs
+    ) -> None:
         if exp_names is None:
             exp_names = list(self._returnn_configs.keys())
         for exp_name in exp_names:
             configs = self._returnn_configs[exp_name]
+            if train_descriptor is not None:
+                exp_name = f"{exp_name}_{train_descriptor}"
             named_train_config = dataclasses.NamedConfig(exp_name, configs.train_config)
             self._train_jobs[exp_name] = self._functors.train(train_config=named_train_config, **kwargs)
 
@@ -171,6 +175,7 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
         self,
         exp_names: Optional[List[str]] = None,
         corpora: Optional[List[str]] = None,
+        recog_descriptor: Optional[str] = None,
         **kwargs,
     ) -> None:
         if exp_names is None:
@@ -191,6 +196,8 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
             for c_key in corpora:
                 named_corpus = dataclasses.NamedCorpusInfo(c_key, self._corpus_info[c_key])
                 for recog_exp_name, recog_config in returnn_configs.recog_configs.items():
+                    if recog_descriptor is not None:
+                        recog_exp_name = f"{recog_exp_name}_{recog_descriptor}"
                     named_recog_config = dataclasses.NamedConfig(recog_exp_name, recog_config)
                     recog_results = self._functors.recognize(
                         train_job=named_train_job,
@@ -208,7 +215,11 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
         self.run_recog_step_for_corpora(exp_names, self._test_corpora, **kwargs)
 
     def run_align_step(
-        self, exp_names: Optional[List[str]] = None, corpora: Optional[List[str]] = None, **kwargs
+        self,
+        exp_names: Optional[List[str]] = None,
+        corpora: Optional[List[str]] = None,
+        align_descriptor: Optional[str] = None,
+        **kwargs,
     ) -> Dict[str, Dict[str, dataclasses.AlignmentData]]:
         if exp_names is None:
             exp_names = list(self._returnn_configs.keys())
@@ -226,6 +237,9 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
                 named_corpus = dataclasses.NamedCorpusInfo(c_key, self._corpus_info[c_key])
                 prior_config = self._returnn_configs[exp_name].prior_config
                 align_config = self._returnn_configs[exp_name].align_config
+
+                if align_descriptor is not None:
+                    exp_name = f"{exp_name}_{align_descriptor}"
                 exp_results[c_key] = self._functors.align(
                     train_job=named_train_job,
                     prior_config=prior_config,

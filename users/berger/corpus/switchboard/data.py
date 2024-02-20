@@ -25,7 +25,6 @@ def get_data_inputs(
     lm_names: Optional[List[str]] = None,
     ctc_lexicon: bool = False,
     augmented_lexicon: bool = False,
-    filter_unk_from_corpus: bool = True,
     add_all_allophones: bool = False,
 ) -> Tuple[Dict[str, helpers.RasrDataInput], ...]:
     if cv_keys is None:
@@ -69,8 +68,8 @@ def get_data_inputs(
     test_data_inputs = {}
 
     train_corpus_object = copy.deepcopy(corpus_object_dict[train_key])
-    if filter_unk_from_corpus:
-        filter_unk_in_corpus_object(train_corpus_object, bliss_lexicon)
+    # if filter_unk_from_corpus:
+    #     filter_unk_in_corpus_object(train_corpus_object, bliss_lexicon)
 
     segment_files = SegmentCorpusJob(train_corpus_object.corpus_file, 1).out_single_segment_files
     filtered_segment_files = FilterSegmentsByListJob(
@@ -93,8 +92,7 @@ def get_data_inputs(
 
     for cv_key in cv_keys:
         cv_corpus_object = copy.deepcopy(corpus_object_dict[cv_key])
-        if filter_unk_from_corpus:
-            filter_unk_in_corpus_object(cv_corpus_object, bliss_lexicon)
+        filter_unk_in_corpus_object(cv_corpus_object, bliss_lexicon)
 
         segment_files = SegmentCorpusJob(cv_corpus_object.corpus_file, 1).out_single_segment_files
         filtered_segment_files = FilterSegmentsByListJob(

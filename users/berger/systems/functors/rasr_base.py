@@ -117,11 +117,11 @@ class RasrFunctor(ABC):
             ),
         }[feature_type](corpus_info=corpus_info, **kwargs)
 
-    def _make_base_sample_feature_flow(self, corpus_info: dataclasses.CorpusInfo, **kwargs):
+    def _make_base_sample_feature_flow(self, corpus_info: dataclasses.CorpusInfo, dc_detection: bool = False, **kwargs):
         audio_format = corpus_info.data.corpus_object.audio_format
         args = {
             "audio_format": audio_format,
-            "dc_detection": False,
+            "dc_detection": dc_detection,
             "input_options": {"block-size": 1},
             "scale_input": 2**-15,
         }

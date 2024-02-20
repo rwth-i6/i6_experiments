@@ -22,6 +22,9 @@ from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.corpus.switchboard.ctc_data import (
     get_switchboard_data,
 )
+from i6_experiments.users.berger.args.jobs.recognition_args import (
+    get_seq2seq_search_parameters,
+)
 from sisyphus import gs, tk
 
 # ********** Settings **********
@@ -45,6 +48,7 @@ def generate_returnn_config(
     dev_data_config: dict,
     num_epochs: int = 300,
     peak_lr: float = 8e-04,
+    am_scale: float = 1.0,
 ) -> ReturnnConfig:
     if train:
         network_dict, extra_python = ctc_model.make_blstm_fullsum_ctc_model(
@@ -81,6 +85,35 @@ def generate_returnn_config(
             mlp_args={"num_layers": 0},
         )
 
+    if am_scale != 1.0:
+        sprint_opts = copy.deepcopy(network_dict["output"]["loss_opts"]["sprint_opts"])
+        network_dict["output"] = {
+            "class": "softmax",
+            "from": "encoder",
+            "n_out": num_classes,
+        }
+        network_dict["scaled_log_probs"] = {
+            "class": "eval",
+            "eval": f"{am_scale} * safe_log(source(0))",
+            "from": "output",
+        }
+        network_dict["fast_bw"] = {
+            "class": "fast_bw",
+            "from": "scaled_log_probs",
+            "sprint_opts": sprint_opts,
+            "align_target": "sprint",
+        }
+        network_dict["output_loss"] = {
+            "class": "copy",
+            "from": "output",
+            "loss": "via_layer",
+            "loss_opts": {
+                "align_layer": "fast_bw",
+                "loss_wrt_to_act_in": "softmax",
+            },
+            "loss_scale": 1.0,
+        }
+
     returnn_config = get_returnn_config(
         network=network_dict,
         target=None,
@@ -107,7 +140,7 @@ def generate_returnn_config(
     return returnn_config
 
 
-def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
+def run_exp() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
     assert tools.returnn_root is not None
     assert tools.returnn_python_exe is not None
     assert tools.rasr_binary_path is not None
@@ -130,11 +163,24 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)
     align_args = exp_args.get_ctc_align_step_args(num_classes)
-    recog_args["epochs"] = [160, 240, 250, 260, 270, 280, 290, 300, "best"]
+    # recog_args["epochs"] = [160, 226, 236, 266, 273, 284, 287, 292, 293, 299, 300]
+    # recog_args["epochs"] = [266, 284, 299]
+    recog_args["epochs"] = [284]
     recog_args["feature_type"] = FeatureType.GAMMATONE_8K
     recog_args["prior_scales"] = [0.3]
-    recog_args["lm_scales"] = [0.9]
+    recog_args["lm_scales"] = [0.8]
+    recog_args["flow_args"] = {"dc_detection": True}
+    recog_args["search_parameters"] = get_seq2seq_search_parameters(
+        lp=14.4,
+        lpl=100000,
+        wp=0.5,
+        wpl=10000,
+        allow_blank=True,
+        allow_loop=True,
+    )
+    align_args["epoch"] = 284
     align_args["feature_type"] = FeatureType.GAMMATONE_8K
+    align_args["silence_phone"] = "[SILENCE]"
 
     recog_am_args = copy.deepcopy(exp_args.ctc_recog_am_args)
     recog_am_args.update(
@@ -168,8 +214,12 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
     )
     system.setup_scoring(
         scorer_type=Hub5ScoreJob,
-        stm_kwargs={"non_speech_tokens": ["[NOISE]", "[LAUGHTER]", "[VOCALIZED-NOISE]"]},
-        score_kwargs={"glm": tk.Path("/u/corpora/speech/hub-5-00/raw/transcriptions/reference/en20000405_hub5.glm")},
+        # stm_kwargs={"non_speech_tokens": ["[NOISE]", "[LAUGHTER]", "[VOCALIZED-NOISE]"]},
+        stm_paths={key: tk.Path("/u/corpora/speech/hub5e_00/xml/hub5e_00.stm") for key in data.dev_keys},
+        score_kwargs={
+            "glm": tk.Path("/u/corpora/speech/hub5e_00/xml/glm"),
+            # "glm": tk.Path("/u/corpora/speech/hub-5-00/raw/transcriptions/reference/en20000405_hub5.glm"),
+        },
     )
 
     # ********** Returnn Configs **********
@@ -181,41 +231,40 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
         "dev_data_config": data.cv_data_config,
     }
 
-    train_config = generate_returnn_config(
-        train=True,
-        train_data_config=data.train_data_config,
-        **config_generator_kwargs,
-    )
-    recog_config = generate_returnn_config(
-        train=False, train_data_config=data.train_data_config, **config_generator_kwargs
-    )
+    for am_scale in [0.1, 0.3, 0.5, 0.7, 1.0]:
+        train_config = generate_returnn_config(
+            train=True,
+            train_data_config=data.train_data_config,
+            am_scale=am_scale,
+            **config_generator_kwargs,
+        )
+        recog_config = generate_returnn_config(
+            train=False, train_data_config=data.train_data_config, **config_generator_kwargs
+        )
 
-    returnn_configs = ReturnnConfigs(
-        train_config=train_config,
-        recog_configs={"recog": recog_config},
-    )
+        returnn_configs = ReturnnConfigs(
+            train_config=train_config,
+            recog_configs={"recog": recog_config},
+        )
 
-    system.add_experiment_configs("BLSTM_CTC", returnn_configs)
+        system.add_experiment_configs(f"BLSTM_CTC_am-{am_scale}", returnn_configs)
 
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)
     # system.run_test_recog_step(**recog_args)
 
-    alignments = next(iter(system.run_align_step(exp_names=["BLSTM_CTC"], **align_args).values()))
-
-    model = system.get_train_job("BLSTM_CTC").out_checkpoints[300]
-    assert isinstance(model, Checkpoint)
+    alignments = system.run_align_step(**align_args)
 
     assert system.summary_report
-    return system.summary_report, model, alignments
+    return system.summary_report, alignments
 
 
-def py() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
+def py() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
     filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
-    summary_report, model, alignments = run_exp()
+    summary_report, alignments = run_exp()
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 
-    return summary_report, model, alignments
+    return summary_report, alignments

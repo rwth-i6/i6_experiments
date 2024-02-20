@@ -167,8 +167,12 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
     )
     system.setup_scoring(
         scorer_type=Hub5ScoreJob,
-        stm_kwargs={"non_speech_tokens": ["[NOISE]", "[LAUGHTER]", "[VOCALIZED-NOISE]"]},
-        score_kwargs={"glm": tk.Path("/u/corpora/speech/hub-5-00/raw/transcriptions/reference/en20000405_hub5.glm")},
+        # stm_kwargs={"non_speech_tokens": ["[NOISE]", "[LAUGHTER]", "[VOCALIZED-NOISE]"]},
+        stm_paths={key: tk.Path("/u/corpora/speech/hub5e_00/xml/hub5e_00.stm") for key in data.dev_keys},
+        score_kwargs={
+            "glm": tk.Path("/u/corpora/speech/hub5e_00/xml/glm"),
+            # "glm": tk.Path("/u/corpora/speech/hub-5-00/raw/transcriptions/reference/en20000405_hub5.glm"),
+        },
     )
 
     # ********** Returnn Configs **********
@@ -241,6 +245,7 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
         gpu_mem_rqmt=11,
     )
     system.run_train_step(**train_args)
+    recog_args["epochs"] = [160, 320, 400, "best"]
     system.run_dev_recog_step(**recog_args)
 
     assert system.summary_report

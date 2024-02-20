@@ -55,7 +55,7 @@ def get_switchboard_data(
             f"--*.segment-order-sort-by-time-length-chunk-size=300 --feature-extraction.file={feature_flow_file}",
             "sprintTrainerExecPath": rasr_binary_path.join_right(f"nn-trainer.{rasr_arch}"),
         }
-        train_lexicon = tk.Path("/work/asr4/berger/dependencies/switchboard/lexicon/wei_train_ctc.lexicon.xml")
+        train_lexicon = tk.Path("/work/asr4/berger/dependencies/switchboard/lexicon/wei_train_ctc.lexicon.v2.xml")
     else:
         train_data_config = build_feature_hdf_dataset_config(
             data_inputs=[train_data_inputs[train_key]],
@@ -79,7 +79,7 @@ def get_switchboard_data(
         feature_flow_file = tk.Path("/work/asr4/berger/dependencies/switchboard/data/wei_train_ctc/dev.feature.flow")
         cv_data_config = {
             "class": "ExternSprintDataset",
-            "partitionEpoch": 6,
+            "partitionEpoch": 1,
             "sprintConfigStr": f"--config={config_file} --*.LOGFILE=nn-trainer.dev.log --*.TASK=1 "
             f"--*.corpus.segment-order-shuffle=true --*.segment-order-sort-by-time-length=true "
             f"--*.segment-order-sort-by-time-length-chunk-size=50 --feature-extraction.file={feature_flow_file}",
@@ -120,7 +120,6 @@ def get_switchboard_data(
     recog_lexicon = AddEowPhonemesToLexiconJob(
         train_lexicon, nonword_phones=["[NOISE]", "[VOCALIZEDNOISE]", "[LAUGHTER]"]
     ).out_lexicon
-    # recog_lexicon = tk.Path("/work/asr4/berger/dependencies/switchboard/lexicon/lexicon.xml")
 
     for rasr_input in {**dev_data_inputs, **test_data_inputs}.values():
         rasr_input.lexicon.filename = recog_lexicon
