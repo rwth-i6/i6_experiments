@@ -78,7 +78,6 @@ def get_nn_args_single(
         "GammatoneNetwork": GammatoneNetwork,
         "ScfNetwork": ScfNetwork,
     }[feature_args.pop("class")]
-
     feature_net = feature_network_class(**feature_args).get_as_subnetwork()
     source_layer = "data"
 
