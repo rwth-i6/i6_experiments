@@ -371,6 +371,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
         },
         "beam60-lenNorm0-cov05-covInd-modAttAvg-negCovRelu05_15-batch50": {
+            # {"dev-clean": 2.9, "dev-other": 5.48, "test-clean": 2.89, "test-other": 6.67}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -383,6 +384,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
         },
         "beam60-lenNorm0-cov05-covInd-modAttAvg-batch50": {
+            # {"dev-clean": 3.93, "dev-other": 5.49, "test-clean": 2.93, "test-other": 6.51}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
