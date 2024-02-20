@@ -157,8 +157,10 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
-            "length_normalization_exponent": 0.2,
-            "attention_coverage_scale": 0.2,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.2,
+                "attention_coverage_scale": 0.2,
+            },
         },
         "beam60-batch1": {
             # {"dev-clean": 2.89, "dev-other": 6.21, "test-clean": 2.84, "test-other": 6.58}
