@@ -1245,8 +1245,8 @@ def model_recog_pure_torch(
 
     search_end_time = time.perf_counter_ns()
     data_seq_len_sum = rf.reduce_sum(data_spatial_dim.dyn_size_ext, axis=data_spatial_dim.dyn_size_ext.dims)
-    data_seq_len_sum_secs = data_seq_len_sum.raw_tensor * _batch_size_factor / 100.0
-    data_seq_len_max_seqs = data_spatial_dim.get_dim_value() * _batch_size_factor / 100.0
+    data_seq_len_sum_secs = data_seq_len_sum.raw_tensor / _batch_size_factor / 100.0
+    data_seq_len_max_seqs = data_spatial_dim.get_dim_value() / _batch_size_factor / 100.0
     print(
         "TIMINGS:",
         ", ".join(
