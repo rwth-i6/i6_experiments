@@ -1256,7 +1256,7 @@ def model_recog_pure_torch(
                 f"data len sum {data_seq_len_sum.raw_tensor} ({data_seq_len_sum_secs:.2f} secs)",
                 f"enc {enc_end_time - start_time} ns",
                 f"enc len max {enc_spatial_dim.get_dim_value()}",
-                f"dec {search_end_time- enc_end_time} ns",
+                f"dec {search_end_time - enc_end_time} ns",
                 f"out len max {out_spatial_dim.get_dim_value()}",
             )
         ),
