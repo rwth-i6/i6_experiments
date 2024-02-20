@@ -135,34 +135,34 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "beam12-batch200": {
             # {"dev-clean": 2.64, "dev-other": 5.44, "test-clean": 2.65, "test-other": 6.33}
             # WTF, why is dev-other here much better? test-clean as well.
-            "beam_search_version": 3,
             "beam_size": 12,
             "length_normalization_exponent": 1.0,
-            "__batch_size_dependent": True,
         },
         "beam12-batch1": {
             # {"dev-clean": 3.38, "dev-other": 6.23, "test-clean": 2.9, "test-other": 6.26}
             # WTF, why is this so much worse than batch50?
-            "beam_search_version": 3,
             "beam_size": 12,
             "length_normalization_exponent": 1.0,
-            "__batch_size_dependent": True,
             "max_seqs": 1,
         },
         "beam60-batch50": {
             # {"dev-clean": 2.92, "dev-other": 6.2, "test-clean": 2.84, "test-other": 6.52}
-            "beam_search_version": 3,
             "beam_size": 60,
-            "__batch_size_dependent": True,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
             "length_normalization_exponent": 1.0,
         },
+        "beam60-lenNorm02-cov02-batch50": {
+            # {"dev-clean": 2.92, "dev-other": 6.2, "test-clean": 2.84, "test-other": 6.52}
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "length_normalization_exponent": 0.2,
+            "attention_coverage_scale": 0.2,
+        },
         "beam60-batch1": {
             # {"dev-clean": 2.89, "dev-other": 6.21, "test-clean": 2.84, "test-other": 6.58}
-            "beam_search_version": 3,
             "beam_size": 60,
-            "__batch_size_dependent": True,
             "max_seqs": 1,
             "length_normalization_exponent": 1.0,
         },
@@ -173,22 +173,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             # Percent Deletions         =    0.6%   ( 292)
             # Percent Insertions        =    1.6%   ( 830)
             # work/i6_core/returnn/forward/ReturnnForwardJobV2.ALH3cRPRSWkr/output/output.py.gz
+            # v5: test-other: i6_core/returnn/forward/ReturnnForwardJobV2.RL1Gfmz1ENo2
             # lots of insertions, repeating loop at end: 4294-14317-0014
-            "beam_search_version": 4,
-            "beam_size": 60,
-            "__batch_size_dependent": True,
-            "max_seqs": 50,
-            "batch_size": 5000 * _batch_size_factor,
-            "length_normalization_exponent": 0.0,
-            "length_reward": 0.1,
-        },
-        "beam60-lenReward01-batch50-v5": {  # TODO temp test v5
-            # {"dev-clean": 2.61, "dev-other": 5.4, "test-clean": 2.82, "test-other": 6.5}
-            # test-other: i6_core/returnn/forward/ReturnnForwardJobV2.RL1Gfmz1ENo2
-            "beam_search_version": 5,
-            "__batch_size_dependent": True,
-            "__recog_def_ext": True,
-            "beam_search_collect_individual_seq_scores": True,
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -197,9 +183,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
         "beam60-lenReward02-batch50": {
             # {"dev-clean": 2.84, "dev-other": 5.39, "test-clean": 2.82, "test-other": 6.49}
-            "beam_search_version": 4,
             "beam_size": 60,
-            "__batch_size_dependent": True,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
             "length_normalization_exponent": 0.0,
@@ -207,9 +191,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
         "beam60-lenReward005-batch50": {
             # {"dev-clean": 2.61, "dev-other": 5.41, "test-clean": 2.83, "test-other": 6.48}
-            "beam_search_version": 4,
             "beam_size": 60,
-            "__batch_size_dependent": True,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
             "length_normalization_exponent": 0.0,
@@ -217,9 +199,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
         "beam60-lenReward_005-batch50": {
             # {"dev-clean": 3.76, "dev-other": 5.86, "test-clean": 3.6, "test-other": 6.26}
-            "beam_search_version": 4,
             "beam_size": 60,
-            "__batch_size_dependent": True,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
             "length_normalization_exponent": 0.0,
@@ -231,9 +211,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             # Percent Substitution      =    4.3%   (2254)
             # Percent Deletions         =    0.9%   ( 477)
             # Percent Insertions        =    0.8%   ( 422)
-            "beam_search_version": 3,
             "beam_size": 60,
-            "__batch_size_dependent": True,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
             "length_normalization_exponent": 0.0,
@@ -244,7 +222,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV3/recog_last_" + name,
             model.get_last_fixed_epoch(),
             model_recog_pure_torch,
-            recog_config,
+            {
+                "beam_search_version": 5,
+                "__batch_size_dependent": True,
+                "__recog_def_ext": True,
+                "beam_search_collect_individual_seq_scores": True,
+                **recog_config,
+            },
         )
 
     from .aed_online_data_filter import from_scratch_model_def as aed_online_data_filter_model_def
