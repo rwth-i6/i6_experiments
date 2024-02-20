@@ -153,6 +153,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_normalization_exponent": 1.0,
         },
         "beam60-lenNorm02-batch50": {
+            # {"dev-clean": 2.64, "dev-other": 5.4, "test-clean": 2.83, "test-other": 6.5}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -171,6 +172,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
         },
         "beam60-lenNorm02-cov05-batch50": {
+            # {"dev-clean": 2.6, "dev-other": 5.4, "test-clean": 2.61, "test-other": 6.47}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -180,6 +182,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
         },
         "beam60-lenNorm02-cov1-batch50": {
+            # {"dev-clean": 2.62, "dev-other": 5.44, "test-clean": 2.57, "test-other": 6.48}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
