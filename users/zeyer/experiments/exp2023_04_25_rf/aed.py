@@ -370,6 +370,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_reward": 0.0,
         },
         "beam60-lenNorm0-lenReward0-zeros01-batch50": {
+            # {"dev-clean": 2.59, "dev-other": 5.38, "test-clean": 2.6, "test-other": 6.64}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
