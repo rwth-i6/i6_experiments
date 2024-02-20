@@ -1222,15 +1222,20 @@ def model_recog_pure_torch(
     seq_log_prob_t = rf.convert_to_tensor(seq_log_prob, dims=[batch_dim, beam_dim])
 
     search_end_time = time.perf_counter_ns()
+    data_seq_len_sum = rf.reduce_sum(data_spatial_dim.dyn_size_ext, axis=data_spatial_dim.dyn_size_ext.dims)
+    data_seq_len_sum_secs = data_seq_len_sum.raw_tensor * _batch_size_factor / 100.
+    data_seq_len_max_seqs = data_spatial_dim.get_dim_value() * _batch_size_factor / 100.
     print(
         "TIMINGS:",
         ", ".join(
             (
-                f"enc {enc_end_time - start_time} ns",
-                f"dec {search_end_time- enc_end_time} ns",
                 f"batch size {data.get_batch_dim_tag().get_dim_value()}",
-                f"enc len {enc_spatial_dim.get_dim_value()}",
-                f"out len {out_spatial_dim.get_dim_value()}",
+                f"data len max {data_spatial_dim.get_dim_value()} ({data_seq_len_max_seqs:.2f} secs)",
+                f"data len sum {data_seq_len_sum.raw_tensor} ({data_seq_len_sum_secs:.2f} secs)",
+                f"enc {enc_end_time - start_time} ns",
+                f"enc len max {enc_spatial_dim.get_dim_value()}",
+                f"dec {search_end_time- enc_end_time} ns",
+                f"out len max {out_spatial_dim.get_dim_value()}",
             )
         ),
     )
