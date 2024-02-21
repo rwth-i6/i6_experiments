@@ -90,7 +90,9 @@ def beam_search_v5(
                 backrefs=backrefs,
                 labels=target,
                 required_label=torch.where(
-                    (i < cheating_targets_seq_len).to(device), cheating_targets[i], opts.eos_label
+                    (i < cheating_targets_seq_len).to(device),
+                    cheating_targets[min(i, cheating_targets.shape[0] - 1)],
+                    opts.eos_label,
                 ),  # [Batch]
             )
         del seq_log_prob_ext
