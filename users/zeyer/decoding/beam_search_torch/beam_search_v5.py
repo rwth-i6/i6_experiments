@@ -11,7 +11,7 @@ import torch
 import tree
 
 from .interface import LabelScorerIntf
-from .utils import top_k_nd, batch_gather, batch_gather_, combine_individual_seq_scores
+from .utils import top_k_nd, batch_gather, batch_gather_, combine_individual_seq_scores, ensure_label_in_beam
 
 
 @dataclass
@@ -31,6 +31,8 @@ def beam_search_v5(
     device: torch.device,
     opts: BeamSearchOptsV5,
     out_individual_seq_scores: Optional[Dict[str, torch.Tensor]] = None,
+    cheating_targets: Optional[torch.Tensor] = None,
+    cheating_targets_seq_len: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     beam search
@@ -41,6 +43,8 @@ def beam_search_v5(
     :param device:
     :param opts:
     :param out_individual_seq_scores: if set, fills in: key -> [Batch,FinalBeam]
+    :param cheating_targets: shape [Batch,TargetSeqLen]. if set, makes sure this is part of the beam
+    :param cheating_targets_seq_len: shape [Batch] -> 0..TargetSeqLen
     :return: seq_targets, seq_log_prob, out_seq_len:
         seq_targets: [Batch,FinalBeam,OutSeqLen]
         seq_log_prob: [Batch,FinalBeam]
@@ -60,6 +64,9 @@ def beam_search_v5(
         torch.arange(0, opts.num_labels, device=device) == opts.eos_label, 0.0, -1.0e30
     )  # [Vocab]
 
+    if cheating_targets is not None:
+        cheating_targets = cheating_targets.permute(1, 0)  # [TargetSeqLen,Batch]
+
     i = 0
     seq_targets = []
     seq_backrefs = []
@@ -76,6 +83,17 @@ def beam_search_v5(
             ended[:, :, None], seq_log_prob[:, :, None] + masked_finished_log_prob[None, None, :], seq_log_prob_ext
         )
         seq_log_prob, (backrefs, target) = top_k_nd(seq_log_prob_ext, k=opts.beam_size, dim=[1, 2])  # all [Batch,Beam]
+        if cheating_targets is not None:
+            seq_log_prob, backrefs, target = ensure_label_in_beam(
+                seq_log_prob=seq_log_prob,
+                seq_log_prob_ext=seq_log_prob_ext,
+                backrefs=backrefs,
+                labels=target,
+                required_label=torch.where(
+                    (i < cheating_targets_seq_len).to(device), cheating_targets[i], opts.eos_label
+                ),  # [Batch]
+            )
+        del seq_log_prob_ext
         beam_size = seq_log_prob.shape[1]
         seq_targets.append(target)
         seq_backrefs.append(backrefs)

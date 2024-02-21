@@ -137,3 +137,66 @@ def _gather_label_score(score_ext: torch.Tensor, *, beam_backrefs: torch.Tensor,
     num_labels = score_ext.shape[2]
     score_ext = score_ext.flatten(1)  # [Batch,InBeam*Vocab]
     return batch_gather(score_ext, indices=beam_backrefs * num_labels + labels)  # [Batch,OutBeam]
+
+
+def ensure_label_in_beam(
+    *,
+    seq_log_prob: torch.Tensor,
+    seq_log_prob_ext: torch.Tensor,
+    backrefs: torch.Tensor,
+    labels: torch.Tensor,
+    required_label: torch.Tensor,
+    required_label_beam_idx: int = 0,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Make sure the given label is in the beam.
+
+    Also see :func:`returnn.tf.util.basic.beam_search`.
+
+    :param seq_log_prob: [Batch,Beam]
+    :param seq_log_prob_ext: [Batch,PrevBeam,Vocab]. needed to get required label score.
+    :param backrefs: [Batch,Beam] -> PrevBeam
+    :param labels: [Batch,Beam] -> Vocab
+    :param required_label: [Batch] -> Vocab
+    :param required_label_beam_idx: At what beam index (in Beam) to put the label into,
+        and also where to expect the prev required label (in PrevBeam).
+        (Currently only 0 supported, but we might also support -1 later
+        (like in :func:`returnn.tf.util.basic.beam_search`)
+        or even custom backrefs.)
+    :return: new (seq_log_prob, backrefs, labels)
+    """
+    assert required_label_beam_idx == 0, "not implemented otherwise currently"
+    required_label_prev_beam_idx = required_label_beam_idx
+
+    required_label_score = batch_gather(
+        seq_log_prob_ext[:, required_label_prev_beam_idx],  # [Batch,Vocab]
+        indices=required_label,
+    )  # [Batch]
+    del seq_log_prob_ext
+
+    batch_size, beam_size = seq_log_prob.shape
+    device = seq_log_prob.device
+    found = (labels == required_label[:, None]) & (backrefs == required_label_prev_beam_idx)  # [Batch,Beam]
+    found: torch.Tensor
+    # Case: we found the required label in the beam already -> reorder such that it is in the right beam idx
+    # Other case: did not find -> remove the last entry in the beam, put required label into the right beam idx
+    # If we found it, we can also remove this entry,
+    # so then can put the required label into the right beam idx in both cases.
+    # Use topk to select the right indices.
+    # Extend beam at the end by the required label.
+    labels_ = torch.concat([labels, required_label[:, None]], dim=1)  # [Batch,Beam+1]
+    # Note that we found it either not at all or only max once. Thus found_ is exactly once True per batch.
+    found_ = torch.concat([found, ~(found.any(dim=1, keepdim=True))], dim=1)  # [Batch,Beam+1]
+    indices = torch.where(found_, 100, -torch.arange(beam_size + 1).to(device)[None, :])  # [Batch,Beam+1]
+    assert required_label_beam_idx == 0  # currently designed that indices order is such that first is required label
+    _, indices = torch.topk(indices, k=beam_size, dim=1, sorted=True)  # [Batch,Beam] -> Beam+1
+    backrefs_ = torch.concat(
+        [backrefs, torch.full([batch_size, 1], required_label_prev_beam_idx, device=device, dtype=backrefs.dtype)],
+        dim=1,
+    )  # [Batch,Beam+1]
+    seq_log_prob_ = torch.concat([seq_log_prob, required_label_score[:, None]], dim=1)  # [Batch,Beam+1]
+
+    seq_log_prob = batch_gather(seq_log_prob_, indices=indices)
+    backrefs = batch_gather(backrefs_, indices=indices)
+    labels = batch_gather(labels_, indices=indices)
+    return seq_log_prob, backrefs, labels
