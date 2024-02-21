@@ -14,6 +14,7 @@ from i6_experiments.users.berger.args.returnn.learning_rates import (
 from i6_experiments.users.berger.corpus.librispeech.viterbi_transducer_data import (
     get_librispeech_data,
 )
+from i6_experiments.users.berger.recipe.mm import ComputeTSEJob
 from i6_experiments.users.berger.recipe.returnn.hdf import MatchLengthsJob
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
@@ -103,12 +104,12 @@ def generate_returnn_config(
         "dev": dev_data_config,
         "chunking": (
             {
-                "data": 256,
-                "classes": 64,
+                "data": 400,
+                "classes": 100,
             },
             {
-                "data": 128,
-                "classes": 32,
+                "data": 200,
+                "classes": 50,
             },
         ),
     }
@@ -357,7 +358,7 @@ def py() -> SummaryReport:
 
     for am_scale, alignment_paths in alignment_paths_nour.items():
         for key, path in alignment_paths.items():
-            alignments_nour[key] = AlignmentData(
+            align_data = AlignmentData(
                 alignment_cache_bundle=path,
                 allophone_file=tk.Path(
                     "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_core/lexicon/allophones/StoreAllophonesJob.8Nygr67IZfVG/output/allophones"
@@ -367,6 +368,28 @@ def py() -> SummaryReport:
                 ),
                 silence_phone="<blank>",
             )
+            alignments_nour[key] = align_data
+
+            if "train" in key:  # So far no reference alignment on dev-clean/dev-other
+                compute_tse_job = ComputeTSEJob(
+                    alignment_cache=align_data.alignment_cache_bundle,
+                    allophone_file=align_data.allophone_file,
+                    silence_phone=align_data.silence_phone,
+                    upsample_factor=4,
+                    ref_alignment_cache=tk.Path(
+                        "/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/mm/alignment/AlignmentJob"
+                        ".oyZ7O0XJcO20/output/alignment.cache.bundle"
+                    ),
+                    ref_allophone_file=tk.Path(
+                        "/u/berger/asr-exps/librispeech/20230804_libri_css/allophones_2/allophones"
+                    ),
+                    ref_silence_phone="[SILENCE]",
+                    ref_upsample_factor=1,
+                    remove_outlier_limit=50,
+                )
+                tk.register_output(
+                    f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/tse/nour-align_{key}_am-{am_scale}", compute_tse_job.out_tse_frames
+                )
         report, model = run_exp(
             alignments_nour,
             name_suffix=f"nour-align-am-{am_scale}",

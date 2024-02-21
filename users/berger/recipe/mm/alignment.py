@@ -355,11 +355,16 @@ class ComputeTSEJob(Job):
             end_differences.update(seq_word_end_diffs)
             differences.update(seq_differences)
 
-            seq_tse = statistics.mean(abs(diff) for diff in seq_differences)
+            if seq_differences:
+                seq_tse = statistics.mean(abs(diff) for diff in seq_differences)
 
-            print(
-                f"Sequence {seq_tag} ({idx} / {len(file_list)}):\n    Word start distances are {seq_word_start_diffs}\n    Word end distances are {seq_word_end_diffs}\n    Sequence TSE is {seq_tse} frames"
-            )
+                print(
+                    f"Sequence {seq_tag} ({idx} / {len(file_list)}):\n    Word start distances are {seq_word_start_diffs}\n    Word end distances are {seq_word_end_diffs}\n    Sequence TSE is {seq_tse} frames"
+                )
+            else:
+                print(
+                    f"Sequence {seq_tag} ({idx} / {len(file_list)}):\n    Discarded since all distances are over the upper limit"
+                )
 
         self.out_word_start_frame_differences.set(
             {key: start_differences[key] for key in sorted(start_differences.keys())}
