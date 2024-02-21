@@ -1403,7 +1403,7 @@ def model_recog_pure_torch(
     neg_coverage_scale = beam_search_opts.pop("neg_attention_coverage_scale", 0.0)
     neg_coverage_opts = beam_search_opts.pop("neg_attention_coverage_opts", {})
     label_scorer = ShallowFusedLabelScorers()
-    if coverage_scale:
+    if coverage_scale or neg_coverage_scale:
         label_scorer.label_scorers.update(
             get_label_scorer_and_coverage_scorer_pure_torch(
                 model=model,
@@ -1564,7 +1564,7 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
     model: Model,
     batch_dim: Dim,
     enc: rf.State,
-    coverage_scale: float,
+    coverage_scale: float = 0.0,
     coverage_opts: Optional[Dict[str, Any]] = None,
     neg_coverage_scale: float = 0.0,
     neg_coverage_opts: Optional[Dict[str, Any]] = None,
@@ -1732,7 +1732,9 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             return (coverage_score_raw - prev_state["prev_score"])[:, :, None], state
 
     # Note: insertion order matters here, we want that decoder is scored first.
-    res = {"decoder": (LabelScorer(), 1.0), "attention_coverage": (CoverageScorer(coverage_opts or {}), coverage_scale)}
+    res = {"decoder": (LabelScorer(), 1.0)}
+    if coverage_scale:
+        res["attention_coverage"] = (CoverageScorer(coverage_opts or {}), coverage_scale)
     if neg_coverage_scale:
         # Idea: Too much attention on some frames (e.g. repetitions) is scored negatively.
         res["attention_neg_coverage"] = (CoverageScorer(neg_coverage_opts or {}), -neg_coverage_scale)
