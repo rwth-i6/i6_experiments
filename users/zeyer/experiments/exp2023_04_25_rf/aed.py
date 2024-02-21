@@ -322,6 +322,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
             "data_concat_zeros": 0.1,
         },
+        "beam60-lenNorm0-cov05-covInd-mono05-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.0,
+                "attention_coverage_scale": 0.5,
+                "attention_coverage_opts": {"type": "indicator"},
+                "attention_monotonicity_scale": 0.5,
+            },
+        },
         "beam60-lenNorm02-cov05-covInd-batch50": {
             # {"dev-clean": 2.59, "dev-other": 5.48, "test-clean": 2.59, "test-other": 5.96}
             "beam_size": 60,
@@ -1402,6 +1413,8 @@ def model_recog_pure_torch(
     coverage_opts = beam_search_opts.pop("attention_coverage_opts", {})
     neg_coverage_scale = beam_search_opts.pop("neg_attention_coverage_scale", 0.0)
     neg_coverage_opts = beam_search_opts.pop("neg_attention_coverage_opts", {})
+    monotonicity_scale = beam_search_opts.pop("attention_monotonicity_scale", 0.0)
+    monotonicity_opts = beam_search_opts.pop("attention_monotonicity_opts", {})
     label_scorer = ShallowFusedLabelScorers()
     if coverage_scale or neg_coverage_scale:
         label_scorer.label_scorers.update(
@@ -1413,6 +1426,8 @@ def model_recog_pure_torch(
                 coverage_scale=coverage_scale,
                 neg_coverage_scale=neg_coverage_scale,
                 neg_coverage_opts=neg_coverage_opts,
+                monotonicity_scale=monotonicity_scale,
+                monotonicity_opts=monotonicity_opts,
             )
         )
     else:
@@ -1568,6 +1583,8 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
     coverage_opts: Optional[Dict[str, Any]] = None,
     neg_coverage_scale: float = 0.0,
     neg_coverage_opts: Optional[Dict[str, Any]] = None,
+    monotonicity_scale: float = 0.0,
+    monotonicity_opts: Optional[Dict[str, Any]] = None,
 ):
     import torch
     import functools
@@ -1622,7 +1639,8 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             beam_dim = Dim(1, name="initial-beam")
             batch_dims_ = [batch_dim, beam_dim]
             decoder_state = model.decoder.default_initial_state(batch_dims=batch_dims_)
-            decoder_state["accum_att_weights"] = rf.zeros(batch_dims_)
+            if coverage_scale or neg_coverage_scale:
+                decoder_state["accum_att_weights"] = rf.zeros(batch_dims_)
             return tree.map_structure(functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim), decoder_state)
 
         def score_and_update_state(
@@ -1660,7 +1678,8 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
                 state=prev_state,
             )
             accum_att_weights += att_weights_dec_frame
-            decoder_state["accum_att_weights"] = accum_att_weights
+            if coverage_scale or neg_coverage_scale:
+                decoder_state["accum_att_weights"] = accum_att_weights
             label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
             assert set(label_log_prob.dims) == {batch_dim, beam_dim, model.target_dim}
 
@@ -1731,6 +1750,34 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             state = {"prev_score": coverage_score_raw}
             return (coverage_score_raw - prev_state["prev_score"])[:, :, None], state
 
+    class MonotonicityScorer(LabelScorerIntf):
+        """score monotonicity"""
+
+        def get_initial_state(self, *, batch_size: int, device: torch.device) -> Any:
+            """Initial state."""
+            return {"att_pos": torch.zeros([batch_size, 1], device=device)}
+
+        def score_and_update_state(
+            self,
+            *,
+            prev_state: Any,
+            prev_label: torch.Tensor,
+        ) -> Tuple[torch.Tensor, Any]:
+            """update state"""
+            prev_label  # noqa  # unused
+            # We assume the label scorer has run before us (make sure by right ordering).
+            assert set(att_weights_dec_frame.dims) == {batch_dim, beam_dim, enc_spatial_dim}
+            att_pos = rf.matmul(
+                att_weights_dec_frame,
+                rf.range_over_dim(enc_spatial_dim, dtype=att_weights_dec_frame.dtype),
+                reduce=enc_spatial_dim,
+            )  # [Batch,Beam]
+            delta = prev_state["att_pos"] - att_pos
+            threshold = monotonicity_opts.get("threshold", 1.0)
+            # Penalize when below threshold. The more it is below (or even negative), the more.
+            score = rf.where(delta < threshold, delta - threshold, 0.0)
+            return score, {"att_pos": att_pos}
+
     # Note: insertion order matters here, we want that decoder is scored first.
     res = {"decoder": (LabelScorer(), 1.0)}
     if coverage_scale:
@@ -1738,6 +1785,8 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
     if neg_coverage_scale:
         # Idea: Too much attention on some frames (e.g. repetitions) is scored negatively.
         res["attention_neg_coverage"] = (CoverageScorer(neg_coverage_opts or {}), -neg_coverage_scale)
+    if monotonicity_scale:
+        res["attention_monotonicity"] = (MonotonicityScorer(), monotonicity_scale)
     return res
 
 
