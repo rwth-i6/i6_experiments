@@ -1461,7 +1461,8 @@ def model_recog_pure_torch(
     if config.bool("beam_search_collect_individual_seq_scores", False):
         out_individual_seq_scores = {}
         extra["out_individual_seq_scores"] = out_individual_seq_scores
-    if config.bool("cheating", False):
+    cheating = config.bool("cheating", False)
+    if cheating:
         assert targets and targets_spatial_dim
         extra["cheating_targets"] = targets.copy_compatible_to_dims_raw([batch_dim, targets_spatial_dim])
         extra["cheating_targets_seq_len"] = targets_spatial_dim.dyn_size_ext.copy_compatible_to_dims_raw([batch_dim])
@@ -1472,7 +1473,7 @@ def model_recog_pure_torch(
     monotonicity_scale = beam_search_opts.pop("attention_monotonicity_scale", 0.0)
     monotonicity_opts = beam_search_opts.pop("attention_monotonicity_opts", {})
     label_scorer = ShallowFusedLabelScorers()
-    if coverage_scale or neg_coverage_scale:
+    if coverage_scale or neg_coverage_scale or cheating:
         label_scorer.label_scorers.update(
             get_label_scorer_and_coverage_scorer_pure_torch(
                 model=model,
@@ -1484,6 +1485,7 @@ def model_recog_pure_torch(
                 neg_coverage_opts=neg_coverage_opts,
                 monotonicity_scale=monotonicity_scale,
                 monotonicity_opts=monotonicity_opts,
+                always_add_scorers=cheating,
             )
         )
     else:
@@ -1493,7 +1495,7 @@ def model_recog_pure_torch(
         )
     if beam_search_version >= 5:
         len_reward = beam_search_opts.pop("length_reward", 0.0)
-        if len_reward:
+        if len_reward or cheating:
             label_scorer.label_scorers["length_reward"] = (LengthRewardScorer(), len_reward)
 
     # Beam search happening here:
@@ -1641,6 +1643,7 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
     neg_coverage_opts: Optional[Dict[str, Any]] = None,
     monotonicity_scale: float = 0.0,
     monotonicity_opts: Optional[Dict[str, Any]] = None,
+    always_add_scorers: bool = False,
 ):
     import torch
     import functools
@@ -1838,12 +1841,12 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
 
     # Note: insertion order matters here, we want that decoder is scored first.
     res = {"decoder": (LabelScorer(), 1.0)}
-    if coverage_scale:
+    if coverage_scale or always_add_scorers:
         res["attention_coverage"] = (CoverageScorer(coverage_opts or {}), coverage_scale)
-    if neg_coverage_scale:
+    if neg_coverage_scale or (neg_coverage_opts and always_add_scorers):
         # Idea: Too much attention on some frames (e.g. repetitions) is scored negatively.
         res["attention_neg_coverage"] = (CoverageScorer(neg_coverage_opts or {}), -neg_coverage_scale)
-    if monotonicity_scale:
+    if monotonicity_scale or always_add_scorers:
         res["attention_monotonicity"] = (MonotonicityScorer(), monotonicity_scale)
     return res
 
