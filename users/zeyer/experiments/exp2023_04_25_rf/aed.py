@@ -137,6 +137,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             # WTF, why is dev-other here much better? test-clean as well.
             "beam_size": 12,
             "length_normalization_exponent": 1.0,
+            "__with_cheating": True,
         },
         "beam12-batch1": {
             # {"dev-clean": 3.38, "dev-other": 6.23, "test-clean": 2.9, "test-other": 6.26}
@@ -210,6 +211,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_normalization_exponent": 0.2,
                 "attention_coverage_scale": 2.0,
             },
+            "__with_cheating": True,
         },
         "beam60-lenNorm02-cov3-batch50": {
             # {"dev-clean": 3.53, "dev-other": 6.62, "test-clean": 3.76, "test-other": 6.76}
@@ -242,6 +244,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_scale": 0.2,
                 "attention_coverage_opts": {"type": "log"},
             },
+            "__with_cheating": True,
         },
         "beam60-lenNorm02-cov02-covLogEps01-batch50": {
             # {"dev-clean": 2.6, "dev-other": 5.41, "test-clean": 2.6, "test-other": 6.46}
@@ -253,6 +256,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_scale": 0.2,
                 "attention_coverage_opts": {"type": "log", "eps": 0.1, "clip_min": 0.0},
             },
+            "__with_cheating": True,
         },
         "beam60-lenNorm02-cov2-covLog-batch50": {
             # {"dev-clean": 38.31, "dev-other": 42.15, "test-clean": 40.45, "test-other": 44.72}
@@ -319,6 +323,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_scale": 0.5,
                 "attention_coverage_opts": {"type": "indicator"},
             },
+            "__with_cheating": True,
         },
         "beam60-lenNorm0-cov05-covInd-zeros01-batch50": {
             # {"dev-clean": 2.59, "dev-other": 5.46, "test-clean": 2.61, "test-other": 6.02}
@@ -343,6 +348,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_opts": {"type": "indicator", "model_att_reduce_type": "avg"},
                 "attention_monotonicity_scale": 0.1,
             },
+            "__with_cheating": True,
         },
         "beam60-lenNorm0-cov05-covInd-mono05-modAttAvg-batch50": {
             # {"dev-clean": 27.81, "dev-other": 25.69, "test-clean": 28.47, "test-other": 24.76}
@@ -416,6 +422,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "neg_attention_coverage_scale": 0.5,
                 "neg_attention_coverage_opts": {"type": "relu_upper", "threshold": 1.5},
             },
+            "__with_cheating": True,
         },
         "beam60-lenNorm0-cov05-covInd-modAttAvg-batch50": {
             # {"dev-clean": 3.93, "dev-other": 5.49, "test-clean": 2.93, "test-other": 6.51}
@@ -438,6 +445,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_scale": 0.5,
                 "attention_coverage_opts": {"type": "indicator", "model_att_reduce_type": "avg", "threshold": 0.1},
             },
+            "__with_cheating": True,
         },
         "beam60-batch1": {
             # {"dev-clean": 2.89, "dev-other": 6.21, "test-clean": 2.84, "test-other": 6.58}
@@ -467,6 +475,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "batch_size": 5000 * _batch_size_factor,
             "length_normalization_exponent": 0.0,
             "length_reward": 0.2,
+            "__with_cheating": True,
         },
         "beam60-lenReward005-batch50": {
             # {"dev-clean": 2.61, "dev-other": 5.41, "test-clean": 2.83, "test-other": 6.48}
@@ -504,6 +513,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_normalization_exponent": 0.0,
             "length_reward": 0.0,
             "data_concat_zeros": 0.1,
+            "__with_cheating": True,
         },
     }.items():
         _recog(
@@ -758,8 +768,14 @@ def _recog(
 
     task = _get_ls_task()
 
+    cheating = recog_config and recog_config.pop("__with_cheating", False)
+
     res = recog_model(task, model_with_checkpoint, recog_def=recog_def, config=recog_config)
     tk.register_output(_sis_prefix + "/" + name, res.output)
+
+    if cheating:  # TODO just always add...?
+        res = recog_model(task, model_with_checkpoint, recog_def=recog_def, config={"cheating": True, **recog_config})
+        tk.register_output(_sis_prefix + "/" + name + ".d/cheating", res.output)
 
 
 # noinspection PyShadowingNames
