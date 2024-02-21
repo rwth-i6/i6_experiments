@@ -145,6 +145,15 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_normalization_exponent": 1.0,
             "max_seqs": 1,
         },
+        "beam12-lenNorm0-cov05-covInd-batch200": {
+            # same beam60, batch50: {"dev-clean": 2.57, "dev-other": 5.48, "test-clean": 2.65, "test-other": 5.94}
+            "beam_size": 12,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.0,
+                "attention_coverage_scale": 0.5,
+                "attention_coverage_opts": {"type": "indicator"},
+            },
+        },
         "beam60-batch50": {
             # {"dev-clean": 2.92, "dev-other": 6.2, "test-clean": 2.84, "test-other": 6.52}
             "beam_size": 60,
