@@ -1771,6 +1771,7 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
                 att_weights_dec_frame,
                 rf.range_over_dim(enc_spatial_dim, dtype=att_weights_dec_frame.dtype),
                 reduce=enc_spatial_dim,
+                use_mask=False,  # not needed, att weights already 0 outside
             )  # [Batch,Beam]
             delta = prev_state["att_pos"] - att_pos
             threshold = monotonicity_opts.get("threshold", 1.0)
