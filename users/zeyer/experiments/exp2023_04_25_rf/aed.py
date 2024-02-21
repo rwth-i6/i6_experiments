@@ -1698,7 +1698,7 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             beam_dim = Dim(1, name="initial-beam")
             batch_dims_ = [batch_dim, beam_dim]
             decoder_state = model.decoder.default_initial_state(batch_dims=batch_dims_)
-            if coverage_scale or neg_coverage_scale:
+            if coverage_scale or neg_coverage_scale or always_add_scorers:
                 decoder_state["accum_att_weights"] = rf.zeros(batch_dims_)
             return tree.map_structure(functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim), decoder_state)
 
@@ -1737,7 +1737,7 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
                 state=prev_state,
             )
             accum_att_weights += att_weights_dec_frame
-            if coverage_scale or neg_coverage_scale:
+            if coverage_scale or neg_coverage_scale or always_add_scorers:
                 decoder_state["accum_att_weights"] = accum_att_weights
             label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
             assert set(label_log_prob.dims) == {batch_dim, beam_dim, model.target_dim}
