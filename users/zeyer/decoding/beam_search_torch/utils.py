@@ -17,6 +17,13 @@ from .interface import (
 def top_k_nd(
     source: torch.Tensor, *, k: int, dim: Sequence[int], sorted: bool = True
 ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+    """
+    :param source: [Batch...,SourceDims...]
+    :param k: how many
+    :param dim: axes of SourceDims, multiple dims to search in
+    :param sorted: sorted output, see :func:`torch.topk`
+    :return: values [Batch...,k], list of indices per dim, each [Batch...,k]
+    """
     # Derived from returnn.torch.frontend._backend.TorchBackend.top_k.
     # Move axis to the end, in the right order.
     dim = [(d + source.ndim) % source.ndim for d in dim]
