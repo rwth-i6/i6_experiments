@@ -322,15 +322,14 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
             "data_concat_zeros": 0.1,
         },
-        "beam60-lenNorm0-cov05-covInd-mono05-batch50": {
-            # {"dev-clean": 95.49, "dev-other": 96.43, "test-clean": 95.69, "test-other": 96.04}
+        "beam60-lenNorm0-cov05-covInd-mono05-modAttAvg-batch50": {
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
             "beam_search_opts": {
                 "length_normalization_exponent": 0.0,
                 "attention_coverage_scale": 0.5,
-                "attention_coverage_opts": {"type": "indicator"},
+                "attention_coverage_opts": {"type": "indicator", "model_att_reduce_type": "avg"},
                 "attention_monotonicity_scale": 0.5,
             },
         },
