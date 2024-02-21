@@ -332,6 +332,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
             "data_concat_zeros": 0.1,
         },
+        "beam60-lenNorm0-cov05-covInd-mono01-modAttAvg-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.0,
+                "attention_coverage_scale": 0.5,
+                "attention_coverage_opts": {"type": "indicator", "model_att_reduce_type": "avg"},
+                "attention_monotonicity_scale": 0.1,
+            },
+        },
         "beam60-lenNorm0-cov05-covInd-mono05-modAttAvg-batch50": {
             # {"dev-clean": 27.81, "dev-other": 25.69, "test-clean": 28.47, "test-other": 24.76}
             "beam_size": 60,
@@ -414,6 +425,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_normalization_exponent": 0.0,
                 "attention_coverage_scale": 0.5,
                 "attention_coverage_opts": {"type": "indicator", "model_att_reduce_type": "avg"},
+            },
+        },
+        "beam60-lenNorm0-cov05_01-covInd-modAttAvg-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.0,
+                "attention_coverage_scale": 0.5,
+                "attention_coverage_opts": {"type": "indicator", "model_att_reduce_type": "avg", "threshold": 0.1},
             },
         },
         "beam60-batch1": {
