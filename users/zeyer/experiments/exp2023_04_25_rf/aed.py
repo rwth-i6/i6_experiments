@@ -1776,8 +1776,8 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             delta = prev_state["att_pos"] - att_pos
             threshold = monotonicity_opts.get("threshold", 1.0)
             # Penalize when below threshold. The more it is below (or even negative), the more.
-            score = rf.where(delta < threshold, delta - threshold, 0.0)
-            return score, {"att_pos": att_pos}
+            score = rf.where(delta < threshold, delta - threshold, 0.0)  # [Batch,Beam]
+            return score[:, :, None], {"att_pos": att_pos}
 
     # Note: insertion order matters here, we want that decoder is scored first.
     res = {"decoder": (LabelScorer(), 1.0)}
