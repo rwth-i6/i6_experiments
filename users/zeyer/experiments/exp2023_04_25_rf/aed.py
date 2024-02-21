@@ -323,6 +323,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "data_concat_zeros": 0.1,
         },
         "beam60-lenNorm0-cov05-covInd-mono05-batch50": {
+            # {"dev-clean": 95.49, "dev-other": 96.43, "test-clean": 95.69, "test-other": 96.04}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
