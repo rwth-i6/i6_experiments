@@ -1372,6 +1372,8 @@ def model_recog_pure_torch(
     model: Model,
     data: Tensor,
     data_spatial_dim: Dim,
+    targets: Optional[Tensor] = None,
+    targets_spatial_dim: Optional[Dim] = None,
     max_seq_len: Optional[int] = None,
 ) -> Tuple[Tensor, Tensor, Dict[str, Tensor], Dim, Dim]:
     """
@@ -1440,9 +1442,13 @@ def model_recog_pure_torch(
         beam_search_opts["length_reward"] = config.float("length_reward", 0.0)
     extra = {}
     out_individual_seq_scores = None
-    if beam_search_version >= 5 and config.bool("beam_search_collect_individual_seq_scores", False):
+    if config.bool("beam_search_collect_individual_seq_scores", False):
         out_individual_seq_scores = {}
         extra["out_individual_seq_scores"] = out_individual_seq_scores
+    if config.bool("cheating", False):
+        assert targets and targets_spatial_dim
+        extra["cheating_targets"] = targets.copy_compatible_to_dims_raw([batch_dim, targets_spatial_dim])
+        extra["cheating_targets_seq_len"] = targets_spatial_dim.dyn_size_ext.copy_compatible_to_dims_raw([batch_dim])
     coverage_scale = beam_search_opts.pop("attention_coverage_scale", 0.0)
     coverage_opts = beam_search_opts.pop("attention_coverage_opts", {})
     neg_coverage_scale = beam_search_opts.pop("neg_attention_coverage_scale", 0.0)

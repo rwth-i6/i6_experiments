@@ -463,7 +463,12 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     data = extern_data[default_input_key]
     data_spatial_dim = data.get_time_dim_tag()
     recog_def = config.typed_value("_recog_def")
-    recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim)
+    extra = {}
+    if config.bool("cheating", False):
+        default_target_key = config.typed_value("target")
+        targets = extern_data[default_target_key]
+        extra.update(dict(targets=targets, targets_spatial_dim=targets.get_time_dim_tag()))
+    recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, **extra)
     if len(recog_out) == 5:
         # recog results including beam {batch, beam, out_spatial},
         # log probs {batch, beam},
