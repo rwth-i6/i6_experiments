@@ -333,6 +333,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "data_concat_zeros": 0.1,
         },
         "beam60-lenNorm0-cov05-covInd-mono01-modAttAvg-batch50": {
+            # {"dev-clean": 12.37, "dev-other": 12.49, "test-clean": 13.64, "test-other": 12.56}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -428,6 +429,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
         },
         "beam60-lenNorm0-cov05_01-covInd-modAttAvg-batch50": {
+            # {"dev-clean": 3.08, "dev-other": 6.64, "test-clean": 3.13, "test-other": 7.29}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
