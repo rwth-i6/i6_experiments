@@ -106,30 +106,39 @@ def main():
             "s,abs,ab->ab", scales[:-1], entries_scores, entries_hyp_num_tokens_inv ** scales[-1]
         )  # [seqs,beam]
 
-    opt = torch.optim.Adam([scales])
+    def _loss():
+        seq_scores = _logits()  # [seqs,beam]
+        seq_probs = torch.nn.functional.softmax(seq_scores, dim=-1)  # [seqs,beam]
+        return torch.einsum("sb,sb->", seq_probs, entries_num_err)
+
+    def _err():
+        seq_scores = _logits()  # [seqs,beam]
+        best = seq_scores.argmax(dim=1)  # [seqs] -> beam
+        err_ = batch_gather(entries_num_err, indices=best)  # [seqs]
+        return torch.sum(err_)
+
+    opt = torch.optim.Adam([scales], lr=1)
 
     for step in range(args.num_steps):
         opt.zero_grad()
-        seq_scores = _logits()  # [seqs,beam]
-        seq_probs = torch.nn.functional.softmax(seq_scores, dim=-1)  # [seqs,beam]
-        loss = torch.einsum("sb,sb->", seq_probs, entries_num_err)
+        loss = _loss()
         loss.backward()
         opt.step()
         with torch.no_grad():
             scales[:] = torch.nn.functional.relu(scales)  # keep positive
-            # scales[0] = 1.0  # keep fixed
-            # scales *= 1.0 / torch.maximum(torch.sum(scales), torch.tensor(0.01, device=device))
-            scales[:-1] *= 1.0 / torch.maximum(scales[0], torch.tensor(0.01, device=device))
         if step % 10 == 0:
             print(f"step {step}, loss: {loss}")
 
         if step % 100 == 0:
             with torch.no_grad():
-                seq_scores = _logits()  # [seqs,beam]
-                best = seq_scores.argmax(dim=1)  # [seqs] -> beam
-                err = batch_gather(entries_num_err, indices=best)  # [seqs]
-                err = torch.sum(err)
+                err = _err()
                 print(f"err: {err}, scales {scales.detach().cpu().numpy().tolist()}")
+
+    print("Finished.")
+    with torch.no_grad():
+        print("Rescale.")
+        scales[:-1] *= 1.0 / torch.maximum(scales[0], torch.tensor(0.01, device=device))
+        print(f"Final err: {err}, scales {scales.detach().cpu().numpy().tolist()}")
 
 
 def batch_gather(values: torch.Tensor, *, indices: torch.Tensor) -> torch.Tensor:
