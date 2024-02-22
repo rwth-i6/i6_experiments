@@ -163,7 +163,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "batch_size": 5000 * _batch_size_factor,
             "length_normalization_exponent": 1.0,
         },
+        "beam60-lenNorm0-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.0,
+            },
+            "__with_cheating": True,
+        },
         "beam60-lenNorm0-mono005-modAttAvg-batch50": {
+            # {"dev-clean": 2.64, "dev-other": 5.4, "test-clean": 2.82, "test-other": 6.02}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -175,6 +185,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "__with_cheating": True,
         },
         "beam60-lenNorm01-mono005-modAttAvg-batch50": {
+            # {"dev-clean": 2.64, "dev-other": 5.41, "test-clean": 2.83, "test-other": 6.49}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
