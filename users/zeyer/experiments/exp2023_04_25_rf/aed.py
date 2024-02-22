@@ -71,15 +71,18 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     )
     for name, recog_config in {
         "beam12-batch200-lenNorm1": {
+            # {"dev-clean": 2.35, "dev-other": 5.14, "test-clean": 2.47, "test-other": 5.72}
             "beam_size": 12,
             "length_normalization_exponent": 1.0,
         },
         "beam12-batch200-lenReward01": {
+            # {"dev-clean": 2.35, "dev-other": 5.14, "test-clean": 2.47, "test-other": 5.66}
             "beam_size": 12,
             "length_normalization_exponent": 0.0,
             "length_reward": 0.1,
         },
         "beam60-batch50": {
+            # {"dev-clean": 2.36, "dev-other": 5.18, "test-clean": 2.47, "test-other": 5.64}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -87,6 +90,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "__with_cheating": True,
         },
         "beam60-batch50-lenReward01": {
+            # {"dev-clean": 2.39, "dev-other": 5.19, "test-clean": 2.5, "test-other": 5.56}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -95,6 +99,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "__with_cheating": True,
         },
         "beam60-batch50-lenNorm0-lenReward0": {
+            # {"dev-clean": 2.39, "dev-other": 5.21, "test-clean": 2.54, "test-other": 5.55}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -103,6 +108,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "__with_cheating": True,
         },
         "beam60-batch50-lenNorm02-cov05": {
+            # {"dev-clean": 2.39, "dev-other": 5.17, "test-clean": 2.52, "test-other": 5.57}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
@@ -113,6 +119,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "__with_cheating": True,
         },
         "beam60-batch50-lenNorm0-cov02-covInd": {
+            # {"dev-clean": 2.34, "dev-other": 5.17, "test-clean": 2.5, "test-other": 5.56}
             "beam_size": 60,
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
