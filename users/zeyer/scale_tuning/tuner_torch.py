@@ -134,8 +134,7 @@ def main():
             scales.data *= 1.0 / torch.maximum(scales[0], torch.tensor(0.01, device=device))
 
     def _scales_str():
-        scales_ = scales.detach().cpu()
-        res = "scales [%s]" % ", ".join(f"{s:.4f}" for s in scales_)
+        res = "scales [%s]" % ", ".join(f"{s:.4f}" for s in scales.detach().cpu())
         res += f", len_norm {len_norm_scale.detach().cpu():.4f}"
         return res
 
