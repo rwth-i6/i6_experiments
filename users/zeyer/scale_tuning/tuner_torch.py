@@ -22,6 +22,7 @@ def main():
     arg_parser.add_argument("--seqs-start", type=float, default=0)
     arg_parser.add_argument("--seqs-end", type=float, default=1)
     arg_parser.add_argument("--random-seed", type=int, default=42)
+    arg_parser.add_argument("--lr", type=float, default=0.1)
     arg_parser.add_argument("--init-scales")
     args = arg_parser.parse_args()
     device = torch.device(args.device)
@@ -95,21 +96,20 @@ def main():
 
     if args.init_scales:
         init_scales = [float(s) for s in args.init_scales.split(",")]
-        assert len(init_scales) == len(keys) + 2
+        assert len(init_scales) == len(keys) + 1
     else:
-        init_scales = [1.0] * (len(keys) + 1) + [0.0]
+        init_scales = [1.0] * (len(keys) + 1)
     print("Using initial scales:", init_scales)
-    scales = torch.nn.Parameter(torch.tensor(init_scales[:-2], device=device))
-    len_norm_scale = torch.nn.Parameter(torch.tensor(init_scales[-2], device=device))
-    len_norm_offset = torch.nn.Parameter(torch.tensor(init_scales[-1], device=device))
-    params = [scales, len_norm_scale, len_norm_offset]
+    scales = torch.nn.Parameter(torch.tensor(init_scales[:-1], device=device))
+    len_norm_scale = torch.nn.Parameter(torch.tensor(init_scales[-1], device=device))
+    params = [scales, len_norm_scale]
 
     def _logits():
         return torch.einsum(
             "s,abs,ab->ab",
             scales,
             entries_scores,
-            ((entries_hyp_num_tokens_inv + 1.0 + len_norm_offset) / (1.0 + len_norm_offset)) ** len_norm_scale,
+            (entries_hyp_num_tokens_inv + 1.0) ** len_norm_scale,
         )  # [seqs,beam]
 
     def _loss():
@@ -123,29 +123,27 @@ def main():
         err_ = batch_gather(entries_num_err, indices=best)  # [seqs]
         return torch.sum(err_)
 
-    def _scales_fix(step: int):
+    def _scales_fix():
         scales.data = torch.nn.functional.relu(scales)  # keep positive
         len_norm_scale.data = torch.nn.functional.relu(len_norm_scale)
-        len_norm_offset.data = torch.nn.functional.relu(len_norm_offset)
-        scales.data *= 1.0 / torch.maximum(scales[0], torch.tensor(0.01, device=device))
+        # scales.data *= 1.0 / torch.maximum(scales[0], torch.tensor(0.01, device=device))
 
     def _scales_str():
         scales_ = scales.detach().cpu()
         res = "scales [%s]" % ", ".join(f"{s:.4f}" for s in scales_)
         res += f", len_norm {len_norm_scale.detach().cpu():.4f}"
-        res += f", len_norm_offset {len_norm_offset.detach().cpu():.4f}"
         return res
 
     print(f"Initial err: {_err():.4f}")
 
-    opt = torch.optim.Adam(params, lr=0.01)
+    opt = torch.optim.Adam(params, lr=args.lr)
 
     for step in range(args.num_steps):
         opt.zero_grad()
         loss = _loss()
         loss.backward()
         opt.step()
-        _scales_fix(step)
+        _scales_fix()
 
         with torch.no_grad():
             if step % 10 == 0:
@@ -153,13 +151,11 @@ def main():
 
             if step % 100 == 0:
                 err = _err()
-                print(f"err: {err:.4f}, scales {_scales_str()}")
+                print(f"err: {err:.4f}, {_scales_str()}")
 
     print("Finished.")
     with torch.no_grad():
-        print("Rescale.")
-        _scales_fix(-1)
-        print(f"Final loss: {_loss():.4f}, err: {_err():.4f}, scales {_scales_str()}")
+        print(f"Final loss: {_loss():.4f}, err: {_err():.4f}, {_scales_str()}")
 
 
 def batch_gather(values: torch.Tensor, *, indices: torch.Tensor) -> torch.Tensor:
