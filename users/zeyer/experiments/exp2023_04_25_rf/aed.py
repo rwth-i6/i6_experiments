@@ -84,6 +84,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
             "length_normalization_exponent": 1.0,
+            "__with_cheating": True,
         },
         "beam60-batch50-lenReward01": {
             "beam_size": 60,
@@ -91,6 +92,36 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "batch_size": 5000 * _batch_size_factor,
             "length_normalization_exponent": 0.0,
             "length_reward": 0.1,
+            "__with_cheating": True,
+        },
+        "beam60-batch50-lenNorm0-lenReward0": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "length_normalization_exponent": 0.0,
+            "length_reward": 0.0,
+            "__with_cheating": True,
+        },
+        "beam60-batch50-lenNorm02-cov05": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.2,
+                "attention_coverage_scale": 0.5,
+            },
+            "__with_cheating": True,
+        },
+        "beam60-batch50-lenNorm0-cov02-covInd": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.0,
+                "attention_coverage_scale": 0.2,
+                "attention_coverage_opts": {"type": "indicator"},
+            },
+            "__with_cheating": True,
         },
     }.items():
         _recog(
