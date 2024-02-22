@@ -63,6 +63,7 @@ def main():
         seq_tags = seq_tags[start:end]
         print(f"Selected subset (after shuffling): [{start}:{end}], num seqs: {len(seq_tags)}")
 
+    key_signs = None
     for seq_tag in seq_tags:
         hyps_ = hyps[seq_tag]
         exts_ = exts[seq_tag]
@@ -70,6 +71,8 @@ def main():
         if not keys:
             keys = list(exts_[0].keys())
             print("Score keys:", keys)
+            key_signs = [1.0 if "_neg_" not in key else -1.0 for key in keys]
+            print("Key signs:", key_signs)
             print("Beam size:", len(hyps_))
         ref_words = hyps_[0][1].replace("@@ ", "").split()
         total_num_ref_words += len(ref_words)
@@ -92,6 +95,7 @@ def main():
     entries_num_err = torch.stack(entries_num_err)  # [seqs,beam]
     entries_num_err /= total_num_ref_words
 
+    key_signs = torch.tensor(key_signs, device=device)  # [scores]
     entries_scores = entries_scores.to(device)
     entries_hyp_num_tokens = entries_hyp_num_tokens.to(device)
     entries_num_err = entries_num_err.to(device)
@@ -112,8 +116,9 @@ def main():
 
     def _logits():
         return torch.einsum(
-            "s,abs,ab->ab",
+            "s,s,abs,ab->ab",
             scales,
+            key_signs,
             entries_scores,
             torch.reciprocal(entries_hyp_num_tokens + 1) ** len_norm_scale,
         )  # [seqs,beam]
