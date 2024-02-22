@@ -210,7 +210,7 @@ def get_returnn_ogg_datasets(use_multi_proc_dataset=False, **kwargs) -> Dict[str
     if use_multi_proc_dataset:
         returnn_datasets["train"] = {
             "class": "MultiProcDataset",
-            "dataset": returnn_datasets["train"].get_data_dict()["datasets"]["ogg"],
+            "dataset": returnn_datasets["train"]["datasets"]["ogg"],
             "num_workers": 2,
             "buffer_size": 5,
         }
