@@ -24,6 +24,9 @@ def main():
     arg_parser.add_argument("--random-seed", type=int, default=42)
     arg_parser.add_argument("--lr", type=float, default=0.1)
     arg_parser.add_argument("--init-scales")
+    arg_parser.add_argument("--init-len-norm", type=float, default=1.0)
+    arg_parser.add_argument("--train-len-norm", type=int, default=True)
+    arg_parser.add_argument("--fix-scale0", type=int, default=True)
     args = arg_parser.parse_args()
     device = torch.device(args.device)
     torch.manual_seed(args.random_seed)
@@ -89,27 +92,28 @@ def main():
 
     entries_scores = entries_scores.to(device)
     entries_hyp_num_tokens = entries_hyp_num_tokens.to(device)
-    entries_hyp_num_tokens_inv = torch.reciprocal(entries_hyp_num_tokens)
     entries_num_err = entries_num_err.to(device)
 
     print("* Start training...")
 
     if args.init_scales:
         init_scales = [float(s) for s in args.init_scales.split(",")]
-        assert len(init_scales) == len(keys) + 1
+        assert len(init_scales) == len(keys)
     else:
-        init_scales = [1.0] * (len(keys) + 1)
-    print("Using initial scales:", init_scales)
-    scales = torch.nn.Parameter(torch.tensor(init_scales[:-1], device=device))
-    len_norm_scale = torch.nn.Parameter(torch.tensor(init_scales[-1], device=device))
-    params = [scales, len_norm_scale]
+        init_scales = [1.0] * len(keys)
+    print("Using initial scales:", init_scales, "initial len_norm:", args.init_len_norm)
+    scales = torch.nn.Parameter(torch.tensor(init_scales, device=device))
+    len_norm_scale = torch.nn.Parameter(torch.tensor(args.init_len_norm, device=device))
+    print("Train len norm:", bool(args.train_len_norm))
+    params = [scales, len_norm_scale] if args.train_len_norm else [scales]
+    print("Fix scale0:", bool(args.fix_scale0))
 
     def _logits():
         return torch.einsum(
             "s,abs,ab->ab",
             scales,
             entries_scores,
-            (entries_hyp_num_tokens_inv + 1.0) ** len_norm_scale,
+            torch.reciprocal(entries_hyp_num_tokens + 1) ** len_norm_scale,
         )  # [seqs,beam]
 
     def _loss():
@@ -126,7 +130,8 @@ def main():
     def _scales_fix():
         scales.data = torch.nn.functional.relu(scales)  # keep positive
         len_norm_scale.data = torch.nn.functional.relu(len_norm_scale)
-        # scales.data *= 1.0 / torch.maximum(scales[0], torch.tensor(0.01, device=device))
+        if args.fix_scale0:
+            scales.data *= 1.0 / torch.maximum(scales[0], torch.tensor(0.01, device=device))
 
     def _scales_str():
         scales_ = scales.detach().cpu()
