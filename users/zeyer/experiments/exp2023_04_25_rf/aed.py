@@ -313,6 +313,18 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_opts": {"type": "log", "eps": 0.1, "clip_min": 0.0, "rescale": True},
             },
         },
+        "beam60-lenNorm02-lenReward03-mono0025-modAttAvg-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.2,
+                "length_reward": 0.3,
+                "attention_coverage_opts": {"model_att_reduce_type": "avg"},
+                "attention_monotonicity_scale": 0.025,
+            },
+            "__with_cheating": True,
+        },
         "beam60-lenNorm0-cov02-covInd-batch50": {
             # {"dev-clean": 2.59, "dev-other": 5.4, "test-clean": 2.59, "test-other": 6.47}
             "beam_size": 60,
