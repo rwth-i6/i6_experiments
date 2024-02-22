@@ -127,10 +127,10 @@ def main():
         err_ = batch_gather(entries_num_err, indices=best)  # [seqs]
         return torch.sum(err_)
 
-    def _scales_fix():
+    def _scales_fix(*, fix_scale0_anyway: bool = False):
         scales.data = torch.nn.functional.relu(scales)  # keep positive
         len_norm_scale.data = torch.nn.functional.relu(len_norm_scale)
-        if args.fix_scale0:
+        if args.fix_scale0 or fix_scale0_anyway:
             scales.data *= 1.0 / torch.maximum(scales[0], torch.tensor(0.01, device=device))
 
     def _scales_str():
@@ -160,6 +160,9 @@ def main():
     print("Finished.")
     with torch.no_grad():
         print(f"Final loss: {_loss():.4f}, err: {_err():.4f}, {_scales_str()}")
+        if not args.fix_scale0:
+            _scales_fix(fix_scale0_anyway=True)
+            print(f"(Or scale0 fixed anyway: Final loss: {_loss():.4f}, err: {_err():.4f}, {_scales_str()})")
 
 
 def batch_gather(values: torch.Tensor, *, indices: torch.Tensor) -> torch.Tensor:
