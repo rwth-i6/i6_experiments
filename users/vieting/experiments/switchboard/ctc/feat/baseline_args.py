@@ -205,7 +205,6 @@ def get_returnn_config(
             network[layer]["from"] = "features"
     network["features"] = feature_net
     if recognition:
-
         if "pre_process" in datasets["dev"]["audio"]:
             del datasets["dev"]["audio"]["pre_process"]
 
