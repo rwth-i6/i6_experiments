@@ -163,6 +163,28 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "batch_size": 5000 * _batch_size_factor,
             "length_normalization_exponent": 1.0,
         },
+        "beam60-lenNorm0-mono005-modAttAvg-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.0,
+                "attention_coverage_opts": {"model_att_reduce_type": "avg"},
+                "attention_monotonicity_scale": 0.05,
+            },
+            "__with_cheating": True,
+        },
+        "beam60-lenNorm01-mono005-modAttAvg-batch50": {
+            "beam_size": 60,
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "beam_search_opts": {
+                "length_normalization_exponent": 0.1,
+                "attention_coverage_opts": {"model_att_reduce_type": "avg"},
+                "attention_monotonicity_scale": 0.05,
+            },
+            "__with_cheating": True,
+        },
         "beam60-lenNorm02-batch50": {
             # {"dev-clean": 2.64, "dev-other": 5.4, "test-clean": 2.83, "test-other": 6.5}
             "beam_size": 60,
