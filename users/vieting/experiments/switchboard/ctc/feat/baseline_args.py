@@ -196,7 +196,7 @@ def get_returnn_config(
     )
 
     if audio_perturbation and not recognition:
-        prolog += get_code_for_perturbation()   
+        prolog += get_code_for_perturbation()
     for layer in list(network.keys()):
         if network[layer]["from"] == "data":
             network[layer]["from"] = "features"
