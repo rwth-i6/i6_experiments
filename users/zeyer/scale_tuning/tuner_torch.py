@@ -2,6 +2,7 @@
 Auto scaling, based on recog output.
 """
 
+import sys
 import argparse
 import gzip
 import torch
@@ -16,83 +17,173 @@ def main():
         nargs="+",
         help="from our recog, expect output.py.gz and output_ext.py.gz. assume first entry is ground truth",
     )
-    arg_parser.add_argument("--device", default="cuda")
+    arg_parser.add_argument("--device", default="cpu")
     arg_parser.add_argument("--num-steps", type=int, default=10_000)
+    arg_parser.add_argument("--seqs-start", type=float, default=0)
+    arg_parser.add_argument("--seqs-end", type=float, default=1)
+    arg_parser.add_argument("--random-seed", type=int, default=42)
+    arg_parser.add_argument("--init-scales")
     args = arg_parser.parse_args()
     device = torch.device(args.device)
+    torch.manual_seed(args.random_seed)
 
-    keys = []
-    entries = []  # list of sequences over list [((scores per key), hyp num tokens, num errors), ...] per hyp
+    keys = []  # len: scores
+    entries_scores = []  # list of sequences over tensor shape [beam,scores]
+    entries_hyp_num_tokens = []  # list of sequences over tensor shape [beam]
     entries_num_err = []  # list of sequences over tensor shape [beam]
     total_num_ref_words = 0
 
+    hyps = {}
+    exts = {}
     for fn in args.recog_output_dir:
         print(f"* Reading entries from {fn}...")
         with gzip.open(fn + "/output.py.gz", "rt") as f:
-            hyps = eval(f.read())
+            hyps_f = eval(f.read())
         with gzip.open(fn + "/output_ext.py.gz", "rt") as f:
-            exts = eval(f.read())
-        assert isinstance(hyps, dict) and isinstance(exts, dict) and set(hyps) == set(exts)
-        print(f"* Collecting data...")
-        for seq_tag in hyps:
-            hyps_ = hyps[seq_tag]
-            exts_ = exts[seq_tag]
-            assert isinstance(hyps_, list) and isinstance(exts_, list) and len(hyps_) == len(exts_)
-            if not keys:
-                keys = list(exts_[0].keys())
-            ref_words = hyps_[0][1].replace("@@ ", "").split()
-            total_num_ref_words += len(ref_words)
-            entries.append([])
-            num_err_ls = []
-            for (_, hyp), ext in zip(hyps_, exts_):
-                hyp_num_tokens = len(hyp.split())
-                hyp_words = hyp.replace("@@ ", "").split()
-                num_errors = torchaudio.functional.edit_distance(ref_words, hyp_words)
-                entries[-1].append(
-                    (
-                        torch.tensor([ext[key] for key in keys], device=device),
-                        torch.tensor(hyp_num_tokens, device=device),
-                    )
-                )
-                num_err_ls.append(float(num_errors))
-            entries_num_err.append(torch.tensor(num_err_ls, device=device))
-    entries_num_err = [num_errors_ / total_num_ref_words for num_errors_ in entries_num_err]
+            exts_f = eval(f.read())
+        assert isinstance(hyps_f, dict) and isinstance(exts_f, dict) and set(hyps_f) == set(exts_f)
+        assert not set(hyps_f.keys()).intersection(hyps.keys())
+        hyps.update(hyps_f)
+        exts.update(exts_f)
+
+    print(f"* Processing data...")
+    seq_tags = list(hyps)
+    print("Num seqs:", len(seq_tags))
+    seq_tags = [seq_tags[i] for i in torch.randperm(len(seq_tags))]
+    if args.seqs_start != 0 or args.seqs_end != 1:
+        assert 0 <= args.seqs_start <= 1 and 0 <= args.seqs_end <= 1 and args.seqs_start <= args.seqs_end
+        start = int(args.seqs_start * len(seq_tags))
+        end = int(args.seqs_end * len(seq_tags))
+        seq_tags = seq_tags[start:end]
+        print(f"Selected subset (after shuffling): [{start}:{end}], num seqs: {len(seq_tags)}")
+
+    for seq_tag in seq_tags:
+        hyps_ = hyps[seq_tag]
+        exts_ = exts[seq_tag]
+        assert isinstance(hyps_, list) and isinstance(exts_, list) and len(hyps_) == len(exts_)
+        if not keys:
+            keys = list(exts_[0].keys())
+            print("Score keys:", keys)
+            print("Beam size:", len(hyps_))
+        ref_words = hyps_[0][1].replace("@@ ", "").split()
+        total_num_ref_words += len(ref_words)
+        scores_ls = []
+        hyp_num_tokens_ls = []
+        num_err_ls = []
+        for (_, hyp), ext in zip(hyps_, exts_):
+            hyp_num_tokens = len(hyp.split())
+            hyp_words = hyp.replace("@@ ", "").split()
+            num_errors = torchaudio.functional.edit_distance(ref_words, hyp_words)
+            scores_ls.append(torch.tensor([ext[key] for key in keys]))
+            hyp_num_tokens_ls.append(float(hyp_num_tokens))
+            num_err_ls.append(float(num_errors))
+        entries_scores.append(torch.stack(scores_ls))
+        entries_hyp_num_tokens.append(torch.tensor(hyp_num_tokens_ls))
+        entries_num_err.append(torch.tensor(num_err_ls))
+
+    entries_scores = torch.stack(entries_scores)  # [seqs,beam,scores]
+    entries_hyp_num_tokens = torch.stack(entries_hyp_num_tokens)  # [seqs,beam]
+    entries_num_err = torch.stack(entries_num_err)  # [seqs,beam]
+    entries_num_err /= total_num_ref_words
+
+    entries_scores = entries_scores.to(device)
+    entries_hyp_num_tokens = entries_hyp_num_tokens.to(device)
+    entries_hyp_num_tokens_inv = torch.reciprocal(entries_hyp_num_tokens)
+    entries_num_err = entries_num_err.to(device)
 
     print("* Start training...")
 
-    scales = torch.nn.Parameter(torch.ones([len(keys) + 1], device=device))
+    if args.init_scales:
+        init_scales = [float(s) for s in args.init_scales.split(",")]
+        assert len(init_scales) == len(keys) + 1
+    else:
+        init_scales = [1.0] * (len(keys) + 1)
+    print("Using initial scales:", init_scales)
+    scales = torch.nn.Parameter(torch.tensor(init_scales, device=device))
 
-    def _logits(entries_):
-        seq_scores = []
-        for scores, hyp_num_tokens in entries_:
-            seq_score = torch.dot(scales[:-1], scores)
-            seq_score /= hyp_num_tokens ** scales[-1]
-            seq_scores.append(seq_score)
-        seq_scores = torch.stack(seq_scores)
-        return seq_scores
+    def _logits():
+        return torch.einsum(
+            "s,abs,ab->ab", scales[:-1], entries_scores, entries_hyp_num_tokens_inv ** scales[-1]
+        )  # [seqs,beam]
 
     opt = torch.optim.Adam([scales])
 
     for step in range(args.num_steps):
         opt.zero_grad()
-        loss = torch.zeros((), device=device)
-        for entries_, num_errors_ in zip(entries, entries_num_err):
-            seq_scores = _logits(entries_)
-            seq_probs = torch.nn.functional.softmax(seq_scores, dim=0)
-            loss += torch.dot(seq_probs, num_errors_)
+        seq_scores = _logits()  # [seqs,beam]
+        seq_probs = torch.nn.functional.softmax(seq_scores, dim=-1)  # [seqs,beam]
+        loss = torch.einsum("sb,sb->", seq_probs, entries_num_err)
         loss.backward()
         opt.step()
-        print(f"step {step}, loss: {loss}")
+        with torch.no_grad():
+            scales[:] = torch.nn.functional.relu(scales)  # keep positive
+            # scales[0] = 1.0  # keep fixed
+            # scales *= 1.0 / torch.maximum(torch.sum(scales), torch.tensor(0.01, device=device))
+            scales[:-1] *= 1.0 / torch.maximum(scales[0], torch.tensor(0.01, device=device))
+        if step % 10 == 0:
+            print(f"step {step}, loss: {loss}")
 
         if step % 100 == 0:
             with torch.no_grad():
-                err = torch.zeros((), device=device)
-                for entries_, num_errors_ in zip(entries, entries_num_err):
-                    seq_scores = _logits(entries_)
-                    best = seq_scores.argmax()
-                    err += num_errors_[best]
+                seq_scores = _logits()  # [seqs,beam]
+                best = seq_scores.argmax(dim=1)  # [seqs] -> beam
+                err = batch_gather(entries_num_err, indices=best)  # [seqs]
+                err = torch.sum(err)
                 print(f"err: {err}, scales {scales.detach().cpu().numpy().tolist()}")
 
 
+def batch_gather(values: torch.Tensor, *, indices: torch.Tensor) -> torch.Tensor:
+    """
+    :param values: shape [Batch,Indices,ValuesDims...], e.g. [Batch,InBeam,...]
+    :param indices: shape [Batch,IndicesDims...] -> Indices, e.g. [Batch,OutBeam] -> InBeam
+    :return: shape [Batch,IndicesDims...,ValuesDims...], e.g. [Batch,OutBeam,...]
+    """
+    # Derived from returnn.torch.frontend._backend.TorchBackend.gather.
+    # Case indices.dims_set.intersection(source.dims_set - {axis}).
+    # We cannot use index_select in this case. Need to fallback to gather.
+    assert indices.shape[0] == values.shape[0]
+    num_index_own_dims = indices.ndim - 1
+    if num_index_own_dims == 1:
+        indices_flat = indices  # good, [Batch,IndexDim]
+    elif num_index_own_dims == 0:
+        indices_flat = indices[:, None]  # [Batch,IndexDim=1]
+    else:
+        indices_flat = indices.flatten(1)  # [Batch,FlatIndexDim]
+    indices_flat_bc = indices_flat.reshape(list(indices_flat.shape) + [1] * (values.ndim - 2))  # [Batch,IndexDim,1s...]
+    indices_flat_exp = indices_flat_bc.expand(indices_flat.shape + values.shape[2:])  # [Batch,IndexDim,ValuesDims...]
+    out = torch.gather(values, dim=1, index=indices_flat_exp.type(torch.int64))
+    if num_index_own_dims == 1:
+        pass  # nothing to do
+    elif num_index_own_dims == 0:
+        out = out.squeeze(1)
+    else:
+        out = out.unflatten(1, indices.shape[1:])
+    assert out.shape == indices.shape + values.shape[2:]
+    return out
+
+
+def _setup():
+    print("PyTorch:", torch.__version__)
+
+    try:
+        import better_exchook
+
+        better_exchook.install()
+    except ImportError:
+        print("(no better_exchook)")
+
+    try:
+        import lovely_tensors
+
+        lovely_tensors.monkey_patch()
+    except ImportError:
+        print("(no lovely_tensors)")
+
+
 if __name__ == "__main__":
-    main()
+    _setup()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("KeyboardInterrupt")
+        sys.exit(1)
