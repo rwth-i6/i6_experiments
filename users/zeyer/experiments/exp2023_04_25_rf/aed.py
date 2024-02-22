@@ -574,18 +574,19 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     from .aed_online_data_filter import from_scratch_model_def as aed_online_data_filter_model_def
     from .aed_online_data_filter import from_scratch_training as aed_online_data_filter_train_def
 
-    train_exp(
-        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-dataFilterV1",
-        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
-        model_def=aed_online_data_filter_model_def,
-        model_config={"behavior_version": 20},  # new Trafo decoder defaults
-        train_def=aed_online_data_filter_train_def,
-        config_updates={
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-        },
-    )
+    # TODO fix this... always get CPU OOM?
+    # train_exp(
+    #     "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-dataFilterV1",
+    #     config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+    #     model_def=aed_online_data_filter_model_def,
+    #     model_config={"behavior_version": 20},  # new Trafo decoder defaults
+    #     train_def=aed_online_data_filter_train_def,
+    #     config_updates={
+    #         "optimizer.weight_decay": 1e-2,
+    #         "__train_audio_preprocess": speed_pert_librosa_config,
+    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+    #     },
+    # )
 
     train_exp(  # 5.84, overfits more
         "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_100k",
