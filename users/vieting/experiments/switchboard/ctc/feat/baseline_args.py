@@ -205,9 +205,7 @@ def get_returnn_config(
             network[layer]["from"] = "features"
     network["features"] = feature_net
     if recognition:
-        if "pre_process" in datasets["dev"]["audio"]:
-            del datasets["dev"]["audio"]["pre_process"]
-
+        datasets["dev"]["audio"].pop("pre_process", None)
         extra_args.pop("audio_parturb_args", None)
         extra_args.pop("audio_parturb_runner", None)
 
