@@ -22,11 +22,13 @@ def main():
     arg_parser.add_argument("--seqs-start", type=float, default=0)
     arg_parser.add_argument("--seqs-end", type=float, default=1)
     arg_parser.add_argument("--random-seed", type=int, default=42)
-    arg_parser.add_argument("--lr", type=float, default=0.1)
+    arg_parser.add_argument("--lr", type=float, default=0.01)
+    arg_parser.add_argument("--opt", default="Adam")
     arg_parser.add_argument("--init-scales")
     arg_parser.add_argument("--init-len-norm", type=float, default=1.0)
     arg_parser.add_argument("--train-len-norm", type=int, default=True)
     arg_parser.add_argument("--fix-scale0", type=int, default=True)
+    arg_parser.add_argument("--softmax-temperature", type=float, default=10)
     args = arg_parser.parse_args()
     device = torch.device(args.device)
     torch.manual_seed(args.random_seed)
@@ -118,6 +120,7 @@ def main():
 
     def _loss():
         seq_scores = _logits()  # [seqs,beam]
+        seq_scores *= args.softmax_temperature
         seq_probs = torch.nn.functional.softmax(seq_scores, dim=-1)  # [seqs,beam]
         return torch.einsum("sb,sb->", seq_probs, entries_num_err)
 
@@ -140,7 +143,7 @@ def main():
 
     print(f"Initial err: {_err():.4f}")
 
-    opt = torch.optim.Adam(params, lr=args.lr)
+    opt = getattr(torch.optim, args.opt)(params, lr=args.lr)
 
     for step in range(args.num_steps):
         opt.zero_grad()
