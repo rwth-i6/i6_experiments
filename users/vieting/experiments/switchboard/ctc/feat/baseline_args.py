@@ -198,7 +198,7 @@ def get_returnn_config(
         recognition=recognition,
     )
 
-    if audio_perturbation:
+    if audio_perturbation and not recognition:
         prolog += get_code_for_perturbation()
     for layer in list(network.keys()):
         if network[layer]["from"] == "data":
@@ -208,6 +208,10 @@ def get_returnn_config(
             network[layer]["from"] = "features"
     network["features"] = feature_net
     if recognition:
+        datasets["dev"]["audio"].pop("pre_process", None)
+        extra_args.pop("audio_parturb_args", None)
+        extra_args.pop("audio_parturb_runner", None)
+
         for layer in list(network.keys()):
             if "aux" in layer:
                 network.pop(layer)
