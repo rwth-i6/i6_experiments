@@ -11,6 +11,7 @@ from i6_experiments.users.schmitt.augmentation.alignment import shift_alignment_
 from i6_experiments.users.schmitt.dynamic_lr import dynamic_lr_str
 from i6_experiments.users.schmitt.chunking import custom_chunkin_func_str, custom_chunkin_w_reduction_func_str
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder, network_builder2, ilm_correction
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.lm import lm_irie
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn import custom_construction_algos
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.base import ConfigBuilder, SWBBlstmConfigBuilder, SwbConformerConfigBuilder, LibrispeechConformerConfigBuilder, ConformerConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
@@ -73,12 +74,19 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
         network=train_config.config["network"],
         rec_layer_name="label_model",
         train=True,
+        mini_att_in_s_for_train=opts["train_mini_lstm_opts"].get("mini_att_in_s", False)
       )
       self.edit_network_freeze_layers(
         train_config.config["network"],
         layers_to_exclude=["mini_att_lstm", "mini_att"]
       )
       train_config.config["network"]["label_model"]["trainable"] = True
+
+      if opts["train_mini_lstm_opts"].get("use_se_loss", False):
+        ilm_correction.add_se_loss(
+          network=train_config.config["network"],
+          rec_layer_name="label_model",
+        )
 
     return train_config
 
@@ -90,7 +98,8 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
       ilm_correction.add_mini_lstm(
         network=recog_config.config["network"],
         rec_layer_name="output",
-        train=False
+        train=False,
+        use_mask_layer=True
       )
 
       if ilm_correction_opts.get("correct_eos", False):
@@ -100,7 +109,25 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
         network=recog_config.config["network"],
         rec_layer_name="output",
         target_num_labels=self.dependencies.model_hyperparameters.target_num_labels_wo_blank,
-        opts=ilm_correction_opts
+        opts=ilm_correction_opts,
+        label_prob_layer="label_log_prob"
+      )
+
+      recog_config.config["preload_from_files"] = {
+        "mini_lstm": {
+          "filename": ilm_correction_opts["mini_att_checkpoint"],
+          "prefix": "preload_",
+        }
+      }
+
+    lm_opts = opts.get("lm_opts", None)
+    if lm_opts is not None:
+      lm_irie.add_lm(
+        network=recog_config.config["network"],
+        rec_layer_name="output",
+        target_num_labels=self.dependencies.model_hyperparameters.target_num_labels_wo_blank,
+        opts=lm_opts,
+        label_prob_layer="label_log_prob"
       )
 
     return recog_config
@@ -115,14 +142,6 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
     for item in net_dict:
       if type(net_dict[item]) == dict and item != "output":
         self.edit_network_only_train_length_model(net_dict[item])
-
-  def edit_network_freeze_layers(self, net_dict: Dict, layers_to_exclude: List[str]):
-    if "class" in net_dict:
-      net_dict["trainable"] = False
-
-    for item in net_dict:
-      if type(net_dict[item]) == dict and item not in layers_to_exclude:
-        self.edit_network_freeze_layers(net_dict[item], layers_to_exclude)
 
   def get_dump_scores_config(self, corpus_key: str, opts: Dict):
     returnn_config = self.get_eval_config(eval_corpus_key=corpus_key, opts=opts)

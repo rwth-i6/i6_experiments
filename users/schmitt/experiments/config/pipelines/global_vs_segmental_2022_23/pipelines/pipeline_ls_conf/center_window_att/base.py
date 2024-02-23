@@ -25,6 +25,7 @@ default_train_opts = {
   "no_ctc_loss": False,
   "lr_opts": None,
   "train_mini_lstm_opts": None,
+  "cleanup_old_models": None
 }
 default_returnn_recog_opts = {
   "search_corpus_key": "dev-other",
@@ -34,6 +35,8 @@ default_returnn_recog_opts = {
   "analyse": True,
   "att_weight_seq_tags": None,
   "load_ignore_missing_vars": False,
+  "lm_opts": None,
+  "ilm_correction_opts": None,
 }
 default_rasr_recog_opts = {
   "search_corpus_key": "dev-other",
@@ -127,6 +130,8 @@ def returnn_recog_center_window_att_import_global(
     search_rqmt=_recog_opts["search_rqmt"],
     batch_size=_recog_opts["batch_size"],
     load_ignore_missing_vars=_recog_opts["load_ignore_missing_vars"],
+    lm_opts=_recog_opts["lm_opts"],
+    ilm_correction_opts=_recog_opts["ilm_correction_opts"],
   )
   recog_exp.run_eval()
 
@@ -244,6 +249,7 @@ def train_center_window_att_import_global(
     only_train_length_model=_train_opts["only_train_length_model"],
     no_ctc_loss=_train_opts["no_ctc_loss"],
     train_mini_lstm_opts=_train_opts["train_mini_lstm_opts"],
+    cleanup_old_models=_train_opts["cleanup_old_models"],
   )
   return train_exp.run_train()
 
@@ -275,6 +281,7 @@ def standard_train_recog_center_window_att_import_global(
       )
       train_opts["align_targets"] = align_targets
 
+    train_mini_att_num_epochs = train_mini_lstm_opts.pop("num_epochs")
     train_opts.update({
       "train_mini_lstm_opts": train_mini_lstm_opts,
       "import_model_train_epoch1": checkpoints[train_opts["num_epochs"]],
@@ -288,14 +295,18 @@ def standard_train_recog_center_window_att_import_global(
         "learning_rate_control_error_measure": "dev_error_label_model/output_prob"
       }
     })
-    checkpoints, model_dir, learning_rates = train_center_window_att_import_global(
+    mini_att_checkpoints, model_dir, learning_rates = train_center_window_att_import_global(
       alias=alias,
       config_builder=config_builder,
       train_opts=train_opts,
     )
-    checkpoint = checkpoints[10]
+    mini_att_checkpoint = mini_att_checkpoints[train_mini_att_num_epochs]
 
   _recog_opts = copy.deepcopy(recog_opts)
+
+  if isinstance(_recog_opts, dict) and "ilm_correction_opts" in _recog_opts:
+    _recog_opts["ilm_correction_opts"]["mini_att_checkpoint"] = mini_att_checkpoint
+
   if _recog_opts is None or _recog_opts.pop("returnn_recog", True):
     returnn_recog_center_window_att_import_global(
       alias=alias,

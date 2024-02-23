@@ -10,7 +10,8 @@ from i6_experiments.users.schmitt.specaugment import _mask
 from i6_experiments.users.schmitt.augmentation.alignment import shift_alignment_boundaries_func_str
 from i6_experiments.users.schmitt.dynamic_lr import dynamic_lr_str
 from i6_experiments.users.schmitt.chunking import custom_chunkin_func_str
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder, ilm_correction
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.lm import lm_irie
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn import custom_construction_algos
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.base import ConfigBuilder, SWBBlstmConfigBuilder, SwbConformerConfigBuilder, LibrispeechConformerConfigBuilder, ConformerConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
@@ -28,10 +29,74 @@ import numpy as np
 
 
 class GlobalConfigBuilder(ConfigBuilder, ABC):
-  def __init__(self, dependencies: SegmentalLabelDefinition, **kwargs):
+  def __init__(self, dependencies: GlobalLabelDefinition, **kwargs):
     super().__init__(dependencies=dependencies, **kwargs)
 
     self.dependencies = dependencies
+
+  def get_train_config(self, opts: Dict, python_epilog: Optional[Dict] = None):
+    train_config = super().get_train_config(opts=opts, python_epilog=python_epilog)
+    print(opts["train_mini_lstm_opts"])
+
+    if opts.get("train_mini_lstm_opts") is not None:  # need to check for None because it can be {}
+      ilm_correction.add_mini_lstm(
+        network=train_config.config["network"],
+        rec_layer_name="output",
+        train=True,
+        mini_att_in_s_for_train=opts["train_mini_lstm_opts"].get("mini_att_in_s", False)
+      )
+      self.edit_network_freeze_layers(
+        train_config.config["network"],
+        layers_to_exclude=["mini_att_lstm", "mini_att"]
+      )
+      train_config.config["network"]["output"]["trainable"] = True
+      train_config.config["network"]["output"]["unit"]["att"]["is_output_layer"] = True
+
+      if opts["train_mini_lstm_opts"].get("use_se_loss", False):
+        ilm_correction.add_se_loss(
+          network=train_config.config["network"],
+          rec_layer_name="output",
+        )
+
+    return train_config
+
+  def get_recog_config(self, opts: Dict):
+    recog_config = super().get_recog_config(opts)
+
+    ilm_correction_opts = opts.get("ilm_correction_opts", None)
+    if ilm_correction_opts is not None:
+      ilm_correction.add_mini_lstm(
+        network=recog_config.config["network"],
+        rec_layer_name="output",
+        train=False
+      )
+
+      ilm_correction.add_ilm_correction(
+        network=recog_config.config["network"],
+        rec_layer_name="output",
+        target_num_labels=self.dependencies.model_hyperparameters.target_num_labels,
+        opts=ilm_correction_opts,
+        label_prob_layer="output_prob"
+      )
+
+      recog_config.config["preload_from_files"] = {
+        "mini_lstm": {
+          "filename": ilm_correction_opts["mini_att_checkpoint"],
+          "prefix": "preload_",
+        }
+      }
+
+    lm_opts = opts.get("lm_opts", None)
+    if lm_opts is not None:
+      lm_irie.add_lm(
+        network=recog_config.config["network"],
+        rec_layer_name="output",
+        target_num_labels=self.dependencies.model_hyperparameters.target_num_labels,
+        opts=lm_opts,
+        label_prob_layer="output_prob"
+      )
+
+    return recog_config
 
   def get_compile_tf_graph_config(self, opts: Dict):
     returnn_config = self.get_recog_config(opts)

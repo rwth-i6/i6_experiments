@@ -36,16 +36,47 @@ class DecodingExperiment(ABC):
           config_builder: ConfigBuilder,
           checkpoint: Checkpoint,
           corpus_key: str,
+          ilm_correction_opts: Optional[Dict] = None,
   ):
     self.config_builder = config_builder
     self.checkpoint = checkpoint
     self.corpus_key = corpus_key
     self.stm_corpus_key = corpus_key
+    self.ilm_correction_opts = ilm_correction_opts
 
     self.alias = alias
 
     self.returnn_python_exe = self.config_builder.variant_params["returnn_python_exe"]
     self.returnn_root = self.config_builder.variant_params["returnn_root"]
+
+  def get_ilm_correction_alias(self, alias: str):
+    if self.ilm_correction_opts is not None:
+      alias += "/ilm_correction_scale-%f" % self.ilm_correction_opts["scale"]
+      if "correct_eos" in self.ilm_correction_opts:
+        if self.ilm_correction_opts["correct_eos"]:
+          alias += "/correct_eos"
+        else:
+          alias += "/wo_correct_eos"
+      if self.ilm_correction_opts.get("mini_att_in_s_for_train", False):
+        alias += "/w_mini_att_in_s_for_train"
+      else:
+        alias += "/wo_mini_att_in_s_for_train"
+      if self.ilm_correction_opts.get("use_se_loss", False):
+        alias += "/w_se_loss"
+      else:
+        alias += "/wo_se_loss"
+      if self.ilm_correction_opts.get("mini_att_train_num_epochs", None):
+        alias += "/mini_att_train_num_epochs-%d" % self.ilm_correction_opts["mini_att_train_num_epochs"]
+    else:
+      alias += "/wo_ilm_correction"
+
+    return alias
+
+  def get_config_recog_opts(self):
+    return {
+      "search_corpus_key": self.corpus_key,
+      "ilm_correction_opts": self.ilm_correction_opts,
+    }
 
   @abstractmethod
   def get_ctm_path(self) -> Path:
@@ -78,6 +109,7 @@ class ReturnnDecodingExperimentV2(DecodingExperiment):
           search_rqmt: Optional[Dict],
           batch_size: Optional[int],
           load_ignore_missing_vars: bool = False,
+          lm_opts: Optional[Dict] = None,
           **kwargs):
     super().__init__(**kwargs)
 
@@ -88,19 +120,33 @@ class ReturnnDecodingExperimentV2(DecodingExperiment):
     self.concat_num = concat_num
     self.search_rqmt = search_rqmt
     self.load_ignore_missing_vars = load_ignore_missing_vars
+    self.lm_opts = lm_opts
 
     self.alias += "/returnn_decoding"
 
-  def get_recog_opts(self):
-    return {
-      "search_corpus_key": self.corpus_key,
+    if lm_opts is not None:
+      self.alias += "/bpe-lm-scale-%f" % (lm_opts["scale"],)
+      if "add_lm_eos_last_frame" in lm_opts:
+        self.alias += "_add-lm-eos-%s" % lm_opts["add_lm_eos_last_frame"]
+      self.alias = self.get_ilm_correction_alias(self.alias)
+    else:
+      self.alias += "/no-lm"
+      if self.ilm_correction_opts is not None:
+        self.alias = self.get_ilm_correction_alias(self.alias)
+
+  def get_config_recog_opts(self):
+    recog_opts = super().get_config_recog_opts()
+    recog_opts.update({
       "batch_size": self.batch_size,
       "dataset_opts": {"concat_num": self.concat_num},
       "load_ignore_missing_vars": self.load_ignore_missing_vars,
     }
+      "lm_opts": self.lm_opts,
+    })
+    return recog_opts
 
   def get_ctm_path(self) -> Path:
-    recog_config = self.config_builder.get_recog_config(opts=self.get_recog_opts())
+    recog_config = self.config_builder.get_recog_config(opts=self.get_config_recog_opts())
 
     device = "gpu"
     if self.search_rqmt and self.search_rqmt["gpu"] == 0:
@@ -246,7 +292,6 @@ class RasrDecodingExperiment(DecodingExperiment):
           lm_lookahead_opts: Optional[Dict] = None,
           open_vocab: bool = True,
           segment_list: Optional[List[str]] = None,
-          ilm_correction_opts: Optional[Dict] = None,
           **kwargs):
     super().__init__(**kwargs)
 
@@ -269,8 +314,6 @@ class RasrDecodingExperiment(DecodingExperiment):
     self.native_lstm2_so_path = native_lstm2_so_path
     self.segment_list = segment_list
 
-    self.ilm_correction_opts = ilm_correction_opts
-
     self.alias += "/rasr_decoding/max-seg-len-%d" % self.max_segment_len
 
     if simple_beam_search:
@@ -284,9 +327,12 @@ class RasrDecodingExperiment(DecodingExperiment):
     if lm_opts is not None:
       self.lm_opts = copy.deepcopy(lm_opts)
       self.alias += "/lm-%s_scale-%f" % (lm_opts["type"], lm_opts["scale"])
+      self.alias = self.get_ilm_correction_alias(self.alias)
     else:
       self.lm_opts = copy.deepcopy(self._get_default_lm_opts())
       self.alias += "/no_lm"
+      if self.ilm_correction_opts is not None:
+        self.alias = self.get_ilm_correction_alias(self.alias)
 
     if self.lm_lookahead_opts is not None:
       self.lm_lookahead_opts = copy.deepcopy(lm_lookahead_opts)
@@ -295,23 +341,8 @@ class RasrDecodingExperiment(DecodingExperiment):
       self.lm_lookahead_opts = copy.deepcopy(self._get_default_lm_lookahead_opts())
       self.alias += "/wo-lm-lookahead"
 
-    if self.ilm_correction_opts is not None:
-      self.alias += "/ilm_correction_scale-%f" % self.ilm_correction_opts["scale"]
-      if self.ilm_correction_opts["correct_eos"]:
-        self.alias += "_correct_eos"
-      else:
-        self.alias += "_wo_correct_eos"
-    else:
-      self.alias += "/wo_ilm_correction"
-
-  def get_recog_opts(self):
-    return {
-      "search_corpus_key": self.corpus_key,
-      "ilm_correction_opts": self.ilm_correction_opts,
-    }
-
   def _get_returnn_graph(self) -> Path:
-    recog_config = self.config_builder.get_compile_tf_graph_config(opts=self.get_recog_opts())
+    recog_config = self.config_builder.get_compile_tf_graph_config(opts=self.get_config_recog_opts())
     recog_config.config["network"]["output"]["unit"]["target_embed_masked"]["unit"]["subnetwork"]["target_embed0"]["safe_embedding"] = True
     compile_job = CompileTFGraphJob(
       returnn_config=recog_config,

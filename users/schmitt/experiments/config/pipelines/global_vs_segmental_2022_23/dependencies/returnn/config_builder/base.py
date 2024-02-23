@@ -272,6 +272,14 @@ class ConfigBuilder(ABC):
   def add_align_augment(self, net_dict, networks_dict, python_prolog):
     raise NotImplementedError
 
+  def edit_network_freeze_layers(self, net_dict: Dict, layers_to_exclude: List[str]):
+    if "class" in net_dict:
+      net_dict["trainable"] = False
+
+    for item in net_dict:
+      if type(net_dict[item]) == dict and item not in layers_to_exclude:
+        self.edit_network_freeze_layers(net_dict[item], layers_to_exclude)
+
   def get_lr_settings(self, lr_opts):
     lr_settings = {}
     if lr_opts["type"] == "newbob":

@@ -142,9 +142,21 @@ def run_train(
   if train_opts.get("train_mini_lstm_opts") is not None:  # need to check for None because it can be {}
     alias = alias + "_mini_lstm"
     if train_opts["train_mini_lstm_opts"].get("use_eos", False):
-      alias = alias + "_w_eos"
+      alias = alias + "/w_eos"
     else:
-      alias = alias + "_wo_eos"
+      alias = alias + "/wo_eos"
+
+    if train_opts["train_mini_lstm_opts"].get("mini_att_in_s", False):
+      alias = alias + "/w_mini_att_in_s"
+    else:
+      alias = alias + "/wo_mini_att_in_s"
+
+    if train_opts["train_mini_lstm_opts"].get("use_se_loss", False):
+      alias = alias + "/w_se_loss"
+    else:
+      alias = alias + "/wo_se_loss"
+
+    alias += "_%d_epochs" % n_epochs
 
   train_job = ReturnnTrainingJob(
     train_config,
