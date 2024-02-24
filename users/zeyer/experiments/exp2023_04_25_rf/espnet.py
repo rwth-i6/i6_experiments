@@ -572,14 +572,18 @@ def model_recog(
     # ctc_weight: 0.3
     # lm_weight: 0.6
 
-    beam_size = config.int("beam_size", 12)  # like RETURNN, not 60 for now...
-    ctc_weight = 0.3
-    lm_weight = 0.6  # not used currently...
-    ngram_weight = 0.9  # not used currently...
-    penalty = 0.0
-    normalize_length = False
-    maxlenratio = config.float("maxlenratio", 0.0)
-    minlenratio = 0.0
+    beam_search_opts = (config.typed_value("beam_search_opts", None) or {}).copy()
+    print("beam search opts:", beam_search_opts)
+
+    beam_size = beam_search_opts.pop("beam_size", 12)  # like RETURNN, not 60 for now...
+    ctc_weight = beam_search_opts.pop("ctc_weight", 0.3)
+    # lm_weight = beam_search_opts.pop("lm_weight", 0.6)  # not used currently...
+    # ngram_weight = beam_search_opts.pop("ngram_weight", 0.9)  # not used currently...
+    penalty = beam_search_opts.pop("length_reward", 0.0)
+    normalize_length = beam_search_opts.pop("normalize_length", False)  # note: only at the end
+    maxlenratio = beam_search_opts.pop("maxlenratio", 0.0)
+    minlenratio = beam_search_opts.pop("minlenratio", 0.0)
+    assert not beam_search_opts, f"found unused opts: {beam_search_opts}"
 
     # Partly taking code from espnet2.bin.asr_inference.Speech2Text.
 
@@ -605,8 +609,8 @@ def model_recog(
     weights = dict(
         decoder=1.0 - ctc_weight,
         ctc=ctc_weight,
-        lm=lm_weight,
-        ngram=ngram_weight,
+        # lm=lm_weight,
+        # ngram=ngram_weight,
         length_bonus=penalty,
     )
 
