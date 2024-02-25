@@ -219,7 +219,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             # {"dev-clean": 2.85, "dev-other": 5.54, "test-clean": 3.02, "test-other": 5.62}
             "beam_search_opts": {"beam_size": 12, "ctc_weight": 0},
         },
-        "ctc1-beam12-batch200": {"beam_search_opts": {"beam_size": 12, "ctc_weight": 1}},
+        # "ctc1-beam12-batch200": {"beam_search_opts": {"beam_size": 12, "ctc_weight": 1}},  # TODO why OOM?
+        "ctc1-beam12-batch50": {
+            "beam_search_opts": {"beam_size": 12, "ctc_weight": 1},
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "ctc1-beam12-batch1": {
+            "beam_search_opts": {"beam_size": 12, "ctc_weight": 1},
+            "max_seqs": 1,
+        },
     }.items():
         _recog(
             "v6-11gb-f32-bs8k-mgpu4-pavg100-wd1e_2-lrlin1e_5_558k-EBranchformer-dynGradAccumV2/recog-last-espnet-"
