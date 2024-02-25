@@ -844,7 +844,7 @@ def model_recog_our(
     batch_dim = data.dims[0]
 
     max_seq_len = enc_olens
-    print("** max seq len:", max_seq_len.raw_tensor)
+    print("** max seq len:", max_seq_len)
 
     if data.raw_tensor.device.type == "cuda":
         # Just so that timing of encoder is correct.
@@ -901,7 +901,7 @@ def model_recog_our(
     ) = beam_search_func(
         label_scorer,
         batch_size=batch_dim.get_dim_value(),
-        max_seq_len=max_seq_len.copy_compatible_to_dims_raw([batch_dim]),
+        max_seq_len=max_seq_len,
         device=data.raw_tensor.device,
         opts=beam_search_opts_cls(
             **beam_search_opts,
