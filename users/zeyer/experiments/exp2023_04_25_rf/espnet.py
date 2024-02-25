@@ -649,6 +649,7 @@ def model_recog(
 
     # Partly taking code from espnet2.bin.asr_inference.Speech2Text.
 
+    import time
     import torch
     from espnet.nets.scorers.ctc import CTCPrefixScorer
     from espnet.nets.scorers.length_bonus import LengthBonus
@@ -685,6 +686,8 @@ def model_recog(
         normalize_length=normalize_length,
     )
 
+    start_time = time.perf_counter_ns()
+
     speech = data.raw_tensor  # [B, Nsamples]
     print("Speech shape:", speech.shape, "device:", speech.device)
     lengths = data_spatial_dim.dyn_size  # [B]
@@ -694,6 +697,12 @@ def model_recog(
     # Encoder forward (batched)
     enc, enc_olens = asr_model.encode(**batch)
     print("Encoded shape:", enc.shape, "device:", enc.device)
+
+    if data.raw_tensor.device.type == "cuda":
+        # Just so that timing of encoder is correct.
+        torch.cuda.synchronize(data.raw_tensor.device)
+
+    enc_end_time = time.perf_counter_ns()
 
     batch_dim = data.dims[0]
     batch_size = speech.size(0)
@@ -722,6 +731,27 @@ def model_recog(
             olens[i, j] = hyp.yseq.size(0)
             outputs[i].append(hyp.yseq)
             oscores[i, j] = hyp.score
+
+    search_end_time = time.perf_counter_ns()
+    data_seq_len_sum = rf.reduce_sum(data_spatial_dim.dyn_size_ext, axis=data_spatial_dim.dyn_size_ext.dims)
+    data_seq_len_sum_secs = data_seq_len_sum.raw_tensor / _batch_size_factor / 100.0
+    data_seq_len_max_seqs = data_spatial_dim.get_dim_value() / _batch_size_factor / 100.0
+    out_len_longest_sum = rf.reduce_sum(rf.reduce_max(out_spatial_dim.dyn_size_ext, axis=beam_dim), axis=batch_dim)
+    print(
+        "TIMINGS:",
+        ", ".join(
+            (
+                f"batch size {data.get_batch_dim_tag().get_dim_value()}",
+                f"data len max {data_spatial_dim.get_dim_value()} ({data_seq_len_max_seqs:.2f} secs)",
+                f"data len sum {data_seq_len_sum.raw_tensor} ({data_seq_len_sum_secs:.2f} secs)",
+                f"enc {enc_end_time - start_time} ns",
+                f"enc len max {torch.max(enc_olens)}",
+                f"dec {search_end_time - enc_end_time} ns",
+                f"out len max {out_spatial_dim.get_dim_value()}",
+                f"out len longest sum {out_len_longest_sum.raw_tensor}",
+            )
+        ),
+    )
 
     outputs_t = torch.zeros([batch_size, beam_size, torch.max(olens)], dtype=torch.int32)
     for i in range(batch_size):
