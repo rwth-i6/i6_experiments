@@ -240,6 +240,30 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             # TODO trigger new hash to get timing logs...
             {"search_version": 4, "__batch_size_dependent": True, **recog_config},
         )
+    for name, recog_config in {
+        "ctc03-beam12-batch50": {
+            "beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3},
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "ctc0-beam12-batch50": {
+            "beam_search_opts": {"beam_size": 12, "ctc_weight": 0},
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "ctc1-beam12-batch50": {
+            "beam_search_opts": {"beam_size": 12, "ctc_weight": 1},
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+    }.items():
+        _recog(
+            "v6-11gb-f32-bs8k-mgpu4-pavg100-wd1e_2-lrlin1e_5_558k-EBranchformer-dynGradAccumV2/recog-last-our-"
+            + name,
+            model.get_last_fixed_epoch(),
+            model_recog_our,
+            {"__batch_size_dependent": True, **recog_config},
+        )
 
     train_exp(  # 6.13
         "v6-11gb-f32-bs8k-mgpu2-nep500-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-dynGradAccumV2",
