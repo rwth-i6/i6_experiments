@@ -262,7 +262,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             + name,
             model.get_last_fixed_epoch(),
             model_recog_our,
-            {"__batch_size_dependent": True, **recog_config},
+            {"__batch_size_dependent": True, "beam_search_collect_individual_seq_scores": True, **recog_config},
         )
 
     train_exp(  # 6.13
