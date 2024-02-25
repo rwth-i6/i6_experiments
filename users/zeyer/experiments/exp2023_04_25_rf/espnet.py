@@ -573,6 +573,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPne
     print("Blank:", model.blank_id)
     print("SOS/EOS:", model.sos, model.eos)
     model.returnn_epoch = epoch
+    model.returnn_target_dim = target_dim
     return model
 
 
@@ -892,6 +893,7 @@ def model_recog_our(
     len_reward = beam_search_opts.pop("length_reward", 0.0)
     if len_reward:
         label_scorer.label_scorers["length_reward"] = (LengthRewardScorer(), len_reward)
+    beam_search_opts.setdefault("length_normalization_exponent", config.float("length_normalization_exponent", 0.0))
 
     # Beam search happening here:
     (
@@ -905,9 +907,9 @@ def model_recog_our(
         device=data.raw_tensor.device,
         opts=beam_search_opts_cls(
             **beam_search_opts,
-            bos_label=model.bos_idx,
-            eos_label=model.eos_idx,
-            num_labels=model.target_dim.dimension,
+            bos_label=model.sos,
+            eos_label=model.eos,
+            num_labels=model.vocab_size,
         ),
         **extra,
     )
@@ -915,7 +917,7 @@ def model_recog_our(
     beam_dim = Dim(seq_log_prob.shape[1], name="beam")
     out_spatial_dim = Dim(rf.convert_to_tensor(out_seq_len, dims=[batch_dim, beam_dim], name="out_spatial"))
     seq_targets_t = rf.convert_to_tensor(
-        seq_targets, dims=[batch_dim, beam_dim, out_spatial_dim], sparse_dim=model.target_dim
+        seq_targets, dims=[batch_dim, beam_dim, out_spatial_dim], sparse_dim=model.returnn_target_dim
     )
     seq_log_prob_t = rf.convert_to_tensor(seq_log_prob, dims=[batch_dim, beam_dim])
 
@@ -956,6 +958,9 @@ def get_our_label_scorer_intf(espnet_scorer: BatchScorerInterface, *, enc: torch
     :param enc: [Batch,EncTime,Dim]
     :param enc_olens: [Batch] -> [0..EncTime]
     """
+    import torch
+    import tree
+
     from espnet.nets.scorer_interface import BatchScorerInterface
     from espnet.nets.scorer_interface import BatchPartialScorerInterface, PartialScorerInterface
     from espnet.nets.scorers.ctc import CTCPrefixScorer
@@ -973,7 +978,6 @@ def get_our_label_scorer_intf(espnet_scorer: BatchScorerInterface, *, enc: torch
         StateObjIgnored,
     )
     from i6_experiments.users.zeyer.decoding.beam_search_torch.utils import batch_gather
-    import tree
 
     class EspnetLabelScorer(LabelScorerIntf):
         """ESPnet label scorer"""
@@ -1045,6 +1049,8 @@ def get_our_label_scorer_intf(espnet_scorer: BatchScorerInterface, *, enc: torch
 
             # Convert all [batch,beam,...] tensors to [batch*beam,...].
             def _map(x):
+                if x is None:
+                    return None
                 assert isinstance(x, torch.Tensor) and x.shape[:2] == (batch_size, beam_size)
                 return x.flatten(0, 1)
 
