@@ -594,25 +594,20 @@ def model_recog(
     from espnet.nets.batch_beam_search import BatchBeamSearch
     from espnet.nets.beam_search import Hypothesis
 
-    scorers = {}
     asr_model = model
-    decoder = asr_model.decoder
 
     ctc = CTCPrefixScorer(ctc=asr_model.ctc, eos=asr_model.eos)
     token_list = asr_model.token_list
-    scorers.update(
-        decoder=decoder,
-        ctc=ctc,
-        length_bonus=LengthBonus(len(token_list)),
-    )
-
-    weights = dict(
-        decoder=1.0 - ctc_weight,
-        ctc=ctc_weight,
-        # lm=lm_weight,
-        # ngram=ngram_weight,
-        length_bonus=penalty,
-    )
+    scorers, weights = {}, {}
+    if ctc_weight != 1:
+        scorers["decoder"] = model.decoder
+        weights["decoder"] = 1.0 - ctc_weight
+    if ctc_weight != 0:
+        scorers["ctc"] = ctc
+        weights["ctc"] = ctc_weight
+    if penalty != 0:
+        scorers["length_bonus"] = LengthBonus(len(token_list))
+        weights["length_bonus"] = penalty
 
     assert all(isinstance(v, BatchScorerInterface) for k, v in scorers.items()), f"non-batch scorers: {scorers}"
 
