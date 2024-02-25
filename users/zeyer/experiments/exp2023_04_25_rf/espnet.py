@@ -235,7 +235,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             + name,
             model.get_last_fixed_epoch(),
             model_recog,
-            {"search_version": 4, **recog_config},
+            {"search_version": 4, "__batch_size_dependent": True, **recog_config},
         )
 
     train_exp(  # 6.13
