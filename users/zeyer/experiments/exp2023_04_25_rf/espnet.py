@@ -20,9 +20,11 @@ from .configs import *
 from .configs import _get_cfg_lrlin_oclr_by_bs_nep
 
 if TYPE_CHECKING:
-    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
+    import torch
+    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
     from i6_experiments.users.zeyer.datasets.task import Task
     from espnet2.asr.espnet_model import ESPnetASRModel
+    from espnet.nets.scorer_interface import BatchScorerInterface
 
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
@@ -176,7 +178,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
-    train_exp(  # 5.11
+    model = train_exp(  # 5.11
         "v6-11gb-f32-bs8k-mgpu4-pavg100-wd1e_2-lrlin1e_5_558k-EBranchformer-dynGradAccumV2",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
         {
@@ -192,6 +194,31 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "accum_grad_piecewise_values": [1, 100, 1, 1, 10],
         },
     )
+    for name, recog_config in {
+        "ctc03-beam12-batch200": {"beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3}},
+        "ctc03-beam12-batch50": {
+            "beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3},
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "ctc03-beam12-batch1": {
+            "beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3},
+            "max_seqs": 1,
+        },
+        "ctc03-beam60-batch1": {
+            "beam_search_opts": {"beam_size": 60, "ctc_weight": 0.3},
+            "max_seqs": 1,
+        },
+        "ctc0-beam12-batch200": {"beam_search_opts": {"beam_size": 12, "ctc_weight": 0}},
+        "ctc1-beam12-batch200": {"beam_search_opts": {"beam_size": 12, "ctc_weight": 1}},
+    }.items():
+        _recog(
+            "v6-11gb-f32-bs8k-mgpu4-pavg100-wd1e_2-lrlin1e_5_558k-EBranchformer-dynGradAccumV2/recog_last_espnet_"
+            + name,
+            model.get_last_fixed_epoch(),
+            model_recog,
+            recog_config,
+        )
 
     train_exp(  # 6.13
         "v6-11gb-f32-bs8k-mgpu2-nep500-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-dynGradAccumV2",
@@ -270,6 +297,21 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
         prefix_name = get_prefix_for_config(__file__)
     global _sis_prefix
     _sis_prefix = prefix_name
+
+
+def _recog(
+    name: str,
+    model_with_checkpoint: ModelWithCheckpoint,
+    recog_def: RecogDef,
+    recog_config: Optional[Dict[str, Any]] = None,
+):
+    from sisyphus import tk
+    from i6_experiments.users.zeyer.recog import recog_model
+
+    task = _get_ls_task()
+
+    res = recog_model(task, model_with_checkpoint, recog_def=recog_def, config=recog_config)
+    tk.register_output(_sis_prefix + "/" + name, res.output)
 
 
 # noinspection PyShadowingNames
