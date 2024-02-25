@@ -773,3 +773,341 @@ model_recog: RecogDef[ESPnetASRModel]
 model_recog.output_with_beam = True
 model_recog.output_blank_label = "<s>"
 model_recog.batch_size_dependent = False
+
+
+def model_recog_our(
+    *,
+    model: ESPnetASRModel,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dict[str, Tensor], Dim, Dim]:
+    """
+    Function is run within RETURNN.
+
+    Earlier we used the generic beam_search function,
+    but now we just directly perform the search here,
+    as this is overall simpler and shorter.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        recog results info: key -> {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    import torch
+    import time
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v5 import BeamSearchOptsV5, beam_search_v5
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.length_reward import LengthRewardScorer
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.shallow_fusion import ShallowFusedLabelScorers
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+
+    start_time = time.perf_counter_ns()
+
+    speech = data.raw_tensor  # [B, Nsamples]
+    print("Speech shape:", speech.shape, "device:", speech.device)
+    lengths = data_spatial_dim.dyn_size  # [B]
+    batch = {"speech": speech, "speech_lengths": lengths}
+    logging.info("speech length: " + str(speech.size(1)))
+
+    # Encoder forward (batched)
+    enc, enc_olens = model.encode(**batch)
+    print("Encoded shape:", enc.shape, "device:", enc.device)
+
+    batch_dim = data.dims[0]
+
+    max_seq_len = enc_olens
+    print("** max seq len:", max_seq_len.raw_tensor)
+
+    if data.raw_tensor.device.type == "cuda":
+        # Just so that timing of encoder is correct.
+        torch.cuda.synchronize(data.raw_tensor.device)
+
+    enc_end_time = time.perf_counter_ns()
+
+    from espnet.nets.scorers.ctc import CTCPrefixScorer
+
+    # Note: ESPnet distinguishes between full scorers and partial scorers.
+    #             if isinstance(v, PartialScorerInterface):
+    #                 self.part_scorers[k] = v
+    #             else:
+    #                 self.full_scorers[k] = v
+    # Full scorer: Given hyp (incl states, scores, etc),
+    #   score all vocab labels, and calc new state.
+    # Partial scorer: Given hyp and some set of labels ("part_ids"),
+    #   score all vocab labels (or only the given part_ids labels, and score for others is 0), and calc new state.
+
+    beam_search_version = config.int("beam_search_version", 5)
+    beam_search_func = {5: beam_search_v5}[beam_search_version]
+    beam_search_opts_cls = BeamSearchOptsV5
+    beam_search_opts = (config.typed_value("beam_search_opts", None) or {}).copy()
+    extra = {}
+    out_individual_seq_scores = None
+    if config.bool("beam_search_collect_individual_seq_scores", False):
+        out_individual_seq_scores = {}
+        extra["out_individual_seq_scores"] = out_individual_seq_scores
+    label_scorer = ShallowFusedLabelScorers()
+    ctc_weight = beam_search_opts.pop("ctc_weight", 0.3)
+    if ctc_weight != 1:
+        label_scorer.label_scorers["decoder"] = (
+            get_our_label_scorer_intf(model.decoder, enc=enc, enc_olens=enc_olens),
+            1.0 - ctc_weight,
+        )
+    if ctc_weight:
+        label_scorer.label_scorers["ctc"] = (
+            get_our_label_scorer_intf(
+                CTCPrefixScorer(ctc=model.ctc, eos=model.eos),
+                enc=enc,
+                enc_olens=enc_olens,
+            ),
+            ctc_weight,
+        )
+    len_reward = beam_search_opts.pop("length_reward", 0.0)
+    if len_reward:
+        label_scorer.label_scorers["length_reward"] = (LengthRewardScorer(), len_reward)
+
+    # Beam search happening here:
+    (
+        seq_targets,  # [Batch,FinalBeam,OutSeqLen]
+        seq_log_prob,  # [Batch,FinalBeam]
+        out_seq_len,  # [Batch,FinalBeam]
+    ) = beam_search_func(
+        label_scorer,
+        batch_size=batch_dim.get_dim_value(),
+        max_seq_len=max_seq_len.copy_compatible_to_dims_raw([batch_dim]),
+        device=data.raw_tensor.device,
+        opts=beam_search_opts_cls(
+            **beam_search_opts,
+            bos_label=model.bos_idx,
+            eos_label=model.eos_idx,
+            num_labels=model.target_dim.dimension,
+        ),
+        **extra,
+    )
+
+    beam_dim = Dim(seq_log_prob.shape[1], name="beam")
+    out_spatial_dim = Dim(rf.convert_to_tensor(out_seq_len, dims=[batch_dim, beam_dim], name="out_spatial"))
+    seq_targets_t = rf.convert_to_tensor(
+        seq_targets, dims=[batch_dim, beam_dim, out_spatial_dim], sparse_dim=model.target_dim
+    )
+    seq_log_prob_t = rf.convert_to_tensor(seq_log_prob, dims=[batch_dim, beam_dim])
+
+    search_end_time = time.perf_counter_ns()
+    data_seq_len_sum = rf.reduce_sum(data_spatial_dim.dyn_size_ext, axis=data_spatial_dim.dyn_size_ext.dims)
+    data_seq_len_sum_secs = data_seq_len_sum.raw_tensor / _batch_size_factor / 100.0
+    data_seq_len_max_seqs = data_spatial_dim.get_dim_value() / _batch_size_factor / 100.0
+    out_len_longest_sum = rf.reduce_sum(rf.reduce_max(out_spatial_dim.dyn_size_ext, axis=beam_dim), axis=batch_dim)
+    print(
+        "TIMINGS:",
+        ", ".join(
+            (
+                f"batch size {data.get_batch_dim_tag().get_dim_value()}",
+                f"data len max {data_spatial_dim.get_dim_value()} ({data_seq_len_max_seqs:.2f} secs)",
+                f"data len sum {data_seq_len_sum.raw_tensor} ({data_seq_len_sum_secs:.2f} secs)",
+                f"enc {enc_end_time - start_time} ns",
+                f"enc len max {torch.max(enc_olens)}",
+                f"dec {search_end_time - enc_end_time} ns",
+                f"out len max {out_spatial_dim.get_dim_value()}",
+                f"out len longest sum {out_len_longest_sum.raw_tensor}",
+            )
+        ),
+    )
+
+    extra_recog_results = {}
+    if out_individual_seq_scores:
+        for k, v in out_individual_seq_scores.items():
+            extra_recog_results[f"score:{k}"] = rf.convert_to_tensor(
+                v.expand(batch_dim.get_dim_value(), beam_dim.get_dim_value()), dims=[batch_dim, beam_dim]
+            )
+
+    return seq_targets_t, seq_log_prob_t, extra_recog_results, out_spatial_dim, beam_dim
+
+
+def get_our_label_scorer_intf(espnet_scorer: BatchScorerInterface, *, enc: torch.Tensor, enc_olens: torch.Tensor):
+    """
+    :param espnet_scorer:
+    :param enc: [Batch,EncTime,Dim]
+    :param enc_olens: [Batch] -> [0..EncTime]
+    """
+    from espnet.nets.scorer_interface import BatchScorerInterface
+    from espnet.nets.scorer_interface import BatchPartialScorerInterface, PartialScorerInterface
+    from espnet.nets.scorers.ctc import CTCPrefixScorer
+    from espnet2.asr.decoder.transformer_decoder import BaseTransformerDecoder
+    from espnet.nets.pytorch_backend.transformer.mask import subsequent_mask
+
+    # Just not implemented otherwise, but also should be the case for all cases we expect here.
+    assert isinstance(espnet_scorer, BatchScorerInterface)
+    if isinstance(espnet_scorer, PartialScorerInterface):
+        assert isinstance(espnet_scorer, BatchPartialScorerInterface)
+
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.interface import (
+        LabelScorerIntf,
+        StateObjTensorExt,
+        StateObjIgnored,
+    )
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.utils import batch_gather
+    import tree
+
+    class EspnetLabelScorer(LabelScorerIntf):
+        """ESPnet label scorer"""
+
+        def get_initial_state(self, *, batch_size: int, device: torch.device) -> Any:
+            """
+            :param batch_size:
+            :param device:
+            :return: state. all tensors are expected to have shape [Batch, Beam=1, ...].
+            """
+            # ESPnet espnet.nets.batch_beam_search.BatchBeamSearch.init_hyp (slightly simplified):
+            #         return self.batchfy(
+            #             [
+            #                 Hypothesis(
+            #                     score=0.0,
+            #                     scores={k: 0.0 for k in self.scorers},
+            #                     states={k: d.batch_init_state(x) for k, d in self.scorers.items()},
+            #                     hs=[],
+            #                     yseq=torch.tensor([self.sos], device=x.device),
+            #                 )
+            #             ]
+            #         )
+
+            if isinstance(espnet_scorer, CTCPrefixScorer):
+                # espnet.nets.scorers.ctc.CTCPrefixScorer.batch_init_state incorrectly assumes batch_size=1,
+                # and is wrong otherwise.
+                # It's anyway ugly - we don't store any state here... but we assign the internal attributes.
+                from espnet.nets.ctc_prefix_score import CTCPrefixScoreTH
+
+                logp = espnet_scorer.ctc.log_softmax(enc)
+                espnet_scorer.impl = CTCPrefixScoreTH(logp, enc_olens, 0, espnet_scorer.eos)
+                return None
+
+            # Note: batch_init_state in most cases is just init_state,
+            # and init_state in many cases just returns None.
+            # E.g. TransformerDecoder and many others handle the case of initial state in batch_score,
+            # where state=None is for the initial state.
+            state = espnet_scorer.batch_init_state(enc)
+
+            # Note: Need to add beam_dim=1 (not really a problem).
+            # Then also need to make sure that the batch_size is correct
+            # (unclear, probably not possible in general).
+            assert state is None, f"not implemented: {state!r}"
+            return None
+
+        def score_and_update_state(
+            self,
+            *,
+            prev_state: Any,
+            prev_label: torch.Tensor,
+        ) -> Tuple[torch.Tensor, Any]:
+            """
+            :param prev_state: state of the scorer (decoder). any nested structure.
+                all tensors are expected to have shape [Batch, Beam, ...].
+            :param prev_label: shape [Batch, Beam] -> index in [0...Label-1]
+            :return: (scores, state).
+                scores: shape [Batch, Beam, Label], log-prob-like scores.
+                    Broadcasting is allowed for any of the dims (e.g. think of :class:`LengthRewardScorer`).
+                state: all tensors are expected to have shape [Batch, Beam, ...].
+            """
+            batch_size, beam_size = prev_label.shape
+
+            if prev_state is not None:
+                ys, prev_state = prev_state
+                ys = torch.concat([ys, prev_label[:, :, None]], dim=2)  # [batch,beam,out_len]
+            else:
+                ys = prev_label[:, :, None]  # [batch,beam,out_len]
+            ys_ = ys.flatten(0, 1)  # [batch*beam,out_len]
+
+            # Convert all [batch,beam,...] tensors to [batch*beam,...].
+            def _map(x):
+                assert isinstance(x, torch.Tensor) and x.shape[:2] == (batch_size, beam_size)
+                return x.flatten(0, 1)
+
+            prev_state = tree.map_structure(_map, prev_state)
+
+            if isinstance(espnet_scorer, CTCPrefixScorer):
+                enc_ = None  # not needed
+            else:
+                enc_ = enc.unsqueeze(1).expand(batch_size, beam_size, *enc.shape[1:])
+
+            if isinstance(espnet_scorer, CTCPrefixScorer):
+                # Unfortunately the CTCPrefixScorer breaks our assumption that the batch dim is the first dim.
+                # Thus, we must permute the corresponding entries in the state.
+                # Also, the initial state is None, so we need to cover this case as well.
+                if prev_state is not None:
+                    # 4-tuple. first has batch in dim=2, second has batch in dim=0, third and forth don't have batch?
+                    # n_bh = self.batch * n_hyps. snum = odim.
+                    # first: r: (self.input_length, 2, n_bh, snum) in func,
+                    #   then with select_state resulting in: (in_len, 2, batch * new_n_hyps)
+                    #   or: r_prev: (self.input_length, 2, self.batch * n_hyps)
+                    # second: log_psi: (n_bh, self.odim) in func,
+                    #   then with select_state resulting in: (batch * new_n_hyps, self.odim) ?
+                    # third/forth: f_min, f_max: scalars, no batch, only used anyway with att_w, can just set 0 and 1.
+                    # we even get a fifth as output: scoring_idmap: but not used.
+                    # So, only care about first, second.
+                    # Apply the select_state logic here, i.e. espnet.nets.scorers.ctc.CTCPrefixScorer.select_state.
+                    r, log_psi = prev_state
+                    r: torch.Tensor  # [batch*beam,in_len,2,snum]
+                    r = batch_gather(r, indices=prev_label.flatten(), index_dim=3)  # [batch*beam,in_len,2]
+                    r = r.permute(1, 2, 0)  # [in_len,2,batch*beam]
+                    log_psi: torch.Tensor  # [batch*beam,odim]
+                    log_psi = batch_gather(log_psi, indices=prev_label.flatten())  # [batch*beam]
+                    log_psi = log_psi[:, None]  # [batch*beam,1]. must broadcast to [batch*beam,odim]
+                    prev_state = (r, log_psi, 0, 1)
+
+                # Inline espnet.nets.scorers.ctc.CTCPrefixScorer.batch_score_partial,
+                # as we already have it batched.
+                scores, states = espnet_scorer.impl(ys_, prev_state)
+                # scores: (n_bh, vocab)
+                r, log_psi = states[:2]
+                r: torch.Tensor  # [in_len,2,batch*beam,snum]
+                r = r.permute(2, 0, 1, 3)  # [batch*beam,in_len,2,snum]
+                states = (r, log_psi)
+
+            elif isinstance(espnet_scorer, BaseTransformerDecoder):
+                # Inlined and adapted espnet2.asr.decoder.transformer_decoder.BaseTransformerDecoder.batch_score.
+                # We avoid the state transformation here, as we anyway have it already in the right way.
+                ys_mask = subsequent_mask(ys_.size(-1), device=enc.device).unsqueeze(0)
+                scores, states = espnet_scorer.forward_one_step(ys_, ys_mask, enc_, cache=prev_state)
+
+            else:
+                # Note: No select_state needed. This is already done by the outer logic.
+                # prev_state_ls must be list over batch entries, thus convert out prev_state.
+                prev_state_ls = []
+                for batch_idx in range(batch_size):
+                    for beam_idx in range(beam_size):
+                        def _map(x):
+                            assert isinstance(x, torch.Tensor) and x.shape[:2] == (batch_size, beam_size)
+                            return x[batch_idx, beam_idx]
+
+                        prev_state_ls.append(tree.map_structure(_map, prev_state))
+
+                if isinstance(espnet_scorer, BatchPartialScorerInterface):
+                    scores, states_ls = espnet_scorer.batch_score_partial(ys_, None, prev_state_ls, enc_)
+                else:
+                    scores, states_ls = espnet_scorer.batch_score(ys_, prev_state_ls, enc_)
+
+                # We get back a list over batch entries, stack all tensors to single state object.
+                def _map(*xs):
+                    assert all(isinstance(x, torch.Tensor) for x in xs)
+                    return torch.stack(xs)
+
+                states = tree.map_structure(_map, *states_ls)
+
+            # Convert all [batch*beam,...] tensors to [batch,beam,...].
+            def _map(x):
+                assert isinstance(x, torch.Tensor) and x.shape[:1] == (batch_size*beam_size,)
+                return x.unflatten(0, (batch_size, beam_size))
+
+            scores = _map(scores)
+            states = tree.map_structure(_map, states)
+            return scores, (ys, states)
+
+    return EspnetLabelScorer()
+
+
+# RecogDef API
+model_recog_our: RecogDef[ESPnetASRModel]
+model_recog_our.output_with_beam = True
+model_recog_our.output_blank_label = "<s>"
+model_recog_our.batch_size_dependent = False
