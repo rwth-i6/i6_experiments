@@ -221,11 +221,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
         # "ctc1-beam12-batch200": {"beam_search_opts": {"beam_size": 12, "ctc_weight": 1}},  # TODO why OOM?
         "ctc1-beam12-batch50": {
+            # {"dev-clean": 2.83, "dev-other": 6.61, "test-clean": 3.02, "test-other": 6.61}
             "beam_search_opts": {"beam_size": 12, "ctc_weight": 1},
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
         },
         "ctc1-beam12-batch1": {
+            # {"dev-clean": 2.84, "dev-other": 6.61, "test-clean": 3.03, "test-other": 6.6}
             "beam_search_opts": {"beam_size": 12, "ctc_weight": 1},
             "max_seqs": 1,
         },
