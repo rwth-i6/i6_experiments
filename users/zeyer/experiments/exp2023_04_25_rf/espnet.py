@@ -200,13 +200,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3},
         },
         "ctc03-beam12-batch50": {
-            # {"dev-clean": 2.24, "dev-other": 5.12, "test-clean": 2.35, "test-other": 5.23}
+            # {"dev-clean": 2.24, "dev-other": 5.13, "test-clean": 2.35, "test-other": 5.22}
             "beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3},
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
         },
         "ctc03-beam12-batch1": {
-            # {"dev-clean": 2.24, "dev-other": 5.12, "test-clean": 2.35, "test-other": 5.23}
+            # {"dev-clean": 2.24, "dev-other": 5.14, "test-clean": 2.35, "test-other": 5.21}
             "beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3},
             "max_seqs": 1,
         },
