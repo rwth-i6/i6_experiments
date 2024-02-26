@@ -1062,7 +1062,7 @@ def get_our_label_scorer_intf(espnet_scorer: BatchScorerInterface, *, enc: torch
             if isinstance(espnet_scorer, CTCPrefixScorer):
                 enc_ = None  # not needed
             else:
-                enc_ = enc.unsqueeze(1).expand(batch_size, beam_size, *enc.shape[1:])
+                enc_ = enc.unsqueeze(1).expand(batch_size, beam_size, *enc.shape[1:]).flatten(0, 1)
 
             if isinstance(espnet_scorer, CTCPrefixScorer):
                 # Unfortunately the CTCPrefixScorer breaks our assumption that the batch dim is the first dim.
