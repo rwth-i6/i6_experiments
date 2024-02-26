@@ -123,6 +123,7 @@ class WaveformPerturbation:
 
     @staticmethod
     def apply_codecs(audio, sample_rate, random_state, codecs):
+        import numpy as np
         for codec in codecs:
             prob = codec.pop("prob", 1.0)
             if random_state.random() < prob:
