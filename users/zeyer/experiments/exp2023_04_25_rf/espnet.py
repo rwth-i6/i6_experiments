@@ -254,10 +254,10 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
         },
-        "ctc1-beam12-batch50": {
+        "ctc1-beam12-batch20": {
             "beam_search_opts": {"beam_size": 12, "ctc_weight": 1},
-            "max_seqs": 50,
-            "batch_size": 5000 * _batch_size_factor,
+            "max_seqs": 20,
+            "batch_size": 2000 * _batch_size_factor,
         },
     }.items():
         _recog(
