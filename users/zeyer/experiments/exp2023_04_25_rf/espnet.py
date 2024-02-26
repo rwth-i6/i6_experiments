@@ -209,6 +209,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             # {"dev-clean": 2.24, "dev-other": 5.14, "test-clean": 2.35, "test-other": 5.21}
             "beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3},
             "max_seqs": 1,
+            "_trigger_hash_change": 1,
         },
         "ctc03-beam60-batch1": {
             # {"dev-clean": 2.22, "dev-other": 5.13, "test-clean": 2.34, "test-other": 5.16}
@@ -224,6 +225,10 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_opts": {"beam_size": 12, "ctc_weight": 0},
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
+        },
+        "ctc0-beam12-batch1": {
+            "beam_search_opts": {"beam_size": 12, "ctc_weight": 0},
+            "max_seqs": 1,
         },
         # "ctc1-beam12-batch200": {"beam_search_opts": {"beam_size": 12, "ctc_weight": 1}},  # TODO why OOM?
         "ctc1-beam12-batch50": {
@@ -255,12 +260,20 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "batch_size": 2000 * _batch_size_factor,
             "_trigger_hash_change": 1,
         },
+        "ctc03-beam12-batch1": {
+            "beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3},
+            "max_seqs": 1,
+        },
         "ctc0-beam12-batch50": {
             # {"dev-clean": 2.75, "dev-other": 5.36, "test-clean": 3.25, "test-other": 5.52}
             "beam_search_opts": {"beam_size": 12, "ctc_weight": 0},
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
             "_trigger_hash_change": 1,
+        },
+        "ctc0-beam12-batch1": {
+            "beam_search_opts": {"beam_size": 12, "ctc_weight": 0},
+            "max_seqs": 1,
         },
         "ctc1-beam12-batch20": {
             # {"dev-clean": 2.83, "dev-other": 6.62, "test-clean": 3.03, "test-other": 6.6}
