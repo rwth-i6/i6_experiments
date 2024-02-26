@@ -1143,6 +1143,7 @@ def get_our_label_scorer_intf(espnet_scorer: BatchScorerInterface, *, enc: torch
 
                         prev_state_ls.append(tree.map_structure(_map, prev_state))
 
+                # WARNING: This is without a mask for enc.
                 if isinstance(espnet_scorer, BatchPartialScorerInterface):
                     scores, states_ls = espnet_scorer.batch_score_partial(ys_, None, prev_state_ls, enc_)
                 else:
