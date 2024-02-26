@@ -1104,6 +1104,7 @@ def get_our_label_scorer_intf(espnet_scorer: BatchScorerInterface, *, enc: torch
                 # Inlined and adapted espnet2.asr.decoder.transformer_decoder.BaseTransformerDecoder.batch_score.
                 # We avoid the state transformation here, as we anyway have it already in the right way.
                 ys_mask = subsequent_mask(ys_.size(-1), device=enc.device).unsqueeze(0)
+                # TODO should extend this, and also pass enc mask
                 scores, states = espnet_scorer.forward_one_step(ys_, ys_mask, enc_, cache=prev_state)
 
             else:
