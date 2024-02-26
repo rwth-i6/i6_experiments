@@ -311,6 +311,9 @@ class ComputeTSEJob(Job):
         return word_starts, word_ends
 
     def run(self) -> None:
+        discarded_seqs = 0
+        counted_seqs = 0
+
         start_differences = Counter()
         end_differences = Counter()
         differences = Counter()
@@ -344,6 +347,11 @@ class ComputeTSEJob(Job):
             ref_word_starts, ref_word_ends = self._compute_word_boundaries(
                 ref_alignments, ref_allophone_map, ref_seq_tag, self.ref_silence_phone, self.ref_upsample_factor
             )
+
+            if len(word_starts) != len(ref_word_starts):
+                print(
+                    f"Sequence {seq_tag} ({idx} / {len(file_list)}:\n    Discarded because the number of words in alignment ({len(word_starts)}) does not equal the number of words in reference ({len(ref_word_starts)})."
+                )
 
             seq_word_start_diffs = [start - ref_start for start, ref_start in zip(word_starts, ref_word_starts)]
             seq_word_start_diffs = [diff for diff in seq_word_start_diffs if abs(diff) <= self.remove_outlier_limit]

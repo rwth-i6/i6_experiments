@@ -142,7 +142,7 @@ def generate_returnn_config(
         initial_lr=1e-03 / 30,
         peak_lr=1e-03,
         final_lr=1e-06,
-        n_steps_per_epoch=2450,
+        n_steps_per_epoch=3000,
         batch_size=12500,
         extra_config=extra_config,
     )
