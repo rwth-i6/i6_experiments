@@ -131,6 +131,10 @@ class BlissCorpusToTargetHdfJob(Job):
         out_hdf_writer.close()
 
 
+def _identity(x):
+    return x
+
+
 class MatchLengthsJob(Job):
     def __init__(
         self,
@@ -141,7 +145,7 @@ class MatchLengthsJob(Job):
         self.data_hdf = data_hdf
         self.match_hdfs = match_hdfs
         if match_len_transform_func is None:
-            self.match_len_transform_func = lambda i: i
+            self.match_len_transform_func = _identity
         else:
             self.match_len_transform_func = match_len_transform_func
 

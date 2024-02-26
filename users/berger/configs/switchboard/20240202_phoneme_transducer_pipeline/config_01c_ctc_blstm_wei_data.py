@@ -26,6 +26,7 @@ from i6_experiments.users.berger.args.jobs.recognition_args import (
     get_seq2seq_search_parameters,
 )
 from sisyphus import gs, tk
+from i6_experiments.users.berger.recipe.mm.alignment import ComputeTSEJob
 
 # ********** Settings **********
 
@@ -180,6 +181,7 @@ def run_exp() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
     )
     align_args["epoch"] = 284
     align_args["feature_type"] = FeatureType.GAMMATONE_8K
+    align_args["flow_args"] = {"dc_detection": True}
     align_args["silence_phone"] = "[SILENCE]"
 
     recog_am_args = copy.deepcopy(exp_args.ctc_recog_am_args)
@@ -264,6 +266,22 @@ def py() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
     summary_report, alignments = run_exp()
+    for am_scale, align in alignments.items():
+        train_alignment = align["train_align"]
+        compute_tse_job = ComputeTSEJob(
+            alignment_cache=train_alignment.alignment_cache_bundle,
+            allophone_file=train_alignment.allophone_file,
+            silence_phone=train_alignment.silence_phone,
+            upsample_factor=4,
+            ref_alignment_cache=tk.Path("/work/asr4/berger/20220711_alignment_plotting/bundles/ref_gmm.bundle"),
+            ref_allophone_file=tk.Path(
+                "/work/asr4/raissi/ms-thesis-setups/lm-sa-swb/2022-03--fullsum/work/allophones/StoreAllophones.wNiR4cF7cdOE/output/allophones"
+            ),
+            ref_silence_phone="[SILENCE]",
+            ref_upsample_factor=1,
+            remove_outlier_limit=50,
+        )
+        tk.register_output(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/tse_train_am-{am_scale}", compute_tse_job.out_tse_frames)
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 

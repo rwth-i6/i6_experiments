@@ -145,7 +145,7 @@ def generate_returnn_config(
         initial_lr=1e-03 / 30,
         peak_lr=1e-03,
         final_lr=1e-06,
-        n_steps_per_epoch=2850,
+        n_steps_per_epoch=3210,
         batch_size=12500,
         extra_config=extra_config,
     )
@@ -167,6 +167,7 @@ def run_exp(alignments: Dict[str, AlignmentData], name_suffix: str = "") -> Tupl
         use_wei_data=True,
         test_keys=["hub5e01"],
         feature_type=FeatureType.GAMMATONE_8K,
+        dc_detection=True,
     )
 
     # ********** Step args **********
