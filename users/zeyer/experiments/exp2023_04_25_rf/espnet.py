@@ -978,6 +978,7 @@ def get_our_label_scorer_intf(espnet_scorer: BatchScorerInterface, *, enc: torch
     from espnet.nets.scorers.ctc import CTCPrefixScorer
     from espnet2.asr.decoder.transformer_decoder import BaseTransformerDecoder
     from espnet.nets.pytorch_backend.transformer.mask import subsequent_mask
+    from espnet.nets.pytorch_backend.nets_utils import make_pad_mask
 
     # Just not implemented otherwise, but also should be the case for all cases we expect here.
     assert isinstance(espnet_scorer, BatchScorerInterface)
@@ -1111,8 +1112,11 @@ def get_our_label_scorer_intf(espnet_scorer: BatchScorerInterface, *, enc: torch
                 # Inlined and adapted espnet2.asr.decoder.transformer_decoder.BaseTransformerDecoder.batch_score.
                 # We avoid the state transformation here, as we anyway have it already in the right way.
                 ys_mask = subsequent_mask(ys_.size(-1), device=enc.device).unsqueeze(0)
-                # TODO should extend this, and also pass enc mask
-                scores, states = espnet_scorer.forward_one_step(ys_, ys_mask, enc_, cache=prev_state)
+                enc_olens_ = enc_olens.unsqueeze(1).expand(batch_size, beam_size).flatten(0, 1)  # [batch*beam]
+                enc_mask = (~make_pad_mask(enc_olens_, maxlen=enc_.size(1)))[:, None, :].to(
+                    enc_.device
+                )  # [batch*beam,1,time]
+                scores, states = espnet_scorer.forward_one_step(ys_, ys_mask, enc_, enc_mask, cache=prev_state)
 
             else:
                 # Note: No select_state needed. This is already done by the outer logic.
