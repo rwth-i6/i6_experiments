@@ -227,6 +227,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "batch_size": 5000 * _batch_size_factor,
         },
         "ctc0-beam12-batch1": {
+            # {"dev-clean": 2.74, "dev-other": 5.51, "test-clean": 3.25, "test-other": 5.6}
             "beam_search_opts": {"beam_size": 12, "ctc_weight": 0},
             "max_seqs": 1,
         },
@@ -261,6 +262,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "_trigger_hash_change": 1,
         },
         "ctc03-beam12-batch1": {
+            # {"dev-clean": 2.17, "dev-other": 5.12, "test-clean": 2.31, "test-other": 5.12}
             "beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3},
             "max_seqs": 1,
         },
@@ -272,6 +274,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "_trigger_hash_change": 1,
         },
         "ctc0-beam12-batch1": {
+            # {"dev-clean": 2.74, "dev-other": 5.35, "test-clean": 3.25, "test-other": 5.51}
             "beam_search_opts": {"beam_size": 12, "ctc_weight": 0},
             "max_seqs": 1,
         },
