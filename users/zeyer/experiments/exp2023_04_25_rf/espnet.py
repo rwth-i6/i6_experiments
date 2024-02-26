@@ -283,8 +283,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     }.items():
         _recog(
-            "v6-11gb-f32-bs8k-mgpu4-pavg100-wd1e_2-lrlin1e_5_558k-EBranchformer-dynGradAccumV2/recog-last-our-"
-            + name,
+            "v6-11gb-f32-bs8k-mgpu4-pavg100-wd1e_2-lrlin1e_5_558k-EBranchformer-dynGradAccumV2/recog-last-our-" + name,
             model.get_last_fixed_epoch(),
             model_recog_our,
             {"__batch_size_dependent": True, "beam_search_collect_individual_seq_scores": True, **recog_config},
@@ -1137,6 +1136,7 @@ def get_our_label_scorer_intf(espnet_scorer: BatchScorerInterface, *, enc: torch
                 prev_state_ls = []
                 for batch_idx in range(batch_size):
                     for beam_idx in range(beam_size):
+
                         def _map(x):
                             assert isinstance(x, torch.Tensor) and x.shape[:2] == (batch_size, beam_size)
                             return x[batch_idx, beam_idx]
@@ -1158,7 +1158,7 @@ def get_our_label_scorer_intf(espnet_scorer: BatchScorerInterface, *, enc: torch
 
             # Convert all [batch*beam,...] tensors to [batch,beam,...].
             def _map(x):
-                assert isinstance(x, torch.Tensor) and x.shape[:1] == (batch_size*beam_size,)
+                assert isinstance(x, torch.Tensor) and x.shape[:1] == (batch_size * beam_size,)
                 return x.unflatten(0, (batch_size, beam_size))
 
             scores = _map(scores)
