@@ -241,10 +241,11 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             {"search_version": 4, "__batch_size_dependent": True, **recog_config},
         )
     for name, recog_config in {
-        "ctc03-beam12-batch50": {
+        # OOM with batch50 once there is CTC...
+        "ctc03-beam12-batch20": {
             "beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3},
-            "max_seqs": 50,
-            "batch_size": 5000 * _batch_size_factor,
+            "max_seqs": 20,
+            "batch_size": 2000 * _batch_size_factor,
         },
         "ctc0-beam12-batch50": {
             # {"dev-clean": 2.75, "dev-other": 5.36, "test-clean": 3.25, "test-other": 5.52}
