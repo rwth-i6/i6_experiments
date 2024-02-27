@@ -10,7 +10,7 @@ from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon imp
 from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon import get_tts_log_mel_datastream
 
 from i6_experiments.users.rossenbach.experiments.jaist_project.config import get_training_config, get_forward_config
-from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import training, tts_eval_v2, generate_synthetic, cross_validation_nisqa
+from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import training, tts_eval_v2, generate_synthetic, cross_validation_nisqa, tts_training
 
 
 from i6_experiments.users.rossenbach.experiments.jaist_project.default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
@@ -36,43 +36,6 @@ def run_tacotron2_decoder_tts():
     }
 
     prefix = "experiments/jaist_project/tts/ar/tacotron2_decoder/"
-
-    def run_exp(name, params, net_module, config, duration_hdf, decoder_options, extra_decoder=None, use_custom_engine=False, debug=False, num_epochs=200):
-        training_datasets = build_durationtts_training_dataset(duration_hdf=duration_hdf)
-        training_config = get_training_config(
-            training_datasets=training_datasets,
-            network_module=net_module,
-            net_args=params,
-            config=config,
-            debug=debug,
-            use_custom_engine=use_custom_engine,
-        )  # implicit reconstruction loss
-        forward_config = get_forward_config(
-            network_module=net_module,
-            net_args=params,
-            decoder=extra_decoder or net_module,
-            decoder_args=decoder_options,
-            config={
-                "forward": training_datasets.cv.as_returnn_opts()
-            },
-            debug=debug,
-        )
-        train_job = training(
-            prefix_name=prefix + name,
-            returnn_config=training_config,
-            returnn_exe=RETURNN_EXE,
-            returnn_root=MINI_RETURNN_ROOT,
-            num_epochs=num_epochs
-        )
-        forward_job = tts_eval_v2(
-            prefix_name=prefix + name,
-            returnn_config=forward_config,
-            checkpoint=train_job.out_checkpoints[num_epochs],
-            returnn_exe=RETURNN_EXE,
-            returnn_root=MINI_RETURNN_ROOT,
-        )
-        tk.register_output(prefix + name + "/audio_files", forward_job.out_files["audio_files"])
-        return train_job, forward_job
 
     log_mel_datastream = get_tts_log_mel_datastream(ls_corpus_key="train-clean-100")
 
@@ -192,7 +155,7 @@ def run_tacotron2_decoder_tts():
     # train.hold()
 
     net_module = "ar_tts.tacotron2_decoding.tacotron2_decoding_v2"
-    train, forward = run_exp(net_module + "_fromglow_v1", params, net_module, config,
+    train, forward = tts_training(prefix, net_module + "_fromglow_v1", params, net_module, config,
                              extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
     
     generate_synthetic(prefix, net_module + "_fromglow_v1_syn", "train-clean-100",
@@ -201,7 +164,7 @@ def run_tacotron2_decoder_tts():
                        decoder_options=decoder_options_synthetic, debug=True)
     
     duration_hdf = duration_alignments["glow_tts.glow_tts_v1_bs600_v2_base256"]
-    train, forward = run_exp(net_module + "_fromglowbase256_v1", params, net_module, config,
+    train, forward = tts_training(prefix, net_module + "_fromglowbase256_v1", params, net_module, config,
                              extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True)
 
     # nisqa synthetic
@@ -240,5 +203,88 @@ def run_tacotron2_decoder_tts():
 
     config_400eps = copy.deepcopy(config)
     config_400eps["learning_rates"] = list(np.linspace(5e-5, 5e-4, 100)) + list(np.linspace(5e-4, 5e-7, 300))
-    train, forward = run_exp(net_module + "_fromglowbase256_400eps_v1", params, net_module, config_400eps,
-                             extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400)
+    #train, forward = run_exp(net_module + "_fromglowbase256_400eps_v1", params, net_module, config_400eps,
+    #                         extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400)
+
+    train, forward = tts_training(prefix, net_module + "_fromglowbase256_400eps_v1", params, net_module, config_400eps,
+                                  extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
+
+
+    generate_synthetic(prefix, net_module + "_fromglowbase256_400eps_v1_syn", "train-clean-100",
+                           train.out_checkpoints[400], params, net_module,
+                           extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+                           decoder_options=decoder_options_synthetic, debug=True)
+
+    # with gl32
+    generate_synthetic(prefix, net_module + "_fromglowbase256_400eps_gl32_syn", "train-clean-100",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+                       decoder_options=decoder_options_synthetic_gl32, debug=True)
+
+    generate_synthetic(prefix, net_module + "_fromglowbase256_400eps_gl32_syn_fixspk", "train-clean-100",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+                       decoder_options=decoder_options_synthetic, debug=True, randomize_speaker=False)
+
+    generate_synthetic(prefix, net_module + "_fromglowbase256_400eps_gl32_syn", "train-clean-360",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+                       decoder_options=decoder_options_synthetic, debug=True, use_subset=True)
+
+    generate_synthetic(prefix, net_module + "_fromglowbase256_400eps_gl32_syn", "train-clean-360",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+                       decoder_options=decoder_options_synthetic, debug=True)
+
+
+
+    # large model
+    model_config_large = copy.deepcopy(model_config)
+    model_config_large.encoder_config.prenet_config.input_embedding_size = 320
+    model_config_large.encoder_config.prenet_config.hidden_dimension = 320
+    model_config_large.encoder_config.prenet_config.output_dimension = 320
+    model_config_large.encoder_config.basic_dim = 320
+    model_config_large.encoder_config.conv_dim = 1280
+    model_config_large.encoder_config.mhsa_config.input_dim = 320
+    model_config_large.duration_predictor_config.hidden_dim = 512
+    model_config_large.decoder_config.dunits = 1280
+    model_config_large.decoder_config.prenet_units = 320
+    model_config_large.decoder_config.postnet_chans = 640
+    params_large = {
+        "config": asdict(model_config_large)
+    }
+    train, forward = tts_training(prefix, net_module + "_base320_fromglowbase256_400eps_v1", params_large, net_module, config_400eps,
+                                  extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
+
+    
+    # No Zoneout model
+    decoder_config = Tacotron2DecoderConfig(
+        dlayers=2,
+        dunits=1024,
+        prenet_layers=2,
+        prenet_units=256,
+        postnet_layers=5,
+        postnet_chans=512,
+        postnet_filts=5,
+        use_batch_norm=True,
+        use_concate=True,
+        dropout_rate=0.5,
+        zoneout_rate=0.1,
+        reduction_factor=2,
+    )
+
+    model_config = Config(
+        speaker_embedding_size=256,
+        num_speakers=251,
+        encoder_config=encoder_config,
+        decoder_config=decoder_config,
+        duration_predictor_config=duration_predictor_config,
+        feature_extraction_config=fe_config,
+    )
+
+    params = {
+        "config": asdict(model_config)
+    }
+
+
+    # large model

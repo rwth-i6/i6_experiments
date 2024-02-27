@@ -326,7 +326,7 @@ def eow_phon_ls960_1023_base():
                     prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_large_LRv2_50epsJJ_halfspec_amp16/lm%.1f_prior%.2f_bs1024_th14_fastsearch_v1" % (
                         lm_weight, prior_scale),
                     datasets=train_data, train_args=train_args_gc1_50eps, search_args=search_args_fast_v1, with_prior=True,
-                    num_epochs=500)
+                    num_epochs=500, store_system_with_name="ls960eow_phon_ctc_50eps_fastsearch")
 
     search_args_lowlm = {
         **default_search_args,

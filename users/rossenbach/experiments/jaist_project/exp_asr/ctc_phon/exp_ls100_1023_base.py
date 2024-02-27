@@ -242,6 +242,8 @@ def eow_phon_ls100_1023_base():
                     lm_weight, prior_scale),
                 datasets=train_data, train_args=train_args_resume, search_args=search_args, with_prior=True)
 
+
+
     # longer training
 
     train_args_gc1_300ep = copy.deepcopy(train_args)

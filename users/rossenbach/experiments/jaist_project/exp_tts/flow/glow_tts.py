@@ -41,7 +41,7 @@ def run_flow_tts():
     prefix = "experiments/jaist_project/tts/glow_tts/"
     training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", partition_epoch=1)
 
-    def run_exp(name, params, net_module, config, decoder_options, extra_decoder=None, use_custom_engine=False, target_durations=None, debug=False, num_epochs=100):
+    def run_exp(name, params, net_module, config, decoder_options, extra_decoder=None, use_custom_engine=False, target_durations=None, debug=False, num_epochs=100, evaluate_swer=None):
         if target_durations is not None:
             training_datasets_ = build_durationtts_training_dataset(duration_hdf=target_durations, ls_corpus_key="train-clean-100")
         else:
@@ -79,9 +79,21 @@ def run_flow_tts():
             returnn_root=MINI_RETURNN_ROOT,
         )
         tk.register_output(prefix + name + "/audio_files", forward_job.out_files["audio_files"])
+        if evaluate_swer is not None:
+            from ...storage import asr_recognizer_systems
+            from ...pipeline import run_swer_evaluation
+            from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob, MergeStrategy
+            synthetic_bliss_absolute = MergeCorporaWithPathResolveJob(
+                bliss_corpora=[forward_job.out_files["out_corpus.xml.gz"]],
+                name="train-clean-100",  # important to keep the original sequence names for matching later
+                merge_strategy=MergeStrategy.FLAT
+            ).out_merged_corpus
+            run_swer_evaluation(
+                prefix_name= prefix + name + "/swer/" + evaluate_swer,
+                synthetic_bliss=synthetic_bliss_absolute,
+                system=asr_recognizer_systems[evaluate_swer]
+            )
         return train_job
-
-
 
 
     def local_extract_durations(name, checkpoint, params, net_module, use_custom_engine=False, debug=False):
@@ -381,7 +393,7 @@ def run_flow_tts():
     local_config_longer["batch_size"] = 600 * 16000
     local_config_longer["learning_rates"] = list(np.linspace(5e-5, 5e-4, 100)) + list(np.linspace(5e-4, 5e-7, 300))
     train = run_exp(net_module + "_bs600_v2_longer_base256_newgl_extdur_noise0.7", params_base256, net_module_extdur, local_config_longer, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
-                    target_durations=durations, debug=True, num_epochs=400)
+                    target_durations=durations, debug=True, num_epochs=400, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
     
     # perform NISQA also for synthesis condition
     #cross_validation_nisqa(prefix, net_module + "_bs600_v2_longer_base256_newgl_extdur_noise0.7_noglnisqa", params_base256, net_module_extdur, checkpoint=train.out_checkpoints[400],
@@ -407,15 +419,65 @@ def run_flow_tts():
         decoder_options_half_gl["gl_momentum"] = 0.99
         decoder_options_half_gl["gl_iter"] = iter
 
-        synthetic_corpus = generate_synthetic(prefix, net_module + "_bs600_v2_longer_base256_newgl%i_extdur_noise0.7_syn" % iter,
+        synthetic_corpus = generate_synthetic(prefix, net_module + "_glow256align_400eps_oclr_gl%i_noise0.7_syn" % iter,
                                               "train-clean-100",
                                               train.out_checkpoints[400], params_base256, net_module,
                                               extra_decoder="glow_tts.simple_gl_decoder",
                                               decoder_options=decoder_options_half_gl, debug=True)
 
+    decoder_options_gl32 = copy.deepcopy(decoder_options_synthetic)
+    decoder_options_gl32["gl_momentum"] = 0.99
+    decoder_options_gl32["gl_iter"] = 32
+
+    synthetic_corpus = generate_synthetic(prefix,
+                                          net_module + "_glow256align_400eps_oclr_gl32_noise0.7_syn_fixspk",
+                                          "train-clean-100",
+                                          train.out_checkpoints[400], params_base256, net_module,
+                                          extra_decoder="glow_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_gl32, debug=True, randomize_speaker=False)
+
+    synthetic_corpus = generate_synthetic(prefix,
+                                          net_module + "_glow256align_400eps_oclr_gl32_noise0.7_syn",
+                                          "train-clean-360",
+                                          train.out_checkpoints[400], params_base256, net_module,
+                                          extra_decoder="glow_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_gl32, debug=True, use_subset=True)
+
+    synthetic_corpus = generate_synthetic(prefix,
+                                          net_module + "_glow256align_400eps_oclr_gl32_noise0.7_syn",
+                                          "train-clean-360",
+                                          train.out_checkpoints[400], params_base256, net_module,
+                                          extra_decoder="glow_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_gl32, debug=True)
+
+    # run this by accident, so keep it
+    decoder_options_half_gl64 = copy.deepcopy(decoder_options_synthetic)
+    decoder_options_half_gl64["gl_momentum"] = 0.99
+    decoder_options_half_gl64["gl_iter"] = 64
+
+    synthetic_corpus = generate_synthetic(prefix,
+                                          net_module + "_bs600_v2_longer_base256_newgl64_extdur_noise0.7_syn_fixspk",
+                                          "train-clean-100",
+                                          train.out_checkpoints[400], params_base256, net_module,
+                                          extra_decoder="glow_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_half_gl64, debug=True, randomize_speaker=False)
+
+    synthetic_corpus = generate_synthetic(prefix,
+                                          net_module + "_bs600_v2_longer_base256_newgl64_extdur_noise0.7_syn",
+                                          "train-clean-360",
+                                          train.out_checkpoints[400], params_base256, net_module,
+                                          extra_decoder="glow_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_half_gl64, debug=True, use_subset=True)
+
+    synthetic_corpus = generate_synthetic(prefix,
+                                          net_module + "_bs600_v2_longer_base256_newgl64_extdur_noise0.7_syn",
+                                          "train-clean-360",
+                                          train.out_checkpoints[400], params_base256, net_module,
+                                          extra_decoder="glow_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_half_gl64, debug=True)
 
 
-    # also with std prediction once
+    # also with std prediction once (is worse in MOS and MLE)
     model_config_base256_withsigma = copy.deepcopy(model_config_base256)
     model_config_base256_withsigma.mean_only = False
     params_base256_withsigma = {
@@ -424,11 +486,13 @@ def run_flow_tts():
     train = run_exp(net_module + "_bs600_v2_withsigma_longer_base256_newgl_extdur_noise0.7", params_base256_withsigma, net_module_extdur, local_config_longer, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
                     target_durations=durations, debug=True, num_epochs=400)
 
-    """
-    """
 
     """
     Kind of trying to replicate what was exactly in the original paper, just based on epochs and with longer warmup
+    
+    Those two experiments show:
+     - bs300 vs bs600 makes no difference in terms of NISQA MOS
+     - Noam scheduling is inferior to OCLR in both NISQA and synthetic training
     """
     from recipe.i6_experiments.users.rossenbach.common_setups.lr_scheduling import controlled_noam
     local_config_longer_noam = copy.deepcopy(config)
@@ -449,7 +513,7 @@ def run_flow_tts():
                                           decoder_options=decoder_options_synthetic, debug=True)
 
 
-    # Checking if gradient clipping makes a problem here
+    # Checking if gradient clipping makes a problem here (result, it does not)
 
     local_config_longer_noam_bs600_gradclip5 = copy.deepcopy(local_config_longer_noam_bs600)
     local_config_longer_noam_bs600_gradclip5.pop("gradient_clip_norm")
@@ -459,7 +523,6 @@ def run_flow_tts():
                     target_durations=durations, debug=True, num_epochs=400)
     train.hold()
 
-
     # also do the same for the "normal" one
     local_config_longer_gradclip5 = copy.deepcopy(local_config_longer)
     local_config_longer_gradclip5.pop("gradient_clip_norm")
@@ -467,3 +530,38 @@ def run_flow_tts():
     train = run_exp(net_module + "_bs600_v2_longerbase256_newgl_extdur_clip5_noise0.7", params_base256, net_module_extdur, local_config_longer_gradclip5, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
                     target_durations=durations, debug=True, num_epochs=400)
     train.hold()
+
+    # check for dropout
+    model_config_base256_nodrop = copy.deepcopy(model_config_base256)
+    model_config_base256_nodrop.flow_decoder_config.dropout = 0.0
+    params_base256_nodrop = {
+        "config": asdict(model_config_base256_nodrop)
+    }
+    train = run_exp(net_module + "_glow256align_400eps_oclr_nodrop_gl32_noise0.7", params_base256_nodrop, net_module_extdur, local_config_longer, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
+                    target_durations=durations, debug=True, num_epochs=400, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
+    # train.hold()
+    
+    synthetic_corpus = generate_synthetic(prefix,
+                                          net_module + "_glow256align_400eps_oclr_nodrop_gl32_noise0.7_syn",
+                                          "train-clean-100",
+                                          train.out_checkpoints[400], params_base256, net_module,
+                                          extra_decoder="glow_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_gl32, debug=True)
+
+    # larger
+    model_config_base320 = copy.deepcopy(model_config_base256)
+    model_config_base320.encoder_config.basic_dim = 320
+    model_config_base320.encoder_config.conv_dim = 1280
+    model_config_base320.encoder_config.mhsa_config.input_dim = 320
+    model_config_base320.encoder_config.prenet_config.input_embedding_size = 320
+    model_config_base320.encoder_config.prenet_config.hidden_dimension = 320
+    model_config_base320.encoder_config.prenet_config.output_dimension = 320
+    model_config_base320.flow_decoder_config.hidden_channels = 320
+    model_config_base320.duration_predictor_config.hidden_dim = 512
+
+    params_base320 = {
+        "config": asdict(model_config_base320)
+    }
+    train = run_exp(net_module + "_base320_glow256align_400eps_oclr_nodrop_gl32_noise0.7", params_base320, net_module_extdur, local_config_longer, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
+                    target_durations=durations, debug=True, num_epochs=400, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
+    # train.hold()

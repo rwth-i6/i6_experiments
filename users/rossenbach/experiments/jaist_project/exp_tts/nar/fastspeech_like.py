@@ -246,13 +246,46 @@ def run_fastspeech_like_tts():
                        extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
                        decoder_options=decoder_options_syn_gl1, debug=True)
 
+
+    # -----------------------------------------------
+    # This is the final best model we use for results
+    # -----------------------------------------------
+
     config_longer_oclr = copy.deepcopy(config)
     config_longer_oclr["learning_rates"] = list(np.linspace(5e-5, 5e-4, 100)) + list(np.linspace(5e-4, 5e-7, 300))
     config_longer_oclr["torch_amp_options"] = {"dtype": "bfloat16"}
     train, forward = tts_training(prefix, net_module + "_glow256align_400eps_bs300_oclr_fp16", params, net_module, config_longer_oclr,
-                             extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400)
+                             extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400,  evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
 
+    # Gl1 result
     generate_synthetic(prefix, net_module + "_glow256align_400eps_bs300_oclr_fp16_syn", "train-clean-100",
                        train.out_checkpoints[400], params, net_module,
                        extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
                        decoder_options=decoder_options_syn_gl1, debug=True)
+
+    # Gl32 results
+
+    decoder_options_final_gl32 = copy.deepcopy(decoder_options)
+    decoder_options_final_gl32["gl_momentum"] = 0.99
+    decoder_options_final_gl32["gl_iter"] = 32
+    decoder_options_final_gl32["create_plots"] = False
+
+    generate_synthetic(prefix, net_module + "_glow256align_400eps_bs300_oclr_fp16_gl32_syn", "train-clean-100",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+                       decoder_options=decoder_options_final_gl32, debug=True)
+
+    generate_synthetic(prefix, net_module + "_glow256align_400eps_bs300_oclr_fp16_gl32_syn_fixspk", "train-clean-100",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+                       decoder_options=decoder_options_final_gl32, debug=True, randomize_speaker=False)
+
+    generate_synthetic(prefix, net_module + "_glow256align_400eps_bs300_oclr_fp16_gl32_syn", "train-clean-360",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+                       decoder_options=decoder_options_final_gl32, debug=True, use_subset=True)
+
+    generate_synthetic(prefix, net_module + "_glow256align_400eps_bs300_oclr_fp16_gl32_syn", "train-clean-360",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+                       decoder_options=decoder_options_final_gl32, debug=True)

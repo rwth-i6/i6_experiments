@@ -8,7 +8,7 @@ from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterba
 
 from i6_experiments.users.rossenbach.experiments.jaist_project.data.aligner import build_training_dataset
 from i6_experiments.users.rossenbach.experiments.jaist_project.config import get_training_config, get_prior_config, get_forward_config
-from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import training, extract_durations, tts_eval_v2, generate_synthetic, cross_validation_nisqa
+from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import training, extract_durations, tts_eval_v2, generate_synthetic, cross_validation_nisqa, tts_training
 from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon import get_tts_log_mel_datastream, build_fixed_speakers_generating_dataset, get_tts_extended_bliss, build_durationtts_training_dataset
 
 from i6_experiments.users.rossenbach.experiments.jaist_project.default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
@@ -53,13 +53,6 @@ def run_diffusion_tts():
             debug=debug,
             use_custom_engine=use_custom_engine,
         )  # implicit reconstruction loss
-        train_job = training(
-            returnn_config=train_config,
-            returnn_exe=RETURNN_EXE,
-            returnn_root=MINI_RETURNN_ROOT,
-            prefix_name=prefix + name,
-            num_epochs=num_epochs,
-        )
         forward_config = get_forward_config(
             network_module=net_module,
             net_args=params,
@@ -70,6 +63,13 @@ def run_diffusion_tts():
             },
             debug=debug,
         )
+        train_job = training(
+            returnn_config=train_config,
+            returnn_exe=RETURNN_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+            prefix_name=prefix + name,
+            num_epochs=num_epochs,
+        )
         forward_job = tts_eval_v2(
             prefix_name=prefix + name,
             returnn_config=forward_config,
@@ -79,29 +79,6 @@ def run_diffusion_tts():
         )
         tk.register_output(prefix + name + "/audio_files", forward_job.out_files["audio_files"])
         return train_job
-
-    def local_extract_durations(name, checkpoint, params, net_module, use_custom_engine=False, debug=False):
-        forward_config = get_forward_config(
-            network_module=net_module,
-            net_args=params,
-            decoder="glow_tts.duration_extraction_decoder",
-            decoder_args={},
-            config={
-                "forward": training_datasets.joint.as_returnn_opts()
-            },
-            debug=debug,
-        )
-        durations_hdf = extract_durations(
-            prefix_name=prefix + name,
-            returnn_config=forward_config,
-            checkpoint=checkpoint,
-            returnn_exe=RETURNN_EXE,
-            returnn_root=MINI_RETURNN_ROOT,
-        )
-        tk.register_output(prefix + name + "/durations.hdf", durations_hdf)
-        add_duration(name, durations_hdf)
-        return durations_hdf
-
 
     log_mel_datastream = get_tts_log_mel_datastream(ls_corpus_key="train-clean-100", silence_preprocessed=False)
 
@@ -438,31 +415,81 @@ def run_diffusion_tts():
                                               extra_forward_config={"max_seqs": 30},
                                               decoder_options=decoder_options_syn, debug=True)
 
+    decoder_options_syn_07 = copy.deepcopy(decoder_options_syn)
+    decoder_options_syn_07["gradtts_noise_scale"] = 0.7
+
+    decoder_options_gl32_step10 = copy.deepcopy(decoder_options_syn_07)
+    decoder_options_gl32_step10["gl_momentum"] = 0.99
+    decoder_options_gl32_step10["gl_iter"] = 32
+    decoder_options_gl32_step10["gradtts_num_steps"] = 10
+
+    decoder_options_gl32_step10_plot = copy.deepcopy(decoder_options_gl32_step10)
+    decoder_options_gl32_step10_plot["create_plots"] = True
 
     local_config = copy.deepcopy(config)
     local_config["learning_rates"] = [1e-4] * 400
     local_config["optimizer"] = {"class": "adam", "epsilon": 1e-8}  # grad TTS does not use any custom optimizer settings over PyTorch
-    train = run_exp(net_module + "_bs300_newgl_extdurglowbase256_400epochs", params_base256, net_module, local_config,
-                    extra_decoder="grad_tts.simple_gl_decoder", decoder_options=decoder_options,
-                    target_durations=duration_hdf, debug=True, num_epochs=400)
+    train , _ = tts_training(prefix, net_module + "_bs300_newgl_extdurglowbase256_400epochs", params_base256, net_module, local_config,
+                         extra_decoder="grad_tts.simple_gl_decoder", decoder_options=decoder_options_gl32_step10_plot,
+                         duration_hdf=duration_hdf, debug=True, num_epochs=400, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
 
-    decoder_options_syn_07 = copy.deepcopy(decoder_options_syn)
-    decoder_options_syn_07["gradtts_noise_scale"] = 0.7
     synthetic_corpus = generate_synthetic(prefix, net_module + "_bs300_newgl_extdurglowbase256_400eps_noise0.7_syn",
                                       "train-clean-100",
                                       train.out_checkpoints[400], params_base256, net_module,
                                       extra_decoder="grad_tts.simple_gl_decoder",
                                       extra_forward_config={"max_seqs": 30},
                                       decoder_options=decoder_options_syn_07, debug=True)
+
+
+
+
+    synthetic_corpus = generate_synthetic(prefix, net_module + "_bs300_newgl_extdurglowbase256_400eps_noise0.7_step10_gl32_syn",
+                                          "train-clean-100",
+                                          train.out_checkpoints[400], params_base256, net_module,
+                                          extra_decoder="grad_tts.simple_gl_decoder",
+                                          extra_forward_config={"max_seqs": 30},
+                                          decoder_options=decoder_options_gl32_step10, debug=True)
     
+    synthetic_corpus = generate_synthetic(prefix, net_module + "_bs300_newgl_extdurglowbase256_400eps_noise0.7_step10_gl32_syn_fixspk",
+                                          "train-clean-100",
+                                          train.out_checkpoints[400], params_base256, net_module,
+                                          extra_decoder="grad_tts.simple_gl_decoder",
+                                          extra_forward_config={"max_seqs": 30},
+                                          decoder_options=decoder_options_gl32_step10, debug=True, randomize_speaker=False)
+    
+    synthetic_corpus = generate_synthetic(prefix, net_module + "_bs300_newgl_extdurglowbase256_400eps_noise0.7_step10_gl32_syn",
+                                          "train-clean-360",
+                                          train.out_checkpoints[400], params_base256, net_module,
+                                          extra_decoder="grad_tts.simple_gl_decoder",
+                                          extra_forward_config={"max_seqs": 30},
+                                          decoder_options=decoder_options_gl32_step10, debug=True)
+
+    synthetic_corpus = generate_synthetic(prefix, net_module + "_bs300_newgl_extdurglowbase256_400eps_noise0.7_step10_gl32_syn",
+                                          "train-clean-360",
+                                          train.out_checkpoints[400], params_base256, net_module,
+                                          extra_decoder="grad_tts.simple_gl_decoder",
+                                          extra_forward_config={"max_seqs": 30},
+                                          decoder_options=decoder_options_gl32_step10, debug=True, use_subset=True)
+
     # GradTTS OCLR
     local_config = copy.deepcopy(config)
     local_config["learning_rates"] = list(np.linspace(5e-5, 5e-4, 100)) + list(np.linspace(5e-4, 5e-7, 300))
     local_config["optimizer"] = {"class": "adam", "epsilon": 1e-9}  # normal settings like for the rest of the TTS systems
-    train = run_exp(net_module + "_bs300_newgl_extdurglowbase256_400epochs_oclr", params_base256, net_module, local_config,
-                    extra_decoder="grad_tts.simple_gl_decoder", decoder_options=decoder_options,
-                    target_durations=duration_hdf, debug=True, num_epochs=400)
+    #train = run_exp(net_module + "_bs300_newgl_extdurglowbase256_400epochs_oclr", params_base256, net_module, local_config,
+    #                     extra_decoder="grad_tts.simple_gl_decoder", decoder_options=decoder_options,
+    #                     target_durations=duration_hdf, debug=True, num_epochs=400)
 
+    train, _ = tts_training(prefix, net_module + "_bs300_newgl_extdurglowbase256_400epochs_oclr", params_base256,
+                            net_module, local_config,
+                            extra_decoder="grad_tts.simple_gl_decoder", decoder_options=decoder_options_gl32_step10_plot,
+                            duration_hdf=duration_hdf, debug=True, num_epochs=400, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
+
+    synthetic_corpus = generate_synthetic(prefix, net_module + "_bs300_newgl_extdurglowbase256_400eps_oclr_noise0.7_syn",
+                                          "train-clean-100",
+                                          train.out_checkpoints[400], params_base256, net_module,
+                                          extra_decoder="grad_tts.simple_gl_decoder",
+                                          extra_forward_config={"max_seqs": 30},
+                                          decoder_options=decoder_options_syn_07, debug=True)
     # GradTTS no norm
     local_config = copy.deepcopy(config)
     local_config["learning_rates"] = [1e-4] * 400

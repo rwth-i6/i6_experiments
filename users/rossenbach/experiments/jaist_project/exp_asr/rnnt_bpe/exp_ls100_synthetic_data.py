@@ -197,3 +197,26 @@ def run_rnnt_ls100_synthetic_data():
     train_job, _ = run_exp(
         prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub4_start20_lstm256_amp16_continue_syn/{syn_name}/bs12",
         datasets=syn_train_data, train_args=train_args_resume, search_args=search_args)
+
+
+    # Run the final ones also here
+    syn_names = [
+        "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglowbase256_400eps_gl32_syn_train-clean-360",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_glow256align_400eps_bs300_oclr_fp16_gl32_syn_train-clean-360",
+        "nar_tts.tacotron2_like.tacotron2_like_vanilla_blstm_size512_glow256align_400eps_bs600_oclr_gl32_syn_train-clean-360",
+        "glow_tts.glow_tts_v1_glow256align_400eps_oclr_gl32_noise0.7_syn_train-clean-360",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_400eps_noise0.7_step10_gl32_syn_train-clean-360",
+    ]
+    for syn_name in syn_names:
+        syn_ogg_zip = synthetic_ogg_zip_data[syn_name]
+        syn_train_data = build_bpe_training_datasets(
+            librispeech_key="train-clean-100",
+            bpe_size=BPE_SIZE,
+            settings=train_settings_syn_training,
+            real_data_weight=3,
+            extra_zips=[syn_ogg_zip],
+        )
+
+        train_job, _ = run_exp(
+            prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub4_start20_lstm256_amp16_continue_syn/{syn_name}/bs12",
+            datasets=syn_train_data, train_args=train_args_resume, search_args=search_args)

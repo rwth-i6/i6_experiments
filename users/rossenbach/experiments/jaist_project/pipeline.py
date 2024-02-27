@@ -3,7 +3,7 @@ Pipeline parts to create the necessary jobs for training / forwarding / search e
 """
 import copy
 import os.path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from sisyphus import tk
 
@@ -120,24 +120,22 @@ def search_single(
 
     return sclite_job.out_wer, search_job
 
+from .storage import ASRRecognizerSystem
 
 def run_swer_evaluation(
         prefix_name: str,
-        asr_returnn_config: ReturnnConfig,
-        asr_checkpoint: tk.Path,
         synthetic_bliss: tk.Path,
-        preemphasis: float,
-        peak_normalization: bool,
+        system: ASRRecognizerSystem,
     ):
     from .data.common import build_swer_test_dataset, get_cv_bliss
     search_single(
         prefix_name=prefix_name,
-        returnn_config=asr_returnn_config,
-        checkpoint=asr_checkpoint,
+        returnn_config=system.config,
+        checkpoint=system.checkpoint,
         recognition_dataset=build_swer_test_dataset(
             synthetic_bliss=synthetic_bliss,
-            preemphasis=preemphasis,
-            peak_normalization=peak_normalization
+            preemphasis=system.preemphasis,
+            peak_normalization=system.peak_normalization
         ),
         recognition_bliss_corpus=get_cv_bliss(),
         returnn_exe=RETURNN_EXE,
@@ -150,10 +148,11 @@ def search(
         prefix_name: str,
         returnn_config: ReturnnConfig,
         checkpoint: tk.Path,
-        test_dataset_tuples,
+        test_dataset_tuples: List[Tuple[Dataset, tk.Path]],
         returnn_exe: tk.Path,
         returnn_root: tk.Path,
-        use_gpu: bool = False
+        use_gpu: bool = False,
+        return_wers = False,
 ):
     """
     Run search over multiple datasets and collect statistics
@@ -164,7 +163,8 @@ def search(
     :param test_dataset_tuples: tuple of (Dataset, tk.Path) for the dataset object and the reference bliss
     :param returnn_exe: The python executable to run the job with (when using container just "python3")
     :param returnn_root: Path to a checked out RETURNN repository
-    :return:
+    :param use_gpu: run search with GPU
+    :param return_wers: return Sclite out_wer, e.g. for automatic selection
     """
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
     wers = {}
@@ -186,6 +186,9 @@ def search(
     report = GenerateReportStringJob(report_values=values, report_template=format_string, compress=False).out_report
     #mail = MailJob(result=report, subject=prefix_name, send_contents=True).out_status
     #tk.register_output(os.path.join(prefix_name, "mail_status"), mail)
+    if return_wers:
+        return format_string_report, values_report, search_jobs, wers
+
     return format_string_report, values_report, search_jobs
 
 
@@ -353,7 +356,7 @@ def tts_generation(
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=24,
+        time_rqmt=48,
         device="cpu",
         cpu_rqmt=8,
         returnn_python_exe=returnn_exe,
@@ -497,12 +500,13 @@ def tts_training(
         params: Dict[str, Any],
         net_module: str,
         config: Dict[str, Any],
-        duration_hdf: tk.Path,
+        duration_hdf: Optional[tk.Path],
         decoder_options: Dict[str, Any],
         extra_decoder: Optional[str] = None,
         use_custom_engine:bool = False,
         debug: bool = False,
-        num_epochs=200
+        num_epochs=200,
+        evaluate_swer: Optional[str] = None,
 ) -> Tuple[ReturnnTrainingJob, ReturnnForwardJobV2]:
     """
 
@@ -519,7 +523,11 @@ def tts_training(
     :param num_epochs:
     :return:
     """
-    training_datasets = build_durationtts_training_dataset(duration_hdf=duration_hdf)
+    if duration_hdf is not None:
+        training_datasets = build_durationtts_training_dataset(duration_hdf=duration_hdf)
+    else:
+        training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", partition_epoch=1)
+
     training_config = get_training_config(
         training_datasets=training_datasets,
         network_module=net_module,
@@ -553,5 +561,18 @@ def tts_training(
         returnn_root=MINI_RETURNN_ROOT,
     )
     tk.register_output(prefix + name + "/audio_files", forward_job.out_files["audio_files"])
+    if evaluate_swer is not None:
+        from .storage import asr_recognizer_systems
+        from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob, MergeStrategy
+        synthetic_bliss_absolute = MergeCorporaWithPathResolveJob(
+            bliss_corpora=[forward_job.out_files["out_corpus.xml.gz"]],
+            name="train-clean-100",  # important to keep the original sequence names for matching later
+            merge_strategy=MergeStrategy.FLAT
+        ).out_merged_corpus
+        run_swer_evaluation(
+            prefix_name=prefix + name + "/swer/" + evaluate_swer,
+            synthetic_bliss=synthetic_bliss_absolute,
+            system=asr_recognizer_systems[evaluate_swer]
+        )
     return train_job, forward_job
 

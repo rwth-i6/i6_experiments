@@ -112,6 +112,7 @@ def build_eow_phon_training_datasets(
         real_data_weight: int = 1,
         extra_bliss: Optional[List[tk.Path]] = None,
         lexicon_librispeech_key: Optional[str] = None,
+        random_merge_extra_bliss=False,
 ) -> TrainingDatasets:
     """
     :param librispeech_key: which librispeech corpus to use
@@ -119,6 +120,9 @@ def build_eow_phon_training_datasets(
     :param real_data_weight: how often to repeat the original data (e.g. to match length of synthetic)
     :param extra_bliss: extra data (e.g. synthetic) to train with
     :param lexicon_librispeech_key: if we are using extra synthetic data, we might a lexicon with the OOV coverage of that data as well
+    :param random_merge_extra_bliss: assuming all extras are the same dataset, perform equal random splitting
+        This will create new OggZip files and waste some space, but as all extras might have identical
+        sequence names controlling via segment lists only is difficult
     """
     label_datastream = get_eow_vocab_datastream(librispeech_key=lexicon_librispeech_key or librispeech_key)
 
@@ -131,8 +135,27 @@ def build_eow_phon_training_datasets(
         # and build the zip here, this is annoying but caused by unfortunate design decisions
         lexicon = get_eow_lexicon(librispeech_key=lexicon_librispeech_key or librispeech_key)
         extra_zips = []
-        for bliss in extra_bliss:
+
+        if random_merge_extra_bliss:
+            from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
+            segment_file = SegmentCorpusJob(bliss_corpus=extra_bliss[0], num_segments=1).out_single_segment_files[1]
+            split_ratio = 1.0/len(extra_bliss)
+            segment_split_segments = ShuffleAndSplitSegmentsJob(
+                segment_file=segment_file,
+                split={k: split_ratio for k in range(len(extra_bliss))}
+            ).out_segments
+            segment_split_segments = [segment_split_segments[k] for k in range(len(extra_bliss))]  # convert dict to list
+
+        for i, bliss in enumerate(extra_bliss):
             converted_bliss = ApplyLexiconToCorpusJob(bliss, lexicon, word_separation_orth=None).out_corpus
+            if random_merge_extra_bliss:
+                from i6_core.corpus.filter import FilterCorpusBySegmentsJob
+                converted_bliss = FilterCorpusBySegmentsJob(
+                    bliss_corpus=converted_bliss,
+                    segment_file=segment_split_segments[i],
+                    compressed=True,
+                    delete_empty_recordings=True
+                ).out_corpus
             ogg_zip = BlissToOggZipJob(
                 bliss_corpus=converted_bliss,
                 no_conversion=True,
