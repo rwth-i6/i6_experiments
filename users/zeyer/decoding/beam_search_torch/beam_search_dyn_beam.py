@@ -76,12 +76,11 @@ def beam_search_dyn_beam(
     state_ = label_scorer.get_initial_state(batch_size=batch_size, device=device)  # [Batch_]
     target_ = torch.full([batch_size], opts.bos_label, device=device)  # [Batch_]
     seq_log_prob_ = torch.full([batch_size], 0.0, device=device)  # [Batch_]
-    ended_seq_log_prob_ = torch.full([0], 0.0, device=device)  # [Batch_E]
-    ended_seq_len_ = torch.full([0], 0, device=device)  # [Batch_E]
+    ended_seq_log_prob = None  # [Batch,InEndedBeam]
+    ended_seq_len = None  # [Batch,InEndedBeam]
     max_ended_beam_size = 0
-    ended_beam_sizes = torch.full([batch_size], 0, device=device)  # [Batch]
     ended = None
-    active = torch.full([batch_size, 1], True, device=device)  # [Batch,Max(InBeam)]
+    active = torch.full([batch_size, 1], True, device=device)  # [Batch,InActBeam]
 
     bad_score = -1.0e30
 
@@ -112,11 +111,7 @@ def beam_search_dyn_beam(
         seq_len = torch.full([batch_size, beam_size], i, device=device)  # [Batch,Beam]
 
         if ended is not None:
-            ended_seq_log_prob = torch.full([batch_size, max_ended_beam_size], bad_score, device=device)
-            ended_seq_log_prob.masked_scatter_(ended, ended_seq_log_prob_)  # [Batch,InEndedBeam]
             seq_log_prob = torch.concat([seq_log_prob, ended_seq_log_prob], dim=1)  # [Batch,Beam+InEndedBeam]
-            ended_seq_len = torch.full([batch_size, max_ended_beam_size], 0, device=device)
-            ended_seq_len.masked_scatter_(ended, ended_seq_len_)
             seq_len = torch.concat([seq_len, ended_seq_len], dim=1)  # [Batch,Beam+InEndedBeam]
             backrefs = torch.concat(
                 [
