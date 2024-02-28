@@ -248,12 +248,22 @@ def beam_search_dyn_beam(
 
             for k in list(individual_scores_.keys()):
 
-                seq_score = individual_scores_.pop(k)  # [Batch__,Vocab] or [1,1]
-                if seq_score.shape[1] > 1:
+                seq_score = individual_scores_.pop(k)  # [Batch__|1,Vocab|1]
+                if (
+                    seq_score.shape[0] == 1 < idx_.shape[0] and seq_score.shape[1] == opts.num_labels
+                ):  # [Batch__=1,Vocab]
+                    raise NotImplementedError(f"seq_score shape {seq_score.shape}, bc Batch__")
+                elif (
+                    seq_score.shape[0] == idx_.shape[0] and seq_score.shape[1] == 1 < opts.num_labels
+                ):  # [Batch__,Vocab=1]
+                    raise NotImplementedError(f"seq_score shape {seq_score.shape}, bc Vocab")
+                elif seq_score.shape[0] == idx_.shape[0] and seq_score.shape[1] == opts.num_labels:  # [Batch__,Vocab]
                     seq_score_ = seq_score.flatten()[backrefs_prev_was_active__]  # [Batch_PA]
                     seq_score = torch.full(target.shape, 0.0, device=device)  # [Batch,ActBeam+EndedBeam]
                     seq_score.masked_scatter_(prev_was_active, seq_score_)
-                    seq_score.masked_fill_(seq_log_prob <= bad_score, bad_score)
+                else:
+                    assert seq_score.shape == (1, 1)
+                    seq_score = seq_score.expand(*target.shape)
 
                 if k in out_individual_seq_scores:
                     prev_seq_score = out_individual_seq_scores[k]
@@ -261,10 +271,9 @@ def beam_search_dyn_beam(
                     if prev_seq_score.shape[1] > 1:
                         prev_seq_score = batch_gather(prev_seq_score, indices=backrefs)
                     # prev_seq_score: [Batch,ActBeam+EndedBeam]
-                    seq_score = torch.where(
-                        (seq_score > bad_score) & (prev_seq_score > bad_score), seq_score + prev_seq_score, bad_score
-                    )
+                    seq_score = seq_score + prev_seq_score
 
+                seq_score.masked_fill_(seq_log_prob <= bad_score, bad_score)
                 out_individual_seq_scores[k] = seq_score
 
         if ended_or_invalid_comb.all():
