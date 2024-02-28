@@ -1932,6 +1932,105 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
     return res
 
 
+def get_label_scorer_dyn_beam_pure_torch(
+    *,
+    model: Model,
+    batch_dim: Dim,
+    enc: rf.State,
+):
+    import torch
+    import functools
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.interface_dyn_beam import (
+        LabelScorerDynBeamIntf,
+        StateObjTensorExt,
+        StateObjIgnored,
+    )
+
+    class LabelScorer(LabelScorerDynBeamIntf):
+        """label scorer"""
+
+        def get_initial_state(self, *, batch_size: int, device: torch.device) -> Any:
+            """Initial state."""
+            decoder_state = model.decoder.default_initial_state(batch_dims=[batch_dim])
+            return tree.map_structure(functools.partial(self._map_tensor_to_raw, batch_dim=batch_dim), decoder_state)
+
+        def score_and_update_state(
+            self,
+            *,
+            batch_idx: torch.Tensor,  # [batch_] -> batch
+            prev_state: Any,
+            prev_label: torch.Tensor,
+        ) -> Tuple[torch.Tensor, Any]:
+            """update state"""
+            batch_dim_ = Dim(prev_label.shape[0], name="batch_")
+            batch_idx_t = rf.convert_to_tensor(batch_idx, dims=[batch_dim_], sparse_dim=batch_dim)
+
+            def _map_raw_to_tensor(v):
+                if isinstance(v, StateObjTensorExt):
+                    tensor: Tensor = v.extra
+                    tensor = tensor.copy_template_new_dim_tags((batch_dim_,) + tensor.dims[1:], keep_special_axes=True)
+                    tensor.raw_tensor = v.tensor
+                    return tensor
+                elif isinstance(v, StateObjIgnored):
+                    return v.content
+                else:
+                    raise TypeError(f"_map_raw_to_tensor: unexpected {v} ({type(v).__name__})")
+
+            _mapped_dims = {}
+
+            def _map_enc(v):
+                if isinstance(v, Tensor):
+                    if batch_dim not in v.dims:
+                        return v
+                    v = rf.gather(v, indices=batch_idx_t)
+                    v_ = v.copy_template_new_dim_tags([_map_enc(d) for d in v.dims], keep_special_axes=True)
+                    v_.raw_tensor = v.raw_tensor
+                    return v_
+                elif isinstance(v, Dim):
+                    if v == batch_dim:
+                        return batch_dim_
+                    if not v.dyn_size_ext:
+                        return v
+                    if v in _mapped_dims:
+                        return _mapped_dims[v]
+                    d = Dim(_map_enc(v.dyn_size_ext), name=v.name + "_")
+                    _mapped_dims[v] = d
+                    return d
+                else:
+                    raise TypeError(f"_map_enc: unexpected type {type(v).__name__}")
+
+            logits, decoder_state = model.decoder(
+                rf.convert_to_tensor(prev_label, dims=[batch_dim_], sparse_dim=model.target_dim),
+                spatial_dim=single_step_dim,
+                encoder=tree.map_structure(_map_enc, enc),
+                state=tree.map_structure(_map_raw_to_tensor, prev_state),
+            )
+            label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
+            assert set(label_log_prob.dims) == {batch_dim_, model.target_dim}
+
+            return (
+                self._map_tensor_to_raw(label_log_prob, batch_dim=batch_dim_).tensor,
+                tree.map_structure(functools.partial(self._map_tensor_to_raw, batch_dim=batch_dim_), decoder_state),
+            )
+
+        # noinspection PyShadowingNames
+        @staticmethod
+        def _map_tensor_to_raw(v, *, batch_dim: Dim):
+            if isinstance(v, Tensor):
+                if batch_dim not in v.dims:
+                    return StateObjIgnored(v)
+                batch_dims_ = [batch_dim]
+                v = v.copy_transpose(batch_dims_ + [dim for dim in v.dims if dim not in batch_dims_])
+                raw = v.raw_tensor
+                return StateObjTensorExt(raw, v.copy_template())
+            elif isinstance(v, Dim):
+                return StateObjIgnored(v)
+            else:
+                raise TypeError(f"_map_tensor_to_raw: unexpected {v} ({type(v).__name__})")
+
+    return LabelScorer()
+
+
 # RecogDef API
 model_recog_pure_torch: RecogDef[Model]
 model_recog_pure_torch.output_with_beam = True
