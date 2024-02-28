@@ -128,7 +128,7 @@ def combine_individual_seq_scores(
     """
     :param prev_individual_seq_scores: key -> [Batch,InBeam]
     :param individual_scores: key -> [Batch|1,InBeam|1,Vocab|1]
-    :param beam_backrefs: [OutBeam] -> InBeam
+    :param beam_backrefs: [Batch,OutBeam] -> InBeam
     :param labels: [Batch,OutBeam] -> Vocab
     :return: individual_seq_scores: key -> [Batch,OutBeam]
     """
