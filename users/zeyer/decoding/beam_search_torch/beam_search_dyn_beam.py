@@ -153,8 +153,8 @@ def beam_search_dyn_beam(
             )
 
         i += 1
-        ended |= target == opts.eos_label
-        ended |= (i >= max_seq_len)[:, None].to(device)  # [Batch,OutCombBeam]
+        ended = ended | (target == opts.eos_label)
+        ended = ended | (i >= max_seq_len)[:, None].to(device)  # [Batch,OutCombBeam]
         ended_or_invalid = ended | (seq_log_prob <= bad_score)  # padded area
         if ended_or_invalid.all():
             break
