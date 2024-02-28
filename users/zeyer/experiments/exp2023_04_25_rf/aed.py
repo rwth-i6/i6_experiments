@@ -2164,6 +2164,7 @@ def get_label_scorer_dyn_beam_pure_torch(
             """update state"""
             batch_dim_ = Dim(prev_label.shape[0], name="batch_")
             batch_idx_t = rf.convert_to_tensor(batch_idx, dims=[batch_dim_], sparse_dim=batch_dim)
+            batch_idx_ts = {batch_idx_t.device: batch_idx_t}
 
             def _map_raw_to_tensor(v):
                 if isinstance(v, StateObjTensorExt):
@@ -2182,7 +2183,9 @@ def get_label_scorer_dyn_beam_pure_torch(
                 if isinstance(v, Tensor):
                     if batch_dim not in v.dims:
                         return v
-                    v = rf.gather(v, indices=batch_idx_t)
+                    if v.device not in batch_idx_ts:
+                        batch_idx_ts[v.device] = rf.copy_to_device(batch_idx_t, v.device)
+                    v = rf.gather(v, indices=batch_idx_ts[v.device])
                     v_ = v.copy_template_new_dim_tags([_map_enc(d) for d in v.dims], keep_special_axes=True)
                     v_.raw_tensor = v.raw_tensor
                     return v_
