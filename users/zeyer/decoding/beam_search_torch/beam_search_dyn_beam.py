@@ -280,7 +280,7 @@ def beam_search_dyn_beam(
             # Length-normalized scores, so we evaluate score_t/len.
             # If seq ended, score_i/i == score_{i-1}/(i-1), thus score_i = score_{i-1}*(i/(i-1))
             # Because we count with EOS symbol, shifted by one.
-            ended_seq_log_prob_ *= ((i + 1) / i) ** opts.length_normalization_exponent
+            ended_seq_log_prob *= ((i + 1) / i) ** opts.length_normalization_exponent
 
     if opts.length_normalization_exponent != 0:
         # All seq_log_prob will be normalized by 1/(out_seq_len+1)**length_normalization_exponent.
