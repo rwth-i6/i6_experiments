@@ -1,6 +1,7 @@
 from typing import Optional, List
 
 from i6_core.returnn.hdf import BlissToPcmHDFJob
+from i6_experiments.users.berger.recipe.returnn.hdf import BlissCorpusToTargetHdfJob
 from i6_experiments.users.berger.args.returnn.dataset import MetaDatasetBuilder, hdf_config_dict_for_files
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData, FeatureType
 from sisyphus import tk
@@ -9,6 +10,7 @@ from i6_experiments.users.berger.args.jobs.rasr_init_args import (
     get_feature_extraction_args_8kHz,
 )
 from i6_experiments.users.berger.helpers import build_rasr_feature_hdfs, RasrDataInput, SeparatedCorpusObject
+from i6_experiments.users.berger.recipe.corpus.transform import ReplaceUnknownWordsJob
 
 
 def build_feature_hdf_dataset_config(
@@ -154,3 +156,45 @@ def build_multi_speaker_feature_hdf_files(
         raise NotImplementedError
 
     return feature_hdfs
+
+
+def build_feature_label_meta_dataset_config(
+    data_inputs: List[RasrDataInput],
+    lexicon: tk.Path,
+    label_dim: int,
+    rasr_arch: str = "linux-x86_64-standard",
+    dc_detection: bool = False,
+    single_hdf: bool = False,
+    extra_config: Optional[dict] = None,
+) -> dict:
+    feature_hdf_config = build_feature_hdf_dataset_config(
+        data_inputs=data_inputs,
+        feature_type=feature_type,
+        returnn_root=returnn_root,
+        returnn_python_exe=returnn_python_exe,
+        rasr_binary_path=rasr_binary_path,
+        rasr_arch=rasr_arch,
+        dc_detection=dc_detection,
+        single_hdf=single_hdf,
+        extra_config=extra_config,
+    )
+
+    dataset_builder = MetaDatasetBuilder()
+    dataset_builder.add_dataset(
+        name="data", dataset_config=feature_hdf_config, key_mapping={"data": "data"}, control=True
+    )
+
+    label_hdf_files = [
+        BlissCorpusToTargetHdfJob(
+            ReplaceUnknownWordsJob(data_input.corpus_object.corpus_file, lexicon_file=lexicon).out_corpus_file,
+            bliss_lexicon=lexicon,
+            returnn_root=returnn_root,
+            dim=label_dim,
+        ).out_hdf
+        for data_input in data_inputs
+    ]
+    label_hdf_config = hdf_config_dict_for_files(files=label_hdf_files)
+    dataset_builder.add_dataset(
+        name="classes", dataset_config=label_hdf_config, key_mapping={"data": "classes"}, control=False
+    )
+    return dataset_builder.get_dict()

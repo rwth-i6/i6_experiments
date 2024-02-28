@@ -12,15 +12,19 @@ from typing import Dict, List, Optional, Union
 
 
 class CtcLossType(Enum):
-    RasrFastBW = (auto(),)
+    RasrFastBW = auto()
     ReturnnFastBW = auto()
+    ReturnnTF = auto()
 
 
 def add_ctc_output_layer(type: CtcLossType = CtcLossType.RasrFastBW, **kwargs):
     if type == CtcLossType.RasrFastBW:
         return add_rasr_fastbw_output_layer(**kwargs)
-    else:
+    elif type == CtcLossType.ReturnnFastBW:
         return add_returnn_fastbw_output_layer(**kwargs)
+    elif type == CtcLossType.ReturnnTF:
+        return add_returnn_tf_ctc_output_layer(**kwargs)
+    raise NotImplementedError
 
 
 def make_ctc_rasr_loss_config_v1(
@@ -210,7 +214,7 @@ def add_returnn_fastbw_output_layer(
     l2: Optional[float] = None,
 ):
     if blank_index is None:
-        blank_index = num_outputs - 1
+        blank_index = 0
     else:
         assert 0 <= blank_index < num_outputs
 
@@ -226,7 +230,7 @@ def add_returnn_fastbw_output_layer(
 
     network[f"{name}_ctc_loss"] = {
         "class": "fast_bw",
-        "from": "output_0",
+        "from": name,
         "align_target_key": target_key,
         "align_target": "ctc",
         "input_type": "prob",
@@ -242,3 +246,35 @@ def add_returnn_fastbw_output_layer(
             "align_layer": f"{name}_ctc_loss",
         },
     }
+
+
+def add_returnn_tf_ctc_output_layer(
+    network: Dict,
+    from_list: Union[str, List[str]],
+    num_outputs: int,
+    name: str = "output",
+    reuse_from_name: Optional[str] = None,
+    target_key: str = "classes",
+    blank_index: int = 0,
+    l2: Optional[float] = None,
+):
+    assert 0 <= blank_index < num_outputs
+
+    network[name] = {
+        "class": "softmax",
+        "from": from_list,
+        "n_out": num_outputs,
+        "loss": "ctc",
+        "target": target_key,
+        "loss_opts": {
+            "use_native": True,
+            "beam_width": 1,
+            "ctc_opts": {
+                "blank_index": blank_index,
+            },
+        },
+    }
+    if l2:
+        network[name]["L2"] = l2
+    if reuse_from_name is not None:
+        network[name]["reuse_params"] = reuse_from_name

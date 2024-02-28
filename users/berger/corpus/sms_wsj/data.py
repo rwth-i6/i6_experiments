@@ -45,6 +45,7 @@ def process_string(s: str) -> str:
 
 def lm_cleaning(s: str) -> str:
     from returnn.datasets.lm import english_cleaners
+
     remove_regexes = [
         re.compile(expr)
         for expr in [

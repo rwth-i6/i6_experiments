@@ -8,6 +8,7 @@ from i6_experiments.users.berger.network.helpers.compressed_input import (
 )
 from enum import Enum, auto
 
+
 class ILMMode(Enum):
     ZeroEnc = auto()
 
@@ -323,11 +324,7 @@ def add_context_1_decoder_recog(
 
     if ilm_scale:
         if ilm_mode == ILMMode.ZeroEnc:
-            output_unit["zero_enc"] = {
-                "class": "eval",
-                "from": "data:source",
-                "eval": "source(0) * 0"
-            }
+            output_unit["zero_enc"] = {"class": "eval", "from": "data:source", "eval": "source(0) * 0"}
             joint_input_ilm = ["zero_enc", "decoder"]
         else:
             raise NotImplementedError
@@ -342,7 +339,9 @@ def add_context_1_decoder_recog(
                 "from": joint_input_ilm,
                 "kind": combination_mode,
             }
-        joint_output_ilm = add_feed_forward_stack(output_unit, from_list="joint_input_ilm", name="joint_ff_ilm", reuse_from_name="joint_ff", **joint_mlp_args)
+        joint_output_ilm = add_feed_forward_stack(
+            output_unit, from_list="joint_input_ilm", name="joint_ff_ilm", reuse_from_name="joint_ff", **joint_mlp_args
+        )
 
         output_unit["ilm"] = {
             "class": "linear",
@@ -355,7 +354,7 @@ def add_context_1_decoder_recog(
         output_unit["output_sub_ilm"] = {
             "class": "eval",
             "from": ["output", "ilm"],
-            "eval": f"source(0) - {ilm_scale} * source(1)"
+            "eval": f"source(0) - {ilm_scale} * source(1)",
         }
 
     network["output"] = {

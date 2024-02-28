@@ -18,6 +18,16 @@ class LexiconConfig:
 
 
 @dataclass
+class ScorableCorpusObject:
+    corpus_file: Optional[tk.Path] = None  # bliss corpus xml
+    audio_dir: Optional[tk.Path] = None  # audio directory if paths are relative (usually not needed)
+    audio_format: Optional[str] = None  # format type of the audio files, see e.g. get_input_node_type()
+    duration: Optional[float] = None  # duration of the corpus, is used to determine job time
+    stm: Optional[tk.Path] = None
+    glm: Optional[tk.Path] = None
+
+
+@dataclass
 class SeparatedCorpusObject:
     primary_corpus_file: tk.Path
     secondary_corpus_file: tk.Path
@@ -25,27 +35,30 @@ class SeparatedCorpusObject:
     audio_dir: Optional[tk.Path] = None
     audio_format: Optional[str] = None
     duration: Optional[float] = None
+    stm: Optional[tk.Path] = None
+    glm: Optional[tk.Path] = None
 
     @property
     def corpus_file(self) -> tk.Path:
         return self.primary_corpus_file
 
-    def _get_corpus_object(self, corpus_file: tk.Path) -> meta.CorpusObject:
-        c = meta.CorpusObject()
-        c.corpus_file = corpus_file
-        c.audio_dir = self.audio_dir
-        c.audio_format = self.audio_format
-        c.duration = self.duration
+    def _get_corpus_object(self, corpus_file: tk.Path) -> ScorableCorpusObject:
+        return ScorableCorpusObject(
+            corpus_file=corpus_file,
+            audio_dir=self.audio_dir,
+            audio_format=self.audio_format,
+            duration=self.duration,
+            stm=self.stm,
+            glm=self.glm,
+        )
 
-        return c
-
-    def get_primary_corpus_object(self) -> meta.CorpusObject:
+    def get_primary_corpus_object(self) -> ScorableCorpusObject:
         return self._get_corpus_object(self.primary_corpus_file)
 
-    def get_secondary_corpus_object(self) -> meta.CorpusObject:
+    def get_secondary_corpus_object(self) -> ScorableCorpusObject:
         return self._get_corpus_object(self.secondary_corpus_file)
 
-    def get_mix_corpus_object(self) -> meta.CorpusObject:
+    def get_mix_corpus_object(self) -> ScorableCorpusObject:
         return self._get_corpus_object(self.mix_corpus_file)
 
 
@@ -60,12 +73,10 @@ class SeparatedCorpusHDFFiles:
 
 @dataclass
 class RasrDataInput:
-    corpus_object: Union[meta.CorpusObject, SeparatedCorpusObject]
+    corpus_object: Union[ScorableCorpusObject, SeparatedCorpusObject]
     lexicon: LexiconConfig
     lm: Optional[LMData] = None
     concurrent: int = 10
-    stm: Optional[tk.Path] = None
-    glm: Optional[tk.Path] = None
 
 
 def get_crp_for_data_input(

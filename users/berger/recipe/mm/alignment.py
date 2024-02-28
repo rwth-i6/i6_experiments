@@ -93,7 +93,7 @@ class Seq2SeqAlignmentJob(rasr.RasrCommand, Job):
             "time": max(rtf * crp.corpus_duration / crp.concurrent, 0.5),
             "cpu": 1,
             "gpu": 1 if self.use_gpu else 0,
-            "mem": 2,
+            "mem": 16,
         }
 
     def tasks(self):

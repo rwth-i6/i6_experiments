@@ -10,6 +10,7 @@ def serialize_dim_tags(config: ReturnnConfig) -> ReturnnConfig:
     Serialize dim tags in a given RETURNN config.
     """
     from returnn_common.nn.naming import ReturnnDimTagsProxy
+
     dim_tags_proxy = ReturnnDimTagsProxy()
     config_serialized = dim_tags_proxy.collect_dim_tags_and_transform_config(config.config)
     if dim_tags_proxy.py_code_str():
@@ -40,6 +41,7 @@ def _replace_proxies_by_code_wrappers(obj: Any) -> Any:
     We could fix this in ReturnnDimTagsProxy.DimRefProxy, but for now just replace them with a CodeWrapper.
     """
     from returnn_common.nn.naming import ReturnnDimTagsProxy
+
     if isinstance(obj, (ReturnnDimTagsProxy.SetProxy, ReturnnDimTagsProxy.DimRefProxy)):
         return CodeWrapper(str(obj))
     elif isinstance(obj, dict):

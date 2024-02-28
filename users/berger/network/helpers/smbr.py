@@ -16,10 +16,12 @@ from typing import Dict, List, Optional, Union
 from i6_experiments.users.berger.helpers.rasr import LMData
 from i6_experiments.users.berger.systems.functors.rasr_base import ToolPaths
 
+
 @dataclass(frozen=True)
 class StateAccuracyLatticeAndAlignment:
     alignment_bundle: tk.Path
     lattice_bundle: tk.Path
+
 
 def _generate_lattices(
     crp: rasr.CommonRasrParameters,
@@ -28,7 +30,7 @@ def _generate_lattices(
     beam_limit: int,
     pron_scale: float,
     concurrency: int = 300,
-    cross_speaker_corpus: Optional[tk.Path] = None
+    cross_speaker_corpus: Optional[tk.Path] = None,
 ) -> StateAccuracyLatticeAndAlignment:
     lattice_crp = copy.deepcopy(crp)
     lattice_crp.concurrency = concurrency
@@ -198,9 +200,7 @@ def make_smbr_rasr_loss_config(
     # rescoring aligner
     config.lattice_processor.rescoring.segmentwise_alignment.port_name = "features"
     config.lattice_processor.rescoring.segmentwise_alignment.alignment_cache.alignment_label_type = "emission-ids"
-    config.lattice_processor.rescoring.segmentwise_alignment.alignment_cache.path = (
-        lattice_data.alignment_bundle
-    )
+    config.lattice_processor.rescoring.segmentwise_alignment.alignment_cache.path = lattice_data.alignment_bundle
     config.lattice_processor.rescoring.segmentwise_alignment.alignment_cache.read_only = True
     post_config.lattice_processor.rescoring.segmentwise_alignment.model_acceptor_cache.log.channel = "nil"
     post_config.lattice_processor.rescoring.segmentwise_alignment.aligner.statistics.channel = "nil"
@@ -256,9 +256,7 @@ def make_rasr_smbr_loss_opts(
     loss_opts = {
         "sprint_opts": {
             "sprintExecPath": lattice_processor_exe,
-            "sprintConfigStr": DelayedFormat(
-                "--config={}", rasr_cfg_job.out_config  # type: ignore
-            ),
+            "sprintConfigStr": DelayedFormat("--config={}", rasr_cfg_job.out_config),  # type: ignore
             "sprintControlConfig": {"verbose": True},
             "numInstances": num_instances,
             "usePythonSegmentOrder": True,
@@ -289,5 +287,3 @@ def add_rasr_smbr_output_layer(
         network[name]["loss_scale"] = scale
 
     return name
-
-

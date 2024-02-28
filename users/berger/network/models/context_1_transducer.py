@@ -144,11 +144,7 @@ def make_context_1_conformer_transducer_fullsum(
     }
     context_labels = "pred_labels_int32"
 
-    (
-        joint_output,
-        decoder_unit,
-        decoder_python,
-    ) = label_context.add_context_1_decoder_fullsum(
+    (joint_output, decoder_unit, decoder_python,) = label_context.add_context_1_decoder_fullsum(
         network,
         context_labels=context_labels,
         encoder="encoder",
@@ -321,11 +317,7 @@ def make_context_1_blstm_transducer_fullsum(
     }
     context_labels = "pred_labels_int32"
 
-    (
-        joint_output,
-        decoder_unit,
-        decoder_python,
-    ) = label_context.add_context_1_decoder_fullsum(
+    (joint_output, decoder_unit, decoder_python,) = label_context.add_context_1_decoder_fullsum(
         network,
         context_labels=context_labels,
         encoder="encoder",

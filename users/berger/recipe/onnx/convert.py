@@ -118,4 +118,3 @@ class ConvertTFCheckpointToOnnxJob(Job):
                 metadata.value = output_state
 
         utils.save_protobuf(self.out_onnx_path.get_path(), model_proto)
-

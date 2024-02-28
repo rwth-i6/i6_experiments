@@ -8,10 +8,9 @@ from i6_core.lib.corpus import Corpus
 
 
 class ReplaceUnknownWordsJob(Job):
-    def __init__(self, corpus_file, lexicon_file, unknown_token="[UNKNOWN]"):
+    def __init__(self, corpus_file, lexicon_file):
         self.corpus_file = corpus_file
         self.lexicon_file = lexicon_file
-        self.unknown_token = unknown_token
         self.out_corpus_file = self.output_path("corpus.xml.gz", cached=True)
 
     def tasks(self):
@@ -22,6 +21,9 @@ class ReplaceUnknownWordsJob(Job):
             lex_root = ET.parse(f)
 
         vocabulary = set([o.text.strip() if o.text else "" for o in lex_root.findall(".//orth")])
+        unknown_orth = lex_root.find(".//lemma[@special='unknown']/orth")
+        assert unknown_orth is not None
+        unknown_token = str(unknown_orth.text)
 
         corpus = Corpus()
         corpus.load(self.corpus_file.get_path())
@@ -29,7 +31,7 @@ class ReplaceUnknownWordsJob(Job):
         def replace_func(sc):
             for rec in sc.recordings:
                 for seg in rec.segments:
-                    seg.orth = " ".join([w if w in vocabulary else self.unknown_token for w in seg.orth.split()])
+                    seg.orth = " ".join([w if w in vocabulary else unknown_token for w in seg.orth.split()])
             for ssc in sc.subcorpora:
                 replace_func(ssc)
 

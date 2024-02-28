@@ -1,6 +1,7 @@
 # -------------------- Imports --------------------
 
 from abc import ABC, abstractmethod
+import copy
 from typing import Dict, Generic, List, Optional
 
 from i6_core import corpus, rasr, recognition
@@ -123,18 +124,21 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
         scorer_type: types.ScoreJobType,
         score_kwargs: Dict,
         stm_path: Optional[tk.Path] = None,
+        glm_path: Optional[tk.Path] = None,
     ) -> dataclasses.ScorerInfo:
+        score_kwargs_mod = copy.deepcopy(score_kwargs)
         if stm_path is None:
             stm_path = corpus.CorpusToStmJob(corpus_file, **stm_kwargs).out_stm_path
-        return dataclasses.ScorerInfo(ref_file=stm_path, job_type=scorer_type, score_kwargs=score_kwargs)
+        if glm_path is not None:
+            score_kwargs_mod["glm"] = glm_path
+        return dataclasses.ScorerInfo(ref_file=stm_path, job_type=scorer_type, score_kwargs=score_kwargs_mod)
 
     def setup_scoring(
         self,
         scoring_corpora: Optional[Dict[str, tk.Path]] = None,
         scorer_type: types.ScoreJobType = recognition.ScliteJob,
-        stm_kwargs: Optional[Dict] = None,
-        score_kwargs: Optional[Dict] = None,
-        stm_paths: Optional[Dict[str, tk.Path]] = None,
+        stm_kwargs: Dict = {},
+        score_kwargs: Dict = {},
     ) -> None:
         if stm_kwargs is None:
             stm_kwargs = {}
@@ -146,8 +150,6 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
                 corpus_file = self._corpus_info[key].data.corpus_object.corpus_file
                 assert corpus_file is not None
                 scoring_corpora[key] = corpus_file
-        if stm_paths is None:
-            stm_paths = {}
         for key, corpus_file in scoring_corpora.items():
             if key not in self._corpus_info:
                 continue
@@ -155,8 +157,9 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
                 corpus_file=corpus_file,
                 stm_kwargs=stm_kwargs,
                 scorer_type=scorer_type,
-                score_kwargs=score_kwargs,
-                stm_path=stm_paths.get(key, None),
+                score_kwargs=score_kwargs.get(key, score_kwargs),
+                stm_path=self._corpus_info[key].data.corpus_object.stm,
+                glm_path=self._corpus_info[key].data.corpus_object.glm,
             )
             self._corpus_info[key].scorer = scorer
 

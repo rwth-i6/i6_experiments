@@ -134,6 +134,7 @@ def make_conformer_hybrid_dual_output_model(
     # *** Auxiliary loss ***
     for block, scale in aux_loss_01_blocks:
         from returnn.tf.util.data import batch_dim
+
         network[f"conformer_01_block_{block}_split"] = {
             "class": "split_dims",
             "from": blocks[block - 1],
@@ -232,6 +233,7 @@ def make_conformer_hybrid_dual_output_model(
         # *** Auxiliary loss ***
         for block, scale in aux_loss_01_mix_blocks:
             from returnn.tf.util.data import batch_dim
+
             network[f"conformer_01_mix_block_{block}_split"] = {
                 "class": "split_dims",
                 "from": blocks[block - 1],
@@ -266,6 +268,7 @@ def make_conformer_hybrid_dual_output_model(
 
     # *** Final loss ***
     from returnn.tf.util.data import batch_dim
+
     network[f"conformer_output_split"] = {
         "class": "split_dims",
         "from": enc_01,

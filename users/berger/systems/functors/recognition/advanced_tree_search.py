@@ -6,7 +6,7 @@ from i6_core import mm, rasr, recognition, returnn
 from i6_experiments.users.berger.recipe.returnn.training import Backend, get_backend
 from sisyphus import tk
 from ..base import RecognitionFunctor
-from ..rasr_base import RasrFunctor, LatticeProcessingType
+from ..rasr_base import RasrFunctor, RecognitionScoringType
 from ... import dataclasses
 from ... import types
 
@@ -31,7 +31,7 @@ class AdvancedTreeSearchFunctor(
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
         flow_args: Dict = {},
         model_flow_args: Dict = {},
-        lattice_processing_type: LatticeProcessingType = LatticeProcessingType.LatticeToCtm,
+        recognition_scoring_type: RecognitionScoringType = RecognitionScoringType.Lattice,
         **kwargs,
     ) -> List[Dict]:
         assert recog_corpus is not None
@@ -110,29 +110,13 @@ class AdvancedTreeSearchFunctor(
             rec.set_vis_name(f"Recog {path}")
             rec.add_alias(path)
 
-            if lattice_processing_type == LatticeProcessingType.LatticeToCtm:
-                scorer_job = self._lattice_scoring(
-                    crp=crp,
-                    lattice_bundle=rec.out_lattice_bundle,
-                    scorer=recog_corpus.corpus_info.scorer,
-                    **lattice_to_ctm_kwargs,
-                )
-            elif lattice_processing_type == LatticeProcessingType.MultiChannel:
-                scorer_job = self._multi_channel_lattice_scoring(
-                    crp=crp,
-                    lattice_bundle=rec.out_lattice_bundle,
-                    scorer=recog_corpus.corpus_info.scorer,
-                    **lattice_to_ctm_kwargs,
-                )
-            elif lattice_processing_type == LatticeProcessingType.MultiChannelMultiSegment:
-                scorer_job = self._multi_channel_multi_segment_lattice_scoring(
-                    crp=crp,
-                    lattice_bundle=rec.out_lattice_bundle,
-                    scorer=recog_corpus.corpus_info.scorer,
-                    **lattice_to_ctm_kwargs,
-                )
-            else:
-                raise NotImplementedError
+            scorer_job = self._score_recognition_output(
+                recognition_scoring_type=recognition_scoring_type,
+                crp=crp,
+                lattice_bundle=rec.out_lattice_bundle,
+                scorer=recog_corpus.corpus_info.scorer,
+                **lattice_to_ctm_kwargs,
+            )
 
             tk.register_output(
                 f"{path}.reports",

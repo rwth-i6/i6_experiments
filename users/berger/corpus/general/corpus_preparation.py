@@ -43,6 +43,7 @@ def clean_string(s: str, custom_subs: Optional[List[Tuple[str, str]]] = None) ->
 
 def lm_cleaning(s: str):
     from returnn.datasets.lm import english_cleaners
+
     remove_regexes = [
         re.compile(expr)
         for expr in [

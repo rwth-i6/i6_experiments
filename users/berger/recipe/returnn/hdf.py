@@ -32,6 +32,7 @@ class BlissCorpusToTargetHdfJob(Job):
         returnn_root: tk.Path,
         segment_file: Optional[tk.Path] = None,
         word_separation_orth: Optional[str] = None,
+        dim: Optional[int] = None,
     ):
         """
         :param bliss_corpus: path to a bliss corpus xml
@@ -44,6 +45,7 @@ class BlissCorpusToTargetHdfJob(Job):
         self.bliss_lexicon = bliss_lexicon
         self.word_separation_orth = word_separation_orth
         self.segment_file = segment_file
+        self.dim = dim
 
         self.returnn_root = returnn_root
 
@@ -97,7 +99,9 @@ class BlissCorpusToTargetHdfJob(Job):
             word_separation_targets = []
 
         # Create hdf writer
-        out_hdf_writer = get_returnn_simple_hdf_writer(self.returnn_root.get())(filename=self.out_hdf, dim=None)
+        out_hdf_writer = get_returnn_simple_hdf_writer(self.returnn_root.get())(
+            filename=self.out_hdf, dim=self.dim, ndim=1
+        )
 
         # Load corpus
         c = corpus.Corpus()

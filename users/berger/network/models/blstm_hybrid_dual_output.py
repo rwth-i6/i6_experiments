@@ -108,6 +108,7 @@ def make_blstm_hybrid_dual_output_model(
                     "from": [f"encoder_{speaker_idx}_squeeze", enc_mix],
                 }
         from returnn.tf.util.data import FeatureDim
+
         dim_tags["enc_01_mix_input_feature"] = FeatureDim("enc_01_mix_input_feature_dim", None)
         network["encoder_01+mix_input"] = {
             "class": "split_dims",
@@ -339,6 +340,7 @@ def make_blstm_hybrid_dual_output_combine_enc_model(
             }
 
         from returnn.tf.util.data import FeatureDim
+
         dim_tags["enc_01_mix_input_feature"] = FeatureDim("enc_01_mix_input_feature_dim", None)
         network["encoder_01+mix_input"] = {
             "class": "split_dims",
@@ -489,6 +491,7 @@ def make_blstm_hybrid_dual_output_combine_enc_recog_model(
             }
 
         from returnn.tf.util.data import FeatureDim
+
         dim_tags["enc_01_mix_input_feature"] = FeatureDim("enc_01_mix_input_feature_dim", None)
         network["encoder_01+mix_input"] = {
             "class": "split_dims",
@@ -647,6 +650,7 @@ def make_blstm_hybrid_dual_output_soft_context_model(
                 }
 
         from returnn.tf.util.data import FeatureDim
+
         dim_tags["enc_01_mix_input_feature"] = FeatureDim("enc_01_mix_input_feature_dim", None)
         network["encoder_01+mix_input"] = {
             "class": "split_dims",
@@ -704,6 +708,7 @@ def make_blstm_hybrid_dual_output_soft_context_model(
         context_layer = "output_softmax"
 
     from returnn.tf.util.data import batch_dim
+
     network["output_split"] = {
         "class": "split_dims",
         "from": context_layer,
@@ -833,6 +838,7 @@ def make_blstm_hybrid_dual_output_soft_context_recog_model(
                 }
 
         from returnn.tf.util.data import FeatureDim
+
         dim_tags["enc_01_mix_input_feature"] = FeatureDim("enc_01_mix_input_feature_dim", None)
         network["encoder_01+mix_input"] = {
             "class": "split_dims",

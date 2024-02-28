@@ -8,6 +8,7 @@ from i6_experiments.users.berger.recipe import recognition
 from i6_experiments.users.berger.recipe.returnn.training import Backend, get_backend
 from sisyphus import tk
 from ..base import RecognitionFunctor
+from ..rasr_base import RecognitionScoringType
 from ..seq2seq_base import Seq2SeqFunctor
 from ... import dataclasses
 from ... import types
@@ -36,6 +37,7 @@ class Seq2SeqSearchFunctor(
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
         flow_args: Dict = {},
         model_flow_args: Dict = {},
+        recognition_scoring_type=RecognitionScoringType.Lattice,
         **kwargs,
     ) -> List[Dict]:
         assert recog_corpus is not None
@@ -124,12 +126,14 @@ class Seq2SeqSearchFunctor(
             rec.set_vis_name(f"Recog {path}")
             rec.add_alias(path)
 
-            scorer_job = self._lattice_scoring(
+            scorer_job = self._score_recognition_output(
+                recognition_scoring_type=recognition_scoring_type,
                 crp=crp,
                 lattice_bundle=rec.out_lattice_bundle,
                 scorer=recog_corpus.corpus_info.scorer,
                 **lattice_to_ctm_kwargs,
             )
+
             tk.register_output(
                 f"{path}.reports",
                 scorer_job.out_report_dir,

@@ -32,12 +32,7 @@ def get_librispeech_data(
 
     # ********** Data inputs **********
 
-    (
-        train_data_inputs,
-        cv_data_inputs,
-        dev_data_inputs,
-        test_data_inputs,
-    ) = data.get_data_inputs(
+    (train_data_inputs, cv_data_inputs, dev_data_inputs, test_data_inputs,) = data.get_data_inputs(
         train_key=train_key,
         cv_keys=cv_keys,
         dev_keys=dev_keys,

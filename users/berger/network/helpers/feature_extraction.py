@@ -24,6 +24,7 @@ def add_gt_feature_extraction(
     padding: Optional[Tuple[int, int]] = None,
 ) -> Tuple[str, Union[str, List[str]]]:
     from returnn_common.asr import gt
+
     python_code = []
 
     channels = (

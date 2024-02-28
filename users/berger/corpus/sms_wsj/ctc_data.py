@@ -96,7 +96,7 @@ def get_wsj_data_hdf(
         cv_key: cv_data_input,
         **dev_data_inputs,
         **test_data_inputs,
-        **align_data_inputs
+        **align_data_inputs,
     }
 
     return CTCSetupData(

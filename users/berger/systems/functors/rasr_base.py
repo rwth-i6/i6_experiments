@@ -14,6 +14,7 @@ from i6_experiments.users.berger.recipe.converse.scoring import (
     MultiChannelMultiSegmentCtmToStmJob,
     MultiChannelCtmToStmJob,
 )
+from i6_experiments.users.berger.recipe.recognition.scoring import UpsampleCtmFileJob
 from i6_experiments.users.berger.recipe.returnn.training import get_backend
 from i6_experiments.users.berger.util import ToolPaths, lru_cache_with_signature
 from i6_experiments.users.berger import helpers
@@ -23,10 +24,11 @@ from .. import dataclasses
 from .. import types
 
 
-class LatticeProcessingType(Enum):
-    LatticeToCtm = auto()
-    MultiChannel = auto()
-    MultiChannelMultiSegment = auto()
+class RecognitionScoringType(Enum):
+    Lattice = auto()
+    LatticeUpsample = auto()
+    MultiChannelLattice = auto()
+    MultiChannelMultiSegmentLattice = auto()
 
 
 class RasrFunctor(ABC):
@@ -369,7 +371,7 @@ class RasrFunctor(ABC):
         ext_flow.add_flags(base_flow.flags)
         return ext_flow
 
-    def _lattice_scoring(
+    def _lattice_to_ctm_scoring(
         self,
         crp: rasr.CommonRasrParameters,
         lattice_bundle: tk.Path,
@@ -381,6 +383,24 @@ class RasrFunctor(ABC):
             lattice_cache=lattice_bundle,
             **kwargs,
         )
+
+        score_job = scorer.get_score_job(lat2ctm.out_ctm_file)
+
+        return score_job
+
+    def _upsampled_lattice_to_ctm_scoring(
+        self,
+        crp: rasr.CommonRasrParameters,
+        lattice_bundle: tk.Path,
+        scorer: dataclasses.ScorerInfo,
+        **kwargs,
+    ) -> types.ScoreJob:
+        lat2ctm = recognition.LatticeToCtmJob(
+            crp=crp,
+            lattice_cache=lattice_bundle,
+            **kwargs,
+        )
+        lat2ctm = UpsampleCtmFileJob(lat2ctm.out_ctm_file)
 
         score_job = scorer.get_score_job(lat2ctm.out_ctm_file)
 
@@ -421,3 +441,14 @@ class RasrFunctor(ABC):
         score_job = scorer.get_score_job(ctm_to_stm_job.out_stm_file)
 
         return score_job
+
+    def _score_recognition_output(self, recognition_scoring_type: RecognitionScoringType, **kwargs) -> types.ScoreJob:
+        if recognition_scoring_type == RecognitionScoringType.Lattice:
+            return self._lattice_to_ctm_scoring(**kwargs)
+        if recognition_scoring_type == RecognitionScoringType.LatticeUpsampled:
+            return self._upsampled_lattice_to_ctm_scoring(**kwargs)
+        if recognition_scoring_type == RecognitionScoringType.MultiChannelLattice:
+            return self._multi_channel_lattice_scoring(**kwargs)
+        if recognition_scoring_type == RecognitionScoringType.MultiChannelMultiSegmentLattice:
+            return self._multi_channel_multi_segment_lattice_scoring(**kwargs)
+        raise NotImplementedError

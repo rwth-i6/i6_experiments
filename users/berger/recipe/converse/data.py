@@ -46,6 +46,7 @@ class EnhancedMeetingDataToBlissCorpusJob(Job):
 
     def run(self):
         from lazy_dataset.database import JsonDatabase
+
         db = JsonDatabase(self.json_database.get())
         ds = db.get_dataset(self.dataset_name)
 
@@ -125,6 +126,7 @@ class EnhancedMeetingDataToSplitBlissCorporaJob(Job):
 
     def run(self):
         from lazy_dataset.database import JsonDatabase
+
         db = JsonDatabase(self.json_database.get())
         ds = db.get_dataset(self.dataset_name)
 
@@ -205,6 +207,7 @@ class EnhancedEvalDataToBlissCorpusJob(EnhancedMeetingDataToSplitBlissCorporaJob
 
     def run(self):
         from lazy_dataset.database import JsonDatabase
+
         db = JsonDatabase(self.json_database.get())
         ds = db.get_dataset(self.dataset_name)
 
@@ -262,6 +265,7 @@ class EnhancedSegmentedEvalDataToBlissCorpusJob(EnhancedMeetingDataToSplitBlissC
 
     def run(self):
         from lazy_dataset.database import JsonDatabase
+
         db = JsonDatabase(self.json_database.get())
         ds = db.get_dataset(self.dataset_name)
 
@@ -368,6 +372,7 @@ class EnhancedMeetingDataRasrAlignmentPadAndDumpHDFJob(Job):
 
     def run(self):
         from lazy_dataset.database import JsonDatabase
+
         state_tying = dict(
             (k, int(v)) for l in open(self.state_tying_file.get_path()) for k, v in [l.strip().split()[0:2]]
         )

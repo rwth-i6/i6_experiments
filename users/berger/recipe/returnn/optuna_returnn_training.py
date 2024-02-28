@@ -20,6 +20,7 @@ from .optuna_config import OptunaReturnnConfig
 if TYPE_CHECKING:
     import optuna
 
+
 class OptunaReturnnTrainingJob(Job):
     def __init__(
         self,
@@ -286,6 +287,7 @@ class OptunaReturnnTrainingJob(Job):
 
     def create_study(self) -> None:
         import optuna
+
         optuna.create_study(
             study_name=self.study_name,
             storage=self.study_storage,
@@ -297,6 +299,7 @@ class OptunaReturnnTrainingJob(Job):
     @staticmethod
     def _check_trial_finished(study: "optuna.Study", trial_num: int) -> bool:
         import optuna
+
         for frozen_trial in study.get_trials(
             states=[
                 optuna.trial.TrialState.COMPLETE,
@@ -312,6 +315,7 @@ class OptunaReturnnTrainingJob(Job):
 
     def run(self, task_id: int) -> None:
         import optuna
+
         storage = optuna.storages.get_storage(self.study_storage)
         study = optuna.load_study(
             study_name=self.study_name,
@@ -402,6 +406,7 @@ class OptunaReturnnTrainingJob(Job):
 
     def select_best_trial(self) -> None:
         import optuna
+
         study = optuna.load_study(study_name=self.study_name, storage=self.study_storage)
         self.out_best_params.set(study.best_params)
         self.out_best_trial.set(study.best_trial)

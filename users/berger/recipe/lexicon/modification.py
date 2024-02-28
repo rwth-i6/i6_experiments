@@ -243,6 +243,8 @@ class MakeBlankLexiconJob(Job):
                 # Remove all occurrences of silence_phon in transcriptions
                 # This might lead to duplicate pronunciations, so use list(dict.fromkeys(...)) to remove duplicates while preserving order
                 for lemma in out_lexicon.lemmata:
-                    lemma.phon = list(dict.fromkeys([" ".join([p for p in phon.split() if p != silence_phon]) for phon in lemma.phon]))
+                    lemma.phon = list(
+                        dict.fromkeys([" ".join([p for p in phon.split() if p != silence_phon]) for phon in lemma.phon])
+                    )
 
         write_xml(self.out_lexicon.get_path(), out_lexicon.to_xml())

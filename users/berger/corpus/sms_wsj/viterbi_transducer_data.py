@@ -77,7 +77,9 @@ def get_wsj_data(
         rounding=returnn.BlissToPcmHDFJob.RoundingScheme.rasr_compatible,
         returnn_root=returnn_root,
     ).out_hdf
-    cv_alignment_hdf = alignments[f"{cv_key}_align"].get_hdf(returnn_python_exe=returnn_python_exe, returnn_root=returnn_root)
+    cv_alignment_hdf = alignments[f"{cv_key}_align"].get_hdf(
+        returnn_python_exe=returnn_python_exe, returnn_root=returnn_root
+    )
 
     cv_dataset_builder = MetaDatasetBuilder()
     cv_dataset_builder.add_hdf_dataset(
@@ -120,7 +122,7 @@ def get_wsj_data(
         cv_key: cv_data_input,
         **dev_data_inputs,
         **test_data_inputs,
-        **align_data_inputs
+        **align_data_inputs,
     }
 
     return BasicSetupData(
