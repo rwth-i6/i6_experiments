@@ -76,7 +76,7 @@ def beam_search_dyn_beam(
         # individual_scores: all tensors have [Batch__|1,Vocab__|1]
         # new_state: all tensors have [Batch__,...]
 
-        active = torch.arange(max_act_beam_size)[None, :] < active_beam_sizes[:, None]  # [Batch,InBeam]
+        active = torch.arange(max_act_beam_size, device=device)[None, :] < active_beam_sizes[:, None]  # [Batch,InBeam]
         prev_active = active
         prev_act_beam_sizes = active_beam_sizes
         seq_log_prob_ext_ = torch.full([batch_size, max_act_beam_size, opts.num_labels], bad_score, device=device)
@@ -88,7 +88,9 @@ def beam_search_dyn_beam(
         del seq_log_prob_ext_
         max_pre_act_beam_size = seq_log_prob.shape[1]
 
-        ended = torch.arange(max_ended_beam_size)[None, :] < ended_beam_sizes[:, None]  # [Batch,EndedInBeam]
+        ended = (
+            torch.arange(max_ended_beam_size, device=device)[None, :] < ended_beam_sizes[:, None]
+        )  # [Batch,EndedInBeam]
         ended_seq_log_prob_ = torch.full([batch_size, max_ended_beam_size], bad_score, device=device)
         ended_seq_log_prob_.masked_scatter_(ended, ended_seq_log_prob)  # [Batch,Max(EndedBeam)]
         seq_log_prob = torch.concat([seq_log_prob, ended_seq_log_prob_], dim=1)  # [Batch,Max(ActBeam)+Max(EndedBeam)]
