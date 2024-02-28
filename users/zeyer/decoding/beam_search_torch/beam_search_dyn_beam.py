@@ -59,9 +59,9 @@ def beam_search_dyn_beam(
     target = torch.full([batch_size], opts.bos_label, device=device)  # [Batch_]
     seq_log_prob = torch.full([batch_size], 0.0, device=device)  # [Batch_]
     ended_seq_log_prob = torch.full([0], 0.0, device=device)  # [Batch_E]
+    ended_seq_len = torch.full([0], 0, device=device)  # [Batch_E]
     max_ended_beam_size = 0
     ended_beam_sizes = torch.full([batch_size], 0, device=device)  # [Batch]
-    out_seq_len = torch.full([batch_size, 1], 0, device=device)
 
     bad_score = -1.0e30
 
@@ -94,6 +94,11 @@ def beam_search_dyn_beam(
         ended_seq_log_prob_ = torch.full([batch_size, max_ended_beam_size], bad_score, device=device)
         ended_seq_log_prob_.masked_scatter_(ended, ended_seq_log_prob)  # [Batch,Max(EndedBeam)]
         seq_log_prob = torch.concat([seq_log_prob, ended_seq_log_prob_], dim=1)  # [Batch,Max(ActBeam)+Max(EndedBeam)]
+        ended_seq_len_ = torch.full([batch_size, max_ended_beam_size], 0, device=device)
+        ended_seq_len_.masked_scatter_(ended, ended_seq_len)
+        seq_len = torch.concat(
+            [torch.full([batch_size, max_act_beam_size], i, device=device), ended_seq_len_], dim=1
+        )  # [Batch,Max(ActBeam)+Max(EndedBeam)]
         backrefs = torch.concat(
             [
                 backrefs,
@@ -138,6 +143,7 @@ def beam_search_dyn_beam(
             backrefs = batch_gather(backrefs, indices=backrefs_)  # [Batch,OutCombBeam] -> PrevBeam
             target = batch_gather(target, indices=backrefs_)  # [Batch,OutCombBeam]
             ended = batch_gather(ended, indices=backrefs_)  # [Batch,OutCombBeam]
+            seq_len = batch_gather(seq_len, indices=backrefs_)  # [Batch,OutCombBeam]
             for k in list(individual_scores.keys()):
                 individual_scores[k] = batch_gather(
                     individual_scores[k], indices=backrefs_
@@ -145,7 +151,6 @@ def beam_search_dyn_beam(
 
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
-        out_seq_len = batch_gather(out_seq_len, indices=backrefs)  # [Batch,OutCombBeam]
 
         if out_individual_seq_scores is not None:
             out_individual_seq_scores = combine_individual_seq_scores(
@@ -159,7 +164,6 @@ def beam_search_dyn_beam(
         if ended_or_invalid.all():
             break
         active = ~ended_or_invalid  # [Batch,OutCombBeam]
-        out_seq_len = out_seq_len + torch.where(ended, 0, 1)
 
         # First we want to split active and ended.
         batch_idx = torch.arange(batch_size, dtype=batch_idx.dtype, device=device)[:, None]  # [Batch,1]
@@ -169,6 +173,7 @@ def beam_search_dyn_beam(
             torch.masked_select(seq_log_prob, ended),  # [Batch_E]
         )
         target = torch.masked_select(target, active)  # [Batch_]
+        ended_seq_len = batch_gather(seq_len, indices=backrefs)  # [Batch_E]
         active_beam_sizes = active.sum(dim=1)  # [Batch]
         max_act_beam_size = active_beam_sizes.max()  # scalar
         ended_beam_sizes = ended.sum(dim=1)  # [Batch]
@@ -209,4 +214,4 @@ def beam_search_dyn_beam(
 
     seq_targets = torch.stack(seq_targets_, dim=2)  # [Batch,FinalBeam,OutSeqLen]
 
-    return seq_targets, seq_log_prob, out_seq_len
+    return seq_targets, seq_log_prob, seq_len
