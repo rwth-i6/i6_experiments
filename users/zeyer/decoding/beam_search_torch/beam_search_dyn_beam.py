@@ -197,9 +197,9 @@ def beam_search_dyn_beam(
             ],
             dim=1,
         )  # [Batch,ActBeam+EndedBeam]
-        backrefs_active = torch.full(active.shape, -1, device=device)  # [Batch,ActBeam]
+        backrefs_active = torch.full(active.shape, 0, device=device)  # [Batch,ActBeam]
         backrefs_active.masked_scatter_(active, backrefs_active_)  # [Batch,ActBeam] -> InActBeam
-        backrefs_ended = torch.full(ended.shape, -1, device=device)  # [Batch,EndedBeam]
+        backrefs_ended = torch.full(ended.shape, 0, device=device)  # [Batch,EndedBeam]
         backrefs_ended.masked_scatter_(ended, backrefs_ended_)  # [Batch,EndedBeam] -> InActBeam+InEndedBeam
         backrefs = torch.concat(
             [backrefs_active, backrefs_ended], dim=1
