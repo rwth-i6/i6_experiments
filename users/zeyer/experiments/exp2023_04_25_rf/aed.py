@@ -1713,6 +1713,13 @@ def get_label_scorer_pure_torch(
     return LabelScorer()
 
 
+# RecogDef API
+model_recog_pure_torch: RecogDef[Model]
+model_recog_pure_torch.output_with_beam = True
+model_recog_pure_torch.output_blank_label = None
+model_recog_pure_torch.batch_size_dependent = False
+
+
 def get_label_scorer_and_coverage_scorer_pure_torch(
     *,
     model: Model,
@@ -1932,6 +1939,143 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
     return res
 
 
+def model_recog_dyn_beam_pure_torch(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    targets: Optional[Tensor] = None,
+    targets_spatial_dim: Optional[Dim] = None,
+    max_seq_len: Optional[int] = None,
+) -> Tuple[Tensor, Tensor, Dict[str, Tensor], Dim, Dim]:
+    """
+    Function is run within RETURNN.
+
+    Earlier we used the generic beam_search function,
+    but now we just directly perform the search here,
+    as this is overall simpler and shorter.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        recog results info: key -> {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    import torch
+    import time
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_dyn_beam import (
+        BeamSearchDynBeamOpts,
+        beam_search_dyn_beam,
+    )
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.length_reward import LengthRewardDynBeamScorer
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.shallow_fusion import (
+        ShallowFusedDynBeamLabelScorers,
+    )
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+
+    start_time = time.perf_counter_ns()
+
+    data_concat_zeros = config.float("data_concat_zeros", 0)
+    if data_concat_zeros:
+        data_concat_zeros_dim = Dim(int(data_concat_zeros * _batch_size_factor * 100), name="data_concat_zeros")
+        data, data_spatial_dim = rf.concat(
+            (data, data_spatial_dim), (rf.zeros([data_concat_zeros_dim]), data_concat_zeros_dim), allow_broadcast=True
+        )
+
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+    assert len(batch_dims) == 1, batch_dims  # not implemented otherwise, simple to add...
+    batch_dim = batch_dims[0]
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    if max_seq_len is None:
+        max_seq_len = enc_spatial_dim.get_size_tensor()
+    else:
+        max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
+    print("** max seq len:", max_seq_len.raw_tensor)
+
+    if data.raw_tensor.device.type == "cuda":
+        # Just so that timing of encoder is correct.
+        torch.cuda.synchronize(data.raw_tensor.device)
+
+    enc_end_time = time.perf_counter_ns()
+
+    beam_search_version = config.int("beam_search_version", 1)
+    beam_search_func = {1: beam_search_dyn_beam}[beam_search_version]
+    beam_search_opts_cls = BeamSearchDynBeamOpts
+    beam_search_opts = (config.typed_value("beam_search_opts", None) or {}).copy()
+    extra = {}
+    out_individual_seq_scores = None
+    if config.bool("beam_search_collect_individual_seq_scores", False):
+        out_individual_seq_scores = {}
+        extra["out_individual_seq_scores"] = out_individual_seq_scores
+    label_scorer = ShallowFusedDynBeamLabelScorers()
+    label_scorer.label_scorers["decoder"] = (
+        get_label_scorer_dyn_beam_pure_torch(model=model, batch_dim=batch_dim, enc=enc),
+        1.0,
+    )
+    len_reward = beam_search_opts.pop("length_reward", 0.0)
+    if len_reward:
+        label_scorer.label_scorers["length_reward"] = (LengthRewardDynBeamScorer(), len_reward)
+
+    # Beam search happening here:
+    (
+        seq_targets,  # [Batch,FinalBeam,OutSeqLen]
+        seq_log_prob,  # [Batch,FinalBeam]
+        out_seq_len,  # [Batch,FinalBeam]
+    ) = beam_search_func(
+        label_scorer,
+        batch_size=batch_dim.get_dim_value(),
+        max_seq_len=max_seq_len.copy_compatible_to_dims_raw([batch_dim]),
+        device=data.raw_tensor.device,
+        opts=beam_search_opts_cls(
+            **beam_search_opts,
+            bos_label=model.bos_idx,
+            eos_label=model.eos_idx,
+            num_labels=model.target_dim.dimension,
+        ),
+        **extra,
+    )
+
+    beam_dim = Dim(seq_log_prob.shape[1], name="beam")
+    out_spatial_dim = Dim(rf.convert_to_tensor(out_seq_len, dims=[batch_dim, beam_dim], name="out_spatial"))
+    seq_targets_t = rf.convert_to_tensor(
+        seq_targets, dims=[batch_dim, beam_dim, out_spatial_dim], sparse_dim=model.target_dim
+    )
+    seq_log_prob_t = rf.convert_to_tensor(seq_log_prob, dims=[batch_dim, beam_dim])
+
+    search_end_time = time.perf_counter_ns()
+    data_seq_len_sum = rf.reduce_sum(data_spatial_dim.dyn_size_ext, axis=data_spatial_dim.dyn_size_ext.dims)
+    data_seq_len_sum_secs = data_seq_len_sum.raw_tensor / _batch_size_factor / 100.0
+    data_seq_len_max_seqs = data_spatial_dim.get_dim_value() / _batch_size_factor / 100.0
+    out_len_longest_sum = rf.reduce_sum(rf.reduce_max(out_spatial_dim.dyn_size_ext, axis=beam_dim), axis=batch_dim)
+    print(
+        "TIMINGS:",
+        ", ".join(
+            (
+                f"batch size {data.get_batch_dim_tag().get_dim_value()}",
+                f"data len max {data_spatial_dim.get_dim_value()} ({data_seq_len_max_seqs:.2f} secs)",
+                f"data len sum {data_seq_len_sum.raw_tensor} ({data_seq_len_sum_secs:.2f} secs)",
+                f"enc {enc_end_time - start_time} ns",
+                f"enc len max {enc_spatial_dim.get_dim_value()}",
+                f"dec {search_end_time - enc_end_time} ns",
+                f"out len max {out_spatial_dim.get_dim_value()}",
+                f"out len longest sum {out_len_longest_sum.raw_tensor}",
+            )
+        ),
+    )
+
+    extra_recog_results = {}
+    if out_individual_seq_scores:
+        for k, v in out_individual_seq_scores.items():
+            extra_recog_results[f"score:{k}"] = rf.convert_to_tensor(
+                v.expand(batch_dim.get_dim_value(), beam_dim.get_dim_value()), dims=[batch_dim, beam_dim]
+            )
+
+    return seq_targets_t, seq_log_prob_t, extra_recog_results, out_spatial_dim, beam_dim
+
+
 def get_label_scorer_dyn_beam_pure_torch(
     *,
     model: Model,
@@ -2032,7 +2176,7 @@ def get_label_scorer_dyn_beam_pure_torch(
 
 
 # RecogDef API
-model_recog_pure_torch: RecogDef[Model]
-model_recog_pure_torch.output_with_beam = True
-model_recog_pure_torch.output_blank_label = None
-model_recog_pure_torch.batch_size_dependent = False
+model_recog_dyn_beam_pure_torch: RecogDef[Model]
+model_recog_dyn_beam_pure_torch.output_with_beam = True
+model_recog_dyn_beam_pure_torch.output_blank_label = None
+model_recog_dyn_beam_pure_torch.batch_size_dependent = False
