@@ -2188,6 +2188,14 @@ def get_label_scorer_dyn_beam_pure_torch(
                     v = rf.gather(v, indices=batch_idx_ts[v.device])
                     v_ = v.copy_template_new_dim_tags([_map_enc(d) for d in v.dims], keep_special_axes=True)
                     v_.raw_tensor = v.raw_tensor
+                    for i, (old_dim, new_dim) in enumerate(zip(v.dims, v_.dims)):
+                        old_dim: Dim
+                        new_dim: Dim
+                        if old_dim != new_dim:
+                            # maybe should reduce padding
+                            v_.raw_tensor = v_.raw_tensor[
+                                (slice(None, None),) * i + (slice(None, new_dim.get_dim_value()),)
+                            ]
                     return v_
                 elif isinstance(v, Dim):
                     if v == batch_dim:
