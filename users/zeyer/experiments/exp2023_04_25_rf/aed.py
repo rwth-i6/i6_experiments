@@ -143,6 +143,58 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 **recog_config,
             },
         )
+    for name, recog_config in {
+        "beam12-batch200-lenNorm1": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 1.0,
+            }
+        },
+        # "beam12-batch200-lenReward01": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #     }
+        # },
+        # "beam60-batch50-lenNorm1": {
+        #     "beam_search_opts": {
+        #         "beam_size": 60,
+        #         "length_normalization_exponent": 1.0,
+        #     },
+        #     "max_seqs": 50,
+        #     "batch_size": 5000 * _batch_size_factor,
+        # },
+        # "beam60-batch50-lenReward01": {
+        #     "beam_search_opts": {
+        #         "beam_size": 60,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #     },
+        #     "max_seqs": 50,
+        #     "batch_size": 5000 * _batch_size_factor,
+        # },
+        # "beam60-batch50-lenNorm0-lenReward0": {
+        #     "beam_search_opts": {
+        #         "beam_size": 60,
+        #         "length_normalization_exponent": 0.0,
+        #     },
+        #     "max_seqs": 50,
+        #     "batch_size": 5000 * _batch_size_factor,
+        # },
+    }.items():
+        _recog(
+            "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2/recog_last_dyn_" + name,
+            model.get_last_fixed_epoch(),
+            model_recog_dyn_beam_pure_torch,
+            {
+                "beam_search_version": 1,
+                "__batch_size_dependent": True,
+                "__recog_def_ext": True,
+                "beam_search_collect_individual_seq_scores": True,
+                **recog_config,
+            },
+        )
 
     train_exp(  # 5.18 (but "test-other": 6.4)
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin2e_5_295k-speedpertV2",
