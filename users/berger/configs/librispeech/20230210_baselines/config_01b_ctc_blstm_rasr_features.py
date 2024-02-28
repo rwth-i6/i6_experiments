@@ -32,6 +32,7 @@ rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 
 num_classes = 79
+num_epochs = 500
 
 
 # ********** Return Config generators **********
@@ -78,7 +79,7 @@ def generate_returnn_config(
     returnn_config = get_returnn_config(
         network=network_dict,
         target=None,
-        num_epochs=500,
+        num_epochs=num_epochs,
         num_inputs=50,
         extra_python=extra_python,
         extern_data_config=True,
@@ -124,16 +125,17 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
     # ********** Step args **********
 
     train_args = exp_args.get_ctc_train_step_args(
-        num_epochs=500,
+        num_epochs=num_epochs,
         gpu_mem_rqmt=11,
     )
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)
     align_args = exp_args.get_ctc_align_step_args(num_classes)
-    recog_args["epochs"] = [320, 400, 480, 500, "best"]
+    recog_args["epochs"] = [320, 400, num_epochs]
     recog_args["feature_type"] = FeatureType.GAMMATONE_16K
     recog_args["prior_scales"] = [0.3]
     recog_args["lm_scales"] = [0.9]
+    align_args["epoch"] = num_epochs
     align_args["feature_type"] = FeatureType.GAMMATONE_16K
 
     # ********** System **********
@@ -189,9 +191,10 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
     alignments = next(iter(system.run_align_step(**align_args).values()))
 
     train_job = system.get_train_job()
-    model = GetBestCheckpointJob(
-        model_dir=train_job.out_model_dir, learning_rates=train_job.out_learning_rates
-    ).out_checkpoint
+    # model = GetBestCheckpointJob(
+    #     model_dir=train_job.out_model_dir, learning_rates=train_job.out_learning_rates
+    # ).out_checkpoint
+    model = train_job.out_checkpoints[num_epochs]
     assert isinstance(model, Checkpoint)
 
     assert system.summary_report

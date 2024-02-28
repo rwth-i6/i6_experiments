@@ -58,23 +58,23 @@ def make_context_1_conformer_transducer(
 
     network["source0"]["from"] = from_list
 
-    network["encoder"] = {
+    network["encoder-output"] = {
         "class": "reinterpret_data",
-        "from": "enc_012",
+        "from": "encoder",
         "enforce_time_major": True,
         "size_base": "data:classes",
     }
 
-    if intermediate_loss != 0:
-        add_softmax_output(
-            network,
-            from_list="enc_006",
-            name="encoder_output_006",
-            num_outputs=num_outputs,
-            target="classes",
-            scale=intermediate_loss,
-            focal_loss_factor=1.0,
-        )
+    # if intermediate_loss != 0:
+    #     add_softmax_output(
+    #         network,
+    #         from_list="enc_006",
+    #         name="encoder_output_006",
+    #         num_outputs=num_outputs,
+    #         target="classes",
+    #         scale=intermediate_loss,
+    #         focal_loss_factor=1.0,
+    #     )
 
     # add_softmax_output(
     #     network,
@@ -97,7 +97,7 @@ def make_context_1_conformer_transducer(
         num_outputs=num_outputs,
         context_labels=context_labels,
         mask_non_blank=mask_non_blank,
-        encoder="encoder",
+        encoder="encoder-output",
         output_args=output_args,
         **decoder_args,
     )
@@ -142,32 +142,15 @@ def make_context_1_conformer_transducer_recog(
         ).network
     )
 
-    network["encoder"] = {
+    network["encoder-output"] = {
         "class": "copy",
-        "from": "enc_012",
+        "from": "encoder",
     }
-
-    network.update(
-        encoder.get_best_conformer_network(
-            size=512,
-            num_classes=num_outputs,
-            num_input_feature=num_inputs,
-            time_tag_name=None,
-            upsample_by_transposed_conv=False,
-            chunking="400:200",
-            label_smoothing=0.0,
-            additional_args={
-                "feature_stacking": False,
-                "reduction_factor": (1, 4),
-                "use_spec_augment": False,
-            },
-        ).network
-    )
 
     label_context.add_context_1_decoder_recog(
         network,
         num_outputs=num_outputs,
-        encoder="encoder",
+        encoder="encoder-output",
         **decoder_args,
     )
 

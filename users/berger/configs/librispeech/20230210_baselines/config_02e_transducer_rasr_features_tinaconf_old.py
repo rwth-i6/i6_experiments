@@ -25,6 +25,7 @@ from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from sisyphus import gs, tk
+from .config_02e_transducer_rasr_features_tinaconf import subsample_by_4
 
 tools = copy.deepcopy(default_tools)
 
@@ -34,7 +35,7 @@ rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 
 num_classes = 79
-num_epochs = 600
+num_epochs = 300
 
 
 # ********** Return Config **********
@@ -138,22 +139,17 @@ def generate_returnn_config(
         extern_data_config=True,
         grad_noise=0.0,
         grad_clip=0.0,
-        schedule=LearningRateSchedules.OCLR,
-        # initial_lr=1e-03 / 30,
-        # peak_lr=1e-03,
-        initial_lr=1e-05,
-        peak_lr=4e-04,
+        schedule=LearningRateSchedules.OCLR_STEP,
+        initial_lr=1e-03 / 30,
+        peak_lr=1e-03,
         final_lr=1e-06,
+        n_steps_per_epoch=3000,
         batch_size=12500,
         extra_config=extra_config,
     )
     returnn_config = serialize_dim_tags(returnn_config)
 
     return returnn_config
-
-
-def subsample_by_4(orig_len: int) -> int:
-    return -(-orig_len // 4)
 
 
 def run_exp(
@@ -188,7 +184,6 @@ def run_exp(
         changed_data_configs.append(data.cv_data_config)
 
     data.train_data_config["datasets"]["classes"]["seq_ordering"] = "laplace:.384"
-    data.train_data_config["datasets"]["classes"]["partition_epoch"] = 40
 
     for data_config in changed_data_configs:
         data_config["datasets"]["data"].update(
@@ -285,7 +280,7 @@ def run_exp(
     # model = GetBestCheckpointJob(
     #     model_dir=train_job.out_model_dir, learning_rates=train_job.out_learning_rates
     # ).out_checkpoint
-    model = train_job.out_checkpoints[600]
+    model = train_job.out_checkpoints[300]
     assert isinstance(model, Checkpoint)
 
     assert system.summary_report
@@ -389,7 +384,9 @@ def py() -> SummaryReport:
                     ref_upsample_factor=1,
                     remove_outlier_limit=50,
                 )
-                tk.register_output(f"tse/nour-align_{key}_am-{am_scale}", compute_tse_job.out_tse_frames)
+                tk.register_output(
+                    f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/tse/nour-align_{key}_am-{am_scale}", compute_tse_job.out_tse_frames
+                )
         report, model = run_exp(
             alignments_nour,
             name_suffix=f"nour-align-am-{am_scale}",
