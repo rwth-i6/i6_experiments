@@ -104,6 +104,20 @@ def batch_gather_(values: T, *, indices: torch.Tensor) -> T:
         raise TypeError(f"batch_gather_: unexpected {values} ({type(values).__name__})")
 
 
+def gather_(values: T, *, indices: torch.Tensor) -> T:
+    """wraps ``values[indices]``"""
+    if isinstance(values, torch.Tensor):
+        return values[indices]
+    elif isinstance(values, StateObjTensorExt):
+        return dataclasses.replace(values, tensor=values.tensor[indices])
+    elif isinstance(values, StateObjIgnored):
+        return dataclasses.replace(values)
+    elif values is None:
+        return None
+    else:
+        raise TypeError(f"batch_gather_: unexpected {values} ({type(values).__name__})")
+
+
 def combine_individual_seq_scores(
     prev_individual_seq_scores: Dict[str, torch.Tensor],
     individual_scores: Dict[str, torch.Tensor],
