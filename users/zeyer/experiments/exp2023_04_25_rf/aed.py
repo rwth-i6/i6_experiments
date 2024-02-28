@@ -183,17 +183,21 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         #     "batch_size": 5000 * _batch_size_factor,
         # },
     }.items():
+        for k, v in {
+            "beam_search_version": 1,
+            "__batch_size_dependent": True,
+            "__recog_def_ext": True,
+            "beam_search_collect_individual_seq_scores": True,
+        }.items():
+            recog_config.setdefault(k, v)
+        recog_config["beam_search_opts"].setdefault(
+            "beam_and_ended_size", recog_config["beam_search_opts"]["beam_size"]
+        )
         _recog(
             "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2/recog_last_dyn_" + name,
             model.get_last_fixed_epoch(),
             model_recog_dyn_beam_pure_torch,
-            {
-                "beam_search_version": 1,
-                "__batch_size_dependent": True,
-                "__recog_def_ext": True,
-                "beam_search_collect_individual_seq_scores": True,
-                **recog_config,
-            },
+            recog_config,
         )
 
     train_exp(  # 5.18 (but "test-other": 6.4)
