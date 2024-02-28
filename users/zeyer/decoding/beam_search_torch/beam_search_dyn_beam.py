@@ -235,7 +235,9 @@ def beam_search_dyn_beam(
             # prev out_individual_seq_scores: [Batch,InActBeam+InEndedBeam]
             # want: out_individual_seq_scores: [Batch,ActBeam+EndedBeam]
 
-            prev_was_active = backrefs < prev_active.shape[1]  # [Batch,ActBeam+EndedBeam] -> active in prev
+            prev_was_active = (backrefs < prev_active.shape[1]) & (
+                seq_log_prob > bad_score
+            )  # [Batch,ActBeam+EndedBeam] -> active in prev
             backrefs__ = torch.where(prev_was_active, backrefs, 0)  # the prev-ended ones don't matter
             backrefs__ = batch_gather(idx, indices=backrefs__)  # [Batch,ActBeam+EndedBeam] -> Batch__
             backrefs_prev_was_active_ = torch.masked_select(backrefs__, prev_was_active)  # [Batch_PA] -> Batch__
@@ -251,6 +253,7 @@ def beam_search_dyn_beam(
                     seq_score_ = seq_score.flatten()[backrefs_prev_was_active__]  # [Batch_PA]
                     seq_score = torch.full(target.shape, 0.0, device=device)  # [Batch,ActBeam+EndedBeam]
                     seq_score.masked_scatter_(prev_was_active, seq_score_)
+                    seq_score.masked_fill_(seq_log_prob <= bad_score, bad_score)
 
                 if k in out_individual_seq_scores:
                     prev_seq_score = out_individual_seq_scores[k]
@@ -258,7 +261,9 @@ def beam_search_dyn_beam(
                     if prev_seq_score.shape[1] > 1:
                         prev_seq_score = batch_gather(prev_seq_score, indices=backrefs)
                     # prev_seq_score: [Batch,ActBeam+EndedBeam]
-                    seq_score = seq_score + prev_seq_score
+                    seq_score = torch.where(
+                        (seq_score > bad_score) & (prev_seq_score > bad_score), seq_score + prev_seq_score, bad_score
+                    )
 
                 out_individual_seq_scores[k] = seq_score
 
