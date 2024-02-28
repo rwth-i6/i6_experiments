@@ -160,8 +160,12 @@ def build_multi_speaker_feature_hdf_files(
 
 def build_feature_label_meta_dataset_config(
     data_inputs: List[RasrDataInput],
+    feature_type: FeatureType,
     lexicon: tk.Path,
     label_dim: int,
+    returnn_root: tk.Path,
+    returnn_python_exe: tk.Path,
+    rasr_binary_path: tk.Path,
     rasr_arch: str = "linux-x86_64-standard",
     dc_detection: bool = False,
     single_hdf: bool = False,

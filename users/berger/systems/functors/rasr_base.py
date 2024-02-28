@@ -445,7 +445,7 @@ class RasrFunctor(ABC):
     def _score_recognition_output(self, recognition_scoring_type: RecognitionScoringType, **kwargs) -> types.ScoreJob:
         if recognition_scoring_type == RecognitionScoringType.Lattice:
             return self._lattice_to_ctm_scoring(**kwargs)
-        if recognition_scoring_type == RecognitionScoringType.LatticeUpsampled:
+        if recognition_scoring_type == RecognitionScoringType.LatticeUpsample:
             return self._upsampled_lattice_to_ctm_scoring(**kwargs)
         if recognition_scoring_type == RecognitionScoringType.MultiChannelLattice:
             return self._multi_channel_lattice_scoring(**kwargs)
