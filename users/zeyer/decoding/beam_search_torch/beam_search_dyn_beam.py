@@ -100,7 +100,7 @@ def beam_search_dyn_beam(
                 (
                     torch.arange(max_ended_beam_size, dtype=backrefs.dtype, device=backrefs.device)[None, :]
                     + max_act_beam_size
-                ).expand(batch_size, opts.beam_size + max_ended_beam_size),
+                ).expand(batch_size, max_ended_beam_size),
             ],
             dim=1,
         )  # [Batch,Max(ActBeam)+Max(EndedBeam)]
