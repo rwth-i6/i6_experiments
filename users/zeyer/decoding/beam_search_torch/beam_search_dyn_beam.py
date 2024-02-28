@@ -15,7 +15,7 @@ from .utils import top_k_nd, batch_gather, gather_, combine_individual_seq_score
 
 
 @dataclass
-class BeamSearchOptsDynBeam:
+class BeamSearchDynBeamOpts:
     beam_size: int  # e.g. 12, for active hyps
     beam_and_ended_size: int  # e.g. 12 for both active+ended hyps
     length_normalization_exponent: float  # e.g. 1 to enable, 0 to disable
@@ -24,13 +24,13 @@ class BeamSearchOptsDynBeam:
     num_labels: int
 
 
-def beam_search_v5_dyn_beam(
+def beam_search_dyn_beam(
     label_scorer: LabelScorerDynBeamIntf,
     *,
     batch_size: int,
     max_seq_len: torch.Tensor,
     device: torch.device,
-    opts: BeamSearchOptsDynBeam,
+    opts: BeamSearchDynBeamOpts,
     out_individual_seq_scores: Optional[Dict[str, torch.Tensor]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
