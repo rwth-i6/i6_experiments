@@ -176,7 +176,9 @@ def beam_search_dyn_beam(
 
         # backrefs are [Batch,OutCombBeam] -> PrevBeam = Max(PrevActBeam).
         # But we want Batch_ -> Batch__.
-        idx_ = torch.arange(prev_act_beam_sizes.sum())  # [Batch__] -> Batch__, i.e. index [0...Batch__-1]
+        idx_ = torch.arange(
+            prev_act_beam_sizes.sum(), device=device
+        )  # [Batch__] -> Batch__, i.e. index [0...Batch__-1]
         idx = torch.full(prev_active.shape, -1, device=device)  # [Batch,Max(PrevActBeam)]
         idx.masked_scatter_(prev_active, idx_)  # [Batch,Max(PrevActBeam)] -> Batch__
         backrefs = batch_gather(idx, indices=backrefs)  # [Batch,OutCombBeam] -> Batch__
