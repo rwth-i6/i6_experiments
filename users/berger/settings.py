@@ -121,6 +121,8 @@ SHOW_JOB_TARGETS = False
 SHOW_VIS_NAME_IN_MANAGER = False
 PRINT_ERROR = False
 
+MAIL_ADDRESS = None
+
 # G2P_PATH = "/u/beck/dev/g2p/release/lib/python/g2p.py"
 # G2P_PYTHON = "/u/beck/programs/python/2.7.10/bin/python2"
 SCTK_PATH = "/u/beck/programs/sctk-2.4.0/bin/"

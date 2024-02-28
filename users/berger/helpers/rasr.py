@@ -71,6 +71,24 @@ class SeparatedCorpusHDFFiles:
     segments: tk.Path
 
 
+def convert_legacy_corpus_object_to_scorable(corpus_object: meta.CorpusObject) -> ScorableCorpusObject:
+    return ScorableCorpusObject(
+        corpus_file=corpus_object.corpus_file,
+        audio_dir=corpus_object.audio_dir,
+        audio_format=corpus_object.audio_format,
+        duration=corpus_object.duration,
+    )
+
+
+def convert_legacy_corpus_object_dict_to_scorable(
+    corpub_object_dict: Dict[str, meta.CorpusObject]
+) -> Dict[str, ScorableCorpusObject]:
+    return {
+        key: convert_legacy_corpus_object_to_scorable(corpus_object)
+        for key, corpus_object in corpub_object_dict.items()
+    }
+
+
 @dataclass
 class RasrDataInput:
     corpus_object: Union[ScorableCorpusObject, SeparatedCorpusObject]

@@ -124,16 +124,18 @@ def get_oclr_config(
     peak_lr: float = 1e-03,
     cycle_epoch: Optional[int] = None,
     initial_lr: Optional[float] = None,
+    decayed_lr: Optional[float] = None,
     final_lr: Optional[float] = None,
     **kwargs,
 ) -> dict:
     initial_lr = initial_lr or peak_lr / 10
+    decayed_lr = decayed_lr or initial_lr
     final_lr = final_lr or initial_lr / 5
     cycle_epoch = cycle_epoch or (num_epochs * 9) // 20  # 45% of the training
     lr_list = (
         list(np.linspace(initial_lr, peak_lr, cycle_epoch, endpoint=False))[1:]
-        + list(np.linspace(peak_lr, initial_lr, cycle_epoch, endpoint=False))
-        + list(np.linspace(initial_lr, final_lr, num_epochs - 2 * cycle_epoch + 1, endpoint=True))
+        + list(np.linspace(peak_lr, decayed_lr, cycle_epoch, endpoint=False))
+        + list(np.linspace(decayed_lr, final_lr, num_epochs - 2 * cycle_epoch + 1, endpoint=True))
     )
 
     return {
