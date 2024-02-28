@@ -645,6 +645,7 @@ def rescore_att_ctc_search(
         ctc_search_config.config["batch_size"] * (0.3 if beam > 32 else 1)
     )
     ctc_search_config.config["eval"] = recognition_dataset.as_returnn_opts()
+    # ctc_search_config.config["forward_data"] = recognition_dataset.as_returnn_opts()
     forward_job = ReturnnForwardJob(
         model_checkpoint=checkpoint,
         returnn_config=ctc_search_config,

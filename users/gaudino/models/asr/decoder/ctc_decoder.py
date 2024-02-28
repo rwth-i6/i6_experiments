@@ -1082,7 +1082,7 @@ class CTCDecoder:
         self.add_masks(subnet_unit)
         # add attention decoder
         if self.att_masking_fix:
-            subnet_unit.update(get_attention_decoder_dict_with_fix(self.target_dim))
+            subnet_unit.update(get_attention_decoder_dict_with_fix(self.target_dim, self.target_embed_dim))
         else:
             subnet_unit.update(get_attention_decoder_dict(self.target_dim))
         # add lstm lm

@@ -1,0 +1,29 @@
+    # rescoring att, ctc
+    # search_args = copy.deepcopy(args)
+    # for model_name, scales in product(
+    #     [], [(1.0, 0.2), (1.0, 0.1), (1.0, 0.01), (1.0, 0.001)]
+    # ):
+    #     att_scale, ctc_scale = scales
+    #     prior_scale = 0.0
+    #     beam_size =12
+    #     search_args["encoder_args"] = adjust_enc_args_to_model_name(
+    #         search_args["encoder_args"], model_name
+    #     )
+    #     search_args["ctc_log_prior_file"] = models[model_name]["prior"]
+    #     run_decoding(
+    #         model_name
+    #         + f"/two_pass_rescore_att{att_scale}_ctc{ctc_scale}"
+    #         + (f"_prior{prior_scale}" if prior_scale > 0 else "")
+    #         + f"_beam{beam_size}",
+    #         train_data_baseline,
+    #         checkpoint=models[model_name]["ckpt"],
+    #         search_args=search_args,
+    #         bpe_size=BPE_1K,
+    #         test_sets=["dev"],
+    #         remove_label={"<s>", "<blank>"},
+    #         use_sclite=True,
+    #         att_scale=att_scale,
+    #         ctc_scale=ctc_scale,
+    #         ctc_prior_scale=prior_scale,
+    #         two_pass_rescore=True,
+    #     )

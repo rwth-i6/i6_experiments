@@ -321,160 +321,14 @@ def ted2_recogs_lm():
     base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
     args = copy.deepcopy(base_v1_args)
 
-    # models paths
-    models = {
-        "model_baseline": {
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "work/i6_core/returnn/training/AverageTFCheckpointsJob.yB4JK4GDCxWG/output/model/average.index"
-                )
-            ),
-            "prior": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.2UG8sLxHNTMO/output/prior.txt",
-        },
-        # ctcScale models
-        "model_ctc0.43_att1.0": {  # ctcScale 0.3
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "work/i6_core/returnn/training/AverageTFCheckpointsJob.nCrQhRfqIRiZ/output/model/average.index"
-                )
-            ),
-            "prior": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.Yonvnwljktqh/output/prior.txt",
-        },
-        "model_ctc0.25_att1.0": {  # ctcScale 0.2
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "work/i6_core/returnn/training/AverageTFCheckpointsJob.CknpN55pjOHo/output/model/average.index"
-                )
-            ),
-            "prior": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.MhkU9CYwTQy3/output/prior.txt",
-        },
-        "model_ctc0.2_att1.0": {
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "work/i6_core/returnn/training/AverageTFCheckpointsJob.ro9g9W6DBJpW/output/model/average.index"
-                )
-            ),
-            "prior": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.gJiuTmxRwMVu/output/prior.txt",
-        },
-        # 1-y models
-        "model_ctc0.3_att0.7": {
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "work/i6_core/returnn/training/AverageTFCheckpointsJob.jGxeW6yzeoG7/output/model/average.index"
-                )
-            ),
-            "prior": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ypsBrM65Uj1k/output/prior.txt",
-        },
-        "model_ctc0.2_att0.8": {
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "work/i6_core/returnn/training/AverageTFCheckpointsJob.6qWPnvXHalfJ/output/model/average.index"
-                )
-            ),
-            "prior": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.mHUoJaQFZ27b/output/prior.txt",
-        },
-        "model_ctc0.1_att0.9": {  # pre 4
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "work/i6_core/returnn/training/AverageTFCheckpointsJob.MEtpESN5M4oD/output/model/average.index"
-                )
-            ),
-            "prior": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.I4aVOIk1CXmt/output/prior.txt",
-        },
-        "model_ctc0.001_att0.999": {  # pre 4
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "work/i6_core/returnn/training/AverageTFCheckpointsJob.eEEAEAZQiFvO/output/model/average.index"
-                )
-            ),
-            "prior": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.mhjgjO6IUEPB/output/prior.txt",
-        },
-        "model_ctc0.3_att0.7_lay6": {
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/training/AverageTFCheckpointsJob.mlEl83XV5YX9/output/model/average.index"
-                )
-            ),
-            "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.X7XyfXQgD3xG/output/prior.txt",
-            "enc_layer_w_ctc": 6,
-        },
-        "model_ctc0.3_att0.7_lay8": {
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/training/AverageTFCheckpointsJob.BJm3qbEaW5Tx/output/model/average.index"
-                )
-            ),
-            "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.eP7zoAFYv3og/output/prior.txt",
-            "enc_layer_w_ctc": 8,
-        },
-        "model_ctc0.3_att0.7_lay10": {
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/training/AverageTFCheckpointsJob.kXhiucifOrAt/output/model/average.index"
-                )
-            ),
-            "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.xE5gRKwcIqiU/output/prior.txt",
-            "enc_layer_w_ctc": 10,
-        },
-        "model_ctc1.0_att1.0_lay6": {
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/training/AverageTFCheckpointsJob.blMBlPQmI98T/output/model/average.index"
-                )
-            ),
-            "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.n7bJXRdAxMzQ/output/prior.txt",
-            "enc_layer_w_ctc": 6,
-        },
-        "model_ctc1.0_att1.0_lay8": {
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/training/AverageTFCheckpointsJob.u6FZCXVWY47j/output/model/average.index"
-                )
-            ),
-            "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.vDNVuXdu71fC/output/prior.txt",
-            "enc_layer_w_ctc": 8,
-        },
-        "model_ctc1.0_att1.0_lay10": {
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/training/AverageTFCheckpointsJob.Pxff6AKX9mkH/output/model/average.index"
-                )
-            ),
-            "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.sCesAfPOg838/output/prior.txt",
-            "enc_layer_w_ctc": 10,
-        },
-        # att only
-        "model_att_only_currL": {
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "work/i6_core/returnn/training/AverageTFCheckpointsJob.io6cKw6ETnHp/output/model/average.index"
-                )
-            ),
-            "prior": "",
-        },
-        "model_att_only_adjSpec": {
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "work/i6_core/returnn/training/AverageTFCheckpointsJob.9f6nlw1UOxVO/output/model/average.index"
-                )
-            ),
-            "prior": "",
-        },
-        # ctc only
-        "model_ctc_only": {
-            "ckpt": Checkpoint(
-                tk.Path(
-                    "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.9o6iL7eblZwa/output/models/epoch.400.index"
-                )
-            ),  # last
-            "prior": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.Ow9jQN0VEdlo/output/prior.txt",  # how is this computed?
-        },
-    }
+    from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.model_ckpt_info import models
 
     def adjust_enc_args_to_model_name(enc_args, model_name):
         new_enc_args = copy.deepcopy(enc_args)
         if "enc_layer_w_ctc" in models[model_name].keys():
             new_enc_args.enc_layer_w_ctc = models[model_name]["enc_layer_w_ctc"]
+        if "no_ctc" in models[model_name].keys():
+            new_enc_args.with_ctc = not models[model_name]["no_ctc"]
         return new_enc_args
 
     def get_train_data(**kwargs):
@@ -500,9 +354,9 @@ def ted2_recogs_lm():
     train_data_baseline = get_train_data()
 
     # att + trafo lm # TODO: bug when running without ctc
-    search_args = copy.deepcopy(args)
-    # for model_name, lm_scale, beam_size in product(["model_baseline"], [0.1, 0.2, 0.3], [12]):
-    for model_name, lm_scale, beam_size in product(list(models.keys())[:-3], [0.1, 0.2, 0.3], [12]):
+    for model_name, lm_scale, beam_size in product(["model_baseline"], [0.18], [12]):
+    # for model_name, lm_scale, beam_size in product(list(models.keys())[:-1], [0.1, 0.2, 0.3, 0.4], [12]):
+        search_args = copy.deepcopy(args)
         search_args["encoder_args"] = adjust_enc_args_to_model_name(
             search_args["encoder_args"], model_name
         )
@@ -521,7 +375,7 @@ def ted2_recogs_lm():
             checkpoint=models[model_name]["ckpt"],
             search_args=search_args,
             bpe_size=BPE_1K,
-            test_sets=["dev"],
+            test_sets=["dev", "test"],
             remove_label={"<s>", "<blank>"},
             use_sclite=True,
             time_rqmt=2.0,
@@ -531,6 +385,7 @@ def ted2_recogs_lm():
     ctc_prior_model_names = {
         "model_baseline": {
             "prior_scale": [0.15],  # dev/test 8.39/8.01 -> 8.19/7.92
+            "lm_scale": [0.38, 0.4],
         },
         "model_ctc0.43_att1.0": {  # dev/test 8.62/7.97 -> 8.58/7.86
             "prior_scale": [0.15],
@@ -543,12 +398,15 @@ def ted2_recogs_lm():
         },
         "model_ctc0.3_att0.7": {
             "prior_scale": [0.25],  # dev/test 8.58/8.15 -> 8.46/8.11
+            "lm_scale": [0.4],
         },
         "model_ctc0.2_att0.8": {
             "prior_scale": [0.22],  # dev/test 9.05/8.35 -> 8.78/8.33
+            "lm_scale": [0.4],
         },
         "model_ctc0.1_att0.9": {
             "prior_scale": [0.17],  # dev/test 9.92/9.22 -> 9.84/9.20
+            "lm_scale": [0.2],
         },
         "model_ctc0.001_att0.999": {
             "prior_scale": [0.2],  # dev/test 27.00/25.10 -> 26.32/24.76
@@ -576,9 +434,9 @@ def ted2_recogs_lm():
         },
     }
 
-    # for model_name in ["model_baseline"]:
-    for model_name in ctc_prior_model_names.keys():
-        for prior_scale, lm_scale, beam_size in product(ctc_prior_model_names[model_name]["prior_scale"], [0.3, 0.4, 0.5, 0.6, 0.7], [12]):
+    for model_name in ["model_baseline", "model_ctc0.3_att0.7", "model_ctc0.2_att0.8", "model_ctc0.1_att0.9"]:
+    # for model_name in ctc_prior_model_names.keys():
+        for prior_scale, lm_scale, beam_size in product(ctc_prior_model_names[model_name]["prior_scale"], ctc_prior_model_names[model_name]["lm_scale"], [12, 32]):
             search_args = copy.deepcopy(args)
             search_args["encoder_args"] = adjust_enc_args_to_model_name(
                 search_args["encoder_args"], model_name
@@ -606,51 +464,18 @@ def ted2_recogs_lm():
                 checkpoint=models[model_name]["ckpt"],
                 search_args=search_args,
                 bpe_size=BPE_1K,
-                test_sets=["dev"],
+                test_sets=["dev", "test"],
                 remove_label={"<s>", "<blank>"},
                 use_sclite=True,
                 time_rqmt=2.0,
             )
 
-    # try ctc + trafo lm # TODO: move these to separate file
-    search_args = copy.deepcopy(args)
-    for scales, beam_size, model_name in product(
-        [(1.0, 0.1), (1.0, 0.2), (1.0, 0.3), (1.0, 0.4), (1.0, 0.5), (1.0, 0.6)],
-        [],
-        ["model_baseline", "model_ctc_only"],
-    ):
-        search_args["beam_size"] = beam_size
-        search_args["ctc_log_prior_file"] = models[model_name]["prior"]
-        search_args["batch_size"] = 2000 * 160
-        ctc_scale, lm_scale = scales
-        search_args["decoder_args"] = CTCDecoderArgs(
-            ctc_scale=ctc_scale,
-            add_ext_lm=True,
-            lm_type="trafo_ted",
-            ext_lm_opts={
-                "lm_subnet": tedlium_lm_net,
-                "load_on_init_opts": tedlium_lm_load_on_init,
-            },
-            lm_scale=lm_scale,
-            target_dim=1057,
-            target_embed_dim=256,
-            # ctc_prior_correction=True,
-            # prior_scale=prior_scale,
-        )
-        run_decoding(
-            model_name + f"/opts_ctc{ctc_scale}_trafolm{lm_scale}_beam{beam_size}",
-            train_data_baseline,
-            checkpoint=models[model_name]["ckpt"],
-            search_args=search_args,
-            bpe_size=BPE_1K,
-            test_sets=["dev"],
-            remove_label={"<s>", "<blank>"},
-            use_sclite=True,
-            time_rqmt=4.0,
-        )
-
-    # aed + ctc
+    # aed + ctc + trafo lm
     joint_training_model_names = {
+        "model_baseline": {
+            "scales": [(0.7, 0.3, 0.4)],
+            "lm_scales": [0.3, 0.35],
+        },
         # "model_ctc0.43_att1.0",
         "model_ctc0.25_att1.0": {
             "scales": [(0.85, 0.15, 0.35)],
@@ -660,12 +485,15 @@ def ted2_recogs_lm():
         },
         "model_ctc0.3_att0.7": {
             "scales": [(0.8, 0.2, 0.5)],
+            "lm_scales": [0.32]
         },
         "model_ctc0.2_att0.8": {
             "scales": [(0.75, 0.25, 0.4)],
+            "lm_scales": [0.25, 0.28],
         },
         "model_ctc0.1_att0.9": {
             "scales": [(0.75, 0.25, 0.4)],
+            "lm_scales": [0.28, 0.3],
         },
         "model_ctc0.001_att0.999": {
             "scales": [(0.85, 0.15)],
@@ -690,50 +518,61 @@ def ted2_recogs_lm():
         },
     }
 
-    search_args = copy.deepcopy(args)
 
-    for model_name, prior_scale, beam_size in product(
-        list(joint_training_model_names.keys())[-6:],
-        [0.0, 0.1, 0.2, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55],
-        [],
-    ):
-        # for scales in joint_training_model_names[model_name]["scales"]:
-        search_args["encoder_args"] = adjust_enc_args_to_model_name(
-            search_args["encoder_args"], model_name
-        )
-        search_args["beam_size"] = beam_size
-        search_args["ctc_log_prior_file"] = models[model_name]["prior"]
-        att_scale, ctc_scale = joint_training_model_names[model_name]["scales"][0]
-        search_args["decoder_args"] = CTCDecoderArgs(
-            add_att_dec=True,
-            att_scale=att_scale,
-            ctc_scale=ctc_scale,
-            att_masking_fix=True,
-            target_dim=1057,
-            target_embed_dim=256,
-            ctc_prior_correction=prior_scale > 0,
-            prior_scale=prior_scale,
-        )
-        run_decoding(
-            model_name
-            + f"/opts_ctc{ctc_scale}_att{att_scale}"
-            + (f"_prior{prior_scale}" if prior_scale > 0 else "")
-            + f"_beam{beam_size}"
-            + ("_1" if prior_scale == 0.0 else ""),
-            # + f"/opts_ctc{ctc_scale}_att{att_scale}_beam{beam_size}",
-            train_data_baseline,
-            checkpoint=models[model_name]["ckpt"],
-            search_args=search_args,
-            bpe_size=BPE_1K,
-            test_sets=["dev"],
-            remove_label={"<s>", "<blank>"},
-            use_sclite=True,
-        )
+    for model_name in ["model_baseline", "model_ctc0.3_att0.7", "model_ctc0.2_att0.8", "model_ctc0.1_att0.9"]:
+        for lm_scale, beam_size in product(
+            joint_training_model_names[model_name]["lm_scales"],
+            [],
+        ):
+            # for scales in joint_training_model_names[model_name]["scales"]:
+            search_args = copy.deepcopy(args)
+            search_args["encoder_args"] = adjust_enc_args_to_model_name(
+                search_args["encoder_args"], model_name
+            )
+            search_args["beam_size"] = beam_size
+            search_args["batch_size"] = 2000 * 160
+            search_args["ctc_log_prior_file"] = models[model_name]["prior"]
+            att_scale, ctc_scale, prior_scale = joint_training_model_names[model_name]["scales"][0]
+            search_args["decoder_args"] = CTCDecoderArgs(
+                add_att_dec=True,
+                att_scale=att_scale,
+                ctc_scale=ctc_scale,
+                att_masking_fix=True,
+                add_ext_lm=True,
+                lm_type="trafo_ted",
+                ext_lm_opts={
+                    "lm_subnet": tedlium_lm_net,
+                    "load_on_init_opts": tedlium_lm_load_on_init,
+                },
+                lm_scale=lm_scale,
+                target_dim=1057,
+                target_embed_dim=256,
+                ctc_prior_correction=prior_scale > 0,
+                prior_scale=prior_scale,
+            )
+            run_decoding(
+                model_name
+                + f"/opts_ctc{ctc_scale}_att{att_scale}_trafolm{lm_scale}"
+                + (f"_prior{prior_scale}" if prior_scale > 0 else "")
+                + f"_beam{beam_size}",
+                # + f"/opts_ctc{ctc_scale}_att{att_scale}_beam{beam_size}",
+                train_data_baseline,
+                checkpoint=models[model_name]["ckpt"],
+                search_args=search_args,
+                bpe_size=BPE_1K,
+                test_sets=["dev", "test"],
+                remove_label={"<s>", "<blank>"},
+                use_sclite=True,
+                time_rqmt=2.0,
+            )
 
     # separate encoders
     # some model + ctc only
 
     joint_training_model_names_2 = {
+        "model_baseline": {
+            "scales": [(0.85, 0.15, 0.3)],
+        },
         # "model_ctc0.43_att1.0",
         "model_ctc0.25_att1.0": {
             "scales": [(0.8, 0.2, 0.45), (0.8, 0.2, 0.5), (0.8, 0.2, 0.55)],
@@ -795,26 +634,35 @@ def ted2_recogs_lm():
 
     second_model_name = "model_ctc_only"
 
-    search_args = copy.deepcopy(args)
+    bsf = 10
 
-    for first_model_name, prior_scale, beam_size in product(
-        list(joint_training_model_names_2.keys())[-6:],
-        [0.5, 0.55, 0.6, 0.65, 0.7, 0.75],
-        [],
+    for first_model_name, lm_scale, beam_size in product(
+        ["model_baseline"],
+        [0.2, 0.3, 0.4],
+        [6, 12, 32],
     ):
         for scales in joint_training_model_names_2[first_model_name]["scales"]:
+            search_args = copy.deepcopy(args)
             search_args["encoder_args"] = adjust_enc_args_to_model_name(
                 search_args["encoder_args"], first_model_name
             )
             search_args["second_encoder_args_update_dict"] = {"enc_layer_w_ctc": None}
             search_args["beam_size"] = beam_size
+            search_args["batch_size"] = bsf * 20000
             search_args["ctc_log_prior_file"] = models["model_ctc_only"]["prior"]
-            att_scale, ctc_scale = scales
+            att_scale, ctc_scale, prior_scale = scales
             search_args["decoder_args"] = CTCDecoderArgs(
                 add_att_dec=True,
                 att_scale=att_scale,
                 ctc_scale=ctc_scale,
                 att_masking_fix=True,
+                add_ext_lm=True,
+                lm_type="trafo_ted",
+                ext_lm_opts={
+                    "lm_subnet": tedlium_lm_net,
+                    "load_on_init_opts": tedlium_lm_load_on_init,
+                },
+                lm_scale=lm_scale,
                 target_dim=1057,
                 target_embed_dim=256,
                 ctc_prior_correction=True,
@@ -824,11 +672,11 @@ def ted2_recogs_lm():
                 "second_encoder_ckpt"
             ] = "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.9o6iL7eblZwa/output/models/epoch.400"
             # search_args["second_encoder_ckpt"] = train_job_avg_ckpt[only_ctc_name]
-            search_args["hash_override_version"] = 1
+            # search_args["hash_override_version"] = 1
             run_decoding(
-                first_model_name
+                f"bsf{bsf}/"+ first_model_name
                 # + f"__ctc_only/opts_ctc{ctc_scale}_att{att_scale}_beam{beam_size}",
-                + f"__ctc_only/opts_ctc{ctc_scale}_att{att_scale}_prior{prior_scale}_beam{beam_size}",
+                + f"__ctc_only/opts_att{att_scale}_ctc{ctc_scale}_trafolm{lm_scale}_prior{prior_scale}_beam{beam_size}",
                 train_data_baseline,
                 checkpoint=models[first_model_name]["ckpt"],
                 search_args=search_args,

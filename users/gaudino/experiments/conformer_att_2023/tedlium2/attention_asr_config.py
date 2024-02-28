@@ -449,6 +449,8 @@ class ConformerEncoderArgs(EncoderArgs):
 
     convolution_first: bool = False
 
+    conv_use_time_mask: bool = False
+
 
 class DecoderArgs:
     pass

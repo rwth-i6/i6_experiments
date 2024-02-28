@@ -37,6 +37,54 @@ models = {
         "prior": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.gJiuTmxRwMVu/output/prior.txt",
     },
     # 1-y models
+    "model_ctc0.9_att0.1": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "work/i6_core/returnn/training/AverageTFCheckpointsJob.QVqAmKtGDWq5/output/model/average.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZuisZnA3H0Ke/output/prior.txt",
+    },
+    "model_ctc0.8_att0.2": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "work/i6_core/returnn/training/AverageTFCheckpointsJob.shrNTbvD9wG6/output/model/average.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZbRLKK1N3AYy/output/prior.txt",
+    },
+    "model_ctc0.7_att0.3": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "work/i6_core/returnn/training/AverageTFCheckpointsJob.NLTPqijTnIR8/output/model/average.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.udHpTjKj21rl/output/prior.txt",
+    },
+    "model_ctc0.6_att0.4": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "work/i6_core/returnn/training/AverageTFCheckpointsJob.EbyFcDSWuaNS/output/model/average.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.BQhz6eKggFTX/output/prior.txt",
+    },
+    "model_ctc0.5_att0.5": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "work/i6_core/returnn/training/AverageTFCheckpointsJob.AJ6o9pWzmXn3/output/model/average.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.zLtRxqFwjciQ/output/prior.txt",
+    },
+    "model_ctc0.4_att0.6": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "work/i6_core/returnn/training/AverageTFCheckpointsJob.C0R1EFZxuEcM/output/model/average.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.YoWbUqoGxdX6/output/prior.txt",
+    },
     "model_ctc0.3_att0.7": {
         "ckpt": Checkpoint(
             tk.Path(

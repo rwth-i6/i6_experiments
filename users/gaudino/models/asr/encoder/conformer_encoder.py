@@ -12,7 +12,7 @@ from typing import Optional, Union, List, Tuple
 from dataclasses import dataclass
 from returnn.tensor import Dim
 from returnn.tf.util.data import SpatialDim, FeatureDim
-from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
+from i6_experiments.users.gaudino.modules.network import ReturnnNetwork
 
 from i6_core.returnn.config import CodeWrapper
 
@@ -89,6 +89,8 @@ class ConformerEncoder:
         mhsa_weight_dropout=None,
         conv_weight_dropout=None,
         memory_variant_opts: Optional[ConformerMemoryVariantOpts] = None,
+
+        conv_use_time_mask=False,
     ):
         """
         :param str input: input layer name
@@ -250,6 +252,8 @@ class ConformerEncoder:
                 self.emformer_mem_bank_dim = SpatialDim("emformer-mem-bank")  # M, the same as C but different tag
                 self.emformer_ext_query_dim = SpatialDim("emformer-ext-query")  # W+1
                 self.concat_window_with_mem_dim = SpatialDim("concat-window-with-mem")  # W*N+M
+
+        self.conv_use_time_mask = conv_use_time_mask
 
     def _create_ff_module(self, prefix_name, i, source, layer_index):
         """
@@ -941,6 +945,9 @@ class ConformerEncoder:
         else:
             glu_act_ = glu_act
 
+        conv_extra_kwargs = {}
+        if self.conv_use_time_mask:
+            conv_extra_kwargs["use_time_mask"] = True
         if self.use_causal_conv:
             # pad to the left to make it causal
             depthwise_conv_input_padded = self.network.add_pad_layer(
@@ -949,6 +956,7 @@ class ConformerEncoder:
                 axes="T",
                 padding=(self.conv_kernel_size - 1, 0),
             )
+
 
             depthwise_conv = self.network.add_conv_layer(
                 prefix_name + "_" + (self.conv_alternative_name or "depthwise_conv2"),
@@ -960,6 +968,7 @@ class ConformerEncoder:
                 forward_weights_init=self.conv_module_init,
                 padding="valid",
                 param_dropout=self.conv_weight_drop,
+                **conv_extra_kwargs,
             )
 
             # Fix time dim, match with the original input
@@ -978,6 +987,7 @@ class ConformerEncoder:
                 l2=self.l2,
                 forward_weights_init=self.conv_module_init,
                 param_dropout=self.conv_weight_drop,
+                **conv_extra_kwargs,
             )
 
         if self.memory_variant_opts is not None and self.memory_variant_opts.conv_cache_size:
@@ -1157,6 +1167,9 @@ class ConformerEncoder:
                 param_variational_noise=self.weight_noise if "frontend_conv" in self.weight_noise_layers else None,
             )
         elif self.input_layer == "conv-6":
+            extra_conv_opts = {}
+            if self.conv_use_time_mask:
+                extra_conv_opts = {"use_time_mask": True}
             conv_input = self.network.add_conv_block(
                 "conv_out",
                 data,
@@ -1166,6 +1179,7 @@ class ConformerEncoder:
                 init=self.start_conv_init,
                 merge_out=False,
                 param_variational_noise=self.weight_noise if "frontend_conv" in self.weight_noise_layers else None,
+                extra_conv_opts=extra_conv_opts,
             )
 
             subsampled_input = self.network.add_conv_block(
@@ -1180,6 +1194,7 @@ class ConformerEncoder:
                 prefix_name="subsample_",
                 merge_out_fixed=self.fix_merge_dims,
                 param_variational_noise=self.weight_noise if "frontend_conv" in self.weight_noise_layers else None,
+                extra_conv_opts=extra_conv_opts,
             )
 
         assert subsampled_input is not None
