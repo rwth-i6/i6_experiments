@@ -120,11 +120,14 @@ def beam_search_dyn_beam(
         ).expand(
             batch_size, target.shape[1]
         )  # [Batch,Max(ActBeam)+Max(EndedBeam)]
-        individual_scores_ = torch.full([batch_size, max_act_beam_size], bad_score, device=device)
-        individual_scores_.masked_scatter_(active, individual_scores)  # [Batch,Max(ActBeam)]
-        individual_scores = torch.concat(
-            [individual_scores_, torch.zeros([batch_size, max_ended_beam_size], device=device)], dim=1
-        )  # [Batch,Max(ActBeam)+Max(EndedBeam)]
+        for k in list(individual_scores.keys()):
+            v = torch.full(
+                [batch_size, max_act_beam_size, opts.num_labels], bad_score, device=device
+            )  # [Batch,Max(ActBeam),Vocab]
+            v.masked_scatter_(active[:, :, None], individual_scores[k])
+            individual_scores[k] = torch.concat(
+                [v, torch.zeros([batch_size, max_ended_beam_size, opts.num_labels], device=device)], dim=1
+            )  # [Batch,Max(ActBeam)+Max(EndedBeam)]
 
         # seq_log_prob.shape[1] >= min(opts.num_labels * (opts.num_labels - 1) ** i, opts.beam_size)
         # before we concatenated ended_seq_log_prob_.
@@ -135,7 +138,10 @@ def beam_search_dyn_beam(
             backrefs = batch_gather(backrefs, indices=backrefs_)  # [Batch,OutCombBeam] -> PrevBeam
             target = batch_gather(target, indices=backrefs_)  # [Batch,OutCombBeam]
             ended = batch_gather(ended, indices=backrefs_)  # [Batch,OutCombBeam]
-            individual_scores = batch_gather(individual_scores, indices=backrefs_)  # [Batch,OutCombBeam]
+            for k in list(individual_scores.keys()):
+                individual_scores[k] = batch_gather(
+                    individual_scores[k], indices=backrefs_
+                )  # [Batch,OutCombBeam,Vocab]
 
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
