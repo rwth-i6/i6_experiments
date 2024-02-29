@@ -278,7 +278,6 @@ def beam_search_dyn_beam(
                     # prev_seq_score: [Batch,ActBeam+EndedBeam]
                     seq_score = seq_score + prev_seq_score
 
-                seq_score.masked_fill_(seq_log_prob <= bad_score, bad_score)
                 out_individual_seq_scores[k] = seq_score
 
         if ended_or_invalid_comb.all():
