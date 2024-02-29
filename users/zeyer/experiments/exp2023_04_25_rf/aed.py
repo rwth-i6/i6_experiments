@@ -69,6 +69,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         },
     )
+    # All beam search experiments using model_recog_pure_torch, beam_search_v5.
     for name, recog_config in {
         "beam12-batch200-lenNorm1": {
             # {"dev-clean": 2.35, "dev-other": 5.14, "test-clean": 2.47, "test-other": 5.72}
@@ -163,6 +164,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 **recog_config,
             },
         )
+    # All beam search experiments using model_recog_dyn_beam_pure_torch, beam_search_dyn_beam.
     for name, recog_config in {
         "beam12-batch200-lenNorm1": {
             "beam_search_opts": {
