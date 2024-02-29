@@ -171,7 +171,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "beam_size": 12,
                 "length_normalization_exponent": 1.0,
             },
-            "___test": 1,  # put random stuff here for different hash, for testing until we think it works
         },
         "beam12-batch1-lenNorm1": {
             "beam_search_opts": {
@@ -179,7 +178,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_normalization_exponent": 1.0,
             },
             "max_seqs": 1,
-            "___test": 1,  # put random stuff here for different hash, for testing until we think it works
         },
         "beam12-batch1-lenNorm0": {
             "beam_search_opts": {
@@ -187,7 +185,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_normalization_exponent": 0.0,
             },
             "max_seqs": 1,
-            "___test": 1,  # put random stuff here for different hash, for testing until we think it works
         },
         "beam12-batch200-lenReward01": {
             "beam_search_opts": {
@@ -195,33 +192,32 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_normalization_exponent": 0.0,
                 "length_reward": 0.1,
             },
-            "___test": 2,  # put random stuff here for different hash, for testing until we think it works
         },
-        # "beam60-batch50-lenNorm1": {
-        #     "beam_search_opts": {
-        #         "beam_size": 60,
-        #         "length_normalization_exponent": 1.0,
-        #     },
-        #     "max_seqs": 50,
-        #     "batch_size": 5000 * _batch_size_factor,
-        # },
-        # "beam60-batch50-lenReward01": {
-        #     "beam_search_opts": {
-        #         "beam_size": 60,
-        #         "length_normalization_exponent": 0.0,
-        #         "length_reward": 0.1,
-        #     },
-        #     "max_seqs": 50,
-        #     "batch_size": 5000 * _batch_size_factor,
-        # },
-        # "beam60-batch50-lenNorm0-lenReward0": {
-        #     "beam_search_opts": {
-        #         "beam_size": 60,
-        #         "length_normalization_exponent": 0.0,
-        #     },
-        #     "max_seqs": 50,
-        #     "batch_size": 5000 * _batch_size_factor,
-        # },
+        "beam60-batch50-lenNorm1": {
+            "beam_search_opts": {
+                "beam_size": 60,
+                "length_normalization_exponent": 1.0,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "beam60-batch50-lenReward01": {
+            "beam_search_opts": {
+                "beam_size": 60,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.1,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "beam60-batch50-lenNorm0-lenReward0": {
+            "beam_search_opts": {
+                "beam_size": 60,
+                "length_normalization_exponent": 0.0,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
     }.items():
         for k, v in {
             "beam_search_version": 1,
