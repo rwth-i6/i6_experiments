@@ -244,21 +244,31 @@ def beam_search_dyn_beam(
             for k in list(individual_scores_.keys()):
 
                 seq_score = individual_scores_.pop(k)  # [Batch__|1,Vocab|1]
-                if (
+                if seq_score.shape == (1, 1):
+                    seq_score = seq_score.expand(*target.shape)
+                elif (
                     seq_score.shape[0] == 1 < idx_.shape[0] and seq_score.shape[1] == opts.num_labels
                 ):  # [Batch__=1,Vocab]
-                    raise NotImplementedError(f"seq_score shape {seq_score.shape}, bc Batch__")
+                    raise NotImplementedError(
+                        f"seq_score shape {seq_score.shape}, bc Batch__,"
+                        f" batch__ {idx_.shape[0]}, target shape {target.shape}, vocab {opts.num_labels}"
+                    )
                 elif (
                     seq_score.shape[0] == idx_.shape[0] and seq_score.shape[1] == 1 < opts.num_labels
                 ):  # [Batch__,Vocab=1]
-                    raise NotImplementedError(f"seq_score shape {seq_score.shape}, bc Vocab")
+                    raise NotImplementedError(
+                        f"seq_score shape {seq_score.shape}, bc Vocab,"
+                        f" batch__ {idx_.shape[0]}, target shape {target.shape}, vocab {opts.num_labels}"
+                    )
                 elif seq_score.shape[0] == idx_.shape[0] and seq_score.shape[1] == opts.num_labels:  # [Batch__,Vocab]
                     seq_score_ = seq_score.flatten()[backrefs_prev_was_active__]  # [Batch_PA]
                     seq_score = torch.full(target.shape, 0.0, device=device)  # [Batch,ActBeam+EndedBeam]
                     seq_score.masked_scatter_(prev_was_active, seq_score_)
                 else:
-                    assert seq_score.shape == (1, 1)
-                    seq_score = seq_score.expand(*target.shape)
+                    raise RuntimeError(
+                        f"did not expect seq_score shape {seq_score.shape},"
+                        f" batch__ {idx_.shape[0]}, target shape {target.shape}, vocab {opts.num_labels}"
+                    )
 
                 if k in out_individual_seq_scores:
                     prev_seq_score = out_individual_seq_scores[k]
