@@ -72,6 +72,7 @@ def beam_search_dyn_beam(
     # Initial state.
     max_act_beam_size = 1  # size of InActBeam
     active_beam_sizes = torch.full([batch_size], 1, device=device)  # [Batch] (not Batch_)
+    active = torch.full([batch_size, 1], True, device=device)  # [Batch,InActBeam]
     batch_idx_ = torch.arange(batch_size, dtype=torch.int32, device=device)  # [Batch_] -> Batch
     state_ = label_scorer.get_initial_state(batch_size=batch_size, device=device)  # [Batch_]
     target_ = torch.full([batch_size], opts.bos_label, device=device)  # [Batch_]
@@ -80,7 +81,6 @@ def beam_search_dyn_beam(
     ended_seq_len = None  # [Batch,InEndedBeam]
     max_ended_beam_size = 0
     ended = None
-    active = torch.full([batch_size, 1], True, device=device)  # [Batch,InActBeam]
 
     bad_score = -1.0e30
 
