@@ -148,16 +148,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_opts": {
                 "beam_size": 12,
                 "length_normalization_exponent": 1.0,
-                "___test": 1,  # put random stuff here for different hash, for testing until we think it works
-            }
+            },
+            "___test": 1,  # put random stuff here for different hash, for testing until we think it works
         },
-        # "beam12-batch200-lenReward01": {
-        #     "beam_search_opts": {
-        #         "beam_size": 12,
-        #         "length_normalization_exponent": 0.0,
-        #         "length_reward": 0.1,
-        #     }
-        # },
+        "beam12-batch200-lenReward01": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.1,
+            },
+            "___test": 1,  # put random stuff here for different hash, for testing until we think it works
+        },
         # "beam60-batch50-lenNorm1": {
         #     "beam_search_opts": {
         #         "beam_size": 60,
