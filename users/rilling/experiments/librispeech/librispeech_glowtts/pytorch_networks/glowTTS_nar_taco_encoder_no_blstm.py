@@ -18,6 +18,7 @@ from .monotonic_align import maximum_path
 
 from .feature_extraction import DbMelFeatureExtraction
 from ..glowTTS.feature_config import DbMelFeatureExtractionConfig
+from .eval_forward import *
 
 class Config:
     def __init__(self, **kwargs):
@@ -26,7 +27,7 @@ class Config:
     @classmethod
     def from_dict(cls, d):
         return cls(**d)
-    
+
 @dataclass()
 class NarEncoderConfig(Config):
     label_in_dim: int

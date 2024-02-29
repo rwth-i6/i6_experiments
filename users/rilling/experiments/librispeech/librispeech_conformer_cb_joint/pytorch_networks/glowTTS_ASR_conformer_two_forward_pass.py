@@ -376,10 +376,13 @@ class Model(nn.Module):
         noise_scale=1.0,
         length_scale=1.0,
     ):
-        with torch.no_grad():
-            squeezed_audio = torch.squeeze(raw_audio)
-            y, y_lengths = self.feature_extraction(squeezed_audio, raw_audio_lengths)  # [B, T, F]
-            y = y.transpose(1, 2)  # [B, F, T]
+        if not gen:
+            with torch.no_grad():
+                squeezed_audio = torch.squeeze(raw_audio)
+                y, y_lengths = self.feature_extraction(squeezed_audio, raw_audio_lengths)  # [B, T, F]
+                y = y.transpose(1, 2)  # [B, F, T]
+        else:
+            y, y_lengths = (None, None)
 
         if not recognition:
             if g is not None:
@@ -571,12 +574,10 @@ def forward_step(*, model: Model, data, run_ctx, **kwargs):
 
     tags = data["seq_tag"]
 
-    speaker_x_vector = run_ctx.speaker_x_vectors[speaker_labels.detach().cpu().numpy(), :].squeeze(1)
-
     (log_mels, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(
         phonemes,
         phonemes_len,
-        g=speaker_x_vector.to(run_ctx.device),
+        g=speaker_labels,
         gen=True,
         noise_scale=kwargs["noise_scale"],
         length_scale=kwargs["length_scale"],

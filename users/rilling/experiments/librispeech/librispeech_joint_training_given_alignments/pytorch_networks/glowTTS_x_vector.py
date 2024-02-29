@@ -18,6 +18,7 @@ from .monotonic_align import maximum_path
 from .shared.feature_extraction import DbMelFeatureExtraction
 from .shared.configs import DbMelFeatureExtractionConfig, ModelConfigV1
 
+from .shared.eval_forward import *
 
 class XVector(nn.Module):
     def __init__(self, input_dim=40, num_classes=8, **kwargs):
@@ -608,9 +609,6 @@ def forward_init_hook(run_ctx, **kwargs):
 
     run_ctx.generator = generator
 
-    run_ctx.speaker_x_vectors = torch.load(
-        "/work/asr3/rossenbach/rilling/sisyphus_work_dirs/glow_tts_asr_v2/i6_core/returnn/forward/ReturnnForwardJob.U6UwGhE7ENbp/output/output_pooled.hdf"
-    )
 
 def forward_finish_hook(run_ctx, **kwargs):
     pass
@@ -624,15 +622,17 @@ def forward_step(*, model: Model, data, run_ctx, **kwargs):
     phonemes_len = data["phonemes:size1"]  # [B]
     speaker_labels = data["speaker_labels"]  # [B, 1] (sparse)
     audio_features = data["audio_features"]
+    x_vector = data["xvectors"]
 
     tags = data["seq_tag"]
 
-    speaker_x_vector = run_ctx.speaker_x_vectors[speaker_labels.detach().cpu().numpy(), :].squeeze(1)
+    # speaker_x_vector = run_ctx.speaker_x_vectors[speaker_labels.detach().cpu().numpy(), :].squeeze(1)
+
 
     (log_mels, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(
         phonemes,
         phonemes_len,
-        g=speaker_x_vector.to(run_ctx.device),
+        g=x_vector,
         gen=True,
         noise_scale=kwargs["noise_scale"],
         length_scale=kwargs["length_scale"],

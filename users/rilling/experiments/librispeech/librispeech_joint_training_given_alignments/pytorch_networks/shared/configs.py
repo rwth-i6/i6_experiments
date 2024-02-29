@@ -128,6 +128,19 @@ class TextEncoderConfig(ModelConfiguration):
         d = d.copy()
         return TextEncoderConfig(**d)
 
+@dataclass
+class EmbeddingTextEncoderConfig(ModelConfiguration):
+    n_vocab: Union[tk.Variable, int]
+    hidden_channels: int
+    filter_channels_dp: int
+    kernel_size: int
+    p_dropout: float
+    mean_only: bool
+
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        return EmbeddingTextEncoderConfig(**d)
 
 @dataclass
 class PhonemePredictionConfig(ModelConfiguration):
@@ -139,6 +152,19 @@ class PhonemePredictionConfig(ModelConfiguration):
     def from_dict(cls, d):
         d = d.copy()
         return PhonemePredictionConfig(**d)
+
+
+@dataclass
+class PhonemePredictionConfigCNN(ModelConfiguration):
+    n_channels: int
+    n_layers: int
+    kernel_size: int
+    p_dropout: float
+
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        return PhonemePredictionConfigCNN(**d)
 
 
 @dataclass
@@ -167,21 +193,28 @@ class ModelConfigV1:
 
 @dataclass
 class ModelConfigV2:
-    specaug_config: Union[SpecaugConfig, None]
     decoder_config: FlowDecoderConfig
-    text_encoder_config: TextEncoderConfig
-    phoneme_prediction_config: Optional[PhonemePredictionConfig]
-    specauc_start_epoch: int
+    text_encoder_config: Union[TextEncoderConfig, EmbeddingTextEncoderConfig]
     label_target_size: int
     out_channels: int
     gin_channels: int
     n_speakers: Union[tk.Variable, int]
+    specauc_start_epoch: Optional[int] = None
+    phoneme_prediction_config: Optional[Union[PhonemePredictionConfig, PhonemePredictionConfigCNN]] = None
+    specaug_config: Optional[SpecaugConfig] = None
 
     @classmethod
     def from_dict(cls, d):
         d = d.copy()
         d["specaug_config"] = SpecaugConfig.from_dict(d["specaug_config"])
         d["decoder_config"] = FlowDecoderConfig.from_dict(d["decoder_config"])
-        d["text_encoder_config"] = TextEncoderConfig.from_dict(d["text_encoder_config"])
-        d["phoneme_prediction_config"] = PhonemePredictionConfig.from_dict(d["phoneme_prediction_config"])
+        if "n_heads" in d["text_encoder_config"].keys():
+            d["text_encoder_config"] = TextEncoderConfig.from_dict(d["text_encoder_config"])
+        else: 
+            d["text_encoder_config"] = EmbeddingTextEncoderConfig.from_dict(d["text_encoder_config"])
+        if "phoneme_prediction_config" in d.keys() and d["phoneme_prediction_config"] is not None:
+            if "kernel_size" not in d["phoneme_prediction_config"].keys():
+                d["phoneme_prediction_config"] = PhonemePredictionConfig.from_dict(d["phoneme_prediction_config"])
+            else:
+                d["phoneme_prediction_config"] = PhonemePredictionConfigCNN.from_dict(d["phoneme_prediction_config"])
         return ModelConfigV2(**d)

@@ -14,7 +14,9 @@ from .shared import attentions
 from .monotonic_align import maximum_path
 
 from .shared.feature_extraction import DbMelFeatureExtraction
-from .shared.configs import DbMelFeatureExtractionConfig, ModelConfig
+from .shared.configs import DbMelFeatureExtractionConfig, ModelConfigV1
+
+from .shared.eval_forward import *
 
 
 class DurationPredictor(nn.Module):
@@ -358,7 +360,7 @@ class Model(nn.Module):
             prenet (bool, optional): Boolean to add ConvReluNorm prenet before encoder . Defaults to False.
         """
         super().__init__()
-        self.cfg = ModelConfig.from_dict(model_config)
+        self.cfg = ModelConfigV1.from_dict(model_config)
         self.n_vocab = self.cfg.text_encoder_config.n_vocab
         self.hidden_channels = self.cfg.text_encoder_config.hidden_channels
         self.filter_channels = self.cfg.text_encoder_config.filter_channels

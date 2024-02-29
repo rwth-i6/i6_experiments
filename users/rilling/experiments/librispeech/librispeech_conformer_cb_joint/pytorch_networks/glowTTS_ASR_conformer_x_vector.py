@@ -420,11 +420,14 @@ class Model(nn.Module):
         noise_scale=1.0,
         length_scale=1.0,
     ):
-        with torch.no_grad():
-            squeezed_audio = torch.squeeze(raw_audio)
-            y, y_lengths = self.feature_extraction(squeezed_audio, raw_audio_lengths)  # [B, T, F]
-            y = y.transpose(1, 2)  # [B, F, T]
-            _, _, g = self.x_vector(y, y_lengths)
+        if not gen:
+            with torch.no_grad():
+                squeezed_audio = torch.squeeze(raw_audio)
+                y, y_lengths = self.feature_extraction(squeezed_audio, raw_audio_lengths)  # [B, T, F]
+                y = y.transpose(1, 2)  # [B, F, T]
+                _, _, g = self.x_vector(y, y_lengths)
+        else:
+            y, y_lengths = (None, None)
 
         if not recognition:
             x_m, x_logs, logw, x_mask = self.encoder(x, x_lengths, g=g)  # mean, std logs, duration logs, mask

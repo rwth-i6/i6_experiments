@@ -342,7 +342,7 @@ def get_audio_raw_datastream():
 # --------------------------- Dataset functions  -----------------------------------
 
 
-def make_meta_dataset(audio_dataset, speaker_dataset, asr_text_dataset, duration_dataset=None):
+def make_meta_dataset(audio_dataset, speaker_dataset, asr_text_dataset, duration_dataset=None, xvector_dataset=None):
     """
     Shared function to create a metadatset with joined audio and speaker information
 
@@ -367,6 +367,10 @@ def make_meta_dataset(audio_dataset, speaker_dataset, asr_text_dataset, duration
         data_map["durations"] = ("durations", "data")
         ds["durations"] = duration_dataset.as_returnn_opts()
 
+    if xvector_dataset is not None:
+        data_map["xvectors"] = ("xvectors", "data")
+        ds["xvectors"] = xvector_dataset.as_returnn_opts()
+
     meta_dataset = MetaDataset(
         data_map=data_map,
         datasets=ds,
@@ -381,6 +385,7 @@ def build_training_dataset(
     silence_preprocessing=False,
     use_tts_train_segments=False,
     durations_file=None,
+    xvectors_file=None,
 ) -> TrainingDataset:
     """
 
@@ -390,6 +395,10 @@ def build_training_dataset(
     assert durations_file is None or (
         durations_file is not None and use_tts_train_segments
     ), "Using TTS Train Segments is mandatory when using external durations"
+
+    assert xvectors_file is None or (
+        xvectors_file is not None and use_tts_train_segments
+    ), "Using TTS Train Segments is mandatory when using average x-vector speaker embeddings."
 
     if use_tts_train_segments:
         train_segments, cv_segments = get_librispeech_tts_segments(ls_corpus_key=librispeech_key)
@@ -463,6 +472,13 @@ def build_training_dataset(
     else:
         duration_dataset, duration_dataset_train, duration_dataset_cv = (None, None, None)
 
+    if xvectors_file is not None:
+        xvector_dataset = HDFDataset(files=[xvectors_file])
+        xvector_dataset_train = HDFDataset(files=[xvectors_file], segment_file=train_segments)
+        xvector_dataset_cv = HDFDataset(files=[xvectors_file], segment_file=cv_segments)
+    else:
+        xvector_dataset, xvector_dataset_train, xvector_dataset_cv = (None, None, None)
+
     training_audio_opts = audio_datastream.as_returnn_audio_opts()
     if settings.custom_processing_function:
         training_audio_opts["pre_process"] = CodeWrapper(settings.custom_processing_function)
@@ -482,7 +498,7 @@ def build_training_dataset(
         seq_ordering=settings.seq_ordering,
         additional_options=additional_opts,
     )
-    train_dataset = make_meta_dataset(train_zip_dataset, joint_speaker_dataset, train_eow_phonemes_dataset, duration_dataset=duration_dataset_train)
+    train_dataset = make_meta_dataset(train_zip_dataset, joint_speaker_dataset, train_eow_phonemes_dataset, duration_dataset=duration_dataset_train, xvector_dataset=xvector_dataset_train)
 
     cv_zip_dataset_asr = OggZipDataset(
         files=[dev_clean_ogg, dev_other_ogg],
@@ -500,7 +516,7 @@ def build_training_dataset(
         segment_file=cv_segments,
         seq_ordering="sorted",
     )
-    cv_dataset = make_meta_dataset(cv_zip_dataset, joint_speaker_dataset, cv_eow_phonemes_dataset, duration_dataset=duration_dataset_cv)
+    cv_dataset = make_meta_dataset(cv_zip_dataset, joint_speaker_dataset, cv_eow_phonemes_dataset, duration_dataset=duration_dataset_cv, xvector_dataset=xvector_dataset_cv)
 
     devtrain_zip_dataset = OggZipDataset(
         files=train_ogg,
@@ -509,7 +525,7 @@ def build_training_dataset(
         seq_ordering="sorted_reverse",
         random_subset=3000,
     )
-    devtrain_dataset = make_meta_dataset(devtrain_zip_dataset, joint_speaker_dataset, train_eow_phonemes_dataset, duration_dataset=duration_dataset)
+    devtrain_dataset = make_meta_dataset(devtrain_zip_dataset, joint_speaker_dataset, train_eow_phonemes_dataset, duration_dataset=duration_dataset, xvector_dataset=xvector_dataset)
 
     return TrainingDataset(train=train_dataset, cv=cv_dataset, cv_asr=cv_dataset_asr, devtrain=devtrain_dataset, datastreams=datastreams)
 

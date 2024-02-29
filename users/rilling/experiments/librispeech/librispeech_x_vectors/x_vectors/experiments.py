@@ -10,6 +10,8 @@ from .pipeline import x_vector_training, x_vector_forward
 
 from ..default_tools import RETURNN_COMMON, RETURNN_PYTORCH_EXE, MINI_RETURNN_ROOT
 
+from ..storage import add_x_vector_extraction
+
 
 def get_pytorch_xvector():
     """
@@ -64,6 +66,8 @@ def get_pytorch_xvector():
             returnn_root=MINI_RETURNN_ROOT,
             prefix=prefix + name,
         )
+
+        add_x_vector_extraction(name, tts_hdf, average=True)
 
         return train_job
 

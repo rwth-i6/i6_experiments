@@ -490,7 +490,6 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
 ############# FORWARD STUFF ################
 import numpy as np
 
-
 def forward_init_hook(run_ctx, **kwargs):
     run_ctx.hdf_writer = SimpleHDFWriter("output.hdf", dim=1, ndim=1)
     run_ctx.pool = multiprocessing.Pool(8)

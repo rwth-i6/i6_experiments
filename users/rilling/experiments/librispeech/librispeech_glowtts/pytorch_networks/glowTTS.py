@@ -18,6 +18,8 @@ from .monotonic_align import maximum_path
 from .feature_extraction import DbMelFeatureExtraction
 from ..glowTTS.feature_config import DbMelFeatureExtractionConfig
 
+from .eval_forward import *
+
 
 class DurationPredictor(nn.Module):
     """
@@ -686,3 +688,4 @@ def forward_step_latent_space(*, model: Model, data, run_ctx, **kwargs):
     means = z_m.transpose(2, 1).detach().cpu().numpy()
     run_ctx.hdf_writer_samples.insert_batch(samples, y_lengths.detach().cpu().numpy(), tags)
     run_ctx.hdf_writer_mean.insert_batch(means, y_lengths.detach().cpu().numpy(), tags)
+

@@ -127,63 +127,42 @@ def get_pytorch_serializer(
             serializer_objects.extend(
                 [vocoder_dependencies, forward_step, init_hook, finish_hook]
             )
-        elif target == "spectrograms":
-            forward_step = PartialImport(
-                code_object_path=package + ".%s.forward_step_spectrograms" % network_module,
+        elif "corpus" in target:
+            vocoder_dependencies = ExternalImport(
+                tk.Path("/u/lukas.rilling/src/vocoder_collection/univnet", hash_overwrite="UNIVNET_TOOLS")
+            )
+            forward_step = Import(
+                code_object_path=package + f".{network_module}.forward_step_{target}",
+                unhashed_package_root=PACKAGE,
+                import_as="forward_step"
+            )
+            init_hook = PartialImport(
+                code_object_path=package + f".{network_module}.forward_init_hook_{target}", 
                 unhashed_package_root=PACKAGE,
                 hashed_arguments=forward_args or {},
                 unhashed_arguments={},
-                import_as="forward_step"
-            )
-            init_hook = Import(
-                code_object_path=package + ".%s.forward_init_hook_spectrograms" % network_module,
-                unhashed_package_root=PACKAGE,
                 import_as="forward_init_hook"
             )
             finish_hook = Import(
-                code_object_path=package + ".%s.forward_finish_hook_spectrograms" % network_module,
-                unhashed_package_root=PACKAGE,
+                code_object_path=package + f".{network_module}.forward_finish_hook_{target}", unhashed_package_root=PACKAGE,
                 import_as="forward_finish_hook"
             )
-            serializer_objects.extend(
-                [forward_step, init_hook, finish_hook]
-            )
-        elif target == "durations":
+            serializer_objects.extend([vocoder_dependencies, forward_step, init_hook, finish_hook])
+        else:
             forward_step = PartialImport(
-                code_object_path=package + ".%s.forward_step_durations" % network_module,
+                code_object_path=package + f".{network_module}.forward_step_{target}",
                 unhashed_package_root=PACKAGE,
                 hashed_arguments=forward_args or {},
                 unhashed_arguments={},
                 import_as="forward_step"
             )
             init_hook = Import(
-                code_object_path=package + ".%s.forward_init_hook_durations" % network_module,
+                code_object_path=package + f".{network_module}.forward_init_hook_{target}",
                 unhashed_package_root=PACKAGE,
                 import_as="forward_init_hook"
             )
             finish_hook = Import(
-                code_object_path=package + ".%s.forward_finish_hook_durations" % network_module,
-                unhashed_package_root=PACKAGE,
-                import_as="forward_finish_hook"
-            )
-            serializer_objects.extend(
-                [forward_step, init_hook, finish_hook]
-            )
-        elif target == "latent_space":
-            forward_step = PartialImport(
-                code_object_path=package + ".%s.forward_step_latent_space" % network_module,
-                unhashed_package_root=PACKAGE,
-                hashed_arguments=forward_args or {},
-                unhashed_arguments={},
-                import_as="forward_step"
-            )
-            init_hook = Import(
-                code_object_path=package + ".%s.forward_init_hook_latent_space" % network_module,
-                unhashed_package_root=PACKAGE,
-                import_as="forward_init_hook"
-            )
-            finish_hook = Import(
-                code_object_path=package + ".%s.forward_finish_hook_latent_space" % network_module,
+                code_object_path=package + f".{network_module}.forward_finish_hook_{target}",
                 unhashed_package_root=PACKAGE,
                 import_as="forward_finish_hook"
             )

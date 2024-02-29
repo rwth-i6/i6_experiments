@@ -17,6 +17,7 @@ from .monotonic_align import maximum_path
 
 from .feature_extraction import DbMelFeatureExtraction
 from ..glowTTS.feature_config import DbMelFeatureExtractionConfig
+from .eval_forward import *
 
 
 class DurationPredictor(nn.Module):

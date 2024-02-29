@@ -26,6 +26,8 @@ from .shared.configs import (
     ModelConfigV2
 )
 
+from returnn.datasets.hdf import SimpleHDFWriter
+
 from .shared.feature_extraction import DbMelFeatureExtraction
 from .shared.spec_augment import apply_spec_aug
 from .shared.mask import mask_tensor
@@ -36,9 +38,9 @@ from .shared import attentions
 from .monotonic_align import maximum_path
 
 from .shared.forward import search_init_hook, search_finish_hook
+from .shared.eval_forward import *
 
 from IPython import embed
-
 
 class XVector(nn.Module):
     def __init__(self, input_dim=40, num_classes=8, **kwargs):
@@ -375,12 +377,18 @@ class Model(nn.Module):
     def forward(
         self, x=None, x_lengths=None, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, recognition=False, noise_scale=1.0, length_scale=1.0
     ):
-        with torch.no_grad():
-            squeezed_audio = torch.squeeze(raw_audio)
-            y, y_lengths = self.feature_extraction(squeezed_audio, raw_audio_lengths)  # [B, T, F]
-            y = y.transpose(1, 2)  # [B, F, T]
-            self.x_vector.eval()
-            _, _, g = self.x_vector(y, y_lengths)
+        if not gen:
+            with torch.no_grad():
+                squeezed_audio = torch.squeeze(raw_audio)
+                y, y_lengths = self.feature_extraction(squeezed_audio, raw_audio_lengths)  # [B, T, F]
+                y = y.transpose(1, 2)  # [B, F, T]
+                self.x_vector.eval()
+                _, _, g = self.x_vector(y, y_lengths)
+        else:
+            y, y_lengths = (None, None)
+
+        assert (not gen) or (gen and (g is not None)), "Generating speech without given speaker embedding is not supported!"
+
         g = self.x_vector_bottleneck(g)
 
         if not recognition:
@@ -433,7 +441,7 @@ class Model(nn.Module):
             # log_probs = torch.log_softmax(logits, dim=2)
 
             if recognition:
-                return logits, torch.sum(mask, dim=1)
+                return logits, y_lengths, z_mask
             else:
                 with torch.no_grad():
                     x_s_sq_r = torch.exp(-2 * x_logs)
@@ -508,30 +516,13 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
 
     mask = commons.sequence_mask(y_lengths)
     ce_losses = nn.functional.cross_entropy(logits.transpose(1, 2), upsampled_phonemes.long(), reduction="none")
-    # breakpoint()
     ce_loss = (ce_losses * mask.float()).sum() / mask.float().sum()
 
-    # transposed_logprobs = torch.permute(logprobs, (1, 0, 2))
-    # l_ctc = nn.functional.ctc_loss(
-    #     transposed_logprobs,
-    #     phonemes_eow,
-    #     input_lengths=ctc_input_length,
-    #     target_lengths=phonemes_eow_len,
-    #     blank=model.cfg.label_target_size,
-    #     reduction="sum",
-    #     zero_infinity=True,
-    # )
+    ce_loss_scale = 1.0 if "ce_loss_scale" not in kwargs else kwargs["ce_loss_scale"]
 
     run_ctx.mark_as_loss(name="mle", loss=l_mle)
     run_ctx.mark_as_loss(name="dp", loss=l_dp)
-    run_ctx.mark_as_loss(name="ce", loss=ce_loss)
-
-    # num_phonemes = torch.sum(phonemes_eow_len)
-    # if "ctc_scale" in kwargs:
-    #     ctc_scale = kwargs["ctc_scale"]
-    # else:
-    #     ctc_scale = 1
-    # run_ctx.mark_as_loss(name="ctc", loss=l_ctc, inv_norm_factor=num_phonemes, scale=ctc_scale)
+    run_ctx.mark_as_loss(name="ce", loss=ce_loss, scale=ce_loss_scale)
 
 
 def forward_init_hook(run_ctx, **kwargs):
@@ -599,75 +590,130 @@ def forward_step(*, model: Model, data, run_ctx, **kwargs):
     for audio, tag in zip(audios, tags):
         soundfile.write(f"/var/tmp/lukas.rilling/out/" + tag.replace("/", "_") + ".wav", audio[0], 16000)
 
-def search_init_hook(run_ctx, **kwargs):
-    # we are storing durations, but call it output.hdf to match
-    # the default output of the ReturnnForwardJob
-    from torchaudio.models.decoder import ctc_decoder
-    run_ctx.recognition_file = open("search_out.py", "wt")
-    run_ctx.recognition_file.write("{\n")
-    import subprocess
-    if kwargs["arpa_lm"] is not None:
-        lm = subprocess.check_output(["cf", kwargs["arpa_lm"]]).decode().strip()
-    else:
-        lm = None
-    from returnn.datasets.util.vocabulary import Vocabulary
-    vocab = Vocabulary.create_vocab(
-        vocab_file=kwargs["returnn_vocab"], unknown_label=None)
-    labels = vocab.labels
 
-    run_ctx.ctc_decoder = ctc_decoder(
-        lexicon=kwargs["lexicon"],
-        lm=lm,
-        lm_weight=kwargs["lm_weight"],
-        tokens=labels + ["[blank]", "[SILENCE]", "[UNK]"],
-        # "[SILENCE]" and "[UNK]" are not actually part of the vocab,
-        # but the decoder is happy as long they are defined in the token list
-        # even if they do not exist as label index in the softmax output,
-        blank_token="[blank]",
-        sil_token="[SILENCE]",
-        unk_word="[unknown]",
-        nbest=1,
-        beam_size=kwargs["beam_size"],
-        beam_size_token=kwargs.get("beam_size_token", None),
-        beam_threshold=kwargs["beam_threshold"],
-        sil_score=kwargs.get("sil_score", 0.0),
-        word_score=kwargs.get("word_score", 0.0),
-    )
-    run_ctx.labels = labels
-    run_ctx.blank_log_penalty = kwargs.get("blank_log_penalty", None)
+def phoneme_prediction_init_hook(run_ctx, **kwargs):
+    run_ctx.hdf_writer = SimpleHDFWriter("output.hdf", dim=1, ndim=1)
+    run_ctx.pool = multiprocessing.Pool(8)
 
-    if kwargs.get("prior_file", None):
-        run_ctx.prior = np.loadtxt(kwargs["prior_file"], dtype="float32")
-        run_ctx.prior_scale = kwargs["prior_scale"]
-    else:
-        run_ctx.prior = None
 
-def search_finish_hook(run_ctx, **kwargs):
-    run_ctx.recognition_file.write("}\n")
-    run_ctx.recognition_file.close()
+def phoneme_prediction_finish_hook(run_ctx, **kwargs):
+    run_ctx.hdf_writer.close()
 
-def search_step(*, model, data, run_ctx, **kwargs):
-    raw_audio = data["raw_audio"]  # [B, T', F]
-    raw_audio_len = data["raw_audio:size1"]  # [B]
 
-    logprobs, audio_features_len = model(
-        raw_audio=raw_audio,
-        raw_audio_lengths=raw_audio_len,
-        recognition=True
-    )
-
+def phoneme_prediction_step(*, model: Model, data, run_ctx, **kwargs):
+    """
+    :param Model model: _description_
+    :param _type_ data: _description_
+    :param _type_ run_ctx: _description_
+    """
     tags = data["seq_tag"]
+    audio_features = data["audio_features"]  # [B, T, F]
+    # audio_features = audio_features.transpose(1, 2) # [B, F, T] necessary because glowTTS expects the channels to be in the 2nd dimension
+    audio_features_len = data["audio_features:size1"]  # [B]
 
-    logprobs_cpu = logprobs.cpu()
-    if run_ctx.blank_log_penalty is not None:
-        # assumes blank is last
-        logprobs_cpu[:, :, -1] -= run_ctx.blank_log_penalty
-    if run_ctx.prior is not None:
-        logprobs_cpu -= run_ctx.prior_scale * run_ctx.prior
-    hypothesis = run_ctx.ctc_decoder(logprobs_cpu, audio_features_len.cpu())
+    # perform local length sorting for more efficient packing
+    audio_features_len, indices = torch.sort(audio_features_len, descending=True)
 
-    for hyp, tag in zip(hypothesis, tags):
-        words = hyp[0].words
-        sequence = " ".join([word for word in words if not word.startswith("[")])
-        print(sequence)
-        run_ctx.recognition_file.write("%s: %s,\n" % (repr(tag), repr(sequence)))
+    audio_features = audio_features[indices, :, :]
+    phonemes = data["phonemes"][indices, :]  # [B, T] (sparse)
+    phonemes_len = data["phonemes:size1"][indices]  # [B, T]
+    speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
+    durations = data["durations"][indices]
+
+    tags = list(np.array(tags)[indices.detach().cpu().numpy()])
+
+    # print(f"phoneme shape: {phonemes.shape}")
+    # print(f"phoneme length: {phonemes_len}")
+    # print(f"audio_feature shape: {audio_features.shape}")
+    # print(f"audio_feature length: {audio_features_len}")
+    logits, y_lengths, z_mask = model(raw_audio=audio_features, raw_audio_lengths=audio_features_len, g=speaker_labels, recognition=True)
+    x_mask = torch.unsqueeze(commons.sequence_mask(phonemes_len, phonemes.size(1)), 1).to(phonemes.dtype)
+
+    attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
+    given_attn = commons.generate_path(durations.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
+
+    upsampled_phonemes = torch.matmul(given_attn.squeeze(1).transpose(1, 2), phonemes.unsqueeze(-1)).squeeze(-1)
+
+    mask = commons.sequence_mask(y_lengths)
+    pred = torch.softmax(logits, dim=2).argmax(dim=2)
+
+    accuracies = (
+        (((pred == upsampled_phonemes) * mask).sum(dim=1) / y_lengths).unsqueeze(-1).unsqueeze(-1).detach().cpu()
+    )
+
+    for tag, acc in zip(tags, accuracies):
+        run_ctx.hdf_writer.insert_batch(np.array(acc), [1], [tag])
+
+
+# def search_init_hook(run_ctx, **kwargs):
+#     # we are storing durations, but call it output.hdf to match
+#     # the default output of the ReturnnForwardJob
+#     from torchaudio.models.decoder import ctc_decoder
+#     run_ctx.recognition_file = open("search_out.py", "wt")
+#     run_ctx.recognition_file.write("{\n")
+#     import subprocess
+#     if kwargs["arpa_lm"] is not None:
+#         lm = subprocess.check_output(["cf", kwargs["arpa_lm"]]).decode().strip()
+#     else:
+#         lm = None
+#     from returnn.datasets.util.vocabulary import Vocabulary
+#     vocab = Vocabulary.create_vocab(
+#         vocab_file=kwargs["returnn_vocab"], unknown_label=None)
+#     labels = vocab.labels
+
+#     run_ctx.ctc_decoder = ctc_decoder(
+#         lexicon=kwargs["lexicon"],
+#         lm=lm,
+#         lm_weight=kwargs["lm_weight"],
+#         tokens=labels + ["[blank]", "[SILENCE]", "[UNK]"],
+#         # "[SILENCE]" and "[UNK]" are not actually part of the vocab,
+#         # but the decoder is happy as long they are defined in the token list
+#         # even if they do not exist as label index in the softmax output,
+#         blank_token="[blank]",
+#         sil_token="[SILENCE]",
+#         unk_word="[unknown]",
+#         nbest=1,
+#         beam_size=kwargs["beam_size"],
+#         beam_size_token=kwargs.get("beam_size_token", None),
+#         beam_threshold=kwargs["beam_threshold"],
+#         sil_score=kwargs.get("sil_score", 0.0),
+#         word_score=kwargs.get("word_score", 0.0),
+#     )
+#     run_ctx.labels = labels
+#     run_ctx.blank_log_penalty = kwargs.get("blank_log_penalty", None)
+
+#     if kwargs.get("prior_file", None):
+#         run_ctx.prior = np.loadtxt(kwargs["prior_file"], dtype="float32")
+#         run_ctx.prior_scale = kwargs["prior_scale"]
+#     else:
+#         run_ctx.prior = None
+
+# def search_finish_hook(run_ctx, **kwargs):
+#     run_ctx.recognition_file.write("}\n")
+#     run_ctx.recognition_file.close()
+
+# def search_step(*, model, data, run_ctx, **kwargs):
+#     raw_audio = data["raw_audio"]  # [B, T', F]
+#     raw_audio_len = data["raw_audio:size1"]  # [B]
+
+#     logprobs, audio_features_len = model(
+#         raw_audio=raw_audio,
+#         raw_audio_lengths=raw_audio_len,
+#         recognition=True
+#     )
+
+#     tags = data["seq_tag"]
+
+#     logprobs_cpu = logprobs.cpu()
+#     if run_ctx.blank_log_penalty is not None:
+#         # assumes blank is last
+#         logprobs_cpu[:, :, -1] -= run_ctx.blank_log_penalty
+#     if run_ctx.prior is not None:
+#         logprobs_cpu -= run_ctx.prior_scale * run_ctx.prior
+#     hypothesis = run_ctx.ctc_decoder(logprobs_cpu, audio_features_len.cpu())
+
+#     for hyp, tag in zip(hypothesis, tags):
+#         words = hyp[0].words
+#         sequence = " ".join([word for word in words if not word.startswith("[")])
+#         print(sequence)
+#         run_ctx.recognition_file.write("%s: %s,\n" % (repr(tag), repr(sequence)))

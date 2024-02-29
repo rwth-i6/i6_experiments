@@ -2,6 +2,8 @@ from sisyphus import tk
 from i6_core.returnn import ReturnnTrainingJob
 from i6_core.returnn.forward import ReturnnForwardJob
 
+from i6_experiments.users.rilling.speakers.pooling import AverageXVectorSpeakerEmbeddingsJob
+
 def x_vector_training(config, returnn_exe, returnn_root, prefix, num_epochs=65):
 
     train_job = ReturnnTrainingJob(
@@ -39,4 +41,12 @@ def x_vector_forward(checkpoint, config, returnn_exe, returnn_root, prefix):
     tts_hdf = last_forward_job.out_hdf_files["output.hdf"]
     tk.register_output(forward_prefix, tts_hdf)
 
-    return tts_hdf
+    pooling_job = AverageXVectorSpeakerEmbeddingsJob(
+        x_vector_hdf=tts_hdf,
+        returnn_root=returnn_root
+    )
+
+    pooled_hdf = pooling_job.out_hdf
+    tk.register_output(forward_prefix + ".average", pooled_hdf)
+
+    return pooled_hdf

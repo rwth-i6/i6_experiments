@@ -78,7 +78,7 @@ def make_meta_dataset(audio_dataset, speaker_dataset, duration_dataset=None):
 def build_training_dataset(
     librispeech_key: str,
     settings: TrainingDatasetSettings,
-    silence_preprocessing=False,
+    silence_preprocessing=False
 ) -> TrainingDataset:
     """
 

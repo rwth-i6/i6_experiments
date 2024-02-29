@@ -21,6 +21,7 @@ from torchaudio.functional import mask_along_axis
 
 from i6_models.parts.blstm import BlstmEncoderV1, BlstmEncoderV1Config
 
+from returnn.datasets.hdf import SimpleHDFWriter
 
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.assemblies.conformer.conformer_v1 import ConformerEncoderV1Config
@@ -430,7 +431,7 @@ class Model(nn.Module):
             # log_probs = torch.log_softmax(logits, dim=2)
 
             if recognition:
-                return logits, torch.sum(mask, dim=1)
+                return logits, y_lengths, z_mask
             else:
                 with torch.no_grad():
                     x_s_sq_r = torch.exp(-2 * x_logs)
@@ -505,30 +506,13 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
 
     mask = commons.sequence_mask(y_lengths)
     ce_losses = nn.functional.cross_entropy(logits.transpose(1, 2), upsampled_phonemes.long(), reduction="none")
-    # breakpoint()
     ce_loss = (ce_losses * mask.float()).sum() / mask.float().sum()
 
-    # transposed_logprobs = torch.permute(logprobs, (1, 0, 2))
-    # l_ctc = nn.functional.ctc_loss(
-    #     transposed_logprobs,
-    #     phonemes_eow,
-    #     input_lengths=ctc_input_length,
-    #     target_lengths=phonemes_eow_len,
-    #     blank=model.cfg.label_target_size,
-    #     reduction="sum",
-    #     zero_infinity=True,
-    # )
+    ce_loss_scale = 1.0 if "ce_loss_scale" not in kwargs else kwargs["ce_loss_scale"]
 
     run_ctx.mark_as_loss(name="mle", loss=l_mle)
     run_ctx.mark_as_loss(name="dp", loss=l_dp)
-    run_ctx.mark_as_loss(name="ce", loss=ce_loss)
-
-    # num_phonemes = torch.sum(phonemes_eow_len)
-    # if "ctc_scale" in kwargs:
-    #     ctc_scale = kwargs["ctc_scale"]
-    # else:
-    #     ctc_scale = 1
-    # run_ctx.mark_as_loss(name="ctc", loss=l_ctc, inv_norm_factor=num_phonemes, scale=ctc_scale)
+    run_ctx.mark_as_loss(name="ce", loss=ce_loss, scale=ce_loss_scale)
 
 
 def forward_init_hook(run_ctx, **kwargs):
@@ -595,6 +579,62 @@ def forward_step(*, model: Model, data, run_ctx, **kwargs):
         os.makedirs("/var/tmp/lukas.rilling/out/", exist_ok=True)
     for audio, tag in zip(audios, tags):
         soundfile.write(f"/var/tmp/lukas.rilling/out/" + tag.replace("/", "_") + ".wav", audio[0], 16000)
+
+
+def phoneme_prediction_init_hook(run_ctx, **kwargs):
+    run_ctx.hdf_writer = SimpleHDFWriter("output.hdf", dim=1, ndim=1)
+    run_ctx.pool = multiprocessing.Pool(8)
+
+
+def phoneme_prediction_finish_hook(run_ctx, **kwargs):
+    run_ctx.hdf_writer.close()
+
+
+def phoneme_prediction_step(*, model: Model, data, run_ctx, **kwargs):
+    """
+    :param Model model: _description_
+    :param _type_ data: _description_
+    :param _type_ run_ctx: _description_
+    """
+    tags = data["seq_tag"]
+    audio_features = data["audio_features"]  # [B, T, F]
+    # audio_features = audio_features.transpose(1, 2) # [B, F, T] necessary because glowTTS expects the channels to be in the 2nd dimension
+    audio_features_len = data["audio_features:size1"]  # [B]
+
+    # perform local length sorting for more efficient packing
+    audio_features_len, indices = torch.sort(audio_features_len, descending=True)
+
+    audio_features = audio_features[indices, :, :]
+    phonemes = data["phonemes"][indices, :]  # [B, T] (sparse)
+    phonemes_len = data["phonemes:size1"][indices]  # [B, T]
+    speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
+    durations = data["durations"][indices]
+
+    tags = list(np.array(tags)[indices.detach().cpu().numpy()])
+
+    # print(f"phoneme shape: {phonemes.shape}")
+    # print(f"phoneme length: {phonemes_len}")
+    # print(f"audio_feature shape: {audio_features.shape}")
+    # print(f"audio_feature length: {audio_features_len}")
+    logits, y_lengths, z_mask = model(
+        raw_audio=audio_features, raw_audio_lengths=audio_features_len, g=speaker_labels, recognition=True
+    )
+    x_mask = torch.unsqueeze(commons.sequence_mask(phonemes_len, phonemes.size(1)), 1).to(phonemes.dtype)
+
+    attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
+    given_attn = commons.generate_path(durations.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
+
+    upsampled_phonemes = torch.matmul(given_attn.squeeze(1).transpose(1, 2), phonemes.unsqueeze(-1)).squeeze(-1)
+
+    mask = commons.sequence_mask(y_lengths)
+    pred = torch.softmax(logits, dim=2).argmax(dim=2)
+
+    accuracies = (
+        (((pred == upsampled_phonemes) * mask).sum(dim=1) / y_lengths).unsqueeze(-1).unsqueeze(-1).detach().cpu()
+    )
+
+    for tag, acc in zip(tags, accuracies):
+        run_ctx.hdf_writer.insert_batch(np.array(acc), [1], [tag])
 
 def search_init_hook(run_ctx, **kwargs):
     # we are storing durations, but call it output.hdf to match

@@ -149,6 +149,7 @@ def get_search_config(
     config: Dict[str, Any],
     debug: bool = False,
     use_custom_engine=False,
+    target="text"
 ):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_aligner
@@ -177,7 +178,7 @@ def get_search_config(
         use_custom_engine=use_custom_engine,
         forward=True,
         forward_args=search_args,
-        target="text"
+        target=target
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
     return returnn_config

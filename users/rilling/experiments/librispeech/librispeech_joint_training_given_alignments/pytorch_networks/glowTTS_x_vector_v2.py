@@ -18,6 +18,8 @@ from .monotonic_align import maximum_path
 from .shared.feature_extraction import DbMelFeatureExtraction
 from .shared.configs import DbMelFeatureExtractionConfig, ModelConfigV1
 
+from .shared.eval_forward import *
+
 
 class XVector(nn.Module):
     def __init__(self, input_dim=40, num_classes=8, **kwargs):
@@ -441,8 +443,6 @@ class Model(nn.Module):
 
         if self.cfg.n_speakers > 1:
             self.x_vector = XVector(self.cfg.out_channels, self.cfg.n_speakers)
-            # self.emb_g = nn.Embedding(n_speakers, gin_channels)
-            # nn.init.uniform_(self.emb_g.weight, -0.1, 0.1)
             self.x_vector_bottleneck = nn.Sequential(
                 nn.Linear(512, self.cfg.gin_channels),
                 nn.ReLU()
@@ -465,7 +465,7 @@ class Model(nn.Module):
             with torch.no_grad():
                 self.x_vector.eval()
                 _, _, g = self.x_vector(y, y_lengths)
-            g = self.x_vector_bottleneck(g)
+        g = self.x_vector_bottleneck(g)
         x_m, x_logs, logw, x_mask = self.encoder(x, x_lengths, g=g)  # mean, std logs, duration logs, mask
 
         if gen:  # durations from dp only used during generation

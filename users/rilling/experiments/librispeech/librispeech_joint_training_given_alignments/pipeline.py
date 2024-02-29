@@ -2,12 +2,14 @@ from sisyphus import tk
 import copy
 import os
 from i6_core.returnn import ReturnnTrainingJob
-from i6_core.returnn.forward import ReturnnForwardJob
+from i6_core.returnn.forward import ReturnnForwardJob, ReturnnForwardJobV2
 from i6_core.returnn.search import SearchBPEtoWordsJob
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datasets import GenericDataset
 
-from .default_tools import SCTK_BINARY_PATH
+from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAMosPredictionJob
+
+from .default_tools import SCTK_BINARY_PATH, NISQA_REPO
 
 def training(config, returnn_exe, returnn_root, prefix, num_epochs=65):
     train_job = ReturnnTrainingJob(
@@ -188,3 +190,87 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
     report = GenerateReportStringJob(report_values=values, report_template=format_string, compress=False).out_report
     tk.register_output(os.path.join(prefix_name, "report"), report)
     return format_string_report, values_report
+
+
+def compute_phoneme_pred_accuracy(
+    prefix_name,
+    returnn_config,
+    checkpoint,
+    recognition_datasets,
+    returnn_exe,
+    returnn_root,
+    mem_rqmt=8,
+):
+    """Replaces the search job for the "encoding_test" experiments, where a simple model is asked
+    to predict the phonemes from the latent variables of a glowTTS setup. These experiments output an hdf with
+    the total accuracy on each batch and there is no need to perform a search on these.
+
+    :param _type_ prefix_name: _description_
+    :param _type_ returnn_config: _description_
+    :param _type_ checkpoint: _description_
+    :param GenericDataset recognition_dataset: _description_
+    :param _type_ recognition_bliss_corpus: _description_
+    :param _type_ returnn_exe: _description_
+    :param _type_ returnn_root: _description_
+    :param int mem_rqmt: _description_, defaults to 8
+    """
+    jobs = []
+    for key, (recognition_dataset, test_dataset_reference) in recognition_datasets.items():
+
+        returnn_config = copy.deepcopy(returnn_config)
+        returnn_config.config["forward"] = recognition_dataset.as_returnn_opts()
+        search_job = ReturnnForwardJob(
+            model_checkpoint=checkpoint,
+            returnn_config=returnn_config,
+            log_verbosity=5,
+            mem_rqmt=mem_rqmt,
+            time_rqmt=4,
+            returnn_python_exe=returnn_exe,
+            returnn_root=returnn_root,
+            device="cpu",
+        )
+        search_job.add_alias(prefix_name + f"/phoneme_pred/{key}")
+        tk.register_output(prefix_name + f"/phoneme_pred/{key}", search_job.out_hdf_files["output.hdf"])
+        jobs.append(search_job)
+    return jobs
+
+
+def tts_eval(prefix_name, returnn_config, checkpoint, returnn_exe, returnn_root, mem_rqmt=12, vocoder="univnet"):
+    """
+    Run search for a specific test dataset
+
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: override the default memory requirement
+    """
+    forward_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=2,
+        device="cpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=["audio_files", "out_corpus.xml.gz"],
+    )
+    forward_job.add_alias(prefix_name + f"/tts_eval_{vocoder}/forward")
+    evaluate_nisqa(prefix_name, forward_job.out_files["out_corpus.xml.gz"], vocoder=vocoder)
+    return forward_job
+
+
+def evaluate_nisqa(prefix_name: str, bliss_corpus: tk.Path, vocoder: str = "univnet"):
+    predict_mos_job = NISQAMosPredictionJob(bliss_corpus, nisqa_repo=NISQA_REPO)
+    predict_mos_job.add_alias(prefix_name + f"/tts_eval_{vocoder}/nisqa_mos")
+    tk.register_output(
+        os.path.join(prefix_name, f"tts_eval_{vocoder}/nisqa_mos/average"), predict_mos_job.out_mos_average
+    )
+    tk.register_output(os.path.join(prefix_name, f"tts_eval_{vocoder}/nisqa_mos/min"), predict_mos_job.out_mos_min)
+    tk.register_output(os.path.join(prefix_name, f"tts_eval_{vocoder}/nisqa_mos/max"), predict_mos_job.out_mos_max)
+    tk.register_output(
+        os.path.join(prefix_name, f"tts_eval_{vocoder}/nisqa_mos/std_dev"), predict_mos_job.out_mos_std_dev
+    )
