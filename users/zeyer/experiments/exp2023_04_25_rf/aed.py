@@ -2052,6 +2052,7 @@ def model_recog_dyn_beam_pure_torch(
         BeamSearchDynBeamOpts,
         beam_search_dyn_beam,
     )
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_dyn_beam_v2 import beam_search_dyn_beam_v2
     from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.length_reward import LengthRewardDynBeamScorer
     from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.shallow_fusion import (
         ShallowFusedDynBeamLabelScorers,
@@ -2086,7 +2087,7 @@ def model_recog_dyn_beam_pure_torch(
     enc_end_time = time.perf_counter_ns()
 
     beam_search_version = config.int("beam_search_version", 1)
-    beam_search_func = {1: beam_search_dyn_beam}[beam_search_version]
+    beam_search_func = {1: beam_search_dyn_beam, 2: beam_search_dyn_beam_v2}[beam_search_version]
     beam_search_opts_cls = BeamSearchDynBeamOpts
     beam_search_opts = (config.typed_value("beam_search_opts", None) or {}).copy()
     extra = {}
