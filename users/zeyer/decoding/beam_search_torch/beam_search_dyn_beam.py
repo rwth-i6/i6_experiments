@@ -244,8 +244,8 @@ def beam_search_dyn_beam(
             for k in list(individual_scores_.keys()):
 
                 seq_score = individual_scores_.pop(k)  # [Batch__|1,Vocab|1]
-                if seq_score.shape == (1, 1):
-                    seq_score = seq_score.expand(*target.shape)
+                if seq_score.shape == (1, 1):  # [Batch__=1,Vocab=1]
+                    pass  # leave it, but it will be interpreted as [Batch=1,(ActBeam+EndedBeam)=1]
                 elif (
                     seq_score.shape[0] == 1 < idx_.shape[0] and seq_score.shape[1] == opts.num_labels
                 ):  # [Batch__=1,Vocab]
