@@ -11,7 +11,7 @@ import torch
 import tree
 
 from .interface_dyn_beam import LabelScorerDynBeamIntf
-from .utils import top_k_nd, batch_gather, gather_, combine_individual_seq_scores
+from .utils import top_k_nd, batch_gather, gather_
 
 
 @dataclass
