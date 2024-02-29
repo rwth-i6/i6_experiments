@@ -4,6 +4,7 @@ from typing import Dict, Optional, Union, List
 import i6_core.rasr as rasr
 from i6_core import am, corpus, meta, rasr
 from i6_experiments.users.berger.util import ToolPaths
+from i6_experiments.common.datasets.util import CorpusObject
 from sisyphus import tk
 
 from .rasr_lm_config import LMData
@@ -71,7 +72,9 @@ class SeparatedCorpusHDFFiles:
     segments: tk.Path
 
 
-def convert_legacy_corpus_object_to_scorable(corpus_object: meta.CorpusObject) -> ScorableCorpusObject:
+def convert_legacy_corpus_object_to_scorable(
+    corpus_object: Union[meta.CorpusObject, CorpusObject]
+) -> ScorableCorpusObject:
     return ScorableCorpusObject(
         corpus_file=corpus_object.corpus_file,
         audio_dir=corpus_object.audio_dir,
@@ -81,11 +84,11 @@ def convert_legacy_corpus_object_to_scorable(corpus_object: meta.CorpusObject) -
 
 
 def convert_legacy_corpus_object_dict_to_scorable(
-    corpub_object_dict: Dict[str, meta.CorpusObject]
+    corpus_object_dict: Dict[str, Union[meta.CorpusObject, CorpusObject]]
 ) -> Dict[str, ScorableCorpusObject]:
     return {
         key: convert_legacy_corpus_object_to_scorable(corpus_object)
-        for key, corpus_object in corpub_object_dict.items()
+        for key, corpus_object in corpus_object_dict.items()
     }
 
 

@@ -45,7 +45,10 @@ def generate_returnn_config(
     **kwargs,
 ) -> ReturnnConfig:
     if train:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer(
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer(
             num_inputs=40,
             num_outputs=num_classes,
             specaug_args={
@@ -78,7 +81,10 @@ def generate_returnn_config(
             loss_boost_v2=kwargs.get("loss_boost_v2", False),
         )
     else:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer_recog(
             num_inputs=40,
             num_outputs=num_classes,
             decoder_args={
@@ -135,9 +141,11 @@ def generate_returnn_config(
         extern_data_config=True,
         grad_noise=0.0,
         grad_clip=0.0,
-        schedule=LearningRateSchedules.OCLR_STEP,
-        initial_lr=1e-03 / 30,
-        peak_lr=1e-03,
+        schedule=LearningRateSchedules.OCLR,
+        # initial_lr=1e-03 / 30,
+        # peak_lr=1e-03,
+        initial_lr=1e-05,
+        peak_lr=4e-04,
         final_lr=1e-06,
         n_steps_per_epoch=3210,
         batch_size=12500,
@@ -223,18 +231,12 @@ def run_exp(alignments: Dict[str, AlignmentData], name_suffix: str = "") -> Tupl
         corpus_data=data.data_inputs,
         am_args=recog_am_args,
     )
-    system.setup_scoring(
-        scorer_type=Hub5ScoreJob,
-        stm_paths={key: tk.Path("/u/corpora/speech/hub5e_00/xml/hub5e_00.stm") for key in data.dev_keys},
-        score_kwargs={
-            "glm": tk.Path("/u/corpora/speech/hub5e_00/xml/glm"),
-        },
-    )
+    system.setup_scoring(scorer_type=Hub5ScoreJob)
 
     system.run_train_step(**train_args)
 
     system.run_dev_recog_step(**recog_args)
-    system.run_test_recog_step(**recog_args)
+    # system.run_test_recog_step(**recog_args)
 
     train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_{name_suffix}")
     model = train_job.out_checkpoints[300]

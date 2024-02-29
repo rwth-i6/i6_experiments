@@ -284,7 +284,7 @@ class ComputeTSEJob(Job):
         seq_tag: str,
         silence_phone: str,
         upsample_factor: int,
-    ) -> Tuple[List[int], List[int]]:
+    ) -> Tuple[List[int], List[int], int]:
         word_starts = []
         word_ends = []
 
@@ -308,7 +308,7 @@ class ComputeTSEJob(Job):
             ):
                 word_ends.append(t)
 
-        return word_starts, word_ends
+        return word_starts, word_ends, len(seq_allophones)
 
     def run(self) -> None:
         discarded_seqs = 0
@@ -335,23 +335,37 @@ class ComputeTSEJob(Job):
         file_list = [tag for tag in alignments.file_list() if not tag.endswith(".attribs")]
 
         for idx, seq_tag in enumerate(file_list, start=1):
-            word_starts, word_ends = self._compute_word_boundaries(
+            word_starts, word_ends, seq_length = self._compute_word_boundaries(
                 alignments, allophone_map, seq_tag, self.silence_phone, self.upsample_factor
             )
+            assert len(word_starts) == len(
+                word_ends
+            ), f"Found different number of word starts ({len(word_starts)}) than word ends ({len(word_ends)}). Something seems to be broken."
 
             if self.seq_tag_transform is not None:
                 ref_seq_tag = self.seq_tag_transform(seq_tag)
             else:
                 ref_seq_tag = seq_tag
 
-            ref_word_starts, ref_word_ends = self._compute_word_boundaries(
+            ref_word_starts, ref_word_ends, ref_seq_length = self._compute_word_boundaries(
                 ref_alignments, ref_allophone_map, ref_seq_tag, self.ref_silence_phone, self.ref_upsample_factor
             )
+            assert len(ref_word_starts) == len(
+                ref_word_ends
+            ), f"Found different number of word starts ({len(word_starts)}) than word ends ({len(word_ends)}) in reference. Something seems to be broken."
 
             if len(word_starts) != len(ref_word_starts):
                 print(
                     f"Sequence {seq_tag} ({idx} / {len(file_list)}:\n    Discarded because the number of words in alignment ({len(word_starts)}) does not equal the number of words in reference ({len(ref_word_starts)})."
                 )
+                discarded_seqs += 1
+                continue
+
+            shorter_seq_length = min(seq_length, ref_seq_length)
+            word_starts = [min(start, shorter_seq_length) for start in word_starts]
+            word_ends = [min(end, shorter_seq_length) for end in word_ends]
+            ref_word_starts = [min(start, shorter_seq_length) for start in ref_word_starts]
+            ref_word_ends = [min(end, shorter_seq_length) for end in ref_word_ends]
 
             seq_word_start_diffs = [start - ref_start for start, ref_start in zip(word_starts, ref_word_starts)]
             seq_word_start_diffs = [diff for diff in seq_word_start_diffs if abs(diff) <= self.remove_outlier_limit]
@@ -369,10 +383,17 @@ class ComputeTSEJob(Job):
                 print(
                     f"Sequence {seq_tag} ({idx} / {len(file_list)}):\n    Word start distances are {seq_word_start_diffs}\n    Word end distances are {seq_word_end_diffs}\n    Sequence TSE is {seq_tse} frames"
                 )
+                counted_seqs += 1
             else:
                 print(
                     f"Sequence {seq_tag} ({idx} / {len(file_list)}):\n    Discarded since all distances are over the upper limit"
                 )
+                discarded_seqs += 1
+                continue
+
+        print(
+            f"Processing finished. Computed TSE value based on {counted_seqs} sequences; {discarded_seqs} sequences were discarded."
+        )
 
         self.out_word_start_frame_differences.set(
             {key: start_differences[key] for key in sorted(start_differences.keys())}

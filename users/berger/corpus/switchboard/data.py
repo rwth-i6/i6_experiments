@@ -8,6 +8,7 @@ from i6_experiments.common.setups.rasr import util as rasr_util
 
 from i6_experiments.users.berger.recipe.corpus.transform import TransformTranscriptionsJob, TranscriptionTransform
 from i6_experiments.users.berger.corpus.general.helpers import filter_unk_in_corpus_object
+from i6_experiments.users.berger.helpers.rasr import convert_legacy_corpus_object_dict_to_scorable
 from .lm_data import get_lm
 from i6_experiments.users.berger import helpers
 from i6_experiments.users.berger.recipe.lexicon.modification import (
@@ -42,6 +43,10 @@ def get_data_inputs(
         "hub5e01": swb_dataset.get_hub5e01_corpus_object(),
         "rt03s": swb_dataset.get_rt03s_corpus_object(),
     }
+
+    corpus_object_dict = convert_legacy_corpus_object_dict_to_scorable(corpus_object_dict)
+    corpus_object_dict["hub5e00"].stm = tk.Path("/u/corpora/speech/hub5e_00/xml/hub5e_00.stm")
+    corpus_object_dict["hub5e00"].glm = tk.Path("/u/corpora/speech/hub5e_00/xml/glm")
 
     lms = {lm_name: get_lm(lm_name) for lm_name in lm_names}
 

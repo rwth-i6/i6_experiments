@@ -166,7 +166,7 @@ def run_exp() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
     align_args = exp_args.get_ctc_align_step_args(num_classes)
     # recog_args["epochs"] = [160, 226, 236, 266, 273, 284, 287, 292, 293, 299, 300]
     # recog_args["epochs"] = [266, 284, 299]
-    recog_args["epochs"] = [284]
+    recog_args["epochs"] = [300]
     recog_args["feature_type"] = FeatureType.GAMMATONE_8K
     recog_args["prior_scales"] = [0.3]
     recog_args["lm_scales"] = [0.8]
@@ -179,7 +179,7 @@ def run_exp() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
         allow_blank=True,
         allow_loop=True,
     )
-    align_args["epoch"] = 284
+    align_args["epoch"] = 300
     align_args["feature_type"] = FeatureType.GAMMATONE_8K
     align_args["flow_args"] = {"dc_detection": True}
     align_args["silence_phone"] = "[SILENCE]"
@@ -214,15 +214,7 @@ def run_exp() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
         corpus_data=data.data_inputs,
         am_args=recog_am_args,
     )
-    system.setup_scoring(
-        scorer_type=Hub5ScoreJob,
-        # stm_kwargs={"non_speech_tokens": ["[NOISE]", "[LAUGHTER]", "[VOCALIZED-NOISE]"]},
-        stm_paths={key: tk.Path("/u/corpora/speech/hub5e_00/xml/hub5e_00.stm") for key in data.dev_keys},
-        score_kwargs={
-            "glm": tk.Path("/u/corpora/speech/hub5e_00/xml/glm"),
-            # "glm": tk.Path("/u/corpora/speech/hub-5-00/raw/transcriptions/reference/en20000405_hub5.glm"),
-        },
-    )
+    system.setup_scoring(scorer_type=Hub5ScoreJob)
 
     # ********** Returnn Configs **********
 
@@ -279,9 +271,30 @@ def py() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
             ),
             ref_silence_phone="[SILENCE]",
             ref_upsample_factor=1,
-            remove_outlier_limit=50,
+            remove_outlier_limit=100,
         )
-        tk.register_output(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/tse_train_am-{am_scale}", compute_tse_job.out_tse_frames)
+        tk.register_output(f"tse/train_am-{am_scale}", compute_tse_job.out_tse_frames)
+
+    compute_tse_job = ComputeTSEJob(
+        alignment_cache=tk.Path(
+            "/u/luescher/setups/librispeech/2024-01-24--is-paper/work/i6_core/mm/alignment/AlignmentJob.q36gcJyIijLZ/output/alignment.cache.bundle"
+        ),
+        allophone_file=tk.Path(
+            "/u/luescher/setups/librispeech/2024-01-24--is-paper/work/i6_core/lexicon/allophones/StoreAllophonesJob.1kNrzYYG2BFu/output/allophones"
+        ),
+        silence_phone="[SILENCE]",
+        upsample_factor=4,
+        ref_alignment_cache=tk.Path(
+            "/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/mm/alignment/AlignmentJob.oyZ7O0XJcO20/output/alignment.cache.bundle"
+        ),
+        ref_allophone_file=tk.Path(
+            "/work/common/asr/librispeech/data/sisyphus_export_setup/work/i6_core/lexicon/allophones/StoreAllophonesJob.bY339UmRbGhr/output/allophones"
+        ),
+        ref_silence_phone="[SILENCE]",
+        ref_upsample_factor=1,
+        # remove_outlier_limit=100,
+    )
+    tk.register_output("tse/chris", compute_tse_job.out_tse_frames)
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 
