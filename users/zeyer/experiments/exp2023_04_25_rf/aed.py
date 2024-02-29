@@ -195,7 +195,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_normalization_exponent": 0.0,
                 "length_reward": 0.1,
             },
-            "___test": 1,  # put random stuff here for different hash, for testing until we think it works
+            "___test": 2,  # put random stuff here for different hash, for testing until we think it works
         },
         # "beam60-batch50-lenNorm1": {
         #     "beam_search_opts": {
