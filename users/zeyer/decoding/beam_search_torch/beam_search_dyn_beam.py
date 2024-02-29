@@ -238,7 +238,7 @@ def beam_search_dyn_beam(
             backrefs_prev_was_active_ = torch.masked_select(backrefs__, prev_was_active)  # [Batch_PA] -> Batch__
             target_prev_was_active_ = torch.masked_select(target, prev_was_active)  # [Batch_PA] -> Vocab
             backrefs_prev_was_active__ = (
-                backrefs_prev_was_active_ * idx_.shape[0] + target_prev_was_active_
+                backrefs_prev_was_active_ * opts.num_labels + target_prev_was_active_
             )  # [Batch_PA] -> Batch__ * Vocab + Vocab (flat indices)
 
             for k in list(individual_scores_.keys()):
