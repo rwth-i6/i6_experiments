@@ -140,7 +140,7 @@ def beam_search_dyn_beam_v2(
             ],
             dim=1,
         ).expand(
-            batch_size, target.shape[1]
+            *target.shape
         )  # [Batch,Beam+InEndBeam]
 
         # seq_log_prob.shape[1] >= min(opts.num_labels * (opts.num_labels - 1) ** i, opts.beam_size)
