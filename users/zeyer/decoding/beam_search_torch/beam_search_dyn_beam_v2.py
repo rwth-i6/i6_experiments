@@ -163,10 +163,10 @@ def beam_search_dyn_beam_v2(
 
         # Make mapping 0->active, 1->ended, 100->invalid.
         state_comb = torch.full(target.shape, 0, dtype=torch.int8, device=device)  # [Batch,OutCombBeam]
-        torch.where(end_comb, 1, state_comb, out=state_comb)
-        torch.where(target == opts.eos_label, 1, state_comb, out=state_comb)
-        torch.where((i_dev >= max_seq_len)[:, None], 1, state_comb, out=state_comb)
-        torch.where(seq_log_prob <= bad_score, 100, state_comb, out=state_comb)
+        torch.where(end_comb, torch.full((), 1, device=device), state_comb, out=state_comb)
+        torch.where(target == opts.eos_label, torch.full((), 1, device=device), state_comb, out=state_comb)
+        torch.where((i_dev >= max_seq_len)[:, None], torch.full((), 1, device=device), state_comb, out=state_comb)
+        torch.where(seq_log_prob <= bad_score, torch.full((), 100, device=device), state_comb, out=state_comb)
 
         act_comb = state_comb == 0  # [Batch,OutCombBeam]
         act_beam_sizes = act_comb.sum(dim=1)  # [Batch]
@@ -179,7 +179,7 @@ def beam_search_dyn_beam_v2(
         sum_act_beam_sizes = act_beam_sizes_cpu.sum()  # scalar
 
         act_idx = torch.argsort(state_comb, dim=1, stable=True)[:, :max_act_beam_size]  # [Batch,ActBeam] -> OutCombBeam
-        torch.where(state_comb == 0, 2, state_comb, out=state_comb)  # remap 2->active
+        torch.where(state_comb == 0, torch.full((), 2, device=device), state_comb, out=state_comb)  # remap 2->active
         end_idx = torch.argsort(state_comb, dim=1, stable=True)[:, :max_end_beam_size]  # [Batch,EndBeam] -> OutCombBeam
         act_end_idx = torch.concat([act_idx, end_idx], dim=1)  # [Batch,ActBeam+EndBeam] -> OutCombBeam
 
