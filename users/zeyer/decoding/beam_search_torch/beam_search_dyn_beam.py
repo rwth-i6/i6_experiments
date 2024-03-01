@@ -172,7 +172,7 @@ def beam_search_dyn_beam(
         target_ = torch.masked_select(target, active_comb)  # [Batch_]
         ended_seq_len_ = torch.masked_select(seq_len, ended_comb)  # [Batch_E]
         backrefs_active_ = torch.masked_select(backrefs, active_comb)  # [Batch_] -> InActBeam
-        backrefs_ended_ = torch.masked_select(backrefs, ended_comb)  # [Batch_] -> InActBeam+InEndedBeam
+        backrefs_ended_ = torch.masked_select(backrefs, ended_comb)  # [Batch_E] -> InActBeam+InEndedBeam
         active_beam_sizes = active_comb.sum(dim=1)  # [Batch]
         max_act_beam_size = active_beam_sizes.max()  # scalar
         ended_beam_sizes = ended_comb.sum(dim=1)  # [Batch]
