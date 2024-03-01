@@ -107,7 +107,7 @@ def beam_search_dyn_beam_v2(
         # backrefs: [Batch,Beam] -> InActBeam, should be in [0...InActBeam[b]-1] for each b
         del seq_log_prob_ext
         beam_size = seq_log_prob.shape[1]
-        seq_len = torch.full([batch_size, beam_size], i_dev, device=device)  # [Batch,Beam]
+        seq_len = torch.full([batch_size, beam_size], i, device=device)  # [Batch,Beam]
 
         if end_seq_log_prob is not None:
             seq_log_prob = torch.concat([seq_log_prob, end_seq_log_prob], dim=1)  # [Batch,Beam+InEndBeam]
