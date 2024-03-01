@@ -65,7 +65,6 @@ def beam_search_dyn_beam_v2(
     #       After topk on combined hyps (Beam+Max(EndBeam)).
     #       k = opts.beam_and_ended_size.
 
-    cpu = torch.device("cpu")
     bad_score = torch.tensor(-1.0e30, device=device)
     max_seq_len = max_seq_len.to(device)
     length_normalization_exponent_dev = torch.tensor(opts.length_normalization_exponent, device=device)
