@@ -73,7 +73,6 @@ def beam_search_dyn_beam_v2(
     # Initial state.
     max_act_beam_size = 1  # size of InActBeam
     sum_act_beam_sizes = batch_size
-    act_beam_sizes = torch.full([batch_size], 1, device=device)  # [Batch] (not Batch_)
     active = torch.full([batch_size, 1], True, device=device)  # [Batch,InActBeam]
     batch_idx_ = torch.arange(batch_size, dtype=torch.int32, device=device)  # [Batch_] -> Batch
     state_ = label_scorer.get_initial_state(batch_size=batch_size, device=device)  # [Batch_]
