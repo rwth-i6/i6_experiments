@@ -65,9 +65,9 @@ def beam_search_dyn_beam_v2(
     #       After topk on combined hyps (Beam+Max(EndBeam)).
     #       k = opts.beam_and_ended_size.
 
-    bad_score = torch.tensor(-1.0e30, device=device)
+    bad_score = -1.0e30
     max_seq_len = max_seq_len.to(device)
-    length_normalization_exponent_dev = torch.tensor(opts.length_normalization_exponent, device=device)
+    length_normalization_exponent_dev = torch.full((), opts.length_normalization_exponent, device=device)
 
     # Initial state.
     max_act_beam_size = 1  # size of InActBeam
@@ -82,7 +82,7 @@ def beam_search_dyn_beam_v2(
     max_end_beam_size = 0
 
     i = 0
-    i_dev = torch.tensor(0, dtype=torch.int64, device=device)
+    i_dev = torch.zeros((), dtype=torch.int64, device=device)
     seq_targets = []
     seq_backrefs = []
     while True:
@@ -297,4 +297,4 @@ def beam_search_dyn_beam_v2(
 
     seq_targets = torch.stack(seq_targets_, dim=2)  # [Batch,FinalBeam,OutSeqLen]
 
-    return seq_targets, seq_log_prob, seq_len
+    return seq_targets, seq_log_prob, seq_len.cpu()
