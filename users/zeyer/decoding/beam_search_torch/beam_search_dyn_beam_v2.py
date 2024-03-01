@@ -28,8 +28,6 @@ def beam_search_dyn_beam_v2(
 
     Based on beam_search_dyn_beam (v1).
 
-    TODO wip, cleanup, optimize, ...
-
     Via torch.cuda.set_sync_debug_mode, found out:
     masked_select is a synchronizing CUDA operation.
     We do a lot of them, which probably makes it slow.
