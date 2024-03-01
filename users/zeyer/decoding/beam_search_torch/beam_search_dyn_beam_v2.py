@@ -215,7 +215,8 @@ def beam_search_dyn_beam_v2(
         idx = torch.full(prev_active.shape, -1, dtype=torch.int64, device=device)  # [Batch,InActBeam]
         # prev_active: [Batch,InActBeam] mask, sum(prev_active) == len(Batch__)
         idx.masked_scatter_(prev_active, idx_)  # [Batch,InActBeam] -> Batch__
-        backrefs_ = batch_gather(idx, indices=backrefs[:, :max_act_beam_size])  # [Batch,ActBeam] -> Batch__
+        backrefs_ = torch.clip(backrefs[:, :max_act_beam_size], 0, prev_active.shape[1] - 1)  # padding out-of-range
+        backrefs_ = batch_gather(idx, indices=backrefs_)  # [Batch,ActBeam] -> Batch__
         backrefs_ = masked_select(backrefs_, active, out_len=sum_act_beam_sizes)  # Batch_ -> Batch__
 
         if out_individual_seq_scores is not None:
