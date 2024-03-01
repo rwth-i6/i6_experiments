@@ -81,7 +81,6 @@ def beam_search_dyn_beam_v2(
     end_seq_log_prob = None  # [Batch,InEndBeam]
     end_seq_len = None  # [Batch,InEndBeam]
     max_end_beam_size = 0
-    ended = None
 
     i = 0
     i_dev = torch.tensor(0, dtype=torch.int64, device=device)
@@ -111,7 +110,7 @@ def beam_search_dyn_beam_v2(
         beam_size = seq_log_prob.shape[1]
         seq_len = torch.full([batch_size, beam_size], i_dev, device=device)  # [Batch,Beam]
 
-        if ended is not None:
+        if end_seq_log_prob is not None:
             seq_log_prob = torch.concat([seq_log_prob, end_seq_log_prob], dim=1)  # [Batch,Beam+InEndBeam]
             seq_len = torch.concat([seq_len, end_seq_len], dim=1)  # [Batch,Beam+InEndBeam]
             backrefs = torch.concat(
