@@ -227,7 +227,7 @@ def beam_search_dyn_beam_v2(
             # prev out_individual_seq_scores: [Batch,InActBeam+InEndedBeam]
             # want: out_individual_seq_scores: [Batch,ActBeam+EndedBeam]
 
-            backrefs__ = torch.clip(backrefs, 0, prev_max_act_beam_size)
+            backrefs__ = torch.clip(backrefs, 0, prev_max_act_beam_size - 1)
             backrefs__ = batch_gather(idx, indices=backrefs__)  # [Batch,ActBeam+EndedBeam] -> Batch__
             backrefs_flat = (
                 backrefs__ * opts.num_labels + target
