@@ -2,6 +2,7 @@ from i6_core.returnn.config import CodeWrapper
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 from i6_experiments.users.zeineldeen.modules.attention import AttentionMechanism
 from i6_experiments.users.gaudino.models.asr.decoder.att_decoder_dicts import get_attention_decoder_dict
+from  i6_experiments.users.gaudino.models.asr.decoder.recombine_functions import get_funcs
 
 def get_attention_decoder_dict_with_fix(label_dim=10025, target_embed_dim=640, use_zoneout_output=False):
     attention_decoder_dict_with_fix = {
@@ -284,6 +285,7 @@ class CTCDecoder:
         one_minus_term_sub_scale=0.0,
         blank_collapse=False,
         renorm_p_comb=False,
+        recombine=False,
     ):
         """
         :param base_model: base/encoder model instance
@@ -400,6 +402,8 @@ class CTCDecoder:
         self.blank_collapse = blank_collapse
         self.renorm_p_comb = renorm_p_comb
 
+        self.recombine = recombine
+
         self.network = ReturnnNetwork()
         self.subnet_unit = ReturnnNetwork()
         self.dec_output = None
@@ -412,6 +416,8 @@ class CTCDecoder:
             python_prolog += ["from returnn.tf.compat import v1 as tf_v1"]
         if self.ctc_beam_search_tf:
             python_prolog += [ctc_beam_search_tf_string.format(beam_size=self.beam_size)]
+        if self.recombine:
+            python_prolog += get_funcs()
 
         return python_prolog
 
@@ -713,17 +719,57 @@ class CTCDecoder:
                     "class": "concat",
                     "from": [("scaled_label_score", "f"), ("scaled_blank_log_prob_expand", "f")],
                 },  # [B,V+1]
+            }
+        )
+
+        if self.recombine:
+            subnet_unit.update({
                 "output": {
                     "class": "choice",
                     "target": "bpe_labels_w_blank",
                     "beam_size": self.beam_size,
                     "from": "p_comb_sigma_prime" if not self.rescore_last_eos else "p_comb_sigma_prime_w_eos",
-                    "input_type": "logits" if self.logits else "log_prob",
+                    "input_type": "log_prob",
+                    "initial_output": 0,
+                    "length_normalization": self.length_normalization,
+                    "explicit_search_sources": ["prev:out_str", "prev:output"],
+                    "custom_score_combine": CodeWrapper("targetb_recomb_recog"),
+                },
+
+                "out_str": {
+                    "class": "eval", "from": ["prev:out_str", "output_emit", "output"],
+                    "initial_output": None, "out_type": {"shape": (), "dtype": "string"},
+                    "eval": CodeWrapper("out_str")
+                },
+
+                "output_is_diff_to_before": {"class": "compare", "from": ["output", "prev:output"],
+                                             "kind": "not_equal"},
+
+                # We allow repetitions of the output label. This "output_emit" is True on the first label but False otherwise, and False on blank.
+                "output_emit": {
+                    "class": "eval", "from": ["is_curr_out_not_blank_mask", "output_is_diff_to_before"],
+                    "is_output_layer": True, "initial_output": True,
+                    "eval": "tf.logical_and(source(0), source(1))"},
+
+                "const0": {"class": "constant", "value": 0, "collocate_with": "du"},
+                "const1": {"class": "constant", "value": 1, "collocate_with": "du"},
+
+                # pos in target, [B]
+                "du": {"class": "switch", "condition": "output_emit", "true_from": "const1", "false_from": "const0"},
+                "u": {"class": "combine", "from": ["prev:u", "du"], "kind": "add", "initial_output": 0},
+            })
+        else:
+            subnet_unit.update({
+                "output": {
+                    "class": "choice",
+                    "target": "bpe_labels_w_blank",
+                    "beam_size": self.beam_size,
+                    "from": "p_comb_sigma_prime" if not self.rescore_last_eos else "p_comb_sigma_prime_w_eos",
+                    "input_type": "log_prob",
                     "initial_output": 0,
                     "length_normalization": self.length_normalization,
                 },
-            }
-        )
+            })
 
         if self.one_minus_term_mul_scale != 1.0 or self.one_minus_term_sub_scale != 0.0:
             subnet_unit.update(
@@ -855,6 +901,12 @@ class CTCDecoder:
                 }
             )
 
+    def add_output_layer(self, subnet_unit):
+        self.network.add_subnet_rec_layer(
+            "output", unit=subnet_unit.get_net(), target=self.target_w_blank, source=self.ctc_source
+        )
+        self.network["output"].pop("max_seq_len", None)
+
     def add_greedy_decoder(self, subnet_unit: ReturnnNetwork):
         choice_layer_source = "data:source"
         input_type = None
@@ -922,18 +974,60 @@ class CTCDecoder:
                 }
             )
             choice_layer_source = "ctc_log_scores_w_prior"
-
-
-
-        if self.length_normalization:
-            subnet_unit.add_choice_layer(
-                "output",
-                choice_layer_source,
-                target=self.target_w_blank,
-                beam_size=1,
-                input_type=input_type,
-                initial_output=0,
+        elif self.recombine and not self.ctc_prior_correction:
+            subnet_unit.update({
+                "ctc_log_scores": {
+                    "class": "activation",
+                    "activation": "safe_log",
+                    "from": "data:source",
+                }}
             )
+            choice_layer_source = "ctc_log_scores"
+
+        if self.recombine:
+            subnet_unit.update({
+                "output": {
+                    "class": "choice",
+                    "target": "bpe_labels_w_blank",
+                    "beam_size": self.beam_size,
+                    "from": choice_layer_source,
+                    "input_type": "log_prob",
+                    "initial_output": 0,
+                    "length_normalization": self.length_normalization,
+                    "explicit_search_sources": ["prev:out_str", "prev:output"],
+                    "custom_score_combine": CodeWrapper("targetb_recomb_recog"),
+                },
+
+                "out_str": {
+                    "class": "eval", "from": ["prev:out_str", "output_emit", "output"],
+                    "initial_output": None, "out_type": {"shape": (), "dtype": "string"},
+                    "eval": CodeWrapper("out_str")
+                },
+
+                "output_is_diff_to_before": {"class": "compare", "from": ["output", "prev:output"],
+                                             "kind": "not_equal"},
+
+                # We allow repetitions of the output label. This "output_emit" is True on the first label but False otherwise, and False on blank.
+                "output_emit": {
+                    "class": "eval", "from": ["is_curr_out_not_blank_mask", "output_is_diff_to_before"],
+                    "is_output_layer": True, "initial_output": True,
+                    "eval": "tf.logical_and(source(0), source(1))"},
+
+                "const0": {"class": "constant", "value": 0, "collocate_with": "du"},
+                "const1": {"class": "constant", "value": 1, "collocate_with": "du"},
+
+                # pos in target, [B]
+                "du": {"class": "switch", "condition": "output_emit", "true_from": "const1", "false_from": "const0"},
+                "u": {"class": "combine", "from": ["prev:u", "du"], "kind": "add", "initial_output": 0},
+            })
+            subnet_unit.update({
+                "is_curr_out_not_blank_mask": {
+                    "class": "compare",
+                    "kind": "not_equal",
+                    "from": "output",
+                    "value": self.target_dim,
+                },
+            })
         else:
             subnet_unit.add_choice_layer(
                 "output",
@@ -944,13 +1038,7 @@ class CTCDecoder:
                 initial_output=0,
             )
 
-        # recurrent subnetwork
-        dec_output = self.network.add_subnet_rec_layer(
-            "output", unit=subnet_unit.get_net(), target=self.target_w_blank, source=self.ctc_source
-        )
-        self.network["output"].pop("max_seq_len", None)
-
-        return dec_output
+        self.add_output_layer(subnet_unit)
 
     def add_ctc_beam_search_decoder_tf(self):
         dec_output = self.network.update(
@@ -1048,13 +1136,7 @@ class CTCDecoder:
 
         self.add_score_combination(subnet_unit, lm_layer="lm_output_prob")
 
-        # recurrent subnetwork
-        dec_output = self.network.add_subnet_rec_layer(
-            "output", unit=subnet_unit.get_net(), target=self.target_w_blank, source=self.ctc_source
-        )
-        self.network["output"].pop("max_seq_len", None)
-
-        return dec_output
+        self.add_output_layer(subnet_unit)
 
     def add_greedy_decoder_with_att(self, subnet_unit: ReturnnNetwork):
         self.add_ctc_scores(subnet_unit)
@@ -1068,13 +1150,7 @@ class CTCDecoder:
 
         self.add_score_combination(subnet_unit, att_layer="trigg_att")
 
-        # recurrent subnetwork
-        dec_output = self.network.add_subnet_rec_layer(
-            "output", unit=subnet_unit.get_net(), target=self.target_w_blank, source=self.ctc_source
-        )
-        self.network["output"].pop("max_seq_len", None)
-
-        return dec_output
+        self.add_output_layer(subnet_unit)
 
     def add_greedy_decoder_with_lm_and_att(self, subnet_unit):
         self.add_ctc_scores(subnet_unit)
@@ -1106,13 +1182,8 @@ class CTCDecoder:
 
         self.add_score_combination(subnet_unit, att_layer="trigg_att", lm_layer="lm_output_prob")
 
-        # recurrent subnetwork
-        dec_output = self.network.add_subnet_rec_layer(
-            "output", unit=subnet_unit.get_net(), target=self.target_w_blank, source=self.ctc_source
-        )
-        self.network["output"].pop("max_seq_len", None)
+        self.add_output_layer(subnet_unit)
 
-        return dec_output
 
     def remove_eos_from_ctc_logits(self):
         """Remove eos from ctc logits and set ctc_source to the new logits."""
@@ -1301,6 +1372,7 @@ class CTCDecoder:
         self.ctc_source = "blank_collapse_apply"
 
 
+
     def create_network(self):
         self.decision_layer_name = "out_best_wo_blank"
 
@@ -1312,23 +1384,22 @@ class CTCDecoder:
 
         if self.add_ext_lm and not self.add_att_dec:
             self.network.add_length_layer("enc_seq_len", self.ctc_source, sparse=False)
-            self.dec_output = self.add_greedy_with_ext_lm_decoder(self.subnet_unit)
+            self.add_greedy_with_ext_lm_decoder(self.subnet_unit)
         elif self.add_att_dec and not self.add_ext_lm:
             self.add_enc_output_for_att()
-            self.dec_output = self.add_greedy_decoder_with_att(self.subnet_unit)
+            self.add_greedy_decoder_with_att(self.subnet_unit)
         elif self.add_att_dec and self.add_ext_lm:
             self.add_enc_output_for_att()
-            self.dec_output = self.add_greedy_decoder_with_lm_and_att(self.subnet_unit)
+            self.add_greedy_decoder_with_lm_and_att(self.subnet_unit)
         elif self.ctc_beam_search_tf:
-            self.dec_output = self.add_ctc_beam_search_decoder_tf()
+            self.add_ctc_beam_search_decoder_tf()
             self.decision_layer_name = "ctc_decoder_output"
             return self.dec_output
         else:
-            self.dec_output = self.add_greedy_decoder(self.subnet_unit)
+            self.add_greedy_decoder(self.subnet_unit)
 
         self.add_filter_blank_and_merge_labels_layers(self.network)
 
-        return self.dec_output
 
     def add_filter_blank_and_merge_labels_layers(self, net):
         """
