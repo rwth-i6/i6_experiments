@@ -161,18 +161,24 @@ def beam_search_dyn_beam_v2(
         ended_comb = ended_comb | (i_dev >= max_seq_len)[:, None]  # [Batch,OutCombBeam]
         ended_or_invalid_comb = ended_comb | (seq_log_prob <= bad_score)  # padded area
         active_comb = ~ended_or_invalid_comb  # [Batch,OutCombBeam]
+        # nonzero() causes one device->cpu sync, but all further use via those indices does not,
+        # in contrast to using masked_select.
+        active_comb_idx = active_comb.flatten().nonzero().flatten()  # [Batch_] -> Batch*OutCombBeam
+        ended_comb_idx = ended_comb.flatten().nonzero().flatten()  # [Batch_E] -> Batch*OutCombBeam
 
         # First we want to split active and ended.
-        batch_idx_ = torch.arange(batch_size, dtype=batch_idx_.dtype, device=device)[:, None]  # [Batch,1] -> Batch
-        batch_idx_ = torch.masked_select(batch_idx_, active_comb)  # [Batch_] -> Batch
+        batch_idx_ = torch.arange(batch_size, dtype=batch_idx_.dtype, device=device)[:, None].expand(
+            *target.shape
+        )  # [Batch,OutCombBeam] -> Batch
+        batch_idx_ = batch_idx_.flatten()[active_comb_idx]  # [Batch_] -> Batch
         (seq_log_prob_, ended_seq_log_prob_) = (
-            torch.masked_select(seq_log_prob, active_comb),  # [Batch_]
-            torch.masked_select(seq_log_prob, ended_comb),  # [Batch_E]
+            seq_log_prob.flatten()[active_comb_idx],  # [Batch_]
+            seq_log_prob.flatten()[ended_comb_idx],  # [Batch_E]
         )
-        target_ = torch.masked_select(target, active_comb)  # [Batch_]
-        ended_seq_len_ = torch.masked_select(seq_len, ended_comb)  # [Batch_E]
-        backrefs_active_ = torch.masked_select(backrefs, active_comb)  # [Batch_] -> InActBeam
-        backrefs_ended_ = torch.masked_select(backrefs, ended_comb)  # [Batch_] -> InActBeam+InEndedBeam
+        target_ = target.flatten()[active_comb_idx]  # [Batch_]
+        ended_seq_len_ = seq_len.flatten()[ended_comb_idx]  # [Batch_E]
+        backrefs_active_ = backrefs.flatten()[active_comb_idx]  # [Batch_] -> InActBeam
+        backrefs_ended_ = backrefs.flatten()[ended_comb_idx]  # [Batch_E] -> InActBeam+InEndedBeam
         active_beam_sizes = active_comb.sum(dim=1)  # [Batch]
         max_act_beam_size = active_beam_sizes.max()  # scalar
         ended_beam_sizes = ended_comb.sum(dim=1)  # [Batch]
