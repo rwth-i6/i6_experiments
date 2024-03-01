@@ -232,3 +232,39 @@ def ensure_label_in_beam(
     backrefs = batch_gather(backrefs_, indices=indices)
     labels = batch_gather(labels_, indices=indices)
     return seq_log_prob, backrefs, labels
+
+
+def masked_select(values: torch.Tensor, mask: torch.Tensor, *, out_len: int) -> torch.Tensor:
+    """
+    This has the advantage over :func:`torch.masked_select`
+    that we do not need to perform a CUDA synchronization.
+    We can avoid that when we know the output length in advance.
+
+    :param values:
+    :param mask:
+    :param out_len:
+    :return: values.flatten()[idx], i.e. shape [out_len]
+    """
+    if values.shape != mask.shape:
+        assert values.dim() == mask.dim()
+        shape = [max(d1, d2) for d1, d2 in zip(values.shape, mask.shape)]
+        values = values.expand(*shape)
+        mask = mask.expand(*shape)
+    idx = nonzero(mask.flatten(), out_len=out_len)  # [out_len]
+    return values[idx]
+
+
+def nonzero(mask: torch.Tensor, *, out_len: int) -> torch.Tensor:
+    """
+    This has the advantage over :func:`torch.nonzero`
+    that we do not need to perform a CUDA synchronization.
+    We can avoid that when we know the output length in advance.
+
+    :param mask: flattened mask, bool
+    :param out_len:
+    :return: indices of True elements, shape [out_len]
+    """
+    assert mask.dim() == 1 and mask.dtype == torch.bool
+    idx = torch.argsort(mask.flatten(), stable=True, descending=True)  # [in_len]
+    idx = idx[:out_len]  # [out_len]
+    return idx

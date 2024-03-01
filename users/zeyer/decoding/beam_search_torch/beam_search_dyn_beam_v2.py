@@ -10,7 +10,7 @@ import torch
 import tree
 
 from .interface_dyn_beam import LabelScorerDynBeamIntf
-from .utils import top_k_nd, batch_gather, gather_
+from .utils import top_k_nd, batch_gather, gather_, masked_select, nonzero
 from .beam_search_dyn_beam import BeamSearchDynBeamOpts
 
 
@@ -49,38 +49,40 @@ def beam_search_dyn_beam_v2(
 
     # Note: There are multiple different beams:
     # - Batch_ / Batch_E:
-    #       Batch_: Packed active hyps, each active_beam_sizes, i.e. len = sum(active_beam_sizes).
-    #       Batch_E: Separately, packed ended hyps, each ended_beam_sizes, len = sum(ended_beam_sizes).
+    #       Batch_: Packed active hyps, each act_beam_sizes, i.e. len = sum(act_beam_sizes).
+    #       Batch_E: Separately, packed ended hyps, each end_beam_sizes, len = sum(end_beam_sizes).
     # - Batch__(InActBeam) = Batch__: refers to previous Batch_.
     # - InActBeam:
     #       Padded active hyps, unpacked from Batch_.
     # - Beam:
     #       After topk on active hyps (Max(InBeam) * Vocab).
     #       k = opts.beam_size, i.e. size = min(opts.num_labels * (opts.num_labels - 1) ** i, opts.beam_size).
-    # - InEndedBeam:
+    # - InEndBeam:
     #       Padded ended hyps, unpacked from Batch_E.
-    # - Beam+InEndedBeam:
+    # - Beam+InEndBeam:
     #       Both concatenated together. Padded area might occur in between.
     # - OutCombBeam:
-    #       After topk on combined hyps (Beam+Max(EndedBeam)).
+    #       After topk on combined hyps (Beam+Max(EndBeam)).
     #       k = opts.beam_and_ended_size.
+
+    cpu = torch.device("cpu")
+    bad_score = torch.tensor(-1.0e30, device=device)
+    max_seq_len = max_seq_len.to(device)
+    length_normalization_exponent_dev = torch.tensor(opts.length_normalization_exponent, device=device)
 
     # Initial state.
     max_act_beam_size = 1  # size of InActBeam
-    active_beam_sizes = torch.full([batch_size], 1, device=device)  # [Batch] (not Batch_)
+    sum_act_beam_sizes = batch_size
+    act_beam_sizes = torch.full([batch_size], 1, device=device)  # [Batch] (not Batch_)
     active = torch.full([batch_size, 1], True, device=device)  # [Batch,InActBeam]
     batch_idx_ = torch.arange(batch_size, dtype=torch.int32, device=device)  # [Batch_] -> Batch
     state_ = label_scorer.get_initial_state(batch_size=batch_size, device=device)  # [Batch_]
     target_ = torch.full([batch_size], opts.bos_label, device=device)  # [Batch_]
     seq_log_prob_ = torch.full([batch_size], 0.0, device=device)  # [Batch_]
-    ended_seq_log_prob = None  # [Batch,InEndedBeam]
-    ended_seq_len = None  # [Batch,InEndedBeam]
-    max_ended_beam_size = 0
+    end_seq_log_prob = None  # [Batch,InEndBeam]
+    end_seq_len = None  # [Batch,InEndBeam]
+    max_end_beam_size = 0
     ended = None
-
-    bad_score = torch.tensor(-1.0e30, device=device)
-    max_seq_len = max_seq_len.to(device)
-    length_normalization_exponent_dev = torch.tensor(opts.length_normalization_exponent, device=device)
 
     i = 0
     i_dev = torch.tensor(0, dtype=torch.int64, device=device)
@@ -101,7 +103,8 @@ def beam_search_dyn_beam_v2(
         del seq_log_prob_ext_
 
         prev_active = active
-        prev_act_beam_sizes = active_beam_sizes
+        prev_sum_act_beam_sizes = sum_act_beam_sizes
+        prev_max_act_beam_size = max_act_beam_size
 
         seq_log_prob, (backrefs, target) = top_k_nd(seq_log_prob_ext, k=opts.beam_size, dim=[1, 2])  # all [Batch,Beam]
         # backrefs: [Batch,Beam] -> InActBeam, should be in [0...InActBeam[b]-1] for each b
@@ -110,110 +113,102 @@ def beam_search_dyn_beam_v2(
         seq_len = torch.full([batch_size, beam_size], i_dev, device=device)  # [Batch,Beam]
 
         if ended is not None:
-            seq_log_prob = torch.concat([seq_log_prob, ended_seq_log_prob], dim=1)  # [Batch,Beam+InEndedBeam]
-            seq_len = torch.concat([seq_len, ended_seq_len], dim=1)  # [Batch,Beam+InEndedBeam]
+            seq_log_prob = torch.concat([seq_log_prob, end_seq_log_prob], dim=1)  # [Batch,Beam+InEndBeam]
+            seq_len = torch.concat([seq_len, end_seq_len], dim=1)  # [Batch,Beam+InEndBeam]
             backrefs = torch.concat(
                 [
                     backrefs,  # [Batch,Beam] -> InActBeam
                     (
-                        torch.arange(max_ended_beam_size, dtype=backrefs.dtype, device=backrefs.device)[None, :]
+                        torch.arange(max_end_beam_size, dtype=backrefs.dtype, device=backrefs.device)[None, :]
                         + max_act_beam_size
-                    ).expand(batch_size, max_ended_beam_size),
+                    ).expand(batch_size, max_end_beam_size),
                 ],
                 dim=1,
-            )  # [Batch,Beam+InEndedBeam] -> InActBeam+InEndedBeam
+            )  # [Batch,Beam+InEndedBeam] -> InActBeam+InEndBeam
             target = torch.concat(
                 [
                     target,
                     torch.full(
-                        [batch_size, max_ended_beam_size], opts.eos_label, dtype=target.dtype, device=target.device
+                        [batch_size, max_end_beam_size], opts.eos_label, dtype=target.dtype, device=target.device
                     ),
                 ],
                 dim=1,
-            )  # [Batch,Beam+InEndedBeam]
+            )  # [Batch,Beam+InEndBeam]
 
-        ended_comb = torch.concat(
+        end_comb = torch.concat(
             [
                 torch.full([1, beam_size], False, device=device),
-                torch.full([1, max_ended_beam_size], True, device=device),
+                torch.full([1, max_end_beam_size], True, device=device),
             ],
             dim=1,
         ).expand(
             batch_size, target.shape[1]
-        )  # [Batch,Beam+InEndedBeam]
+        )  # [Batch,Beam+InEndBeam]
 
         # seq_log_prob.shape[1] >= min(opts.num_labels * (opts.num_labels - 1) ** i, opts.beam_size)
-        # before we concatenated ended_seq_log_prob_.
+        # before we concatenated ended_seq_log_prob.
         if seq_log_prob.shape[1] > opts.beam_and_ended_size > 0:
             seq_log_prob, backrefs_2nd = torch.topk(
                 seq_log_prob, k=opts.beam_and_ended_size, dim=1
             )  # both [Batch,OutCombBeam]
-            # backrefs_2nd: [Batch,OutCombBeam] -> Beam+InEndedBeam
-            # backrefs (before): [Batch,Beam+InEndedBeam] -> InActBeam+InEndedBeam
-            backrefs = batch_gather(backrefs, indices=backrefs_2nd)  # [Batch,OutCombBeam] -> InActBeam+InEndedBeam
+            # backrefs_2nd: [Batch,OutCombBeam] -> Beam+InEndBeam
+            # backrefs (before): [Batch,Beam+InEndedBeam] -> InActBeam+InEndBeam
+            backrefs = batch_gather(backrefs, indices=backrefs_2nd)  # [Batch,OutCombBeam] -> InActBeam+InEndBeam
             target = batch_gather(target, indices=backrefs_2nd)  # [Batch,OutCombBeam]
-            ended_comb = batch_gather(ended_comb, indices=backrefs_2nd)  # [Batch,OutCombBeam]
+            end_comb = batch_gather(end_comb, indices=backrefs_2nd)  # [Batch,OutCombBeam]
             seq_len = batch_gather(seq_len, indices=backrefs_2nd)  # [Batch,OutCombBeam]
 
         i += 1
         i_dev += 1
-        ended_comb = ended_comb | (target == opts.eos_label)
-        ended_comb = ended_comb | (i_dev >= max_seq_len)[:, None]  # [Batch,OutCombBeam]
-        ended_or_invalid_comb = ended_comb | (seq_log_prob <= bad_score)  # padded area
-        active_comb = ~ended_or_invalid_comb  # [Batch,OutCombBeam]
-        # nonzero() causes one device->cpu sync, but all further use via those indices does not,
-        # in contrast to using masked_select.
-        active_comb_idx = active_comb.flatten().nonzero().flatten()  # [Batch_] -> Batch*OutCombBeam
-        ended_comb_idx = ended_comb.flatten().nonzero().flatten()  # [Batch_E] -> Batch*OutCombBeam
+
+        # Make mapping 0->active, 1->ended, 100->invalid.
+        state_comb = torch.full(target.shape, 0, dtype=torch.int8, device=device)  # [Batch,OutCombBeam]
+        torch.where(end_comb, 1, state_comb, out=state_comb)
+        torch.where(target == opts.eos_label, 1, state_comb, out=state_comb)
+        torch.where((i_dev >= max_seq_len)[:, None], 1, state_comb, out=state_comb)
+        torch.where(seq_log_prob <= bad_score, 100, state_comb, out=state_comb)
+
+        act_comb = state_comb == 0  # [Batch,OutCombBeam]
+        act_beam_sizes = act_comb.sum(dim=1)  # [Batch]
+
+        state_comb_cpu = state_comb.cpu()  # single CUDA sync point
+        act_beam_sizes_cpu = (state_comb_cpu == 0).sum(dim=1)  # [Batch]
+        max_act_beam_size = act_beam_sizes_cpu.max()  # scalar
+        end_beam_sizes_cpu = (state_comb_cpu == 1).sum(dim=1)  # [Batch]
+        max_end_beam_size = end_beam_sizes_cpu.max()  # scalar
+        sum_act_beam_sizes = act_beam_sizes_cpu.sum()  # scalar
+
+        act_idx = torch.argsort(state_comb, dim=1, stable=True)[:, :max_act_beam_size]  # [Batch,ActBeam] -> OutCombBeam
+        torch.where(state_comb == 0, 2, state_comb, out=state_comb)  # remap 2->active
+        end_idx = torch.argsort(state_comb, dim=1, stable=True)[:, :max_end_beam_size]  # [Batch,EndBeam] -> OutCombBeam
+        act_end_idx = torch.concat([act_idx, end_idx], dim=1)  # [Batch,ActBeam+EndBeam] -> OutCombBeam
+
+        # Do not use torch.masked_select in the following to avoid CUDA synchronization.
+        # Also do not use torch.nonzero to avoid CUDA synchronization.
+        act_comb_idx = nonzero(act_comb.flatten(), out_len=sum_act_beam_sizes)  # [Batch_] -> Batch*OutCombBeam
 
         # First we want to split active and ended.
         batch_idx_ = torch.arange(batch_size, dtype=batch_idx_.dtype, device=device)[:, None].expand(
             *target.shape
         )  # [Batch,OutCombBeam] -> Batch
-        batch_idx_ = batch_idx_.flatten()[active_comb_idx]  # [Batch_] -> Batch
-        (seq_log_prob_, ended_seq_log_prob_) = (
-            seq_log_prob.flatten()[active_comb_idx],  # [Batch_]
-            seq_log_prob.flatten()[ended_comb_idx],  # [Batch_E]
-        )
-        target_ = target.flatten()[active_comb_idx]  # [Batch_]
-        ended_seq_len_ = seq_len.flatten()[ended_comb_idx]  # [Batch_E]
-        backrefs_active_ = backrefs.flatten()[active_comb_idx]  # [Batch_] -> InActBeam
-        backrefs_ended_ = backrefs.flatten()[ended_comb_idx]  # [Batch_E] -> InActBeam+InEndedBeam
-        active_beam_sizes = active_comb.sum(dim=1)  # [Batch]
-        max_act_beam_size = active_beam_sizes.max()  # scalar
-        ended_beam_sizes = ended_comb.sum(dim=1)  # [Batch]
-        max_ended_beam_size = ended_beam_sizes.max()  # scalar
+        batch_idx_ = batch_idx_.flatten()[act_comb_idx]  # [Batch_] -> Batch
+        seq_log_prob_ = seq_log_prob.flatten()[act_comb_idx]  # [Batch_]
+        target_ = target.flatten()[act_comb_idx]  # [Batch_]
 
-        active = torch.arange(max_act_beam_size, device=device)[None, :] < active_beam_sizes[:, None]  # [Batch,ActBeam]
-        ended = (
-            torch.arange(max_ended_beam_size, device=device)[None, :] < ended_beam_sizes[:, None]
-        )  # [Batch,EndedBeam]
+        active = torch.arange(max_act_beam_size, device=device)[None, :] < act_beam_sizes[:, None]  # [Batch,ActBeam]
 
-        target = torch.full(active.shape, opts.eos_label, device=device)  # [Batch,ActBeam]
-        target.masked_scatter_(active, target_)
         target = torch.concat(
             [
-                target,
-                torch.full([batch_size, max_ended_beam_size], opts.eos_label, dtype=target.dtype, device=target.device),
+                batch_gather(target, indices=act_idx),  # [Batch,ActBeam]
+                torch.full([batch_size, max_end_beam_size], opts.eos_label, dtype=target.dtype, device=target.device),
             ],
             dim=1,
         )  # [Batch,ActBeam+EndedBeam]
-        backrefs_active = torch.full(active.shape, 0, device=device)  # [Batch,ActBeam]
-        backrefs_active.masked_scatter_(active, backrefs_active_)  # [Batch,ActBeam] -> InActBeam
-        backrefs_ended = torch.full(ended.shape, 0, device=device)  # [Batch,EndedBeam]
-        backrefs_ended.masked_scatter_(ended, backrefs_ended_)  # [Batch,EndedBeam] -> InActBeam+InEndedBeam
-        backrefs = torch.concat(
-            [backrefs_active, backrefs_ended], dim=1
-        )  # [Batch,ActBeam+EndedBeam] -> InActBeam+InEndedBeam
-        seq_log_prob = torch.full(active.shape, bad_score, device=device)  # [Batch,ActBeam]
-        seq_log_prob.masked_scatter_(active, seq_log_prob_)
-        ended_seq_log_prob = torch.full(ended.shape, bad_score, device=device)  # [Batch,EndedBeam]
-        ended_seq_log_prob.masked_scatter_(ended, ended_seq_log_prob_)
-        seq_log_prob = torch.concat([seq_log_prob, ended_seq_log_prob], dim=1)  # [Batch,ActBeam+EndedBeam]
-        seq_len = torch.full(active.shape, i_dev, device=device)  # [Batch,ActBeam]
-        ended_seq_len = torch.full(ended.shape, 0, device=device)  # [Batch,EndedBeam]
-        ended_seq_len.masked_scatter_(ended, ended_seq_len_)
-        seq_len = torch.concat([seq_len, ended_seq_len], dim=1)  # [Batch,ActBeam+EndedBeam]
+        backrefs = batch_gather(backrefs, indices=act_end_idx)  # [Batch,ActBeam+EndedBeam] -> InActBeam+InEndedBeam
+        seq_log_prob = batch_gather(seq_log_prob, indices=act_end_idx)  # [Batch,ActBeam+EndBeam]
+        end_seq_log_prob = seq_log_prob[:, max_act_beam_size:]  # [Batch,EndBeam]
+        seq_len = batch_gather(seq_len, indices=act_end_idx)  # [Batch,ActBeam+EndBeam]
+        end_seq_len = seq_len[:, max_act_beam_size:]  # [Batch,EndBeam]
 
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
@@ -221,14 +216,12 @@ def beam_search_dyn_beam_v2(
         # backrefs_active are [Batch,ActBeam] -> InActBeam.
         # We need Batch_ -> Batch__ (i.e. packed indices and only the active ones)
         # for transforming the state.
-        idx_ = torch.arange(
-            prev_act_beam_sizes.sum(), dtype=torch.int64, device=device
-        )  # [Batch__] -> Batch__, i.e. index [0...Batch__-1]
+        idx_ = torch.arange(prev_sum_act_beam_sizes, dtype=torch.int64, device=device)  # [Batch__] -> Batch__
         idx = torch.full(prev_active.shape, -1, dtype=torch.int64, device=device)  # [Batch,InActBeam]
         # prev_active: [Batch,InActBeam] mask, sum(prev_active) == len(Batch__)
         idx.masked_scatter_(prev_active, idx_)  # [Batch,InActBeam] -> Batch__
-        backrefs_ = batch_gather(idx, indices=backrefs_active)  # [Batch,ActBeam] -> Batch__
-        backrefs_ = torch.masked_select(backrefs_, active)  # Batch_ -> Batch__
+        backrefs_ = batch_gather(idx, indices=backrefs[:, :max_act_beam_size])  # [Batch,ActBeam] -> Batch__
+        backrefs_ = masked_select(backrefs_, active, out_len=sum_act_beam_sizes)  # Batch_ -> Batch__
 
         if out_individual_seq_scores is not None:
             # Similar as combine_individual_seq_scores but adapted for the packed format.
@@ -236,16 +229,11 @@ def beam_search_dyn_beam_v2(
             # prev out_individual_seq_scores: [Batch,InActBeam+InEndedBeam]
             # want: out_individual_seq_scores: [Batch,ActBeam+EndedBeam]
 
-            prev_was_active = (backrefs < prev_active.shape[1]) & (
-                seq_log_prob > bad_score
-            )  # [Batch,ActBeam+EndedBeam] -> active in prev
-            backrefs__ = torch.where(prev_was_active, backrefs, 0)  # the prev-ended ones don't matter
+            backrefs__ = torch.clip(backrefs, 0, prev_max_act_beam_size)
             backrefs__ = batch_gather(idx, indices=backrefs__)  # [Batch,ActBeam+EndedBeam] -> Batch__
-            backrefs_prev_was_active_ = torch.masked_select(backrefs__, prev_was_active)  # [Batch_PA] -> Batch__
-            target_prev_was_active_ = torch.masked_select(target, prev_was_active)  # [Batch_PA] -> Vocab
-            backrefs_prev_was_active__ = (
-                backrefs_prev_was_active_ * opts.num_labels + target_prev_was_active_
-            )  # [Batch_PA] -> Batch__ * Vocab + Vocab (flat indices)
+            backrefs_flat = (
+                backrefs__ * opts.num_labels + target
+            )  # [Batch,ActBeam+EndedBeam] -> Batch__ * Vocab + Vocab (flat indices)
 
             for k in list(individual_scores_.keys()):
 
@@ -267,9 +255,7 @@ def beam_search_dyn_beam_v2(
                         f" batch__ {idx_.shape[0]}, target shape {target.shape}, vocab {opts.num_labels}"
                     )
                 elif seq_score.shape[0] == idx_.shape[0] and seq_score.shape[1] == opts.num_labels:  # [Batch__,Vocab]
-                    seq_score_ = seq_score.flatten()[backrefs_prev_was_active__]  # [Batch_PA]
-                    seq_score = torch.full(target.shape, 0.0, device=device)  # [Batch,ActBeam+EndedBeam]
-                    seq_score.masked_scatter_(prev_was_active, seq_score_)
+                    seq_score = seq_score.flatten()[backrefs_flat]  # [Batch,ActBeam+EndedBeam]
                 else:
                     raise RuntimeError(
                         f"did not expect seq_score shape {seq_score.shape},"
@@ -286,7 +272,7 @@ def beam_search_dyn_beam_v2(
 
                 out_individual_seq_scores[k] = seq_score
 
-        if ended_or_invalid_comb.all():
+        if max_act_beam_size == 0:
             break
 
         state_ = tree.map_structure(functools.partial(gather_, indices=backrefs_), new_state_)  # [Batch_,...]
@@ -295,7 +281,7 @@ def beam_search_dyn_beam_v2(
             # Length-normalized scores, so we evaluate score_t/len.
             # If seq ended, score_i/i == score_{i-1}/(i-1), thus score_i = score_{i-1}*(i/(i-1))
             # Because we count with EOS symbol, shifted by one.
-            ended_seq_log_prob *= ((i_dev + 1) / i_dev) ** length_normalization_exponent_dev
+            end_seq_log_prob *= ((i_dev + 1) / i_dev) ** length_normalization_exponent_dev
 
     if opts.length_normalization_exponent != 0:
         # All seq_log_prob will be normalized by 1/(out_seq_len+1)**length_normalization_exponent.
