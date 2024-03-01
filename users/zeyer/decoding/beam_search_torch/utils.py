@@ -251,7 +251,7 @@ def masked_select(values: torch.Tensor, mask: torch.Tensor, *, out_len: int) -> 
         values = values.expand(*shape)
         mask = mask.expand(*shape)
     idx = nonzero(mask.flatten(), out_len=out_len)  # [out_len]
-    return values[idx]
+    return values.flatten()[idx]
 
 
 def nonzero(mask: torch.Tensor, *, out_len: int) -> torch.Tensor:
