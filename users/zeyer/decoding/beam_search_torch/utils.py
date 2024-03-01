@@ -265,6 +265,7 @@ def nonzero(mask: torch.Tensor, *, out_len: int) -> torch.Tensor:
     :return: indices of True elements, shape [out_len]
     """
     assert mask.dim() == 1 and mask.dtype == torch.bool
-    idx = torch.argsort(mask.flatten(), stable=True, descending=True)  # [in_len]
+    # Sort currently does not support bool dtype on CUDA, thus cast to int.
+    idx = torch.argsort(mask.flatten().to(torch.int8), stable=True, descending=True)  # [in_len]
     idx = idx[:out_len]  # [out_len]
     return idx
