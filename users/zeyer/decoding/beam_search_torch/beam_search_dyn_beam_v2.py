@@ -262,7 +262,10 @@ def beam_search_dyn_beam_v2(
         idx.masked_scatter_(prev_active, idx_)  # [Batch,InActBeam] -> Batch__
         backrefs_ = torch.clip(backrefs[:, :max_act_beam_size], 0, prev_max_act_beam_size - 1)  # pad out-of-range
         backrefs_ = batch_gather(idx, indices=backrefs_)  # [Batch,ActBeam] -> Batch__
-        backrefs_ = masked_select(backrefs_, active, out_len=sum_act_beam_sizes)  # Batch_ -> Batch__
+        if active is None:
+            backrefs_ = backrefs_.flatten()
+        else:
+            backrefs_ = masked_select(backrefs_, active, out_len=sum_act_beam_sizes)  # Batch_ -> Batch__
 
         if out_individual_seq_scores is not None:
             # Similar as combine_individual_seq_scores but adapted for the packed format.
