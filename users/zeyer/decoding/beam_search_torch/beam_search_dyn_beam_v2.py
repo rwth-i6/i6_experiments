@@ -264,7 +264,9 @@ def beam_search_dyn_beam_v2(
         # We need Batch_ -> Batch__ (i.e. packed indices and only the active ones)
         # for transforming the state.
         if prev_active is None:
-            backrefs_ += torch.arange(batch_size)[:, None] * prev_max_act_beam_size  # [Batch,ActBeam] -> Batch__
+            backrefs_ += (
+                torch.arange(batch_size, dtype=backrefs_.dtype, device=device)[:, None] * prev_max_act_beam_size
+            )  # [Batch,ActBeam] -> Batch__
             idx = None
         else:
             idx_ = torch.arange(prev_sum_act_beam_sizes, dtype=torch.int64, device=device)  # [Batch__] -> Batch__
@@ -287,7 +289,7 @@ def beam_search_dyn_beam_v2(
             backrefs__ = torch.clip(backrefs, 0, prev_max_act_beam_size - 1)
             if prev_active is None:
                 backrefs__ += (
-                    torch.arange(batch_size)[:, None] * prev_max_act_beam_size
+                    torch.arange(batch_size, dtype=backrefs__.dtype, device=device)[:, None] * prev_max_act_beam_size
                 )  # [Batch,ActBeam+EndBeam] -> Batch__
             else:
                 backrefs__ = batch_gather(idx, indices=backrefs__)  # [Batch,ActBeam+EndBeam] -> Batch__
@@ -301,25 +303,27 @@ def beam_search_dyn_beam_v2(
                 if seq_score.shape == (1, 1):  # [Batch__=1,Vocab=1]
                     pass  # leave it, but it will be interpreted as [Batch=1,(ActBeam+EndedBeam)=1]
                 elif (
-                    seq_score.shape[0] == 1 < idx_.shape[0] and seq_score.shape[1] == opts.num_labels
+                    seq_score.shape[0] == 1 < prev_sum_act_beam_sizes and seq_score.shape[1] == opts.num_labels
                 ):  # [Batch__=1,Vocab]
                     raise NotImplementedError(
                         f"seq_score shape {seq_score.shape}, bc Batch__,"
-                        f" batch__ {idx_.shape[0]}, target shape {target.shape}, vocab {opts.num_labels}"
+                        f" batch__ {prev_sum_act_beam_sizes}, target shape {target.shape}, vocab {opts.num_labels}"
                     )
                 elif (
-                    seq_score.shape[0] == idx_.shape[0] and seq_score.shape[1] == 1 < opts.num_labels
+                    seq_score.shape[0] == prev_sum_act_beam_sizes and seq_score.shape[1] == 1 < opts.num_labels
                 ):  # [Batch__,Vocab=1]
                     raise NotImplementedError(
                         f"seq_score shape {seq_score.shape}, bc Vocab,"
-                        f" batch__ {idx_.shape[0]}, target shape {target.shape}, vocab {opts.num_labels}"
+                        f" batch__ {prev_sum_act_beam_sizes}, target shape {target.shape}, vocab {opts.num_labels}"
                     )
-                elif seq_score.shape[0] == idx_.shape[0] and seq_score.shape[1] == opts.num_labels:  # [Batch__,Vocab]
+                elif (
+                    seq_score.shape[0] == prev_sum_act_beam_sizes and seq_score.shape[1] == opts.num_labels
+                ):  # [Batch__,Vocab]
                     seq_score = seq_score.flatten()[backrefs_flat]  # [Batch,ActBeam+EndedBeam]
                 else:
                     raise RuntimeError(
                         f"did not expect seq_score shape {seq_score.shape},"
-                        f" batch__ {idx_.shape[0]}, target shape {target.shape}, vocab {opts.num_labels}"
+                        f" batch__ {prev_sum_act_beam_sizes}, target shape {target.shape}, vocab {opts.num_labels}"
                     )
                 seq_score = torch.where(
                     prev_was_active, seq_score, torch.zeros((), device=device)
