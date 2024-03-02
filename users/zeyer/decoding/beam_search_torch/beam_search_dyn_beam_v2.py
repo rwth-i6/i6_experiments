@@ -105,6 +105,7 @@ def beam_search_dyn_beam_v2(
         prev_active = active
         prev_sum_act_beam_sizes = sum_act_beam_sizes
         prev_max_act_beam_size = max_act_beam_size
+        prev_max_end_beam_size = max_end_beam_size
 
         seq_log_prob, (backrefs, target) = top_k_nd(seq_log_prob_ext, k=opts.beam_size, dim=[1, 2])  # all [Batch,Beam]
         # backrefs: [Batch,Beam] -> InActBeam, should be in [0...InActBeam[b]-1] for each b
@@ -285,7 +286,14 @@ def beam_search_dyn_beam_v2(
             # prev out_individual_seq_scores: [Batch,InActBeam+InEndedBeam]
             # want: out_individual_seq_scores: [Batch,ActBeam+EndedBeam]
 
-            prev_was_active = valid & (backrefs < prev_max_act_beam_size)  # [Batch,ActBeam+EndBeam]
+            if prev_max_end_beam_size == 0 and valid is None:
+                prev_was_active = None
+            elif prev_max_end_beam_size == 0 and valid is not None:
+                prev_was_active = valid  # [Batch,ActBeam+EndBeam]
+            else:
+                prev_was_active = backrefs < prev_max_act_beam_size  # [Batch,ActBeam+EndBeam]
+                if valid is not None:
+                    prev_was_active &= valid
             backrefs__ = torch.clip(backrefs, 0, prev_max_act_beam_size - 1)
             if prev_active is None:
                 backrefs__ += (
@@ -325,9 +333,10 @@ def beam_search_dyn_beam_v2(
                         f"did not expect seq_score shape {seq_score.shape},"
                         f" batch__ {prev_sum_act_beam_sizes}, target shape {target.shape}, vocab {opts.num_labels}"
                     )
-                seq_score = torch.where(
-                    prev_was_active, seq_score, torch.zeros((), device=device)
-                )  # [Batch,ActBeam+EndBeam]
+                if prev_was_active is not None:
+                    seq_score = torch.where(
+                        prev_was_active, seq_score, torch.zeros((), device=device)
+                    )  # [Batch,ActBeam+EndBeam]
 
                 if k in out_individual_seq_scores:
                     prev_seq_score = out_individual_seq_scores[k]
