@@ -70,7 +70,7 @@ def beam_search_dyn_beam_v2(
     # Initial state.
     max_act_beam_size = 1  # size of InActBeam
     sum_act_beam_sizes = batch_size
-    active = torch.full([batch_size, 1], True, device=device)  # [Batch,InActBeam]
+    active = None  # [Batch,InActBeam]
     batch_idx_ = torch.arange(batch_size, dtype=torch.int32, device=device)  # [Batch_] -> Batch
     state_ = label_scorer.get_initial_state(batch_size=batch_size, device=device)  # [Batch_]
     target_ = torch.full([batch_size], opts.bos_label, device=device)  # [Batch_]
@@ -91,10 +91,15 @@ def beam_search_dyn_beam_v2(
         # individual_scores: all tensors have [Batch__|1,Vocab__|1]
         # new_state: all tensors have [Batch__,...]
 
-        # Unfortunately, need to expand seq_log_prob_ext to [Batch,InActBeam,Vocab]
-        # because top_k_nd (or equivalent) would not work otherwise.
-        seq_log_prob_ext = torch.full([batch_size, max_act_beam_size, opts.num_labels], bad_score, device=device)
-        seq_log_prob_ext.masked_scatter_(active[:, :, None], seq_log_prob_ext_)  # [Batch,InActBeam,Vocab]
+        if active is None:
+            seq_log_prob_ext = seq_log_prob_ext_.unflatten(
+                0, (batch_size, max_act_beam_size)
+            )  # [Batch,InActBeam,Vocab]
+        else:
+            # Unfortunately, need to expand seq_log_prob_ext to [Batch,InActBeam,Vocab]
+            # because top_k_nd (or equivalent) would not work otherwise.
+            seq_log_prob_ext = torch.full([batch_size, max_act_beam_size, opts.num_labels], bad_score, device=device)
+            seq_log_prob_ext.masked_scatter_(active[:, :, None], seq_log_prob_ext_)  # [Batch,InActBeam,Vocab]
         del seq_log_prob_ext_
 
         prev_active = active
@@ -253,15 +258,20 @@ def beam_search_dyn_beam_v2(
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
 
-        # backrefs_active are [Batch,ActBeam] -> InActBeam.
+        # backrefs are [Batch,ActBeam+EndBeam] -> InActBeam+InEndBeam.
+        backrefs_ = backrefs[:, :max_act_beam_size]  # [Batch,ActBeam] -> InActBeam+InEndBeam
+        backrefs_ = torch.clip(backrefs_, 0, prev_max_act_beam_size - 1)  # pad out-of-range, only -> InActBeam
         # We need Batch_ -> Batch__ (i.e. packed indices and only the active ones)
         # for transforming the state.
-        idx_ = torch.arange(prev_sum_act_beam_sizes, dtype=torch.int64, device=device)  # [Batch__] -> Batch__
-        idx = torch.full(prev_active.shape, -1, dtype=torch.int64, device=device)  # [Batch,InActBeam]
-        # prev_active: [Batch,InActBeam] mask, sum(prev_active) == len(Batch__)
-        idx.masked_scatter_(prev_active, idx_)  # [Batch,InActBeam] -> Batch__
-        backrefs_ = torch.clip(backrefs[:, :max_act_beam_size], 0, prev_max_act_beam_size - 1)  # pad out-of-range
-        backrefs_ = batch_gather(idx, indices=backrefs_)  # [Batch,ActBeam] -> Batch__
+        if prev_active is None:
+            backrefs_ += torch.arange(batch_size)[:, None] * prev_max_act_beam_size  # [Batch,ActBeam] -> Batch__
+            idx = None
+        else:
+            idx_ = torch.arange(prev_sum_act_beam_sizes, dtype=torch.int64, device=device)  # [Batch__] -> Batch__
+            idx = torch.full(prev_active.shape, -1, dtype=torch.int64, device=device)  # [Batch,InActBeam]
+            # prev_active: [Batch,InActBeam] mask, sum(prev_active) == len(Batch__)
+            idx.masked_scatter_(prev_active, idx_)  # [Batch,InActBeam] -> Batch__
+            backrefs_ = batch_gather(idx, indices=backrefs_)  # [Batch,ActBeam] -> Batch__
         if active is None:
             backrefs_ = backrefs_.flatten()
         else:
@@ -273,8 +283,14 @@ def beam_search_dyn_beam_v2(
             # prev out_individual_seq_scores: [Batch,InActBeam+InEndedBeam]
             # want: out_individual_seq_scores: [Batch,ActBeam+EndedBeam]
 
+            prev_was_active = valid & (backrefs < prev_max_act_beam_size)  # [Batch,ActBeam+EndBeam]
             backrefs__ = torch.clip(backrefs, 0, prev_max_act_beam_size - 1)
-            backrefs__ = batch_gather(idx, indices=backrefs__)  # [Batch,ActBeam+EndedBeam] -> Batch__
+            if prev_active is None:
+                backrefs__ += (
+                    torch.arange(batch_size)[:, None] * prev_max_act_beam_size
+                )  # [Batch,ActBeam+EndBeam] -> Batch__
+            else:
+                backrefs__ = batch_gather(idx, indices=backrefs__)  # [Batch,ActBeam+EndBeam] -> Batch__
             backrefs_flat = (
                 backrefs__ * opts.num_labels + target
             )  # [Batch,ActBeam+EndedBeam] -> Batch__ * Vocab + Vocab (flat indices)
@@ -305,6 +321,9 @@ def beam_search_dyn_beam_v2(
                         f"did not expect seq_score shape {seq_score.shape},"
                         f" batch__ {idx_.shape[0]}, target shape {target.shape}, vocab {opts.num_labels}"
                     )
+                seq_score = torch.where(
+                    prev_was_active, seq_score, torch.zeros((), device=device)
+                )  # [Batch,ActBeam+EndBeam]
 
                 if k in out_individual_seq_scores:
                     prev_seq_score = out_individual_seq_scores[k]
