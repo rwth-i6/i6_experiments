@@ -226,7 +226,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_reward": 0.1,
             },
             "beam_search_version": 2,
-            "___test": 4,
+            "___test": 5,
         },
         "beam12-batch1-lenReward01-v2": {
             "beam_search_opts": {
@@ -264,7 +264,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
             "beam_search_version": 2,
-            "___test": 3,
+            "___test": 5,
         },
         "beam60-batch50-lenNorm0-lenReward0": {
             "beam_search_opts": {
