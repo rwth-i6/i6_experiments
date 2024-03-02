@@ -243,7 +243,8 @@ def masked_select(values: torch.Tensor, mask: torch.Tensor, *, out_len: int) -> 
     :param values:
     :param mask:
     :param out_len:
-    :return: values.flatten()[idx], i.e. shape [out_len]
+    :return: ``values.flatten()[nonzero(mask.flatten())]``, i.e. shape [out_len],
+        like ``torch.masked_select(values, mask)``
     """
     if values.shape != mask.shape:
         assert values.dim() == mask.dim()
@@ -260,12 +261,13 @@ def nonzero(mask: torch.Tensor, *, out_len: int) -> torch.Tensor:
     that we do not need to perform a CUDA synchronization.
     We can avoid that when we know the output length in advance.
 
-    :param mask: flattened mask, bool
+    :param mask: flattened (dim() == 1) mask, bool
     :param out_len:
-    :return: indices of True elements, shape [out_len]
+    :return: indices of True elements, shape [out_len].
+        like ``mask.nonzero().flatten()``
     """
     assert mask.dim() == 1 and mask.dtype == torch.bool
     # Sort currently does not support bool dtype on CUDA, thus cast to int.
-    idx = torch.argsort(mask.flatten().to(torch.int8), stable=True, descending=True)  # [in_len]
+    idx = torch.argsort(mask.to(torch.int8), stable=True, descending=True)  # [in_len]
     idx = idx[:out_len]  # [out_len]
     return idx
