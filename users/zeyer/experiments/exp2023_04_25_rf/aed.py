@@ -294,6 +294,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_normalization_exponent": 0.0,
                 "length_reward": 0.1,
             },
+            "___test": 1,
         },
         # "beam12-batch200-lenNorm1": {
         #     "beam_search_opts": {
