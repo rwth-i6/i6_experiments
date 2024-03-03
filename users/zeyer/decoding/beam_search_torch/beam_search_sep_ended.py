@@ -252,7 +252,7 @@ def beam_search_sep_ended(
 
                 seq_score = individual_scores.pop(k)  # [Batch|1,Beam|1,Vocab|1]
                 if seq_score.shape == (1, 1, 1):  # [Batch=1,Beam=1,Vocab=1]
-                    pass  # leave it, but it will be interpreted as [Batch=1,(ActBeam+EndedBeam)=1]
+                    seq_score = seq_score[0]  # interpret it as [Batch=1,(ActBeam+EndedBeam)=1]
                 elif (
                     seq_score.shape[0] * seq_score.shape[1] == 1 < prev_sum_act_beam_sizes
                     and seq_score.shape[2] == opts.num_labels
