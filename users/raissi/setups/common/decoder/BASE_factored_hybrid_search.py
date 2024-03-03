@@ -23,10 +23,6 @@ import i6_core.mm as mm
 import i6_core.rasr as rasr
 import i6_core.recognition as recog
 
-from i6_core.returnn.flow import (
-    make_precomputed_hybrid_tf_feature_flow,
-    add_tf_flow_to_base_flow,
-)
 
 from i6_experiments.users.raissi.setups.common.data.factored_label import (
     LabelInfo,
@@ -1103,7 +1099,9 @@ class BASEFactoredHybridDecoder:
 
         if opt_lm_am and search_parameters.altas is None:
             assert search_parameters.beam >= 15.0
-
+            if pron_scale is not None:
+              if isinstance(pron_scale,DelayedBase) and pron_scale.is_set():
+                  pron_scale = pron_scale.get()
             opt = recog.OptimizeAMandLMScaleJob(
                 crp=search_crp,
                 lattice_cache=search.out_lattice_bundle,
@@ -1121,8 +1119,10 @@ class BASEFactoredHybridDecoder:
                 )
 
             if rerun_after_opt_lm:
+                ps = pron_scale if only_lm_opt else opt.out_best_lm_score
                 rounded_lm_scale = Delayed(opt.out_best_lm_score).function(round2)
-                params = search_parameters.with_lm_scale(rounded_lm_scale)
+                rounded_pron_scale = Delayed(ps).function(round2)
+                params = search_parameters.with_lm_scale(rounded_lm_scale).with_pron_scale(rounded_pron_scale)
                 name_after_rerun = name
 
                 if opt.out_best_lm_score.get() is not None:
@@ -1173,6 +1173,7 @@ class BASEFactoredHybridDecoder:
         tdp_scales: Union[List[float], np.ndarray],
         tdp_sil: Optional[List[Tuple[TDP, TDP, TDP, TDP]]] = None,
         tdp_speech: Optional[List[Tuple[TDP, TDP, TDP, TDP]]] = None,
+        pron_scales: Union[List[float], np.ndarray] = None,
         altas_value=14.0,
         altas_beam=14.0,
         keep_value=10,
@@ -1205,8 +1206,36 @@ class BASEFactoredHybridDecoder:
         tdp_scales = [round(s, 2) for s in tdp_scales]
         tdp_sil = tdp_sil if tdp_sil is not None else [recog_args.tdp_silence]
         tdp_speech = tdp_speech if tdp_speech is not None else [recog_args.tdp_speech]
+        use_pron = self.crp.lexicon_config.normalize_pronunciation and pron_scales is not None
 
-        jobs = {
+        if use_pron:
+            jobs = {
+                ((c, l, r), tdp, tdp_sl, tdp_sp, pron): self.recognize_count_lm(
+                    add_sis_alias_and_output=False,
+                    calculate_stats=False,
+                    cpu_rqmt=cpu_rqmt,
+                    crp_update=crp_update,
+                    gpu=gpu,
+                    is_min_duration=False,
+                    keep_value=keep_value,
+                    label_info=label_info,
+                    mem_rqmt=mem_rqmt,
+                    name_override=f"{self.name}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{tdp_sl}-tdpSp{tdp_sp}-pron{pron}",
+                    num_encoder_output=num_encoder_output,
+                    opt_lm_am=False,
+                    rerun_after_opt_lm=False,
+                    search_parameters=dataclasses.replace(
+                        recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_speech=tdp_sp
+                    ).with_prior_scale(left=l, center=c, right=r, diphone=c),
+                    remove_or_set_concurrency=False,
+                )
+                for ((c, l, r), tdp, tdp_sl, tdp_sp, pron) in
+                itertools.product(prior_scales, tdp_scales, tdp_sil, tdp_speech, pron_scales)
+            }
+
+
+        else:
+            jobs = {
             ((c, l, r), tdp, tdp_sl, tdp_sp): self.recognize_count_lm(
                 add_sis_alias_and_output=False,
                 calculate_stats=False,
@@ -1230,17 +1259,30 @@ class BASEFactoredHybridDecoder:
         }
         jobs_num_e = {k: v.sclite.out_num_errors for k, v in jobs.items()}
 
-        for ((c, l, r), tdp, tdp_sl, tdp_sp), recog_jobs in jobs.items():
-            if cpu_slow:
-                recog_jobs.search.update_rqmt("run", {"cpu_slow": True})
+        if use_pron:
+            for ((c, l, r), tdp, tdp_sl, tdp_sp, pron), recog_jobs in jobs.items():
+                if cpu_slow:
+                    recog_jobs.search.update_rqmt("run", {"cpu_slow": True})
 
-            pre_name = f"{pre_path}/{self.name}/Lm{recog_args.lm_scale}-Pron{recog_args.pron_scale}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{format_tdp(tdp_sl)}-tdpSp{format_tdp(tdp_sp)}"
+                pre_name = f"{pre_path}/{self.name}/Lm{recog_args.lm_scale}-Pron{recog_args.pron_scale}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{format_tdp(tdp_sl)}-tdpSp{format_tdp(tdp_sp)}-pron{pron}"
 
-            recog_jobs.lat2ctm.set_keep_value(keep_value)
-            recog_jobs.search.set_keep_value(keep_value)
+                recog_jobs.lat2ctm.set_keep_value(keep_value)
+                recog_jobs.search.set_keep_value(keep_value)
 
-            recog_jobs.search.add_alias(pre_name)
-            tk.register_output(f"{pre_name}.wer", recog_jobs.sclite.out_report_dir)
+                recog_jobs.search.add_alias(pre_name)
+                tk.register_output(f"{pre_name}.wer", recog_jobs.sclite.out_report_dir)
+        else:
+            for ((c, l, r), tdp, tdp_sl, tdp_sp), recog_jobs in jobs.items():
+                if cpu_slow:
+                    recog_jobs.search.update_rqmt("run", {"cpu_slow": True})
+
+                pre_name = f"{pre_path}/{self.name}/Lm{recog_args.lm_scale}-Pron{recog_args.pron_scale}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{format_tdp(tdp_sl)}-tdpSp{format_tdp(tdp_sp)}"
+
+                recog_jobs.lat2ctm.set_keep_value(keep_value)
+                recog_jobs.search.set_keep_value(keep_value)
+
+                recog_jobs.search.add_alias(pre_name)
+                tk.register_output(f"{pre_name}.wer", recog_jobs.sclite.out_report_dir)
 
         best_overall_wer = ComputeArgminJob({k: v.sclite.out_wer for k, v in jobs.items()})
         best_overall_n = ComputeArgminJob(jobs_num_e)
@@ -1253,23 +1295,34 @@ class BASEFactoredHybridDecoder:
             best_overall_wer.out_min,
         )
 
-        # cannot destructure, need to use indices
-        best_priors = best_overall_n.out_argmin[0]
-        best_tdp_scale = best_overall_n.out_argmin[1]
-        best_tdp_sil = best_overall_n.out_argmin[2]
-        best_tdp_sp = best_overall_n.out_argmin[3]
-
         def push_delayed_tuple(
             argmin: DelayedBase,
         ) -> Tuple[DelayedBase, DelayedBase, DelayedBase, DelayedBase]:
             return tuple(argmin[i] for i in range(4))
 
-        base_cfg = dataclasses.replace(
-            search_parameters,
-            tdp_scale=best_tdp_scale,
-            tdp_silence=push_delayed_tuple(best_tdp_sil),
-            tdp_speech=push_delayed_tuple(best_tdp_sp),
-        )
+        # cannot destructure, need to use indices
+        best_priors = best_overall_n.out_argmin[0]
+        best_tdp_scale = best_overall_n.out_argmin[1]
+        best_tdp_sil = best_overall_n.out_argmin[2]
+        best_tdp_sp = best_overall_n.out_argmin[3]
+        if use_pron:
+            best_pron = best_overall_n.out_argmin[4]
+
+            base_cfg = dataclasses.replace(
+                search_parameters,
+                tdp_scale=best_tdp_scale,
+                tdp_silence=push_delayed_tuple(best_tdp_sil),
+                tdp_speech=push_delayed_tuple(best_tdp_sp),
+                pron_scale=best_pron
+            )
+        else:
+            base_cfg = dataclasses.replace(
+                search_parameters,
+                tdp_scale=best_tdp_scale,
+                tdp_silence=push_delayed_tuple(best_tdp_sil),
+                tdp_speech=push_delayed_tuple(best_tdp_sp),
+            )
+
 
         best_center_prior = best_priors[0]
         if self.context_type.is_monophone():

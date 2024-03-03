@@ -126,7 +126,7 @@ class ReturnnRasrTrainingVITJob(ReturnnTrainingJob):
         ) = ReturnnRasrTrainingVITJob.create_config(key="dev", **kwargs)
 
         self.alignment = alignment
-        self.class_labels = self.output_path('class.labels')
+        self.out_class_labels = self.output_path("class.labels")
 
     def create_files(self):
         if self.num_classes is not None:

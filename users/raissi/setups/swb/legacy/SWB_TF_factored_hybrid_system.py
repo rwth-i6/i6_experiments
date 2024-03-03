@@ -147,6 +147,24 @@ class SWBTFFactoredHybridBaseSystem(TFFactoredHybridBaseSystem):
         }
         self.glm_files = dict(zip(["hub500", "hub501"], [tk.Path("/u/corpora/speech/hub5e_00/xml/glm")] * 2))
 
+        self.segments_to_exclude = ["switchboard-1/sw02986A/sw2986A-ms98-a-0013",
+                                    "switchboard-1/sw02663A/sw2663A-ms98-a-0022",
+                                    "switchboard-1/sw02691A/sw2691A-ms98-a-0017",
+                                    "switchboard-1/sw04091A/sw4091A-ms98-a-0063",
+                                    "switchboard-1/sw04103A/sw4103A-ms98-a-0022",
+                                    "switchboard-1/sw04118A/sw4118A-ms98-a-0045",
+                                    "switchboard-1/sw04318A/sw4318A-ms98-a-0024",
+                                    'switchboard-1/sw02691A/sw2691A-ms98-a-0017',
+                                    'switchboard-1/sw03266B/sw3266B-ms98-a-0055',
+                                    'switchboard-1/sw04103A/sw4103A-ms98-a-0022',
+                                    'switchboard-1/sw04181A/sw4181A-ms98-a-0036',
+                                    'switchboard-1/sw04318A/sw4318A-ms98-a-0024',
+                                    'switchboard-1/sw04624A/sw4624A-ms98-a-0055'
+                                    "hub5e_00/en_6189a/36",
+                                    "hub5e_00/en_4852b/77",
+                                    "hub5e_00/en_6189b/66",
+                                    ]
+
         self.cross_validation_info = {
             "pre_path": ("/").join([self.dependencies_path, "cv-from-hub5-00"]),
             "merged_corpus_path": ("/").join(["merged_corpora", "train-dev.corpus.gz"]),

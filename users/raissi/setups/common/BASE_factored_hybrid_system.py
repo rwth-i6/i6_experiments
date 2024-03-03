@@ -160,6 +160,7 @@ class BASEFactoredHybridSystem(NnSystem):
         self.frame_rate_reduction_ratio_info = FrameRateReductionRatioinfo.default()
         self.lexicon_args = get_lexicon_args(norm_pronunciation=False)
         self.tdp_values = get_tdp_values()
+        self.segments_to_exclude = None
 
         # transcription priors in pickle format
         self.priors = None  # these are for transcript priors
@@ -1029,6 +1030,7 @@ class BASEFactoredHybridSystem(NnSystem):
             if isinstance(data.features, tk.Path):
                 feature_flow.flags = {"cache_mode": "bundle"}
 
+
         if isinstance(data.alignments, rasr.FlagDependentFlowAttribute):
             alignments = copy.deepcopy(data.alignments)
             net = rasr.FlowNetwork()
@@ -1085,6 +1087,14 @@ class BASEFactoredHybridSystem(NnSystem):
                 data=train_data
             )
             feature_flow["dev"], alignments["dev"] = self.get_feature_and_alignment_flows_for_training(data=dev_data)
+
+
+        if self.segments_to_exclude is not None:
+            extra_config = rasr.RasrConfig() if "extra_rasr_config" not in nn_train_args else nn_train_args["extra_rasr_config"]
+            extra_config[
+                "*"
+            ].segments_to_skip = self.segments_to_exclude
+            nn_train_args["extra_rasr_config"] = extra_config
 
         train_job = trainer(
             train_crp=train_crp,

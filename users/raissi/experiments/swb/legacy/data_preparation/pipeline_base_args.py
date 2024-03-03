@@ -44,22 +44,29 @@ def get_data_inputs_with_paths(
     test_keys: str = ["hub5-01"],
     lm_name: str = "fisher_4gram",
     filter_short_segments: bool = True,
+    train_concurrent=200,
+    segments_to_filter=None
 ):
 
     train_data_inputs = {}
     dev_data_inputs = {}
     test_data_inputs = {}
 
-    train_corpus_object = get_swb_corpus_object(corpus_name=train_key, mapping="full")
-    final_segment_files = SegmentCorpusJob(train_corpus_object.corpus_file, 1).out_single_segment_files
-    if filter_short_segments:
-        filtered_segment_files = FilterSegmentsByListJob(  # too short not good for 40ms training
-            final_segment_files,
-            filter_list=[
+    if segments_to_filter is None:
+        segments_to_filter = [
                 "switchboard-1/sw04118A/sw4118A-ms98-a-0045",
                 "switchboard-1/sw02663A/sw2663A-ms98-a-0022",
                 "switchboard-1/sw02986A/sw2986A-ms98-a-0013",
-            ],
+            ]
+
+
+    train_corpus_object = get_swb_corpus_object(corpus_name=train_key, mapping="full")
+    final_segment_files = SegmentCorpusJob(train_corpus_object.corpus_file, 1).out_single_segment_files
+
+    if filter_short_segments:
+        filtered_segment_files = FilterSegmentsByListJob(  # too short not good for 40ms training
+            final_segment_files,
+            filter_list=segments_to_filter,
         ).out_single_segment_files
         final_segment_files = filtered_segment_files[1]
     train_corpus_object.corpus_file = FilterCorpusBySegmentsJob(
@@ -68,7 +75,7 @@ def get_data_inputs_with_paths(
 
     train_data_inputs[train_key] = rasr_util.RasrDataInput(
         corpus_object=train_corpus_object,
-        concurrent=concurrent[train_key],
+        concurrent=train_concurrent,#concurrent[train_key],
         lexicon=get_lexicon_config(lexicon_path=lexica[train_key]),
     )
     eval_lm = {

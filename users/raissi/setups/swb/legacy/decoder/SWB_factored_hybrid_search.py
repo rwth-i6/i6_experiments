@@ -674,7 +674,7 @@ class SWBFactoredHybridDecoder(BASEFactoredHybridDecoder):
                 scorer_kwargs=s_kwrgs,
                 opt_only_lm_scale=only_lm_opt,
             )
-            opt.rqmt = None
+            #opt.rqmt = None
 
             if add_sis_alias_and_output:
                 tk.register_output(
