@@ -1695,6 +1695,7 @@ def model_recog_pure_torch(
 
     config = get_global_config()
 
+    torch.cuda.set_sync_debug_mode(1)  # debug CUDA sync. does not hurt too much to leave this always in?
     start_time = time.perf_counter_ns()
 
     data_concat_zeros = config.float("data_concat_zeros", 0)
