@@ -286,6 +286,63 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             model_recog_dyn_beam_pure_torch,
             recog_config,
         )
+    # All beam search experiments using model_recog_pure_torch, beam_search_sep_ended.
+    for name, recog_config in {
+        "beam12-batch200-lenReward01": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.1,
+            },
+        },
+        # "beam12-batch200-lenNorm1": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 1.0,
+        #     },
+        # },
+        # "beam60-batch50-lenReward01": {
+        #     "beam_search_opts": {
+        #         "beam_size": 60,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #     },
+        #     "max_seqs": 50,
+        #     "batch_size": 5000 * _batch_size_factor,
+        # },
+        # "beam60-batch50-lenNorm1": {
+        #     "beam_search_opts": {
+        #         "beam_size": 60,
+        #         "length_normalization_exponent": 1.0,
+        #     },
+        #     "max_seqs": 50,
+        #     "batch_size": 5000 * _batch_size_factor,
+        # },
+        # "beam60-batch50-lenNorm0-lenReward0": {
+        #     "beam_search_opts": {
+        #         "beam_size": 60,
+        #         "length_normalization_exponent": 0.0,
+        #     },
+        #     "max_seqs": 50,
+        #     "batch_size": 5000 * _batch_size_factor,
+        # },
+    }.items():
+        for k, v in {
+            "beam_search_version": "sep_ended",
+            "__batch_size_dependent": True,
+            "__recog_def_ext": True,
+            "beam_search_collect_individual_seq_scores": True,
+        }.items():
+            recog_config.setdefault(k, v)
+        recog_config["beam_search_opts"].setdefault(
+            "beam_and_ended_size", recog_config["beam_search_opts"]["beam_size"]
+        )
+        _recog(
+            "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2/recog_last_sep_" + name,
+            model.get_last_fixed_epoch(),
+            model_recog_dyn_beam_pure_torch,
+            recog_config,
+        )
 
     train_exp(  # 5.18 (but "test-other": 6.4)
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin2e_5_295k-speedpertV2",
@@ -1628,6 +1685,10 @@ def model_recog_pure_torch(
     from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v3 import beam_search_v3
     from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v4 import beam_search_v4
     from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v5 import BeamSearchOptsV5, beam_search_v5
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_sep_ended import (
+        BeamSearchDynBeamOpts,
+        beam_search_sep_ended,
+    )
     from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.length_reward import LengthRewardScorer
     from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.shallow_fusion import ShallowFusedLabelScorers
     from returnn.config import get_global_config
@@ -1659,9 +1720,17 @@ def model_recog_pure_torch(
 
     enc_end_time = time.perf_counter_ns()
 
-    beam_search_version = config.int("beam_search_version", 1)
-    beam_search_func = {1: beam_search, 3: beam_search_v3, 4: beam_search_v4, 5: beam_search_v5}[beam_search_version]
-    if beam_search_version >= 5:
+    beam_search_version = config.typed_value("beam_search_version", 1)
+    beam_search_func = {
+        1: beam_search,
+        3: beam_search_v3,
+        4: beam_search_v4,
+        5: beam_search_v5,
+        "sep_ended": beam_search_sep_ended,
+    }[beam_search_version]
+    if beam_search_version == "sep_ended":
+        beam_search_opts_cls = BeamSearchDynBeamOpts
+    elif beam_search_version >= 5:
         beam_search_opts_cls = BeamSearchOptsV5
     else:
         beam_search_opts_cls = BeamSearchOpts
