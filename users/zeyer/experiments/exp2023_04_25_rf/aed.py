@@ -340,7 +340,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         _recog(
             "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2/recog_last_sep_" + name,
             model.get_last_fixed_epoch(),
-            model_recog_dyn_beam_pure_torch,
+            model_recog_pure_torch,
             recog_config,
         )
 
