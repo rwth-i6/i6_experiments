@@ -240,6 +240,7 @@ def beam_search_sep_ended_keep_v3(
     # The final beam is now [Batch,ActBeam+EndBeam], but we had max_act_beam_size==0,
     # i.e. all active hyps have become invalid after pruning.
     # Slice them away to get [Batch,EndBeam].
+    assert seq_log_prob.shape[1] > max_act_beam_size  # should have sth after slicing
     seq_log_prob = seq_log_prob[:, max_act_beam_size:]
     seq_backrefs[-1] = seq_backrefs[-1][:, max_act_beam_size:]
     seq_targets[-1] = seq_targets[-1][:, max_act_beam_size:]
