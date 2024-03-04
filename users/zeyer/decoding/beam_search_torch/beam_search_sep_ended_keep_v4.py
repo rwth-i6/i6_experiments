@@ -122,7 +122,7 @@ def beam_search_sep_ended_keep_v4(
         ):  # filled the ended beam
             # Filter out active which are worse than the worst ended hyp.
             worst_ended_seq_log_prob = end_seq_log_prob[:, -1]  # [Batch]
-            pruning_threshold = worst_ended_seq_log_prob - opts.pruning_threshold  # [Batch]
+            pruning_threshold = worst_ended_seq_log_prob - opts.pruning_threshold_worst  # [Batch]
             act_valid &= act_seq_log_prob > pruning_threshold[:, None]
 
         if opts.pruning_threshold is not None and end_seq_log_prob.shape[1] > 0:
