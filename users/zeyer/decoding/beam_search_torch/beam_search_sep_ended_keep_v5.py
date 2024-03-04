@@ -186,7 +186,7 @@ def beam_search_sep_ended_keep_v5(
                 elif (
                     seq_score.shape[0] * seq_score.shape[1] == 1 < batch_size * prev_max_act_beam_size
                     and seq_score.shape[2] == opts.num_labels
-                ):  # [Batch=1,Beam=1,Vocab]
+                ):  # [Batch=1,InActBeam=1,Vocab]
                     raise NotImplementedError(
                         f"seq_score shape {seq_score.shape}, bc Batch&Beam,"
                         f" InActBeam {prev_max_act_beam_size}, target shape {target.shape}, vocab {opts.num_labels}"
@@ -195,11 +195,8 @@ def beam_search_sep_ended_keep_v5(
                     seq_score.shape[0] == batch_size
                     and seq_score.shape[1] == prev_max_act_beam_size
                     and seq_score.shape[2] == 1 < opts.num_labels
-                ):  # [Batch,Beam,Vocab=1]
-                    raise NotImplementedError(
-                        f"seq_score shape {seq_score.shape}, bc Vocab,"
-                        f" InActBeam {prev_max_act_beam_size}, target shape {target.shape}, vocab {opts.num_labels}"
-                    )
+                ):  # [Batch,InActBeam,Vocab=1]
+                    seq_score = seq_score.flatten()[backrefs_flat // opts.num_labels]  # [Batch,ActBeam+EndedBeam]
                 elif seq_score.shape == (
                     batch_size,
                     prev_max_act_beam_size,
