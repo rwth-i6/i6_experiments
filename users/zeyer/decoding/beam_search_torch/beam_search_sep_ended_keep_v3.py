@@ -106,8 +106,8 @@ def beam_search_sep_ended_keep_v3(
 
         act_seq_log_prob, (act_backrefs, act_target) = top_k_nd(
             seq_log_prob_ext, k=opts.beam_size, dim=[1, 2]
-        )  # all [Batch,Beam]
-        # backrefs: [Batch,ActBeam] -> InActBeam, should be in [0...InActBeam[b]-1] for each b
+        )  # all [Batch,ActBeam]
+        # act_backrefs: [Batch,ActBeam] -> InActBeam, should be in [0...InActBeam[b]-1] for each b
         del seq_log_prob_ext
         act_valid = batch_gather(act_valid, indices=act_backrefs)  # [Batch,ActBeam]
 
@@ -215,7 +215,7 @@ def beam_search_sep_ended_keep_v3(
 
                 out_individual_seq_scores[k] = seq_score
 
-        max_act_beam_size = act_valid.shape[0]
+        max_act_beam_size = act_valid.shape[1]
         max_act_beam_size_cut_off = act_valid.sum(dim=1).max().cpu()  # single CUDA sync
         if max_act_beam_size_cut_off == 0:
             break
@@ -240,7 +240,6 @@ def beam_search_sep_ended_keep_v3(
     # The final beam is now [Batch,ActBeam+EndBeam], but we had max_act_beam_size==0,
     # i.e. all active hyps have become invalid after pruning.
     # Slice them away to get [Batch,EndBeam].
-    assert seq_log_prob.shape[1] > max_act_beam_size  # should have sth after slicing
     seq_log_prob = seq_log_prob[:, max_act_beam_size:]
     seq_backrefs[-1] = seq_backrefs[-1][:, max_act_beam_size:]
     seq_targets[-1] = seq_targets[-1][:, max_act_beam_size:]
