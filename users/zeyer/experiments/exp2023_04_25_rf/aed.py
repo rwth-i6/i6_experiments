@@ -395,7 +395,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             model_recog_pure_torch,
             recog_config,
         )
-    # All beam search experiments using model_recog_pure_torch, beam_search_sep_ended_keep_v2.
+    # All beam search experiments using model_recog_pure_torch, beam_search_sep_ended_keep_v4.
     for name, recog_config in {
         "beam12-batch200-lenReward01": {
             "beam_search_opts": {
@@ -433,6 +433,15 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "pruning_threshold": 10.0,
             },
         },
+        "beam12-batch1-lenReward01-thresh10": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.1,
+                "pruning_threshold": 10.0,
+            },
+            "max_seqs": 1,
+        },
         "beam12-batch200-lenReward01-thresh5": {
             "beam_search_opts": {
                 "beam_size": 12,
@@ -457,6 +466,15 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "pruning_threshold": 0.0,
             },
         },
+        "beam12-batch1-lenReward01-thresh0": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.1,
+                "pruning_threshold": 0.0,
+            },
+            "max_seqs": 1,
+        },
         "beam12-batch200-lenReward01-thresh5-threshW0": {
             "beam_search_opts": {
                 "beam_size": 12,
@@ -465,6 +483,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "pruning_threshold": 5.0,
                 "pruning_threshold_worst": 0.0,
             },
+            "___rerun": 1,  # there was a bug...
         },
         "beam12-beamEnd1-batch200-lenReward01-thresh2": {
             "beam_search_opts": {
