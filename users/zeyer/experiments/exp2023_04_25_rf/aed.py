@@ -403,6 +403,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_normalization_exponent": 0.0,
                 "length_reward": 0.1,
             },
+            "___test": 1,
         },
         "beam12-batch200-lenReward02": {
             "beam_search_opts": {
@@ -410,21 +411,22 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_normalization_exponent": 0.0,
                 "length_reward": 0.2,
             },
+            "___test": 1,
         },
-        "beam12-batch200-lenReward03": {
-            "beam_search_opts": {
-                "beam_size": 12,
-                "length_normalization_exponent": 0.0,
-                "length_reward": 0.3,
-            },
-        },
-        "beam12-batch200-lenReward04": {
-            "beam_search_opts": {
-                "beam_size": 12,
-                "length_normalization_exponent": 0.0,
-                "length_reward": 0.4,
-            },
-        },
+        # "beam12-batch200-lenReward03": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.3,
+        #     },
+        # },
+        # "beam12-batch200-lenReward04": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.4,
+        #     },
+        # },
         "beam12-batch200-lenReward01-thresh10": {
             "beam_search_opts": {
                 "beam_size": 12,
@@ -432,111 +434,111 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_reward": 0.1,
                 "pruning_threshold": 10.0,
             },
+            "___test": 1,
         },
-        "beam12-batch1-lenReward01-thresh10": {
-            "beam_search_opts": {
-                "beam_size": 12,
-                "length_normalization_exponent": 0.0,
-                "length_reward": 0.1,
-                "pruning_threshold": 10.0,
-            },
-            "max_seqs": 1,
-        },
-        "beam12-batch200-lenReward01-thresh5": {
-            "beam_search_opts": {
-                "beam_size": 12,
-                "length_normalization_exponent": 0.0,
-                "length_reward": 0.1,
-                "pruning_threshold": 5.0,
-            },
-        },
-        "beam12-batch200-lenReward01-thresh2": {
-            "beam_search_opts": {
-                "beam_size": 12,
-                "length_normalization_exponent": 0.0,
-                "length_reward": 0.1,
-                "pruning_threshold": 2.0,
-            },
-        },
-        "beam12-batch200-lenReward01-thresh0": {
-            "beam_search_opts": {
-                "beam_size": 12,
-                "length_normalization_exponent": 0.0,
-                "length_reward": 0.1,
-                "pruning_threshold": 0.0,
-            },
-        },
-        "beam12-batch1-lenReward01-thresh0": {
-            "beam_search_opts": {
-                "beam_size": 12,
-                "length_normalization_exponent": 0.0,
-                "length_reward": 0.1,
-                "pruning_threshold": 0.0,
-            },
-            "max_seqs": 1,
-        },
-        "beam12-batch200-lenReward01-thresh5-threshW0": {
-            "beam_search_opts": {
-                "beam_size": 12,
-                "length_normalization_exponent": 0.0,
-                "length_reward": 0.1,
-                "pruning_threshold": 5.0,
-                "pruning_threshold_worst": 0.0,
-            },
-            "___rerun": 1,  # there was a bug...
-        },
-        "beam12-beamEnd1-batch200-lenReward01-thresh2": {
-            "beam_search_opts": {
-                "beam_size": 12,
-                "beam_ended_size": 1,
-                "length_normalization_exponent": 0.0,
-                "length_reward": 0.1,
-                "pruning_threshold": 2.0,
-            },
-        },
-        "beam12-batch200-lenNorm1": {
-            "beam_search_opts": {
-                "beam_size": 12,
-                "length_normalization_exponent": 1.0,
-            },
-        },
-        "beam60-batch50-lenReward01": {
-            "beam_search_opts": {
-                "beam_size": 60,
-                "length_normalization_exponent": 0.0,
-                "length_reward": 0.1,
-            },
-            "max_seqs": 50,
-            "batch_size": 5000 * _batch_size_factor,
-        },
-        "beam60-batch50-lenReward02": {
-            "beam_search_opts": {
-                "beam_size": 60,
-                "length_normalization_exponent": 0.0,
-                "length_reward": 0.2,
-            },
-            "max_seqs": 50,
-            "batch_size": 5000 * _batch_size_factor,
-        },
-        "beam60-batch50-lenNorm1": {
-            "beam_search_opts": {
-                "beam_size": 60,
-                "length_normalization_exponent": 1.0,
-            },
-            "max_seqs": 50,
-            "batch_size": 5000 * _batch_size_factor,
-        },
-        "beam60-batch50-lenNorm0-lenReward0": {
-            "beam_search_opts": {
-                "beam_size": 60,
-                "length_normalization_exponent": 0.0,
-            },
-            "max_seqs": 50,
-            "batch_size": 5000 * _batch_size_factor,
-        },
+        # "beam12-batch1-lenReward01-thresh10": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #         "pruning_threshold": 10.0,
+        #     },
+        #     "max_seqs": 1,
+        # },
+        # "beam12-batch200-lenReward01-thresh5": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #         "pruning_threshold": 5.0,
+        #     },
+        # },
+        # "beam12-batch200-lenReward01-thresh2": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #         "pruning_threshold": 2.0,
+        #     },
+        # },
+        # "beam12-batch200-lenReward01-thresh0": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #         "pruning_threshold": 0.0,
+        #     },
+        # },
+        # "beam12-batch1-lenReward01-thresh0": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #         "pruning_threshold": 0.0,
+        #     },
+        #     "max_seqs": 1,
+        # },
+        # "beam12-batch200-lenReward01-thresh5-threshW0": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #         "pruning_threshold": 5.0,
+        #         "pruning_threshold_worst": 0.0,
+        #     },
+        # },
+        # "beam12-beamEnd1-batch200-lenReward01-thresh2": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "beam_ended_size": 1,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #         "pruning_threshold": 2.0,
+        #     },
+        # },
+        # "beam12-batch200-lenNorm1": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 1.0,
+        #     },
+        # },
+        # "beam60-batch50-lenReward01": {
+        #     "beam_search_opts": {
+        #         "beam_size": 60,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #     },
+        #     "max_seqs": 50,
+        #     "batch_size": 5000 * _batch_size_factor,
+        # },
+        # "beam60-batch50-lenReward02": {
+        #     "beam_search_opts": {
+        #         "beam_size": 60,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.2,
+        #     },
+        #     "max_seqs": 50,
+        #     "batch_size": 5000 * _batch_size_factor,
+        # },
+        # "beam60-batch50-lenNorm1": {
+        #     "beam_search_opts": {
+        #         "beam_size": 60,
+        #         "length_normalization_exponent": 1.0,
+        #     },
+        #     "max_seqs": 50,
+        #     "batch_size": 5000 * _batch_size_factor,
+        # },
+        # "beam60-batch50-lenNorm0-lenReward0": {
+        #     "beam_search_opts": {
+        #         "beam_size": 60,
+        #         "length_normalization_exponent": 0.0,
+        #     },
+        #     "max_seqs": 50,
+        #     "batch_size": 5000 * _batch_size_factor,
+        # },
     }.items():
         for k, v in {
-            "beam_search_version": "sep_ended_keep_v4",
+            "beam_search_version": "sep_ended_keep_v5",
             "__batch_size_dependent": True,
             "__recog_def_ext": True,
             "beam_search_collect_individual_seq_scores": True,
@@ -1895,9 +1897,9 @@ def model_recog_pure_torch(
         BeamSearchDynBeamOpts,
         beam_search_sep_ended,
     )
-    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_sep_ended_keep_v4 import (
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_sep_ended_keep_v5 import (
         BeamSearchSepEndedKeepOpts,
-        beam_search_sep_ended_keep_v4,
+        beam_search_sep_ended_keep_v5,
     )
     from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.length_reward import LengthRewardScorer
     from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.shallow_fusion import ShallowFusedLabelScorers
@@ -1938,7 +1940,7 @@ def model_recog_pure_torch(
         4: beam_search_v4,
         5: beam_search_v5,
         "sep_ended": beam_search_sep_ended,
-        "sep_ended_keep_v4": beam_search_sep_ended_keep_v4,
+        "sep_ended_keep_v5": beam_search_sep_ended_keep_v5,
     }[beam_search_version]
     if beam_search_version == "sep_ended":
         beam_search_opts_cls = BeamSearchDynBeamOpts
