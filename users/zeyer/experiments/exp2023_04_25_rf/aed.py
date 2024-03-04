@@ -424,6 +424,15 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "pruning_threshold_worst": 0.0,
             },
         },
+        "beam12-beamEnd1-batch200-lenReward01-thresh2": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "beam_ended_size": 1,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.1,
+                "pruning_threshold": 2.0,
+            },
+        },
         # "beam12-batch200-lenNorm1": {
         #     "beam_search_opts": {
         #         "beam_size": 12,
