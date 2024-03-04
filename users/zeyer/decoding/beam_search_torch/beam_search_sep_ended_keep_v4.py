@@ -28,7 +28,7 @@ class BeamSearchSepEndedKeepOpts:
     length_normalization_exponent: float = 0.0  # e.g. 1 to enable, 0 to disable
 
 
-def beam_search_sep_ended_keep_v3(
+def beam_search_sep_ended_keep_v4(
     label_scorer: LabelScorerIntf,
     *,
     batch_size: int,
