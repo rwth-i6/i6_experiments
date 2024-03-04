@@ -82,6 +82,11 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "length_normalization_exponent": 0.0,
             "length_reward": 0.1,
         },
+        "beam12-batch200-lenReward02": {
+            "beam_size": 12,
+            "length_normalization_exponent": 0.0,
+            "length_reward": 0.2,
+        },
         "beam12-batch200-lenNorm0": {
             "beam_size": 12,
             "length_normalization_exponent": 0.0,
@@ -232,6 +237,14 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
             "beam_search_version": 2,
         },
+        "beam12-batch200-lenReward02-v2": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.2,
+            },
+            "beam_search_version": 2,
+        },
         "beam12-batch1-lenReward01-v2": {
             "beam_search_opts": {
                 "beam_size": 12,
@@ -319,6 +332,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_reward": 0.1,
             },
         },
+        "beam12-batch200-lenReward02": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.2,
+            },
+        },
         "beam12-batch200-lenNorm1": {
             "beam_search_opts": {
                 "beam_size": 12,
@@ -391,6 +411,20 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_reward": 0.2,
             },
         },
+        "beam12-batch200-lenReward03": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.3,
+            },
+        },
+        "beam12-batch200-lenReward04": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.4,
+            },
+        },
         "beam12-batch200-lenReward01-thresh10": {
             "beam_search_opts": {
                 "beam_size": 12,
@@ -413,6 +447,14 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_normalization_exponent": 0.0,
                 "length_reward": 0.1,
                 "pruning_threshold": 2.0,
+            },
+        },
+        "beam12-batch200-lenReward01-thresh0": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.1,
+                "pruning_threshold": 0.0,
             },
         },
         "beam12-batch200-lenReward01-thresh5-threshW0": {
