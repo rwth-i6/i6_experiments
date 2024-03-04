@@ -28,7 +28,7 @@ class BeamSearchSepEndedKeepOpts:
     length_normalization_exponent: float = 0.0  # e.g. 1 to enable, 0 to disable
 
 
-def beam_search_sep_ended_keep_v4(
+def beam_search_sep_ended_keep_v5(
     label_scorer: LabelScorerIntf,
     *,
     batch_size: int,
@@ -131,6 +131,16 @@ def beam_search_sep_ended_keep_v4(
             pruning_threshold = best_ended_seq_log_prob - opts.pruning_threshold  # [Batch]
             act_valid &= act_seq_log_prob > pruning_threshold[:, None]
 
+        torch.where(act_valid, act_seq_log_prob, bad_score_dev, out=act_seq_log_prob)
+        max_act_beam_size_cut_off = act_valid.sum(dim=1).max().cpu()  # single CUDA sync
+
+        # Seqs are sorted per score, thus we can just slice the best.
+        # Slice for the next iteration. `backrefs`, `target` still contain all.
+        act_valid = act_valid[:, :max_act_beam_size_cut_off]
+        act_seq_log_prob = act_seq_log_prob[:, :max_act_beam_size_cut_off]
+        act_backrefs = act_backrefs[:, :max_act_beam_size_cut_off]
+        act_target = act_target[:, :max_act_beam_size_cut_off]
+
         seq_log_prob = torch.concat([act_seq_log_prob, end_seq_log_prob], dim=1)  # [Batch,ActBeam+EndBeam]
         backrefs = torch.concat(
             [
@@ -152,6 +162,9 @@ def beam_search_sep_ended_keep_v4(
 
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
+
+        if max_act_beam_size_cut_off == 0:
+            break
 
         if out_individual_seq_scores is not None:
             # Similar as combine_individual_seq_scores but adapted for the packed format.
@@ -215,18 +228,6 @@ def beam_search_sep_ended_keep_v4(
 
                 out_individual_seq_scores[k] = seq_score
 
-        max_act_beam_size = act_valid.shape[1]
-        max_act_beam_size_cut_off = act_valid.sum(dim=1).max().cpu()  # single CUDA sync
-        if max_act_beam_size_cut_off == 0:
-            break
-
-        # Seqs are sorted per score, thus we can just slice the best.
-        # Slice for the next iteration. `backrefs`, `target` still contain all.
-        act_valid = act_valid[:, :max_act_beam_size_cut_off]
-        act_seq_log_prob = act_seq_log_prob[:, :max_act_beam_size_cut_off]
-        act_backrefs = act_backrefs[:, :max_act_beam_size_cut_off]
-        act_target = act_target[:, :max_act_beam_size_cut_off]
-
         act_state = tree.map_structure(
             functools.partial(batch_gather_, indices=act_backrefs), new_state
         )  # [Batch,ActBeam,...]
@@ -236,16 +237,6 @@ def beam_search_sep_ended_keep_v4(
             # If seq ended, score_i/i == score_{i-1}/(i-1), thus score_i = score_{i-1}*(i/(i-1))
             # Because we count with EOS symbol, shifted by one.
             end_seq_log_prob *= ((i_dev + 1) / i_dev) ** length_normalization_exponent_dev
-
-    # The final beam is now [Batch,ActBeam+EndBeam], but we had max_act_beam_size==0,
-    # i.e. all active hyps have become invalid after pruning.
-    # Slice them away to get [Batch,EndBeam].
-    seq_log_prob = seq_log_prob[:, max_act_beam_size:]
-    seq_backrefs[-1] = seq_backrefs[-1][:, max_act_beam_size:]
-    seq_targets[-1] = seq_targets[-1][:, max_act_beam_size:]
-    if out_individual_seq_scores is not None:
-        for k, v in list(out_individual_seq_scores.items()):
-            out_individual_seq_scores[k] = v[:, max_act_beam_size:]
 
     if opts.length_normalization_exponent != 0:
         # All seq_log_prob will be normalized by 1/(out_seq_len+1)**length_normalization_exponent.
