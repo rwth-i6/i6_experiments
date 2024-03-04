@@ -243,6 +243,9 @@ def beam_search_sep_ended_keep_v3(
     seq_log_prob = seq_log_prob[:, max_act_beam_size:]
     seq_backrefs[-1] = seq_backrefs[-1][:, max_act_beam_size:]
     seq_targets[-1] = seq_targets[-1][:, max_act_beam_size:]
+    if out_individual_seq_scores is not None:
+        for k, v in list(out_individual_seq_scores.items()):
+            out_individual_seq_scores[k] = v[:, max_act_beam_size:]
 
     if opts.length_normalization_exponent != 0:
         # All seq_log_prob will be normalized by 1/(out_seq_len+1)**length_normalization_exponent.
