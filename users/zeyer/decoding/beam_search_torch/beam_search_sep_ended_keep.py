@@ -24,6 +24,7 @@ class BeamSearchSepEndedKeepOpts:
     num_labels: int
 
     pruning_threshold: Optional[float] = None  # prune active hyps away compared to best ended hyp
+    pruning_threshold_worst: Optional[float] = None  # prune active hyps away compared to worst ended hyp
     length_normalization_exponent: float = 0.0  # e.g. 1 to enable, 0 to disable
 
 
@@ -116,10 +117,13 @@ def beam_search_sep_ended_keep(
         # backrefs_eos: [Batch,EndBeam] -> InActBeam+InEndBeam
 
         act_valid &= (i_dev < max_seq_len)[:, None]
-        if end_seq_log_prob.shape[1] >= opts.beam_ended_size:  # filled the ended beam
+        if (
+            opts.pruning_threshold_worst is not None and end_seq_log_prob.shape[1] >= opts.beam_ended_size
+        ):  # filled the ended beam
             # Filter out active which are worse than the worst ended hyp.
             worst_ended_seq_log_prob = end_seq_log_prob[:, -1]  # [Batch]
-            act_valid &= act_seq_log_prob > worst_ended_seq_log_prob[:, None]
+            pruning_threshold = worst_ended_seq_log_prob - opts.pruning_threshold  # [Batch]
+            act_valid &= act_seq_log_prob > pruning_threshold[:, None]
 
         if opts.pruning_threshold is not None and end_seq_log_prob.shape[1] > 0:
             # Prune in relation to best ended hyp.
