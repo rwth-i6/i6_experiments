@@ -72,11 +72,11 @@ def beam_search_sep_ended_keep(
     length_normalization_exponent_dev = torch.full((), opts.length_normalization_exponent, device=device)
 
     # Initial state.
-    act_state = label_scorer.get_initial_state(batch_size=batch_size, device=device)  # [Batch,1]
-    act_target = torch.full([batch_size, 1], opts.bos_label, device=device)  # [Batch,1]
-    act_valid = torch.full([batch_size, 1], True, device=device)  # [Batch,1]
-    act_seq_log_prob = torch.full([batch_size, 1], 0.0, device=device)  # [Batch,1]
-    end_seq_log_prob = torch.full([batch_size, 0], 0.0, devic=device)  # [Batch,InEndBeam]
+    act_state = label_scorer.get_initial_state(batch_size=batch_size, device=device)  # [Batch,InActBeam=1]
+    act_target = torch.full([batch_size, 1], opts.bos_label, device=device)  # [Batch,InActBeam=1]
+    act_valid = torch.full([batch_size, 1], True, device=device)  # [Batch,InActBeam=1]
+    act_seq_log_prob = torch.full([batch_size, 1], 0.0, device=device)  # [Batch,InActBeam=1]
+    end_seq_log_prob = torch.full([batch_size, 0], 0.0, device=device)  # [Batch,InEndBeam=0]
 
     i = 0
     i_dev = torch.zeros((), dtype=torch.int64, device=device)
