@@ -28,7 +28,7 @@ class BeamSearchSepEndedKeepOpts:
     length_normalization_exponent: float = 0.0  # e.g. 1 to enable, 0 to disable
 
 
-def beam_search_sep_ended_keep_v2(
+def beam_search_sep_ended_keep_v3(
     label_scorer: LabelScorerIntf,
     *,
     batch_size: int,
@@ -235,6 +235,14 @@ def beam_search_sep_ended_keep_v2(
             # If seq ended, score_i/i == score_{i-1}/(i-1), thus score_i = score_{i-1}*(i/(i-1))
             # Because we count with EOS symbol, shifted by one.
             end_seq_log_prob *= ((i_dev + 1) / i_dev) ** length_normalization_exponent_dev
+
+    # The final beam is now [Batch,ActBeam+EndBeam], but we had max_act_beam_size==0,
+    # i.e. all active hyps have become invalid after pruning.
+    # Slice them away to get [Batch,EndBeam].
+    last_act_beam_size_invalid = act_valid.shape[0]
+    seq_log_prob = seq_log_prob[:, last_act_beam_size_invalid:]
+    seq_backrefs[-1] = seq_backrefs[-1][:, last_act_beam_size_invalid:]
+    seq_targets[-1] = seq_targets[-1][:, last_act_beam_size_invalid:]
 
     if opts.length_normalization_exponent != 0:
         # All seq_log_prob will be normalized by 1/(out_seq_len+1)**length_normalization_exponent.
