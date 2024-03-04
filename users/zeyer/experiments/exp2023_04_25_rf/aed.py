@@ -403,7 +403,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_normalization_exponent": 0.0,
                 "length_reward": 0.1,
             },
-            "___test": 1,
         },
         "beam12-batch200-lenReward02": {
             "beam_search_opts": {
@@ -411,22 +410,14 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_normalization_exponent": 0.0,
                 "length_reward": 0.2,
             },
-            "___test": 1,
         },
-        # "beam12-batch200-lenReward03": {
-        #     "beam_search_opts": {
-        #         "beam_size": 12,
-        #         "length_normalization_exponent": 0.0,
-        #         "length_reward": 0.3,
-        #     },
-        # },
-        # "beam12-batch200-lenReward04": {
-        #     "beam_search_opts": {
-        #         "beam_size": 12,
-        #         "length_normalization_exponent": 0.0,
-        #         "length_reward": 0.4,
-        #     },
-        # },
+        "beam12-batch200-lenReward03": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.3,
+            },
+        },
         "beam12-batch200-lenReward01-thresh10": {
             "beam_search_opts": {
                 "beam_size": 12,
@@ -436,15 +427,15 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
             "___test": 1,
         },
-        # "beam12-batch1-lenReward01-thresh10": {
-        #     "beam_search_opts": {
-        #         "beam_size": 12,
-        #         "length_normalization_exponent": 0.0,
-        #         "length_reward": 0.1,
-        #         "pruning_threshold": 10.0,
-        #     },
-        #     "max_seqs": 1,
-        # },
+        "beam12-batch1-lenReward01-thresh10": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.1,
+                "pruning_threshold": 10.0,
+            },
+            "max_seqs": 1,
+        },
         # "beam12-batch200-lenReward01-thresh5": {
         #     "beam_search_opts": {
         #         "beam_size": 12,
