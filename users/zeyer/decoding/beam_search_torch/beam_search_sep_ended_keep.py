@@ -103,7 +103,7 @@ def beam_search_sep_ended_keep(
 
         prev_max_act_beam_size = seq_log_prob_ext.shape[1]  # InActBeam
 
-        act_seq_log_prob, (act_backrefs, target) = top_k_nd(
+        act_seq_log_prob, (act_backrefs, act_target) = top_k_nd(
             seq_log_prob_ext, k=opts.beam_size, dim=[1, 2]
         )  # all [Batch,Beam]
         # backrefs: [Batch,ActBeam] -> InActBeam, should be in [0...InActBeam[b]-1] for each b
@@ -128,9 +128,11 @@ def beam_search_sep_ended_keep(
             act_valid &= act_seq_log_prob > pruning_threshold[:, None]
 
         # Seqs are sorted per score, thus we can just slice the best.
-        act_seq_log_prob = act_seq_log_prob[:, : act_valid.sum(dim=1).max()]
-        act_backrefs = act_backrefs[:, : act_seq_log_prob.shape[1]]
-        target = target[:, : act_seq_log_prob.shape[1]]
+        max_act_beam_size = act_valid.sum(dim=1).max().cpu()  # single CUDA sync
+        act_valid = act_valid[:, :max_act_beam_size]
+        act_seq_log_prob = act_seq_log_prob[:, :max_act_beam_size]
+        act_backrefs = act_backrefs[:, :max_act_beam_size]
+        act_target = act_target[:, :max_act_beam_size]
 
         seq_log_prob = torch.concat([act_seq_log_prob, end_seq_log_prob], dim=1)  # [Batch,ActBeam+EndBeam]
         backrefs = torch.concat(
@@ -142,8 +144,8 @@ def beam_search_sep_ended_keep(
         )  # [Batch,ActBeam+EndBeam] -> InActBeam+InEndBeam
         target = torch.concat(
             [
-                target,
-                torch.full(end_seq_log_prob.shape, opts.eos_label, dtype=target.dtype, device=target.device),
+                act_target,
+                torch.full(end_seq_log_prob.shape, opts.eos_label, dtype=act_target.dtype, device=device),
             ],
             dim=1,
         )  # [Batch,ActBeam+EndBeam]
@@ -216,7 +218,7 @@ def beam_search_sep_ended_keep(
 
                 out_individual_seq_scores[k] = seq_score
 
-        if act_valid.sum().cpu() == 0:
+        if max_act_beam_size == 0:
             break
 
         act_state = tree.map_structure(
