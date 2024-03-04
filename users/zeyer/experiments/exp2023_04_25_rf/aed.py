@@ -197,15 +197,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
             "beam_search_version": 2,
         },
-        "beam1-batch1-lenReward01-v2": {
-            "beam_search_opts": {
-                "beam_size": 1,
-                "length_normalization_exponent": 0.0,
-                "length_reward": 0.1,
-            },
-            "max_seqs": 1,
-            "beam_search_version": 2,
-        },
         "beam12-batch200-lenNorm1": {
             "beam_search_opts": {
                 "beam_size": 12,
