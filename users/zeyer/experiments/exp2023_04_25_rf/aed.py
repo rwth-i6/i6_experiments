@@ -395,7 +395,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             model_recog_pure_torch,
             recog_config,
         )
-    # All beam search experiments using model_recog_pure_torch, beam_search_sep_ended_keep_v4.
+    # All beam search experiments using model_recog_pure_torch, beam_search_sep_ended_keep_v5.
     for name, recog_config in {
         "beam12-batch200-lenReward01": {
             "beam_search_opts": {
@@ -425,7 +425,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_reward": 0.1,
                 "pruning_threshold": 10.0,
             },
-            "___test": 1,
         },
         "beam12-batch1-lenReward01-thresh10": {
             "beam_search_opts": {
@@ -476,6 +475,23 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_normalization_exponent": 0.0,
                 "length_reward": 0.1,
                 "pruning_threshold": 2.0,
+            },
+        },
+        "beam12-batch200-lenReward02-thresh2": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.2,
+                "pruning_threshold": 2.0,
+            },
+        },
+        "beam12-batch200-lenReward02-thresh2-cov05": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.2,
+                "pruning_threshold": 2.0,
+                "attention_coverage_scale": 0.5,
             },
         },
         "beam12-batch200-lenNorm1": {
