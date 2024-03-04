@@ -28,7 +28,7 @@ class BeamSearchSepEndedKeepOpts:
     length_normalization_exponent: float = 0.0  # e.g. 1 to enable, 0 to disable
 
 
-def beam_search_sep_ended_keep(
+def beam_search_sep_ended_keep_v2(
     label_scorer: LabelScorerIntf,
     *,
     batch_size: int,
@@ -131,13 +131,6 @@ def beam_search_sep_ended_keep(
             pruning_threshold = best_ended_seq_log_prob - opts.pruning_threshold  # [Batch]
             act_valid &= act_seq_log_prob > pruning_threshold[:, None]
 
-        # Seqs are sorted per score, thus we can just slice the best.
-        max_act_beam_size = act_valid.sum(dim=1).max().cpu()  # single CUDA sync
-        act_valid = act_valid[:, :max_act_beam_size]
-        act_seq_log_prob = act_seq_log_prob[:, :max_act_beam_size]
-        act_backrefs = act_backrefs[:, :max_act_beam_size]
-        act_target = act_target[:, :max_act_beam_size]
-
         seq_log_prob = torch.concat([act_seq_log_prob, end_seq_log_prob], dim=1)  # [Batch,ActBeam+EndBeam]
         backrefs = torch.concat(
             [
@@ -222,8 +215,16 @@ def beam_search_sep_ended_keep(
 
                 out_individual_seq_scores[k] = seq_score
 
+        max_act_beam_size = act_valid.sum(dim=1).max().cpu()  # single CUDA sync
         if max_act_beam_size == 0:
             break
+
+        # Seqs are sorted per score, thus we can just slice the best.
+        # Slice for the next iteration. `backrefs`, `target` still contain all.
+        act_valid = act_valid[:, :max_act_beam_size]
+        act_seq_log_prob = act_seq_log_prob[:, :max_act_beam_size]
+        act_backrefs = act_backrefs[:, :max_act_beam_size]
+        act_target = act_target[:, :max_act_beam_size]
 
         act_state = tree.map_structure(
             functools.partial(batch_gather_, indices=act_backrefs), new_state
