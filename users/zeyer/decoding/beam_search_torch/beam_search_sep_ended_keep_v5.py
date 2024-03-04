@@ -163,9 +163,6 @@ def beam_search_sep_ended_keep_v5(
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
 
-        if max_act_beam_size_cut_off == 0:
-            break
-
         if out_individual_seq_scores is not None:
             # Similar as combine_individual_seq_scores but adapted for the packed format.
             # individual_scores: [Batch,InActBeam,Vocab]
@@ -227,6 +224,9 @@ def beam_search_sep_ended_keep_v5(
                     seq_score = seq_score + prev_seq_score
 
                 out_individual_seq_scores[k] = seq_score
+
+        if max_act_beam_size_cut_off == 0:
+            break
 
         act_state = tree.map_structure(
             functools.partial(batch_gather_, indices=act_backrefs), new_state
