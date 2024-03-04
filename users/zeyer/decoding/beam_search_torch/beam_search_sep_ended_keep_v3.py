@@ -215,16 +215,17 @@ def beam_search_sep_ended_keep_v3(
 
                 out_individual_seq_scores[k] = seq_score
 
-        max_act_beam_size = act_valid.sum(dim=1).max().cpu()  # single CUDA sync
-        if max_act_beam_size == 0:
+        max_act_beam_size = act_valid.shape[0]
+        max_act_beam_size_cut_off = act_valid.sum(dim=1).max().cpu()  # single CUDA sync
+        if max_act_beam_size_cut_off == 0:
             break
 
         # Seqs are sorted per score, thus we can just slice the best.
         # Slice for the next iteration. `backrefs`, `target` still contain all.
-        act_valid = act_valid[:, :max_act_beam_size]
-        act_seq_log_prob = act_seq_log_prob[:, :max_act_beam_size]
-        act_backrefs = act_backrefs[:, :max_act_beam_size]
-        act_target = act_target[:, :max_act_beam_size]
+        act_valid = act_valid[:, :max_act_beam_size_cut_off]
+        act_seq_log_prob = act_seq_log_prob[:, :max_act_beam_size_cut_off]
+        act_backrefs = act_backrefs[:, :max_act_beam_size_cut_off]
+        act_target = act_target[:, :max_act_beam_size_cut_off]
 
         act_state = tree.map_structure(
             functools.partial(batch_gather_, indices=act_backrefs), new_state
@@ -239,10 +240,9 @@ def beam_search_sep_ended_keep_v3(
     # The final beam is now [Batch,ActBeam+EndBeam], but we had max_act_beam_size==0,
     # i.e. all active hyps have become invalid after pruning.
     # Slice them away to get [Batch,EndBeam].
-    last_act_beam_size_invalid = act_valid.shape[0]
-    seq_log_prob = seq_log_prob[:, last_act_beam_size_invalid:]
-    seq_backrefs[-1] = seq_backrefs[-1][:, last_act_beam_size_invalid:]
-    seq_targets[-1] = seq_targets[-1][:, last_act_beam_size_invalid:]
+    seq_log_prob = seq_log_prob[:, max_act_beam_size:]
+    seq_backrefs[-1] = seq_backrefs[-1][:, max_act_beam_size:]
+    seq_targets[-1] = seq_targets[-1][:, max_act_beam_size:]
 
     if opts.length_normalization_exponent != 0:
         # All seq_log_prob will be normalized by 1/(out_seq_len+1)**length_normalization_exponent.
