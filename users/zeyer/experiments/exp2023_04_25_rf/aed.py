@@ -436,97 +436,88 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
             "max_seqs": 1,
         },
-        # "beam12-batch200-lenReward01-thresh5": {
-        #     "beam_search_opts": {
-        #         "beam_size": 12,
-        #         "length_normalization_exponent": 0.0,
-        #         "length_reward": 0.1,
-        #         "pruning_threshold": 5.0,
-        #     },
-        # },
-        # "beam12-batch200-lenReward01-thresh2": {
-        #     "beam_search_opts": {
-        #         "beam_size": 12,
-        #         "length_normalization_exponent": 0.0,
-        #         "length_reward": 0.1,
-        #         "pruning_threshold": 2.0,
-        #     },
-        # },
-        # "beam12-batch200-lenReward01-thresh0": {
-        #     "beam_search_opts": {
-        #         "beam_size": 12,
-        #         "length_normalization_exponent": 0.0,
-        #         "length_reward": 0.1,
-        #         "pruning_threshold": 0.0,
-        #     },
-        # },
-        # "beam12-batch1-lenReward01-thresh0": {
-        #     "beam_search_opts": {
-        #         "beam_size": 12,
-        #         "length_normalization_exponent": 0.0,
-        #         "length_reward": 0.1,
-        #         "pruning_threshold": 0.0,
-        #     },
-        #     "max_seqs": 1,
-        # },
-        # "beam12-batch200-lenReward01-thresh5-threshW0": {
-        #     "beam_search_opts": {
-        #         "beam_size": 12,
-        #         "length_normalization_exponent": 0.0,
-        #         "length_reward": 0.1,
-        #         "pruning_threshold": 5.0,
-        #         "pruning_threshold_worst": 0.0,
-        #     },
-        # },
-        # "beam12-beamEnd1-batch200-lenReward01-thresh2": {
-        #     "beam_search_opts": {
-        #         "beam_size": 12,
-        #         "beam_ended_size": 1,
-        #         "length_normalization_exponent": 0.0,
-        #         "length_reward": 0.1,
-        #         "pruning_threshold": 2.0,
-        #     },
-        # },
-        # "beam12-batch200-lenNorm1": {
-        #     "beam_search_opts": {
-        #         "beam_size": 12,
-        #         "length_normalization_exponent": 1.0,
-        #     },
-        # },
-        # "beam60-batch50-lenReward01": {
-        #     "beam_search_opts": {
-        #         "beam_size": 60,
-        #         "length_normalization_exponent": 0.0,
-        #         "length_reward": 0.1,
-        #     },
-        #     "max_seqs": 50,
-        #     "batch_size": 5000 * _batch_size_factor,
-        # },
-        # "beam60-batch50-lenReward02": {
-        #     "beam_search_opts": {
-        #         "beam_size": 60,
-        #         "length_normalization_exponent": 0.0,
-        #         "length_reward": 0.2,
-        #     },
-        #     "max_seqs": 50,
-        #     "batch_size": 5000 * _batch_size_factor,
-        # },
-        # "beam60-batch50-lenNorm1": {
-        #     "beam_search_opts": {
-        #         "beam_size": 60,
-        #         "length_normalization_exponent": 1.0,
-        #     },
-        #     "max_seqs": 50,
-        #     "batch_size": 5000 * _batch_size_factor,
-        # },
-        # "beam60-batch50-lenNorm0-lenReward0": {
-        #     "beam_search_opts": {
-        #         "beam_size": 60,
-        #         "length_normalization_exponent": 0.0,
-        #     },
-        #     "max_seqs": 50,
-        #     "batch_size": 5000 * _batch_size_factor,
-        # },
+        "beam12-batch200-lenReward01-thresh5": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.1,
+                "pruning_threshold": 5.0,
+            },
+        },
+        "beam12-batch200-lenReward01-thresh2": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.1,
+                "pruning_threshold": 2.0,
+            },
+        },
+        "beam12-batch200-lenReward01-thresh0": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.1,
+                "pruning_threshold": 0.0,
+            },
+        },
+        "beam12-batch200-lenReward01-thresh5-threshW0": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.1,
+                "pruning_threshold": 5.0,
+                "pruning_threshold_worst": 0.0,
+            },
+        },
+        "beam12-beamEnd1-batch200-lenReward01-thresh2": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "beam_ended_size": 1,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.1,
+                "pruning_threshold": 2.0,
+            },
+        },
+        "beam12-batch200-lenNorm1": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 1.0,
+            },
+        },
+        "beam60-batch50-lenReward01": {
+            "beam_search_opts": {
+                "beam_size": 60,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.1,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "beam60-batch50-lenReward02": {
+            "beam_search_opts": {
+                "beam_size": 60,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.2,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "beam60-batch50-lenNorm1": {
+            "beam_search_opts": {
+                "beam_size": 60,
+                "length_normalization_exponent": 1.0,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "beam60-batch50-lenNorm0-lenReward0": {
+            "beam_search_opts": {
+                "beam_size": 60,
+                "length_normalization_exponent": 0.0,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
     }.items():
         for k, v in {
             "beam_search_version": "sep_ended_keep_v5",
