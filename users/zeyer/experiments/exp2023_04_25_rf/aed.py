@@ -517,7 +517,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     }.items():
         for k, v in {
-            "beam_search_version": "sep_ended_keep_v2",
+            "beam_search_version": "sep_ended_keep_v3",
             "__batch_size_dependent": True,
             "__recog_def_ext": True,
             "beam_search_collect_individual_seq_scores": True,
@@ -1876,9 +1876,9 @@ def model_recog_pure_torch(
         BeamSearchDynBeamOpts,
         beam_search_sep_ended,
     )
-    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_sep_ended_keep_v2 import (
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_sep_ended_keep_v3 import (
         BeamSearchSepEndedKeepOpts,
-        beam_search_sep_ended_keep_v2,
+        beam_search_sep_ended_keep_v3,
     )
     from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.length_reward import LengthRewardScorer
     from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.shallow_fusion import ShallowFusedLabelScorers
@@ -1919,7 +1919,7 @@ def model_recog_pure_torch(
         4: beam_search_v4,
         5: beam_search_v5,
         "sep_ended": beam_search_sep_ended,
-        "sep_ended_keep_v2": beam_search_sep_ended_keep_v2,
+        "sep_ended_keep_v3": beam_search_sep_ended_keep_v3,
     }[beam_search_version]
     if beam_search_version == "sep_ended":
         beam_search_opts_cls = BeamSearchDynBeamOpts
