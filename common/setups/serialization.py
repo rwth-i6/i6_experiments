@@ -395,7 +395,7 @@ class Call(SerializerObject):
         kwargs_str_list = [f"{key}={try_get(val)}" for key, val in self.kwargs + self.unhashed_kwargs]
 
         # full call
-        return f"{return_assign_str}{self.callable_name}({', '.join(kwargs_str_list)})"
+        return f"{return_assign_str}{self.callable_name}({', '.join(kwargs_str_list)})\n"
 
     def _sis_hash(self):
         h = {
