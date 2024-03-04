@@ -1923,9 +1923,9 @@ def model_recog_pure_torch(
     }[beam_search_version]
     if beam_search_version == "sep_ended":
         beam_search_opts_cls = BeamSearchDynBeamOpts
-    elif beam_search_version == "sep_ended_keep":
+    elif isinstance(beam_search_version, str) and beam_search_version.startswith("sep_ended_keep"):
         beam_search_opts_cls = BeamSearchSepEndedKeepOpts
-    elif beam_search_version >= 5:
+    elif isinstance(beam_search_version, int) and beam_search_version >= 5:
         beam_search_opts_cls = BeamSearchOptsV5
     else:
         beam_search_opts_cls = BeamSearchOpts
