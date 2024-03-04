@@ -1873,7 +1873,7 @@ def model_recog_pure_torch(
             get_label_scorer_pure_torch(model=model, batch_dim=batch_dim, enc=enc),
             1.0,
         )
-    if beam_search_version == "sep_ended" or beam_search_version >= 5:
+    if isinstance(beam_search_version, str) or beam_search_version >= 5:
         len_reward = beam_search_opts.pop("length_reward", 0.0)
         if len_reward or cheating:
             label_scorer.label_scorers["length_reward"] = (LengthRewardScorer(), len_reward)
