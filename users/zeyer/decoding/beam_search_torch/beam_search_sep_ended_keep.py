@@ -127,6 +127,10 @@ def beam_search_sep_ended_keep(
             pruning_threshold = best_ended_seq_log_prob - opts.pruning_threshold  # [Batch]
             act_valid &= act_seq_log_prob > pruning_threshold[:, None]
 
+        print(
+            f"step {i}, {act_valid.cpu().numpy()=}, best act {act_seq_log_prob[:, :1]}, best ended {end_seq_log_prob[:, :1]}"
+        )
+
         # Seqs are sorted per score, thus we can just slice the best.
         max_act_beam_size = act_valid.sum(dim=1).max().cpu()  # single CUDA sync
         act_valid = act_valid[:, :max_act_beam_size]
