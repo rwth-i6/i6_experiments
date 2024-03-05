@@ -4,6 +4,7 @@ import argparse
 from types import SimpleNamespace
 import sys
 import numpy as np
+import time
 
 sys.path.append("/u/zeineldeen/dev/pylasr")
 sys.path.append("/u/zeineldeen/dev/returnn")
@@ -153,7 +154,6 @@ elif args.returnn_recog_args:
     )
 
     with DatadirWriter(args.output_dir) as writer:
-
         returnn_recog_args = eval(args.returnn_recog_args)
         max_seq_len_ratio = returnn_recog_args.pop("max_seq_len_ratio", 1.0)
         len_reward = returnn_recog_args.pop("length_reward", 0.0)
@@ -224,28 +224,33 @@ elif args.returnn_recog_args:
         assert beam_search_func is not None
         assert beam_search_opts is not None
 
-        def forward_encoder(speech, speech_lengths):
-            # Input as audio signal
-            if isinstance(speech, np.ndarray):
-                speech = torch.tensor(speech)
-
-            if batch_size == 1:
-                # data: (Nsamples,) -> (1, Nsamples)
-                speech = speech[0]
-                speech = speech.unsqueeze(0).to(getattr(torch, "float32"))
-                # lengths: (1,)
-                lengths = speech.new_full([1], dtype=torch.long, fill_value=speech.size(1))
-                batch = {"speech": speech, "speech_lengths": lengths}
-                logging.info("speech length: " + str(speech.size(1)))
-            else:
-                speech = speech.to(getattr(torch, "float32"))
-                logging.info("speech length: " + str(speech_lengths.sum().item()))
-                batch = {"speech": speech, "speech_lengths": speech_lengths}
-
-            batch = to_device(batch, device=args.device)
-            return asr_model.encode(**batch)
+        # def forward_encoder(speech, speech_lengths):
+        #     # Input as audio signal
+        #     if isinstance(speech, np.ndarray):
+        #         speech = torch.tensor(speech)
+        #
+        #     if batch_size == 1:
+        #         # data: (Nsamples,) -> (1, Nsamples)
+        #         speech = speech[0]
+        #         speech = speech.unsqueeze(0).to(getattr(torch, "float32"))
+        #         # lengths: (1,)
+        #         lengths = speech.new_full([1], dtype=torch.long, fill_value=speech.size(1))
+        #         batch = {"speech": speech, "speech_lengths": lengths}
+        #         logging.info("speech length: " + str(speech.size(1)))
+        #     else:
+        #         speech = speech.to(getattr(torch, "float32"))
+        #         logging.info("speech length: " + str(speech_lengths.sum().item()))
+        #         batch = {"speech": speech, "speech_lengths": speech_lengths}
+        #
+        #     batch = to_device(batch, device=args.device)
+        #     return asr_model.encode(**batch)
 
         ibest_writer = writer[f"1best_recog"]
+
+        total_recog_time_in_sec = 0.0
+        total_enc_recog_time_in_sec = 0.0
+        total_dec_recog_time_in_sec = 0.0
+        total_audio_length_in_sec = 0.0
 
         for keys, batch in data_loader:
             assert isinstance(batch, dict), type(batch)
@@ -253,11 +258,19 @@ elif args.returnn_recog_args:
             _bs = len(next(iter(batch.values())))
             assert len(keys) == _bs, f"{len(keys)} != {_bs}"
 
+            if keys[0] != "6467-97061-0023":
+                continue
+
             with torch.no_grad():
-                enc, enc_olens = forward_encoder(**batch)
-                logging.info("encoder forward is done.")
+                start_time = time.perf_counter_ns()
+                audio_dur = batch["speech_lengths"].sum().item()
+                total_audio_length_in_sec += audio_dur * 0.0625 / 1000
+                logging.info("speech length: " + str(audio_dur))  # log start of search
+                batch = to_device(batch, device=args.device)
+                enc, enc_olens = asr_model.encode(**batch)
                 if enc.device.type == "cuda":
                     torch.cuda.synchronize(enc.device)
+                enc_end_time = time.perf_counter_ns()
 
                 label_scorer = get_our_label_scorer_intf(asr_model.decoder, enc=enc, enc_olens=enc_olens)
 
@@ -269,21 +282,29 @@ elif args.returnn_recog_args:
                         }
                     )
 
-                seq_targets, seq_log_scores, _ = beam_search_func(
+                out_individual_seq_scores = {}
+
+                seq_targets, seq_log_scores, out_seq_len = beam_search_func(
                     label_scorer=label_scorer,
                     batch_size=len(keys),
                     max_seq_len=enc_olens * max_seq_len_ratio,
                     device=args.device,
                     opts=beam_search_opts,
+                    out_individual_seq_scores=out_individual_seq_scores,
                 )  # [B,hyp,L]
 
-                logging.info(f"End batch search for {len(keys)} seqs")
+                search_end_time = time.perf_counter_ns()
+
+                total_enc_recog_time_in_sec += (enc_end_time - start_time) / 1e9
+                total_dec_recog_time_in_sec += (search_end_time - enc_end_time) / 1e9
+                total_recog_time_in_sec += (search_end_time - start_time) / 1e9
 
                 assert seq_targets.shape[0] == len(keys), seq_targets.shape
                 assert seq_log_scores.shape[0] == len(keys), seq_log_scores.shape
 
                 for i, key in enumerate(keys):
-                    token_int = seq_targets[i, 0]  # [1, 1, L]
+                    best_hyp_index = torch.topk(seq_log_scores, 1, dim=-1).indices[0].item()
+                    token_int = seq_targets[i, best_hyp_index, : out_seq_len[i]]  # [1, 1, L]
                     token_int = token_int[token_int != 4999]
                     token_int = token_int.tolist()
 
@@ -297,8 +318,18 @@ elif args.returnn_recog_args:
                     logging.info(f"best hypo: {text}")
                     ibest_writer["text"][key] = text
 
-                    ibest_writer["score"][key] = str(seq_log_scores[i, 0].item())
+                    ibest_writer["score"][key] = str(seq_log_scores[i, best_hyp_index].item())
 
+                    for k, v in out_individual_seq_scores.items():
+                        ibest_writer[f"{k}_score"][key] = " ".join(str(v[i, best_hyp_index].item()))
+
+        logging.info(f"Total recog time: {total_recog_time_in_sec:.3f} sec")
+        logging.info(f"Total enc recog time: {total_enc_recog_time_in_sec:.3f} sec")
+        logging.info(f"Total dec recog time: {total_dec_recog_time_in_sec:.3f} sec")
+        logging.info(f"Total audio length: {total_audio_length_in_sec:.3f} sec")
+        logging.info(f"Overall RTF: {total_recog_time_in_sec / total_audio_length_in_sec:.3f}")
+        logging.info(f"Enc RTF: {total_enc_recog_time_in_sec / total_audio_length_in_sec:.3f}")
+        logging.info(f"Dec RTF: {total_dec_recog_time_in_sec / total_audio_length_in_sec:.3f}")
 
 else:
     print("Using espnet beam search")
