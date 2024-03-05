@@ -258,9 +258,6 @@ elif args.returnn_recog_args:
             _bs = len(next(iter(batch.values())))
             assert len(keys) == _bs, f"{len(keys)} != {_bs}"
 
-            if keys[0] != "6467-97061-0023":
-                continue
-
             with torch.no_grad():
                 start_time = time.perf_counter_ns()
                 audio_dur = batch["speech_lengths"].sum().item()
