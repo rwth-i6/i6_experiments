@@ -598,6 +598,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
         },
+        "beam60-batch50-lenReward_01-thresh5-cov05": {
+            "beam_search_opts": {
+                "beam_size": 60,
+                "length_normalization_exponent": 0.0,
+                "length_reward": -0.1,
+                "pruning_threshold": 5.0,
+                "attention_coverage_scale": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
     }.items():
         for k, v in {
             "beam_search_version": "sep_ended_keep_v5",
