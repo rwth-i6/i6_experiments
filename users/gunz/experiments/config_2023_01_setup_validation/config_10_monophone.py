@@ -4,7 +4,6 @@ import copy
 import itertools
 import typing
 
-import numpy as np
 import os
 
 # -------------------- Sisyphus --------------------
@@ -17,8 +16,8 @@ import i6_core.returnn as returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common import oclr, returnn_time_tag
-from ...setups.common.specaugment import (
+from ...setups.common.nn import oclr, returnn_time_tag
+from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
     summary as sa_summary,

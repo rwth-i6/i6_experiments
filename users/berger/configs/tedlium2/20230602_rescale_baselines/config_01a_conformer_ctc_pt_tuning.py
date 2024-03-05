@@ -41,7 +41,7 @@ def tune_specaugment(trial: optuna.Trial, model_config: conformer_ctc.ConformerC
     model_config.specaugment.cfg.time_max_mask_per_n_frames = trial.suggest_int(
         "time_max_mask_per_n_frames", 10, 40, step=10
     )
-    model_config.specaugment.cfg.time_mask_max_size = trial.suggest_int("time_mask_max_size", 10, 30, step=10)
+    model_config.specaugment.cfg.time_mask_max_size = trial.suggest_int("time_mask_max_size", 10, 30, step=5)
 
     freq_max_num_masks = trial.suggest_int("freq_max_num_masks", 3, 9, step=2)
     model_config.specaugment.cfg.freq_max_num_masks = freq_max_num_masks
@@ -96,8 +96,8 @@ def returnn_config_generator(
         "grad_clip": 0.0,
         "optimizer": Optimizers.AdamW,
         "schedule": LearningRateSchedules.OCLR,
-        "initial_lr": 7e-05,
-        "peak_lr": 7e-04,
+        "initial_lr": 2.2e-05,
+        "peak_lr": 2.2e-04,
         "final_lr": 1e-08,
         "batch_size": 18000,
         "accum_grad": 2,
@@ -182,12 +182,12 @@ def run_exp() -> SummaryReport:
     )
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
-        epochs=[40, 80, 160, 240, num_subepochs],
+        epochs=[240, num_subepochs],
         prior_scales=[0.5],
         lm_scales=[1.1],
-        trial_nums=[3, 5, 6, 7, 8, 9, 11, 17],  # ["best"]
+        trial_nums=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],  # ["best"]
         backend=Backend.PYTORCH,
-        feature_type=FeatureType.GAMMATONE,
+        feature_type=FeatureType.GAMMATONE_16K,
     )
 
     system.run_train_step(**train_args)

@@ -2,8 +2,6 @@ import shutil
 import subprocess as sp
 import sys
 
-import optuna
-
 from i6_core import util
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import PtCheckpoint

@@ -1,9 +1,10 @@
 from abc import abstractmethod
 from dataclasses import dataclass
-from typing import Dict, Generic, List, Tuple, Union
+from typing import Dict, Generic, List
+
+from i6_experiments.users.berger.systems.dataclasses import AlignmentData
 
 from .. import dataclasses, types
-from sisyphus import tk
 
 
 class TrainFunctor(Generic[types.TrainJobType, types.ConfigType]):
@@ -34,7 +35,7 @@ class AlignmentFunctor(Generic[types.TrainJobType, types.ConfigType]):
         align_config: types.ConfigType,
         align_corpus: dataclasses.NamedCorpusInfo,
         **kwargs,
-    ) -> Union[Dict[Tuple[float, types.EpochType], tk.Path], tk.Path]:
+    ) -> AlignmentData:
         pass
 
 

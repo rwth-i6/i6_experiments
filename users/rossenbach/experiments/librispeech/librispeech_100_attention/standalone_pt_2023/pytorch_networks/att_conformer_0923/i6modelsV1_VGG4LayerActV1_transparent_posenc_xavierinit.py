@@ -15,6 +15,7 @@ from i6_models.assemblies.conformer.conformer_v1 import ConformerEncoderV1Config
 from i6_models.assemblies.conformer.conformer_v1 import ConformerBlockV1Config, ConformerBlockV1
 from i6_models.config import ModuleFactoryV1, ModelConfiguration
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
+from i6_models.decoder.attention import AttentionLSTMDecoderV1, AttentionLSTMDecoderV1Config, AdditiveAttentionConfig
 from i6_models.parts.frontend.common import mask_pool
 
 from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config, ConformerConvolutionV1
@@ -25,7 +26,7 @@ from i6_models.primitives.specaugment import specaugment_v1_by_length
 
 from returnn.torch.context import get_run_ctx
 
-from .i6modelsV1_VGG4LayerActFrontendV1_cfg import ModelConfig, VGG4LayerActFrontendV1Config_mod, SpecaugConfig
+from .i6modelsV1_VGG4LayerActFrontendV1_cfg import ModelConfig, VGG4LayerActFrontendV1Config_mod, SpecaugConfig, ConformerAEDModelConfig
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -151,7 +152,7 @@ class TransparentConformerEncoderV1(nn.Module):
         return final, sequence_mask
 
 
-class Model(nn.Module):
+class ConformerAEDModel(nn.Module):
     """
     Conformer Encoder-Decoder Attention model for ASR
     """
@@ -159,9 +160,10 @@ class Model(nn.Module):
     def __init__(self, cfg: ConformerAEDModelConfig):
         super().__init__()
 
-        self.feat_extraction = LogMelFeatureExtractionV1(cfg=cfg.feat_extraction_cfg)
+        self.cfg = cfg
+        self.feature_extraction = LogMelFeatureExtractionV1(cfg=cfg.feat_extraction_cfg)
         # TODO: add specaugment
-        self.encoder = ConformerEncoderV1ConvFirst(cfg=cfg.encoder_cfg)
+        self.encoder = TransparentConformerEncoderV1(cfg=cfg.encoder_cfg)
         self.vocab_size = cfg.decoder_cfg.vocab_size
         self.ctc_linear = nn.Linear(in_features=cfg.encoder_cfg.block_cfg.ff_cfg.input_dim,
                                     out_features=self.vocab_size + 1)  # +1 for CTC
@@ -196,11 +198,11 @@ class Model(nn.Module):
                 audio_features_masked_2 = specaugment_v1_by_length(
                     audio_features,
                     time_min_num_masks=2,
-                    time_max_mask_per_n_frames=self.cfg.specaug_config.repeat_per_n_frames,
-                    time_mask_max_size=self.cfg.specaug_config.max_dim_time,
+                    time_max_mask_per_n_frames=self.cfg.specaug_cfg.repeat_per_n_frames,
+                    time_mask_max_size=self.cfg.specaug_cfg.max_dim_time,
                     freq_min_num_masks=2,
-                    freq_mask_max_size=self.cfg.specaug_config.max_dim_feat,
-                    freq_max_num_masks=self.cfg.specaug_config.num_repeat_feat,
+                    freq_mask_max_size=self.cfg.specaug_cfg.max_dim_feat,
+                    freq_max_num_masks=self.cfg.specaug_cfg.num_repeat_feat,
                 )
             else:
                 audio_features_masked_2 = audio_features
@@ -209,10 +211,7 @@ class Model(nn.Module):
         # create the mask for the conformer input
         mask = mask_tensor(conformer_in, audio_features_len)
 
-        time_arange = torch.arange(audio_features.size(1), device=audio_features.device)  # [0, ..., T-1]
-        time_mask = torch.less(time_arange[None, :], audio_features_len[:, None])  # [B,T]
-
-        encoder_outputs, encoder_seq_mask = self.encoder(audio_features, time_mask)
+        encoder_outputs, encoder_seq_mask = self.encoder(audio_features, mask)
         decoder_logits, state = self.decoder(
             encoder_outputs, bpe_labels, audio_features_len
         )
@@ -262,59 +261,47 @@ class Model(torch.nn.Module):
                 ),
             ),
         )
+        att_config = AdditiveAttentionConfig(
+            attention_dim=self.cfg.attention_dim,
+            att_weights_dropout=self.cfg.additive_att_weights_dropout
 
-        run_ctx = get_run_ctx()
-        dataset = run_ctx.engine.train_dataset or run_ctx.engine.forward_dataset
-        self.label_target_size = len(dataset.datasets["zip_dataset"].targets.labels)
+        )
+        decoder_config = AttentionLSTMDecoderV1Config(
+            encoder_dim=conformer_size,
+            vocab_size=self.cfg.label_target_size,
+            target_embed_dim=self.cfg.target_embed_dim,
+            target_embed_dropout=self.cfg.target_embed_dropout,
+            lstm_hidden_size=self.cfg.lstm_hidden_size,
+            zoneout_drop_c=self.cfg.zone_dropout_c,
+            zoneout_drop_h=self.cfg.zone_dropout_h,
+            attention_cfg=att_config,
+            output_proj_dim=self.cfg.out_proj_dim,
+            output_dropout=self.cfg.output_dropout
+        )
+        aed_cfg = ConformerAEDModelConfig(
+            feat_extraction_cfg=fe_config,
+            encoder_cfg=conformer_config,
+            decoder_cfg=decoder_config,
+            specaug_cfg=self.cfg.specaug_config,
+        )
+        self.aed_model = ConformerAEDModel(cfg=aed_cfg)
 
-        self.feature_extraction = LogMelFeatureExtractionV1(cfg=fe_config)
-        self.conformer = TransparentConformerEncoderV1(cfg=conformer_config)
-        self.final_linear = nn.Linear(conformer_size, self.label_target_size + 1)  # + CTC blank
-        self.final_dropout = nn.Dropout(p=self.cfg.final_dropout)
+        self.label_target_size = self.cfg.label_target_size
 
-        # initialize weights
-        self.apply(self._weight_init)
-
-    @staticmethod
-    def _weight_init(module: torch.nn.Module):
-        if isinstance(module, (torch.nn.Conv1d, torch.nn.Linear)):
-            print("apply weight init for %s" % str(module))
-            nn.init.xavier_uniform_(module.weight)
 
     def forward(
-            self,
-            raw_audio: torch.Tensor,
-            raw_audio_len: torch.Tensor,
-    ): 
-        
-        squeezed_features = torch.squeeze(raw_audio)
-        with torch.no_grad():
-            audio_features, audio_features_len = self.feature_extraction(squeezed_features, raw_audio_len)
+        self,
+        raw_audio: torch.Tensor,
+        raw_audio_len: torch.Tensor,
+        bpe_labels: torch.Tensor,
+    ):
+        decoder_logits, state, encoder_outputs, encoder_seq_len, ctc_logprobs =  self.aed_model(
+            raw_audio=raw_audio,
+            raw_audio_len=raw_audio_len,
+            bpe_labels=bpe_labels,
+        )
 
-            if self.training:
-                audio_features_masked_2 = specaugment_v1_by_length(
-                    audio_features,
-                    time_min_num_masks=2,
-                    time_max_mask_per_n_frames=self.cfg.specaug_config.repeat_per_n_frames,
-                    time_mask_max_size=self.cfg.specaug_config.max_dim_time,
-                    freq_min_num_masks=2,
-                    freq_mask_max_size=self.cfg.specaug_config.max_dim_feat,
-                    freq_max_num_masks=self.cfg.specaug_config.num_repeat_feat,
-                )
-            else:
-                audio_features_masked_2 = audio_features
-
-        conformer_in = audio_features_masked_2
-        # create the mask for the conformer input
-        mask = mask_tensor(conformer_in, audio_features_len)
-
-        conformer_out, out_mask = self.conformer(conformer_in, mask)
-        conformer_out = self.final_dropout(conformer_out)
-        logits = self.final_linear(conformer_out)
-
-        log_probs = torch.log_softmax(logits, dim=2)
-
-        return log_probs, torch.sum(out_mask, dim=1)
+        return decoder_logits, ctc_logprobs, encoder_seq_len
 
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):
@@ -325,11 +312,12 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     bpe_labels = data["bpe_labels"]  # [B, N] (sparse)
     bpe_labels_len = data["bpe_labels:size1"]  # [B, N]
 
-    logprobs, audio_features_len = model(
+    decoder_logits, ctc_logprobs, audio_features_len = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
+        bpe_labels=bpe_labels,
     )
-    transposed_logprobs = torch.permute(logprobs, (1, 0, 2))  # CTC needs [T, B, F]
+    transposed_logprobs = torch.permute(ctc_logprobs, (1, 0, 2))  # CTC needs [T, B, F]
     ctc_loss = nn.functional.ctc_loss(
         transposed_logprobs,
         bpe_labels,
@@ -340,6 +328,22 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     )
     num_phonemes = torch.sum(bpe_labels_len)
     run_ctx.mark_as_loss(name="ctc", loss=ctc_loss, inv_norm_factor=num_phonemes)
+
+    # ignore padded values in the loss
+    targets_packed = nn.utils.rnn.pack_padded_sequence(
+        bpe_labels, bpe_labels_len.cpu(), batch_first=True, enforce_sorted=False
+    )
+    targets_masked, _ = nn.utils.rnn.pad_packed_sequence(
+        targets_packed, batch_first=True, padding_value=-100
+    )
+
+    ce_loss = nn.functional.cross_entropy(
+        decoder_logits.transpose(1, 2), targets_masked.long(), reduction="sum", label_smoothing=0.1,
+    )  # [B,N]
+
+    num_labels = torch.sum(bpe_labels_len)
+
+    run_ctx.mark_as_loss(name="bpe_ce", loss=ce_loss, inv_norm_factor=num_labels)
 
 
 def forward_init_hook(run_ctx, **kwargs):

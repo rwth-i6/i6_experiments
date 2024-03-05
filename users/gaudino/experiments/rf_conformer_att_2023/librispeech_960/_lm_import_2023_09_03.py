@@ -20,10 +20,13 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
 
 import returnn.frontend as rf
 
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2._import_model import convert_lm
+
+
 
 lm_path = "/work/asr3/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/re_i128_m2048_m2048_m2048_m2048.sgd_b32_lr0_cl2.newbobabs.d0.0.1350/bk-net-model/network.035"
 _returnn_tf_ckpt_filename = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average"
-
+trafo_lm_path = "/work/asr3/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/transfo_24_d00.4096_1024.sgd.lr1.8_heads/bk-net-model/network.023"
 
 def _get_pt_checkpoint_path() -> tk.Path:
     old_tf_ckpt_path = generic_job_output(lm_path)
@@ -52,19 +55,28 @@ def test_convert_checkpoint():
     import torch
     import numpy
 
-    out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/full_w_lm_import_2023_10_03"
+    out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/full_w_trafo_lm_import_2024_02_05"
 
     reader = CheckpointReader(_returnn_tf_ckpt_filename)
-    reader_lm = CheckpointReader(lm_path)
+    reader_lm = CheckpointReader(trafo_lm_path)
 
     print("Input checkpoint:")
     print(reader.debug_string().decode("utf-8"))
     print(reader_lm.debug_string().decode("utf-8"))
     print()
 
+    model_args = {
+        "add_trafo_lm": True,
+        "trafo_lm_args": {
+            "num_layers": 24,
+            "layer_out_dim": 1024,
+            "att_num_heads": 8,
+        },
+    }
+
     print("Creating model...")
     rf.select_backend_torch()
-    model = MakeModel(80, 10_025)()
+    model = MakeModel(80, 10_025, model_args=model_args)()
     print("Created model:", model)
     print("Model parameters:")
     for name, param in model.named_parameters():
@@ -80,6 +92,9 @@ def test_convert_checkpoint():
         if name.startswith("lstm_lm."):
             sub_name = name.removeprefix("lstm_lm.")
             value = map_param_func_lstm(reader_lm, sub_name, param)
+        elif name.startswith("trafo_lm."):
+            sub_name = name.removeprefix("trafo_lm.")
+            value = map_param_func_trafo_lm(reader_lm, sub_name, param, _ParamMapping)
         else:
             value = map_param_func_v3(reader, name, param)
         assert isinstance(value, numpy.ndarray)
@@ -243,10 +258,38 @@ def _add_params_conformer():
             f"encoder.layers.{layer_idx}.final_layer_norm.bias"
         ] = f"conformer_block_{layer_idx + 1:02d}_ln/bias"
 
+def _add_params_trafo_lm(param_mapping: Dict[str, str]):
+    # add params of trafo lm
+    for layer_idx in range(30):
+        param_mapping.update(
+            {
+                f"layers.{layer_idx}.ff_conv1.weight": f"dec_{layer_idx}_ff_conv1/W",
+                f"layers.{layer_idx}.ff_conv1.bias": f"dec_{layer_idx}_ff_conv1/b",
+                f"layers.{layer_idx}.ff_conv2.weight": f"dec_{layer_idx}_ff_conv2/W",
+                f"layers.{layer_idx}.ff_conv2.bias": f"dec_{layer_idx}_ff_conv2/b",
+                f"layers.{layer_idx}.ff_layer_norm.scale": f"dec_{layer_idx}_ff_laynorm/scale",
+                f"layers.{layer_idx}.ff_layer_norm.bias": f"dec_{layer_idx}_ff_laynorm/bias",
+                f"layers.{layer_idx}.self_att.qkv.weight": f"dec_{layer_idx}_self_att_att/QKV",
+                f"layers.{layer_idx}.self_att_lin.weight": f"dec_{layer_idx}_self_att_lin/W",
+                f"layers.{layer_idx}.self_att_layer_norm.scale": f"dec_{layer_idx}_self_att_laynorm/scale",
+                f"layers.{layer_idx}.self_att_layer_norm.bias": f"dec_{layer_idx}_self_att_laynorm/bias",
+            }
+        )
+
+    param_mapping.update(
+        {
+            "decoder.scale": "decoder/scale",
+            "decoder.bias": "decoder/bias",
+            "output.weight": "output/W",
+            "output.bias": "output/b",
+            "target_embed_lin.weight": "target_embed_lin/W",
+            "target_embed_raw.weight": "target_embed_raw/W",
+        }
+    )
 
 _add_params_conformer()
-_add_params()
-
+# _add_params()
+_add_params_trafo_lm(_ParamMapping)
 
 def map_param_func_lstm(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
     """map params, TF to RF"""
@@ -272,19 +315,56 @@ def map_param_func_lstm(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
         assert isinstance(value, numpy.ndarray)
 
         if name.endswith(".ff_weight"):
+            print("Old ff:", value[0][0], value[0][2048], value[0][4096], value[0][6144])
             value = convert_params.convert_tf_lstm_to_torch_lstm_ff(value)
+            print("Convert ff:", value[0][0], value[2048][0], value[4096][0], value[6144][0])
 
         if name.endswith(".rec_weight"):
+            print("Old rec:", value[0][0], value[0][2048], value[0][4096], value[0][6144])
             value = convert_params.convert_tf_lstm_to_torch_lstm_rec(value)
+            print("Convert rec:", value[0][0], value[2048][0], value[4096][0], value[6144][0])
+
 
         if "lstm" in name and name.endswith(".bias"):
+            print("Old bias:", value[0], value[2048], value[4096], value[6144])
             value = convert_params.convert_tf_lstm_to_torch_lstm_bias(
                 value
             )
+            print("Convert bias:", value[0], value[2048], value[4096], value[6144])
+
 
         if (name == "output.weight"):
             # value = convert_params_np.convert_tf_lstm_to_native_lstm_ff(value)
             value = value.transpose()
+
+        assert (
+            value.shape == var.batch_shape
+        ), f"new param {name} {var.batch_shape} vs ckpt param {var_name} {value.shape}"
+        assert (
+            value.dtype.name == var.dtype
+        ), f"new param {name} {var.dtype} vs ckpt param {var_name} {value.dtype}"
+        return value
+
+    raise NotImplementedError(f"cannot map {name!r} {var}")
+
+def map_param_func_trafo_lm(
+    reader, name: str, var: rf.Parameter, param_mapping: Dict[str, str]
+) -> numpy.ndarray:
+    """map params, TF to RF"""
+    from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
+
+    assert isinstance(reader, CheckpointReader)
+    assert isinstance(var, rf.Parameter)
+
+    tf_var_name = name.replace(".", "/")
+    if reader.has_tensor(tf_var_name):
+        return reader.get_tensor(tf_var_name)
+
+    if name in param_mapping:
+        var_name = "output/rec/" + param_mapping[name]
+        assert reader.has_tensor(var_name), f"missing {var_name}"
+        value = reader.get_tensor(var_name)
+        assert isinstance(value, numpy.ndarray)
 
         assert (
             value.shape == var.batch_shape
@@ -367,3 +447,18 @@ def map_param_func_v3(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
         return value
 
     raise NotImplementedError(f"cannot map {name!r} {var}")
+
+if __name__ == "__main__":
+    # import_models()
+    trafo_lm_args = {
+            "num_layers": 24,
+            "layer_out_dim": 1024,
+            "att_num_heads": 8,
+    }
+
+    convert_lm(
+        trafo_lm_path,
+        "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/trafo_lm_only_24_02_06",
+        10025,
+        model_args=trafo_lm_args,
+    )

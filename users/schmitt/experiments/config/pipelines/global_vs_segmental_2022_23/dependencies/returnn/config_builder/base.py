@@ -10,7 +10,7 @@ from i6_experiments.users.schmitt.specaugment import _mask
 from i6_experiments.users.schmitt.augmentation.alignment import shift_alignment_boundaries_func_str
 from i6_experiments.users.schmitt.dynamic_lr import dynamic_lr_str
 from i6_experiments.users.schmitt.chunking import custom_chunkin_func_str
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn import network_builder
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder, ilm_correction
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn import custom_construction_algos
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
 
@@ -106,6 +106,14 @@ class ConfigBuilder(ABC):
       assert "preload_from_files" in opts or "import_model_train_epoch1" in opts, "It does not make sense to only train the length model if you are not importing from some checkpoint"
       self.edit_network_only_train_length_model(net_dict)
 
+    if opts.get("no_ctc_loss", False):
+      # remove the ctc layer from the network(s)
+      if networks_dict is not None:
+        for network in networks_dict:
+          network.pop("ctc", None)
+      if net_dict is not None:
+        net_dict.pop("ctc", None)
+
     if net_dict is not None:
       config_dict["network"] = net_dict
 
@@ -166,6 +174,7 @@ class ConfigBuilder(ABC):
         # during search) and this leads to an error because the targets of the ctc layer are not set correctly
         # later, just remove the ctc layer in general during recog but keep for now because of hashes
         net_dict.pop("ctc")
+
       config_dict["network"] = net_dict
 
     if opts.get("batch_size"):
@@ -234,12 +243,19 @@ class ConfigBuilder(ABC):
 
     return returnn_config
 
+  def get_compile_tf_graph_config(self, opts: Dict):
+    pass
+
   @abstractmethod
   def get_recog_config_for_forward_job(self, opts: Dict):
     pass
 
   @abstractmethod
   def get_dump_att_weight_config(self, corpus_key: str, opts: Dict):
+    pass
+
+  @abstractmethod
+  def get_dump_length_model_probs_config(self, corpus_key: str, opts: Dict):
     pass
 
   @abstractmethod
@@ -256,21 +272,31 @@ class ConfigBuilder(ABC):
   def add_align_augment(self, net_dict, networks_dict, python_prolog):
     raise NotImplementedError
 
+  def edit_network_freeze_layers(self, net_dict: Dict, layers_to_exclude: List[str]):
+    if "class" in net_dict:
+      net_dict["trainable"] = False
+
+    for item in net_dict:
+      if type(net_dict[item]) == dict and item not in layers_to_exclude:
+        self.edit_network_freeze_layers(net_dict[item], layers_to_exclude)
+
   def get_lr_settings(self, lr_opts):
     lr_settings = {}
     if lr_opts["type"] == "newbob":
-      lr_settings.update({
-        "learning_rate": 0.001,
-        "learning_rate_control": "newbob_multi_epoch",
-        "learning_rate_control_error_measure": lr_opts["learning_rate_control_error_measure"],
-        "learning_rate_control_min_num_epochs_per_new_lr": 3,
-        "learning_rate_control_relative_error_relative_lr": True,
-        "newbob_learning_rate_decay": 0.7,
-        "newbob_multi_num_epochs": 6,
-        "newbob_multi_update_interval": 1,
-        "min_learning_rate": 2e-05,
-        "use_learning_rate_control_always": True
-      })
+      lr_opts.pop("type")
+      lr_settings.update(lr_opts)
+      # lr_settings.update({
+      #   "learning_rate": 0.001,
+      #   "learning_rate_control": "newbob_multi_epoch",
+      #   "learning_rate_control_error_measure": lr_opts["learning_rate_control_error_measure"],
+      #   "learning_rate_control_min_num_epochs_per_new_lr": 3,
+      #   "learning_rate_control_relative_error_relative_lr": True,
+      #   "newbob_learning_rate_decay": 0.7,
+      #   "newbob_multi_num_epochs": 6,
+      #   "newbob_multi_update_interval": 1,
+      #   "min_learning_rate": 2e-05,
+      #   "use_learning_rate_control_always": True
+      # })
     elif lr_opts["type"] == "const_then_linear":
       const_lr = lr_opts["const_lr"]
       const_frac = lr_opts["const_frac"]

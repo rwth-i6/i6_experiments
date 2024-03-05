@@ -1,11 +1,11 @@
 __all__ = ["TFFactoredHybridBaseSystem"]
 
 import copy
+import dataclasses
 import itertools
 import sys
 from IPython import embed
 
-from dataclasses import asdict
 from enum import Enum
 from typing import Dict, List, Optional, Tuple, TypedDict, Union
 
@@ -26,24 +26,21 @@ import i6_core.returnn as returnn
 import i6_core.text as text
 
 from i6_core.util import MultiPath, MultiOutputPath
-from i6_core.lexicon.allophones import DumpStateTyingJob, StoreAllophonesJob
 
 # common modules
-from i6_experiments.common.setups.rasr.nn_system import NnSystem
-
-from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import (
-    BASEFactoredHybridBaseSystem,
-    Experiment,
-    TrainingCriterion,
-)
-
-
 from i6_experiments.common.setups.rasr.util import (
     OggZipHdfDataInput,
     RasrInitArgs,
     RasrDataInput,
-    RasrSteps,
-    ReturnnRasrDataInput,
+)
+
+from i6_experiments.users.berger.network.helpers.conformer_wei import add_initial_conv, add_conformer_stack
+
+from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import (
+    BASEFactoredHybridSystem,
+    Experiment,
+    TrainingCriterion,
+    SingleSoftmaxType,
 )
 
 import i6_experiments.users.raissi.setups.common.encoder as encoder_archs
@@ -58,13 +55,35 @@ from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
     get_tdp_values,
 )
 
-from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo
+from i6_experiments.users.raissi.setups.common.data.factored_label import (
+    LabelInfo,
+    PhoneticContext,
+    RasrStateTying,
+)
 
-from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_search import FactoredHybridBaseDecoder
 
-from i6_experiments.users.raissi.setups.common.decoder.config import PriorInfo, PosteriorScales, SearchParameters
+from i6_experiments.users.raissi.setups.common.helpers.priors import (
+    get_returnn_config_for_center_state_prior_estimation,
+    get_returnn_config_for_left_context_prior_estimation,
+    get_returnn_configs_for_right_context_prior_estimation,
+    smoothen_priors,
+    JoinRightContextPriorsJob,
+    ReshapeCenterStatePriorsJob,
+)
 
-from i6_experiments.users.raissi.setups.common.util.hdf import RasrFeaturesToHdf
+from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import (
+    RasrFeatureScorer,
+)
+
+
+from i6_experiments.users.raissi.setups.common.decoder.config import (
+    PriorInfo,
+    PriorConfig,
+    PosteriorScales,
+    SearchParameters,
+    AlignmentParameters,
+)
+
 
 # -------------------- Init --------------------
 
@@ -77,8 +96,8 @@ class ExtraReturnnCode(TypedDict):
 
 
 class Graphs(TypedDict):
-    train: Optional[tk.Path]
-    inference: Optional[tk.Path]
+    train: Optional[Path]
+    inference: Optional[Path]
 
 
 class ExtraReturnnCode(TypedDict):
@@ -101,7 +120,7 @@ class TFExperiment(Experiment):
 
 
 # -------------------- Systems --------------------
-class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
+class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
     """
     this class supports both cart and factored hybrid
     """
@@ -110,8 +129,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
         self,
         returnn_root: Optional[str] = None,
         returnn_python_home: Optional[str] = None,
-        returnn_python_exe: Optional[tk.Path] = None,
-        rasr_binary_path: Optional[tk.Path] = None,
+        returnn_python_exe: Optional[Path] = None,
+        rasr_binary_path: Optional[Path] = None,
         rasr_init_args: RasrInitArgs = None,
         train_data: Dict[str, RasrDataInput] = None,
         dev_data: Dict[str, RasrDataInput] = None,
@@ -132,31 +151,9 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
 
         self.graphs = {}
         # inference related
-        self.native_lstm2_path: Optional[tk.Path] = None
-
-    def _set_native_lstm_path(self):
-        compile_native_op_job = returnn.CompileNativeOpJob(
-            "NativeLstm2",
-            returnn_root=self.returnn_root,
-            returnn_python_exe=self.returnn_python_exe,
-            blas_lib=None,
-        )
-        self.native_lstm2_path = compile_native_op_job.out_op
+        self.native_lstm2_path: Optional[Path] = None
 
     # -------------------- External helpers --------------------
-    def get_epilog_for_train(self, specaug_args=None):
-        # this is for FH when one needs to define extern data
-        if specaug_args is not None:
-            spec_augment_epilog = get_specaugment_epilog(**specaug_args)
-        else:
-            spec_augment_epilog = None
-        return get_epilog_code_dense_label(
-            n_input=self.initial_nn_args["num_input"],
-            n_contexts=self.label_info.n_contexts,
-            n_states=self.label_info.n_states_per_phone,
-            specaugment=spec_augment_epilog,
-        )
-
     def get_model_checkpoint(self, model_job, epoch):
         return model_job.out_checkpoints[epoch]
 
@@ -167,60 +164,107 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
         self.csp["base"].flf_tool_exe = path
 
     # -------------------------------------------- Training --------------------------------------------------------
-    def get_config_with_legacy_prolog_and_epilog(
-        self,
-        config: Dict,
-        prolog_additional_str: str = None,
-        epilog_additional_str: str = None,
-        use_frame_wise_label=True,
-    ):
-        # this is not a returnn config, but the dict params
-        assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
-        time_prolog, time_tag_name = train_helpers.returnn_time_tag.get_shared_time_tag()
-        config["extern_data"] = {
-            "data": {
-                "dim": self.initial_nn_args["num_input"],
-                "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)},
-            }
-        }
-        if use_frame_wise_label:
-            config["extern_data"].update(
-                **net_helpers.extern_data.get_extern_data_config(label_info=self.label_info, time_tag_name=time_tag_name)
-            )
-
-        # these two are gonna get popped and stored during returnn config object creation
-        config["python_prolog"] = {"numpy": "import numpy as np", "time": time_prolog}
-
-        if prolog_additional_str is not None:
-            config["python_prolog"]["str"] = prolog_additional_str
-
-        if epilog_additional_str is not None:
-            config["python_epilog"] = {"str": epilog_additional_str}
-
-        return config
 
     # -------------encoder architectures -------------------------------
     def get_blstm_network(self, **kwargs):
         # this is without any loss and output layers
         network = encoder_archs.blstm.blstm_network(**kwargs)
-        if self.training_criterion != TrainingCriterion.fullsum:
-            network = net_helpers.augment.augment_net_with_label_pops(network, label_info=self.label_info)
+
+        if self.frame_rate_reduction_ratio_info.factor != 1:
+            assert not self.frame_rate_reduction_ratio_info.factor % 2, "Only even number is supported here"
+            network = encoder_archs.blstm.add_subsmapling_via_max_pooling(
+                network_dict=network, pool_factor=self.frame_rate_reduction_ratio_info.factor // 2
+            )
+
+        if self.training_criterion != TrainingCriterion.FULLSUM:
+            network = net_helpers.augment.augment_net_with_label_pops(
+                network,
+                label_info=self.label_info,
+                frame_rate_reduction_ratio_info=self.frame_rate_reduction_ratio_info,
+            )
 
         return network
 
-    def get_conformer_network(self, chunking: str, conf_model_dim: int, label_smoothing: float = 0.0, **kwargs):
+    def get_conformer_network(
+        self,
+        chunking: str,
+        conf_model_dim: int,
+        frame_rate_reduction_ratio_info: Optional[net_helpers.FrameRateReductionRatioinfo] = None,
+        label_smoothing: float = 0.0,
+        **kwargs,
+    ):
+        if frame_rate_reduction_ratio_info is None:
+            frame_rate_reduction_ratio_info = self.frame_rate_reduction_ratio_info
+
+        frame_rate_args = {
+            "reduction_factor": (1, frame_rate_reduction_ratio_info.factor),
+        }
+        kwargs.update(frame_rate_args)
         # this only includes auxilaury losses
         network_builder = encoder_archs.conformer.get_best_conformer_network(
             size=conf_model_dim,
             num_classes=self.label_info.get_n_of_dense_classes(),
             num_input_feature=self.initial_nn_args["num_input"],
+            time_tag_name=frame_rate_reduction_ratio_info.time_tag_name,
+            upsample_by_transposed_conv=self.frame_rate_reduction_ratio_info.factor == 1,
             chunking=chunking,
             label_smoothing=label_smoothing,
-            additional_args = kwargs,
+            additional_args=kwargs,
         )
         network = network_builder.network
-        if self.training_criterion != TrainingCriterion.fullsum:
-            network = net_helpers.augment.augment_net_with_label_pops(network, label_info=self.label_info)
+        if self.training_criterion != TrainingCriterion.FULLSUM:
+            network = net_helpers.augment.augment_net_with_label_pops(
+                network, label_info=self.label_info, frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info
+            )
+            if frame_rate_reduction_ratio_info.factor > 1 and frame_rate_reduction_ratio_info.single_state_alignment:
+                network["slice_classes"] = {
+                    "class": "slice",
+                    "from": network["classes_"]["from"],
+                    "axis": "T",
+                    "slice_step": frame_rate_reduction_ratio_info.factor,
+                }
+                network["classes_"]["from"] = "slice_classes"
+        return network
+
+    def get_conformer_network_zhou_variant(
+        self,
+        conf_model_dim: int,
+        out_layer_name: str = "encoder-output",
+        auxilary_loss_layers: list = [6],
+        frame_rate_reduction_ratio_info: Optional[net_helpers.FrameRateReductionRatioinfo] = None,
+    ):
+
+        if frame_rate_reduction_ratio_info is None:
+            frame_rate_reduction_ratio_info = self.frame_rate_reduction_ratio_info
+        encoder_net = {}
+        from_list = add_initial_conv(network=encoder_net, linear_size=conf_model_dim, from_list="data")
+        add_conformer_stack(encoder_net, from_list=from_list)
+        encoder_net[out_layer_name] = {
+            "class": "copy",
+            "from": "conformer_12_output",
+            "n_out": conf_model_dim,
+        }
+        for aux_p in auxilary_loss_layers:
+            aux_p_str = f"aux_{aux_p:03d}_"
+            encoder_net[f"{aux_p_str}encoder"] = {
+                "class": "copy",
+                "from": f"conformer_{aux_p}_output",
+                "n_out": conf_model_dim,
+            }
+
+        if self.training_criterion != TrainingCriterion.FULLSUM:
+            network = net_helpers.augment.augment_net_with_label_pops(
+                encoder_net, label_info=self.label_info, frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info
+            )
+            if frame_rate_reduction_ratio_info.factor > 1 and frame_rate_reduction_ratio_info.single_state_alignment:
+                network["slice_classes"] = {
+                    "class": "slice",
+                    "from": network["classes_"]["from"],
+                    "axis": "T",
+                    "slice_step": frame_rate_reduction_ratio_info.factor,
+                }
+                network["classes_"]["from"] = "slice_classes"
+
         return network
 
     # -------------------- Decoding --------------------
@@ -233,10 +277,17 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
         returnn_config: returnn.ReturnnConfig,
         share: float,
         time_rqmt: Optional[int] = None,
+        checkpoint: Optional[returnn.Checkpoint] = None,
     ):
-        self.set_graph_for_experiment(key)
 
-        model_checkpoint = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        if self.experiments[key]["graph"].get("inference", None) is None:
+            self.set_graph_for_experiment(key=key)
+
+        model_checkpoint = (
+            checkpoint
+            if checkpoint is not None
+            else self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        )
 
         train_data = self.train_input_data[train_corpus_key]
         dev_data = self.cv_input_data[dev_corpus_key]
@@ -269,7 +320,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
                         "task_dependent": train_data.features,
                     },
                 )
-            elif isinstance(train_data.features, tk.Path):
+            elif isinstance(train_data.features, Path):
                 feature_path = rasr.FlagDependentFlowAttribute(
                     "cache_mode",
                     {
@@ -280,29 +331,20 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
                 raise NotImplementedError
 
             feature_flow = features.basic_cache_flow(feature_path)
-            if isinstance(train_data.features, tk.Path):
+            if isinstance(train_data.features, Path):
                 feature_flow.flags = {"cache_mode": "bundle"}
 
-        if isinstance(train_data.alignments, rasr.FlagDependentFlowAttribute):
-            alignments = copy.deepcopy(train_data.alignments)
-            net = rasr.FlowNetwork()
-            net.flags = {"cache_mode": "bundle"}
-            alignments = alignments.get(net)
-        elif isinstance(train_data.alignments, (MultiPath, MultiOutputPath)):
-            raise NotImplementedError
-        elif isinstance(train_data.alignments, tk.Path):
-            alignments = train_data.alignments
-        else:
-            raise NotImplementedError
-
         assert isinstance(returnn_config, returnn.ReturnnConfig)
+        if "num_outputs" in returnn_config.config:
+            if "classes" in returnn_config.config["num_outputs"]:
+                del returnn_config.config["num_outputs"]["classes"]
 
         prior_job = returnn.ReturnnRasrComputePriorJobV2(
             train_crp=train_crp,
-            dev_crp=dev_crp,
+            dev_crp=train_crp,
             model_checkpoint=model_checkpoint,
             feature_flow=feature_flow,
-            alignment=alignments,
+            alignment=None,
             returnn_config=returnn_config,
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe,
@@ -312,17 +354,72 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
 
         return prior_job
 
-    def set_mono_priors_returnn_rasr(
+    def _compute_returnn_rasr_priors_via_hdf(
         self,
         key: str,
         epoch: int,
         train_corpus_key: str,
         dev_corpus_key: str,
+        returnn_config: returnn.ReturnnConfig,
+        share: float,
+        time_rqmt: Union[int, float] = 12,
+        checkpoint: Optional[returnn.Checkpoint] = None,
+    ):
+        if self.experiments[key]["graph"].get("inference", None) is None:
+            self.set_graph_for_experiment(key)
+
+        model_checkpoint = (
+            checkpoint
+            if checkpoint is not None
+            else self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        )
+        returnn_config = self.get_hdf_config_from_returnn_rasr_data(
+            alignment_allophones=None,
+            dev_corpus_key=dev_corpus_key,
+            include_alignment=False,
+            laplace_ordering=False,
+            num_tied_classes=None,
+            partition_epochs={"train": 1, "dev": 1},
+            returnn_config=returnn_config,
+            train_corpus_key=train_corpus_key,
+        )
+
+        if share != 1.0:
+            segment_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
+                segment_file=returnn_config.config["train"]["seq_list_file"],
+                split={"priors": share, "rest": 1 - share},
+                shuffle=True,
+            )
+            returnn_config.config["train"]["seq_list_file"] = segment_job.out_segments["priors"]
+
+        prior_job = returnn.ReturnnComputePriorJobV2(
+            model_checkpoint=model_checkpoint,
+            returnn_config=returnn_config,
+            returnn_root=self.returnn_root,
+            returnn_python_exe=self.returnn_python_exe,
+            mem_rqmt=12,
+            time_rqmt=time_rqmt,
+        )
+
+        return prior_job
+
+    def set_single_prior_returnn_rasr(
+        self,
+        key: str,
+        epoch: int,
+        train_corpus_key: str,
+        dev_corpus_key: str,
+        context_type: PhoneticContext = PhoneticContext.monophone,
+        state_tying: RasrStateTying = RasrStateTying.monophone,
         returnn_config: Optional[returnn.ReturnnConfig] = None,
         output_layer_name: str = "output",
-        data_share: float = 0.1,
+        checkpoint: Optional[Path] = None,
+        smoothen: bool = False,
+        zero_weight: float = 1e-8,
+        data_share: float = 0.3,
     ):
-        self.set_graph_for_experiment(key)
+        # if self.experiments[key]["graph"].get("inference", None) is None:
+        #    self.set_graph_for_experiment(key)
 
         name = f"{self.experiments[key]['name']}/e{epoch}"
 
@@ -330,7 +427,14 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
             returnn_config = self.experiments[key]["returnn_config"]
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
-        config = copy.deepcopy(returnn_config)
+        self.setup_returnn_config_and_graph_for_single_softmax(
+            key=key,
+            returnn_config=returnn_config,
+            state_tying=state_tying,
+            softmax_type=SingleSoftmaxType.PRIOR,
+        )
+
+        config = copy.deepcopy(self.experiments[key]["returnn_config"])
         config.config["forward_output_layer"] = output_layer_name
 
         job = self._compute_returnn_rasr_priors(
@@ -340,74 +444,202 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
             dev_corpus_key=dev_corpus_key,
             returnn_config=config,
             share=data_share,
+            checkpoint=checkpoint,
         )
 
-        job.add_alias(f"priors/{name}/c")
-        tk.register_output(f"priors/{name}/center-state.xml", job.out_prior_xml_file)
-
-        self.experiments[key]["priors"] = [job.out_prior_xml_file]
-
-    def set_diphone_priors(
-        self,
-        key,
-        epoch,
-        tf_library=None,
-        nStateClasses=None,
-        nContexts=None,
-        gpu=1,
-        time=20,
-        isSilMapped=True,
-        hdf_key=None,
-    ):
-        assert self.label_info.sil_id is not None
-        if nStateClasses is None:
-            nStateClasses = self.label_info.get_n_state_classes()
-        if nContexts is None:
-            nContexts = self.label_info.n_contexts
-
-        if tf_library is None:
-            tf_library = self.tf_library
-
-        name = f"{self.experiments[key]['name']}-epoch-{epoch}"
-        model_checkpoint = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
-        graph = self.experiments[key]["graph"]["inference"]
-
-        hdf_paths = self.get_hdf_path(hdf_key)
-
-        estimateJob = EstimateRasrDiphoneAndContextPriors(
-            graphPath=graph,
-            model=model_checkpoint,
-            dataPaths=hdf_paths,
-            datasetIndices=list(range(len(hdf_paths) // 3)),
-            libraryPath=tf_library,
-            nStates=nStateClasses,
-            tensorMap=self.tf_map,
-            nContexts=nContexts,
-            nStateClasses=nStateClasses,
-            gpu=gpu,
-            time=time,
-        )
-
-        estimateJob.add_alias(f"priors-{name}")
-        xmlJob = DumpXmlRasrForDiphone(
-            estimateJob.diphoneFiles,
-            estimateJob.contextFiles,
-            estimateJob.numSegments,
-            nContexts=nContexts,
-            nStateClasses=nStateClasses,
-            adjustSilence=isSilMapped,
-            silBoundaryIndices=[0, self.label_info.sil_id],
-        )
-
-        priorFiles = [xmlJob.diphoneXml, xmlJob.contextXml]
-        if name is not None:
-            xmlName = f"priors/{name}-xmlpriors"
+        job.add_alias(f"priors/{name}/single_prior")
+        if context_type == PhoneticContext.monophone:
+            p_info = PriorInfo(
+                center_state_prior=PriorConfig(file=job.out_prior_xml_file, scale=1.0),
+            )
+            tk.register_output(f"priors/{name}/center-state.xml", p_info.center_state_prior.file)
+        elif context_type == PhoneticContext.joint_diphone:
+            p_info = PriorInfo(
+                diphone_prior=PriorConfig(file=job.out_prior_xml_file, scale=1.0),
+            )
+            tk.register_output(f"priors/{name}/joint_diphone.xml", p_info.diphone_prior.file)
         else:
-            xmlName = "diphone-priors"
-        tk.register_output(xmlName, priorFiles[0])
-        self.experiments[key]["priors"] = priorFiles
+            raise NotImplementedError("Unknown PhoneticContext, i.e. context_type")
 
-    def set_graph_for_experiment(self, key, override_cfg: Optional[returnn.ReturnnConfig] = None):
+        p_info = smoothen_priors(p_info, zero_weight=zero_weight) if smoothen else p_info
+        self.experiments[key]["priors"] = p_info
+
+    def set_diphone_priors_returnn_rasr(
+        self,
+        key: str,
+        epoch: int,
+        train_corpus_key: str,
+        dev_corpus_key: str,
+        returnn_config: Optional[returnn.ReturnnConfig] = None,
+        left_context_output_layer_name: str = "left-output",
+        center_state_output_layer_name: str = "center-output",
+        data_share: float = 1.0 / 3.0,
+        smoothen: bool = False,
+        via_hdf: bool = False,
+        checkpoint: Optional[returnn.Checkpoint] = None,
+    ):
+        if self.experiments[key]["graph"].get("inference", None) is None:
+            self.set_graph_for_experiment(key)
+
+        name = f"{self.experiments[key]['name']}/e{epoch}"
+
+        if returnn_config is None:
+            returnn_config = self.experiments[key]["returnn_config"]
+        assert isinstance(returnn_config, returnn.ReturnnConfig)
+
+        left_config = get_returnn_config_for_left_context_prior_estimation(
+            returnn_config,
+            left_context_softmax_layer=left_context_output_layer_name,
+        )
+        center_config = get_returnn_config_for_center_state_prior_estimation(
+            returnn_config,
+            label_info=self.label_info,
+            center_state_softmax_layer=center_state_output_layer_name,
+        )
+
+        prior_jobs = {
+            ctx: self._compute_returnn_rasr_priors_via_hdf(
+                key=key,
+                epoch=epoch,
+                train_corpus_key=train_corpus_key,
+                dev_corpus_key=dev_corpus_key,
+                returnn_config=cfg,
+                share=data_share,
+                checkpoint=checkpoint,
+            )
+            if via_hdf
+            else self._compute_returnn_rasr_priors(
+                key,
+                epoch,
+                train_corpus_key=train_corpus_key,
+                dev_corpus_key=dev_corpus_key,
+                returnn_config=cfg,
+                share=data_share,
+                checkpoint=checkpoint,
+            )
+            for (ctx, cfg) in [("l", left_config), ("c", center_config)]
+        }
+
+        for (ctx, job) in prior_jobs.items():
+            job.add_alias(f"priors/{name}/{ctx}")
+
+        center_priors = ReshapeCenterStatePriorsJob(prior_jobs["c"].out_prior_txt_file, label_info=self.label_info)
+        center_priors_xml = center_priors.out_prior_xml
+
+        p_info = PriorInfo(
+            center_state_prior=PriorConfig(file=center_priors_xml, scale=0.0),
+            left_context_prior=PriorConfig(file=prior_jobs["l"].out_prior_xml_file, scale=0.0),
+            right_context_prior=None,
+        )
+        p_info = smoothen_priors(p_info) if smoothen else p_info
+
+        results = [
+            ("center-state", p_info.center_state_prior.file),
+            ("left-context", p_info.left_context_prior.file),
+        ]
+        for context_name, file in results:
+            xml_name = f"priors/{name}/{context_name}.xml" if name is not None else f"priors/{context_name}.xml"
+            tk.register_output(xml_name, file)
+
+        self.experiments[key]["priors"] = p_info
+
+    def set_triphone_priors_returnn_rasr(
+        self,
+        key: str,
+        epoch: int,
+        train_corpus_key: str,
+        dev_corpus_key: str,
+        returnn_config: Optional[returnn.ReturnnConfig] = None,
+        left_context_output_layer_name: str = "left-output",
+        center_state_output_layer_name: str = "center-output",
+        right_context_output_layer_name: str = "right-output",
+        data_share: float = 1.0 / 3.0,
+        smoothen: bool = False,
+        via_hdf: bool = False,
+        checkpoint: Optional[returnn.Checkpoint] = None,
+    ):
+        if self.experiments[key]["graph"].get("inference", None) is None:
+            self.set_graph_for_experiment(key)
+
+        name = f"{self.experiments[key]['name']}/e{epoch}"
+
+        if returnn_config is None:
+            returnn_config = self.experiments[key]["returnn_config"]
+        assert isinstance(returnn_config, returnn.ReturnnConfig)
+
+        left_config = get_returnn_config_for_left_context_prior_estimation(
+            returnn_config,
+            left_context_softmax_layer=left_context_output_layer_name,
+        )
+        center_config = get_returnn_config_for_center_state_prior_estimation(
+            returnn_config,
+            label_info=self.label_info,
+            center_state_softmax_layer=center_state_output_layer_name,
+        )
+        right_configs = get_returnn_configs_for_right_context_prior_estimation(
+            returnn_config,
+            label_info=self.label_info,
+            right_context_softmax_layer=right_context_output_layer_name,
+        )
+
+        prior_jobs = {
+            ctx: self._compute_returnn_rasr_priors_via_hdf(
+                key=key,
+                epoch=epoch,
+                train_corpus_key=train_corpus_key,
+                dev_corpus_key=dev_corpus_key,
+                returnn_config=cfg,
+                share=data_share,
+                checkpoint=checkpoint,
+            )
+            if via_hdf
+            else self._compute_returnn_rasr_priors(
+                key,
+                epoch,
+                train_corpus_key=train_corpus_key,
+                dev_corpus_key=dev_corpus_key,
+                returnn_config=cfg,
+                share=data_share,
+                time_rqmt=8,
+                checkpoint=checkpoint,
+            )
+            for (ctx, cfg) in (
+                ("l", left_config),
+                ("c", center_config),
+                *((f"r{i}", cfg) for i, cfg in enumerate(right_configs)),
+            )
+        }
+
+        for (ctx, job) in prior_jobs.items():
+            job.add_alias(f"priors/{name}/{ctx}")
+
+        center_priors = ReshapeCenterStatePriorsJob(prior_jobs["c"].out_prior_txt_file, label_info=self.label_info)
+        center_priors_xml = center_priors.out_prior_xml
+
+        right_priors = [prior_jobs[f"r{i}"].out_prior_txt_file for i in range(len(right_configs))]
+        right_prior_xml = JoinRightContextPriorsJob(right_priors, label_info=self.label_info).out_prior_xml
+
+        p_info = PriorInfo(
+            center_state_prior=PriorConfig(file=center_priors_xml, scale=0.0),
+            left_context_prior=PriorConfig(file=prior_jobs["l"].out_prior_xml_file, scale=0.0),
+            right_context_prior=PriorConfig(file=right_prior_xml, scale=0.0),
+        )
+        p_info = smoothen_priors(p_info) if smoothen else p_info
+
+        results = [
+            ("center-state", p_info.center_state_prior.file),
+            ("left-context", p_info.left_context_prior.file),
+            ("right-context", p_info.right_context_prior.file),
+        ]
+        for context_name, file in results:
+            xml_name = f"priors/{name}/{context_name}.xml" if name is not None else f"priors/{context_name}.xml"
+            tk.register_output(xml_name, file)
+
+        self.experiments[key]["priors"] = p_info
+
+    def set_graph_for_experiment(
+        self, key, override_cfg: Optional[returnn.ReturnnConfig] = None, graph_type_name: Optional[str] = None
+    ):
         config = copy.deepcopy(override_cfg if override_cfg is not None else self.experiments[key]["returnn_config"])
 
         name = self.experiments[key]["name"]
@@ -416,7 +648,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
 
         if "source" in config.config["network"].keys():  # specaugment
             for v in config.config["network"].values():
-                if v["class"] == "eval":
+                if v["class"] in ["eval", "range"]:
                     continue
                 if v["from"] == "source":
                     v["from"] = "data"
@@ -429,203 +661,337 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridBaseSystem):
             python_prolog=python_prolog,
             python_epilog=python_epilog,
             returnn_root=self.returnn_root,
+            returnn_python_exe=self.returnn_python_exe,
         )
 
         self.experiments[key]["graph"]["inference"] = infer_graph
-        tk.register_output(f"graphs/{name}-infer.pb", infer_graph)
+        if graph_type_name is None:
+            graph_type_name = "infer"
+        tk.register_output(f"graphs/{name}-{graph_type_name}.pb", infer_graph)
+
+    def setup_returnn_config_and_graph_for_single_softmax(
+        self,
+        key: str = None,
+        returnn_config: returnn.ReturnnConfig = None,
+        state_tying: RasrStateTying = RasrStateTying.diphone,
+        out_layer_name: str = None,
+        softmax_type: SingleSoftmaxType = SingleSoftmaxType.DECODE,
+    ):
+        prepare_for_train = False
+        log_softmax = False
+        if softmax_type in [SingleSoftmaxType.TRAIN, SingleSoftmaxType.DECODE]:
+            log_softmax = True
+            if softmax_type == SingleSoftmaxType.TRAIN:
+                prepare_for_train = True
+
+        assert state_tying in [
+            RasrStateTying.monophone,
+            RasrStateTying.diphone,
+        ], "triphone state tying not possible in precomputed feature scorer due to memory constraint"
+
+        if softmax_type == SingleSoftmaxType.TRAIN:
+            assert (
+                self.training_criterion == TrainingCriterion.FULLSUM
+            ), "you forgot to set the correct training criterion"
+            self.label_info = dataclasses.replace(self.label_info, state_tying=state_tying)
+            self.lexicon_args["norm_pronunciation"] = False
+            self.set_rasr_returnn_input_datas(
+                input_key="data_preparation",
+                is_cv_separate_from_train=True,
+                cv_corpus_key="dev-other",
+            )
+            # update all transition models and data
+            shift_factor = self.frame_rate_reduction_ratio_info.factor
+            tdp_type = "heuristic" if shift_factor == 1 else f"heuristic-{shift_factor}0ms"
+            self.update_am_setting_for_all_crps(
+                train_tdp_type=tdp_type,
+                eval_tdp_type="default",
+                add_base_allophones=False,
+            )
+        else:
+            crp_list = [n for n in self.crp_names if "train" not in n or "align" in n]
+            self.reset_state_tying(crp_list=crp_list, state_tying=state_tying)
+
+        if out_layer_name is None:
+            out_layer_name = "output" if state_tying == RasrStateTying.diphone else "center-output"
+
+        if returnn_config is None:
+            returnn_config = self.experiments[key]["returnn_config"]
+
+        if state_tying == RasrStateTying.diphone:
+            clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
+            context_size = self.label_info.n_contexts
+            context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
+                spatial_size=context_size,
+                feature_size=context_size,
+                spatial_dim_variable_name="__center_state_spatial",
+                feature_dim_variable_name="__center_state_feature",
+                context_type="L",
+            )
+            final_returnn_config = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax(
+                returnn_config=clean_returnn_config,
+                label_info=self.label_info,
+                out_joint_score_layer="output",
+                log_softmax=log_softmax,
+                prepare_for_train=prepare_for_train,
+            )
+
+        elif state_tying == RasrStateTying.monophone:
+            final_returnn_config = copy.deepcopy(returnn_config)
+            context_time_tag = None
+            if log_softmax:
+                final_returnn_config.config["network"][out_layer_name] = {
+                    **final_returnn_config.config["network"][out_layer_name],
+                    "class": "linear",
+                    "activation": "log_softmax",
+                }
+
+        self.reset_returnn_config_for_experiment(
+            key=key,
+            config_dict=final_returnn_config.config,
+            extra_dict_key="context",
+            additional_python_prolog=context_time_tag,
+        )
+        self.set_graph_for_experiment(key, graph_type_name=f"precomputed-{softmax_type}")
+
+    def setup_returnn_config_and_graph_for_precomputed_decoding(
+        self,
+        key: str = None,
+        returnn_config: returnn.ReturnnConfig = None,
+        state_tying: RasrStateTying = RasrStateTying.diphone,
+        out_layer_name: str = None,
+    ):
+
+        if state_tying == RasrStateTying.diphone:
+            clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
+            context_size = self.label_info.n_contexts
+            context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
+                spatial_size=context_size,
+                feature_size=context_size,
+                spatial_dim_variable_name="__center_state_spatial",
+                feature_dim_variable_name="__center_state_feature",
+                context_type="L",
+            )
+
+            # used for decoding
+            decoding_returnn_config = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax(
+                returnn_config=clean_returnn_config,
+                label_info=self.label_info,
+                out_joint_score_layer="output",
+                log_softmax=True,
+            )
+        elif state_tying == RasrStateTying.monophone:
+            decoding_returnn_config = copy.deepcopy(returnn_config)
+            context_time_tag = None
+            decoding_returnn_config.config["network"][out_layer_name] = {
+                **decoding_returnn_config.config["network"][out_layer_name],
+                "class": "linear",
+                "activation": "log_softmax",
+            }
+
+        self.reset_returnn_config_for_experiment(
+            key=key,
+            config_dict=decoding_returnn_config.config,
+            extra_dict_key="context",
+            additional_python_prolog=context_time_tag,
+        )
+        self.set_graph_for_experiment(key, graph_type_name="precomputed-infer")
+
+    def setup_returnn_config_and_graph_for_diphone_joint_prior(
+        self, key: str = None, returnn_config: returnn.ReturnnConfig = None
+    ):
+
+        self.set_state_tying_for_decoder_fsa()
+        if returnn_config is None:
+            returnn_config = self.experiments[key]["returnn_config"]
+        clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
+        context_size = self.label_info.n_contexts
+        context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
+            spatial_size=context_size,
+            feature_size=context_size,
+            spatial_dim_variable_name="__center_state_spatial",
+            feature_dim_variable_name="__center_state_feature",
+            context_type="L",
+        )
+        # used for decoding
+        prior_returnn_config = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax(
+            returnn_config=clean_returnn_config,
+            label_info=self.label_info,
+            out_joint_score_layer="output",
+            log_softmax=False,
+        )
+        self.reset_returnn_config_for_experiment(
+            key=key,
+            config_dict=prior_returnn_config.config,
+            extra_dict_key="context",
+            additional_python_prolog=context_time_tag,
+        )
+        self.set_graph_for_experiment(key, graph_type_name="joint-prior")
 
     def get_recognizer_and_args(
         self,
-        key,
-        context_type,
-        epoch,
-        crp_corpus=None,
-        gpu=True,
-        is_min_duration=False,
+        key: str,
+        context_type: PhoneticContext,
+        feature_scorer_type: RasrFeatureScorer,
+        epoch: int,
+        crp_corpus: str,
+        recognizer_key: str = "base",
+        model_path: Optional[Path] = None,
+        gpu=False,
         is_multi_encoder_output=False,
-        tf_library=None,
-        dummy_mixtures=None,
+        set_batch_major_for_feature_scorer: bool = True,
+        tf_library: Union[Path, str, List[Path], List[str], None] = None,
+        dummy_mixtures: Optional[Path] = None,
+        lm_gc_simple_hash: Optional[bool] = None,
+        crp: Optional[rasr.RasrConfig] = None,
+        **decoder_kwargs,
     ):
-
-        name = ("-").join([self.experiments[key]["name"], crp_corpus, f"e{epoch}-"])
-        if context_type.value in [self.context_mapper.get_enum(i) for i in range(6, 9)]:
-            name = f'{self.experiments[key]["name"]}-delta-e{epoch}-'
-
-        model_path = self._get_model_path(self.experiments[key]["train_job"], epoch)
-        num_encoder_output = self.experiments[key]["returnn_config"].config["network"]["fwd_1"]["n_out"] * 2
-        p_info = self._get_prior_info_dict()
-        assert self.experiments[key]["priors"] is not None
-
-        isSpecAug = True if "source" in self.experiments[key]["returnn_config"].config["network"].keys() else False
-        if context_type.value in [
-            self.context_mapper.get_enum(1),
-            self.context_mapper.get_enum(7),
+        if context_type in [
+            PhoneticContext.mono_state_transition,
+            PhoneticContext.diphone_state_transition,
+            PhoneticContext.tri_state_transition,
         ]:
-            if isSpecAug:
-                recog_args = get_recog_mono_specAug_args()
-            else:
-                recog_args = get_recog_mono_args()
-            scales = recog_args["priorScales"]
-            del recog_args["priorScales"]
-            p_info["center-state-prior"]["scale"] = scales["center-state"]
-            p_info["center-state-prior"]["file"] = self.experiments[key]["priors"][0]
-            recog_args["priorInfo"] = p_info
-
-        elif context_type.value in [self.context_mapper.get_enum(2), self.context_mapper.get_enum(8)]:
-            recog_args = get_recog_diphone_fromGmm_specAug_args()
-            scales = recog_args["shared_args"]["priorScales"]
-            del recog_args["shared_args"]["priorScales"]
-            p_info["center-state-prior"]["scale"] = scales["center-state"]
-            p_info["left-context-prior"]["scale"] = scales["left-context"]
-            p_info["center-state-prior"]["file"] = self.experiments[key]["priors"][0]
-            p_info["left-context-prior"]["file"] = self.experiments[key]["priors"][1]
-            recog_args["shared_args"]["priorInfo"] = p_info
+            name = f'{self.experiments[key]["name"]}-delta/e{epoch}/{crp_corpus}'
         else:
-            print("implement other contexts")
-            assert False
+            name = f"{self.experiments[key]['name']}/e{epoch}/{crp_corpus}"
 
-        recog_args["use_word_end_classes"] = self.label_info.use_word_end_classes
-        recog_args["n_states_per_phone"] = self.label_info.n_states_per_phone
-        recog_args["n_contexts"] = self.label_info.n_contexts
-        recog_args["is_min_duration"] = is_min_duration
-        recog_args["num_encoder_output"] = num_encoder_output
+        p_info: PriorInfo = self.experiments[key].get("priors", None)
+        assert p_info is not None, "set priors first"
 
-        if context_type.value not in [
-            self.context_mapper.get_enum(1),
-            self.context_mapper.get_enum(7),
-        ]:
-            recog_args["4gram_args"].update(recog_args["shared_args"])
-            recog_args["lstm_args"].update(recog_args["shared_args"])
+        if (
+            feature_scorer_type == RasrFeatureScorer.nn_precomputed
+            and self.experiments[key]["returnn_config"] is not None
+        ):
+
+            self.setup_returnn_config_and_graph_for_single_softmax(
+                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE
+            )
+        else:
+            crp_list = [n for n in self.crp_names if "train" not in n]
+            self.reset_state_tying(crp_list=crp_list, state_tying=self.label_info.state_tying)
+
+        graph = self.experiments[key]["graph"].get("inference", None)
+        if graph is None:
+            self.set_graph_for_experiment(key=key)
+            graph = self.experiments[key]["graph"]["inference"]
+
+        recog_args = self.get_parameters_for_decoder(context_type=context_type, prior_info=p_info)
 
         if dummy_mixtures is None:
+            n_labels = (
+                self.cart_state_tying_args["cart_labels"]
+                if self.label_info.state_tying == RasrStateTying.cart
+                else self.label_info.get_n_of_dense_classes()
+            )
             dummy_mixtures = mm.CreateDummyMixturesJob(
-                self.label_info.get_n_of_dense_classes(), self.initial_nn_args["num_input"]
-            ).out_mixtures  # gammatones
+                n_labels,
+                self.initial_nn_args["num_input"],
+            ).out_mixtures
 
         assert self.label_info.sil_id is not None
 
-        recognizer = FHDecoder(
+        if model_path is None:
+            model_path = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+
+        recognizer = self.recognizers[recognizer_key](
             name=name,
-            search_crp=self.crp[crp_corpus],
+            crp=self.crp[crp_corpus] if crp is None else crp,
             context_type=context_type,
-            context_mapper=self.context_mapper,
+            feature_scorer_type=feature_scorer_type,
             feature_path=self.feature_flows[crp_corpus],
             model_path=model_path,
-            graph=self.experiments[key]["graph"]["inference"],
+            graph=graph,
             mixtures=dummy_mixtures,
             eval_files=self.scorer_args[crp_corpus],
             tf_library=tf_library,
             is_multi_encoder_output=is_multi_encoder_output,
+            set_batch_major_for_feature_scorer=set_batch_major_for_feature_scorer,
             silence_id=self.label_info.sil_id,
             gpu=gpu,
+            lm_gc_simple_hash=lm_gc_simple_hash if (lm_gc_simple_hash is not None and lm_gc_simple_hash) else None,
+            **decoder_kwargs,
         )
 
         return recognizer, recog_args
 
-    def run_decoding_for_cart(
+    def get_aligner_and_args(
         self,
-        name,
-        corpus,
-        feature_flow,
-        feature_scorer,
-        tdp_scale=1.0,
-        exit_sil=20.0,
-        norm_pron=True,
-        pron_scale=3.0,
-        lm_scale=10.0,
-        beam=18.0,
-        beam_limit=500000,
-        we_pruning=0.8,
-        we_pruning_limit=10000,
-        altas=None,
-        only_lm_opt=True,
+        key: str,
+        context_type: PhoneticContext,
+        feature_scorer_type: RasrFeatureScorer,
+        epoch: int,
+        crp_corpus: str,
+        aligner_key: str = "base",
+        model_path: Optional[Path] = None,
+        feature_path: Optional[Path] = None,
+        gpu: bool = False,
+        is_multi_encoder_output: bool = False,
+        set_batch_major_for_feature_scorer: bool = True,
+        tf_library: Union[Path, str, List[Path], List[str], None] = None,
+        dummy_mixtures: Optional[Path] = None,
+        crp: Optional[rasr.RasrConfig] = None,
+        **aligner_kwargs,
     ):
+        if context_type in [
+            PhoneticContext.mono_state_transition,
+            PhoneticContext.diphone_state_transition,
+            PhoneticContext.tri_state_transition,
+        ]:
+            name = f'{self.experiments[key]["name"]}-delta/e{epoch}/{crp_corpus}'
+        else:
+            name = f"{self.experiments[key]['name']}/e{epoch}/{crp_corpus}"
 
-        pre_path = "grid" if (altas is not None and beam < 16.0) else "decoding"
+        if (
+            feature_scorer_type == RasrFeatureScorer.nn_precomputed
+            and self.experiments[key]["returnn_config"] is not None
+        ):
 
-        search_crp = copy.deepcopy(self.crp[corpus])
-        search_crp.acoustic_model_config.tdp.scale = tdp_scale
-        search_crp.acoustic_model_config.tdp["silence"]["exit"] = exit_sil
-
-        # lm
-        search_crp.language_model_config.scale = lm_scale
-
-        name += f"-{corpus}-beaminfo{beam}-{beam_limit}-{we_pruning}"
-        name += f"-lmScale-{lm_scale}"
-        if tdp_scale != 1.0:
-            name += f"_tdpscale-{tdp_scale}"
-        if exit_sil != 20.0:
-            name += f"_exitSil-{tdp_scale}"
-
-        if altas is not None:
-            name += f"_altas-{altas}"
-        sp = {
-            "beam-pruning": beam,
-            "beam-pruning-limit": beam_limit,
-            "word-end-pruning": we_pruning,
-            "word-end-pruning-limit": we_pruning_limit,
-        }
-
-        adv_search_extra_config = None
-        if altas is not None:
-            adv_search_extra_config = rasr.RasrConfig()
-            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.acoustic_lookahead_temporal_approximation_scale = (
-                altas
+            self.setup_returnn_config_and_graph_for_single_softmax(
+                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE
             )
 
-        modelCombinationConfig = None
-        if norm_pron:
-            modelCombinationConfig = rasr.RasrConfig()
-            modelCombinationConfig.pronunciation_scale = pron_scale
+        else:
+            crp_list = [n for n in self.crp_names if "align" in n]
+            self.reset_state_tying(crp_list=crp_list, state_tying=self.label_info.state_tying)
 
-        search = recog.AdvancedTreeSearchJob(
-            crp=search_crp,
-            feature_flow=feature_flow,
-            feature_scorer=feature_scorer,
-            search_parameters=sp,
-            lm_lookahead=True,
-            eval_best_in_lattice=True,
-            use_gpu=True,
-            rtf=12,
-            mem=8,
-            model_combination_config=modelCombinationConfig,
-            model_combination_post_config=None,
-            extra_config=adv_search_extra_config,
-            extra_post_config=None,
+        graph = self.experiments[key]["graph"].get("inference", None)
+        if graph is None:
+            self.set_graph_for_experiment(key=key)
+            graph = self.experiments[key]["graph"]["inference"]
+
+        p_info: PriorInfo = self.experiments[key].get("priors", None)
+        assert p_info is not None, "set priors first"
+
+        if dummy_mixtures is None:
+            dummy_mixtures = mm.CreateDummyMixturesJob(
+                self.label_info.get_n_of_dense_classes(),
+                self.initial_nn_args["num_input"],
+            ).out_mixtures
+
+        assert self.label_info.sil_id is not None
+
+        if model_path is None:
+            model_path = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        if feature_path is None:
+            feature_path = self.feature_flows[crp_corpus]
+
+        align_args = self.get_parameters_for_aligner(context_type=context_type, prior_info=p_info)
+
+        aligner = self.aligners[aligner_key](
+            name=name,
+            crp=self.crp[crp_corpus] if crp is None else crp,
+            context_type=context_type,
+            feature_scorer_type=feature_scorer_type,
+            feature_path=feature_path,
+            model_path=model_path,
+            graph=graph,
+            mixtures=dummy_mixtures,
+            tf_library=tf_library,
+            is_multi_encoder_output=is_multi_encoder_output,
+            set_batch_major_for_feature_scorer=set_batch_major_for_feature_scorer,
+            silence_id=self.label_info.sil_id,
+            gpu=gpu,
+            **aligner_kwargs,
         )
-        search.rqmt["cpu"] = 2
-        if corpus == "russian":
-            search.rqmt["time"] = 1
 
-        search.add_alias(f"{pre_path}/recog_{name}")
-
-        lat2ctm_extra_config = rasr.RasrConfig()
-        lat2ctm_extra_config.flf_lattice_tool.network.to_lemma.links = "best"
-        lat2ctm = recog.LatticeToCtmJob(
-            crp=search_crp,
-            lattice_cache=search.out_lattice_bundle,
-            parallelize=True,
-            fill_empty_segments=True,
-            best_path_algo="bellman-ford",
-            extra_config=lat2ctm_extra_config,
-        )
-
-        sKwrgs = copy.deepcopy(self.scorer_args[corpus])
-        sKwrgs["sort_files"] = True
-        sKwrgs[self.scorer_hyp_arg[corpus]] = lat2ctm.out_ctm_file
-        scorer = self.scorers[corpus](**sKwrgs)
-
-        self.jobs[corpus]["scorer_%s" % name] = scorer
-        tk.register_output(f"{pre_path}/{name}.reports", scorer.out_report_dir)
-
-        if beam > 15.0 and altas is None:
-            opt = recog.OptimizeAMandLMScaleJob(
-                crp=search_crp,
-                lattice_cache=search.out_lattice_bundle,
-                initial_am_scale=pron_scale,
-                initial_lm_scale=lm_scale,
-                scorer_cls=recog.ScliteJob,
-                scorer_kwargs=sKwrgs,
-                opt_only_lm_scale=only_lm_opt,
-            )
-            tk.register_output(f"optLM/{name}.onlyLmOpt{only_lm_opt}.optlm.txt", opt.out_log_file)
+        return aligner, align_args

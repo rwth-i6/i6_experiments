@@ -1,8 +1,6 @@
 import re
 from typing import List, Tuple, Optional
 
-from returnn.datasets.lm import english_cleaners
-
 
 def clean_string(s: str, custom_subs: Optional[List[Tuple[str, str]]] = None) -> str:
     for pattern, substitution in list(
@@ -44,6 +42,8 @@ def clean_string(s: str, custom_subs: Optional[List[Tuple[str, str]]] = None) ->
 
 
 def lm_cleaning(s: str):
+    from returnn.datasets.lm import english_cleaners
+
     remove_regexes = [
         re.compile(expr)
         for expr in [

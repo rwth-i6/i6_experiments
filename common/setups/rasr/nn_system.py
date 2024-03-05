@@ -1,36 +1,20 @@
 __all__ = ["NnSystem"]
 
 import copy
-import itertools
-import sys
 from dataclasses import asdict
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 
 # -------------------- Sisyphus --------------------
 
 import sisyphus.toolkit as tk
 import sisyphus.global_settings as gs
 
-from sisyphus.delayed_ops import DelayedFormat
-
 # -------------------- Recipes --------------------
 
-import i6_core.features as features
-import i6_core.rasr as rasr
 import i6_core.returnn as returnn
-
-from i6_core.util import MultiPath, MultiOutputPath
 
 from .rasr_system import RasrSystem
 
-from .util import (
-    RasrInitArgs,
-    ReturnnRasrDataInput,
-    OggZipHdfDataInput,
-    HybridArgs,
-    NnRecogArgs,
-    RasrSteps,
-)
 
 # -------------------- Init --------------------
 

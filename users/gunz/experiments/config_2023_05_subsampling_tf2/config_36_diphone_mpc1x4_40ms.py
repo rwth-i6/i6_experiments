@@ -91,7 +91,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             dc_detection=False,
             decode_all_corpora=False,
             lr="v13",
-            run_performance_study=False,
+            run_performance_study=a_name == "30ms-FF-v8",
             tune_decoding=True,
             run_tdp_study=False,
         )
@@ -383,7 +383,9 @@ def run_single(
             )
 
     if run_performance_study:
-        ep = 500
+        assert tune_decoding
+
+        ep = 600
         s.set_diphone_priors_returnn_rasr(
             key="fh",
             epoch=ep,
@@ -402,26 +404,19 @@ def run_single(
             set_batch_major_for_feature_scorer=True,
             lm_gc_simple_hash=True,
         )
-        recog_args = dataclasses.replace(
-            recog_args.with_prior_scale(0.4, 0.4),
-            altas=2,
-            beam=20,
-            lm_scale=round(recog_args.lm_scale / float(ss_factor), 2),
-            tdp_scale=0.2,
+        recog_args = dataclasses.replace(best_config, altas=2, beam=20)
+        jobs = recognizer.recognize_count_lm(
+            label_info=s.label_info,
+            search_parameters=recog_args,
+            num_encoder_output=conf_model_dim,
+            rerun_after_opt_lm=True,
+            calculate_stats=True,
+            pre_path="decoding-perf-eval",
+            name_override="best/4gram",
+            cpu_rqmt=2,
+            mem_rqmt=4,
         )
-        for create_lattice in [True, False]:
-            jobs = recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=recog_args,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=False,
-                calculate_stats=True,
-                pre_path="decoding-perf-eval" + ("-l" if create_lattice else ""),
-                cpu_rqmt=2,
-                mem_rqmt=4,
-                create_lattice=create_lattice,
-            )
-            jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+        jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if run_tdp_study:
         s.feature_flows["dev-other"].flags["cache_mode"] = "bundle"

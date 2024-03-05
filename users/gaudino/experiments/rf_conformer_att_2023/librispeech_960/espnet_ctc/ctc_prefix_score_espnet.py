@@ -202,6 +202,7 @@ class CTCPrefixScoreTH(object):
         n_bh = len(s)
         n_hyps = n_bh // self.batch
         vidx = (best_ids + (self.idx_b * (n_hyps * self.odim)).view(-1, 1)).view(-1)
+        # breakpoint()
         # select hypothesis scores
         s_new = torch.index_select(s.view(-1), 0, vidx)
         s_new = s_new.view(-1, 1).repeat(1, self.odim).view(n_bh, self.odim)

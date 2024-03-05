@@ -27,6 +27,7 @@ def get_final_output(name="final"):
     output_args.define_corpus_type("train-other-960", "train")
     output_args.define_corpus_type("dev-clean", "dev")
     output_args.define_corpus_type("dev-other", "dev")
+    output_args.define_corpus_type("dev-other_dev-clean", "cv")
     output_args.define_corpus_type("test-clean", "test")
     output_args.define_corpus_type("test-other", "test")
 

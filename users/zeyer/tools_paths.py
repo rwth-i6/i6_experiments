@@ -22,8 +22,35 @@ or just overwrite it globally.
 Also see i6_experiments/common/baselines/librispeech/default_tools.py.
 """
 
+from __future__ import annotations
+from typing import Optional, Callable
 import sys
+import shutil
 from sisyphus import tk, gs
+
+
+def monkey_patch_i6_core():
+    """
+    Monkey patch i6_core.util get_executable_path and maybe related methods
+    to avoid such warnings::
+
+        use of gs is deprecated, please provide a Path object for gs.RETURNN_PYTHON_EXE
+        use of gs is deprecated, please provide a Path object for gs.RETURNN_ROOT
+        Creating absolute path inside current work directory: /u/zeyer/setups/combined/2021-05-31/tools/returnn
+            (disable with WARNING_ABSPATH=False)
+        ...
+
+    Those warnings happen because of the logic of :func:`i6_core.util.get_executable_path`.
+    """
+    from i6_core import util
+
+    global _orig_i6_core_util_get_executable_path
+    if _orig_i6_core_util_get_executable_path is None:
+        _orig_i6_core_util_get_executable_path = util.get_executable_path
+
+    util.get_executable_path = _i6_core_util_get_executable_path
+    util.get_returnn_python_exe = _i6_core_util_get_returnn_python_exe
+    util.get_returnn_root = _i6_core_util_get_returnn_root
 
 
 def get_rasr_binary_path() -> tk.Path:
@@ -88,3 +115,44 @@ def get_returnn_root() -> tk.Path:
     """
     assert getattr(gs, "RETURNN_ROOT", None), "RETURNN_ROOT not set"
     return tk.Path(getattr(gs, "RETURNN_ROOT"), hash_overwrite="DEFAULT_RETURNN_ROOT")
+
+
+_orig_i6_core_util_get_executable_path: Optional[Callable[..., tk.Path]] = None
+
+
+def _i6_core_util_get_executable_path(
+    path: Optional[tk.Path],
+    gs_member_name: Optional[str],
+    default_exec_path: Optional[tk.Path] = None,
+) -> tk.Path:
+    """
+    Helper function that allows to select a specific version of software while
+    maintaining compatibility to different methods that were used in the past to select
+    software versions.
+    It will return a Path object for the first path found in
+
+    :param path: Directly specify the path to be used
+    :param gs_member_name: get path from sisyphus.global_settings.<gs_member_name>
+    :param default_exec_path: general fallback if no specific version is given
+    """
+    if path is not None:
+        return _orig_i6_core_util_get_executable_path(path, gs_member_name, default_exec_path)
+    if getattr(gs, gs_member_name, None) is not None:
+        # Custom hash_overwrite, to avoid the warning, and also to have the hash independent of the path.
+        return tk.Path(getattr(gs, gs_member_name), hash_overwrite=f"gs.{gs_member_name}")
+    if default_exec_path is not None:
+        return default_exec_path
+    assert False, f"could not find executable for {gs_member_name}"
+
+
+def _i6_core_util_get_returnn_python_exe(returnn_python_exe: Optional[tk.Path]) -> tk.Path:
+    if returnn_python_exe is None:
+        return get_returnn_python_exe()
+    system_python = tk.Path(shutil.which(gs.SIS_COMMAND[0]))
+    return _orig_i6_core_util_get_executable_path(returnn_python_exe, "RETURNN_PYTHON_EXE", system_python)
+
+
+def _i6_core_util_get_returnn_root(returnn_root: Optional[tk.Path]) -> tk.Path:
+    if returnn_root is None:
+        return get_returnn_root()
+    return _orig_i6_core_util_get_executable_path(returnn_root, "RETURNN_ROOT")

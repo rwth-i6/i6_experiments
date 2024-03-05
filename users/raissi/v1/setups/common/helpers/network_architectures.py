@@ -470,7 +470,6 @@ def get_monophone_net(
     final_ctx_type=None,
     ph_emb_size=64,
     st_emb_size=512,
-
     label_smoothing=0.0,
     l2=None,
     shared_delta_encoder=False,

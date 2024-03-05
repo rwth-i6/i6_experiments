@@ -5,7 +5,6 @@ from i6_experiments.users.berger.network.helpers.specaug import (
     add_specaug_layer_v2,
     get_specaug_funcs,
 )
-from returnn_common.asr import gt
 
 
 def add_gt_feature_extraction(
@@ -24,6 +23,8 @@ def add_gt_feature_extraction(
     max_freq: Optional[int] = None,
     padding: Optional[Tuple[int, int]] = None,
 ) -> Tuple[str, Union[str, List[str]]]:
+    from returnn_common.asr import gt
+
     python_code = []
 
     channels = (
@@ -45,7 +46,6 @@ def add_gt_feature_extraction(
     filterbank_size = filterbank_size or sample_rate // 25
 
     specaug_args = specaug_args or {}
-
     gt_net = gt.get_net_dict_v1(
         num_channels=channels,
         sample_rate=sample_rate,

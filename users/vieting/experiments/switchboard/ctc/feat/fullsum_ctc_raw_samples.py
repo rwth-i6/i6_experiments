@@ -7,6 +7,7 @@ from i6_core.am.config import acoustic_model_config
 from i6_core.returnn import CodeWrapper
 from i6_experiments.users.berger.network.helpers.conformer import add_conformer_stack as add_conformer_stack_simon
 from .network_helpers.specaug import add_specaug_layer, add_specaug_layer_v2
+from .network_helpers.specaug_sort_layer2 import add_specaug_layer as add_specaug_layer_sort_layer2
 from .network_helpers.conformer_wei import add_conformer_stack as add_conformer_stack_wei
 from .network_helpers.conformer_wei import add_vgg_stack as add_vgg_stack_wei
 
@@ -152,6 +153,8 @@ def make_conformer_fullsum_ctc_model(
         python_code = []
     else:
         if specaug_old is not None:
+            sort_layer2 = specaug_old.pop("sort_layer2", False)
+            specaug_func = add_specaug_layer_sort_layer2 if sort_layer2 else add_specaug_layer
             specaug_old_args = {
                 "max_time_num": 1,
                 "max_time": 15,
@@ -159,7 +162,7 @@ def make_conformer_fullsum_ctc_model(
                 "max_feature": 4,
                 **specaug_old,
             }
-            from_list, python_code = add_specaug_layer(network, from_list=from_list, **specaug_old_args)
+            from_list, python_code = specaug_func(network, from_list=from_list, **specaug_old_args)
         else:
             from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
 

@@ -36,3 +36,15 @@ def scf_len(len_in):
 # for single convolution: context_window = window_size - window_shift + 1
 # use here: 128 - 5 + 1 + (40 - 16 + 1) * 5 = 249
 assert check_context_window(249, scf_len)
+
+
+# log Mel
+def log_mel_len(len_in):
+    len_out = (len_in - 200) // 80 + 1
+    return len_out
+
+
+# for single convolution: context_window = window_size - window_shift + 1
+# use here: 200 - 80 + 1 = 121
+assert check_context_window(121, log_mel_len)
+

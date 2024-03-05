@@ -67,8 +67,8 @@ class PlotPhonemeDurationsJob(Job):
         with open(self.alignment_bundle_path, "rt") as bundle_file:
             archives = [a.strip() for a in bundle_file.readlines()]
         yield Task("compute_statistics", args=archives, rqmt={"cpu": 1, "mem": 1, "time": 10 / 60})
-        yield Task("plot", rqmt={"cpu": 1, "mem": 8})
-        yield Task("cleanup", rqmt={"cpu": 1, "mem": 0.5, "time": 0.5})
+        yield Task("plot", rqmt={"cpu": 1, "mem": 8}, mini_task=True)
+        yield Task("cleanup", mini_task=True)
 
     def compute_statistics(self, cache_file: str):
         durations = compute_phoneme_durations(cache_file=cache_file, allophones=self.allophones_path.get_path())
@@ -93,13 +93,15 @@ class PlotPhonemeDurationsJob(Job):
         ph_counts = {k: v for k, v in merged_counts.items() if k != self.sil_allophone}
         sil_counts = {k: v for k, v in merged_counts.items() if k == self.sil_allophone}
         to_plot = [
-            (ph_counts, self.out_plot_folder.join_right("phonemes.png")),
-            (sil_counts, self.out_plot_folder.join_right("sil.png")),
+            (ph_counts, self.out_plot_folder.join_right("phonemes.pdf")),
+            (sil_counts, self.out_plot_folder.join_right("sil.pdf")),
         ]
 
         for group, phonemes in self.stat_groups.items():
             joined_stats = {group: [count for ph in phonemes for count in merged_counts[ph]]}
-            to_plot.append((joined_stats, self.out_plot_folder.join_right(f"{group}.png")))
+            to_plot.append((joined_stats, self.out_plot_folder.join_right(f"{group}.pdf")))
+
+        plt.rc("font", family="sans-serif", size=25)
 
         for counts, dest in to_plot:
             plt.clf()
@@ -109,12 +111,19 @@ class PlotPhonemeDurationsJob(Job):
             ax.set_xlabel("Phoneme")
             ax.set_ylabel("Duration [s]")
             ax.set_ylim(bottom=0)
-            fig.savefig(dest)
+            fig.savefig(dest, bbox_inches="tight", transparent=True)
 
         means = {k: np.mean(v) for k, v in merged_counts.items()}
-        self.out_means.set(means)
+        means["PHONEMES"] = np.mean(
+            [v for ph, counts in merged_counts.items() if ph != self.sil_allophone for v in counts]
+        )
 
         variances = {k: np.var(v) for k, v in merged_counts.items()}
+        variances["PHONEMES"] = np.var(
+            [v for ph, counts in merged_counts.items() if ph != self.sil_allophone for v in counts]
+        )
+
+        self.out_means.set(means)
         self.out_vars.set(variances)
 
     def cleanup(self):
@@ -124,30 +133,41 @@ class PlotPhonemeDurationsJob(Job):
 
 
 class PlotViterbiAlignmentsJob(Job):
+    __sis_hash_exclude__ = {"font_size": 10, "show_title": True}
+
     def __init__(
         self,
         alignment_bundle_path: Path,
         allophones_path: Path,
         segments: Union[Path, tk.Variable, List[str]],
         show_labels: bool,
+        show_title: bool = True,
         sil_allophone: str = "[SILENCE]",
+        font_size: int = 10,
         monophone: bool = True,
     ):
         self.alignment_bundle_path = alignment_bundle_path
         self.allophones_path = allophones_path
         self.sil_allophone = sil_allophone
         self.monophone = monophone
+        self.font_size = font_size
         self.show_labels = show_labels
+        self.show_title = show_title
         self.segments = segments
 
         self.out_plot_folder = self.output_path("plots", directory=True)
 
         if isinstance(segments, list):
-            self.out_plots = [self.output_path(f"plots/{s.replace('/', '_')}.png") for s in segments]
+            self.out_plots = [self.output_path(f"plots/{s.replace('/', '_')}.pdf") for s in segments]
         else:
             self.out_plots = None
 
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True, rqmt={"cpu": 1, "time": 1, "mem": 4})
+
     def run(self):
+        from matplotlib import pyplot as plt
+
         processor = AlignmentProcessor(
             alignment_bundle_path=self.alignment_bundle_path.get_path(),
             allophones_path=self.allophones_path.get_path(),
@@ -158,15 +178,22 @@ class PlotViterbiAlignmentsJob(Job):
         if isinstance(self.segments, tk.Variable):
             segments_to_plot = self.segments.get()
             assert isinstance(segments_to_plot, list)
-            out_plot_files = [self.output_path(f"plots/{s.replace('/', '_')}.png") for s in segments_to_plot]
+            out_plot_files = [self.output_path(f"plots/{s.replace('/', '_')}.pdf") for s in segments_to_plot]
         elif isinstance(self.segments, Path):
             with open(self.segments, "rt") as segments_file:
                 segments_to_plot = [s.strip() for s in segments_file.readlines()]
-            out_plot_files = [self.output_path(f"plots/{s.replace('/', '_')}.png") for s in segments_to_plot]
+            out_plot_files = [self.output_path(f"plots/{s.replace('/', '_')}.pdf") for s in segments_to_plot]
         else:
             segments_to_plot = self.segments
             out_plot_files = self.out_plots
 
+        plt.rc("font", family="serif")
+
         for seg, out_path in zip(segments_to_plot, out_plot_files):
-            fig, ax, *_ = processor.plot_segment(seg, self.show_labels)
-            fig.savefig(out_path)
+            fig, ax, *_ = processor.plot_segment(
+                seg, font_size=self.font_size, show_labels=self.show_labels, show_title=self.show_title
+            )
+            if self.show_title:
+                fig.savefig(out_path, transparent=True)
+            else:
+                fig.savefig(out_path, transparent=True, bbox_inches="tight", pad_inches=0)

@@ -1,7 +1,7 @@
 from typing import Dict
 from i6_experiments.users.berger.args.jobs.recognition_args import (
     get_atr_search_parameters,
-    get_lookahead_options,
+    get_atr_lookahead_options,
 )
 from i6_experiments.users.berger.util import recursive_update
 from sisyphus import tk
@@ -33,7 +33,7 @@ def get_hybrid_recog_step_args(num_classes: int, **kwargs) -> Dict:
         "lm_scales": [16.0],
         "num_classes": num_classes,
         "lm_lookahead": True,
-        "lookahead_options": get_lookahead_options(),
+        "lookahead_options": get_atr_lookahead_options(),
         "create_lattice": True,
         "eval_single_best": True,
         "eval_best_in_lattice": True,

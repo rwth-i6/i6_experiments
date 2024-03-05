@@ -23,12 +23,16 @@ class TrainExperiment:
           import_model_train_epoch1: Optional[Checkpoint] = None,
           lr_opts: Optional[Dict] = None,
           cleanup_old_models: Optional[Dict] = None,
+          no_ctc_loss: bool = False,
+          train_mini_lstm_opts: Optional[Dict] = None,
   ):
     self.alias = alias
     self.import_model_train_epoch1 = import_model_train_epoch1
     self.config_builder = config_builder
     self.n_epochs = n_epochs
     self.lr_opts = lr_opts
+    self.no_ctc_loss = no_ctc_loss
+    self.train_mini_lstm_opts = train_mini_lstm_opts
     self.cleanup_old_models = cleanup_old_models if cleanup_old_models is not None else {
       "keep_best_n": 1, "keep_last_n": 1}
 
@@ -37,6 +41,8 @@ class TrainExperiment:
       "cleanup_old_models": self.cleanup_old_models,
       "lr_opts": self.lr_opts,
       "import_model_train_epoch1": self.import_model_train_epoch1,
+      "no_ctc_loss": self.no_ctc_loss,
+      "train_mini_lstm_opts": self.train_mini_lstm_opts,
     }
 
   def run_train(self) -> Tuple[Dict[int, Checkpoint], Path, Path]:
@@ -132,6 +138,26 @@ def run_train(
   train_config_builder = copy.deepcopy(config_builder)
   train_config = train_config_builder.get_train_config(opts=train_opts)
 
+  alias = alias + "/train"
+  if train_opts.get("train_mini_lstm_opts") is not None:  # need to check for None because it can be {}
+    alias = alias + "_mini_lstm"
+    if train_opts["train_mini_lstm_opts"].get("use_eos", False):
+      alias = alias + "/w_eos"
+    else:
+      alias = alias + "/wo_eos"
+
+    if train_opts["train_mini_lstm_opts"].get("mini_att_in_s", False):
+      alias = alias + "/w_mini_att_in_s"
+    else:
+      alias = alias + "/wo_mini_att_in_s"
+
+    if train_opts["train_mini_lstm_opts"].get("use_se_loss", False):
+      alias = alias + "/w_se_loss"
+    else:
+      alias = alias + "/wo_se_loss"
+
+    alias += "_%d_epochs" % n_epochs
+
   train_job = ReturnnTrainingJob(
     train_config,
     num_epochs=n_epochs,
@@ -141,7 +167,7 @@ def run_train(
     returnn_root=variant_params["returnn_root"],  # might need to change this to old returnn when using positional embedding option
     mem_rqmt=24,
     time_rqmt=30)
-  train_job.add_alias(alias + "/train")
+  train_job.add_alias(alias)
   tk.register_output(train_job.get_one_alias() + "/models", train_job.out_model_dir)
   tk.register_output(train_job.get_one_alias() + "/plot_lr", train_job.out_plot_lr)
 

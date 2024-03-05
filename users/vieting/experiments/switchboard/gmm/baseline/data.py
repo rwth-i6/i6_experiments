@@ -1,5 +1,5 @@
 """
-Defines the data inputs for any RASR based LibriSpeech task
+Defines the data inputs for any RASR based switchboard task
 """
 from sisyphus import tk
 from dataclasses import dataclass

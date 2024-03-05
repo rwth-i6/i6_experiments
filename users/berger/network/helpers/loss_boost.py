@@ -7,6 +7,7 @@ def add_loss_boost(
     name: str = "boosted_loss",
     output_layer: str = "output",
     scale: float = 5.0,
+    v2: bool = True,
 ) -> str:
     network["ce_loss"] = {
         "class": "loss",
@@ -17,7 +18,7 @@ def add_loss_boost(
     network[name] = {
         "class": "eval",
         "from": ["ce_loss", boost_positions_mask],
-        "eval": f'self.network.get_config().typed_value("loss_boost_func")(source(0), source(1))',
+        "eval": f'self.network.get_config().typed_value("loss_boost_func_v{"2" if v2 else "1"}")(source(0), source(1))',
         "loss": "as_is",
         "loss_opts": {"scale": scale},
     }
@@ -25,7 +26,7 @@ def add_loss_boost(
     return name
 
 
-def loss_boost_func(loss, boost_positions_mask):
+def loss_boost_func_v1(loss, boost_positions_mask):
     import tensorflow as tf
 
     blanks = tf.where(
@@ -41,7 +42,7 @@ def loss_boost_func(loss, boost_positions_mask):
     return final_loss
 
 
-# def loss_boost_func(loss, boost_positions_mask):
-#     import tensorflow as tf
+def loss_boost_func_v2(loss, boost_positions_mask):
+    import tensorflow as tf
 
-#     return tf.where(boost_positions_mask, loss, tf.zeros_like(loss))
+    return tf.where(boost_positions_mask, loss, tf.zeros_like(loss))

@@ -58,6 +58,8 @@ def run(returnn_root: tk.Path):
     tri_gmm_align = tk.Path(GMM_TRI_ALIGNMENT, cached=True)
 
     for (n_phones, cart_tree, cart_num_labels, lr) in [
+        (3, CART_TREE_TRI, CART_TREE_TRI_NUM_LABELS, "v6"),
+        (2, CART_TREE_DI, CART_TREE_DI_NUM_LABELS, "v6"),
         (3, CART_TREE_TRI, CART_TREE_TRI_NUM_LABELS, "v13"),
         (2, CART_TREE_DI, CART_TREE_DI_NUM_LABELS, "v13"),
     ]:
@@ -375,5 +377,27 @@ def run_single(
             native_ops=["NativeLstm2"],
             opt_lm_am_scale=False,
         )
+
+    if n_cart_phones == 3:
+        for cfg in [
+            dataclasses.replace(s.get_cart_params(key="fh"), altas=a, beam=b)
+            for a, b in itertools.product([None, 2, 4, 6], [14, 16])
+        ]:
+            job = s.recognize_cart(
+                key="fh",
+                epoch=max(keep_epochs),
+                crp_corpus="dev-other",
+                n_cart_out=n_cart_out,
+                cart_tree_or_tying_config=cart_tree,
+                log_softmax_returnn_config=decoding_config,
+                calculate_statistics=True,
+                params=cfg,
+                opt_lm_am_scale=False,
+                cpu_rqmt=2,
+                mem_rqmt=4,
+                rtf=4,
+                native_ops=["NativeLstm2"],
+            )
+            job.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     return s

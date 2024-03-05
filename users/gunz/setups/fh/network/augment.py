@@ -1,7 +1,10 @@
 import copy
+from dataclasses import dataclass
 import typing
 
-from ..factored import LabelInfo, PhonemeStateClasses, PhoneticContext
+from i6_core import returnn
+
+from ..factored import LabelInfo, PhonemeStateClasses, PhoneticContext, RasrStateTying
 
 DEFAULT_INIT = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)"
 
@@ -61,15 +64,16 @@ def pop_phoneme_state_classes(
     network: Network,
     labeling_input: str,
     remaining_classes: int,
+    prefix: str = "",
 ) -> typing.Tuple[Network, str, int]:
     if label_info.phoneme_state_classes == PhonemeStateClasses.boundary:
-        class_layer_name = "boundaryClass"
-        labeling_output = "popBoundary"
+        class_layer_name = f"{prefix}boundaryClass"
+        labeling_output = f"{prefix}popBoundary"
 
         # continues below
     elif label_info.phoneme_state_classes == PhonemeStateClasses.word_end:
-        class_layer_name = "wordEndClass"
-        labeling_output = "popWordEnd"
+        class_layer_name = f"{prefix}wordEndClass"
+        labeling_output = f"{prefix}popWordEnd"
 
         # continues below
     elif label_info.phoneme_state_classes == PhonemeStateClasses.none:
@@ -98,33 +102,66 @@ def pop_phoneme_state_classes(
     return network, labeling_output, rem_dim
 
 
-def augment_net_with_label_pops(network: Network, label_info: LabelInfo) -> Network:
-    labeling_input = "data:classes"
+@dataclass(frozen=True, eq=True)
+class SubsamplingInfo:
+    factor: typing.Union[int, typing.List[int]]
+    time_tag_name: str
+
+
+def augment_net_with_label_pops(
+    network: Network,
+    label_info: LabelInfo,
+    classes_subsampling_info: typing.Optional[SubsamplingInfo] = None,
+    prefix: str = "",
+    labeling_input: str = "data:classes",
+) -> Network:
+    assert label_info.state_tying in [RasrStateTying.diphone, RasrStateTying.triphone]
+
     remaining_label_dim = label_info.get_n_of_dense_classes()
 
     network = copy.deepcopy(network)
 
-    network["futureLabel"] = {
-        "class": "eval",
-        "from": labeling_input,
-        "eval": f"tf.math.floormod(source(0), {label_info.n_contexts})",
-        "register_as_extern_data": "futureLabel",
-        "out_type": {"dim": label_info.n_contexts, "dtype": "int32", "sparse": True},
-    }
-    remaining_label_dim //= label_info.n_contexts
-    network["popFutureLabel"] = {
-        "class": "eval",
-        "from": labeling_input,
-        "eval": f"tf.math.floordiv(source(0), {label_info.n_contexts})",
-        "out_type": {"dim": remaining_label_dim, "dtype": "int32", "sparse": True},
-    }
-    labeling_input = "popFutureLabel"
+    if classes_subsampling_info is not None:
+        # This layer sets the time step ratio between the input and the output of the NN.
 
-    network["pastLabel"] = {
+        ss_factors = (
+            [classes_subsampling_info.factor]
+            if isinstance(classes_subsampling_info.factor, int)
+            else classes_subsampling_info.factor
+        )
+        t_tag = f"{classes_subsampling_info.time_tag_name}"
+        for factor in ss_factors:
+            t_tag += f".ceildiv_right({factor})"
+
+        network[f"{prefix}classes_"] = {
+            "class": "reinterpret_data",
+            "set_dim_tags": {"T": returnn.CodeWrapper(t_tag)},
+            "from": labeling_input,
+        }
+        labeling_input = f"{prefix}classes_"
+
+    if label_info.state_tying == RasrStateTying.triphone:
+        network[f"{prefix}futureLabel"] = {
+            "class": "eval",
+            "from": labeling_input,
+            "eval": f"tf.math.floormod(source(0), {label_info.n_contexts})",
+            "register_as_extern_data": f"{prefix}futureLabel",
+            "out_type": {"dim": label_info.n_contexts, "dtype": "int32", "sparse": True},
+        }
+        remaining_label_dim //= label_info.n_contexts
+        network[f"{prefix}popFutureLabel"] = {
+            "class": "eval",
+            "from": labeling_input,
+            "eval": f"tf.math.floordiv(source(0), {label_info.n_contexts})",
+            "out_type": {"dim": remaining_label_dim, "dtype": "int32", "sparse": True},
+        }
+        labeling_input = f"{prefix}popFutureLabel"
+
+    network[f"{prefix}pastLabel"] = {
         "class": "eval",
         "from": labeling_input,
         "eval": f"tf.math.floormod(source(0), {label_info.n_contexts})",
-        "register_as_extern_data": "pastLabel",
+        "register_as_extern_data": f"{prefix}pastLabel",
         "out_type": {"dim": label_info.n_contexts, "dtype": "int32", "sparse": True},
     }
 
@@ -132,20 +169,24 @@ def augment_net_with_label_pops(network: Network, label_info: LabelInfo) -> Netw
     assert remaining_label_dim == label_info.get_n_state_classes()
 
     # popPastLabel in disguise, the label order makes it so that this is directly the center state
-    network["centerState"] = {
+    network[f"{prefix}centerState"] = {
         "class": "eval",
         "from": labeling_input,
         "eval": f"tf.math.floordiv(source(0), {label_info.n_contexts})",
-        "register_as_extern_data": "centerState",
+        "register_as_extern_data": f"{prefix}centerState",
         "out_type": {"dim": remaining_label_dim, "dtype": "int32", "sparse": True},
     }
-    labeling_input = "centerState"
+    labeling_input = f"{prefix}centerState"
 
     network, labeling_input, remaining_label_dim = pop_phoneme_state_classes(
-        label_info, network, labeling_input, remaining_label_dim
+        label_info,
+        network,
+        labeling_input,
+        remaining_label_dim,
+        prefix=prefix,
     )
 
-    network["stateId"] = {
+    network[f"{prefix}stateId"] = {
         "class": "eval",
         "from": labeling_input,
         "eval": f"tf.math.floormod(source(0), {label_info.n_states_per_phone})",
@@ -159,7 +200,7 @@ def augment_net_with_label_pops(network: Network, label_info: LabelInfo) -> Netw
     remaining_label_dim //= label_info.n_states_per_phone
     assert remaining_label_dim == label_info.n_contexts
 
-    network["centerPhoneme"] = {
+    network[f"{prefix}centerPhoneme"] = {
         "class": "eval",
         "from": labeling_input,
         "eval": f"tf.math.floordiv(source(0), {label_info.n_states_per_phone})",
@@ -188,6 +229,7 @@ def augment_net_with_monophone_outputs(
     prefix: str = "",
     loss_scale=1.0,
     shared_delta_encoder=False,
+    weights_init: str = DEFAULT_INIT,
 ) -> Network:
     assert (
         encoder_output_layer in shared_network
@@ -213,6 +255,7 @@ def augment_net_with_monophone_outputs(
                 prefix=prefix,
                 source_layer=encoder_output_layer,
                 l2=l2,
+                init=weights_init,
             )
 
             network[f"{prefix}center-output"] = {
@@ -231,6 +274,7 @@ def augment_net_with_monophone_outputs(
                     prefix=prefix,
                     source_layer=encoder_output_layer,
                     l2=l2,
+                    init=weights_init,
                 )
                 network[f"{prefix}right-output"] = {
                     "class": "softmax",
@@ -259,6 +303,7 @@ def augment_net_with_monophone_outputs(
                 prefix=prefix,
                 source_layer=encoder_output_layer,
                 l2=l2,
+                init=weights_init,
             )
 
             network[f"{prefix}center-output"] = {
@@ -278,6 +323,7 @@ def augment_net_with_monophone_outputs(
                     prefix=prefix,
                     source_layer=encoder_output_layer,
                     l2=l2,
+                    init=weights_init,
                 )
                 tri_mlp = add_mlp(
                     network,
@@ -286,6 +332,7 @@ def augment_net_with_monophone_outputs(
                     prefix=prefix,
                     source_layer=encoder_output_layer,
                     l2=l2,
+                    init=weights_init,
                 )
 
                 network[f"{prefix}left-output"] = {
@@ -317,6 +364,7 @@ def augment_net_with_monophone_outputs(
                 prefix=prefix,
                 source_layer=encoder_output_layer,
                 l2=l2,
+                init=weights_init,
             )
             di_mlp = add_mlp(
                 network,
@@ -325,6 +373,7 @@ def augment_net_with_monophone_outputs(
                 prefix=prefix,
                 source_layer=encoder_output_layer,
                 l2=l2,
+                init=weights_init,
             )
             tri_mlp = add_mlp(
                 network,
@@ -333,6 +382,7 @@ def augment_net_with_monophone_outputs(
                 prefix=prefix,
                 source_layer=encoder_output_layer,
                 l2=l2,
+                init=weights_init,
             )
 
             network[f"{prefix}center-output"] = {
@@ -373,10 +423,24 @@ def augment_net_with_monophone_outputs(
                     l2=l2,
                     source_layer=encoder_output_layer,
                 )
-                di_mlp = add_mlp(network, "diphone", di_out, source_layer=delta_blstm_n, l2=l2)
+                di_mlp = add_mlp(
+                    network,
+                    "diphone",
+                    di_out,
+                    source_layer=delta_blstm_n,
+                    l2=l2,
+                    init=weights_init,
+                )
             else:
                 add_delta_blstm_(network, name=delta_blstm_n, l2=l2, prefix=prefix)
-                di_mlp = add_mlp(network, "diphone", di_out, l2=l2, prefix=prefix)
+                di_mlp = add_mlp(
+                    network,
+                    "diphone",
+                    di_out,
+                    l2=l2,
+                    prefix=prefix,
+                    init=weights_init,
+                )
 
             network[f"{prefix}center-output"] = {
                 "class": "softmax",
@@ -395,6 +459,7 @@ def augment_net_with_monophone_outputs(
                     prefix=prefix,
                     source_layer=encoder_output_layer,
                     l2=l2,
+                    init=weights_init,
                 )
 
                 if shared_delta_encoder:
@@ -405,6 +470,7 @@ def augment_net_with_monophone_outputs(
                         prefix=prefix,
                         source_layer=delta_blstm_n,
                         l2=l2,
+                        init=weights_init,
                     )
                 else:
                     tri_mlp = add_mlp(
@@ -414,6 +480,7 @@ def augment_net_with_monophone_outputs(
                         prefix=prefix,
                         source_layer=delta_blstm_n,
                         l2=l2,
+                        init=weights_init,
                     )
 
                 network[f"{prefix}left-output"] = {
@@ -482,6 +549,7 @@ def augment_net_with_diphone_outputs(
     st_emb_size=256,
     encoder_output_layer: str = "encoder-output",
     prefix: str = "",
+    weights_init: str = DEFAULT_INIT,
 ) -> Network:
     assert (
         encoder_output_layer in shared_network
@@ -493,14 +561,11 @@ def augment_net_with_diphone_outputs(
 
     if use_multi_task:
         network["currentState"] = get_embedding_layer(source="centerState", dim=st_emb_size, l2=l2)
-        network[f"{prefix}linear1-triphone"]["from"] = [
-            encoder_output_layer,
-            "currentState",
-        ]
+        network[f"{prefix}linear1-triphone"]["from"] = [encoder_output_layer, "currentState"]
     else:
         loss_opts = copy.deepcopy(network[f"{prefix}center-output"]["loss_opts"])
         loss_opts["label_smoothing"] = label_smoothing
-        left_ctx_mlp = add_mlp(network, "leftContext", encoder_output_len, l2=l2, prefix=prefix)
+        left_ctx_mlp = add_mlp(network, "leftContext", encoder_output_len, l2=l2, prefix=prefix, init=weights_init)
         network[f"{prefix}left-output"] = {
             "class": "softmax",
             "from": left_ctx_mlp,
@@ -558,3 +623,45 @@ def augment_net_with_triphone_outputs(
     network[f"{prefix}center-output"]["loss_opts"].pop("label_smoothing", None)
 
     return network
+
+
+def remove_label_pops_and_losses(
+    network: Network, except_layers: typing.Optional[typing.Iterable[str]] = None
+) -> Network:
+    network = copy.copy(network)
+
+    layers_to_pop = {
+        "centerPhoneme",
+        "stateId",
+        "centerState",
+        "pastLabel",
+        "popFutureLabel",
+        "futureLabel",
+        "classes_",
+    } - set(except_layers or [])
+    for k in layers_to_pop:
+        network.pop(k, None)
+
+    for layer in network.values():
+        layer.pop("target", None)
+        layer.pop("loss", None)
+        layer.pop("loss_scale", None)
+        layer.pop("loss_opts", None)
+
+    return network
+
+
+def remove_label_pops_and_losses_from_returnn_config(
+    cfg: returnn.ReturnnConfig, except_layers: typing.Optional[typing.Iterable[str]] = None
+) -> returnn.ReturnnConfig:
+    cfg = copy.deepcopy(cfg)
+    cfg.config["network"] = remove_label_pops_and_losses(cfg.config["network"], except_layers)
+
+    for k in ["centerState", "classes", "futureLabel", "pastLabel"]:
+        cfg.config["extern_data"].pop(k, None)
+
+    chk_cfg = cfg.config.get("chunking", None)
+    if isinstance(chk_cfg, tuple):
+        cfg.config["chunking"] = f"{chk_cfg[0]['data']}:{chk_cfg[1]['data']}"
+
+    return cfg

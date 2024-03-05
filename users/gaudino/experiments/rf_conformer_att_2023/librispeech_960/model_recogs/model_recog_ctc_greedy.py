@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from typing import Optional, Any, Tuple, Dict, Sequence, List
 
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.conformer_import_moh_att_2023_06_30 import (
-    Model,
-)
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.search_functions import remove_blank_and_eos
 
 from returnn.tensor import Tensor, Dim
@@ -13,11 +10,16 @@ from returnn.frontend.tensor_array import TensorArray
 
 from i6_experiments.users.zeyer.model_interfaces import RecogDef
 
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.blank_collapse import (
+    blank_collapse_batched,
+)
+
 import torch
+import numpy
 
 def model_recog_ctc(
     *,
-    model: Model,
+    model,
     data: Tensor,
     data_spatial_dim: Dim,
     max_seq_len: Optional[int] = None,
@@ -53,6 +55,38 @@ def model_recog_ctc(
         (batch_size_dim, enc_spatial_dim, model.target_dim_w_b)
     )  # [B,T,V+1]
 
+
+    ctc_out_raw = ctc_out.raw_tensor
+    hlens = max_seq_len.raw_tensor
+
+    ctc_spatial_dim = enc_spatial_dim
+    if model.search_args.get("blank_collapse", False):
+        col_probs, col_lens = blank_collapse_batched(
+            ctc_out_raw.to("cpu"),
+            hlens,
+            model.search_args.get("blank_threshold", 0.0),
+            model.search_args.get("blank_idx", 10025),
+        )
+        ctc_spatial_dim = enc_spatial_dim.copy(description="ctc-spatial")
+        hlens = col_lens.to(torch.int32)
+        ctc_spatial_dim.dyn_size_ext.raw_tensor = hlens
+        ctc_out_raw = col_probs.to("cuda")
+        ctc_out.raw_tensor = ctc_out_raw
+
+    if model.search_args.get("prior_corr", False):
+        ctc_log_prior = numpy.loadtxt(
+            model.search_args.get("ctc_prior_file", None), dtype="float32"
+        )
+        ctc_out_raw = ctc_out_raw - (
+            torch.tensor(ctc_log_prior)
+            .repeat(ctc_out_raw.shape[0], ctc_out_raw.shape[1], 1)
+            .to("cuda")
+            * model.search_args.get("prior_scale", 0.3)
+        )
+        if model.search_args.get("prior_corr_renorm", False):
+            ctc_out_raw = ctc_out_raw - torch.logsumexp(ctc_out_raw, dim=2, keepdim=True)
+        ctc_out.raw_tensor = ctc_out_raw
+
     enc_args.pop("ctc")
 
     # ctc greedy
@@ -68,7 +102,7 @@ def model_recog_ctc(
 
     max_out_len = max_seq_len.raw_tensor[0]
 
-    seq_targets, out_spatial_dim = remove_blank_and_eos(hyps.unsqueeze(1), max_out_len, batch_dims, beam_dim, model.target_dim, blank_idx=10025, eos_idx=0)
+    seq_targets, out_spatial_dim = remove_blank_and_eos(hyps.unsqueeze(1), max_out_len, batch_dims, beam_dim, model.target_dim, blank_idx=model.search_args.get("blank_idx", 10025), eos_idx=0)
 
     # # torchaudio ctc decoder
     # # only runs on cpu -> slow

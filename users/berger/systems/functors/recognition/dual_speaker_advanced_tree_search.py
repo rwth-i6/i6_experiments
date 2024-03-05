@@ -8,11 +8,10 @@ from i6_private.users.vieting.jobs.scoring import (
     MinimumPermutationCtmJob,
 )
 from sisyphus import tk
-
-from ... import types
-from ... import dataclasses
 from ..base import RecognitionFunctor
 from ..rasr_base import RasrFunctor
+from ... import dataclasses
+from ... import types
 
 
 class DualSpeakerAdvancedTreeSearchFunctor(
@@ -65,6 +64,7 @@ class DualSpeakerAdvancedTreeSearchFunctor(
         flow_args: Dict = {},
         **kwargs,
     ) -> List[Dict]:
+        assert recog_corpus is not None
         crp = copy.deepcopy(recog_corpus.corpus_info.crp)
         assert recog_corpus.corpus_info.scorer is not None
 

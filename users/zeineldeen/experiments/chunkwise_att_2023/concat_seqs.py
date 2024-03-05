@@ -37,17 +37,21 @@ class ConcatDatasetSeqsJob(Job):
     Based on a STM file, create concatenated dataset.
     """
 
-    def __init__(self, corpus_name, stm, num, overlap_dur="0.01"):
+    __sis_hash_exclude__ = {"shuffle_rec_seqs": False}
+
+    def __init__(self, corpus_name, stm, num, overlap_dur="0.01", shuffle_rec_seqs=False):
         """
         :param str corpus_name: used for tag corpus name e.g. "hub5_00"
         :param Path stm: path to stm file
         :param int num: Concatenate `num` consecutive seqs within a recording
         :param str|None overlap_dur: allow overlap between consecutive seqs, in seconds
+        :param bool shuffle_rec_seqs: shuffle the seqs within the same recording (e.g to scramble LM context)
         """
         self.corpus_name = corpus_name
         self.stm = stm
         self.num = num
         self.overlap_dur = overlap_dur
+        self.shuffle_rec_seqs = shuffle_rec_seqs
         self.out_orig_seq_tags = self.output_path("orig_seq_tags.txt")
         self.out_orig_seq_lens = self.output_path("orig_seq_lens.txt")  # in secs
         self.out_orig_seq_lens_py = self.output_path("orig_seq_lens.py.txt")  # in secs
@@ -80,18 +84,24 @@ class ConcatDatasetSeqsJob(Job):
         stm_py = {}
 
         class ConcatenatedSeq:
-            def __init__(self):
+            def __init__(self, shuffle_rec_seqs):
                 self.rec_tag = tag
                 self.rec_tag2 = tag2
                 self.seq_tags = [full_seq_tag]
                 self.flags = flags
-                self.txt = txt
+                self.txt_list = [txt]
                 self.start = start
                 self.end = end
+
+                self.shuffle_rec_seqs = shuffle_rec_seqs
 
             @property
             def seq_tag(self):
                 return ";".join(self.seq_tags)
+
+            @property
+            def text(self):
+                return " ".join(self.txt_list)
 
             @property
             def num_seqs(self):
@@ -114,20 +124,28 @@ class ConcatDatasetSeqsJob(Job):
                 self.seq_tags.append(full_seq_tag)
                 assert end > self.end
                 self.end = end
-                self.txt = "%s %s" % (self.txt, txt)
+                # self.txt = "%s %s" % (self.txt, txt)
+                self.txt_list.append(txt)
 
             def write_to_stm(self):
+                if self.shuffle_rec_seqs:
+                    import random
+
+                    # same shuffling because of same seed
+                    random.Random(4).shuffle(self.txt_list)
+                    random.Random(4).shuffle(self.seq_tags)
+
                 # Extended STM entry:
                 out_stm_file.write(';; _full_seq_tag "%s"\n' % self.seq_tag)
                 # Example STM entry (one seq):
                 # en_4156a 1 en_4156_A 301.85 302.48 <O,en,F,en-F>  oh yeah
                 out_stm_file.write(
                     "%s 1 %s %s %s <%s>  %s\n"
-                    % (self.rec_tag, self.rec_tag2, self.start, self.end, self.flags, self.txt)
+                    % (self.rec_tag, self.rec_tag2, self.start, self.end, self.flags, self.text)
                 )
 
                 assert self.seq_tag not in stm_py
-                stm_py[self.seq_tag] = self.txt
+                stm_py[self.seq_tag] = self.text
 
         # Read (ref) STM file, and write out concatenated STM file.
         with generic_open(self.out_stm.get_path(), "w") as out_stm_file:
@@ -190,11 +208,11 @@ class ConcatDatasetSeqsJob(Job):
                 else:
                     full_seq_tag = "%s/%s/%i" % (self.corpus_name, tag, seq_idx_in_tag)
 
-                orig_seqs.append(ConcatenatedSeq())
+                orig_seqs.append(ConcatenatedSeq(shuffle_rec_seqs=self.shuffle_rec_seqs))
                 if not concatenated_seqs or not concatenated_seqs[-1].can_add():
                     if concatenated_seqs:
                         concatenated_seqs[-1].write_to_stm()
-                    concatenated_seqs.append(ConcatenatedSeq())
+                    concatenated_seqs.append(ConcatenatedSeq(shuffle_rec_seqs=self.shuffle_rec_seqs))
                 else:
                     concatenated_seqs[-1].add()
             # Finished iterating over input STM file.

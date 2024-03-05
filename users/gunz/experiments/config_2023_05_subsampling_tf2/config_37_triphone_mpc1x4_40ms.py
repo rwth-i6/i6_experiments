@@ -66,6 +66,7 @@ train_key = "train-other-960"
 class Experiment:
     alignment: tk.Path
     alignment_name: str
+    batch_size: int
     lr: str
     dc_detection: bool
     decode_all_corpora: bool
@@ -77,7 +78,7 @@ class Experiment:
     focal_loss: float = CONF_FOCAL_LOSS
 
 
-def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
+def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str, run_additional_lrs: bool = False):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
@@ -87,18 +88,21 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
         Experiment(
             alignment=alignment,
             alignment_name=a_name,
+            batch_size=bs,
             dc_detection=False,
             decode_all_corpora=False,
-            lr="v13",
+            lr=lr,
             own_priors=True,
-            run_performance_study=False,
+            run_performance_study=a_name == "30ms-FF-v8" and lr == "v13",
             tune_decoding=False,
         )
+        for bs, lr in [(12500, "v13"), *((20_000, f"v{lr}") for lr in range(13, 17 + 1) if run_additional_lrs)]
     ]
     for exp in configs:
         run_single(
             alignment=exp.alignment,
             alignment_name=exp.alignment_name,
+            batch_size=exp.batch_size,
             dc_detection=exp.dc_detection,
             decode_all_corpora=exp.decode_all_corpora,
             focal_loss=exp.focal_loss,
@@ -115,6 +119,7 @@ def run_single(
     *,
     alignment: tk.Path,
     alignment_name: str,
+    batch_size: int,
     dc_detection: bool,
     decode_all_corpora: bool,
     focal_loss: float,
@@ -129,7 +134,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-3-a:{alignment_name}-lr:{lr}-fl:{focal_loss}"
+    name = f"conf-3-a:{alignment_name}-lr:{lr}-bs:{batch_size}-fl:{focal_loss}"
     print(f"fh {name}")
 
     ss_factor = 4
@@ -237,7 +242,7 @@ def run_single(
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
-        "batch_size": 12500,
+        "batch_size": batch_size,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
         "log_batch_size": True,
@@ -379,7 +384,9 @@ def run_single(
             )
 
     if run_performance_study:
-        ep = 550
+        assert tune_decoding
+
+        ep = 600
         s.set_triphone_priors_returnn_rasr(
             key="fh",
             epoch=ep,
@@ -398,26 +405,19 @@ def run_single(
             set_batch_major_for_feature_scorer=True,
             lm_gc_simple_hash=True,
         )
-        recog_args = dataclasses.replace(
-            recog_args.with_prior_scale(0.4, 0.4, 0.2),
-            altas=4,
-            beam=14,
-            lm_scale=round(recog_args.lm_scale / float(ss_factor), 2),
-            tdp_scale=0.2,
+        recog_args = dataclasses.replace(best_config, altas=4, beam=14)
+        jobs = recognizer.recognize_count_lm(
+            label_info=s.label_info,
+            search_parameters=recog_args,
+            num_encoder_output=conf_model_dim,
+            rerun_after_opt_lm=True,
+            calculate_stats=True,
+            pre_path="decoding-perf-eval",
+            name_override="best/4gram",
+            cpu_rqmt=2,
+            mem_rqmt=4,
         )
-        for create_lattice in [True, False]:
-            jobs = recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=recog_args,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=False,
-                calculate_stats=True,
-                pre_path="decoding-perf-eval" + ("-l" if create_lattice else ""),
-                cpu_rqmt=2,
-                mem_rqmt=4,
-                create_lattice=create_lattice,
-            )
-            jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+        jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if decode_all_corpora:
         assert False, "this is broken r/n"

@@ -18,7 +18,7 @@ def get_lm(name: str) -> rasr_lm_config.LMData:
         vocab_file=kazuki_lstm_path.join_right("vocabulary"),
         model_file=returnn.Checkpoint(index_path=kazuki_lstm_path.join_right("network.040.index")),
         graph_file=kazuki_lstm_path.join_right("network.040.meta"),
-        # lookahead_lm=rasr_lm_config.ArpaLMData(scale=1.0, filename=lbs_dataset.get_arpa_lm_dict()["4gram"]),
+        lookahead_lm=rasr_lm_config.ArpaLMData(scale=1.0, filename=lbs_dataset.get_arpa_lm_dict()["4gram"]),
     )
 
     kazuki_transformer_path = dependency_path.join_right("kazuki_transformerlm_2019interspeech")
@@ -27,7 +27,7 @@ def get_lm(name: str) -> rasr_lm_config.LMData:
         vocab_file=kazuki_transformer_path.join_right("vocabulary"),
         model_file=returnn.Checkpoint(index_path=kazuki_transformer_path.join_right("network.030.index")),
         graph_file=kazuki_transformer_path.join_right("inference.meta"),
-        # lookahead_lm=rasr_lm_config.ArpaLMData(scale=1.0, filename=lbs_dataset.get_arpa_lm_dict()["4gram"]),
+        lookahead_lm=rasr_lm_config.ArpaLMData(scale=1.0, filename=lbs_dataset.get_arpa_lm_dict()["4gram"]),
     )
 
     return lm_dict[name]

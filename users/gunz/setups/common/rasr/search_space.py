@@ -54,6 +54,8 @@ class TraceSource:
 
 
 class VisualizeBestTraceJob(Job):
+    """This doesn't do anything helpful. The trace visualized here is mostly meaningless."""
+
     def __init__(
         self, sources: typing.List[TraceSource], segments: typing.List[str], allophone_detail_level: AllophoneDetails
     ):

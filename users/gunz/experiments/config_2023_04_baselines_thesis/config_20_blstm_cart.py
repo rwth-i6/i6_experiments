@@ -3,30 +3,27 @@ __all__ = ["run", "run_single"]
 import copy
 import dataclasses
 import itertools
-import typing
 
-import numpy as np
 import os
 
 # -------------------- Sisyphus --------------------
 from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
-
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common import oclr
-from ...setups.common.specaugment import (
+from ...setups.common.nn import oclr
+from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
     summary as sa_summary,
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
-from ...setups.fh.factored import PhonemeStateClasses, PhoneticContext, RasrStateTying
+from ...setups.fh.factored import PhonemeStateClasses, RasrStateTying
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
@@ -37,7 +34,6 @@ from .config import (
     CONF_CHUNKING,
     CONF_FOCAL_LOSS,
     CONF_SA_CONFIG,
-    FH_DECODING_TENSOR_CONFIG,
     RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
     RASR_ROOT_RS_RASR_GUNZ,
@@ -46,9 +42,9 @@ from .config import (
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_FH_GUNZ, "arch", gs.RASR_ARCH))
 RASR_BINARY_PATH.hash_override = "FH_RASR_PATH"
+RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
 
 RS_RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_RS_RASR_GUNZ, "arch", gs.RASR_ARCH))
-RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
 
 RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF15)
 RETURNN_PYTHON_EXE.hash_override = "FH_RETURNN_PYTHON_EXE"
@@ -124,6 +120,7 @@ def run_single(
         dev_data=dev_data_inputs,
         test_data=test_data_inputs,
     )
+    s.do_not_set_returnn_python_exe_for_graph_compiles = True
     s.train_key = train_key
     s.label_info = dataclasses.replace(
         s.label_info, state_tying=RasrStateTying.cart, phoneme_state_classes=PhonemeStateClasses.none
@@ -352,29 +349,26 @@ def run_single(
         output_layer_name="output",
     )
 
-    s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
+    decoding_config = copy.deepcopy(returnn_config)
+    decoding_config.config["network"]["output"]["class"] = "linear"
+    decoding_config.config["network"]["output"]["activation"] = "log_softmax"
+    for layer in decoding_config.config["network"].values():
+        layer.pop("target", None)
+        layer.pop("loss", None)
+        layer.pop("loss_scale", None)
+        layer.pop("loss_opts", None)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
-        recognizer, recog_args = s.get_recognizer_and_args(
+        s.recognize_cart(
             key="fh",
-            context_type=PhoneticContext.monophone,
-            crp_corpus=crp_k,
             epoch=ep,
-            gpu=False,
-            tensor_map=dataclasses.replace(
-                FH_DECODING_TENSOR_CONFIG,
-                in_encoder_output="output/output_batch_major",
-                in_seq_length="extern_data/placeholders/data/data_dim0_size",
-            ),
-            recompile_graph_for_feature_scorer=True,
-            tf_library=[s.native_lstm2_job.out_op],
-        )
-        recognizer.recognize_count_lm(
-            label_info=s.label_info,
-            search_parameters=recog_args,
-            num_encoder_output=conf_model_dim,
-            rerun_after_opt_lm=True,
-            calculate_stats=True,
+            crp_corpus=crp_k,
+            n_cart_out=n_cart_out,
+            cart_tree_or_tying_config=cart_tree,
+            log_softmax_returnn_config=decoding_config,
+            params=s.get_cart_params(key="fh"),
+            native_ops=["NativeLstm2"],
+            opt_lm_am_scale=True,
         )
 
     return s

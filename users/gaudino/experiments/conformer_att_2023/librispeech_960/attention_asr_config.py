@@ -510,7 +510,8 @@ class CTCDecoderArgs(DecoderArgs):
     ctc_prior_correction: bool = False
     prior_scale: float = 1.0
     logits: bool = False
-    remove_eos: bool = False
+    remove_eos_from_ctc: bool = False
+    remove_eos_from_ts: bool = False
     eos_postfix: bool = False
     add_eos_to_blank: bool = False
     rescore_last_eos: bool = False
@@ -520,6 +521,8 @@ class CTCDecoderArgs(DecoderArgs):
     one_minus_term_sub_scale: float = 0.0
     length_normalization: bool = False
     hash_override_version: Optional[int] = None
+    blank_collapse: bool = False
+    renorm_p_comb: bool = False
 
 
 def create_config(

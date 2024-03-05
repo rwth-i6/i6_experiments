@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Tuple, List
+from typing import Callable, Dict, Tuple, List, Optional
 from i6_core import corpus
 from i6_core.meta.system import CorpusObject
 from i6_experiments.common.setups.rasr.gmm_system import GmmSystem
@@ -26,7 +26,44 @@ from i6_experiments.users.berger.recipe.converse.data import (
     EnhancedEvalDataToBlissCorpusJob,
 )
 from i6_experiments.users.berger.corpus.librispeech.lm_data import get_lm
+from i6_experiments.users.berger.systems.dataclasses import AlignmentData
 from sisyphus import tk
+
+CLEAN_ALIGNMENT = AlignmentData(
+    alignment_cache_bundle=tk.Path(
+        "/work/asr4/raissi/setups/librispeech/960-ls/work/i6_core/mm/alignment/AlignmentJob.hK21a0UU4iiJ/output/"
+        "alignment.cache.bundle"
+    ),
+    allophone_file=tk.Path("/u/berger/asr-exps/librispeech/20230804_libri_css/allophones_2/allophones"),
+    state_tying_file=tk.Path("/u/berger/asr-exps/librispeech/20230804_libri_css/state_tying_2/state-tying"),
+)
+
+JSON_DATABASES = {
+    "enhanced_tfgridnet_v1": tk.Path(
+        "/work/asr3/converse/data/libri_css/thilo_20230814_enhanced_tfgridnet_v2.json",
+        hash_overwrite="tfgridnet_json_database_v1",
+    ),
+    "enhanced_blstm_v1": tk.Path(
+        "/work/asr4/vieting/setups/converse/data/thilo_20230706_enhanced/enhanced_blstm/database.json",
+        hash_overwrite="blstm_json_database_v1",
+    ),
+    "libri_css_blstm_v1": tk.Path(
+        "/work/asr3/converse/data/libri_css/20230810_libri_css_tvn_rwth_9_990000_1/libri_css_enhanced.json",
+        hash_overwrite="libri_css_blstm_json_database_v1",
+    ),
+    "segmented_libri_css_blstm_v1": tk.Path(
+        "/work/asr3/converse/data/libri_css/20230810_libri_css_tvn_rwth_9_990000_1/libri_css_enhanced_segmented.json",
+        hash_overwrite="segmented_libri_css_blstm_json_database_v1",
+    ),
+    "libri_css_tfgridnet_v1": tk.Path(
+        "/work/asr3/converse/data/libri_css/20230727_libri_css_tvn_rwth_19_120000_1.json",
+        hash_overwrite="libri_css_tfgridnet_json_database_v1",
+    ),
+    "segmented_libri_css_tfgridnet_v1": tk.Path(
+        "/work/asr3/converse/data/libri_css/20230727_libri_css_tvn_rwth_19_120000_1_segmented.json",
+        hash_overwrite="segmented_libri_css_tfgridnet_json_database_v1",
+    ),
+}
 
 
 def _get_hdf_files(
@@ -118,6 +155,46 @@ def _get_hdf_files(
         mix_features_files=feature_hdfs["mix"],
         alignments_file=alignment_hdf_job.out_hdf_file,
         segments=all_segments,
+    )
+
+
+def get_clean_align_hdf(corpus_key: str, feature_hdfs: List[tk.Path], returnn_root: tk.Path) -> tk.Path:
+    alignment_hdf_job = EnhancedMeetingDataRasrAlignmentPadAndDumpHDFJob(
+        dataset_name="train_960",
+        json_database=JSON_DATABASES[corpus_key],
+        feature_hdfs=feature_hdfs,
+        alignment_cache=CLEAN_ALIGNMENT.alignment_cache_bundle,
+        allophone_file=CLEAN_ALIGNMENT.allophone_file,
+        state_tying_file=CLEAN_ALIGNMENT.state_tying_file,
+        returnn_root=returnn_root,
+    )
+    alignment_hdf_job.rqmt.update({"mem": 10, "time": 24})
+
+    return alignment_hdf_job.out_hdf_file
+
+
+def _get_corpus_object(
+    *,
+    name: str,
+    json_database: tk.Path,
+    map_enhanced_audio_paths: Callable,
+    map_mix_audio_paths: Callable,
+    corpus_duration: float,
+    audio_format: str = "wav",
+) -> SeparatedCorpusObject:
+    bliss_corpora_job = EnhancedMeetingDataToSplitBlissCorporaJob(
+        json_database=json_database,
+        enhanced_audio_path_mapping=map_enhanced_audio_paths,
+        mix_audio_path_mapping=map_mix_audio_paths,
+        dataset_name=name,
+    )
+
+    return SeparatedCorpusObject(
+        primary_corpus_file=bliss_corpora_job.out_bliss_corpus_primary,
+        secondary_corpus_file=bliss_corpora_job.out_bliss_corpus_secondary,
+        mix_corpus_file=bliss_corpora_job.out_bliss_corpus_mix,
+        duration=corpus_duration,
+        audio_format=audio_format,
     )
 
 
@@ -214,6 +291,33 @@ def get_hdf_files(
     }
 
 
+def _get_train_corpus_object_dict() -> Dict[str, SeparatedCorpusObject]:
+    return {
+        "enhanced_tfgridnet_v1": _get_corpus_object(
+            name="train_960",
+            json_database=tk.Path(
+                "/work/asr3/converse/data/libri_css/thilo_20230814_enhanced_tfgridnet_v2.json",
+                hash_overwrite="tfgridnet_json_database_v1",
+            ),
+            map_enhanced_audio_paths=map_audio_paths_libricss_train_tfgridnet,
+            map_mix_audio_paths=map_audio_paths_libricss_train_mix,
+            corpus_duration=1025.5,
+            audio_format="wav",
+        ),
+        "enhanced_blstm_v1": _get_corpus_object(
+            name="train_960",
+            json_database=tk.Path(
+                "/work/asr4/vieting/setups/converse/data/thilo_20230706_enhanced/enhanced_blstm/database.json",
+                hash_overwrite="blstm_json_database_v1",
+            ),
+            map_enhanced_audio_paths=map_audio_paths_libricss_train_blstm,
+            map_mix_audio_paths=map_audio_paths_libricss_train_mix,
+            corpus_duration=1025.5,
+            audio_format="wav",
+        ),
+    }
+
+
 def split_session0_dev(corpus_path: tk.Path) -> Tuple[tk.Path, tk.Path]:
     all_segments = corpus.SegmentCorpusJob(corpus_path, 1).out_single_segment_files
 
@@ -240,7 +344,7 @@ def split_session0_dev(corpus_path: tk.Path) -> Tuple[tk.Path, tk.Path]:
     return dev_corpus_filtered, eval_corpus_filtered
 
 
-def get_eval_corpus_object_dict() -> Dict[str, CorpusObject]:
+def _get_dev_eval_corpus_object_dict() -> Dict[str, SeparatedCorpusObject]:
     corpus_object_dict = {}
 
     for name, job_type, job_kwargs in [
@@ -357,19 +461,31 @@ def get_eval_corpus_object_dict() -> Dict[str, CorpusObject]:
     return corpus_object_dict
 
 
+def get_corpus_object_dict() -> Dict[str, SeparatedCorpusObject]:
+    return {**_get_train_corpus_object_dict(), **_get_dev_eval_corpus_object_dict()}
+
+
 def get_data_inputs(
-    dev_keys: List[str] = [],
-    test_keys: List[str] = [],
+    train_key: str = "enhanced_tfgridnet_v1",
+    dev_keys: Optional[List[str]] = None,
+    test_keys: Optional[List[str]] = None,
     add_unknown_phoneme_and_mapping: bool = False,
     use_stress: bool = False,
     ctc_lexicon: bool = False,
-    lm_name: str = "4gram",
+    lm_names: Optional[List[str]] = None,
     use_augmented_lexicon: bool = True,
     add_all_allophones: bool = False,
 ) -> Tuple[Dict[str, helpers.RasrDataInput], ...]:
-    eval_corpus_objects = get_eval_corpus_object_dict()
+    if dev_keys is None:
+        dev_keys = ["segmented_libri_css_tfgridnet_dev_v1"]
+    if test_keys is None:
+        test_keys = ["segmented_libri_css_tfgridnet_eval_v1"]
+    if lm_names is None:
+        lm_names = ["4gram"]
 
-    lm = get_lm(lm_name)
+    corpus_object_dict = get_corpus_object_dict()
+
+    lms = {lm_name: get_lm(lm_name) for lm_name in lm_names}
 
     original_bliss_lexicon = lbs_dataset.get_bliss_lexicon(
         use_stress_marker=use_stress,
@@ -400,20 +516,41 @@ def get_data_inputs(
     dev_data_inputs = {}
     test_data_inputs = {}
 
+    concurrent = {
+        "enhanced_tfgridnet_v1": 200,
+        "enhanced_blstm_v1": 200,
+        "libri_css_tfgridnet_dev_v1": 40,
+        "libri_css_tfgridnet_eval_v1": 40,
+        "libri_css_blstm_dev_v1": 40,
+        "libri_css_blstm_eval_v1": 40,
+        "segmented_libri_css_tfgridnet_dev_v1": 40,
+        "segmented_libri_css_tfgridnet_eval_v1": 40,
+        "segmented_libri_css_blstm_dev_v1": 40,
+        "segmented_libri_css_blstm_eval_v1": 40,
+    }
+
+    train_data_inputs[train_key] = helpers.RasrDataInput(
+        corpus_object=corpus_object_dict[train_key],
+        concurrent=concurrent[train_key],
+        lexicon=lexicon_config,
+    )
+
     for dev_key in dev_keys:
-        test_data_inputs[dev_key] = helpers.RasrDataInput(
-            corpus_object=eval_corpus_objects[dev_key],
-            concurrent=40,
-            lexicon=lexicon_config,
-            lm=lm,
-        )
+        for lm_name, lm in lms.items():
+            dev_data_inputs[f"{dev_key}_{lm_name}"] = helpers.RasrDataInput(
+                corpus_object=corpus_object_dict[dev_key],
+                concurrent=concurrent[dev_key],
+                lexicon=lexicon_config,
+                lm=lm,
+            )
 
     for test_key in test_keys:
-        test_data_inputs[test_key] = helpers.RasrDataInput(
-            corpus_object=eval_corpus_objects[test_key],
-            concurrent=40,
-            lexicon=lexicon_config,
-            lm=lm,
-        )
+        for lm_name, lm in lms.items():
+            test_data_inputs[f"{dev_key}_{lm_name}"] = helpers.RasrDataInput(
+                corpus_object=corpus_object_dict[test_key],
+                concurrent=concurrent[test_key],
+                lexicon=lexicon_config,
+                lm=lm,
+            )
 
     return train_data_inputs, dev_data_inputs, test_data_inputs

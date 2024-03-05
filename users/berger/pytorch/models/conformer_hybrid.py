@@ -49,9 +49,7 @@ class ConformerHybridModel(torch.nn.Module):
 
         log_probs = torch.log_softmax(logits, dim=2)  # [B, T, F]
 
-        if self.training:
-            return log_probs, sequence_mask
-        return log_probs
+        return log_probs, torch.sum(sequence_mask, dim=1).type(torch.int32)
 
 
 def get_train_serializer(
@@ -89,7 +87,7 @@ def get_recog_serializer(
         module_import_path=f"{__name__}.{ConformerHybridModel.__name__}",
         model_config=model_config,
         additional_serializer_objects=[
-            Import(f"{pytorch_package}.export.ctc.export"),
+            Import(f"{pytorch_package}.forward.basic.forward_step"),
         ],
     )
 
@@ -108,11 +106,12 @@ def get_serializer(model_config: ConformerHybridConfig, variant: ConfigVariant) 
 
 def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerHybridConfig:
     specaugment_cfg = specaugment.SpecaugmentConfigV1(
-        max_time_mask_num=1,
-        max_time_mask_size=15,
-        max_feature_mask_num=num_inputs // 10,
-        max_feature_mask_size=5,
-        increase_steps=[2000],
+        time_min_num_masks=1,
+        time_max_num_masks=20,
+        time_mask_max_size=20,
+        freq_min_num_masks=1,
+        freq_max_num_masks=1,
+        freq_mask_max_size=15,
     )
 
     frontend_cfg = VGG4LayerActFrontendV1Config(
@@ -121,12 +120,12 @@ def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerHybridC
         conv2_channels=32,
         conv3_channels=64,
         conv4_channels=64,
-        conv_kernel_size=3,
+        conv_kernel_size=(3, 3),
         conv_padding=None,
-        pool1_kernel_size=(2, 2),
+        pool1_kernel_size=(1, 1),
         pool1_stride=None,
         pool1_padding=None,
-        pool2_kernel_size=(2, 1),
+        pool2_kernel_size=(1, 2),
         pool2_stride=None,
         pool2_padding=None,
         activation=torch.nn.SiLU(),
@@ -154,7 +153,7 @@ def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerHybridC
         kernel_size=31,
         dropout=0.1,
         activation=torch.nn.SiLU(),
-        norm=torch.nn.BatchNorm1d(num_features=512, affine=False),
+        norm=torch.nn.BatchNorm1d(num_features=512, affine=True),
     )
 
     block_cfg = ConformerBlockV1Config(

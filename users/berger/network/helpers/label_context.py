@@ -1,10 +1,16 @@
 from typing import Dict, List, Optional, Tuple
 from i6_experiments.users.berger.network.helpers.mlp import add_feed_forward_stack
+from i6_experiments.users.berger.network.helpers.output import add_softmax_output
 from i6_experiments.users.berger.network.helpers.compressed_input import (
     compressed_add_code,
     compressed_concat_code,
     compressed_multiply_code,
 )
+from enum import Enum, auto
+
+
+class ILMMode(Enum):
+    ZeroEnc = auto()
 
 
 def add_context_label_sequence_blank(
@@ -176,6 +182,7 @@ def add_dec_ffnn_stack(
 
 def add_context_1_decoder(
     network: Dict,
+    num_outputs: int,
     context_labels: str,
     mask_non_blank: str,
     encoder: str = "encoder",
@@ -183,6 +190,7 @@ def add_context_1_decoder(
     dec_mlp_args: Dict = {},
     joint_mlp_args: Dict = {},
     combination_mode: Optional[str] = "add",
+    output_args: Dict = {},
 ) -> Tuple[List[str], Dict]:
 
     output_unit = {}
@@ -231,6 +239,15 @@ def add_context_1_decoder(
 
     joint_output = add_feed_forward_stack(output_unit, from_list="joint_input", name="joint_ff", **joint_mlp_args)
 
+    add_softmax_output(
+        output_unit,
+        from_list=joint_output,
+        name="output",
+        num_outputs=num_outputs,
+        target="classes",
+        **output_args,
+    )
+
     network["output"] = {
         "class": "rec",
         "from": encoder,
@@ -250,6 +267,8 @@ def add_context_1_decoder_recog(
     embedding_size: int = 128,
     dec_mlp_args: Dict = {},
     joint_mlp_args: Dict = {},
+    ilm_scale: float = 0.0,
+    ilm_mode: ILMMode = ILMMode.ZeroEnc,
     combination_mode: Optional[str] = "add",
 ):
 
@@ -257,7 +276,7 @@ def add_context_1_decoder_recog(
 
     output_unit["output_choice"] = {
         "class": "choice",
-        "from": "output",
+        "from": "output_sub_ilm" if ilm_scale else "output",
         "input_type": "log_prob",
         "target": "classes",
         "beam_size": 1,
@@ -295,6 +314,48 @@ def add_context_1_decoder_recog(
         }
 
     joint_output = add_feed_forward_stack(output_unit, from_list="joint_input", name="joint_ff", **joint_mlp_args)
+
+    output_unit["output"] = {
+        "class": "linear",
+        "from": joint_output,
+        "activation": "log_softmax",
+        "n_out": num_outputs,
+    }
+
+    if ilm_scale:
+        if ilm_mode == ILMMode.ZeroEnc:
+            output_unit["zero_enc"] = {"class": "eval", "from": "data:source", "eval": "source(0) * 0"}
+            joint_input_ilm = ["zero_enc", "decoder"]
+        else:
+            raise NotImplementedError
+        if combination_mode is None or combination_mode == "concat":
+            output_unit["joint_input_ilm"] = {
+                "class": "copy",
+                "from": joint_input_ilm,
+            }
+        else:
+            output_unit["joint_input_ilm"] = {
+                "class": "combine",
+                "from": joint_input_ilm,
+                "kind": combination_mode,
+            }
+        joint_output_ilm = add_feed_forward_stack(
+            output_unit, from_list="joint_input_ilm", name="joint_ff_ilm", reuse_from_name="joint_ff", **joint_mlp_args
+        )
+
+        output_unit["ilm"] = {
+            "class": "linear",
+            "from": joint_output_ilm,
+            "activation": "log_softmax",
+            "n_out": num_outputs,
+            "reuse_params": "output",
+        }
+
+        output_unit["output_sub_ilm"] = {
+            "class": "eval",
+            "from": ["output", "ilm"],
+            "eval": f"source(0) - {ilm_scale} * source(1)",
+        }
 
     network["output"] = {
         "class": "rec",

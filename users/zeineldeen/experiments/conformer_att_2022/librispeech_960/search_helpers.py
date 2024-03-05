@@ -450,7 +450,7 @@ def add_joint_ctc_att_subnet(
             net["output"]["unit"]["att_log_scores_"]["from"] = "att_scores_wo_eos"
 
 
-def add_filter_blank_and_merge_labels_layers(net, blank_idx=10025):
+def add_filter_blank_and_merge_labels_layers(net, blank_idx):
     """
     Add layers to filter out blank and merge repeated labels of a CTC output sequence.
     :param dict net: network dict
@@ -460,7 +460,7 @@ def add_filter_blank_and_merge_labels_layers(net, blank_idx=10025):
     net["out_best"] = {
         "class": "reinterpret_data",
         "from": "out_best_",
-        "set_sparse_dim": 10025,
+        "set_sparse_dim": blank_idx,  # here we always assume that blank is the last label thus its index is V
     }
     # shift to the right to create a boolean mask later where it is true if the previous label is equal
     net["shift_right"] = {
@@ -487,10 +487,16 @@ def add_filter_blank_and_merge_labels_layers(net, blank_idx=10025):
         "value": blank_idx,
         "kind": "not_equal",
     }
+    net["non_eos_mask"] = {
+        "class": "compare",
+        "from": "out_best_time_reinterpret",
+        "value": 0,
+        "kind": "not_equal",
+    }
     net["out_best_mask"] = {
         "class": "combine",
         "kind": "logical_and",
-        "from": ["unique_mask", "non_blank_mask"],
+        "from": ["unique_mask", "non_blank_mask", "non_eos_mask"],
     }
     net["out_best_wo_blank"] = {
         "class": "masked_computation",

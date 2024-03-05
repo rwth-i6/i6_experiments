@@ -13,6 +13,8 @@ from typing import Callable, Optional, Type, Union
 from i6_models.assemblies.conformer.conformer_v1 import ConformerBlockV1Config, ConformerBlockV1
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1Config
 from i6_models.config import ModuleFactoryV1, ModelConfiguration
+from i6_models.decoder.attention import AttentionLSTMDecoderV1Config
+from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
 
 
 @dataclass(kw_only=True)
@@ -63,6 +65,14 @@ class SpecaugConfig(ModelConfiguration):
 
 
 @dataclass
+class ConformerAEDModelConfig:
+    feat_extraction_cfg: LogMelFeatureExtractionV1Config
+    encoder_cfg: ConformerEncoderV1Config
+    decoder_cfg: AttentionLSTMDecoderV1Config
+    specaug_cfg: SpecaugConfig
+
+
+@dataclass
 class ModelConfig():
     frontend_config: VGG4LayerActFrontendV1Config
     specaug_config: SpecaugConfig
@@ -76,8 +86,18 @@ class ModelConfig():
     ff_dropout: float
     mhsa_dropout: float
     conv_kernel_size: int
-    final_dropout: float
-    
+
+    ### decoder stuff
+    target_embed_dim: int
+    target_embed_dropout: float
+    lstm_hidden_size: int
+    zone_dropout_c: float
+    zone_dropout_h: float
+    attention_dim: int
+    additive_att_weights_dropout: float
+    out_proj_dim: int
+    output_dropout: float
+
     @classmethod
     def from_dict(cls, d):
         d = d.copy()

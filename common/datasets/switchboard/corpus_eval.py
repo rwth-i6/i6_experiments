@@ -1,7 +1,15 @@
 """
 All functions and classes related to switchboard evaluation sets
 """
-__all__ = ["SwitchboardEvalDataset", "get_hub5e00", "get_hub5e01", "get_rt03s"]
+__all__ = [
+    "SwitchboardEvalDataset",
+    "get_hub5e00",
+    "get_hub5e00_corpus_object",
+    "get_hub5e01",
+    "get_hub5e01_corpus_object",
+    "get_rt03s",
+    "get_rt03s_corpus_object",
+]
 from functools import lru_cache
 from dataclasses import dataclass
 from sisyphus import tk

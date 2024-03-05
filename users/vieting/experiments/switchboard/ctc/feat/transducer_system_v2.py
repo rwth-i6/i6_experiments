@@ -170,7 +170,7 @@ class TransducerSystem:
         self.corpus_data = corpus_data
 
         for key in all_keys:
-            self.crp[key] = self._get_crp(corpus_data[key], am_args)
+            self.crp[key] = self.get_crp(corpus_data[key], am_args)
 
         for key in set(dev_keys + test_keys):
             self._set_scorer(key, scorer_info or ScorerInfo())
@@ -183,7 +183,7 @@ class TransducerSystem:
 
     # -------------------- Helpers ---------------------
 
-    def _get_crp(self, data: RasrDataInput, am_args: Dict = {}) -> rasr.CommonRasrParameters:
+    def get_crp(self, data: RasrDataInput, am_args: Dict = {}) -> rasr.CommonRasrParameters:
         crp = rasr.CommonRasrParameters(self.base_crp)
 
         rasr.crp_set_corpus(crp, data.corpus_object)
@@ -323,6 +323,8 @@ class TransducerSystem:
         return graph_compile_job.out_graph
 
     def _make_base_feature_flow(self, corpus_key: str, **kwargs):
+        if kwargs.pop("type", "") == "gammatone":
+            return features.gammatone_flow(**kwargs)
         audio_format = self.corpus_data[corpus_key].corpus_object.audio_format
         args = {
             "audio_format": audio_format,
@@ -779,6 +781,7 @@ class TransducerSystem:
         align_corpus_key: str,
         trial_num: Optional[int] = None,
         epochs: List[EpochType] = [],
+        lm_scales: List[float] = [],
         prior_scales: List[float] = [0],
         prior_args: Dict = {},
         label_unit: str = "phoneme",
@@ -795,7 +798,7 @@ class TransducerSystem:
 
         base_feature_flow = self._make_base_feature_flow(align_corpus_key, **flow_args)
 
-        for prior_scale, epoch in itertools.product(prior_scales, epochs):
+        for lm_scale, prior_scale, epoch in itertools.product(lm_scales, prior_scales, epochs):
             tf_graph = self._make_tf_graph(
                 train_exp_name=train_exp_name,
                 returnn_config=self.returnn_configs[train_exp_name].align_config,

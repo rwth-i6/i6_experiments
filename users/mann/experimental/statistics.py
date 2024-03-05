@@ -2,9 +2,9 @@ from sisyphus import *
 
 import sys, os
 import subprocess
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 from itertools import filterfalse
-from tabulate import tabulate
+# from tabulate import tabulate
 from collections import defaultdict
 from typing import List, Dict, Any, Tuple, Union
 

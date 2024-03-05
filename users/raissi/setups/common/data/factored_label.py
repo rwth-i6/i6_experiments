@@ -15,6 +15,7 @@ class RasrStateTying(Enum):
     monophone = "monophone-dense"
     diphone = "diphone-dense"
     triphone = "no-tying-dense"
+    cart = "cart"
 
     def __str__(self):
         return self.value
@@ -42,39 +43,6 @@ class PhonemeStateClasses(Enum):
         return self == PhonemeStateClasses.word_end
 
 
-@dataclass(eq=True, frozen=False)
-class LabelInfo:
-    n_contexts: int
-    n_states_per_phone: int
-    phoneme_state_classes: PhonemeStateClasses
-    ph_emb_size: int
-    st_emb_size: int
-    state_tying: RasrStateTying
-    add_unknown_phoneme: bool = True
-    sil_id: typing.Optional[int] = None
-
-    def get_n_of_dense_classes(self) -> int:
-        n_contexts = self.n_contexts
-        if not self.add_unknown_phoneme:
-            n_contexts += 1
-        return self.n_states_per_phone * (n_contexts**3) * self.phoneme_state_classes.factor()
-
-    def get_n_state_classes(self) -> int:
-        return self.n_states_per_phone * self.n_contexts * self.phoneme_state_classes.factor()
-
-    @classmethod
-    def default_ls(cls) -> "LabelInfo":
-        return LabelInfo(
-            n_contexts=42,
-            n_states_per_phone=3,
-            ph_emb_size=32,
-            st_emb_size=128,
-            add_unknown_phoneme=True,
-            phoneme_state_classes=PhonemeStateClasses.word_end,
-            state_tying=RasrStateTying.triphone,
-        )
-
-
 class PhoneticContext(Enum):
     """
     These are the implemented models. The string value is the one used in the feature scorer of rasr, except monophone
@@ -83,6 +51,7 @@ class PhoneticContext(Enum):
     monophone = "monophone"
     mono_state_transition = "monophone-delta"
     diphone = "diphone"
+    joint_diphone = "joint_diphone"  # dummy string, it is used in nnprecomputed
     diphone_state_transition = "diphone-delta"
     triphone_symmetric = "triphone-symmetric"
     triphone_forward = "triphone-forward"
@@ -115,10 +84,61 @@ class PhoneticContext(Enum):
     def is_diphone(self):
         return self == PhoneticContext.diphone or self == PhoneticContext.diphone_state_transition
 
+    def is_joint_diphone(self):
+        return self == PhoneticContext.joint_diphone
+
     def is_triphone(self):
         return (
             self == PhoneticContext.triphone_forward
             or self == PhoneticContext.triphone_backward
             or self == PhoneticContext.triphone_symmetric
             or self == PhoneticContext.tri_state_transition
+        )
+
+
+@dataclass(eq=True, frozen=True)
+class LabelInfo:
+    n_contexts: int
+    n_states_per_phone: int
+    phoneme_state_classes: PhonemeStateClasses
+    ph_emb_size: int
+    st_emb_size: int
+    state_tying: RasrStateTying
+
+    add_unknown_phoneme: bool = True
+    sil_id: typing.Optional[int] = None
+
+    def get_n_of_dense_classes(self) -> int:
+        if self.state_tying == RasrStateTying.monophone:
+            exp = 1
+        elif self.state_tying == RasrStateTying.diphone:
+            exp = 2
+        elif self.state_tying == RasrStateTying.triphone:
+            exp = 3
+        else:
+            assert False, "cannot compute number of CART classes"
+
+        n_contexts = self.n_contexts
+        if not self.add_unknown_phoneme:
+            n_contexts += 1
+        return self.n_states_per_phone * (n_contexts**exp) * self.phoneme_state_classes.factor()
+
+    def get_n_state_classes(self) -> int:
+        return self.n_states_per_phone * self.n_contexts * self.phoneme_state_classes.factor()
+
+    def get_n_single_state_classes(self) -> int:
+        # used for calculating single state label when n-state alignemnt is used
+        return self.n_contexts * self.phoneme_state_classes.factor()
+
+    @classmethod
+    def default_ls(cls) -> "LabelInfo":
+        return LabelInfo(
+            n_contexts=42,
+            n_states_per_phone=3,
+            ph_emb_size=32,
+            st_emb_size=128,
+            sil_id=40,
+            add_unknown_phoneme=True,
+            phoneme_state_classes=PhonemeStateClasses.word_end,
+            state_tying=RasrStateTying.triphone,
         )

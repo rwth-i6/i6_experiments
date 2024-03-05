@@ -1,11 +1,15 @@
+import os.path
+from typing import Iterator
+
 from sisyphus import Job, Task, tk
 import enum
 import random
 import numpy as np
 
+from i6_core.lib import corpus
 from i6_core.lib.corpus import Corpus, Recording, Segment
 from i6_core.lib.lexicon import Lexicon
-from i6_core.corpus.transform import ApplyLexiconToCorpusJob
+from i6_core.corpus.transform import ApplyLexiconToCorpusJob, MergeStrategy, MergeCorporaJob
 
 class LexiconStrategy(enum.Enum):
     PICK_FIRST = 0
@@ -102,3 +106,88 @@ class FakeCorpusFromLexicon(Job):
 
         c.dump(self.out_corpus.get())
 
+
+class RandomAssignSpeakersFromCorpus(Job):
+    """
+    Takes another bliss corpus as speaker reference and randomly distributes speaker tags
+
+    Used e.g. for synthetic TTS data
+    """
+
+    def __init__(self, bliss_corpus: tk.Path, speaker_reference_bliss_corpus: tk.Path, seed: int = 42):
+        """
+
+        :param bliss_corpus: bliss corpus to assign speakers to
+        :param speaker_reference_bliss_corpus: bliss corpus to take speakers from
+        :param seed: random seed for deterministic behavior
+        """
+        self.bliss_corpus = bliss_corpus
+        self.speaker_reference_bliss_corpus = speaker_reference_bliss_corpus
+        self.seed = seed
+
+        self.out_corpus = self.output_path("corpus.xml.gz")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        # set seed for deterministic behavior
+        np.random.seed(self.seed)
+
+        out_corpus = Corpus()
+        out_corpus.load(self.bliss_corpus.get_path())
+
+        speaker_corpus = Corpus()
+        speaker_corpus.load(self.speaker_reference_bliss_corpus.get_path())
+
+        out_corpus.speakers = speaker_corpus.speakers
+        speaker_name_list = list(out_corpus.speakers.keys())
+        num_speakers = len(speaker_name_list)
+
+        for recording in out_corpus.all_recordings():
+            recording.speaker_name = None
+            recording.default_speaker = None
+            for segment in recording.segments:
+                segment.speaker_name = speaker_name_list[np.random.randint(num_speakers)]
+
+        out_corpus.dump(self.out_corpus.get_path())
+
+
+class MergeCorporaWithPathResolveJob(MergeCorporaJob):
+    """
+    Merges Bliss Corpora files into a single file as subcorpora or flat
+
+    resolves relative paths to absolute
+    """
+
+    def run(self):
+        merged_corpus = corpus.Corpus()
+        merged_corpus.name = self.name
+        for corpus_path in self.bliss_corpora:
+            c = corpus.Corpus()
+            c.load(corpus_path.get_path())
+
+            # Make all audio paths absolute
+            corpus_dir = os.path.dirname(corpus_path.get_path())
+            for recording in c.all_recordings():
+                absolute_audio = os.path.join(corpus_dir, recording.audio)
+                assert os.path.exists(absolute_audio)
+                recording.audio = absolute_audio
+
+            if self.merge_strategy == MergeStrategy.SUBCORPORA:
+                merged_corpus.add_subcorpus(c)
+            elif self.merge_strategy == MergeStrategy.FLAT:
+                for rec in c.all_recordings():
+                    merged_corpus.add_recording(rec)
+                merged_corpus.speakers.update(c.speakers)
+            elif self.merge_strategy == MergeStrategy.CONCATENATE:
+                for subcorpus in c.top_level_subcorpora():
+                    merged_corpus.add_subcorpus(subcorpus)
+                for rec in c.top_level_recordings():
+                    merged_corpus.add_recording(rec)
+                for speaker in c.top_level_speakers():
+                    merged_corpus.add_speaker(speaker)
+            else:
+                assert False, "invalid merge strategy"
+
+        merged_corpus.dump(self.out_merged_corpus.get_path())

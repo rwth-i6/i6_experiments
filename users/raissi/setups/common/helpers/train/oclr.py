@@ -2,7 +2,48 @@ __all__ = ["get_oclr_config"]
 
 import typing
 import numpy as np
+from textwrap import dedent
+from typing import Optional
 
+def get_oclr_function(
+    num_epochs: int,
+    n_steps_per_epoch: int,
+    peak_lr: float = 1e-03,
+    cycle_epoch: Optional[int] = None,
+    initial_lr: Optional[float] = None,
+    final_lr: Optional[float] = None,
+    **kwargs,
+) -> str:
+    initial_lr = initial_lr or peak_lr / 10
+    final_lr = final_lr or initial_lr / 5
+    cycle_epoch = cycle_epoch or (num_epochs * 9) // 20  # 45% of the training
+
+    return dedent(
+        f"""def dynamic_learning_rate(*,
+                global_train_step,
+                **kwargs):
+            # Increase linearly from initial_lr to peak_lr over the first cycle_epoch epochs
+            # Decrease linearly from peak_lr to initial_lr over the next cycle_epoch epochs
+            # Decrease linearly from initial_lr to final_lr over the last (total_epochs - 2*cycle_epoch) epochs
+            initial_lr = {initial_lr}
+            peak_lr = {peak_lr}
+            final_lr = {final_lr}
+            cycle_epoch = {cycle_epoch}
+            total_epochs = {num_epochs}
+            n_steps_per_epoch = {n_steps_per_epoch}
+
+            # -- derived -- #
+            steps = cycle_epoch * n_steps_per_epoch
+            step_size = (peak_lr - initial_lr) / steps
+            steps_final = (total_epochs - 2 * cycle_epoch) * n_steps_per_epoch
+            step_size_final = (initial_lr - final_lr) / steps_final
+
+            import tensorflow as tf
+            n = tf.cast(global_train_step, tf.float32)
+            return tf.where(global_train_step <= steps, initial_lr + step_size * n,
+                       tf.where(global_train_step <= 2*steps, peak_lr - step_size * (n - steps), 
+                           tf.maximum(initial_lr - step_size_final * (n - 2*steps), final_lr)))"""
+    )
 
 # This function is designed by Wei Zhou
 def get_learning_rates(

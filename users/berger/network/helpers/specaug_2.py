@@ -1,6 +1,5 @@
 from typing import Dict, Union, Optional, List
 from i6_core.returnn.config import CodeWrapper
-import returnn_common.asr.specaugment as rc_specaug
 
 
 def add_specaug_layer(
@@ -30,6 +29,8 @@ def add_specaug_layer_v2(
     name: str = "specaug",
     from_list: Optional[Union[str, List[str]]] = "data",
 ) -> List[str]:
+    import returnn_common.asr.specaugment as rc_specaug
+
     network[name] = {
         "class": "eval",
         "from": from_list,
@@ -171,6 +172,8 @@ def get_specaug_funcs() -> list:
 
 
 def get_specaug_func_v2() -> list:
+    import returnn_common.asr.specaugment as rc_specaug
+
     return [
         rc_specaug._mask_v1,
         rc_specaug.random_mask_v1,

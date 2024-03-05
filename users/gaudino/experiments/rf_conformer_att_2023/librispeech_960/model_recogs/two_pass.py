@@ -25,6 +25,7 @@ def rescore_w_ctc(
 
 
 def ctc_forward_algorithm(ctc_log_probs, seq, blank_idx=10025):
+    """ctc forward score for all possible paths."""
     mod_seq = torch.stack([seq, torch.fill(seq, blank_idx)], dim=1).flatten()
     mod_seq = torch.cat((torch.tensor([blank_idx], device="cuda"), mod_seq))
     mod_seq_len = mod_seq.size(0)
@@ -61,70 +62,107 @@ def ctc_forward_algorithm(ctc_log_probs, seq, blank_idx=10025):
     return A[T - 1, mod_seq_len - 1] + A[T - 1, mod_seq_len - 2]
 
 
-def viterbi_decode(
-    tag_sequence: torch.Tensor, transition_matrix: torch.Tensor, top_k: int = 5
-):
-    """
-    Perform Viterbi decoding in log space over a sequence given a transition matrix
-    specifying pairwise (transition) potentials between tags and a matrix of shape
-    (sequence_length, num_tags) specifying unary potentials for possible tags per
-    timestep.
-    Parameters
-    ----------
-    tag_sequence : torch.Tensor, required.
-        A tensor of shape (sequence_length, num_tags) representing scores for
-        a set of tags over a given sequence.
-    transition_matrix : torch.Tensor, required.
-        A tensor of shape (num_tags, num_tags) representing the binary potentials
-        for transitioning between a given pair of tags.
-    top_k : int, required.
-        Integer defining the top number of paths to decode.
-    Returns
-    -------
-    viterbi_path : List[int]
-        The tag indices of the maximum likelihood tag sequence.
-    viterbi_score : float
-        The score of the viterbi path.
-    """
-    sequence_length, num_tags = list(tag_sequence.size())
+# def ctc_viterbi_score(ctc_log_probs, seqs, blank_idx=10025):
+#     """ctc score for the best path."""
+#
+#     breakpoint()
+#     ctc_raw = ctc_log_probs
+#     batch_n = seqs.raw_tensor.shape[0]
+#     seq_len = seqs.raw_tensor.shape[1]
+#
+#     seqs = seqs.raw_tensor
+#     # seq_lens = seqs.dims[1].dyn_size_ext.raw_tensor
+#     ext_seq_len = 2 * seq_len +1
+#     ext_seqs = torch.stack([seqs, torch.fill(seqs, blank_idx)], dim=2).flatten(start_dim=1)
+#     ext_seqs = torch.cat((torch.tensor([blank_idx]), ext_seqs))
+#
+#     # Initialization
+#     # Transition matrix A, Path variables V
+#
+#     V = torch.full([batch_n, ctc_raw.shape[1], ext_seq_len], float("-inf"), dtype=ctc_log_probs.dtype) # [B, T, S]
+#     backrefs = torch.full([batch_n, ctc_raw.shape[1], ext_seq_len], -1, dtype="int32") # [B, T, S]
+#
+#     V[:, 0, 0] = ctc_log_probs[:, 0, blank_idx]
+#     V[:, 0, 1] = ctc_log_probs[:, 0, seqs[0]]
+#
+#     # Iteration
+#     for i in range(1, ctc_log_probs.dims[0].get_dim_value()): # T
+#         for j in range(ext_seq_len.dimension): # S
+#             prev_paths = []
+#             prev_paths.append(V[i-1, j])
+#             if j > 0:
+#                 prev_paths.append(V[i-1, j-1])
+#             if j > 1 and seqs[j//2] != seqs[j//2-1]:
+#                 prev_paths.append(V[i-1, j-2])
+#             prev_contrib = rf.max(prev_paths, axis=0)
+#             backrefs[i, j] = rf.argmax(prev_paths, axis=0)
+#
+#             V[i, j] = prev_contrib + ctc_log_probs[i, seq[j]]
+#
+#     # Backtracking
+#     best_path = []
+#     for i in range(ext_seq_len-1, -1, -1):
+#         best_path.append(seqs[i//2])
+#         i = backrefs[i, i]
+#     score = rf.max(V[-1])
+#
+#     return score, best_path[::-1]
 
-    path_scores = []
-    path_indices = []
-    # At the beginning, the maximum number of permutations is 1; therefore, we unsqueeze(0)
-    # to allow for 1 permutation.
-    path_scores.append(tag_sequence[0, :].unsqueeze(0))
-    # assert path_scores[0].size() == (n_permutations, num_tags)
+def ctc_viterbi_one_seq(ctc_log_probs, seq, t_max, blank_idx=10025):
+    mod_len = 2 * seq.shape[0] + 1
+    mod_seq = torch.stack([seq, torch.full(seq.shape, blank_idx,device="cuda")], dim=1).flatten()
+    mod_seq = torch.cat((torch.tensor([blank_idx], device="cuda"), mod_seq))
+    V = torch.full((t_max, mod_len), float("-inf"))  # [T, 2S+1]
 
-    # Evaluate the scores for all possible paths.
-    for timestep in range(1, sequence_length):
-        # Add pairwise potentials to current scores.
-        # assert path_scores[timestep - 1].size() == (n_permutations, num_tags)
-        summed_potentials = path_scores[timestep - 1].unsqueeze(2) + transition_matrix
-        summed_potentials = summed_potentials.view(-1, num_tags)
+    V[0, 0] = ctc_log_probs[0, blank_idx]
+    V[0, 1] = ctc_log_probs[0, seq[0]]
 
-        # Best pairwise potential path score from the previous timestep.
-        max_k = min(summed_potentials.size()[0], top_k)
-        scores, paths = torch.topk(summed_potentials, k=max_k, dim=0)
-        # assert scores.size() == (n_permutations, num_tags)
-        # assert paths.size() == (n_permutations, num_tags)
+    backref = torch.full((t_max, mod_len), -1, dtype=torch.int64, device="cuda")
 
-        scores = tag_sequence[timestep, :] + scores
-        # assert scores.size() == (n_permutations, num_tags)
-        path_scores.append(scores)
-        path_indices.append(paths.squeeze())
+    for t in range(1, t_max):
+        for s in range(mod_len):
+            if s > 2 * t + 1:
+                continue
+            skip = False
+            if s % 2 != 0 and s >= 3:
+                idx = (s - 1) // 2
+                prev_idx = (s - 3) // 2
+                if seq[idx] != seq[prev_idx]:
+                    skip = True
 
-    # Construct the most likely sequence backwards.
-    path_scores = path_scores[-1].view(-1)
-    max_k = min(path_scores.size()[0], top_k)
-    viterbi_scores, best_paths = torch.topk(path_scores, k=max_k, dim=0)
-    viterbi_paths = []
-    for i in range(max_k):
-        viterbi_path = [best_paths[i]]
-        for backward_timestep in reversed(path_indices):
-            viterbi_path.append(int(backward_timestep.view(-1)[viterbi_path[-1]]))
-        # Reverse the backward path.
-        viterbi_path.reverse()
-        # Viterbi paths uses (num_tags * n_permutations) nodes; therefore, we need to modulo.
-        viterbi_path = [j % num_tags for j in viterbi_path]
-        viterbi_paths.append(viterbi_path)
-    return viterbi_paths, viterbi_scores
+            if skip:
+                V[t, s] = max(V[t - 1, s], V[t - 1, s - 1], V[t - 1, s - 2]) + ctc_log_probs[t, mod_seq[s]]
+                backref[t, s] = torch.argmax(torch.tensor([V[t - 1, s], V[t - 1, s - 1], V[t - 1, s - 2]]))
+            else:
+                V[t, s] = max(V[t - 1, s], V[t - 1, s - 1]) + ctc_log_probs[t, mod_seq[s]]
+                backref[t, s] = torch.argmax(torch.tensor([V[t - 1, s], V[t - 1, s - 1]]))
+
+    score = torch.max(V[t_max - 1, :])
+    idx = torch.argmax(V[t_max - 1, :])
+    res = [mod_seq[idx]]
+
+    for t in range(t_max - 1, 0, -1):
+        next_idx = idx - backref[t, idx]
+        res.append(mod_seq[next_idx])
+        idx = next_idx
+
+    res = torch.tensor(res).flip(0)
+    return res, score
+
+def scale_hyp_wo_blank(ctc_log_probs, seq, ctc_scale, blank_idx=10025):
+    blank_mask = (seq == blank_idx).to("cuda")
+
+    ctc_scores = torch.gather(ctc_log_probs, 1, seq.unsqueeze(1).to("cuda")).squeeze()
+
+    scores_blank = torch.masked_select(ctc_scores, blank_mask)
+    scores_no_blank = torch.masked_select(ctc_scores, ~blank_mask)
+
+    score_blank = torch.sum(scores_blank)
+    score_no_blank = torch.sum(scores_no_blank) * ctc_scale
+
+    score = score_blank + score_no_blank
+
+    return score
+
+
+

@@ -15,14 +15,12 @@ def make_mixup_layer_dict(
     *,
     dim: int,
     opts: dict,
-    use_log10_features: bool = False,
     is_recog: bool = False,
 ) -> Dict[str, Any]:
     """
     :param src: source layer name
     :param dim: same as src
     :param opts: mixup opts
-    :param use_log10_features: use log10 features instead of inverse
     :param is_recog: whether this is a recognition net
     """
     d = {}
@@ -146,7 +144,7 @@ def _get_raw_func(*, dim: int, opts: dict):
         tf.raw_ops.ResourceStridedSliceAssign(
             ref=buffer_raw.handle, begin=[pos], end=[new_pos], strides=[1], value=src_flat[:part_fill_len]
         )
-        if part_fill_len <= src_flat_len:
+        if pos + src_flat_len >= opts["buffer_size"]:
             buffer_filled_raw.assign(True)
             part_fill_len_ = tf.minimum(src_flat_len - part_fill_len, opts["buffer_size"])
             tf.raw_ops.ResourceStridedSliceAssign(

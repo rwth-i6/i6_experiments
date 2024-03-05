@@ -545,16 +545,26 @@ def update_tensor_entry(source, **kwargs):
     updates = tf.zeros([batch_size])
     return tf.tensor_scatter_nd_update(tensor, indices, updates)
 
-
-def add_ctc_forced_align_for_rescore(net):
+def add_ctc_forced_align_for_rescore(net, ctc_prior_scale):
     beam = net["output"]["unit"]["output"]["beam_size"]
     net["extra.search:output"] = copy.deepcopy(net["output"])  # use search in forward
     net["decision"]["from"] = "extra.search:output"
     del net["output"]  # set to ctc scores later and this will be dumped
     net["extra.search:output"]["register_as_extern_data"] = "att_nbest"
+
+    if ctc_prior_scale:
+        assert "ctc_log_prior" in net, "ctc log prior layer is not added to network?"
+        net["ctc_log_prior_scaled"] = {
+            "class": "eval",
+            "from": "ctc_log_prior",
+            "eval": f"{ctc_prior_scale} * source(0)",
+        }
+        net["ctc_prior_scaled"] = {"class": "activation", "activation": "safe_exp", "from": "ctc_log_prior_scaled"}
+        net["ctc_w_prior"] = {"class": "combine", "kind": "truediv", "from": ["ctc", "ctc_prior_scaled"]}
+
     net["ctc_align"] = {
         "class": "forced_align",
-        "from": "ctc",
+        "from": "ctc_w_prior" if ctc_prior_scale else "ctc",
         "input_type": "prob",
         "topology": "ctc",
         "align_target": "data:att_nbest",  # [B*Beam,T]
@@ -562,10 +572,6 @@ def add_ctc_forced_align_for_rescore(net):
     }
     net["ctc_scores_"] = {"class": "copy", "from": "ctc_align/scores"}  # [B*Beam]
     net["ctc_scores"] = {"class": "split_dims", "from": "ctc_scores_", "axis": "B", "dims": (-1, beam)}  # [B,Beam]
-    # net["att_beam_scores_"] = {"class": "choice_get_beam_scores", "from": "extra.search:output"}  # [B*Beam]
-    # net["att_beam_scores"] = {"class": "split_batch_beam", "from": "att_beam_scores_"}  # [B,Beam]
-    # net["comb_att_ctc"] = {"class": "combine", "kind": "add", "from": ["ctc_scores", "att_beam_scores"]}  # [B,Beam]
-    # net["comb_att_ctc_scores"] = {"class": "expand_dims", "from": "comb_att_ctc", "axis": "t"}  # [B,Beam,1|T]
     net["output"] = {"class": "expand_dims", "from": "ctc_scores", "axis": "t"}  # [B,Beam,1|T]
 
 
@@ -587,6 +593,7 @@ def rescore_att_ctc_search(
     time_rqmt,
     att_scale,
     ctc_scale,
+    ctc_prior_scale,
     use_sclite=False,
     rescore_with_ctc: bool = True,
     remove_label: Optional[Union[str, Set[str]]] = None,
@@ -630,7 +637,7 @@ def rescore_att_ctc_search(
     search_job.add_alias(prefix_name + "/search_job")
 
     ctc_search_config = copy.deepcopy(returnn_config)
-    add_ctc_forced_align_for_rescore(ctc_search_config.config["network"])
+    add_ctc_forced_align_for_rescore(ctc_search_config.config["network"], ctc_prior_scale)
     ctc_search_config.config["need_data"] = True
     ctc_search_config.config["target"] = "bpe_labels"
     beam = ctc_search_config.config["network"]["extra.search:output"]["unit"]["output"]["beam_size"]
@@ -638,6 +645,7 @@ def rescore_att_ctc_search(
         ctc_search_config.config["batch_size"] * (0.3 if beam > 32 else 1)
     )
     ctc_search_config.config["eval"] = recognition_dataset.as_returnn_opts()
+    # ctc_search_config.config["forward_data"] = recognition_dataset.as_returnn_opts()
     forward_job = ReturnnForwardJob(
         model_checkpoint=checkpoint,
         returnn_config=ctc_search_config,

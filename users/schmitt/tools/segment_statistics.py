@@ -27,6 +27,8 @@ def calc_segment_stats_with_sil(blank_idx, sil_idx):
   map_non_sil_seg_len_to_count = Counter()
   map_sil_seg_len_to_count = Counter()
 
+  max_seq_len = 0
+
   while dataset.is_less_than_num_seqs(seq_idx):
     num_seqs += 1
     # progress indication
@@ -47,6 +49,9 @@ def calc_segment_stats_with_sil(blank_idx, sil_idx):
     sil_idxs = np.where(data == sil_idx)[0]
 
     non_blank_data = data[data != blank_idx]
+
+    if len(data) > max_seq_len:
+      max_seq_len = len(data)
 
     # count number of segments and number of blank frames
     num_label_segs += len(non_blank_idxs) - len(sil_idxs)
@@ -182,6 +187,7 @@ def calc_segment_stats_with_sil(blank_idx, sil_idx):
     f.write("\n")
     f.write("Sequence statistics: \n\n")
     f.write("\tMean length: %f \n" % mean_seq_len)
+    f.write("\tMax length: %f \n" % max_seq_len)
     f.write("\tNum sequences: %f \n" % num_seqs)
 
   filename = "mean_non_sil_len"

@@ -6,7 +6,7 @@ from dataclasses import asdict
 
 from .data import build_training_dataset
 from .config import get_training_config,get_pt_raw_forward_config
-from .pipeline import tts_training, tts_forward
+from .pipeline import tts_training, tts_forward, tts_forward_v2
 from ..data import get_tts_log_mel_datastream, get_vocab_datastream
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import DBMelFilterbankOptions
@@ -52,7 +52,7 @@ def get_pytorch_raw_ctc_tts():
     prefix = "experiments/librispeech/tts_architecture/tts_feature_model/pytorch/"
 
     
-    def run_exp(name, params, net_module, config, duration_hdf, use_custom_engine=False, debug=False):
+    def run_exp(name, params, net_module, config, duration_hdf, use_custom_engine=False, debug=False, do_forward=False):
         training_datasets = build_training_dataset(silence_preprocessed=True, raw_audio=True, duration_hdf=duration_hdf)
         training_config = get_training_config(
             returnn_common_root=RETURNN_COMMON,
@@ -77,6 +77,14 @@ def get_pytorch_raw_ctc_tts():
             returnn_root=MINI_RETURNN_ROOT,
             prefix=prefix + name,
         )
+        if do_forward:
+            forward_job = tts_forward_v2(
+                checkpoint=train_job.out_checkpoints[100],
+                config=forward_config,
+                returnn_exe=RETURNN_PYTORCH_EXE,
+                returnn_root=MINI_RETURNN_ROOT,
+                prefix=prefix + name,
+            )
 
     log_mel_datastream = get_tts_log_mel_datastream()
 
@@ -232,6 +240,28 @@ def get_pytorch_raw_ctc_tts():
     duration_hdf = duration_alignments["ctc_aligner_tts_fe_v3" + ctc_name]
     run_exp(net_module + "_ctc_tts_fe_v3" + ctc_name, params, net_module, config, duration_hdf=duration_hdf,
             debug=True)
+
+    # NO LSTM CTC
+    ctc_name = "_conv384_drop05_spkemb64_dec512"
+    duration_hdf = duration_alignments["ctc_aligner_tts_fe_v3_nolstm" + ctc_name]
+    run_exp(net_module + "_ctc_tts_fe_v3_nolstm" + ctc_name, params, net_module, config, duration_hdf=duration_hdf,
+            debug=True)
+    
+    # New v6 setup with dual LSTM and some other fixes
+    duration_hdf = duration_alignments["ctc_aligner_tts_fe_v6_tfstyle_v2"]
+    run_exp(net_module + "_ctc_tts_fe_v6_tfstyle_v2", params, net_module, config, duration_hdf=duration_hdf,
+            debug=True)
+    
+    # New v7 setup,
+    duration_hdf = duration_alignments["ctc_aligner_tts_fe_v7_tfstyle_v2"]
+    run_exp(net_module + "_ctc_tts_fe_v7_tfstyle_v2", params, net_module, config, duration_hdf=duration_hdf,
+            debug=True, do_forward=True)
+    
+    # New v7 setup + prior
+    duration_hdf = duration_alignments["ctc_aligner_tts_fe_v7_tfstyle_v2_prior0.3"]
+    run_exp(net_module + "_ctc_tts_fe_v7_tfstyle_v2_prior0.3", params, net_module, config, duration_hdf=duration_hdf,
+            debug=True)
+    
 
 def get_pytorch_raw_ctc_tts_extern_durations():
     """

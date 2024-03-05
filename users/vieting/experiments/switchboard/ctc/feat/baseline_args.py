@@ -79,16 +79,19 @@ def get_nn_args_single(
         "ScfNetwork": ScfNetwork,
     }[feature_args.pop("class")]
     feature_net = feature_network_class(**feature_args).get_as_subnetwork()
-    if preemphasis:
-        for layer in feature_net["subnetwork"]:
-            if feature_net["subnetwork"][layer].get("from", "data") == "data":
-                feature_net["subnetwork"][layer]["from"] = "preemphasis"
-        feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork()
+    source_layer = "data"
+
     if wave_norm:
-        for layer in feature_net["subnetwork"]:
-            if feature_net["subnetwork"][layer].get("from") == "data":
-                feature_net["subnetwork"][layer]["from"] = "wave_norm"
-        feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": "data"}
+        feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": source_layer}
+        source_layer = "wave_norm"
+    if preemphasis:
+        feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork(source=source_layer)
+        source_layer = "preemphasis"
+    for layer in feature_net["subnetwork"]:
+        if layer not in ["wave_norm", "preemphasis"]:
+            layer_config = feature_net["subnetwork"][layer]
+            if layer_config.get("class") != "variable" and layer_config.get("from", "data") == "data":
+                feature_net["subnetwork"][layer]["from"] = source_layer
 
     returnn_config = get_returnn_config(
         num_inputs=1,
@@ -142,6 +145,7 @@ def get_returnn_config(
     extra_args: Optional[Dict[str, Any]] = None,
     staged_opts: Optional[Dict[int, Any]] = None,
     audio_perturbation: bool = False,
+    use_multi_proc_dataset: bool = False,
 ):
     base_config = {
         "extern_data": {
@@ -215,6 +219,11 @@ def get_returnn_config(
     if isinstance(batch_size, int):
         # If batch size is int, adapt to waveform. If it is dict, assume it is already correct.
         batch_size = {"classes": batch_size, "data": batch_size * sample_rate // 100}
+    if use_multi_proc_dataset:
+        dataset = datasets["train"]["dataset"]["partition_epoch"]
+    else:
+        dataset = datasets["train"]["partition_epoch"]
+
     conformer_base_config = copy.deepcopy(base_config)
     conformer_base_config.update(
         {
@@ -229,7 +238,7 @@ def get_returnn_config(
             "learning_rate_control_relative_error_relative_lr": True,
             "min_learning_rate": 1e-5,
             "newbob_learning_rate_decay": 0.9,
-            "newbob_multi_num_epochs": datasets["train"]["partition_epoch"],
+            "newbob_multi_num_epochs": dataset,
             "newbob_multi_update_interval": 1,
         }
     )
@@ -242,6 +251,9 @@ def get_returnn_config(
         for epoch, opts in staged_opts.items():
             if opts == "freeze_features":
                 network_mod["features"]["trainable"] = False
+                staged_network_dict[epoch] = copy.deepcopy(network_mod)
+            elif opts == "unfreeze_features":
+                network_mod["features"]["trainable"] = True
                 staged_network_dict[epoch] = copy.deepcopy(network_mod)
             elif opts == "remove_aux":
                 for layer in list(network_mod.keys()):

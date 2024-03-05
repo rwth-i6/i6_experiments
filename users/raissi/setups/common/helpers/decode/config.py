@@ -1,6 +1,6 @@
 import dataclasses
 
-from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_search import DecodingTensorMap
+from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import DecodingTensorMap
 
 CONF_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
     DecodingTensorMap.default(),

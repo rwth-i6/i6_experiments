@@ -354,8 +354,9 @@ class RasrSystem(meta.System):
         :param name:
         :param target_corpus_key:
         :param flow:
-        :param feature_scorer:
         :param feature_scorer_corpus_key:
+        :param feature_scorer:
+        :param scorer_index:
         :param dump_alignment:
         :param kwargs:
         :return:
@@ -374,10 +375,10 @@ class RasrSystem(meta.System):
             **kwargs,
         )
 
-        align_job = self.jobs[target_corpus_key]["alignment_%s" % name]
-        align_job.add_alias("forced_alignment/alignment_%s" % name)
+        align_job: mm.AlignmentJob = self.jobs[target_corpus_key]["alignment_%s" % name]
+        align_job.add_alias("forced_alignment/alignment_%s/%s" % (name, target_corpus_key))
         tk.register_output(
-            "forced_alignment/alignment_%s.bundle" % name,
+            "forced_alignment/alignment_%s_%s.bundle" % (name, target_corpus_key),
             align_job.out_alignment_bundle,
         )
 
@@ -388,8 +389,8 @@ class RasrSystem(meta.System):
                 original_alignment=meta.select_element(self.alignments, target_corpus_key, name),
             )
             self.jobs[target_corpus_key]["alignment_dump_%s" % name] = dump_job
-            dump_job.add_alias("forced_alignment/alignment_dump_%s" % name)
+            dump_job.add_alias("forced_alignment/alignment_dump_%s/%s" % (name, target_corpus_key))
             tk.register_output(
-                "forced_alignment/alignment_dump_%s.bundle" % name,
+                "forced_alignment/alignment_dump_%s_%s.bundle" % (name, target_corpus_key),
                 dump_job.out_alignment_bundle,
             )

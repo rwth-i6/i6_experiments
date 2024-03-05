@@ -276,7 +276,7 @@ def run_single(
 
     train_cfg = baum_welch.augment_for_fast_bw(
         crp=s.crp[s.crp_names["train"]],
-        from_output_softmax_layer="output",
+        from_output_layer="output",
         log_linear_scales=baum_welch.BwScales(
             label_posterior_scale=bw_label_scale, label_prior_scale=None, transition_scale=bw_label_scale
         ),

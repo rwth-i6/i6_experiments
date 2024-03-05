@@ -2,7 +2,7 @@ import copy
 from typing import Dict
 
 from i6_experiments.users.berger.args.jobs.recognition_args import (
-    get_lookahead_options,
+    get_seq2seq_lookahead_options,
     get_seq2seq_search_parameters,
 )
 from i6_experiments.users.berger.util import recursive_update
@@ -54,7 +54,7 @@ def get_ctc_recog_step_args(num_classes: int, reduction_factor: int = 4, **kwarg
             "use_transition_penalty": False,
             "skip_silence": True,
         },
-        "lookahead_options": get_lookahead_options(),
+        "lookahead_options": get_seq2seq_lookahead_options(),
         "search_parameters": get_seq2seq_search_parameters(
             lp=18.0,
             allow_blank=True,
@@ -75,8 +75,8 @@ def get_ctc_recog_step_args(num_classes: int, reduction_factor: int = 4, **kwarg
 
 def get_ctc_align_step_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
     default_args = {
-        "epochs": ["best"],
-        "prior_scales": [0.3],
+        "epoch": "best",
+        "prior_scale": 0.3,
         "use_gpu": False,
         "alignment_options": {
             "label-pruning": 50,
@@ -94,6 +94,7 @@ def get_ctc_align_step_args(num_classes: int, reduction_factor: int = 4, **kwarg
             },
         },
         "rtf": 5,
+        "register_output": False,
     }
 
     return recursive_update(default_args, kwargs)

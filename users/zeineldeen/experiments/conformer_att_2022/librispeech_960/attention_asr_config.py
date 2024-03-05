@@ -130,6 +130,44 @@ def transform(
   return x
 """
 
+# allow disabled specaug initially (step configurable)
+specaug_transform_func_v2 = """
+def transform(
+    data,
+    network,
+    step0={step0},
+    step1={step1},
+    step2={step2},
+    max_time_dim={max_time_dim},
+    max_time_num={max_time_num},
+    min_num_add_factor={min_num_add_factor},
+    freq_dim_factor={freq_dim_factor},
+):
+  x = data.placeholder
+  from returnn.tf.compat import v1 as tf
+  step = network.global_train_step
+  step0 = tf.where(tf.greater_equal(step, step0), 1, 0)
+  step1 = tf.where(tf.greater_equal(step, step1), 1, 0)
+  step2 = tf.where(tf.greater_equal(step, step2), 1, 0)
+  def get_masked():
+      x_masked = x
+      x_masked = random_mask(
+        x_masked, batch_axis=data.batch_dim_axis, axis=data.time_dim_axis,
+        min_num=step1 + step2 + min_num_add_factor,
+        max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // max_time_num, 2) * (step0 + step1 + step2 * 2),
+        max_dims=max_time_dim
+      )
+      x_masked = random_mask(
+        x_masked, batch_axis=data.batch_dim_axis, axis=data.feature_dim_axis,
+        min_num=step1 + step2 + step0 * min_num_add_factor,
+        max_num=step0 * 2 + step1 + step2 * 2,
+        max_dims=data.dim // freq_dim_factor
+      )
+      return x_masked
+  x = network.cond_on_train(get_masked, lambda: x)
+  return x
+"""
+
 # -------------------------- Pretraining -------------------------- #
 
 
@@ -512,8 +550,8 @@ class RNNDecoderArgs(DecoderArgs):
 
     use_zoneout_output: bool = False
 
-    monotonic_att_weights_loss_scale: Optional[float] = None
-    att_weights_variance_loss_scale: Optional[float] = None
+    monotonic_att_weights_loss_opts: Optional[dict] = None
+    use_monotonic_att_weights_loss_in_recog: Optional[bool] = False
 
     include_eos_in_search_output: bool = False
 
@@ -535,6 +573,7 @@ def create_config(
     accum_grad=2,
     pretrain_reps=5,
     max_seq_length=75,
+    min_seq_length=None,
     max_seqs=200,
     noam_opts=None,
     warmup_lr_opts=None,
@@ -569,6 +608,7 @@ def create_config(
     speed_pert_version=1,
     specaug_version=1,
     ctc_decode=False,
+    ctc_blank_idx=None,
     ctc_log_prior_file=None,
     ctc_prior_scale=None,
     ctc_remove_eos=False,
@@ -579,6 +619,7 @@ def create_config(
     mixup_aug_opts=None,
     enable_mixup_in_pretrain=True,
     seq_train_opts=None,
+    horovod_params=None,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -588,7 +629,8 @@ def create_config(
     if not is_recog:
         exp_config["train"] = training_datasets.train.as_returnn_opts()
         exp_config["dev"] = training_datasets.cv.as_returnn_opts()
-        exp_config["eval_datasets"] = {"devtrain": training_datasets.devtrain.as_returnn_opts()}
+        if training_datasets.devtrain:
+            exp_config["eval_datasets"] = {"devtrain": training_datasets.devtrain.as_returnn_opts()}
 
     target = "bpe_labels"
 
@@ -617,7 +659,13 @@ def create_config(
         hyperparams["decouple_constraints_factor"] = decouple_constraints_factor
 
     if max_seq_length:
-        hyperparams["max_seq_length"] = {target: max_seq_length}  # char-bpe
+        if isinstance(max_seq_length, dict):
+            hyperparams["max_seq_length"] = max_seq_length
+        else:
+            hyperparams["max_seq_length"] = {target: max_seq_length}  # char-bpe
+    if min_seq_length:
+        assert isinstance(min_seq_length, dict), "must be a dict to specify filtering per data key names"
+        hyperparams["min_seq_length"] = min_seq_length
     if gradient_clip_global_norm:
         hyperparams["gradient_clip_global_norm"] = gradient_clip_global_norm
 
@@ -742,10 +790,10 @@ def create_config(
         add_ctc_log_prior(exp_config, ctc_log_prior_file)
 
     if ctc_decode:
-        add_ctc_decoding(exp_config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_opts)
+        add_ctc_decoding(exp_config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_opts, ctc_blank_idx)
 
     if joint_ctc_att_decode_args:
-        add_att_ctc_joint_decoding(exp_config, joint_ctc_att_decode_args)
+        add_att_ctc_joint_decoding(exp_config, joint_ctc_att_decode_args, ctc_blank_idx)
 
     # -------------------------- end network -------------------------- #
 
@@ -767,7 +815,15 @@ def create_config(
 
     if specaug_str_func_opts:
         python_prolog = specaugment.specaug_helpers.get_funcs()
-        extra_python_code += "\n" + specaug_transform_func.format(**specaug_str_func_opts)
+        specaug_str_func_opts_ = copy.deepcopy(specaug_str_func_opts)
+        version = specaug_str_func_opts_["version"]
+        specaug_str_func_opts_.pop("version")
+        if version == 1:
+            extra_python_code += "\n" + specaug_transform_func.format(**specaug_str_func_opts_)
+        elif version == 2:
+            extra_python_code += "\n" + specaug_transform_func_v2.format(**specaug_str_func_opts_)
+        else:
+            raise ValueError("Invalid specaug version")
     else:
         if specaug_version == 1:
             python_prolog = specaugment.specaug_tf2.get_funcs()  # type: list
@@ -791,17 +847,32 @@ def create_config(
             python_prolog += [data_aug.speed_pert_v4]
         elif isinstance(speed_pert_version, dict):
             # generic
-            speed_pert_generic_str = data_aug.speed_pert_generic
+            version = speed_pert_version["version"]
+            if version == 1:
+                speed_pert_generic_str = data_aug.speed_pert_generic
+            else:
+                assert "sample_rate" in speed_pert_version
+                speed_pert_generic_str = data_aug.speed_pert_generic_v2
             assert isinstance(speed_pert_generic_str, str)
             python_prolog += [speed_pert_generic_str.format(**speed_pert_version)]
         else:
             raise ValueError("Invalid speed_pert_version")
 
-    if feature_extraction_net and global_stats:
-        add_global_stats_norm(global_stats, exp_config["network"])
+    if feature_extraction_net:
+        if global_stats:
+            add_global_stats_norm(global_stats, exp_config["network"])
+        else:
+            # use per-seq norm
+            add_per_seq_norm(exp_config["network"])
 
     if mixup_aug_opts:
-        add_mixup_layers(exp_config["network"], feature_extraction_net, mixup_aug_opts, is_recog)
+        add_mixup_layers(
+            exp_config["network"],
+            feature_extraction_net,
+            mixup_aug_opts,
+            is_recog=(not with_pretrain and not staged_hyperparams)
+            or is_recog,  # add get_global_config() in network to access mixup funcs
+        )
 
     staged_network_dict = None
 
@@ -823,6 +894,8 @@ def create_config(
                     net.update(feature_extraction_net)
                     if global_stats:
                         add_global_stats_norm(global_stats, net)
+                    else:
+                        add_per_seq_norm(net)
                 if mixup_aug_opts and enable_mixup_in_pretrain:
                     add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog)
                     net_as_str = "from returnn.config import get_global_config\n"
@@ -906,14 +979,19 @@ def create_config(
         python_prolog += ["import numpy"]
 
     # modify hyperparameters based on epoch (only used in training)
-    if staged_network_dict and staged_hyperparams:
+    if staged_hyperparams:
+        if staged_network_dict is None:
+            staged_network_dict = {}
+            max_ep = 0
+        else:
+            max_ep = max(staged_network_dict.keys())
         for ep, v in staged_hyperparams.items():
-            staged_net_dict_max_ep = max(staged_network_dict.keys())
-            assert ep > staged_net_dict_max_ep
-            base_net = copy.deepcopy(staged_network_dict[staged_net_dict_max_ep])
+            # assume always that the last staged network is same as the base network (e.g last network of pretraining)
+            base_net = copy.deepcopy(exp_config["network"])
             assert isinstance(v, dict)
             base_net["#config"] = v
-            assert ep not in staged_network_dict
+            assert ep not in staged_network_dict, f"{ep} already exists in staged_network_dict?"
+            assert ep > max_ep, f"Latest epoch is {max_ep} but current epoch is {ep}"
             staged_network_dict[ep] = base_net
 
     if seq_train_opts:
@@ -935,6 +1013,9 @@ def create_config(
         elif seq_train_type == "double_softmax":
             add_double_softmax(net=exp_config["network"], **opts)
 
+    if horovod_params:
+        exp_config.update(horovod_params)
+
     returnn_config = ReturnnConfig(
         exp_config,
         staged_network_dict=staged_network_dict,
@@ -946,6 +1027,11 @@ def create_config(
     )
 
     return returnn_config
+
+
+def add_per_seq_norm(net):
+    net["log10_"] = copy.deepcopy(net["log10"])
+    net["log10"] = {"class": "norm", "from": "log10_", "axis": "T"}
 
 
 def add_global_stats_norm(global_stats, net):
@@ -1012,6 +1098,7 @@ def add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog):
     from i6_experiments.users.zeineldeen.data_aug.mixup.tf_mixup import make_mixup_layer_dict
 
     assert feature_extraction_net
+    # TODO: this is just to test the effect of doing mixup on features in log-space or not
     assert "log_mel_features" in feature_extraction_net, "currently mixup is only supported for log-mel features"
     use_log10_features = mixup_aug_opts.get("use_log10_features", False)
     net.update(
@@ -1019,7 +1106,6 @@ def add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog):
             src="log_mel_features" if use_log10_features else "mel_filterbank",
             dim=feature_extraction_net["mel_filterbank"]["n_out"],
             opts=mixup_aug_opts,
-            use_log10_features=use_log10_features,
             is_recog=is_recog,
         )
     )
@@ -1037,7 +1123,7 @@ def add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog):
         net["mixup_features"] = {"class": "copy", "from": "mixup"}
 
 
-def add_ctc_decoding(config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_opts):
+def add_ctc_decoding(config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_opts, ctc_blank_idx):
     # create bpe labels with blank extern data
     config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(config["extern_data"]["bpe_labels"])
     config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
@@ -1046,12 +1132,12 @@ def add_ctc_decoding(config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_
 
     # filter out blanks from best hyp
     # TODO: we might want to also dump blank for analysis, however, this needs some fix to work.
-    add_filter_blank_and_merge_labels_layers(config["network"])
+    add_filter_blank_and_merge_labels_layers(config["network"], blank_idx=ctc_blank_idx)
     config["network"].pop(config["search_output_layer"], None)
     config["search_output_layer"] = "out_best_wo_blank"
 
 
-def add_att_ctc_joint_decoding(config, joint_ctc_att_decode_args):
+def add_att_ctc_joint_decoding(config, joint_ctc_att_decode_args, ctc_blank_idx):
     # create bpe labels with blank extern data
     config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(config["extern_data"]["bpe_labels"])
     config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
@@ -1059,7 +1145,7 @@ def add_att_ctc_joint_decoding(config, joint_ctc_att_decode_args):
     add_joint_ctc_att_subnet(config["network"], **joint_ctc_att_decode_args)
     joint_ctc_scale = joint_ctc_att_decode_args["ctc_scale"]
     if joint_ctc_scale > 0.0:
-        add_filter_blank_and_merge_labels_layers(config["network"])
+        add_filter_blank_and_merge_labels_layers(config["network"], blank_idx=ctc_blank_idx)
         config["network"].pop(config["search_output_layer"], None)
         config["search_output_layer"] = "out_best_wo_blank"
     else:

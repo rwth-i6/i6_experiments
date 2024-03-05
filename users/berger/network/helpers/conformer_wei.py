@@ -36,7 +36,7 @@ def add_ff_module(
                 "from": f"{name}_ln",
                 "n_out": size * 4,
                 "activation": "swish",
-                "forward_weights_init": get_variance_scaling_init(),
+                # "forward_weights_init": get_variance_scaling_init(),
                 "L2": l2,
             },
             f"{name}_ff_2": {
@@ -45,7 +45,7 @@ def add_ff_module(
                 "from": f"{name}_ff_1",
                 "n_out": size,
                 "L2": l2,
-                "forward_weights_init": get_variance_scaling_init(),
+                # "forward_weights_init": get_variance_scaling_init(),
                 "dropout": dropout,
             },
             f"{name}_dropout": {
@@ -109,7 +109,7 @@ def add_mhsa_module(
                 "from": f"{name}_ln",
                 "n_out": size // num_att_heads,
                 "clipping": clipping,
-                "forward_weights_init": get_variance_scaling_init(),
+                # "forward_weights_init": get_variance_scaling_init(),
             },
             f"{name}_self_attention": {
                 "class": "self_attention",
@@ -119,7 +119,7 @@ def add_mhsa_module(
                 "total_key_dim": size,
                 "key_shift": f"{name}_rel_pos_enc",
                 "attention_dropout": dropout,
-                "forward_weights_init": get_variance_scaling_init(),
+                # "forward_weights_init": get_variance_scaling_init(),
             },
             f"{name}_att_linear": {
                 "class": "linear",
@@ -128,7 +128,7 @@ def add_mhsa_module(
                 "n_out": size,
                 "L2": l2,
                 "with_bias": False,
-                "forward_weights_init": get_variance_scaling_init(),
+                # "forward_weights_init": get_variance_scaling_init(),
             },
             f"{name}_dropout": {
                 "class": "copy",
@@ -192,7 +192,7 @@ def add_conv_module(
                 "from": f"{name}_ln",
                 "n_out": size * 2,
                 "L2": l2,
-                "forward_weights_init": get_variance_scaling_init(),
+                # "forward_weights_init": get_variance_scaling_init(),
             },
             f"{name}_glu": {
                 "class": "gating",
@@ -210,7 +210,7 @@ def add_conv_module(
                 "groups": size,
                 "with_bias": True,
                 "L2": l2,
-                "forward_weights_init": get_variance_scaling_init(),
+                # "forward_weights_init": get_variance_scaling_init(),
             },
         }
     )
@@ -245,7 +245,7 @@ def add_conv_module(
                 "from": f"{name}_swish",
                 "n_out": size,
                 "L2": l2,
-                "forward_weights_init": get_variance_scaling_init(),
+                # "forward_weights_init": get_variance_scaling_init(),
             },
             f"{name}_dropout": {
                 "class": "copy",

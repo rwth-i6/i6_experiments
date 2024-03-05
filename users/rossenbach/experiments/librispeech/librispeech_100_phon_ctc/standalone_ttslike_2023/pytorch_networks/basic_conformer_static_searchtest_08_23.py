@@ -252,14 +252,15 @@ class Model(torch.nn.Module):
         fe_config = DbMelFeatureExtractionConfig.from_dict(net_kwargs["fe_config"])
         frontend_config = TwoLayer1DFrontendConfig(
             in_features=80,
-            conv1_channels=128,
+
+            conv1_channels=256,
             conv1_kernel_size=5,
             conv1_stride=2,
-            conv2_channels=192,
+            conv2_channels=256,
             conv2_stride=1,
             conv2_kernel_size=5,
         )
-        conformer_size = 192
+        conformer_size = 256
         conformer_config = ConformerEncoderV1Config(
             num_layers=8,
             frontend=ModuleFactoryV1(module_class=TwoLayer1DFrontend, cfg=frontend_config),
@@ -285,8 +286,8 @@ class Model(torch.nn.Module):
 
         run_ctx = get_run_ctx()
         dataset = run_ctx.engine.train_dataset or run_ctx.engine.forward_dataset
-        self.label_target_size = len(dataset.datasets["zip_dataset"].targets.labels)
-
+        # self.label_target_size = len(dataset.datasets["zip_dataset"].targets.labels)
+        self.label_target_size = 44 
         self.feature_extraction = DbMelFeatureExtraction(config=fe_config)
         self.conformer = ConformerEncoderV1(cfg=conformer_config)
         self.final_linear = nn.Linear(conformer_size, self.label_target_size + 1)  # + CTC blank
@@ -332,7 +333,7 @@ class Model(torch.nn.Module):
 
         log_probs = torch.log_softmax(logits, dim=2)
 
-        return log_probs, torch.sum(out_mask, dim=1)
+        return log_probs, torch.sum(out_mask, dim=1), logits
 
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):
@@ -343,7 +344,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     phon_labels = data["phon_labels"]  # [B, N] (sparse)
     phon_labels_len = data["phon_labels:size1"]  # [B, N]
 
-    logprobs, audio_features_len = model(
+    logprobs, audio_features_len, _ = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
@@ -364,17 +365,27 @@ def forward_init_hook(run_ctx, **kwargs):
     # we are storing durations, but call it output.hdf to match
     # the default output of the ReturnnForwardJob
     from torchaudio.models.decoder import ctc_decoder
+    lexicon = kwargs["lexicon"]
+    import subprocess
+    lm = subprocess.check_output(["cf", kwargs["arpa_lm"]]).decode().strip()
     run_ctx.recognition_file = open("search_out.py", "wt")
     run_ctx.recognition_file.write("{\n")
-    labels = run_ctx.engine.forward_dataset.datasets["zip_dataset"].targets.labels
+    # labels = run_ctx.engine.forward_dataset.datasets["zip_dataset"].targets.labels
+    from returnn.datasets.util.vocabulary import Vocabulary
+    vocab = Vocabulary.create_vocab(
+        vocab_file="/work/asr4/rossenbach/sisyphus_work_folders/tts_asr_2021_work/i6_core/returnn/vocabulary/ReturnnVocabFromPhonemeInventory.bGffsZiLXE8z/output/vocab.pkl", unknown_label="[UNKNOWN]")
+    labels = vocab.labels
     run_ctx.ctc_decoder = ctc_decoder(
-        lexicon=None,
-        tokens=labels + ["[blank]", "[SILENCE]"],
-        blank_token="[blank]",
-        sil_token="[SILENCE]",
-        unk_word="[UNKNOWN]",
-        nbest=1,
-        beam_size=1,
+            lexicon=lexicon,
+            lm=lm,
+            lm_weight=kwargs["lm_weight"],
+            tokens=labels,
+            blank_token="[blank]",
+            sil_token="[space]",
+            unk_word="[UNKNOWN]",
+            nbest=1,
+            beam_size=kwargs["beam_size"],
+
     )
     run_ctx.labels = labels
 
@@ -383,19 +394,34 @@ def forward_finish_hook(run_ctx, **kwargs):
     run_ctx.recognition_file.write("}\n")
     run_ctx.recognition_file.close()
 
+    # write empty HDF until new ForwardJob exists
+    f = open("output.hdf", "wt")
+    f.write(" ")
+    f.close()
+
+
 def search_step(*, model: Model, data, run_ctx, **kwargs):
     raw_audio = data["raw_audio"]  # [B, T', F]
     raw_audio_len = data["raw_audio:size1"]  # [B]
 
-    logprobs, audio_features_len = model(
+    logprobs, audio_features_len, logits = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
-
     tags = data["seq_tag"]
-
-    hypothesis = run_ctx.ctc_decoder(logprobs.cpu(), audio_features_len.cpu())
+    # for i in range(10):
+    #     hypothesis = run_ctx.ctc_decoders[i](logprobs.cpu(), audio_features_len.cpu())
+    #     hyp = hypothesis[0]
+    #     words = hyp[0].words
+    #     sequence = " ".join([word for word in words if not word.startswith("[")])
+    #     print("LM-Scale %i" % (i + 1))
+    #     print(sequence)
+    # assert False
+    start = time.time()
+    hypothesis = run_ctx.ctc_decoder(logits.cpu(), audio_features_len.cpu())
+    print("decoding_time: %.2f" % (time.time() - start))
     for hyp, tag in zip (hypothesis, tags):
-        tokens = hyp[0].tokens.numpy()
-        sequence = " ".join([run_ctx.labels[i] for i in tokens[1:-2]])
+        words = hyp[0].words
+        sequence = " ".join([word for word in words if not word.startswith("[")])
+        print(sequence)
         run_ctx.recognition_file.write("%s: %s,\n" % (repr(tag), repr(sequence)))

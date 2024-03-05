@@ -13,7 +13,6 @@ from i6_experiments.users.berger.network.helpers.conformer import (
 )
 from i6_experiments.users.berger.network.helpers.mlp import add_feed_forward_stack
 from i6_experiments.users.berger.network.helpers.output import add_softmax_output
-from returnn.tf.util.data import batch_dim
 
 
 def add_output(
@@ -134,6 +133,8 @@ def make_conformer_hybrid_dual_output_model(
 
     # *** Auxiliary loss ***
     for block, scale in aux_loss_01_blocks:
+        from returnn.tf.util.data import batch_dim
+
         network[f"conformer_01_block_{block}_split"] = {
             "class": "split_dims",
             "from": blocks[block - 1],
@@ -174,6 +175,7 @@ def make_conformer_hybrid_dual_output_model(
         from_list = add_initial_conv(network, "vgg_conv_mix", from_list=mix_features, **init_conv_args)
 
         enc_mix, _ = add_conformer_stack(network, from_list=from_list, name="conformer_mix", **conformer_mix_args)
+        # from returnn.tf.util.data import batch_dim
         # network["encoder_01_split_dim"] = {
         #     "class": "split_dims",
         #     "from": enc_01,
@@ -230,6 +232,8 @@ def make_conformer_hybrid_dual_output_model(
 
         # *** Auxiliary loss ***
         for block, scale in aux_loss_01_mix_blocks:
+            from returnn.tf.util.data import batch_dim
+
             network[f"conformer_01_mix_block_{block}_split"] = {
                 "class": "split_dims",
                 "from": blocks[block - 1],
@@ -263,6 +267,8 @@ def make_conformer_hybrid_dual_output_model(
                 )
 
     # *** Final loss ***
+    from returnn.tf.util.data import batch_dim
+
     network[f"conformer_output_split"] = {
         "class": "split_dims",
         "from": enc_01,

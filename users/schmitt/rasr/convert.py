@@ -5,10 +5,11 @@ from i6_core.rasr.config import build_config_from_mapping
 from i6_core.rasr.command import RasrCommand
 
 import subprocess
-import tempfile
 import shutil
 import ast
 import json
+import gzip
+from typing import List
 
 
 class RASRLatticeToCTMJob(Job):
@@ -23,7 +24,7 @@ class RASRLatticeToCTMJob(Job):
     self.out_ctm = self.output_path("lattice.ctm.1")
 
   def tasks(self):
-    yield Task("run", rqmt={"cpu": 1, "mem": self.mem_rqmt, "time": self.time_rqmt})
+    yield Task("run", rqmt={"cpu": 1, "mem": self.mem_rqmt, "time": self.time_rqmt}, mini_task=True)
 
   def run(self):
     config, post_config = build_config_from_mapping(self.crp, {
@@ -109,7 +110,7 @@ class BPEJSONVocabToRasrFormatsJob(Job):
     self.out_state_tying = self.output_path("out_state_tying")
 
   def tasks(self):
-    yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 1})
+    yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 1}, mini_task=True)
 
   def run(self):
     # load json vocab
@@ -172,7 +173,7 @@ class PhonJSONVocabToRasrFormatsJob(Job):
     self.out_state_tying = self.output_path("out_state_tying")
 
   def tasks(self):
-    yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 1})
+    yield Task("run", rqmt={"cpu": 1, "mem": 1, "time": 1}, mini_task=True)
 
   def run(self):
     # load json vocab
@@ -240,3 +241,70 @@ class PhonJSONVocabToRasrFormatsJob(Job):
 
     with open(self.out_state_tying.get_path(), "w+") as f:
       f.writelines(state_tying)
+
+
+class LabelFileToWordListJob(Job):
+  """
+  Convert a RASR label file (<label> <idx>) to a list of words.
+  """
+
+  def __init__(self, label_file_path: Path, labels_to_exclude: List[str]):
+    self.label_file_path = label_file_path
+    self.labels_to_exclude = labels_to_exclude
+    self.out_word_list_file = self.output_path("out_word_list")
+
+  def tasks(self):
+    yield Task("run", rqmt={
+      "cpu": 1,
+      "mem": 1,
+      "time": 1
+    }, mini_task=True)
+
+  def run(self):
+    labels = []
+    with open(self.label_file_path, "r") as f:
+      for line in f:
+        label = line.strip().split()[0]
+        if label in self.labels_to_exclude:
+          continue
+        labels.append(label)
+
+    with open(self.out_word_list_file, "w+") as f:
+      for label in labels:
+        f.write(label + "\n")
+
+
+class ArpaLMToWordListJob(Job):
+  """
+  Convert an ARPA LM file (<float>\t<n-gram>\t<float>) to a list of words.
+  """
+
+  def __init__(self, arpa_lm_file_path: Path, labels_to_exclude: List[str]):
+    self.arpa_lm_file_path = arpa_lm_file_path
+    self.labels_to_exclude = labels_to_exclude
+    self.out_word_list_file = self.output_path("out_word_list")
+
+  def tasks(self):
+    yield Task("run", rqmt={
+      "cpu": 1,
+      "mem": 1,
+      "time": 1
+    }, mini_task=True)
+
+  def run(self):
+    labels = []
+    with gzip.open(self.arpa_lm_file_path, "r") as f:
+      for line in f:
+        if line.startswith(b"\\data\\") or line.startswith(b"ngram") or line.strip() == b"" or line.startswith(b"\\1-grams"):
+          continue
+        elif line.startswith(b"\\2-grams"):
+          break
+        else:
+          label = line.strip().split(b"\t")[1].decode("utf-8")
+          if label in self.labels_to_exclude:
+            continue
+          labels.append(label)
+
+    with open(self.out_word_list_file, "w+") as f:
+      for label in labels:
+        f.write(label + "\n")

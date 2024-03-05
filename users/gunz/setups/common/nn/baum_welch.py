@@ -9,11 +9,12 @@ from sisyphus.delayed_ops import DelayedFormat
 from i6_core import rasr, returnn
 
 
-@dataclass
+@dataclass(frozen=True, eq=True)
 class BwScales:
     label_posterior_scale: float
-    label_prior_scale: typing.Optional[float]
     transition_scale: float
+
+    label_prior_scale: typing.Optional[float] = None
 
     @classmethod
     def default(cls) -> "BwScales":
@@ -73,7 +74,7 @@ def augment_for_fast_bw(
     crp: rasr.CommonRasrParameters,
     returnn_config: returnn.ReturnnConfig,
     log_linear_scales: BwScales = None,
-    from_output_softmax_layer: str = "center-output",
+    from_output_layer: str = "center-output",
     label_prior: typing.Optional[returnn.CodeWrapper] = None,
     extra_rasr_config: typing.Optional[rasr.RasrConfig] = None,
     extra_rasr_post_config: typing.Optional[rasr.RasrConfig] = None,
@@ -107,14 +108,14 @@ def augment_for_fast_bw(
         assert label_prior is not None, "Hybrid HMM needs a transcription based prior for fullsum training"
 
         # Here we are creating a standard hybrid HMM, without prior we have a posterior HMM
-        prior_name = f"{layer_prefix}prior-{from_output_softmax_layer}"
+        prior_name = f"{layer_prefix}prior-{from_output_layer}"
         network[prior_name] = {
             "class": "constant",
             "dtype": "float32",
             "value": label_prior,
         }
 
-        comb_name = f"{layer_prefix}comb-prior-{from_output_softmax_layer}"
+        comb_name = f"{layer_prefix}comb-prior-{from_output_layer}"
         network[comb_name] = {
             "class": "combine",
             "kind": "eval",
@@ -123,20 +124,20 @@ def augment_for_fast_bw(
                 "am_scale": log_linear_scales.label_posterior_scale,
                 "prior_scale": log_linear_scales.label_prior_scale,
             },
-            "from": [from_output_softmax_layer, prior_name],
+            "from": [from_output_layer, prior_name],
         }
 
         inputs = comb_name
     else:
         # We are creating a posterior HMM (P-HMM)
 
-        comb_name = f"{layer_prefix}multiply-scale-{from_output_softmax_layer}"
+        comb_name = f"{layer_prefix}multiply-scale-{from_output_layer}"
         network[comb_name] = {
             "class": "combine",
             "kind": "eval",
             "eval": "am_scale * (safe_log(source(0)))",
             "eval_locals": {"am_scale": log_linear_scales.label_posterior_scale},
-            "from": from_output_softmax_layer,
+            "from": from_output_layer,
         }
 
         inputs = comb_name
@@ -144,15 +145,15 @@ def augment_for_fast_bw(
     bw_calc_layer_name = f"{layer_prefix}{bw_calculation_layer_name}"
     network[f"{layer_prefix}{bw_output_layer_name}"] = {
         "class": "copy",
-        "from": from_output_softmax_layer,
+        "from": from_output_layer,
         "loss": "via_layer",
-        "loss_opts": {"align_layer": bw_calc_layer_name, "loss_wrt_to_act_in": "softmax"},
+        "loss_opts": {
+            "align_layer": bw_calc_layer_name,
+            "loss_wrt_to_act_in": "softmax",
+        },
         "loss_scale": bw_loss_scale,
     }
     # network["fast_bw"] defined further below...
-
-    returnn_config.config.pop("chunking", None)
-    returnn_config.config.pop("pretrain", None)
 
     config, post_config = get_bw_crp(crp, extra_rasr_config, extra_rasr_post_config)
     rasr_cfg_job = rasr.WriteRasrConfigJob(config, post_config)
@@ -170,5 +171,8 @@ def augment_for_fast_bw(
         },
         "tdp_scale": log_linear_scales.transition_scale,
     }
+
+    returnn_config.config.pop("chunking", None)
+    returnn_config.config.pop("pretrain", None)
 
     return returnn_config

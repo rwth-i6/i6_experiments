@@ -12,6 +12,7 @@ from sisyphus import tk
 from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
+from i6_core.returnn.training import ReturnnTrainingJob, PtCheckpoint, AverageTorchCheckpointsJob
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, SearchTakeBestJob
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from returnn_common import nn
@@ -22,7 +23,8 @@ from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, ModelWithCheckpoint, ModelWithCheckpoints
+from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, serialize_model_def
+from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 
 if TYPE_CHECKING:
@@ -35,22 +37,36 @@ def recog_training_exp(
     model: ModelWithCheckpoints,
     recog_def: RecogDef,
     *,
+    search_config: Dict[str, Any] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
     exclude_epochs: Collection[int] = (),
+    model_avg: bool = False,
 ):
     """recog on all relevant epochs"""
+    recog_and_score_func = _RecogAndScoreFunc(
+        prefix_name,
+        task,
+        model,
+        recog_def,
+        search_config=search_config,
+        search_post_config=search_post_config,
+        search_mem_rqmt=search_mem_rqmt,
+    )
     summarize_job = GetBestRecogTrainExp(
         exp=model,
-        recog_and_score_func=_RecogAndScoreFunc(
-            prefix_name, task, model, recog_def, search_post_config=search_post_config, search_mem_rqmt=search_mem_rqmt
-        ),
+        recog_and_score_func=recog_and_score_func,
         main_measure_lower_is_better=task.main_measure_type.lower_is_better,
         exclude_epochs=exclude_epochs,
     )
     summarize_job.add_alias(prefix_name + "/train-summarize")
     tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
     tk.register_output(prefix_name + "/recog_results_all_epochs", summarize_job.out_results_all_epochs_json)
+    if model_avg:
+        model_avg_res_job = GetTorchAvgModelResult(
+            exp=model, recog_and_score_func=recog_and_score_func, exclude_epochs=exclude_epochs
+        )
+        tk.register_output(prefix_name + "/recog_results_model_avg", model_avg_res_job.out_results)
 
 
 class _RecogAndScoreFunc:
@@ -61,6 +77,7 @@ class _RecogAndScoreFunc:
         model: ModelWithCheckpoints,
         recog_def: RecogDef,
         *,
+        search_config: Optional[Dict[str, Any]] = None,
         search_post_config: Optional[Dict[str, Any]] = None,
         search_mem_rqmt: Union[int, float] = 6,
     ):
@@ -69,19 +86,27 @@ class _RecogAndScoreFunc:
         self.task = task
         self.model = model
         self.recog_def = recog_def
+        self.search_config = search_config
         self.search_post_config = search_post_config
         self.search_mem_rqmt = search_mem_rqmt
 
-    def __call__(self, epoch: int) -> ScoreResultCollection:
-        model_with_checkpoint = self.model.get_epoch(epoch)
+    def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> ScoreResultCollection:
+        if isinstance(epoch_or_ckpt, int):
+            model_with_checkpoint = self.model.get_epoch(epoch_or_ckpt)
+        elif isinstance(epoch_or_ckpt, PtCheckpoint):
+            model_with_checkpoint = ModelWithCheckpoint(definition=self.model.definition, checkpoint=epoch_or_ckpt)
+        else:
+            raise TypeError(f"{self} unexpected type {type(epoch_or_ckpt)}")
         res = recog_model(
             self.task,
             model_with_checkpoint,
             self.recog_def,
+            config=self.search_config,
             search_post_config=self.search_post_config,
             search_mem_rqmt=self.search_mem_rqmt,
         )
-        tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch:03}", res.output)
+        if isinstance(epoch_or_ckpt, int):
+            tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}", res.output)
         return res
 
     def _sis_hash(self) -> bytes:
@@ -92,6 +117,8 @@ class _RecogAndScoreFunc:
         del d["prefix_name"]
         del d["search_post_config"]
         del d["search_mem_rqmt"]
+        if not self.search_config:
+            del d["search_config"]  # compat
         # Not the whole task object is relevant but only some minimal parts.
         task = d.pop("task")
         assert isinstance(task, Task)
@@ -106,6 +133,7 @@ def recog_model(
     model: ModelWithCheckpoint,
     recog_def: RecogDef,
     *,
+    config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
     dev_sets: Optional[Collection[str]] = None,
@@ -122,6 +150,7 @@ def recog_model(
             dataset=dataset,
             model=model,
             recog_def=recog_def,
+            config=config,
             search_post_config=search_post_config,
             search_mem_rqmt=search_mem_rqmt,
             recog_post_proc_funcs=task.recog_post_proc_funcs,
@@ -136,6 +165,7 @@ def search_dataset(
     dataset: DatasetConfig,
     model: ModelWithCheckpoint,
     recog_def: RecogDef,
+    config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
@@ -147,7 +177,9 @@ def search_dataset(
         search_job = ReturnnSearchJobV2(
             search_data=dataset.get_main_dataset(),
             model_checkpoint=model.checkpoint,
-            returnn_config=search_config(dataset, model.definition, recog_def, post_config=search_post_config),
+            returnn_config=search_config(
+                dataset, model.definition, recog_def, config=config, post_config=search_post_config
+            ),
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
             returnn_root=tools_paths.get_returnn_root(),
             output_gzip=True,
@@ -156,10 +188,15 @@ def search_dataset(
         )
         res = search_job.out_search_file
     else:
+        out_files = [_v2_forward_out_filename]
+        if config and config.get("__recog_def_ext", False):
+            out_files.append(_v2_forward_ext_out_filename)
         forward_job = ReturnnForwardJobV2(
             model_checkpoint=model.checkpoint,
-            returnn_config=search_config_v2(dataset, model.definition, recog_def, post_config=search_post_config),
-            output_files=[_v2_forward_out_filename],
+            returnn_config=search_config_v2(
+                dataset, model.definition, recog_def, config=config, post_config=search_post_config
+            ),
+            output_files=out_files,
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
             returnn_root=tools_paths.get_returnn_root(),
             mem_rqmt=search_mem_rqmt,
@@ -192,6 +229,7 @@ def search_config(
     model_def: ModelDef,
     recog_def: RecogDef,
     *,
+    config: Optional[Dict[str, Any]] = None,
     post_config: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
     """
@@ -204,6 +242,7 @@ def search_config(
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
         dev=dataset.get_main_dataset(),
+        **(config or {}),
     )
 
     extern_data_raw = dataset.get_extern_data()
@@ -244,6 +283,10 @@ def search_config(
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # flat_net_construction=True,
+            torch_log_memory_usage=True,
+            watch_memory=True,
+            use_lovely_tensors=True,
+            forward_auto_split_batch_on_oom=True,
         ),
         sort_config=False,
     )
@@ -269,9 +312,10 @@ def search_config(
 
 def search_config_v2(
     dataset: DatasetConfig,
-    model_def: ModelDef,
+    model_def: Union[ModelDef, ModelDefWithCfg],
     recog_def: RecogDef,
     *,
+    config: Optional[Dict[str, Any]] = None,
     post_config: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
     """
@@ -289,6 +333,10 @@ def search_config_v2(
         target=dataset.get_default_target(),
         forward_data=dataset.get_main_dataset(),
     )
+    if config:
+        returnn_recog_config_dict.update(config)
+    if isinstance(model_def, ModelDefWithCfg):
+        returnn_recog_config_dict.update(model_def.config)
 
     extern_data_raw = dataset.get_extern_data()
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
@@ -305,7 +353,7 @@ def search_config_v2(
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
-                    serialization.Import(model_def, import_as="_model_def", ignore_import_as_for_hash=True),
+                    *serialize_model_def(model_def),
                     serialization.Import(_returnn_v2_get_model, import_as="get_model"),
                     serialization.Import(recog_def, import_as="_recog_def", ignore_import_as_for_hash=True),
                     serialization.Import(_returnn_v2_forward_step, import_as="forward_step"),
@@ -328,17 +376,28 @@ def search_config_v2(
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # flat_net_construction=True,
+            torch_log_memory_usage=True,
+            watch_memory=True,
+            use_lovely_tensors=True,
         ),
         sort_config=False,
     )
 
-    (returnn_recog_config.config if recog_def.batch_size_dependent else returnn_recog_config.post_config).update(
-        dict(
-            batching="sorted",
-            batch_size=20000 * model_def.batch_size_factor,
-            max_seqs=200,
-        )
-    )
+    batch_size_dependent = recog_def.batch_size_dependent
+    if "__batch_size_dependent" in returnn_recog_config.config:
+        batch_size_dependent = returnn_recog_config.config.pop("__batch_size_dependent")
+    if "__batch_size_dependent" in returnn_recog_config.post_config:
+        batch_size_dependent = returnn_recog_config.post_config.pop("__batch_size_dependent")
+    for k, v in dict(
+        batching="sorted",
+        batch_size=20000 * model_def.batch_size_factor,
+        max_seqs=200,
+    ).items():
+        if k in returnn_recog_config.config:
+            v = returnn_recog_config.config.pop(k)
+        if k in returnn_recog_config.post_config:
+            v = returnn_recog_config.post_config.pop(k)
+        (returnn_recog_config.config if batch_size_dependent else returnn_recog_config.post_config)[k] = v
 
     if post_config:
         returnn_recog_config.post_config.update(post_config)
@@ -396,7 +455,7 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
 
 def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     import returnn.frontend as rf
-    from returnn.tensor import batch_dim
+    from returnn.tensor import Tensor, Dim, batch_dim
     from returnn.config import get_global_config
 
     config = get_global_config()
@@ -404,26 +463,55 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     data = extern_data[default_input_key]
     data_spatial_dim = data.get_time_dim_tag()
     recog_def = config.typed_value("_recog_def")
-    recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim)
-    # recog results including beam {batch, beam, out_spatial},
-    # log probs {batch, beam},
-    # out_spatial_dim,
-    # final beam_dim
-    hyps, scores, out_spatial_dim, beam_dim = recog_out
+    extra = {}
+    if config.bool("cheating", False):
+        default_target_key = config.typed_value("target")
+        targets = extern_data[default_target_key]
+        extra.update(dict(targets=targets, targets_spatial_dim=targets.get_time_dim_tag()))
+    recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, **extra)
+    if len(recog_out) == 5:
+        # recog results including beam {batch, beam, out_spatial},
+        # log probs {batch, beam},
+        # extra outputs {batch, beam, ...},
+        # out_spatial_dim,
+        # final beam_dim
+        assert len(recog_out) == 5, f"mismatch, got {len(recog_out)} outputs with recog_def_ext=True"
+        hyps, scores, extra, out_spatial_dim, beam_dim = recog_out
+    elif len(recog_out) == 4:
+        # same without extra outputs
+        assert len(recog_out) == 4, f"mismatch, got {len(recog_out)} outputs recog_def_ext=False"
+        hyps, scores, out_spatial_dim, beam_dim = recog_out
+        extra = {}
+    else:
+        raise ValueError(f"unexpected num outputs {len(recog_out)} from recog_def")
+    assert isinstance(hyps, Tensor) and isinstance(scores, Tensor)
+    assert isinstance(out_spatial_dim, Dim) and isinstance(beam_dim, Dim)
     rf.get_run_ctx().mark_as_output(hyps, "hyps", dims=[batch_dim, beam_dim, out_spatial_dim])
     rf.get_run_ctx().mark_as_output(scores, "scores", dims=[batch_dim, beam_dim])
+    assert isinstance(extra, dict)
+    for k, v in extra.items():
+        assert isinstance(k, str) and isinstance(v, Tensor)
+        assert v.dims[:2] == (batch_dim, beam_dim)
+        rf.get_run_ctx().mark_as_output(v, k, dims=v.dims)
 
 
 _v2_forward_out_filename = "output.py.gz"
+_v2_forward_ext_out_filename = "output_ext.py.gz"
 
 
 def _returnn_v2_get_forward_callback():
+    from typing import TextIO
     from returnn.tensor import Tensor, TensorDict
     from returnn.forward_iface import ForwardCallbackIface
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    recog_def_ext = config.bool("__recog_def_ext", False)
 
     class _ReturnnRecogV2ForwardCallbackIface(ForwardCallbackIface):
         def __init__(self):
-            self.out_file = None
+            self.out_file: Optional[TextIO] = None
+            self.out_ext_file: Optional[TextIO] = None
 
         def init(self, *, model):
             import gzip
@@ -431,26 +519,47 @@ def _returnn_v2_get_forward_callback():
             self.out_file = gzip.open(_v2_forward_out_filename, "wt")
             self.out_file.write("{\n")
 
+            if recog_def_ext:
+                self.out_ext_file = gzip.open(_v2_forward_ext_out_filename, "wt")
+                self.out_ext_file.write("{\n")
+
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
             hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
             scores: Tensor = outputs["scores"]  # [beam]
             assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
             assert hyps.dims[1].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
-            hyps_len = hyps.dims[1].dyn_size_ext  # [beam]
-            assert hyps.raw_tensor.shape[:1] == hyps_len.raw_tensor.shape == scores.raw_tensor.shape  # (beam,)
+            # AED/Transducer etc will have hyps len depending on beam -- however, CTC will not.
+            hyps_len = hyps.dims[1].dyn_size_ext  # [beam] or []
+            assert hyps.raw_tensor.shape[:1] == scores.raw_tensor.shape  # (beam,)
+            if hyps_len.raw_tensor.shape:
+                assert scores.raw_tensor.shape == hyps_len.raw_tensor.shape  # (beam,)
             num_beam = hyps.raw_tensor.shape[0]
             # Consistent to old search task, list[(float,str)].
             self.out_file.write(f"{seq_tag!r}: [\n")
             for i in range(num_beam):
                 score = float(scores.raw_tensor[i])
-                hyp_ids = hyps.raw_tensor[i, : hyps_len.raw_tensor[i]]
+                hyp_ids = hyps.raw_tensor[
+                    i, : hyps_len.raw_tensor[i] if hyps_len.raw_tensor.shape else hyps_len.raw_tensor
+                ]
                 hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
                 self.out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
             self.out_file.write("],\n")
 
+            if self.out_ext_file:
+                self.out_ext_file.write(f"{seq_tag!r}: [\n")
+                for v in outputs.data.values():
+                    assert v.dims[0].dimension == num_beam
+                for i in range(num_beam):
+                    d = {k: v.raw_tensor[i].tolist() for k, v in outputs.data.items() if k not in {"hyps", "scores"}}
+                    self.out_ext_file.write(f"  {d!r},\n")
+                self.out_ext_file.write("],\n")
+
         def finish(self):
             self.out_file.write("}\n")
             self.out_file.close()
+            if self.out_ext_file:
+                self.out_ext_file.write("}\n")
+                self.out_ext_file.close()
 
     return _ReturnnRecogV2ForwardCallbackIface()
 
@@ -572,3 +681,164 @@ class GetBestRecogTrainExp(sisyphus.Job):
                 f.write(f'  "{epoch}": {json.dumps(res)}')
                 count += 1
             f.write("\n}\n")
+
+
+class GetTorchAvgModelResult(sisyphus.Job):
+    """
+    Collect all info from recogs.
+    The output is a JSON dict with the format::
+
+        {
+            'best_scores': {...}  (ScoreResultCollection)
+            'best_epoch': int,  (sub-epoch by RETURNN)
+            ...  (other meta info)
+        }
+    """
+
+    def __init__(
+        self,
+        exp: ModelWithCheckpoints,
+        *,
+        recog_and_score_func: Callable[[PtCheckpoint], ScoreResultCollection],
+        end_fraction: float = 0.1,
+        train_scores_n_best: Optional[int] = 2,
+        include_fixed_epochs: bool = False,
+        include_last_n: Optional[int] = 2,
+        exclude_epochs: Collection[int] = (),
+    ):
+        """
+        :param exp: model, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
+        :param recog_and_score_func: epoch -> scores. called in graph proc
+        :param end_fraction: takes the last models, e.g. 0.05 means, if last epoch is 500, take only from epochs 450-500
+        :param train_scores_n_best: take best N via dev scores from train job (per each measure) (if in end_fraction)
+            If None, determine automatically from returnn config. Use 0 to disable.
+        :param include_fixed_epochs: consider all `keep` epochs (but only if inside end_fraction)
+        :param include_last_n: make sure less or equal to keep_last_n (only those inside end_fraction).
+            If None, determine automatically from returnn config. Use 0 to disable.
+        :param exclude_epochs:
+        """
+        super(GetTorchAvgModelResult, self).__init__()
+        self.exp = exp
+        self.recog_and_score_func = recog_and_score_func
+        self.end_fraction = end_fraction
+        self.exclude_epochs = exclude_epochs
+        self._update_checked_relevant_epochs = False
+        self.out_avg_checkpoint = PtCheckpoint(self.output_path("model/average.pt"))
+        self.out_results = self.output_path("results.json")
+        self.out_main_measure_value = self.output_path("main_measure_value.json")
+        self.res = ScoreResultCollection(main_measure_value=self.out_main_measure_value, output=self.out_results)
+        self.out_merged_epochs_list = self.output_path("merged_epochs_list.json")
+        self._in_checkpoints: Dict[int, PtCheckpoint] = {}
+        self._in_avg_checkpoint: Optional[PtCheckpoint] = None
+        self._scores_output: Optional[ScoreResultCollection] = None
+        self.last_epoch = exp.last_fixed_epoch_idx
+        self.first_epoch = int(exp.last_fixed_epoch_idx * (1 - end_fraction))
+        if train_scores_n_best is None:
+            train_scores_n_best = self._get_keep_best_n_from_learning_rate_file(exp.scores_and_learning_rates)
+        self.train_scores_n_best = train_scores_n_best
+        if include_fixed_epochs:
+            for epoch in exp.fixed_epochs:
+                self._add_recog(epoch)
+        if include_last_n is None:
+            include_last_n = self._get_keep_last_n_from_learning_rate_file(exp.scores_and_learning_rates)
+        for epoch in range(self.last_epoch - include_last_n + 1, self.last_epoch + 1):
+            self._add_recog(epoch)
+        self.update()
+
+    @staticmethod
+    def _get_keep_last_n_from_learning_rate_file(lr_file: tk.Path) -> int:
+        # exp.fixed_epochs does not cover keep_last_n (intentionally, it does not want to cover too much),
+        # but for the model average, we want to consider those as well.
+        training_job = lr_file.creator
+        assert isinstance(training_job, ReturnnTrainingJob)
+        cleanup_old_models = training_job.returnn_config.post_config.get("cleanup_old_models", None)
+        keep_last_n = cleanup_old_models.get("keep_last_n", None) if isinstance(cleanup_old_models, dict) else None
+        if keep_last_n is None:
+            keep_last_n = 2  # default
+        return keep_last_n
+
+    @staticmethod
+    def _get_keep_best_n_from_learning_rate_file(lr_file: tk.Path) -> int:
+        # exp.fixed_epochs does not cover keep_last_n (intentionally, it does not want to cover too much),
+        # but for the model average, we want to consider those as well.
+        training_job = lr_file.creator
+        assert isinstance(training_job, ReturnnTrainingJob)
+        cleanup_old_models = training_job.returnn_config.post_config.get("cleanup_old_models", None)
+        keep_best_n = cleanup_old_models.get("keep_best_n", None) if isinstance(cleanup_old_models, dict) else None
+        if keep_best_n is None:
+            keep_best_n = 4  # default
+        return keep_best_n
+
+    def update(self):
+        """
+        This is run when all inputs have become available,
+        and we can potentially add further inputs.
+        The exp (ModelWithCheckpoints) includes a ref to scores_and_learning_rates
+        which is only available when the training job finished,
+        thus this is only run at the very end.
+
+        Note that this is thus called multiple times,
+        once scores_and_learning_rates becomes available,
+        and then once the further recogs become available.
+        However, only want to check for relevant checkpoints once.
+        """
+        if not self._update_checked_relevant_epochs and self.exp.scores_and_learning_rates.available():
+            from datetime import datetime
+
+            log_filename = tk.Path("update.log", self).get_path()
+            os.makedirs(os.path.dirname(log_filename), exist_ok=True)
+            with open(log_filename, "a") as log_stream:
+                log_stream.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                log_stream.write(": get_relevant_epochs_from_training_learning_rate_scores\n")
+                for epoch in get_relevant_epochs_from_training_learning_rate_scores(
+                    model_dir=self.exp.model_dir,
+                    model_name=self.exp.model_name,
+                    scores_and_learning_rates=self.exp.scores_and_learning_rates,
+                    n_best=self.train_scores_n_best,
+                    log_stream=log_stream,
+                ):
+                    self._add_recog(epoch)
+            self._update_checked_relevant_epochs = True
+            self._make_output()
+
+    def _add_recog(self, epoch: int):
+        if epoch < self.first_epoch:
+            return
+        if epoch in self.exclude_epochs:
+            return
+        if epoch in self._in_checkpoints:
+            return
+        self._in_checkpoints[epoch] = self.exp.get_epoch(epoch).checkpoint
+
+    def _make_output(self):
+        in_checkpoints = [ckpt for epoch, ckpt in sorted(self._in_checkpoints.items())]
+        in_avg_checkpoint = AverageTorchCheckpointsJob(
+            checkpoints=in_checkpoints,
+            returnn_python_exe=tools_paths.get_returnn_python_exe(),
+            returnn_root=tools_paths.get_returnn_root(),
+        ).out_checkpoint
+        self._in_avg_checkpoint = in_avg_checkpoint
+        self.add_input(in_avg_checkpoint.path)
+        res = self.recog_and_score_func(in_avg_checkpoint)
+        assert isinstance(res, ScoreResultCollection)
+        self.add_input(res.main_measure_value)
+        self.add_input(res.output)
+        self._scores_output = res
+
+    def tasks(self) -> Iterator[sisyphus.Task]:
+        """tasks"""
+        yield sisyphus.Task("run", mini_task=True)
+
+    def run(self):
+        """run"""
+        import shutil
+
+        shutil.copy(self._scores_output.main_measure_value.get_path(), self.out_main_measure_value.get_path())
+        shutil.copy(self._scores_output.output.get_path(), self.out_results.get_path())
+        # We don't want to copy the checkpoint if we can avoid it.
+        # Currently assume a hardlink is always possible.
+        os.makedirs(os.path.dirname(self.out_avg_checkpoint.path.get_path()), exist_ok=True)
+        os.link(self._in_avg_checkpoint.path.get_path(), self.out_avg_checkpoint.path.get_path())
+
+        with open(self.out_merged_epochs_list.get_path(), "w") as f:
+            f.write("[%s]\n" % ", ".join(str(ep) for ep in sorted(self._in_checkpoints.keys())))
