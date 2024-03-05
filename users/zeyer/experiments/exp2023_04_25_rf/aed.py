@@ -485,6 +485,15 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "pruning_threshold": 2.0,
             },
         },
+        "beam12-batch200-lenReward02-thresh2-zeros01": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.2,
+                "pruning_threshold": 2.0,
+            },
+            "data_concat_zeros": 0.1,
+        },
         "beam12-batch200-lenReward02-thresh2-cov05": {
             "beam_search_opts": {
                 "beam_size": 12,
@@ -510,6 +519,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_reward": 0.0,
                 "pruning_threshold": 2.0,
                 "attention_coverage_scale": 0.5,
+            },
+        },
+        "beam12-batch200-lenReward0-thresh2-cov05-covInd": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.0,
+                "pruning_threshold": 2.0,
+                "attention_coverage_scale": 0.5,
+                "attention_coverage_opts": {"type": "indicator"},
             },
         },
         "beam12-batch200-lenReward_01-thresh2-cov05": {
