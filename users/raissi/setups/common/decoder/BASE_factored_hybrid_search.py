@@ -1225,7 +1225,7 @@ class BASEFactoredHybridDecoder:
                     opt_lm_am=False,
                     rerun_after_opt_lm=False,
                     search_parameters=dataclasses.replace(
-                        recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_speech=tdp_sp
+                        recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_speech=tdp_sp, pron_scale=pron
                     ).with_prior_scale(left=l, center=c, right=r, diphone=c),
                     remove_or_set_concurrency=False,
                 )
@@ -1264,7 +1264,7 @@ class BASEFactoredHybridDecoder:
                 if cpu_slow:
                     recog_jobs.search.update_rqmt("run", {"cpu_slow": True})
 
-                pre_name = f"{pre_path}/{self.name}/Lm{recog_args.lm_scale}-Pron{recog_args.pron_scale}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{format_tdp(tdp_sl)}-tdpSp{format_tdp(tdp_sp)}-pron{pron}"
+                pre_name = f"{pre_path}/{self.name}/Lm{recog_args.lm_scale}-Pron{pron}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{format_tdp(tdp_sl)}-tdpSp{format_tdp(tdp_sp)}"
 
                 recog_jobs.lat2ctm.set_keep_value(keep_value)
                 recog_jobs.search.set_keep_value(keep_value)
