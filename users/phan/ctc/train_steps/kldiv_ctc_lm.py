@@ -35,15 +35,11 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     sequence_lengths = sequence_lengths.long()
     device = log_probs.device
     batch_size, max_seq_len = targets.shape
-    # pad 0 at the beginning
+    # pad 0 at the beginning a,b,c -> <eos>,a,b,c
     eos_targets = torch.cat(
         [torch.zeros((batch_size, 1), device=targets.device), targets],
         dim=1,
     ).long()
-    # remove last token
-    # a,b,c -> <eos>,a,b
-    # do this to match what the log prefix ctc score computes
-    eos_targets = eos_targets[:, :-1]
     eos_targets_one_hot = torch.nn.functional.one_hot(
         eos_targets,
         num_classes=model.module_dict["student_lm"].cfg.vocab_dim
@@ -68,7 +64,7 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
         log_zero=-1e15,
         eos_idx=None,
     )
-
+    targets_len_rf.raw_tensor += 1 # because the KLDiv is between two tensors of shape (B,S+1,F)
     rf.get_run_ctx().mark_as_loss(
         name="kldiv_ctc_lm", loss=loss, custom_inv_norm_factor=rf.reduce_sum(targets_len_rf, axis=batch_dim)
     )

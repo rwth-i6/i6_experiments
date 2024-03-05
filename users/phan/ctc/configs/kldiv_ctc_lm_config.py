@@ -21,6 +21,7 @@ from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
 from i6_experiments.users.phan.models import multi_model_wrapper, lstm_lm
+from i6_experiments.common.setups.serialization import ExplicitHash
 
 # ********** Settings **********
 
@@ -86,11 +87,14 @@ def returnn_config_generator(
         num_inputs=1,
         num_outputs=num_outputs,
         target="targets",
-        extra_python=[multi_model_wrapper.get_train_serializer(
-            model_config=wrapper_config,
-            module_class_import=module_class_import,
-            train_step_package=wrapper_train_step_package,
-        )],
+        extra_python=[
+            multi_model_wrapper.get_train_serializer(
+                model_config=wrapper_config,
+                module_class_import=module_class_import,
+                train_step_package=wrapper_train_step_package,
+            ),
+            ExplicitHash("log_ctc_pref_scores shape (B, S+1, F) version")
+        ],
         extern_data_config=True,
         backend=Backend.PYTORCH,
         grad_noise=0.0,
