@@ -18,7 +18,7 @@ librispeech_data_path = tk.Path(
 )
 beam_search_script = tk.Path(
     "recipe/i6_experiments/users/zeineldeen/experiments/aed_beam_search/espnet_beam_search.py",
-    hash_overwrite="beam_search_v1",
+    hash_overwrite="beam_search_v3",
 )
 
 baseline_search_args = {

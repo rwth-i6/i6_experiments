@@ -301,7 +301,7 @@ elif args.returnn_recog_args:
 
                 for i, key in enumerate(keys):
                     best_hyp_index = torch.topk(seq_log_scores, 1, dim=-1).indices[0].item()
-                    token_int = seq_targets[i, best_hyp_index, : out_seq_len[i]]  # [1, 1, L]
+                    token_int = seq_targets[i, best_hyp_index, : out_seq_len[i, best_hyp_index]]  # [1, 1, L]
                     token_int = token_int[token_int != 4999]
                     token_int = token_int.tolist()
 
