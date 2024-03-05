@@ -268,8 +268,8 @@ def lbs_960_run_kldiv_ctc_lm() -> SummaryReport:
         #                 )
 
     system.run_train_step(**train_args)
-    system.run_dev_recog_step(**recog_args)
-    system.run_test_recog_step(**recog_args)
+    # system.run_dev_recog_step(**recog_args)
+    # system.run_test_recog_step(**recog_args)
 
     assert system.summary_report
     return system.summary_report
