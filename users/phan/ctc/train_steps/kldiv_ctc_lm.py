@@ -1,0 +1,74 @@
+from returnn.tensor import batch_dim
+from returnn.tensor.tensor_dict import TensorDict
+import returnn.frontend as rf
+import torch
+from i6_experiments.users.phan.ctc.ctc_pref_scores_loss import kldiv_ctc_lm_loss
+
+
+def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
+    audio_features = extern_data["data"].raw_tensor
+    assert extern_data["data"].dims[1].dyn_size_ext is not None
+
+    audio_features_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
+    assert audio_features_len is not None
+
+    assert extern_data["targets"].raw_tensor is not None
+    targets = extern_data["targets"].raw_tensor.long()
+
+    targets_len_rf = extern_data["targets"].dims[1].dyn_size_ext
+    assert targets_len_rf is not None
+    targets_len = targets_len_rf.raw_tensor
+    assert targets_len is not None
+
+    model.train()
+    model.module_dict["teacher_ctc"].eval()
+
+    log_probs, sequence_lengths = model(
+        args = [],
+        kwargs = {
+            "audio_features": audio_features,
+            "audio_features_len": audio_features_len.to("cuda"),
+        },
+        module="teacher_ctc",
+        inference=True,
+    )
+    sequence_lengths = sequence_lengths.long()
+    device = log_probs.device
+    batch_size, max_seq_len = targets.shape
+    # pad 0 at the beginning
+    eos_targets = torch.cat(
+        [torch.zeros((batch_size, 1), device=targets.device), targets],
+        dim=1,
+    ).long()
+    # remove last token
+    # a,b,c -> <eos>,a,b
+    # do this to match what the log prefix ctc score computes
+    eos_targets = eos_targets[:, :-1]
+    eos_targets_one_hot = torch.nn.functional.one_hot(
+        eos_targets,
+        num_classes=model.module_dict["student_lm"].cfg.vocab_dim
+    ).to(device).float()
+
+    log_lm_score = model(
+        args=[eos_targets_one_hot],
+        kwargs={},
+        module="student_lm",
+        inference=False,
+    )
+
+    log_probs = torch.transpose(log_probs, 0, 1)  # [T, B, F]
+
+    loss = kldiv_ctc_lm_loss(
+        log_probs=log_probs.detach(),
+        targets=targets,
+        input_lengths=sequence_lengths,
+        target_lengths=targets_len,
+        log_lm_score=log_lm_score,
+        blank_idx=0,
+        log_zero=-1e15,
+        eos_idx=None,
+    )
+
+    rf.get_run_ctx().mark_as_loss(
+        name="kldiv_ctc_lm", loss=loss, custom_inv_norm_factor=rf.reduce_sum(targets_len_rf, axis=batch_dim)
+    )
