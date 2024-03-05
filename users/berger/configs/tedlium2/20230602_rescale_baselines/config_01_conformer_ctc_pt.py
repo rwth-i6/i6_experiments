@@ -1,6 +1,5 @@
 import copy
 import os
-from i6_core.returnn import CodeWrapper
 from i6_core.returnn.config import ReturnnConfig
 
 from sisyphus import gs, tk
@@ -20,7 +19,6 @@ from i6_experiments.users.berger.util import default_tools_v2
 from i6_models.assemblies.conformer import ConformerBlockV1Config, ConformerEncoderV1, ConformerEncoderV1Config
 from i6_models.config import ModuleFactoryV1
 from i6_models.parts.conformer import ConformerMHSAV1Config
-from i6_core.returnn import CodeWrapper
 
 # ********** Settings **********
 
@@ -31,8 +29,7 @@ num_subepochs = 250
 
 tools = copy.deepcopy(default_tools_v2)
 
-# tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/onnx/arch/linux-x86_64-standard")
-tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard")
+tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/onnx/arch/linux-x86_64-standard")
 # tools.returnn_root = tk.Path("/u/berger/repositories/MiniReturnn")
 
 
@@ -40,18 +37,14 @@ tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/gen_seq2s
 
 
 def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, dev_data_config: dict) -> ReturnnConfig:
-    model_config = conformer_ctc.get_default_config_v2(num_inputs=50, num_outputs=num_outputs)
+    model_config = conformer_ctc.get_default_config_nick(num_inputs=50, num_outputs=num_outputs)
 
     extra_config = {
         "train": train_data_config,
         "dev": dev_data_config,
     }
     if variant == ConfigVariant.RECOG:
-        extra_config["model_outputs"] = {
-            "log_probs": {
-                "dim": num_outputs,
-            }
-        }
+        extra_config["model_outputs"] = {"classes": {"dim": num_outputs}}
 
     return get_returnn_config(
         num_epochs=num_subepochs,
@@ -66,8 +59,8 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
         optimizer=Optimizers.AdamW,
         schedule=LearningRateSchedules.OCLR,
         max_seqs=60,
-        initial_lr=2.2e-05,
-        peak_lr=2.2e-04,
+        initial_lr=7e-06,
+        peak_lr=7e-04,
         final_lr=1e-08,
         batch_size=36000,
         use_chunking=False,
@@ -96,7 +89,7 @@ def run_exp() -> SummaryReport:
         returnn_python_exe=tools.returnn_python_exe,
         rasr_binary_path=tools.rasr_binary_path,
         augmented_lexicon=True,
-        feature_type=FeatureType.GAMMATONE_16K,
+        feature_type=FeatureType.GAMMATONE,
     )
 
     # ********** Step args **********
@@ -104,18 +97,18 @@ def run_exp() -> SummaryReport:
     train_args = exp_args.get_ctc_train_step_args(num_epochs=num_subepochs, gpu_mem_rqmt=24)
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
-        epochs=["best"],
-        prior_scales=[0.5],
-        lm_scales=[1.1],
-        feature_type=FeatureType.GAMMATONE_16K,
+        epochs=[40, 80, 160, 240, num_subepochs],
+        prior_scales=[0.5, 0.9],
+        lm_scales=[1.1, 2.0],
+        feature_type=FeatureType.GAMMATONE,
     )
 
     # ********** System **********
 
     # tools.returnn_root = tk.Path("/u/berger/repositories/MiniReturnn")
-    # tools.rasr_binary_path = tk.Path(
-    #     "/u/berger/repositories/rasr_versions/gen_seq2seq_onnx_apptainer/arch/linux-x86_64-standard"
-    # )
+    tools.rasr_binary_path = tk.Path(
+        "/u/berger/repositories/rasr_versions/gen_seq2seq_onnx_apptainer/arch/linux-x86_64-standard"
+    )
     system = ReturnnSeq2SeqSystem(tools)
 
     system.init_corpora(
@@ -129,7 +122,7 @@ def run_exp() -> SummaryReport:
     # ********** Returnn Configs **********
 
     system.add_experiment_configs(
-        "Conformer_CTC", get_returnn_config_collection(data.train_data_config, data.cv_data_config)
+        "Conformer_CTC_nick", get_returnn_config_collection(data.train_data_config, data.cv_data_config)
     )
 
     system.run_train_step(**train_args)

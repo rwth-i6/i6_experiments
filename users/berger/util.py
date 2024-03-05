@@ -102,8 +102,9 @@ default_tools = ToolPaths(
 )
 
 default_tools_v2 = ToolPaths(
+    # returnn_root=tk.Path("/u/rossenbach/src/NoReturnn", hash_overwrite="/u/berger/repositories/returnn"),
     returnn_root=tk.Path("/u/berger/repositories/returnn"),
     returnn_python_exe=tk.Path("/usr/bin/python3"),
-    rasr_binary_path=tk.Path("/u/berger/repositories/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard"),
+    rasr_binary_path=tk.Path("/u/berger/repositories/rasr_versions/gen_seq2seq_apptainer/arch/linux-x86_64-standard"),
     returnn_common_root=tk.Path("/u/berger/repositories/returnn_common"),
 )

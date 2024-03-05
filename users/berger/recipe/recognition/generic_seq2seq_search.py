@@ -111,7 +111,6 @@ class GenericSeq2SeqLmImageAndGlobalCacheJob(rasr.RasrCommand, Job):
                 "lexicon": "flf-lattice-tool.lexicon",
                 "acoustic_model": "flf-lattice-tool.network.recognizer.acoustic-model",
                 "language_model": "flf-lattice-tool.network.recognizer.lm",
-                "lookahead_language_model": "flf-lattice-tool.network.recognizer.recognizer.lookahead-lm",
             },
         )
 
@@ -318,7 +317,6 @@ class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
                 "lexicon": "flf-lattice-tool.lexicon",
                 "acoustic_model": "flf-lattice-tool.network.recognizer.acoustic-model",
                 "language_model": "flf-lattice-tool.network.recognizer.lm",
-                "lookahead_language_model": "flf-lattice-tool.network.recognizer.recognizer.lookahead-lm",
             },
             parallelize=True,
         )
@@ -332,9 +330,6 @@ class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
 
         # feature flow #
         config.flf_lattice_tool.network.recognizer.feature_extraction.file = "feature.flow"
-        if feature_flow.outputs != {"features"}:
-            assert len(feature_flow.outputs) == 1, "not implemented otherwise"
-            config.flf_lattice_tool.network.recognizer.feature_extraction.main_port_name = list(feature_flow.outputs)[0]
         feature_flow.apply_config(
             "flf-lattice-tool.network.recognizer.feature-extraction",
             config,

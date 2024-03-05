@@ -5,13 +5,14 @@ import numpy as np
 
 
 class LearningRateSchedules(Enum):
-    NONE = auto()
     Newbob = auto()
     NewbobAbs = auto()
+    NewbobRel = auto()
     OCLR = auto()
     OCLR_STEP = auto()
     CONST_DECAY = auto()
     CONST_DECAY_STEP = auto()
+    Custom = auto()
 
 
 class Optimizers(Enum):
@@ -28,12 +29,12 @@ def get_learning_rate_config(
     config = {}
     extra_python = []
 
-    if schedule == LearningRateSchedules.NONE:
-        pass
-    elif schedule == LearningRateSchedules.Newbob:
+    if schedule == LearningRateSchedules.Newbob:
         config.update(get_newbob_config(**kwargs))
     elif schedule == LearningRateSchedules.NewbobAbs:
         config.update(get_newbob_abs_config(**kwargs))
+    elif schedule == LearningRateSchedules.NewbobRel:
+        config.update(get_newbob_rel_config(**kwargs))
     elif schedule == LearningRateSchedules.OCLR:
         config.update(get_oclr_config(**kwargs))
     elif schedule == LearningRateSchedules.OCLR_STEP:
@@ -119,23 +120,44 @@ def get_newbob_abs_config(
     return result
 
 
+def get_newbob_rel_config(
+    learning_rate: float = 1.0,
+    decay: float = 0.9,
+    multi_num_epochs: int = 20,
+    relative_error_threshold: float = -0.005,
+    error_measure: Optional[str] = None,
+    **kwargs,
+) -> Dict[str, Any]:
+    result = {
+        "learning_rate": learning_rate,
+        "learning_rate_control": "newbob_rel",
+        "learning_rate_control_relative_error_relative_lr": False,
+        "newbob_learning_rate_decay": decay,
+        "newbob_relative_error_threshold": relative_error_threshold,
+        "newbob_multi_num_epochs": multi_num_epochs,
+        "newbob_multi_update_interval": 1,
+        "newbob_relative_error_div_by_old": True,
+    }
+    if error_measure:
+        result["learning_rate_control_error_measure"] = error_measure
+    return result
+
+
 def get_oclr_config(
     num_epochs: int,
     peak_lr: float = 1e-03,
     cycle_epoch: Optional[int] = None,
     initial_lr: Optional[float] = None,
-    decayed_lr: Optional[float] = None,
     final_lr: Optional[float] = None,
     **kwargs,
 ) -> dict:
     initial_lr = initial_lr or peak_lr / 10
-    decayed_lr = decayed_lr or initial_lr
     final_lr = final_lr or initial_lr / 5
     cycle_epoch = cycle_epoch or (num_epochs * 9) // 20  # 45% of the training
     lr_list = (
         list(np.linspace(initial_lr, peak_lr, cycle_epoch, endpoint=False))[1:]
-        + list(np.linspace(peak_lr, decayed_lr, cycle_epoch, endpoint=False))
-        + list(np.linspace(decayed_lr, final_lr, num_epochs - 2 * cycle_epoch + 1, endpoint=True))
+        + list(np.linspace(peak_lr, initial_lr, cycle_epoch, endpoint=False))
+        + list(np.linspace(initial_lr, final_lr, num_epochs - 2 * cycle_epoch + 1, endpoint=True))
     )
 
     return {

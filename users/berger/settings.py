@@ -73,17 +73,9 @@ def worker_wrapper(job, task_name, call):
         "StoreAllophonesJob",
         "FeatureExtractionJob",
     }
-    if type(job).__name__ not in wrapped_jobs or task_name == "create_files":
+    if type(job).__name__ not in wrapped_jobs:
         return call
-    binds = [
-        "/work/asr4",
-        "/work/asr3",
-        "/work/asr_archive",
-        "/work/common",
-        "/u/corpora",
-        "/u/zhou",
-        "/work/asr3/raissi",
-    ]
+    binds = ["/work/asr4", "/work/asr3", "/work/common", "/u/corpora"]
     ts = {t.name(): t for t in job.tasks()}
     t = ts[task_name]
 
@@ -98,7 +90,7 @@ def worker_wrapper(job, task_name, call):
         app_call += ["-B", path]
 
     app_call += [
-        "/work/asr4/berger/apptainer/images/i6_tensorflow-2.8_onnx-1.15.sif",
+        "/work/asr4/berger/apptainer/images/tf_2_8.sif",
         "python3",
     ]
 
@@ -113,15 +105,12 @@ SIS_COMMAND = ["/u/berger/software/env/python3.10_sisyphus/bin/python", sys.argv
 WAIT_PERIOD_CACHE = 1  # stopping to wait for actionable jobs to appear
 WAIT_PERIOD_JOB_FS_SYNC = 1  # finishing a job
 
-JOB_AUTO_CLEANUP = False
 JOB_CLEANUP_KEEP_WORK = True
 JOB_FINAL_LOG = "finished.tar.gz"
 
 SHOW_JOB_TARGETS = False
 SHOW_VIS_NAME_IN_MANAGER = False
 PRINT_ERROR = False
-
-MAIL_ADDRESS = None
 
 # G2P_PATH = "/u/beck/dev/g2p/release/lib/python/g2p.py"
 # G2P_PYTHON = "/u/beck/programs/python/2.7.10/bin/python2"
@@ -135,9 +124,6 @@ DEFAULT_ENVIRONMENT_SET["LD_LIBRARY_PATH"] = ":".join(
         "/usr/local/lib/python3.8/dist-packages/tensorflow/",
         "/usr/local/lib/python3.8/dist-packages/scipy/.libs",
         "/usr/local/lib/python3.8/dist-packages/numpy.libs",
-        "/usr/local/lib/python3.10/dist-packages/tensorflow/",
-        "/usr/local/lib/python3.10/dist-packages/scipy/.libs",
-        "/usr/local/lib/python3.10/dist-packages/numpy.libs",
         "/usr/local/cuda/extras/CUPTI/lib64",
         "/usr/local/cuda/compat/lib",
         "/usr/local/nvidia/lib",

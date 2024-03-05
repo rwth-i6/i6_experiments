@@ -11,6 +11,7 @@ def get_feature_extraction_args_8kHz(
     mfcc_args: Optional[Dict] = None,
     gt_args: Optional[Dict] = None,
 ) -> Dict:
+
     mfcc_filter_width = features.filter_width_from_channels(channels=15, f_max=4000)  # = 8000 / 2
 
     if mfcc_cepstrum_options is None:
@@ -90,6 +91,7 @@ def get_feature_extraction_args_16kHz(
     mfcc_args: Optional[Dict] = None,
     gt_args: Optional[Dict] = None,
 ) -> Dict:
+
     mfcc_filter_width = features.filter_width_from_channels(channels=20, f_max=8000)  # = 16000 / 2
 
     if mfcc_cepstrum_options is None:

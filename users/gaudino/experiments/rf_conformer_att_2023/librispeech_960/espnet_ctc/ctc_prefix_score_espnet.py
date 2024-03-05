@@ -184,9 +184,9 @@ class CTCPrefixScoreTH(object):
         if self.maskEos:
             for si in range(n_bh):
                 log_psi[si, self.eos] = r_sum[self.end_frames[si // n_hyps], si] # r_sum: [T, B*H], log_psi: [B*H, O] (line 4)
-
-        # exclude blank probs
-        log_psi[:, self.blank] = self.logzero
+        if self.eos != self.blank:
+            # exclude blank probs
+            log_psi[:, self.blank] = self.logzero
 
         return (log_psi - s_prev), (r, log_psi, f_min, f_max, scoring_idmap)
 
@@ -202,7 +202,6 @@ class CTCPrefixScoreTH(object):
         n_bh = len(s)
         n_hyps = n_bh // self.batch
         vidx = (best_ids + (self.idx_b * (n_hyps * self.odim)).view(-1, 1)).view(-1)
-        # breakpoint()
         # select hypothesis scores
         s_new = torch.index_select(s.view(-1), 0, vidx)
         s_new = s_new.view(-1, 1).repeat(1, self.odim).view(n_bh, self.odim)
@@ -353,10 +352,11 @@ class CTCPrefixScore(object):
         if len(eos_pos) > 0:
             log_psi[eos_pos] = r_sum[-1]  # log(r_T^n(g) + r_T^b(g))
 
-        # exclude blank probs
-        blank_pos = self.xp.where(cs == self.blank)[0]
-        if len(blank_pos) > 0:
-            log_psi[blank_pos] = self.logzero
+        if self.eos != self.blank:
+            # exclude blank probs
+            blank_pos = self.xp.where(cs == self.blank)[0]
+            if len(blank_pos) > 0:
+                log_psi[blank_pos] = self.logzero
 
         # return the log prefix probability and CTC states, where the label axis
         # of the CTC states is moved to the first axis to slice it easily

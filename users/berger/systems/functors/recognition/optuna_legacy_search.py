@@ -34,7 +34,6 @@ class OptunaAdvancedTreeSearchFunctor(
         flow_args: Dict = {},
         **kwargs,
     ) -> List[Dict]:
-        assert recog_corpus is not None
         crp = copy.deepcopy(recog_corpus.corpus_info.crp)
         assert recog_corpus.corpus_info.scorer is not None
 

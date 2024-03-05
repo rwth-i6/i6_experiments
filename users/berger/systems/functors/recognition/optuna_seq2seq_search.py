@@ -4,13 +4,14 @@ from typing import Dict, List
 
 from i6_experiments.users.berger.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import recognition, returnn
-from i6_experiments.users.berger.recipe.returnn.training import Backend
+from i6_experiments.users.berger.recipe.returnn.training import Backend, get_backend
 from sisyphus import tk
+
+from ... import dataclasses
+from ... import types
 from ..base import RecognitionFunctor
 from ..optuna_rasr_base import OptunaRasrFunctor
 from ..seq2seq_base import Seq2SeqFunctor
-from ... import dataclasses
-from ... import types
 
 
 class OptunaSeq2SeqSearchFunctor(
@@ -40,7 +41,6 @@ class OptunaSeq2SeqSearchFunctor(
         backend: Backend = Backend.TENSORFLOW,
         **kwargs,
     ) -> List[Dict]:
-        assert recog_corpus is not None
         crp = copy.deepcopy(recog_corpus.corpus_info.crp)
         assert recog_corpus.corpus_info.scorer is not None
 
@@ -118,7 +118,7 @@ class OptunaSeq2SeqSearchFunctor(
                 feature_flow=feature_flow,
                 label_scorer=label_scorer,
                 label_tree=label_tree,
-                lookahead_options=lookahead_options,
+                lookahead_options={"scale": lm_scale, **lookahead_options},
                 **kwargs,
             )
 

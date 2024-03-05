@@ -91,13 +91,8 @@ class ConfigVariant(Enum):
 
 class FeatureType(Enum):
     SAMPLES = auto()
-    GAMMATONE_8K = auto()
-    GAMMATONE_CACHED_8K = auto()
-    GAMMATONE_16K = auto()
-    GAMMATONE_CACHED_16K = auto()
-    CONCAT_SEC_GAMMATONE_16K = auto()
-    CONCAT_MIX_GAMMATONE_16K = auto()
-    CONCAT_SEC_MIX_GAMMATONE_16K = auto()
+    GAMMATONE = auto()
+    CONCAT_GAMMATONE = auto()
 
 
 @dataclass
@@ -114,6 +109,14 @@ class ReturnnConfigs(Generic[types.ConfigType]):
             self.recog_configs = {"recog": copy.deepcopy(self.prior_config)}
         if self.align_config is None:
             self.align_config = copy.deepcopy(next(iter(self.recog_configs.values())))
+
+
+@dataclass
+class CustomStepKwargs:
+    train_step_kwargs: dict = field(default_factory=dict)
+    align_step_kwargs: dict = field(default_factory=dict)
+    dev_recog_step_kwargs: dict = field(default_factory=dict)
+    test_recog_step_kwargs: dict = field(default_factory=dict)
 
 
 class SummaryKey(Enum):

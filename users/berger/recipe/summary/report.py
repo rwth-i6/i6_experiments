@@ -1,6 +1,7 @@
 from __future__ import annotations
+import copy
 from sisyphus import tk
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional
 from io import StringIO
 
 
@@ -15,13 +16,13 @@ class SummaryReport:
     def __init__(
         self,
         col_names: Optional[List[str]] = None,
-        col_sort_key: Optional[Union[str, List[str]]] = None,
+        col_sort_key: Optional[str] = None,
         sort_high_to_low: bool = False,
         precision: int = 2,
     ) -> None:
         """
         :param col_keys: Names of the columns in the table
-        :param col_sort_key: If a key is provided, the rows are sorted by this key. If a list of keys is provided, the rows are sorted by the first key in the list, then the second and so on.
+        :param col_sort_key: If a key is provided, the rows are sorted by this key.
         :param sort_high_to_low: If True, the rows are sorted such that the highest value is on top. Otherwise the lowest value is on top. Only relevant is <col_sort_key> is not None.
         :param precision: Display precision of floating point values in the table.
         """
@@ -31,16 +32,9 @@ class SummaryReport:
         self._sort_high_to_low = sort_high_to_low
         self._precision = precision
 
-        self._collapse_partitions: List[
-            Tuple[List[int], Optional[str]]
-        ] = (
-            []
-        )  # List of partitions (row-index lists) and colum-keys. Each partition gets collapsed to a single row containing only the best value in the referenced column.
+        self._collapsed_rows = []
 
         self._data: List[dict] = []
-
-    def set_col_sort_key(self, col_sort_key: Union[str, List[str]]) -> None:
-        self._col_sort_key = col_sort_key
 
     def copy_structure(self, other: SummaryReport) -> None:
         """
@@ -68,41 +62,20 @@ class SummaryReport:
         for row in self._data:
             row.setdefault(name, default_value)
 
-    def collapse(
-        self,
-        non_collapsed_keys: Optional[List[str]] = None,
-        best_selector_key: Optional[str] = None,
-    ) -> None:
-        """
-        :param non_collapsed_keys: Partition the data from <other> such that every unique combination of values for non_collapsed_keys keeps one row. If non_collapsed_keys is None or [], all the data will be collapsed into one row.
-        :param best_selector_key: This is the key according to which the "best" row in each partition is selected. If None, the final col_sort_key is used.
-        """
-        if non_collapsed_keys is None:
-            non_collapsed_keys = []
-        assert all(key in self._col_names for key in non_collapsed_keys)
-
-        partitions_dict: Dict[Tuple, List[int]] = {}
-        for row_index, row in enumerate(self._data):
-            val_tuple = tuple(row[key] for key in non_collapsed_keys)
-
-            if val_tuple not in partitions_dict:
-                partitions_dict[val_tuple] = []
-            partitions_dict[val_tuple].append(row_index)
-
-        self._collapse_partitions = [(partition, best_selector_key) for partition in partitions_dict.values()]
-
     def merge_report(
         self,
         other: SummaryReport,
         update_structure: bool = False,
+        collapse_rows: bool = False,
     ) -> None:
         """
         Adds all the data from another report into our own.
 
         :param other: SummaryReport from which we add the data.
         :param update_structure: If True, we take other the structure from <other> before merging.
-        :param collapse_rows: If True, all the data from <other> is collapsed into a row that contains only the best one.
+        :param collapse_rows: If True, all the data from <other> is collapsed into a single row that contains only the best one.
         """
+
         if update_structure:
             self.copy_structure(other)
 
@@ -114,12 +87,15 @@ class SummaryReport:
         if added_rows == 0:
             return
 
-        self._collapse_partitions.extend(
-            [
-                ([prev_num_rows + index for index in partition], best_selector_key)
-                for partition, best_selector_key in other._collapse_partitions
-            ]
-        )
+        if collapse_rows:
+            self._collapsed_rows.append((prev_num_rows, prev_num_rows + added_rows))
+        else:
+            self._collapsed_rows.extend(
+                [
+                    (prev_num_rows + from_index, prev_num_rows + to_index)
+                    for from_index, to_index in other._collapsed_rows
+                ]
+            )
 
     def add_row(self, row: Dict[str, Any]) -> None:
         # avoid duplication
@@ -130,7 +106,7 @@ class SummaryReport:
         for row in rows:
             self.add_row(row)
 
-    def _dict_to_row(self, row: Dict[str, Any]) -> List[str]:
+    def _dict_to_row(self, row: Dict[str, Any]) -> None:
         return [row.get(name, " ") for name in self._col_names]
 
     def _try_convert_to_float(self, val: Any) -> Any:
@@ -142,21 +118,14 @@ class SummaryReport:
             else:
                 return val
 
-    def _get_col_sort_indices(self) -> List[int]:
-        if self._col_sort_key is None:
-            return [0]
-
-        if isinstance(self._col_sort_key, str):
-            if self._col_sort_key in self._col_names:
-                return [self._col_names.index(self._col_sort_key)]
-            else:
-                return [0]
+    def _get_col_sort_index(self) -> int:
+        col_sort_index = None
+        if self._col_sort_key is not None and self._col_sort_key in self._col_names:
+            col_sort_index = self._col_names.index(self._col_sort_key)
         else:
-            col_sort_indices = []
-            for key in self._col_sort_key:
-                if key in self._col_names:
-                    col_sort_indices.append(self._col_names.index(key))
-            return col_sort_indices
+            col_sort_index = 0
+
+        return col_sort_index
 
     def _get_string_list_rows(self) -> List[List[str]]:
         """Transformed data -> Get tk.Variables and round floats"""
@@ -186,29 +155,20 @@ class SummaryReport:
     def _collapse_rows(self, data: List[List[str]]) -> List[List[str]]:
         """Collapse ranges given by self._collapsed_rows"""
 
-        col_sort_indices = self._get_col_sort_indices()
+        col_sort_index = self._get_col_sort_index()
 
         collapsed_data = []
-        all_collapsed_indices = set(sum([partition for partition, _ in self._collapse_partitions], start=[]))
+        prev_to_index = 0
+        for from_index, to_index in self._collapsed_rows:
+            if prev_to_index < from_index:
+                collapsed_data.extend(data[prev_to_index:from_index])
+            prev_to_index = to_index
 
-        # Find indices that don't belong to any partition. They will always be represented in the final data.
-        for row_index in range(len(data)):
-            if row_index not in all_collapsed_indices:
-                collapsed_data.append(data[row_index])
-
-        for partition, best_selector_key in self._collapse_partitions:
-            if best_selector_key is None:
-                best_selector_index = col_sort_indices[-1]
-            else:
-                best_selector_index = self._col_names.index(best_selector_key)
-            partition_rows = [data[row_index] for row_index in partition]
-
-            # Data with no value at <best_selector_index> gets discarded
-            remove_empty = [row for row in partition_rows if row[best_selector_index].strip()]
-
+            # Data with no value at <col_sort_index> gets discarded
+            remove_empty = [row for row in data[from_index:to_index] if row[col_sort_index].strip()]
             # If nothing would be left, we have to take one of the valueless rows regardless
             if not remove_empty:
-                collapsed_data.append(partition_rows[0])
+                collapsed_data.append(data[from_index])
                 continue
 
             # Otherwise, pick find the row with the best value and append it
@@ -216,16 +176,17 @@ class SummaryReport:
             collapsed_data.append(
                 opt_func(
                     remove_empty,
-                    key=lambda row: self._try_convert_to_float(row[best_selector_index]),
+                    key=lambda row: self._try_convert_to_float(row[col_sort_index]),
                 )
             )
+        if prev_to_index < len(data):
+            collapsed_data.extend(data[prev_to_index:])
 
         # Sort by value at <col_sort_index>
-        for index in col_sort_indices:
-            collapsed_data.sort(
-                key=lambda row: self._try_convert_to_float(row[index]),
-                reverse=self._sort_high_to_low,
-            )
+        collapsed_data.sort(
+            key=lambda row: self._try_convert_to_float(row[col_sort_index]),
+            reverse=self._sort_high_to_low,
+        )
 
         return collapsed_data
 

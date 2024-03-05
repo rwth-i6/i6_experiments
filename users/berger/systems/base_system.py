@@ -11,19 +11,17 @@ from i6_experiments.users.berger import helpers as helpers
 from sisyphus import tk
 
 from . import types
-from .types import TrainJobType, ConfigType
 from . import dataclasses
 from .functors import Functors
 
 Path = tk.setup_path(__package__)
 
 
-class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
+class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
     def __init__(
         self,
         tool_paths: ToolPaths,
         summary_keys: Optional[List[dataclasses.SummaryKey]] = None,
-        summary_sort_keys: Optional[List[dataclasses.SummaryKey]] = None,
     ) -> None:
         self._tool_paths = tool_paths
 
@@ -36,6 +34,9 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
         # exp-name mapped to ReturnnConfigs collection
         self._returnn_configs: Dict[str, dataclasses.ReturnnConfigs[types.ConfigType]] = {}
 
+        # exp-name mapped to CustomStepKwargs collection
+        self._custom_step_kwargs: Dict[str, dataclasses.CustomStepKwargs] = {}
+
         # exp-name mapped to ReturnnConfigs collection
         self._train_jobs: Dict[str, types.TrainJobType] = {}
 
@@ -47,13 +48,9 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
         # corpus-key mapped to CorpusInfo object
         self._corpus_info: Dict[str, dataclasses.CorpusInfo] = {}
 
-        if summary_keys is None:
-            summary_keys = list(dataclasses.SummaryKey)
-        if summary_sort_keys is None:
-            summary_sort_keys = [dataclasses.SummaryKey.ERR, dataclasses.SummaryKey.WER]
         self.summary_report = custom_summary.SummaryReport(
-            [key.value for key in summary_keys],
-            [key.value for key in summary_sort_keys],
+            [key.value for key in (summary_keys or dataclasses.SummaryKey)],
+            dataclasses.SummaryKey.WER.value,
         )
 
         self._functors = self._initialize_functors()
@@ -72,33 +69,28 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
 
     def cleanup_experiments(self) -> None:
         self._returnn_configs.clear()
+        self._custom_step_kwargs.clear()
 
     def add_experiment_configs(
         self,
         name: str,
         returnn_configs: dataclasses.ReturnnConfigs[types.ConfigType],
+        custom_step_kwargs: Optional[dataclasses.CustomStepKwargs] = None,
     ) -> None:
         self._returnn_configs[name] = returnn_configs
+        if custom_step_kwargs is not None:
+            self._custom_step_kwargs[name] = custom_step_kwargs
+        else:
+            self._custom_step_kwargs[name] = dataclasses.CustomStepKwargs()
 
     def init_corpora(
         self,
-        align_keys: Optional[List[str]] = None,
-        dev_keys: Optional[List[str]] = None,
-        test_keys: Optional[List[str]] = None,
-        corpus_data: Optional[Dict[str, helpers.RasrDataInput]] = None,
-        am_args: Optional[Dict] = None,
+        align_keys: List[str] = [],
+        dev_keys: List[str] = [],
+        test_keys: List[str] = [],
+        corpus_data: Dict[str, helpers.RasrDataInput] = {},
+        am_args: Dict = {},
     ) -> None:
-        if align_keys is None:
-            align_keys = []
-        if dev_keys is None:
-            dev_keys = []
-        if test_keys is None:
-            test_keys = []
-        if corpus_data is None:
-            corpus_data = {}
-        if am_args is None:
-            am_args = {}
-
         all_keys = align_keys + dev_keys + test_keys
         assert all(key in corpus_data for key in all_keys)
 
@@ -124,14 +116,10 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
         scorer_type: types.ScoreJobType,
         score_kwargs: Dict,
         stm_path: Optional[tk.Path] = None,
-        glm_path: Optional[tk.Path] = None,
     ) -> dataclasses.ScorerInfo:
-        score_kwargs_mod = copy.deepcopy(score_kwargs)
         if stm_path is None:
             stm_path = corpus.CorpusToStmJob(corpus_file, **stm_kwargs).out_stm_path
-        if glm_path is not None:
-            score_kwargs_mod["glm"] = glm_path
-        return dataclasses.ScorerInfo(ref_file=stm_path, job_type=scorer_type, score_kwargs=score_kwargs_mod)
+        return dataclasses.ScorerInfo(ref_file=stm_path, job_type=scorer_type, score_kwargs=score_kwargs)
 
     def setup_scoring(
         self,
@@ -139,17 +127,16 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
         scorer_type: types.ScoreJobType = recognition.ScliteJob,
         stm_kwargs: Dict = {},
         score_kwargs: Dict = {},
+        stm_paths: Optional[Dict[str, tk.Path]] = None,
     ) -> None:
-        if stm_kwargs is None:
-            stm_kwargs = {}
-        if score_kwargs is None:
-            score_kwargs = {}
         if scoring_corpora is None:
             scoring_corpora = {}
             for key in self._dev_corpora + self._test_corpora:
                 corpus_file = self._corpus_info[key].data.corpus_object.corpus_file
                 assert corpus_file is not None
                 scoring_corpora[key] = corpus_file
+        if stm_paths is None:
+            stm_paths = {}
         for key, corpus_file in scoring_corpora.items():
             if key not in self._corpus_info:
                 continue
@@ -157,101 +144,76 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
                 corpus_file=corpus_file,
                 stm_kwargs=stm_kwargs,
                 scorer_type=scorer_type,
-                score_kwargs=score_kwargs.get(key, score_kwargs),
-                stm_path=self._corpus_info[key].data.corpus_object.stm,
-                glm_path=self._corpus_info[key].data.corpus_object.glm,
+                score_kwargs=score_kwargs,
+                stm_path=stm_paths.get(key, None),
             )
             self._corpus_info[key].scorer = scorer
 
     # -------------------- run functions  --------------------
 
-    def run_train_step(
-        self, exp_names: Optional[List[str]] = None, train_descriptor: Optional[str] = None, **kwargs
-    ) -> None:
-        if exp_names is None:
-            exp_names = list(self._returnn_configs.keys())
-        for exp_name in exp_names:
-            configs = self._returnn_configs[exp_name]
-            if train_descriptor is not None:
-                exp_name = f"{exp_name}_{train_descriptor}"
-            named_train_config = dataclasses.NamedConfig(exp_name, configs.train_config)
-            self._train_jobs[exp_name] = self._functors.train(train_config=named_train_config, **kwargs)
+    def run_train_step(self, **kwargs) -> None:
+        for train_exp_name, configs in self._returnn_configs.items():
+            mod_kwargs = copy.deepcopy(kwargs)
+            mod_kwargs.update(self._custom_step_kwargs[train_exp_name].train_step_kwargs)
+            named_train_config = dataclasses.NamedConfig(train_exp_name, configs.train_config)
+            self._train_jobs[train_exp_name] = self._functors.train(train_config=named_train_config, **mod_kwargs)
 
-    def run_recog_step_for_corpora(
+    def run_recogs_for_corpora(
         self,
-        exp_names: Optional[List[str]] = None,
-        corpora: Optional[List[str]] = None,
-        recog_descriptor: Optional[str] = None,
+        corpora: List[str],
+        train_exp_name: str,
         **kwargs,
     ) -> None:
-        if exp_names is None:
-            exp_names = list(self._returnn_configs.keys())
-        if corpora is None:
-            corpora = self._dev_corpora + self._test_corpora
-        else:
-            assert all(c in self._dev_corpora + self._test_corpora for c in corpora)
+        returnn_configs = self._returnn_configs[train_exp_name]
+        train_job = self._train_jobs[train_exp_name]
+        named_train_job = dataclasses.NamedTrainJob(train_exp_name, train_job)
+        for c_key in corpora:
+            named_corpus = dataclasses.NamedCorpusInfo(c_key, self._corpus_info[c_key])
+            for recog_exp_name, recog_config in returnn_configs.recog_configs.items():
+                named_recog_config = dataclasses.NamedConfig(recog_exp_name, recog_config)
+                recog_results = self._functors.recognize(
+                    train_job=named_train_job,
+                    prior_config=returnn_configs.prior_config,
+                    recog_config=named_recog_config,
+                    recog_corpus=named_corpus,
+                    **kwargs,
+                )
+                self.summary_report.add_rows(recog_results)
 
-        for exp_name in exp_names:
-            assert exp_name in self._returnn_configs, f"Experiment {exp_name} has not been registered"
-            returnn_configs = self._returnn_configs[exp_name]
+    def run_dev_recog_step(self, **kwargs) -> None:
+        for train_exp_name in self._returnn_configs.keys():
+            mod_kwargs = copy.deepcopy(kwargs)
+            mod_kwargs.update(self._custom_step_kwargs[train_exp_name].dev_recog_step_kwargs)
+            self.run_recogs_for_corpora(self._dev_corpora, train_exp_name, **mod_kwargs)
 
-            assert exp_name in self._train_jobs, f"Must first run training before recognition for experiment {exp_name}"
-            train_job = self._train_jobs[exp_name]
-            named_train_job = dataclasses.NamedTrainJob(exp_name, train_job)
+    def run_test_recog_step(self, **kwargs) -> None:
+        for train_exp_name in self._returnn_configs.keys():
+            mod_kwargs = copy.deepcopy(kwargs)
+            mod_kwargs.update(self._custom_step_kwargs[train_exp_name].test_recog_step_kwargs)
+            self.run_recogs_for_corpora(self._test_corpora, train_exp_name, **mod_kwargs)
 
-            for c_key in corpora:
-                named_corpus = dataclasses.NamedCorpusInfo(c_key, self._corpus_info[c_key])
-                for recog_exp_name, recog_config in returnn_configs.recog_configs.items():
-                    if recog_descriptor is not None:
-                        recog_exp_name = f"{recog_exp_name}_{recog_descriptor}"
-                    named_recog_config = dataclasses.NamedConfig(recog_exp_name, recog_config)
-                    recog_results = self._functors.recognize(
-                        train_job=named_train_job,
-                        prior_config=returnn_configs.prior_config,
-                        recog_config=named_recog_config,
-                        recog_corpus=named_corpus,
-                        **kwargs,
-                    )
-                    self.summary_report.add_rows(recog_results)
-
-    def run_dev_recog_step(self, exp_names: Optional[List[str]] = None, **kwargs) -> None:
-        self.run_recog_step_for_corpora(exp_names, self._dev_corpora, **kwargs)
-
-    def run_test_recog_step(self, exp_names: Optional[List[str]] = None, **kwargs) -> None:
-        self.run_recog_step_for_corpora(exp_names, self._test_corpora, **kwargs)
-
-    def run_align_step(
-        self,
-        exp_names: Optional[List[str]] = None,
-        corpora: Optional[List[str]] = None,
-        align_descriptor: Optional[str] = None,
-        **kwargs,
-    ) -> Dict[str, Dict[str, dataclasses.AlignmentData]]:
-        if exp_names is None:
-            exp_names = list(self._returnn_configs.keys())
-        if corpora is None:
-            corpora = self._align_corpora
-        else:
-            assert all(c in self._align_corpora for c in corpora)
-
+    def run_align_step(self, **kwargs) -> Dict:
         results = {}
-        for exp_name in exp_names:
-            train_job = self._train_jobs[exp_name]
-            named_train_job = dataclasses.NamedTrainJob(exp_name, train_job)
+        for train_exp_name in self._returnn_configs.keys():
+            mod_kwargs = copy.deepcopy(kwargs)
+            mod_kwargs.update(self._custom_step_kwargs[train_exp_name].align_step_kwargs)
+            train_job = self._train_jobs[train_exp_name]
+            named_train_job = dataclasses.NamedTrainJob(train_exp_name, train_job)
             exp_results = {}
-            for c_key in corpora:
+            for c_key in self._align_corpora:
                 named_corpus = dataclasses.NamedCorpusInfo(c_key, self._corpus_info[c_key])
-                prior_config = self._returnn_configs[exp_name].prior_config
-                align_config = self._returnn_configs[exp_name].align_config
-
-                if align_descriptor is not None:
-                    exp_name = f"{exp_name}_{align_descriptor}"
+                prior_config = self._returnn_configs[train_exp_name].prior_config
+                align_config = self._returnn_configs[train_exp_name].align_config
                 exp_results[c_key] = self._functors.align(
                     train_job=named_train_job,
                     prior_config=prior_config,
                     align_config=align_config,
                     align_corpus=named_corpus,
-                    **kwargs,
+                    **mod_kwargs,
                 )
-            results[exp_name] = exp_results
+            if len(exp_results) == 1:
+                exp_results = next(iter(exp_results.values()))
+            results[train_exp_name] = exp_results
+        if len(results) == 1:
+            results = next(iter(results.values()))
         return results

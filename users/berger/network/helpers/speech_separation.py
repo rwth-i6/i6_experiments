@@ -1,8 +1,6 @@
-from typing import Dict, List, Tuple, Union, TYPE_CHECKING
+from typing import Dict, List, Tuple, Union
+from returnn.tf.util.data import Dim, FeatureDim, SpatialDim
 from i6_core.returnn.config import CodeWrapper
-
-if TYPE_CHECKING:
-    from returnn.tf.util.data import Dim
 
 
 def get_speech_separator(
@@ -10,8 +8,6 @@ def get_speech_separator(
     frame_size: int = 512,
     trainable: bool = True,
 ) -> Tuple[Dict[str, Dict], Dict[str, Dim]]:
-    from returnn.tf.util.data import FeatureDim
-
     dim_tags = {
         "speaker": FeatureDim("speaker_dim", 2),
         "stft_feature": FeatureDim("stft_output_feature_dim", frame_size // 2 + 1),
@@ -240,8 +236,6 @@ def add_speech_separation(
     frame_shift: int = 128,
     trainable: bool = True,
 ) -> Tuple[str, Dict[str, Dim]]:
-    from returnn.tf.util.data import FeatureDim, SpatialDim
-
     sep_net, sep_dim_tags = get_speech_separator(frame_size=frame_size, trainable=trainable)
     dim_tags = {
         "waveform_time": SpatialDim("waveform_time_dim"),

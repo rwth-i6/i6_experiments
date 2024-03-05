@@ -37,7 +37,7 @@ def get_advanced_tree_search_recognition_args(
         "pronunciation_scales": pronunciation_scales,
         "lm_scales": lm_scales,
         "lm_lookahead": True,
-        "lookahead_options": get_atr_lookahead_options(**kwargs),
+        "lookahead_options": get_lookahead_options(**kwargs),
         "create_lattice": True,
         "eval_single_best": True,
         "eval_best_in_lattice": True,
@@ -100,7 +100,7 @@ def get_generic_seq2seq_search_recognition_args(
         "prior_scales": prior_scales,
         "lm_scales": lm_scales,
         "lm_lookahead": True,
-        "lookahead_options": get_seq2seq_lookahead_options(**kwargs),
+        "lookahead_options": get_lookahead_options(**kwargs),
         "eval_single_best": True,
         "eval_best_in_lattice": True,
         "search_parameters": get_seq2seq_search_parameters(**kwargs),
@@ -188,25 +188,7 @@ def get_atr_search_parameters(
     return search_params
 
 
-def get_seq2seq_lookahead_options(
-    scale: Optional[float] = None,
-    hlimit: int = 1,
-    clow: int = 2000,  # should use smaller cache for NNLM, e.g. clow=0, chigh=256
-    chigh: int = 3000,
-    **kwargs,
-):
-    lmla_options: Dict[str, float] = {
-        "history_limit": hlimit,
-        "cache_low": clow,
-        "cache_high": chigh,
-    }
-    if scale is not None:
-        lmla_options["lm_lookahead_scale"] = scale
-
-    return lmla_options
-
-
-def get_atr_lookahead_options(
+def get_lookahead_options(
     scale: Optional[float] = None,
     hlimit: int = 1,
     clow: int = 2000,  # should use smaller cache for NNLM, e.g. clow=0, chigh=256

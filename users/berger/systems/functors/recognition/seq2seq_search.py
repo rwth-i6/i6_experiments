@@ -7,11 +7,11 @@ from i6_experiments.users.berger.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import recognition
 from i6_experiments.users.berger.recipe.returnn.training import Backend, get_backend
 from sisyphus import tk
-from ..base import RecognitionFunctor
-from ..rasr_base import RecognitionScoringType
-from ..seq2seq_base import Seq2SeqFunctor
+
 from ... import dataclasses
 from ... import types
+from ..base import RecognitionFunctor
+from ..seq2seq_base import Seq2SeqFunctor
 
 
 class Seq2SeqSearchFunctor(
@@ -36,11 +36,8 @@ class Seq2SeqSearchFunctor(
         label_scorer_args: Dict = {},
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
         flow_args: Dict = {},
-        model_flow_args: Dict = {},
-        recognition_scoring_type=RecognitionScoringType.Lattice,
         **kwargs,
     ) -> List[Dict]:
-        assert recog_corpus is not None
         crp = copy.deepcopy(recog_corpus.corpus_info.crp)
         assert recog_corpus.corpus_info.scorer is not None
 
@@ -90,8 +87,6 @@ class Seq2SeqSearchFunctor(
                     base_feature_flow=base_feature_flow,
                     tf_graph=tf_graph,
                     checkpoint=checkpoint,
-                    feature_type=feature_type,
-                    **model_flow_args,
                 )
             elif backend == Backend.PYTORCH:
                 assert isinstance(checkpoint, returnn.PtCheckpoint)
@@ -103,7 +98,6 @@ class Seq2SeqSearchFunctor(
                     label_scorer=label_scorer,
                     base_feature_flow=base_feature_flow,
                     onnx_model=onnx_model,
-                    **model_flow_args,
                 )
             else:
                 raise NotImplementedError
@@ -113,7 +107,7 @@ class Seq2SeqSearchFunctor(
                 feature_flow=feature_flow,
                 label_scorer=label_scorer,
                 label_tree=label_tree,
-                lookahead_options=lookahead_options,
+                lookahead_options={"scale": lm_scale, **lookahead_options},
                 **kwargs,
             )
 
@@ -126,14 +120,12 @@ class Seq2SeqSearchFunctor(
             rec.set_vis_name(f"Recog {path}")
             rec.add_alias(path)
 
-            scorer_job = self._score_recognition_output(
-                recognition_scoring_type=recognition_scoring_type,
+            scorer_job = self._lattice_scoring(
                 crp=crp,
                 lattice_bundle=rec.out_lattice_bundle,
                 scorer=recog_corpus.corpus_info.scorer,
                 **lattice_to_ctm_kwargs,
             )
-
             tk.register_output(
                 f"{path}.reports",
                 scorer_job.out_report_dir,

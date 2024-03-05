@@ -1,5 +1,6 @@
-import torch
 from returnn.tensor.tensor_dict import TensorDict
+import returnn.frontend as rf
+import torch
 
 
 def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
@@ -29,7 +30,5 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     loss = torch.nn.functional.cross_entropy(input=log_probs, target=targets_masked, ignore_index=-100, reduction="sum")
 
     loss /= torch.sum(sequence_lengths)
-
-    import returnn.frontend as rf
 
     rf.get_run_ctx().mark_as_loss(name="CE", loss=loss)

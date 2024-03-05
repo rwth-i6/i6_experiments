@@ -1,89 +1,113 @@
-from typing import List, Optional
+from typing import List
 import copy
 
-from i6_core import corpus
+from i6_core import returnn, corpus
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
-from i6_experiments.users.berger.systems.dataclasses import FeatureType
 from . import data
-from ..general import CTCSetupData, filter_unk_in_corpus_object, build_feature_hdf_dataset_config
+from ..general import CTCSetupData
 from sisyphus import tk
 
 
 def get_librispeech_data(
     returnn_root: tk.Path,
     returnn_python_exe: tk.Path,
-    rasr_binary_path: tk.Path,
-    rasr_arch: str = "linux-x86_64-standard",
     train_key: str = "train-other-960",
-    cv_keys: Optional[List[str]] = None,
-    dev_keys: Optional[List[str]] = None,
-    test_keys: Optional[List[str]] = None,
-    use_wei_lexicon: bool = False,
-    feature_type: FeatureType = FeatureType.SAMPLES,
-    dc_detection: bool = False,
-    **kwargs,
+    dev_keys: List[str] = ["dev-clean", "dev-other"],
+    test_keys: List[str] = ["test-clean", "test-other"],
+    add_unknown: bool = False,
+    augmented_lexicon: bool = False,
 ) -> CTCSetupData:
-    if cv_keys is None:
-        cv_keys = ["dev-clean", "dev-other"]
-    if dev_keys is None:
-        dev_keys = ["dev-clean", "dev-other"]
-    if test_keys is None:
-        test_keys = ["test-clean", "test-other"]
-
     # ********** Data inputs **********
 
-    train_data_inputs, cv_data_inputs, dev_data_inputs, test_data_inputs = data.get_data_inputs(
+    train_data_inputs, dev_data_inputs, _ = data.get_data_inputs(
         train_key=train_key,
-        cv_keys=cv_keys,
+        dev_keys=dev_keys,
+        ctc_lexicon=True,
+        use_augmented_lexicon=augmented_lexicon,
+        add_all_allophones=True,
+        audio_format="ogg",
+        add_unknown_phoneme_and_mapping=add_unknown,
+    )
+
+    (wav_train_data_inputs, wav_dev_data_inputs, wav_test_data_inputs,) = data.get_data_inputs(
+        train_key=train_key,
         dev_keys=dev_keys,
         test_keys=test_keys,
         ctc_lexicon=True,
-        use_wei_lexicon=use_wei_lexicon,
+        use_augmented_lexicon=augmented_lexicon,
         add_all_allophones=True,
         audio_format="wav",
-        **kwargs,
+        add_unknown_phoneme_and_mapping=add_unknown,
     )
 
     # ********** Train data **********
 
+    train_corpus = train_data_inputs[train_key].corpus_object.corpus_file
     train_lexicon = train_data_inputs[train_key].lexicon.filename
+    assert train_corpus is not None
 
-    train_data_config = build_feature_hdf_dataset_config(
-        data_inputs=[train_data_inputs[train_key]],
-        feature_type=feature_type,
-        returnn_root=returnn_root,
+    if not add_unknown:
+        train_corpus = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
+            train_corpus,
+            train_lexicon,
+            all_unknown=False,
+        ).out_corpus
+
+    train_ogg_zip = returnn.BlissToOggZipJob(
+        train_corpus,
+        no_conversion=True,
         returnn_python_exe=returnn_python_exe,
-        rasr_binary_path=rasr_binary_path,
-        rasr_arch=rasr_arch,
-        dc_detection=dc_detection,
-        extra_config={
-            "partition_epoch": 20,
-            "seq_ordering": "laplace:.1000",
-        },
-    )
+        returnn_root=returnn_root,
+    ).out_ogg_zip
+
+    train_data_config = {
+        "class": "OggZipDataset",
+        "audio": {"features": "raw", "sample_rate": 16_000},
+        "targets": None,
+        "partition_epoch": 20,
+        "path": train_ogg_zip,
+        "seq_ordering": "random",
+        "use_cache_manager": True,
+    }
 
     # ********** CV data **********
 
-    cv_data_config = build_feature_hdf_dataset_config(
-        data_inputs=[cv_data_inputs[key] for key in cv_keys],
-        feature_type=feature_type,
-        returnn_root=returnn_root,
+    if not add_unknown:
+        for corpus_object in [dev_data_inputs[key].corpus_object for key in dev_keys]:
+            assert corpus_object.corpus_file is not None
+            corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
+                corpus_object.corpus_file,
+                train_lexicon,
+                all_unknown=False,
+            ).out_corpus
+
+    cv_corpus = corpus.MergeCorporaJob(
+        [dev_data_inputs[key].corpus_object.corpus_file for key in dev_keys],
+        name="dev_combine",
+        merge_strategy=corpus.MergeStrategy.CONCATENATE,
+    ).out_merged_corpus
+
+    cv_ogg_zip = returnn.BlissToOggZipJob(
+        cv_corpus,
+        no_conversion=True,
         returnn_python_exe=returnn_python_exe,
-        rasr_binary_path=rasr_binary_path,
-        rasr_arch=rasr_arch,
-        dc_detection=dc_detection,
-        single_hdf=True,
-        extra_config={
-            "partition_epoch": 1,
-            "seq_ordering": "sorted",
-        },
-    )
+        returnn_root=returnn_root,
+    ).out_ogg_zip
+
+    cv_data_config = {
+        "class": "OggZipDataset",
+        "audio": {"features": "raw", "sample_rate": 16_000},
+        "targets": None,
+        "partition_epoch": 1,
+        "path": cv_ogg_zip,
+        "seq_ordering": "sorted",
+        "use_cache_manager": True,
+    }
 
     # ********** Loss corpus **********
 
     loss_corpus = corpus.MergeCorporaJob(
-        [train_data_inputs[train_key].corpus_object.corpus_file]
-        + [cv_data_inputs[key].corpus_object.corpus_file for key in cv_keys],
+        [train_corpus, cv_corpus],
         name="loss-corpus",
         merge_strategy=corpus.MergeStrategy.SUBCORPORA,
     ).out_merged_corpus
@@ -91,29 +115,167 @@ def get_librispeech_data(
 
     # ********** Recog lexicon **********
 
-    if use_wei_lexicon:
-        recog_lexicon = tk.Path("/work/asr4/berger/dependencies/librispeech/lexicon/recog.lexicon.wei.xml")
-    else:
-        recog_lexicon = AddEowPhonemesToLexiconJob(train_lexicon).out_lexicon
+    recog_lexicon = AddEowPhonemesToLexiconJob(loss_lexicon).out_lexicon
+
+    for rasr_input in {**wav_dev_data_inputs, **wav_test_data_inputs}.values():
+        rasr_input.lexicon.filename = recog_lexicon
+
+    # ********** Align data **********
+
+    align_lexicon = copy.deepcopy(recog_lexicon)
+
+    align_data_inputs = {
+        f"{key}_align": copy.deepcopy(data_input)
+        for key, data_input in {**wav_train_data_inputs, **wav_dev_data_inputs}.items()
+    }
+    for data_input in align_data_inputs.values():
+        data_input.lexicon.filename = align_lexicon
+
+        if not add_unknown:
+            assert data_input.corpus_object.corpus_file is not None
+            data_input.corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
+                data_input.corpus_object.corpus_file,
+                align_lexicon,
+                all_unknown=False,
+            ).out_corpus
+
+    return CTCSetupData(
+        train_key=train_key,
+        dev_keys=dev_keys,
+        test_keys=test_keys,
+        align_keys=[f"{train_key}_align", *[f"{key}_align" for key in dev_keys]],
+        train_data_config=train_data_config,
+        cv_data_config=cv_data_config,
+        loss_corpus=loss_corpus,
+        loss_lexicon=loss_lexicon,
+        data_inputs={
+            **train_data_inputs,
+            **wav_dev_data_inputs,
+            **wav_test_data_inputs,
+            **align_data_inputs,
+        },
+    )
+
+
+def get_librispeech_data_hdf(
+    returnn_root: tk.Path,
+    train_key: str = "train-other-960",
+    dev_keys: List[str] = ["dev-clean", "dev-other"],
+    test_keys: List[str] = ["test-clean", "test-other"],
+    add_unknown: bool = False,
+    augmented_lexicon: bool = False,
+) -> CTCSetupData:
+    # ********** Data inputs **********
+
+    (train_data_inputs, dev_data_inputs, test_data_inputs,) = data.get_data_inputs(
+        train_key=train_key,
+        dev_keys=dev_keys,
+        test_keys=test_keys,
+        ctc_lexicon=True,
+        use_augmented_lexicon=augmented_lexicon,
+        add_all_allophones=True,
+        audio_format="wav",
+        add_unknown_phoneme_and_mapping=add_unknown,
+    )
+
+    # ********** Train data **********
+
+    train_corpus = train_data_inputs[train_key].corpus_object.corpus_file
+    train_lexicon = train_data_inputs[train_key].lexicon.filename
+    assert train_corpus is not None
+
+    if not add_unknown and not augmented_lexicon:
+        train_corpus = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
+            train_corpus,
+            train_lexicon,
+            all_unknown=False,
+        ).out_corpus
+
+    train_sample_hdf_job = returnn.BlissToPcmHDFJob(
+        train_corpus, rounding=returnn.BlissToPcmHDFJob.RoundingScheme.rasr_compatible, returnn_root=returnn_root
+    )
+    train_sample_hdf_job.rqmt["mem"] = 8
+    train_sample_hdf_job.rqmt["time"] = 24
+    train_sample_hdf = train_sample_hdf_job.out_hdf
+
+    train_data_config = {
+        "class": "HDFDataset",
+        "files": [train_sample_hdf],
+        "partition_epoch": 20,
+        "seq_ordering": "laplace:.30",
+        "use_cache_manager": True,
+    }
+
+    # ********** CV data **********
+
+    cv_data_inputs = copy.deepcopy(dev_data_inputs)
+
+    if not add_unknown:
+        for corpus_object in [cv_data_inputs[key].corpus_object for key in dev_keys]:
+            assert corpus_object.corpus_file is not None
+            corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
+                corpus_object.corpus_file,
+                train_lexicon,
+                all_unknown=False,
+            ).out_corpus
+
+    cv_sample_hdfs = [
+        returnn.BlissToPcmHDFJob(
+            cv_data_inputs[key].corpus_object.corpus_file,
+            rounding=returnn.BlissToPcmHDFJob.RoundingScheme.rasr_compatible,
+            returnn_root=returnn_root,
+        ).out_hdf
+        for key in dev_keys
+    ]
+
+    cv_data_config = {
+        "class": "HDFDataset",
+        "files": cv_sample_hdfs,
+        "partition_epoch": 1,
+        "seq_ordering": "sorted",
+        "use_cache_manager": True,
+    }
+
+    # ********** Loss corpus **********
+
+    loss_corpus = corpus.MergeCorporaJob(
+        [train_corpus] + [cv_data_inputs[key].corpus_object.corpus_file for key in dev_keys],
+        name="loss-corpus",
+        merge_strategy=corpus.MergeStrategy.SUBCORPORA,
+    ).out_merged_corpus
+    loss_lexicon = train_lexicon
+
+    # ********** Recog lexicon **********
+
+    recog_lexicon = AddEowPhonemesToLexiconJob(train_lexicon).out_lexicon
 
     for rasr_input in {**dev_data_inputs, **test_data_inputs}.values():
         rasr_input.lexicon.filename = recog_lexicon
 
     # ********** Align data **********
 
+    align_lexicon = copy.deepcopy(recog_lexicon)
+
     align_data_inputs = {
-        f"{key}_align": copy.deepcopy(data_input) for key, data_input in {**train_data_inputs, **cv_data_inputs}.items()
+        f"{key}_align": copy.deepcopy(data_input)
+        for key, data_input in {**train_data_inputs, **dev_data_inputs}.items()
     }
-    align_lexicon = AddEowPhonemesToLexiconJob(train_lexicon).out_lexicon
     for data_input in align_data_inputs.values():
         data_input.lexicon.filename = align_lexicon
-        # filter_unk_in_corpus_object(data_input.corpus_object, train_lexicon)  # TODO: Remove!
+
+        if not add_unknown:
+            assert data_input.corpus_object.corpus_file is not None
+            data_input.corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
+                data_input.corpus_object.corpus_file,
+                align_lexicon,
+                all_unknown=False,
+            ).out_corpus
 
     return CTCSetupData(
         train_key=train_key,
-        dev_keys=list(dev_data_inputs.keys()),
-        test_keys=list(test_data_inputs.keys()),
-        align_keys=[f"{train_key}_align", *[f"{key}_align" for key in cv_keys]],
+        dev_keys=dev_keys,
+        test_keys=test_keys,
+        align_keys=[f"{train_key}_align", *[f"{key}_align" for key in dev_keys]],
         train_data_config=train_data_config,
         cv_data_config=cv_data_config,
         loss_corpus=loss_corpus,

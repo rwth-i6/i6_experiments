@@ -1,9 +1,6 @@
 from sisyphus import Job, tk, Task
 from typing import Callable
 
-from i6_core.lib import corpus
-from i6_core.lib.corpus import Corpus, Recording, Segment
-
 import h5py
 
 
@@ -53,33 +50,3 @@ class FilterMismatchedSequencesJob(Job):
 
         with open(self.out_segment_whitelist.get(), "wb") as f:
             f.write(b"\n".join(segment_whitelist))
-
-
-class FilterCorpusByDurationWordsRatioJob(Job):
-    """
-    Filter segments based on time/words ratio
-    """
-
-    def __init__(self, bliss_corpus, ratio, compressed=True):
-        super().__init__()
-        self.bliss_corpus = bliss_corpus
-        self.ratio = ratio
-
-        self.out_corpus = self.output_path("corpus.xml" + (".gz" if compressed else ""))
-
-    def tasks(self):
-        yield Task("run", mini_task=True)
-
-    def run(self):
-        def filter_by_ratio(corpus: Corpus, recording: Recording, segment: Segment) -> bool:
-            """
-            returns True if T/N >= ratio where T is the duration of the segment in seconds and N is the number of words
-            """
-            seg_duration = segment.end - segment.start
-            num_words = len(segment.orth.strip().split())
-            return seg_duration >= self.ratio * num_words
-
-        c = corpus.Corpus()
-        c.load(self.bliss_corpus.get_path())
-        c.filter_segments(filter_by_ratio)
-        c.dump(self.out_corpus.get_path())

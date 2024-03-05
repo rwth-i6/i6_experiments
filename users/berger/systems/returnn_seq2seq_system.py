@@ -1,5 +1,6 @@
 from i6_core import returnn
 from i6_experiments.users.berger.systems import functors
+from i6_experiments.users.berger.recipe import returnn as returnn_custom
 
 from .base_system import BaseSystem
 

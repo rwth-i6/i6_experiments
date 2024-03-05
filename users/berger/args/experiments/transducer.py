@@ -1,7 +1,7 @@
 from typing import Dict
 
 from i6_experiments.users.berger.args.jobs.recognition_args import (
-    get_seq2seq_lookahead_options,
+    get_lookahead_options,
     get_seq2seq_search_parameters,
 )
 from i6_experiments.users.berger.util import recursive_update
@@ -55,7 +55,7 @@ def get_transducer_recog_step_args(
             "use_transition_penalty": False,
             "skip_silence": True,
         },
-        "lookahead_options": get_seq2seq_lookahead_options(),
+        "lookahead_options": get_lookahead_options(),
         "search_parameters": get_seq2seq_search_parameters(
             lp=18.0,
             allow_blank=True,
