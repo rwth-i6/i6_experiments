@@ -494,6 +494,24 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "attention_coverage_scale": 0.5,
             },
         },
+        "beam12-batch200-lenReward01-thresh2-cov05": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.1,
+                "pruning_threshold": 2.0,
+                "attention_coverage_scale": 0.5,
+            },
+        },
+        "beam12-batch200-lenReward0-thresh2-cov05": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.0,
+                "pruning_threshold": 2.0,
+                "attention_coverage_scale": 0.5,
+            },
+        },
         "beam12-batch200-lenNorm1": {
             "beam_search_opts": {
                 "beam_size": 12,
