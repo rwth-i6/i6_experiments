@@ -332,6 +332,8 @@ def search_config_v2(
 
     TODO should use sth like unhashed_package_root (https://github.com/rwth-i6/i6_experiments/pull/157)
     """
+    from i6_experiments.common.setups.returnn.serialization import get_serializable_config
+
     returnn_recog_config_dict = dict(
         backend=model_def.backend,
         behavior_version=model_def.behavior_version,
@@ -388,6 +390,16 @@ def search_config_v2(
             use_lovely_tensors=True,
         ),
         sort_config=False,
+    )
+
+    # There might be some further functions in the config, e.g. some dataset postprocessing.
+    returnn_recog_config = get_serializable_config(
+        returnn_recog_config,
+        # The only dim tags we directly have in the config are via extern_data, maybe also model_outputs.
+        # All other dim tags are inside functions such as get_model or train_step,
+        # so we do not need to care about them here, only about the serialization of those functions.
+        # Those dim tags and those functions are already handled above.
+        serialize_dim_tags=False,
     )
 
     batch_size_dependent = recog_def.batch_size_dependent
