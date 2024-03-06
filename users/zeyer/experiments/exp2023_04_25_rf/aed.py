@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import copy
 import functools
-from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, List
+from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, List, Collection
 import tree
 import math
 import numpy as np
