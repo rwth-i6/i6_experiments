@@ -11,16 +11,10 @@ from i6_experiments.users.phan.utils import get_seq_mask
 
 
 def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
-    audio_features = extern_data["data"].raw_tensor
-    assert extern_data["data"].dims[1].dyn_size_ext is not None
+    assert extern_data["data"].raw_tensor is not None
+    targets = extern_data["data"].raw_tensor.long()
 
-    audio_features_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
-    assert audio_features_len is not None
-
-    assert extern_data["targets"].raw_tensor is not None
-    targets = extern_data["targets"].raw_tensor.long()
-
-    targets_len_rf = extern_data["targets"].dims[1].dyn_size_ext
+    targets_len_rf = extern_data["data"].dims[1].dyn_size_ext
     assert targets_len_rf is not None
     targets_len = targets_len_rf.raw_tensor
     assert targets_len is not None
@@ -48,6 +42,10 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     seq_mask = get_seq_mask(targets_eos_len, max_seq_len + 1, targets.device)
     loss = (loss*seq_mask).sum()
     targets_len_rf.raw_tensor += 1 # because padding
+    ppl = torch.exp(loss.detach()/targets_len_rf.raw_tensor.sum())
     rf.get_run_ctx().mark_as_loss(
         name="log_ppl", loss=loss, custom_inv_norm_factor=rf.reduce_sum(targets_len_rf, axis=batch_dim)
+    )
+    rf.get_run_ctx().mark_as_loss(
+        name="ppl", loss=ppl, as_error=True,
     )

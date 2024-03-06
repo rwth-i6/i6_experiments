@@ -31,8 +31,11 @@ def get_extern_data_config(
     extern_data_kwargs: Dict = {},
     extern_target_kwargs: Dict = {},
     target: Optional[str] = "classes",
+    extern_data_dict: Optional[dict] = None,
     **kwargs,
 ) -> Dict[str, Any]:
+    if extern_data_dict:
+        return {"extern_data": extern_data_dict}
     result = {}
     if num_inputs is not None:
         result["data"] = {"dim": num_inputs, **extern_data_kwargs}

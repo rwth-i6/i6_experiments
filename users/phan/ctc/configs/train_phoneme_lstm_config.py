@@ -30,6 +30,8 @@ num_lstm_layers = 1
 embed_dim = 128
 dropout = 0.1
 hidden_dim = 640
+init_learning_rate = 1.0
+train_split_epoch = 20
 
 tools = copy.deepcopy(default_tools_v2)
 SCTK_BINARY_PATH = compile_sctk()  # use last published version
@@ -37,6 +39,15 @@ SCTK_BINARY_PATH.hash_overwrite = "LBS_DEFAULT_SCTK_BINARY_PATH"
 
 
 # ********** Return Config generators **********
+
+def remove_librispeech_audio_features(data_config):
+    data_config["datasets"]["targets"]["partition_epoch"] = data_config["datasets"]["features"]["partition_epoch"]
+    data_config["datasets"]["targets"]["seq_ordering"] = data_config["datasets"]["features"]["seq_ordering"]
+    data_config["datasets"].pop("features")
+    data_config["data_map"].pop("targets")
+    data_config["data_map"]["data"] = ("targets", "data")
+    data_config["seq_order_control_dataset"] = "targets"
+    return data_config
 
 
 def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, dev_data_config: dict, lr: dict,
@@ -53,29 +64,27 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
         "train": train_data_config,
         "dev": dev_data_config,
     }
+    # Remove audio features
+    train_data_config = remove_librispeech_audio_features(train_data_config)
+    dev_data_config = remove_librispeech_audio_features(dev_data_config)
     if variant == ConfigVariant.RECOG:
         extra_config["model_outputs"] = {"classes": {"dim": num_outputs}}
 
     extra_config.update({"calculate_exp_loss": True})
+    kwargs.update(lr)
 
     return get_returnn_config(
         num_epochs=num_subepochs,
-        num_inputs=1,
-        num_outputs=num_outputs,
-        target="targets",
+        extern_data_dict={"data": {"shape": (None,)}},
         extra_python=[lstm_lm.get_train_serializer(model_config)],
         extern_data_config=True,
         backend=Backend.PYTORCH,
         grad_noise=0.0,
         grad_clip_global_norm=2.0,
-        optimizer=Optimizers.AdamW,
+        weight_decay=0.01,
+        optimizer=Optimizers.SGD,
         schedule=LearningRateSchedules.NewbobRel,
-        max_seqs=60,
-        learning_rate=lr["learning_rate"],
-        decay=lr["decay"],
-        multi_num_epochs=lr["multi_num_epochs"],
-        relative_error_threshold=lr['relative_error_threshold'],
-        error_measure=lr['error_measure'],
+        max_seqs=32,
         batch_size=batch_size,
         use_chunking=False,
         extra_config=extra_config,
@@ -90,8 +99,6 @@ def get_returnn_config_collection(
         batch_size: int,
         kwargs: dict
 ) -> ReturnnConfigs[ReturnnConfig]:
-    if "final_lr" not in lr:
-        lr["final_lr"] = 1e-8
     generator_kwargs = {"train_data_config": train_data_config, "dev_data_config": dev_data_config, "lr": lr,
                         "batch_size": batch_size, "kwargs":kwargs}
     return ReturnnConfigs(
@@ -127,7 +134,7 @@ def lbs960_train_phoneme_lstm() -> SummaryReport:
     tools.rasr_binary_path = tk.Path(
         "/u/berger/repositories/rasr_versions/gen_seq2seq_onnx_apptainer/arch/linux-x86_64-standard"
     )
-    #tools.returnn_root = tk.Path("/u/minh-nghia.phan/tools/simon_returnn")
+    tools.returnn_root = tk.Path("/u/minh-nghia.phan/tools/simon_returnn")
     system = ReturnnSeq2SeqSystem(tools)
 
     system.init_corpora(
@@ -141,14 +148,14 @@ def lbs960_train_phoneme_lstm() -> SummaryReport:
     # ********** Returnn Configs **********
     # Use newbob lr here
     lr = {
-        "learning_rate": 1.0,
+        "learning_rate": init_learning_rate,
         "decay": 0.9 ,
-        "multi_num_epochs": 20,
+        "multi_num_epochs": train_split_epoch,
         "relative_error_threshold": -0.005,
-        "error_measure": "dev_loss_log_ppl:exp",
+        "error_measure": "dev_loss_ppl",
     }
     system.add_experiment_configs(
-        f"phoneme_lstm_layers{num_lstm_layers}_embed{embed_dim}_hidden{hidden_dim}_dropout{dropout}",
+        f"phoneme_lstm_layers{num_lstm_layers}_embed{embed_dim}_hidden{hidden_dim}_dropout{dropout}_sgd_lr{init_learning_rate}",
         get_returnn_config_collection(
             data.train_data_config,
             data.cv_data_config,

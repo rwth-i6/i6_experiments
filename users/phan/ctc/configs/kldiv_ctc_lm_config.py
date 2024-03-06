@@ -31,7 +31,7 @@ num_outputs = 79
 num_subepochs = 240
 
 tools = copy.deepcopy(default_tools_v2)
-# tools.returnn_root = tk.Path("/u/minh-nghia.phan/tools/simon_returnn")
+# tools.returnn_root = tk.Path("/u/minh-nghia.phan/tools/simon_returnn") # Sis will ask to run HDF jobs again
 # tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/onnx/arch/linux-x86_64-standard")
 # tools.returnn_root = tk.Path("/u/berger/repositories/MiniReturnn")
 SCTK_BINARY_PATH = compile_sctk()  # use last published version
@@ -50,6 +50,8 @@ def returnn_config_generator(
     conformer_ctc_args: dict,
     lstm_lm_args: dict,
     module_preloads: dict,
+    optimizer: Optimizers,
+    schedule: LearningRateSchedules,
     kwargs: dict,
 ) -> ReturnnConfig:
     conformer_ctc_args["num_inputs"] = 80
@@ -81,6 +83,7 @@ def returnn_config_generator(
         'teacher_ctc': "i6_experiments.users.jxu.experiments.ctc.lbs_960.pytorch_networks.baseline.conformer_ctc_d_model_512_num_layers_12_new_frontend_raw_wave",
         'student_lm': "i6_experiments.users.phan.models.lstm_lm"
     }
+    kwargs.update(lr) # diff LR scheduler will have diff parameters
 
     return get_returnn_config(
         num_epochs=num_subepochs,
@@ -93,20 +96,15 @@ def returnn_config_generator(
                 module_class_import=module_class_import,
                 train_step_package=wrapper_train_step_package,
             ),
-            ExplicitHash("log_ctc_pref_scores shape (B, S+1, F) version")
         ],
         extern_data_config=True,
         backend=Backend.PYTORCH,
         grad_noise=0.0,
-        grad_clip=0.0,
-        optimizer=Optimizers.AdamW,
-        schedule=LearningRateSchedules.NewbobRel,
+        # grad_clip=0.0,
+        grad_clip_global_norm=2.0,
+        optimizer=optimizer,
+        schedule=schedule,
         max_seqs=60,
-        learning_rate=lr["learning_rate"],
-        decay=lr["decay"],
-        multi_num_epochs=lr["multi_num_epochs"],
-        relative_error_threshold=lr['relative_error_threshold'],
-        error_measure=lr['error_measure'],
         batch_size=batch_size,
         use_chunking=False,
         extra_config=extra_config,
@@ -122,10 +120,10 @@ def get_returnn_config_collection(
         lstm_lm_args: dict,
         module_preloads: dict,
         batch_size: int,
+        optimizer: Optimizers,
+        schedule: LearningRateSchedules,
         kwargs: dict
 ) -> ReturnnConfigs[ReturnnConfig]:
-    if "final_lr" not in lr:
-        lr["final_lr"] = 1e-8
     generator_kwargs = {
         "train_data_config": train_data_config,
         "dev_data_config": dev_data_config,
@@ -134,6 +132,8 @@ def get_returnn_config_collection(
         "conformer_ctc_args": conformer_ctc_args,
         "lstm_lm_args": lstm_lm_args,
         "module_preloads": module_preloads,
+        "optimizer": optimizer,
+        "schedule": schedule,
         "kwargs":kwargs
     }
     return ReturnnConfigs(
@@ -210,11 +210,13 @@ def lbs_960_run_kldiv_ctc_lm() -> SummaryReport:
                             for n_lstm_layers in [1]:
                                 if num_layers != 12:
                                     dropout = 0.1
-                                conformer_ctc_args = {"time_max_mask_per_n_frames": time_max_mask_per_n_frames,
-                                                "freq_max_num_masks": freq_max_num_masks,
-                                                "vgg_act": vgg_act,
-                                                "dropout": dropout,
-                                                "num_layers": num_layers}
+                                conformer_ctc_args = {
+                                    "time_max_mask_per_n_frames": time_max_mask_per_n_frames,
+                                    "freq_max_num_masks": freq_max_num_masks,
+                                    "vgg_act": vgg_act,
+                                    "dropout": dropout,
+                                    "num_layers": num_layers
+                                }
                                 lstm_lm_args = {
                                     "vocab_dim": num_outputs, # 79
                                     "embed_dim": 128,
@@ -225,51 +227,51 @@ def lbs_960_run_kldiv_ctc_lm() -> SummaryReport:
                                 module_preloads = {
                                     "teacher_ctc": "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.nuHCdB8qL7NJ/output/models/epoch.600.pt"
                                 }
-                                lr = {
+                                newbob_lr = {
                                     "learning_rate": 1.0,
                                     "decay": 0.9 ,
                                     "multi_num_epochs": 20,
                                     "relative_error_threshold": -0.005,
-                                    "error_measure": "dev_loss_log_ppl:exp",
+                                    "error_measure": "dev_loss_kldiv_ctc_lm",
                                 }
                                 system.add_experiment_configs(
-                                    f"kldiv_ctc_lm_ctc_layers_{num_layers}_lstm_layers_{n_lstm_layers}",
+                                    f"kldiv_ctc_lm_ctc_layers_{num_layers}_lstm_layers_{n_lstm_layers}_sgd_newbobrel_lr{1.0}",
                                     get_returnn_config_collection(
                                         data.train_data_config,
                                         data.cv_data_config,
-                                        lr=lr,
+                                        lr=newbob_lr,
                                         batch_size=15000 * 160,
                                         conformer_ctc_args=conformer_ctc_args,
                                         lstm_lm_args=lstm_lm_args,
                                         module_preloads=module_preloads,
-                                        kwargs={}
+                                        optimizer=Optimizers.SGD,
+                                        schedule=LearningRateSchedules.NewbobRel,
+                                        kwargs={"weight_decay": 0.001},
                                     )
                                 )
-
-        # for time_max_mask_per_n_frames in [25]:
-        #     for freq_max_num_masks in [5]:
-        #         for vgg_act in ["relu"]:
-        #             for dropout in [0.1]:
-        #                 network_args = {"time_max_mask_per_n_frames": time_max_mask_per_n_frames,
-        #                                 "freq_max_num_masks": freq_max_num_masks,
-        #                                 "vgg_act": vgg_act,
-        #                                 "dropout": dropout}
-        #                 peak_lr_dict = {
-        #                     "initial_lr": 1e-5,
-        #                     "peak_lr": peak_lr,
-        #                     "final_lr": 1e-5
-        #                 }
-        #                 str_peak_lr = str(peak_lr).replace("-", "_").replace(".", "_")
-        #                 str_dropout = str(dropout).replace(".", "_")
-        #                 system.add_experiment_configs(
-        #                     f"wei_lr_scheduler_subepochs_600_peak_lr_{str_peak_lr}_dropout_{str_dropout}_batch_15000_wei_hyper_new_frontend",
-        #                     get_returnn_config_collection(data.train_data_config, data.cv_data_config, lr=peak_lr_dict,
-        #                                                   batch_size=15000 * 160, network_args=network_args,kwargs={"cycle_epoch":250})
-        #                 )
+                                oclr_lr_dict = {
+                                    "initial_lr": peak_lr/100,
+                                    "peak_lr": peak_lr,
+                                    "final_lr": 1e-8,
+                                }
+                                str_peak_lr = str(peak_lr).replace("-", "_").replace(".", "_")
+                                str_dropout = str(dropout).replace(".", "_")
+                                system.add_experiment_configs(
+                                    f"kldiv_ctc_lm_ctc_layers_{num_layers}_lstm_layers_{n_lstm_layers}_adamw_oclr_peaklr{str_peak_lr}",
+                                    get_returnn_config_collection(
+                                        data.train_data_config,
+                                        data.cv_data_config,
+                                        lr=oclr_lr_dict,
+                                        batch_size=15000 * 160,
+                                        conformer_ctc_args=conformer_ctc_args,
+                                        lstm_lm_args=lstm_lm_args,
+                                        module_preloads=module_preloads,
+                                        optimizer=Optimizers.AdamW,
+                                        schedule=LearningRateSchedules.OCLR,
+                                        kwargs={})
+                                )
 
     system.run_train_step(**train_args)
-    # system.run_dev_recog_step(**recog_args)
-    # system.run_test_recog_step(**recog_args)
 
     assert system.summary_report
     return system.summary_report

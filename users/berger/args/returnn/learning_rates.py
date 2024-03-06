@@ -51,7 +51,7 @@ def get_learning_rate_config(
     elif optimizer == Optimizers.AdamW:
         config.update(get_adamw_config(**kwargs))
     elif optimizer == Optimizers.SGD:
-        pass
+        config.update(get_sgd_config(**kwargs))
     else:
         raise NotImplementedError
 
@@ -71,6 +71,13 @@ def get_adamw_config(
     **kwargs,
 ) -> Dict[str, Dict]:
     return {"optimizer": {"class": "adamw", "epsilon": epsilon, "weight_decay": weight_decay}}
+
+
+def get_sgd_config(
+    weight_decay: float = 0.0,
+    **kwargs,
+) -> Dict[str, Dict]:
+    return {"optimizer": {"class": "sgd", "weight_decay": weight_decay}}
 
 
 def get_newbob_config(
