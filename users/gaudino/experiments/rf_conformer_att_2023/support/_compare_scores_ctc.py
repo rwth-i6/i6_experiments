@@ -22,12 +22,10 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
     from_scratch_training,
     model_recog,
 )
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_ctc_greedy import (
-    model_recog_ctc,
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_compare_ctc_scores import (
+    model_recog_compare_ctc_scores,
 )
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_time_sync import (
-    model_recog_time_sync,
-)
+
 from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.search_data_opts import (
@@ -89,8 +87,8 @@ def test_import_search():
     debug.install_native_signal_handler()
     debug.init_faulthandler()
 
-    dataset = "tedlium2"
-    # dataset = "librispeech960"
+    # dataset = "tedlium2"
+    dataset = "librispeech960"
 
     if dataset == "tedlium2":
 
@@ -98,8 +96,6 @@ def test_import_search():
         search_data_opts = search_data_opts_ted2
         seq_list = [f"TED-LIUM-realease2/AlGore_2009/{i}" for i in range(1, 34)]
         seq_list = ["TED-LIUM-realease2/BlaiseAguerayArcas_2007/22"] # fixed_random_subset = 1
-        # seq_list = ["TED-LIUM-realease2/CraigVenter_2008/22"]
-        # seq_list = ['TED-LIUM-realease2/CraigVenter_2008/67', 'TED-LIUM-realease2/CraigVenter_2008/55', 'TED-LIUM-realease2/BarrySchwartz_2005G/78', 'TED-LIUM-realease2/CraigVenter_2008/22']
 
         batch_num_seqs = 1
         model_args = {
@@ -108,34 +104,6 @@ def test_import_search():
             "mel_normalization": True,
         }
         pt_checkpoint_path = _tedlium2_ckpt_path_w_trafo_lm
-
-        model_args_att_only = {
-            # "add_trafo_lm": True,
-            "target_embed_dim": 256,
-            "mel_normalization": True,
-            "no_ctc": True,
-        }
-        pt_checkpoint_path = _tedlium2_ckpt_path_att_only_currL
-
-        # model_args_ctc_only = {
-        #     # "add_trafo_lm": True,
-        #     "target_embed_dim": 256,
-        #     "mel_normalization": True,
-        # }
-        # pt_checkpoint_path = _tedlium2_ckpt_path_ctc_only
-        #
-        # model_args_ctc_only = {
-        #     # "add_trafo_lm": True,
-        #     "target_embed_dim": 256,
-        #     "mel_normalization": True,
-        #     "encoder_ctc": True,
-        # }
-        # pt_checkpoint_path = _tedlium2_ckpt_path_baseline__ctc_only
-
-        model_args = model_args_att_only
-
-
-
 
     elif dataset == "librispeech960":
         target_dimension = 10025
@@ -251,36 +219,11 @@ def test_import_search():
     print(pt_checkpoint_path)
 
     print("*** Create new model")
-    ctc_only = False
-    time_sync = False
-    time_sync_search_args = {
-        "beam_size": 12,
-        # "att_scale": 0.0,
-        "ctc_scale": 1.0,
-        "add_trafo_lm": True,
-        "lm_scale": 0.5,
-        "remove_trafo_lm_eos": True,  # ?
-        # "add_eos_to_end": True,
-    }
-    ctc_only_search_args = {}
+
     search_args = {
         "beam_size": 12,
-        "att_scale": 1.0,
-        # "ctc_scale": 0.0,
-        # "use_ctc": True,
-        # "encoder_ctc": True,
-        # "add_trafo_lm": True,
-        # "lm_scale": 0.5,
-        # "ctc_scale": 1.0,
-        # "use_ctc": True,
-        # "prior_corr": True,
-        # "prior_scale": 0.5,
-        # "ctc_prior_file": "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.2UG8sLxHNTMO/output/prior.txt",  # ted2 baseline
+        "use_ctc": True,
     }
-    if time_sync:
-        search_args = time_sync_search_args
-    if ctc_only:
-        search_args = ctc_only_search_args
 
     # returnn/torch/fonrtend/_backend 1635: sizes_raw = torch.reshape(sizes.raw_tensor, [batch_dim]).to('cpu')
     new_model = MakeModel.make_model(
@@ -317,56 +260,14 @@ def test_import_search():
     with torch.no_grad():
         with rf.set_default_device_ctx("cuda"):
             # manually switch between different decoders
-            if ctc_only:
-                seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog_ctc(
-                    model=new_model,
-                    data=extern_data["audio_features"],
-                    data_spatial_dim=time_dim,
-                )
-            elif time_sync:
-                (
-                    seq_targets,
-                    seq_log_prob,
-                    out_spatial_dim,
-                    beam_dim,
-                ) = model_recog_time_sync(
-                    model=new_model,
-                    data=extern_data["audio_features"],
-                    data_spatial_dim=time_dim,
-                )
-            else:
-                seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
-                    model=new_model,
-                    data=extern_data["audio_features"],
-                    data_spatial_dim=time_dim,
-                )
-    print(seq_targets, seq_targets.raw_tensor)  # seq_targets [T,Batch,Beam]
-    print("Out spatial dim:", out_spatial_dim)
-
-    # serialize output
-    # vocab_1 = Vocabulary("/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.Jc3xHSQQbXD9/output/bpe.vocab", eos_label=0) # librispeech
-    # does not work due to encoding of environment
-    # vocab_1 = Vocabulary("/u/michel/setups/2023-08-09--librispeech_mohammad/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.Jc3xHSQQbXD9/output/bpe.vocab", eos_label=0) # tedlium2
-    vocab_1 = dataset.datasets["zip_dataset"].targets
-    for batch_idx in range(batch_dim.get_dim_value()):
-        # process seq
-        hyps = seq_targets.raw_tensor[:, batch_idx, :]
-        scores = seq_log_prob.raw_tensor[batch_idx, :]
-        hyps_len = seq_targets.dims[0].dyn_size_ext.raw_tensor[:, batch_idx]
-        num_beam = hyps.shape[1]
-        only_max = True
-        if only_max:
-            max_score_idx = torch.argmax(scores)
-            score = float(scores[max_score_idx])
-            hyp_ids = hyps[: hyps_len[max_score_idx], max_score_idx]
-            hyp_serialized = vocab_1.get_seq_labels(hyp_ids)
-            print(f"  ({score!r}, {hyp_serialized!r}),\n")
-            continue
-        for i in range(num_beam):
-            score = float(scores[i])
-            hyp_ids = hyps[: hyps_len[i], i]
-            hyp_serialized = vocab_1.get_seq_labels(hyp_ids)
-            print(f"  ({score!r}, {hyp_serialized!r}),\n")
+            seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog_compare_ctc_scores(
+                model=new_model,
+                data=extern_data["audio_features"],
+                data_spatial_dim=time_dim,
+                ground_truth=extern_data["bpe_labels"],
+            )
+            print("Score comparison done!")
+            print()
 
 
 # `py` is the default sis config function name. so when running this directly, run the import test.

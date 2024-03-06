@@ -54,6 +54,8 @@ _torch_ckpt_filename_w_trafo_lm = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setu
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
 
+_torch_ckpt_dir_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/without_lm/"
+
 from IPython import embed
 
 
@@ -84,73 +86,181 @@ def sis_run_with_prefix(prefix_name: str = None):
     targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
     target_dim = targets.feature_dim_or_sparse_dim
 
-    # load baseline model w trafo lm
-    new_chkpt_path = tk.Path(
-        _torch_ckpt_filename_w_trafo_lm, hash_overwrite="torch_ckpt"
+    from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.model_ckpt_info import (
+        models,
     )
-    new_chkpt = PtCheckpoint(new_chkpt_path)
-    model_with_checkpoint = ModelWithCheckpoint(
-        definition=from_scratch_model_def, checkpoint=new_chkpt
-    )
-    model_args = {
-        "target_embed_dim": 256,
-        "add_ted2_trafo_lm": True,
-    }
 
-    # separate encoders
-    model_name = "/model_baseline"
-    prefix_name = prefix_name + model_name
+    models_with_pt_ckpt = {}
 
-    new_chkpt_path_sep_enc = tk.Path(
-        "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/model_baseline__ctc_only__trafo_lm_24_01_19/average.pt",
-        hash_overwrite="torch_ckpt_sep_enc",
-    )
-    new_chkpt_sep_enc = PtCheckpoint(new_chkpt_path_sep_enc)
-    model_with_checkpoint = ModelWithCheckpoint(
-        definition=from_scratch_model_def, checkpoint=new_chkpt_sep_enc
-    )
-    model_args_sep_enc = {
-        "target_embed_dim": 256,
-        "add_ted2_trafo_lm": True,
-        "encoder_ctc": True,
-    }
+    # new_chkpt_path_sep_enc = tk.Path(
+    #     "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/model_baseline__ctc_only__trafo_lm_24_01_19/average.pt",
+    #     hash_overwrite="torch_ckpt_sep_enc",
+    # )
+    # new_chkpt_sep_enc = PtCheckpoint(new_chkpt_path_sep_enc)
+    # model_with_checkpoint = ModelWithCheckpoint(
+    #     definition=from_scratch_model_def, checkpoint=new_chkpt_sep_enc
+    # )
 
-    # sep encoder baseline + ctc only - opls + trafo lm
-    for scales, beam_size in product([(0.7, 0.3, 0.1), (0.7, 0.3, 0.3)], [6, 12]):
-        model_name = "/model_baseline__ctc_only"
-        att_scale, ctc_scale, lm_scale = scales
-        search_args = {
-            "beam_size": beam_size,
-            "att_scale": att_scale,
-            "use_ctc": True,
-            "ctc_scale": ctc_scale,
-            "encoder_ctc": True,
-            "add_trafo_lm": True,
-            "lm_scale": lm_scale,
-            "bsf": "bsf40",
+    model_names = models.keys()
+    for model_name in model_names:
+        model_args = {
+            "target_embed_dim": 256,
+            "add_ted2_trafo_lm": True,
+            "mel_normalization": True,
+            "no_ctc": models[model_name].get("no_ctc", False),
+            "enc_layer_w_ctc": models[model_name].get("enc_layer_w_ctc", None),
+            "encoder_ctc":True,
         }
+        new_ckpt_path = tk.Path(
+            _torch_ckpt_dir_path + model_name + "__ctc_only" + "/average.pt",
+            hash_overwrite=model_name + "_torch_ckpt",
+        )
+        new_ckpt = PtCheckpoint(new_ckpt_path)
+        models_with_pt_ckpt[model_name] = {}
+        models_with_pt_ckpt[model_name]["ckpt"] = ModelWithCheckpoint(
+            definition=from_scratch_model_def, checkpoint=new_ckpt
+        )
+        models_with_pt_ckpt[model_name]["model_args"] = model_args
 
-        dev_sets = ["dev"]  # only dev-other for testing
-        # dev_sets = None  # all
-        name = (
+    bsf = 10
+    prefix_name = prefix_name + f"/bsf{bsf}"
+
+    # optsnr att + ctc
+    for model_name in ["model_baseline"]:
+        for scales, prior_scale, beam_size in product([(0.85, 0.15)], [0.0, 0.3], [12, 32]):
+
+            att_scale, ctc_scale = scales
+
+            search_args = {
+                "beam_size": beam_size,
+                "blank_idx": 1057,
+                "bsf": bsf,
+
+                "att_scale": att_scale,
+                "ctc_scale": ctc_scale,
+
+                "encoder_ctc": True,
+
+                "prior_corr": True if prior_scale > 0 else False,
+                "prior_scale": prior_scale,
+                "ctc_prior_file": models["model_ctc_only"]["prior"],
+                "hash_overwrite": "v2"
+            }
+
+            name = (
                 prefix_name
-                + model_name
-                # + f"/bsf160_att_beam{beam_size}"
-                + f"/bsf10_opls_att{att_scale}_ctc{ctc_scale}_trafo_lm{lm_scale}_beam{beam_size}"
-        )
-        res, _ = recog_model(
-            task,
-            model_with_checkpoint,
-            model_recog,
-            dev_sets=dev_sets,
-            model_args=model_args_sep_enc,
-            search_args=search_args,
-            prefix_name=name,
-        )
-        tk.register_output(
-            name + f"/recog_results",
-            res.output,
-        )
+                + "/" + model_name + "__ctc_only"
+                + f"/opas_att{att_scale}_ctc{ctc_scale}"
+                + (f"_prior{prior_scale}" if prior_scale > 0 else "")
+                + f"_beam{beam_size}"
+            )
+            res, _ = recog_model(
+                task,
+                models_with_pt_ckpt[model_name]["ckpt"],
+                model_recog_time_sync,
+                dev_sets=["dev"],  # set to None for all
+                model_args=models_with_pt_ckpt[model_name]["model_args"],
+                search_args=search_args,
+                prefix_name=name,
+            )
+            tk.register_output(
+                name + f"/recog_results",
+                res.output,
+            )
+
+
+
+    opls_model_names = {
+        "model_baseline":{
+            "scales": [(0.85, 0.15, 0.3)],
+        },
+        "model_ctc0.43_att1.0": {
+            "scales": [(0.8,0.2, 0.4)],
+        },
+        "model_ctc0.25_att1.0": {
+            "scales": [(0.8, 0.2, 0.45)],
+        },
+        "model_ctc0.2_att1.0": {
+            "scales": [(0.75, 0.25, 0.45)],
+        },
+        "model_ctc0.3_att0.7": {
+            "scales": [(0.8, 0.2, 0.6)],
+        },
+        "model_ctc0.2_att0.8": {
+            "scales": [(0.8, 0.2, 0.55)],
+        },
+        "model_ctc0.1_att0.9": {
+            "scales": [(0.8, 0.2, 0.6)],
+        },
+        "model_ctc0.001_att0.999": {
+            "scales": [],
+        },
+        "model_ctc0.3_att0.7_lay6": {
+            "scales": [],
+        },
+        "model_ctc0.3_att0.7_lay8": {
+            "scales": [],
+        },
+        "model_ctc0.3_att0.7_lay10": {
+            "scales": [],
+        },
+        "model_ctc1.0_att1.0_lay6": {
+            "scales": [],
+        },
+        "model_ctc1.0_att1.0_lay8": {
+            "scales": [],
+        },
+        "model_ctc1.0_att1.0_lay10": {
+            "scales": [],
+        },
+        "model_att_only_currL": {},
+        "model_att_only_adjSpec": {},
+        # "model_ctc_only",
+    }
+
+    # sep enc: opls aed + ctc prefix
+    # for model_name in opls_model_names.keys():
+    for model_name in ["model_baseline"]:
+        for scales, prior_scale, beam_size in product([(0.82, 0.18)], [0.5], [12, 32]):
+
+            att_scale, ctc_scale = scales
+
+            search_args = {
+                "beam_size": beam_size,
+                "blank_idx": 1057,
+                "bsf": bsf,
+
+                "att_scale": att_scale,
+                "ctc_scale": ctc_scale,
+                "use_ctc": True,
+                "encoder_ctc": True,
+
+                "prior_corr": True if prior_scale > 0 else False,
+                "prior_scale": prior_scale,
+                "ctc_prior_file": models["model_ctc_only"]["prior"],
+                "hash_overwrite": "v2"
+            }
+
+            name = (
+                prefix_name
+                + "/" + model_name + "__ctc_only"
+                + f"/opls_att{att_scale}_ctc{ctc_scale}"
+                + (f"_prior{prior_scale}" if prior_scale > 0 else "")
+                + f"_beam{beam_size}"
+            )
+            res, _ = recog_model(
+                task,
+                models_with_pt_ckpt[model_name]["ckpt"],
+                model_recog,
+                dev_sets=["dev", "test"],  # set to None for all
+                model_args=models_with_pt_ckpt[model_name]["model_args"],
+                search_args=search_args,
+                prefix_name=name,
+            )
+            tk.register_output(
+                name + f"/recog_results",
+                res.output,
+            )
 
 
 py = sis_run_with_prefix

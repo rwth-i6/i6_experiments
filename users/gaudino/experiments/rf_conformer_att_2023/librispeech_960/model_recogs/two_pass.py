@@ -24,24 +24,35 @@ def rescore_w_ctc(
     return seq_targets, seq_log_prob
 
 
-def ctc_forward_algorithm(ctc_log_probs, seq, blank_idx=10025):
+def ctc_forward_algorithm(ctc_log_probs, seq, blank_idx=10025, rescale=False):
     """ctc forward score for all possible paths."""
+
     mod_seq = torch.stack([seq, torch.fill(seq, blank_idx)], dim=1).flatten()
-    mod_seq = torch.cat((torch.tensor([blank_idx], device="cuda"), mod_seq))
+    mod_seq = torch.cat((torch.tensor([blank_idx], device="cpu"), mod_seq))
     mod_seq_len = mod_seq.size(0)
 
     # ctc_log_probs [T, O]
     T = ctc_log_probs.size(0)
-    A = torch.full((T, mod_seq_len), float("-inf"), device="cuda")  # [T, S]
+    A = torch.full((T, mod_seq_len), float("-inf"), device="cpu")  # [T, S]
+    C = torch.full((T,), float("-inf"), device="cpu")  # [T]
 
     # Initialize the first row of the forward variable
     A[0, 0] = ctc_log_probs[0, blank_idx]
     A[0, 1] = ctc_log_probs[0, seq[0]]
 
-    # rescale first row ?
+    # About rescaling: in the orig CTC paper they suggest to rescale at each step to avoid underflow.
+    # However in his dissertation, Alex Graves says working in log space is even more stable
+    # At least they give the same result I think.
+
+    # rescale first row
+
+    if rescale:
+        C[0] = torch.logsumexp(A[0], 0)
+        A[0] = A[0] - C[0]
 
     # Iteration
     for i in range(1, T):
+
         prev_A_shift = torch.roll(A[i - 1], 1, dims=0)
         prev_A_shift[0] = float("-inf")
         prev_A_comb_1 = torch.logsumexp(torch.stack((A[i - 1], prev_A_shift)), dim=0)
@@ -56,10 +67,16 @@ def ctc_forward_algorithm(ctc_log_probs, seq, blank_idx=10025):
 
         A[i] = prev_A_comb + ctc_log_probs[i, mod_seq]
 
-        # rescale A[i]
-        A[i] = A[i] - torch.logsumexp(A[i], 0)
+        if rescale:
+            C[i] = torch.logsumexp(A[i], 0)
+            A[i] = A[i] - C[i]
 
-    return A[T - 1, mod_seq_len - 1] + A[T - 1, mod_seq_len - 2]
+    if rescale:
+        res = torch.sum(C)
+    else:
+        res = torch.logsumexp(torch.stack((A[T-1, mod_seq_len-1], A[T-1, mod_seq_len-2])), dim=0)
+
+    return res
 
 
 # def ctc_viterbi_score(ctc_log_probs, seqs, blank_idx=10025):

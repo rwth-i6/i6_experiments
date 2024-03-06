@@ -49,6 +49,9 @@ def model_recog_time_sync(
     """
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    if model.search_args.get("encoder_ctc", False):
+        enc_args_ctc, enc_spatial_dim_ctc = model.encode_ctc(data, in_spatial_dim=data_spatial_dim)
+
     beam_size = model.search_args.get("beam_size", 12)
     length_normalization_exponent = model.search_args.get(
         "length_normalization_exponent", 1.0
@@ -87,9 +90,14 @@ def model_recog_time_sync(
 
     blank_index = model.target_dim.get_dim_value()
 
+    if model.search_args.get("encoder_ctc", False):
+        enc_ctc = enc_args_ctc["ctc"]
+    else:
+        enc_ctc = enc_args["ctc"]
+
     # already in log space
     ctc_out_raw = (
-        enc_args["ctc"]
+        enc_ctc
         .copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_b))
         .raw_tensor
     )  # [B,T,V+1]
@@ -400,7 +408,6 @@ def model_recog_time_sync(
         )
 
         if model.search_args.get("add_trafo_lm", False):
-            # breakpoint()
             trafo_lm_out = model.trafo_lm(
                 target_1, state=trafo_lm_state_1, spatial_dim=single_step_dim
             )

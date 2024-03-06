@@ -37,19 +37,24 @@ from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_outp
 # test-other  5.51
 # _returnn_tf_config_filename = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config"
 # # E.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
-_returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
+_returnn_tf_ckpt_filename_librispeech = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
+_returnn_tf_ckpt_filename_tedlium2_att_only_currL = "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/training/AverageTFCheckpointsJob.io6cKw6ETnHp/output/model/average.index"
+
 _load_existing_ckpt_in_test = True
 _lm_path = "/work/asr3/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/re_i128_m2048_m2048_m2048_m2048.sgd_b32_lr0_cl2.newbobabs.d0.0.1350/bk-net-model/network.035"
-
+_torch_ckpt_path_librispeech = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/base_model/average.pt"
+_torch_ckpt_path_tedlium2_att_only_currL = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/without_lm/model_att_only_currL/average.pt"
 
 _ParamMapping = {}  # type: Dict[str,str]
 
 
-def _get_tf_checkpoint_path() -> tk.Path:
+def _get_tf_checkpoint_path(dataset) -> tk.Path:
     """
     :return: Sisyphus tk.Path to the checkpoint file
     """
-    return generic_job_output(_returnn_tf_ckpt_filename)
+    if dataset == "tedlium2":
+        return tk.Path(_returnn_tf_ckpt_filename_tedlium2_att_only_currL)
+    return generic_job_output(_returnn_tf_ckpt_filename_librispeech)
 
 
 def _get_pt_checkpoint_path() -> tk.Path:
@@ -245,14 +250,39 @@ def map_param_func_v3(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
     raise NotImplementedError(f"cannot map {name!r} {var}")
 
 
-# See comment below, use `py = test_import` to easily run this.
+# See comment below, use `py = test_import_forward` to easily run this.
 def test_import_forward():
-    from returnn.frontend.encoder.conformer import (
-        ConformerEncoder,
-        ConformerEncoderLayer,
-        ConformerConvSubsample,
-    )
+    from returnn.util import better_exchook
+
+    better_exchook.install()
+
+    from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
     from pprint import pprint
+
+    from i6_experiments.users.zeyer.experiments.exp2023_04_25_rf._moh_att_2023_04_24_BxqgICRSGkgb_net_dict import net_dict as libripeech_net_dict
+
+    from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2._moh_att_ted2_net_dict import get_tedlium2_net_dict
+
+    # dataset = "tedlium2"
+    dataset = "librispeech"
+    
+    if dataset == "tedlium2":
+        model_args = {
+            "target_embed_dim": 256,
+            "add_ted2_trafo_lm": True,
+            "mel_normalization": True,
+            "no_ctc": True,
+        }
+        torch_ckpt_path = _torch_ckpt_path_tedlium2_att_only_currL
+        net_dict = get_tedlium2_net_dict(noctc=True)
+        target_dim = Dim(name="target", dimension=1057, kind=Dim.Types.Feature)
+
+    elif dataset == "librispeech":
+        model_args = {}
+        torch_ckpt_path = _torch_ckpt_path_librispeech
+        net_dict = libripeech_net_dict
+        target_dim = Dim(name="target", dimension=10_025, kind=Dim.Types.Feature)
+
 
     # Pick some layers to check outputs for equality.
     # See the func tracing logic below, entries in captured_tensors.
@@ -261,48 +291,13 @@ def test_import_forward():
         "source": (Model.encode, 0, "source", -1),
         "conv_merged": (ConformerEncoder.__call__, 0, "x_subsample", 0),
         "source_linear": (ConformerEncoder.__call__, 0, "x_linear", 0),
-        "conformer_block_01_ffmod_1_drop2": (
-            ConformerEncoderLayer.__call__,
-            0,
-            "x_ffn1",
-            0,
-        ),
-        "conformer_block_01_ffmod_1_res": (
-            ConformerEncoderLayer.__call__,
-            0,
-            "x_ffn1_out",
-            0,
-        ),
-        "conformer_block_01_self_att_ln": (
-            ConformerEncoderLayer.__call__,
-            0,
-            "x_mhsa_ln",
-            0,
-        ),
-        "conformer_block_01_self_att_linear": (
-            ConformerEncoderLayer.__call__,
-            0,
-            "x_mhsa",
-            0,
-        ),
-        "conformer_block_01_self_att_res": (
-            ConformerEncoderLayer.__call__,
-            0,
-            "x_mhsa_out",
-            0,
-        ),
-        "conformer_block_01_conv_mod_res": (
-            ConformerEncoderLayer.__call__,
-            0,
-            "x_conv_out",
-            0,
-        ),
-        "conformer_block_01_ffmod_2_res": (
-            ConformerEncoderLayer.__call__,
-            0,
-            "x_ffn2_out",
-            0,
-        ),
+        "conformer_block_01_ffmod_1_drop2": (ConformerEncoderLayer.__call__, 0, "x_ffn1", 0),
+        "conformer_block_01_ffmod_1_res": (ConformerEncoderLayer.__call__, 0, "x_ffn1_out", 0),
+        "conformer_block_01_self_att_ln": (ConformerEncoderLayer.__call__, 0, "x_mhsa_ln", 0),
+        "conformer_block_01_self_att_linear": (ConformerEncoderLayer.__call__, 0, "x_mhsa", 0),
+        "conformer_block_01_self_att_res": (ConformerEncoderLayer.__call__, 0, "x_mhsa_out", 0),
+        "conformer_block_01_conv_mod_res": (ConformerEncoderLayer.__call__, 0, "x_conv_out", 0),
+        "conformer_block_01_ffmod_2_res": (ConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
         "conformer_block_01": (ConformerEncoderLayer.__call__, 1, "inp", 0),
         "encoder": (Model.encode, 0, "enc", 0),
         "inv_fertility": (Model.encode, 0, "inv_fertility", 0),
@@ -332,10 +327,7 @@ def test_import_forward():
         kind=Dim.Types.Spatial,
         dyn_size_ext=Tensor("time_size", dims=[batch_dim], dtype="int32"),
     )
-    target_dim = Dim(name="target", dimension=10_025, kind=Dim.Types.Feature)
-    target_dim.vocab = Vocabulary.create_vocab_from_labels(
-        [str(i) for i in range(target_dim.dimension)], eos_label=0
-    )
+    target_dim.vocab = Vocabulary.create_vocab_from_labels([str(i) for i in range(target_dim.dimension)], eos_label=0)
     data = Tensor("data", dim_tags=[batch_dim, time_dim])
     target_spatial_dim = Dim(
         name="target_spatial",
@@ -343,11 +335,7 @@ def test_import_forward():
         kind=Dim.Types.Spatial,
         dyn_size_ext=Tensor("target_spatial_size", dims=[batch_dim], dtype="int32"),
     )
-    target = Tensor(
-        "target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim
-    )
-
-    from i6_experiments.users.zeyer.experiments.exp2023_04_25_rf._moh_att_2023_04_24_BxqgICRSGkgb_net_dict import net_dict
+    target = Tensor("target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim)
 
     num_layers = 12
 
@@ -359,10 +347,7 @@ def test_import_forward():
             network=net_dict,
             extern_data={
                 "audio_features": {"dim_tags": data.dims},
-                "bpe_labels": {
-                    "dim_tags": target.dims,
-                    "sparse_dim": target.sparse_dim,
-                },
+                "bpe_labels": {"dim_tags": target.dims, "sparse_dim": target.sparse_dim},
             },
         )
     )
@@ -383,21 +368,17 @@ def test_import_forward():
     extern_data = TensorDict()
     extern_data.update(config.typed_dict["extern_data"], auto_convert=True)
     tensor_dict_fill_random_numpy_(
-        extern_data,
-        dyn_dim_max_sizes={time_dim: 2000},
-        dyn_dim_min_sizes={time_dim: 1000},
+        extern_data, dyn_dim_max_sizes={time_dim: 2000}, dyn_dim_min_sizes={time_dim: 1000}
     )  # raw sample level
     extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
     extern_data.reset_content()
 
     tf1 = tf.compat.v1
-    with tf1.Graph().as_default() as graph, tf1.Session(
-        graph=graph
-    ).as_default() as session:
+    with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
         net = TFNetwork(config=config)
         net.construct_from_dict(config.typed_dict["network"])
         if _load_existing_ckpt_in_test:
-            ckpt_path = _get_tf_checkpoint_path()
+            ckpt_path = _get_tf_checkpoint_path(dataset)
             print(f"*** Load model params from {ckpt_path.get_path()}")
             net.load_params_from_file(ckpt_path.get_path(), session=session)
             old_tf_ckpt_path = ckpt_path
@@ -411,13 +392,8 @@ def test_import_forward():
         print("*** Forwarding ...")
 
         extern_data_tf_raw_dict = net.extern_data.as_raw_tensor_dict()
-        assert set(extern_data_tf_raw_dict.keys()) == set(
-            extern_data_numpy_raw_dict.keys()
-        )
-        feed_dict = {
-            extern_data_tf_raw_dict[k]: extern_data_numpy_raw_dict[k]
-            for k in extern_data_numpy_raw_dict
-        }
+        assert set(extern_data_tf_raw_dict.keys()) == set(extern_data_numpy_raw_dict.keys())
+        feed_dict = {extern_data_tf_raw_dict[k]: extern_data_numpy_raw_dict[k] for k in extern_data_numpy_raw_dict}
         fetches = net.get_fetches_dict()
         old_model_outputs_data = {}
         for old_layer_name, _ in _layer_mapping.items():
@@ -429,35 +405,32 @@ def test_import_forward():
                 if tag.is_batch_dim():
                     fetches[f"layer:{old_layer_name}:size{i}"] = tag.get_dim_value()
                 elif tag.dyn_size_ext:
-                    old_model_outputs_data[
-                        f"{old_layer_name}:size{i}"
-                    ] = tag.dyn_size_ext
-                    fetches[
-                        f"layer:{old_layer_name}:size{i}"
-                    ] = tag.dyn_size_ext.placeholder
+                    old_model_outputs_data[f"{old_layer_name}:size{i}"] = tag.dyn_size_ext
+                    fetches[f"layer:{old_layer_name}:size{i}"] = tag.dyn_size_ext.placeholder
         old_model_outputs_fetch = session.run(fetches, feed_dict=feed_dict)
 
     def _make_new_model():
-        return MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
+        return MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers, model_args=model_args)
 
+    _make_new_model.__module__ = "<dummy-main>"  # avoid error with hashing
     rf.select_backend_torch()
 
     print("*** Convert old model to new model")
-    converter = ConvertTfCheckpointToRfPtJob(
-        checkpoint=Checkpoint(index_path=old_tf_ckpt_path),
-        make_model_func=_make_new_model,
-        map_func=map_param_func_v3,
-        epoch=1,
-        step=0,
-    )
-    converter._out_model_dir = tk.Path(ckpt_dir + "/new_model")
-    converter.out_checkpoint = tk.Path(ckpt_dir + "/new_model/checkpoint.pt")
-    converter.run()
+    # converter = ConvertTfCheckpointToRfPtJob(
+    #     checkpoint=Checkpoint(index_path=old_tf_ckpt_path),
+    #     make_model_func=_make_new_model,
+    #     map_func=map_param_func_v2,
+    #     epoch=1,
+    #     step=0,
+    # )
+    # converter._out_model_dir = tk.Path(ckpt_dir + "/new_model")
+    # converter.out_checkpoint = tk.Path(ckpt_dir + "/new_model/checkpoint.pt")
+    # converter.run()
 
     print("*** Create new model")
     new_model = _make_new_model()
 
-    rf.init_train_step_run_ctx(train_flag=False, step=0)
+    rf.init_train_step_run_ctx(train_flag=False)
     extern_data.reset_content()
     extern_data.assign_from_raw_tensor_dict_(extern_data_numpy_raw_dict)
     tensor_dict_numpy_to_torch_(extern_data)
@@ -467,7 +440,7 @@ def test_import_forward():
 
     print("*** Load new model params from disk")
     pt_module = rf_module_to_pt_module(new_model)
-    checkpoint_state = torch.load(ckpt_dir + "/new_model/checkpoint.pt")
+    checkpoint_state = torch.load(torch_ckpt_path)
     pt_module.load_state_dict(checkpoint_state["model"])
 
     print("*** Forwarding with tracing ...")
@@ -481,9 +454,7 @@ def test_import_forward():
         from_scratch_training,
     ]
     code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
-    captured_tensors = (
-        {}
-    )  # func -> (list of calls) -> tensor local name -> (list of versions) -> tensor
+    captured_tensors = {}  # func -> (list of calls) -> tensor local name -> (list of versions) -> tensor
 
     def _trace_func(frame, event, arg):
         """
@@ -522,26 +493,29 @@ def test_import_forward():
             for k in new_var_path:
                 new_out = new_out[k]
         except KeyError as exc:
-            raise Exception(
-                f"{exc.__class__.__name__} {exc}, new_var_path: {new_var_path}"
-            )
-        assert isinstance(
-            new_out, Tensor
-        ), f"new_out: {new_out}, new_var_path: {new_var_path}"
+            raise Exception(f"{exc.__class__.__name__} {exc}, new_var_path: {new_var_path}")
+        assert isinstance(new_out, Tensor), f"new_out: {new_out}, new_var_path: {new_var_path}"
         old_out = old_model_outputs_data[old_layer_name]
         assert old_out.batch_ndim == new_out.batch_ndim
         mapped_axes = new_out.find_matching_dim_map(
-            old_out, list(range(old_out.batch_ndim))
+            old_out,
+            list(range(old_out.batch_ndim)),
+            is_equal_opts=dict(
+                allow_same_feature_dim=True,
+                allow_same_spatial_dim=True,
+                treat_feature_as_spatial=True,
+                allow_old_behavior=True,
+            ),
         )
-        out = new_out.copy_transpose(
-            [mapped_axes[i] for i in range(old_out.batch_ndim)]
-        )
+        out = new_out.copy_transpose([mapped_axes[i] for i in range(old_out.batch_ndim)])
         fetches["layer:" + old_layer_name] = out.raw_tensor
         for i, tag in enumerate(out.dim_tags):
             if tag.dyn_size_ext:
                 fetches[f"layer:{old_layer_name}:size{i}"] = tag.dyn_size_ext.raw_tensor
     fetches = {k: v.detach().cpu().numpy() for (k, v) in fetches.items()}
     new_model_outputs_fetch = fetches
+
+    # breakpoint()
 
     print("*** Comparing ...")
     print("**** target spatial len:", extern_data_numpy_raw_dict["bpe_labels"].shape[1])
@@ -558,36 +532,35 @@ def test_import_forward():
             old_v = old_model_outputs_fetch["layer:" + old_layer_name]
             new_v = new_model_outputs_fetch["layer:" + old_layer_name]
             for i, tag in enumerate(out.dim_tags):
-                if (
-                    tag.dyn_size_ext and tag.dyn_size_ext.dim_tags
-                ):  # dynamic, and not scalar dyn sizes
-                    assert tag.dyn_size_ext.dim_tags == (
-                        batch_dim,
-                    )  # not implemented otherwise
-                    assert (
-                        out.batch_dim_axis == 0
-                    )  # not implemented otherwise but should be ensured above
+                if tag.dyn_size_ext and tag.dyn_size_ext.dim_tags:  # dynamic, and not scalar dyn sizes
+                    assert tag.dyn_size_ext.dim_tags == (batch_dim,)  # not implemented otherwise
+                    assert out.batch_dim_axis == 0  # not implemented otherwise but should be ensured above
                     size_v = old_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
                     for b in range(old_v.shape[0]):
-                        idx = tuple(
-                            [slice(b, b + 1)]
-                            + [slice(None, None)] * (i - 1)
-                            + [slice(size_v[b], None)]
-                        )
+                        idx = tuple([slice(b, b + 1)] + [slice(None, None)] * (i - 1) + [slice(size_v[b], None)])
                         old_v[idx] = 0
                         new_v[idx] = 0
             print(f"* Comparing {out}: {old_layer_name!r} vs {new_var_path!r}")
             assert old_v.shape == new_v.shape
             if target_spatial_dim in out.dim_tags:
-                assert (
-                    out.get_axis_from_description(target_spatial_dim) == 1
-                )  # not implemented otherwise
+                assert out.get_axis_from_description(target_spatial_dim) == 1  # not implemented otherwise
                 out = out.copy_template_excluding_axis(1)
                 print("** comparing out_step", out_step, out)
                 old_v = old_v[:, out_step]
                 new_v = new_v[:, out_step]
+
+                # some stats
+                mean_abs_diff = numpy.mean(numpy.abs(old_v - new_v))
+                max_abs_diff = numpy.max(numpy.abs(old_v - new_v))
+                non_zero_indices = numpy.abs(old_v) > 1e-6
+                rel_diff = numpy.abs((old_v[non_zero_indices] - new_v[non_zero_indices]) / old_v[non_zero_indices])
+                mean_rel_diff = numpy.mean(rel_diff)
+                max_rel_diff = numpy.max(rel_diff)
+                print(f"** mean_abs_diff {mean_abs_diff}, max_abs_diff {max_abs_diff}")
+                print(f"** mean_rel_diff {mean_rel_diff}, max_rel_diff {max_rel_diff}")
             # Using equal_nan=False because we do not want any nan in any of the values.
-            rtol, atol = 0.2, 5e-5
+            # rtol, atol = 0.2, 5e-5
+            rtol, atol = 0.05, 5e-5
             if numpy.allclose(old_v, new_v, rtol=rtol, atol=atol):
                 continue
             print("** not all close. close:")
@@ -597,9 +570,7 @@ def test_import_forward():
             count_mismatches = 0
             for idx in sorted(numpy.ndindex(old_v.shape), key=sum):
                 if numpy.isnan(old_v[idx]) and numpy.isnan(new_v[idx]):
-                    remarks.append(
-                        "[%s]:? (both are nan)" % ",".join([str(i) for i in idx])
-                    )
+                    remarks.append("[%s]:? (both are nan)" % ",".join([str(i) for i in idx]))
                     count_mismatches += 1
                     continue
                 close = numpy.allclose(old_v[idx], new_v[idx], rtol=rtol, atol=atol)
@@ -607,7 +578,7 @@ def test_import_forward():
                     count_mismatches += 1
                 remarks.append(
                     "[%s]:" % ",".join([str(i) for i in idx])
-                    + ("✓" if close else "✗ (%.5f diff)" % abs(old_v[idx] - new_v[idx]))
+                    + ("✓" if close else "✗ (%.5f diff), " % abs(old_v[idx] - new_v[idx]) + "old_v %.5f, new_v %.5f" % (old_v[idx], new_v[idx]))
                 )
                 if len(remarks) >= 50 and count_mismatches > 0:
                     remarks.append("...")
@@ -624,8 +595,8 @@ def test_import_forward():
             raise Exception(f"should not get here, mismatches: {remarks}")
 
     print("*** Done, all correct (!), exit now ***")
+    print("Toleranz: rtol" + str(rtol) + ", atol" + str(atol))
     raise SystemExit("done")
-
 
 def test_import_search():
     from returnn.util import debug

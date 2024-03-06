@@ -90,16 +90,17 @@ def model_recog(
     # )
     # ctc_memory = None
 
-    if model.search_args.get("encoder_ctc", False):
-        enc_ctc = enc_args_ctc["ctc"]
-    else:
-        enc_ctc = enc_args["ctc"]
+    if model.search_args.get("use_ctc", False) or model.search_args.get("rescore_with_ctc", False):
+        if model.search_args.get("encoder_ctc", False):
+            enc_ctc = enc_args_ctc["ctc"]
+        else:
+            enc_ctc = enc_args["ctc"]
 
-    ctc_out = (
-        enc_ctc
-        .copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_b))
-        .raw_tensor
-    )  # [B,T,V+1]
+        ctc_out = (
+            enc_ctc
+            .copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_b))
+            .raw_tensor
+        )  # [B,T,V+1]
 
     if model.search_args.get("mask_eos", True) and (model.search_args.get("use_ctc", False) or model.search_args.get("rescore_with_ctc", False)):
         ctc_eos = ctc_out[:, :, model.eos_idx].unsqueeze(2)
@@ -148,6 +149,7 @@ def model_recog(
             input_embed = rf.zeros(batch_dims_ + [model.target_embed.out_dim], feature_dim=model.target_embed.out_dim)
         else:
             input_embed = model.target_embed(target)
+
         step_out, decoder_state = model.loop_step(
             **enc_args,
             enc_spatial_dim=enc_spatial_dim,

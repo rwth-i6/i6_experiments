@@ -55,7 +55,7 @@ def test_convert_checkpoint():
     import torch
     import numpy
 
-    out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/full_w_trafo_lm_import_2024_02_05"
+    out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/base_model"
 
     reader = CheckpointReader(_returnn_tf_ckpt_filename)
     reader_lm = CheckpointReader(trafo_lm_path)
@@ -73,6 +73,7 @@ def test_convert_checkpoint():
             "att_num_heads": 8,
         },
     }
+    model_args={}
 
     print("Creating model...")
     rf.select_backend_torch()

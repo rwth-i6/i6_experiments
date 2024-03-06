@@ -40,6 +40,8 @@ def model_recog_ctc(
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
 
+    breakpoint()
+
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
     else:
@@ -55,6 +57,7 @@ def model_recog_ctc(
         (batch_size_dim, enc_spatial_dim, model.target_dim_w_b)
     )  # [B,T,V+1]
 
+    blank_index = model.target_dim.get_dim_value()
 
     ctc_out_raw = ctc_out.raw_tensor
     hlens = max_seq_len.raw_tensor
@@ -102,7 +105,7 @@ def model_recog_ctc(
 
     max_out_len = max_seq_len.raw_tensor[0]
 
-    seq_targets, out_spatial_dim = remove_blank_and_eos(hyps.unsqueeze(1), max_out_len, batch_dims, beam_dim, model.target_dim, blank_idx=model.search_args.get("blank_idx", 10025), eos_idx=0)
+    seq_targets, out_spatial_dim = remove_blank_and_eos(hyps.unsqueeze(1), max_out_len, batch_dims, beam_dim, model.target_dim, blank_idx=blank_index, eos_idx=0)
 
     # # torchaudio ctc decoder
     # # only runs on cpu -> slow

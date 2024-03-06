@@ -550,7 +550,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             search_args=search_args,
             prefix_name=name,
             device="cpu",
-            search_mem_rqmt=10,
+            search_mem_rqmt=15,
         )
         tk.register_output(
             name + f"/recog_results",
@@ -648,8 +648,8 @@ class MakeModel:
         *,
         eos_label: int = 0,
         num_enc_layers: int = 12,
-        model_args: Optional[Dict[str, Any]] = None,
-        search_args: Optional[Dict[str, Any]] = None,
+        model_args: Optional[Dict[str, Any]] = {},
+        search_args: Optional[Dict[str, Any]] = {},
     ):
         self.in_dim = in_dim
         self.target_dim = target_dim
@@ -683,8 +683,8 @@ class MakeModel:
         in_dim: Dim,
         target_dim: Dim,
         *,
-        model_args: Optional[Dict[str, Any]] = None,
-        search_args: Optional[Dict[str, Any]] = None,
+        model_args: Optional[Dict[str, Any]] = {},
+        search_args: Optional[Dict[str, Any]] = {},
         num_enc_layers: int = 12,
     ) -> Model:
         """make"""
@@ -759,6 +759,8 @@ class Model(rf.Module):
         )
 
         self.mel_normalization = model_args.get("mel_normalization", False)
+        self.no_ctc = model_args.get("no_ctc", False)
+        self.enc_layer_w_ctc = model_args.get("enc_layer_w_ctc", None)
 
         self.encoder = ConformerEncoder(
             in_dim,
@@ -815,7 +817,8 @@ class Model(rf.Module):
         self.enc_win_dim = Dim(name="enc_win_dim", dimension=5)
 
         self.search_args = search_args
-        self.ctc = rf.Linear(self.encoder.out_dim, self.target_dim_w_b)
+        if not self.no_ctc:
+            self.ctc = rf.Linear(self.encoder.out_dim, self.target_dim_w_b)
 
         if model_args.get("add_lstm_lm", False):
             self.lstm_lm = LSTM_LM_Model(target_dim, target_dim)
@@ -905,12 +908,19 @@ class Model(rf.Module):
 
         # TODO specaug
         # source = specaugment_wei(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)  # TODO
+        if self.enc_layer_w_ctc and not collected_outputs:
+            collected_outputs = {}
         enc, enc_spatial_dim = self.encoder(
             source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
         )
         enc_ctx = self.enc_ctx(enc)
         inv_fertility = rf.sigmoid(self.inv_fertility(enc))
-        ctc = rf.log_softmax(self.ctc(enc), axis=self.target_dim_w_b)
+        ctc = None
+        if not self.no_ctc:
+            if self.enc_layer_w_ctc:
+                ctc = rf.log_softmax(self.ctc(collected_outputs[str(self.enc_layer_w_ctc - 1)]), axis=self.target_dim_w_b)
+            else:
+                ctc = rf.log_softmax(self.ctc(enc), axis=self.target_dim_w_b)
         return (
             dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility, ctc=ctc),
             enc_spatial_dim,
@@ -942,11 +952,25 @@ class Model(rf.Module):
         )
         source = rf.safe_log(source, eps=1e-10) / 2.3026
 
+        if self.mel_normalization:
+            ted2_global_mean = rf.Tensor(name="ted2_global_mean",
+                                         dims=[source.feature_dim],
+                                         dtype=source.dtype,
+                                         raw_tensor=torch.tensor(numpy.loadtxt('/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/dataset/ExtractDatasetMeanStddevJob.UHCZghp269OR/output/mean', dtype='float32')),
+            )
+            ted2_global_stddev = rf.Tensor(name="ted2_global_stddev",
+                                         dims=[source.feature_dim],
+                                         dtype=source.dtype,
+                                         raw_tensor=torch.tensor(numpy.loadtxt('/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/dataset/ExtractDatasetMeanStddevJob.UHCZghp269OR/output/std_dev', dtype='float32')),
+            )
+
+            source = (source - rf.copy_to_device(ted2_global_mean)) / rf.copy_to_device(ted2_global_stddev)
+
         enc, enc_spatial_dim = self.sep_enc_ctc_encoder(
             source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
         )
 
-        ctc = rf.log_softmax(self.ctc(enc), axis=self.target_dim_w_b)
+        ctc = rf.log_softmax(self.sep_enc_ctc_ctc(enc), axis=self.target_dim_w_b)
         return (
             dict(enc=enc, ctc=ctc),
             enc_spatial_dim,
@@ -979,7 +1003,7 @@ class Model(rf.Module):
         state.att.feature_dim_axis = len(state.att.dims) - 1
         return state
 
-    def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
+    def loop_step_output_templates(self, batch_dims: List[Dim], enc_spatial_dim:Dim ) -> Dict[str, Tensor]:
         """loop step out"""
         return {
             "s": Tensor(
@@ -991,6 +1015,12 @@ class Model(rf.Module):
             "att": Tensor(
                 "att",
                 dims=batch_dims + [self.att_num_heads * self.encoder.out_dim],
+                dtype=rf.get_default_float_dtype(),
+                feature_dim_axis=-1,
+            ),
+            "att_weights": Tensor(
+                "att_weights",
+                dims=batch_dims + [enc_spatial_dim, self.att_num_heads],
                 dtype=rf.get_default_float_dtype(),
                 feature_dim_axis=-1,
             ),
@@ -1116,6 +1146,8 @@ def from_scratch_training(
     assert not data.feature_dim  # raw samples
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
 
+    enc_args.pop("ctc")
+
     batch_dims = data.remaining_dims(data_spatial_dim)
     input_embeddings = model.target_embed(targets)
     input_embeddings = rf.shift_right(
@@ -1135,7 +1167,7 @@ def from_scratch_training(
     loop_out, _, _ = rf.scan(
         spatial_dim=targets_spatial_dim,
         xs=input_embeddings,
-        ys=model.loop_step_output_templates(batch_dims=batch_dims),
+        ys=model.loop_step_output_templates(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim),
         initial=rf.State(
             decoder=model.decoder_default_initial_state(
                 batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim
@@ -1143,6 +1175,8 @@ def from_scratch_training(
         ),
         body=_body,
     )
+
+    loop_out.pop("att_weights")
 
     logits = model.decode_logits(input_embed=input_embeddings, **loop_out)
 

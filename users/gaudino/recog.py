@@ -355,12 +355,13 @@ def search_config_v2(
     )
 
     batch_size = 20000 * (search_args.get("bsf", 0) if search_args.get("bsf", 0) > 0 else model_def.batch_size_factor)
+    max_seqs = model_def.max_seqs if search_args.get("max_seq", 0) == 0 else search_args.get("max_seq", 200)
 
     (returnn_recog_config.config if recog_def.batch_size_dependent else returnn_recog_config.post_config).update(
         dict(
             batching="sorted",
             batch_size=batch_size,
-            max_seqs=model_def.max_seqs,
+            max_seqs=max_seqs,
         )
     )
 
