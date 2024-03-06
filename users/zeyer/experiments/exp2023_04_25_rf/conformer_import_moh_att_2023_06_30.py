@@ -431,6 +431,14 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "pruning_threshold": 2.0,
             },
         },
+        "beam12-batch200-lenNorm1-thresh2-adaptThresh": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 1.0,
+                "pruning_threshold": 2.0,
+                "adaptive_pruning": True,
+            },
+        },
         # "beam60-batch50-lenReward01": {
         #     "beam_search_opts": {
         #         "beam_size": 60,
