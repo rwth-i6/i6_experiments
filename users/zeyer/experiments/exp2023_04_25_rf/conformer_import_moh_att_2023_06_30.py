@@ -1586,6 +1586,12 @@ def get_label_scorer_pure_torch(
             decoder_state = model.decoder_default_initial_state(batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
             return tree.map_structure(functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim), decoder_state)
 
+        def max_remaining_seq_score(
+            self, *, state: Any, max_remaining_steps: torch.Tensor, device: torch.device
+        ) -> torch.Tensor:
+            """max remaining"""
+            return torch.zeros((1, 1), device=device)
+
         def score_and_update_state(
             self,
             *,
@@ -1719,6 +1725,12 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             if coverage_scale or neg_coverage_scale or always_add_scorers:
                 decoder_state["accum_att_weights"] = rf.zeros(batch_dims_)
             return tree.map_structure(functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim), decoder_state)
+
+        def max_remaining_seq_score(
+            self, *, state: Any, max_remaining_steps: torch.Tensor, device: torch.device
+        ) -> torch.Tensor:
+            """max remaining"""
+            return torch.zeros((1, 1), device=device)
 
         def score_and_update_state(
             self,

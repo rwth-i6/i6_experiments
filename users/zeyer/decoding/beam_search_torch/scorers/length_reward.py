@@ -27,6 +27,12 @@ class LengthRewardScorer(LabelScorerIntf):
         """score, state"""
         return torch.ones((1, 1, 1), device=prev_label.device), None
 
+    def max_remaining_seq_score(
+        self, *, state: Any, max_remaining_steps: torch.Tensor, device: torch.device
+    ) -> torch.Tensor:
+        """max remaining"""
+        return max_remaining_steps.to(torch.get_default_dtype())
+
 
 class LengthRewardDynBeamScorer(LabelScorerDynBeamIntf):
     """

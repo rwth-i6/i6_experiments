@@ -86,6 +86,20 @@ class LabelScorerIntf:
         scores, state = self.score_and_update_state(prev_state=prev_state, prev_label=prev_label)
         return prev_seq_scores[:, :, None] + scores, {"main": scores}, state
 
+    def max_remaining_seq_score(
+        self, *, state: Any, max_remaining_steps: torch.Tensor, device: torch.device
+    ) -> torch.Tensor:
+        """
+        :param state: current state of the scorer (decoder). any nested structure.
+            all tensors are expected to have shape [Batch, Beam, ...].
+        :param max_remaining_steps: [Batch, Beam|1] (int). how many steps this scorer will potentially run further.
+            tensor expected to be on device.
+        :param device:
+        :return: [Batch|1, Beam|1] (float, like other scores).
+            what maximum sum of scores we can get from remaining frames
+        """
+        raise OptionalNotImplementedError
+
 
 @dataclass
 class StateObjTensorExt:
@@ -105,3 +119,7 @@ class StateObjIgnored:
     """
 
     content: Any
+
+
+class OptionalNotImplementedError(NotImplementedError):
+    """optional"""
