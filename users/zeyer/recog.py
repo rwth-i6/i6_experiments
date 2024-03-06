@@ -136,6 +136,7 @@ def recog_model(
     config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
+    search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
 ) -> ScoreResultCollection:
     """recog"""
@@ -153,6 +154,7 @@ def recog_model(
             config=config,
             search_post_config=search_post_config,
             search_mem_rqmt=search_mem_rqmt,
+            search_rqmt=search_rqmt,
             recog_post_proc_funcs=task.recog_post_proc_funcs,
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
@@ -168,6 +170,7 @@ def search_dataset(
     config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
+    search_rqmt: Optional[Dict[str, Any]] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
 ) -> RecogOutput:
     """
@@ -186,6 +189,8 @@ def search_dataset(
             log_verbosity=5,
             mem_rqmt=search_mem_rqmt,
         )
+        if search_rqmt:
+            search_job.rqmt.update(search_rqmt)
         res = search_job.out_search_file
     else:
         out_files = [_v2_forward_out_filename]
@@ -201,6 +206,8 @@ def search_dataset(
             returnn_root=tools_paths.get_returnn_root(),
             mem_rqmt=search_mem_rqmt,
         )
+        if search_rqmt:
+            forward_job.rqmt.update(search_rqmt)
         res = forward_job.out_files[_v2_forward_out_filename]
     if recog_def.output_blank_label:
         res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
