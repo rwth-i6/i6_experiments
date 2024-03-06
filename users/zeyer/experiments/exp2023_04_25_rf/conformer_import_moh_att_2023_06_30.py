@@ -360,6 +360,42 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_reward": 0.5,
             },
         },
+        "beam12-batch200-lenReward04-thresh2": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.4,
+                "pruning_threshold": 2.0,
+            },
+        },
+        "beam12-batch200-lenReward04-thresh2-maxSeqLen03": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.4,
+                "pruning_threshold": 2.0,
+                "max_seq_len_factor": 0.3,
+            },
+        },
+        "beam12-batch200-lenReward04-thresh2-adaptThresh": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.4,
+                "pruning_threshold": 2.0,
+                "adaptive_pruning": True,
+            },
+        },
+        "beam12-batch200-lenReward04-thresh2-adaptThresh-maxSeqLen03": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.4,
+                "pruning_threshold": 2.0,
+                "adaptive_pruning": True,
+                "max_seq_len_factor": 0.3,
+            },
+        },
         # "beam12-batch200-lenReward01-thresh10": {
         #     "beam_search_opts": {
         #         "beam_size": 12,
