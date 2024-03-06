@@ -1,3 +1,8 @@
+"""
+Script to run our torch beam search implementations inside espnet inference module.
+This means we ESPnet to get the model, data loader, tokenizer, etc
+"""
+
 import logging
 import argparse
 
@@ -22,6 +27,7 @@ from espnet2.fileio.datadir_writer import DatadirWriter
 from espnet2.torch_utils.set_all_random_seed import set_all_random_seed
 from espnet2.torch_utils.device_funcs import to_device
 from espnet2.text.build_tokenizer import build_tokenizer
+from espnet.nets.scorers.ctc import CTCPrefixScorer
 
 
 parser = argparse.ArgumentParser()
@@ -97,6 +103,8 @@ speech2text = Speech2Text.from_pretrained(
 )
 asr_model = speech2text.asr_model  # already in eval mode
 
+ctc_prefix_scorer = CTCPrefixScorer(ctc=asr_model.ctc, eos=asr_model.eos)
+
 data_loader = get_data_loader(args.dataset)
 
 # build tokenizer
@@ -157,6 +165,7 @@ elif args.returnn_recog_args:
         returnn_recog_args = eval(args.returnn_recog_args)
         max_seq_len_ratio = returnn_recog_args.pop("max_seq_len_ratio", 1.0)
         len_reward = returnn_recog_args.pop("length_reward", 0.0)
+        ctc_weight = returnn_recog_args.pop("ctc_weight", 0.0)
         beam_search_variant = returnn_recog_args.pop("beam_search_variant")
         assert beam_search_variant in [
             "beam_search_v5",  # just like returnn
@@ -224,27 +233,6 @@ elif args.returnn_recog_args:
         assert beam_search_func is not None
         assert beam_search_opts is not None
 
-        # def forward_encoder(speech, speech_lengths):
-        #     # Input as audio signal
-        #     if isinstance(speech, np.ndarray):
-        #         speech = torch.tensor(speech)
-        #
-        #     if batch_size == 1:
-        #         # data: (Nsamples,) -> (1, Nsamples)
-        #         speech = speech[0]
-        #         speech = speech.unsqueeze(0).to(getattr(torch, "float32"))
-        #         # lengths: (1,)
-        #         lengths = speech.new_full([1], dtype=torch.long, fill_value=speech.size(1))
-        #         batch = {"speech": speech, "speech_lengths": lengths}
-        #         logging.info("speech length: " + str(speech.size(1)))
-        #     else:
-        #         speech = speech.to(getattr(torch, "float32"))
-        #         logging.info("speech length: " + str(speech_lengths.sum().item()))
-        #         batch = {"speech": speech, "speech_lengths": speech_lengths}
-        #
-        #     batch = to_device(batch, device=args.device)
-        #     return asr_model.encode(**batch)
-
         ibest_writer = writer[f"1best_recog"]
 
         total_recog_time_in_sec = 0.0
@@ -269,15 +257,15 @@ elif args.returnn_recog_args:
                     torch.cuda.synchronize(enc.device)
                 enc_end_time = time.perf_counter_ns()
 
-                label_scorer = get_our_label_scorer_intf(asr_model.decoder, enc=enc, enc_olens=enc_olens)
-
+                decoder_label_scorer = get_our_label_scorer_intf(asr_model.decoder, enc=enc, enc_olens=enc_olens)
+                label_scorers = {"decoder": (decoder_label_scorer, 1.0)}
                 if len_reward:
-                    label_scorer = ShallowFusedLabelScorers(
-                        label_scorers={
-                            "decoder": (label_scorer, 1.0),
-                            "len_reward": (LengthRewardScorer(), len_reward),
-                        }
-                    )
+                    label_scorers["len_reward"] = (LengthRewardScorer(), len_reward)
+                if ctc_weight:
+                    ctc_label_scorer = get_our_label_scorer_intf(ctc_prefix_scorer, enc=enc, enc_olens=enc_olens)
+                    label_scorers["ctc"] = (ctc_label_scorer, ctc_weight)
+
+                label_scorer = ShallowFusedLabelScorers(label_scorers=label_scorers)
 
                 out_individual_seq_scores = {}
 
