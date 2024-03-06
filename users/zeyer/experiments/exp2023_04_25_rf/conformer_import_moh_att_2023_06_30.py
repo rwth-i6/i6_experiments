@@ -346,6 +346,20 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_reward": 0.3,
             },
         },
+        "beam12-batch200-lenReward04": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.4,
+            },
+        },
+        "beam12-batch200-lenReward05": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.5,
+            },
+        },
         # "beam12-batch200-lenReward01-thresh10": {
         #     "beam_search_opts": {
         #         "beam_size": 12,
@@ -410,6 +424,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "length_normalization_exponent": 1.0,
             },
         },
+        "beam12-batch200-lenNorm1-thresh2": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 1.0,
+                "pruning_threshold": 2.0,
+            },
+        },
         # "beam60-batch50-lenReward01": {
         #     "beam_search_opts": {
         #         "beam_size": 60,
@@ -428,14 +449,14 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         #     "max_seqs": 50,
         #     "batch_size": 5000 * _batch_size_factor,
         # },
-        # "beam60-batch50-lenNorm1": {
-        #     "beam_search_opts": {
-        #         "beam_size": 60,
-        #         "length_normalization_exponent": 1.0,
-        #     },
-        #     "max_seqs": 50,
-        #     "batch_size": 5000 * _batch_size_factor,
-        # },
+        "beam60-batch50-lenNorm1": {
+            "beam_search_opts": {
+                "beam_size": 60,
+                "length_normalization_exponent": 1.0,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
         # "beam60-batch50-lenNorm0-lenReward0": {
         #     "beam_search_opts": {
         #         "beam_size": 60,
