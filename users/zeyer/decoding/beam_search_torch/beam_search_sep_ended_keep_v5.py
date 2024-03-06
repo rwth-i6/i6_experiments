@@ -24,6 +24,7 @@ class BeamSearchSepEndedKeepOpts:
     num_labels: int
 
     pruning_threshold: Optional[float] = None  # prune active hyps away compared to best ended hyp
+    adaptive_pruning: bool = False
     pruning_threshold_worst: Optional[float] = None  # prune active hyps away compared to worst ended hyp
     length_normalization_exponent: float = 0.0  # e.g. 1 to enable, 0 to disable
 
@@ -130,6 +131,22 @@ def beam_search_sep_ended_keep_v5(
             best_ended_seq_log_prob = end_seq_log_prob[:, 0]  # [Batch]
             pruning_threshold = best_ended_seq_log_prob - opts.pruning_threshold  # [Batch]
             act_valid &= act_seq_log_prob > pruning_threshold[:, None]
+
+        if opts.adaptive_pruning is not None and end_seq_log_prob.shape[1] > 0:
+            # Prune in relation to best potential future score.
+            best_ended_seq_log_prob = end_seq_log_prob[:, 0]  # [Batch]
+            max_remaining_steps = (max_seq_len - i_dev + 1)[:, None]  # [Batch,ActBeam=InActBeam=1]
+            max_gain = label_scorer.max_remaining_seq_score(
+                state=act_state, max_remaining_steps=max_remaining_steps, device=device
+            )  # [Batch|1,InActBeam|1]
+            if max_gain.shape[1] > 1:
+                max_gain = batch_gather(max_gain, indices=act_backrefs)  # [Batch,ActBeam]
+            max_future_seq_log_prob = act_seq_log_prob + max_gain  # [Batch,ActBeam]
+            if opts.length_normalization_exponent is not None:
+                # Normalize with (1/(out_seq_len+1))**exp (for best ended, see also same logic at the end).
+                best_ended_seq_log_prob *= (1 / (i_dev + 1)) ** length_normalization_exponent_dev
+                max_future_seq_log_prob *= (1 / (max_seq_len[:, None] + 1)) ** length_normalization_exponent_dev
+            act_valid &= max_future_seq_log_prob > best_ended_seq_log_prob[:, None]
 
         torch.where(act_valid, act_seq_log_prob, bad_score_dev, out=act_seq_log_prob)
         max_act_beam_size_cut_off = act_valid.sum(dim=1).max().cpu()  # single CUDA sync
