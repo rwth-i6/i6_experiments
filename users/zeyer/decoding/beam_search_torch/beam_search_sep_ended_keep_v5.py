@@ -135,7 +135,7 @@ def beam_search_sep_ended_keep_v5(
         if opts.adaptive_pruning is not None and end_seq_log_prob.shape[1] > 0:
             # Prune in relation to best potential future score.
             best_ended_seq_log_prob = end_seq_log_prob[:, 0]  # [Batch]
-            max_remaining_steps = (max_seq_len - i_dev + 1)[:, None]  # [Batch,ActBeam=InActBeam=1]
+            max_remaining_steps = (max_seq_len - i_dev)[:, None]  # [Batch,ActBeam=InActBeam=1]
             max_gain = label_scorer.max_remaining_seq_score(
                 state=act_state, max_remaining_steps=max_remaining_steps, device=device
             )  # [Batch|1,InActBeam|1]
