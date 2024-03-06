@@ -439,6 +439,15 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "adaptive_pruning": True,
             },
         },
+        "beam12-batch200-lenNorm1-thresh2-adaptThresh-maxSeqLen03": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 1.0,
+                "pruning_threshold": 2.0,
+                "adaptive_pruning": True,
+                "max_seq_len_factor": 0.3,
+            },
+        },
         # "beam60-batch50-lenReward01": {
         #     "beam_search_opts": {
         #         "beam_size": 60,
@@ -1440,7 +1449,6 @@ def model_recog_pure_torch(
         max_seq_len = enc_spatial_dim.get_size_tensor()
     else:
         max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
-    print("** max seq len:", max_seq_len.raw_tensor)
 
     if data.raw_tensor.device.type == "cuda":
         # Just so that timing of encoder is correct.
@@ -1485,6 +1493,9 @@ def model_recog_pure_torch(
     neg_coverage_opts = beam_search_opts.pop("neg_attention_coverage_opts", {})
     monotonicity_scale = beam_search_opts.pop("attention_monotonicity_scale", 0.0)
     monotonicity_opts = beam_search_opts.pop("attention_monotonicity_opts", {})
+    max_seq_len_factor = beam_search_opts.pop("max_seq_len_factor", 1)
+    if max_seq_len_factor != 1:
+        max_seq_len = rf.cast(max_seq_len * max_seq_len_factor, max_seq_len.dtype)
     label_scorer = ShallowFusedLabelScorers()
     if coverage_scale or neg_coverage_scale or cheating:
         label_scorer.label_scorers.update(
@@ -1511,6 +1522,8 @@ def model_recog_pure_torch(
         len_reward = beam_search_opts.pop("length_reward", 0.0)
         if len_reward or cheating:
             label_scorer.label_scorers["length_reward"] = (LengthRewardScorer(), len_reward)
+
+    print("** max seq len:", max_seq_len.raw_tensor)
 
     # Beam search happening here:
     (
