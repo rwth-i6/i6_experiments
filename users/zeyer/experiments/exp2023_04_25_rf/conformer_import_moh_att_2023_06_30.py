@@ -377,6 +377,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "max_seq_len_factor": 0.3,
             },
         },
+        "beam12-batch200-lenReward04-thresh2-maxSeqLen05": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.4,
+                "pruning_threshold": 2.0,
+                "max_seq_len_factor": 0.5,
+            },
+            "load_model_post_hooks": [model_warmup],  # test
+        },
         "beam12-batch200-lenReward04-thresh2-adaptThresh": {
             "beam_search_opts": {
                 "beam_size": 12,
@@ -395,6 +405,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "adaptive_pruning": True,
                 "max_seq_len_factor": 0.3,
             },
+        },
+        "beam12-batch200-lenReward04-thresh2-adaptThresh-maxSeqLen05": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.4,
+                "pruning_threshold": 2.0,
+                "adaptive_pruning": True,
+                "max_seq_len_factor": 0.5,
+            },
+            "load_model_post_hooks": [model_warmup],  # test
         },
         # "beam12-batch200-lenReward01-thresh10": {
         #     "beam_search_opts": {
@@ -1946,3 +1967,25 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
     if monotonicity_scale or always_add_scorers:
         res["attention_monotonicity"] = (MonotonicityScorer(), monotonicity_scale)
     return res
+
+
+def model_warmup(*, model: Model, **_kwargs):
+    """warmup, for more reliable timing measures"""
+    import torch
+    import time
+    from returnn.tensor import Tensor, Dim
+    import returnn.frontend as rf
+
+    start_time = time.monotonic()
+    limit = start_time + 10.0
+
+    print("*** warming up...")
+    while time.monotonic() < limit:
+        batch_dim = Dim(10, name="dummy_batch")
+        time_dim = Dim(rf.full(dims=[batch_dim], fill_value=16_000), name="dummy_time")
+        feat_dim = Dim(1, name="dummy_feat")
+        source = rf.zeros([batch_dim, time_dim, feat_dim])
+        res = model.encode(source=source, in_spatial_dim=time_dim)
+        if source.raw_tensor.device.type == "cuda":
+            torch.cuda.synchronize(source.raw_tensor.device)
+        res  # noqa  # keep ref to make sure it is calculated
