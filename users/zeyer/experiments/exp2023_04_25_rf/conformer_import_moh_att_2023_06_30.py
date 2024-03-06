@@ -1973,11 +1973,13 @@ def model_warmup(*, model: Model, **_kwargs):
     """warmup, for more reliable timing measures"""
     import torch
     import time
-    from returnn.tensor import Tensor, Dim
+    from returnn.config import get_global_config
+    from returnn.tensor import Dim
     import returnn.frontend as rf
 
+    config = get_global_config()
     start_time = time.monotonic()
-    limit = start_time + 10.0
+    limit = start_time + config.float("model_warmup_time", 10.0)
 
     print("*** warming up...")
     while time.monotonic() < limit:
