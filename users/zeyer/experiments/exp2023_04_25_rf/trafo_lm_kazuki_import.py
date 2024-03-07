@@ -34,17 +34,26 @@ _trafo_lm_opts = {
 _ParamMapping = {}  # type: Dict[str,str]
 
 
-def _get_tf_checkpoint_path() -> tk.Path:
+def get_tf_checkpoint_path() -> tk.Path:
     """
-    :return: Sisyphus tk.Path to the checkpoint file
+    :return: Sisyphus tk.Path to the original TF checkpoint file
+
+    https://arxiv.org/abs/1905.04226
+    Reference: https://github.com/rwth-i6/returnn-experiments/blob/master/2019-lm-transformers/librispeech/bpe_10k/transfo_24_d00.4096_1024.sgd.lr1.8_heads.config
     """
     return tk.Path(
         _returnn_tf_ckpt_filename, hash_overwrite="librispeech-2018-kazuki-transfo_24_d00.4096_1024.sgd.lr1.8_heads"
     )
 
 
-def _get_pt_checkpoint_path() -> tk.Path:
-    old_tf_ckpt_path = _get_tf_checkpoint_path()
+def get_pt_checkpoint_path() -> tk.Path:
+    """
+    :return: Sisyphus tk.Path to the PyTorch checkpoint file
+
+    https://arxiv.org/abs/1905.04226
+    Reference: https://github.com/rwth-i6/returnn-experiments/blob/master/2019-lm-transformers/librispeech/bpe_10k/transfo_24_d00.4096_1024.sgd.lr1.8_heads.config
+    """
+    old_tf_ckpt_path = get_tf_checkpoint_path()
     old_tf_ckpt = Checkpoint(index_path=old_tf_ckpt_path)
     make_model_func = MakeModel(**_trafo_lm_opts)  # eos_label=0
     # TODO: problems with hash:
@@ -204,7 +213,7 @@ def test_import_forward():
         net = TFNetwork(config=config)
         net.construct_from_dict(config.typed_dict["network"])
         if _load_existing_ckpt_in_test:
-            ckpt_path = _get_tf_checkpoint_path()
+            ckpt_path = get_tf_checkpoint_path()
             print(f"*** Load model params from {ckpt_path.get_path()}")
             net.load_params_from_file(ckpt_path.get_path(), session=session)
             old_tf_ckpt_path = ckpt_path
