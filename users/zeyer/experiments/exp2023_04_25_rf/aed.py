@@ -2015,7 +2015,6 @@ def model_recog_pure_torch(
         max_seq_len = enc_spatial_dim.get_size_tensor()
     else:
         max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
-    print("** max seq len:", max_seq_len.raw_tensor)
 
     if data.raw_tensor.device.type == "cuda":
         # Just so that timing of encoder is correct.
@@ -2063,6 +2062,9 @@ def model_recog_pure_torch(
     neg_coverage_opts = beam_search_opts.pop("neg_attention_coverage_opts", {})
     monotonicity_scale = beam_search_opts.pop("attention_monotonicity_scale", 0.0)
     monotonicity_opts = beam_search_opts.pop("attention_monotonicity_opts", {})
+    max_seq_len_factor = beam_search_opts.pop("max_seq_len_factor", 1)
+    if max_seq_len_factor != 1:
+        max_seq_len = rf.cast(max_seq_len * max_seq_len_factor, max_seq_len.dtype)
     label_scorer = ShallowFusedLabelScorers()
     if coverage_scale or neg_coverage_scale or cheating:
         label_scorer.label_scorers.update(
@@ -2088,6 +2090,8 @@ def model_recog_pure_torch(
         len_reward = beam_search_opts.pop("length_reward", 0.0)
         if len_reward or cheating:
             label_scorer.label_scorers["length_reward"] = (LengthRewardScorer(), len_reward)
+
+    print("** max seq len:", max_seq_len.raw_tensor)
 
     # Beam search happening here:
     (
@@ -2517,7 +2521,6 @@ def model_recog_dyn_beam_pure_torch(
         max_seq_len = enc_spatial_dim.get_size_tensor()
     else:
         max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
-    print("** max seq len:", max_seq_len.raw_tensor)
 
     if data.raw_tensor.device.type == "cuda":
         # Just so that timing of encoder is correct.
@@ -2534,6 +2537,9 @@ def model_recog_dyn_beam_pure_torch(
     if config.bool("beam_search_collect_individual_seq_scores", False):
         out_individual_seq_scores = {}
         extra["out_individual_seq_scores"] = out_individual_seq_scores
+    max_seq_len_factor = beam_search_opts.pop("max_seq_len_factor", 1)
+    if max_seq_len_factor != 1:
+        max_seq_len = rf.cast(max_seq_len * max_seq_len_factor, max_seq_len.dtype)
     label_scorer = ShallowFusedDynBeamLabelScorers()
     label_scorer.label_scorers["decoder"] = (
         get_label_scorer_dyn_beam_pure_torch(model=model, batch_dim=batch_dim, enc=enc),
@@ -2542,6 +2548,8 @@ def model_recog_dyn_beam_pure_torch(
     len_reward = beam_search_opts.pop("length_reward", 0.0)
     if len_reward:
         label_scorer.label_scorers["length_reward"] = (LengthRewardDynBeamScorer(), len_reward)
+
+    print("** max seq len:", max_seq_len.raw_tensor)
 
     # Beam search happening here:
     (
