@@ -81,14 +81,18 @@ def run_espnet_search(search_args, rqmts=None):
 
 
 def py():
+
+    # model is broken without joint CTC
+    #
     # beam size {18,20}, length reward = 0.1
     # dev-other: 4.6
     # test-other: 6.2 (broken segments)
-
+    #
     # same but with max_len_ratio 0.3
     # dev-other: 4.6
     # test-other: 5.2
 
+    # running only with CTC
     for max_len in [1.0]:
         for dataset in ["dev_other", "test_other"]:
             for lm_weight in [0.0]:

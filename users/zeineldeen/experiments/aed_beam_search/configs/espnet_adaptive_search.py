@@ -169,6 +169,27 @@ def py():
                             }
                             run_espnet_search(pylasr_search_args)
 
+    # TODO: run to compare to our implementation
+    for maxlenratio in [1.0]:
+        for beam in [50]:
+            for lm_weight in [0.0]:
+                for adapt_prune in [True]:
+                    for prun_thre in [50]:
+                        for len_reward in [0.4]:
+                            pylasr_search_args = copy.deepcopy(baseline_search_args)
+                            pylasr_search_args["dataset"] = "dev_other"
+                            pylasr_search_args["pylasr_recog_args"] = {
+                                "beam": beam,
+                                "lengthReward": len_reward,
+                                "maxLengthRatio": maxlenratio,
+                                "pruning": True,
+                                "lmWeight": lm_weight,
+                                "pruningThreshold": prun_thre,
+                                "pruningThresholdAutoTune": adapt_prune,
+                                "useHypTopK": False,
+                            }
+                            run_espnet_search(pylasr_search_args)
+
     # TODO: CPU RTF
     # for maxlenratio in [0.3]:
     #     for beam in [20]:
@@ -192,41 +213,3 @@ def py():
     #                         run_espnet_search(
     #                             pylasr_search_args, rqmts={"time_rqmt": 24, "cpu_rqmt": 4, "cpu_type": "rescale_intel"}
     #                         )
-
-    # TODO: run on test-other
-    # beam_18-lengthReward_0.2-maxLengthRatio_0.3-pruning-pruningThreshold_10-pruningThresholdAutoTune   dev_other   4.68
-    # beam_30-lengthReward_0.2-maxLengthRatio_0.9-pruning-pruningThreshold_0-pruningThresholdAutoTune    dev_other   4.67
-    # beam_18-lengthReward_0.2-maxLengthRatio_0.3-pruning-pruningThreshold_20-pruningThresholdAutoTune   dev_other   4.68
-
-    # for opts in [
-    #     {
-    #         "beam": 18,
-    #         "lengthReward": 0.2,
-    #         "maxLengthRatio": 0.3,
-    #         "pruning": True,
-    #         "pruningThreshold": 10,
-    #         "pruningThresholdAutoTune": True,
-    #     },
-    #     {
-    #         "beam": 30,
-    #         "lengthReward": 0.2,
-    #         "maxLengthRatio": 0.9,
-    #         "pruning": True,
-    #         "pruningThreshold": 0,
-    #         "pruningThresholdAutoTune": True,
-    #     },
-    #     {
-    #         "beam": 18,
-    #         "lengthReward": 0.2,
-    #         "maxLengthRatio": 0.3,
-    #         "pruning": True,
-    #         "pruningThreshold": 20,
-    #         "pruningThresholdAutoTune": True,
-    #     },
-    # ]:
-    #     pylasr_search_args = copy.deepcopy(baseline_search_args)
-    #     pylasr_search_args["dataset"] = "test_other"
-    #     pylasr_search_args["pylasr_recog_args"] = opts
-    #     run_espnet_search(pylasr_search_args)
-    #
-    #
