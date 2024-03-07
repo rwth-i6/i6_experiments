@@ -1052,6 +1052,12 @@ def get_our_label_scorer_intf(espnet_scorer: BatchScorerInterface, *, enc: torch
             assert state is None, f"not implemented: {state!r}"
             return None
 
+        def max_remaining_seq_score(
+            self, *, state: Any, max_remaining_steps: torch.Tensor, device: torch.device
+        ) -> torch.Tensor:
+            """max remaining"""
+            return torch.zeros((1, 1), device=device)
+
         def score_and_update_state(
             self,
             *,
