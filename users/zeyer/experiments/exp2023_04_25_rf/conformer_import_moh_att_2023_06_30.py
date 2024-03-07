@@ -507,6 +507,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "max_seq_len_factor": 0.3,
             },
         },
+        "beam12-batch200-lenNorm1-lenNormOff5-thresh20-adaptThresh-maxSeqLen05": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 1.0,
+                "length_normalization_offset": 5,
+                "pruning_threshold": 20.0,
+                "adaptive_pruning": True,
+                "max_seq_len_factor": 0.5,
+            },
+        },
         # "beam60-batch50-lenReward01": {
         #     "beam_search_opts": {
         #         "beam_size": 60,
