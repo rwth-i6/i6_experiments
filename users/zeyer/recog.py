@@ -176,6 +176,11 @@ def search_dataset(
     """
     recog on the specific dataset
     """
+    env_updates = None
+    if (config and config.get("__env_updates")) or (search_post_config and search_post_config.get("__env_updates")):
+        env_updates = (config and config.pop("__env_updates", None)) or (
+            search_post_config and search_post_config.pop("__env_updates", None)
+        )
     if getattr(model.definition, "backend", None) is None:
         search_job = ReturnnSearchJobV2(
             search_data=dataset.get_main_dataset(),
@@ -191,6 +196,9 @@ def search_dataset(
         )
         if search_rqmt:
             search_job.rqmt.update(search_rqmt)
+        if env_updates:
+            for k, v in env_updates.items():
+                search_job.set_env(k, v)
         res = search_job.out_search_file
     else:
         out_files = [_v2_forward_out_filename]
@@ -208,6 +216,9 @@ def search_dataset(
         )
         if search_rqmt:
             forward_job.rqmt.update(search_rqmt)
+        if env_updates:
+            for k, v in env_updates.items():
+                forward_job.set_env(k, v)
         res = forward_job.out_files[_v2_forward_out_filename]
     if recog_def.output_blank_label:
         res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results

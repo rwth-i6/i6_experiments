@@ -556,6 +556,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                     "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
                 }
             },
+            "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM...
         },
     }.items():
         for k, v in {
