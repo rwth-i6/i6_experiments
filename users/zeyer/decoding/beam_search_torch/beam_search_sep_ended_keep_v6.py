@@ -27,6 +27,7 @@ class BeamSearchSepEndedKeepOpts:
     adaptive_pruning: bool = False
     pruning_threshold_worst: Optional[float] = None  # prune active hyps away compared to worst ended hyp
     length_normalization_exponent: float = 0.0  # e.g. 1 to enable, 0 to disable
+    length_normalization_offset: int = 0  # calc e.g. ((N + offset) / (offset + 1)) ** exp instead. Google NMT: offset=5
 
 
 def beam_search_sep_ended_keep_v6(
@@ -71,7 +72,9 @@ def beam_search_sep_ended_keep_v6(
     bad_score = -1.0e30
     bad_score_dev = torch.full((), bad_score, device=device)
     max_seq_len = max_seq_len.to(device)
-    length_normalization_exponent_dev = torch.full((), opts.length_normalization_exponent, device=device)
+    len_norm_exp_dev = torch.full((), opts.length_normalization_exponent, device=device)
+    len_norm_offset_dev = torch.full((), opts.length_normalization_offset, dtype=len_norm_exp_dev.dtype, device=device)
+    len_norm_offset1_dev = len_norm_offset_dev + 1
 
     # Initial state.
     act_state = label_scorer.get_initial_state(batch_size=batch_size, device=device)  # [Batch,InActBeam=1]
@@ -145,8 +148,10 @@ def beam_search_sep_ended_keep_v6(
             max_future_seq_log_prob = act_seq_log_prob + max_gain  # [Batch,ActBeam]
             if opts.length_normalization_exponent is not None:
                 # Normalize with (1/(out_seq_len+1))**exp (for best ended, see also same logic at the end).
-                best_ended_seq_log_prob *= (1 / (i_dev + 1)) ** length_normalization_exponent_dev
-                max_future_seq_log_prob *= (1 / (max_seq_len[:, None] + 1)) ** length_normalization_exponent_dev
+                best_ended_seq_log_prob *= (len_norm_offset1_dev / (i_dev + len_norm_offset1_dev)) ** len_norm_exp_dev
+                max_future_seq_log_prob *= (
+                    len_norm_offset1_dev / (max_seq_len[:, None] + len_norm_offset1_dev)
+                ) ** len_norm_exp_dev
             act_valid &= max_future_seq_log_prob > best_ended_seq_log_prob[:, None]
 
         torch.where(act_valid, act_seq_log_prob, bad_score_dev, out=act_seq_log_prob)
@@ -252,11 +257,11 @@ def beam_search_sep_ended_keep_v6(
             # Length-normalized scores, so we evaluate score_t/len.
             # If seq ended, score_i/i == score_{i-1}/(i-1), thus score_i = score_{i-1}*(i/(i-1))
             # Because we count with EOS symbol, shifted by one.
-            end_seq_log_prob *= ((i_dev + 1) / i_dev) ** length_normalization_exponent_dev
+            end_seq_log_prob *= ((i_dev + len_norm_offset1_dev) / (i_dev + len_norm_offset_dev)) ** len_norm_exp_dev
 
     if opts.length_normalization_exponent != 0:
         # All seq_log_prob will be normalized by 1/(out_seq_len+1)**length_normalization_exponent.
-        seq_log_prob *= (1 / i_dev) ** length_normalization_exponent_dev
+        seq_log_prob *= (1 / (i_dev + len_norm_offset_dev)) ** len_norm_exp_dev
 
     # seq_log_prob: [Batch,FinalBeam] where we break.
     # Backtrack via backrefs, resolve beams.
