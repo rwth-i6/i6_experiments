@@ -9,12 +9,8 @@ config example: /work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2023-04-17--c
 
 from __future__ import annotations
 from typing import Union
-import returnn.frontend as rf
-from returnn.tensor import Tensor, Dim
+from returnn.tensor import Dim
 from returnn.frontend.decoder.transformer import TransformerDecoder
-
-
-Model = TransformerDecoder
 
 
 class MakeModel:
@@ -26,7 +22,7 @@ class MakeModel:
         self.num_layers = num_layers
         self.extra = extra
 
-    def __call__(self) -> Model:
+    def __call__(self) -> TransformerDecoder:
         if isinstance(self.vocab_dim, int):
             vocab_dim = Dim(self.vocab_dim, name="vocab")
         elif isinstance(self.vocab_dim, Dim):
@@ -56,7 +52,7 @@ class MakeModel:
         return self.make_model(vocab_dim=vocab_dim, model_dim=model_dim, num_layers=self.num_layers, **opts)
 
     @classmethod
-    def make_model(cls, vocab_dim: Dim, model_dim: Dim, *, num_layers: int, **extra) -> Model:
+    def make_model(cls, vocab_dim: Dim, model_dim: Dim, *, num_layers: int, **extra) -> TransformerDecoder:
         """make"""
         return TransformerDecoder(
             encoder_dim=None,
