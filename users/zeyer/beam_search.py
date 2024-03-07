@@ -1,5 +1,18 @@
 """
 Beam search for recog
+
+Note: The code here is outdated and unused.
+It uses returnn_common and was exported from there
+with the idea to adapt this for the RETURNN-frontend (RF).
+
+Currently, (2024), there are multiple RF-based beam search implementations,
+but they are mostly specific to some model,
+for example: :func:`i6_experiments.users.zeyer.experiments.exp2023_04_25_rf.aed.model_recog`.
+There is no generic interface yet for it (although that was initially the plan).
+It is however extremely simple to just copy it and adapt it for any new model.
+
+We have a number of generic pure PyTorch beam search implementations though.
+Check :mod:`.decoding.beam_search_torch`.
 """
 
 from __future__ import annotations
@@ -20,9 +33,8 @@ def beam_search(decoder: IDecoder, *, beam_size: int = 12) -> nn.Tensor:
     with loop:
         log_prob, loop.state.decoder = decoder(loop.state.target, state=loop.state.decoder)
         loop.state.target = nn.choice(
-            log_prob, input_type="log_prob",
-            target=None, search=True, beam_size=beam_size,
-            length_normalization=False)
+            log_prob, input_type="log_prob", target=None, search=True, beam_size=beam_size, length_normalization=False
+        )
         if not decoder.target_spatial_dim:
             loop.end(decoder.end(loop.state.target, state=loop.state.decoder), include_eos=decoder.include_eos)
         found = loop.stack(loop.state.target)
@@ -35,6 +47,7 @@ class IDecoder(Protocol):
     If there is any encoder output, this would already be computed and stored in here,
     as well as other necessary information, such as batch dims.
     """
+
     target_spatial_dim: Optional[nn.Dim] = None  # must be given when loop.unstack is used
     include_eos: bool  # eg true for transducer, false for AED
 
