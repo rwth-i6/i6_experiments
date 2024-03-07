@@ -2100,7 +2100,7 @@ def model_recog_pure_torch(
         out_seq_len,  # [Batch,FinalBeam]
     ) = beam_search_func(
         label_scorer,
-        batch_size=batch_dim.get_dim_value(),
+        batch_size=int(batch_dim.get_dim_value()),
         max_seq_len=max_seq_len.copy_compatible_to_dims_raw([batch_dim]),
         device=data.raw_tensor.device,
         opts=beam_search_opts_cls(
@@ -2558,7 +2558,7 @@ def model_recog_dyn_beam_pure_torch(
         out_seq_len,  # [Batch,FinalBeam]
     ) = beam_search_func(
         label_scorer,
-        batch_size=batch_dim.get_dim_value(),
+        batch_size=int(batch_dim.get_dim_value()),
         max_seq_len=max_seq_len.copy_compatible_to_dims_raw([batch_dim]),
         device=data.raw_tensor.device,
         opts=beam_search_opts_cls(
