@@ -137,7 +137,7 @@ def beam_search_sep_ended_keep_v6(
             best_ended_seq_log_prob = end_seq_log_prob[:, 0]  # [Batch]
             max_remaining_steps = (max_seq_len - i_dev)[:, None]  # [Batch,ActBeam=InActBeam=1]
             max_gain = label_scorer.max_remaining_seq_score(
-                state=act_state, max_remaining_steps=max_remaining_steps, device=device
+                state=new_state, max_remaining_steps=max_remaining_steps, device=device
             )  # [Batch|1,InActBeam|1]
             if max_gain.shape[1] > 1:
                 max_gain = batch_gather(max_gain, indices=act_backrefs)  # [Batch,ActBeam]
