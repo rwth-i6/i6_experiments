@@ -261,7 +261,7 @@ def beam_search_sep_ended_keep_v6(
 
     if opts.length_normalization_exponent != 0:
         # All seq_log_prob will be normalized by 1/(out_seq_len+1)**length_normalization_exponent.
-        seq_log_prob *= (1 / (i_dev + len_norm_offset_dev)) ** len_norm_exp_dev
+        seq_log_prob *= (len_norm_offset1_dev / (i_dev + len_norm_offset_dev)) ** len_norm_exp_dev
 
     # seq_log_prob: [Batch,FinalBeam] where we break.
     # Backtrack via backrefs, resolve beams.
