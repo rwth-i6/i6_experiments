@@ -29,7 +29,7 @@ class BeamSearchSepEndedKeepOpts:
     length_normalization_exponent: float = 0.0  # e.g. 1 to enable, 0 to disable
 
 
-def beam_search_sep_ended_keep_v5(
+def beam_search_sep_ended_keep_v6(
     label_scorer: LabelScorerIntf,
     *,
     batch_size: int,
@@ -132,7 +132,7 @@ def beam_search_sep_ended_keep_v5(
             pruning_threshold = best_ended_seq_log_prob - opts.pruning_threshold  # [Batch]
             act_valid &= act_seq_log_prob > pruning_threshold[:, None]
 
-        if opts.adaptive_pruning is not None and end_seq_log_prob.shape[1] > 0:
+        if opts.adaptive_pruning and end_seq_log_prob.shape[1] > 0:
             # Prune in relation to best potential future score.
             best_ended_seq_log_prob = end_seq_log_prob[:, 0]  # [Batch]
             max_remaining_steps = (max_seq_len - i_dev)[:, None]  # [Batch,ActBeam=InActBeam=1]

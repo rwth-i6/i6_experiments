@@ -325,7 +325,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
         },
     )
-    # All beam search experiments using model_recog_pure_torch, beam_search_sep_ended_keep_v5.
+    # All beam search experiments using model_recog_pure_torch, beam_search_sep_ended_keep_v6.
     for name, recog_config in {
         "beam12-batch200-lenReward01": {
             "beam_search_opts": {
@@ -559,7 +559,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     }.items():
         for k, v in {
-            "beam_search_version": "sep_ended_keep_v5",
+            "beam_search_version": "sep_ended_keep_v6",
             "__batch_size_dependent": True,
             "__recog_def_ext": True,
             "beam_search_collect_individual_seq_scores": True,
@@ -1538,9 +1538,9 @@ def model_recog_pure_torch(
         BeamSearchDynBeamOpts,
         beam_search_sep_ended,
     )
-    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_sep_ended_keep_v5 import (
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_sep_ended_keep_v6 import (
         BeamSearchSepEndedKeepOpts,
-        beam_search_sep_ended_keep_v5,
+        beam_search_sep_ended_keep_v6,
     )
     from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.length_reward import LengthRewardScorer
     from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.shallow_fusion import ShallowFusedLabelScorers
@@ -1577,7 +1577,7 @@ def model_recog_pure_torch(
     beam_search_func = {
         5: beam_search_v5,
         "sep_ended": beam_search_sep_ended,
-        "sep_ended_keep_v5": beam_search_sep_ended_keep_v5,
+        "sep_ended_keep_v6": beam_search_sep_ended_keep_v6,
     }[beam_search_version]
     if beam_search_version == "sep_ended":
         beam_search_opts_cls = BeamSearchDynBeamOpts
