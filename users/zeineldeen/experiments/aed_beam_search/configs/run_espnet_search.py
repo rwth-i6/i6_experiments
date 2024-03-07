@@ -73,6 +73,7 @@ def run_espnet_search(search_args, rqmts=None):
     wer_j = ReturnnComputeWERJob(hyp_dict, ref_dict)
     tk.register_output(exp_name + "/wer", wer_j.out_wer)
 
+
 # CPU nodes:
 #
 # cn-30: AMD EPYC 7313P 16-Core Processor
@@ -88,29 +89,12 @@ def py():
     # dev-other: 4.6
     # test-other: 5.2
 
-    for max_len in [0.3]:
-        for dataset in ["dev_other"]:
+    for max_len in [1.0]:
+        for dataset in ["dev_other", "test_other"]:
             for lm_weight in [0.0]:
-                for ctc_weight in [0.0]:
-                    for beam_size in [20]:
-                        for len_reward in [0.1]:
-                            search_args_ = copy.deepcopy(baseline_search_args)
-                            search_args_["device"] = "cpu"
-                            search_args_["beam_size"] = beam_size
-                            search_args_["len_reward"] = len_reward
-                            search_args_["lm_weight"] = lm_weight
-                            search_args_["ctc_weight"] = ctc_weight
-                            search_args_["dataset"] = dataset
-                            search_args_["maxlenratio"] = max_len
-                            run_espnet_search(search_args_, rqmts={"time_rqmt": 24, "cpu_rqmt": 4, "cpu_type": "rescale_intel"})
-
-
-    for max_len in [0.3]:
-        for dataset in ["dev_other"]:
-            for lm_weight in [0.0]:
-                for ctc_weight in [0.0]:
-                    for beam_size in [1, 4, 8, 16, 20, 25, 30]:
-                        for len_reward in [0.1]:
+                for ctc_weight in [0.3]:
+                    for beam_size in [20, 60]:
+                        for len_reward in [0.0, 0.1]:
                             search_args_ = copy.deepcopy(baseline_search_args)
                             search_args_["beam_size"] = beam_size
                             search_args_["len_reward"] = len_reward
