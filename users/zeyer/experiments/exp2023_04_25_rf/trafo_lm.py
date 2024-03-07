@@ -48,7 +48,12 @@ class MakeModel:
                 [str(i) for i in range(vocab_dim.dimension)],
             )
 
-        return self.make_model(vocab_dim=vocab_dim, model_dim=model_dim, num_layers=self.num_layers, **self.extra)
+        opts = self.extra.copy()
+        for k, v in list(opts.items()):
+            if k.endswith("_dim") and isinstance(v, int):
+                opts[k] = Dim(v, name=k[: -len("_dim")])
+
+        return self.make_model(vocab_dim=vocab_dim, model_dim=model_dim, num_layers=self.num_layers, **opts)
 
     @classmethod
     def make_model(cls, vocab_dim: Dim, model_dim: Dim, *, num_layers: int, **extra) -> Model:

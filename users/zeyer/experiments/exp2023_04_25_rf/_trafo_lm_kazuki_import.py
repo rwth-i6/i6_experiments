@@ -22,10 +22,13 @@ _load_existing_ckpt_in_test = True
 _trafo_lm_opts = {
     "vocab_dim": 10_025,
     "model_dim": 1024,
+    "embed_dim": 128,
     "num_layers": 24,
+    "decoder_layer_opts": {"self_att_opts": {"with_bias": False}},
     "input_embedding_scale": 1.0,
     "share_embedding": False,
     "input_dropout": 0,
+    "logits_with_bias": True,
 }
 
 _ParamMapping = {}  # type: Dict[str,str]
@@ -60,8 +63,8 @@ def _get_pt_checkpoint_path() -> tk.Path:
 def _add_params():
     _ParamMapping.update(
         {
-            # TODO output/rec/target_embed_lin/W
             "input_embedding.weight": "output/rec/target_embed_raw/W",
+            "input_embedding_proj.weight": "output/rec/target_embed_lin/W",
             "final_layer_norm.scale": "output/rec/decoder/scale",
             "final_layer_norm.bias": "output/rec/decoder/bias",
             "logits.weight": "output/rec/output/W",
@@ -71,27 +74,21 @@ def _add_params():
 
     for layer_idx in range(_trafo_lm_opts["num_layers"]):
         # FF
-        _ParamMapping[f"layers.{layer_idx}.ff.linear_ff.weight"] = f"output/rec/dec_{layer_idx + 1:02d}_ff_conv1/W"
-        _ParamMapping[f"layers.{layer_idx}.ff.linear_ff.bias"] = f"output/rec/dec_{layer_idx + 1:02d}_ff_conv1/b"
-        _ParamMapping[f"layers.{layer_idx}.ff.linear_out.weight"] = f"output/rec/dec_{layer_idx + 1:02d}_ff_conv2/W"
-        _ParamMapping[f"layers.{layer_idx}.ff.linear_out.bias"] = f"output/rec/dec_{layer_idx + 1:02d}_ff_conv2/b"
-        _ParamMapping[f"layers.{layer_idx}.ff_layer_norm.scale"] = (
-            f"output/rec/dec_{layer_idx + 1:02d}_ff_laynorm/scale"
-        )
-        _ParamMapping[f"layers.{layer_idx}.ff_layer_norm.bias"] = f"output/rec/dec_{layer_idx + 1:02d}_ff_laynorm/bias"
+        _ParamMapping[f"layers.{layer_idx}.ff.linear_ff.weight"] = f"output/rec/dec_{layer_idx}_ff_conv1/W"
+        _ParamMapping[f"layers.{layer_idx}.ff.linear_ff.bias"] = f"output/rec/dec_{layer_idx}_ff_conv1/b"
+        _ParamMapping[f"layers.{layer_idx}.ff.linear_out.weight"] = f"output/rec/dec_{layer_idx}_ff_conv2/W"
+        _ParamMapping[f"layers.{layer_idx}.ff.linear_out.bias"] = f"output/rec/dec_{layer_idx}_ff_conv2/b"
+        _ParamMapping[f"layers.{layer_idx}.ff_layer_norm.scale"] = f"output/rec/dec_{layer_idx}_ff_laynorm/scale"
+        _ParamMapping[f"layers.{layer_idx}.ff_layer_norm.bias"] = f"output/rec/dec_{layer_idx}_ff_laynorm/bias"
 
         # self-att
-        _ParamMapping[f"encoder.layers.{layer_idx}.self_att.qkv.weight"] = (
-            f"output/rec/dec_{layer_idx + 1:02d}_self_att_att/QKV"
+        _ParamMapping[f"layers.{layer_idx}.self_att.qkv.weight"] = f"output/rec/dec_{layer_idx}_self_att_att/QKV"
+        _ParamMapping[f"layers.{layer_idx}.self_att.proj.weight"] = f"output/rec/dec_{layer_idx}_self_att_lin/W"
+        _ParamMapping[f"layers.{layer_idx}.self_att_layer_norm.scale"] = (
+            f"output/rec/dec_{layer_idx}_self_att_laynorm/scale"
         )
-        _ParamMapping[f"encoder.layers.{layer_idx}.self_att.proj.weight"] = (
-            f"output/rec/dec_{layer_idx + 1:02d}_self_att_lin/W"
-        )
-        _ParamMapping[f"encoder.layers.{layer_idx}.self_att_layer_norm.scale"] = (
-            f"output/rec/dec_{layer_idx + 1:02d}_self_att_laynorm/scale"
-        )
-        _ParamMapping[f"encoder.layers.{layer_idx}.self_att_layer_norm.bias"] = (
-            f"output/rec/dec_{layer_idx + 1:02d}_self_att_laynorm/bias"
+        _ParamMapping[f"layers.{layer_idx}.self_att_layer_norm.bias"] = (
+            f"output/rec/dec_{layer_idx}_self_att_laynorm/bias"
         )
 
 
@@ -136,13 +133,16 @@ def test_import_forward():
     # RETURNN layer name -> trace point in RF/PT model forwarding.
     _layer_mapping = {
         "output/target_embed_raw": (TransformerDecoder.__call__, 0, "decoded", 0),
-        "output/target_embed": (TransformerDecoder.__call__, 0, "decoded", 2),
+        "output/target_embed_with_pos": (TransformerDecoder.__call__, 0, "decoded", 1),
+        "output/target_embed_lin": (TransformerDecoder.__call__, 0, "decoded", 2),
         "output/dec_0_self_att_laynorm": (TransformerDecoderLayer.__call__, 0, "x_sa_ln", 0),
         "output/dec_0_self_att_drop": (TransformerDecoderLayer.__call__, 0, "x_sa", 0),
         "output/dec_0_self_att_out": (TransformerDecoderLayer.__call__, 0, "x", 1),
         "output/dec_0_ff_out": (TransformerDecoderLayer.__call__, 0, "x", 2),
         "output/dec_0": (TransformerDecoderLayer.__call__, 1, "x", 0),
-        "output": (TransformerDecoder.__call__, 0, "logits", 0),
+        "output/dec_23_ff_out": (TransformerDecoderLayer.__call__, -1, "x", 2),
+        "output/dec_23": (TransformerDecoder.__call__, 0, "decoded", -2),
+        "output/output": (TransformerDecoder.__call__, 0, "logits", 0),
     }
 
     from i6_experiments.common.setups.returnn_common import serialization
@@ -239,7 +239,7 @@ def test_import_forward():
         opts = _trafo_lm_opts.copy()
         opts.pop("vocab_dim")
         opts.pop("model_dim")
-        return MakeModel.make_model(target_dim, model_dim, **opts)
+        return MakeModel(target_dim, model_dim, **opts)()
 
     _make_new_model.__module__ = "<dummy-main>"  # avoid error with hashing
     rf.select_backend_torch()
@@ -271,6 +271,7 @@ def test_import_forward():
     pt_module = rf_module_to_pt_module(new_model)
     checkpoint_state = torch.load(ckpt_dir + "/new_model/checkpoint.pt")
     pt_module.load_state_dict(checkpoint_state["model"])
+    pt_module.eval()
 
     print("*** Forwarding with tracing ...")
 
