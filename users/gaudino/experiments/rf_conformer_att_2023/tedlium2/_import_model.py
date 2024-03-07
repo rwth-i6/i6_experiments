@@ -448,7 +448,9 @@ def map_param_func_trafo_lm(
 
 def import_models():
     # for model_name, sep_enc in product(list(models.keys())[-1:], [True, False]):
-    for model_name, sep_enc, add_trafo_lm in product(list(models.keys()), [True, False], [True]):
+
+    model_list = ["model_ctc0.9_att0.1", "model_ctc0.8_att0.2", "model_ctc0.7_att0.3", "model_ctc0.6_att0.4", "model_ctc0.5_att0.5", "model_ctc0.4_att0.6"]
+    for model_name, sep_enc, add_trafo_lm in product(model_list, [True, False], [False]):
         model_args = {
             "target_embed_dim": 256,
             "add_trafo_lm": add_trafo_lm,
