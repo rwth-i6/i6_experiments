@@ -541,7 +541,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         #     "max_seqs": 50,
         #     "batch_size": 5000 * _batch_size_factor,
         # },
-        "beam60-batch50-lenNorm1-maxSeqLen03-lm05": {
+        "beam60-batch50bs2k-lenNorm1-maxSeqLen03-lm05": {
             "beam_search_opts": {
                 "beam_size": 60,
                 "length_normalization_exponent": 1.0,
@@ -549,7 +549,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "max_seq_len_factor": 0.5,
             },
             "max_seqs": 50,
-            "batch_size": 5000 * _batch_size_factor,
+            "batch_size": 2000 * _batch_size_factor,
             "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
             "preload_from_files": {
                 "01_trafo_lm": {
