@@ -15,10 +15,18 @@ import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder, TransformerDecoderLayer
 from returnn.tensor import Tensor, Dim, batch_dim, TensorDict
 
-from .trafo_lm import Model, MakeModel
+from .trafo_lm import MakeModel
 
 _returnn_tf_ckpt_filename = "/work/asr3/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/transfo_24_d00.4096_1024.sgd.lr1.8_heads/bk-net-model/network.023.index"
-_load_existing_ckpt_in_test = False
+_load_existing_ckpt_in_test = True
+_trafo_lm_opts = {
+    "vocab_dim": 10_025,
+    "model_dim": 1024,
+    "num_layers": 24,
+    "input_embedding_scale": 1.0,
+    "share_embedding": False,
+    "input_dropout": 0,
+}
 
 _ParamMapping = {}  # type: Dict[str,str]
 
@@ -35,7 +43,7 @@ def _get_tf_checkpoint_path() -> tk.Path:
 def _get_pt_checkpoint_path() -> tk.Path:
     old_tf_ckpt_path = _get_tf_checkpoint_path()
     old_tf_ckpt = Checkpoint(index_path=old_tf_ckpt_path)
-    make_model_func = MakeModel(10_025, 1024, num_layers=24)  # eos_label=0
+    make_model_func = MakeModel(**_trafo_lm_opts)  # eos_label=0
     # TODO: problems with hash:
     #  make_model_func, map_func: uses full module name (including "zeyer"), should use sth like unhashed_package_root
     #  https://github.com/rwth-i6/sisyphus/issues/144
@@ -50,100 +58,40 @@ def _get_pt_checkpoint_path() -> tk.Path:
 
 
 def _add_params():
-    # frontend
-    for layer_idx in [0, 1, 2]:
-        orig_name = "conv0" if layer_idx == 0 else f"subsample_conv{layer_idx - 1}"
-        _ParamMapping.update(
-            {
-                f"encoder.input_layer.conv_layers.{layer_idx}.filter": f"{orig_name}/W",
-                f"encoder.input_layer.conv_layers.{layer_idx}.bias": f"{orig_name}/bias",
-            }
-        )
     _ParamMapping.update(
         {
-            "encoder.input_projection.weight": "source_linear/W",
-            "enc_ctx.weight": "enc_ctx/W",
-            "enc_ctx.bias": "enc_ctx/b",
-            "inv_fertility.weight": "inv_fertility/W",
-            "target_embed.weight": "output/rec/target_embed0/W",
-            "weight_feedback.weight": "output/rec/weight_feedback/W",
-            "s_transformed.weight": "output/rec/s_transformed/W",
-            "energy.weight": "output/rec/energy/W",
-            "readout_in.weight": "output/rec/readout_in/W",
-            "readout_in.bias": "output/rec/readout_in/b",
-            "output_prob.weight": "output/rec/output_prob/W",
-            "output_prob.bias": "output/rec/output_prob/b",
+            # TODO output/rec/target_embed_lin/W
+            "input_embedding.weight": "output/rec/target_embed_raw/W",
+            "final_layer_norm.scale": "output/rec/decoder/scale",
+            "final_layer_norm.bias": "output/rec/decoder/bias",
+            "logits.weight": "output/rec/output/W",
+            "logits.bias": "output/rec/output/b",
         }
     )
-    # conformer
-    for layer_idx in range(12):
+
+    for layer_idx in range(_trafo_lm_opts["num_layers"]):
         # FF
-        for sub in [1, 2]:
-            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_ff.weight"] = (
-                f"conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff1/W"
-            )
-            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_ff.bias"] = (
-                f"conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff1/b"
-            )
-            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_out.weight"] = (
-                f"conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff2/W"
-            )
-            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_out.bias"] = (
-                f"conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff2/b"
-            )
-            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}_layer_norm.scale"] = (
-                f"conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ln/scale"
-            )
-            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}_layer_norm.bias"] = (
-                f"conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ln/bias"
-            )
-        # conv
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv1.weight"] = (
-            f"conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv1/W"
+        _ParamMapping[f"layers.{layer_idx}.ff.linear_ff.weight"] = f"output/rec/dec_{layer_idx + 1:02d}_ff_conv1/W"
+        _ParamMapping[f"layers.{layer_idx}.ff.linear_ff.bias"] = f"output/rec/dec_{layer_idx + 1:02d}_ff_conv1/b"
+        _ParamMapping[f"layers.{layer_idx}.ff.linear_out.weight"] = f"output/rec/dec_{layer_idx + 1:02d}_ff_conv2/W"
+        _ParamMapping[f"layers.{layer_idx}.ff.linear_out.bias"] = f"output/rec/dec_{layer_idx + 1:02d}_ff_conv2/b"
+        _ParamMapping[f"layers.{layer_idx}.ff_layer_norm.scale"] = (
+            f"output/rec/dec_{layer_idx + 1:02d}_ff_laynorm/scale"
         )
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv1.bias"] = (
-            f"conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv1/b"
-        )
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.depthwise_conv.filter"] = (
-            f"conformer_block_{layer_idx + 1:02d}_conv_mod_depthwise_conv2/W"
-        )
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.depthwise_conv.bias"] = (
-            f"conformer_block_{layer_idx + 1:02d}_conv_mod_depthwise_conv2/bias"
-        )
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv2.weight"] = (
-            f"conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv2/W"
-        )
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv2.bias"] = (
-            f"conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv2/b"
-        )
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_layer_norm.scale"] = (
-            f"conformer_block_{layer_idx + 1:02d}_conv_mod_ln/scale"
-        )
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_layer_norm.bias"] = (
-            f"conformer_block_{layer_idx + 1:02d}_conv_mod_ln/bias"
-        )
+        _ParamMapping[f"layers.{layer_idx}.ff_layer_norm.bias"] = f"output/rec/dec_{layer_idx + 1:02d}_ff_laynorm/bias"
+
         # self-att
         _ParamMapping[f"encoder.layers.{layer_idx}.self_att.qkv.weight"] = (
-            f"conformer_block_{layer_idx + 1:02d}_self_att/QKV"
+            f"output/rec/dec_{layer_idx + 1:02d}_self_att_att/QKV"
         )
         _ParamMapping[f"encoder.layers.{layer_idx}.self_att.proj.weight"] = (
-            f"conformer_block_{layer_idx + 1:02d}_self_att_linear/W"
+            f"output/rec/dec_{layer_idx + 1:02d}_self_att_lin/W"
         )
         _ParamMapping[f"encoder.layers.{layer_idx}.self_att_layer_norm.scale"] = (
-            f"conformer_block_{layer_idx + 1:02d}_self_att_ln/scale"
+            f"output/rec/dec_{layer_idx + 1:02d}_self_att_laynorm/scale"
         )
         _ParamMapping[f"encoder.layers.{layer_idx}.self_att_layer_norm.bias"] = (
-            f"conformer_block_{layer_idx + 1:02d}_self_att_ln/bias"
-        )
-        _ParamMapping[f"encoder.layers.{layer_idx}.self_att.learned_pos_emb.pos_emb"] = (
-            f"conformer_block_{layer_idx + 1:02d}_self_att_ln_rel_pos_enc/encoding_matrix"
-        )
-        # final layer norm
-        _ParamMapping[f"encoder.layers.{layer_idx}.final_layer_norm.scale"] = (
-            f"conformer_block_{layer_idx + 1:02d}_ln/scale"
-        )
-        _ParamMapping[f"encoder.layers.{layer_idx}.final_layer_norm.bias"] = (
-            f"conformer_block_{layer_idx + 1:02d}_ln/bias"
+            f"output/rec/dec_{layer_idx + 1:02d}_self_att_laynorm/bias"
         )
 
 
@@ -181,31 +129,25 @@ def test_import_forward():
 
     better_exchook.install()
 
-    from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
     from pprint import pprint
 
     # Pick some layers to check outputs for equality.
     # See the func tracing logic below, entries in captured_tensors.
     # RETURNN layer name -> trace point in RF/PT model forwarding.
     _layer_mapping = {
-        # TODO ...
-        "source": (TransformerDecoder.__call__, 0, "source", -1),
-        "conv_merged": (ConformerEncoder.__call__, 0, "x_subsample", 0),
-        "source_linear": (ConformerEncoder.__call__, 0, "x_linear", 0),
-        "conformer_block_01_ffmod_1_drop2": (ConformerEncoderLayer.__call__, 0, "x_ffn1", 0),
-        "conformer_block_01_ffmod_1_res": (ConformerEncoderLayer.__call__, 0, "x_ffn1_out", 0),
-        "conformer_block_01_self_att_ln": (ConformerEncoderLayer.__call__, 0, "x_mhsa_ln", 0),
-        "conformer_block_01_self_att_linear": (ConformerEncoderLayer.__call__, 0, "x_mhsa", 0),
-        "conformer_block_01_self_att_res": (ConformerEncoderLayer.__call__, 0, "x_mhsa_out", 0),
-        "conformer_block_01_conv_mod_res": (ConformerEncoderLayer.__call__, 0, "x_conv_out", 0),
-        "conformer_block_01_ffmod_2_res": (ConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
-        "conformer_block_01": (ConformerEncoderLayer.__call__, 1, "inp", 0),
+        "output/target_embed_raw": (TransformerDecoder.__call__, 0, "decoded", 0),
+        "output/target_embed": (TransformerDecoder.__call__, 0, "decoded", 2),
+        "output/dec_0_self_att_laynorm": (TransformerDecoderLayer.__call__, 0, "x_sa_ln", 0),
+        "output/dec_0_self_att_drop": (TransformerDecoderLayer.__call__, 0, "x_sa", 0),
+        "output/dec_0_self_att_out": (TransformerDecoderLayer.__call__, 0, "x", 1),
+        "output/dec_0_ff_out": (TransformerDecoderLayer.__call__, 0, "x", 2),
+        "output/dec_0": (TransformerDecoderLayer.__call__, 1, "x", 0),
         "output": (TransformerDecoder.__call__, 0, "logits", 0),
     }
 
     from i6_experiments.common.setups.returnn_common import serialization
 
-    exec(serialization.PythonEnlargeStackWorkaroundNonhashedCode.code)
+    exec(serialization.PythonEnlargeStackWorkaroundNonhashedCode.code)  # setrecursionlimit etc
 
     from returnn.datasets.util.vocabulary import Vocabulary
 
@@ -219,20 +161,21 @@ def test_import_forward():
     )
     target = Tensor("target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim)
     model_dim = Dim(1024, name="model")
-    num_layers = 24
 
     from ._trafo_lm_kazuki_net_dict import network as net_dict
     from returnn.config import Config
+    from returnn.util import BehaviorVersion
 
     config = Config(
         dict(
             log_verbositiy=5,
             network=net_dict,
             extern_data={
-                "bpe_labels": {"dim_tags": target.dims, "sparse_dim": target.sparse_dim},
+                "data": {"dim_tags": target.dims, "sparse_dim": target.sparse_dim},
             },
         )
     )
+    BehaviorVersion.set_min_behavior_version(20)
 
     from returnn.tensor.utils import tensor_dict_fill_random_numpy_
     from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
@@ -252,6 +195,7 @@ def test_import_forward():
     tensor_dict_fill_random_numpy_(
         extern_data, dyn_dim_max_sizes={target_spatial_dim: 20}, dyn_dim_min_sizes={target_spatial_dim: 10}
     )  # raw sample level
+    extern_data["data"].raw_tensor[:, 0] = 0  # set BOS
     extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
     extern_data.reset_content()
 
@@ -292,7 +236,10 @@ def test_import_forward():
         old_model_outputs_fetch = session.run(fetches, feed_dict=feed_dict)
 
     def _make_new_model():
-        return MakeModel.make_model(target_dim, model_dim, num_layers=num_layers)
+        opts = _trafo_lm_opts.copy()
+        opts.pop("vocab_dim")
+        opts.pop("model_dim")
+        return MakeModel.make_model(target_dim, model_dim, **opts)
 
     _make_new_model.__module__ = "<dummy-main>"  # avoid error with hashing
     rf.select_backend_torch()
@@ -354,7 +301,7 @@ def test_import_forward():
 
     sys.settrace(_trace_func)
     new_model(
-        extern_data["bpe_labels"],
+        extern_data["data"],
         spatial_dim=target_spatial_dim,
         state=new_model.default_initial_state(batch_dims=[batch_dim]),
     )
@@ -392,8 +339,8 @@ def test_import_forward():
     new_model_outputs_fetch = fetches
 
     print("*** Comparing ...")
-    print("**** target spatial len:", extern_data_numpy_raw_dict["bpe_labels"].shape[1])
-    for out_step in range(extern_data_numpy_raw_dict["bpe_labels"].shape[1]):
+    print("**** target spatial len:", extern_data_numpy_raw_dict["data"].shape[1])
+    for out_step in range(extern_data_numpy_raw_dict["data"].shape[1]):
         for old_layer_name, new_var_path in _layer_mapping.items():
             out = old_model_outputs_data[old_layer_name]
             if out_step > 0 and target_spatial_dim not in out.dim_tags:
