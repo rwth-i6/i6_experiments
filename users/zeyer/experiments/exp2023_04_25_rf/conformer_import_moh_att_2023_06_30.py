@@ -9,15 +9,17 @@ import math
 import numpy as np
 import hashlib
 import contextlib
+import functools
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
+from ...model_interfaces.supports_label_scorer_torch import RFModelWithMakeLabelScorer
 from .configs import *
 from .configs import _batch_size_factor, _cfg_lrlin1e_5_295k, _get_cfg_lrlin_oclr_by_bs_nep
-from i6_experiments.users.zeyer.lr_schedules.combine_eval import dyn_lr_combine_eval
+from . import trafo_lm_kazuki_import
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
@@ -539,6 +541,22 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         #     "max_seqs": 50,
         #     "batch_size": 5000 * _batch_size_factor,
         # },
+        "beam60-batch50-lenNorm1-lm05": {
+            "beam_search_opts": {
+                "beam_size": 60,
+                "length_normalization_exponent": 1.0,
+                "lm_scale": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+        },
     }.items():
         for k, v in {
             "beam_search_version": "sep_ended_keep_v5",
@@ -912,9 +930,29 @@ class MakeModel:
 
     @classmethod
     def make_model(
-        cls, in_dim: Dim, target_dim: Dim, *, num_enc_layers: int = 12, pos_emb_dropout: float = 0.0, **extra
+        cls,
+        in_dim: Dim,
+        target_dim: Dim,
+        *,
+        num_enc_layers: int = 12,
+        pos_emb_dropout: float = 0.0,
+        language_model: Optional[Dict[str, Any]] = None,
+        **extra,
     ) -> Model:
         """make"""
+        lm = None
+        if language_model:
+            assert isinstance(language_model, dict)
+            language_model = language_model.copy()
+            cls_name = language_model.pop("class")
+            assert cls_name == "TransformerDecoder"
+            language_model.pop("vocab_dim", None)  # will just overwrite
+
+            from . import trafo_lm
+
+            lm = trafo_lm.MakeModel(vocab_dim=target_dim, **language_model)()
+            lm = (lm, functools.partial(trafo_lm.make_label_scorer_torch, model=lm))
+
         return Model(
             in_dim,
             num_enc_layers=num_enc_layers,
@@ -938,6 +976,7 @@ class MakeModel:
             blank_idx=target_dim.dimension,
             bos_idx=_get_bos_idx(target_dim),
             eos_idx=_get_eos_idx(target_dim),
+            language_model=lm,
             **extra,
         )
 
@@ -966,6 +1005,7 @@ class Model(rf.Module):
         enc_dropout: float = 0.1,
         enc_att_dropout: float = 0.1,
         l2: float = 0.0001,
+        language_model: Optional[RFModelWithMakeLabelScorer] = None,
     ):
         super(Model, self).__init__()
 
@@ -1060,6 +1100,13 @@ class Model(rf.Module):
             from i6_experiments.users.zeyer.returnn.models.rf_mixup import Mixup, MixupOpts
 
             self._mixup = Mixup(feature_dim=self.in_dim, opts=MixupOpts(**config.typed_value("mixup")))
+
+        # Note: Even though we have this here, it is not used in loop_step or decode_logits.
+        # Instead, it is intended to make a separate label scorer for it.
+        self.language_model = None
+        self.language_model_make_label_scorer = None
+        if language_model:
+            self.language_model, self.language_model_make_label_scorer = language_model
 
     def encode(
         self,
@@ -1199,8 +1246,9 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model
     pos_emb_dropout = config.float("pos_emb_dropout", 0.0)
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
+    lm_opts = config.typed_value("external_language_model")
     return MakeModel.make_model(
-        in_dim, target_dim, enc_aux_logits=enc_aux_logits or (), pos_emb_dropout=pos_emb_dropout
+        in_dim, target_dim, enc_aux_logits=enc_aux_logits or (), pos_emb_dropout=pos_emb_dropout, language_model=lm_opts
     )
 
 
@@ -1357,6 +1405,8 @@ def model_recog(
         out_spatial_dim,
         final beam_dim
     """
+    assert not model.language_model  # not implemented here. use the pure PyTorch search instead
+
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12
@@ -1589,6 +1639,9 @@ def model_recog_pure_torch(
         len_reward = beam_search_opts.pop("length_reward", 0.0)
         if len_reward or cheating:
             label_scorer.label_scorers["length_reward"] = (LengthRewardScorer(), len_reward)
+    if model.language_model:
+        lm_scale = beam_search_opts.pop("lm_scale")  # must be defined with LM
+        label_scorer.label_scorers["lm"] = (model.language_model_make_label_scorer(), lm_scale)
 
     print("** max seq len:", max_seq_len.raw_tensor)
 
