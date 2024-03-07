@@ -134,7 +134,7 @@ if args.pylasr_recog_args:
             recog_config.device = args.device
 
             # Trafo external LM
-            lm_model = speech2text.lm
+            lm_model = speech2text.lm_model  # required change in espnet asr_inferece.py code
             if lm_model:
                 lm_model = lm_model.eval()
 
