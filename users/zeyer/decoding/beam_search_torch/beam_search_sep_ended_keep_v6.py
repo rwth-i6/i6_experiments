@@ -146,7 +146,7 @@ def beam_search_sep_ended_keep_v6(
             if max_gain.shape[1] > 1:
                 max_gain = batch_gather(max_gain, indices=act_backrefs)  # [Batch,ActBeam]
             max_future_seq_log_prob = act_seq_log_prob + max_gain  # [Batch,ActBeam]
-            if opts.length_normalization_exponent is not None:
+            if opts.length_normalization_exponent != 0:
                 # Normalize with (1/(out_seq_len+1))**exp (for best ended, see also same logic at the end).
                 best_ended_seq_log_prob *= (len_norm_offset1_dev / (i_dev + len_norm_offset1_dev)) ** len_norm_exp_dev
                 max_future_seq_log_prob *= (
