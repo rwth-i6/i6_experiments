@@ -148,6 +148,7 @@ if args.pylasr_recog_args:
                     tokenizer=tokenizer,
                     model=asr_model,
                     lmModel=lm_model,
+                    ctcModel=ctc_prefix_scorer,
                 )
 
 elif args.returnn_recog_args:

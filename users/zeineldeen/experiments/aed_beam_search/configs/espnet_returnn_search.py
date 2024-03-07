@@ -49,7 +49,8 @@ def run_espnet_search(beam_search_name, search_args):
                 res += get_exp_desc(v)
                 return res
             elif isinstance(v, bool):
-                res += k + "-"
+                if v:
+                    res += k + "-"
             else:
                 assert isinstance(v, (int, float, str))
                 res += f"{k}_{v}-"
@@ -82,33 +83,86 @@ def run_espnet_search(beam_search_name, search_args):
 
 
 def py():
-    for dataset in ["dev_other", "test_other"]:
+    # output/beam_search_v5/batch_size_1-beam_size_20-ctc_weight_0.3-length_normalization_exponent_0.0-length_reward_0.0-max_seq_len_ratio_1.0/dev_other/wer
+    # 4.57
+    # output/beam_search_v5/batch_size_1-beam_size_20-ctc_weight_0.3-length_normalization_exponent_0.0-length_reward_0.1-max_seq_len_ratio_1.0/dev_other/wer
+    # 4.58
+    # output/beam_search_v5/batch_size_1-beam_size_20-ctc_weight_0.3-length_normalization_exponent_0.0-length_reward_0.0-max_seq_len_ratio_1.0/test_other/wer
+    # 4.59
+    # output/beam_search_v5/batch_size_1-beam_size_20-ctc_weight_0.3-length_normalization_exponent_0.0-length_reward_0.1-max_seq_len_ratio_1.0/test_other/wer
+    # 4.60
+    # alias/beam_search_v5/batch_size_1-beam_size_20-ctc_weight_0.3-length_normalization_exponent_0.0-length_reward_0.0-max_seq_len_ratio_1.0/dev_other/log.run.1
+    # 2024-03-07 13:26:34,293 (espnet_beam_search:315) INFO: Overall RTF: 0.234
+    # alias/beam_search_v5/batch_size_1-beam_size_20-ctc_weight_0.3-length_normalization_exponent_0.0-length_reward_0.1-max_seq_len_ratio_1.0/dev_other/log.run.1
+    # 2024-03-05 23:00:08,460 (espnet_beam_search:310) INFO: Overall RTF: 0.237
+    # alias/beam_search_v5/batch_size_1-beam_size_20-ctc_weight_0.3-length_normalization_exponent_1.0-length_reward_0.0-max_seq_len_ratio_1.0/dev_other/log.run.1
+    # 2024-03-07 13:34:36,550 (espnet_beam_search:315) INFO: Overall RTF: 0.248
+
+    # output/sep_ended_keep/batch_size_1-adaptive_pruning-beam_ended_size_1-beam_size_20-ctc_weight_0.3-length_reward_0.0-max_seq_len_ratio_1.0-pruning_threshold_20/dev_other/wer
+    # 4.57
+    # output/sep_ended_keep/batch_size_1-adaptive_pruning-beam_ended_size_1-beam_size_20-ctc_weight_0.3-length_reward_0.0-max_seq_len_ratio_1.0-pruning_threshold_50/dev_other/wer
+    # 4.57
+    # output/sep_ended_keep/batch_size_1-adaptive_pruning-beam_ended_size_1-beam_size_20-ctc_weight_0.3-length_reward_0.0-max_seq_len_ratio_1.0-pruning_threshold_20/test_other/wer
+    # 4.59
+    # output/sep_ended_keep/batch_size_1-adaptive_pruning-beam_ended_size_1-beam_size_20-ctc_weight_0.3-length_reward_0.0-max_seq_len_ratio_1.0-pruning_threshold_50/test_other/wer
+    # 4.59
+
+    # alias/sep_ended_keep/batch_size_1-adaptive_pruning-beam_ended_size_1-beam_size_20-ctc_weight_0.3-length_reward_0.1-max_seq_len_ratio_1.0-pruning_threshold_20/test_other/log.run.1
+    # 2024-03-07 13:30:04,125 (espnet_beam_search:315) INFO: Overall RTF: 0.243
+    # alias/sep_ended_keep/batch_size_1-adaptive_pruning-beam_ended_size_1-beam_size_20-ctc_weight_0.3-length_reward_0.1-max_seq_len_ratio_1.0-pruning_threshold_50/test_other/log.run.1
+    # 2024-03-07 13:29:16,199 (espnet_beam_search:315) INFO: Overall RTF: 0.241
+
+    for dataset in ["dev_other"]:
         returnn_search_args = copy.deepcopy(baseline_search_args)
         returnn_search_args["dataset"] = dataset
         for batch_size in [1]:
-            for max_seq_len_ratio in [1.0]:
+            for max_seq_len_ratio in [0.5, 1.0]:
                 for beam in [20, 40]:
-                    for prun_threshold in [10, 50]:
-                        for len_reward in [0.0, 0.1]:
-                            returnn_search_args["batch_size"] = batch_size
-                            returnn_search_args["returnn_recog_args"] = {
-                                "beam_size": beam,
-                                "beam_ended_size": 1,
-                                "length_reward": len_reward,
-                                "pruning_threshold": prun_threshold,
-                                "adaptive_pruning": True,
-                                "max_seq_len_ratio": max_seq_len_ratio,
-                                "beam_search_variant": "sep_ended_keep",
-                                "ctc_weight": 0.3,
-                            }
-                            run_espnet_search("sep_ended_keep", returnn_search_args)
+                    for adaptive in [True, False]:
+                        for prun_threshold in [20, 50]:
+                            for len_reward in [0.1, 0.2]:
+                                returnn_search_args["batch_size"] = batch_size
+                                returnn_search_args["returnn_recog_args"] = {
+                                    "beam_size": beam,
+                                    "beam_ended_size": 1,
+                                    "length_reward": len_reward,
+                                    "pruning_threshold": prun_threshold,
+                                    "adaptive_pruning": adaptive,
+                                    "max_seq_len_ratio": max_seq_len_ratio,
+                                    "beam_search_variant": "sep_ended_keep",
+                                    "ctc_weight": 0.3,
+                                }
+                                run_espnet_search("sep_ended_keep", returnn_search_args)
 
-                            returnn_search_args["returnn_recog_args"] = {
-                                "beam_size": beam,
-                                "length_reward": len_reward,
-                                "length_normalization_exponent": 0.0,
-                                "max_seq_len_ratio": max_seq_len_ratio,
-                                "beam_search_variant": "beam_search_v5",
-                                "ctc_weight": 0.3,
-                            }
-                            run_espnet_search("beam_search_v5", returnn_search_args)
+                            # returnn_search_args["returnn_recog_args"] = {
+                            #     "beam_size": beam,
+                            #     "length_reward": len_reward,
+                            #     "length_normalization_exponent": 0.0,
+                            #     "max_seq_len_ratio": max_seq_len_ratio,
+                            #     "beam_search_variant": "beam_search_v5",
+                            #     "ctc_weight": 0.3,
+                            # }
+                            # run_espnet_search("beam_search_v5", returnn_search_args)
+
+    # TODO: verify
+    for dataset in ["dev_other"]:
+        returnn_search_args = copy.deepcopy(baseline_search_args)
+        returnn_search_args["dataset"] = dataset
+        for batch_size in [1]:
+            for max_seq_len_ratio in [0.3, 1.0]:
+                for beam in [20]:
+                    for adaptive in [True, False]:
+                        for prun_threshold in [30]:
+                            for len_reward in [0.2]:
+                                returnn_search_args["batch_size"] = batch_size
+                                returnn_search_args["returnn_recog_args"] = {
+                                    "beam_size": beam,
+                                    "beam_ended_size": 1,
+                                    "length_reward": len_reward,
+                                    "pruning_threshold": prun_threshold,
+                                    "adaptive_pruning": adaptive,
+                                    "max_seq_len_ratio": max_seq_len_ratio,
+                                    "beam_search_variant": "sep_ended_keep",
+                                    "ctc_weight": 0.0,
+                                }
+                                run_espnet_search("sep_ended_keep", returnn_search_args)

@@ -103,6 +103,18 @@ def py():
     # output/espnet_beam_search/beam_size_20-ctc_weight_0.3-device_cuda-len_reward_0.1-lm_weight_0.0-maxlenratio_1.0-nbest_1/test_other/wer
     # 4.60
 
+    # alias/espnet_beam_search/beam_size_20-ctc_weight_0.3-device_cuda-len_reward_0.0-lm_weight_0.0-maxlenratio_1.0-nbest_1/dev_other/log.run.1
+    # -----------------------
+    # Total audio duration: 18436.265 [sec]
+    # Total decoding time: 5576.485 [sec]
+    # RTF: 0.3025
+    #
+    # alias/espnet_beam_search/beam_size_20-ctc_weight_0.3-device_cuda-len_reward_0.1-lm_weight_0.0-maxlenratio_1.0-nbest_1/dev_other/log.run.1
+    # -----------------------
+    # Total audio duration: 18436.265 [sec]
+    # Total decoding time: 5693.717 [sec]
+    # RTF: 0.3088
+
     for max_len in [1.0]:
         for dataset in ["dev_other", "test_other"]:
             for lm_weight in [0.0]:

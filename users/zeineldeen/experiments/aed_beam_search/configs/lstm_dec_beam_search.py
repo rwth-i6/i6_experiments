@@ -75,31 +75,118 @@ def py():
 
     # TODO: using Trafo LM
     for beam_search_variant in [5]:
-        for beam in [32]:
+        for beam in [32, 50]:
             for lm_scale in [0.3]:
                 recog_config = {}
                 recog_config["beam_search_version"] = beam_search_variant
                 recog_config["__batch_size_dependent"] = True
                 recog_config["__recog_def_ext"] = True
                 recog_config["beam_search_collect_individual_seq_scores"] = True
+                recog_config["batch_size"] = 4_000 * 160
                 recog_config["beam_search_opts"] = {
                     "beam_size": beam,
                     "length_normalization_exponent": 1.0,
                     "lm_scale": lm_scale,
+                    "max_seq_len_factor": 0.5,
                 }
-                recog_config["external_language_model"] = (
-                    {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
-                )
-                recog_config["preload_from_files"] = (
-                    {
-                        "01_trafo_lm": {
-                            "prefix": "language_model.",
-                            "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
-                        }
-                    },
-                )
+                recog_config["external_language_model"] = {
+                    "class": "TransformerDecoder",
+                    **trafo_lm_kazuki_import.TrafoLmOpts,
+                }
+                recog_config["preload_from_files"] = {
+                    "01_trafo_lm": {
+                        "prefix": "language_model.",
+                        "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                    }
+                }
                 name = get_name(recog_config["beam_search_opts"])
                 name += "_trafoLM"
+                _recog(
+                    f"lstm_dec/{beam_search_variant}/{name}",
+                    lstm_dec_model.get_last_fixed_epoch(),
+                    model_recog_pure_torch,
+                    recog_config,
+                    dev_sets=["dev-other"],
+                )
+
+    for beam_search_variant in ["sep_ended_keep_v6"]:
+        for beam in [32, 50]:
+            for prun_threshold in [10, 50]:
+                for adapt in [False, True]:
+                    for lm_scale in [0.3, 0.4]:
+                        for len_reward in [0.2, 0.4, 1.0]:
+                            recog_config = {}
+                            recog_config["beam_search_version"] = beam_search_variant
+                            recog_config["__batch_size_dependent"] = True
+                            recog_config["__recog_def_ext"] = True
+                            recog_config["beam_search_collect_individual_seq_scores"] = True
+                            recog_config["batch_size"] = 4_000 * 160
+                            recog_config["beam_search_opts"] = {
+                                "beam_size": beam,
+                                "beam_ended_size": 1,
+                                "pruning_threshold": prun_threshold,
+                                "adaptive_pruning": adapt,
+                                "lm_scale": lm_scale,
+                                "length_reward": len_reward,
+                                "max_seq_len_factor": 0.5,
+                            }
+                            recog_config["external_language_model"] = {
+                                "class": "TransformerDecoder",
+                                **trafo_lm_kazuki_import.TrafoLmOpts,
+                            }
+                            recog_config["preload_from_files"] = {
+                                "01_trafo_lm": {
+                                    "prefix": "language_model.",
+                                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                                }
+                            }
+                            name = get_name(recog_config["beam_search_opts"])
+                            name += "_trafoLM"
+                            _recog(
+                                f"lstm_dec/{beam_search_variant}/{name}",
+                                lstm_dec_model.get_last_fixed_epoch(),
+                                model_recog_pure_torch,
+                                recog_config,
+                                dev_sets=["dev-other"],
+                            )
+
+    for beam_search_variant in [5]:
+        for beam in [32, 50]:
+            for len_reward in [0.2, 0.4]:
+                recog_config = {}
+                recog_config["beam_search_version"] = beam_search_variant
+                recog_config["__batch_size_dependent"] = True
+                recog_config["__recog_def_ext"] = True
+                recog_config["beam_search_collect_individual_seq_scores"] = True
+                recog_config["batch_size"] = 4_000 * 160
+                recog_config["beam_search_opts"] = {
+                    "beam_size": beam,
+                    "lm_scale": lm_scale,
+                    "length_reward": len_reward,
+                    "max_seq_len_factor": 0.5,
+                }
+                recog_config["external_language_model"] = {
+                    "class": "TransformerDecoder",
+                    **trafo_lm_kazuki_import.TrafoLmOpts,
+                }
+                recog_config["preload_from_files"] = {
+                    "01_trafo_lm": {
+                        "prefix": "language_model.",
+                        "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                    }
+                }
+                name = get_name(recog_config["beam_search_opts"])
+                name += "_trafoLM"
+                _recog(
+                    f"lstm_dec/{beam_search_variant}/{name}",
+                    lstm_dec_model.get_last_fixed_epoch(),
+                    model_recog_pure_torch,
+                    recog_config,
+                    dev_sets=["dev-other"],
+                )
+
+                recog_config.pop("length_reward", None)
+                recog_config["beam_search_opts"]["length_normalization_exponent"] = 1.0
                 _recog(
                     f"lstm_dec/{beam_search_variant}/{name}",
                     lstm_dec_model.get_last_fixed_epoch(),
