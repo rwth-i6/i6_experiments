@@ -12,7 +12,7 @@ There is no generic interface yet for it (although that was initially the plan).
 It is however extremely simple to just copy it and adapt it for any new model.
 
 We have a number of generic pure PyTorch beam search implementations though.
-Check :mod:`.decoding.beam_search_torch`.
+Check :mod:`.beam_search_torch`.
 """
 
 from __future__ import annotations
