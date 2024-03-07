@@ -217,12 +217,12 @@ elif args.returnn_recog_args:
                 **returnn_recog_args,
             )
         elif beam_search_variant == "sep_ended_keep":
-            from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_sep_ended_keep_v5 import (
-                beam_search_sep_ended_keep_v5,
+            from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_sep_ended_keep_v6 import (
+                beam_search_sep_ended_keep_v6,
                 BeamSearchSepEndedKeepOpts,
             )
 
-            beam_search_func = beam_search_sep_ended_keep_v5
+            beam_search_func = beam_search_sep_ended_keep_v6
             beam_search_opts = BeamSearchSepEndedKeepOpts(
                 bos_label=4999,
                 eos_label=4999,
