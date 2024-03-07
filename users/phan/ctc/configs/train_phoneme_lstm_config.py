@@ -19,6 +19,8 @@ from i6_experiments.users.jxu.experiments.ctc.lbs_960.ctc_data import get_libris
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
+from i6_experiments.common.setups.serialization import ExplicitHash, CodeFromFunction
+from i6_core.returnn.config import CodeWrapper
 
 # ********** Settings **********
 
@@ -30,7 +32,7 @@ num_lstm_layers = 1
 embed_dim = 128
 dropout = 0.1
 hidden_dim = 640
-init_learning_rate = 1.0
+init_learning_rates = [1e-2, 1e-3, 1e-4]
 train_split_epoch = 20
 
 tools = copy.deepcopy(default_tools_v2)
@@ -64,27 +66,30 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
         "train": train_data_config,
         "dev": dev_data_config,
     }
-    # Remove audio features
-    train_data_config = remove_librispeech_audio_features(train_data_config)
-    dev_data_config = remove_librispeech_audio_features(dev_data_config)
     if variant == ConfigVariant.RECOG:
         extra_config["model_outputs"] = {"classes": {"dim": num_outputs}}
 
-    extra_config.update({"calculate_exp_loss": True})
     kwargs.update(lr)
+    extra_config.update({"target": "data"})
+
 
     return get_returnn_config(
         num_epochs=num_subepochs,
         extern_data_dict={"data": {"shape": (None,)}},
-        extra_python=[lstm_lm.get_train_serializer(model_config)],
+        extra_python=[
+            lstm_lm.get_train_serializer(
+                model_config,
+                "i6_experiments.users.phan.ctc.train_steps.phoneme_lstm"
+            ),
+        ],
         extern_data_config=True,
         backend=Backend.PYTORCH,
         grad_noise=0.0,
         grad_clip_global_norm=2.0,
         weight_decay=0.01,
-        optimizer=Optimizers.SGD,
+        optimizer=Optimizers.AdamW,
         schedule=LearningRateSchedules.NewbobRel,
-        max_seqs=32,
+        max_seqs=5,
         batch_size=batch_size,
         use_chunking=False,
         extra_config=extra_config,
@@ -120,12 +125,15 @@ def lbs960_train_phoneme_lstm() -> SummaryReport:
         feature_type=FeatureType.SAMPLES,
         blank_index_last=False,
     )
+    train_data_config = remove_librispeech_audio_features(data.train_data_config)
+    dev_data_config = remove_librispeech_audio_features(data.cv_data_config)
 
     # ********** Step args **********
 
     train_args = exp_args.get_ctc_train_step_args(
         num_epochs=num_subepochs,
         gpu_mem_rqmt=11,
+        log_verbosity=4,
     )
 
     # ********** System **********
@@ -149,20 +157,24 @@ def lbs960_train_phoneme_lstm() -> SummaryReport:
     # Use newbob lr here
     lr = {
         "learning_rate": init_learning_rate,
-        "decay": 0.9 ,
+        "decay": 0.9,
         "multi_num_epochs": train_split_epoch,
         "relative_error_threshold": -0.005,
+        "multi_update_interval": 2,
         "error_measure": "dev_loss_ppl",
     }
     system.add_experiment_configs(
         f"phoneme_lstm_layers{num_lstm_layers}_embed{embed_dim}_hidden{hidden_dim}_dropout{dropout}_sgd_lr{init_learning_rate}",
         get_returnn_config_collection(
-            data.train_data_config,
-            data.cv_data_config,
+            train_data_config,
+            dev_data_config,
             lr=lr,
-            batch_size=15000 * 160,
-            kwargs={})
+            batch_size=600,
+            kwargs={
+                "log_verbosity": 4,
+            }
         )
+    )
 
     system.run_train_step(**train_args)
 

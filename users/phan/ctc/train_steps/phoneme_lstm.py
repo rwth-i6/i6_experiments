@@ -18,7 +18,7 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     assert targets_len_rf is not None
     targets_len = targets_len_rf.raw_tensor
     assert targets_len is not None
-    
+
 
     model.train()
 
@@ -37,12 +37,11 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     targets_eos_len = targets_len + 1
 
     log_lm_probs = model(eos_targets_one_hot) # (B, S, F)
-    
     loss = torch.nn.functional.cross_entropy(log_lm_probs.transpose(1, 2), targets_eos, reduction='none')
     seq_mask = get_seq_mask(targets_eos_len, max_seq_len + 1, targets.device)
     loss = (loss*seq_mask).sum()
     targets_len_rf.raw_tensor += 1 # because padding
-    ppl = torch.exp(loss.detach()/targets_len_rf.raw_tensor.sum())
+    ppl = torch.exp(loss/targets_len_rf.raw_tensor.sum())
     rf.get_run_ctx().mark_as_loss(
         name="log_ppl", loss=loss, custom_inv_norm_factor=rf.reduce_sum(targets_len_rf, axis=batch_dim)
     )

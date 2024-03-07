@@ -45,7 +45,10 @@ def get_extern_data_config(
 
 
 def get_base_post_config(
-    keep_last_n: Optional[int] = None, keep_best_n: Optional[int] = None, keep: Optional[List[int]] = None, **kwargs
+    keep_last_n: Optional[int] = None,
+    keep_best_n: Optional[int] = None,
+    keep: Optional[List[int]] = None,
+    **kwargs
 ) -> Dict[str, Any]:
     if keep_last_n is None and keep_best_n is None and keep is None:
         post_config = {"cleanup_old_models": True}

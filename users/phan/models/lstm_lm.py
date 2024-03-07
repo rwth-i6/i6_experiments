@@ -35,6 +35,8 @@ class LSTMLM(nn.Module):
             dropout=cfg.dropout,
             bidirectional=False,
         )
+        # if cfg.dropout > 0 and cfg.n_lstm_layers == 1:
+        #     self.dropout = nn.Dropout(0.1)
         self.final_linear = nn.Linear(cfg.hidden_dim, cfg.vocab_dim, bias=True)
 
     def forward(self, x):
@@ -44,23 +46,24 @@ class LSTMLM(nn.Module):
         """
         x = self.embed(x)
         batch_size = x.shape[0]
-        h0 = torch.zeros((self.cfg.n_lstm_layers, batch_size, self.cfg.hidden_dim), device=x.device)
-        c0 = torch.zeros_like(h0, device=x.device)
+        h0 = torch.zeros((self.cfg.n_lstm_layers, batch_size, self.cfg.hidden_dim), device=x.device).detach()
+        c0 = torch.zeros_like(h0, device=x.device).detach()
         x, _ = self.lstm(x, (h0, c0))
+        # if self.dropout:
+        #     x = self.dropout(x)
         x = self.final_linear(x)
-        x = x.log_softmax(dim=-1)
+        #x = x.log_softmax(dim=-1)
         return x
 
 def get_train_serializer(
     model_config: LSTMLMConfig,
+    train_step_package: str
 ) -> Collection:
     # pytorch_package = __package__.rpartition(".")[0]
-    pytorch_package = "i6_experiments.users.phan.ctc"
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{LSTMLM.__name__}",
         model_config=model_config,
         additional_serializer_objects=[
-            Import(f"{pytorch_package}.train_steps.phoneme_lstm.train_step"),
-            #Import(f"{pytorch_package}.train_steps.phoneme_lstm_pad_packed.train_step"),
+            Import(f"{train_step_package}.train_step"),
         ],
     )

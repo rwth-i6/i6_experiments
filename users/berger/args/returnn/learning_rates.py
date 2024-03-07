@@ -131,6 +131,7 @@ def get_newbob_rel_config(
     learning_rate: float = 1.0,
     decay: float = 0.9,
     multi_num_epochs: int = 20,
+    multi_update_interval: int = 2,
     relative_error_threshold: float = -0.005,
     error_measure: Optional[str] = None,
     **kwargs,
@@ -142,7 +143,7 @@ def get_newbob_rel_config(
         "newbob_learning_rate_decay": decay,
         "newbob_relative_error_threshold": relative_error_threshold,
         "newbob_multi_num_epochs": multi_num_epochs,
-        "newbob_multi_update_interval": 1,
+        "newbob_multi_update_interval": multi_update_interval,
         "newbob_relative_error_div_by_old": True,
     }
     if error_measure:
