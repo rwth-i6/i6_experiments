@@ -19,7 +19,7 @@ from .trafo_lm import MakeModel
 
 _returnn_tf_ckpt_filename = "/work/asr3/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/transfo_24_d00.4096_1024.sgd.lr1.8_heads/bk-net-model/network.023.index"
 _load_existing_ckpt_in_test = True
-_trafo_lm_opts = {
+TrafoLmOpts = {
     "vocab_dim": 10_025,
     "model_dim": 1024,
     "embed_dim": 128,
@@ -55,7 +55,7 @@ def get_pt_checkpoint_path() -> tk.Path:
     """
     old_tf_ckpt_path = get_tf_checkpoint_path()
     old_tf_ckpt = Checkpoint(index_path=old_tf_ckpt_path)
-    make_model_func = MakeModel(**_trafo_lm_opts)  # eos_label=0
+    make_model_func = MakeModel(**TrafoLmOpts)  # eos_label=0
     # TODO: problems with hash:
     #  make_model_func, map_func: uses full module name (including "zeyer"), should use sth like unhashed_package_root
     #  https://github.com/rwth-i6/sisyphus/issues/144
@@ -81,7 +81,7 @@ def _add_params():
         }
     )
 
-    for layer_idx in range(_trafo_lm_opts["num_layers"]):
+    for layer_idx in range(TrafoLmOpts["num_layers"]):
         # FF
         _ParamMapping[f"layers.{layer_idx}.ff.linear_ff.weight"] = f"output/rec/dec_{layer_idx}_ff_conv1/W"
         _ParamMapping[f"layers.{layer_idx}.ff.linear_ff.bias"] = f"output/rec/dec_{layer_idx}_ff_conv1/b"
@@ -245,7 +245,7 @@ def test_import_forward():
         old_model_outputs_fetch = session.run(fetches, feed_dict=feed_dict)
 
     def _make_new_model():
-        opts = _trafo_lm_opts.copy()
+        opts = TrafoLmOpts.copy()
         opts.pop("vocab_dim")
         opts.pop("model_dim")
         return MakeModel(target_dim, model_dim, **opts)()
