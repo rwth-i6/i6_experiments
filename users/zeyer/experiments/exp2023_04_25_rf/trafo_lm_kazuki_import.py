@@ -1,3 +1,8 @@
+"""
+https://arxiv.org/abs/1905.04226
+Reference: https://github.com/rwth-i6/returnn-experiments/blob/master/2019-lm-transformers/librispeech/bpe_10k/transfo_24_d00.4096_1024.sgd.lr1.8_heads.config
+"""
+
 from __future__ import annotations
 
 from typing import Dict
@@ -24,11 +29,11 @@ TrafoLmOpts = {
     "model_dim": 1024,
     "embed_dim": 128,
     "num_layers": 24,
-    "decoder_layer_opts": {"self_att_opts": {"with_bias": False}},
+    "decoder_layer_opts": {"self_att_opts": {"with_bias": False, "att_dropout_broadcast": False}},
     "input_embedding_scale": 1.0,
     "share_embedding": False,
-    "input_dropout": 0,
     "logits_with_bias": True,
+    "input_dropout": 0.1,
 }
 
 _ParamMapping = {}  # type: Dict[str,str]
