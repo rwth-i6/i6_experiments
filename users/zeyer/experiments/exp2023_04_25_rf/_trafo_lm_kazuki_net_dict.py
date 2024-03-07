@@ -1,3 +1,8 @@
+"""
+https://arxiv.org/abs/1905.04226
+Reference: https://github.com/rwth-i6/returnn-experiments/blob/master/2019-lm-transformers/librispeech/bpe_10k/transfo_24_d00.4096_1024.sgd.lr1.8_heads.config
+"""
+
 extern_data = {
     "audio_features": {"available_for_inference": True, "shape": (None, 1), "dim": 1},
     "bpe_labels": {
