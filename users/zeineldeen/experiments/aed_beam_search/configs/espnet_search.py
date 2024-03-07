@@ -93,6 +93,16 @@ def py():
     # test-other: 5.2
 
     # running only with CTC
+
+    # output/espnet_beam_search/beam_size_20-ctc_weight_0.3-device_cuda-len_reward_0.0-lm_weight_0.0-maxlenratio_1.0-nbest_1/dev_other/wer
+    # 4.59
+    # output/espnet_beam_search/beam_size_20-ctc_weight_0.3-device_cuda-len_reward_0.1-lm_weight_0.0-maxlenratio_1.0-nbest_1/dev_other/wer
+    # 4.59
+    # output/espnet_beam_search/beam_size_20-ctc_weight_0.3-device_cuda-len_reward_0.0-lm_weight_0.0-maxlenratio_1.0-nbest_1/test_other/wer
+    # 4.60
+    # output/espnet_beam_search/beam_size_20-ctc_weight_0.3-device_cuda-len_reward_0.1-lm_weight_0.0-maxlenratio_1.0-nbest_1/test_other/wer
+    # 4.60
+
     for max_len in [1.0]:
         for dataset in ["dev_other", "test_other"]:
             for lm_weight in [0.0]:
