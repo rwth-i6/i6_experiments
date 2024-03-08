@@ -37,6 +37,8 @@ class Bpe(VocabConfig):
         """
         Get opts
         """
+        # For returnn.datasets.util.vocabulary.Vocabulary.create_vocab.
+        # No "class" needed - when "bpe_file" is present, class=BytePairEncoding is automatically inferred.
         d = {
             "bpe_file": self.codes,
             "vocab_file": self.vocab,
