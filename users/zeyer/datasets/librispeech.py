@@ -297,6 +297,13 @@ def get_librispeech_task_raw(*, vocab: VocabConfig, **dataset_train_opts) -> Tas
     """
     Librispeech
     """
+    if isinstance(vocab, Bpe):
+        vocab_to_words = _bpe_to_words
+    elif isinstance(vocab, SentencePieceModel):
+        vocab_to_words = _spm_to_words
+    else:
+        raise TypeError(f"unhandled vocab type {type(vocab)}")
+
     dataset_common_opts = dict(audio=_raw_audio_opts.copy(), audio_dim=1, vocab=vocab)
     # We expect that all kwargs are only relevant for the training, thus we only pass them here.
     train_dataset = LibrispeechOggZip(**dataset_common_opts, **dataset_train_opts)
@@ -317,7 +324,7 @@ def get_librispeech_task_raw(*, vocab: VocabConfig, **dataset_train_opts) -> Tas
         main_measure_type=MeasureType(short_name="WER%"),
         main_measure_name="dev-other",
         score_recog_output_func=score,
-        recog_post_proc_funcs=[_bpe_to_words],
+        recog_post_proc_funcs=[vocab_to_words],
     )
 
 
@@ -330,6 +337,14 @@ def _bpe_to_words(bpe: RecogOutput) -> RecogOutput:
     from i6_core.returnn.search import SearchBPEtoWordsJob
 
     words = SearchBPEtoWordsJob(bpe.output, output_gzip=True).out_word_search_results
+    return RecogOutput(output=words)
+
+
+def _spm_to_words(bpe: RecogOutput) -> RecogOutput:
+    """BPE to words"""
+    from i6_experiments.users.zeyer.returnn.search import SearchOutputRawReplaceJob  # TODO move to i6_core
+
+    words = SearchOutputRawReplaceJob(bpe.output, [(" ", ""), ("▁", " ")], output_gzip=True).out_search_results
     return RecogOutput(output=words)
 
 
