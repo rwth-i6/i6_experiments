@@ -8,7 +8,7 @@ import os
 import copy
 import sys
 import logging
-from typing import TYPE_CHECKING, Optional, Sequence, Tuple, List
+from typing import TYPE_CHECKING, Optional, Sequence, Collection, Tuple, List
 
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
@@ -377,13 +377,23 @@ def _recog(
     model_with_checkpoint: ModelWithCheckpoint,
     recog_def: RecogDef,
     recog_config: Optional[Dict[str, Any]] = None,
+    *,
+    search_rqmt: Optional[Dict[str, Any]] = None,
+    dev_sets: Optional[Collection[str]] = None,
 ):
     from sisyphus import tk
     from i6_experiments.users.zeyer.recog import recog_model
 
     task = _get_ls_task()
 
-    res = recog_model(task, model_with_checkpoint, recog_def=recog_def, config=recog_config)
+    res = recog_model(
+        task,
+        model_with_checkpoint,
+        recog_def=recog_def,
+        config=recog_config,
+        search_rqmt=search_rqmt,
+        dev_sets=dev_sets,
+    )
     tk.register_output(_sis_prefix + "/" + name, res.output)
 
 
