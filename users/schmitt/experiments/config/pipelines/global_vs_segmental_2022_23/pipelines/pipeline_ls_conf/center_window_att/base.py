@@ -28,18 +28,16 @@ default_train_opts = {
   "cleanup_old_models": None
 }
 default_returnn_recog_opts = {
-  "search_corpus_key": "dev-other",
+  "corpus_key": "dev-other",
   "concat_num": None,
   "search_rqmt": None,
   "batch_size": None,
-  "analyse": True,
-  "att_weight_seq_tags": None,
   "load_ignore_missing_vars": False,
   "lm_opts": None,
   "ilm_correction_opts": None,
 }
 default_rasr_recog_opts = {
-  "search_corpus_key": "dev-other",
+  "corpus_key": "dev-other",
   "search_rqmt": None,
   "max_segment_len": -1,
   "lm_opts": None,
@@ -58,7 +56,7 @@ default_rasr_recog_opts = {
   "allow_recombination": False,
 }
 default_rasr_realign_opts = {
-  "search_corpus_key": "dev-other",
+  "corpus_key": "dev-other",
   "search_rqmt": None,
   "max_segment_len": -1,
   "segment_list": None,
@@ -81,7 +79,7 @@ def get_center_window_att_config_builder(
         expected_position_aux_loss_opts: Optional[Dict] = None,
         pos_pred_att_weight_interpolation_opts: Optional[Dict] = None,
         search_remove_eos: bool = False,
-        use_old_global_att_to_seg_att_maker: bool = True,
+        use_old_global_att_to_seg_att_maker: bool = False,
 ):
   model_type = "librispeech_conformer_seg_att"
   variant_name = "seg.conformer.like-global"
@@ -115,7 +113,9 @@ def returnn_recog_center_window_att_import_global(
         alias: str,
         config_builder: LibrispeechConformerSegmentalAttentionConfigBuilder,
         checkpoint: Checkpoint,
+        checkpoint_alias: str = "last",
         recog_opts: Optional[Dict[str, Any]] = None,
+        analyse: bool = True,
 ):
   _recog_opts = copy.deepcopy(default_returnn_recog_opts)
   if recog_opts is not None:
@@ -125,25 +125,20 @@ def returnn_recog_center_window_att_import_global(
     alias=alias,
     config_builder=config_builder,
     checkpoint=checkpoint,
-    corpus_key=_recog_opts["search_corpus_key"],
-    concat_num=_recog_opts["concat_num"],
-    search_rqmt=_recog_opts["search_rqmt"],
-    batch_size=_recog_opts["batch_size"],
-    load_ignore_missing_vars=_recog_opts["load_ignore_missing_vars"],
-    lm_opts=_recog_opts["lm_opts"],
-    ilm_correction_opts=_recog_opts["ilm_correction_opts"],
+    checkpoint_alias=checkpoint_alias,
+    **_recog_opts
   )
   recog_exp.run_eval()
 
-  if _recog_opts["analyse"]:
+  if analyse:
     if _recog_opts["concat_num"] is not None:
       raise NotImplementedError
 
     recog_exp.run_analysis(
-      ground_truth_hdf=ctc_aligns.global_att_ctc_align.ctc_alignments[_recog_opts["search_corpus_key"]],
-      att_weight_ref_alignment_hdf=ctc_aligns.global_att_ctc_align.ctc_alignments[_recog_opts["search_corpus_key"]],
+      ground_truth_hdf=ctc_aligns.global_att_ctc_align.ctc_alignments[_recog_opts["corpus_key"]],
+      att_weight_ref_alignment_hdf=ctc_aligns.global_att_ctc_align.ctc_alignments[_recog_opts["corpus_key"]],
       att_weight_ref_alignment_blank_idx=10025,
-      att_weight_seq_tags=_recog_opts["att_weight_seq_tags"],
+      att_weight_seq_tags=None,
     )
 
 
@@ -151,7 +146,9 @@ def rasr_recog_center_window_att_import_global(
         alias: str,
         config_builder: LibrispeechConformerSegmentalAttentionConfigBuilder,
         checkpoint: Checkpoint,
+        checkpoint_alias: str = "last",
         recog_opts: Optional[Dict[str, Any]] = None,
+        analyse: bool = True,
 ):
   _recog_opts = copy.deepcopy(default_rasr_recog_opts)
   if recog_opts is not None:
@@ -161,7 +158,7 @@ def rasr_recog_center_window_att_import_global(
     alias=alias,
     config_builder=config_builder,
     checkpoint=checkpoint,
-    corpus_key=_recog_opts["search_corpus_key"],
+    corpus_key=_recog_opts["corpus_key"],
     search_rqmt=_recog_opts["search_rqmt"],
     length_norm=False,
     label_pruning=_recog_opts["label_pruning"],
@@ -181,8 +178,12 @@ def rasr_recog_center_window_att_import_global(
     segment_list=_recog_opts["segment_list"],
     native_lstm2_so_path=_recog_opts["native_lstm2_so_path"],
     ilm_correction_opts=_recog_opts["ilm_correction_opts"],
+    checkpoint_alias=checkpoint_alias,
   )
   recog_exp.run_eval()
+
+  if analyse:
+    raise NotImplementedError
 
 
 def rasr_realign_center_window_att_import_global(
@@ -199,7 +200,7 @@ def rasr_realign_center_window_att_import_global(
     alias=alias,
     config_builder=config_builder,
     checkpoint=checkpoint,
-    corpus_key=_realign_opts["search_corpus_key"],
+    corpus_key=_realign_opts["corpus_key"],
     search_rqmt=_realign_opts["search_rqmt"],
     length_norm=False,
     label_pruning=_realign_opts["label_pruning"],
@@ -259,32 +260,38 @@ def standard_train_recog_center_window_att_import_global(
         alias: str,
         train_opts: Optional[Dict[str, Any]] = None,
         recog_opts: Optional[Dict[str, Any]] = None,
+        analyse: bool = True,
 ):
-  train_mini_lstm_opts = train_opts.pop("train_mini_lstm_opts", None)
+  _train_opts = train_opts
+  train_mini_lstm_opts = _train_opts.pop("train_mini_lstm_opts", None)
 
   checkpoints, model_dir, learning_rates = train_center_window_att_import_global(
     alias=alias,
     config_builder=config_builder,
-    train_opts=train_opts,
+    train_opts=_train_opts,
   )
 
-  checkpoint = checkpoints[train_opts["num_epochs"]]
+  recog_checkpoints = config_builder.get_recog_checkpoints(
+    model_dir=model_dir,
+    learning_rates=learning_rates,
+    key="dev_score_label_model/output_prob",
+    checkpoints=checkpoints,
+    n_epochs=_train_opts["num_epochs"]
+  )
 
   if train_mini_lstm_opts is not None:
-    train_opts = copy.deepcopy(train_opts)
-
     if train_mini_lstm_opts.get("use_eos", False):
       align_targets = ctc_aligns.global_att_ctc_align.ctc_alignments_with_eos(
         segment_paths=config_builder.dependencies.segment_paths,
         blank_idx=config_builder.dependencies.model_hyperparameters.blank_idx,
         eos_idx=config_builder.dependencies.model_hyperparameters.sos_idx,
       )
-      train_opts["align_targets"] = align_targets
+      _train_opts["align_targets"] = align_targets
 
     train_mini_att_num_epochs = train_mini_lstm_opts.pop("num_epochs")
-    train_opts.update({
+    _train_opts.update({
       "train_mini_lstm_opts": train_mini_lstm_opts,
-      "import_model_train_epoch1": checkpoints[train_opts["num_epochs"]],
+      "import_model_train_epoch1": recog_checkpoints["last"],
       "num_epochs": 10,
       "lr_opts": {
         "type": "newbob",
@@ -298,26 +305,39 @@ def standard_train_recog_center_window_att_import_global(
     mini_att_checkpoints, model_dir, learning_rates = train_center_window_att_import_global(
       alias=alias,
       config_builder=config_builder,
-      train_opts=train_opts,
+      train_opts=_train_opts,
     )
     mini_att_checkpoint = mini_att_checkpoints[train_mini_att_num_epochs]
 
   _recog_opts = copy.deepcopy(recog_opts)
 
-  if isinstance(_recog_opts, dict) and "ilm_correction_opts" in _recog_opts:
+  if isinstance(_recog_opts, dict) and "ilm_correction_opts" in _recog_opts and _recog_opts["ilm_correction_opts"] is not None:
     _recog_opts["ilm_correction_opts"]["mini_att_checkpoint"] = mini_att_checkpoint
 
-  if _recog_opts is None or _recog_opts.pop("returnn_recog", True):
-    returnn_recog_center_window_att_import_global(
-      alias=alias,
-      config_builder=config_builder,
-      checkpoint=checkpoint,
-      recog_opts=_recog_opts,
-    )
-  else:
-    rasr_recog_center_window_att_import_global(
-      alias=alias,
-      config_builder=config_builder,
-      checkpoint=checkpoint,
-      recog_opts=_recog_opts,
-    )
+  for checkpoint_alias, checkpoint in recog_checkpoints.items():
+    if checkpoint_alias != "last":
+      analyse = False
+
+    # only do lm recog for the specified checkpoint alias
+    if isinstance(_recog_opts, dict) and "lm_opts" in _recog_opts and isinstance(_recog_opts["lm_opts"], dict):
+      if _recog_opts["lm_opts"]["checkpoint_alias"] != checkpoint_alias:
+        continue
+
+    if _recog_opts is None or _recog_opts.pop("returnn_recog", True):
+      returnn_recog_center_window_att_import_global(
+        alias=alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        recog_opts=_recog_opts,
+        checkpoint_alias=checkpoint_alias,
+        analyse=analyse,
+      )
+    else:
+      rasr_recog_center_window_att_import_global(
+        alias=alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        recog_opts=_recog_opts,
+        checkpoint_alias=checkpoint_alias,
+        analyse=analyse,
+      )

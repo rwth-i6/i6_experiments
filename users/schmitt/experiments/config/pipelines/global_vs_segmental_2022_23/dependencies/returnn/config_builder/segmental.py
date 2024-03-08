@@ -10,8 +10,10 @@ from i6_experiments.users.schmitt.specaugment import _mask
 from i6_experiments.users.schmitt.augmentation.alignment import shift_alignment_boundaries_func_str
 from i6_experiments.users.schmitt.dynamic_lr import dynamic_lr_str
 from i6_experiments.users.schmitt.chunking import custom_chunkin_func_str, custom_chunkin_w_reduction_func_str
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder, network_builder2, ilm_correction
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.lm import lm_irie
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder, network_builder2
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.lm import lm_irie, lstm_bpe_10k
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.lm import base as lm_base
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.ilm_correction import mini_att as mini_att_ilm_correction
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn import custom_construction_algos
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.base import ConfigBuilder, SWBBlstmConfigBuilder, SwbConformerConfigBuilder, LibrispeechConformerConfigBuilder, ConformerConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
@@ -43,8 +45,8 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
     train_config = super().get_train_config(opts=opts, python_epilog=python_epilog)
 
     hdf_targets = self.dependencies.hdf_targets
-    if "dataset_opts" in opts:
-      hdf_targets = opts["dataset_opts"].get("hdf_targets", hdf_targets)
+    if opts.get("dataset_opts", {}).get("hdf_targets"):
+      hdf_targets = opts["dataset_opts"]["hdf_targets"]
 
     assert hdf_targets != {} and "train" in hdf_targets and "cv" in hdf_targets and "devtrain" in hdf_targets, (
       "You need to provide HDF targets to train a segmental model"
@@ -70,20 +72,19 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
       ]
 
     if opts.get("train_mini_lstm_opts") is not None:  # need to check for None because it can be {}
-      ilm_correction.add_mini_lstm(
+      mini_att_ilm_correction.add_mini_att(
         network=train_config.config["network"],
         rec_layer_name="label_model",
         train=True,
-        mini_att_in_s_for_train=opts["train_mini_lstm_opts"].get("mini_att_in_s", False)
       )
-      self.edit_network_freeze_layers(
+      self.edit_network_freeze_layers_excluding(
         train_config.config["network"],
         layers_to_exclude=["mini_att_lstm", "mini_att"]
       )
       train_config.config["network"]["label_model"]["trainable"] = True
 
       if opts["train_mini_lstm_opts"].get("use_se_loss", False):
-        ilm_correction.add_se_loss(
+        mini_att_ilm_correction.add_se_loss(
           network=train_config.config["network"],
           rec_layer_name="label_model",
         )
@@ -95,12 +96,16 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
 
     ilm_correction_opts = opts.get("ilm_correction_opts", None)
     if ilm_correction_opts is not None:
-      ilm_correction.add_mini_lstm(
-        network=recog_config.config["network"],
-        rec_layer_name="output",
-        train=False,
-        use_mask_layer=True
-      )
+      if ilm_correction_opts.get("type", "mini_att") == "mini_att":
+        ilm_correction = mini_att_ilm_correction
+        recog_config.config["preload_from_files"] = {
+          "mini_lstm": {
+            "filename": ilm_correction_opts["mini_att_checkpoint"],
+            "prefix": "preload_",
+          }
+        }
+      else:
+        raise NotImplementedError
 
       if ilm_correction_opts.get("correct_eos", False):
         ilm_correction_opts = copy.deepcopy(ilm_correction_opts)
@@ -110,24 +115,29 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
         rec_layer_name="output",
         target_num_labels=self.dependencies.model_hyperparameters.target_num_labels_wo_blank,
         opts=ilm_correction_opts,
-        label_prob_layer="label_log_prob"
+        label_prob_layer="label_log_prob",
+        use_mask_layer=True,
+        returnn_config=recog_config
       )
-
-      recog_config.config["preload_from_files"] = {
-        "mini_lstm": {
-          "filename": ilm_correction_opts["mini_att_checkpoint"],
-          "prefix": "preload_",
-        }
-      }
 
     lm_opts = opts.get("lm_opts", None)
     if lm_opts is not None:
-      lm_irie.add_lm(
+      if lm_opts.get("type", "trafo") == "trafo":
+        get_lm_dict_func = lm_irie.get_lm_dict
+        lm_embedding_layer_name = "target_embed_raw"
+      else:
+        assert lm_opts["type"] == "lstm"
+        get_lm_dict_func = lstm_bpe_10k.get_lm_dict
+        lm_embedding_layer_name = "input"
+
+      lm_base.add_lm(
         network=recog_config.config["network"],
         rec_layer_name="output",
         target_num_labels=self.dependencies.model_hyperparameters.target_num_labels_wo_blank,
         opts=lm_opts,
-        label_prob_layer="label_log_prob"
+        label_prob_layer="label_log_prob",
+        get_lm_dict_func=get_lm_dict_func,
+        lm_embedding_layer_name=lm_embedding_layer_name
       )
 
     return recog_config
@@ -532,7 +542,7 @@ class SWBBlstmSegmentalAttentionConfigBuilder(SegmentalConfigBuilder, SWBBlstmCo
 
     return copy.deepcopy(net_dict)
 
-  def get_networks_dict(self, task: str, config_dict, python_prolog):
+  def get_networks_dict(self, task: str, config_dict, python_prolog, use_get_global_config: bool = False):
     return None
 
   def get_custom_construction_algo(self, config_dict, python_prolog):
@@ -562,7 +572,7 @@ class SWBConformerSegmentalAttentionConfigBuilder(SwbConformerConfigBuilder, Seg
         python_prolog=python_prolog
       )
 
-  def get_networks_dict(self, task: str, config_dict, python_prolog):
+  def get_networks_dict(self, task: str, config_dict, python_prolog, use_get_global_config: bool = False):
     if task == "train":
       from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.mohammad_conformer.networks_11_4 import networks_dict
 
@@ -607,7 +617,7 @@ class LibrispeechConformerSegmentalAttentionConfigBuilder(SegmentalConfigBuilder
         python_prolog=python_prolog
       )
 
-  def get_networks_dict(self, task: str, config_dict, python_prolog):
+  def get_networks_dict(self, task: str, config_dict, python_prolog, use_get_global_config: bool = False):
     if task == "train":
       from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.librispeech.returnn.network_builder.networks import networks_dict
 
@@ -622,7 +632,8 @@ class LibrispeechConformerSegmentalAttentionConfigBuilder(SegmentalConfigBuilder
           target_num_labels_wo_blank=self.dependencies.model_hyperparameters.target_num_labels_wo_blank,
           network_opts=self.variant_params["network"],
           config_dict=config_dict,
-          python_prolog=python_prolog
+          python_prolog=python_prolog,
+          use_get_global_config=use_get_global_config
         )
       return new_networks_dict
     else:
@@ -641,6 +652,7 @@ class MohammadGlobalAttToSegmentalAttentionMaker:
           network_opts: Dict,
           config_dict: Dict,
           python_prolog: List,
+          use_get_global_config: bool = False  # not used here, only in the new version
   ) -> Dict:
     def _remove_not_needed_layers():
       del seg_net_dict["enc_value"]
@@ -1536,7 +1548,14 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
           network_opts: Dict,
           config_dict: Dict,
           python_prolog: List,
+          use_get_global_config: bool = False,
   ) -> Dict:
+    def _get_code_wrapper(name: str):
+      if use_get_global_config:
+        return CodeWrapper(f"get_global_config().typed_value('{name}')")
+      else:
+        return CodeWrapper(name)
+
     def _remove_not_needed_layers():
       del seg_net_dict["enc_value"]
       del seg_net_dict["enc_ctx"]
@@ -1636,7 +1655,7 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
         att_weights_layer_name = "att_weights0"
       else:
         att_weights_layer_name = "att_weights"
-      seg_net_dict[rec_layer_name]["unit"][att_weights_layer_name]["axis"] = CodeWrapper("att_t_dim_tag")
+      seg_net_dict[rec_layer_name]["unit"][att_weights_layer_name]["axis"] = _get_code_wrapper(att_t_dim_tag_str)
       seg_net_dict[rec_layer_name]["unit"]["energy_in"]["from"] = [
         "att_ctx",
         "weight_feedback",
@@ -2302,12 +2321,12 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
           "overlap_range": {
             "class": "range_in_axis",
             "from": "overlap_accum_weights",
-            "axis": CodeWrapper(att_t_overlap_dim_tag_str),
+            "axis": _get_code_wrapper(att_t_overlap_dim_tag_str),
           },
           "att_weights_range": {
             "class": "range_in_axis",
             "from": "att_weights",
-            "axis": CodeWrapper(att_t_dim_tag_str),
+            "axis": _get_code_wrapper(att_t_dim_tag_str),
           },
           "overlap_start": {
             "class": "combine",
@@ -2319,16 +2338,16 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
             "from": prev_accum_att_weights_name,
             "start": "overlap_start",
             "size": "overlap_len",
-            "axis": CodeWrapper(accum_att_weights_dim_tag_str),
-            "out_spatial_dim": CodeWrapper(att_t_overlap_dim_tag_str),
+            "axis": _get_code_wrapper(accum_att_weights_dim_tag_str),
+            "out_spatial_dim": _get_code_wrapper(att_t_overlap_dim_tag_str),
             "initial_output": 0.
           },
           "accum_att_weights_scattered0": {
             "class": "scatter_nd",
             "from": "overlap_accum_weights",
             "position": "overlap_range",
-            "position_axis": CodeWrapper(att_t_overlap_dim_tag_str),
-            "out_spatial_dim": CodeWrapper(accum_att_weights_dim_tag_str),
+            "position_axis": _get_code_wrapper(att_t_overlap_dim_tag_str),
+            "out_spatial_dim": _get_code_wrapper(accum_att_weights_dim_tag_str),
           },
           "accum_att_weights_scattered": {
             "class": "reinterpret_data",
@@ -2339,22 +2358,22 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
             "class": "scatter_nd",
             "from": "att_weights",
             "position": "att_weights_range",
-            "position_axis": CodeWrapper(att_t_dim_tag_str),
-            "out_spatial_dim": CodeWrapper(accum_att_weights_dim_tag_str),
+            "position_axis": _get_code_wrapper(att_t_dim_tag_str),
+            "out_spatial_dim": _get_code_wrapper(accum_att_weights_dim_tag_str),
           },
           "inv_fertility_scattered": {
             "class": "scatter_nd",
             "from": "inv_fertility",
             "position": "att_weights_range",
-            "position_axis": CodeWrapper(att_t_dim_tag_str),
-            "out_spatial_dim": CodeWrapper(accum_att_weights_dim_tag_str),
+            "position_axis": _get_code_wrapper(att_t_dim_tag_str),
+            "out_spatial_dim": _get_code_wrapper(accum_att_weights_dim_tag_str),
           },
           "inv_fertility": {
             "class": "slice_nd",
             "from": "base:inv_fertility",
             "start": "segment_starts",
             "size": "segment_lens",
-            "out_spatial_dim": CodeWrapper(att_t_dim_tag_str)
+            "out_spatial_dim": _get_code_wrapper(att_t_dim_tag_str)
           },
           'accum_att_weights0': {
             'class': 'eval',
@@ -2372,8 +2391,8 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
             "from": "accum_att_weights_scattered",
             "start": 0,
             "size": "segment_lens",
-            "axis": CodeWrapper(accum_att_weights_dim_tag_str),
-            "out_spatial_dim": CodeWrapper(att_t_dim_tag_str)
+            "axis": _get_code_wrapper(accum_att_weights_dim_tag_str),
+            "out_spatial_dim": _get_code_wrapper(att_t_dim_tag_str)
           },
           "weight_feedback": {
             "class": "linear",
@@ -2384,15 +2403,15 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
           },
         })
 
-        seg_net_dict[rec_layer_name]["unit"]["segments"]["out_spatial_dim"] = CodeWrapper(att_t_dim_tag_str)
+        seg_net_dict[rec_layer_name]["unit"]["segments"]["out_spatial_dim"] = _get_code_wrapper(att_t_dim_tag_str)
 
         seg_net_dict.update({
           "initial_output_layer": {
             "class": "constant",
             "value": 0.,
             "shape": [
-              CodeWrapper("batch_dim"),
-              CodeWrapper(accum_att_weights_dim_tag_str),
+              _get_code_wrapper("batch_dim"),
+              _get_code_wrapper(accum_att_weights_dim_tag_str),
             ]
           },
         })

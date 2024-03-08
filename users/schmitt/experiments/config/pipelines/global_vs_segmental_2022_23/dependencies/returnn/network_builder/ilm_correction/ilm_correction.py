@@ -5,82 +5,21 @@ import copy
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_builder2 import add_is_last_frame_condition
 
 
-def add_mini_lstm(
-        network: Dict,
-        rec_layer_name: str,
-        train: bool = True,
-        use_mask_layer: bool = False,
-        mini_att_in_s_for_train: bool = False
-):
-  assert not (use_mask_layer and train), "mask layer only makes sense for inference"
-  network[rec_layer_name]["unit"].update({
-    "mini_att" if train else "preload_mini_att": {
-      "class": "linear",
-      "activation": None,
-      "with_bias": True,
-      "from": "mini_att_lstm" if train else "preload_mini_att_lstm",
-      "n_out": 512,
-    },
-  })
-
-  mini_att_lstm_dict = {
-    "mini_att_lstm" if train else "preload_mini_att_lstm": {
-      "class": "rec",
-      "unit": "nativelstm2",
-      "n_out": 50,
-      "direction": 1,
-      "from": "prev:target_embed",
-    },
-  }
-
-  if use_mask_layer:
-    network[rec_layer_name]["unit"].update({
-      "preload_mini_att_lstm": {
-        "class": "unmask",
-        "from": "preload_mini_att_lstm_masked",
-        "mask": "prev:output_emit",
-      },
-      "preload_mini_att_lstm_masked": {
-        "class": "masked_computation",
-        "from": "prev:target_embed",
-        "mask": "prev:output_emit",
-        "unit": {
-          "class": "subnetwork",
-          "from": "data",
-          "subnetwork": {
-            **mini_att_lstm_dict,
-            "output": {
-              "class": "copy",
-              "from": "preload_mini_att_lstm",
-            }
-          }
-        }
-      }
-    })
-    network[rec_layer_name]["unit"]["preload_mini_att_lstm_masked"]["unit"]["subnetwork"]["preload_mini_att_lstm"]["from"] = "data"
-    network[rec_layer_name]["unit"]["preload_mini_att_lstm_masked"]["unit"]["subnetwork"]["preload_mini_att_lstm"]["name_scope"] = "/output/rec/preload_mini_att_lstm/rec"
-  else:
-    network[rec_layer_name]["unit"].update(mini_att_lstm_dict)
-
-  if train:
-    network[rec_layer_name]["unit"]["readout_in"]["from"] = ["s", "prev:target_embed", "mini_att"]
-    if mini_att_in_s_for_train:
-      network[rec_layer_name]["unit"]["s"]["from"] = ["prev:target_embed", "prev:mini_att"]
-
-
 def add_ilm_correction(
         network: Dict,
         rec_layer_name: str,
         target_num_labels: int,
         opts: Dict,
-        label_prob_layer: str
+        label_prob_layer: str,
+        att_layer_name: str,
+        static_att: bool
 ):
   network[rec_layer_name]["unit"].update({
     "prior_readout_in": {
       "class": "linear",
       "activation": None,
       "with_bias": True,
-      "from": ["prior_s", "prev:target_embed", "preload_mini_att"],
+      "from": ["prior_s", "prev:target_embed", att_layer_name],
       "n_out": 1024,
       "reuse_params": "readout_in"
     },
@@ -102,7 +41,7 @@ def add_ilm_correction(
       "class": "rnn_cell",
       "unit": "zoneoutlstm",
       "n_out": 1024,
-      "from": ["prev:target_embed", "prev:preload_mini_att"],
+      "from": ["prev:target_embed", att_layer_name if static_att else f"prev:{att_layer_name}"],
       "unit_opts": {
         "zoneout_factor_cell": 0.15,
         "zoneout_factor_output": 0.05,
@@ -134,7 +73,7 @@ def add_ilm_correction(
         }
       }
     })
-    network[rec_layer_name]["unit"]["prior_s_masked"]["unit"]["subnetwork"]["prior_s"]["from"] = ["data", "base:prev:preload_mini_att"]
+    network[rec_layer_name]["unit"]["prior_s_masked"]["unit"]["subnetwork"]["prior_s"]["from"] = ["data", f"base:{att_layer_name}" if static_att else f"base:prev:{att_layer_name}"]
     network[rec_layer_name]["unit"]["prior_s_masked"]["unit"]["subnetwork"]["prior_s"]["name_scope"] = "/output/rec/s/rec"
     network[rec_layer_name]["unit"]["prior_label_prob"]["reuse_params"] = "label_log_prob"
   else:
@@ -206,12 +145,13 @@ def add_ilm_correction(
 def add_se_loss(
         network: Dict,
         rec_layer_name: str,
+        att_layer_name: str
 ):
   network[rec_layer_name]["unit"].update({
     "se_loss": {
         "class": "eval",
         "eval": "(source(0) - source(1)) ** 2",
-        "from": ["att", "mini_att"],
+        "from": ["att", att_layer_name],
     },
     "att_loss": {
         "class": "reduce",

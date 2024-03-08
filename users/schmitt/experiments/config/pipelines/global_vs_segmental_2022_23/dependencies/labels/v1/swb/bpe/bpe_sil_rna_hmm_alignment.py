@@ -226,6 +226,7 @@ class RNABPESplitSil(SegmentalLabelDefinition, BPE):
   def _get_alignment_statistics_job(self, corpus_key: str):
     return AlignmentStatisticsJob(
       alignment=self.ref_bpe_sil.alignment_paths[corpus_key],
+      json_vocab=self.vocab_path,
       seq_list_filter_file=self.ref_bpe_sil.segment_paths[corpus_key],
       blank_idx=self.model_hyperparameters.blank_idx,
       silence_idx=self.model_hyperparameters.sil_idx)

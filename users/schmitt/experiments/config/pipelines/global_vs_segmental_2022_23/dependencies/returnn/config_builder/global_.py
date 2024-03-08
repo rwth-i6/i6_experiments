@@ -10,8 +10,11 @@ from i6_experiments.users.schmitt.specaugment import _mask
 from i6_experiments.users.schmitt.augmentation.alignment import shift_alignment_boundaries_func_str
 from i6_experiments.users.schmitt.dynamic_lr import dynamic_lr_str
 from i6_experiments.users.schmitt.chunking import custom_chunkin_func_str
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder, ilm_correction
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.lm import lm_irie
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.lm import lm_irie, lstm_bpe_10k
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.lm import base as lm_base
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.ilm_correction import mini_att as mini_att_ilm_correction
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.ilm_correction import zero_att as zero_att_ilm_correction
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn import custom_construction_algos
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.base import ConfigBuilder, SWBBlstmConfigBuilder, SwbConformerConfigBuilder, LibrispeechConformerConfigBuilder, ConformerConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
@@ -36,16 +39,14 @@ class GlobalConfigBuilder(ConfigBuilder, ABC):
 
   def get_train_config(self, opts: Dict, python_epilog: Optional[Dict] = None):
     train_config = super().get_train_config(opts=opts, python_epilog=python_epilog)
-    print(opts["train_mini_lstm_opts"])
 
     if opts.get("train_mini_lstm_opts") is not None:  # need to check for None because it can be {}
-      ilm_correction.add_mini_lstm(
+      mini_att_ilm_correction.add_mini_att(
         network=train_config.config["network"],
         rec_layer_name="output",
         train=True,
-        mini_att_in_s_for_train=opts["train_mini_lstm_opts"].get("mini_att_in_s", False)
       )
-      self.edit_network_freeze_layers(
+      self.edit_network_freeze_layers_excluding(
         train_config.config["network"],
         layers_to_exclude=["mini_att_lstm", "mini_att"]
       )
@@ -53,7 +54,7 @@ class GlobalConfigBuilder(ConfigBuilder, ABC):
       train_config.config["network"]["output"]["unit"]["att"]["is_output_layer"] = True
 
       if opts["train_mini_lstm_opts"].get("use_se_loss", False):
-        ilm_correction.add_se_loss(
+        mini_att_ilm_correction.add_se_loss(
           network=train_config.config["network"],
           rec_layer_name="output",
         )
@@ -65,35 +66,47 @@ class GlobalConfigBuilder(ConfigBuilder, ABC):
 
     ilm_correction_opts = opts.get("ilm_correction_opts", None)
     if ilm_correction_opts is not None:
-      ilm_correction.add_mini_lstm(
-        network=recog_config.config["network"],
-        rec_layer_name="output",
-        train=False
-      )
+      if ilm_correction_opts.get("type", "mini_att") == "mini_att":
+        ilm_correction = mini_att_ilm_correction
+        recog_config.config["preload_from_files"] = {
+          "mini_lstm": {
+            "filename": ilm_correction_opts["mini_att_checkpoint"],
+            "prefix": "preload_",
+          }
+        }
+      elif ilm_correction_opts.get("type", "mini_att") == "zero_att":
+        ilm_correction = zero_att_ilm_correction
+      else:
+        raise NotImplementedError
 
       ilm_correction.add_ilm_correction(
         network=recog_config.config["network"],
         rec_layer_name="output",
         target_num_labels=self.dependencies.model_hyperparameters.target_num_labels,
         opts=ilm_correction_opts,
-        label_prob_layer="output_prob"
+        label_prob_layer="output_prob",
+        use_mask_layer=False,
+        returnn_config=recog_config
       )
-
-      recog_config.config["preload_from_files"] = {
-        "mini_lstm": {
-          "filename": ilm_correction_opts["mini_att_checkpoint"],
-          "prefix": "preload_",
-        }
-      }
 
     lm_opts = opts.get("lm_opts", None)
     if lm_opts is not None:
-      lm_irie.add_lm(
+      if lm_opts.get("type", "trafo") == "trafo":
+        get_lm_dict_func = lm_irie.get_lm_dict
+        lm_embedding_layer_name = "target_embed_raw"
+      else:
+        assert lm_opts["type"] == "lstm"
+        get_lm_dict_func = lstm_bpe_10k.get_lm_dict
+        lm_embedding_layer_name = "input"
+
+      lm_base.add_lm(
         network=recog_config.config["network"],
         rec_layer_name="output",
         target_num_labels=self.dependencies.model_hyperparameters.target_num_labels,
         opts=lm_opts,
-        label_prob_layer="output_prob"
+        label_prob_layer="output_prob",
+        get_lm_dict_func=get_lm_dict_func,
+        lm_embedding_layer_name=lm_embedding_layer_name
       )
 
     return recog_config
@@ -230,7 +243,7 @@ class SWBBlstmGlobalAttentionConfigBuilder(GlobalConfigBuilder, SWBBlstmConfigBu
 
     return copy.deepcopy(net_dict)
 
-  def get_networks_dict(self, task: str, config_dict, python_prolog):
+  def get_networks_dict(self, task: str, config_dict, python_prolog, use_get_global_config: bool = False):
     return None
 
   def get_custom_construction_algo(self, config_dict, python_prolog):
@@ -252,7 +265,7 @@ class SWBConformerGlobalAttentionConfigBuilder(SwbConformerConfigBuilder, Global
       network_dict = copy.deepcopy(networks_dict[22])
       return network_dict
 
-  def get_networks_dict(self, task: str, config_dict, python_prolog):
+  def get_networks_dict(self, task: str, config_dict, python_prolog, use_get_global_config: bool = False):
     if task == "train":
       from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.mohammad_conformer.networks_11_4 import networks_dict
       return copy.deepcopy(networks_dict)
@@ -279,7 +292,7 @@ class LibrispeechConformerGlobalAttentionConfigBuilder(GlobalConfigBuilder, Libr
 
       return network_dict
 
-  def get_networks_dict(self, task: str, config_dict, python_prolog):
+  def get_networks_dict(self, task: str, config_dict, python_prolog, use_get_global_config: bool = False):
     if task == "train":
       from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.librispeech.returnn.network_builder.networks import networks_dict
       return copy.deepcopy(networks_dict)

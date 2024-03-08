@@ -139,6 +139,7 @@ def transform_wei(data, network):
   return x
 
 
+speed_pert_str = """
 def speed_pert(audio, sample_rate, random_state):
   import librosa
 
@@ -146,3 +147,4 @@ def speed_pert(audio, sample_rate, random_state):
   if new_sample_rate != sample_rate:
     audio = librosa.core.resample(audio, sample_rate, new_sample_rate, res_type="kaiser_fast")
   return audio
+"""

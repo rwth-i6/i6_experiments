@@ -15,6 +15,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
+from i6_core.returnn.training import AverageTFCheckpointsJob, GetBestEpochJob, Checkpoint, GetBestTFCheckpointJob
 
 from sisyphus import Path
 
@@ -97,10 +98,20 @@ class ConfigBuilder(ABC):
       })
       networks_dict = None
     else:
-      networks_dict = copy.deepcopy(self.get_networks_dict("train", config_dict=config_dict, python_prolog=python_prolog))
+      networks_dict = copy.deepcopy(
+        self.get_networks_dict(
+          "train",
+          config_dict=config_dict,
+          python_prolog=python_prolog,
+          use_get_global_config=True
+        )
+      )
       net_dict = self.get_net_dict("train", config_dict=config_dict, python_prolog=python_prolog)
     if opts.get("align_augment", False):
       self.add_align_augment(net_dict=net_dict, networks_dict=networks_dict, python_prolog=python_prolog)
+
+    if opts.get("dataset_opts", {}).get("use_speed_pert"):
+      python_prolog.append(speed_pert_str)
 
     if opts.get("only_train_length_model", False):
       assert "preload_from_files" in opts or "import_model_train_epoch1" in opts, "It does not make sense to only train the length model if you are not importing from some checkpoint"
@@ -115,20 +126,24 @@ class ConfigBuilder(ABC):
         net_dict.pop("ctc", None)
 
     if net_dict is not None:
+      if opts.get("freeze_encoder"):
+        self.edit_network_freeze_encoder(net_dict)
       config_dict["network"] = net_dict
 
-    if "cleanup_old_models" in opts:
+    if opts.get("cleanup_old_models"):
       post_config_dict["cleanup_old_models"] = opts["cleanup_old_models"]
+    else:
+      post_config_dict["cleanup_old_models"] = self.get_default_cleanup_old_models()
 
     if "tf_session_opts" in opts:
       post_config_dict["tf_session_opts"] = opts["tf_session_opts"]
 
     if opts.get("lr_opts"):
-      config_dict.update(self.get_lr_settings(lr_opts=opts["lr_opts"]))
+      config_dict.update(self.get_lr_settings(lr_opts=opts["lr_opts"], python_epilog=python_epilog))
     else:
       config_dict.update(self.get_lr_settings(lr_opts=self.get_default_lr_opts()))
 
-    if "batch_size" in opts:
+    if opts.get("batch_size") is not None:
       config_dict["batch_size"] = opts["batch_size"]
     else:
       config_dict["batch_size"] = self.get_default_batch_size()
@@ -143,7 +158,9 @@ class ConfigBuilder(ABC):
       post_config=post_config_dict,
       python_prolog=python_prolog,
       python_epilog=python_epilog,
-      staged_network_dict=networks_dict
+      staged_network_dict={
+        k: f"from returnn.config import get_global_config\nnetwork = {str(v)}" for k, v in networks_dict.items()
+      } if networks_dict is not None else None
     )
 
   def get_recog_config(self, opts: Dict):
@@ -168,19 +185,21 @@ class ConfigBuilder(ABC):
 
     net_dict = self.get_net_dict("search", config_dict=config_dict, python_prolog=python_prolog)
     if net_dict is not None:
-      if opts.get("load_ignore_missing_vars"):
-        # dirty fix
-        # for some reason, RETURNN tries to initialize the weights of the ctc layer (even though it is not used
-        # during search) and this leads to an error because the targets of the ctc layer are not set correctly
-        # later, just remove the ctc layer in general during recog but keep for now because of hashes
-        net_dict.pop("ctc")
+      net_dict.pop("ctc")  # not needed during recognition
+      # set beam size
+      net_dict["output"]["unit"]["output"]["beam_size"] = opts.get("beam_size", self.get_default_beam_size())
 
       config_dict["network"] = net_dict
+    else:
+      raise ValueError("net_dict is None!")
 
     if opts.get("batch_size"):
       config_dict["batch_size"] = opts["batch_size"]
     else:
       config_dict["batch_size"] = 2400000
+
+    if opts.get("max_seqs"):
+      config_dict["max_seqs"] = opts["max_seqs"]
 
     return ReturnnConfig(
       config=config_dict,
@@ -269,18 +288,73 @@ class ConfigBuilder(ABC):
   def edit_network_only_train_length_model(self, net_dict: Dict):
     pass
 
+  @abstractmethod
+  def edit_network_freeze_encoder(self, net_dict: Dict):
+    pass
+
   def add_align_augment(self, net_dict, networks_dict, python_prolog):
     raise NotImplementedError
 
-  def edit_network_freeze_layers(self, net_dict: Dict, layers_to_exclude: List[str]):
+  def edit_network_freeze_layers_excluding(
+          self,
+          net_dict: Dict,
+          layers_to_exclude: List[str],
+  ):
     if "class" in net_dict:
       net_dict["trainable"] = False
 
     for item in net_dict:
-      if type(net_dict[item]) == dict and item not in layers_to_exclude:
-        self.edit_network_freeze_layers(net_dict[item], layers_to_exclude)
+      if isinstance(net_dict[item], dict):
+        if item in layers_to_exclude:
+          continue
+        self.edit_network_freeze_layers_excluding(net_dict[item], layers_to_exclude)
 
-  def get_lr_settings(self, lr_opts):
+  def edit_network_freeze_layers_including(
+          self,
+          net_dict: Dict,
+          layers_to_include: List[str],
+          prefix_to_include: str = "",
+  ):
+    if "class" in net_dict:
+      net_dict["trainable"] = False
+
+    for item in net_dict:
+      if isinstance(net_dict[item], dict):
+        if item in layers_to_include or item.startswith(prefix_to_include):
+          self.edit_network_freeze_layers_including(net_dict[item], layers_to_include, prefix_to_include)
+
+  def get_recog_checkpoints(
+          self, model_dir: Path, learning_rates: Path, key: str, checkpoints: Dict[int, Checkpoint], n_epochs: int):
+    # last checkpoint
+    last_checkpoint = checkpoints[n_epochs]
+
+    # best checkpoint
+    best_checkpoint = GetBestTFCheckpointJob(
+      model_dir=model_dir, learning_rates=learning_rates, key=key, index=0
+    ).out_checkpoint
+
+    # avg checkpoint
+    best_n = 4
+    best_epochs = []
+    for i in range(best_n):
+      best_epochs.append(GetBestEpochJob(
+        model_dir=model_dir,
+        learning_rates=learning_rates,
+        key=key,
+        index=i
+      ).out_epoch)
+    best_avg_checkpoint = AverageTFCheckpointsJob(
+      model_dir=model_dir,
+      epochs=best_epochs,
+      returnn_python_exe=self.variant_params["returnn_python_exe"],
+      returnn_root=self.variant_params["returnn_root"]
+    ).out_checkpoint
+
+    checkpoints = {"last": last_checkpoint, "best": best_checkpoint, "best-4-avg": best_avg_checkpoint}
+
+    return checkpoints
+
+  def get_lr_settings(self, lr_opts, python_epilog: Optional[List] = None):
     lr_settings = {}
     if lr_opts["type"] == "newbob":
       lr_opts.pop("type")
@@ -305,6 +379,9 @@ class ConfigBuilder(ABC):
       lr_settings.update({
         "learning_rates": [const_lr] * int((num_epochs*const_frac)) + list(np.linspace(const_lr, final_lr, num_epochs - int((num_epochs*const_frac)))),
       })
+    elif lr_opts["type"] == "dynamic_lr":
+      assert python_epilog is not None, "python_epilog must be provided to insert dynamic_learning_rate function"
+      python_epilog.append(dynamic_lr_str.format(**lr_opts["dynamic_lr_opts"]))
     elif lr_opts["type"] == "const":
       const_lr = lr_opts["const_lr"]
       lr_settings.update({
@@ -314,6 +391,18 @@ class ConfigBuilder(ABC):
       raise NotImplementedError
 
     return lr_settings
+
+  @staticmethod
+  def get_default_cleanup_old_models():
+    return {
+      "keep_best_n": 4,
+      "keep_last_n": 1,
+      "keep": []
+    }
+
+  @staticmethod
+  def get_default_beam_size():
+    return 12
 
   @abstractmethod
   def get_default_lr_opts(self):
@@ -352,9 +441,9 @@ class ConfigBuilder(ABC):
       return get_oggzip_dataset_dict(
         fixed_random_subset=None,
         partition_epoch=self.variant_params["dataset"]["corpus"].partition_epoch,
-        pre_process=CodeWrapper("speed_pert") if self.variant_params["config"].get("speed_pert") else None,
+        pre_process=CodeWrapper("speed_pert") if dataset_opts.get("use_speed_pert") else None,
         seq_ordering=self.variant_params["config"]["train_seq_ordering"],
-        epoch_wise_filter=self.variant_params["config"].get("epoch_wise_filter", None),
+        epoch_wise_filter=dataset_opts.get("epoch_wise_filter", None),
         **self.get_default_dataset_opts("train", dataset_opts)
       )
     else:
@@ -484,7 +573,7 @@ class ConfigBuilder(ABC):
     pass
 
   @abstractmethod
-  def get_networks_dict(self, task: str, config_dict, python_prolog):
+  def get_networks_dict(self, task: str, config_dict, python_prolog, use_get_global_config: bool = False):
     pass
 
   def get_train_datasets(self, dataset_opts: Dict):
@@ -515,6 +604,9 @@ class SWBBlstmConfigBuilder(ConfigBuilder, ABC):
   def get_final_net_dict(self, config_dict, python_prolog):
     return self.get_net_dict("train", config_dict=config_dict, python_prolog=python_prolog)
 
+  def edit_network_freeze_encoder(self, net_dict: Dict):
+    raise NotImplementedError
+
 
 class ConformerConfigBuilder(ConfigBuilder, ABC):
   def get_final_net_dict(self, config_dict, python_prolog):
@@ -530,6 +622,9 @@ class SwbConformerConfigBuilder(ConfigBuilder, ABC):
   def get_default_lr_opts(self):
     raise NotImplementedError
 
+  def edit_network_freeze_encoder(self, net_dict: Dict):
+    raise NotImplementedError
+
 
 class LibrispeechConformerConfigBuilder(ConfigBuilder, ABC):
   def get_default_batch_size(self):
@@ -537,3 +632,10 @@ class LibrispeechConformerConfigBuilder(ConfigBuilder, ABC):
 
   def get_default_lr_opts(self):
     raise NotImplementedError
+
+  def edit_network_freeze_encoder(self, net_dict: Dict):
+    self.edit_network_freeze_layers_including(
+      net_dict,
+      layers_to_include=["subsample_conv0", "subsample_conv1", "conv0", "source_linear"],
+      prefix_to_include="conformer"
+    )

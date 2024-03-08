@@ -31,7 +31,7 @@ for distrib in distribs:
     ax.set_xticklabels(x_labels, fontsize=16)
     ax.set_yticks([0.0, 0.1, 0.2, 0.3, 0.4, 0.5])
     ax.set_yticklabels([0.0, 0.1, 0.2, 0.3, 0.4, 0.5], fontsize=16)
-    plt.plot(dist, label="sigma={std}".format(std=std))
+    plt.plot(dist, label="$\sigma$={std}".format(std=std))
     plt.legend(prop={"size": 16})
 
   plt.savefig(os.path.join(out_folder, "{distrib}.png".format(distrib=distrib)))

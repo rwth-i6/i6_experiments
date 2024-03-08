@@ -151,13 +151,21 @@ class AugmentBPEAlignmentJob(Job):
 
 
 class AlignmentStatisticsJob(Job):
-  def __init__(self, alignment, seq_list_filter_file=None, blank_idx=0, silence_idx=None,
-               time_rqmt=2, returnn_python_exe=None,
-               returnn_root=None):
+  def __init__(
+          self,
+          alignment,
+          json_vocab,
+          seq_list_filter_file=None,
+          blank_idx=0,
+          silence_idx=None,
+          time_rqmt=2,
+          returnn_python_exe=None,
+          returnn_root=None):
     self.returnn_python_exe = (returnn_python_exe if returnn_python_exe is not None else gs.RETURNN_PYTHON_EXE)
     self.returnn_root = (returnn_root if returnn_root is not None else gs.RETURNN_ROOT)
 
     self.alignment = alignment
+    self.json_vocab = json_vocab
     self.seq_list_filter_file = seq_list_filter_file
     self.blank_idx = blank_idx
     self.silence_idx = silence_idx
@@ -184,7 +192,9 @@ class AlignmentStatisticsJob(Job):
       self.returnn_python_exe.get_path(),
       os.path.join(tools_dir, "segment_statistics.py"),
       self.alignment.get_path(),
-      "--blank-idx", str(self.blank_idx), "--sil-idx", str(self.silence_idx),
+      "--json-vocab", self.json_vocab.get_path(),
+      "--blank-idx", str(self.blank_idx),
+      "--sil-idx", str(self.silence_idx),
       "--returnn-root", self.returnn_root.get_path()
     ]
 

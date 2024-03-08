@@ -92,6 +92,7 @@ class GlobalAttCtcAlignment:
 
       statistics_job = AlignmentStatisticsJob(
         alignment=ctc_aligns_global_att[corpus_key],
+        json_vocab=config_builder.dependencies.vocab_path,
         blank_idx=10025,
         silence_idx=20000,  # dummy idx which is larger than the vocab size
         returnn_root=RETURNN_ROOT,

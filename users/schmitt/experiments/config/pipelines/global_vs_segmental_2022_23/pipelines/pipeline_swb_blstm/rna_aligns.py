@@ -9,6 +9,7 @@ def calc_align_stats():
   for corpus_key in ("train",):
     statistics_job = AlignmentStatisticsJob(
       alignment=SWB_BPE_1030_RNA_ALIGNMENT.alignment_paths[corpus_key],
+      json_vocab=SWB_BPE_1030_RNA_ALIGNMENT.vocab_path,
       blank_idx=SWB_BPE_1030_RNA_ALIGNMENT.model_hyperparameters.blank_idx,
       silence_idx=20000,  # dummy idx which is larger than the vocab size
       returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_EXE_NEW)

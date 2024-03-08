@@ -3,75 +3,194 @@ from typing import Dict, List, Any, Optional, Tuple
 
 from i6_core.returnn.training import Checkpoint
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_ROOT, RETURNN_EXE
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.global_ import LibrispeechConformerGlobalAttentionConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.model_variants.model_variants_ls_conf import models
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.checkpoints import external_checkpoints
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf import ctc_aligns
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train import GlobalTrainExperiment, SegmentalTrainExperiment
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train_new import GlobalTrainExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.recog import ReturnnDecodingExperimentV2
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.recog_new import ReturnnGlobalAttDecodingExperiment, ReturnnGlobalAttDecodingPipeline
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.center_window_att.base import (
   returnn_recog_center_window_att_import_global,
   get_center_window_att_config_builder,
   train_center_window_att_import_global
 )
-from i6_experiments.users.schmitt.alignment.alignment import AlignmentAddEosJob
-
 
 default_import_model_name = "glob.conformer.mohammad.5.6"
 
 
 def glob_att_import_global_no_finetuning():
-  alias = "models/ls_conformer/import_%s/glob_att_diff_epochs_no_finetuning" % (default_import_model_name,)
+  alias = "models/ls_conformer/import_%s/glob_att/no_finetuning" % (default_import_model_name,)
   config_builder = get_global_att_config_builder(use_weight_feedback=True)
 
-  recog_global_att_import_global(
+  recog_exp = ReturnnGlobalAttDecodingExperiment(
     alias=alias,
     config_builder=config_builder,
     checkpoint=external_checkpoints[default_import_model_name],
-    analyse=True,
-    search_corpus_key="dev-other",
-    att_weight_seq_tags=[
+    checkpoint_alias="best-4-avg",
+    recog_opts={"search_corpus_key": "dev-other"},
+    analysis_opts={"att_weight_seq_tags": [
       "dev-other/3660-6517-0005/3660-6517-0005",
       "dev-other/6467-62797-0001/6467-62797-0001",
       "dev-other/6467-62797-0002/6467-62797-0002",
       "dev-other/7697-105815-0015/7697-105815-0015",
       "dev-other/7697-105815-0051/7697-105815-0051",
-    ],
+    ]}
   )
+  recog_exp.run_eval()
+  recog_exp.run_analysis()
 
 
 def glob_att_import_global_diff_epochs_diff_lrs(
-        n_epochs_list: Tuple[int] = (10, 100),
+        n_epochs_list: Tuple[int, ...] = (10, 100),
         const_lr_list: Tuple[float] = (1e-4,),
+        analysis_checkpoint_alias: Optional[str] = None
 ):
   for n_epochs in n_epochs_list:
     for const_lr in const_lr_list:
-      alias = "models/ls_conformer/import_%s/glob_att_diff_epochs/%d-epochs_const-lr-%f" % (default_import_model_name, n_epochs, const_lr)
+      alias = "models/ls_conformer/import_%s/glob_att/diff_epochs/%d-epochs_const-lr-%f" % (default_import_model_name, n_epochs, const_lr)
       config_builder = get_global_att_config_builder(use_weight_feedback=True)
 
       train_exp = GlobalTrainExperiment(
         config_builder=config_builder,
         alias=alias,
-        n_epochs=n_epochs,
-        import_model_train_epoch1=external_checkpoints[default_import_model_name],
-        lr_opts={
-          "type": "const_then_linear",
-          "const_lr": const_lr,
-          "const_frac": 1/3,
-          "final_lr": 1e-6,
-          "num_epochs": n_epochs
+        num_epochs=n_epochs,
+        train_opts={
+          "import_model_train_epoch1": external_checkpoints[default_import_model_name],
+          "lr_opts": {
+            "type": "const_then_linear",
+            "const_lr": const_lr,
+            "const_frac": 1/3,
+            "final_lr": 1e-6,
+            "num_epochs": n_epochs
+          },
+          "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}},
+          "max_seq_length": {"targets": 75}
         }
       )
       checkpoints, model_dir, learning_rates = train_exp.run_train()
 
-      recog_global_att_import_global(
+      for checkpoint_alias in ("last", "best", "best-4-avg"):
+        recog_exp = ReturnnGlobalAttDecodingExperiment(
+          alias=alias,
+          config_builder=config_builder,
+          checkpoint={
+            "model_dir": model_dir,
+            "learning_rates": learning_rates,
+            "key": "dev_score_output/output_prob",
+            "checkpoints": checkpoints,
+            "n_epochs": n_epochs
+          },
+          checkpoint_alias=checkpoint_alias,
+          recog_opts={
+            "search_corpus_key": "dev-other",
+          }
+        )
+        recog_exp.run_eval()
+        if checkpoint_alias == analysis_checkpoint_alias:
+          recog_exp.run_analysis()
+
+
+def glob_att_import_global_bpe_lm(
+        n_epochs_list: Tuple[int, ...] = (10,),
+        const_lr_list: Tuple[float, ...] = (1e-4,),
+        lm_scale_list: Tuple[float, ...] = (0.4,),
+        lm_type: str = "trafo",
+        ilm_scale_list: Tuple[float, ...] = (0.0,),
+        ilm_type: Optional[str] = None,
+        lm_recog_checkpoint_alias: str = "last",
+        beam_size_list: Tuple[int, ...] = (12,)
+):
+  for n_epochs in n_epochs_list:
+    for const_lr in const_lr_list:
+      alias = "models/ls_conformer/import_%s/glob_att/bpe_lm/%d-epochs_const-lr-%f" % (default_import_model_name, n_epochs, const_lr)
+      config_builder = get_global_att_config_builder(use_weight_feedback=True)
+
+      train_exp = GlobalTrainExperiment(
+        config_builder=config_builder,
+        alias=alias,
+        num_epochs=n_epochs,
+        train_opts={
+          "import_model_train_epoch1": external_checkpoints[default_import_model_name],
+          "lr_opts": {
+            "type": "const_then_linear",
+            "const_lr": const_lr,
+            "const_frac": 1/3,
+            "final_lr": 1e-6,
+            "num_epochs": n_epochs
+          },
+          "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}},
+          "max_seq_length": {"targets": 75}
+        }
+      )
+      checkpoints, model_dir, learning_rates = train_exp.run_train()
+
+      ilm_opts = {"type": ilm_type}
+      if ilm_type == "mini_att":
+        ilm_opts.update({
+          "use_se_loss": False,
+          "correct_eos": True,
+        })
+
+      ReturnnGlobalAttDecodingPipeline(
         alias=alias,
         config_builder=config_builder,
-        checkpoint=checkpoints[n_epochs],
-        analyse=True,
-        search_corpus_key="dev-other",
-      )
+        checkpoint={
+          "model_dir": model_dir,
+          "learning_rates": learning_rates,
+          "key": "dev_score_output/output_prob",
+          "checkpoints": checkpoints,
+          "n_epochs": n_epochs
+        },
+        checkpoint_aliases=(lm_recog_checkpoint_alias,),
+        beam_sizes=beam_size_list,
+        lm_scales=lm_scale_list,
+        lm_opts={"type": lm_type},
+        ilm_scales=ilm_scale_list,
+        ilm_opts=ilm_opts
+      ).run()
+
+      # batch_size = None
+      # for beam_size in beam_size_list:
+      #   for lm_scale in lm_scale_list:
+      #     if lm_scale > 0.0 and beam_size in (50, 84):
+      #       batch_size = 4000 * 160
+      #
+      #     for ilm_scale in ilm_scale_list:
+      #       if ilm_scale > 0.0:
+      #         assert ilm_type is not None
+      #         ilm_correction_opts = {
+      #           "scale": ilm_scale,
+      #           "type": ilm_type,
+      #         }
+      #         if ilm_type == "mini_att":
+      #           ilm_correction_opts.update({
+      #             "use_se_loss": False,
+      #             "correct_eos": True,
+      #           })
+      #       else:
+      #         ilm_correction_opts = None
+      #
+      #       recog_exp = ReturnnGlobalAttDecodingExperiment(
+      #         alias=alias,
+      #         config_builder=config_builder,
+      #         checkpoint={
+      #           "model_dir": model_dir,
+      #           "learning_rates": learning_rates,
+      #           "key": "dev_score_output/output_prob",
+      #           "checkpoints": checkpoints,
+      #           "n_epochs": n_epochs
+      #         },
+      #         checkpoint_alias=lm_recog_checkpoint_alias,
+      #         recog_opts={
+      #           "search_corpus_key": "dev-other",
+      #           "lm_opts": {"scale": lm_scale, "type": lm_type},
+      #           "ilm_correction_opts": ilm_correction_opts,
+      #           "beam_size": beam_size,
+      #           "batch_size": batch_size
+      #         }
+      #       )
+      #       recog_exp.run_eval()
 
 
 def glob_att_import_global_concat_recog(
@@ -79,23 +198,38 @@ def glob_att_import_global_concat_recog(
         const_lr_list: Tuple[float] = (1e-4,),
         concat_nums: Tuple[int] = (2, 4),
 ):
+  # TODO: i restarted the search jobs and something seems to have changed in RETURNN since the last time, because
+  # it now throws an error:
+  """
+    File "/u/schmitt/src/returnn_new/returnn/datasets/audio.py", line 346, in OggZipDataset._get_ref_seq_idx
+    line: return self._seq_order[seq_idx]
+    locals:
+      self = <local> <OggZipDataset 'dataset_id140515693976880_subdataset_zip_dataset' epoch=None>
+      self._seq_order = <local> None
+      seq_idx = <local> 0
+  """
+
   for n_epochs in n_epochs_list:
     for const_lr in const_lr_list:
-      alias = "models/ls_conformer/import_%s/glob_att_concat_recog/%d-epochs_const-lr-%f" % (default_import_model_name, n_epochs, const_lr)
+      alias = "models/ls_conformer/import_%s/glob_att/concat_recog/%d-epochs_const-lr-%f" % (default_import_model_name, n_epochs, const_lr)
       config_builder = get_global_att_config_builder(use_weight_feedback=True)
 
       train_exp = GlobalTrainExperiment(
         config_builder=config_builder,
         alias=alias,
-        n_epochs=n_epochs,
-        import_model_train_epoch1=external_checkpoints[default_import_model_name],
-        lr_opts={
-          "type": "const_then_linear",
-          "const_lr": const_lr,
-          "const_frac": 1 / 3,
-          "final_lr": 1e-6,
-          "num_epochs": n_epochs
-        },
+        num_epochs=n_epochs,
+        train_opts={
+          "import_model_train_epoch1": external_checkpoints[default_import_model_name],
+          "lr_opts": {
+            "type": "const_then_linear",
+            "const_lr": const_lr,
+            "const_frac": 1/3,
+            "final_lr": 1e-6,
+            "num_epochs": n_epochs
+          },
+          "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}},
+          "max_seq_length": {"targets": 75}
+        }
       )
       checkpoints, model_dir, learning_rates = train_exp.run_train()
 
@@ -202,8 +336,11 @@ def recog_global_att_import_global(
         concat_num: Optional[int] = None,
         search_rqmt: Optional[Dict[str, Any]] = None,
         batch_size: Optional[int] = None,
+        lm_opts: Optional[Dict] = None,
+        ilm_correction_opts: Optional[Dict] = None,
         analyse: bool = False,
         att_weight_seq_tags: Optional[List[str]] = None,
+        checkpoint_alias: str = "last"
 ):
   recog_exp = ReturnnDecodingExperimentV2(
     alias=alias,
@@ -212,7 +349,10 @@ def recog_global_att_import_global(
     corpus_key=search_corpus_key,
     concat_num=concat_num,
     search_rqmt=search_rqmt,
-    batch_size=batch_size
+    batch_size=batch_size,
+    lm_opts=lm_opts,
+    ilm_correction_opts=ilm_correction_opts,
+    checkpoint_alias=checkpoint_alias,
   )
   recog_exp.run_eval()
 

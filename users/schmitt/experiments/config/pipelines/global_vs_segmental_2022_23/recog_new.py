@@ -1,6 +1,6 @@
 from sisyphus import tk, Path
 import copy
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 from abc import ABC, abstractmethod
 
 from i6_core.returnn.forward import ReturnnForwardJob
@@ -18,6 +18,8 @@ from i6_core.corpus.convert import CorpusToStmJob
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.config import RasrConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.base import ConfigBuilder
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.global_ import GlobalConfigBuilder
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.segmental import SegmentalConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora.swb import SWBCorpus
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.search_errors import calc_search_errors
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.att_weights import dump_att_weights, dump_length_model_probs
@@ -27,6 +29,8 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.rasr.recognition import RASRDecodingJobParallel, RASRDecodingStatisticsJob
 from i6_experiments.users.schmitt.rasr.convert import RASRLatticeToCTMJob, ConvertCTMBPEToWordsJob
 from i6_experiments.users.schmitt.alignment.alignment import AlignmentRemoveAllBlankSeqsJob, AlignmentStatisticsJob
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train_new import GlobalTrainExperiment, SegmentalTrainExperiment
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf import ctc_aligns
 
 
 class DecodingExperiment(ABC):
@@ -34,22 +38,47 @@ class DecodingExperiment(ABC):
           self,
           alias: str,
           config_builder: ConfigBuilder,
-          checkpoint: Checkpoint,
-          corpus_key: str,
-          ilm_correction_opts: Optional[Dict] = None,
-          checkpoint_alias="last",
+          checkpoint: Union[Checkpoint, Dict],
+          checkpoint_alias: str,
+          recog_opts: Optional[Dict] = None,
+          analysis_opts: Optional[Dict] = None,
   ):
     self.config_builder = config_builder
-    self.checkpoint = checkpoint
     self.checkpoint_alias = checkpoint_alias
-    self.corpus_key = corpus_key
-    self.stm_corpus_key = corpus_key
-    self.ilm_correction_opts = ilm_correction_opts
+    if isinstance(checkpoint, Checkpoint):
+      self.checkpoint = checkpoint
+    else:
+      assert isinstance(checkpoint, dict)
+      self.checkpoint = config_builder.get_recog_checkpoints(**checkpoint)[checkpoint_alias]
+
+    self.recog_opts = copy.deepcopy(self.default_recog_opts)
+    if recog_opts is not None:
+      self.recog_opts.update(recog_opts)
+
+    self.corpus_key = self.recog_opts["search_corpus_key"]
+    self.stm_corpus_key = self.corpus_key
+
+    self.analysis_opts = copy.deepcopy(self.default_analysis_opts)
+    if analysis_opts is not None:
+      self.analysis_opts.update(analysis_opts)
 
     self.alias = alias
 
     self.returnn_python_exe = self.config_builder.variant_params["returnn_python_exe"]
     self.returnn_root = self.config_builder.variant_params["returnn_root"]
+
+    self.ilm_correction_opts = self.recog_opts.get("ilm_correction_opts")
+    if self.ilm_correction_opts is not None and self.ilm_correction_opts["type"] == "mini_att":
+      assert "mini_att_checkpoint" not in self.ilm_correction_opts, (
+        "mini_att_checkpoint is expected to be set by get_mini_att_checkpoint"
+      )
+      train_mini_lstm_opts = {
+        "use_se_loss": self.ilm_correction_opts["use_se_loss"],
+        "use_eos": self.ilm_correction_opts["correct_eos"],
+      }
+      self.ilm_correction_opts["mini_att_checkpoint"] = self.get_mini_att_checkpoint(
+        train_mini_lstm_opts=train_mini_lstm_opts
+      )
 
   def get_ilm_correction_alias(self, alias: str):
     if self.ilm_correction_opts is not None:
@@ -74,11 +103,23 @@ class DecodingExperiment(ABC):
 
     return alias
 
-  def get_config_recog_opts(self):
-    return {
-      "search_corpus_key": self.corpus_key,
-      "ilm_correction_opts": self.ilm_correction_opts,
-    }
+  @property
+  @abstractmethod
+  def default_recog_opts(self) -> Dict:
+    pass
+
+  @property
+  @abstractmethod
+  def default_analysis_opts(self) -> Dict:
+    pass
+
+  @abstractmethod
+  def get_mini_att_checkpoint(self, train_mini_lstm_opts: Dict) -> Checkpoint:
+    pass
+
+  @abstractmethod
+  def run_analysis(self):
+    pass
 
   @abstractmethod
   def get_ctm_path(self) -> Path:
@@ -104,28 +145,92 @@ class DecodingExperiment(ABC):
     tk.register_output(score_job.get_one_alias(), score_job.out_report_dir)
 
 
-class ReturnnDecodingExperimentV2(DecodingExperiment):
+class GlobalAttDecodingExperiment(DecodingExperiment, ABC):
+  def __init__(self, config_builder: GlobalConfigBuilder, **kwargs):
+    super().__init__(config_builder=config_builder, **kwargs)
+    self.config_builder = config_builder
+
+  def get_mini_att_checkpoint(self, train_mini_lstm_opts: Dict) -> Checkpoint:
+    assert train_mini_lstm_opts["use_eos"], "trivial for global att but set for clarity"
+
+    num_epochs = 10
+    train_mini_lstm_exp = GlobalTrainExperiment(
+      config_builder=self.config_builder,
+      alias=self.alias,
+      num_epochs=num_epochs,
+      train_opts={
+        "import_model_train_epoch1": self.checkpoint,
+        "lr_opts": {
+          "type": "newbob",
+          "learning_rate": 1e-4,
+          "learning_rate_control": "newbob_multi_epoch",
+          "learning_rate_control_min_num_epochs_per_new_lr": 3,
+          "learning_rate_control_relative_error_relative_lr": True,
+          "learning_rate_control_error_measure": "dev_error_label_model/output_prob"
+        },
+        "train_mini_lstm_opts": train_mini_lstm_opts,
+        "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}},
+        "max_seq_length": {"targets": 75}
+      }
+    )
+    mini_att_checkpoints, model_dir, learning_rates = train_mini_lstm_exp.run_train()
+    return mini_att_checkpoints[num_epochs]
+
+
+class SegmentalAttDecodingExperiment(DecodingExperiment, ABC):
+  def __init__(self, config_builder: SegmentalConfigBuilder, **kwargs):
+    super().__init__(config_builder=config_builder, **kwargs)
+    self.config_builder = config_builder
+
+  def get_mini_att_checkpoint(self, train_mini_lstm_opts: Dict) -> Checkpoint:
+    train_opts = {}
+    if train_mini_lstm_opts["use_eos"]:
+      align_targets = ctc_aligns.global_att_ctc_align.ctc_alignments_with_eos(
+        segment_paths=self.config_builder.dependencies.segment_paths,
+        blank_idx=self.config_builder.dependencies.model_hyperparameters.blank_idx,
+        eos_idx=self.config_builder.dependencies.model_hyperparameters.sos_idx,
+      )
+      train_opts = {"dataset_opts": {"hdf_targets": align_targets}}
+
+    num_epochs = 10
+    train_mini_lstm_exp = SegmentalTrainExperiment(
+      config_builder=self.config_builder,
+      alias=self.alias,
+      num_epochs=num_epochs,
+      train_opts={
+        "import_model_train_epoch1": self.checkpoint,
+        "lr_opts": {
+          "type": "newbob",
+          "learning_rate": 1e-4,
+          "learning_rate_control": "newbob_multi_epoch",
+          "learning_rate_control_min_num_epochs_per_new_lr": 3,
+          "learning_rate_control_relative_error_relative_lr": True,
+          "learning_rate_control_error_measure": "dev_error_label_model/output_prob"
+        },
+        "train_mini_lstm_opts": train_mini_lstm_opts,
+        **train_opts
+      }
+    )
+    mini_att_checkpoints, model_dir, learning_rates = train_mini_lstm_exp.run_train()
+    return mini_att_checkpoints[num_epochs]
+
+
+class ReturnnDecodingExperiment(DecodingExperiment, ABC):
   def __init__(
           self,
-          concat_num: Optional[int],
-          search_rqmt: Optional[Dict],
-          batch_size: Optional[int],
-          load_ignore_missing_vars: bool = False,
-          lm_opts: Optional[Dict] = None,
+          search_rqmt: Optional[Dict] = None,
           **kwargs):
     super().__init__(**kwargs)
 
-    if concat_num is not None:
-      self.stm_corpus_key += "_concat-%d" % concat_num
+    self.concat_num = self.recog_opts.get("dataset_opts", {}).get("concat_num")
+    if self.concat_num is not None:
+      self.stm_corpus_key += "_concat-%d" % self.concat_num
 
-    self.batch_size = batch_size
-    self.concat_num = concat_num
-    self.search_rqmt = search_rqmt
-    self.load_ignore_missing_vars = load_ignore_missing_vars
-    self.lm_opts = lm_opts
+    self.search_rqmt = search_rqmt if search_rqmt is not None else {}
 
     self.alias += "/returnn_decoding/%s-checkpoint" % self.checkpoint_alias
 
+    lm_opts = self.recog_opts.get("lm_opts")
     if lm_opts is not None:
       self.alias += "/bpe-%s-lm-scale-%f" % (lm_opts["type"], lm_opts["scale"],)
       if "add_lm_eos_last_frame" in lm_opts:
@@ -133,24 +238,14 @@ class ReturnnDecodingExperimentV2(DecodingExperiment):
       self.alias = self.get_ilm_correction_alias(self.alias)
     else:
       self.alias += "/no-lm"
-      if self.ilm_correction_opts is not None:
-        self.alias = self.get_ilm_correction_alias(self.alias)
 
-  def get_config_recog_opts(self):
-    recog_opts = super().get_config_recog_opts()
-    recog_opts.update({
-      "batch_size": self.batch_size,
-      "dataset_opts": {"concat_num": self.concat_num},
-      "load_ignore_missing_vars": self.load_ignore_missing_vars,
-      "lm_opts": self.lm_opts,
-    })
-    return recog_opts
+    self.alias += "/beam-size-%d" % self.recog_opts["beam_size"]
 
   def get_ctm_path(self) -> Path:
-    recog_config = self.config_builder.get_recog_config(opts=self.get_config_recog_opts())
+    recog_config = self.config_builder.get_recog_config(opts=self.recog_opts)
 
     device = "gpu"
-    if self.search_rqmt and self.search_rqmt["gpu"] == 0:
+    if self.search_rqmt.get("gpu", 1) == 0:# and self.search_rqmt["gpu"] == 0:
       device = "cpu"
 
     search_job = ReturnnSearchJobV2(
@@ -160,11 +255,9 @@ class ReturnnDecodingExperimentV2(DecodingExperiment):
       returnn_python_exe=self.returnn_python_exe,
       returnn_root=self.returnn_root,
       device=device,
-      mem_rqmt=4,
-      time_rqmt=1)
-
-    if self.search_rqmt:
-      search_job.rqmt = self.search_rqmt
+      mem_rqmt=self.search_rqmt.get("mem", 4),
+      time_rqmt=self.search_rqmt.get("time", 1),
+    )
 
     search_job.add_alias("%s/search_%s" % (self.alias, self.stm_corpus_key))
 
@@ -188,14 +281,13 @@ class ReturnnDecodingExperimentV2(DecodingExperiment):
 
       return search_words_to_ctm_job.out_ctm_file
 
-  def run_analysis(
-          self,
-          ground_truth_hdf: Optional[Path],
-          att_weight_ref_alignment_hdf: Path,
-          att_weight_ref_alignment_blank_idx: int,
-          att_weight_seq_tags: Optional[List[str]] = None,
-  ):
-    forward_recog_config = self.config_builder.get_recog_config_for_forward_job(opts=self.get_config_recog_opts())
+  def run_analysis(self):
+    ground_truth_hdf = self.analysis_opts["ground_truth_hdf"]
+    att_weight_ref_alignment_hdf = self.analysis_opts["att_weight_ref_alignment_hdf"]
+    att_weight_ref_alignment_blank_idx = self.analysis_opts["att_weight_ref_alignment_blank_idx"]
+    att_weight_seq_tags = self.analysis_opts["att_weight_seq_tags"]
+
+    forward_recog_config = self.config_builder.get_recog_config_for_forward_job(opts=self.recog_opts)
     forward_search_job = ReturnnForwardJob(
       model_checkpoint=self.checkpoint,
       returnn_config=forward_recog_config,
@@ -284,23 +376,63 @@ class ReturnnDecodingExperimentV2(DecodingExperiment):
     )
 
 
-class RasrDecodingExperiment(DecodingExperiment):
+class ReturnnGlobalAttDecodingExperiment(GlobalAttDecodingExperiment, ReturnnDecodingExperiment):
+  @property
+  def default_recog_opts(self) -> Dict:
+    return {
+      "batch_size": None,
+      "concat_num": None,
+      "lm_opts": None,
+      "ilm_correction_opts": None,
+      "beam_size": 12,
+      "search_corpus_key": "dev-other"
+    }
+
+  @property
+  def default_analysis_opts(self) -> Dict:
+    return {
+      "ground_truth_hdf": None,
+      "att_weight_ref_alignment_hdf": ctc_aligns.global_att_ctc_align.ctc_alignments[self.corpus_key],
+      "att_weight_ref_alignment_blank_idx": 10025,
+      "att_weight_seq_tags": None,
+    }
+
+
+class ReturnnSegmentalAttDecodingExperiment(SegmentalAttDecodingExperiment, ReturnnDecodingExperiment):
+  @property
+  def default_recog_opts(self) -> Dict:
+    return {
+      "batch_size": None,
+      "concat_num": None,
+      "lm_opts": None,
+      "ilm_correction_opts": None,
+      "load_ignore_missing_vars": False,
+      "beam_size": 12,
+      "search_corpus_key": "dev-other"
+    }
+
+  @property
+  def default_analysis_opts(self) -> Dict:
+    return {
+      "ground_truth_hdf": ctc_aligns.global_att_ctc_align.ctc_alignments[self.corpus_key],
+      "att_weight_ref_alignment_hdf": ctc_aligns.global_att_ctc_align.ctc_alignments[self.corpus_key],
+      "att_weight_ref_alignment_blank_idx": 10025,
+      "att_weight_seq_tags": None,
+    }
+
+
+class RasrDecodingExperiment(DecodingExperiment, ABC):
   def __init__(
           self,
-          search_rqmt: Optional[Dict],
-          length_norm: bool,
-          label_pruning: float,
-          label_pruning_limit: int,
-          word_end_pruning: float,
-          word_end_pruning_limit: int,
-          simple_beam_search: bool,
-          full_sum_decoding: bool,
-          allow_recombination: bool,
           max_segment_len: int,
           reduction_factor: int,
           reduction_subtrahend: int,
           concurrent: int,
-          native_lstm2_so_path: Path,
+          native_lstm2_so_path: Path = Path("/work/asr3/zeyer/schmitt/dependencies/tf_native_libraries/lstm2/simon/CompileNativeOpJob.Q1JsD9yc8hfb/output/NativeLstm2.so"),
+          pruning_opts: Optional[Dict] = None,
+          pruning_preset: Optional[str] = "simple-beam-search",
+          search_rqmt: Optional[Dict] = None,
+          length_norm: bool = False,
           lm_opts: Optional[Dict] = None,
           lm_lookahead_opts: Optional[Dict] = None,
           open_vocab: bool = True,
@@ -308,17 +440,26 @@ class RasrDecodingExperiment(DecodingExperiment):
           **kwargs):
     super().__init__(**kwargs)
 
+    if self.ilm_correction_opts is not None and self.ilm_correction_opts["type"] == "mini_att":
+      raise NotImplementedError("ILM correction is not yet implemented for RASR decoding")
+
+    assert pruning_opts is None and pruning_preset is not None, (
+      "For now, we only allow the use of pruning_preset"
+    )
+    self.pruning_opts = {}
+    if pruning_preset is not None:
+      self.pruning_opts.update(self.get_pruning_preset(pruning_preset))
+    if pruning_opts is not None:
+      self.pruning_opts.update(pruning_opts)
+    assert set(self.pruning_opts.keys()) == {
+      "label_pruning", "label_pruning_limit", "word_end_pruning", "word_end_pruning_limit", "simple_beam_search",
+      "full_sum_decoding", "allow_label_recombination", "allow_word_end_recombination"
+    }, "pruning_opts is not as expected"
+
     self.reduction_subtrahend = reduction_subtrahend
     self.reduction_factor = reduction_factor
     self.concurrent = concurrent
     self.max_segment_len = max_segment_len
-    self.allow_recombination = allow_recombination
-    self.full_sum_decoding = full_sum_decoding
-    self.simple_beam_search = simple_beam_search
-    self.word_end_pruning_limit = word_end_pruning_limit
-    self.word_end_pruning = word_end_pruning
-    self.label_pruning_limit = label_pruning_limit
-    self.label_pruning = label_pruning
     self.length_norm = length_norm
     self.search_rqmt = search_rqmt
     self.lm_opts = lm_opts
@@ -329,7 +470,7 @@ class RasrDecodingExperiment(DecodingExperiment):
 
     self.alias += "/rasr_decoding/%s-checkpoint/max-seg-len-%d" % (self.checkpoint_alias, self.max_segment_len)
 
-    if simple_beam_search:
+    if self.pruning_opts["simple_beam_search"]:
       self.alias += "/simple_beam_search"
     else:
       self.alias += "/score_based_pruning"
@@ -344,8 +485,6 @@ class RasrDecodingExperiment(DecodingExperiment):
     else:
       self.lm_opts = copy.deepcopy(self._get_default_lm_opts())
       self.alias += "/no_lm"
-      if self.ilm_correction_opts is not None:
-        self.alias = self.get_ilm_correction_alias(self.alias)
 
     if self.lm_lookahead_opts is not None:
       self.lm_lookahead_opts = copy.deepcopy(lm_lookahead_opts)
@@ -354,9 +493,39 @@ class RasrDecodingExperiment(DecodingExperiment):
       self.lm_lookahead_opts = copy.deepcopy(self._get_default_lm_lookahead_opts())
       self.alias += "/wo-lm-lookahead"
 
+  @staticmethod
+  def get_pruning_preset(pruning_preset: str) -> Dict:
+    if pruning_preset == "simple-beam-search":
+      return {
+        "label_pruning": 12.0,
+        "label_pruning_limit": 12,
+        "word_end_pruning": 12.0,
+        "word_end_pruning_limit": 12,
+        "simple_beam_search": True,
+        "full_sum_decoding": False,
+        "allow_label_recombination": False,
+        "allow_word_end_recombination": False,
+      }
+    elif pruning_preset == "score-based":
+      return {
+        "allow_label_recombination": True,
+        "allow_word_end_recombination": True,
+        "full_sum_decoding": True,
+        "label_pruning": 8.0,
+        "label_pruning_limit": 128,
+        "word_end_pruning": 8.0,
+        "word_end_pruning_limit": 128,
+        "simple_beam_search": False,
+      }
+    else:
+      raise ValueError("Unknown pruning_preset: %s" % pruning_preset)
+
   def _get_returnn_graph(self) -> Path:
-    recog_config = self.config_builder.get_compile_tf_graph_config(opts=self.get_config_recog_opts())
+    recog_config = self.config_builder.get_compile_tf_graph_config(opts=self.recog_opts)
     recog_config.config["network"]["output"]["unit"]["target_embed_masked"]["unit"]["subnetwork"]["target_embed0"]["safe_embedding"] = True
+    if "target_embed_length_model_masked" in recog_config.config["network"]["output"]["unit"]:
+      recog_config.config["network"]["output"]["unit"]["target_embed_length_model_masked"]["unit"]["subnetwork"]["target_embed_length_model"]["safe_embedding"] = True
+
     compile_job = CompileTFGraphJob(
       returnn_config=recog_config,
       returnn_python_exe=self.returnn_python_exe,
@@ -408,16 +577,8 @@ class RasrDecodingExperiment(DecodingExperiment):
       lexicon_path=self._get_lexicon_path(),
       feature_cache_path=self.config_builder.variant_params["dataset"]["corpus"].oggzip_paths[self.corpus_key],
       feature_extraction_file="feature.flow",
-      label_pruning=self.label_pruning,
-      label_pruning_limit=self.label_pruning_limit,
-      word_end_pruning=self.word_end_pruning,
-      word_end_pruning_limit=self.word_end_pruning_limit,
       length_norm=self.length_norm,
-      full_sum_decoding=self.full_sum_decoding,
-      allow_word_end_recombination=self.allow_recombination,
-      allow_label_recombination=self.allow_recombination,
       max_seg_len=self.max_segment_len,
-      simple_beam_search=self.simple_beam_search,
       loop_update_history=True,
       blank_update_history=True,
       label_file_path=self.config_builder.variant_params["dependencies"].rasr_format_paths.label_file_path,
@@ -435,6 +596,7 @@ class RasrDecodingExperiment(DecodingExperiment):
       lm_lookahead_opts=self.lm_lookahead_opts,
       open_vocab=self.open_vocab,
       native_lstm2_so_path=self.native_lstm2_so_path,
+      **self.pruning_opts
     )
 
   def get_ctm_path(self) -> Path:
@@ -488,3 +650,137 @@ class RasrDecodingExperiment(DecodingExperiment):
     lattice_to_ctm_job.add_alias("%s/ctm_%s" % (self.alias, self.corpus_key))
 
     return ConvertCTMBPEToWordsJob(bpe_ctm_file=lattice_to_ctm_job.out_ctm).out_ctm_file
+
+  def run_analysis(self):
+    raise NotImplementedError("Analysis is not yet implemented for RASR decoding")
+
+
+class RasrGlobalAttDecodingExperiment(GlobalAttDecodingExperiment, RasrDecodingExperiment):
+  @property
+  def default_recog_opts(self) -> Dict:
+    return {"search_corpus_key": "dev-other"}
+
+  @property
+  def default_analysis_opts(self) -> Dict:
+    return {}
+
+
+class RasrSegmentalAttDecodingExperiment(SegmentalAttDecodingExperiment, RasrDecodingExperiment):
+  @property
+  def default_recog_opts(self) -> Dict:
+    return {"search_corpus_key": "dev-other"}
+
+  @property
+  def default_analysis_opts(self) -> Dict:
+    return {}
+
+
+class DecodingPipeline(ABC):
+  def __init__(
+          self,
+          alias: str,
+          config_builder: ConfigBuilder,
+          checkpoint: Union[Checkpoint, Dict],
+          checkpoint_aliases: Tuple[str, ...] = ("last", "best", "best-4-avg"),
+          recog_opts: Optional[Dict] = None,
+          analysis_opts: Optional[Dict] = None,
+          beam_sizes: Tuple[int, ...] = (12,),
+          lm_scales: Tuple[float, ...] = (0.0,),
+          lm_opts: Optional[Dict] = None,
+          ilm_scales: Tuple[float, ...] = (0.0,),
+          ilm_opts: Optional[Dict] = None,
+          run_analysis: bool = False
+  ):
+    self.recog_opts = recog_opts if recog_opts is not None else {}
+    assert "lm_opts" not in self.recog_opts, "lm_opts are set by the pipeline"
+    assert "ilm_correction_opts" not in self.recog_opts, "ilm_correction_opts are set by the pipeline"
+    assert "beam_size" not in self.recog_opts, "beam_size is set by the pipeline"
+    assert "batch_size" not in self.recog_opts, "batch_size is set by the pipeline"
+    assert "max_seqs" not in self.recog_opts, "max_seqs is set by the pipeline"
+
+    self.alias = alias
+    self.config_builder = config_builder
+    self.checkpoint = checkpoint
+    self.checkpoint_aliases = checkpoint_aliases
+    self.analysis_opts = analysis_opts
+    self.beam_sizes = beam_sizes
+    self.lm_scales = lm_scales
+    self.lm_opts = lm_opts if lm_opts is not None else {}
+    self.ilm_scales = ilm_scales
+    self.ilm_opts = ilm_opts if ilm_opts is not None else {}
+    self.run_analysis = run_analysis
+
+  @abstractmethod
+  def run_experiment(self, beam_size: int, lm_scale: float, ilm_scale: float, checkpoint_alias: str):
+    pass
+
+  def run(self):
+    for checkpoint_alias in self.checkpoint_aliases:
+      for beam_size in self.beam_sizes:
+        for lm_scale in self.lm_scales:
+          for ilm_scale in self.ilm_scales:
+            self.run_experiment(
+              beam_size=beam_size,
+              lm_scale=lm_scale,
+              ilm_scale=ilm_scale,
+              checkpoint_alias=checkpoint_alias
+            )
+
+
+class ReturnnGlobalAttDecodingPipeline(DecodingPipeline):
+  def __init__(self, config_builder: GlobalConfigBuilder, **kwargs):
+    super().__init__(config_builder=config_builder, **kwargs)
+    self.config_builder = config_builder
+
+  def run_experiment(self, beam_size: int, lm_scale: float, ilm_scale: float, checkpoint_alias: str):
+    self.recog_opts.update({
+      "lm_opts": {"scale": lm_scale, **self.lm_opts} if lm_scale > 0 else None,
+      "ilm_correction_opts": {"scale": ilm_scale, **self.ilm_opts} if ilm_scale > 0 else None,
+      "beam_size": beam_size
+    })
+
+    if lm_scale > 0 and beam_size in (50, 84):
+      self.recog_opts["batch_size"] = 4000 * 160
+
+    exp = ReturnnGlobalAttDecodingExperiment(
+      alias=self.alias,
+      config_builder=self.config_builder,
+      recog_opts=self.recog_opts,
+      checkpoint=self.checkpoint,
+      checkpoint_alias=checkpoint_alias,
+      analysis_opts=self.analysis_opts
+    )
+    exp.run_eval()
+    if self.run_analysis:
+      exp.run_analysis()
+
+
+class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
+  def __init__(self, config_builder: SegmentalConfigBuilder, **kwargs):
+    super().__init__(config_builder=config_builder, **kwargs)
+    self.config_builder = config_builder
+
+  def run_experiment(self, beam_size: int, lm_scale: float, ilm_scale: float, checkpoint_alias: str):
+    self.recog_opts.update({
+      "lm_opts": {"scale": lm_scale, **self.lm_opts} if lm_scale > 0 else None,
+      "ilm_correction_opts": {"scale": ilm_scale, **self.ilm_opts} if ilm_scale > 0 else None,
+      "beam_size": beam_size
+    })
+
+    if lm_scale > 0:
+      if beam_size == 12:
+        self.recog_opts["batch_size"] = 7500 * 160
+      elif beam_size in (50, 84):
+        self.recog_opts["max_seqs"] = 1
+
+    exp = ReturnnSegmentalAttDecodingExperiment(
+      alias=self.alias,
+      config_builder=self.config_builder,
+      recog_opts=self.recog_opts,
+      checkpoint=self.checkpoint,
+      checkpoint_alias=checkpoint_alias,
+      analysis_opts=self.analysis_opts
+    )
+    exp.run_eval()
+    if self.run_analysis:
+      exp.run_analysis()

@@ -61,7 +61,7 @@ class JsonSubwordVocabToLemmaLexiconJob(Job):
     return lexicon
 
   def run(self):
-    special_lemma_dict = self.get_special_lemma_dict(unknown=True, sos=True, eos=True)
+    special_lemma_dict = self.get_special_lemma_dict(unknown=None, sos="<s>", eos="</s>", blank=None)
     lexicon = self.make_base_lexicon_xml(special_lemma_dict=special_lemma_dict)
     with open(self.json_vocab_path.get_path(), "r") as f:
       vocab = ast.literal_eval(f.read())

@@ -34,7 +34,7 @@ class TrainExperiment:
     self.no_ctc_loss = no_ctc_loss
     self.train_mini_lstm_opts = train_mini_lstm_opts
     self.cleanup_old_models = cleanup_old_models if cleanup_old_models is not None else {
-      "keep_best_n": 1, "keep_last_n": 1}
+      "keep_best_n": 4, "keep_last_n": 1, "keep": [n_epochs]}
 
   def get_train_opts(self):
     return {
@@ -146,11 +146,6 @@ def run_train(
     else:
       alias = alias + "/wo_eos"
 
-    if train_opts["train_mini_lstm_opts"].get("mini_att_in_s", False):
-      alias = alias + "/w_mini_att_in_s"
-    else:
-      alias = alias + "/wo_mini_att_in_s"
-
     if train_opts["train_mini_lstm_opts"].get("use_se_loss", False):
       alias = alias + "/w_se_loss"
     else:
@@ -161,7 +156,6 @@ def run_train(
   train_job = ReturnnTrainingJob(
     train_config,
     num_epochs=n_epochs,
-    keep_epochs=[n_epochs],
     log_verbosity=5,
     returnn_python_exe=variant_params["returnn_python_exe"],
     returnn_root=variant_params["returnn_root"],  # might need to change this to old returnn when using positional embedding option
