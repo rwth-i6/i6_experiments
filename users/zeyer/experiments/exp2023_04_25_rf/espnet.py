@@ -401,7 +401,6 @@ def train_exp(
     gpu_mem: Optional[int] = 24,
     num_processes: Optional[int] = None,
     time_rqmt: Optional[int] = None,  # set this to 1 or below to get the fast test queue
-    with_eos_postfix: bool = False,
     model_avg: bool = False,
 ) -> ModelWithCheckpoints:
     """
@@ -414,7 +413,7 @@ def train_exp(
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
-    task = _get_ls_task(with_eos_postfix=with_eos_postfix)
+    task = _get_ls_task()  # no EOS prefix - ESPnet internally does that, see add_sos_eos
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     if "__num_epochs" in config:
@@ -454,17 +453,18 @@ def train_exp(
     return model_with_checkpoint
 
 
-_ls_task: Dict[bool, Task] = {}  # with_eos_postfix -> Task
+_ls_task: Optional[Task] = None
 
 
-def _get_ls_task(*, with_eos_postfix: bool = False):
-    if with_eos_postfix in _ls_task:
-        return _ls_task[with_eos_postfix]
+def _get_ls_task():
+    global _ls_task
+    if _ls_task is not None:
+        return _ls_task
 
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_bpe10k_raw
 
-    _ls_task[with_eos_postfix] = get_librispeech_task_bpe10k_raw(with_eos_postfix=with_eos_postfix)
-    return _ls_task[with_eos_postfix]
+    _ls_task = get_librispeech_task_bpe10k_raw()
+    return _ls_task
 
 
 py = sis_run_with_prefix  # if run directly via `sis m ...`
@@ -625,7 +625,7 @@ def from_scratch_training(
     loss, stats, weight = model(
         speech=data.raw_tensor,
         speech_lengths=data_spatial_dim.dyn_size,
-        text=targets.raw_tensor.to(torch.int64),
+        text=targets.raw_tensor.to(torch.int64),  # targets are without EOS; added internally via add_sos_eos
         text_lengths=targets_spatial_dim.dyn_size,
     )
     # TODO the following is correct for CE and CTC, but not correct for CER and probably others, need to check...
