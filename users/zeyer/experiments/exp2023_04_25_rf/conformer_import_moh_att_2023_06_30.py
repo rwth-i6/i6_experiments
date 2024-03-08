@@ -586,6 +586,15 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         )
     # recog_last_std_*: using beam_search_v5
     for name, recog_config in {
+        "beam20-batch50-lenNorm1": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "length_normalization_exponent": 1.0,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
         "beam20-batch50-lenNorm1-maxSeqLen05-lm05": {
             "beam_search_opts": {
                 "beam_size": 20,
