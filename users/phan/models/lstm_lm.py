@@ -52,7 +52,7 @@ class LSTMLM(nn.Module):
         # if self.dropout:
         #     x = self.dropout(x)
         x = self.final_linear(x)
-        #x = x.log_softmax(dim=-1)
+        x = x.log_softmax(dim=-1)
         return x
 
 def get_train_serializer(

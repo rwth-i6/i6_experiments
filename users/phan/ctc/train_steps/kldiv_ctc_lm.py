@@ -3,7 +3,7 @@ from returnn.tensor.tensor_dict import TensorDict
 import returnn.frontend as rf
 import torch
 from i6_experiments.users.phan.ctc.ctc_pref_scores_loss import kldiv_ctc_lm_loss
-
+from i6_experiments.users.phan.utils import get_seq_mask
 
 def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     audio_features = extern_data["data"].raw_tensor
@@ -53,7 +53,6 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     )
 
     log_probs = torch.transpose(log_probs, 0, 1)  # [T, B, F]
-
     loss = kldiv_ctc_lm_loss(
         log_probs=log_probs.detach(),
         targets=targets,
@@ -61,10 +60,22 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
         target_lengths=targets_len,
         log_lm_score=log_lm_score,
         blank_idx=0,
-        log_zero=-1e15,
+        log_zero=-1e25,
         eos_idx=None,
     )
-    targets_len_rf.raw_tensor += 1 # because the KLDiv is between two tensors of shape (B,S+1,F)
+    targets_len_rf.raw_tensor += 1
     rf.get_run_ctx().mark_as_loss(
         name="kldiv_ctc_lm", loss=loss, custom_inv_norm_factor=rf.reduce_sum(targets_len_rf, axis=batch_dim)
+    )
+    # Also report PPL of the LM
+    targets_eos = torch.cat(
+        [targets, torch.zeros((batch_size, 1), device=targets.device)],
+        dim=1,
+    ).long()
+    ce = torch.nn.functional.cross_entropy(log_lm_score.transpose(1, 2), targets_eos, reduction='none')
+    seq_mask = get_seq_mask(targets_len, max_seq_len+1, device)
+    log_ppl = (ce*seq_mask).sum()/(targets_len.sum())
+    ppl = torch.exp(log_ppl)
+    rf.get_run_ctx().mark_as_loss(
+        name="student_lm_ppl", loss=ppl, as_error=True,
     )

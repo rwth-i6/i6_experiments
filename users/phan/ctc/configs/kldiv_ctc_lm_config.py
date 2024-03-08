@@ -28,7 +28,7 @@ from i6_experiments.common.setups.serialization import ExplicitHash
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 num_outputs = 79
-num_subepochs = 240
+num_subepochs = 160
 
 tools = copy.deepcopy(default_tools_v2)
 # tools.returnn_root = tk.Path("/u/minh-nghia.phan/tools/simon_returnn") # Sis will ask to run HDF jobs again
@@ -100,7 +100,6 @@ def returnn_config_generator(
         extern_data_config=True,
         backend=Backend.PYTORCH,
         grad_noise=0.0,
-        # grad_clip=0.0,
         grad_clip_global_norm=2.0,
         optimizer=optimizer,
         schedule=schedule,
@@ -205,7 +204,6 @@ def lbs_960_run_kldiv_ctc_lm() -> SummaryReport:
             for freq_max_num_masks in [5]:
                 for vgg_act in ["relu"]:
                     for dropout in [0.1]:
-                        # for num_layers in [12,8,4]:
                         for num_layers in [12]:
                             for n_lstm_layers in [1]:
                                 if num_layers != 12:
@@ -227,12 +225,35 @@ def lbs_960_run_kldiv_ctc_lm() -> SummaryReport:
                                 module_preloads = {
                                     "teacher_ctc": "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.nuHCdB8qL7NJ/output/models/epoch.600.pt"
                                 }
+                                for init_learning_rate in [1e-2, 1e-3, 1e-4]:
+                                    newbob_lr = {
+                                        "learning_rate": init_learning_rate,
+                                        "decay": 0.9 ,
+                                        "multi_num_epochs": 20,
+                                        "relative_error_threshold": -0.005,
+                                        "error_measure": "dev_loss_kldiv_ctc_lm_exp",
+                                    }
+                                    system.add_experiment_configs(
+                                        f"kldiv_ctc_lm_ctc_layers_{num_layers}_lstm_layers_{n_lstm_layers}_adamw_newbobrel_lr{init_learning_rate}",
+                                        get_returnn_config_collection(
+                                            data.train_data_config,
+                                            data.cv_data_config,
+                                            lr=newbob_lr,
+                                            batch_size=15000 * 160,
+                                            conformer_ctc_args=conformer_ctc_args,
+                                            lstm_lm_args=lstm_lm_args,
+                                            module_preloads=module_preloads,
+                                            optimizer=Optimizers.AdamW,
+                                            schedule=LearningRateSchedules.NewbobRel,
+                                            kwargs={"weight_decay": 0.001},
+                                        )
+                                    )
                                 newbob_lr = {
                                     "learning_rate": 1.0,
                                     "decay": 0.9 ,
                                     "multi_num_epochs": 20,
                                     "relative_error_threshold": -0.005,
-                                    "error_measure": "dev_loss_kldiv_ctc_lm",
+                                    "error_measure": "dev_loss_kldiv_ctc_lm_exp",
                                 }
                                 system.add_experiment_configs(
                                     f"kldiv_ctc_lm_ctc_layers_{num_layers}_lstm_layers_{n_lstm_layers}_sgd_newbobrel_lr{1.0}",
