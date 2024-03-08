@@ -36,7 +36,7 @@ def train_step(
             "audio_features": audio_features,
             "audio_features_len": audio_features_len.to("cuda"),
         },
-        module="teacher_ctc",
+        module="conformer_ctc",
         inference=False,
     )
     input_lengths = torch.sum(sequence_mask.long(), dim=1)
@@ -74,4 +74,19 @@ def train_step(
     targets_len_rf.raw_tensor += 1 # due to SOS
     rf.get_run_ctx().mark_as_loss(
         name="double_softmax", loss=loss, custom_inv_norm_factor=rf.reduce_sum(targets_len_rf, axis=batch_dim)
+    )
+    targets_len_rf.raw_tensor -= 1
+    # also report CTC loss of Conformer CTC
+    ctc_loss = torch.nn.functional.ctc_loss(
+        log_probs=log_probs,
+        targets=targets,
+        input_lengths=input_lengths,
+        target_lengths=targets_len,
+        blank=0,
+        reduction="sum",
+        zero_infinity=True,
+    )
+    rf.get_run_ctx().mark_as_loss(
+        name="ctc", loss=ctc_loss, as_error=True,
+        custom_inv_norm_factor=rf.reduce_sum(targets_len_rf, axis=batch_dim),
     )

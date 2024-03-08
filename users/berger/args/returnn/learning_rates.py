@@ -12,6 +12,7 @@ class LearningRateSchedules(Enum):
     OCLR_STEP = auto()
     CONST_DECAY = auto()
     CONST_DECAY_STEP = auto()
+    CONST_LR = auto()
     Custom = auto()
 
 
@@ -41,6 +42,8 @@ def get_learning_rate_config(
         extra_python.append(get_oclr_function(**kwargs))
     elif schedule == LearningRateSchedules.CONST_DECAY:
         config.update(get_const_decay_config(**kwargs))
+    elif schedule == LearningRateSchedules.CONST_LR:
+        config.update(get_const_lr_config(**kwargs))
     elif schedule == LearningRateSchedules.CONST_DECAY_STEP:
         extra_python.append(get_const_decay_function(**kwargs))
     else:
@@ -79,6 +82,14 @@ def get_sgd_config(
 ) -> Dict[str, Dict]:
     return {"optimizer": {"class": "sgd", "weight_decay": weight_decay}}
 
+def get_const_lr_config(
+    learning_rate: float = 1e-4,
+    **kwargs,
+) -> Dict[str, Any]:
+    result = {
+        "min_learning_rate": learning_rate,
+    }
+    return result
 
 def get_newbob_config(
     learning_rate: float = 1e-3,

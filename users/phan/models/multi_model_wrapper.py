@@ -11,7 +11,9 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import (
 from i6_experiments.users.berger.pytorch.serializers.basic import (
     get_basic_pt_network_serializer,
 )
-from i6_experiments.common.setups.serialization import Import, CodeFromFunction
+from i6_experiments.common.setups.serialization import (
+    Import, CodeFromFunction, PartialImport
+)
 from i6_core.returnn.config import CodeWrapper
 
 @dataclass
@@ -71,6 +73,8 @@ def get_train_serializer(
     model_config: MultiModelWrapperConfig,
     module_class_import: Dict[str, str],
     train_step_package: str,
+    partial_train_step_func: bool = False,
+    partial_import_kwargs: dict = {},
 ) -> Collection:
     """
     Serializer object for MultiModelWrapper
@@ -78,15 +82,28 @@ def get_train_serializer(
     :param module_class_import: dict of module name -> where to import them
     e.g. `"student_lm": i6_experiments.users.phan.models.lstm_lm.LSTMLM`
     :param train_step_package: where to import the train step
+    :param partial_train_step_func: If True, use a partial tain step function.
+    This is to add parameters to the training without attaching them to the model.
+    :param partial_import_kwargs: Args passed to PartialImport, currently a dict
+    ith keys "hashed_arguments" and "unhashed_arguments"
     :return: a serializer object for the model
     """
 
     # import model configuration and wrapper class, and train step package
     serializers = [
-        Import(f"{train_step_package}.train_step"),
         Import(f"{__name__}.{MultiModelWrapperConfig.__name__}"),
         Import(f"{__name__}.{MultiModelWrapper.__name__}"),
     ]
+    if not partial_train_step_func:
+        train_step_import = PartialImport(
+            code_object_path=f"{train_step_package}.train_step",
+            unhashed_package_root=train_step_package,
+            import_as="train_step",
+            **partial_import_kwargs,
+        )
+    else:
+        train_step_import = Import(f"{train_step_package}.train_step")
+    serializers.append(train_step_import)
 
     # Import the needed classes in model config
     for module in model_config.module_class:
