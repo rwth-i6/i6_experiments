@@ -551,7 +551,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         #     "max_seqs": 50,
         #     "batch_size": 5000 * _batch_size_factor,
         # },
-        "beam60-batch50bs2k-lenNorm1-maxSeqLen03-lm05": {
+        "beam60-batch50bs2k-lenNorm1-maxSeqLen05-lm05": {
             "beam_search_opts": {
                 "beam_size": 60,
                 "length_normalization_exponent": 1.0,
