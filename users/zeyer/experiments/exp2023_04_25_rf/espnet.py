@@ -1148,6 +1148,8 @@ def get_our_label_scorer_intf(espnet_scorer: BatchScorerInterface, *, enc: torch
                     for beam_idx in range(beam_size):
 
                         def _map(x):
+                            if x is None:
+                                return None
                             assert isinstance(x, torch.Tensor) and x.shape[:2] == (batch_size, beam_size)
                             return x[batch_idx, beam_idx]
 
