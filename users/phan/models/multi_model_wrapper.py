@@ -32,6 +32,7 @@ class MultiModelWrapper(nn.Module):
         :param cfg: Config
         """
         super().__init__()
+        self.cfg = cfg
         self.module_dict = nn.ModuleDict()
         for module in cfg.module_class:
             self.module_dict[module] = cfg.module_class[module](0, cfg.module_config[module])

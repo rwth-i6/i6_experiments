@@ -8,7 +8,6 @@ def log_ctc_pref_beam_scores(
     input_lengths, # (B,)
     blank_idx = 0,
     log_zero = -1e25, # maybe better than float min for preventing overflowing
-    eos_idx = None, # used when eos is present in vocab, mainly when an attention model is present
 ):
     '''
     Given log probs of times and ground truths,
@@ -21,8 +20,8 @@ def log_ctc_pref_beam_scores(
 
     ASSUMING SEQUENCES ARE PADDED WITH BLANKS AND NO EXPLICIT EOS IN VOCAB DIM
 
-    Note that in the vocab dimension there is also blank idx.
-    Blank idx can be reused as eos, consider this in specific cases.
+    Note that in the vocab dimension there is also blank idx, which will be
+    used as EOS (full forward prob of current hypothesis).
 
     No masking is applied here. Pay attention to this.
 
@@ -40,12 +39,11 @@ def log_ctc_pref_beam_scores(
     :param input_lengths: Input lengths (B,)
     :param blank_idx: Blank index in F dim
     :param log_zero: Value of log zero. Default to -1e15 to prevent overflow comparing to float32 min
-    :param eos_idx: If not None, then index of eos in F dim. Used when eos is present,
-    e.g. joint training with LM or AED
     :return: (log_pref_scores_beams, log_gamma)
     
     log_pref_scores_beams (B, S+1, F). For batch b with ground truth a_0^N-1, [b, n, v] is
-    p_CTC(a_0^n-1, v, ...)
+    p_CTC(a_0^n-1, v, ...). Blank index will be reused to model full forward prob p_CTC(a_0^n-1).
+    No masking is applied here yet.
 
     log_gamma (T, B, 2, S+1). [t, b, 0 or 1, s]: Forward probability of a_1^s (of batch b) until
     frame t such that paths end with 0 (non blank) or 1 (blank)
@@ -84,11 +82,12 @@ def log_ctc_pref_beam_scores(
         log_pref_scores_beams = log_pref_scores_beams.logaddexp(
             (log_probs_t_k_all_beams + log_new_label_prob).where(input_time_mask, torch.tensor(log_zero, device=device))
         ) # the score of a beam should not change if t > input length
-    if eos_idx is not None:
-        log_pref_scores_beams[:, :, eos_idx] = torch.logsumexp(log_gamma[-1, :, :, :], dim=1)
+    # Reuse the blank idx as EOS, i.e. full forward prob of current hypothesis
+    log_pref_scores_beams[:, :, blank_idx] = torch.logsumexp(log_gamma[-1, :, :, :], dim=1)
     return log_pref_scores_beams, log_gamma
 
 
+# This is currently not maintained
 def kldiv_lm_ctc_loss(
     log_probs, # (T, B, F)
     targets, # (B, S)
@@ -97,7 +96,6 @@ def kldiv_lm_ctc_loss(
     log_lm_score, # (B, S, F)
     blank_idx = 0,
     log_zero = -1e25, # maybe better than float min for preventing overflowing
-    eos_idx = None, # used when eos is present in vocab, mainly when an attention model is present
 ):
     '''
     Compute the KL div from p_LM to p_CTC
@@ -128,17 +126,17 @@ def kldiv_lm_ctc_loss(
     device = log_probs.device
     input_time_size, batch_size, n_out = log_probs.shape
     max_seq_len = targets.shape[1]
-    log_pref_scores_beams, log_gamma = log_ctc_pref_beam_scores(log_probs, targets, input_lengths, blank_idx, log_zero, eos_idx)
+    log_pref_scores_beams, log_gamma = log_ctc_pref_beam_scores(log_probs, targets, input_lengths, blank_idx, log_zero)
     # seq mask in (B, S)
     seq_mask = (torch.arange(max_seq_len).unsqueeze(0).expand((batch_size, -1)) < target_lengths.unsqueeze(-1).expand((-1, max_seq_len))).float().to(device)
     # sum_n=1^N sum_{a in V} lm_score(a) log p_ctc(a_1^n-1, a ,...)
-    if blank_idx != eos_idx:
-        out_idx = torch.arange(n_out)
-        out_idx_wo_blank = out_idx[out_idx != blank_idx].long().to(device)
-        numer = (log_pref_scores_beams*torch.exp(log_lm_score))[:, :, out_idx_wo_blank].sum(dim=-1).nan_to_num(neginf=log_zero)*seq_mask
-    else: # blank_idx is reused as eos_idx in LM score
-        numer = (log_pref_scores_beams*torch.exp(log_lm_score)).sum(dim=-1).nan_to_num(neginf=log_zero)*seq_mask
-    # sum_n=1^N log p_ctc (a_1^n-1)
+    # if blank_idx != eos_idx:
+    #     out_idx = torch.arange(n_out)
+    #     out_idx_wo_blank = out_idx[out_idx != blank_idx].long().to(device)
+    #     numer = (log_pref_scores_beams*torch.exp(log_lm_score))[:, :, out_idx_wo_blank].sum(dim=-1).nan_to_num(neginf=log_zero)*seq_mask
+    # else: # blank_idx is reused as eos_idx in LM score
+    #     numer = (log_pref_scores_beams*torch.exp(log_lm_score)).sum(dim=-1).nan_to_num(neginf=log_zero)*seq_mask
+    # # sum_n=1^N log p_ctc (a_1^n-1)
     denom = log_pref_scores_beams[:, :-1, :].gather(-1, targets[:, :-1].long().unsqueeze(-1)).view(-1, max_seq_len-1).nan_to_num(neginf=log_zero)*seq_mask[:, 1:]
     loss = (denom.sum() - numer.sum()).nan_to_num(neginf=log_zero)
     # sanity check
@@ -165,7 +163,8 @@ def kldiv_ctc_lm_loss(
     eos_idx = None,
 ):
     '''
-    Compute the KL div from p_CTC to p_LM
+    Compute the KL div from p_CTC to p_LM. The blank in output dim of CTC will be
+    reused as EOS. Make sure the LM match this.
 
     ASSUMING SEQUENCES ARE PADDED WITH BLANKS AND NO EXPLICIT EOS IN VOCAB DIM
 
@@ -183,29 +182,22 @@ def kldiv_ctc_lm_loss(
     :param input_lengths: Input lengths (B,)
     :param target_lengths: Target lengths (B,)
     :param log_lm_score: log LM score of all possible words in vocab given ground truth context (B, S, F)
-    blank is included in F dim but will not be used
+    EOS of this should be blank of the CTC
     :param blank_idx: Blank index in F dim of log_probs
     :param log_zero: Value of log zero. Default to -1e15 to prevent overflow comparing to float32 min
-    :param eos_idx: If None, then blank_idx is reused as eos_idx in log_probs
     :return: KL Div Loss sum p_CTC*log p_LM
     '''
     device = log_probs.device
-    input_time_size, batch_size, n_out_ctc = log_probs.shape
-    n_out_lm = log_lm_score.shape[2]
+    input_time_size, batch_size, n_out = log_probs.shape
     max_seq_len = targets.shape[1]
-    log_pref_scores_beams, log_gamma = log_ctc_pref_beam_scores(log_probs, targets, input_lengths, blank_idx, log_zero, eos_idx)
-    if eos_idx is None and n_out_ctc == n_out_lm: # blank of CTC is reused as eos with the LM
-        log_pref_scores_beams[:, :, blank_idx] = torch.logsumexp(log_gamma[-1, :, :, :], dim=1)
-    else:
-        assert n_out_ctc == n_out_lm + 1,"If blank in CTC is not reused as eos, then n_out_ctc must be equal to n_out_lm + 1"
-        # In this case, the blank has to be removed from beam dim of log_pref_scores_beams
-        # It is up to the users that after removing blank, indices of CTC pref score beams match indices of LM
-        out_idx = torch.arange(n_out_ctc)
-        out_idx_wo_blank = out_idx[out_idx != blank_idx].long().to(device)
-        log_pref_scores_beams = log_pref_scores_beams[:, :, out_idx_wo_blank]
-    # Over the beam dim, the probs should be "normalized" in the sense that
-    # sum_v p(a_1^N, v) = p(a_1^N)
-    # This is mainly for the other case (no eos)
+    log_pref_scores_beams, log_gamma = log_ctc_pref_beam_scores(
+        log_probs,
+        targets,
+        input_lengths,
+        blank_idx,
+        log_zero,
+    )
+    # renormalize to have p_ctc(v|hypothesis) in output dim
     log_p_ctc = log_pref_scores_beams.log_softmax(dim=-1)
     kl_div = torch.nn.functional.kl_div(
         input=log_lm_score,
@@ -214,7 +206,7 @@ def kldiv_ctc_lm_loss(
         reduction="none",
     )
     seq_mask = get_seq_mask(target_lengths+1, max_seq_len+1, device) # seq mask (B, S+1)
-    seq_mask = seq_mask.unsqueeze(-1).expand(-1, -1, n_out_lm) # seq mask in (B, S+1, F)
+    seq_mask = seq_mask.unsqueeze(-1).expand(-1, -1, n_out) # seq mask in (B, S+1, F)
     loss = (kl_div*seq_mask).sum()
     return loss
 
@@ -225,9 +217,10 @@ def ctc_double_softmax_loss(
     input_lengths, # (B,)
     target_lengths, # (B,)
     log_lm_score, # (B, S, F)
+    am_scale,
+    lm_scale,
     blank_idx = 0,
     log_zero = -1e25, # maybe better than float min for preventing overflowing
-    eos_idx = None,
 ):
     """
     Double softmax for CTC
@@ -244,17 +237,36 @@ def ctc_double_softmax_loss(
     S: max target sequence length
 
     :param log_probs: Log probs output by CTC (T, B, F)
-    :param target: Target sequences (B, S)
+    :param target: Target sequences (B, S) WITHOUT ANY EOS SOS
     :param input_lengths: Input lengths (B,)
-    :param target_lengths: Target lengths (B,)
+    :param target_lengths: Target lengths (B,) WITHOUT ANY EOS SOS
     :param log_lm_score: log LM score of all possible words in vocab given ground truth context (B, S, F)
-    blank is included in F dim but will not be used
+    EOS of this should be blank of the CTC
     :param blank_idx: Blank index in F dim of log_probs
-    :param log_zero: Value of log zero. Default to -1e15 to prevent overflow comparing to float32 min
-    :param eos_idx: If None, then blank_idx is reused as eos_idx in log_probs
-    :return: KL Div Loss sum p_CTC*log p_LM
+    :param am_scale: AM scale for CTC score
+    :param lm_scale: LM scale for LM score
+    :param log_zero: Value of log zero. Default to -1e25 to prevent overflow comparing to float32 min
+    :return: Double softmax loss with CTC as AM and LM score as training LM
     """
-    pass
+    device = log_probs.device
+    input_time_size, batch_size, n_out = log_probs.shape
+    max_seq_len = targets.shape[1]
+    log_pref_scores_beams, log_gamma = log_ctc_pref_beam_scores(
+        log_probs,
+        targets,
+        input_lengths,
+        blank_idx,
+        log_zero,
+        eos_idx
+    )
+    # renormalize to have p_ctc(v|hypothesis) in output dim
+    log_p_ctc = log_pref_scores_beams.log_softmax(dim=-1)
+    # this is why it's called double softmax
+    double_softmax = (am_scale*log_p_ctc + lm_scale*log_lm_score).log_softmax(dim=-1)
+    seq_mask = get_seq_mask(target_lengths+1, max_seq_len+1, device)
+    seq_mask = seq_mask.unsqueeze(-1).expand(-1, -1, n_out)
+    loss = (double_softmax*seq_mask).sum()
+    return loss
 
 
 def normalization_check(
@@ -293,5 +305,5 @@ def normalization_check(
     log_p_true_labels = log_p_true_labels*seq_mask
     print(log_sum_p_beams.cpu().numpy())
     print(log_p_true_labels.cpu().numpy())
-    return torch.isclose(log_sum_p_beams, log_p_true_labels)
+    return torch.isclose(log_sum_p_beams, log_p_true_labels) # is close parameter
     
