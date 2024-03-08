@@ -19,6 +19,7 @@ from i6_experiments.users.zeyer.speed_pert.librosa_09_10_11_kaiser_fast import (
 )
 from .task import Task, MeasureType, RecogOutput, ScoreResult
 from .utils.bpe import Bpe
+from .utils.spm import SentencePieceModel
 
 
 librispeech_ogg_zip_dict = librispeech.get_ogg_zip_dict()
@@ -52,6 +53,19 @@ bpe10k = Bpe(
     vocab=generic_job_output("i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab"),
     # unknown_label="<unk>",
     unknown_label=None,
+)
+
+spm_espnet_5k = SentencePieceModel(
+    dim=5_000,
+    model_file=tk.Path(
+        "/u/zeineldeen/setups/ubuntu_22_setups/2024-02-12--aed-beam-search/work/downloaded_models/"
+        "models--asapp--e_branchformer_librispeech/snapshots/f50914447c48b091738b3e020023ac69dbde9ea9/"
+        "data/en_token_list/bpe_unigram5000/bpe.model",
+        hash_overwrite="ESPnet-Librispeech-sentencepieces-5k",
+    ),
+    unknown_label="<unk>",  # idx 0
+    bos_idx=1,
+    eos_idx=2,
 )
 
 
