@@ -167,6 +167,7 @@ elif args.returnn_recog_args:
         max_seq_len_ratio = returnn_recog_args.pop("max_seq_len_ratio", 1.0)
         len_reward = returnn_recog_args.pop("length_reward", 0.0)
         ctc_weight = returnn_recog_args.pop("ctc_weight", 0.0)
+        lm_weight = returnn_recog_args.pop("lm_weight", 0.0)
         beam_search_variant = returnn_recog_args.pop("beam_search_variant")
         assert beam_search_variant in [
             "beam_search_v5",  # just like returnn
@@ -247,6 +248,8 @@ elif args.returnn_recog_args:
             _bs = len(next(iter(batch.values())))
             assert len(keys) == _bs, f"{len(keys)} != {_bs}"
 
+            print(f"Sample id: {keys[0]}")
+
             with torch.no_grad():
                 start_time = time.perf_counter_ns()
                 audio_dur = batch["speech_lengths"].sum().item()
@@ -265,6 +268,12 @@ elif args.returnn_recog_args:
                 if ctc_weight:
                     ctc_label_scorer = get_our_label_scorer_intf(ctc_prefix_scorer, enc=enc, enc_olens=enc_olens)
                     label_scorers["ctc"] = (ctc_label_scorer, ctc_weight)
+                if lm_weight:
+                    lm_model = speech2text.lm_model  # required change in espnet asr_inferece.py code
+                    assert lm_model
+                    lm_model = lm_model.eval()
+                    lm_label_scorer = get_our_label_scorer_intf(lm_model, enc=enc, enc_olens=enc_olens)
+                    label_scorers["lm"] = (lm_label_scorer, lm_weight)
 
                 label_scorer = ShallowFusedLabelScorers(label_scorers=label_scorers)
 

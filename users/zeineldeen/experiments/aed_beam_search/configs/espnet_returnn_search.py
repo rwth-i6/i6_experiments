@@ -31,7 +31,7 @@ baseline_search_args = {
 }
 
 
-def run_espnet_search(beam_search_name, search_args):
+def run_espnet_search(beam_search_name, search_args, hash_version=None):
     assert "dataset" in search_args
     returnn_recog_args = search_args["returnn_recog_args"]
     batch_size = search_args.get("batch_size", 1)
@@ -60,7 +60,12 @@ def run_espnet_search(beam_search_name, search_args):
 
     exp_name += get_exp_desc(returnn_recog_args)
     assert exp_name[-1] == "-"
-    exp_name = exp_name[:-1] + f"/{dataset}"
+    exp_name = exp_name[:-1]
+
+    if hash_version:
+        exp_name += f"-{hash_version}"
+
+    exp_name += f"/{dataset}"
 
     espnet_search_job = EspnetBeamSearchJob(
         beam_search_script=beam_search_script,
@@ -117,9 +122,45 @@ def py():
         returnn_search_args["dataset"] = dataset
         for batch_size in [1]:
             for max_seq_len_ratio in [0.5, 1.0]:
-                for beam in [20, 40]:
+                for beam in [20]:
                     for adaptive in [True, False]:
                         for prun_threshold in [20, 50]:
+                            for len_reward in [0.1, 0.2]:
+                                returnn_search_args["batch_size"] = batch_size
+                                returnn_search_args["returnn_recog_args"] = {
+                                    "beam_size": beam,
+                                    "beam_ended_size": 1,
+                                    "length_reward": len_reward,
+                                    "pruning_threshold": prun_threshold,
+                                    "adaptive_pruning": adaptive,
+                                    "max_seq_len_ratio": max_seq_len_ratio,
+                                    "beam_search_variant": "sep_ended_keep",
+                                    "ctc_weight": 0.3,
+                                    "max_seq_len_offset": -1,
+                                }
+                                run_espnet_search("sep_ended_keep", returnn_search_args, hash_version="offset_1")
+
+                            # returnn_search_args["returnn_recog_args"] = {
+                            #     "beam_size": beam,
+                            #     "length_reward": len_reward,
+                            #     "length_normalization_exponent": 0.0,
+                            #     "max_seq_len_ratio": max_seq_len_ratio,
+                            #     "beam_search_variant": "beam_search_v5",
+                            #     "ctc_weight": 0.3,
+                            # }
+                            # run_espnet_search("beam_search_v5", returnn_search_args)
+
+    # -------------------------- Experiments ------------------------------------- #
+
+    # TODO: joint CTC
+    for dataset in ["dev_other"]:
+        returnn_search_args = copy.deepcopy(baseline_search_args)
+        returnn_search_args["dataset"] = dataset
+        for batch_size in [1]:
+            for max_seq_len_ratio in [0.3, 0.5]:
+                for beam in [20]:
+                    for adaptive in [True, False]:
+                        for prun_threshold in [10, 20, 50]:
                             for len_reward in [0.1, 0.2]:
                                 returnn_search_args["batch_size"] = batch_size
                                 returnn_search_args["returnn_recog_args"] = {
@@ -134,35 +175,55 @@ def py():
                                 }
                                 run_espnet_search("sep_ended_keep", returnn_search_args)
 
-                            # returnn_search_args["returnn_recog_args"] = {
-                            #     "beam_size": beam,
-                            #     "length_reward": len_reward,
-                            #     "length_normalization_exponent": 0.0,
-                            #     "max_seq_len_ratio": max_seq_len_ratio,
-                            #     "beam_search_variant": "beam_search_v5",
-                            #     "ctc_weight": 0.3,
-                            # }
-                            # run_espnet_search("beam_search_v5", returnn_search_args)
+                            returnn_search_args["returnn_recog_args"] = {
+                                "beam_size": beam,
+                                "length_reward": len_reward,
+                                "length_normalization_exponent": 0.0,
+                                "max_seq_len_ratio": max_seq_len_ratio,
+                                "beam_search_variant": "beam_search_v5",
+                                "ctc_weight": 0.3,
+                            }
+                            run_espnet_search("beam_search_v5", returnn_search_args)
 
-    # TODO: verify
+    # TODO: + LM
     for dataset in ["dev_other"]:
         returnn_search_args = copy.deepcopy(baseline_search_args)
         returnn_search_args["dataset"] = dataset
         for batch_size in [1]:
-            for max_seq_len_ratio in [0.3, 1.0]:
+            for maxlenratio in [0.3, 0.5]:
                 for beam in [20]:
-                    for adaptive in [True, False]:
-                        for prun_threshold in [30]:
-                            for len_reward in [0.2]:
-                                returnn_search_args["batch_size"] = batch_size
-                                returnn_search_args["returnn_recog_args"] = {
-                                    "beam_size": beam,
-                                    "beam_ended_size": 1,
-                                    "length_reward": len_reward,
-                                    "pruning_threshold": prun_threshold,
-                                    "adaptive_pruning": adaptive,
-                                    "max_seq_len_ratio": max_seq_len_ratio,
-                                    "beam_search_variant": "sep_ended_keep",
-                                    "ctc_weight": 0.0,
-                                }
-                                run_espnet_search("sep_ended_keep", returnn_search_args)
+                    for adapt_prun in [True]:
+                        for prun_thre in [5]:
+                            for len_reward in [1.0]:
+                                for lm_weight in [0.1]:
+                                    returnn_search_args["batch_size"] = batch_size
+                                    returnn_search_args["returnn_recog_args"] = {
+                                        "beam_size": beam,
+                                        "beam_ended_size": 1,
+                                        "length_reward": len_reward,
+                                        "pruning_threshold": prun_thre,
+                                        "adaptive_pruning": adapt_prun,
+                                        "max_seq_len_ratio": maxlenratio,
+                                        "beam_search_variant": "sep_ended_keep",
+                                        "lm_weight": lm_weight,
+                                    }
+                                    run_espnet_search("sep_ended_keep", returnn_search_args)
+
+                                    returnn_search_args["returnn_recog_args"] = {
+                                        "beam_size": beam,
+                                        "length_reward": len_reward,
+                                        "max_seq_len_ratio": maxlenratio,
+                                        "length_normalization_exponent": 0.0,
+                                        "beam_search_variant": "beam_search_v5",
+                                        "lm_weight": lm_weight,
+                                    }
+                                    run_espnet_search("beam_search_v5", returnn_search_args)
+
+                                    returnn_search_args["returnn_recog_args"] = {
+                                        "beam_size": beam,
+                                        "max_seq_len_ratio": maxlenratio,
+                                        "length_normalization_exponent": 1.0,
+                                        "beam_search_variant": "beam_search_v5",
+                                        "lm_weight": lm_weight,
+                                    }
+                                    run_espnet_search("beam_search_v5", returnn_search_args)

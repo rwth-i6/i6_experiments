@@ -129,3 +129,35 @@ def py():
                             search_args_["dataset"] = dataset
                             search_args_["maxlenratio"] = max_len
                             run_espnet_search(search_args_)
+
+    # TODO: joint CTC
+    for max_len in [0.3, 0.5]:
+        for dataset in ["dev_other"]:
+            for lm_weight in [0.0]:
+                for ctc_weight in [0.3]:
+                    for beam_size in [20]:
+                        for len_reward in [0.1]:
+                            search_args_ = copy.deepcopy(baseline_search_args)
+                            search_args_["beam_size"] = beam_size
+                            search_args_["len_reward"] = len_reward
+                            search_args_["lm_weight"] = lm_weight
+                            search_args_["ctc_weight"] = ctc_weight
+                            search_args_["dataset"] = dataset
+                            search_args_["maxlenratio"] = max_len
+                            run_espnet_search(search_args_)
+
+    # TODO: LM
+    for max_len in [0.3, 0.5]:
+        for dataset in ["dev_other"]:
+            for lm_weight in [0.1, 0.12, 0.14]:
+                for ctc_weight in [0.0]:
+                    for beam_size in [20]:
+                        for len_reward in [0.6]:
+                            search_args_ = copy.deepcopy(baseline_search_args)
+                            search_args_["beam_size"] = beam_size
+                            search_args_["len_reward"] = len_reward
+                            search_args_["lm_weight"] = lm_weight
+                            search_args_["ctc_weight"] = ctc_weight
+                            search_args_["dataset"] = dataset
+                            search_args_["maxlenratio"] = max_len
+                            run_espnet_search(search_args_)

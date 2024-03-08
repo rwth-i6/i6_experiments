@@ -32,7 +32,7 @@ baseline_search_args = {
 }
 
 
-def run_espnet_search(search_args, suffix="", rqmts=None, ted2_scoring=False):
+def run_espnet_search(search_args, suffix="", rqmts=None, ted2_scoring=False, hash_version=None):
     assert "dataset" in search_args
     pylasr_recog_args = search_args["pylasr_recog_args"]
     dataset = search_args["dataset"]
@@ -60,24 +60,32 @@ def run_espnet_search(search_args, suffix="", rqmts=None, ted2_scoring=False):
     assert exp_name[-1] == "-"
     exp_name = exp_name[:-1]
 
-    if search_args["device"] == "cpu" and rqmts:
-        exp_name += f"-cpu_core_{rqmts['cpu_rqmt']}"
-
     if suffix:
         exp_name += f"-{suffix}"
+    if hash_version:
+        exp_name += f"-{hash_version}"
 
     exp_name += f"/{dataset}"
 
     if rqmts is None:
         rqmts = {}
 
+    if hash_version:
+        # break hash
+        beam_search_script_ = tk.Path(
+            "recipe/i6_experiments/users/zeineldeen/experiments/aed_beam_search/espnet_beam_search.py",
+            hash_overwrite=hash_version,
+        )
+    else:
+        beam_search_script_ = beam_search_script
+
     espnet_search_job = EspnetBeamSearchJob(
-        beam_search_script=beam_search_script,
+        beam_search_script=beam_search_script_,
         data_path=librispeech_data_path,
         search_args={"dataset": dataset, **search_args},
         python_exe=PYTHON_EXE,
-        **rqmts,
     )
+    espnet_search_job.rqmt.update(rqmts)
     espnet_search_job.add_alias(exp_name)
     tk.register_output(exp_name + "/hyp", espnet_search_job.out_hyp)
 
@@ -113,24 +121,89 @@ def py():
     #                 }
     #                 run_espnet_search(pylasr_search_args, suffix="ted2Model", ted2_scoring=True)
 
-    for dataset in ["dev_other", "test_other"]:
+    # for dataset in ["dev_other", "test_other"]:
+    #     pylasr_search_args = copy.deepcopy(baseline_search_args)
+    #     pylasr_search_args["dataset"] = dataset
+    #     for maxlenratio in [1.0]:
+    #         for beam in [20]:
+    #             for adapt_prun in [True, False]:
+    #                 for prun_thre in [30]:
+    #                     for len_reward in [0.1]:
+    #                         pylasr_search_args["pylasr_recog_args"] = {
+    #                             "beam": beam,
+    #                             "lengthReward": len_reward,
+    #                             "maxLengthRatio": maxlenratio,
+    #                             "pruning": True,
+    #                             "pruningThreshold": prun_thre,
+    #                             "pruningThresholdAutoTune": adapt_prun,
+    #                         }
+    #                         run_espnet_search(pylasr_search_args)
+
+    # TODO: effect with LM
+    for dataset in ["dev_other"]:
         pylasr_search_args = copy.deepcopy(baseline_search_args)
         pylasr_search_args["dataset"] = dataset
-        for maxlenratio in [1.0]:
+        for maxlenratio in [0.3, 0.5]:
             for beam in [20]:
                 for adapt_prun in [True, False]:
-                    for prun_thre in [30]:
-                        for len_reward in [0.1]:
-                            pylasr_search_args["pylasr_recog_args"] = {
-                                "beam": beam,
-                                "lengthReward": len_reward,
-                                "maxLengthRatio": maxlenratio,
-                                "pruning": True,
-                                "pruningThreshold": prun_thre,
-                                "pruningThresholdAutoTune": adapt_prun,
-                                "ctcWeight": 0.3,
-                            }
-                            run_espnet_search(pylasr_search_args)
+                    for prun_thre in [5, 10, 20, 30, 50]:
+                        for len_reward in [0.6, 1.0]:
+                            for lm_weight in [0.14]:
+                                pylasr_search_args["pylasr_recog_args"] = {
+                                    "beam": beam,
+                                    "lengthReward": len_reward,
+                                    "maxLengthRatio": maxlenratio,
+                                    "pruning": True,
+                                    "pruningThreshold": prun_thre,
+                                    "pruningThresholdAutoTune": adapt_prun,
+                                    "lmWeight": lm_weight,
+                                }
+                                run_espnet_search(pylasr_search_args)
+
+    for dataset in ["dev_other"]:
+        pylasr_search_args = copy.deepcopy(baseline_search_args)
+        pylasr_search_args["dataset"] = dataset
+        for maxlenratio in [0.3, 1.0]:
+            for beam in [20]:
+                for adapt_prun in [True, False]:
+                    for prun_thre in [5]:
+                        for len_reward in [0.6, 1.0]:
+                            for lm_weight in [0.1]:
+                                pylasr_search_args["pylasr_recog_args"] = {
+                                    "beam": beam,
+                                    "lengthReward": len_reward,
+                                    "maxLengthRatio": maxlenratio,
+                                    "pruning": True,
+                                    "pruningThreshold": prun_thre,
+                                    "pruningThresholdAutoTune": adapt_prun,
+                                    "lmWeight": lm_weight,
+                                }
+                                run_espnet_search(pylasr_search_args, hash_version="beam_search_v1")
+
+    # TODO: more accurate RTFs
+    for dataset in ["dev_other"]:
+        pylasr_search_args = copy.deepcopy(baseline_search_args)
+        pylasr_search_args["dataset"] = dataset
+        for maxlenratio in [0.5, 1.0]:
+            for beam in [20]:
+                for adapt_prun in [True, False]:
+                    for prun_thre in [20, 50]:
+                        for len_reward in [0.4, 0.6, 0.8, 1.0]:
+                            for lm_weight in [0.1]:
+                                pylasr_search_args["pylasr_recog_args"] = {
+                                    "beam": beam,
+                                    "lengthReward": len_reward,
+                                    "maxLengthRatio": maxlenratio,
+                                    "pruning": True,
+                                    "pruningThreshold": prun_thre,
+                                    "pruningThresholdAutoTune": adapt_prun,
+                                    "lmWeight": lm_weight,
+                                }
+                                run_espnet_search(
+                                    pylasr_search_args,
+                                    hash_version="v3",
+                                    rqmts={"cpu": 2, "sbatch_args": ["-w", "cn-262", "--reservation", "hlt_4"]},
+                                )
 
     # TODO: CPU RTF
     # for maxlenratio in [0.3]:
