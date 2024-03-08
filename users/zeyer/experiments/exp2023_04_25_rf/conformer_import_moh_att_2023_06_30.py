@@ -584,6 +584,56 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             model_recog_pure_torch,
             recog_config,
         )
+    # recog_last_std_*: using beam_search_v5
+    for name, recog_config in {
+        "beam20-batch50-lenNorm1-maxSeqLen05-lm05": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "length_normalization_exponent": 1.0,
+                "lm_scale": 0.5,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+        },
+        "beam20-batch50-lenNorm1-maxSeqLen05-lm03": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "length_normalization_exponent": 1.0,
+                "lm_scale": 0.3,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+        },
+    }.items():
+        for k, v in {
+            "beam_search_version": 5,
+            "__batch_size_dependent": True,
+            "__recog_def_ext": True,
+            "beam_search_collect_individual_seq_scores": True,
+        }.items():
+            recog_config.setdefault(k, v)
+        _recog(
+            "base-24gb-v6-lrlin1e_5_600k/recog_last_std_" + name,
+            model.get_last_fixed_epoch(),
+            model_recog_pure_torch,
+            recog_config,
+        )
 
     # "best_scores": {"dev-clean": 2.31, "dev-other": 5.44, "test-clean": 2.64, "test-other": 5.74}, "best_epoch": 1941
     train_exp(  # 5.44
