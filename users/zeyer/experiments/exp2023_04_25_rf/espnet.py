@@ -293,6 +293,22 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             {"__batch_size_dependent": True, "beam_search_collect_individual_seq_scores": True, **recog_config},
         )
 
+    model = _get_orig_e_branchformer_model()
+    for name, recog_config in {
+        "ctc0-beam12-batch50": {
+            "beam_search_opts": {"beam_size": 12, "ctc_weight": 0},
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+    }.items():
+        _recog(
+            "e_branchformer_raw_en_bpe5000_sp/recog-our-" + name,
+            model,
+            model_recog_our,
+            {"__batch_size_dependent": True, "beam_search_collect_individual_seq_scores": True, **recog_config},
+            vocab="spm_espnet_5k",
+        )
+
     train_exp(  # 6.13
         "v6-11gb-f32-bs8k-mgpu2-nep500-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-dynGradAccumV2",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
@@ -380,11 +396,12 @@ def _recog(
     *,
     search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
+    vocab: str = "bpe10k",
 ):
     from sisyphus import tk
     from i6_experiments.users.zeyer.recog import recog_model
 
-    task = _get_ls_task()
+    task = _get_ls_task(vocab=vocab)
 
     res = recog_model(
         task,
@@ -463,18 +480,21 @@ def train_exp(
     return model_with_checkpoint
 
 
-_ls_task: Optional[Task] = None
+_ls_task: Dict[str, Task] = {}  # vocab -> task
 
 
-def _get_ls_task():
-    global _ls_task
-    if _ls_task is not None:
-        return _ls_task
+def _get_ls_task(*, vocab: str = "bpe10k"):
+    if vocab in _ls_task:
+        return _ls_task[vocab]
 
-    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_bpe10k_raw
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw, bpe10k, spm_espnet_5k
 
-    _ls_task = get_librispeech_task_bpe10k_raw()
-    return _ls_task
+    vocabs = {"bpe10k": bpe10k, "spm_espnet_5k": spm_espnet_5k}
+    if vocab not in vocabs:
+        raise Exception(f"vocab {vocab!r} not found")
+
+    _ls_task[vocab] = get_librispeech_task_raw(vocab=vocabs[vocab])
+    return _ls_task[vocab]
 
 
 py = sis_run_with_prefix  # if run directly via `sis m ...`
@@ -544,6 +564,26 @@ def _dyn_accum_grad_multiple_step_v2(*, epoch: int, global_train_step: int, **_k
         last_step = step
 
     return values[-1]
+
+
+def _get_orig_e_branchformer_model() -> ModelWithCheckpoint:
+    # refer to as e_branchformer_raw_en_bpe5000_sp
+
+    from sisyphus import tk
+    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
+    from i6_core.returnn.training import PtCheckpoint
+
+    return ModelWithCheckpoint(
+        definition=from_scratch_model_def,
+        checkpoint=PtCheckpoint(
+            path=tk.Path(
+                "/u/zeineldeen/setups/ubuntu_22_setups/2024-02-12--aed-beam-search/work/downloaded_models/"
+                "models--asapp--e_branchformer_librispeech/snapshots/f50914447c48b091738b3e020023ac69dbde9ea9/"
+                "exp/asr_train_asr_e_branchformer_raw_en_bpe5000_sp/valid.acc.ave_10best.pth",
+                hash_overwrite="ESPnet-Librispeech-e_branchformer_raw_en_bpe5000_sp",
+            )
+        ),
+    )
 
 
 def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPnetASRModel:
