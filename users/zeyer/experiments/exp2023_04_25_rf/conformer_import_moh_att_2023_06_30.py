@@ -535,6 +535,23 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
             "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM...
         },
+        "beam20-batch50-lenNorm1-maxSeqLen05-lm05": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "length_normalization_exponent": 1.0,
+                "lm_scale": 0.5,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+        },
         # "beam60-batch50-lenReward01": {
         #     "beam_search_opts": {
         #         "beam_size": 60,
@@ -680,6 +697,24 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                     "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
                 }
             },
+        },
+        "beam60-batch50bs2k-lenNorm1-maxSeqLen05-lm05": {
+            "beam_search_opts": {
+                "beam_size": 60,
+                "length_normalization_exponent": 1.0,
+                "lm_scale": 0.5,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 2000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+            "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM...
         },
     }.items():
         for k, v in {
