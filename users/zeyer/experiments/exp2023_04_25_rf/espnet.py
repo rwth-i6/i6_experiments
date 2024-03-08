@@ -1143,17 +1143,16 @@ def get_our_label_scorer_intf(espnet_scorer: BatchScorerInterface, *, enc: torch
             else:
                 # Note: No select_state needed. This is already done by the outer logic.
                 # prev_state_ls must be list over batch entries, thus convert out prev_state.
-                prev_state_ls = []
-                for batch_idx in range(batch_size):
-                    for beam_idx in range(beam_size):
+                prev_state_ls = []  # list over batch*beam entries
+                for i in range(batch_size * beam_size):
 
-                        def _map(x):
-                            if x is None:
-                                return None
-                            assert isinstance(x, torch.Tensor) and x.shape[:2] == (batch_size, beam_size)
-                            return x[batch_idx, beam_idx]
+                    def _map(x):
+                        if x is None:
+                            return None
+                        assert isinstance(x, torch.Tensor) and x.shape[:1] == (batch_size * beam_size,)
+                        return x[i]
 
-                        prev_state_ls.append(tree.map_structure(_map, prev_state))
+                    prev_state_ls.append(tree.map_structure(_map, prev_state))
 
                 # WARNING: This is without a mask for enc.
                 if isinstance(espnet_scorer, BatchPartialScorerInterface):
