@@ -613,11 +613,11 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
         },
-        "beam20-batch50-lenNorm1-maxSeqLen05-lm05": {
+        "beam20-batch50-lenNorm1-maxSeqLen05-lm02": {
             "beam_search_opts": {
                 "beam_size": 20,
                 "length_normalization_exponent": 1.0,
-                "lm_scale": 0.5,
+                "lm_scale": 0.2,
                 "max_seq_len_factor": 0.5,
             },
             "max_seqs": 50,
@@ -635,6 +635,40 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "beam_size": 20,
                 "length_normalization_exponent": 1.0,
                 "lm_scale": 0.3,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+        },
+        "beam20-batch50-lenNorm1-maxSeqLen05-lm04": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "length_normalization_exponent": 1.0,
+                "lm_scale": 0.4,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+        },
+        "beam20-batch50-lenNorm1-maxSeqLen05-lm05": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "length_normalization_exponent": 1.0,
+                "lm_scale": 0.5,
                 "max_seq_len_factor": 0.5,
             },
             "max_seqs": 50,
