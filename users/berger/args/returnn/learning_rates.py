@@ -87,6 +87,7 @@ def get_const_lr_config(
     **kwargs,
 ) -> Dict[str, Any]:
     result = {
+        "learning_rate": learning_rate,
         "min_learning_rate": learning_rate,
     }
     return result

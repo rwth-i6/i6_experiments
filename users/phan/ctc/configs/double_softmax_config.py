@@ -1,4 +1,5 @@
 import copy
+import inspect
 
 from sisyphus import gs, tk
 
@@ -22,6 +23,9 @@ from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
 )
 from i6_experiments.users.phan.models import multi_model_wrapper, lstm_lm
 from i6_experiments.common.setups.serialization import ExplicitHash
+from i6_experiments.users.phan.ctc.ctc_pref_scores_loss import (
+    ctc_double_softmax_loss, log_ctc_pref_beam_scores,
+)
 
 # ********** Settings **********
 
@@ -106,6 +110,8 @@ def returnn_config_generator(
                     "unhashed_arguments": {},
                 }
             ),
+            ExplicitHash(inspect.getsource(ctc_double_softmax_loss)),
+            ExplicitHash(inspect.getsource(log_ctc_pref_beam_scores)),
         ],
         extern_data_config=True,
         backend=Backend.PYTORCH,
@@ -157,7 +163,7 @@ def get_returnn_config_collection(
 
 
 def lbs_960_double_softmax() -> SummaryReport:
-    prefix = "experiments/ctc/kldiv_ctc_lm"
+    prefix = "experiments/ctc/double_softmax"
     gs.ALIAS_AND_OUTPUT_SUBDIR = (
         prefix
     )
@@ -175,11 +181,11 @@ def lbs_960_double_softmax() -> SummaryReport:
 
     train_args = exp_args.get_ctc_train_step_args(
         num_epochs=num_subepochs,
-        gpu_mem_rqmt=11,
+        gpu_mem_rqmt=24, # now this, but optimize ctc pref score later
     )
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
-        epochs=[num_subepochs],
+        epochs=list(range(20, num_subepochs+1, 20)),
         prior_scales=[0.45, 0.5, 0.55],
         lm_scales=[0.9,1.0,1.1],
         feature_type=FeatureType.SAMPLES,
@@ -190,9 +196,9 @@ def lbs_960_double_softmax() -> SummaryReport:
 
     # tools.returnn_root = tk.Path("/u/berger/repositories/MiniReturnn")
     tools.rasr_binary_path = tk.Path(
-        "/u/berger/repositories/rasr_versions/gen_seq2seq_onnx_apptainer/arch/linux-x86_64-standard"
+        "/u/minh-nghia.phan/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard"
     )
-    #tools.returnn_root = tk.Path("/u/minh-nghia.phan/tools/simon_returnn")
+    tools.returnn_root = tk.Path("/u/minh-nghia.phan/tools/simon_returnn")
     system = ReturnnSeq2SeqSystem(tools)
 
     system.init_corpora(
@@ -219,16 +225,17 @@ def lbs_960_double_softmax() -> SummaryReport:
         "dropout": 0.1,
     }
     module_preloads = {
-        "train_lm": "//work/asr3/zyang/share/mnphan/work_torch_ctc_libri/i6_core/returnn/training/ReturnnTrainingJob.7bqxeOpBaeEk/output/models/epoch.120.pt"
+        "conformer_ctc": "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.nuHCdB8qL7NJ/output/models/epoch.600.pt",
+        "train_lm": "/work/asr3/zyang/share/mnphan/work_torch_ctc_libri/i6_core/returnn/training/ReturnnTrainingJob.7bqxeOpBaeEk/output/models/epoch.120.pt"
     }
     for am_scale in [0.7, 1.0, 1.3]:
-        for lm_scale in [0.3, 0.5]:
-            for learning_rate in [1e-3, 1e-4, 1e-5]:
+        for lm_scale in [0.3]:
+            for learning_rate in [1e-4, 1e-5, 1e-6]:
                 lr_dict = {
                     "learning_rate": learning_rate,
                 }
                 system.add_experiment_configs(
-                    f"double_softmax_ctc_layers_{12}_lstm_layers_{1}_adamw_const_lr{learning_rate}_eps{num_subepochs}",
+                    f"double_softmax_ctc{12}_lstm{1}_am{am_scale}_lm{lm_scale}_adamw_const_lr{learning_rate}_eps{num_subepochs}",
                     get_returnn_config_collection(
                         data.train_data_config,
                         data.cv_data_config,

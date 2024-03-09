@@ -1,3 +1,7 @@
+"""
+This module implements some loss related to
+the CTC prefix score p_CTC(a_1^N,...)
+"""
 import torch
 from i6_experiments.users.phan.utils import get_seq_mask
 
@@ -61,8 +65,7 @@ def log_ctc_pref_beam_scores(
     beams = torch.arange(n_out, device=device).unsqueeze(0).unsqueeze(0).expand(batch_size, max_seq_len, -1) # (B, S, F), S here from 0 to max_seq_len-1, dim 2 is beam
     prev_label_diff = beams != prev_label_all_beams # (B, S, F)
     prev_label_diff = torch.cat([torch.full((batch_size, 1, n_out), torch.tensor(True), device=device), prev_label_diff], dim=1) 
-    # log_pref_scores_beams (B, S+1, F) S here is prefixes from empty to a_1^S
-    # this will be useful when eos is considered
+    # log_pref_scores_beams (B, S+1, F) S+1 here is prefixes from empty to a_1^S
     log_pref_scores_beams = torch.cat(
         [log_probs[0].unsqueeze(1), torch.full((batch_size, max_seq_len, n_out), log_zero, device=device)],
         dim=1
@@ -240,8 +243,10 @@ def ctc_double_softmax_loss(
     :param target: Target sequences (B, S) WITHOUT ANY EOS SOS
     :param input_lengths: Input lengths (B,)
     :param target_lengths: Target lengths (B,) WITHOUT ANY EOS SOS
-    :param log_lm_score: log LM score of all possible words in vocab given ground truth context (B, S, F)
-    EOS of this should be blank of the CTC
+    :param log_lm_score: if (B, S, F), then log LM score of all possible words in vocab 
+    given ground truth context.
+    if (B, S), then log LM score of target sequences.
+    EOS idx of this should be blank idx of the CTC
     :param blank_idx: Blank index in F dim of log_probs
     :param am_scale: AM scale for CTC score
     :param lm_scale: LM scale for LM score
@@ -257,15 +262,21 @@ def ctc_double_softmax_loss(
         input_lengths,
         blank_idx,
         log_zero,
-        eos_idx
     )
     # renormalize to have p_ctc(v|hypothesis) in output dim
     log_p_ctc = log_pref_scores_beams.log_softmax(dim=-1)
+    # take out correct indices of target sequences
+    targets_eos = torch.cat(
+        [targets, torch.zeros((batch_size, 1), device=targets.device)],
+        dim=1,
+    ).long()
     # this is why it's called double softmax
-    double_softmax = (am_scale*log_p_ctc + lm_scale*log_lm_score).log_softmax(dim=-1)
+    log_p_am_ref = log_p_ctc.gather(-1, targets_eos.unsqueeze(-1)).view(-1, max_seq_len+1)
+    log_p_lm_ref = log_lm_score.gather(-1, targets_eos.unsqueeze(-1)).view(-1, max_seq_len+1)
+    log_denom_ref = (am_scale*log_p_ctc + lm_scale*log_lm_score).logsumexp(dim=-1)
+    double_softmax = am_scale*log_p_am_ref + lm_scale*log_p_lm_ref - log_denom_ref
     seq_mask = get_seq_mask(target_lengths+1, max_seq_len+1, device)
-    seq_mask = seq_mask.unsqueeze(-1).expand(-1, -1, n_out)
-    loss = (double_softmax*seq_mask).sum()
+    loss = -(double_softmax*seq_mask).sum()
     return loss
 
 

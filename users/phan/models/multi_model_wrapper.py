@@ -94,7 +94,7 @@ def get_train_serializer(
         Import(f"{__name__}.{MultiModelWrapperConfig.__name__}"),
         Import(f"{__name__}.{MultiModelWrapper.__name__}"),
     ]
-    if not partial_train_step_func:
+    if partial_train_step_func:
         train_step_import = PartialImport(
             code_object_path=f"{train_step_package}.train_step",
             unhashed_package_root=train_step_package,

@@ -28,7 +28,7 @@ from i6_experiments.common.setups.serialization import ExplicitHash
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 num_outputs = 79
-num_subepochs = 160
+num_subepochs = 100
 
 tools = copy.deepcopy(default_tools_v2)
 # tools.returnn_root = tk.Path("/u/minh-nghia.phan/tools/simon_returnn") # Sis will ask to run HDF jobs again
@@ -234,7 +234,7 @@ def lbs_960_run_kldiv_ctc_lm() -> SummaryReport:
                                         "error_measure": "dev_loss_kldiv_ctc_lm_exp",
                                     }
                                     system.add_experiment_configs(
-                                        f"kldiv_ctc_lm_ctc_layers_{num_layers}_lstm_layers_{n_lstm_layers}_adamw_newbobrel_lr{init_learning_rate}",
+                                        f"kldiv_ctc_lm_ctc{num_layers}_lstm{n_lstm_layers}_adamw_newbobrel_lr{init_learning_rate}_eps{num_subepochs}",
                                         get_returnn_config_collection(
                                             data.train_data_config,
                                             data.cv_data_config,
@@ -256,7 +256,7 @@ def lbs_960_run_kldiv_ctc_lm() -> SummaryReport:
                                     "error_measure": "dev_loss_kldiv_ctc_lm_exp",
                                 }
                                 system.add_experiment_configs(
-                                    f"kldiv_ctc_lm_ctc_layers_{num_layers}_lstm_layers_{n_lstm_layers}_sgd_newbobrel_lr{1.0}",
+                                    f"kldiv_ctc_lm_ctc{num_layers}_lstm{n_lstm_layers}_sgd_newbobrel_lr{1.0}_eps{num_subepochs}",
                                     get_returnn_config_collection(
                                         data.train_data_config,
                                         data.cv_data_config,
@@ -278,7 +278,7 @@ def lbs_960_run_kldiv_ctc_lm() -> SummaryReport:
                                 str_peak_lr = str(peak_lr).replace("-", "_").replace(".", "_")
                                 str_dropout = str(dropout).replace(".", "_")
                                 system.add_experiment_configs(
-                                    f"kldiv_ctc_lm_ctc_layers_{num_layers}_lstm_layers_{n_lstm_layers}_adamw_oclr_peaklr{str_peak_lr}",
+                                    f"kldiv_ctc_lm_ctc{num_layers}_lstm{n_lstm_layers}_adamw_oclr_peaklr{str_peak_lr}_eps{num_subepochs}",
                                     get_returnn_config_collection(
                                         data.train_data_config,
                                         data.cv_data_config,
