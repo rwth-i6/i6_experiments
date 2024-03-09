@@ -70,7 +70,10 @@ spm_espnet_5k_wrong = SentencePieceModel(
 )
 
 
-class CustomVocab(VocabConfig):
+class CustomVocab(SentencePieceModel):
+    """HACK: behaves like SPM, but this is actually some custom token list"""
+
+    # noinspection PyMissingConstructor
     def __init__(self, *, dim: int, token_list: tk.Path, unknown_label: str, bos_idx: int, eos_idx: int):
         self.dim = dim
         self.token_list = token_list
