@@ -55,7 +55,8 @@ bpe10k = Bpe(
     unknown_label=None,
 )
 
-spm_espnet_5k = SentencePieceModel(
+# ??? indices are wrong here?
+spm_espnet_5k_wrong = SentencePieceModel(
     dim=5_000,
     model_file=tk.Path(
         "/u/zeineldeen/setups/ubuntu_22_setups/2024-02-12--aed-beam-search/work/downloaded_models/"
@@ -66,6 +67,41 @@ spm_espnet_5k = SentencePieceModel(
     unknown_label="<unk>",  # idx 0
     bos_idx=1,
     eos_idx=2,
+)
+
+
+class CustomVocab(VocabConfig):
+    def __init__(self, *, dim: int, token_list: tk.Path, unknown_label: str, bos_idx: int, eos_idx: int):
+        self.dim = dim
+        self.token_list = token_list
+        self.unknown_label = unknown_label
+        self.bos_idx = bos_idx
+        self.eos_idx = eos_idx
+
+    def get_opts(self) -> Dict[str, Any]:
+        return {
+            "vocab_file": self.token_list,
+            "unknown_label": self.unknown_label,
+            "bos_label": self.bos_idx,
+            "eos_label": self.eos_idx,
+        }
+
+    def get_bos_idx(self) -> Optional[int]:
+        return self.bos_idx
+
+    def get_eos_idx(self) -> Optional[int]:
+        return self.eos_idx
+
+
+spm_espnet_5k = CustomVocab(
+    dim=5_000,
+    token_list=tk.Path(
+        "/u/zeineldeen/setups/ubuntu_22_setups/2024-02-12--aed-beam-search/sym",
+        hash_overwrite="ESPnet-Librispeech-sentencepieces-5k-tokenlist",
+    ),
+    unknown_label="<unk>",
+    bos_idx=4999,
+    eos_idx=4999,
 )
 
 
