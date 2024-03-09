@@ -300,6 +300,15 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
         },
+        "ctc0-beam12-batch50-lenReward01": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "ctc_weight": 0,
+                "length_reward": 0.1,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
         "ctc0-beam12-batch50-lenNorm1": {
             "beam_search_opts": {
                 "beam_size": 12,
