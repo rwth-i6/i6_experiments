@@ -431,7 +431,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             {"__batch_size_dependent": True, "beam_search_collect_individual_seq_scores": True, **recog_config},
             vocab="spm_espnet_5k",
             audio_opts={"peak_normalization": False},  # speech_volume_normalize=False in ESPnet
-            audio_format="old_flac_tar",
+            audio_format="old_flac_tar_zip",
         )
 
     train_exp(  # 6.13
@@ -628,10 +628,10 @@ def _get_ls_task(
 
     vocabs = {"bpe10k": bpe10k, "spm_espnet_5k": spm_espnet_5k}
     if vocab not in vocabs:
-        raise Exception(f"vocab {vocab!r} not found")
-    ds_classes = {"ogg_zip": LibrispeechOggZip, "flac_tar_zip": LibrispeechOldFlacTarZip}
+        raise Exception(f"vocab {vocab!r} not found in {vocabs}")
+    ds_classes = {"ogg_zip": LibrispeechOggZip, "old_flac_tar_zip": LibrispeechOldFlacTarZip}
     if audio_format not in ds_classes:
-        raise Exception(f"audio format {audio_format!r} not found")
+        raise Exception(f"audio format {audio_format!r} not found in {ds_classes}")
 
     _ls_task[key] = get_librispeech_task_raw(
         dataset_cls=ds_classes[audio_format], vocab=vocabs[vocab], audio_opts=audio_opts
