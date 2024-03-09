@@ -323,6 +323,18 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
         },
+        "lm014-beam20-batch20-lenReward06": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "ctc_weight": 0.0,
+                "lm_scale": 0.14,
+                "length_reward": 0.6,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 20,
+            "batch_size": 2000 * _batch_size_factor,
+            **_get_orig_e_branchformer_lm_model_config(),
+        },
     }.items():
         _recog(
             "e_branchformer_raw_en_bpe5000_sp/recog-our-" + name,
@@ -628,6 +640,29 @@ def _get_orig_e_branchformer_model() -> ModelWithCheckpoint:
     )
 
 
+def _get_orig_e_branchformer_lm_model_config():
+    from sisyphus import tk
+
+    lm_config = tk.Path(
+        "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2024-02-12--aed-beam-search/work/downloaded_models/"
+        "models--asapp--e_branchformer_librispeech/blobs/"
+        "a90022f13e9d207d1b93ce3e34727a1d48134af8",
+        hash_overwrite="ESPnet-Librispeech-e_branchformer_trafo-lm-config",
+    )
+    lm_ckpt = tk.Path(
+        "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2024-02-12--aed-beam-search/work/downloaded_models/"
+        "models--asapp--e_branchformer_librispeech/blobs/"
+        "310420be8682bbc713a76e90e478e4f1c765a3dd4ff7f3247b27a3c28914f50d",
+        hash_overwrite="ESPnet-Librispeech-e_branchformer_trafo-lm-ckpt",
+    )
+    return {
+        "espnet_language_model": {
+            "config": lm_config,
+            "checkpoint": lm_ckpt,
+        }
+    }
+
+
 def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPnetASRModel:
     """Function is run within RETURNN."""
     import returnn
@@ -695,6 +730,14 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPne
     print("SOS/EOS:", model.sos, model.eos)
     model.returnn_epoch = epoch
     model.returnn_target_dim = target_dim
+
+    model.lm = None
+    if config.typed_value("espnet_language_model"):
+        from espnet2.tasks.lm import LMTask
+
+        lm_opts = config.typed_value("espnet_language_model")
+        model.lm = LMTask.build_model_from_file(lm_opts["config"], lm_opts["ckpt"], rf.get_default_device())
+
     return model
 
 
@@ -966,7 +1009,6 @@ def model_recog_our(
     batch_dim = data.dims[0]
 
     max_seq_len = enc_olens
-    print("** max seq len:", max_seq_len)
 
     if data.raw_tensor.device.type == "cuda":
         # Just so that timing of encoder is correct.
@@ -1014,7 +1056,14 @@ def model_recog_our(
     len_reward = beam_search_opts.pop("length_reward", 0.0)
     if len_reward:
         label_scorer.label_scorers["length_reward"] = (LengthRewardScorer(), len_reward)
+    if model.lm:
+        lm_scale = beam_search_opts.pop("lm_scale")
+        label_scorer.label_scorers["lm"] = (get_our_label_scorer_intf(model.lm, enc=enc, enc_olens=enc_olens), lm_scale)
     beam_search_opts.setdefault("length_normalization_exponent", config.float("length_normalization_exponent", 0.0))
+    max_seq_len_factor = beam_search_opts.pop("max_seq_len_factor", 1)
+    if max_seq_len_factor != 1:
+        max_seq_len = rf.cast(max_seq_len * max_seq_len_factor, max_seq_len.dtype)
+    print("** max seq len:", max_seq_len)
 
     # Beam search happening here:
     (
