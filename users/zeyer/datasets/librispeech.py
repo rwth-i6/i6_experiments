@@ -55,7 +55,11 @@ bpe10k = Bpe(
     unknown_label=None,
 )
 
-# ??? indices are wrong here?
+# ESPnet uses this SPM. However, it does not use the vocab directly from it.
+# It has some custom code to generate its own vocab based from this:
+# https://github.com/espnet/espnet/blob/d0047402e830a3c53e8b590064af4bf70415fb3b/egs2/TEMPLATE/asr1/asr.sh#L878
+# Specifically, it removes <unk>, <s>, </s>, then adds back <blank> and <unk> at the beginning,
+# and a single token for both EOS/SOS at the end.
 spm_espnet_5k_wrong = SentencePieceModel(
     dim=5_000,
     model_file=tk.Path(
