@@ -405,6 +405,34 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             vocab="spm_espnet_5k",
             audio_opts={"peak_normalization": False},  # speech_volume_normalize=False in ESPnet
         )
+    for name, recog_config in {
+        "ctc03-beam12-batch50": {
+            "beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3},
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "lm06-ctc03-beam20-batch20": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "ctc_weight": 0.3,
+                "lm_scale": 0.6,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 20,
+            "batch_size": 2000 * _batch_size_factor,
+            **_get_orig_e_branchformer_lm_model_config(),
+            "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
+        },
+    }.items():
+        _recog(
+            "e_branchformer_raw_en_bpe5000_sp/recog-our-flac-" + name,
+            model,
+            model_recog_our,
+            {"__batch_size_dependent": True, "beam_search_collect_individual_seq_scores": True, **recog_config},
+            vocab="spm_espnet_5k",
+            audio_opts={"peak_normalization": False},  # speech_volume_normalize=False in ESPnet
+            audio_format="old_flac_tar",
+        )
 
     train_exp(  # 6.13
         "v6-11gb-f32-bs8k-mgpu2-nep500-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-dynGradAccumV2",
@@ -495,11 +523,12 @@ def _recog(
     dev_sets: Optional[Collection[str]] = None,
     vocab: str = "bpe10k",
     audio_opts: Optional[Dict[str, Any]] = None,
+    audio_format: str = "ogg_zip",
 ):
     from sisyphus import tk
     from i6_experiments.users.zeyer.recog import recog_model
 
-    task = _get_ls_task(vocab=vocab, audio_opts=audio_opts)
+    task = _get_ls_task(vocab=vocab, audio_opts=audio_opts, audio_format=audio_format)
 
     res = recog_model(
         task,
@@ -581,19 +610,32 @@ def train_exp(
 _ls_task: Dict[Any, Task] = {}  # key (see below) -> task
 
 
-def _get_ls_task(*, vocab: str = "bpe10k", audio_opts: Optional[Dict[str, Any]] = None) -> Task:
-    key = (vocab, tuple(audio_opts.items()) if audio_opts else None)
+def _get_ls_task(
+    *, vocab: str = "bpe10k", audio_opts: Optional[Dict[str, Any]] = None, audio_format: str = "ogg_zip"
+) -> Task:
+    key = (audio_format, vocab, tuple(audio_opts.items()) if audio_opts else None)
 
     if key in _ls_task:
         return _ls_task[key]
 
-    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw, bpe10k, spm_espnet_5k
+    from i6_experiments.users.zeyer.datasets.librispeech import (
+        get_librispeech_task_raw,
+        bpe10k,
+        spm_espnet_5k,
+        LibrispeechOggZip,
+        LibrispeechOldFlacTarZip,
+    )
 
     vocabs = {"bpe10k": bpe10k, "spm_espnet_5k": spm_espnet_5k}
     if vocab not in vocabs:
         raise Exception(f"vocab {vocab!r} not found")
+    ds_classes = {"ogg_zip": LibrispeechOggZip, "flac_tar_zip": LibrispeechOldFlacTarZip}
+    if audio_format not in ds_classes:
+        raise Exception(f"audio format {audio_format!r} not found")
 
-    _ls_task[key] = get_librispeech_task_raw(vocab=vocabs[vocab], audio_opts=audio_opts)
+    _ls_task[key] = get_librispeech_task_raw(
+        dataset_cls=ds_classes[audio_format], vocab=vocabs[vocab], audio_opts=audio_opts
+    )
     return _ls_task[key]
 
 
