@@ -574,7 +574,13 @@ def _get_orig_e_branchformer_model() -> ModelWithCheckpoint:
     from i6_core.returnn.training import PtCheckpoint
 
     return ModelWithCheckpoint(
-        definition=from_scratch_model_def,
+        definition=ModelDefWithCfg(
+            from_scratch_model_def,
+            {
+                "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
+                "espnet_fixed_sos_eos": True,
+            },
+        ),
         checkpoint=PtCheckpoint(
             path=tk.Path(
                 "/u/zeineldeen/setups/ubuntu_22_setups/2024-02-12--aed-beam-search/work/downloaded_models/"
