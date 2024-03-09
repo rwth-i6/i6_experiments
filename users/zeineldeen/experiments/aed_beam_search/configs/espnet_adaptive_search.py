@@ -121,34 +121,52 @@ def py():
     #                 }
     #                 run_espnet_search(pylasr_search_args, suffix="ted2Model", ted2_scoring=True)
 
-    # for dataset in ["dev_other", "test_other"]:
-    #     pylasr_search_args = copy.deepcopy(baseline_search_args)
-    #     pylasr_search_args["dataset"] = dataset
-    #     for maxlenratio in [1.0]:
-    #         for beam in [20]:
-    #             for adapt_prun in [True, False]:
-    #                 for prun_thre in [30]:
-    #                     for len_reward in [0.1]:
-    #                         pylasr_search_args["pylasr_recog_args"] = {
-    #                             "beam": beam,
-    #                             "lengthReward": len_reward,
-    #                             "maxLengthRatio": maxlenratio,
-    #                             "pruning": True,
-    #                             "pruningThreshold": prun_thre,
-    #                             "pruningThresholdAutoTune": adapt_prun,
-    #                         }
-    #                         run_espnet_search(pylasr_search_args)
-
     # TODO: effect with LM
     for dataset in ["dev_other"]:
         pylasr_search_args = copy.deepcopy(baseline_search_args)
         pylasr_search_args["dataset"] = dataset
-        for maxlenratio in [0.3, 0.5]:
+        for maxlenratio in [0.5]:
+            for beam in [20]:  # TODO: larger beam sizes
+                for adapt_prun in [True]:
+                    for prun_thre in [5, 20, 50]:
+                        for len_reward in [0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85]:
+                            for lm_weight in [0.1, 0.14]:
+                                pylasr_search_args["pylasr_recog_args"] = {
+                                    "beam": beam,
+                                    "lengthReward": len_reward,
+                                    "maxLengthRatio": maxlenratio,
+                                    "pruning": True,
+                                    "pruningThreshold": prun_thre,
+                                    "pruningThresholdAutoTune": adapt_prun,
+                                    "lmWeight": lm_weight,
+                                }
+                                run_espnet_search(pylasr_search_args)
+
+        # TODO: effect of pruning
+        for maxlenratio in [0.5]:
             for beam in [20]:
-                for adapt_prun in [True, False]:
-                    for prun_thre in [5, 10, 20, 30, 50]:
-                        for len_reward in [0.6, 1.0]:
-                            for lm_weight in [0.14]:
+                for adapt_prun in [True]:
+                    for prun_thre in [-1, 0]:
+                        for len_reward in [0.6]:
+                            for lm_weight in [0.1, 0.12, 0.14]:
+                                pylasr_search_args["pylasr_recog_args"] = {
+                                    "beam": beam,
+                                    "lengthReward": len_reward,
+                                    "maxLengthRatio": maxlenratio,
+                                    "pruning": prun_thre != -1,
+                                    "pruningThreshold": prun_thre,
+                                    "pruningThresholdAutoTune": adapt_prun,
+                                    "lmWeight": lm_weight,
+                                }
+                                run_espnet_search(pylasr_search_args)
+
+        # TODO: tune lm scales
+        for maxlenratio in [0.5]:
+            for beam in [20, 30]:
+                for adapt_prun in [True]:
+                    for prun_thre in [5, 20, 50]:
+                        for len_reward in [0.4, 0.6]:
+                            for lm_weight in [0.06, 0.08, 0.1]:
                                 pylasr_search_args["pylasr_recog_args"] = {
                                     "beam": beam,
                                     "lengthReward": len_reward,
@@ -163,12 +181,12 @@ def py():
     for dataset in ["dev_other"]:
         pylasr_search_args = copy.deepcopy(baseline_search_args)
         pylasr_search_args["dataset"] = dataset
-        for maxlenratio in [0.3, 1.0]:
+        for maxlenratio in [0.5]:
             for beam in [20]:
                 for adapt_prun in [True, False]:
-                    for prun_thre in [5]:
+                    for prun_thre in [5, 20]:
                         for len_reward in [0.6, 1.0]:
-                            for lm_weight in [0.1]:
+                            for lm_weight in [0.08, 0.1, 0.12]:
                                 pylasr_search_args["pylasr_recog_args"] = {
                                     "beam": beam,
                                     "lengthReward": len_reward,

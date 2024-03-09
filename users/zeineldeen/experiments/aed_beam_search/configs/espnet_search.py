@@ -31,7 +31,7 @@ baseline_search_args = {
 }
 
 
-def run_espnet_search(search_args, rqmts=None):
+def run_espnet_search(search_args, rqmts=None, hash_version=None):
     assert "device" in search_args
     assert "dataset" in search_args
     dataset = search_args["dataset"]
@@ -50,11 +50,21 @@ def run_espnet_search(search_args, rqmts=None):
     if search_args["device"] == "cpu" and rqmts:
         exp_name += f"-cpu_core_{rqmts['cpu_rqmt']}"
 
+    if hash_version:
+        beam_search_script_ = tk.Path(
+            "recipe/i6_experiments/users/zeineldeen/experiments/aed_beam_search/espnet_beam_search.py",
+            hash_overwrite=hash_version,
+        )
+        exp_name += f"-{hash_version}"
+    else:
+        beam_search_script_ = beam_search_script
+
     exp_name += f"/{dataset}"
     if rqmts is None:
         rqmts = {}
+
     espnet_search_job = EspnetBeamSearchJob(
-        beam_search_script=beam_search_script,
+        beam_search_script=beam_search_script_,
         data_path=librispeech_data_path,
         search_args={"dataset": dataset, **search_args},
         python_exe=PYTHON_EXE,
@@ -81,7 +91,6 @@ def run_espnet_search(search_args, rqmts=None):
 
 
 def py():
-
     # model is broken without joint CTC
     #
     # beam size {18,20}, length reward = 0.1
@@ -161,3 +170,26 @@ def py():
                             search_args_["dataset"] = dataset
                             search_args_["maxlenratio"] = max_len
                             run_espnet_search(search_args_)
+
+                            if max_len == 0.5 and lm_weight == 0.14:
+                                search_args_["dataset"] = "test_other"
+                                run_espnet_search(search_args_)
+
+    # TODO: collect stats
+    # beam_size_20-ctc_weight_0.3-device_cuda-len_reward_0.0-lm_weight_0.0-maxlenratio_1.0-nbest_1
+    # 4.6
+
+    for max_len in [0.5]:
+        for dataset in ["dev_other", "test_other"]:
+            for lm_weight in [0.0]:
+                for ctc_weight in [0.3]:
+                    for beam_size in [20]:
+                        for len_reward in [0.0, 0.1]:
+                            search_args_ = copy.deepcopy(baseline_search_args)
+                            search_args_["beam_size"] = beam_size
+                            search_args_["len_reward"] = len_reward
+                            search_args_["lm_weight"] = lm_weight
+                            search_args_["ctc_weight"] = ctc_weight
+                            search_args_["dataset"] = dataset
+                            search_args_["maxlenratio"] = max_len
+                            run_espnet_search(search_args_, hash_version="debug_v2")

@@ -185,29 +185,66 @@ def py():
                             }
                             run_espnet_search("beam_search_v5", returnn_search_args)
 
+    # TODO: analysis
+    for dataset in ["dev_other"]:
+        returnn_search_args = copy.deepcopy(baseline_search_args)
+        returnn_search_args["dataset"] = dataset
+        for batch_size in [1]:
+            for max_seq_len_ratio in [0.5]:
+                for beam in [20]:
+                    for adaptive in [True, False]:
+                        for prun_threshold in [20]:
+                            for len_reward in [0.1]:
+                                returnn_search_args["batch_size"] = batch_size
+                                returnn_search_args["returnn_recog_args"] = {
+                                    "beam_size": beam,
+                                    "beam_ended_size": 1,
+                                    "length_reward": len_reward,
+                                    "pruning_threshold": prun_threshold,
+                                    "adaptive_pruning": adaptive,
+                                    "max_seq_len_ratio": max_seq_len_ratio,
+                                    "beam_search_variant": "sep_ended_keep",
+                                    "ctc_weight": 0.3,
+                                    "debug": True,
+                                }
+                                run_espnet_search("sep_ended_keep", returnn_search_args)
+                                returnn_search_args["returnn_recog_args"]["max_seq_len_offset"] = -1
+                                run_espnet_search("sep_ended_keep", returnn_search_args)
+
+                            returnn_search_args["returnn_recog_args"] = {
+                                "beam_size": beam,
+                                "length_reward": len_reward,
+                                "length_normalization_exponent": 0.0,
+                                "max_seq_len_ratio": max_seq_len_ratio,
+                                "beam_search_variant": "beam_search_v5",
+                                "ctc_weight": 0.3,
+                                "debug": True,
+                            }
+                            run_espnet_search("beam_search_v5", returnn_search_args, hash_version="debug")
+
     # TODO: + LM
     for dataset in ["dev_other"]:
         returnn_search_args = copy.deepcopy(baseline_search_args)
         returnn_search_args["dataset"] = dataset
         for batch_size in [1]:
-            for maxlenratio in [0.3, 0.5]:
+            for maxlenratio in [0.5]:
                 for beam in [20]:
                     for adapt_prun in [True]:
                         for prun_thre in [5]:
-                            for len_reward in [1.0]:
-                                for lm_weight in [0.1]:
+                            for len_reward in [0.1, 0.2, 0.6]:
+                                for lm_weight in [0.1, 0.12, 0.14]:
                                     returnn_search_args["batch_size"] = batch_size
-                                    returnn_search_args["returnn_recog_args"] = {
-                                        "beam_size": beam,
-                                        "beam_ended_size": 1,
-                                        "length_reward": len_reward,
-                                        "pruning_threshold": prun_thre,
-                                        "adaptive_pruning": adapt_prun,
-                                        "max_seq_len_ratio": maxlenratio,
-                                        "beam_search_variant": "sep_ended_keep",
-                                        "lm_weight": lm_weight,
-                                    }
-                                    run_espnet_search("sep_ended_keep", returnn_search_args)
+                                    # returnn_search_args["returnn_recog_args"] = {
+                                    #     "beam_size": beam,
+                                    #     "beam_ended_size": 1,
+                                    #     "length_reward": len_reward,
+                                    #     "pruning_threshold": prun_thre,
+                                    #     "adaptive_pruning": adapt_prun,
+                                    #     "max_seq_len_ratio": maxlenratio,
+                                    #     "beam_search_variant": "sep_ended_keep",
+                                    #     "lm_weight": lm_weight,
+                                    # }
+                                    # run_espnet_search("sep_ended_keep", returnn_search_args)
 
                                     returnn_search_args["returnn_recog_args"] = {
                                         "beam_size": beam,
