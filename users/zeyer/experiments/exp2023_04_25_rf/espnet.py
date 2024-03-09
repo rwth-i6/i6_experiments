@@ -1097,6 +1097,14 @@ def model_recog_our(
     import torch
     import time
     from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v5 import BeamSearchOptsV5, beam_search_v5
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_sep_ended import (
+        BeamSearchDynBeamOpts,
+        beam_search_sep_ended,
+    )
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_sep_ended_keep_v6 import (
+        BeamSearchSepEndedKeepOpts,
+        beam_search_sep_ended_keep_v6,
+    )
     from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.length_reward import LengthRewardScorer
     from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.shallow_fusion import ShallowFusedLabelScorers
     from returnn.config import get_global_config
@@ -1138,8 +1146,19 @@ def model_recog_our(
     #   score all vocab labels (or only the given part_ids labels, and score for others is 0), and calc new state.
 
     beam_search_version = config.int("beam_search_version", 5)
-    beam_search_func = {5: beam_search_v5}[beam_search_version]
-    beam_search_opts_cls = BeamSearchOptsV5
+    beam_search_func = {
+        5: beam_search_v5,
+        "sep_ended": beam_search_sep_ended,
+        "sep_ended_keep_v6": beam_search_sep_ended_keep_v6,
+    }[beam_search_version]
+    if beam_search_version == "sep_ended":
+        beam_search_opts_cls = BeamSearchDynBeamOpts
+    elif isinstance(beam_search_version, str) and beam_search_version.startswith("sep_ended_keep"):
+        beam_search_opts_cls = BeamSearchSepEndedKeepOpts
+    elif isinstance(beam_search_version, int) and beam_search_version >= 5:
+        beam_search_opts_cls = BeamSearchOptsV5
+    else:
+        raise ValueError(f"invalid beam search version {beam_search_version!r}")
     beam_search_opts = (config.typed_value("beam_search_opts", None) or {}).copy()
     extra = {}
     out_individual_seq_scores = None
