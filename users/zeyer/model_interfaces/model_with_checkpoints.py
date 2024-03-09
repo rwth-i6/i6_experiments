@@ -11,7 +11,7 @@ from i6_experiments.users.zeyer.returnn.training import default_returnn_keep_epo
 if TYPE_CHECKING:
     from sisyphus import tk as _tk
     from i6_core.returnn.training import ReturnnTrainingJob
-    from .model import ModelDef
+    from .model import ModelDef, ModelDefWithCfg
     from .recog import RecogDef
 
 
@@ -24,7 +24,7 @@ class ModelWithCheckpoint:
     Model
     """
 
-    definition: ModelDef
+    definition: Union[ModelDef, ModelDefWithCfg]
     checkpoint: Checkpoint
 
     def with_recog(self, recog: RecogDef) -> ModelWithCheckpointAndRecog:
@@ -61,7 +61,7 @@ class ModelWithCheckpoints:
     @classmethod
     def from_training_job(
         cls,
-        definition: ModelDef,
+        definition: Union[ModelDef, ModelDefWithCfg],
         training_job: ReturnnTrainingJob,
         *,
         num_pretrain_epochs: int = 0,
