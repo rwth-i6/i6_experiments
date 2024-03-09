@@ -360,42 +360,18 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             **_get_orig_e_branchformer_lm_model_config(),
             "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
         },
-        "lm06-ctc03-beam60-batch20": {
-            "beam_search_opts": {
-                "beam_size": 60,
-                "ctc_weight": 0.3,
-                "lm_scale": 0.6,
-                "max_seq_len_factor": 0.5,
-            },
-            "max_seqs": 20,
-            "batch_size": 2000 * _batch_size_factor,
-            **_get_orig_e_branchformer_lm_model_config(),
-            "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
-        },
-        "lm06-ctc03-beam60-batch10": {
-            "beam_search_opts": {
-                "beam_size": 60,
-                "ctc_weight": 0.3,
-                "lm_scale": 0.6,
-                "max_seq_len_factor": 0.5,
-            },
-            "max_seqs": 10,
-            "batch_size": 1000 * _batch_size_factor,
-            **_get_orig_e_branchformer_lm_model_config(),
-            "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
-        },
-        "lm06-ctc03-beam60-batch5": {
-            "beam_search_opts": {
-                "beam_size": 60,
-                "ctc_weight": 0.3,
-                "lm_scale": 0.6,
-                "max_seq_len_factor": 0.5,
-            },
-            "max_seqs": 5,
-            "batch_size": 500 * _batch_size_factor,
-            **_get_orig_e_branchformer_lm_model_config(),
-            "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
-        },
+        # "lm06-ctc03-beam60-batch5": {  # TODO OOM...
+        #     "beam_search_opts": {
+        #         "beam_size": 60,
+        #         "ctc_weight": 0.3,
+        #         "lm_scale": 0.6,
+        #         "max_seq_len_factor": 0.5,
+        #     },
+        #     "max_seqs": 5,
+        #     "batch_size": 500 * _batch_size_factor,
+        #     **_get_orig_e_branchformer_lm_model_config(),
+        #     "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
+        # },
     }.items():
         _recog(
             "e_branchformer_raw_en_bpe5000_sp/recog-our-" + name,
