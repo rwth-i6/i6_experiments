@@ -84,6 +84,7 @@ class CustomVocab(SentencePieceModel):
     def get_opts(self) -> Dict[str, Any]:
         return {
             "vocab_file": self.token_list,
+            "num_labels": self.dim,
             "unknown_label": self.unknown_label,
             "bos_label": self.bos_idx,
             "eos_label": self.eos_idx,
