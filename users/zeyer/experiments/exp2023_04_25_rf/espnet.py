@@ -626,21 +626,17 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPne
     sys.path.append(tools_dir + "/espnet")
 
     import espnet2
-
-    espnet_repo_root_dir = os.path.dirname(os.path.dirname(os.path.abspath(espnet2.__file__)))
-
     from espnet2.tasks.asr import ASRTask
     from espnet2.asr.espnet_model import ESPnetASRModel
 
-    enc_aux_logits = config.typed_value("aux_loss_layers")
-    pos_emb_dropout = config.float("pos_emb_dropout", 0.0)
-    # real input is raw audio, internally it does logmel
-    in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
-
     espnet_config_file = config.value("espnet_config", None)
     assert espnet_config_file
+    if not espnet_config_file.startswith("/"):
+        # Assume relative w.r.t. ESPnet repo root dir.
+        espnet_repo_root_dir = os.path.dirname(os.path.dirname(os.path.abspath(espnet2.__file__)))
+        espnet_config_file = espnet_repo_root_dir + "/" + espnet_config_file
     parser = ASRTask.get_parser()
-    args = parser.parse_args(["--config", espnet_repo_root_dir + "/" + espnet_config_file])
+    args = parser.parse_args(["--config", espnet_config_file])
     args.token_list = target_dim.vocab.labels
     assert config.bool("espnet_fixed_sos_eos", False)
     args.model_conf["sym_sos"] = target_dim.vocab.labels[_get_bos_idx(target_dim)]
