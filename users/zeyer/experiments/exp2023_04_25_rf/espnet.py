@@ -307,6 +307,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             model_recog_our,
             {"__batch_size_dependent": True, "beam_search_collect_individual_seq_scores": True, **recog_config},
             vocab="spm_espnet_5k",
+            audio_opts={"peak_normalization": False},  # speech_volume_normalize=False in ESPnet
         )
 
     train_exp(  # 6.13
@@ -397,11 +398,12 @@ def _recog(
     search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
     vocab: str = "bpe10k",
+    audio_opts: Optional[Dict[str, Any]] = None,
 ):
     from sisyphus import tk
     from i6_experiments.users.zeyer.recog import recog_model
 
-    task = _get_ls_task(vocab=vocab)
+    task = _get_ls_task(vocab=vocab, audio_opts=audio_opts)
 
     res = recog_model(
         task,
@@ -480,12 +482,14 @@ def train_exp(
     return model_with_checkpoint
 
 
-_ls_task: Dict[str, Task] = {}  # vocab -> task
+_ls_task: Dict[Any, Task] = {}  # key (see below) -> task
 
 
-def _get_ls_task(*, vocab: str = "bpe10k"):
-    if vocab in _ls_task:
-        return _ls_task[vocab]
+def _get_ls_task(*, vocab: str = "bpe10k", audio_opts: Optional[Dict[str, Any]] = None) -> Task:
+    key = (vocab, tuple(audio_opts.items()) if audio_opts else None)
+
+    if key in _ls_task:
+        return _ls_task[key]
 
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw, bpe10k, spm_espnet_5k
 
@@ -493,8 +497,8 @@ def _get_ls_task(*, vocab: str = "bpe10k"):
     if vocab not in vocabs:
         raise Exception(f"vocab {vocab!r} not found")
 
-    _ls_task[vocab] = get_librispeech_task_raw(vocab=vocabs[vocab])
-    return _ls_task[vocab]
+    _ls_task[key] = get_librispeech_task_raw(vocab=vocabs[vocab], audio_opts=audio_opts)
+    return _ls_task[key]
 
 
 py = sis_run_with_prefix  # if run directly via `sis m ...`
@@ -579,6 +583,15 @@ def _get_orig_e_branchformer_model() -> ModelWithCheckpoint:
             {
                 "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
                 "espnet_fixed_sos_eos": True,
+                "espnet_normalize": "global_mvn",
+                "espnet_normalize_conf": {
+                    "stats_file": tk.Path(
+                        "/u/zeineldeen/setups/ubuntu_22_setups/2024-02-12--aed-beam-search/work/downloaded_models/"
+                        "models--asapp--e_branchformer_librispeech/snapshots/f50914447c48b091738b3e020023ac69dbde9ea9/"
+                        "exp/asr_stats_raw_en_bpe5000_sp/train/feats_stats.npz",
+                        hash_overwrite="ESPnet-Librispeech-feats-stats.npz",
+                    )
+                },
             },
         ),
         checkpoint=PtCheckpoint(
@@ -632,6 +645,11 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPne
     assert config.bool("espnet_fixed_sos_eos", False)
     args.model_conf["sym_sos"] = target_dim.vocab.labels[_get_bos_idx(target_dim)]
     args.model_conf["sym_eos"] = target_dim.vocab.labels[_get_eos_idx(target_dim)]
+
+    if config.value("espnet_normalize", None):
+        args.normalize = config.value("espnet_normalize", "")
+        if config.typed_value("espnet_normalize_conf"):
+            args.normalize_conf = config.typed_value("espnet_normalize_conf")
 
     # TODO any of these relevant?
     #             --use_preprocessor true \

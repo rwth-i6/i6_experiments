@@ -293,7 +293,9 @@ def get_librispeech_task_spm2k() -> Task:
     # TODO ...
 
 
-def get_librispeech_task_raw(*, vocab: VocabConfig, **dataset_train_opts) -> Task:
+def get_librispeech_task_raw(
+    *, vocab: VocabConfig, audio_opts: Optional[Dict[str, Any]] = None, audio_dim: int = 1, **dataset_train_opts
+) -> Task:
     """
     Librispeech
     """
@@ -304,7 +306,10 @@ def get_librispeech_task_raw(*, vocab: VocabConfig, **dataset_train_opts) -> Tas
     else:
         raise TypeError(f"unhandled vocab type {type(vocab)}")
 
-    dataset_common_opts = dict(audio=_raw_audio_opts.copy(), audio_dim=1, vocab=vocab)
+    audio_opts_ = _raw_audio_opts.copy()
+    if audio_opts:
+        audio_opts_.update(audio_opts)
+    dataset_common_opts = dict(audio=audio_opts_, audio_dim=audio_dim, vocab=vocab)
     # We expect that all kwargs are only relevant for the training, thus we only pass them here.
     train_dataset = LibrispeechOggZip(**dataset_common_opts, **dataset_train_opts)
     dev_dataset = LibrispeechOggZip(**dataset_common_opts, main_key="dev-other")
