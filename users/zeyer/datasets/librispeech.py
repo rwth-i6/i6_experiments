@@ -24,6 +24,19 @@ from .utils.spm import SentencePieceModel
 
 librispeech_ogg_zip_dict = librispeech.get_ogg_zip_dict()
 
+# $ ls -la /u/zeyer/setups/librispeech/dataset/tars/
+# -rw-r--r-- 1 zeyer assi   360977013 Feb 26  2018 dev-clean.zip
+# -rw-r--r-- 1 zeyer assi   338709788 Feb 26  2018 dev-other.zip
+# -rw-r--r-- 1 zeyer assi        1024 Feb 27  2018 .history.zeyer
+# -rw-r--r-- 1 zeyer assi   369096021 Feb 26  2018 test-clean.zip
+# -rw-r--r-- 1 zeyer assi   353841318 Feb 26  2018 test-other.zip
+# -rw-r--r-- 1 zeyer assi  6625963133 Feb 26  2018 train-clean-100.zip
+# -rw-r--r-- 1 zeyer assi 23919296392 Feb 26  2018 train-clean-360.zip
+# -rw-r--r-- 1 zeyer assi 31839925140 Feb 26  2018 train-other-500.zip
+librispeech_tars_zip_base_path = tk.Path(
+    "/u/zeyer/setups/librispeech/dataset/tars", hash_overwrite="Librispeech-tars-zip-base-path"
+)
+
 # Get Bliss corpus. Same audio format as in ogg_zip, so already there anyway due to how we created the ogg_zip.
 bliss_corpus_dict = librispeech.get_bliss_corpus_dict(audio_format="ogg")
 bliss_train_corpus = bliss_corpus_dict["train-other-960"]
@@ -322,6 +335,131 @@ class LibrispeechOggZip(DatasetConfig):
         return d
 
 
+class LibrispeechOldFlacTarZip(DatasetConfig):
+    """
+    Librispeech dataset using the old LibriSpeechCorpus RETURNN dataset with use_zip=True,
+    i.e. the original tar files repacked into zip files,
+    i.e. keeping the original flac files inside the zip files.
+    """
+
+    def __init__(
+        self,
+        *,
+        audio: Optional[Dict[str, Any]] = None,
+        audio_dim: Optional[int] = None,
+        vocab: Optional[VocabConfig] = None,
+        with_eos_postfix: bool = False,
+        main_key: Optional[str] = None,
+        train_epoch_split: int = default_train_epoch_split,
+        train_sort_laplace_num_seqs: int = 1000,
+        train_epoch_wise_filter: Optional[Dict[Tuple[int, int], Dict[str, Any]]] = NotSpecified,
+        train_audio_preprocess: Optional[Any] = NotSpecified,
+        train_audio_random_permute: Union[bool, Dict[str, Any]] = False,
+        eval_subset: Optional[int] = 3000,
+    ):
+        """
+        :param with_eos_postfix: For RETURNN train/dev/eval datasets, mostly relevant for training.
+            For recognition, our score function uses the Bliss corpus directly, so this has no influence.
+        """
+        super(LibrispeechOldFlacTarZip, self).__init__()
+        self.audio = audio
+        self.audio_dim = audio_dim
+        self.vocab = vocab
+        self.with_eos_postfix = with_eos_postfix
+        self.main_key = main_key
+        self.train_epoch_split = train_epoch_split
+        self.train_sort_laplace_num_seqs = train_sort_laplace_num_seqs
+        if train_epoch_wise_filter is NotSpecified:
+            train_epoch_wise_filter = deepcopy(_default_train_epoch_wise_filter)
+        if train_audio_preprocess is NotSpecified:
+            if train_audio_random_permute:
+                train_audio_preprocess = None
+            else:
+                train_audio_preprocess = _default_train_audio_preprocess
+        self.train_audio_preprocess = train_audio_preprocess
+        # By default, audio random_permute is False
+        # because we use the specific speed perturbation variant above instead.
+        # A common setting otherwise is {"rnd_zoom_order": 0}.
+        self.train_audio_random_permute = train_audio_random_permute
+        self.train_epoch_wise_filter = train_epoch_wise_filter
+        self.eval_subset = eval_subset
+
+    def get_extern_data(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get extern data
+        """
+        from returnn.tensor import Dim, batch_dim
+
+        opts = {}
+
+        if self.audio is not None:
+            assert self.audio_dim is not None
+            time_dim = Dim(None, name="time", kind=Dim.Types.Spatial)
+            feature_dim = Dim(self.audio_dim, name="audio", kind=Dim.Types.Feature)
+            opts["data"] = {"dim_tags": [batch_dim, time_dim, feature_dim]}
+
+        if self.vocab is not None:
+            out_spatial_dim = Dim(None, name="out-spatial", kind=Dim.Types.Spatial)
+            classes_dim = Dim(self.vocab.get_num_classes(), name="vocab", kind=Dim.Types.Spatial)
+            opts["classes"] = {
+                "dim_tags": [batch_dim, out_spatial_dim],
+                "sparse_dim": classes_dim,
+                "vocab": self.vocab.get_opts(),
+            }
+
+        return opts
+
+    def get_train_dataset(self) -> Dict[str, Any]:
+        return self.get_dataset("train", training=True)
+
+    def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
+        return {
+            "dev": self.get_dataset("dev", subset=self.eval_subset),
+            "devtrain": self.get_dataset("train", subset=self.eval_subset),
+        }
+
+    def get_main_name(self) -> str:
+        return self.main_key
+
+    def get_main_dataset(self) -> Dict[str, Any]:
+        return self.get_dataset(self.main_key)
+
+    def get_dataset(self, key: str, *, training: bool = False, subset: Optional[int] = None) -> Dict[str, Any]:
+        d = {
+            "class": "LibriSpeechCorpus",
+            "path": librispeech_tars_zip_base_path,
+            "use_zip": True,
+            "prefix": key,
+            "use_cache_manager": True,
+        }
+        if self.audio is not None:
+            d["audio"] = self.audio.copy()
+        if self.vocab is not None:
+            d["targets"] = self.vocab.get_opts().copy()
+            assert "seq_postfix" not in d["targets"], d  # we are handling this here
+            if self.with_eos_postfix:
+                eos_id = self.vocab.get_eos_idx()
+                assert eos_id is not None, f"{self}: vocab {self.vocab} does not define EOS"
+                d["targets"]["seq_postfix"] = [eos_id]
+        if training:
+            d["partition_epoch"] = self.train_epoch_split
+            if self.train_epoch_wise_filter is not None:
+                d["epoch_wise_filter"] = self.train_epoch_wise_filter
+            if self.train_audio_preprocess is not None:
+                assert self.audio is not None, "train_audio_preprocess needs audio"
+                d["audio"]["pre_process"] = self.train_audio_preprocess
+            if self.train_audio_random_permute:
+                assert self.audio is not None, "train_audio_random_permute needs audio"
+                d["audio"]["random_permute"] = self.train_audio_random_permute
+            d["seq_ordering"] = f"laplace:.{self.train_sort_laplace_num_seqs}"
+        else:
+            d["fixed_random_seed"] = 1
+            d["seq_ordering"] = "sorted_reverse"
+        if subset:
+            d["fixed_random_subset"] = subset  # faster
+        return d
+
+
 _raw_audio_opts = dict(
     features="raw",
     sample_rate=16_000,
@@ -338,7 +476,14 @@ def get_librispeech_task_spm2k() -> Task:
 
 
 def get_librispeech_task_raw(
-    *, vocab: VocabConfig, audio_opts: Optional[Dict[str, Any]] = None, audio_dim: int = 1, **dataset_train_opts
+    *,
+    dataset_cls: Union[
+        type[LibrispeechOggZip], type[LibrispeechOldFlacTarZip], type[DatasetConfig]
+    ] = LibrispeechOggZip,
+    vocab: VocabConfig,
+    audio_opts: Optional[Dict[str, Any]] = None,
+    audio_dim: int = 1,
+    **dataset_train_opts,
 ) -> Task:
     """
     Librispeech
@@ -355,13 +500,13 @@ def get_librispeech_task_raw(
         audio_opts_.update(audio_opts)
     dataset_common_opts = dict(audio=audio_opts_, audio_dim=audio_dim, vocab=vocab)
     # We expect that all kwargs are only relevant for the training, thus we only pass them here.
-    train_dataset = LibrispeechOggZip(**dataset_common_opts, **dataset_train_opts)
-    dev_dataset = LibrispeechOggZip(**dataset_common_opts, main_key="dev-other")
+    train_dataset = dataset_cls(**dataset_common_opts, **dataset_train_opts)
+    dev_dataset = dataset_cls(**dataset_common_opts, main_key="dev-other")
     eval_datasets = {
-        "dev-clean": LibrispeechOggZip(**dataset_common_opts, main_key="dev-clean"),
+        "dev-clean": dataset_cls(**dataset_common_opts, main_key="dev-clean"),
         "dev-other": dev_dataset,
-        "test-clean": LibrispeechOggZip(**dataset_common_opts, main_key="test-clean"),
-        "test-other": LibrispeechOggZip(**dataset_common_opts, main_key="test-other"),
+        "test-clean": dataset_cls(**dataset_common_opts, main_key="test-clean"),
+        "test-other": dataset_cls(**dataset_common_opts, main_key="test-other"),
     }
 
     return Task(
