@@ -334,6 +334,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "max_seqs": 20,
             "batch_size": 2000 * _batch_size_factor,
             **_get_orig_e_branchformer_lm_model_config(),
+            "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
         },
     }.items():
         _recog(
@@ -649,6 +650,12 @@ def _get_orig_e_branchformer_lm_model_config():
         "a90022f13e9d207d1b93ce3e34727a1d48134af8",
         hash_overwrite="ESPnet-Librispeech-e_branchformer_trafo-lm-config",
     )
+    return {"espnet_language_model_config": lm_config}
+
+
+def _get_orig_e_branchformer_lm_model_preload_opts(*, key: str = "01_trafo_lm"):
+    from sisyphus import tk
+
     lm_ckpt = tk.Path(
         "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2024-02-12--aed-beam-search/work/downloaded_models/"
         "models--asapp--e_branchformer_librispeech/blobs/"
@@ -656,9 +663,10 @@ def _get_orig_e_branchformer_lm_model_config():
         hash_overwrite="ESPnet-Librispeech-e_branchformer_trafo-lm-ckpt",
     )
     return {
-        "espnet_language_model": {
-            "config": lm_config,
-            "checkpoint": lm_ckpt,
+        key: {
+            "prefix": "lm.",
+            "filename": lm_ckpt,
+            "checkpoint_key": None,
         }
     }
 
@@ -732,11 +740,10 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> ESPne
     model.returnn_target_dim = target_dim
 
     model.lm = None
-    if config.typed_value("espnet_language_model"):
+    if config.value("espnet_language_model_config", None):
         from espnet2.tasks.lm import LMTask
 
-        lm_opts = config.typed_value("espnet_language_model")
-        model.lm = LMTask.build_model_from_file(lm_opts["config"], lm_opts["ckpt"], rf.get_default_device())
+        model.lm, _ = LMTask.build_model_from_file(config.value("espnet_language_model_config", None))
 
     return model
 
@@ -1058,7 +1065,10 @@ def model_recog_our(
         label_scorer.label_scorers["length_reward"] = (LengthRewardScorer(), len_reward)
     if model.lm:
         lm_scale = beam_search_opts.pop("lm_scale")
-        label_scorer.label_scorers["lm"] = (get_our_label_scorer_intf(model.lm, enc=enc, enc_olens=enc_olens), lm_scale)
+        label_scorer.label_scorers["lm"] = (
+            get_our_label_scorer_intf(model.lm.lm, enc=enc, enc_olens=enc_olens),
+            lm_scale,
+        )
     beam_search_opts.setdefault("length_normalization_exponent", config.float("length_normalization_exponent", 0.0))
     max_seq_len_factor = beam_search_opts.pop("max_seq_len_factor", 1)
     if max_seq_len_factor != 1:
