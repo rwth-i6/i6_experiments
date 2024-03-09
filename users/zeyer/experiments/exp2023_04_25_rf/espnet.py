@@ -1145,7 +1145,7 @@ def model_recog_our(
     # Partial scorer: Given hyp and some set of labels ("part_ids"),
     #   score all vocab labels (or only the given part_ids labels, and score for others is 0), and calc new state.
 
-    beam_search_version = config.int("beam_search_version", 5)
+    beam_search_version = config.typed_value("beam_search_version", 5)
     beam_search_func = {
         5: beam_search_v5,
         "sep_ended": beam_search_sep_ended,
