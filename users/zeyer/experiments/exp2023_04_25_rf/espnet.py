@@ -1062,7 +1062,7 @@ def model_recog_our(
     beam_search_opts.setdefault("length_normalization_exponent", config.float("length_normalization_exponent", 0.0))
     max_seq_len_factor = beam_search_opts.pop("max_seq_len_factor", 1)
     if max_seq_len_factor != 1:
-        max_seq_len = rf.cast(max_seq_len * max_seq_len_factor, max_seq_len.dtype)
+        max_seq_len = (max_seq_len * max_seq_len_factor).to(max_seq_len.dtype)
     print("** max seq len:", max_seq_len)
 
     # Beam search happening here:
