@@ -537,6 +537,7 @@ def _recog(
         config=recog_config,
         search_rqmt=search_rqmt,
         dev_sets=dev_sets,
+        name=_sis_prefix + "/" + name,
     )
     tk.register_output(_sis_prefix + "/" + name, res.output)
 

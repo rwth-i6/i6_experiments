@@ -138,14 +138,15 @@ def recog_model(
     search_mem_rqmt: Union[int, float] = 6,
     search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
+    name: Optional[str] = None,
 ) -> ScoreResultCollection:
     """recog"""
     if dev_sets is not None:
         assert all(k in task.eval_datasets for k in dev_sets)
     outputs = {}
-    for name, dataset in task.eval_datasets.items():
+    for dataset_name, dataset in task.eval_datasets.items():
         if dev_sets is not None:
-            if name not in dev_sets:
+            if dataset_name not in dev_sets:
                 continue
         recog_out = search_dataset(
             dataset=dataset,
@@ -155,10 +156,11 @@ def recog_model(
             search_post_config=search_post_config,
             search_mem_rqmt=search_mem_rqmt,
             search_rqmt=search_rqmt,
+            search_alias_name=f"{name}/search/{dataset_name}" if name else None,
             recog_post_proc_funcs=task.recog_post_proc_funcs,
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
-        outputs[name] = score_out
+        outputs[dataset_name] = score_out
     return task.collect_score_results_func(outputs)
 
 
@@ -171,6 +173,7 @@ def search_dataset(
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
     search_rqmt: Optional[Dict[str, Any]] = None,
+    search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
 ) -> RecogOutput:
     """
@@ -194,17 +197,12 @@ def search_dataset(
             log_verbosity=5,
             mem_rqmt=search_mem_rqmt,
         )
-        if search_rqmt:
-            search_job.rqmt.update(search_rqmt)
-        if env_updates:
-            for k, v in env_updates.items():
-                search_job.set_env(k, v)
         res = search_job.out_search_file
     else:
         out_files = [_v2_forward_out_filename]
         if config and config.get("__recog_def_ext", False):
             out_files.append(_v2_forward_ext_out_filename)
-        forward_job = ReturnnForwardJobV2(
+        search_job = ReturnnForwardJobV2(
             model_checkpoint=model.checkpoint,
             returnn_config=search_config_v2(
                 dataset, model.definition, recog_def, config=config, post_config=search_post_config
@@ -214,12 +212,14 @@ def search_dataset(
             returnn_root=tools_paths.get_returnn_root(),
             mem_rqmt=search_mem_rqmt,
         )
-        if search_rqmt:
-            forward_job.rqmt.update(search_rqmt)
-        if env_updates:
-            for k, v in env_updates.items():
-                forward_job.set_env(k, v)
-        res = forward_job.out_files[_v2_forward_out_filename]
+        res = search_job.out_files[_v2_forward_out_filename]
+    if search_rqmt:
+        search_job.rqmt.update(search_rqmt)
+    if env_updates:
+        for k, v in env_updates.items():
+            search_job.set_env(k, v)
+    if search_alias_name:
+        search_job.add_alias(search_alias_name)
     if recog_def.output_blank_label:
         res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
     for f in recog_post_proc_funcs:  # for example BPE to words
