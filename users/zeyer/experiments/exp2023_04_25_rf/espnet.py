@@ -1022,7 +1022,7 @@ def model_recog_our(
     search_end_time = time.perf_counter_ns()
 
     vocab = model.returnn_target_dim.vocab
-    print("Batch 0, best:", " ".join(vocab.id_to_label(int(i)) for i in seq_targets[0, 0].cpu()))
+    print("Batch 0, best:", " ".join(vocab.id_to_label(int(i)) for i in seq_targets[0, 0, : out_seq_len[0, 0]].cpu()))
 
     data_seq_len_sum = rf.reduce_sum(data_spatial_dim.dyn_size_ext, axis=data_spatial_dim.dyn_size_ext.dims)
     data_seq_len_sum_secs = data_seq_len_sum.raw_tensor / _batch_size_factor / 100.0
