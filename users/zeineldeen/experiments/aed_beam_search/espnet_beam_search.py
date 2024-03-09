@@ -73,8 +73,9 @@ better_exchook.install()
 
 
 def get_data_loader(dataset_name):
+    wav_scp_path = f"{args.data_path}/data/{dataset_name}/wav.scp"
     loader = ASRTask.build_streaming_iterator(
-        [(f"{args.data_path}/data/{dataset_name}/wav.scp", "speech", "sound")],
+        [(wav_scp_path, "speech", "sound")],
         dtype="float32",
         batch_size=batch_size,
         key_file=None,
@@ -126,9 +127,9 @@ if args.pylasr_recog_args:
 
             pylasr_recog_args = eval(args.pylasr_recog_args)
             recog_config = SimpleNamespace(**pylasr_recog_args)
-            with open("sym", "w") as f:
+            with open("sym.vocab", "w") as f:
                 f.write("\n".join(asr_model.token_list))
-            recog_config.sym = "sym"
+            recog_config.sym = "sym.vocab"
             recog_config.sb = "<sos/eos>"
             recog_config.space = "<blank>"  # TODO: how space symbol is used in AED?
             recog_config.device = args.device
@@ -168,6 +169,8 @@ elif args.returnn_recog_args:
         len_reward = returnn_recog_args.pop("length_reward", 0.0)
         ctc_weight = returnn_recog_args.pop("ctc_weight", 0.0)
         lm_weight = returnn_recog_args.pop("lm_weight", 0.0)
+        debug = returnn_recog_args.pop("debug", False)
+        max_seq_len_offset = returnn_recog_args.pop("max_seq_len_offset", 0)
         beam_search_variant = returnn_recog_args.pop("beam_search_variant")
         assert beam_search_variant in [
             "beam_search_v5",  # just like returnn
@@ -248,7 +251,7 @@ elif args.returnn_recog_args:
             _bs = len(next(iter(batch.values())))
             assert len(keys) == _bs, f"{len(keys)} != {_bs}"
 
-            print(f"Sample id: {keys[0]}")
+            logging.info(f"Sample id: {keys[0]}")
 
             with torch.no_grad():
                 start_time = time.perf_counter_ns()
@@ -282,10 +285,11 @@ elif args.returnn_recog_args:
                 seq_targets, seq_log_scores, out_seq_len = beam_search_func(
                     label_scorer=label_scorer,
                     batch_size=len(keys),
-                    max_seq_len=enc_olens * max_seq_len_ratio,
+                    max_seq_len=enc_olens * max_seq_len_ratio + max_seq_len_offset,
                     device=args.device,
                     opts=beam_search_opts,
                     out_individual_seq_scores=out_individual_seq_scores,
+                    debug=debug,
                 )  # [B,hyp,L]
 
                 search_end_time = time.perf_counter_ns()
@@ -336,6 +340,7 @@ else:
             assert len(keys) == _bs, f"{len(keys)} != {_bs}"
             batch = {k: v[0] for k, v in batch.items() if not k.endswith("_lengths")}
 
+            logging.info(f"Sample id: {keys[0]}")
             results = speech2text(**batch)
 
             key = keys[0]
