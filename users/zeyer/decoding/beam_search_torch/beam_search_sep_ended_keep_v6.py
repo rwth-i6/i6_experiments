@@ -3,7 +3,7 @@ Beam search
 """
 
 from __future__ import annotations
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, TextIO
 
 import functools
 from dataclasses import dataclass
@@ -38,6 +38,7 @@ def beam_search_sep_ended_keep_v6(
     device: torch.device,
     opts: BeamSearchSepEndedKeepOpts,
     out_individual_seq_scores: Optional[Dict[str, torch.Tensor]] = None,
+    debug_out: Optional[TextIO] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Beam search with dynamic beam size and ended hypotheses kept separately.
@@ -51,6 +52,7 @@ def beam_search_sep_ended_keep_v6(
     :param device:
     :param opts:
     :param out_individual_seq_scores: if set, fills in: key -> [Batch,FinalBeam]
+    :param debug_out: prints parsable debug info per step to this file (e.g. use sys.stdout)
     :return: seq_targets, seq_log_prob, out_seq_len:
         seq_targets: [Batch,FinalBeam,OutSeqLen]
         seq_log_prob: [Batch,FinalBeam]
@@ -247,6 +249,8 @@ def beam_search_sep_ended_keep_v6(
 
                 out_individual_seq_scores[k] = seq_score
 
+        if debug_out is not None:
+            print("DEBUG:", ", ".join((f"step={i}", f"act_beam_sizes={act_beam_sizes_cpu}")))
         if max_act_beam_size == 0:
             break
 

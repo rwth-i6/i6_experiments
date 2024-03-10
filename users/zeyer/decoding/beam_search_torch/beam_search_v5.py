@@ -3,7 +3,7 @@ Beam search
 """
 
 from __future__ import annotations
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, TextIO
 
 import functools
 from dataclasses import dataclass
@@ -33,6 +33,7 @@ def beam_search_v5(
     out_individual_seq_scores: Optional[Dict[str, torch.Tensor]] = None,
     cheating_targets: Optional[torch.Tensor] = None,
     cheating_targets_seq_len: Optional[torch.Tensor] = None,
+    debug_out: Optional[TextIO] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     beam search
@@ -45,12 +46,14 @@ def beam_search_v5(
     :param out_individual_seq_scores: if set, fills in: key -> [Batch,FinalBeam]
     :param cheating_targets: shape [Batch,TargetSeqLen]. if set, makes sure this is part of the beam
     :param cheating_targets_seq_len: shape [Batch] -> 0..TargetSeqLen
+    :param debug_out: prints parsable debug info per step to this file (e.g. use sys.stdout)
     :return: seq_targets, seq_log_prob, out_seq_len:
         seq_targets: [Batch,FinalBeam,OutSeqLen]
         seq_log_prob: [Batch,FinalBeam]
         out_seq_len: [Batch,FinalBeam]
     """
     # Eager-mode implementation of beam search.
+    max_seq_len = max_seq_len.to(device)
 
     # Initial state.
     beam_size = 1
@@ -114,8 +117,13 @@ def beam_search_v5(
         i += 1
 
         ended = ended | (target == opts.eos_label)
-        ended = ended | (i >= max_seq_len)[:, None].to(device)  # [Batch,Beam]
-        if ended.all():
+        ended = ended | (i >= max_seq_len)[:, None]  # [Batch,Beam]
+        act_beam_sizes = ended.shape[1] - ended.sum(dim=1)  # [Batch]
+        act_beam_sizes_cpu = act_beam_sizes.cpu()  # single CUDA sync
+        max_act_beam_size = act_beam_sizes_cpu.max()  # scalar
+        if debug_out is not None:
+            print("DEBUG:", ", ".join((f"step={i}", f"act_beam_sizes={act_beam_sizes_cpu}")))
+        if max_act_beam_size == 0:
             break
 
         if opts.length_normalization_exponent != 0:
