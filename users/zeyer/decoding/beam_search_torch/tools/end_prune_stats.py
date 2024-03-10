@@ -28,7 +28,7 @@ def main():
         job_log = log.read().splitlines()
 
     print(f"Open job output in {job_dir}")
-    job_output = eval(open(f"{job_dir}/output/output.py.gz").read())
+    job_output = eval(gzip.open(f"{job_dir}/output/output.py.gz", "rt").read())
     assert isinstance(job_output, dict)
 
     print("Open Bliss XML corpus")
@@ -73,9 +73,10 @@ def main():
                     total_num_seqs_finished += 1
                     orth = seq.orth
                     orth_pieces = sp.encode(orth, out_type=str)
-                    print(
-                        f"seq {seq.segment_name} finished: step {step}, orth len {len(orth_pieces)}, orth {orth}"
-                    )
+                    # print(
+                    #     f"seq {seq.segment_name} finished: step {step},"
+                    #     f" orth len {len(orth_pieces)}, orth {orth_pieces}"
+                    # )
                     total_len_orth += len(orth_pieces)
                     cur_seqs[i] = None
                     continue
@@ -83,6 +84,7 @@ def main():
                 if step > 0:
                     total_act_num_steps += 1
                     total_act_hyps += size
+            prev_step = step
 
     assert total_num_seqs == total_num_seqs_finished  # just a sanity check
     try:
@@ -94,7 +96,7 @@ def main():
 
     print("Num seqs:", total_num_seqs)
     print("Num steps:", total_num_steps)
-    print("Avg num act hyps / step:", total_act_hyps / total_act_num_steps * 100., "%")
+    print("Avg num act hyps / step:", total_act_hyps / total_act_num_steps)
     print("Avg end diff to orth:", (total_num_steps / total_len_orth - 1) * 100., "%")
 
 
