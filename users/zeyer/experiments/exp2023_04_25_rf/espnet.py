@@ -1058,10 +1058,9 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             **_get_orig_e_branchformer_lm_model_config(),
             "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
         },
-        "lm06-ctc03-lenReward1-beam20-batch20-thresh50": {
+        "lm06-ctc03-lenReward1-beam20-batch20": {
             "beam_search_opts": {
                 "beam_size": 20,
-                "beam_ended_size": 20,
                 "ctc_weight": 0.3,
                 "length_reward": 1.0,
                 "lm_scale": 0.6,
@@ -1072,11 +1071,11 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             **_get_orig_e_branchformer_lm_model_config(),
             "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
         },
-        "lm06-ctc03-lenReward1-sep-beam20-batch20-thresh50": {
+        "lm06-ctc03-lenReward1-sep-beam20-batch20": {
             "beam_search_version": "sep_ended",
             "beam_search_opts": {
                 "beam_size": 20,
-                "beam_ended_size": 20,
+                "beam_and_ended_size": 20,
                 "ctc_weight": 0.3,
                 "length_reward": 1.0,
                 "lm_scale": 0.6,
