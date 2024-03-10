@@ -1200,6 +1200,7 @@ def model_recog_our(
             num_labels=model.vocab_size,
         ),
         **extra,
+        debug_out=sys.stdout,
     )
 
     beam_dim = Dim(seq_log_prob.shape[1], name="beam")
