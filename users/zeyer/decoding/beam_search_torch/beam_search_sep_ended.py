@@ -295,7 +295,7 @@ def beam_search_sep_ended(
                 out_individual_seq_scores[k] = seq_score
 
         if debug_out is not None:
-            print("DEBUG:", ", ".join((f"step={i}", f"act_beam_sizes={act_beam_sizes_cpu.numpy().tolist()}")))
+            print("DEBUG:", ", ".join((f"step={i-1}", f"act_beam_sizes={act_beam_sizes_cpu.numpy().tolist()}")))
         if max_act_beam_size == 0:
             break
 

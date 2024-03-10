@@ -122,7 +122,7 @@ def beam_search_v5(
         act_beam_sizes_cpu = act_beam_sizes.cpu()  # single CUDA sync
         max_act_beam_size = act_beam_sizes_cpu.max()  # scalar
         if debug_out is not None:
-            print("DEBUG:", ", ".join((f"step={i}", f"act_beam_sizes={act_beam_sizes_cpu.numpy().tolist()}")))
+            print("DEBUG:", ", ".join((f"step={i-1}", f"act_beam_sizes={act_beam_sizes_cpu.numpy().tolist()}")))
         if max_act_beam_size == 0:
             break
 
