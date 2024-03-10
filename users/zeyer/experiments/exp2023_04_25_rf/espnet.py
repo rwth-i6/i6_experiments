@@ -732,6 +732,21 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             **_get_orig_e_branchformer_lm_model_config(),
             "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
         },
+        "keep-lm06-ctc0-beam12-batch20-thresh10-adaptThresh": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "beam_ended_size": 12,
+                "ctc_weight": 0.0,
+                "lm_scale": 0.6,
+                "max_seq_len_factor": 0.5,
+                "pruning_threshold": 10,
+                "adaptive_pruning": True,
+            },
+            "max_seqs": 20,
+            "batch_size": 2000 * _batch_size_factor,
+            **_get_orig_e_branchformer_lm_model_config(),
+            "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
+        },
     }.items():
         _recog(
             "e_branchformer_raw_en_bpe5000_sp/recog-our-flac-" + name,
