@@ -387,10 +387,162 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             audio_opts={"peak_normalization": False},  # speech_volume_normalize=False in ESPnet
         )
     for name, recog_config in {
+        "ctc0-beam12-batch50": {
+            "beam_search_opts": {"beam_size": 12, "ctc_weight": 0},
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "ctc0-beam12-batch50-lenReward01": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "ctc_weight": 0,
+                "length_reward": 0.1,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "ctc0-beam12-batch50-lenReward02": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "ctc_weight": 0,
+                "length_reward": 0.2,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "sep-ctc0-beam12-batch50-lenReward02": {
+            "beam_search_version": "sep_ended",
+            "beam_search_opts": {
+                "beam_size": 12,
+                "ctc_weight": 0,
+                "length_reward": 0.2,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "keep-ctc0-beam12-batch50-lenReward02-thresh10": {
+            "beam_search_version": "sep_ended_keep_v6",
+            "beam_search_opts": {
+                "beam_size": 12,
+                "ctc_weight": 0,
+                "length_reward": 0.2,
+                "pruning_threshold": 10.0,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "keep-ctc0-beam12-batch50-lenReward02-thresh10-adaptThresh": {
+            "beam_search_version": "sep_ended_keep_v6",
+            "beam_search_opts": {
+                "beam_size": 12,
+                "ctc_weight": 0,
+                "length_reward": 0.2,
+                "pruning_threshold": 10.0,
+                "adaptive_pruning": True,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "ctc0-beam12-batch50-lenReward03": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "ctc_weight": 0,
+                "length_reward": 0.3,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "ctc0-beam12-batch50-lenNorm1": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "ctc_weight": 0,
+                "length_normalization_exponent": 1.0,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "ctc03-beam1-batch50": {
+            "beam_search_opts": {"beam_size": 1, "ctc_weight": 0.3},
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "ctc03-beam2-batch50": {
+            "beam_search_opts": {"beam_size": 2, "ctc_weight": 0.3},
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "ctc03-beam4-batch50": {
+            "beam_search_opts": {"beam_size": 4, "ctc_weight": 0.3},
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "ctc03-beam8-batch50": {
+            "beam_search_opts": {"beam_size": 8, "ctc_weight": 0.3},
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
         "ctc03-beam12-batch50": {
             "beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3},
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
+            "___rerun": 1,
+        },
+        "sep-ctc03-beam12-batch50": {
+            "beam_search_version": "sep_ended",
+            "beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3},
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "keep-ctc03-beam12-batch50-thresh10": {
+            "beam_search_version": "sep_ended_keep_v6",
+            "beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3, "pruning_threshold": 10.0},
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "keep-ctc03-beam12-batch50-thresh10-adaptThresh": {
+            "beam_search_version": "sep_ended_keep_v6",
+            "beam_search_opts": {
+                "beam_size": 12,
+                "ctc_weight": 0.3,
+                "pruning_threshold": 10.0,
+                "adaptive_pruning": True,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "ctc03-beam20-batch50": {
+            "beam_search_opts": {"beam_size": 20, "ctc_weight": 0.3},
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "ctc03-beam32-batch50": {
+            "beam_search_opts": {"beam_size": 32, "ctc_weight": 0.3},
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "lm06-ctc03-beam1-batch20": {
+            "beam_search_opts": {
+                "beam_size": 1,
+                "ctc_weight": 0.3,
+                "lm_scale": 0.6,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 20,
+            "batch_size": 2000 * _batch_size_factor,
+            **_get_orig_e_branchformer_lm_model_config(),
+            "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
+        },
+        "lm06-ctc03-beam12-batch20": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "ctc_weight": 0.3,
+                "lm_scale": 0.6,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 20,
+            "batch_size": 2000 * _batch_size_factor,
+            **_get_orig_e_branchformer_lm_model_config(),
+            "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
         },
         "lm06-ctc03-beam20-batch20": {
             "beam_search_opts": {
@@ -398,6 +550,49 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "ctc_weight": 0.3,
                 "lm_scale": 0.6,
                 "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 20,
+            "batch_size": 2000 * _batch_size_factor,
+            **_get_orig_e_branchformer_lm_model_config(),
+            "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
+            "___rerun": 1,
+        },
+        "sep-lm06-ctc03-beam20-batch20": {
+            "beam_search_version": "sep_ended",
+            "beam_search_opts": {
+                "beam_size": 20,
+                "ctc_weight": 0.3,
+                "lm_scale": 0.6,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 20,
+            "batch_size": 2000 * _batch_size_factor,
+            **_get_orig_e_branchformer_lm_model_config(),
+            "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
+        },
+        "keep-lm06-ctc03-beam20-batch20-thresh10": {
+            "beam_search_version": "sep_ended_keep_v6",
+            "beam_search_opts": {
+                "beam_size": 20,
+                "ctc_weight": 0.3,
+                "lm_scale": 0.6,
+                "max_seq_len_factor": 0.5,
+                "pruning_threshold": 10,
+            },
+            "max_seqs": 20,
+            "batch_size": 2000 * _batch_size_factor,
+            **_get_orig_e_branchformer_lm_model_config(),
+            "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
+        },
+        "keep-lm06-ctc03-beam20-batch20-thresh10-adaptThresh": {
+            "beam_search_version": "sep_ended_keep_v6",
+            "beam_search_opts": {
+                "beam_size": 20,
+                "ctc_weight": 0.3,
+                "lm_scale": 0.6,
+                "max_seq_len_factor": 0.5,
+                "pruning_threshold": 10,
+                "adaptive_pruning": True,
             },
             "max_seqs": 20,
             "batch_size": 2000 * _batch_size_factor,
