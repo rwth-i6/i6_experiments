@@ -21,7 +21,7 @@ class BeamSearchOptsV5:
     eos_label: int
     num_labels: int
 
-    length_normalization_exponent: float = 0.  # e.g. 1 to enable, 0 to disable
+    length_normalization_exponent: float = 0.0  # e.g. 1 to enable, 0 to disable
     pruning_threshold: Optional[float] = None  # prune active hyps away compared to best ended hyp
     adaptive_pruning: bool = False
 
@@ -61,6 +61,7 @@ def beam_search_v5(
 
     bad_score = -1.0e30
     bad_score_dev = torch.full((), bad_score, device=device)
+    true_dev = torch.full((), True, device=device)
     max_seq_len = max_seq_len.to(device)
     if cheating_targets_seq_len:
         cheating_targets_seq_len = cheating_targets_seq_len.to(device)
@@ -140,7 +141,7 @@ def beam_search_v5(
                 # Prune in relation to best ended hyp.
                 pruning_threshold = best_ended_seq_log_prob - opts.pruning_threshold  # [Batch]
                 keep = seq_log_prob > pruning_threshold[:, None]  # [Batch,Beam]
-                torch.where(keep, ended, True, out=ended)
+                torch.where(keep, ended, true_dev, out=ended)
                 torch.where(keep, seq_log_prob, bad_score_dev, out=seq_log_prob)
 
             if opts.adaptive_pruning:
@@ -151,7 +152,7 @@ def beam_search_v5(
                 )  # [Batch|1,Beam|1]
                 max_future_seq_log_prob = torch.where(ended, seq_log_prob, seq_log_prob + max_gain)  # [Batch,Beam]
                 keep = max_future_seq_log_prob > best_ended_seq_log_prob[:, None]  # [Batch,Beam]
-                torch.where(keep, ended, True, out=ended)
+                torch.where(keep, ended, true_dev, out=ended)
                 torch.where(keep, seq_log_prob, bad_score_dev, out=seq_log_prob)
 
         act_beam_sizes = ended.shape[1] - ended.sum(dim=1)  # [Batch]
