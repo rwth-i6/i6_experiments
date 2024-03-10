@@ -377,7 +377,12 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "e_branchformer_raw_en_bpe5000_sp/recog-our-" + name,
             model,
             model_recog_our,
-            {"__batch_size_dependent": True, "beam_search_collect_individual_seq_scores": True, **recog_config},
+            {
+                "__batch_size_dependent": True,
+                "__recog_def_ext": True,
+                "beam_search_collect_individual_seq_scores": True,
+                **recog_config,
+            },
             vocab="spm_espnet_5k",
             audio_opts={"peak_normalization": False},  # speech_volume_normalize=False in ESPnet
         )
@@ -404,7 +409,12 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "e_branchformer_raw_en_bpe5000_sp/recog-our-flac-" + name,
             model,
             model_recog_our,
-            {"__batch_size_dependent": True, "beam_search_collect_individual_seq_scores": True, **recog_config},
+            {
+                "__batch_size_dependent": True,
+                "__recog_def_ext": True,
+                "beam_search_collect_individual_seq_scores": True,
+                **recog_config,
+            },
             vocab="spm_espnet_5k",
             audio_opts={"peak_normalization": False},  # speech_volume_normalize=False in ESPnet
             audio_format="old_flac_tar_zip",
