@@ -94,10 +94,12 @@ def main():
     else:
         raise Exception("Mismatch between num seqs in output and in log")
 
-    print("Num seqs:", total_num_seqs)
-    print("Num steps:", total_num_steps)
-    print("Avg num act hyps / step:", total_act_hyps / total_act_num_steps)
-    print("Avg end diff to orth:", (total_num_steps / total_len_orth - 1) * 100., "%")
+    print(f"Num seqs: {total_num_seqs}")
+    print(f"Num steps: {total_num_steps}")
+    print(f"Avg orth len: {total_len_orth / total_num_seqs:.2f}")
+    print(f"Avg num steps / seq: {total_num_steps / total_num_seqs:.2f}")
+    print(f"Avg num act hyps / step: {total_act_hyps / total_act_num_steps:.2f}")
+    print(f"Avg end diff to orth: {(total_num_steps - total_len_orth) / total_num_seqs:.2f} steps")
 
 
 @contextmanager
