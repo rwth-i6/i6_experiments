@@ -414,6 +414,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_version": "sep_ended",
             "beam_search_opts": {
                 "beam_size": 12,
+                "beam_and_ended_size": 12,
                 "ctc_weight": 0,
                 "length_reward": 0.2,
             },
@@ -424,6 +425,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
                 "beam_size": 12,
+                "beam_ended_size": 12,
                 "ctc_weight": 0,
                 "length_reward": 0.2,
                 "pruning_threshold": 10.0,
@@ -435,6 +437,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
                 "beam_size": 12,
+                "beam_ended_size": 12,
                 "ctc_weight": 0,
                 "length_reward": 0.2,
                 "pruning_threshold": 10.0,
@@ -465,6 +468,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_version": "sep_ended",
             "beam_search_opts": {
                 "beam_size": 12,
+                "beam_and_ended_size": 12,
                 "ctc_weight": 0,
                 "length_normalization_exponent": 1.0,
             },
@@ -475,6 +479,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
                 "beam_size": 12,
+                "beam_ended_size": 12,
                 "ctc_weight": 0,
                 "length_normalization_exponent": 1.0,
                 "pruning_threshold": 5.0,
@@ -486,6 +491,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
                 "beam_size": 12,
+                "beam_ended_size": 12,
                 "ctc_weight": 0,
                 "length_normalization_exponent": 1.0,
                 "pruning_threshold": 5.0,
@@ -498,6 +504,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
                 "beam_size": 12,
+                "beam_ended_size": 12,
                 "ctc_weight": 0,
                 "length_normalization_exponent": 1.0,
                 "pruning_threshold": 10.0,
@@ -509,6 +516,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
                 "beam_size": 12,
+                "beam_ended_size": 12,
                 "ctc_weight": 0,
                 "length_normalization_exponent": 1.0,
                 "pruning_threshold": 10.0,
@@ -521,6 +529,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
                 "beam_size": 12,
+                "beam_ended_size": 12,
                 "ctc_weight": 0,
                 "length_normalization_exponent": 1.0,
                 "pruning_threshold": 20.0,
@@ -532,6 +541,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
                 "beam_size": 12,
+                "beam_ended_size": 12,
                 "ctc_weight": 0,
                 "length_normalization_exponent": 1.0,
                 "pruning_threshold": 20.0,
@@ -568,13 +578,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
         "sep-ctc03-beam12-batch50": {
             "beam_search_version": "sep_ended",
-            "beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3},
+            "beam_search_opts": {"beam_size": 12, "beam_and_ended_size": 12, "ctc_weight": 0.3},
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
         },
         "keep-ctc03-beam12-batch50-thresh10": {
             "beam_search_version": "sep_ended_keep_v6",
-            "beam_search_opts": {"beam_size": 12, "ctc_weight": 0.3, "pruning_threshold": 10.0},
+            "beam_search_opts": {"beam_size": 12, "beam_ended_size": 12, "ctc_weight": 0.3, "pruning_threshold": 10.0},
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
         },
@@ -582,6 +592,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
                 "beam_size": 12,
+                "beam_ended_size": 12,
                 "ctc_weight": 0.3,
                 "pruning_threshold": 10.0,
                 "adaptive_pruning": True,
@@ -594,10 +605,10 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
         },
-        "ctc03-beam32-batch50": {
+        "ctc03-beam32-batch20": {
             "beam_search_opts": {"beam_size": 32, "ctc_weight": 0.3},
-            "max_seqs": 50,
-            "batch_size": 5000 * _batch_size_factor,
+            "max_seqs": 20,
+            "batch_size": 2000 * _batch_size_factor,
         },
         "lm06-ctc03-beam1-batch20": {
             "beam_search_opts": {
@@ -640,6 +651,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_version": "sep_ended",
             "beam_search_opts": {
                 "beam_size": 20,
+                "beam_and_ended_size": 20,
                 "ctc_weight": 0.3,
                 "lm_scale": 0.6,
                 "max_seq_len_factor": 0.5,
@@ -653,6 +665,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
                 "beam_size": 20,
+                "beam_ended_size": 20,
                 "ctc_weight": 0.3,
                 "lm_scale": 0.6,
                 "max_seq_len_factor": 0.5,
@@ -667,6 +680,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
                 "beam_size": 20,
+                "beam_ended_size": 20,
                 "ctc_weight": 0.3,
                 "lm_scale": 0.6,
                 "max_seq_len_factor": 0.5,
