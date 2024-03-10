@@ -431,6 +431,8 @@ class LibrispeechOldFlacTarZip(DatasetConfig):
             "use_zip": True,
             "prefix": key,
             "use_cache_manager": True,
+            # Keep seq tags consistent with our Bliss corpus and with the OggZipDataset.
+            "seq_tag_format": "%(subdir)s/%(speaker)i-%(chapter)i-%(seq)04i/%(speaker)i-%(chapter)i-%(seq)04i",
         }
         if self.audio is not None:
             d["audio"] = self.audio.copy()
@@ -444,7 +446,7 @@ class LibrispeechOldFlacTarZip(DatasetConfig):
         if training:
             d["partition_epoch"] = self.train_epoch_split
             if self.train_epoch_wise_filter is not None:
-                d["epoch_wise_filter"] = self.train_epoch_wise_filter
+                d["epoch_wise_filter"] = {"use_new_filter": True, **self.train_epoch_wise_filter}
             if self.train_audio_preprocess is not None:
                 assert self.audio is not None, "train_audio_preprocess needs audio"
                 d["audio"]["pre_process"] = self.train_audio_preprocess
