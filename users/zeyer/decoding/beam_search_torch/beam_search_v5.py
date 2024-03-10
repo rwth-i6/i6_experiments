@@ -17,10 +17,13 @@ from .utils import top_k_nd, batch_gather, batch_gather_, combine_individual_seq
 @dataclass
 class BeamSearchOptsV5:
     beam_size: int  # e.g. 12
-    length_normalization_exponent: float  # e.g. 1 to enable, 0 to disable
     bos_label: int
     eos_label: int
     num_labels: int
+
+    length_normalization_exponent: float = 0.  # e.g. 1 to enable, 0 to disable
+    pruning_threshold: Optional[float] = None  # prune active hyps away compared to best ended hyp
+    adaptive_pruning: bool = False
 
 
 def beam_search_v5(
@@ -53,6 +56,11 @@ def beam_search_v5(
         out_seq_len: [Batch,FinalBeam]
     """
     # Eager-mode implementation of beam search.
+    if opts.adaptive_pruning:
+        assert opts.length_normalization_exponent == 0  # not supported. check sep_ended_keep_v6 for that. was not good
+
+    bad_score = -1.0e30
+    bad_score_dev = torch.full((), bad_score, device=device)
     max_seq_len = max_seq_len.to(device)
     if cheating_targets_seq_len:
         cheating_targets_seq_len = cheating_targets_seq_len.to(device)
@@ -122,6 +130,30 @@ def beam_search_v5(
 
         ended = ended | (target == opts.eos_label)
         ended = ended | (i >= max_seq_len)[:, None]  # [Batch,Beam]
+
+        if opts.pruning_threshold is not None or opts.adaptive_pruning:
+            # Those pruning variants compare to the best ended hyp.
+            end_seq_log_prob = torch.where(ended, seq_log_prob, bad_score_dev)  # [Batch,Beam]
+            best_ended_seq_log_prob = end_seq_log_prob.max(dim=1).values  # [Batch]
+
+            if opts.pruning_threshold is not None:
+                # Prune in relation to best ended hyp.
+                pruning_threshold = best_ended_seq_log_prob - opts.pruning_threshold  # [Batch]
+                keep = seq_log_prob > pruning_threshold[:, None]  # [Batch,Beam]
+                torch.where(keep, ended, True, out=ended)
+                torch.where(keep, seq_log_prob, bad_score_dev, out=seq_log_prob)
+
+            if opts.adaptive_pruning:
+                # Prune in relation to best potential future score.
+                max_remaining_steps = (max_seq_len - i)[:, None]  # [Batch,Beam=1]
+                max_gain = label_scorer.max_remaining_seq_score(
+                    state=state, max_remaining_steps=max_remaining_steps, device=device
+                )  # [Batch|1,Beam|1]
+                max_future_seq_log_prob = torch.where(ended, seq_log_prob, seq_log_prob + max_gain)  # [Batch,Beam]
+                keep = max_future_seq_log_prob > best_ended_seq_log_prob[:, None]  # [Batch,Beam]
+                torch.where(keep, ended, True, out=ended)
+                torch.where(keep, seq_log_prob, bad_score_dev, out=seq_log_prob)
+
         act_beam_sizes = ended.shape[1] - ended.sum(dim=1)  # [Batch]
         act_beam_sizes_cpu = act_beam_sizes.cpu()  # single CUDA sync
         max_act_beam_size = act_beam_sizes_cpu.max()  # scalar
