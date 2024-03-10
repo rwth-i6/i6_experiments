@@ -155,14 +155,16 @@ def beam_search_sep_ended_keep_v6(
             act_valid &= max_future_seq_log_prob > best_ended_seq_log_prob[:, None]
 
         torch.where(act_valid, act_seq_log_prob, bad_score_dev, out=act_seq_log_prob)
-        max_act_beam_size_cut_off = act_valid.sum(dim=1).max().cpu()  # single CUDA sync
+        act_beam_sizes = act_valid.sum(dim=1)  # [Batch]
+        act_beam_sizes_cpu = act_beam_sizes.cpu()  # single CUDA sync
+        max_act_beam_size = act_beam_sizes_cpu.max()  # scalar
 
         # Seqs are sorted per score, thus we can just slice the best.
         # Slice for the next iteration. `backrefs`, `target` still contain all.
-        act_valid = act_valid[:, :max_act_beam_size_cut_off]
-        act_seq_log_prob = act_seq_log_prob[:, :max_act_beam_size_cut_off]
-        act_backrefs = act_backrefs[:, :max_act_beam_size_cut_off]
-        act_target = act_target[:, :max_act_beam_size_cut_off]
+        act_valid = act_valid[:, :max_act_beam_size]
+        act_seq_log_prob = act_seq_log_prob[:, :max_act_beam_size]
+        act_backrefs = act_backrefs[:, :max_act_beam_size]
+        act_target = act_target[:, :max_act_beam_size]
 
         seq_log_prob = torch.concat([act_seq_log_prob, end_seq_log_prob], dim=1)  # [Batch,ActBeam+EndBeam]
         backrefs = torch.concat(
@@ -245,7 +247,7 @@ def beam_search_sep_ended_keep_v6(
 
                 out_individual_seq_scores[k] = seq_score
 
-        if max_act_beam_size_cut_off == 0:
+        if max_act_beam_size == 0:
             break
 
         act_state = tree.map_structure(
