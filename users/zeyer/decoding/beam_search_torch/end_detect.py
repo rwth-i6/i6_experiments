@@ -29,7 +29,7 @@ def end_detect(
     """
     batch_size = ended_hyps_log_prob.shape[0]
     if ended_hyps_log_prob.shape[1] == 0:
-        return torch.fill([batch_size], False, device=ended_hyps_log_prob.device)
+        return torch.full([batch_size], False, device=ended_hyps_log_prob.device)
     count = torch.zeros([batch_size], dtype=torch.int32, device=ended_hyps_log_prob.device)  # [Batch]
     best_hyp = ended_hyps_log_prob[:, 0]  # [Batch]
     for m_ in range(m):
@@ -39,7 +39,7 @@ def end_detect(
             ended_hyps_log_prob,
             torch.full((), bad_score, device=ended_hyps_log_prob.device),
         )  # [Batch,Beam]
-        best_hyp_this_length = torch.max(hyps_this_length_log_prob, dim=1)  # [Batch]
+        best_hyp_this_length = torch.max(hyps_this_length_log_prob, dim=1).values  # [Batch]
         count = torch.where(
             (best_hyp_this_length < d_end + best_hyp) & (best_hyp_this_length > bad_score), count + 1, count
         )
