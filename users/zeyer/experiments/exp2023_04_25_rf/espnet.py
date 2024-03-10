@@ -1058,6 +1058,35 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             **_get_orig_e_branchformer_lm_model_config(),
             "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
         },
+        "lm06-ctc03-lenReward1-beam20-batch20-thresh50": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "beam_ended_size": 20,
+                "ctc_weight": 0.3,
+                "length_reward": 1.0,
+                "lm_scale": 0.6,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 20,
+            "batch_size": 2000 * _batch_size_factor,
+            **_get_orig_e_branchformer_lm_model_config(),
+            "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
+        },
+        "lm06-ctc03-lenReward1-sep-beam20-batch20-thresh50": {
+            "beam_search_version": "sep_ended",
+            "beam_search_opts": {
+                "beam_size": 20,
+                "beam_ended_size": 20,
+                "ctc_weight": 0.3,
+                "length_reward": 1.0,
+                "lm_scale": 0.6,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 20,
+            "batch_size": 2000 * _batch_size_factor,
+            **_get_orig_e_branchformer_lm_model_config(),
+            "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
+        },
         "lm06-ctc03-lenReward1-keep-beam20-batch20-thresh50": {
             "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
