@@ -21,7 +21,6 @@ def main():
     arg_parser.add_argument("jobdir", help="The directory containing the job files")
     arg_parser.add_argument("--spm", required=True, help="sentence piece model file")
     arg_parser.add_argument("--bliss", required=True, help="Bliss XML file for the corpus")
-    arg_parser.add_argument("--beam", type=int, required=True, help="Beam size")
     args = arg_parser.parse_args()
 
     print(f"Open job log in {args.jobdir}")
