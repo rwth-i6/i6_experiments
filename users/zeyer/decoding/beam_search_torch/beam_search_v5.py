@@ -54,6 +54,8 @@ def beam_search_v5(
     """
     # Eager-mode implementation of beam search.
     max_seq_len = max_seq_len.to(device)
+    if cheating_targets_seq_len:
+        cheating_targets_seq_len = cheating_targets_seq_len.to(device)
 
     # Initial state.
     beam_size = 1
@@ -77,6 +79,7 @@ def beam_search_v5(
         seq_log_prob_ext, individual_scores, new_state = label_scorer.seq_score_ext_and_update_state(
             prev_seq_scores=seq_log_prob, prev_state=state, prev_label=target
         )
+        del state
         # seq_log_prob_ext: [Batch,InBeam,Vocab]
         # individual_scores: all tensors have [Batch|1,InBeam|1,Vocab|1]
         # new_state: all tensors have [Batch,InBeam,...]
@@ -93,7 +96,7 @@ def beam_search_v5(
                 backrefs=backrefs,
                 labels=target,
                 required_label=torch.where(
-                    (i < cheating_targets_seq_len).to(device),
+                    i < cheating_targets_seq_len,
                     cheating_targets[min(i, cheating_targets.shape[0] - 1)],
                     opts.eos_label,
                 ),  # [Batch]
@@ -112,6 +115,7 @@ def beam_search_v5(
                 }
             )
         state = tree.map_structure(functools.partial(batch_gather_, indices=backrefs), new_state)  # [Batch,Beam,...]
+        del new_state
         ended = batch_gather(ended, indices=backrefs)  # [Batch,Beam]
         out_seq_len = batch_gather(out_seq_len, indices=backrefs)  # [Batch,Beam]
         i += 1

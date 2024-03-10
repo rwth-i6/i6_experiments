@@ -84,6 +84,7 @@ def beam_search_sep_ended(
         seq_log_prob_ext, individual_scores, new_state = label_scorer.seq_score_ext_and_update_state(
             prev_seq_scores=act_seq_log_prob, prev_state=act_state, prev_label=act_target
         )
+        del act_state
         # seq_log_prob_ext: [Batch,InActBeam,Vocab]
         # individual_scores: all tensors have [Batch|1,Beam|1,Vocab|1]
         # new_state: all tensors have [Batch,Beam,...]
@@ -304,6 +305,7 @@ def beam_search_sep_ended(
         act_state = tree.map_structure(
             functools.partial(batch_gather_, indices=act_backrefs), new_state
         )  # [Batch,ActBeam,...]
+        del new_state
 
         if opts.length_normalization_exponent != 0:
             # Length-normalized scores, so we evaluate score_t/len.
