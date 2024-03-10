@@ -193,3 +193,21 @@ def py():
                             search_args_["dataset"] = dataset
                             search_args_["maxlenratio"] = max_len
                             run_espnet_search(search_args_, hash_version="debug_v2")
+
+    # TODO: LM+CTC
+    for max_len in [0.5]:
+        for dataset in ["dev_other", "test_other"]:
+            for lm_weight in [0.6]:
+                for ctc_weight in [0.3]:
+                    for beam_size in [20]:
+                        for len_reward in [0.0, 0.1]:
+                            search_args_ = copy.deepcopy(baseline_search_args)
+                            search_args_["beam_size"] = beam_size
+                            search_args_["len_reward"] = len_reward
+                            search_args_["lm_weight"] = lm_weight
+                            search_args_["ctc_weight"] = ctc_weight
+                            search_args_["dataset"] = dataset
+                            search_args_["maxlenratio"] = max_len
+                            run_espnet_search(search_args_)
+
+                            run_espnet_search(search_args_)
