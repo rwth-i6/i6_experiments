@@ -1,7 +1,7 @@
 import torch
 
 
-def end_detect(
+def espnet_end_detect(
     ended_hyps_log_prob: torch.Tensor,
     ended_hyps_seq_len: torch.Tensor,
     *,

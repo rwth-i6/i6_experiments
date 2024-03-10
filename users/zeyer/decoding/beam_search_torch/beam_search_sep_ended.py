@@ -13,7 +13,7 @@ from .interface import LabelScorerIntf
 from .utils import top_k_nd, batch_gather, batch_gather_
 from .beam_search_dyn_beam import BeamSearchDynBeamOpts
 
-from .end_detect import end_detect
+from .espnet_end_detect import espnet_end_detect
 
 
 def beam_search_sep_ended(
@@ -162,7 +162,7 @@ def beam_search_sep_ended(
         torch.where((i_dev >= max_seq_len)[:, None], torch.full((), 1, device=device), state_comb, out=state_comb)
         if end_seq_log_prob is not None and opts.use_espnet_end_detect:
             torch.where(
-                end_detect(ended_hyps_log_prob=end_seq_log_prob, ended_hyps_seq_len=end_seq_len, i=i)[:, None],
+                espnet_end_detect(ended_hyps_log_prob=end_seq_log_prob, ended_hyps_seq_len=end_seq_len, i=i)[:, None],
                 torch.full((), 1, device=device),
                 state_comb,
                 out=state_comb,
