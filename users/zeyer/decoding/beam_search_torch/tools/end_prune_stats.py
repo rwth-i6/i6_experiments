@@ -46,6 +46,7 @@ def main():
     total_num_steps = 0
     total_act_hyps = 0
     total_len_orth = 0
+    max_act_hyps = 0
     for line in job_log:
         if line.startswith("DEBUG: "):
             line = line[len("DEBUG: ") :]
@@ -65,6 +66,7 @@ def main():
                     seq = bliss[seq_tag]
                     cur_seqs.append(seq)
                 total_num_seqs += len(act_beam_sizes)
+                max_act_hyps = max(max_act_hyps, max(act_beam_sizes))
             assert len(act_beam_sizes) == len(cur_seqs)
             for i, (seq, size) in enumerate(zip(cur_seqs, act_beam_sizes)):
                 if not seq:  # already finished before
@@ -98,6 +100,7 @@ def main():
     print(f"Num steps: {total_num_steps}")
     print(f"Avg orth len: {total_len_orth / total_num_seqs:.2f}")
     print(f"Avg num steps / seq: {total_num_steps / total_num_seqs:.2f}")
+    print(f"Max act hyps: {max_act_hyps}")
     print(f"Avg num act hyps / step: {total_act_hyps / total_act_num_steps:.2f}")
     print(f"Avg end diff to orth: {(total_num_steps - total_len_orth) / total_num_seqs:.2f} steps")
 
