@@ -19,8 +19,9 @@ from contextlib import contextmanager
 def main():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("jobdir", help="The directory containing the job files")
-    arg_parser.add_argument("--spm", help="sentence piece model file")
-    arg_parser.add_argument("--bliss", help="Bliss XML file for the corpus")
+    arg_parser.add_argument("--spm", required=True, help="sentence piece model file")
+    arg_parser.add_argument("--bliss", required=True, help="Bliss XML file for the corpus")
+    arg_parser.add_argument("--beam", type=int, required=True, help="Beam size")
     args = arg_parser.parse_args()
 
     print(f"Open job log in {args.jobdir}")
@@ -40,6 +41,12 @@ def main():
     seq_tag_iter = iter(job_output.keys())
     prev_step: Optional[int] = None
     cur_seqs = []
+    total_num_seqs = 0
+    total_num_seqs_finished = 0
+    total_act_num_steps = 0
+    total_num_steps = 0
+    total_act_hyps = 0
+    total_len_orth = 0
     for line in job_log:
         if line.startswith("DEBUG: "):
             line = line[len("DEBUG: ") :]
@@ -58,23 +65,38 @@ def main():
                     seq_tag = next(seq_tag_iter)
                     seq = bliss[seq_tag]
                     cur_seqs.append(seq)
+                total_num_seqs += len(act_beam_sizes)
             assert len(act_beam_sizes) == len(cur_seqs)
-            for seq, size in zip(cur_seqs, act_beam_sizes):
+            for i, (seq, size) in enumerate(zip(cur_seqs, act_beam_sizes)):
                 if not seq:  # already finished before
                     continue
                 if size == 0:  # finished now
+                    total_num_seqs_finished += 1
                     orth = seq.orth
                     orth_pieces = sp.encode(orth, out_type=str)
                     print(
                         f"seq {seq.segment_name} finished: step {step}, orth len {len(orth_pieces)}, orth {orth}"
                     )
+                    total_len_orth += len(orth_pieces)
+                    cur_seqs[i] = None
+                    continue
+                total_num_steps += 1
+                if step > 0:
+                    total_act_num_steps += 1
+                    total_act_hyps += size
 
+    assert total_num_seqs == total_num_seqs_finished  # just a sanity check
     try:
         next(seq_tag_iter)
     except StopIteration:
         pass  # exactly what we expect, we reached the end
     else:
         raise Exception("Mismatch between num seqs in output and in log")
+
+    print("Num seqs:", total_num_seqs)
+    print("Num steps:", total_num_steps)
+    print("Avg num act hyps / step:", total_act_hyps / total_act_num_steps * 100., "%")
+    print("Avg end diff to orth:", (total_num_steps / total_len_orth - 1) * 100., "%")
 
 
 @contextmanager
