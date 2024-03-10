@@ -22,6 +22,7 @@ class BeamSearchDynBeamOpts:
     bos_label: int
     eos_label: int
     num_labels: int
+    use_espnet_end_detect: bool = False
 
 
 def beam_search_dyn_beam(
@@ -242,7 +243,6 @@ def beam_search_dyn_beam(
             )  # [Batch_PA] -> Batch__ * Vocab + Vocab (flat indices)
 
             for k in list(individual_scores_.keys()):
-
                 seq_score = individual_scores_.pop(k)  # [Batch__|1,Vocab|1]
                 if seq_score.shape == (1, 1):  # [Batch__=1,Vocab=1]
                     pass  # leave it, but it will be interpreted as [Batch=1,(ActBeam+EndedBeam)=1]

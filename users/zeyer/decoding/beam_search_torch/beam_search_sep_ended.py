@@ -13,6 +13,8 @@ from .interface import LabelScorerIntf
 from .utils import top_k_nd, batch_gather, batch_gather_
 from .beam_search_dyn_beam import BeamSearchDynBeamOpts
 
+from .end_detect import end_detect
+
 
 def beam_search_sep_ended(
     label_scorer: LabelScorerIntf,
@@ -158,6 +160,13 @@ def beam_search_sep_ended(
             torch.where(end_comb, torch.full((), 1, device=device), state_comb, out=state_comb)
         torch.where(target == opts.eos_label, torch.full((), 1, device=device), state_comb, out=state_comb)
         torch.where((i_dev >= max_seq_len)[:, None], torch.full((), 1, device=device), state_comb, out=state_comb)
+        if end_seq_log_prob is not None and opts.use_espnet_end_detect:
+            torch.where(
+                end_detect(ended_hyps_log_prob=end_seq_log_prob, ended_hyps_seq_len=end_seq_len, i=i)[:, None],
+                torch.full((), 1, device=device),
+                state_comb,
+                out=state_comb,
+            )
         torch.where(seq_log_prob <= bad_score, torch.full((), 100, device=device), state_comb, out=state_comb)
 
         act_comb = state_comb == 0  # [Batch,OutCombBeam]
@@ -252,7 +261,6 @@ def beam_search_sep_ended(
             backrefs_flat += target  # [Batch,ActBeam+EndedBeam] -> flat indices in (Batch,InActBeam,Vocab)
 
             for k in list(individual_scores.keys()):
-
                 seq_score = individual_scores.pop(k)  # [Batch|1,Beam|1,Vocab|1]
                 if seq_score.shape == (1, 1, 1):  # [Batch=1,Beam=1,Vocab=1]
                     seq_score = seq_score[0]  # interpret it as [Batch=1,(ActBeam+EndedBeam)=1]
