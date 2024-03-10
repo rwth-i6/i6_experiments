@@ -693,7 +693,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
         },
         "lm06-ctc0-beam12-batch20": {
-            "beam_search_version": "sep_ended",
             "beam_search_opts": {
                 "beam_size": 12,
                 "ctc_weight": 0.0,
@@ -706,6 +705,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
         },
         "sep-lm06-ctc0-beam12-batch20": {
+            "beam_search_version": "sep_ended",
             "beam_search_opts": {
                 "beam_size": 12,
                 "beam_and_ended_size": 12,
@@ -719,6 +719,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
         },
         "keep-lm06-ctc0-beam12-batch20-thresh10": {
+            "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
                 "beam_size": 12,
                 "beam_ended_size": 12,
@@ -733,6 +734,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
         },
         "keep-lm06-ctc0-beam12-batch20-thresh10-adaptThresh": {
+            "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
                 "beam_size": 12,
                 "beam_ended_size": 12,
@@ -748,7 +750,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
         },
         "lm06-ctc0-beam12-batch20-lenNorm1": {
-            "beam_search_version": "sep_ended",
             "beam_search_opts": {
                 "beam_size": 12,
                 "ctc_weight": 0.0,
@@ -762,6 +763,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
         },
         "sep-lm06-ctc0-beam12-batch20-lenNorm1": {
+            "beam_search_version": "sep_ended",
             "beam_search_opts": {
                 "beam_size": 12,
                 "beam_and_ended_size": 12,
@@ -776,6 +778,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
         },
         "keep-lm06-ctc0-beam12-batch20-lenNorm1-thresh10": {
+            "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
                 "beam_size": 12,
                 "beam_ended_size": 12,
