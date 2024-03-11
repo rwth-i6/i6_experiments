@@ -488,6 +488,12 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     from returnn.tensor import Tensor, Dim, batch_dim
     from returnn.config import get_global_config
 
+    if rf.is_executing_eagerly():
+        batch_size = int(batch_dim.get_dim_value())
+        for batch_idx in range(batch_size):
+            seq_tag = extern_data["seq_tag"].raw_tensor[batch_idx].item()
+            print(f"batch {batch_idx+1}/{batch_size} seq_tag: {seq_tag!r}")
+
     config = get_global_config()
     default_input_key = config.typed_value("default_input")
     data = extern_data[default_input_key]
