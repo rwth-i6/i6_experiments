@@ -681,6 +681,18 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
         },
+        "ctc0-lenNorm1-keep-beam20-batch50-thresh10": {
+            "beam_search_version": "sep_ended_keep_v6",
+            "beam_search_opts": {
+                "beam_size": 20,
+                "beam_ended_size": 20,
+                "ctc_weight": 0,
+                "length_normalization_exponent": 1.0,
+                "pruning_threshold": 10.0,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
         "ctc03-beam1-batch50": {
             "beam_search_opts": {"beam_size": 1, "ctc_weight": 0.3},
             "max_seqs": 50,
