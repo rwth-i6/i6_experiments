@@ -12,4 +12,4 @@ def run_evaluate_reference_nisqa():
         segment_file=cv_segments,
         delete_empty_recordings=True
     ).out_corpus
-    evaluate_nisqa(prefix_name="experiments/jaist_project/evaluation/cv_mos", bliss_corpus=cv_corpus)
+    evaluate_nisqa(prefix_name="experiments/jaist_project/evaluation/cv_mos", bliss_corpus=cv_corpus, with_bootstrap=True)

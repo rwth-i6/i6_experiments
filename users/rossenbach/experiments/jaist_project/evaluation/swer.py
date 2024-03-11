@@ -12,5 +12,6 @@ def run_evaluate_reference_swer():
         run_swer_evaluation(
             prefix_name="experiments/jaist_project/evaluation/swer/" + system_name,
             synthetic_bliss=bliss,
-            system=asr_recognizer_systems[system_name]
+            system=asr_recognizer_systems[system_name],
+            with_confidence=True,
         )

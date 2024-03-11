@@ -3,9 +3,61 @@ from sisyphus import Job, Task, gs, tk
 import numpy as np
 import os
 import subprocess
+import sys
 from typing import Optional
 
 from i6_core.lib.corpus import Corpus
+from i6_experiments.users.rossenbach.tools.bootstrap import BootstrapConfidenceJobTemplate
+
+
+class NISQAConfidenceJob(BootstrapConfidenceJobTemplate):
+    """
+        Calculate Confidence Intervals with Bootstrap method for NISQA results
+    """
+
+    def __init__(self, nisqa_out_dir: tk.Path, bliss_corpus: tk.Path):
+        super().__init__()
+        self.nisqa_out_dir = nisqa_out_dir
+        self.bliss_corpus = bliss_corpus
+
+    def run(self):
+        def mean_metric(samples):
+            return np.mean(samples)
+        
+        mos_csv = open(os.path.join(self.nisqa_out_dir.get(), "NISQA_results.csv"), "rt")
+        mos_values = []
+        audio_files = []
+        for i, line in enumerate(mos_csv.readlines()):
+            if i == 0:
+                # skip header line
+                continue
+            audio_file, _, mos, _ = line.strip().split(",")
+            mos_values.append(float(mos))
+            audio_files.append(audio_file)
+            
+        # very ugly to load it like this again, fix after deadline
+        speaker_set = set()
+        recording_speaker_map = {}
+
+        c = Corpus()
+        c.load(self.bliss_corpus.get_path())
+        corpus_base_path = os.path.dirname(self.bliss_corpus.get_path())
+        for recording in c.all_recordings():
+            speaker = recording.speaker_name or recording.segments[0].speaker_name
+            for segment in recording.segments:
+                assert segment.speaker_name is None or segment.speaker_name == speaker, (
+                    "Job does not support recordings containing multiple speakers")
+            audio = recording.audio if recording.audio.startswith("/") else os.path.join(corpus_base_path, recording.audio)
+            recording_speaker_map[audio] = speaker
+            speaker_set.add(speaker)
+
+        # convert speaker names to ids, does not need to be deterministic, any id is fine
+        speaker_id_map = {s: i for i, s in enumerate(list(speaker_set))}
+        conditions = [
+            speaker_id_map[recording_speaker_map[audio_file]] for audio_file in audio_files
+        ]
+
+        self.compute_bootstrap(np.asarray(mos_values), metric=mean_metric, conditions=conditions)
 
 
 class NISQAMosPredictionJob(Job):
@@ -59,7 +111,7 @@ class NISQAMosPredictionJob(Job):
             "--bs", "10"
         ], cwd=self.nisqa_repo.get_path())
 
-        mos_csv = open(os.path.join(self.output_dir, "NISQA_results.csv"), "rt")
+        mos_csv = open(os.path.join(self.output_dir.get(), "NISQA_results.csv"), "rt")
         mos_values = []
         for i, line in enumerate(mos_csv.readlines()):
             if i == 0:
