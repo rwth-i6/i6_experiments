@@ -410,7 +410,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "ctc0-keep-beam60-batch50-thresh5": {
             "beam_search_opts": {
                 "beam_size": 60,
-                "beam_ended_size": 60,
+                "beam_and_ended_size": 60,
                 "ctc_weight": 0,
                 "pruning_threshold": 5.0,
             },
