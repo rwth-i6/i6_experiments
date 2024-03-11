@@ -194,34 +194,34 @@ def sis_run_with_prefix(prefix_name: str = None):
             "scales": [0.1],
         },
         "model_ctc0.9_att0.1": {
-            "scales": [],
+            "scales": [0.1],
         },
         "model_ctc0.8_att0.2": {
-            "scales": [],
+            "scales": [0.1],
         },
         "model_ctc0.7_att0.3": {
-            "scales": [],
+            "scales": [0.1],
         },
         "model_ctc0.6_att0.4": {
-            "scales": [],
+            "scales": [0.0],
         },
         "model_ctc0.5_att0.5": {
-            "scales": [],
+            "scales": [0.2],
         },
         "model_ctc0.4_att0.6": {
-            "scales": [],
+            "scales": [0.1],
         },
         "model_ctc0.3_att0.7": {
-            "scales": [],
+            "scales": [0.1],
         },
         "model_ctc0.2_att0.8": {
-            "scales": [],
+            "scales": [0.1],
         },
         "model_ctc0.1_att0.9": {
-            "scales": [],
+            "scales": [0.1],
         },
         "model_ctc0.001_att0.999": {
-            "scales": [],
+            "scales": [0.0],
         },
         "model_ctc_only": {
             "scales": [0.1],
@@ -258,7 +258,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     # ctc prefix scorer
     # for model_name in list(model_names)[:-3] + ["model_ctc_only"]:
     for model_name in ctc_prefix_scorer_model_names.keys():
-        for beam_size, prior_scale in product([1, 12, 32], [0.0, 0.1 ,0.2]):
+        for beam_size, prior_scale in product([1, 12, 32], ctc_prefix_scorer_model_names[model_name]["scales"]):
             search_args = {
                 "beam_size": beam_size,
                 "bsf": bsf,
@@ -284,7 +284,7 @@ def sis_run_with_prefix(prefix_name: str = None):
                 task,
                 models_with_pt_ckpt[model_name]["ckpt"],
                 model_recog,
-                dev_sets=["dev"],  # set to None for all
+                dev_sets=["dev", "test"],  # set to None for all
                 model_args=models_with_pt_ckpt[model_name]["model_args"],
                 search_args=search_args,
                 prefix_name=name,
@@ -338,22 +338,25 @@ def sis_run_with_prefix(prefix_name: str = None):
         # "model_ctc1.0_att1.0_lay10": {
         #     "scales": [(0.8, 0.2, 0.9)],
         # },
+        # "model_ctc0.9_att0.1": {
+        #     "scales": [(0.6, 0.4, 0.6)],
+        # },
+        # "model_ctc0.8_att0.2": {
+        #     "scales": [(0.65, 0.35, 0.6)],
+        # },
+        # "model_ctc0.7_att0.3": {
+        #     "scales": [(0.65, 0.35, 0.8)],
+        # },
+        # "model_ctc0.6_att0.4": {
+        #     "scales": [(0.75, 0.25, 0.7)],
+        # },
+        # "model_ctc0.5_att0.5": {
+        #     "scales": [(0.7, 0.3, 0.8), (0.8, 0.2, 0.9)],
+        # },
+        # "model_ctc0.4_att0.6": {
+        #     "scales": [(0.8, 0.2, 0.8)],
+        # },
         # ---------------
-        "model_ctc0.9_att0.1": {
-            "scales": [],
-        },
-        "model_ctc0.8_att0.2": {
-            "scales": [],
-        },
-        "model_ctc0.7_att0.3": {
-            "scales": [],
-        },
-        "model_ctc0.6_att0.4": {
-            "scales": [],
-        },
-        "model_ctc0.5_att0.5": {
-            "scales": [],
-        },
         # "model_att_only_currL",
         # "model_att_only_adjSpec",
         # "model_ctc_only",
@@ -361,9 +364,9 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # opls att + ctc prefix scorer
     for model_name in opls_model_names:
-        for scales, prior_scale, beam_size in product([(0.7, 0.3), (0.8, 0.2), (0.9, 0.1)], [0], [12]):
+        for scales, beam_size in product(opls_model_names[model_name]["scales"], [12, 32, 64]):
 
-            att_scale, ctc_scale = scales
+            att_scale, ctc_scale, prior_scale = scales
 
             search_args = {
                 "beam_size": beam_size,
@@ -390,7 +393,7 @@ def sis_run_with_prefix(prefix_name: str = None):
                 task,
                 models_with_pt_ckpt[model_name]["ckpt"],
                 model_recog,
-                dev_sets=["dev"],  # set to None for all
+                dev_sets=["dev", "test"],  # set to None for all
                 model_args=models_with_pt_ckpt[model_name]["model_args"],
                 search_args=search_args,
                 prefix_name=name,
@@ -402,35 +405,32 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # ----------------- With Trafo LM -----------------
 
-    # att + ctc + trafo lm opts
-    for scales, beam_size in product([(0.65, 0.35, 0.1)], []):
-        att_scale, ctc_scale, lm_scale = scales
+    # att + ctc + trafo lm opls
+    for model_name, scales, lm_scale, beam_size in product(["model_baseline"], [(0.7, 0.3, 0.7)], [0.4, 0.5, 0.6] ,[6, 12 ,32]):
+        att_scale, ctc_scale, prior_scale = scales
         name = (
             prefix_name
-            + f"/bsf40_opts_att{att_scale}_ctc{ctc_scale}_blank_collapse_trafolm{lm_scale}_no_eos_beam{beam_size}"
+            + "/" + model_name
+            + f"/opls_att{att_scale}_ctc{ctc_scale}_trafolm{lm_scale}"
+            + (f"_prior{prior_scale}" if prior_scale > 0 else "")
+            + f"_beam{beam_size}"
         )
         search_args = {
             "beam_size": beam_size,
             "att_scale": att_scale,
             "ctc_scale": ctc_scale,
             "add_trafo_lm": True,
-            "remove_trafo_lm_eos": True,
             "lm_scale": lm_scale,
-            "blank_collapse": True,
-            "blank_threshold": -0.05,  # in log space
-            "bsf": "bsf40",
+            "bsf": bsf,
         }
-
-        dev_sets = ["dev"]  # only dev for testing
-        # dev_sets = None  # all
 
         # first recog
         recog_res, recog_out = recog_model(
             task,
-            model_with_checkpoint,
-            model_recog_time_sync,
-            dev_sets=dev_sets,
-            model_args=model_args,
+            models_with_pt_ckpt[model_name]["ckpt"],
+            model_recog,
+            dev_sets=["dev"],
+            model_args=models_with_pt_ckpt[model_name]["model_args"],
             search_args=search_args,
             prefix_name=name,
         )

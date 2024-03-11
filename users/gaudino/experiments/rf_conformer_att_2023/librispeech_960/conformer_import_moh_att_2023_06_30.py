@@ -455,20 +455,20 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # att + trafo lm
     # beam 32: {"dev-clean": 1.91, "dev-other": 4.14, "test-clean": 2.2, "test-other": 4.6}
-    for lm_scale, beam_size in product([0.42], []):
-        recog_name = f"/bsf20/att_trafo_lm{lm_scale}_beam{beam_size}"
+    for lm_scale, beam_size in product([0.42], [40, 48 ,60 ,64, 70]):
+        recog_name = f"/bsf10/att_trafo_lm{lm_scale}_beam{beam_size}"
         name = prefix_name + recog_name
         search_args = {
             "beam_size": beam_size,
             "add_trafo_lm": True,
             "lm_scale": lm_scale,
-            "bsf": 20,
+            "bsf": 10,
         }
         res, _ = recog_model(
             task,
             model_with_checkpoint,
             model_recog,
-            dev_sets=None,
+            dev_sets=["dev-other"],
             model_args=model_args,
             search_args=search_args,
             prefix_name=name,
@@ -519,7 +519,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     # att + trafo lm + espnet ctc prefix scorer
     # beam 32: {"dev-clean": 1.79, "dev-other": 3.94, "test-clean": 2.03, "test-other": 4.36}
     for scales, prior_scale, lm_scale, beam_size in product(
-        [(0.85, 0.15)], [0.0], [0.5], [42, 48, 64]
+        [(0.85, 0.15)], [0.0], [0.5], []
     ):
         att_scale, ctc_scale = scales
         recog_name = (
