@@ -1533,7 +1533,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # tune len reward scale
     for len_reward_scale in [0.5, 0.7, 1.0, 1.2, 1.5]:
         for variant in [None, "sep_ended_keep_v6"]:
-            name = f"lm06-ctc03-lenReward{int(len_reward_scale * 10):02d}"
+            name = "lm06-ctc03-lenReward" + str(len_reward_scale).replace(".", "").rstrip("0")
             recog_config = {
                 "beam_search_opts": {
                     "beam_size": 20,
