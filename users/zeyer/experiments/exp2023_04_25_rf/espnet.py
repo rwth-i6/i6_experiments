@@ -1533,7 +1533,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # tune len reward scale
     for len_reward_scale in [0.5, 0.7, 1.0, 1.2, 1.5]:
         for variant in [None, "sep_ended_keep_v6"]:
-            name = f"lm06-ctc03-lenReward{int(len_reward_scale * 10):2d}"
+            name = f"lm06-ctc03-lenReward{int(len_reward_scale * 10):02d}"
             recog_config = {
                 "beam_search_opts": {
                     "beam_size": 20,
@@ -1553,7 +1553,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 recog_config["beam_search_version"] = variant
                 if variant == "sep_ended_keep_v6":
                     name += "-keep"
-                    recog_config["beam_ended_size"] = recog_config["beam_size"]
+                    recog_config["beam_search_opts"]["beam_ended_size"] = recog_config["beam_search_opts"]["beam_size"]
             name += "-beam20-batch20-thresh10-adaptThresh"
             _recog(
                 f"e_branchformer_raw_en_bpe5000_sp/recog-our-flac-" + name,
