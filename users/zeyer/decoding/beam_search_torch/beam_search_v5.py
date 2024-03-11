@@ -140,7 +140,7 @@ def beam_search_v5(
             if opts.pruning_threshold is not None:
                 # Prune in relation to best ended hyp.
                 pruning_threshold = best_ended_seq_log_prob - opts.pruning_threshold  # [Batch]
-                keep = seq_log_prob > pruning_threshold[:, None]  # [Batch,Beam]
+                keep = ended | (seq_log_prob > pruning_threshold[:, None])  # [Batch,Beam]
                 torch.where(keep, ended, true_dev, out=ended)
                 torch.where(keep, seq_log_prob, bad_score_dev, out=seq_log_prob)
 
@@ -151,7 +151,7 @@ def beam_search_v5(
                     state=state, max_remaining_steps=max_remaining_steps, device=device
                 )  # [Batch|1,Beam|1]
                 max_future_seq_log_prob = torch.where(ended, seq_log_prob, seq_log_prob + max_gain)  # [Batch,Beam]
-                keep = max_future_seq_log_prob > best_ended_seq_log_prob[:, None]  # [Batch,Beam]
+                keep = ended | (max_future_seq_log_prob > best_ended_seq_log_prob[:, None])  # [Batch,Beam]
                 torch.where(keep, ended, true_dev, out=ended)
                 torch.where(keep, seq_log_prob, bad_score_dev, out=seq_log_prob)
 
