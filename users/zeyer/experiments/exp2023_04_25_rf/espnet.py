@@ -408,6 +408,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "batch_size": 5000 * _batch_size_factor,
         },
         "ctc0-keep-beam60-batch50-thresh5": {
+            "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
                 "beam_size": 60,
                 "beam_and_ended_size": 60,
