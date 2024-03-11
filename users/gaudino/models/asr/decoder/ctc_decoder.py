@@ -269,6 +269,7 @@ class CTCDecoder:
         # embed_weight_init=None,
         # lstm_weights_init=None,
         length_normalization=False,
+        length_normalization_scale=1.0,
         # coverage_threshold=None,
         # coverage_scale=None,
         # ce_loss_scale=1.0,
@@ -379,6 +380,7 @@ class CTCDecoder:
         # self.reduceout = reduceout
         #
         self.length_normalization = length_normalization
+        self.length_normalization_scale = length_normalization_scale
         # self.coverage_threshold = coverage_threshold
         # self.coverage_scale = coverage_scale
         #
@@ -722,6 +724,60 @@ class CTCDecoder:
             }
         )
 
+        if self.length_normalization:
+            subnet_unit.update(
+                {
+                    "const0": {"class": "constant", "value": 0, "collocate_with": "du"},
+                    "const1": {"class": "constant", "value": 1, "collocate_with": "du"},
+
+                    # pos in target, [B]
+                    "du": {"class": "switch", "condition": "prev_mask", "true_from": "const1", "false_from": "const0"},
+                    "u": {"class": "combine", "from": ["prev:u", "du"], "kind": "add", "initial_output": 0},
+
+                    "log_u": {
+                        "class": "eval",
+                        "from": "u",
+                        "eval": "tf.math.log(tf.cast(source(0), tf.float32))",
+                        "out_type": {"dtype": "float32"},
+                    },
+
+                    "p_comb_sigma_prime_no_length_norm": {
+                        "class": "concat",
+                        "from": [
+                            ("scaled_label_score", "f"),
+                            ("scaled_blank_log_prob_expand", "f"),
+                        ],
+                    },
+                    "length_norm_term_mask": {
+                        "class": "compare",
+                        "from": "prev:u",
+                        "kind": "not_equal",
+                        "value": 0,
+                    },
+                    "length_norm_term_1": {
+                        "class": "eval",
+                        "from": ["log_u", "prev:log_u"],
+                        "eval": "source(1) - source(0)",
+                    },
+                    "length_norm_term": {
+                        "class": "switch",
+                        "condition": "length_norm_term_mask",
+                        "true_from": "length_norm_term_1",
+                        "false_from": 0.0,
+                    },
+                    "scaled_length_norm_term": {
+                        "class": "eval",
+                        "from": "length_norm_term",
+                        "eval": f"{self.length_normalization_scale} * source(0)",
+                    },
+                    "p_comb_sigma_prime": {
+                        "class": "combine",
+                        "kind": "add",
+                        "from": ["p_comb_sigma_prime_no_length_norm", "scaled_length_norm_term"],
+                    },
+                }
+            )
+
         if self.recombine:
             subnet_unit.update({
                 "output": {
@@ -731,32 +787,16 @@ class CTCDecoder:
                     "from": "p_comb_sigma_prime" if not self.rescore_last_eos else "p_comb_sigma_prime_w_eos",
                     "input_type": "log_prob",
                     "initial_output": 0,
-                    "length_normalization": self.length_normalization,
+                    "length_normalization": False,
                     "explicit_search_sources": ["prev:out_str", "prev:output"],
                     "custom_score_combine": CodeWrapper("targetb_recomb_recog"),
                 },
 
                 "out_str": {
-                    "class": "eval", "from": ["prev:out_str", "output_emit", "output"],
+                    "class": "eval", "from": ["prev:out_str", "curr_mask", "output"],
                     "initial_output": None, "out_type": {"shape": (), "dtype": "string"},
                     "eval": CodeWrapper("out_str")
                 },
-
-                "output_is_diff_to_before": {"class": "compare", "from": ["output", "prev:output"],
-                                             "kind": "not_equal"},
-
-                # We allow repetitions of the output label. This "output_emit" is True on the first label but False otherwise, and False on blank.
-                "output_emit": {
-                    "class": "eval", "from": ["is_curr_out_not_blank_mask", "output_is_diff_to_before"],
-                    "is_output_layer": True, "initial_output": True,
-                    "eval": "tf.logical_and(source(0), source(1))"},
-
-                "const0": {"class": "constant", "value": 0, "collocate_with": "du"},
-                "const1": {"class": "constant", "value": 1, "collocate_with": "du"},
-
-                # pos in target, [B]
-                "du": {"class": "switch", "condition": "output_emit", "true_from": "const1", "false_from": "const0"},
-                "u": {"class": "combine", "from": ["prev:u", "du"], "kind": "add", "initial_output": 0},
             })
         else:
             subnet_unit.update({
@@ -767,7 +807,7 @@ class CTCDecoder:
                     "from": "p_comb_sigma_prime" if not self.rescore_last_eos else "p_comb_sigma_prime_w_eos",
                     "input_type": "log_prob",
                     "initial_output": 0,
-                    "length_normalization": self.length_normalization,
+                    "length_normalization": False,
                 },
             })
 
@@ -993,7 +1033,7 @@ class CTCDecoder:
                     "from": choice_layer_source,
                     "input_type": "log_prob",
                     "initial_output": 0,
-                    "length_normalization": self.length_normalization,
+                    "length_normalization": False,
                     "explicit_search_sources": ["prev:out_str", "prev:output"],
                     "custom_score_combine": CodeWrapper("targetb_recomb_recog"),
                 },
@@ -1012,13 +1052,6 @@ class CTCDecoder:
                     "class": "eval", "from": ["is_curr_out_not_blank_mask", "output_is_diff_to_before"],
                     "is_output_layer": True, "initial_output": True,
                     "eval": "tf.logical_and(source(0), source(1))"},
-
-                "const0": {"class": "constant", "value": 0, "collocate_with": "du"},
-                "const1": {"class": "constant", "value": 1, "collocate_with": "du"},
-
-                # pos in target, [B]
-                "du": {"class": "switch", "condition": "output_emit", "true_from": "const1", "false_from": "const0"},
-                "u": {"class": "combine", "from": ["prev:u", "du"], "kind": "add", "initial_output": 0},
             })
             subnet_unit.update({
                 "is_curr_out_not_blank_mask": {

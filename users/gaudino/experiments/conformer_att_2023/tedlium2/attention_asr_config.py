@@ -605,6 +605,7 @@ class CTCDecoderArgs(DecoderArgs):
     one_minus_term_mul_scale: float = 1.0
     one_minus_term_sub_scale: float = 0.0
     length_normalization: bool = False
+    length_normalization_scale: float = 1.0
     target_dim: int = 10025
     target_embed_dim: int = 640
     # hash_override_version: Optional[int] = None
