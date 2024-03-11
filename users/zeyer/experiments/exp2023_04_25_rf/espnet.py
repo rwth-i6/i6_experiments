@@ -411,7 +411,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
                 "beam_size": 60,
-                "beam_and_ended_size": 60,
+                "beam_ended_size": 60,
                 "ctc_weight": 0,
                 "pruning_threshold": 5.0,
             },
