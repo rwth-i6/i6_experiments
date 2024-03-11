@@ -743,6 +743,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
         },
+        "ctc03-lenReward01-beam12-batch50-thresh2": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "ctc_weight": 0.3,
+                "length_reward": 0.1,
+                "pruning_threshold": 2.0,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
         "ctc03-lenReward01-beam12-batch50-thresh2-adaptThresh": {
             "beam_search_opts": {
                 "beam_size": 12,
@@ -753,6 +763,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
+            "___rerun": 1,
         },
         "ctc03-lenReward01-beam12-batch50-thresh5-adaptThresh": {
             "beam_search_opts": {
@@ -764,6 +775,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
+            "___rerun": 1,
         },
         "ctc03-lenReward01-beam20-batch50": {
             "beam_search_opts": {"beam_size": 20, "ctc_weight": 0.3, "length_reward": 0.1},
@@ -780,6 +792,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
             "max_seqs": 50,
             "batch_size": 5000 * _batch_size_factor,
+            "___rerun": 1,
         },
         "ctc03-lenReward01-keep-beam12-batch50-thresh5-adaptThresh": {
             "beam_search_version": "sep_ended_keep_v6",
