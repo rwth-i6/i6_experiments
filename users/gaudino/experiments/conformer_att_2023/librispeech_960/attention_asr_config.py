@@ -523,6 +523,7 @@ class CTCDecoderArgs(DecoderArgs):
     hash_override_version: Optional[int] = None
     blank_collapse: bool = False
     renorm_p_comb: bool = False
+    recombine:bool = False
 
 
 def create_config(
