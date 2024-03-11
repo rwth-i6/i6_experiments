@@ -1281,7 +1281,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "lm06-ctc03-lenReward1-beam20-batch20-thresh5": {
             "beam_search_opts": {
                 "beam_size": 20,
-                "beam_ended_size": 20,
                 "ctc_weight": 0.3,
                 "length_reward": 1.0,
                 "lm_scale": 0.6,
@@ -1296,7 +1295,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "lm06-ctc03-lenReward1-beam20-batch20-thresh10": {
             "beam_search_opts": {
                 "beam_size": 20,
-                "beam_ended_size": 20,
                 "ctc_weight": 0.3,
                 "length_reward": 1.0,
                 "lm_scale": 0.6,
@@ -1532,6 +1530,45 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             audio_opts={"peak_normalization": False},  # speech_volume_normalize=False in ESPnet
             audio_format="old_flac_tar_zip",
         )
+    # tune len reward scale
+    for len_reward_scale in [0.5, 0.7, 1.0, 1.2, 1.5]:
+        for variant in [None, "sep_ended_keep_v6"]:
+            name = f"lm06-ctc03-lenReward{int(len_reward_scale * 10):2d}"
+            recog_config = {
+                "beam_search_opts": {
+                    "beam_size": 20,
+                    "ctc_weight": 0.3,
+                    "length_reward": len_reward_scale,
+                    "lm_scale": 0.6,
+                    "max_seq_len_factor": 0.5,
+                    "pruning_threshold": 10,
+                    "adaptive_pruning": True,
+                },
+                "max_seqs": 20,
+                "batch_size": 2000 * _batch_size_factor,
+                **_get_orig_e_branchformer_lm_model_config(),
+                "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
+            }
+            if variant:
+                recog_config["beam_search_version"] = variant
+                if variant == "sep_ended_keep_v6":
+                    name += "-keep"
+                    recog_config["beam_ended_size"] = recog_config["beam_size"]
+            name += "-beam20-batch20-thresh10-adaptThresh"
+            _recog(
+                f"e_branchformer_raw_en_bpe5000_sp/recog-our-flac-" + name,
+                model,
+                model_recog_our,
+                {
+                    "__batch_size_dependent": True,
+                    "__recog_def_ext": True,
+                    "beam_search_collect_individual_seq_scores": True,
+                    **recog_config,
+                },
+                vocab="spm_espnet_5k",
+                audio_opts={"peak_normalization": False},  # speech_volume_normalize=False in ESPnet
+                audio_format="old_flac_tar_zip",
+            )
 
     train_exp(  # 6.13
         "v6-11gb-f32-bs8k-mgpu2-nep500-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-dynGradAccumV2",
