@@ -9,6 +9,8 @@ import multiprocessing as mp
 from ...vocoder.simple_gl.blstm_gl_predictor import Model
 from ...tts_shared.corpus import Corpus, Recording, Segment
 
+from returnn.datasets.util.hdf import SimpleHDFWriter
+
 # global environment where thread count for ffmpeg is set to 2
 ENVIRON = os.environ.copy()
 ENVIRON["OMP_NUM_THREADS"] = "2"
@@ -23,6 +25,10 @@ def forward_init_hook(run_ctx, **kwargs):
     momentum = kwargs.get("gl_momentum", 0.99)
 
     run_ctx.create_plots = kwargs.get("create_plots", True)
+    run_ctx.store_log_mels = kwargs.get("store_log_mels", False)
+    if run_ctx.store_log_mels is True:
+        # hardcoded dim for now
+        run_ctx.hdf_writer = SimpleHDFWriter("log_mels.hdf", dim=80, ndim=2)
 
     run_ctx.corpus = Corpus()
     run_ctx.corpus.name = None
@@ -55,6 +61,8 @@ def forward_init_hook(run_ctx, **kwargs):
 
 def forward_finish_hook(run_ctx, **kwargs):
     run_ctx.corpus.dump("out_corpus.xml.gz")
+    if run_ctx.store_log_mels is True:
+        run_ctx.hdf_writer.close()
 
 
 MAX_WAV_VALUE = 32768.0
@@ -127,5 +135,8 @@ def forward_step(*, model: Model, data, run_ctx, **kwargs):
             plt.imshow(numpy.transpose(log_mel)[:, :length])
             plt.gca().invert_yaxis()
             plt.savefig(f"audio_files/{tag.replace('/', '_')}.png")
+
+        if run_ctx.store_log_mels is True:
+            run_ctx.hdf_writer.insert_batch(inputs=np.expand_dims(log_mel.numpy()[:length], 0), seq_len=[length], seq_tag=[tag])
 
     run_ctx.pool.map(save_ogg, pool_args)

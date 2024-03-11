@@ -388,6 +388,7 @@ def run_flow_tts():
     # train.hold()
     
     # 400 epochs stuff
+    # This is a final model for the paper
 
     local_config_longer = copy.deepcopy(config)
     local_config_longer["batch_size"] = 600 * 16000
@@ -406,6 +407,7 @@ def run_flow_tts():
             decoder_options_half_gl["gl_iter"] = iter
             cross_validation_nisqa(prefix, net_module + "_bs600_v2_longer_base256_newgl_extdur_noise0.7_nisqa_ablations/mom%.2f_gl%i" % (momentum, iter), params_base256, net_module_extdur, checkpoint=train.out_checkpoints[400],
                                    decoder_options=decoder_options_half_gl, extra_decoder="glow_tts.simple_gl_decoder")
+
 
     synthetic_corpus = generate_synthetic(prefix, net_module + "_bs600_v2_longer_base256_newgl_extdur_noise0.7_syn",
                                           "train-clean-100",
@@ -485,7 +487,16 @@ def run_flow_tts():
     }
     train = run_exp(net_module + "_bs600_v2_withsigma_longer_base256_newgl_extdur_noise0.7", params_base256_withsigma, net_module_extdur, local_config_longer, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
                     target_durations=durations, debug=True, num_epochs=400)
-
+    
+    
+    # Spectrogram plot job
+    decoder_options_gl32_plot = copy.deepcopy(decoder_options_gl32)
+    decoder_options_gl32_plot["create_plots"] = True
+    decoder_options_gl32_plot["store_log_mels"] = True
+    cross_validation_nisqa(prefix,
+                           net_module + "_bs600_v2_longer_base256_newgl_extdur_noise0.7/plot_export",
+                           params_base256, net_module_extdur, checkpoint=train.out_checkpoints[400],
+                           decoder_options=decoder_options_gl32_plot, extra_decoder="glow_tts.simple_gl_decoder")
 
     """
     Kind of trying to replicate what was exactly in the original paper, just based on epochs and with longer warmup

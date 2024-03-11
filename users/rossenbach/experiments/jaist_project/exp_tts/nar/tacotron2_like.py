@@ -265,7 +265,7 @@ def run_tacotron2_like_tts():
         "config": asdict(model_config)
     }
 
-    train, forward = tts_training(prefix, net_module + "_size512_glow256align_400eps_bs600_oclr", params512_zoneout, net_module,
-                                  config_400eps,
-                                  extra_decoder="nar_tts.tacotron2_like.simple_gl_decoder", decoder_options=decoder_options,
-                                  duration_hdf=duration_hdf, debug=True, num_epochs=400, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
+    # train, forward = tts_training(prefix, net_module + "_size512_glow256align_400eps_bs600_oclr", params512_zoneout, net_module,
+    #                               config_400eps,
+    #                               extra_decoder="nar_tts.tacotron2_like.simple_gl_decoder", decoder_options=decoder_options,
+    #                               duration_hdf=duration_hdf, debug=True, num_epochs=400, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")

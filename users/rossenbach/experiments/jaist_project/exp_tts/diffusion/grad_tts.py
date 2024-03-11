@@ -432,6 +432,18 @@ def run_diffusion_tts():
     train , _ = tts_training(prefix, net_module + "_bs300_newgl_extdurglowbase256_400epochs", params_base256, net_module, local_config,
                          extra_decoder="grad_tts.simple_gl_decoder", decoder_options=decoder_options_gl32_step10_plot,
                          duration_hdf=duration_hdf, debug=True, num_epochs=400, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
+    
+    
+    # Spectrogram plot job
+    decoder_options_gl32_plot = copy.deepcopy(decoder_options_gl32_step10_plot)
+    decoder_options_gl32_plot["create_plots"] = True
+    decoder_options_gl32_plot["store_log_mels"] = True
+    cross_validation_nisqa(prefix,
+                           net_module + "_bs300_newgl_extdurglowbase256_400epochs/plot_export",
+                           params_base256, net_module, checkpoint=train.out_checkpoints[400],
+                           decoder_options=decoder_options_gl32_plot, extra_decoder="grad_tts.simple_gl_decoder")
+    
+    
 
     synthetic_corpus = generate_synthetic(prefix, net_module + "_bs300_newgl_extdurglowbase256_400eps_noise0.7_syn",
                                       "train-clean-100",

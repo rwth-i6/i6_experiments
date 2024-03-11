@@ -137,7 +137,7 @@ def eow_phon_ls100_1023_synthetic():
         dataset_tuples = {dataset_key: test_dataset_tuples[dataset_key]}
         ret_vals = search(ft_name + "/" + dataset_key, returnn_search_config,
                                    checkpoint, dataset_tuples, RETURNN_EXE,
-                                   MINI_RETURNN_ROOT)
+                                   MINI_RETURNN_ROOT, with_confidence=True)
     
     
     from ...pytorch_networks.ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_cfg import \
@@ -353,6 +353,7 @@ def eow_phon_ls100_1023_synthetic():
         "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglowbase256_400eps_gl32_syn_train-clean-100",
         "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglowbase256_400eps_gl32_syn_fixspk_train-clean-100",
         "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglowbase256_400eps_gl32_syn_train-clean-360-sub100",
+        "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_base320_fromglowbase256_400eps_gl32_syn_train-clean-360-sub100",
         "nar_tts.fastspeech_like.fastspeech_like_v1_glow256align_400eps_bs300_oclr_fp16_gl32_syn_train-clean-100",
         "nar_tts.fastspeech_like.fastspeech_like_v1_glow256align_400eps_bs300_oclr_fp16_gl32_syn_fixspk_train-clean-100",
         "nar_tts.fastspeech_like.fastspeech_like_v1_glow256align_400eps_bs300_oclr_fp16_gl32_syn_train-clean-360-sub100",

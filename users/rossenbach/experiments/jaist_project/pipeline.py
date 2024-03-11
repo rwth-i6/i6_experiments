@@ -48,9 +48,9 @@ def training(
     :return: training job
     """
     default_rqmt = {
-        'mem_rqmt': 32,
+        'mem_rqmt': 24,
         'time_rqmt': 168,
-        'cpu_rqmt': 16,
+        'cpu_rqmt': 6,
         'log_verbosity': 5,
         'returnn_python_exe': returnn_exe,
         'returnn_root': returnn_root,
@@ -61,6 +61,7 @@ def training(
         num_epochs=num_epochs,
         **default_rqmt
     )
+    train_job.rqmt["gpu_mem"] = 24
     train_job.add_alias(prefix_name + "/training")
     tk.register_output(prefix_name + "/learning_rates", train_job.out_learning_rates)
 
@@ -77,6 +78,7 @@ def search_single(
         returnn_root: tk.Path,
         mem_rqmt: float = 8,
         use_gpu:bool = False,
+        with_confidence = False
 ):
     """
     Run search for a specific test dataset
@@ -118,6 +120,15 @@ def search_single(
     tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
     tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
 
+    if with_confidence:
+        from i6_experiments.users.rossenbach.tools.bootstrap import ScliteBootstrapConfidenceJob
+        bootstrap_job = ScliteBootstrapConfidenceJob(sclite_job.out_report_dir)
+        bootstrap_job.add_alias(prefix_name + "/bootstrap_job")
+        tk.register_output(prefix_name + "/bootstrap/mean", bootstrap_job.out_mean)
+        tk.register_output(prefix_name + "/bootstrap/min", bootstrap_job.out_min)
+        tk.register_output(prefix_name + "/bootstrap/max", bootstrap_job.out_max)
+        tk.register_output(prefix_name + "/bootstrap/max_interval_bound", bootstrap_job.out_max_interval_bound)
+
     return sclite_job.out_wer, search_job
 
 from .storage import ASRRecognizerSystem
@@ -126,6 +137,7 @@ def run_swer_evaluation(
         prefix_name: str,
         synthetic_bliss: tk.Path,
         system: ASRRecognizerSystem,
+        with_confidence=False,
     ):
     from .data.common import build_swer_test_dataset, get_cv_bliss
     search_single(
@@ -139,7 +151,8 @@ def run_swer_evaluation(
         ),
         recognition_bliss_corpus=get_cv_bliss(),
         returnn_exe=RETURNN_EXE,
-        returnn_root=MINI_RETURNN_ROOT
+        returnn_root=MINI_RETURNN_ROOT,
+        with_confidence=with_confidence,
     )
 
 
@@ -153,6 +166,7 @@ def search(
         returnn_root: tk.Path,
         use_gpu: bool = False,
         return_wers = False,
+        with_confidence = False,
 ):
     """
     Run search over multiple datasets and collect statistics
@@ -170,7 +184,7 @@ def search(
     wers = {}
     search_jobs = []
     for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
-        wers[key], search_job = search_single(prefix_name + "/%s" % key, returnn_config, checkpoint, test_dataset, test_dataset_reference, returnn_exe, returnn_root, use_gpu=use_gpu)
+        wers[key], search_job = search_single(prefix_name + "/%s" % key, returnn_config, checkpoint, test_dataset, test_dataset_reference, returnn_exe, returnn_root, use_gpu=use_gpu, with_confidence=with_confidence)
         search_jobs.append(search_job)
 
     from i6_core.report import GenerateReportStringJob, MailJob
@@ -270,6 +284,7 @@ def tts_eval(
         returnn_exe,
         returnn_root,
         mem_rqmt=8,
+        use_gpu=False,
 ):
     """
     Run search for a specific test dataset
@@ -287,7 +302,7 @@ def tts_eval(
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
         time_rqmt=1,
-        device="cpu",
+        device="gpu" if use_gpu else "cpu",
         cpu_rqmt=4,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
@@ -304,6 +319,7 @@ def tts_eval_v2(
         returnn_exe,
         returnn_root,
         mem_rqmt=8,
+        store_log_mels=False,
 ):
     """
     Run search for a specific test dataset
@@ -315,17 +331,21 @@ def tts_eval_v2(
     :param returnn_root: Path to a checked out RETURNN repository
     :param mem_rqmt: override the default memory requirement
     """
+
+    output_files = ["audio_files", "out_corpus.xml.gz"]
+    if store_log_mels:
+        output_files += ["log_mels.hdf"]
     forward_job = ReturnnForwardJobV2(
         model_checkpoint=checkpoint,
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=1,
+        time_rqmt=24,
         device="cpu",
         cpu_rqmt=4,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
-        output_files=["audio_files", "out_corpus.xml.gz"],
+        output_files=output_files,
     )
     forward_job.add_alias(prefix_name + "/tts_eval_job")
     evaluate_nisqa(prefix_name, forward_job.out_files["out_corpus.xml.gz"])
@@ -477,6 +497,7 @@ def cross_validation_nisqa(prefix, name, params, net_module, checkpoint, decoder
         checkpoint=checkpoint,
         returnn_exe=RETURNN_EXE,
         returnn_root=MINI_RETURNN_ROOT,
+        store_log_mels=decoder_options.get("store_log_mels", False),
     )
     tk.register_output(prefix + name + "/audio_files", forward_job.out_files["audio_files"])
     return forward_job
@@ -485,6 +506,7 @@ def cross_validation_nisqa(prefix, name, params, net_module, checkpoint, decoder
 def evaluate_nisqa(
         prefix_name: str,
         bliss_corpus: tk.Path,
+        with_bootstrap = False,
 ):
     predict_mos_job = NISQAMosPredictionJob(bliss_corpus, nisqa_repo=NISQA_REPO)
     predict_mos_job.add_alias(prefix_name + "/nisqa_mos")
@@ -492,6 +514,12 @@ def evaluate_nisqa(
     tk.register_output(os.path.join(prefix_name, "nisqa_mos/min"), predict_mos_job.out_mos_min)
     tk.register_output(os.path.join(prefix_name, "nisqa_mos/max"), predict_mos_job.out_mos_max)
     tk.register_output(os.path.join(prefix_name, "nisqa_mos/std_dev"), predict_mos_job.out_mos_std_dev)
+
+    if with_bootstrap:
+        from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAConfidenceJob
+        nisqa_confidence_job = NISQAConfidenceJob(predict_mos_job.output_dir, bliss_corpus)
+        nisqa_confidence_job.add_alias(prefix_name + "/nisqa_mos_confidence")
+        tk.register_output(os.path.join(prefix_name, "nisqa_mos/confidence_max_interval"), nisqa_confidence_job.out_max_interval_bound)
 
 
 def tts_training(

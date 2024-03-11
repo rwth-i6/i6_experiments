@@ -269,6 +269,15 @@ def run_fastspeech_like_tts():
     decoder_options_final_gl32["gl_momentum"] = 0.99
     decoder_options_final_gl32["gl_iter"] = 32
     decoder_options_final_gl32["create_plots"] = False
+    
+    # Spectrogram plot job
+    decoder_options_gl32_plot = copy.deepcopy(decoder_options_final_gl32)
+    decoder_options_gl32_plot["create_plots"] = True
+    decoder_options_gl32_plot["store_log_mels"] = True
+    cross_validation_nisqa(prefix,
+                           net_module + "_glow256align_400eps_bs300_oclr_fp16/plot_export",
+                           params, net_module, checkpoint=train.out_checkpoints[400],
+                           decoder_options=decoder_options_gl32_plot, extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder")
 
     generate_synthetic(prefix, net_module + "_glow256align_400eps_bs300_oclr_fp16_gl32_syn", "train-clean-100",
                        train.out_checkpoints[400], params, net_module,
