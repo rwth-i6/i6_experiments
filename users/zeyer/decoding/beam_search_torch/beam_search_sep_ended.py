@@ -161,8 +161,12 @@ def beam_search_sep_ended(
         torch.where(target == opts.eos_label, torch.full((), 1, device=device), state_comb, out=state_comb)
         torch.where((i_dev >= max_seq_len)[:, None], torch.full((), 1, device=device), state_comb, out=state_comb)
         if end_seq_log_prob is not None and opts.use_espnet_end_detect:
+            # We check actually the previously ended seqs (shape [Batch,InEndBeam]), thus i=i-1.
+            espnet_end = espnet_end_detect(
+                ended_hyps_log_prob=end_seq_log_prob, ended_hyps_seq_len=end_seq_len, i=i - 1
+            )  # [Batch]
             torch.where(
-                espnet_end_detect(ended_hyps_log_prob=end_seq_log_prob, ended_hyps_seq_len=end_seq_len, i=i)[:, None],
+                espnet_end[:, None],
                 torch.full((), 1, device=device),
                 state_comb,
                 out=state_comb,
