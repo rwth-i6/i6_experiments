@@ -1117,9 +1117,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
             "max_seqs": 20,
             "batch_size": 2000 * _batch_size_factor,
-            **_get_orig_e_branchformer_lm_model_config(),
-            "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
-            "___rerun": 3,
         },
         "lm06-ctc03-sep-espnetEnd-beam20-beamEnd100-batch20": {
             "beam_search_version": "sep_ended",
@@ -1150,8 +1147,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
             "max_seqs": 20,
             "batch_size": 2000 * _batch_size_factor,
-            **_get_orig_e_branchformer_lm_model_config(),
-            "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
         },
         "lm06-ctc03-sep-espnetEndFix-beam20-beamEnd100-batch20": {
             "beam_search_version": "sep_ended",
