@@ -10,7 +10,7 @@ def convert_pad_shape(pad_shape):
   l = pad_shape[::-1]
   pad_shape = [item for sublist in l for item in sublist]
   return pad_shape
-   
+
 
 class Encoder(nn.Module):
   def __init__(self, hidden_channels, filter_channels, n_heads, n_layers, kernel_size=1, p_dropout=0., window_size=None, block_length=None, **kwargs):
@@ -51,66 +51,137 @@ class Encoder(nn.Module):
 
 
 class CouplingBlock(nn.Module):
-  def __init__(self, in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels=0, p_dropout=0, sigmoid_scale=False, logs_epsilon=False, use_jit=True):
-    super().__init__()
-    self.in_channels = in_channels
-    self.hidden_channels = hidden_channels
-    self.kernel_size = kernel_size
-    self.dilation_rate = dilation_rate
-    self.n_layers = n_layers
-    self.gin_channels = gin_channels
-    self.p_dropout = p_dropout
-    self.sigmoid_scale = sigmoid_scale
-    self.logs_epsilon = logs_epsilon
+    def __init__(self, in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels=0, p_dropout=0, sigmoid_scale=False, logs_epsilon=False, use_jit=True):
+        super().__init__()
+        self.in_channels = in_channels
+        self.hidden_channels = hidden_channels
+        self.kernel_size = kernel_size
+        self.dilation_rate = dilation_rate
+        self.n_layers = n_layers
+        self.gin_channels = gin_channels
+        self.p_dropout = p_dropout
+        self.sigmoid_scale = sigmoid_scale
+        self.logs_epsilon = logs_epsilon
 
-    start = torch.nn.Conv1d(in_channels//2, hidden_channels, 1)
-    start = torch.nn.utils.weight_norm(start)
-    self.start = start
-    # Initializing last layer to 0 makes the affine coupling layers
-    # do nothing at first.  It helps to stabilze training.
-    end = torch.nn.Conv1d(hidden_channels, in_channels, 1)
-    end.weight.data.zero_()
-    end.bias.data.zero_()
-    self.end = end
+        start = torch.nn.Conv1d(in_channels//2, hidden_channels, 1)
+        start = torch.nn.utils.weight_norm(start)
+        self.start = start
+        # Initializing last layer to 0 makes the affine coupling layers
+        # do nothing at first.  It helps to stabilze training.
+        end = torch.nn.Conv1d(hidden_channels, in_channels, 1)
+        end.weight.data.zero_()
+        end.bias.data.zero_()
+        self.end = end
 
-    self.wn = modules.WN(in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels, p_dropout, use_jit)
+        self.wn = modules.WN(in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels, p_dropout, use_jit)
+
+    def forward(self, x, x_mask=None, reverse=False, g=None, **kwargs):
+        # if "debug_name" in kwargs:
+        #   debug_name = kwargs["debug_name"]
+        # else:
+        #   debug_name = None
+        b, c, t = x.size()
+        if x_mask is None:
+            x_mask = 1
+        x_0, x_1 = x[:,:self.in_channels//2], x[:,self.in_channels//2:]
+
+        x = self.start(x_0) * x_mask
+        x = self.wn(x, x_mask, g)
+        out = self.end(x)
+
+        z_0 = x_0
+        m = out[:, :self.in_channels//2, :]
+        logs = out[:, self.in_channels//2:, :]
+        if self.sigmoid_scale:
+            logs = torch.log(1e-6 + torch.sigmoid(logs + 2))
+
+        if reverse:
+            s = torch.exp(-logs) if not self.logs_epsilon else 1 / (torch.exp(logs) + 1e-6)
+            z_1 = (x_1 - m) * s * x_mask
+            logdet = None
+        else:
+            s = torch.exp(logs) if not self.logs_epsilon else torch.exp(logs) + 1e-6
+            z_1 = (m + s * x_1) * x_mask
+            logdet = torch.sum(logs * x_mask, [1, 2])
+
+        z = torch.cat([z_0, z_1], 1)
+        return z, logdet
+
+    def store_inverse(self):
+        self.wn.remove_weight_norm()
 
 
-  def forward(self, x, x_mask=None, reverse=False, g=None, **kwargs):
-    # if "debug_name" in kwargs:
-    #   debug_name = kwargs["debug_name"]
-    # else:
-    #   debug_name = None
-    b, c, t = x.size()
-    if x_mask is None:
-      x_mask = 1
-    x_0, x_1 = x[:,:self.in_channels//2], x[:,self.in_channels//2:]
+class ConformerCouplingBlock(nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        hidden_channels,
+        kernel_size,
+        dilation_rate,
+        n_layers,
+        n_heads=2,
+        gin_channels=0,
+        p_dropout=0,
+        sigmoid_scale=False,
+        logs_epsilon=False,
+    ):
+        super().__init__()
+        self.in_channels = in_channels
+        self.hidden_channels = hidden_channels
+        self.kernel_size = kernel_size
+        self.dilation_rate = dilation_rate
+        self.n_layers = n_layers
+        self.n_heads = n_heads
+        self.gin_channels = gin_channels
+        self.p_dropout = p_dropout
+        self.sigmoid_scale = sigmoid_scale
+        self.logs_epsilon = logs_epsilon
 
-    x = self.start(x_0) * x_mask
-    x = self.wn(x, x_mask, g)
-    out = self.end(x)
+        start = torch.nn.Conv1d(in_channels // 2, hidden_channels, 1)
+        start = torch.nn.utils.weight_norm(start)
+        self.start = start
+        # Initializing last layer to 0 makes the affine coupling layers
+        # do nothing at first.  It helps to stabilze training.
+        end = torch.nn.Conv1d(hidden_channels, in_channels, 1)
+        end.weight.data.zero_()
+        end.bias.data.zero_()
+        self.end = end
 
-    z_0 = x_0
-    m = out[:, :self.in_channels//2, :]
-    logs = out[:, self.in_channels//2:, :]
-    if self.sigmoid_scale:
-      logs = torch.log(1e-6 + torch.sigmoid(logs + 2))
+        # self.wn = modules.WN(in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels, p_dropout)
+        self.conformer_net = modules.ConformerCouplingNet(
+            hidden_channels, 2 * hidden_channels, kernel_size, n_layers, n_heads, gin_channels, p_dropout
+        )
 
-    if reverse:
-      s = torch.exp(-logs) if not self.logs_epsilon else 1 / (torch.exp(logs) + 1e-6)
-      z_1 = (x_1 - m) * s * x_mask
-      logdet = None
-    else:
-      s = torch.exp(logs) if not self.logs_epsilon else torch.exp(logs) + 1e-6
-      z_1 = (m + s * x_1) * x_mask
-      logdet = torch.sum(logs * x_mask, [1, 2])
+    def forward(self, x, x_mask=None, reverse=False, g=None, **kwargs):
+        b, c, t = x.size()
+        if x_mask is None:
+            x_mask = 1
+        x_0, x_1 = x[:, : self.in_channels // 2], x[:, self.in_channels // 2 :]
 
-    z = torch.cat([z_0, z_1], 1)
-    return z, logdet
+        x = self.start(x_0) * x_mask
+        x = self.conformer_net(x, x_mask, g)
+        out = self.end(x)
 
-  def store_inverse(self):
-    self.wn.remove_weight_norm()
+        z_0 = x_0
+        m = out[:, : self.in_channels // 2, :]
+        logs = out[:, self.in_channels // 2 :, :]
+        if self.sigmoid_scale:
+            logs = torch.log(1e-6 + torch.sigmoid(logs + 2))
 
+        if reverse:
+            s = torch.exp(-logs) if not self.logs_epsilon else 1 / (torch.exp(logs) + 1e-6)
+            z_1 = (x_1 - m) * s * x_mask
+            logdet = None
+        else:
+            s = torch.exp(logs) if not self.logs_epsilon else torch.exp(logs) + 1e-6
+            z_1 = (m + s * x_1) * x_mask
+            logdet = torch.sum(logs * x_mask, [1, 2])
+
+        z = torch.cat([z_0, z_1], 1)
+        return z, logdet
+
+    def store_inverse(self):
+        self.wn.remove_weight_norm()
 
 class MultiHeadAttention(nn.Module):
   def __init__(self, channels, out_channels, n_heads, window_size=None, heads_share=True, p_dropout=0., block_length=None, proximal_bias=False, proximal_init=False):
@@ -288,4 +359,3 @@ class FFN(nn.Module):
     x = self.drop(x)
     x = self.conv_2(x * x_mask)
     return x * x_mask
-  

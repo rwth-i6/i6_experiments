@@ -34,7 +34,7 @@ from ..pytorch_networks.shared.configs import (
 from ..storage import tts_models
 
 
-def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
+def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
     """
     Baseline for the glow TTS in returnn_common with serialization
 
@@ -43,7 +43,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
     :return: durations_hdf
     """
 
-    prefix = "experiments/librispeech/joint_training/given_alignments/raw_audio/joint_models/"
+    prefix = "experiments/librispeech/joint_training/given_alignments/raw_audio/joint_models/flow_given_alignment/"
     experiments = {}
 
     def run_exp(
@@ -63,7 +63,6 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         phoneme_pred=True,
         asr_cv_set=False,
         given_train_job_for_forward=None,
-        forward_dataset=None,
     ):
         exp = {}
 
@@ -79,7 +78,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
 
         if tts_forward:
             forward_config_gl = get_forward_config(
-                forward_dataset=forward_dataset or dataset,
+                forward_dataset=dataset,
                 **{**args, **{"config": {"batch_size": 50 * 16000}}},
                 forward_args={
                     **forward_args,
@@ -158,37 +157,12 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
             )
         return exp
 
-    # def get_lr_scale(dim_model, step_num, warmup_steps):
-    #     return np.power(dim_model, -0.5) * np.min(
-    #         [np.power(step_num + 1, -0.5), step_num + 1 * np.power(warmup_steps, -1.5)]
-    #     )
-
-    train_settings = TrainingDatasetSettings(
-        custom_processing_function=None, partition_epoch=3, epoch_wise_filters=[], seq_ordering="laplace:.1000"
-    )
-
-    # training_datasets = build_training_dataset(
-    #     settings=train_settings, librispeech_key="train-clean-100", silence_preprocessing=False
-    # )
-
     glowTTS_durations_job = tts_exps["glowTTS/enc192/200ep/long_cooldown/not_silence_preprocessed"]["forward_job_joint_durations"]
-    training_datasets_tts_segments = build_training_dataset(
-        settings=train_settings,
-        librispeech_key="train-clean-100",
-        silence_preprocessing=False,
-        use_tts_train_segments=True,
-        durations_file=glowTTS_durations_job.out_hdf_files["output.hdf"]
-    )
-    # training_datasets_silence_preprocessed = build_training_dataset(
-    #     settings=train_settings, librispeech_key="train-clean-100", silence_preprocessing=True
-    # )
+
     train_settings_pe1 = TrainingDatasetSettings(
         custom_processing_function=None, partition_epoch=1, epoch_wise_filters=[], seq_ordering="laplace:.1000"
     )
     training_datasets_pe1_tts_segments = build_training_dataset(
-        settings=train_settings_pe1, librispeech_key="train-clean-100", silence_preprocessing=False, use_tts_train_segments=True, durations_file=glowTTS_durations_job.out_hdf_files["output.hdf"]
-    )
-    forward_datasets_pe1_tts_segments_xvectors = build_training_dataset(
         settings=train_settings_pe1,
         librispeech_key="train-clean-100",
         silence_preprocessing=False,
@@ -200,11 +174,11 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
     from typing import cast
     from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream
 
-    label_datastream_asr = cast(LabelDatastream, training_datasets_tts_segments.datastreams["phonemes_eow"])
+    label_datastream_asr = cast(LabelDatastream, training_datasets_pe1_tts_segments.datastreams["phonemes_eow"])
     vocab_size_without_blank_asr = label_datastream_asr.vocab_size
-    label_datastream_tts = cast(LabelDatastream, training_datasets_tts_segments.datastreams["phonemes"])
+    label_datastream_tts = cast(LabelDatastream, training_datasets_pe1_tts_segments.datastreams["phonemes"])
     vocab_size_without_blank_tts = label_datastream_tts.vocab_size
-    speaker_datastream = cast(LabelDatastream, training_datasets_tts_segments.datastreams["speaker_labels"])
+    speaker_datastream = cast(LabelDatastream, training_datasets_pe1_tts_segments.datastreams["speaker_labels"])
 
     from ..data import get_tts_log_mel_datastream
     from ..feature_config import DbMelFeatureExtractionConfig
@@ -327,28 +301,29 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
     )
 
     model_config = ModelConfigV2(
-        specaug_config=specaug_config,
+        specaug_config=None,
         text_encoder_config=text_encoder_config,
         decoder_config=flow_decoder_config,
         phoneme_prediction_config=phoeneme_prediction_config,
-        label_target_size=vocab_size_without_blank_asr,
+        label_target_size=vocab_size_without_blank_tts,
         specauc_start_epoch=1,
         out_channels=80,
         gin_channels=256,
         n_speakers=speaker_datastream.vocab_size,
     )
 
-    net_module = "glowTTS_ASR_ffn_x_vector"
+    model_config_no_dec_drop = copy.deepcopy(model_config)
+    model_config_no_dec_drop.decoder_config.p_dropout = 0.0
+
+    net_module = "ga_glowTTS_ASR_ffn_x_vector"
 
     train_args = {
         "net_args": {"fe_config": asdict(fe_config), "model_config": asdict(model_config)},
         "network_module": net_module,
         "debug": True,
         "config": {
-            "optimizer": {"class": "adam", "epsilon": 1e-8},
-            "learning_rates": list(np.linspace(7e-6, 7e-4, 110))
-            + list(np.linspace(7e-4, 7e-5, 110))
-            + list(np.linspace(7e-5, 1e-8, 30)),
+            "optimizer": {"class": "radam", "epsilon": 1e-9},
+            "learning_rates": list(np.concatenate((np.linspace(1e-5, 5e-4, 100), np.linspace(5e-4, 1e-5, 100)))),
             "batch_size": 300 * 16000,
             "max_seq_length": {"audio_features": 25 * 16000},
             "max_seqs": 60,
@@ -358,7 +333,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
     from typing import cast
     from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream
 
-    label_datastream = cast(LabelDatastream, training_datasets_tts_segments.datastreams["phonemes_eow"])
+    label_datastream = cast(LabelDatastream, training_datasets_pe1_tts_segments.datastreams["phonemes_eow"])
 
     forward_args = {"noise_scale": 0.66, "length_scale": 1}
     default_search_args = {
@@ -381,159 +356,6 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         }
     }
 
-    train_args_joint_training = copy.deepcopy(train_args)
-    # glowTTS_x_vector_train_job = experiments["glowTTS_x_vector_v2"]["train_job"]
-    train_args_joint_training["config"]["preload_from_files"]["glowTTS_xvector"] = {
-        "filename": tts_models["glowTTS_x_vector_v2"].checkpoint,
-        "init_for_train": True,
-        "ignore_missing": True,
-    }
-    train_args_joint_training["network_module"] = net_module
-    exp_dict = run_exp(
-        net_module + "/specaug/ce_ls_1",
-        train_args_joint_training,
-        training_datasets_tts_segments,
-        dev_dataset_tuples_with_phon,
-        250,
-        forward_args=forward_args,
-        search_args=default_search_args,
-        asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors
-    )
-
-    exp_dict = run_exp(
-        net_module + "/specaug/ce_ls_0.1",
-        train_args_joint_training,
-        training_datasets_tts_segments,
-        dev_dataset_tuples_with_phon,
-        250,
-        forward_args=forward_args,
-        training_args={"ce_loss_scale": 0.1},
-        search_args=default_search_args,
-        asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors
-    )
-
-    train_args_joint_training_no_specaug = copy.deepcopy(train_args_joint_training)
-    train_args_joint_training_no_specaug["net_args"]["model_config"]["specaug_config"] = None
-
-    exp_dict = run_exp(
-        net_module + "/no_specaug/ce_ls_1",
-        train_args_joint_training_no_specaug,
-        training_datasets_tts_segments,
-        dev_dataset_tuples_with_phon,
-        250,
-        forward_args=forward_args,
-        search_args=default_search_args,
-        asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors
-    )
-
-    exp_dict = run_exp(
-        net_module + "/no_specaug/ce_ls_0.1",
-        train_args_joint_training_no_specaug,
-        training_datasets_tts_segments,
-        dev_dataset_tuples_with_phon,
-        250,
-        forward_args=forward_args,
-        training_args={"ce_loss_scale": 0.1},
-        search_args=default_search_args,
-        asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors
-    )
-
-    net_module = "glowTTS_ASR_blstm_x_vector"
-    train_args_joint_training["network_module"] = net_module
-    train_args_joint_training_no_specaug["network_module"] = net_module
-    exp_dict = run_exp(
-        net_module + "/specaug/ce_ls_1",
-        train_args_joint_training,
-        training_datasets_tts_segments,
-        dev_dataset_tuples_with_phon,
-        250,
-        forward_args=forward_args,
-        search_args=default_search_args,
-        asr_search=False,
-        tts_forward=False
-    )
-
-    exp_dict = run_exp(
-        net_module + "/no_specaug/ce_ls_1",
-        train_args_joint_training_no_specaug,
-        training_datasets_tts_segments,
-        dev_dataset_tuples_with_phon,
-        250,
-        forward_args=forward_args,
-        search_args=default_search_args,
-        asr_search=False,
-        tts_forward=False
-    )
-
-    exp_dict = run_exp(
-        net_module + "/specaug/ce_ls_0.1",
-        train_args_joint_training,
-        training_datasets_tts_segments,
-        dev_dataset_tuples_with_phon,
-        250,
-        forward_args=forward_args,
-        training_args={"ce_loss_scale": 0.1},
-        search_args=default_search_args,
-        asr_search=False,
-        tts_forward=False
-    )
-
-    exp_dict = run_exp(
-        net_module + "/no_specaug/ce_ls_0.1",
-        train_args_joint_training_no_specaug,
-        training_datasets_tts_segments,
-        dev_dataset_tuples_with_phon,
-        250,
-        forward_args=forward_args,
-        training_args={"ce_loss_scale": 0.1},
-        search_args=default_search_args,
-        asr_search=False,
-        tts_forward=False
-    )
-
-    # ============== 200EP PE 1 - no specaug ================
-    net_module = "glowTTS_ASR_ffn_x_vector"
-    model_config = ModelConfigV2(
-        specaug_config=None,
-        text_encoder_config=text_encoder_config,
-        decoder_config=flow_decoder_config,
-        phoneme_prediction_config=phoeneme_prediction_config,
-        label_target_size=vocab_size_without_blank_tts,
-        specauc_start_epoch=1,
-        out_channels=80,
-        gin_channels=256,
-        n_speakers=speaker_datastream.vocab_size,
-    )
-
-    model_config_no_dec_drop = copy.deepcopy(model_config)
-    model_config_no_dec_drop.decoder_config.p_dropout = 0.0
-
-    train_args = {
-        "net_args": {"fe_config": asdict(fe_config), "model_config": asdict(model_config)},
-        "network_module": net_module,
-        "debug": True,
-        "config": {
-            "optimizer": {"class": "radam", "epsilon": 1e-9},
-            "learning_rates": list(np.concatenate((np.linspace(1e-5, 5e-4, 100), np.linspace(5e-4, 1e-5, 100)))),
-            "batch_size": 300 * 16000,
-            "max_seq_length": {"audio_features": 25 * 16000},
-            "max_seqs": 60,
-        },
-    }
-
-    train_args["config"]["preload_from_files"] = {
-        "x_vector_model": {
-            "filename": x_vect_train_job.out_checkpoints[x_vect_train_job.returnn_config.get("num_epochs", 100)],
-            "init_for_train": True,
-            "prefix": "x_vector.",
-            "ignore_missing": True,
-        }
-    }
-
     train_args_pretrained_tts = copy.deepcopy(train_args)
     train_args_pretrained_tts["config"]["preload_from_files"] = {
         "glowTTS_xvector": {
@@ -544,7 +366,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
     }
 
     exp_dict = run_exp(
-        net_module + "/200ep/basic_init/no_specaug/tts_target_size/ce_ls_0.1",
+        net_module + "/200ep/basic_init/ce_ls_0.1",
         train_args,
         training_datasets_pe1_tts_segments,
         dev_dataset_tuples_with_phon,
@@ -553,11 +375,10 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors
     )
 
     exp_dict = run_exp(
-        net_module + "/200ep/tts_pretrained/no_specaug/tts_target_size/ce_ls_0.1",
+        net_module + "/200ep/tts_pretrained/ce_ls_0.1",
         train_args_pretrained_tts,
         training_datasets_pe1_tts_segments,
         dev_dataset_tuples_with_phon,
@@ -566,14 +387,14 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors
     )
 
-    net_module = "glowTTS_ASR_ffn_x_vector_v2"
+    net_module = "ga_glowTTS_ASR_ffn_x_vector_v2"
     train_args["network_module"] = net_module
     train_args_pretrained_tts["network_module"] = net_module
+
     exp_dict = run_exp(
-        net_module + "/200ep/basic_init/no_specaug/tts_target_size/ce_ls_0.1",
+        net_module + "/200ep/basic_init/ce_ls_0.1",
         train_args,
         training_datasets_pe1_tts_segments,
         dev_dataset_tuples_with_phon,
@@ -582,24 +403,10 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
     )
 
     exp_dict = run_exp(
-        net_module + "/200ep/basic_init/no_specaug/tts_target_size/ce_ls_1.0",
-        train_args,
-        training_datasets_pe1_tts_segments,
-        dev_dataset_tuples_with_phon,
-        200,
-        forward_args=forward_args,
-        training_args={"ce_loss_scale": 1.0},
-        search_args=default_search_args,
-        asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
-    )
-
-    exp_dict = run_exp(
-        net_module + "/200ep/tts_pretrained/no_specaug/tts_target_size/ce_ls_0.1",
+        net_module + "/200ep/tts_pretrained/ce_ls_0.1",
         train_args_pretrained_tts,
         training_datasets_pe1_tts_segments,
         dev_dataset_tuples_with_phon,
@@ -608,30 +415,10 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
     )
 
-    train_args_mean_only = copy.deepcopy(train_args)
-    text_encoder_config_mean_only = copy.deepcopy(text_encoder_config)
-    text_encoder_config_mean_only.mean_only = True
-    train_args_mean_only["net_args"]["model_config"]["text_encoder_config"] = asdict(text_encoder_config_mean_only)
     exp_dict = run_exp(
-        net_module + "/mean_only/200ep/basic_init/no_specaug/tts_target_size/ce_ls_0.1",
-        train_args_mean_only,
-        training_datasets_pe1_tts_segments,
-        dev_dataset_tuples_with_phon,
-        200,
-        forward_args=forward_args,
-        training_args={"ce_loss_scale": 0.1},
-        search_args=default_search_args,
-        asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
-    )
-
-    net_module = "glowTTS_ASR_ffn_x_vector_v2_1"
-    train_args["network_module"] = net_module
-    exp_dict = run_exp(
-        net_module + "/200ep/basic_init/no_specaug/tts_target_size/ce_ls_1.0",
+        net_module + "/200ep/basic_init/ce_ls_1.0",
         train_args,
         training_datasets_pe1_tts_segments,
         dev_dataset_tuples_with_phon,
@@ -640,75 +427,23 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 1.0},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
     )
 
-    net_module = "glowTTS_ASR_ffn_x_vector_v2_aux_loss"
-    train_args["network_module"] = net_module
     exp_dict = run_exp(
-        net_module + "/200ep/basic_init/no_specaug/tts_target_size/ce_ls_1.0",
-        train_args,
+        net_module + "/200ep/tts_pretrained/ce_ls_1.0",
+        train_args_pretrained_tts,
         training_datasets_pe1_tts_segments,
         dev_dataset_tuples_with_phon,
         200,
         forward_args=forward_args,
+        training_args={"ce_loss_scale": 1.0},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
     )
 
-    net_module = "glowTTS_ASR_blstm_x_vector_v2"
-    train_args["network_module"] = net_module
-    exp_dict = run_exp(
-        net_module + "/no_specaug/ce_ls_0.1",
-        train_args,
-        training_datasets_tts_segments,
-        dev_dataset_tuples_with_phon,
-        250,
-        forward_args=forward_args,
-        training_args={"ce_loss_scale": 0.1},
-        search_args=default_search_args,
-        asr_search=False,
-        tts_forward=False,
-    )
-
-    net_module = "glowTTS_ASR_ffn_simple_encoder_x_vector"
-    train_args_simple_encoder_joint = copy.deepcopy(train_args)
-    train_args_simple_encoder_joint["network_module"] = net_module
-
-    model_config_simple_encoder = copy.deepcopy(model_config)
-    model_config_simple_encoder.text_encoder_config = EmbeddingTextEncoderConfig(
-        n_vocab=label_datastream_tts.vocab_size,
-        hidden_channels=192,
-        filter_channels_dp=256,
-        kernel_size=3,
-        p_dropout=0.1,
-        mean_only=False,
-    )
-
-    train_args_simple_encoder_joint["net_args"]["model_config"] = asdict(model_config_simple_encoder)
-
-    exp_dict = run_exp(
-        net_module + "/200ep/basic_init/no_specaug/tts_target_size/ce_ls_0.1",
-        train_args_simple_encoder_joint,
-        training_datasets_pe1_tts_segments,
-        dev_dataset_tuples_with_phon,
-        200,
-        forward_args=forward_args,
-        training_args={"ce_loss_scale": 0.1},
-        search_args=default_search_args,
-        asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
-    )
-
-    # =============== CNN ==================
-    net_module = "glowTTS_ASR_cnn_x_vector"
-    cnn_phoneme_prediction_config = PhonemePredictionConfigCNN(
-        n_channels=512, 
-        n_layers=3,
-        kernel_size=5,
-        p_dropout=0.1
-    )
+    # ----------------- CNN  -------------------
+    net_module = "ga_glowTTS_ASR_cnn_x_vector"
+    cnn_phoneme_prediction_config = PhonemePredictionConfigCNN(n_channels=512, n_layers=3, kernel_size=5, p_dropout=0.1)
 
     model_config_cnn = ModelConfigV2(
         decoder_config=flow_decoder_config,
@@ -717,15 +452,18 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         phoneme_prediction_config=cnn_phoneme_prediction_config,
         out_channels=80,
         gin_channels=256,
-        n_speakers=speaker_datastream.vocab_size
+        n_speakers=speaker_datastream.vocab_size,
     )
 
     train_args_cnn = copy.deepcopy(train_args)
+    train_args_cnn_pretrained_tts = copy.deepcopy(train_args_pretrained_tts)
     train_args_cnn["network_module"] = net_module
     train_args_cnn["net_args"]["model_config"] = asdict(model_config_cnn)
+    train_args_cnn_pretrained_tts["network_module"] = net_module
+    train_args_cnn_pretrained_tts["net_args"]["model_config"] = asdict(model_config_cnn)
 
     exp_dict = run_exp(
-        net_module + "/basic_init/no_specaug/tts_target_size/ce_ls_0.1",
+        net_module + "/basic_init/ce_ls_0.1",
         train_args_cnn,
         training_datasets_pe1_tts_segments,
         dev_dataset_tuples_with_phon,
@@ -734,21 +472,11 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors
     )
 
-    train_args_cnn_pretrained = copy.deepcopy(train_args_cnn)
-    train_args_cnn_pretrained["config"]["preload_from_files"] = {
-        "glowTTS_xvector": {
-            "filename": tts_models["glowTTS_x_vector_v2"].checkpoint,
-            "init_for_train": True,
-            "ignore_missing": True,
-        }
-    }
-
     exp_dict = run_exp(
-        net_module + "/tts_pretrained/no_specaug/tts_target_size/ce_ls_0.1",
-        train_args_cnn_pretrained,
+        net_module + "/tts_pretrained/ce_ls_0.1",
+        train_args_cnn_pretrained_tts,
         training_datasets_pe1_tts_segments,
         dev_dataset_tuples_with_phon,
         200,
@@ -756,5 +484,55 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors
+    )
+
+    net_module = "ga_glowTTS_ASR_cnn_x_vector_v2"
+    train_args_cnn["network_module"] = net_module
+    train_args_cnn_pretrained_tts["network_module"] = net_module
+    exp_dict = run_exp(
+        net_module + "/basic_init/ce_ls_0.1",
+        train_args_cnn,
+        training_datasets_pe1_tts_segments,
+        dev_dataset_tuples_with_phon,
+        200,
+        forward_args=forward_args,
+        training_args={"ce_loss_scale": 0.1},
+        search_args=default_search_args,
+        asr_search=False,
+    )
+
+    exp_dict = run_exp(
+        net_module + "/tts_pretrained/ce_ls_0.1",
+        train_args_cnn_pretrained_tts,
+        training_datasets_pe1_tts_segments,
+        dev_dataset_tuples_with_phon,
+        200,
+        forward_args=forward_args,
+        training_args={"ce_loss_scale": 0.1},
+        search_args=default_search_args,
+        asr_search=False,
+    )
+
+    exp_dict = run_exp(
+        net_module + "/basic_init/ce_ls_0.01",
+        train_args_cnn,
+        training_datasets_pe1_tts_segments,
+        dev_dataset_tuples_with_phon,
+        200,
+        forward_args=forward_args,
+        training_args={"ce_loss_scale": 0.01},
+        search_args=default_search_args,
+        asr_search=False,
+    )
+
+    exp_dict = run_exp(
+        net_module + "/tts_pretrained/ce_ls_0.01",
+        train_args_cnn_pretrained_tts,
+        training_datasets_pe1_tts_segments,
+        dev_dataset_tuples_with_phon,
+        200,
+        forward_args=forward_args,
+        training_args={"ce_loss_scale": 0.01},
+        search_args=default_search_args,
+        asr_search=False,
     )

@@ -53,6 +53,39 @@ def duration_loss(logw, logw_, lengths):
     return l
 
 
+def encoding_distance_loss(phoneme_sequences, encodings, seq_lenghts):
+    # Create mask and apply mask an offset of -1 to have an additional value as the masked phoneme,
+    # which can later be used to filter out the mean for that special label
+    mask = sequence_mask(seq_lenghts, phoneme_sequences.shape[-1])
+    phoneme_sequences_masked = ((phoneme_sequences + 1) * mask) - 1
+    encodings_masked = ((encodings.transpose(1,2) + 1) * mask.unsqueeze(-1)) - 1
+
+    # Reshape the encodings tensor [B, T, F] -> [B*T, F] and phonemes sequence [B, T] -> [B*T]
+    encodings_flat = encodings_masked.reshape(-1, encodings_masked.size(-1))
+    phoneme_sequences_flat = phoneme_sequences_masked.view(-1)
+
+    # Use torch.unique to get list of unique phonemes in full batch and index for index_add function
+    # and counts which can then be used for the mean calculation
+    phonemes, inverse, counts = torch.unique(phoneme_sequences_flat, return_counts=True, return_inverse=True)
+
+    # Initialize a tensor to store the sum of encodings for each phoneme
+    sum_encodings = torch.zeros(phonemes.shape[0], encodings_masked.size(-1), device=phoneme_sequences.device)
+
+    # Use index_add to collect the sum of all phoneme encodings in the current batch
+    sum_encodings = sum_encodings.index_add(0, inverse, encodings_flat)
+
+    # Remove the first label, if it is the -1 from the masking
+    if phonemes[0] == -1:
+        sum_encodings_masked = sum_encodings[1:]
+        counts_masked = counts[1:]
+
+    mean_encodings = (sum_encodings_masked / counts_masked.unsqueeze(1)).unsqueeze(0)
+
+    # Use cdist to calculate pairwise distance for all encodings, the negative sum of which is the loss
+    loss = -1 * (torch.cdist(mean_encodings, mean_encodings).sum() / (phoneme_sequences.shape[0] * float(phoneme_sequences.max())))
+    return loss
+
+
 @torch.jit.script
 def fused_add_tanh_sigmoid_multiply(input_a, input_b, n_channels, debug_name: str="None"):
     n_channels_int = n_channels[0]

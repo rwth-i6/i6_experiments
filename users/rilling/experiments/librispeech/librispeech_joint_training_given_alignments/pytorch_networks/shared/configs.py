@@ -109,6 +109,44 @@ class FlowDecoderConfig(ModelConfiguration):
 
 
 @dataclass
+class MultiscaleFlowDecoderConfig(ModelConfiguration):
+    hidden_channels: int
+    kernel_size: int
+    dilation_rate: int
+    n_blocks: int
+    n_layers: int
+    p_dropout: float
+    n_split: int
+    n_sqz: int
+    n_early_every: int
+    sigmoid_scale: bool
+
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        return MultiscaleFlowDecoderConfig(**d)
+
+
+@dataclass
+class ConformerFlowDecoderConfig(ModelConfiguration):
+    hidden_channels: int
+    kernel_size: int
+    dilation_rate: int
+    n_blocks: int
+    n_layers: int
+    n_heads: int
+    p_dropout: float
+    n_split: int
+    n_sqz: int
+    sigmoid_scale: bool
+
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        return ConformerFlowDecoderConfig(**d)
+
+
+@dataclass
 class TextEncoderConfig(ModelConfiguration):
     n_vocab: Union[tk.Variable, int]
     hidden_channels: int
@@ -166,6 +204,18 @@ class PhonemePredictionConfigCNN(ModelConfiguration):
         d = d.copy()
         return PhonemePredictionConfigCNN(**d)
 
+@dataclass
+class PhonemePredictionConfigBLSTM(ModelConfiguration):
+    n_channels: int
+    n_layers: int
+    p_dropout: float
+    subsampling_factor: int
+
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        return PhonemePredictionConfigBLSTM(**d)
+
 
 @dataclass
 class ModelConfigV1:
@@ -200,21 +250,28 @@ class ModelConfigV2:
     gin_channels: int
     n_speakers: Union[tk.Variable, int]
     specauc_start_epoch: Optional[int] = None
-    phoneme_prediction_config: Optional[Union[PhonemePredictionConfig, PhonemePredictionConfigCNN]] = None
+    phoneme_prediction_config: Optional[Union[PhonemePredictionConfig, PhonemePredictionConfigCNN, PhonemePredictionConfigBLSTM]] = None
     specaug_config: Optional[SpecaugConfig] = None
 
     @classmethod
     def from_dict(cls, d):
         d = d.copy()
         d["specaug_config"] = SpecaugConfig.from_dict(d["specaug_config"])
-        d["decoder_config"] = FlowDecoderConfig.from_dict(d["decoder_config"])
+        if "n_heads" in d["decoder_config"].keys():
+            d["decoder_config"] = ConformerFlowDecoderConfig.from_dict(d["decoder_config"])
+        elif "n_early_every" in d["decoder_config"].keys():
+            d["decoder_config"] = MultiscaleFlowDecoderConfig.from_dict(d["decoder_config"])
+        else:
+            d["decoder_config"] = FlowDecoderConfig.from_dict(d["decoder_config"])
         if "n_heads" in d["text_encoder_config"].keys():
             d["text_encoder_config"] = TextEncoderConfig.from_dict(d["text_encoder_config"])
         else: 
             d["text_encoder_config"] = EmbeddingTextEncoderConfig.from_dict(d["text_encoder_config"])
         if "phoneme_prediction_config" in d.keys() and d["phoneme_prediction_config"] is not None:
-            if "kernel_size" not in d["phoneme_prediction_config"].keys():
-                d["phoneme_prediction_config"] = PhonemePredictionConfig.from_dict(d["phoneme_prediction_config"])
-            else:
+            if "kernel_size" in d["phoneme_prediction_config"].keys():
                 d["phoneme_prediction_config"] = PhonemePredictionConfigCNN.from_dict(d["phoneme_prediction_config"])
+            elif "subsampling_factor" in d["phoneme_prediction_config"].keys():
+                d["phoneme_prediction_config"] = PhonemePredictionConfigBLSTM.from_dict(d["phoneme_prediction_config"])
+            else:
+                d["phoneme_prediction_config"] = PhonemePredictionConfig.from_dict(d["phoneme_prediction_config"])
         return ModelConfigV2(**d)

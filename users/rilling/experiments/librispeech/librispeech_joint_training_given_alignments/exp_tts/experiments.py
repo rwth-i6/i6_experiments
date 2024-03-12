@@ -27,6 +27,8 @@ from ..pytorch_networks.shared.configs import (
     TextEncoderConfig,
     EmbeddingTextEncoderConfig,
     FlowDecoderConfig,
+    MultiscaleFlowDecoderConfig,
+    ConformerFlowDecoderConfig,
     PhonemePredictionConfig,
 )
 
@@ -313,12 +315,9 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
     )
 
     model_config = ModelConfigV2(
-        specaug_config=specaug_config,
         text_encoder_config=text_encoder_config,
         decoder_config=flow_decoder_config,
-        phoneme_prediction_config=phoeneme_prediction_config,
         label_target_size=vocab_size_without_blank_asr,
-        specauc_start_epoch=1,
         out_channels=80,
         gin_channels=256,
         n_speakers=speaker_datastream.vocab_size,
@@ -634,3 +633,82 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
     #     200,
     #     forward_args=forward_args,
     # )
+
+    # ==================== Conformer Coupling =======================
+    net_module = "glowTTS_x_vector_v2_conformer_coupling"
+    train_args_TTS_xvector_200ep_conformer_coupling = copy.deepcopy(train_args_TTS_xvector_200ep)
+    train_args_TTS_xvector_200ep_conformer_coupling["network_module"] = net_module
+    model_config_conformer_coupling = copy.deepcopy(model_config)
+    model_config_conformer_coupling.decoder_config = ConformerFlowDecoderConfig(
+        hidden_channels=model_config.decoder_config.hidden_channels,
+        kernel_size=model_config.decoder_config.kernel_size,
+        dilation_rate=model_config.decoder_config.dilation_rate,
+        n_blocks=model_config.decoder_config.n_blocks,
+        n_layers=model_config.decoder_config.n_layers,
+        n_heads=2,
+        p_dropout=model_config.decoder_config.p_dropout,
+        n_split=model_config.decoder_config.n_split,
+        n_sqz=model_config.decoder_config.n_sqz,
+        sigmoid_scale=model_config.decoder_config.sigmoid_scale
+    )
+
+    train_args_TTS_xvector_200ep_conformer_coupling["net_args"]["model_config"] = asdict(model_config_conformer_coupling)
+    train_args_TTS_xvector_200ep_conformer_coupling["config"]["batch_size"] = 75 * 16000
+    train_args_TTS_xvector_200ep_conformer_coupling["config"]["accum_grad_multiple_step"] = 4
+
+    exp_dict = run_exp(
+        net_module + "/enc768/200ep/dec_drop_0.05",
+        train_args_TTS_xvector_200ep_conformer_coupling,
+        training_datasets_pe1_tts_segments,
+        asr_test_datasets,
+        200,
+        forward_args=forward_args,
+        forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+    )
+
+    # ===================== Multi-Scale =======================
+    net_module = "glowTTS_x_vector_v2_multiscale"
+    train_args_TTS_xvector_200ep_multiscale = copy.deepcopy(train_args_TTS_xvector_200ep)
+    train_args_TTS_xvector_200ep_multiscale["network_module"] = net_module
+
+    model_config_multiscale = copy.deepcopy(model_config)
+    model_config_multiscale.decoder_config = MultiscaleFlowDecoderConfig(
+        hidden_channels=model_config.decoder_config.hidden_channels,
+        kernel_size=model_config.decoder_config.kernel_size,
+        dilation_rate=model_config.decoder_config.dilation_rate,
+        n_blocks=model_config.decoder_config.n_blocks,
+        n_layers=model_config.decoder_config.n_layers,
+        p_dropout=model_config.decoder_config.p_dropout,
+        n_split=model_config.decoder_config.n_split,
+        n_sqz=model_config.decoder_config.n_sqz,
+        sigmoid_scale=model_config.decoder_config.sigmoid_scale,
+        n_early_every=4,
+    )
+
+    train_args_TTS_xvector_200ep_multiscale["net_args"]["model_config"] = asdict(model_config_multiscale)
+    exp_dict = run_exp(
+        net_module + "/enc768/200ep/dec_drop_0.05",
+        train_args_TTS_xvector_200ep_multiscale,
+        training_datasets_pe1_tts_segments,
+        asr_test_datasets,
+        200,
+        forward_args=forward_args,
+        forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+    )
+
+    # ============= Encoding Distance Loss ========================
+    train_args_xvector_dist_loss = copy.deepcopy(train_args_TTS_xvector_200ep)
+    net_module = "glowTTS_x_vector_v2_dist_loss"
+    train_args_xvector_dist_loss["network_module"] = net_module
+
+    for s in [0.1, 1.0]:
+        exp_dict = run_exp(
+            net_module + f"/ed_scale_{s}",
+            train_args_xvector_dist_loss,
+            training_datasets_pe1_tts_segments,
+            asr_test_datasets,
+            200,
+            training_args={"ed_scale": s},
+            forward_args=forward_args,
+            forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        )

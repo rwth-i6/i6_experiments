@@ -355,20 +355,22 @@ class Model(nn.Module):
             decoder_config, in_channels=self.cfg.out_channels, gin_channels=self.cfg.gin_channels
         )
 
-        self.phoneme_pred_cnn = nn.Sequential()
+        self.asr_output = nn.Sequential()
 
         for i in range(self.cfg.phoneme_prediction_config.n_layers):
             if i == 0:
                 in_channels = self.cfg.out_channels
             else:
                 in_channels = self.cfg.phoneme_prediction_config.n_channels
+            if i < self.cfg.phoneme_prediction_config.n_layers - 1:
+                out_channels = self.cfg.phoneme_prediction_config.n_channels
+            else:
+                out_channels = self.cfg.label_target_size + 1
 
-            self.phoneme_pred_cnn.append(nn.Conv1d(in_channels=in_channels, out_channels=self.cfg.phoneme_prediction_config.n_channels, kernel_size=self.cfg.phoneme_prediction_config.kernel_size, padding="same"))
-           
-            self.phoneme_pred_cnn.append(nn.ReLU())
-            self.phoneme_pred_cnn.append(nn.Dropout(self.cfg.phoneme_prediction_config.p_dropout))
-
-        self.phoneme_pred_output = nn.Linear(self.cfg.phoneme_prediction_config.n_channels, self.cfg.label_target_size + 1)
+            self.asr_output.append(nn.Linear(in_channels, out_channels))
+            if i < self.cfg.phoneme_prediction_config.n_layers - 1:
+                self.asr_output.append(nn.ReLU())
+                self.asr_output.append(nn.Dropout(self.cfg.phoneme_prediction_config.p_dropout))
 
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
 
@@ -384,6 +386,9 @@ class Model(nn.Module):
                 _, _, g = self.x_vector(y, y_lengths)
         else:
             y, y_lengths = (None, None)
+
+        assert (not gen) or (gen and (g is not None)), "Generating speech without given speaker embedding is not supported!"
+
         g = self.x_vector_bottleneck(g)
 
         if not recognition:
@@ -416,27 +421,12 @@ class Model(nn.Module):
         else:
             z, logdet = self.decoder(y, z_mask, g=g, reverse=False)
 
-            spec_augment_in = z.transpose(1, 2)  # [B, T, F]
-            mask = mask_tensor(spec_augment_in, y_lengths)
-
-            if self.training and self.cfg.specaug_config is not None:
-                audio_features_masked_2 = apply_spec_aug(
-                    spec_augment_in,
-                    num_repeat_time=torch.max(y_lengths).detach().cpu().numpy()
-                    // self.cfg.specaug_config.repeat_per_n_frames,
-                    max_dim_time=self.cfg.specaug_config.max_dim_time,
-                    num_repeat_feat=self.cfg.specaug_config.num_repeat_feat,
-                    max_dim_feat=self.cfg.specaug_config.max_dim_feat,
-                )
-            else:
-                audio_features_masked_2 = spec_augment_in
-
-            asr_in = audio_features_masked_2.transpose(1,2)
-            cnn_out = self.phoneme_pred_cnn(asr_in)
-            logits = self.phoneme_pred_output(cnn_out.transpose(1,2))
-            # log_probs = torch.log_softmax(logits, dim=2)
+            mask = mask_tensor(z.transpose(1,2), y_lengths)
 
             if recognition:
+                asr_in = z.transpose(1,2)
+                logits = self.asr_output(asr_in)
+
                 return logits, y_lengths, z_mask
             else:
                 with torch.no_grad():
@@ -458,6 +448,12 @@ class Model(nn.Module):
                 )  # [b, t', t], [b, t, d] -> [b, d, t']
 
                 logw_ = torch.log(1e-8 + torch.sum(attn, -1)) * x_mask
+
+                # For phoneme prediction sample with the given mean and variance from the encoder to enable the
+                # direct backpropagation of the gradient to the encoder for stretching the latent space.
+                asr_in = ((z_m + torch.exp(z_logs) * torch.randn_like(z_m) * noise_scale) * z_mask).transpose(1,2)
+                logits = self.asr_output(asr_in)
+
                 return (
                     (z, z_m, z_logs, logdet, z_mask),
                     (x_m, x_logs, x_mask),
@@ -502,9 +498,9 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         (attn, logw, logw_),
         (logits, ctc_input_length),
     ) = model(phonemes, phonemes_len, audio_features, audio_features_len)
-
     l_mle = commons.mle_loss(z, z_m, z_logs, logdet, z_mask)
     l_dp = commons.duration_loss(logw, logw_, phonemes_len)
+    l_aux = commons.distance_loss(x_m, phonemes, model.encoder.cfg.n_vocab)
 
     attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
     given_attn = commons.generate_path(durations.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
@@ -512,7 +508,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     upsampled_phonemes = torch.matmul(given_attn.squeeze(1).transpose(1, 2), phonemes.float().unsqueeze(-1)).squeeze(-1)
 
     mask = commons.sequence_mask(y_lengths)
-    ce_losses = nn.functional.cross_entropy(logits.transpose(1,2), upsampled_phonemes.long(), reduction="none")
+    ce_losses = nn.functional.cross_entropy(logits.transpose(1, 2), upsampled_phonemes.long(), reduction="none")
     ce_loss = (ce_losses * mask.float()).sum() / mask.float().sum()
 
     ce_loss_scale = 1.0 if "ce_loss_scale" not in kwargs else kwargs["ce_loss_scale"]

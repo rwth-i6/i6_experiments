@@ -355,116 +355,48 @@ class Model(nn.Module):
             decoder_config, in_channels=self.cfg.out_channels, gin_channels=self.cfg.gin_channels
         )
 
-        self.phoneme_pred_cnn = nn.Sequential()
+        self.asr_output = nn.Sequential()
 
         for i in range(self.cfg.phoneme_prediction_config.n_layers):
             if i == 0:
                 in_channels = self.cfg.out_channels
             else:
                 in_channels = self.cfg.phoneme_prediction_config.n_channels
+            if i < self.cfg.phoneme_prediction_config.n_layers - 1:
+                out_channels = self.cfg.phoneme_prediction_config.n_channels
+            else:
+                out_channels = self.cfg.label_target_size + 1
 
-            self.phoneme_pred_cnn.append(nn.Conv1d(in_channels=in_channels, out_channels=self.cfg.phoneme_prediction_config.n_channels, kernel_size=self.cfg.phoneme_prediction_config.kernel_size, padding="same"))
-           
-            self.phoneme_pred_cnn.append(nn.ReLU())
-            self.phoneme_pred_cnn.append(nn.Dropout(self.cfg.phoneme_prediction_config.p_dropout))
-
-        self.phoneme_pred_output = nn.Linear(self.cfg.phoneme_prediction_config.n_channels, self.cfg.label_target_size + 1)
+            self.asr_output.append(nn.Linear(in_channels, out_channels))
+            if i < self.cfg.phoneme_prediction_config.n_layers - 1:
+                self.asr_output.append(nn.ReLU())
+                self.asr_output.append(nn.Dropout(self.cfg.phoneme_prediction_config.p_dropout))
 
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
 
     def forward(
-        self, x=None, x_lengths=None, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, recognition=False, noise_scale=1.0, length_scale=1.0
+        self, x=None, x_lengths=None, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, recognition=False, given_attn=None, noise_scale=1.0, length_scale=1.0
     ):
-        if not gen:
-            with torch.no_grad():
-                squeezed_audio = torch.squeeze(raw_audio)
-                y, y_lengths = self.feature_extraction(squeezed_audio, raw_audio_lengths)  # [B, T, F]
-                y = y.transpose(1, 2)  # [B, F, T]
-                self.x_vector.eval()
-                _, _, g = self.x_vector(y, y_lengths)
-        else:
-            y, y_lengths = (None, None)
-        g = self.x_vector_bottleneck(g)
+        with torch.no_grad():
+            squeezed_audio = torch.squeeze(raw_audio)
+            y, y_lengths = self.feature_extraction(squeezed_audio, raw_audio_lengths)  # [B, T, F]
+            y = y.transpose(1, 2)  # [B, F, T]
+            self.x_vector.eval()
+            _, _, g = self.x_vector(y, y_lengths)
 
-        if not recognition:
-            x_m, x_logs, logw, x_mask = self.encoder(x, x_lengths, g=g)  # mean, std logs, duration logs, mask
+            g = self.x_vector_bottleneck(g)
 
-        if gen:  # durations from dp only used during generation
-            w = torch.exp(logw) * x_mask * length_scale  # durations
-            w_ceil = torch.ceil(w)  # durations ceiled
-            y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
-            y_max_length = None
-        else:
             y_max_length = y.size(2)
 
-        y, y_lengths, y_max_length = self.preprocess(y, y_lengths, y_max_length)
-        z_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, y_max_length), 1).to(torch.int32)
+            y, y_lengths, y_max_length = self.preprocess(y, y_lengths, y_max_length)
+            z_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, y_max_length), 1).to(torch.int32)
 
-        if not recognition:
-            attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
-
-        if gen:
-            attn = commons.generate_path(w_ceil.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
-            z_m = torch.matmul(attn.squeeze(1).transpose(1, 2), x_m.transpose(1, 2)).transpose(1, 2)
-            z_logs = torch.matmul(attn.squeeze(1).transpose(1, 2), x_logs.transpose(1, 2)).transpose(1, 2)
-            logw_ = torch.log(1e-8 + torch.sum(attn, -1)) * x_mask
-
-            z = (z_m + torch.exp(z_logs) * torch.randn_like(z_m) * noise_scale) * z_mask
-            y, logdet = self.decoder(z, z_mask, g=g, reverse=True)
-
-            return (y, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_)
-        else:
             z, logdet = self.decoder(y, z_mask, g=g, reverse=False)
+            asr_in = z.transpose(1,2)
 
-            spec_augment_in = z.transpose(1, 2)  # [B, T, F]
-            mask = mask_tensor(spec_augment_in, y_lengths)
+        logits = self.asr_output(asr_in)
 
-            if self.training and self.cfg.specaug_config is not None:
-                audio_features_masked_2 = apply_spec_aug(
-                    spec_augment_in,
-                    num_repeat_time=torch.max(y_lengths).detach().cpu().numpy()
-                    // self.cfg.specaug_config.repeat_per_n_frames,
-                    max_dim_time=self.cfg.specaug_config.max_dim_time,
-                    num_repeat_feat=self.cfg.specaug_config.num_repeat_feat,
-                    max_dim_feat=self.cfg.specaug_config.max_dim_feat,
-                )
-            else:
-                audio_features_masked_2 = spec_augment_in
-
-            asr_in = audio_features_masked_2.transpose(1,2)
-            cnn_out = self.phoneme_pred_cnn(asr_in)
-            logits = self.phoneme_pred_output(cnn_out.transpose(1,2))
-            # log_probs = torch.log_softmax(logits, dim=2)
-
-            if recognition:
-                return logits, y_lengths, z_mask
-            else:
-                with torch.no_grad():
-                    x_s_sq_r = torch.exp(-2 * x_logs)
-                    logp1 = torch.sum(-0.5 * math.log(2 * math.pi) - x_logs, [1]).unsqueeze(-1)  # [b, t, 1]
-                    logp2 = torch.matmul(x_s_sq_r.transpose(1, 2), -0.5 * (z**2))  # [b, t, d] x [b, d, t'] = [b, t, t']
-                    logp3 = torch.matmul((x_m * x_s_sq_r).transpose(1, 2), z)  # [b, t, d] x [b, d, t'] = [b, t, t']
-                    logp4 = torch.sum(-0.5 * (x_m**2) * x_s_sq_r, [1]).unsqueeze(-1)  # [b, t, 1]
-                    logp = logp1 + logp2 + logp3 + logp4  # [b, t, t']
-
-                    attn = maximum_path(logp, attn_mask.squeeze(1)).unsqueeze(1).detach()
-                    # embed()
-
-                z_m = torch.matmul(attn.squeeze(1).transpose(1, 2), x_m.transpose(1, 2)).transpose(
-                    1, 2
-                )  # [b, t', t], [b, t, d] -> [b, d, t']
-                z_logs = torch.matmul(attn.squeeze(1).transpose(1, 2), x_logs.transpose(1, 2)).transpose(
-                    1, 2
-                )  # [b, t', t], [b, t, d] -> [b, d, t']
-
-                logw_ = torch.log(1e-8 + torch.sum(attn, -1)) * x_mask
-                return (
-                    (z, z_m, z_logs, logdet, z_mask),
-                    (x_m, x_logs, x_mask),
-                    y_lengths,
-                    (attn, logw, logw_),
-                    (logits, torch.sum(mask, dim=1)),
-                )
+        return logits, y_lengths, z_mask
 
     def preprocess(self, y, y_lengths, y_max_length):
         if y_max_length is not None:
@@ -495,30 +427,24 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     # speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
     tags = list(np.array(tags)[indices.detach().cpu().numpy()])
 
-    (
-        (z, z_m, z_logs, logdet, z_mask),
-        (x_m, x_logs, x_mask),
-        y_lengths,
-        (attn, logw, logw_),
-        (logits, ctc_input_length),
-    ) = model(phonemes, phonemes_len, audio_features, audio_features_len)
-
-    l_mle = commons.mle_loss(z, z_m, z_logs, logdet, z_mask)
-    l_dp = commons.duration_loss(logw, logw_, phonemes_len)
-
+    x_mask = torch.unsqueeze(commons.sequence_mask(phonemes_len, phonemes.size(1)), 1).to(phonemes.dtype)
+    y_lengths = torch.ceil(audio_features.size(1) / model.feature_extraction.hop_length).to(torch.int32)
+    y_lengths = (y_lengths // model.cfg.decoder_config.n_sqz) * model.cfg.decoder_config.n_sqz
+    z_mask = torch.unsqueeze(commons.sequence_mask(audio_features_len, y_lengths), 1)
     attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
-    given_attn = commons.generate_path(durations.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
+    given_attn = commons.generate_path(durations.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1).to(torch.float32)
+    (logits, y_lengths, z_mask) = model(
+        raw_audio=audio_features, raw_audio_lengths=audio_features_len
+    )
 
     upsampled_phonemes = torch.matmul(given_attn.squeeze(1).transpose(1, 2), phonemes.float().unsqueeze(-1)).squeeze(-1)
 
     mask = commons.sequence_mask(y_lengths)
-    ce_losses = nn.functional.cross_entropy(logits.transpose(1,2), upsampled_phonemes.long(), reduction="none")
+    ce_losses = nn.functional.cross_entropy(logits.transpose(1, 2), upsampled_phonemes.long(), reduction="none")
     ce_loss = (ce_losses * mask.float()).sum() / mask.float().sum()
 
     ce_loss_scale = 1.0 if "ce_loss_scale" not in kwargs else kwargs["ce_loss_scale"]
 
-    run_ctx.mark_as_loss(name="mle", loss=l_mle)
-    run_ctx.mark_as_loss(name="dp", loss=l_dp)
     run_ctx.mark_as_loss(name="ce", loss=ce_loss, scale=ce_loss_scale)
 
 

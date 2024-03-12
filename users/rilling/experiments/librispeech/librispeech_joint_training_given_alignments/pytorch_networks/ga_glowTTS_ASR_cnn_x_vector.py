@@ -373,7 +373,7 @@ class Model(nn.Module):
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
 
     def forward(
-        self, x=None, x_lengths=None, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, recognition=False, noise_scale=1.0, length_scale=1.0
+        self, x=None, x_lengths=None, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, recognition=False, given_attn=None, noise_scale=1.0, length_scale=1.0
     ):
         if not gen:
             with torch.no_grad():
@@ -439,30 +439,19 @@ class Model(nn.Module):
             if recognition:
                 return logits, y_lengths, z_mask
             else:
-                with torch.no_grad():
-                    x_s_sq_r = torch.exp(-2 * x_logs)
-                    logp1 = torch.sum(-0.5 * math.log(2 * math.pi) - x_logs, [1]).unsqueeze(-1)  # [b, t, 1]
-                    logp2 = torch.matmul(x_s_sq_r.transpose(1, 2), -0.5 * (z**2))  # [b, t, d] x [b, d, t'] = [b, t, t']
-                    logp3 = torch.matmul((x_m * x_s_sq_r).transpose(1, 2), z)  # [b, t, d] x [b, d, t'] = [b, t, t']
-                    logp4 = torch.sum(-0.5 * (x_m**2) * x_s_sq_r, [1]).unsqueeze(-1)  # [b, t, 1]
-                    logp = logp1 + logp2 + logp3 + logp4  # [b, t, t']
-
-                    attn = maximum_path(logp, attn_mask.squeeze(1)).unsqueeze(1).detach()
-                    # embed()
-
-                z_m = torch.matmul(attn.squeeze(1).transpose(1, 2), x_m.transpose(1, 2)).transpose(
+                z_m = torch.matmul(given_attn.squeeze(1).transpose(1, 2), x_m.transpose(1, 2)).transpose(
                     1, 2
                 )  # [b, t', t], [b, t, d] -> [b, d, t']
-                z_logs = torch.matmul(attn.squeeze(1).transpose(1, 2), x_logs.transpose(1, 2)).transpose(
+                z_logs = torch.matmul(given_attn.squeeze(1).transpose(1, 2), x_logs.transpose(1, 2)).transpose(
                     1, 2
                 )  # [b, t', t], [b, t, d] -> [b, d, t']
 
-                logw_ = torch.log(1e-8 + torch.sum(attn, -1)) * x_mask
+                logw_ = torch.log(1e-8 + torch.sum(given_attn, -1)) * x_mask
                 return (
                     (z, z_m, z_logs, logdet, z_mask),
                     (x_m, x_logs, x_mask),
                     y_lengths,
-                    (attn, logw, logw_),
+                    (given_attn, logw, logw_),
                     (logits, torch.sum(mask, dim=1)),
                 )
 
@@ -495,13 +484,19 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     # speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
     tags = list(np.array(tags)[indices.detach().cpu().numpy()])
 
+    x_mask = torch.unsqueeze(commons.sequence_mask(phonemes_len, phonemes.size(1)), 1).to(phonemes.dtype)
+    y_lengths = torch.ceil(audio_features.size(1) / model.feature_extraction.hop_length).to(torch.int32)
+    y_lengths = (y_lengths // model.cfg.decoder_config.n_sqz) * model.cfg.decoder_config.n_sqz
+    z_mask = torch.unsqueeze(commons.sequence_mask(audio_features_len, y_lengths), 1)
+    attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
+    given_attn = commons.generate_path(durations.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1).to(torch.float32)
     (
         (z, z_m, z_logs, logdet, z_mask),
         (x_m, x_logs, x_mask),
         y_lengths,
         (attn, logw, logw_),
         (logits, ctc_input_length),
-    ) = model(phonemes, phonemes_len, audio_features, audio_features_len)
+    ) = model(phonemes, phonemes_len, audio_features, audio_features_len, given_attn=given_attn)
 
     l_mle = commons.mle_loss(z, z_m, z_logs, logdet, z_mask)
     l_dp = commons.duration_loss(logw, logw_, phonemes_len)

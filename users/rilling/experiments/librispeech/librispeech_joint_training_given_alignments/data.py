@@ -114,7 +114,7 @@ def get_librispeech_eow_lexicon(corpus_key="train-clean-100", with_g2p=True) -> 
     return AddEowPhonemesToLexiconJob(lex).out_lexicon
 
 
-def get_text_lexicon(corpus_key="train-clean-100") -> tk.Path:
+def get_text_lexicon(corpus_key="train-clean-100", tts=False) -> tk.Path:
     """
     Get the lexicon of the librispeech corpus with the given key in txt format
     adds blank and tts lemmas but does not add [SILENCE] since this is used 
@@ -123,8 +123,10 @@ def get_text_lexicon(corpus_key="train-clean-100") -> tk.Path:
     :param str corpus_key: Key of the librispeech corpus, defaults to "train-clean-100"
     :return tk.Path: Path to the txt file containing the lexicon
     """
-    # lexicon = get_tts_lexicon(with_blank=True, with_g2p=False, corpus_key=corpus_key, add_silence=False) # Without adding silence,
-    lexicon = get_asr_lexicon(corpus_key=corpus_key, with_g2p=True)
+    if tts:
+        lexicon = get_tts_lexicon(with_blank=True, with_g2p=False, corpus_key=corpus_key, add_silence=False) # Without adding silence,
+    else:
+        lexicon = get_asr_lexicon(corpus_key=corpus_key, with_g2p=True)
     from i6_experiments.users.rossenbach.lexicon.conversion import BlissLexiconToWordLexicon
 
     word_lexicon = BlissLexiconToWordLexicon(lexicon).out_lexicon

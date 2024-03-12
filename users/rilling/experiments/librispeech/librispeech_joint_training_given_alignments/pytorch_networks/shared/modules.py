@@ -4,6 +4,12 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from i6_models.assemblies.conformer.conformer_v1 import ConformerBlockV1Config, ConformerEncoderV1, ConformerBlockV1
+from i6_models.parts.conformer.norm import LayerNormNC
+from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config
+from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwardV1Config
+from i6_models.parts.conformer.mhsa import ConformerMHSAV1Config
+
 from .commons import fused_add_tanh_sigmoid_multiply, fused_add_tanh_sigmoid_multiply_no_jit
 
 from . import commons
@@ -206,6 +212,65 @@ class WN(torch.nn.Module):
             torch.nn.utils.remove_weight_norm(l)
         for l in self.res_skip_layers:
             torch.nn.utils.remove_weight_norm(l)
+
+
+class ConformerCouplingNet(nn.Module):
+    def __init__(self, in_channels, hidden_channels, kernel_size, n_layers, n_heads=2, gin_channels=0, p_dropout=0):
+        super(ConformerCouplingNet, self).__init__()
+        self.in_channels = in_channels
+        self.hidden_channels = hidden_channels
+        self.kernel_size = kernel_size
+        self.n_layers = n_layers
+        self.n_heads = n_heads
+        self.gin_channels = gin_channels
+        self.p_dropout = p_dropout
+
+        if gin_channels != 0:
+            cond_layer = torch.nn.Conv1d(gin_channels, in_channels * n_layers, 1)
+            self.cond_layer = torch.nn.utils.weight_norm(cond_layer, name="weight")
+
+        conformer_block_config = ConformerBlockV1Config(
+            ff_cfg=ConformerPositionwiseFeedForwardV1Config(
+                input_dim=self.in_channels,
+                hidden_dim=self.hidden_channels,
+                dropout=self.p_dropout,
+                activation=nn.functional.silu,
+            ),
+            mhsa_cfg=ConformerMHSAV1Config(
+                input_dim=self.in_channels,
+                num_att_heads=self.n_heads,
+                att_weights_dropout=self.p_dropout,
+                dropout=self.p_dropout,
+            ),
+            conv_cfg=ConformerConvolutionV1Config(
+                channels=self.in_channels,
+                kernel_size=self.kernel_size,
+                dropout=self.p_dropout,
+                activation=nn.functional.silu,
+                norm=LayerNormNC(self.in_channels),
+            ),
+        )
+
+        self.conformer = nn.ModuleList([ConformerBlockV1(conformer_block_config) for _ in range(self.n_layers)])
+
+    def forward(self, x, x_mask, g=None, **kwargs):
+        n_channels_tensor = torch.IntTensor([self.in_channels // 2])
+
+        if g is not None:
+            g = self.cond_layer(g)
+
+        for i in range(self.n_layers):
+            x_in = self.conformer[i](x.transpose(1, 2), x_mask.squeeze(1)).transpose(1, 2)
+
+            if g is not None:
+                cond_offset = i * self.in_channels
+                g_l = g[:, cond_offset : cond_offset + self.in_channels, :]
+            else:
+                g_l = torch.zeros_like(x_in)
+            # x = fused_add_tanh_sigmoid_multiply(x_in, g_l, n_channels_tensor)
+            x = x_in + g_l
+
+        return x * x_mask
 
 
 class TDNN(nn.Module):

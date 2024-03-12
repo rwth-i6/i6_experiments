@@ -17,6 +17,8 @@ import math
 import os
 import soundfile
 
+from i6_models.parts.blstm import BlstmEncoderV1, BlstmEncoderV1Config
+
 from .shared.configs import (
     SpecaugConfig,
     VGG4LayerActFrontendV1Config_mod,
@@ -27,6 +29,7 @@ from .shared.configs import (
 )
 
 from returnn.datasets.hdf import SimpleHDFWriter
+from returnn.torch.context import get_run_ctx
 
 from .shared.feature_extraction import DbMelFeatureExtraction
 from .shared.spec_augment import apply_spec_aug
@@ -319,25 +322,8 @@ class Model(nn.Module):
         """
         super().__init__()
 
-        self.net_kwargs = {
-            "repeat_per_num_frames": 100,
-            "max_dim_feat": 8,
-            "num_repeat_feat": 5,
-            "max_dim_time": 20,
-        }
-
         fe_config = DbMelFeatureExtractionConfig.from_dict(kwargs["fe_config"])
         self.feature_extraction = DbMelFeatureExtraction(config=fe_config)
-
-        # if label_target_size is None:
-        #     if n_vocab is None:
-        #         run_ctx = get_run_ctx()
-        #         dataset = run_ctx.engine.train_dataset or run_ctx.engine.forward_dataset
-        #         self.label_target_size = len(dataset.datasets["zip_dataset"].targets.labels)
-        #     else:
-        #         self.label_target_size = n_vocab
-        # else:
-        #     self.label_target_size = label_target_size
 
         self.cfg = ModelConfigV2.from_dict(model_config)
         text_encoder_config = self.cfg.text_encoder_config
@@ -355,71 +341,44 @@ class Model(nn.Module):
             decoder_config, in_channels=self.cfg.out_channels, gin_channels=self.cfg.gin_channels
         )
 
-        self.phoneme_pred_cnn = nn.Sequential()
+        blstm_config = BlstmEncoderV1Config(
+            num_layers=self.cfg.phoneme_prediction_config.n_layers,
+            input_dim=self.cfg.out_channels * self.cfg.phoneme_prediction_config.subsampling_factor,
+            hidden_dim=self.cfg.phoneme_prediction_config.n_channels,
+            dropout=self.cfg.phoneme_prediction_config.p_dropout,
+            enforce_sorted=False,
+        )
 
-        for i in range(self.cfg.phoneme_prediction_config.n_layers):
-            if i == 0:
-                in_channels = self.cfg.out_channels
-            else:
-                in_channels = self.cfg.phoneme_prediction_config.n_channels
-
-            self.phoneme_pred_cnn.append(nn.Conv1d(in_channels=in_channels, out_channels=self.cfg.phoneme_prediction_config.n_channels, kernel_size=self.cfg.phoneme_prediction_config.kernel_size, padding="same"))
-           
-            self.phoneme_pred_cnn.append(nn.ReLU())
-            self.phoneme_pred_cnn.append(nn.Dropout(self.cfg.phoneme_prediction_config.p_dropout))
-
-        self.phoneme_pred_output = nn.Linear(self.cfg.phoneme_prediction_config.n_channels, self.cfg.label_target_size + 1)
+        self.final = BlstmEncoderV1(blstm_config)
+        self.final_linear = nn.Linear(
+            2 * self.cfg.phoneme_prediction_config.n_channels, self.cfg.label_target_size + 1
+        )  # + CTC blank
 
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
 
     def forward(
-        self, x=None, x_lengths=None, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, recognition=False, noise_scale=1.0, length_scale=1.0
+        self, x=None, x_lengths=None, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, recognition=False, given_attn=None, noise_scale=1.0, length_scale=1.0
     ):
-        if not gen:
-            with torch.no_grad():
-                squeezed_audio = torch.squeeze(raw_audio)
-                y, y_lengths = self.feature_extraction(squeezed_audio, raw_audio_lengths)  # [B, T, F]
-                y = y.transpose(1, 2)  # [B, F, T]
-                self.x_vector.eval()
-                _, _, g = self.x_vector(y, y_lengths)
-        else:
-            y, y_lengths = (None, None)
-        g = self.x_vector_bottleneck(g)
+        with torch.no_grad():
+            squeezed_audio = torch.squeeze(raw_audio)
+            y, y_lengths = self.feature_extraction(squeezed_audio, raw_audio_lengths)  # [B, T, F]
+            y = y.transpose(1, 2)  # [B, F, T]
+            self.x_vector.eval()
+            _, _, g = self.x_vector(y, y_lengths)
 
-        if not recognition:
-            x_m, x_logs, logw, x_mask = self.encoder(x, x_lengths, g=g)  # mean, std logs, duration logs, mask
+            g = self.x_vector_bottleneck(g)
 
-        if gen:  # durations from dp only used during generation
-            w = torch.exp(logw) * x_mask * length_scale  # durations
-            w_ceil = torch.ceil(w)  # durations ceiled
-            y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
-            y_max_length = None
-        else:
             y_max_length = y.size(2)
 
-        y, y_lengths, y_max_length = self.preprocess(y, y_lengths, y_max_length)
-        z_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, y_max_length), 1).to(torch.int32)
-
-        if not recognition:
-            attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
-
-        if gen:
-            attn = commons.generate_path(w_ceil.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
-            z_m = torch.matmul(attn.squeeze(1).transpose(1, 2), x_m.transpose(1, 2)).transpose(1, 2)
-            z_logs = torch.matmul(attn.squeeze(1).transpose(1, 2), x_logs.transpose(1, 2)).transpose(1, 2)
-            logw_ = torch.log(1e-8 + torch.sum(attn, -1)) * x_mask
-
-            z = (z_m + torch.exp(z_logs) * torch.randn_like(z_m) * noise_scale) * z_mask
-            y, logdet = self.decoder(z, z_mask, g=g, reverse=True)
-
-            return (y, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_)
-        else:
+            y, y_lengths, y_max_length = self.preprocess(y, y_lengths, y_max_length)
+            z_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, y_max_length), 1).to(torch.int32)
             z, logdet = self.decoder(y, z_mask, g=g, reverse=False)
 
-            spec_augment_in = z.transpose(1, 2)  # [B, T, F]
-            mask = mask_tensor(spec_augment_in, y_lengths)
+            mask = torch.unsqueeze(commons.sequence_mask(y_lengths, y.size(2)), 1).to(y.dtype)
 
-            if self.training and self.cfg.specaug_config is not None:
+            spec_augment_in = z.transpose(1,2)
+            run_ctx = get_run_ctx()
+            if self.training and self.cfg.specaug_config is not None and run_ctx.epoch >= self.specaug_start_epoch:
                 audio_features_masked_2 = apply_spec_aug(
                     spec_augment_in,
                     num_repeat_time=torch.max(y_lengths).detach().cpu().numpy()
@@ -427,44 +386,19 @@ class Model(nn.Module):
                     max_dim_time=self.cfg.specaug_config.max_dim_time,
                     num_repeat_feat=self.cfg.specaug_config.num_repeat_feat,
                     max_dim_feat=self.cfg.specaug_config.max_dim_feat,
-                )
+                ).transpose(1,2)
             else:
-                audio_features_masked_2 = spec_augment_in
+                audio_features_masked_2 = spec_augment_in.transpose(1,2)
 
-            asr_in = audio_features_masked_2.transpose(1,2)
-            cnn_out = self.phoneme_pred_cnn(asr_in)
-            logits = self.phoneme_pred_output(cnn_out.transpose(1,2))
-            # log_probs = torch.log_softmax(logits, dim=2)
+        blstm_in, mask = commons.channel_squeeze(audio_features_masked_2, mask, self.cfg.phoneme_prediction_config.subsampling_factor) # frame stacking for subsampling is equivalent to the channel squeezing operation in glowTTS
+        blstm_in_length = y_lengths // 4
 
-            if recognition:
-                return logits, y_lengths, z_mask
-            else:
-                with torch.no_grad():
-                    x_s_sq_r = torch.exp(-2 * x_logs)
-                    logp1 = torch.sum(-0.5 * math.log(2 * math.pi) - x_logs, [1]).unsqueeze(-1)  # [b, t, 1]
-                    logp2 = torch.matmul(x_s_sq_r.transpose(1, 2), -0.5 * (z**2))  # [b, t, d] x [b, d, t'] = [b, t, t']
-                    logp3 = torch.matmul((x_m * x_s_sq_r).transpose(1, 2), z)  # [b, t, d] x [b, d, t'] = [b, t, t']
-                    logp4 = torch.sum(-0.5 * (x_m**2) * x_s_sq_r, [1]).unsqueeze(-1)  # [b, t, 1]
-                    logp = logp1 + logp2 + logp3 + logp4  # [b, t, t']
 
-                    attn = maximum_path(logp, attn_mask.squeeze(1)).unsqueeze(1).detach()
-                    # embed()
+        blstm_out = self.final(blstm_in.transpose(1,2), blstm_in_length) # [B, T, F]
+        logits = self.final_linear(blstm_out)
+        log_probs = torch.log_softmax(logits, dim=2)
 
-                z_m = torch.matmul(attn.squeeze(1).transpose(1, 2), x_m.transpose(1, 2)).transpose(
-                    1, 2
-                )  # [b, t', t], [b, t, d] -> [b, d, t']
-                z_logs = torch.matmul(attn.squeeze(1).transpose(1, 2), x_logs.transpose(1, 2)).transpose(
-                    1, 2
-                )  # [b, t', t], [b, t, d] -> [b, d, t']
-
-                logw_ = torch.log(1e-8 + torch.sum(attn, -1)) * x_mask
-                return (
-                    (z, z_m, z_logs, logdet, z_mask),
-                    (x_m, x_logs, x_mask),
-                    y_lengths,
-                    (attn, logw, logw_),
-                    (logits, torch.sum(mask, dim=1)),
-                )
+        return log_probs, blstm_in_length
 
     def preprocess(self, y, y_lengths, y_max_length):
         if y_max_length is not None:
@@ -477,49 +411,29 @@ class Model(nn.Module):
         self.decoder.store_inverse()
 
 
-def train_step(*, model: Model, data, run_ctx, **kwargs):
-    tags = data["seq_tag"]
-    audio_features = data["audio_features"]  # [B, T, F]
-    # audio_features = audio_features.transpose(1, 2) # [B, F, T] necessary because glowTTS expects the channels to be in the 2nd dimension
-    audio_features_len = data["audio_features:size1"]  # [B]
+def train_step(*, model: nn.Module, data, run_ctx, **kwargs):
+    raw_audio = data["audio_features"]  # [B, T', F]
+    raw_audio_len = data["audio_features:size1"]  # [B]
 
-    # perform local length sorting for more efficient packing
-    audio_features_len, indices = torch.sort(audio_features_len, descending=True)
+    phon_labels = data["phonemes"]  # [B, N] (sparse)
+    phon_labels_len = data["phonemes:size1"]  # [B, N]
 
-    audio_features = audio_features[indices, :, :]
-    phonemes = data["phonemes"][indices, :]  # [B, T] (sparse)
-    phonemes_len = data["phonemes:size1"][indices]  # [B, T]
-    phonemes_eow = data["phonemes_eow"][indices, :]  # [B, T]
-    phonemes_eow_len = data["phonemes_eow:size1"][indices]
-    durations = data["durations"][indices]
-    # speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
-    tags = list(np.array(tags)[indices.detach().cpu().numpy()])
-
-    (
-        (z, z_m, z_logs, logdet, z_mask),
-        (x_m, x_logs, x_mask),
-        y_lengths,
-        (attn, logw, logw_),
-        (logits, ctc_input_length),
-    ) = model(phonemes, phonemes_len, audio_features, audio_features_len)
-
-    l_mle = commons.mle_loss(z, z_m, z_logs, logdet, z_mask)
-    l_dp = commons.duration_loss(logw, logw_, phonemes_len)
-
-    attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
-    given_attn = commons.generate_path(durations.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
-
-    upsampled_phonemes = torch.matmul(given_attn.squeeze(1).transpose(1, 2), phonemes.float().unsqueeze(-1)).squeeze(-1)
-
-    mask = commons.sequence_mask(y_lengths)
-    ce_losses = nn.functional.cross_entropy(logits.transpose(1,2), upsampled_phonemes.long(), reduction="none")
-    ce_loss = (ce_losses * mask.float()).sum() / mask.float().sum()
-
-    ce_loss_scale = 1.0 if "ce_loss_scale" not in kwargs else kwargs["ce_loss_scale"]
-
-    run_ctx.mark_as_loss(name="mle", loss=l_mle)
-    run_ctx.mark_as_loss(name="dp", loss=l_dp)
-    run_ctx.mark_as_loss(name="ce", loss=ce_loss, scale=ce_loss_scale)
+    logprobs, audio_features_len = model(
+        raw_audio=raw_audio,
+        raw_audio_lengths=raw_audio_len,
+    )
+    transposed_logprobs = torch.permute(logprobs, (1, 0, 2))
+    ctc_loss = nn.functional.ctc_loss(
+        transposed_logprobs,
+        phon_labels,
+        input_lengths=audio_features_len,
+        target_lengths=phon_labels_len,
+        blank=model.cfg.label_target_size,
+        reduction="sum",
+        zero_infinity=True,
+    )
+    num_phonemes = torch.sum(phon_labels_len)
+    run_ctx.mark_as_loss(name="ctc", loss=ctc_loss, inv_norm_factor=num_phonemes)
 
 
 def forward_init_hook(run_ctx, **kwargs):
@@ -642,75 +556,71 @@ def phoneme_prediction_step(*, model: Model, data, run_ctx, **kwargs):
         run_ctx.hdf_writer.insert_batch(np.array(acc), [1], [tag])
 
 
-# def search_init_hook(run_ctx, **kwargs):
-#     # we are storing durations, but call it output.hdf to match
-#     # the default output of the ReturnnForwardJob
-#     from torchaudio.models.decoder import ctc_decoder
-#     run_ctx.recognition_file = open("search_out.py", "wt")
-#     run_ctx.recognition_file.write("{\n")
-#     import subprocess
-#     if kwargs["arpa_lm"] is not None:
-#         lm = subprocess.check_output(["cf", kwargs["arpa_lm"]]).decode().strip()
-#     else:
-#         lm = None
-#     from returnn.datasets.util.vocabulary import Vocabulary
-#     vocab = Vocabulary.create_vocab(
-#         vocab_file=kwargs["returnn_vocab"], unknown_label=None)
-#     labels = vocab.labels
+def search_init_hook(run_ctx, **kwargs):
+    # we are storing durations, but call it output.hdf to match
+    # the default output of the ReturnnForwardJob
+    from torchaudio.models.decoder import ctc_decoder
+    run_ctx.recognition_file = open("search_out.py", "wt")
+    run_ctx.recognition_file.write("{\n")
+    import subprocess
+    if kwargs["arpa_lm"] is not None:
+        lm = subprocess.check_output(["cf", kwargs["arpa_lm"]]).decode().strip()
+    else:
+        lm = None
+    from returnn.datasets.util.vocabulary import Vocabulary
+    vocab = Vocabulary.create_vocab(
+        vocab_file=kwargs["returnn_vocab"], unknown_label=None)
+    labels = vocab.labels
 
-#     run_ctx.ctc_decoder = ctc_decoder(
-#         lexicon=kwargs["lexicon"],
-#         lm=lm,
-#         lm_weight=kwargs["lm_weight"],
-#         tokens=labels + ["[blank]", "[SILENCE]", "[UNK]"],
-#         # "[SILENCE]" and "[UNK]" are not actually part of the vocab,
-#         # but the decoder is happy as long they are defined in the token list
-#         # even if they do not exist as label index in the softmax output,
-#         blank_token="[blank]",
-#         sil_token="[SILENCE]",
-#         unk_word="[unknown]",
-#         nbest=1,
-#         beam_size=kwargs["beam_size"],
-#         beam_size_token=kwargs.get("beam_size_token", None),
-#         beam_threshold=kwargs["beam_threshold"],
-#         sil_score=kwargs.get("sil_score", 0.0),
-#         word_score=kwargs.get("word_score", 0.0),
-#     )
-#     run_ctx.labels = labels
-#     run_ctx.blank_log_penalty = kwargs.get("blank_log_penalty", None)
+    run_ctx.ctc_decoder = ctc_decoder(
+        lexicon=kwargs["lexicon"],
+        lm=lm,
+        lm_weight=kwargs["lm_weight"],
+        tokens=labels,
+        blank_token="[blank]",
+        sil_token="[space]",  # [space] is our actual silence
+        unk_word="[UNKNOWN]",
+        nbest=1,
+        beam_size=kwargs["beam_size"],
+        beam_threshold=kwargs["beam_threshold"],
+        sil_score=kwargs.get("sil_score", 0.0),
+        word_score=kwargs.get("word_score", 0.0),
+    )
+    run_ctx.labels = labels
+    run_ctx.blank_log_penalty = kwargs.get("blank_log_penalty", None)
 
-#     if kwargs.get("prior_file", None):
-#         run_ctx.prior = np.loadtxt(kwargs["prior_file"], dtype="float32")
-#         run_ctx.prior_scale = kwargs["prior_scale"]
-#     else:
-#         run_ctx.prior = None
+    if kwargs.get("prior_file", None):
+        run_ctx.prior = np.loadtxt(kwargs["prior_file"], dtype="float32")
+        run_ctx.prior_scale = kwargs["prior_scale"]
+    else:
+        run_ctx.prior = None
 
-# def search_finish_hook(run_ctx, **kwargs):
-#     run_ctx.recognition_file.write("}\n")
-#     run_ctx.recognition_file.close()
+def search_finish_hook(run_ctx, **kwargs):
+    run_ctx.recognition_file.write("}\n")
+    run_ctx.recognition_file.close()
 
-# def search_step(*, model, data, run_ctx, **kwargs):
-#     raw_audio = data["raw_audio"]  # [B, T', F]
-#     raw_audio_len = data["raw_audio:size1"]  # [B]
+def search_step(*, model, data, run_ctx, **kwargs):
+    raw_audio = data["raw_audio"]  # [B, T', F]
+    raw_audio_len = data["raw_audio:size1"]  # [B]
 
-#     logprobs, audio_features_len = model(
-#         raw_audio=raw_audio,
-#         raw_audio_lengths=raw_audio_len,
-#         recognition=True
-#     )
+    logprobs, audio_features_len = model(
+        raw_audio=raw_audio,
+        raw_audio_lengths=raw_audio_len,
+        recognition=True
+    )
 
-#     tags = data["seq_tag"]
+    tags = data["seq_tag"]
 
-#     logprobs_cpu = logprobs.cpu()
-#     if run_ctx.blank_log_penalty is not None:
-#         # assumes blank is last
-#         logprobs_cpu[:, :, -1] -= run_ctx.blank_log_penalty
-#     if run_ctx.prior is not None:
-#         logprobs_cpu -= run_ctx.prior_scale * run_ctx.prior
-#     hypothesis = run_ctx.ctc_decoder(logprobs_cpu, audio_features_len.cpu())
+    logprobs_cpu = logprobs.cpu()
+    if run_ctx.blank_log_penalty is not None:
+        # assumes blank is last
+        logprobs_cpu[:, :, -1] -= run_ctx.blank_log_penalty
+    if run_ctx.prior is not None:
+        logprobs_cpu -= run_ctx.prior_scale * run_ctx.prior
+    hypothesis = run_ctx.ctc_decoder(logprobs_cpu, audio_features_len.cpu())
 
-#     for hyp, tag in zip(hypothesis, tags):
-#         words = hyp[0].words
-#         sequence = " ".join([word for word in words if not word.startswith("[")])
-#         print(sequence)
-#         run_ctx.recognition_file.write("%s: %s,\n" % (repr(tag), repr(sequence)))
+    for hyp, tag in zip(hypothesis, tags):
+        words = hyp[0].words
+        sequence = " ".join([word for word in words if not word.startswith("[")])
+        print(sequence)
+        run_ctx.recognition_file.write("%s: %s,\n" % (repr(tag), repr(sequence)))
