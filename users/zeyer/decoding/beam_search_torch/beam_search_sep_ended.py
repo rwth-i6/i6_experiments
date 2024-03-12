@@ -305,9 +305,12 @@ def beam_search_sep_ended(
         if max_act_beam_size == 0:
             break
         if opts.use_espnet_end_detect:
-            # We just increased i, thus i=i-1.
             espnet_end = espnet_end_detect(
-                ended_hyps_log_prob=end_seq_log_prob, ended_hyps_seq_len=end_seq_len, i=i - 1
+                ended_hyps_log_prob=end_seq_log_prob,
+                ended_hyps_seq_len=end_seq_len,
+                step=i - 1,  # We just increased i, thus i-1.
+                bad_score=bad_score,
+                **(opts.espnet_end_detect_opts or {}),
             )  # [Batch]
             # if debug_out is not None:
             #     print(

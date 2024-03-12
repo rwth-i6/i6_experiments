@@ -3,7 +3,7 @@ Beam search
 """
 
 from __future__ import annotations
-from typing import Optional, Tuple, Dict
+from typing import Optional, Any, Tuple, Dict
 
 import functools
 from dataclasses import dataclass
@@ -23,6 +23,7 @@ class BeamSearchDynBeamOpts:
     eos_label: int
     num_labels: int
     use_espnet_end_detect: bool = False
+    espnet_end_detect_opts: Optional[Dict[str, Any]] = None
 
 
 def beam_search_dyn_beam(
