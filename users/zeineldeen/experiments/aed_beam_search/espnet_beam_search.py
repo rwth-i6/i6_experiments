@@ -251,7 +251,7 @@ elif args.returnn_recog_args:
             _bs = len(next(iter(batch.values())))
             assert len(keys) == _bs, f"{len(keys)} != {_bs}"
 
-            logging.info(f"Sample id: {keys[0]}")
+            # logging.info(f"Sample id: {keys[0]}")
 
             with torch.no_grad():
                 start_time = time.perf_counter_ns()
@@ -265,7 +265,7 @@ elif args.returnn_recog_args:
                 enc_end_time = time.perf_counter_ns()
 
                 decoder_label_scorer = get_our_label_scorer_intf(asr_model.decoder, enc=enc, enc_olens=enc_olens)
-                label_scorers = {"decoder": (decoder_label_scorer, 1.0)}
+                label_scorers = {"decoder": (decoder_label_scorer, 1.0 - ctc_weight)}
                 if len_reward:
                     label_scorers["len_reward"] = (LengthRewardScorer(), len_reward)
                 if ctc_weight:
@@ -289,7 +289,6 @@ elif args.returnn_recog_args:
                     device=args.device,
                     opts=beam_search_opts,
                     out_individual_seq_scores=out_individual_seq_scores,
-                    debug=debug,
                 )  # [B,hyp,L]
 
                 search_end_time = time.perf_counter_ns()
