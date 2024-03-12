@@ -1120,6 +1120,21 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             **_get_orig_e_branchformer_lm_model_config(),
             "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
         },
+        "lm06-ctc03-sep-espnetEnd-beam20-beamEnd100-batch20": {
+            "beam_search_version": "sep_ended",
+            "beam_search_opts": {
+                "beam_size": 20,
+                "beam_and_ended_size": 100,
+                "ctc_weight": 0.3,
+                "lm_scale": 0.6,
+                "max_seq_len_factor": 0.5,
+                "use_espnet_end_detect": True,
+            },
+            "max_seqs": 20,
+            "batch_size": 2000 * _batch_size_factor,
+            **_get_orig_e_branchformer_lm_model_config(),
+            "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
+        },
         "lm06-ctc03-keep-beam20-batch20-thresh10": {
             "beam_search_version": "sep_ended_keep_v6",
             "beam_search_opts": {
