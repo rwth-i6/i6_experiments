@@ -333,18 +333,14 @@ def beam_search_sep_ended(
                 act_seq_log_prob,
                 out=act_seq_log_prob,
             )
-            torch.where(
+            act_beam_sizes_ = torch.where(
                 espnet_end,
                 torch.zeros((), dtype=act_beam_sizes.dtype, device=device),
                 act_beam_sizes,
-                out=act_beam_sizes,
             )
-            max_act_beam_size = act_beam_sizes.max().cpu()  # another CUDA sync point, but allows for early exit
-            if max_act_beam_size == 0:
+            max_act_beam_size_ = act_beam_sizes_.max().cpu()  # another CUDA sync point, but allows for early exit
+            if max_act_beam_size_ == 0:
                 break
-            # Maybe it's less now, maybe max_act_beam_size (ActBeam) got reduced.
-            act_seq_log_prob = act_seq_log_prob[:, :max_act_beam_size]  # [Batch,ActBeam]
-            act_target = act_target[:, :max_act_beam_size]  # [Batch,ActBeam]
 
         # backrefs are [Batch,ActBeam+EndBeam] -> InActBeam+InEndBeam.
         act_backrefs = backrefs[:, :max_act_beam_size]  # [Batch,ActBeam] -> InActBeam
