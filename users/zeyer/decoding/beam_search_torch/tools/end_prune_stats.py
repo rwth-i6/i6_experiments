@@ -87,6 +87,16 @@ def main():
                     total_act_num_steps += 1
                     total_act_hyps += size
             prev_step = step
+        if line.startswith("TIMINGS: "):  # anything after the batch is finished
+            # There might still be some seqs which were not finished yet.
+            for seq in cur_seqs:
+                if not seq:  # already finished before
+                    continue
+                # finished now by the espnet end detect function
+                total_num_seqs_finished += 1
+                orth = seq.orth
+                orth_pieces = sp.encode(orth, out_type=str)
+                total_len_orth += len(orth_pieces)
 
     assert total_num_seqs == total_num_seqs_finished  # just a sanity check
     try:
