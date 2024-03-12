@@ -1135,7 +1135,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "batch_size": 2000 * _batch_size_factor,
             **_get_orig_e_branchformer_lm_model_config(),
             "preload_from_files": _get_orig_e_branchformer_lm_model_preload_opts(),
-            "___rerun": 1,
+            "___rerun": 3,
         },
         "lm06-ctc03-keep-beam20-batch20-thresh10": {
             "beam_search_version": "sep_ended_keep_v6",
