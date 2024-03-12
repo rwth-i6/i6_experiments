@@ -196,7 +196,7 @@ def py():
 
     # TODO: LM+CTC
     for max_len in [0.5]:
-        for dataset in ["dev_other"]:
+        for dataset in ["dev_other", "test_other"]:
             for lm_weight in [0.6]:
                 for ctc_weight in [0.3]:
                     for beam_size in [20]:
@@ -213,5 +213,8 @@ def py():
                             search_args_["device"] = "cpu"
                             run_espnet_search(
                                 search_args_,
-                                rqmts={"cpu_type": "rescale_intel", "cpu_rqmt": 4},
+                                rqmts={"cpu_type": "rescale_intel", "cpu_rqmt": 4, "time_rqmt": 24},
                             )
+
+                            search_args_["device"] = "cuda"
+                            run_espnet_search(search_args_)
