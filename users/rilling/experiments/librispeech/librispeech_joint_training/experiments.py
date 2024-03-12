@@ -374,6 +374,22 @@ def get_glow_joint(x_vector_exp):
             search_args={**default_search_args, **{"lm_weight": lm}},
         )
 
+    # TODO: Maybe move this down for better visibility but make sure that training stays the same.
+    net_module = "glowTTS_ASR_conformer_x_vector_encoder_sample"
+    train_args_encoder_sample = copy.deepcopy(train_args)
+    train_args_encoder_sample["network_module"] = net_module
+    exp_dict = run_exp(
+        net_module + "_ctc_scale_0.1",
+        train_args_encoder_sample,
+        training_datasets,
+        asr_test_datasets,
+        250,
+        training_args={"ctc_scale": 0.1},
+        forward_args=forward_args,
+        search_args=default_search_args,
+    )
+
+    net_module = "glowTTS_ASR_conformer_x_vector"
     train_args_spec_augment = copy.deepcopy(train_args)
     train_args_spec_augment["net_args"]["model_config"]["specaug_config"] = asdict(specaug_config)
     exp_dict = run_exp(
