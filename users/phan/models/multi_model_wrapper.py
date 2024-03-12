@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from dataclasses import dataclass
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 
 from i6_models.config import ModelConfiguration
 from i6_experiments.common.setups.returnn_pytorch.serialization import (
@@ -11,8 +11,10 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import (
 from i6_experiments.users.berger.pytorch.serializers.basic import (
     get_basic_pt_network_serializer,
 )
+from i6_experiments.users.berger.systems.dataclasses import ConfigVariant
 from i6_experiments.common.setups.serialization import (
-    Import, CodeFromFunction, PartialImport
+    Import, CodeFromFunction, PartialImport,
+    SerializerObject
 )
 from i6_core.returnn.config import CodeWrapper
 
@@ -69,23 +71,21 @@ class MultiModelWrapper(nn.Module):
             x = self.module_dict[module](*args, **kwargs)
         return x
 
-def get_train_serializer(
+def get_base_serializer(
     model_config: MultiModelWrapperConfig,
     module_class_import: Dict[str, str],
-    train_step_package: str,
-    partial_train_step_func: bool = False,
-    partial_import_kwargs: dict = {},
+    prologue_serializers: List[SerializerObject],
+    epilogue_serializers: List[SerializerObject],
 ) -> Collection:
     """
-    Serializer object for MultiModelWrapper
+    Base Serializer object for MultiModelWrapper
+    Based on the config variant (train, prior, recog, etc.),
+    additional serializer objects will be appended to make a complete config.
     :param model_config: config used in model init
     :param module_class_import: dict of module name -> where to import them
     e.g. `"student_lm": i6_experiments.users.phan.models.lstm_lm.LSTMLM`
-    :param train_step_package: where to import the train step
-    :param partial_train_step_func: If True, use a partial tain step function.
-    This is to add parameters to the training without attaching them to the model.
-    :param partial_import_kwargs: Args passed to PartialImport, currently a dict
-    ith keys "hashed_arguments" and "unhashed_arguments"
+    :param prologue_serializer_objects: extra imports, calls. etc. at the beginning
+    :param epilogue_serializer_objects: extra imports, calls. etc. at the end
     :return: a serializer object for the model
     """
 
@@ -94,22 +94,12 @@ def get_train_serializer(
         Import(f"{__name__}.{MultiModelWrapperConfig.__name__}"),
         Import(f"{__name__}.{MultiModelWrapper.__name__}"),
     ]
-    if partial_train_step_func:
-        train_step_import = PartialImport(
-            code_object_path=f"{train_step_package}.train_step",
-            unhashed_package_root=train_step_package,
-            import_as="train_step",
-            **partial_import_kwargs,
-        )
-    else:
-        train_step_import = Import(f"{train_step_package}.train_step")
-    serializers.append(train_step_import)
+    # This exists because hashes...
+    serializers.extend(prologue_serializers)
 
     # Import the needed classes in model config
     for module in model_config.module_class:
         serializers.append(Import(f"{module_class_import[module]}.{model_config.module_class[module].__name__}"))
-
-    # Use CodeWrapper to insert literal code
 
     # Imports all needed package for the config
     call_objs = []
@@ -150,6 +140,103 @@ def get_train_serializer(
         model_class_name=MultiModelWrapper.__name__,
         model_kwargs=model_kwargs,
     ))
+    serializers.extend(epilogue_serializers)
     return Collection(
         serializer_objects=serializers,
     )
+
+
+def get_serializer(
+    model_config: MultiModelWrapper,
+    module_class_import: Dict[str, Any],
+    variant: ConfigVariant,
+    prologue_serializers_kwargs: dict,
+    epilogue_serializers: List[SerializerObject] = [],
+) -> Collection:
+    """
+    Get serializer of the model based on config variant.
+    """
+    if variant == ConfigVariant.TRAIN:
+        prologue_serializers = get_train_extra_serializers(**prologue_serializers_kwargs)
+    elif variant == ConfigVariant.PRIOR:
+        prologue_serializers = get_prior_extra_serializers(**prologue_serializers_kwargs)
+    elif variant == ConfigVariant.RECOG:
+        prologue_serializers = get_recog_extra_serializers(**prologue_serializers_kwargs)
+    else:
+        raise NotImplementedError("variant must be TRAIN, PRIOR, or RECOG")
+    return get_base_serializer(
+        model_config=model_config,
+        module_class_import=module_class_import,
+        prologue_serializers=prologue_serializers,
+        epilogue_serializers=epilogue_serializers,
+    )
+
+# All the partial_kwargs should be a dict with keys
+# "hashed_arguments" and "unhashed_arguments"
+def get_train_extra_serializers(
+    train_step_package: str,
+    partial_train_step: bool = False,
+    partial_kwargs: dict = {},
+) -> List[SerializerObject]:
+    """
+    For this config variant, only the train step function matters.
+    Additional train params can be added via partial import.
+    """
+    if partial_train_step:
+        train_step_import = PartialImport(
+            code_object_path=f"{train_step_package}.train_step",
+            unhashed_package_root=train_step_package,
+            import_as="train_step",
+            **partial_kwargs,
+        )
+    else:
+        train_step_import = Import(f"{train_step_package}.train_step")
+    serializers = [train_step_import]
+    return serializers
+
+
+def get_prior_extra_serializers(
+    forward_step_package: str,
+    prior_package: str,
+    partial_forward_step: bool = False,
+    partial_kwargs: dict = {},
+) -> List[SerializerObject]:
+    """
+    For prior, import the forward step and ComputePriorCallback.
+    """
+    if partial_forward_step:
+        forward_step_import = PartialImport(
+            code_object_path=f"{forward_step_package}.forward_step",
+            unhashed_package_root=forward_step_package,
+            import_as="forward_step",
+            **partial_kwargs,
+        )
+    else:
+        forward_step_import = Import(f"{forward_step_package}.forward_step")
+    serializers = [
+        forward_step_import,
+        Import(f"{prior_package}.ComputePriorCallback", import_as="forward_callback"),
+    ]
+    return serializers
+
+
+def get_recog_extra_serializers(
+    export_package: str,
+    partial_export: bool = False,
+    partial_kwargs: dict = {},
+) -> List[SerializerObject]:
+    """
+    For recog, the export to ONNX is important. Like train, parameters can be
+    passed via partial_export_kwargs.
+    """
+    if partial_export:
+        export_func_import = PartialImport(
+            code_object_path=f"{export_package}.export",
+            unhashed_package_root=export_package,
+            import_as="export",
+            **partial_kwargs,
+        )
+    else:
+        export_func_import = Import(f"{export_package}.export")
+    serializers = [export_func_import]
+    return serializers

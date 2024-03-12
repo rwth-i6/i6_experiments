@@ -66,18 +66,21 @@ def returnn_config_generator(
     
     lstm_lm_config = lstm_lm.LSTMLMConfig(**lstm_lm_args)
 
-    wrapper_config = multi_model_wrapper.MultiModelWrapperConfig(
-        module_class={
+    # Preload when init is only needed in train
+    wrapper_config_kwargs = {
+        'module_class': {
             'conformer_ctc': conformer_ctc.ConformerCTCModel,
             'train_lm': lstm_lm.LSTMLM,
         },
-        module_config={
+        'module_config': {
             'conformer_ctc': conformer_ctc_config,
             'train_lm': lstm_lm_config,
         },
-        module_preload=module_preloads,
-    )
-    wrapper_train_step_package = "i6_experiments.users.phan.ctc.train_steps.double_softmax"
+        'module_preload': None,
+    }
+    if variant == ConfigVariant.TRAIN:
+        wrapper_config_kwargs['module_preload'] = module_preloads
+    wrapper_config = multi_model_wrapper.MultiModelWrapperConfig(**wrapper_config_kwargs)
 
     extra_config = {
         "train": train_data_config,
@@ -90,6 +93,43 @@ def returnn_config_generator(
         'train_lm': "i6_experiments.users.phan.models.lstm_lm"
     }
     kwargs.update(lr) # diff LR scheduler will have diff parameters
+    
+    # kwargs for serializer
+    if variant == ConfigVariant.TRAIN:
+        prologue_serializers_kwargs = {
+            "train_step_package": "i6_experiments.users.phan.ctc.train_steps.double_softmax",
+            "partial_train_step": True,
+            "partial_kwargs": {
+                "hashed_arguments": {
+                    "am_scale": am_scale,
+                    "lm_scale": lm_scale,
+                },
+                "unhashed_arguments": {},
+            }
+        }
+    elif variant == ConfigVariant.PRIOR:
+        prologue_serializers_kwargs = {
+            "forward_step_package": "i6_experiments.users.phan.ctc.forward.multi_model_conformer_ctc",
+            "prior_package": "i6_experiments.users.phan.ctc.forward.prior_callback",
+            "partial_forward_step": True,
+            "partial_kwargs": {
+                "hashed_arguments": {
+                    "conformer_ctc_name": "conformer_ctc",
+                },
+                "unhashed_arguments": {},
+            }
+        }
+    elif variant == ConfigVariant.RECOG:
+        prologue_serializers_kwargs = {
+            "export_package": "i6_experiments.users.phan.ctc.exports.conformer_ctc",
+            "partial_export": True,
+            "partial_kwargs": {
+                "hashed_arguments": {
+                    "conformer_ctc_name": "conformer_ctc",
+                },
+                "unhashed_arguments": {},
+            }
+        }
 
     return get_returnn_config(
         num_epochs=num_subepochs,
@@ -97,18 +137,11 @@ def returnn_config_generator(
         num_outputs=num_outputs,
         target="targets",
         extra_python=[
-            multi_model_wrapper.get_train_serializer(
+            multi_model_wrapper.get_serializer(
                 model_config=wrapper_config,
                 module_class_import=module_class_import,
-                train_step_package=wrapper_train_step_package,
-                partial_train_step_func=True,
-                partial_import_kwargs={
-                    "hashed_arguments": {
-                        "am_scale": am_scale,
-                        "lm_scale": lm_scale,
-                    },
-                    "unhashed_arguments": {},
-                }
+                variant=variant,
+                prologue_serializers_kwargs=prologue_serializers_kwargs,
             ),
             ExplicitHash(inspect.getsource(ctc_double_softmax_loss)),
             ExplicitHash(inspect.getsource(log_ctc_pref_beam_scores)),
