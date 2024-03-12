@@ -160,25 +160,6 @@ def beam_search_sep_ended(
             torch.where(end_comb, torch.full((), 1, device=device), state_comb, out=state_comb)
         torch.where(target == opts.eos_label, torch.full((), 1, device=device), state_comb, out=state_comb)
         torch.where((i_dev >= max_seq_len)[:, None], torch.full((), 1, device=device), state_comb, out=state_comb)
-        if end_seq_log_prob is not None and opts.use_espnet_end_detect:
-            # We check actually the previously ended seqs (shape [Batch,InEndBeam]), thus i=i-1.
-            espnet_end = espnet_end_detect(
-                ended_hyps_log_prob=end_seq_log_prob, ended_hyps_seq_len=end_seq_len, i=i - 1
-            )  # [Batch]
-            # if debug_out is not None:
-            #     print(
-            #         "*** ESPnet end:",
-            #         ", ".join(
-            #             (f"step={i-1}", f"end={espnet_end.cpu().numpy().tolist()}", f"{prev_max_end_beam_size=}")
-            #         ),
-            #         file=debug_out,
-            #     )
-            torch.where(
-                espnet_end[:, None],
-                torch.full((), 1, device=device),
-                state_comb,
-                out=state_comb,
-            )
         torch.where(seq_log_prob <= bad_score, torch.full((), 100, device=device), state_comb, out=state_comb)
 
         act_comb = state_comb == 0  # [Batch,OutCombBeam]
@@ -323,6 +304,44 @@ def beam_search_sep_ended(
             )
         if max_act_beam_size == 0:
             break
+        if opts.use_espnet_end_detect:
+            # We just increased i, thus i=i-1.
+            espnet_end = espnet_end_detect(
+                ended_hyps_log_prob=end_seq_log_prob, ended_hyps_seq_len=end_seq_len, i=i - 1
+            )  # [Batch]
+            # if debug_out is not None:
+            #     print(
+            #         "*** ESPnet end:",
+            #         ", ".join(
+            #             (
+            #                 f"step={i-1}",
+            #                 f"end={espnet_end.cpu().numpy().tolist()}",
+            #                 f"prev_max_end_beam_size={int(prev_max_end_beam_size)}",
+            #                 f"end_seq_len={end_seq_len.cpu().numpy().tolist()}",
+            #                 f"end_seq_log_prob={end_seq_log_prob.cpu().numpy().tolist()}",
+            #             )
+            #         ),
+            #         file=debug_out,
+            #     )
+            # Mark all still active hyps as invalid. We already have enough ended.
+            torch.where(
+                espnet_end[:, None],
+                torch.full((), bad_score, device=device),
+                act_seq_log_prob,
+                out=act_seq_log_prob,
+            )
+            torch.where(
+                espnet_end,
+                torch.zeros((), dtype=act_beam_sizes.dtype, device=device),
+                act_beam_sizes,
+                out=act_beam_sizes,
+            )
+            max_act_beam_size = act_beam_sizes.max().cpu()  # another CUDA sync point, but allows for early exit
+            if max_act_beam_size == 0:
+                break
+            # Maybe it's less now, maybe max_act_beam_size (ActBeam) got reduced.
+            act_seq_log_prob = act_seq_log_prob[:, :max_act_beam_size]  # [Batch,ActBeam]
+            act_target = act_target[:, :max_act_beam_size]  # [Batch,ActBeam]
 
         # backrefs are [Batch,ActBeam+EndBeam] -> InActBeam+InEndBeam.
         act_backrefs = backrefs[:, :max_act_beam_size]  # [Batch,ActBeam] -> InActBeam
