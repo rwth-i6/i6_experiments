@@ -165,6 +165,14 @@ def beam_search_sep_ended(
             espnet_end = espnet_end_detect(
                 ended_hyps_log_prob=end_seq_log_prob, ended_hyps_seq_len=end_seq_len, i=i - 1
             )  # [Batch]
+            # if debug_out is not None:
+            #     print(
+            #         "*** ESPnet end:",
+            #         ", ".join(
+            #             (f"step={i-1}", f"end={espnet_end.cpu().numpy().tolist()}", f"{prev_max_end_beam_size=}")
+            #         ),
+            #         file=debug_out,
+            #     )
             torch.where(
                 espnet_end[:, None],
                 torch.full((), 1, device=device),
