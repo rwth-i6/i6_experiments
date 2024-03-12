@@ -21,8 +21,8 @@ def espnet_end_detect(
         this assumes it is sorted in descending order, i.e. [:, 0] are the best hyps.
         values in ended_hyps_log_prob <= bad_score are ignored.
     :param ended_hyps_seq_len: [Batch,EndBeam]
-    :param i: current time step
-    :param m: parameter for end detection
+    :param i: current decoder step
+    :param m: parameter for end detection, how many recent hyp lengths to check
     :param d_end: parameter for end detection
     :param bad_score: lower threshold. values in ended_hyps_log_prob <= bad_score are ignored
     :return: [Batch]. whether to end the search for this batch entry (i.e. whether to prune all active hyps away)
@@ -33,9 +33,14 @@ def espnet_end_detect(
     count = torch.zeros([batch_size], dtype=torch.int32, device=ended_hyps_log_prob.device)  # [Batch]
     best_hyp = ended_hyps_log_prob[:, 0]  # [Batch]
     for m_ in range(m):
-        # get ended_hyps with their length is i - m
+        # Get ended_hyps with their length is i - m - 2.
+        # The offset -2 is because in ESPnet, the hyps seq len includes SOS and EOS,
+        # while we do not include this here.
+        # This is actually a bit strange, as e.g. in the first step (i=0),
+        # all ended hyps in this step have length 2 in ESPnet,
+        # or in general, in step i, all hyps ended in this step have length i+2 in ESPnet.
         hyps_this_length_log_prob = torch.where(
-            (ended_hyps_seq_len == i - m_) & (ended_hyps_log_prob > bad_score),
+            (ended_hyps_seq_len == i - m_ - 2) & (ended_hyps_log_prob > bad_score),
             ended_hyps_log_prob,
             torch.full((), bad_score, device=ended_hyps_log_prob.device),
         )  # [Batch,Beam]
