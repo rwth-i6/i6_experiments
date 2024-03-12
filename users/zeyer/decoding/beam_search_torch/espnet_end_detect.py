@@ -31,7 +31,7 @@ def espnet_end_detect(
     if ended_hyps_log_prob.shape[1] == 0:
         return torch.full([batch_size], False, device=ended_hyps_log_prob.device)
     count = torch.zeros([batch_size], dtype=torch.int32, device=ended_hyps_log_prob.device)  # [Batch]
-    best_hyp = ended_hyps_log_prob[:, 0]  # [Batch]
+    best_hyp = ended_hyps_log_prob.max(dim=1).values  # [Batch]
     for m_ in range(m):
         # Get ended_hyps with their length is i - m - 2.
         # The offset -2 is because in ESPnet, the hyps seq len includes SOS and EOS,
