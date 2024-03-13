@@ -12,7 +12,7 @@ RETURNN_PYTORCH_EXE = tk.Path("/u/lukas.rilling/bin/returnn/returnn_pt20_experim
 
 MINI_RETURNN_ROOT = tk.Path("/u/lukas.rilling/github/MiniReturnn", hash_overwrite="LIBRISPEECH_DEFAULT_RETURNN_ROOT")
 
-RETURNN_COMMON = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn_common", commit="d1fc1c7dc6ae63658e5aa01dc2aad41eb2758573", checkout_folder_name="returnn_common").out_repository
+RETURNN_COMMON = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn_common", commit="d1fc1c7dc6ae63658e5aa01dc2aad41eb2758573", checkout_folder_name="returnn_common").out_repository.copy()
 RETURNN_COMMON.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_COMMON"
 
 NISQA_REPO = CloneGitRepositoryJob("https://github.com/gabrielmittag/NISQA").out_repository.copy()
