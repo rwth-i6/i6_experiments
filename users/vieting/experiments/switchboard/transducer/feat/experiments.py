@@ -387,7 +387,7 @@ def run_mel_stage2():
         "fft_size": 256,
     }
     recog_args = {
-        "lm_scales": [0.75],
+        "lm_scales": [0.25, 0.3, 0.35, 0.4, 0.45],
         "label_scorer_args": {
             "extra_args": {
                 "blank-label-index": 0,
@@ -407,14 +407,14 @@ def run_mel_stage2():
             "allow-word-end-recombination": True,
             "create-lattice": True,
             "full-sum-decoding": True,
-            "label-pruning": 13.5,
-            "label-pruning-limit": 20000,
+            "label-pruning": 8.8,
+            "label-pruning-limit": 50000,
             "recombination-lm.type": "simple-history",
             "separate-recombination-lm": True,
-            "word-end-pruning": 0.8,
-            "word-end-pruning-limit": 2000,
+            "word-end-pruning": 0.5,
+            "word-end-pruning-limit": 5000,
         },
-        "epochs": [27, "best"],
+        "epochs": [200, 210, 220, 230, 240, "best"],
     }
     common_args = {
         "feature_args": feature_args,
