@@ -228,10 +228,10 @@ class HybridSystem(NnSystem):
         cv_corpus_key,
         devtrain_corpus_key=None,
     ) -> returnn.ReturnnTrainingJob:
-        #if 'returnn_root' not in nn_train_args:
-            #nn_train_args['returnn_root'] = self.returnn_root
-        #if 'returnn_python_exe' not in nn_train_args:
-            #nn_train_args['returnn_python_exe'] = self.returnn_python_exe
+        # if 'returnn_root' not in nn_train_args:
+        # nn_train_args['returnn_root'] = self.returnn_root
+        # if 'returnn_python_exe' not in nn_train_args:
+        # nn_train_args['returnn_python_exe'] = self.returnn_python_exe
 
         train_job = returnn.ReturnnTrainingJob(
             returnn_config=returnn_config,
@@ -541,7 +541,7 @@ class HybridSystem(NnSystem):
                         nn_train_args=step_args.training_args,
                         train_corpus_key=trn_c,
                         cv_corpus_key=cv_c,
-                        feature_flow_key="samples"
+                        feature_flow_key="samples",
                     )
                 elif isinstance(self.train_input_data[trn_c], AllowedReturnnTrainingDataInput):
                     returnn_train_job = self.returnn_training(
