@@ -348,7 +348,7 @@ def tts_eval_v2(
         output_files=output_files,
     )
     forward_job.add_alias(prefix_name + "/tts_eval_job")
-    evaluate_nisqa(prefix_name, forward_job.out_files["out_corpus.xml.gz"])
+    evaluate_nisqa(prefix_name, forward_job.out_files["out_corpus.xml.gz"], with_bootstrap=True)
     return forward_job
 
 

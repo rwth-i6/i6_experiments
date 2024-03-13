@@ -20,7 +20,7 @@ from i6_core.tools.git import CloneGitRepositoryJob
 from i6_core.lm.kenlm import CompileKenLMJob
 
 kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
-KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries
+KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
 KENLM_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
 
 
