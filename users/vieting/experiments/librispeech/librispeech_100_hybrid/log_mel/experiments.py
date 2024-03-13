@@ -51,14 +51,13 @@ def get_hybrid_nn_system(
     )
     hybrid_nn_system.init_system(
         rasr_init_args=rasr_init_args,
-        train_data={"train-clean-100.train": data["train"]},
-        cv_data={"train-clean-100.cv": data["cv"]},
+        train_data={"train-clean-100.train": data["train"].get_data_dict()},
+        cv_data={"train-clean-100.cv": data["cv"].get_data_dict()},
         # devtrain_data={"train-clean-100.devtrain": data["devtrain"]},
         dev_data=nn_dev_data_inputs,
         # test_data=nn_test_data_inputs,
         train_cv_pairing=[tuple(["train-clean-100.train", "train-clean-100.cv"])],
     )
-    hybrid_nn_system.datasets = data
     return hybrid_nn_system
 
 

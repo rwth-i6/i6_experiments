@@ -469,7 +469,6 @@ class HybridSystem(NnSystem):
                     checkpoints=checkpoints,
                     train_job=train_job,
                     recognition_corpus_key=dev_c,
-                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
                     **recog_args,
                 )
 
