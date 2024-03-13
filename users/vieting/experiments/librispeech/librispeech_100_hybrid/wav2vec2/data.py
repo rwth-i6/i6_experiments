@@ -85,7 +85,7 @@ def get_ls100_oggzip_hdf_data_split_train_cv(gmm_system: GmmSystem):
 
     state_tying = DumpStateTyingJob(gmm_system.outputs["train-clean-100"]["final"].crp)
     train_align_job = RasrAlignmentDumpHDFJob(
-        alignment_caches=gmm_system.outputs["train-clean-100"]["final"].alignments.hidden_paths,  # TODO: needs to be list
+        alignment_caches=list(gmm_system.outputs["train-clean-100"]["final"].alignments.hidden_paths.values()),
         state_tying_file=state_tying.out_state_tying,
         allophone_file=gmm_system.outputs["train-clean-100"]["final"].crp.acoustic_model_post_config.allophones.add_from_file,
         data_type=np.int16,
