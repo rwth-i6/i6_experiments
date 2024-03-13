@@ -228,10 +228,10 @@ class HybridSystem(NnSystem):
         cv_corpus_key,
         devtrain_corpus_key=None,
     ) -> returnn.ReturnnTrainingJob:
-        if nn_train_args.returnn_root is None:
-            nn_train_args.returnn_root = self.returnn_root
-        if nn_train_args.returnn_python_exe is None:
-            nn_train_args.returnn_python_exe = self.returnn_python_exe
+        #if 'returnn_root' not in nn_train_args:
+            #nn_train_args['returnn_root'] = self.returnn_root
+        #if 'returnn_python_exe' not in nn_train_args:
+            #nn_train_args['returnn_python_exe'] = self.returnn_python_exe
 
         train_job = returnn.ReturnnTrainingJob(
             returnn_config=returnn_config,
@@ -368,6 +368,7 @@ class HybridSystem(NnSystem):
         use_epoch_for_compile=False,
         forward_output_layer="output",
         native_ops: Optional[List[str]] = None,
+        acoustic_mixture_path: Optional[tk.Path] = None,
         **kwargs,
     ):
         with tk.block(f"{name}_recognition"):
@@ -540,6 +541,7 @@ class HybridSystem(NnSystem):
                         nn_train_args=step_args.training_args,
                         train_corpus_key=trn_c,
                         cv_corpus_key=cv_c,
+                        feature_flow_key="samples"
                     )
                 elif isinstance(self.train_input_data[trn_c], AllowedReturnnTrainingDataInput):
                     returnn_train_job = self.returnn_training(
