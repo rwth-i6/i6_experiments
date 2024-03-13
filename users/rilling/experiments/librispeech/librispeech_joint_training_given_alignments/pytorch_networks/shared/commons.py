@@ -78,6 +78,9 @@ def encoding_distance_loss(phoneme_sequences, encodings, seq_lenghts):
     if phonemes[0] == -1:
         sum_encodings_masked = sum_encodings[1:]
         counts_masked = counts[1:]
+    else:
+        sum_encodings_masked = sum_encodings
+        counts_masked = counts
 
     mean_encodings = (sum_encodings_masked / counts_masked.unsqueeze(1)).unsqueeze(0)
 

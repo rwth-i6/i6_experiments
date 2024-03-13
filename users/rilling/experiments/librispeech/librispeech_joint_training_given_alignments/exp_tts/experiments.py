@@ -60,6 +60,7 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         asr_cv_set=False,
         given_train_job_for_forward=None,
         nisqa_evaluation=True,
+        swer_evaluation=False,
         forward_dataset=None
     ):
         exp = {}
@@ -93,36 +94,28 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
             train_job = given_train_job_for_forward
         exp["train_job"] = train_job
 
-        if nisqa_evaluation:
-            forward_config_gl = get_forward_config(
-                forward_dataset=forward_dataset or dataset,
-                **{**args, **{"config": {"batch_size": 50 * 16000}}},
-                forward_args={
-                    **forward_args,
-                    "gl_net_checkpoint": gl_checkpoint["checkpoint"],
-                    "gl_net_config": gl_checkpoint["config"],
-                },
-                target="corpus_gl",
-            )
-            forward_job_gl = tts_eval(
-                checkpoint=train_job.out_checkpoints[num_epochs],
-                prefix_name=prefix + name,
-                returnn_config=forward_config_gl,
-                returnn_exe=RETURNN_PYTORCH_EXE,
-                returnn_root=MINI_RETURNN_ROOT,
-                vocoder="gl",
-            )
-            exp["forward_job_gl"] = forward_job_gl
-        else:
-            forward_job = forward(
-                checkpoint=train_job.out_checkpoints[num_epochs],
-                config=forward_config,
-                returnn_exe=RETURNN_PYTORCH_EXE,
-                returnn_root=MINI_RETURNN_ROOT,
-                prefix=prefix + name,
-            )
-            exp["forward_job"] = forward_job
-
+        forward_config_gl = get_forward_config(
+            forward_dataset=forward_dataset or dataset,
+            **{**args, **{"config": {"batch_size": 50 * 16000}}},
+            forward_args={
+                **forward_args,
+                "gl_net_checkpoint": gl_checkpoint["checkpoint"],
+                "gl_net_config": gl_checkpoint["config"],
+            },
+            target="corpus_gl",
+        )
+        forward_job_gl = tts_eval(
+            checkpoint=train_job.out_checkpoints[num_epochs],
+            prefix_name=prefix + name,
+            returnn_config=forward_config_gl,
+            returnn_exe=RETURNN_PYTORCH_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+            vocoder="gl",
+            nisqa_eval=nisqa_evaluation,
+            swer_eval=swer_evaluation
+        )
+        exp["forward_job_gl"] = forward_job_gl
+        
         if extract_x_vector:
             forward_x_vector_config = get_forward_config(
                 forward_dataset=dataset, **args, forward_args=forward_args, target="xvector", train_data=True
