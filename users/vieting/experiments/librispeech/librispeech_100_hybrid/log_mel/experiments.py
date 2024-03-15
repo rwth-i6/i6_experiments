@@ -58,6 +58,7 @@ def get_hybrid_nn_system(
         # test_data=nn_test_data_inputs,
         train_cv_pairing=[tuple(["train-clean-100.train", "train-clean-100.cv"])],
     )
+    hybrid_nn_system.datasets = data
     return hybrid_nn_system
 
 

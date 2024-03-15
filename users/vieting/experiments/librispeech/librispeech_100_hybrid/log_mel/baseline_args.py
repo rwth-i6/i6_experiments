@@ -20,9 +20,12 @@ from i6_experiments.common.setups.returnn_common.serialization import (
 from .default_tools import RETURNN_COMMON
 
 
-def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_returnn_training=True, datasets={}, **net_kwargs):
+def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, datasets={}, **net_kwargs):
     evaluation_epochs  = list(range(num_epochs, num_epochs + 1, 10))
 
+    datasets["train"] = datasets["train"].get_data_dict()
+    datasets["cv"] = datasets["cv"].get_data_dict()
+    datasets["devtrain"] = datasets["devtrain"].get_data_dict()
     returnn_configs = get_rc_returnn_configs(
         num_inputs=50, num_outputs=num_outputs, batch_size=5000,
         evaluation_epochs=evaluation_epochs,
@@ -118,11 +121,7 @@ def get_rc_returnn_configs(
         recognition=False
 ):
     # ******************** blstm base ********************
-
     base_config = {
-        "extern_data": {
-            "data": {"dim": num_inputs},
-        },
         **datasets,
     }
     base_post_config = {
@@ -140,7 +139,7 @@ def get_rc_returnn_configs(
             "behavior_version": 15,
             "batch_size": batch_size,  # {"classes": batch_size, "data": batch_size},
             "chunking": "50:25",
-            "extern_data": {"classes": {"dim": num_outputs, "sparse": True, "shape": (None, 1)}, "data": {"dim": 1}},
+            "extern_data": {"classes": {"dim": num_outputs,"sparse_dim": num_outputs, "sparse": True, "shape": (None, 1)}, "data": {"dim": 1}},
             "optimizer": {"class": "nadam", "epsilon": 1e-8},
             "gradient_noise": 0.3,
             "learning_rates": list(np.linspace(2.5e-5, 3e-4, 50)) + list(np.linspace(3e-4, 2.5e-5, 50)),
