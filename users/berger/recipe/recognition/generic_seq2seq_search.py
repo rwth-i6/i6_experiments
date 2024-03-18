@@ -186,8 +186,6 @@ class GenericSeq2SeqLmImageAndGlobalCacheJob(rasr.RasrCommand, Job):
 
 
 class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
-    __sis_hash_exclude__ = {"num_threads": None}
-
     def __init__(
         self,
         crp,
@@ -210,7 +208,6 @@ class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
         lm_gc_job_local=False,
         lm_gc_job_mem=16,
         lm_gc_job_default_search=False,
-        num_threads=None,
     ):  # TODO set this to true later
         self.set_vis_name("Generic Seq2Seq Search")
         kwargs = locals()
@@ -223,7 +220,6 @@ class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
         self.exe = self.select_exe(sprint_exe, "flf-tool")
         self.concurrent = crp.concurrent
         self.use_gpu = use_gpu
-        self.num_threads = num_threads
 
         self.out_log_file = self.log_file_output_path("search", crp, True)
 
@@ -261,11 +257,7 @@ class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
         # sometimes crash without this
         if not self.use_gpu:
             extra_code += "\nexport CUDA_VISIBLE_DEVICES="
-        if self.num_threads is None:
-            extra_code += "\nexport OMP_NUM_THREADS=%i" % self.rqmt["cpu"]
-        else:
-            extra_code += f"\nexport OMP_NUM_THREADS={self.num_threads}"
-            extra_code += f"\nexport MKL_NUM_THREADS={self.num_threads}"
+        extra_code += "\nexport OMP_NUM_THREADS=%i" % self.rqmt["cpu"]
         self.write_run_script(self.exe, "recognition.config", extra_code=extra_code)
 
     # TODO maybe not needed

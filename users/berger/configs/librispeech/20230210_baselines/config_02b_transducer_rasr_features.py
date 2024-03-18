@@ -51,10 +51,7 @@ def generate_returnn_config(
     **kwargs,
 ) -> ReturnnConfig:
     if train:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer(
             num_outputs=num_classes,
             specaug_args={
                 "max_time_num": 1,
@@ -92,10 +89,7 @@ def generate_returnn_config(
             loss_boost_v2=kwargs.get("loss_boost_v2", False),
         )
     else:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer_recog(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
             conformer_args={
                 "num_blocks": 12,
@@ -113,7 +107,6 @@ def generate_returnn_config(
                     "size": 1024,
                     "activation": "tanh",
                 },
-                "ilm_scale": kwargs.get("ilm_scale", 0.0),
             },
         )
 
@@ -229,10 +222,10 @@ def run_exp(
 
     recog_args = exp_args.get_transducer_recog_step_args(
         num_classes,
-        lm_scales=[0.5, 0.6, 0.7, 0.8, 0.9],
-        epochs=[320, 400],
+        lm_scales=[0.5, 0.6, 0.7],
+        epochs=[320, 400, "best"],
         # lookahead_options={"scale": 0.5},
-        search_parameters={"label-pruning": 14.0},
+        search_parameters={"label-pruning": 12.0},
         feature_type=FeatureType.GAMMATONE_16K,
         reduction_factor=4,
         reduction_subtrahend=0,
@@ -244,9 +237,9 @@ def run_exp(
         tools,
         summary_keys=[
             SummaryKey.TRAIN_NAME,
-            SummaryKey.RECOG_NAME,
             SummaryKey.CORPUS,
             SummaryKey.EPOCH,
+            SummaryKey.PRIOR,
             SummaryKey.LM,
             SummaryKey.WER,
             SummaryKey.SUB,
@@ -254,7 +247,6 @@ def run_exp(
             SummaryKey.DEL,
             SummaryKey.ERR,
         ],
-        summary_sort_keys=[SummaryKey.ERR, SummaryKey.CORPUS],
     )
 
     # ********** Returnn Configs **********
@@ -289,16 +281,10 @@ def run_exp(
             train_data_config=data.train_data_config,
             dev_data_config=data.cv_data_config,
         )
-        recog_config_ilm = generate_returnn_config(
-            train=False,
-            train_data_config=data.train_data_config,
-            dev_data_config=data.cv_data_config,
-            ilm_scale=0.2,
-        )
 
         returnn_configs = ReturnnConfigs(
             train_config=train_config,
-            recog_configs={"recog": recog_config, "recog_ilm": recog_config_ilm},
+            recog_configs={"recog": recog_config},
         )
 
         suffix = f"lr-{peak_lr}"
@@ -349,6 +335,43 @@ def py() -> Tuple[SummaryReport, Checkpoint]:
 
     summary_report, model = run_exp(alignments_blstm, ctc_model, name_suffix="blstm-align")
     # summary_report.merge_report(run_exp(alignments_conf, name_suffix="conf-align")[0])
+
+    alignments_nour = {}
+
+    for key, path in [
+        (
+            "train-other-960_align",
+            tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.0a7MCFFN37Bg/output/alignment.cache.bundle"
+            ),
+        ),
+        (
+            "dev-clean_align",
+            tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.HjJgbxdZhWZj/output/alignment.cache.bundle"
+            ),
+        ),
+        (
+            "dev-other_align",
+            tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.UatqVP2YM55f/output/alignment.cache.bundle"
+            ),
+        ),
+    ]:
+        alignments_nour[key] = AlignmentData(
+            alignment_cache_bundle=path,
+            allophone_file=tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_core/lexicon/allophones/StoreAllophonesJob.8Nygr67IZfVG/output/allophones"
+            ),
+            state_tying_file=tk.Path(
+                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_core/lexicon/allophones/DumpStateTyingJob.6w7HRWTGkgEd/output/state-tying"
+            ),
+            silence_phone="<blank>",
+        )
+    # report, model = run_exp(
+    #     alignments_nour, name_suffix="nour-align", data_control_train=True, data_control_cv=False, match_lengths=True
+    # )
+    # summary_report.merge_report(report)
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 

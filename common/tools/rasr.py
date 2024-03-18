@@ -35,22 +35,3 @@ def compile_rasr_binaries_i6mode(
     )
     make_job.rqmt["mem"] = 8
     return make_job.out_links["binaries"]
-
-
-def compile_rasr_binaries_apptainer(
-    apptainer_image_version: str,  # Most recent: 2023-05-08_tensorflow-2.8_v1
-    branch: Optional[str] = None,
-    commit: Optional[str] = None,
-    rasr_git_repository: str = "https://github.com/rwth-i6/rasr",
-    rasr_arch: str = "linux-x86_64-standard",
-) -> tk.Path:
-    rasr_repo = CloneGitRepositoryJob(rasr_git_repository, branch=branch, commit=commit).out_repository
-    make_job = MakeJob(
-        folder=rasr_repo,
-        make_sequence=["build", "install"],
-        configure_opts=[f"--apptainer-setup={apptainer_image_version}"],
-        num_processes=8,
-        link_outputs={"binaries": f"arch/{rasr_arch}/"},
-    )
-    make_job.rqmt["mem"] = 8
-    return make_job.out_links["binaries"]

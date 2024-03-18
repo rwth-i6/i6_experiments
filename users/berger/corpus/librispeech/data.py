@@ -4,7 +4,6 @@ from i6_core.meta.system import CorpusObject
 import i6_experiments.common.datasets.librispeech as lbs_dataset
 from i6_experiments.common.setups.rasr import util as rasr_util
 from i6_experiments.users.berger.corpus.general.helpers import filter_unk_in_corpus_object
-from i6_experiments.users.berger.helpers.rasr import convert_legacy_corpus_object_dict_to_scorable
 from .lm_data import get_lm
 from i6_experiments.users.berger import helpers
 from i6_experiments.users.berger.recipe.lexicon.modification import (
@@ -64,7 +63,6 @@ def get_data_inputs(
         )
     )
     corpus_object_dict.update(extra_corpus_object_dict)
-    corpus_object_dict = convert_legacy_corpus_object_dict_to_scorable(corpus_object_dict)
 
     lms = {lm_name: get_lm(lm_name) for lm_name in lm_names}
 

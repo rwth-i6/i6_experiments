@@ -54,7 +54,7 @@ def run_tedlium2_ngram_lm(add_unknown_phoneme_and_mapping: bool = False, alias_p
         srilm_path=SRILM_PATH,
         ngram_rqmt=None,
         perplexity_rqmt=None,
-        mail_address=gs.MAIL_ADDRESS if hasattr(gs, "MAIL_ADDRESS") else None,
+        mail_address=gs.MAIL_ADDRESS,
     )
     ngram_system.run_training()
 

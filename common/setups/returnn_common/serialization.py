@@ -43,7 +43,6 @@ Usage Example::
 """
 
 from __future__ import annotations
-import copy
 from typing import Any, List, Union, Optional, Dict, Set
 from dataclasses import dataclass, asdict
 import os
@@ -175,11 +174,8 @@ class Collection(DelayedBase):
                     assert False, "invalid type for packages"
                 target_package_path = os.path.join(out_dir, package_path)
                 pathlib.Path(os.path.dirname(target_package_path)).mkdir(parents=True, exist_ok=True)
-                try:
-                    shutil.copytree(os.path.join(self.root_path, package_path), target_package_path)
-                except FileExistsError:
-                    pass
-            content.append(f"sys.path.insert(0, os.path.dirname(__file__))\n")
+                shutil.copytree(os.path.join(self.root_path, package_path), target_package_path)
+                content.append(f"sys.path.insert(0, os.path.dirname(__file__))\n")
         else:
             content.append(f"sys.path.insert(0, {self.root_path!r})\n")
 
@@ -327,14 +323,14 @@ class Network(SerializerObject):
         """
         super().__init__()
         self.net_func_name = net_func_name
-        self.net_kwargs = copy.deepcopy(net_kwargs)
+        self.net_kwargs = net_kwargs
         self.net_kwargs.update({k: CodeWrapper(v) for k, v in net_func_map.items()})
 
     def get(self):
         """get"""
         return string.Template(self.TEMPLATE).substitute(
             {
-                "NETWORK_KWARGS": str(instanciate_delayed(self.net_kwargs)),
+                "NETWORK_KWARGS": str(self.net_kwargs),
                 "FUNCTION_NAME": self.net_func_name,
             }
         )

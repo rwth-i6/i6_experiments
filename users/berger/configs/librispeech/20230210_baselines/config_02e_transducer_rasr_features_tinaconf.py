@@ -96,7 +96,6 @@ def generate_returnn_config(
                     "size": 1024,
                     "activation": "tanh",
                 },
-                "ilm_scale": kwargs.get("ilm_scale", 0.0),
             },
         )
 
@@ -143,7 +142,7 @@ def generate_returnn_config(
         # initial_lr=1e-03 / 30,
         # peak_lr=1e-03,
         initial_lr=1e-05,
-        peak_lr=kwargs.get("peak_lr", 4e-04),
+        peak_lr=4e-04,
         final_lr=1e-06,
         batch_size=12500,
         extra_config=extra_config,
@@ -217,8 +216,8 @@ def run_exp(
 
     recog_args = exp_args.get_transducer_recog_step_args(
         num_classes,
-        lm_scales=[0.8],
-        epochs=[600],
+        lm_scales=[0.7],
+        epochs=[300],
         # lookahead_options={"scale": 0.5},
         search_parameters={"label-pruning": 12.0},
         feature_type=FeatureType.GAMMATONE_16K,
@@ -233,8 +232,8 @@ def run_exp(
         summary_keys=[
             SummaryKey.TRAIN_NAME,
             SummaryKey.CORPUS,
-            SummaryKey.RECOG_NAME,
             SummaryKey.EPOCH,
+            SummaryKey.PRIOR,
             SummaryKey.LM,
             SummaryKey.WER,
             SummaryKey.SUB,
@@ -242,8 +241,31 @@ def run_exp(
             SummaryKey.DEL,
             SummaryKey.ERR,
         ],
-        summary_sort_keys=[SummaryKey.ERR, SummaryKey.CORPUS],
     )
+
+    # ********** Returnn Configs **********
+
+    train_config = generate_returnn_config(
+        train=True,
+        train_data_config=data.train_data_config,
+        dev_data_config=data.cv_data_config,
+        label_smoothing=None,
+        loss_boost_v2=False,
+        loss_boost_scale=0.0,
+        model_preload=None,
+    )
+    recog_config = generate_returnn_config(
+        train=False,
+        train_data_config=data.train_data_config,
+        dev_data_config=data.cv_data_config,
+    )
+
+    returnn_configs = ReturnnConfigs(
+        train_config=train_config,
+        recog_configs={"recog": recog_config},
+    )
+
+    system.add_experiment_configs(f"Conformer_Transducer_Viterbi_{name_suffix}", returnn_configs)
 
     system.init_corpora(
         dev_keys=data.dev_keys,
@@ -254,41 +276,12 @@ def run_exp(
     )
     system.setup_scoring()
 
-    # ********** Returnn Configs **********
-
-    for lr in [4e-04, 8e-04]:
-        train_config = generate_returnn_config(
-            train=True,
-            train_data_config=data.train_data_config,
-            dev_data_config=data.cv_data_config,
-            peak_lr=lr,
-            label_smoothing=None,
-            loss_boost_v2=False,
-            loss_boost_scale=0.0,
-            model_preload=None,
-        )
-
-        returnn_configs = ReturnnConfigs(
-            train_config=train_config,
-            recog_configs={
-                f"recog_ilm-{ilm_scale}": generate_returnn_config(
-                    train=False,
-                    ilm_scale=ilm_scale,
-                    train_data_config=data.train_data_config,
-                    dev_data_config=data.cv_data_config,
-                )
-                for ilm_scale in [0.2]
-            },
-        )
-
-        system.add_experiment_configs(f"Conformer_Transducer_Viterbi_{name_suffix}_lr-{lr}", returnn_configs)
-
     system.run_train_step(**train_args)
 
     system.run_dev_recog_step(**recog_args)
     system.run_test_recog_step(**recog_args)
 
-    train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_{name_suffix}_lr-0.0004")
+    train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_{name_suffix}")
     # model = GetBestCheckpointJob(
     #     model_dir=train_job.out_model_dir, learning_rates=train_job.out_learning_rates
     # ).out_checkpoint
@@ -394,7 +387,7 @@ def py() -> SummaryReport:
                     ),
                     ref_silence_phone="[SILENCE]",
                     ref_upsample_factor=1,
-                    # remove_outlier_limit=50,
+                    remove_outlier_limit=50,
                 )
                 tk.register_output(f"tse/nour-align_{key}_am-{am_scale}", compute_tse_job.out_tse_frames)
         report, model = run_exp(
