@@ -1,6 +1,6 @@
 import copy
 import itertools
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from i6_core import returnn
 from i6_experiments.users.berger.recipe import rasr as custom_rasr
@@ -38,6 +38,8 @@ class Seq2SeqSearchFunctor(
         flow_args: Dict = {},
         model_flow_args: Dict = {},
         recognition_scoring_type=RecognitionScoringType.Lattice,
+        rqmt_update: Optional[dict] = None,
+        search_stats: bool = False,
         **kwargs,
     ) -> List[Dict]:
         assert recog_corpus is not None
@@ -117,6 +119,9 @@ class Seq2SeqSearchFunctor(
                 **kwargs,
             )
 
+            if rqmt_update is not None:
+                rec.rqmt.update(rqmt_update)
+
             exp_full = (
                 f"{recog_config.name}_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}_lm-{lm_scale:02.2f}"
             )
@@ -139,6 +144,16 @@ class Seq2SeqSearchFunctor(
                 scorer_job.out_report_dir,
             )
 
+            rtf = None
+            if search_stats:
+                stats_job = recognition.ExtractSeq2SeqSearchStatisticsJob(
+                    search_logs=list(rec.out_log_file.values()),
+                    corpus_duration_hours=recog_corpus.corpus_info.data.corpus_object.duration,
+                )
+                rtf = stats_job.overall_rtf
+
+                tk.register_output(f"{path}.rtf", rtf)
+
             recog_results.append(
                 {
                     dataclasses.SummaryKey.TRAIN_NAME.value: train_job.name,
@@ -147,6 +162,7 @@ class Seq2SeqSearchFunctor(
                     dataclasses.SummaryKey.EPOCH.value: self._get_epoch_value(train_job.job, epoch),
                     dataclasses.SummaryKey.PRIOR.value: prior_scale,
                     dataclasses.SummaryKey.LM.value: lm_scale,
+                    dataclasses.SummaryKey.RTF.value: rtf,
                     dataclasses.SummaryKey.WER.value: scorer_job.out_wer,
                     dataclasses.SummaryKey.SUB.value: scorer_job.out_percent_substitution,
                     dataclasses.SummaryKey.DEL.value: scorer_job.out_percent_deletions,

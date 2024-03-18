@@ -1,4 +1,7 @@
 [tool.black]
 line-length = 120
-target-version = ["py37"]
-exclude = 'users'
+target-version = ["py38"]
+# exclude = 'users'
+
+[tool.ruff]
+line-length = 120

@@ -17,11 +17,14 @@ from .config_02b_transducer_rasr_features import py as py_02b
 
 # from .config_02e_transducer_rasr_features_tinaconf_old import py as py_02e_old
 from .config_02e_transducer_rasr_features_tinaconf import py as py_02e
+from .config_02e_transducer_rasr_features_tinaconf_rtf import py as py_02e_rtf
 
 # from .config_02c_transducer_wei import py as py_02c
 # from .config_02d_transducer_rasr_features_dc import py as py_02d
 from .config_03a_transducer_fullsum_raw_samples import py as py_03a
 from .config_03b_transducer_fullsum_rasr_features import py as py_03b
+
+from .config_04b_transducer_fullsum_from_scratch_rasr_features import py as py_04b
 
 # from .config_03c_transducer_fullsum_wei import py as py_03c
 
@@ -51,8 +54,10 @@ def main() -> SummaryReport:
     sub_reports.append(copy.deepcopy(py_02b()[0]))
     # sub_reports.append(copy.deepcopy(py_02e_old()))
     sub_reports.append(copy.deepcopy(py_02e()))
+    sub_reports.append(copy.deepcopy(py_02e_rtf()))
     sub_reports.append(copy.deepcopy(py_03a()))
     sub_reports.append(copy.deepcopy(py_03b()))
+    sub_reports.append(copy.deepcopy(py_04b()))
 
     for report in sub_reports:
         report.collapse(
@@ -60,7 +65,7 @@ def main() -> SummaryReport:
         )  # Keep one row for each recognition corpus
         summary_report.merge_report(report, update_structure=True)
 
-    summary_report.set_col_sort_key([SummaryKey.ERR.value, SummaryKey.WER.value, SummaryKey.CORPUS.value])
+    summary_report.set_col_sort_key([SummaryKey.ERR.value, SummaryKey.CORPUS.value])
 
     tk.register_report("summary.report", summary_report)
 

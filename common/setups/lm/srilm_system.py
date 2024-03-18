@@ -318,7 +318,11 @@ class SriLmSystem:
             for order in self.ngram_order:
                 out_str = str(order).ljust(len(order_header))
                 for eval_name in self.eval_data.keys():
-                    out_str += f'{ppl_dict[f"{train_name}_{order}gram_{eval_name}"].get():.2f}'.ljust(max_size)
+                    var = ppl_dict[f"{train_name}_{order}gram_{eval_name}"]
+                    if not var.is_set():
+                        out_str += "None".ljust(max_size)
+                    else:
+                        out_str += f"{var.get():.2f}".ljust(max_size)
                     out_str += " "
                 out.append(out_str)
 

@@ -1,5 +1,6 @@
 import copy
 import os
+import numpy as np
 from typing import Dict, Tuple, Optional
 
 import i6_core.rasr as rasr
@@ -24,6 +25,8 @@ from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
 )
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
+from i6_experiments.users.berger.args.jobs.recognition_args import get_seq2seq_search_parameters
+from .config_02e_transducer_rasr_features_tinaconf import subsample_by_4
 from sisyphus import gs, tk
 
 tools = copy.deepcopy(default_tools)
@@ -153,10 +156,6 @@ def generate_returnn_config(
     return returnn_config
 
 
-def subsample_by_4(orig_len: int) -> int:
-    return -(-orig_len // 4)
-
-
 def run_exp(
     alignments: Dict[str, AlignmentData],
     ctc_model_checkpoint: Optional[Checkpoint] = None,
@@ -181,6 +180,7 @@ def run_exp(
         # use_wei_lexicon=False,
         feature_type=FeatureType.GAMMATONE_16K,
     )
+    data.data_inputs["dev-other_4gram"].corpus_object.duration = 5.120
 
     changed_data_configs = []
     if data_control_train:
@@ -215,6 +215,10 @@ def run_exp(
         gpu_mem_rqmt=11,
     )
 
+    session_threads_config = rasr.RasrConfig()
+    session_threads_config["*"].session.inter_op_parallelism_threads = 1
+    session_threads_config["*"].session.intra_op_parallelism_threads = 2
+
     recog_args = exp_args.get_transducer_recog_step_args(
         num_classes,
         lm_scales=[0.8],
@@ -224,6 +228,11 @@ def run_exp(
         feature_type=FeatureType.GAMMATONE_16K,
         reduction_factor=4,
         reduction_subtrahend=0,
+        extra_config=session_threads_config,
+        mem=8,
+        rqmt_update={"sbatch_args": ["-A", "rescale_speed", "-p", "rescale_amd"], "cpu": 2},
+        search_stats=True,
+        num_threads=1,
     )
 
     # ********** System **********
@@ -234,15 +243,16 @@ def run_exp(
             SummaryKey.TRAIN_NAME,
             SummaryKey.CORPUS,
             SummaryKey.RECOG_NAME,
-            SummaryKey.EPOCH,
-            SummaryKey.LM,
+            # SummaryKey.EPOCH,
+            # SummaryKey.LM,
+            SummaryKey.RTF,
             SummaryKey.WER,
             SummaryKey.SUB,
             SummaryKey.INS,
             SummaryKey.DEL,
             SummaryKey.ERR,
         ],
-        summary_sort_keys=[SummaryKey.ERR, SummaryKey.CORPUS],
+        summary_sort_keys=[SummaryKey.ERR, SummaryKey.RTF],
     )
 
     system.init_corpora(
@@ -256,7 +266,7 @@ def run_exp(
 
     # ********** Returnn Configs **********
 
-    for lr in [4e-04, 8e-04]:
+    for lr in [4e-04]:
         train_config = generate_returnn_config(
             train=True,
             train_data_config=data.train_data_config,
@@ -285,8 +295,134 @@ def run_exp(
 
     system.run_train_step(**train_args)
 
-    system.run_dev_recog_step(**recog_args)
-    system.run_test_recog_step(**recog_args)
+    np.random.seed(0)
+    for _ in range(20):
+        lp = np.random.uniform(8.0, 18.0)
+        lpl = int(np.round(np.exp(np.random.uniform(np.log(50), np.log(1000)))))
+        wep = np.random.uniform(0.3, 0.7)
+        wepl = int(np.round(np.exp(np.random.uniform(np.log(10), np.log(1000)))))
+        search_params = get_seq2seq_search_parameters(
+            lp=lp,
+            lpl=lpl,
+            wep=wep,
+            wepl=wepl,
+            allow_blank=True,
+            allow_loop=False,
+        )
+        recog_args["search_parameters"] = search_params
+        descr = f"lp-{lp:.2f}_lpl-{lpl}_wep-{wep:.2f}_wepl-{wepl}"
+        # system.run_recog_step_for_corpora(corpora=["dev-other_4gram"], recog_descriptor=descr, **recog_args)
+
+    for _ in range(10):
+        lp = np.random.uniform(10.0, 13.0)
+        lpl = np.random.randint(50, 250)
+        wep = 0.5
+        wepl = np.random.randint(20, 100)
+        search_params = get_seq2seq_search_parameters(
+            lp=lp,
+            lpl=lpl,
+            wep=wep,
+            wepl=wepl,
+            allow_blank=True,
+            allow_loop=False,
+        )
+        recog_args["search_parameters"] = search_params
+        descr = f"lp-{lp:.2f}_lpl-{lpl}_wep-{wep:.2f}_wepl-{wepl}"
+        # system.run_recog_step_for_corpora(corpora=["dev-other_4gram"], recog_descriptor=descr, **recog_args)
+
+    for _ in range(20):
+        lp = 12.0
+        lpl = np.random.randint(10, 250)
+        wep = 0.5
+        wepl = np.random.randint(10, 100)
+        search_params = get_seq2seq_search_parameters(
+            lp=lp,
+            lpl=lpl,
+            wep=wep,
+            wepl=wepl,
+            allow_blank=True,
+            allow_loop=False,
+        )
+        recog_args["search_parameters"] = search_params
+        descr = f"lp-{lp:.2f}_lpl-{lpl}_wep-{wep:.2f}_wepl-{wepl}"
+        # system.run_recog_step_for_corpora(corpora=["dev-other_4gram"], recog_descriptor=descr, **recog_args)
+
+    for lp in [
+        2.0,
+        4.0,
+        6.0,
+        8.0,
+        9.0,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+        13.5,
+        13.6,
+        13.7,
+        13.8,
+        13.9,
+        14.0,
+        15.0,
+        16.0,
+        18.0,
+        20.0,
+    ]:
+        for wep in [0.3, 0.5, 0.7]:
+            search_params = get_seq2seq_search_parameters(
+                lp=lp,
+                lpl=300,
+                wep=wep,
+                wepl=200,
+                allow_blank=True,
+                allow_loop=False,
+            )
+            recog_args["search_parameters"] = search_params
+            descr = f"lp-{lp:.2f}_lpl-300_wep-{wep:.2f}_wepl-200"
+            system.run_recog_step_for_corpora(corpora=["dev-other_4gram"], recog_descriptor=descr, **recog_args)
+
+    for lp in [
+        2.0,
+        4.0,
+        6.0,
+        8.0,
+        9.0,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+        13.5,
+        13.6,
+        13.7,
+        13.8,
+        13.9,
+        14.0,
+        15.0,
+        16.0,
+        18.0,
+        20.0,
+    ]:
+        for wep in [0.5, 0.6]:
+            search_params = get_seq2seq_search_parameters(
+                lp=lp,
+                lpl=1000,
+                wep=wep,
+                wepl=500,
+                allow_blank=True,
+                allow_loop=False,
+            )
+            recog_args["search_parameters"] = search_params
+            descr = f"lp-{lp:.2f}_lpl-1000_wep-{wep:.2f}_wepl-500"
+            system.run_recog_step_for_corpora(corpora=["dev-other_4gram"], recog_descriptor=descr, **recog_args)
+
+    # system.run_dev_recog_step(**recog_args)
+    # system.run_test_recog_step(**recog_args)
 
     train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_{name_suffix}_lr-0.0004")
     # model = GetBestCheckpointJob(
@@ -308,50 +444,6 @@ def py() -> SummaryReport:
     alignments_nour = {}
 
     alignment_paths_nour = {
-        0.1: {
-            "train-other-960_align": tk.Path(
-                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.waHWItDFeH4p/output/alignment.cache.bundle"
-            ),
-            "dev-clean_align": tk.Path(
-                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.39RvKswiwE5X/output/alignment.cache.bundle"
-            ),
-            "dev-other_align": tk.Path(
-                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.UQcQtRgFJtri/output/alignment.cache.bundle"
-            ),
-        },
-        0.3: {
-            "train-other-960_align": tk.Path(
-                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.4bWrFMO9rBP7/output/alignment.cache.bundle"
-            ),
-            "dev-clean_align": tk.Path(
-                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.WAPZqf6YGRqV/output/alignment.cache.bundle"
-            ),
-            "dev-other_align": tk.Path(
-                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.8e6a0qmzOKPS/output/alignment.cache.bundle"
-            ),
-        },
-        0.5: {
-            "train-other-960_align": tk.Path(
-                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.9F7XAOE5SW6a/output/alignment.cache.bundle"
-            ),
-            "dev-clean_align": tk.Path(
-                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.NZ9KCbM3iaUM/output/alignment.cache.bundle"
-            ),
-            "dev-other_align": tk.Path(
-                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.NrLiIv3mx2Mi/output/alignment.cache.bundle"
-            ),
-        },
-        0.7: {
-            "train-other-960_align": tk.Path(
-                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.nOX1kOQx5Txi/output/alignment.cache.bundle"
-            ),
-            "dev-clean_align": tk.Path(
-                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.WhaHQ8VtCQWb/output/alignment.cache.bundle"
-            ),
-            "dev-other_align": tk.Path(
-                "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.Z7Yc9kH2BYOc/output/alignment.cache.bundle"
-            ),
-        },
         1.0: {
             "train-other-960_align": tk.Path(
                 "/work/asr3/raissi/shared_workspaces/bayoumi/sisyphus_work/i6_experiments/users/berger/recipe/mm/alignment/Seq2SeqAlignmentJob.0a7MCFFN37Bg/output/alignment.cache.bundle"

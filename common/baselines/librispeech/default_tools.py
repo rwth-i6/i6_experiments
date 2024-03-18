@@ -8,14 +8,17 @@ If you want a stronger guarantee that you get the intended results, please consi
 version listed here. Nevertheless, the most recent "head" should be safe to be used as well
 
 """
-from sisyphus import tk
-from i6_experiments.common.tools.audio import compile_ffmpeg_binary
-from i6_experiments.common.tools.rasr import compile_rasr_binaries_i6mode
+from i6_experiments.common.tools.rasr import compile_rasr_binaries_apptainer
 from i6_experiments.common.tools.sctk import compile_sctk
 
 # RASR_BINARY_PATH = None
 # RASR_BINARY_PATH = compile_rasr_binaries_i6mode(commit="907eec4f4e36c11153f6ab6b5dd7675116f909f6")  # use tested RASR
-RASR_BINARY_PATH = compile_rasr_binaries_i6mode()  #  use most recent RASR
+# RASR_BINARY_PATH = compile_rasr_binaries_i6mode()  #  use most recent RASR
+RASR_BINARY_PATH = compile_rasr_binaries_apptainer(
+    "2023-05-08_tensorflow-2.8_v1", commit="a1218e196557aa6d02570bbb38767e987b7a77a2"
+)
+# , branch="apptainer_tf_2_8", commit="9dcef411b27a4b302698c83c0af81789ef4de2c2"
+# )
 assert RASR_BINARY_PATH, "Please set a specific RASR_BINARY_PATH before running the pipeline"
 RASR_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_RASR_BINARY_PATH"
 

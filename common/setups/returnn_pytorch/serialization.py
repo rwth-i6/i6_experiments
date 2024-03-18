@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union, TYPE_CHECKING
 import torch
 from i6_core.util import instanciate_delayed
 from sisyphus import gs, tk
-from sisyphus.delayed_ops import DelayedBase
+from sisyphus.delayed_ops import DelayedBase, DelayedFormat
 from sisyphus.hash import sis_hash_helper
 
 if TYPE_CHECKING:
@@ -163,6 +163,91 @@ def build_config_constructor_serializers(
     """
     from i6_models.config import ModelConfiguration, ModuleFactoryV1
 
+    def serialize_value(value: Any) -> Tuple[Union[str, DelayedBase], List[Import]]:
+        # Switch over serialization logic for different subtypes
+
+        if isinstance(value, ModelConfiguration):
+            # Example:
+            # ConformerBlockConfig(mhsa_config=ConformerMHSAConfig(...))
+            # -> Sub-Constructor-Call and imports for ConformerMHSAConfig
+            return build_config_constructor_serializers(value, unhashed_package_root=unhashed_package_root)
+        elif isinstance(value, ModuleFactoryV1):
+            # Example:
+            # ConformerEncoderConfig(
+            #     frontend=ModuleFactoryV1(module_class=VGGFrontend, cfg=VGGFrontendConfig(...)))
+            # -> Import classes ModuleFactoryV1, VGGFrontend and VGGFrontendConfig
+            # -> Sub-Constructor-Call for VGGFrontendConfig
+            subcall, subimports = build_config_constructor_serializers(value.cfg, unhashed_package_root=unhashed_package_root)
+            subimports.append(
+                Import(
+                    code_object_path=f"{value.module_class.__module__}.{value.module_class.__name__}",
+                    unhashed_package_root=unhashed_package_root,
+                )
+            )
+            subimports.append(
+                Import(
+                    code_object_path=f"{ModuleFactoryV1.__module__}.{ModuleFactoryV1.__name__}",
+                    unhashed_package_root=unhashed_package_root,
+                )
+            )
+            return Call(
+                callable_name=ModuleFactoryV1.__name__,
+                kwargs=[("module_class", value.module_class.__name__), ("cfg", subcall)],
+            ), subimports
+        elif isinstance(value, torch.nn.Module):
+            # Example:
+            # ConformerConvolutionConfig(norm=BatchNorm1d(...))
+            # -> Import class BatchNorm1d
+            # -> Sub-serialization of BatchNorm1d object.
+            #       The __str__ function of torch.nn.Module already does this in the way we want.
+            return str(value), [
+                Import(
+                    code_object_path=f"{value.__module__}.{type(value).__name__}",
+                    unhashed_package_root=unhashed_package_root,
+                )
+            ]
+        elif isfunction(value):
+            # Example:
+            # ConformerConvolutionConfig(activation=torch.nn.functional.silu)
+            # -> Import function silu
+            # Builtins (e.g. 'sum') do not need to be imported
+            if value.__module__ != "builtins":
+                subimports = [
+                    Import(
+                        code_object_path=f"{value.__module__}.{value.__name__}",
+                        unhashed_package_root=unhashed_package_root,
+                    )
+                ]
+            else:
+                subimports = []
+            return value.__name__, subimports
+        elif isinstance(value, list):
+            # -> Serialize list values individually, collect subimports
+            list_items = []
+            list_imports = []
+            for item in value:
+                item_serialized, item_imports = serialize_value(item)
+                list_items.append(item_serialized)
+                list_imports += item_imports
+            return DelayedFormat(f"[{', '.join(['{}'] * len(list_items))}]", *list_items), list_imports
+        elif isinstance(value, dict):
+            # -> Serialize dict values individually, collect subimports
+            dict_items = []  # Will alternatingly contain key and value of all dict items
+            dict_imports = []
+            for key, val in value.items():
+                val_serialized, item_imports = serialize_value(val)
+                dict_items += [key, val_serialized]
+                dict_imports += item_imports
+            return DelayedFormat(f"{{{', '.join(['{}: {}'] * len(dict_items))}}}", *dict_items), dict_imports
+        elif isinstance(value, DelayedBase):
+            # sisyphus variables are just given as-is and will be instanciated only when calling "get".
+            return value, []
+        else:
+            # No special case (usually python primitives)
+            # -> Just get string representation
+            return str(value), []
+
+
     # Import the class of <cfg>
     imports = [
         Import(
@@ -177,76 +262,9 @@ def build_config_constructor_serializers(
         # Value corresponding to dataclass field name
         value = getattr(cfg, key.name)
 
-        # Switch over serialization logic for different subtypes
-        if isinstance(value, ModelConfiguration):
-            # Example:
-            # ConformerBlockConfig(mhsa_config=ConformerMHSAConfig(...))
-            # -> Sub-Constructor-Call and imports for ConformerMHSAConfig
-            subcall, subimports = build_config_constructor_serializers(value)
-            imports += subimports
-            call_kwargs.append((key.name, subcall))
-        elif isinstance(value, ModuleFactoryV1):
-            # Example:
-            # ConformerEncoderConfig(
-            #     frontend=ModuleFactoryV1(module_class=VGGFrontend, cfg=VGGFrontendConfig(...)))
-            # -> Import classes ModuleFactoryV1, VGGFrontend and VGGFrontendConfig
-            # -> Sub-Constructor-Call for VGGFrontendConfig
-            subcall, subimports = build_config_constructor_serializers(value.cfg)
-            imports += subimports
-            imports.append(
-                Import(
-                    code_object_path=f"{value.module_class.__module__}.{value.module_class.__name__}",
-                    unhashed_package_root=unhashed_package_root,
-                )
-            )
-            imports.append(
-                Import(
-                    code_object_path=f"{ModuleFactoryV1.__module__}.{ModuleFactoryV1.__name__}",
-                    unhashed_package_root=unhashed_package_root,
-                )
-            )
-            call_kwargs.append(
-                (
-                    key.name,
-                    Call(
-                        callable_name=ModuleFactoryV1.__name__,
-                        kwargs=[("module_class", value.module_class.__name__), ("cfg", subcall)],
-                    ),
-                )
-            )
-        elif isinstance(value, torch.nn.Module):
-            # Example:
-            # ConformerConvolutionConfig(norm=BatchNorm1d(...))
-            # -> Import class BatchNorm1d
-            # -> Sub-serialization of BatchNorm1d object.
-            #       The __str__ function of torch.nn.Module already does this in the way we want.
-            imports.append(
-                Import(
-                    code_object_path=f"{value.__module__}.{type(value).__name__}",
-                    unhashed_package_root=unhashed_package_root,
-                )
-            )
-            call_kwargs.append((key.name, str(value)))
-        elif isfunction(value):
-            # Example:
-            # ConformerConvolutionConfig(activation=torch.nn.functional.silu)
-            # -> Import function silu
-            # Builtins (e.g. 'sum') do not need to be imported
-            if value.__module__ != "builtins":
-                imports.append(
-                    Import(
-                        code_object_path=f"{value.__module__}.{value.__name__}",
-                        unhashed_package_root=unhashed_package_root,
-                    )
-                )
-            call_kwargs.append((key.name, value.__name__))
-        elif isinstance(value, DelayedBase):
-            # sisyphus variables are just given as-is and will be instanciated only when calling "get".
-            call_kwargs.append((key.name, value))
-        else:
-            # No special case (usually python primitives)
-            # -> Just get string representation
-            call_kwargs.append((key.name, str(value)))
+        serialized_value, value_imports = serialize_value(value)
+        call_kwargs.append((key.name, serialized_value))
+        imports += value_imports
 
     imports = list(OrderedDict.fromkeys(imports))  # remove duplications
 
