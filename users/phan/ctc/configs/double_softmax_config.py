@@ -208,6 +208,8 @@ def lbs_960_double_softmax() -> SummaryReport:
         augmented_lexicon=True,
         feature_type=FeatureType.SAMPLES,
         blank_index_last=False,
+        test_keys=[],
+        # dev_keys=["dev-other"],
     )
 
     # ********** Step args **********
@@ -218,9 +220,11 @@ def lbs_960_double_softmax() -> SummaryReport:
     )
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
-        epochs=list(range(20, num_subepochs+1, 20)),
+        epochs=[num_subepochs],
         prior_scales=[0.45, 0.5, 0.55],
         lm_scales=[0.9,1.0,1.1],
+        # prior_scales=[0.45],
+        # lm_scales=[0.9],
         feature_type=FeatureType.SAMPLES,
         flow_args={"scale_input": 1}
     )
@@ -228,8 +232,23 @@ def lbs_960_double_softmax() -> SummaryReport:
     # ********** System **********
 
     # tools.returnn_root = tk.Path("/u/berger/repositories/MiniReturnn")
+    # tools.rasr_binary_path = tk.Path(
+    #     "/work/asr3/zyang/share/mnphan/rasr_versions/gen_seq2seq_dev/compiled_py310/linux-x86_64-standard"
+    # )
+    # tools.rasr_binary_path = tk.Path(
+    #     "/u/minh-nghia.phan/rasr_versions/simon_gen_seq2seq_dev/arch/linux-x86_64-standard"
+    # )
+    # tools.rasr_binary_path = tk.Path(
+    #     "/u/berger/repositories/rasr_versions/gen_seq2seq_onnx_apptainer/arch/linux-x86_64-standard"
+    # )
+    # tools.rasr_binary_path = tk.Path(
+    #     "/work/tools/asr/rasr/20211217_tf23_cuda101_mkl/arch/linux-x86_64-standard/"
+    # )
+    # tools.rasr_binary_path = tk.Path(
+    #     "/work/tools22/asr/rasr/rasr_onnx_haswell_0623/arch/linux-x86_64-release"
+    # )
     tools.rasr_binary_path = tk.Path(
-        "/u/minh-nghia.phan/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard"
+        "/u/minh-nghia.phan/rasr_versions/nour_gen_seq2seq_dev/arch/linux-x86_64-standard"
     )
     tools.returnn_root = tk.Path("/u/minh-nghia.phan/tools/simon_returnn")
     system = ReturnnSeq2SeqSystem(tools)
@@ -261,14 +280,28 @@ def lbs_960_double_softmax() -> SummaryReport:
         "conformer_ctc": "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.nuHCdB8qL7NJ/output/models/epoch.600.pt",
         "train_lm": "/work/asr3/zyang/share/mnphan/work_torch_ctc_libri/i6_core/returnn/training/ReturnnTrainingJob.7bqxeOpBaeEk/output/models/epoch.120.pt"
     }
-    for am_scale in [0.7, 1.0, 1.3]:
+    for am_scale in [1.0, 1.3]:
+    # for am_scale in [1.0]:
         for lm_scale in [0.3]:
-            for learning_rate in [1e-4, 1e-5, 1e-6]:
+            for learning_rate in [1e-3, 1e-4, 1e-5, 1e-6]:
+            # for learning_rate in [1e-4]:
                 lr_dict = {
                     "learning_rate": learning_rate,
                 }
+                schedule = LearningRateSchedules.CONST_LR
+                schedule_str = "const"
+                if learning_rate == 1e-3:
+                    lr_dict = {
+                        "learning_rate": learning_rate,
+                        "decay": 0.9 ,
+                        "multi_num_epochs": 20,
+                        "relative_error_threshold": -0.005,
+                        "error_measure": "dev_loss_double_softmax",
+                    }
+                    schedule = LearningRateSchedules.NewbobRel
+                    schedule_str = "newbobrel"
                 system.add_experiment_configs(
-                    f"double_softmax_ctc{12}_lstm{1}_am{am_scale}_lm{lm_scale}_adamw_const_lr{learning_rate}_eps{num_subepochs}",
+                    f"double_softmax_ctc{12}_lstm{1}_am{am_scale}_lm{lm_scale}_adamw_{schedule_str}_lr{learning_rate}_eps{num_subepochs}",
                     get_returnn_config_collection(
                         data.train_data_config,
                         data.cv_data_config,
@@ -278,7 +311,7 @@ def lbs_960_double_softmax() -> SummaryReport:
                         lstm_lm_args=lstm_lm_args,
                         module_preloads=module_preloads,
                         optimizer=Optimizers.AdamW,
-                        schedule=LearningRateSchedules.CONST_LR,
+                        schedule=schedule,
                         am_scale=am_scale,
                         lm_scale=lm_scale,
                         kwargs={"weight_decay": 0.001},

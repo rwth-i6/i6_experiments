@@ -8,6 +8,8 @@ from i6_experiments.users.berger.pytorch.serializers.basic import (
     get_basic_pt_network_serializer,
 )
 from i6_experiments.common.setups.serialization import Import
+from i6_experiments.users.phan.utils import init_linear, init_lstm
+
 
 @dataclass
 class LSTMLMConfig(ModelConfiguration):
@@ -38,6 +40,11 @@ class LSTMLM(nn.Module):
         # if cfg.dropout > 0 and cfg.n_lstm_layers == 1:
         #     self.dropout = nn.Dropout(0.1)
         self.final_linear = nn.Linear(cfg.hidden_dim, cfg.vocab_dim, bias=True)
+        init_func = nn.init.normal_
+        init_args = {"mean": 0.0, "std": 0.1}
+        init_lstm(self.lstm, cfg.n_lstm_layers, init_func, init_args)
+        init_linear(self.embed, init_func, init_args)
+        init_linear(self.final_linear, init_func, init_args)
 
     def forward(self, x):
         """
