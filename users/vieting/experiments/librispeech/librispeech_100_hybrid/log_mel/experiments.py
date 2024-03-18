@@ -49,6 +49,8 @@ def get_hybrid_nn_system(
         returnn_python_exe=RETURNN_EXE,
         rasr_binary_path=RASR_BINARY_PATH,
     )
+    import ipdb 
+    ipdb.set_trace()
     hybrid_nn_system.init_system(
         rasr_init_args=rasr_init_args,
         train_data={"train-clean-100.train": data["train"].get_data_dict()},
@@ -83,7 +85,6 @@ def run_baseline_mel():
         },
         num_epochs=125,
         prefix="bs5k_",
-        datasets=hybrid_nn_system.datasets,
     )
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
