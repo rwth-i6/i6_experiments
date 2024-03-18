@@ -85,6 +85,7 @@ def run_baseline_mel():
         },
         num_epochs=125,
         prefix="bs5k_",
+        datasets=hybrid_nn_system.datasets
     )
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)

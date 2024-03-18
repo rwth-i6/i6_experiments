@@ -36,7 +36,7 @@ sys.setrecursionlimit(3000)
 """
 
 
-def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
+def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, datasets=None, prefix=""):
     evaluation_epochs = evaluation_epochs or [num_epochs]
 
     returnn_configs = {}
@@ -44,7 +44,7 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
 
     for name, args in nn_base_args.items():
         returnn_config, returnn_recog_config = get_nn_args_single(
-            num_epochs=num_epochs, evaluation_epochs=evaluation_epochs, **args)
+            num_epochs=num_epochs, evaluation_epochs=evaluation_epochs, datasets=datasets, **args)
         returnn_configs[prefix + name] = returnn_config
         returnn_recog_configs[prefix + name] = returnn_recog_config
 
@@ -102,7 +102,7 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
 
 def get_nn_args_single(
     num_outputs: int = 9001, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None,
-    peak_lr=1e-3, feature_args=None, returnn_args=None,
+    peak_lr=1e-3, feature_args=None, datasets=None, returnn_args=None,
 ):
     feature_args = copy.deepcopy(feature_args) or {"class": "GammatoneNetwork", "sample_rate": 16000}
     preemphasis = feature_args.pop("preemphasis", None)
@@ -132,20 +132,13 @@ def get_nn_args_single(
         peak_lr=peak_lr,
         num_epochs=num_epochs,
         feature_net=feature_net,
+        datasets=datasets,
         **(returnn_args or {}),
     )
 
-    returnn_recog_config = get_returnn_config(
-        num_inputs=1,
-        num_outputs=num_outputs,
-        evaluation_epochs=evaluation_epochs,
-        recognition=True,
-        peak_lr=peak_lr,
-        num_epochs=num_epochs,
-        feature_net=feature_net,
-    )
 
-    return returnn_config, returnn_recog_config
+
+    return returnn_config, returnn_config
 
 def fix_network_for_sparse_output(net):
     net = copy.deepcopy(net)
@@ -199,8 +192,12 @@ def get_returnn_config(
     specaug_time_only: bool = False,
     specaug_shuffled: bool = False,
     mask_divisor: int = None,
+    datasets = None,
 
 ):
+    datasets["train"] = datasets["train"].get_data_dict()
+    datasets["cv"] = datasets["cv"].get_data_dict()
+    datasets["devtrain"] = datasets["devtrain"].get_data_dict()
     import ipdb
     ipdb.set_trace()
     base_config = {
@@ -209,6 +206,7 @@ def get_returnn_config(
             "classes": {"dim": 1, "dtype": "int16"},
             # "classes": {"dim": num_outputs, "sparse": True},  # alignment stored as data with F dim
         },
+        **datasets
     }
     base_post_config = {
         "use_tensorflow": True,
