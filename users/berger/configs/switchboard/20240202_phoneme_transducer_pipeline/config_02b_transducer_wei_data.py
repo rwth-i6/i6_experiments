@@ -184,8 +184,6 @@ def run_exp(alignments: Dict[str, AlignmentData], name_suffix: str = "") -> Tupl
         num_classes,
         lm_scales=[0.5],
         epochs=[300],
-        # lookahead_options={"scale": 0.5},
-        # label_scorer_args={"extra_args": {"blank-label-index": 2}},
         search_parameters={"label-pruning": 14.4},
         feature_type=FeatureType.GAMMATONE_8K,
         reduction_factor=4,
@@ -232,9 +230,12 @@ def run_exp(alignments: Dict[str, AlignmentData], name_suffix: str = "") -> Tupl
 
     # ********** Returnn Configs **********
 
-    for lr in [4e-04, 6e-04, 8e-04]:
-        for label_smoothing in [None, 0.2]:
-            for loss_boost_scale in [0.0, 5.0]:
+    # for lr in [4e-04, 6e-04, 8e-04]:
+    #     for label_smoothing in [None, 0.2]:
+    #         for loss_boost_scale in [0.0, 5.0]:
+    for lr in [8e-04]:
+        for label_smoothing in [None]:
+            for loss_boost_scale in [0.0]:
                 train_config = generate_returnn_config(
                     train=True,
                     train_data_config=data.train_data_config,
@@ -255,7 +256,7 @@ def run_exp(alignments: Dict[str, AlignmentData], name_suffix: str = "") -> Tupl
                             train_data_config=data.train_data_config,
                             dev_data_config=data.cv_data_config,
                         )
-                        for ilm_scale in [0.0, 0.1, 0.2]
+                        for ilm_scale in [0.0, 0.1, 0.2, 0.3]
                     },
                 )
                 name = f"Conformer_Transducer_Viterbi_{name_suffix}_lr-{lr}"
@@ -269,7 +270,6 @@ def run_exp(alignments: Dict[str, AlignmentData], name_suffix: str = "") -> Tupl
     system.run_train_step(**train_args)
 
     system.run_dev_recog_step(**recog_args)
-    # system.run_test_recog_step(**recog_args)
 
     if "am-1.0" in name_suffix:
         for bp in [0.0, 0.5, 1.0]:
@@ -329,8 +329,6 @@ def py() -> Tuple[SummaryReport, Dict[str, Checkpoint]]:
     models = {}
 
     for align_model_name, alignments in alignments_blstm.items():
-        if "am-1.0" not in align_model_name:
-            continue
         sub_report, model = run_exp(alignments, name_suffix=f"align-{align_model_name}")
         models[align_model_name] = model
         summary_report.merge_report(sub_report, update_structure=True)
