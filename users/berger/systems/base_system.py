@@ -59,8 +59,7 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
         self._functors = self._initialize_functors()
 
     @abstractmethod
-    def _initialize_functors(self) -> Functors[types.TrainJobType, types.ConfigType]:
-        ...
+    def _initialize_functors(self) -> Functors[types.TrainJobType, types.ConfigType]: ...
 
     def get_train_job(self, exp_name: Optional[str] = None) -> types.TrainJobType:
         if exp_name is not None:
@@ -69,6 +68,12 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
         else:
             assert len(self._train_jobs) == 1
             return next(iter(self._train_jobs.values()))
+
+    def get_exp_names(self) -> List[str]:
+        return list(self._returnn_configs.keys())
+
+    def get_recog_exp_names(self) -> Dict[str, List[str]]:
+        return {key: list(returnn_config.recog_configs.keys()) for key, returnn_config in self._returnn_configs.items()}
 
     def cleanup_experiments(self) -> None:
         self._returnn_configs.clear()
@@ -180,12 +185,15 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
     def run_recog_step_for_corpora(
         self,
         exp_names: Optional[List[str]] = None,
+        recog_exp_names: Optional[Dict[str, List[str]]] = None,
         corpora: Optional[List[str]] = None,
         recog_descriptor: Optional[str] = None,
         **kwargs,
     ) -> None:
         if exp_names is None:
             exp_names = list(self._returnn_configs.keys())
+        if recog_exp_names is None:
+            recog_exp_names = {}
         if corpora is None:
             corpora = self._dev_corpora + self._test_corpora
         else:
@@ -201,7 +209,10 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
 
             for c_key in corpora:
                 named_corpus = dataclasses.NamedCorpusInfo(c_key, self._corpus_info[c_key])
-                for recog_exp_name, recog_config in returnn_configs.recog_configs.items():
+                for recog_exp_name in recog_exp_names.get(exp_name, returnn_configs.recog_configs.keys()):
+                    assert recog_exp_name in returnn_configs.recog_configs
+                    recog_config = returnn_configs.recog_configs[recog_exp_name]
+
                     if recog_descriptor is not None:
                         recog_exp_name = f"{recog_exp_name}_{recog_descriptor}"
                     named_recog_config = dataclasses.NamedConfig(recog_exp_name, recog_config)
@@ -214,11 +225,11 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
                     )
                     self.summary_report.add_rows(recog_results)
 
-    def run_dev_recog_step(self, exp_names: Optional[List[str]] = None, **kwargs) -> None:
-        self.run_recog_step_for_corpora(exp_names, self._dev_corpora, **kwargs)
+    def run_dev_recog_step(self, **kwargs) -> None:
+        self.run_recog_step_for_corpora(corpora=self._dev_corpora, **kwargs)
 
-    def run_test_recog_step(self, exp_names: Optional[List[str]] = None, **kwargs) -> None:
-        self.run_recog_step_for_corpora(exp_names, self._test_corpora, **kwargs)
+    def run_test_recog_step(self, **kwargs) -> None:
+        self.run_recog_step_for_corpora(corpora=self._test_corpora, **kwargs)
 
     def run_align_step(
         self,
@@ -238,20 +249,25 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
         for exp_name in exp_names:
             train_job = self._train_jobs[exp_name]
             named_train_job = dataclasses.NamedTrainJob(exp_name, train_job)
+            if align_descriptor is not None:
+                align_exp_name = f"{exp_name}_{align_descriptor}"
+                alias_prefix = f"align_{align_descriptor}"
+            else:
+                align_exp_name = exp_name
+                alias_prefix = "align"
             exp_results = {}
             for c_key in corpora:
                 named_corpus = dataclasses.NamedCorpusInfo(c_key, self._corpus_info[c_key])
                 prior_config = self._returnn_configs[exp_name].prior_config
                 align_config = self._returnn_configs[exp_name].align_config
 
-                if align_descriptor is not None:
-                    exp_name = f"{exp_name}_{align_descriptor}"
                 exp_results[c_key] = self._functors.align(
                     train_job=named_train_job,
                     prior_config=prior_config,
                     align_config=align_config,
                     align_corpus=named_corpus,
+                    alias_prefix=alias_prefix,
                     **kwargs,
                 )
-            results[exp_name] = exp_results
+            results[align_exp_name] = exp_results
         return results

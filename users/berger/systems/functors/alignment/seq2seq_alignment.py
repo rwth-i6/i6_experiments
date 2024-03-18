@@ -24,6 +24,7 @@ class Seq2SeqAlignmentFunctor(
         align_config: returnn.ReturnnConfig,
         align_corpus: dataclasses.NamedCorpusInfo,
         epoch: types.EpochType,
+        alias_prefix: str = "align",
         prior_scale: float = 0,
         prior_args: Dict = {},
         label_unit: str = "phoneme",
@@ -77,7 +78,7 @@ class Seq2SeqAlignmentFunctor(
             label_scorer=label_scorer,
             **kwargs,
         )
-        exp_full = f"align_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
+        exp_full = f"{alias_prefix}_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
 
         path = f"nn_align/{align_corpus.name}/{train_job.name}/{exp_full}"
 

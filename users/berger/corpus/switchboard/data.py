@@ -47,6 +47,11 @@ def get_data_inputs(
     corpus_object_dict = convert_legacy_corpus_object_dict_to_scorable(corpus_object_dict)
     corpus_object_dict["hub5e00"].stm = tk.Path("/u/corpora/speech/hub5e_00/xml/hub5e_00.stm")
     corpus_object_dict["hub5e00"].glm = tk.Path("/u/corpora/speech/hub5e_00/xml/glm")
+    # corpus_object_dict["hub5e00"].stm = swb_dataset.get_hub5e00().stm
+    # corpus_object_dict["hub5e00"].glm = swb_dataset.get_hub5e00().glm
+    corpus_object_dict["hub5e01"].stm = swb_dataset.get_hub5e01().stm
+    corpus_object_dict["hub5e01"].glm = tk.Path("/u/corpora/speech/hub5e_00/xml/glm")
+    # corpus_object_dict["hub5e01"].glm = swb_dataset.get_hub5e01().glm
 
     lms = {lm_name: get_lm(lm_name) for lm_name in lm_names}
 

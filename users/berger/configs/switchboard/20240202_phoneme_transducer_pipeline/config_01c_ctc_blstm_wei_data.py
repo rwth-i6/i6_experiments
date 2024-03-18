@@ -187,6 +187,8 @@ def run_exp() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
     recog_am_args = copy.deepcopy(exp_args.ctc_recog_am_args)
     recog_am_args.update(
         {
+            # "state_tying": "lookup",
+            # "state_tying_file": tk.Path("/work/asr4/berger/dependencies/switchboard/state_tying/wei_mono-eow"),
             "tying_type": "global-and-nonword",
             "nonword_phones": ["[NOISE]", "[VOCALIZEDNOISE]", "[LAUGHTER]"],
         }
@@ -215,6 +217,12 @@ def run_exp() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
         am_args=recog_am_args,
     )
     system.setup_scoring(scorer_type=Hub5ScoreJob)
+    # for key in data.dev_keys + data.test_keys:
+    #     system._corpus_info[key].data.lexicon.filename =
+    #     system._corpus_info[key].crp.acoustic_model_config.state_tying = "lookup"
+    #     system._corpus_info[key].crp.acoustic_model_config.state_tying_file = tk.Path(
+    #         "/work/asr4/berger/dependencies/switchboard/state_tying/wei_mono-eow"
+    #     )
 
     # ********** Returnn Configs **********
 
@@ -245,9 +253,14 @@ def run_exp() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
 
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)
-    # system.run_test_recog_step(**recog_args)
+    system.run_test_recog_step(**recog_args)
 
     alignments = system.run_align_step(**align_args)
+
+    align_args = copy.deepcopy(align_args)
+    align_args["align_node_options"]["allophone-state-graph-builder.topology"] = "ctc"
+    align_args["register_output"] = True
+    alignments.update(system.run_align_step(align_descriptor="label-loop", **align_args))
 
     assert system.summary_report
     return system.summary_report, alignments
@@ -258,7 +271,7 @@ def py() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
     summary_report, alignments = run_exp()
-    for am_scale, align in alignments.items():
+    for am, align in alignments.items():
         train_alignment = align["train_align"]
         compute_tse_job = ComputeTSEJob(
             alignment_cache=train_alignment.alignment_cache_bundle,
@@ -271,9 +284,9 @@ def py() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
             ),
             ref_silence_phone="[SILENCE]",
             ref_upsample_factor=1,
-            remove_outlier_limit=100,
+            # remove_outlier_limit=100,
         )
-        tk.register_output(f"tse/train_am-{am_scale}", compute_tse_job.out_tse_frames)
+        tk.register_output(f"tse/train_{am}", compute_tse_job.out_tse_frames)
 
     compute_tse_job = ComputeTSEJob(
         alignment_cache=tk.Path(
@@ -297,5 +310,7 @@ def py() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
     tk.register_output("tse/chris", compute_tse_job.out_tse_frames)
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
+
+    alignments = {key: val for key, val in alignments.items() if "label-loop" not in key}
 
     return summary_report, alignments

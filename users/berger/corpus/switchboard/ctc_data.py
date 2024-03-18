@@ -4,6 +4,7 @@ import copy
 from i6_core import corpus
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from i6_experiments.users.berger.systems.dataclasses import FeatureType
+from i6_experiments.users.berger.recipe.lexicon.modification import EnsureSilenceFirstJob
 from . import data
 from ..general import CTCSetupData, build_feature_hdf_dataset_config
 from sisyphus import tk
@@ -117,8 +118,9 @@ def get_switchboard_data(
 
     # ********** Recog lexicon **********
 
+    recog_lexicon = EnsureSilenceFirstJob(train_lexicon).out_lexicon
     recog_lexicon = AddEowPhonemesToLexiconJob(
-        train_lexicon, nonword_phones=["[NOISE]", "[VOCALIZEDNOISE]", "[LAUGHTER]"]
+        recog_lexicon, nonword_phones=["[NOISE]", "[VOCALIZEDNOISE]", "[LAUGHTER]"]
     ).out_lexicon
 
     for rasr_input in {**dev_data_inputs, **test_data_inputs}.values():
@@ -129,8 +131,9 @@ def get_switchboard_data(
     align_data_inputs = {
         f"{key}_align": copy.deepcopy(data_input) for key, data_input in {**train_data_inputs, **cv_data_inputs}.items()
     }
+    align_lexicon = EnsureSilenceFirstJob(train_lexicon).out_lexicon
     align_lexicon = AddEowPhonemesToLexiconJob(
-        train_lexicon, nonword_phones=["[NOISE]", "[VOCALIZEDNOISE]", "[LAUGHTER]"]
+        align_lexicon, nonword_phones=["[NOISE]", "[VOCALIZEDNOISE]", "[LAUGHTER]"]
     ).out_lexicon
 
     for data_input in align_data_inputs.values():

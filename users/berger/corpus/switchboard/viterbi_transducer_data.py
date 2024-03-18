@@ -8,6 +8,7 @@ from i6_experiments.users.berger.args.returnn.dataset import MetaDatasetBuilder,
 from . import data
 from ..general import BasicSetupData, build_feature_alignment_meta_dataset_config
 from i6_experiments.users.berger.recipe.returnn.hdf import MatchLengthsJob
+from i6_experiments.users.berger.recipe.lexicon.modification import EnsureSilenceFirstJob
 from sisyphus import tk
 
 
@@ -39,7 +40,12 @@ def get_switchboard_data(
 
     # ********** Data inputs **********
 
-    (train_data_inputs, cv_data_inputs, dev_data_inputs, test_data_inputs,) = data.get_data_inputs(
+    (
+        train_data_inputs,
+        cv_data_inputs,
+        dev_data_inputs,
+        test_data_inputs,
+    ) = data.get_data_inputs(
         train_key=train_key,
         cv_keys=cv_keys,
         dev_keys=dev_keys,
@@ -132,8 +138,9 @@ def get_switchboard_data(
 
     # ********** Recog lexicon **********
 
+    recog_lexicon = EnsureSilenceFirstJob(train_lexicon).out_lexicon
     recog_lexicon = AddEowPhonemesToLexiconJob(
-        train_lexicon, nonword_phones=["[NOISE]", "[VOCALIZEDNOISE]", "[LAUGHTER]"]
+        recog_lexicon, nonword_phones=["[NOISE]", "[VOCALIZEDNOISE]", "[LAUGHTER]"]
     ).out_lexicon
 
     for rasr_input in {**dev_data_inputs, **test_data_inputs}.values():
@@ -144,8 +151,9 @@ def get_switchboard_data(
     align_data_inputs = {
         f"{key}_align": copy.deepcopy(data_input) for key, data_input in {**train_data_inputs, **cv_data_inputs}.items()
     }
+    align_lexicon = EnsureSilenceFirstJob(train_lexicon).out_lexicon
     align_lexicon = AddEowPhonemesToLexiconJob(
-        train_lexicon, nonword_phones=["[NOISE]", "[VOCALIZEDNOISE]", "[LAUGHTER]"]
+        align_lexicon, nonword_phones=["[NOISE]", "[VOCALIZEDNOISE]", "[LAUGHTER]"]
     ).out_lexicon
 
     for data_input in align_data_inputs.values():
