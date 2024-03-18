@@ -125,6 +125,7 @@ class SummaryKey(Enum):
     PRON = "Pron"
     PRIOR = "Prior"
     LM = "Lm"
+    RTF = "RTF"
     WER = "WER"
     SUB = "Sub"
     DEL = "Del"

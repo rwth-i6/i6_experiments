@@ -3,7 +3,6 @@ import os
 from typing import Dict
 
 import i6_core.rasr as rasr
-from i6_core.returnn import Checkpoint
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.users.berger.args.experiments import transducer as exp_args
 from i6_experiments.users.berger.args.returnn.config import get_returnn_config
@@ -23,7 +22,6 @@ from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
 from .config_01d_ctc_conformer_rasr_features import py as py_ctc
-from .config_02b_transducer_rasr_features import py as py_transducer
 from sisyphus import gs, tk
 
 # ********** Settings **********
@@ -44,7 +42,6 @@ def generate_returnn_config(
     *,
     train_data_config: dict,
     dev_data_config: dict,
-    model_preload: tk.Path,
     **kwargs,
 ) -> ReturnnConfig:
     if train:
@@ -110,10 +107,12 @@ def generate_returnn_config(
             },
         )
 
+    num_epochs = kwargs.get("num_epochs", 300)
+
     returnn_config = get_returnn_config(
         network=network_dict,
         target="classes",
-        num_epochs=300,
+        num_epochs=num_epochs,
         extra_python=extra_python,
         python_prolog=[
             "import sys",
@@ -125,24 +124,17 @@ def generate_returnn_config(
         extern_target_kwargs={"dtype": "int8" if train else "int32"},
         grad_noise=0.0,
         grad_clip=0.0,
-        schedule=LearningRateSchedules.CONST_DECAY,
+        schedule=LearningRateSchedules.OCLR,
+        initial_lr=4e-06,
         const_lr=kwargs.get("lr", 8e-05),
-        decay_lr=1e-05,
-        final_lr=1e-06,
-        batch_size=kwargs.get("batch_size", 3000),
-        accum_grad=kwargs.get("accum_grad", 3),
+        final_lr=1e-07,
+        batch_size=kwargs.get("batch_size", 4500),
+        accum_grad=kwargs.get("accum_grad", 2),
         use_chunking=False,
         extra_config={
             "max_seq_length": {"classes": 600},
             "train": train_data_config,
             "dev": dev_data_config,
-            "preload_from_files": {
-                "base": {
-                    "init_for_train": True,
-                    "ignore_missing": True,
-                    "filename": model_preload,
-                }
-            },
         },
     )
     returnn_config = serialize_dim_tags(returnn_config)
@@ -150,7 +142,7 @@ def generate_returnn_config(
     return returnn_config
 
 
-def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Checkpoint) -> SummaryReport:
+def run_exp(alignments: Dict[str, AlignmentData]) -> SummaryReport:
     assert tools.returnn_root is not None
     assert tools.returnn_python_exe is not None
     assert tools.rasr_binary_path is not None
@@ -195,23 +187,6 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
         reduction_subtrahend=0,
     )
 
-    trafo_recog_args = exp_args.get_transducer_recog_step_args(
-        num_classes,
-        lm_scales=[0.9, 1.1],
-        epochs=[300],
-        search_parameters={
-            "label-pruning": 19.8,
-            "label-pruning-limit": 20000,
-            "word-end-pruning": 0.8,
-            "word-end-pruning-limit": 2000,
-            "separate-lookahead-lm": True,
-            "separate-recombination-lm": True,
-        },
-        feature_type=FeatureType.GAMMATONE_16K,
-        reduction_factor=4,
-        reduction_subtrahend=0,
-    )
-
     # ********** System **********
 
     system = ReturnnSeq2SeqSystem(
@@ -221,7 +196,6 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
             SummaryKey.CORPUS,
             SummaryKey.RECOG_NAME,
             SummaryKey.EPOCH,
-            SummaryKey.PRIOR,
             SummaryKey.LM,
             SummaryKey.WER,
             SummaryKey.SUB,
@@ -230,38 +204,6 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
             SummaryKey.ERR,
         ],
     )
-
-    # ********** Returnn Configs **********
-
-    config_generator_kwargs = {
-        "train_data_config": data.train_data_config,
-        "dev_data_config": data.cv_data_config,
-        "model_preload": viterbi_model_checkpoint,
-    }
-
-    for lr, batch_size, accum_grad in [
-        (8e-05, 3000, 3),
-        (4e-05, 3000, 3),
-        (1e-04, 3000, 3),
-        (8e-05, 3000, 10),
-    ]:
-        train_config = generate_returnn_config(
-            train=True, lr=lr, batch_size=batch_size, accum_grad=accum_grad, **config_generator_kwargs
-        )
-        recog_configs = {
-            f"recog_ilm-{ilm_scale}": generate_returnn_config(
-                train=False, ilm_scale=ilm_scale, **config_generator_kwargs
-            )
-            for ilm_scale in [0.0, 0.1, 0.25, 0.4]
-        }
-
-        returnn_configs = ReturnnConfigs(
-            train_config=train_config,
-            recog_configs=recog_configs,
-        )
-        system.add_experiment_configs(
-            f"Conformer_Transducer_Fullsum_lr-{lr}_bs-{batch_size*accum_grad}", returnn_configs
-        )
 
     system.init_corpora(
         dev_keys=data.dev_keys,
@@ -272,16 +214,51 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
     )
     system.setup_scoring()
 
-    system.run_train_step(**train_args)
+    # ********** Returnn Configs **********
 
-    system.run_recog_step_for_corpora(corpora=["dev-clean_4gram", "dev-other_4gram"], **recog_args)
-    # system.run_recog_step_for_corpora(
-    #     corpora=["dev-clean_kazuki_transformer", "dev-other_kazuki_transformer"], **trafo_recog_args
-    # )
-    system.run_recog_step_for_corpora(corpora=["test-clean_4gram", "test-other_4gram"], **recog_args)
-    # system.run_recog_step_for_corpora(
-    #     corpora=["test-clean_kazuki_transformer", "test-other_kazuki_transformer"], **trafo_recog_args
-    # )
+    config_generator_kwargs = {
+        "train_data_config": data.train_data_config,
+        "dev_data_config": data.cv_data_config,
+    }
+
+    for epochs in [400, 800, 1200, 1600]:
+        train_config = generate_returnn_config(train=True, num_epochs=epochs, **config_generator_kwargs)
+        recog_configs = {
+            f"recog_ilm-{ilm_scale}": generate_returnn_config(
+                train=False, ilm_scale=ilm_scale, **config_generator_kwargs
+            )
+            for ilm_scale in [0.0, 0.2]
+        }
+
+        returnn_configs = ReturnnConfigs(
+            train_config=train_config,
+            recog_configs=recog_configs,
+        )
+        exp_name = f"Conformer_Transducer_Fullsum_ep-{epochs}"
+        system.add_experiment_configs(exp_name, returnn_configs)
+
+        train_args = exp_args.get_transducer_train_step_args(
+            num_epochs=epochs,
+            gpu_mem_rqmt=24,
+            mem_rqmt=24,
+        )
+        system.run_train_step([exp_name], **train_args)
+
+        recog_args = exp_args.get_transducer_recog_step_args(
+            num_classes,
+            lm_scales=[0.9],
+            epochs=[epochs],
+            search_parameters={
+                "label-pruning": 14.0,
+                "label-pruning-limit": 20000,
+                "word-end-pruning": 0.8,
+                "word-end-pruning-limit": 2000,
+            },
+            feature_type=FeatureType.GAMMATONE_16K,
+            reduction_factor=4,
+            reduction_subtrahend=0,
+        )
+        system.run_dev_recog_step([exp_name], **recog_args)
 
     assert system.summary_report
     return system.summary_report
@@ -289,12 +266,11 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
 
 def py() -> SummaryReport:
     _, _, alignments = py_ctc()
-    _, model = py_transducer()
 
     filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
-    summary_report = run_exp(alignments, model)
+    summary_report = run_exp(alignments)
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 
