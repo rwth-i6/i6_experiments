@@ -147,7 +147,16 @@ def get_returnn_config(
     extra_args: Optional[Dict[str, Any]] = None,
     staged_opts: Optional[Dict[int, Any]] = None,
     audio_perturbation: bool = False,
+    preload_checkpoint: Optional[tk.Path] = None,
 ):
+    if preload_checkpoint is not None and not recognition:
+        extra_args["preload_from_files"] = {
+            "checkpoint": {
+                "filename": preload_checkpoint,
+                "ignore_missing": True,
+                "init_for_train": True,
+            },
+        }
     base_config = {
         "extern_data": {
             "data": {"dim": num_inputs},
