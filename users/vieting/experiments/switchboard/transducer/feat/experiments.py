@@ -365,13 +365,6 @@ def run_mel_stage2():
             "gradient_clip": 0.0,
             "min_learning_rate": 1e-6,
             "max_seq_length": {'classes': 600},
-            "preload_from_files": {
-                "viterbi": {
-                    "filename": nn_system_stage1.train_jobs["viterbi_lgm80_bs15k_v1"].out_checkpoints[280],
-                    "ignore_missing": True,
-                    "init_for_train": True,
-                },
-            },
         },
         "specaug_old": {"max_feature": 8},
         "rasr_loss_args": {"transducer_training_stage": "fullsum"},
@@ -387,7 +380,7 @@ def run_mel_stage2():
         "fft_size": 256,
     }
     recog_args = {
-        "lm_scales": [0.25, 0.3, 0.35, 0.4, 0.45],
+        "lm_scales": [0.3, 0.35, 0.4, 0.45],
         "label_scorer_args": {
             "extra_args": {
                 "blank-label-index": 0,
@@ -414,7 +407,7 @@ def run_mel_stage2():
             "word-end-pruning": 0.5,
             "word-end-pruning-limit": 5000,
         },
-        "epochs": [200, 210, 220, 230, 240, "best"],
+        "epochs": [210, 220, 230, 240, "best"],
     }
     common_args = {
         "feature_args": feature_args,
@@ -424,13 +417,19 @@ def run_mel_stage2():
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
             "bs15k_v1": dict(
-                returnn_args=returnn_args_keep_hash,
+                returnn_args={
+                    "preload_checkpoint": nn_system_stage1.train_jobs["viterbi_lgm80_bs15k_v1"].out_checkpoints[280],
+                    **returnn_args,
+                },
+                report_args={"stage": "fullsum"},
+                **common_args,
+            ),
                 report_args={"stage": "fullsum"},
                 **common_args,
             ),
         },
         num_epochs=240,
-        evaluation_epochs=[200, 210, 220, 230, 240],
+        evaluation_epochs=[210, 220, 230, 240],
         prefix="fullsum_lgm80_",
     )
     nn_system, report = run_nn_args(
