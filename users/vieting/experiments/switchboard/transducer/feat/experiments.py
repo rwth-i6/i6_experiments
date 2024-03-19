@@ -416,7 +416,7 @@ def run_mel_stage2():
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
-            "bs15k_v1": dict(
+            "bs3k_v1": dict(
                 returnn_args={
                     "preload_checkpoint": nn_system_stage1.train_jobs["viterbi_lgm80_bs15k_v1"].out_checkpoints[280],
                     **returnn_args,
@@ -424,7 +424,7 @@ def run_mel_stage2():
                 report_args={"stage": "fullsum"},
                 **common_args,
             ),
-            "bs15k_v1_align-ctc-conf-e401": dict(
+            "bs3k_v1_align-ctc-conf-e401": dict(
                 returnn_args={
                     "preload_checkpoint": nn_system_stage1.train_jobs[
                         "viterbi_lgm80_bs15k_v1_align-ctc-conf-e401"].out_checkpoints[300],
