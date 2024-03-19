@@ -687,6 +687,7 @@ class BASEFactoredHybridDecoder:
         search_rqmt_update = None,
         adv_search_extra_config: Optional[rasr.RasrConfig] = None,
         adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
+        cpu_omp_thread=2,
     ) -> RecognitionJobs:
         return self.recognize(
             label_info=label_info,
@@ -716,6 +717,7 @@ class BASEFactoredHybridDecoder:
             search_rqmt_update=search_rqmt_update,
             adv_search_extra_config=adv_search_extra_config,
             adv_search_extra_post_config=adv_search_extra_post_config,
+            cpu_omp_thread=cpu_omp_thread
         )
 
     def recognize_ls_trafo_lm(
@@ -802,6 +804,7 @@ class BASEFactoredHybridDecoder:
         adv_search_extra_config: Optional[rasr.RasrConfig] = None,
         adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
         search_rqmt_update = None,
+        cpu_omp_thread=2,
         remove_or_set_concurrency: Union[bool, int] = False,
     ) -> RecognitionJobs:
         if isinstance(search_parameters, SearchParameters):
@@ -843,6 +846,10 @@ class BASEFactoredHybridDecoder:
                 name += f"-prJ-C{search_parameters.prior_info.diphone_prior.scale}"
             if search_parameters.we_pruning > 0.5:
                 name += f"-wep{search_parameters.we_pruning}"
+            if search_parameters.we_pruning_limit < 5000:
+                #condition for rtf
+                name += f"-wep{search_parameters.we_pruning}"
+                name += f"-wepLim{search_parameters.we_pruning_limit}"
             if search_parameters.altas is not None:
                 name += f"-ALTAS{search_parameters.altas}"
             if search_parameters.add_all_allophones:
@@ -1046,10 +1053,9 @@ class BASEFactoredHybridDecoder:
             extra_post_config=adv_search_extra_post_config,
         )
 
-
         if search_rqmt_update is not None:
             search.rqmt.update(search_rqmt_update)
-            search.cpu = 1
+            search.cpu = cpu_omp_thread
 
         if keep_value is not None:
             search.keep_value(keep_value)

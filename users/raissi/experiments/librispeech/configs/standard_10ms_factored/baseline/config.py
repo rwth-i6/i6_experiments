@@ -89,10 +89,23 @@ CONF_FH_DECODING_TENSOR_CONFIG_10ms = dataclasses.replace(
     out_left_context="left__output/output_batch_major",
     out_center_state="center__output/output_batch_major",
 )
+
+CONF_FH_DECODING_TENSOR_CONFIG_10ms_mono = dataclasses.replace(
+    DecodingTensorMap.default(),
+    in_encoder_output="length_masked/strided_slice",
+    in_seq_length="extern_data/placeholders/data/data_dim0_size",
+    out_encoder_output="encoder__output/output_batch_major",
+    out_right_context="right__output/output_batch_major",
+    out_left_context="left__output/output_batch_major",
+    out_center_state="center__output/output_batch_major",
+)
 CONF_JOINT_DECODING_TENSOR_CONFIG = dataclasses.replace(
     DecodingTensorMap.default(),
     out_joint_diphone="output/output_batch_major",
 )
+
+
+#BLSTMS
 BLSTM_FH_DECODING_TENSOR_CONFIG_TF2 = dataclasses.replace(
     CONF_FH_DECODING_TENSOR_CONFIG,
     in_encoder_output="concat_lstm_fwd_6_lstm_bwd_6/concat_sources/concat",
