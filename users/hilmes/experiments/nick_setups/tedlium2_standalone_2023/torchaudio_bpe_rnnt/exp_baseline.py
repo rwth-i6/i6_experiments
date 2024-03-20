@@ -673,7 +673,7 @@ def conformer_rnnt_baseline():
     train_job.rqmt["gpu_mem"] = 24
     results.update(wer_values)
     del wer_values
-    generate_report(  # 9.6
+    generate_report(  # 9.1
         results=results, exp_name=prefix_name + "conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v7_JJLR_sub6_start20_lstm512_longer/bs12"
     )
     del results

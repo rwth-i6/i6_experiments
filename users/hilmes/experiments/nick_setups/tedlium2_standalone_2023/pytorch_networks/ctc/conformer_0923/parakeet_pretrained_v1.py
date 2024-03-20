@@ -1,15 +1,16 @@
 """
 Same as v1 with fix to finetune layer numbers (range +1)
 with additional fix to loading
+with additional option for keep layers
 """
 
 import numpy as np
 import torch
 from torch import nn
 
-from transformers import HubertModel, HubertConfig
 from returnn.torch.context import get_run_ctx
-from .hubert_pretrained_v1_cfg import ModelConfig
+from .parakeet_pretrained_v1_cfg import ModelConfig
+from nemo.collections.asr.models.ctc_models import EncDecCTCModel
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -35,30 +36,57 @@ class Model(torch.nn.Module):
         self.final_dropout = nn.Dropout(p=self.cfg.final_dropout)
         self.model_dict = None
 
-        self.hubert_cfg = self.cfg.hubert_cfg
+        self.parakeet_config = self.cfg.parakeet_config
+        self.parakeet_model_config = EncDecCTCModel.from_pretrained(
+            model_name=f"nvidia/parakeet-{self.cfg.parakeet_config.name}",
+            return_config=True
+        )
+        del self.parakeet_model_config['train_ds']
+        del self.parakeet_model_config['validation_ds']
+        del self.parakeet_model_config['test_ds']
+        print(self.parakeet_model_config)
+        for param in self.parakeet_model_config:
+            print(param, self.parakeet_model_config[param])
         run_ctx = get_run_ctx()
-        print("TEST", run_ctx.global_step, run_ctx.epoch)
         if not run_ctx.global_step and run_ctx.epoch == 1:
-            print("Load Hubert model parameters")
-            self.hubert: HubertModel = HubertModel.from_pretrained(f"facebook/hubert-{self.hubert_cfg.name}",
-                                                                cache_dir="/work/asr4/hilmes/debug/whisper/transformers/")
+            print("Load Parakeet model parameters")
+            tmp = EncDecCTCModel.from_pretrained(
+                model_name=f"nvidia/parakeet-{self.cfg.parakeet_config.name}"
+            )
+            self.encoder = tmp.encoder
+            self.spec_augmentation = tmp.spec_augmentation
+            self.preprocessor = tmp.preprocessor
+            del tmp
         else:
-            self.hubert: HubertModel = HubertModel(HubertConfig.from_pretrained(f"facebook/hubert-{self.hubert_cfg.name}",
-                                                                   cache_dir="/work/asr4/hilmes/debug/whisper/transformers/"))
+            self.encoder = EncDecCTCModel(self.parakeet_model_config).encoder
+            self.spec_augmentation = EncDecCTCModel(self.parakeet_model_config).spec_augmentation
+            self.preprocessor = EncDecCTCModel(self.parakeet_model_config).preprocessor
+
         if self.training:
-            if self.hubert_cfg.finetune_layer == True:
-                for param in self.hubert.parameters():
+            if self.parakeet_config.keep_layers is not None:
+                if isinstance(self.encoder.keep_layers, list):
+                    layer_ls = nn.ModuleList()
+                    for num in self.parakeet_config.keep_layers:
+                        layer_ls.append(self.encoder.layers[num])
+                    for layer, num in zip(layer_ls, self.parakeet_config.keep_layers):
+                        assert layer == self.encoder.layers[num], "Wrong layers were picked"
+                elif isinstance(self.parakeet_config.keep_layers, int):
+                    self.encoder.layers = self.encoder.layers[:self.parakeet_config.keep_layers+1]
+                else:
+                    raise NotImplementedError
+            if self.parakeet_config.finetune_layer is True:
+                for param in self.encoder.parameters():
                     param.requires_grad_(True)
             else:
-                for param in self.hubert.parameters():
+                for param in self.encoder.parameters():
                     param.requires_grad_(False)
-                for layer_num in range(1, self.hubert_cfg.finetune_layer + 1):
-                    for name, param in self.hubert.encoder.layers[-layer_num].named_parameters():
+                for layer_num in range(1, self.parakeet_config.finetune_layer + 1):
+                    for name, param in self.encoder.layers[-layer_num].named_parameters():
                         param.requires_grad_(True)
-            for name, param in self.hubert.encoder.named_parameters():
+            for name, param in self.encoder.named_parameters():
                 if param.requires_grad:
                     print(name)
-        self.final_linear = nn.Linear(self.hubert.config.hidden_size, self.cfg.label_target_size + 1)  # + CTC blank
+        self.final_linear = nn.Linear(self.encoder._feat_out, self.cfg.label_target_size + 1)  # + CTC blank
         # No particular weight init!
 
     def forward(
@@ -71,21 +99,28 @@ class Model(torch.nn.Module):
         :param raw_audio_len: length of T as [B]
         :return: logprobs [B, T, #labels + blank]
         """
-        assert any(param.requires_grad for param in self.hubert.parameters()) or self.hubert_cfg.finetune_layer == 0
+        assert any(param.requires_grad for param in self.parameters()) or self.parakeet_config.finetune_layer == 0
         squeezed_features = torch.squeeze(raw_audio, dim=-1)
-        hubert_outputs = self.hubert(input_values=squeezed_features)
-        encoder_output = hubert_outputs.last_hidden_state
-        encoder_output = self.final_dropout(encoder_output)
+        features, feature_len = self.preprocessor(
+                input_signal=squeezed_features, length=raw_audio_len,
+            )
+        if self.spec_augmentation is not None and self.training:
+            spec_aug_out = self.spec_augmentation(input_spec=features, length=feature_len)
+        else:
+            spec_aug_out = features
+        encoder_out, encoder_len = self.encoder(audio_signal=spec_aug_out, length=feature_len)
+        encoder_out = encoder_out.transpose(1, 2)
+        encoder_output = self.final_dropout(encoder_out)
         logits = self.final_linear(encoder_output)
-
         log_probs = torch.log_softmax(logits, dim=2)
-        return log_probs, self.hubert._get_feat_extract_output_lengths(raw_audio_len)
+
+        return log_probs, encoder_len
 
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):
 
     raw_audio = data["raw_audio"]  # [B, T', F]
-    raw_audio_len = data["raw_audio:size1"].to("cpu")  # [B]
+    raw_audio_len = data["raw_audio:size1"]  # [B]
 
     labels = data["labels"]  # [B, N] (sparse)
     labels_len = data["labels:size1"]  # [B, N]

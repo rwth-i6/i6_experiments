@@ -41,7 +41,7 @@ def get_training_config(
     }
     if keep_epochs is not None:
         post_config["cleanup_old_models"] = {
-            "keep_last_n": 2,
+            "keep_last_n": 4,
             "keep_best_n": 4,
             "keep": keep_epochs,
         }

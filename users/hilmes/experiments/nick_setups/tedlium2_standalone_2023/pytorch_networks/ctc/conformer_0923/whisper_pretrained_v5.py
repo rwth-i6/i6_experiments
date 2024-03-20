@@ -52,11 +52,16 @@ class Model(torch.nn.Module):
             self.whisper_feature_extractor = WhisperFeatureExtractor()
             self.whisper = WhisperModel(WhisperConfig().from_pretrained(
                 f"openai/whisper-{self.whisper_cfg.name}", cache_dir="/work/asr4/hilmes/debug/whisper/transformers/"))
-        for param in self.whisper.parameters():
-            param.requires_grad_(False)
-        for layer_num in range(1, self.whisper_cfg.finetune_layer + 1):
-            for name, param in self.whisper.encoder.layers[-layer_num].named_parameters():
+
+        if self.whisper_cfg.finetune_layer == True:
+            for param in self.whisper.parameters():
                 param.requires_grad_(True)
+        else:
+            for param in self.whisper.parameters():
+                param.requires_grad_(False)
+            for layer_num in range(1, self.whisper_cfg.finetune_layer + 1):
+                for name, param in self.whisper.encoder.layers[-layer_num].named_parameters():
+                    param.requires_grad_(True)
         for name, param in self.whisper.encoder.named_parameters():
             if param.requires_grad:
                 print(name)

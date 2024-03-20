@@ -1,5 +1,5 @@
 import copy
-from typing import Any, Dict
+from typing import Any, Dict, Optional, List
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 
@@ -19,6 +19,7 @@ def get_training_config(
     debug: bool = False,
     use_custom_engine=False,
     use_speed_perturbation=False,
+    keep_epochs: Optional[List] = None,
 ):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_aligner
@@ -34,6 +35,12 @@ def get_training_config(
         "stop_on_nonfinite_train_score": True,  # this might break now with True
         "num_workers_per_gpu": 2,
     }
+    if keep_epochs is not None:
+        post_config["cleanup_old_models"] = {
+            "keep_last_n": 4,
+            "keep_best_n": 4,
+            "keep": keep_epochs,
+        }
 
     base_config = {
         "max_seqs": 60,

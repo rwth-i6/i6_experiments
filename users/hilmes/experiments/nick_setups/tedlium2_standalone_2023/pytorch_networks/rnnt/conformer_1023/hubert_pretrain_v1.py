@@ -188,7 +188,7 @@ class Joiner(torch.nn.Module):
         joint_encodings = self.dropout(joint_encodings)
         activation_out = self.activation(joint_encodings)
         output = self.linear(activation_out)
-        return output, source_lengths.to("cuda"), target_lengths
+        return output, source_lengths, target_lengths
 
 
 class Model(torch.nn.Module):
@@ -250,7 +250,7 @@ class Model(torch.nn.Module):
         encoder_output = self.final_dropout(encoder_output)
         encoder_output = self.encoder_out_linear(encoder_output)
 
-        encoder_out_lengths = self.hubert._get_feat_extract_output_lengths(raw_audio_len)  # [B, T] -> [B]
+        encoder_out_lengths = self.hubert._get_feat_extract_output_lengths(raw_audio_len).to("cuda")  # [B, T] -> [B]
 
         predict_out, _, _ = self.predictor(
             input=labels,

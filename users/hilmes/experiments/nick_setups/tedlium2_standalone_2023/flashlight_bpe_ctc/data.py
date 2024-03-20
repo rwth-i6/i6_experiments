@@ -64,7 +64,6 @@ def get_bpe_datastream(bpe_size: int, is_recog: bool) -> BpeDatastream:
 
     Uses the legacy BPE setup that is compatible with old LM models
 
-    :param librispeech_key:
     :param bpe_size: size for the bpe labels
     :param is_recog: removes the UNK label when not in training
     :param use_v2: subword_nmt had a bug where it would not find python, use corrected version which changes hash

@@ -1,12 +1,13 @@
 """
-Config for the Hubert model v1, including specaug start time
+Config for the base Hubert Models v2, including specaug start time
+adds the option for keep layers
 """
 
 from dataclasses import dataclass
 
 import torch
 from torch import nn
-from typing import Callable, Optional, Type, Union
+from typing import Callable, Optional, Type, Union, List
 
 from i6_models.assemblies.conformer.conformer_v1 import ConformerBlockV1Config, ConformerBlockV1
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1Config
@@ -48,7 +49,8 @@ class SpecaugConfig(ModelConfiguration):
 @dataclass
 class HubertConfig(ModelConfiguration):
     name: str
-    finetune_layer: Union[int, bool]
+    finetune_layer: Optional[Union[int, bool]]
+    keep_layers: Optional[Union[int, List]]
 
     @classmethod
     def from_dict(cls, d):

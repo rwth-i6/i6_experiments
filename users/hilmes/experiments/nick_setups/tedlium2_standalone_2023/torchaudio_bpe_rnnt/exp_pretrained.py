@@ -7,6 +7,7 @@ from typing import cast
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream
 from i6_core.report.report import _Report_Type
+from i6_core.returnn import GetBestPtCheckpointJob
 
 from .data import build_bpe_training_datasets, TrainingDatasetSettings, get_text_lexicon
 from ..data import build_test_dataset
@@ -75,25 +76,41 @@ def pretrained_rnnt():
         train_args,
         search_args=None,
         num_epochs=250,
-        decoder="rnnt.decoder.experimental_rnnt_decoder",
+        decoder="rnnt.decoder.experimental_rnnt_decoder_hubert",
         with_prior=False,
-        evaluate_epoch=None,
+        evaluate_epochs=None,
+        eval_average: bool = True,
     ):
         training_name = "/".join(ft_name.split("/")[:-1])
         search_args = search_args if search_args is not None else {}
 
-        returnn_config = get_training_config(training_datasets=datasets, **train_args)
+        returnn_config = get_training_config(training_datasets=datasets, keep_epochs=evaluate_epochs, **train_args)
         train_job = training(training_name, returnn_config, RETURNN_EXE, MINI_RETURNN_ROOT, num_epochs=num_epochs)
 
-        if not evaluate_epoch:
-            evaluate_epoch = num_epochs
+        if not evaluate_epochs:
+            evaluate_epochs = [num_epochs]
         search_job_ls = []
         report = {}
         returnn_search_config = get_search_config(**train_args, decoder_args=search_args, decoder=decoder)
+        for epoch in evaluate_epochs:
+            format_string_report, values_report, search_jobs = search(
+                ft_name + "/default_%i" % epoch,
+                returnn_search_config,
+                train_job.out_checkpoints[epoch],
+                test_dataset_tuples,
+                RETURNN_EXE,
+                MINI_RETURNN_ROOT,
+                use_gpu=search_args.get("use_gpu", False),
+            )
+            search_job_ls += search_jobs
+            report.update(values_report)
+
+        best_job = GetBestPtCheckpointJob(train_job.out_model_dir, train_job.out_learning_rates, key="dev_loss_rnnt")
+        best_job.add_alias(ft_name + "/get_best_job")
         format_string_report, values_report, search_jobs = search(
-            ft_name + "/default_%i" % evaluate_epoch,
+            ft_name + "/best_chkpt",
             returnn_search_config,
-            train_job.out_checkpoints[evaluate_epoch],
+            best_job.out_checkpoint,
             test_dataset_tuples,
             RETURNN_EXE,
             MINI_RETURNN_ROOT,
@@ -101,6 +118,26 @@ def pretrained_rnnt():
         )
         search_job_ls += search_jobs
         report.update(values_report)
+
+        if eval_average:
+            from i6_core.returnn import AverageTorchCheckpointsJob
+            chkpts = []
+            for x in [0, 1, 2, 3]:
+                best_job = GetBestPtCheckpointJob(train_job.out_model_dir, train_job.out_learning_rates, key="dev_loss_rnnt", index=x)
+                best_job.add_alias(ft_name + f"/get_best_job_{x}")
+                chkpts.append(best_job.out_checkpoint)
+            avrg_job = AverageTorchCheckpointsJob(checkpoints=chkpts, returnn_python_exe=RETURNN_EXE, returnn_root=MINI_RETURNN_ROOT)
+            avrg_job.add_alias(ft_name + "/avrg_chkpt_job")
+            format_string_report, values_report, search_jobs = search(
+                ft_name + "/avrg_chkpt",
+                returnn_search_config,
+                avrg_job.out_checkpoint,
+                test_dataset_tuples,
+                RETURNN_EXE,
+                MINI_RETURNN_ROOT,
+            )
+            search_job_ls += search_jobs
+            report.update(values_report)
 
         return train_job, search_job_ls, format_string_report, report
 
@@ -158,23 +195,83 @@ def pretrained_rnnt():
         "network_module": "rnnt.conformer_1023.hubert_pretrain_v1",
         "net_args": {"model_config_dict": asdict(model_config_hubert_2)},
     }
-    search_args = {
-        "beam_size": 12,
-        "returnn_vocab": label_datastream.vocab,
-    }
     results = {}
-    train_job, _, _, wer_values = run_exp(
-        prefix_name
-        + "conformer_1023/hubert_pretrain_v3_base_tune2_jjlr/bs12",
-        datasets=train_data,
-        train_args=train_args,
-        search_args=search_args,
-        with_prior=False,
-    )
-    train_job.rqmt["gpu_mem"] = 24
-    results.update(wer_values)
-    del wer_values
-    generate_report(
+    for beam in [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]:
+        search_args = {
+            "beam_size": beam,
+            "returnn_vocab": label_datastream.vocab,
+        }
+        train_job, _, _, wer_values = run_exp(
+            prefix_name
+            + f"conformer_1023/hubert_pretrain_v3_base_tune2_jjlr/bs{beam}",
+            datasets=train_data,
+            train_args=train_args,
+            search_args=search_args,
+            with_prior=False,
+        )
+        train_job.rqmt["gpu_mem"] = 24
+        results.update(wer_values)
+        del wer_values
+    generate_report(  # 8.9
         results=results, exp_name=prefix_name + "conformer_1023/hubert_pretrain_v3_base_tune2_jjlr"
+    )
+    del results
+
+    hubert_cfg_2 = hubert_pretrain_v1_cfg.HubertConfig(
+        finetune_layer=True,
+        name="large-ls960-ft",
+    )
+    model_config_hubert_2 = hubert_pretrain_v1_cfg.ModelConfig(
+        specauc_start_epoch=0,
+        label_target_size=vocab_size_without_blank,
+        final_dropout=0.2,
+        hubert_cfg=hubert_cfg_2,
+        predictor_config=predictor_config,
+        joiner_dim=512,
+        joiner_activation="relu",
+        joiner_dropout=0.1,
+    )
+
+    train_args_hubert_adam_accum25_jjlr = {
+        "config": {
+            "optimizer": {"class": "adam", "epsilon": 1e-08, "betas": (0.9, 0.98)},
+            "learning_rates": list(np.linspace(7e-6, 7e-4, 130))
+                              + list(np.linspace(7e-4, 7e-5, 230))
+                              + list(np.linspace(7e-5, 1e-8, 140)),
+            #############
+            "batch_size": 180 * 16000,
+            "max_seq_length": {"audio_features": 35 * 16000},
+            "max_seqs": 2,
+            "accum_grad_multiple_step": 50,
+        },
+        "debug": False,
+    }
+    eval_epochs = [100, 250, 300, 500]
+    train_args = {
+        **copy.deepcopy(train_args_hubert_adam_accum25_jjlr),
+        "network_module": "rnnt.conformer_1023.hubert_pretrain_v1",
+        "net_args": {"model_config_dict": asdict(model_config_hubert_2)},
+    }
+    for beam in [12]:
+        search_args = {
+            "beam_size": beam,
+            "returnn_vocab": label_datastream.vocab,
+        }
+        results = {}
+        train_job, _, _, wer_values = run_exp(
+            prefix_name
+            + f"conformer_1023/hubert_pretrain_v3_large_tune_full_jjlrlong/bs{beam}",
+            datasets=train_data,
+            train_args=train_args,
+            search_args=search_args,
+            with_prior=False,
+            num_epochs=500,
+            evaluate_epochs=eval_epochs
+        )
+        train_job.rqmt["gpu_mem"] = 24
+        results.update(wer_values)
+        del wer_values
+    generate_report(
+        results=results, exp_name=prefix_name + "conformer_1023/hubert_pretrain_v3_large_tune_full_jjlrlong"
     )
     del results

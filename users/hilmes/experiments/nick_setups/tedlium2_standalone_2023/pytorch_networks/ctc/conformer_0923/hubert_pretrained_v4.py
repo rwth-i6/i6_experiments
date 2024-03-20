@@ -1,6 +1,7 @@
 """
 Same as v1 with fix to finetune layer numbers (range +1)
 with additional fix to loading
+with additional option for keep layers
 """
 
 import numpy as np
@@ -9,7 +10,7 @@ from torch import nn
 
 from transformers import HubertModel, HubertConfig
 from returnn.torch.context import get_run_ctx
-from .hubert_pretrained_v1_cfg import ModelConfig
+from .hubert_pretrained_v2_cfg import ModelConfig
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -46,6 +47,17 @@ class Model(torch.nn.Module):
             self.hubert: HubertModel = HubertModel(HubertConfig.from_pretrained(f"facebook/hubert-{self.hubert_cfg.name}",
                                                                    cache_dir="/work/asr4/hilmes/debug/whisper/transformers/"))
         if self.training:
+            if self.hubert_cfg.keep_layers is not None:
+                if isinstance(self.hubert_cfg.keep_layers, list):
+                    layer_ls = nn.ModuleList()
+                    for num in self.hubert_cfg.keep_layers:
+                        layer_ls.append(self.hubert.encoder.layers[num])
+                    for layer, num in zip(layer_ls, self.hubert_cfg.keep_layers):
+                        assert layer == self.hubert.encoder.layers[num], "Wrong layers were picked"
+                elif isinstance(self.hubert_cfg.keep_layers, int):
+                    self.hubert.encoder.layers = self.hubert.encoder.layers[:self.hubert_cfg.keep_layers+1]
+                else:
+                    raise NotImplementedError
             if self.hubert_cfg.finetune_layer == True:
                 for param in self.hubert.parameters():
                     param.requires_grad_(True)

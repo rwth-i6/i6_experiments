@@ -124,7 +124,7 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
             test_dataset_reference,
             returnn_exe,
             returnn_root,
-            mem_rqmt=16 if not "whisper" in prefix_name else 64,
+            mem_rqmt=16 if not any(x in prefix_name for x in ["whisper", "xlarge"]) else 64,
             use_gpu=use_gpu,
         )
         search_jobs.append(search_job)
@@ -168,12 +168,18 @@ def compute_prior(
     :param Path returnn_root:
     :param Optional[str] epoch: alias generation
     """
+    if any(x in prefix_name for x in ["xlarge"]):
+        time = 8
+    elif any(x in prefix_name for x in ["whisper", "xlarge"]):
+        time = 4
+    else:
+        time = 2
     search_job = ReturnnForwardJobV2(
         model_checkpoint=checkpoint,
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=2 if not "whisper" in prefix_name else 4,
+        time_rqmt=time,
         device="gpu",
         cpu_rqmt=4,
         returnn_python_exe=returnn_exe,

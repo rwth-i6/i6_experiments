@@ -22,7 +22,7 @@ def get_pytorch_serializer_v3(
     post_decoder_args: Optional[Dict[str, Any]] = None,
     prior: bool = False,
     debug: bool = False,
-    export:bool = False,
+    export: bool = False,
     **kwargs
 ) -> TorchCollection:
     """
