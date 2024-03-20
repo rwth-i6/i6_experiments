@@ -22,7 +22,7 @@ from i6_experiments.common.setups.returnn.datasets import Dataset
 from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob
 from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAMosPredictionJob
 
-from .config import get_forward_config, get_training_config
+from .config import get_forward_config, get_training_config, get_prior_config
 from .data.aligner import build_training_dataset
 from .data.tts_phon import get_tts_extended_bliss, build_fixed_speakers_generating_dataset, build_durationtts_training_dataset
 from .default_tools import SCTK_BINARY_PATH, NISQA_REPO, RETURNN_EXE, MINI_RETURNN_ROOT
@@ -603,4 +603,37 @@ def tts_training(
             system=asr_recognizer_systems[evaluate_swer]
         )
     return train_job, forward_job
+
+
+def ctc_training(training_name, datasets, train_args, with_prior=False, num_epochs=250, average_checkpoints=None):
+    returnn_config = get_training_config(training_datasets=datasets, **train_args)
+    train_job = training(training_name, returnn_config, RETURNN_EXE, MINI_RETURNN_ROOT, num_epochs=num_epochs)
+
+    if average_checkpoints is not None:
+        from i6_core.returnn.training import AverageTorchCheckpointsJob
+        num_checkpoints = len(train_job.out_checkpoints)
+        avg = AverageTorchCheckpointsJob(
+            checkpoints=[train_job.out_checkpoints[num_checkpoints-i] for i in range(average_checkpoints)],
+            returnn_python_exe=RETURNN_EXE,
+            returnn_root=MINI_RETURNN_ROOT
+        )
+        checkpoint = avg.out_checkpoint
+    else:
+        checkpoint = train_job.out_checkpoints[num_epochs]
+
+    prior_file = None
+    if with_prior:
+        returnn_config = get_prior_config(training_datasets=datasets, **train_args)
+        prior_file = compute_prior(
+            training_name,
+            returnn_config,
+            checkpoint=checkpoint,
+            returnn_exe=RETURNN_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+        )
+        tk.register_output(training_name + "/prior.txt", prior_file)
+
+    return train_job, checkpoint, prior_file
+
+
 

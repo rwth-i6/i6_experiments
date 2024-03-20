@@ -18,6 +18,8 @@ from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import t
 from i6_experiments.users.rossenbach.experiments.jaist_project.config import get_training_config, get_forward_config, get_prior_config
 from i6_experiments.users.rossenbach.experiments.jaist_project.storage import add_ctc_model
 
+from i6_experiments.users.rossenbach.tools.parameter_tuning import PickOptimalParametersJob
+
 
 def conformer_baseline_5k():
     prefix_name = "experiments/jaist_project/asr/ls960_ctc_bpe/"
@@ -46,9 +48,17 @@ def conformer_baseline_5k():
     vocab_size_without_blank = label_datastream.vocab_size
 
     # build testing datasets
-    test_dataset_tuples = {}
+    dev_dataset_tuples = {}
     # for testset in ["dev", "test"]:
-    for testset in ["dev-other"]:
+    for testset in ["dev-clean", "dev-other"]:
+            dev_dataset_tuples[testset] = build_test_dataset(
+                dataset_key=testset,
+                preemphasis=train_settings.preemphasis,
+                peak_normalization=train_settings.peak_normalization,
+            )
+        
+    test_dataset_tuples = {}
+    for testset in ["test-clean", "test-other"]:
             test_dataset_tuples[testset] = build_test_dataset(
                 dataset_key=testset,
                 preemphasis=train_settings.preemphasis,
@@ -60,7 +70,7 @@ def conformer_baseline_5k():
 
     # ---------------------------------------------------------------------------------------------------------------- #
 
-    def run_exp(ft_name, datasets, train_args, search_args=None, with_prior=False, num_epochs=250, decoder="ctc.decoder.flashlight_bpe_ctc"):
+    def run_exp(ft_name, datasets, train_args, search_args=None, with_prior=False, num_epochs=250, decoder="ctc.decoder.flashlight_bpe_ctc", return_wers_and_model=False):
         training_name = "/".join(ft_name.split("/")[:-1])
         search_args = search_args if search_args is not None else {}
 
@@ -82,11 +92,22 @@ def conformer_baseline_5k():
         returnn_search_config = get_forward_config(**train_args, decoder_args=search_args,
                                                   decoder=decoder)
 
-        _, _, search_jobs = search(ft_name + "/last_%i" % num_epochs, returnn_search_config,
-                                   train_job.out_checkpoints[num_epochs], test_dataset_tuples, RETURNN_EXE,
-                                   MINI_RETURNN_ROOT)
+        ret_vals = search(ft_name + "/last_%i" % num_epochs, returnn_search_config,
+                                   train_job.out_checkpoints[num_epochs], dev_dataset_tuples, RETURNN_EXE,
+                                   MINI_RETURNN_ROOT, return_wers=return_wers_and_model)
+        
+        if return_wers_and_model:
+            return train_job, ret_vals[2], ret_vals[3], prior_file
 
-        return train_job, search_jobs
+        return train_job, ret_vals[2]
+    
+    def dedicated_search(ft_name, dataset_key, checkpoint, train_args, search_args, decoder="ctc.decoder.flashlight_phoneme_ctc"):
+        returnn_search_config = get_forward_config(**train_args, decoder_args=search_args,
+                                                  decoder=decoder)
+        dataset_tuples = {dataset_key: test_dataset_tuples[dataset_key]}
+        ret_vals = search(ft_name + "/" + dataset_key, returnn_search_config,
+                                   checkpoint, dataset_tuples, RETURNN_EXE,
+                                   MINI_RETURNN_ROOT, with_confidence=True)
     
     
     from ...pytorch_networks.ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_cfg import \
@@ -220,6 +241,12 @@ def conformer_baseline_5k():
                     lm_weight, prior_scale),
                 datasets=train_data, train_args=train_args, search_args=search_args, with_prior=True)
     
+    
+    
+    # ------------------------------------
+    # Subsampling 6
+    # ------------------------------------
+    
     specaug_half_config = SpecaugConfig(
         repeat_per_n_frames=25,
         max_dim_time=20,
@@ -295,6 +322,10 @@ def conformer_baseline_5k():
                 np.linspace(5e-4, 5e-5, 240)) + list(np.linspace(5e-5, 1e-7, 20))
     train_args_gc1_50eps["post_config"] = {"cleanup_old_models": {'keep_last_n': 10}}
     train_args_gc1_50eps["config"]["gradient_clip"] = 1.0
+
+    tune_parameters = []
+    tune_values_clean = []
+    tune_values_other = []
     for lm_weight in [1.6, 1.8, 2.0, 2.2]:
         for prior_scale in [0.3, 0.5]:
             search_args = {
@@ -302,10 +333,13 @@ def conformer_baseline_5k():
                 "lm_weight": lm_weight,
                 "prior_scale": prior_scale,
             }
-            train_job, _ = run_exp(
+            train_job, _, wers, prior_file = run_exp(
                 prefix_name + "conformer_1223_5k/i6modelsV1_VGG4LayerActFrontendV1_v6_sub6_LRv2_halfspec_start11_50eps_amp16/lm%.1f_prior%.2f_bs1024_th14" % (
                     lm_weight, prior_scale),
-                datasets=train_data, train_args=train_args_gc1_50eps, search_args=search_args, with_prior=True, num_epochs=500)
+                datasets=train_data, train_args=train_args_gc1_50eps, search_args=search_args, with_prior=True, num_epochs=500, return_wers_and_model=True)
+            tune_parameters.append((lm_weight, prior_scale))
+            tune_values_clean.append((wers["dev-clean"]))
+            tune_values_other.append((wers["dev-other"]))
     for lm_weight in [1.4, 1.6, 1.8]:
         for prior_scale in [0.2, 0.3]:
             search_args = {
@@ -313,9 +347,28 @@ def conformer_baseline_5k():
                 "lm_weight": lm_weight,
                 "prior_scale": prior_scale,
             }
-            train_job, _ = run_exp(
+            train_job, _, wers, prior_file = run_exp(
                 prefix_name + "conformer_1223_5k/i6modelsV1_VGG4LayerActFrontendV1_v6_sub6_LRv2_halfspec_start11_50eps_amp16/lm%.1f_prior%.2f_bs1024_th14" % (
                     lm_weight, prior_scale),
-                datasets=train_data, train_args=train_args_gc1_50eps, search_args=search_args, with_prior=True, num_epochs=500)
+                datasets=train_data, train_args=train_args_gc1_50eps, search_args=search_args, with_prior=True, num_epochs=500, return_wers_and_model=True)
+            tune_parameters.append((lm_weight, prior_scale))
+            tune_values_clean.append((wers["dev-clean"]))
+            tune_values_other.append((wers["dev-other"]))
+            
+    for key, tune_values in [("test-clean", tune_values_clean), ("test-other", tune_values_other)]:
+        pick_optimal_params_job = PickOptimalParametersJob(parameters=tune_parameters, values=tune_values)
+        pick_optimal_params_job.add_alias(
+            prefix_name + f"conformer_1223_5k/i6modelsV1_VGG4LayerActFrontendV1_v6_sub6_LRv2_halfspec_start11_50eps_amp16/pick_best_{key}")
+        search_args = copy.deepcopy(default_search_args)
+        search_args["lm_weight"] = pick_optimal_params_job.optimal_parameters[0]
+        search_args["prior_scale"] = pick_optimal_params_job.optimal_parameters[1]
+        search_args["prior_file"] = prior_file
+        dedicated_search(
+            ft_name=prefix_name + f"conformer_1223_5k/i6modelsV1_VGG4LayerActFrontendV1_v6_sub6_LRv2_halfspec_start11_50eps_amp16",
+            dataset_key=key,
+            checkpoint=train_job.out_checkpoints[500],
+            train_args=train_args_gc1_50eps,
+            search_args=search_args
+        )
 
     add_ctc_model("bpe5k_i6modelsLV1_LRv2_sub6_ep50", train_job.out_checkpoints[500])
