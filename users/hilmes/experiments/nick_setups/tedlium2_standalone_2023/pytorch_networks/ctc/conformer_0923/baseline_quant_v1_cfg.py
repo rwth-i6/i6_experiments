@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import torch
 from torch import nn
-from typing import Callable, Optional, Type, Union
+from typing import Callable, Optional, Union
 
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1Config
 from i6_models.config import ModuleFactoryV1, ModelConfiguration
@@ -152,7 +152,7 @@ class SpecaugConfig(ModelConfiguration):
 
 
 @dataclass
-class ModelConfig:
+class QuantModelTrainConfigV1:
     frontend_config: VGG4LayerActFrontendV1Config
     specaug_config: SpecaugConfig
     specauc_start_epoch: int
@@ -167,6 +167,18 @@ class ModelConfig:
     mhsa_dropout: float
     conv_kernel_size: int
     final_dropout: float
+
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        d["frontend_config"] = VGG4LayerActFrontendV1Config_mod.from_dict(d["frontend_config"])
+        d["specaug_config"] = SpecaugConfig.from_dict(d["specaug_config"])
+        return QuantModelTrainConfigV1(**d)
+
+
+@dataclass
+class QuantModelConfigV1:
+    train_config: QuantModelTrainConfigV1
     weight_quant_dtype: torch.dtype
     weight_quant_method: str
     activation_quant_dtype: torch.dtype
@@ -175,14 +187,13 @@ class ModelConfig:
     dot_quant_method: str
     Av_quant_dtype: torch.dtype
     Av_quant_method: str
-    moving_average: Optional[float]
+    moving_average: Optional[float]  # default if enabled should be 0.01, if set enables moving average
     bit_prec: int
 
     @classmethod
-    def from_dict(cls, d):
+    def from_dict(cls, d) -> "QuantModelConfigV1":
         d = d.copy()
-        d["frontend_config"] = VGG4LayerActFrontendV1Config_mod.from_dict(d["frontend_config"])
-        d["specaug_config"] = SpecaugConfig.from_dict(d["specaug_config"])
+        d["train_config"] = QuantModelTrainConfigV1.from_dict(d["train_config"])
         if d["weight_quant_dtype"] == "qint8":
             weight_dtype = torch.qint8
         elif d["weight_quant_dtype"] == "quint8":
@@ -197,4 +208,4 @@ class ModelConfig:
         else:
             raise NotImplementedError
         d['activation_quant_dtype'] = activation_dtype
-        return ModelConfig(**d)
+        return QuantModelConfigV1(**d)

@@ -21,7 +21,7 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, L
 
 from returnn.torch.context import get_run_ctx
 
-from .baseline_quant_v1_cfg import ModelConfig, ConformerPositionwiseFeedForwardQuantV1Config, QuantizedMultiheadAttentionV1Config, ConformerConvolutionQuantV1Config, ConformerBlockQuantV1Config, ConformerEncoderQuantV1Config
+from .baseline_quant_v1_cfg import QuantModelTrainConfigV1, QuantModelConfigV1, ConformerPositionwiseFeedForwardQuantV1Config, QuantizedMultiheadAttentionV1Config, ConformerConvolutionQuantV1Config, ConformerBlockQuantV1Config, ConformerEncoderQuantV1Config
 from .baseline_quant_v1_modules import LinearQuant, QuantizedMultiheadAttention
 
 class ConformerPositionwiseFeedForwardQuant(nn.Module):
@@ -257,9 +257,26 @@ def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
 
 
 class Model(torch.nn.Module):
-    def __init__(self, model_config_dict, **kwargs):
+    def __init__(self, model_config_dict, quant_config_dict=None, **kwargs):
         super().__init__()
-        self.cfg = ModelConfig.from_dict(model_config_dict)
+        self.train_cfg = QuantModelTrainConfigV1.from_dict(model_config_dict)
+        if quant_config_dict:
+            self.cfg = QuantModelConfigV1.from_dict(quant_config_dict)
+        else:
+            # Dummy values, if they dont break if activated wrongly PhD finished
+            self.cfg = QuantModelConfigV1(
+                train_config=self.train_cfg,
+                weight_quant_dtype=torch.qint8,
+                weight_quant_method="per_tensor",
+                activation_quant_dtype=torch.qint8,
+                activation_quant_method="per_tensor",
+                dot_quant_dtype=torch.qint8,
+                dot_quant_method="per_tensor",
+                Av_quant_dtype=torch.qint8,
+                Av_quant_method="per_tensor",
+                moving_average=10000,
+                bit_prec=1,
+            )
         fe_config = LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -270,16 +287,16 @@ class Model(torch.nn.Module):
             num_filters=80,
             center=False,
         )
-        frontend_config = self.cfg.frontend_config
-        conformer_size = self.cfg.conformer_size
+        frontend_config = self.cfg.train_config.frontend_config
+        conformer_size = self.cfg.train_config.conformer_size
         conformer_config = ConformerEncoderQuantV1Config(
-            num_layers=self.cfg.num_layers,
+            num_layers=self.cfg.train_config.num_layers,
             frontend=ModuleFactoryV1(module_class=VGG4LayerActFrontendV1, cfg=frontend_config),
             block_cfg=ConformerBlockQuantV1Config(
                 ff_cfg=ConformerPositionwiseFeedForwardQuantV1Config(
                     input_dim=conformer_size,
-                    hidden_dim=self.cfg.ff_dim,
-                    dropout=self.cfg.ff_dropout,
+                    hidden_dim=self.cfg.train_config.ff_dim,
+                    dropout=self.cfg.train_config.ff_dropout,
                     activation=nn.functional.silu,
                     weight_quant_dtype=self.cfg.weight_quant_dtype,
                     weight_quant_method=self.cfg.weight_quant_method,
@@ -290,9 +307,9 @@ class Model(torch.nn.Module):
                 ),
                 mhsa_cfg=QuantizedMultiheadAttentionV1Config(
                     input_dim=conformer_size,
-                    num_att_heads=self.cfg.num_heads,
-                    att_weights_dropout=self.cfg.att_weights_dropout,
-                    dropout=self.cfg.mhsa_dropout,
+                    num_att_heads=self.cfg.train_config.num_heads,
+                    att_weights_dropout=self.cfg.train_config.att_weights_dropout,
+                    dropout=self.cfg.train_config.mhsa_dropout,
                     weight_quant_dtype=self.cfg.weight_quant_dtype,
                     weight_quant_method=self.cfg.weight_quant_method,
                     activation_quant_dtype=self.cfg.activation_quant_dtype,
@@ -311,8 +328,8 @@ class Model(torch.nn.Module):
                 ),
                 conv_cfg=ConformerConvolutionQuantV1Config(
                     channels=conformer_size,
-                    kernel_size=self.cfg.conv_kernel_size,
-                    dropout=self.cfg.conv_dropout,
+                    kernel_size=self.cfg.train_config.conv_kernel_size,
+                    dropout=self.cfg.train_config.conv_dropout,
                     activation=nn.functional.silu,
                     norm=LayerNormNC(conformer_size),
                     weight_quant_dtype=self.cfg.weight_quant_dtype,
@@ -324,12 +341,11 @@ class Model(torch.nn.Module):
                 ),
             ),
         )
-        #TODO: HIER WEITER
         self.feature_extraction = LogMelFeatureExtractionV1(cfg=fe_config)
         self.conformer = ConformerEncoderQuant(cfg=conformer_config)
-        self.final_linear = nn.Linear(conformer_size, self.cfg.label_target_size + 1)  # + CTC blank TODO: do we quant here too?
-        self.final_dropout = nn.Dropout(p=self.cfg.final_dropout)
-        self.specaug_start_epoch = self.cfg.specauc_start_epoch
+        self.final_linear = nn.Linear(conformer_size, self.cfg.train_config.label_target_size + 1)  # + CTC blank TODO: do we quant here too?
+        self.final_dropout = nn.Dropout(p=self.cfg.train_config.final_dropout)
+        self.specaug_start_epoch = self.cfg.train_config.specauc_start_epoch
 
         # No particular weight init!
 
@@ -353,11 +369,11 @@ class Model(torch.nn.Module):
                 audio_features_masked_2 = specaugment_v1_by_length(
                     audio_features,
                     time_min_num_masks=2,
-                    time_max_mask_per_n_frames=self.cfg.specaug_config.repeat_per_n_frames,
-                    time_mask_max_size=self.cfg.specaug_config.max_dim_time,
+                    time_max_mask_per_n_frames=self.cfg.train_config.specaug_config.repeat_per_n_frames,
+                    time_mask_max_size=self.cfg.train_config.specaug_config.max_dim_time,
                     freq_min_num_masks=2,
-                    freq_mask_max_size=self.cfg.specaug_config.max_dim_feat,
-                    freq_max_num_masks=self.cfg.specaug_config.num_repeat_feat,
+                    freq_mask_max_size=self.cfg.train_config.specaug_config.max_dim_feat,
+                    freq_max_num_masks=self.cfg.train_config.specaug_config.num_repeat_feat,
                 )
             else:
                 audio_features_masked_2 = audio_features
@@ -393,7 +409,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         labels,
         input_lengths=audio_features_len,
         target_lengths=labels_len,
-        blank=model.cfg.label_target_size,
+        blank=model.cfg.train_config.label_target_size,
         reduction="sum",
         zero_infinity=True,
     )
@@ -434,3 +450,28 @@ def prior_step(*, model: Model, data, run_ctx, **kwargs):
         run_ctx.sum_probs = torch.sum(probs, dim=(0, 1))
     else:
         run_ctx.sum_probs += torch.sum(probs, dim=(0, 1))
+
+
+def static_quant_init_hook(run_ctx, **kwargs):
+    run_ctx.iterative_quant = False
+    run_ctx.apply_calibration = False
+
+
+def static_quant_step(*, model: Model, data, run_ctx, **kwargs):
+    # TODO: num samples
+    num_samples = ...
+    counter = ...
+
+    raw_audio = data["raw_audio"]  # [B, T', F]
+    raw_audio_len = data["raw_audio:size1"]  # [B]
+    _, _ = model(
+        raw_audio=raw_audio,
+        raw_audio_len=raw_audio_len,
+    )
+    if num_samples == counter:
+        # TODO stop calib and save model
+        pass
+
+def static_quant_finish_hook(run_ctx, **kwargs):
+    # TODO
+    pass

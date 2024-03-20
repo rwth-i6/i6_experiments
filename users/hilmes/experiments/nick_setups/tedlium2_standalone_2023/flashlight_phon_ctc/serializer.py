@@ -23,6 +23,7 @@ def get_pytorch_serializer_v3(
     prior: bool = False,
     debug: bool = False,
     export: bool = False,
+    static_quant: bool = False,
     **kwargs
 ) -> TorchCollection:
     """
@@ -93,6 +94,23 @@ def get_pytorch_serializer_v3(
         )
         finish_hook = Import(
             code_object_path=package + ".%s.prior_finish_hook" % network_module,
+            import_as="forward_finish_hook",
+            unhashed_package_root=PACKAGE,
+        )
+        serializer_objects.extend([forward_step, init_hook, finish_hook])
+    if static_quant:
+        forward_step = Import(
+            code_object_path=package + ".%s.static_quant_step" % network_module,
+            unhashed_package_root=PACKAGE,
+            import_as="forward_step",
+        )
+        init_hook = Import(
+            code_object_path=package + ".%s.static_quant_init_hook" % network_module,
+            unhashed_package_root=PACKAGE,
+            import_as="forward_init_hook",
+        )
+        finish_hook = Import(
+            code_object_path=package + ".%s.static_quant_finish_hook" % network_module,
             import_as="forward_finish_hook",
             unhashed_package_root=PACKAGE,
         )

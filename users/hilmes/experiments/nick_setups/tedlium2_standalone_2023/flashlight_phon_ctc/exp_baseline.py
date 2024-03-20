@@ -3,7 +3,7 @@ from sisyphus import tk
 import copy
 from dataclasses import asdict
 import numpy as np
-from typing import cast, Optional, List
+from typing import cast, Optional, List, Dict
 
 from i6_core.report.report import _Report_Type
 
@@ -15,7 +15,7 @@ from ..default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 
 from ..pipeline import training, search, compute_prior
 
-from .config import get_training_config, get_search_config, get_prior_config
+from .config import get_training_config, get_search_config, get_prior_config, get_quant_config
 
 def flash_phon_ctc_report_format(report: _Report_Type) -> str:
     extra_ls = []
@@ -77,6 +77,8 @@ def conformer_baseline():
         decoder="ctc.decoder.flashlight_phoneme_ctc",
         eval_epochs: Optional[List] = None,
         eval_best: bool = True,
+        eval_average: bool = True,
+        quant_args: Optional[Dict] = None,
     ):
         training_name = "/".join(ft_name.split("/")[:-1])
         search_args = search_args if search_args is not None else {}
@@ -127,8 +129,42 @@ def conformer_baseline():
             )
             search_job_ls += search_jobs
             report.update(values_report)
+        from i6_core.returnn import AverageTorchCheckpointsJob
+        if eval_average:
+            chkpts = []
+            for x in [0, 1, 2, 3]:
+                best_job = GetBestPtCheckpointJob(train_job.out_model_dir, train_job.out_learning_rates, key="dev_loss_ctc", index=x)
+                best_job.add_alias(ft_name + f"/get_best_job_{x}")
+                chkpts.append(best_job.out_checkpoint)
+            avrg_job = AverageTorchCheckpointsJob(checkpoints=chkpts, returnn_python_exe=RETURNN_EXE, returnn_root=MINI_RETURNN_ROOT)
+            avrg_job.add_alias(ft_name + "/avrg_chkpt_job")
+            format_string_report, values_report, search_jobs = search(
+                ft_name + "/avrg_chkpt",
+                returnn_search_config,
+                avrg_job.out_checkpoint,
+                test_dataset_tuples,
+                RETURNN_EXE,
+                MINI_RETURNN_ROOT,
+            )
+            search_job_ls += search_jobs
+            report.update(values_report)
+
+        if quant_args and False:
+            quant_config = get_quant_config(training_datasets=datasets, quant_args=quant_args, **train_args)
+            quant_model = quantize_static(quant_config)
+            format_string_report, values_report, search_jobs = search(
+                ft_name + "/quant_", # TODO find alias
+                returnn_search_config,
+                quant_model,
+                test_dataset_tuples,
+                RETURNN_EXE,
+                MINI_RETURNN_ROOT,
+            )
+            search_job_ls += search_jobs
+            report.update(values_report)
 
         return train_job, search_job_ls, format_string_report, report
+
 
     def generate_report(results, exp_name):
         from i6_core.report import GenerateReportStringJob, MailJob
@@ -1699,5 +1735,153 @@ def conformer_baseline():
             del wer_values
     generate_report(  # 7.2
         results=results, exp_name=prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v3_JJLR_large_accum4_300ep"
+    )
+    del results
+
+    frontend_config_sub3 = VGG4LayerActFrontendV1Config_mod(
+        in_features=80,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(3, 1),
+        pool1_stride=(3, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(1, 1),
+        pool2_padding=None,
+        activation_str="ReLU",
+        out_features=384,
+        activation=None,
+    )
+
+    model_config_v4 = ModelConfigV4(
+        frontend_config=frontend_config_sub3,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=1,
+    )
+
+    train_args = {
+        **copy.deepcopy(train_args_adamw03_accum2),
+        "network_module": "ctc.conformer_0923.i6modelsV1_VGG4LayerActFrontendV1_v5",
+        "debug": False,
+        "net_args": {
+            "model_config_dict": asdict(model_config_v4),
+        },
+    }
+    train_args["config"]["learning_rates"] = (
+        list(np.linspace(7e-6, 7e-4, 110)) + list(np.linspace(7e-4, 7e-5, 110)) + list(np.linspace(7e-5, 1e-8, 30))
+    )
+    train_args["config"]["batch_size"] = 180 * 16000
+    results = {}
+    for lm_weight in [1.6, 1.8, 2.0, 2.2]:
+        for prior_scale in [0.5, 0.7]:
+            search_args = {
+                **default_search_args,
+                "lm_weight": lm_weight,
+                "prior_scale": prior_scale,
+            }
+            search_args["beam_size"] = 1024
+            search_args["beam_threshold"] = 14
+            _, _, _, wer_values = run_exp(
+                prefix_name
+                + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v5_JJLR_sub3/lm%.1f_prior%.2f_bs1024_th14"
+                % (lm_weight, prior_scale),
+                datasets=train_data,
+                train_args=train_args,
+                search_args=search_args,
+                with_prior=True,
+            )
+            results.update(wer_values)
+            del wer_values
+    generate_report(
+        results=results, exp_name=prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v5_JJLR_sub3"
+    )
+    del results
+
+    from ..pytorch_networks.ctc.conformer_0923.baseline_quant_v1_cfg import QuantModelTrainConfigV1, QuantModelConfigV1
+    import torch
+    model_train_config_quant_v1 = QuantModelTrainConfigV1(
+        frontend_config=frontend_config_sub3,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=1,
+    )
+    model_config_quant_v1 = QuantModelConfigV1(
+        train_config=model_train_config_quant_v1,
+        weight_quant_dtype=torch.qint8,
+        weight_quant_method="per_tensor",
+        activation_quant_dtype=torch.qint8,
+        activation_quant_method="per_tensor",
+        dot_quant_dtype=torch.qint8,
+        dot_quant_method="per_tensor",
+        Av_quant_dtype=torch.qint8,
+        Av_quant_method="per_tensor",
+        moving_average=0.01,
+        bit_prec=8
+    )
+
+    train_args = {
+        **copy.deepcopy(train_args_adamw03_accum2),
+        "network_module": "ctc.conformer_0923.baseline_quant_v1",
+        "debug": True,
+        "net_args": {
+            "model_config_dict": asdict(model_train_config_quant_v1),
+        },
+    }
+    train_args["config"]["learning_rates"] = (
+        list(np.linspace(7e-6, 7e-4, 110)) + list(np.linspace(7e-4, 7e-5, 110)) + list(np.linspace(7e-5, 1e-8, 30))
+    )
+    train_args["config"]["batch_size"] = 180 * 16000
+    quant_args = {
+        "quant_config_dict": asdict(model_config_quant_v1)
+    }
+    results = {}
+    for lm_weight in [1.6, 1.8, 2.0, 2.2]:
+        for prior_scale in [0.5, 0.7]:
+            search_args = {
+                **default_search_args,
+                "lm_weight": lm_weight,
+                "prior_scale": prior_scale,
+            }
+            search_args["beam_size"] = 1024
+            search_args["beam_threshold"] = 14
+            _, _, _, wer_values = run_exp(
+                prefix_name
+                + "conformer_0923/baseline_quant_JJLR/lm%.1f_prior%.2f_bs1024_th14"
+                % (lm_weight, prior_scale),
+                datasets=train_data,
+                train_args=train_args,
+                search_args=search_args,
+                with_prior=True,
+                quant_args=quant_args,
+            )
+            results.update(wer_values)
+            del wer_values
+    generate_report(
+        results=results, exp_name=prefix_name + "conformer_0923/baseline_quant_JJLR"
     )
     del results

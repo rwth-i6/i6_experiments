@@ -119,6 +119,52 @@ def get_prior_config(
     return returnn_config
 
 
+def get_quant_config(
+    training_datasets: TrainingDatasets,
+    network_module: str,
+    net_args: Dict[str, Any],
+    quant_args: Dict[str, Any],
+    config: Dict[str, Any],
+    debug: bool = False,
+    use_custom_engine=False,
+    **kwargs,
+):
+    """
+    Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_aligner
+    :param returnn_common_root: returnn_common version to be used, usually output of CloneGitRepositoryJob
+    :param training_datasets: datasets for training
+    :param kwargs: arguments to be passed to the network construction
+    :return: RETURNN training config
+    """
+
+    # changing these does not change the hash
+    post_config = {}
+
+    base_config = {
+        #############
+        "batch_size": 50000 * 160,
+        "max_seqs": 60,
+        #############
+        "forward": training_datasets.prior.as_returnn_opts(),
+    }
+    base_config['forward']['seq_ordering'] = 'random'
+    if kwargs.get("shuffling_seed", None):
+        # TODO
+        raise NotImplementedError
+    config = {**base_config, **copy.deepcopy(config)}
+    post_config["backend"] = "torch"
+    assert net_args.keys().isdisjoint(quant_args.keys())
+    serializer = get_pytorch_serializer_v3(
+        network_module=network_module,
+        net_args=net_args | quant_args,
+        debug=debug,
+        use_custom_engine=use_custom_engine,
+        quant=True,
+    )
+    returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+    return returnn_config
+
+
 def get_search_config(
     network_module: str,
     net_args: Dict[str, Any],

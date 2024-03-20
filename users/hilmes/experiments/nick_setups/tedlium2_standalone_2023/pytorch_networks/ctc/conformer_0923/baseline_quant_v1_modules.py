@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from typing import Optional
 from .baseline_quant_v1_cfg import QuantizedMultiheadAttentionV1Config
 import math
+from returnn.torch.context import get_run_ctx
 
 def get_quantization_range_from_bit_precision(bits, dtype):
 
@@ -31,6 +32,8 @@ class WeightQuantizer(nn.Module):
         self.quant_fn, self.observer = None, None
         self.quant_fn, self.observer = self.__get_quant_fn_and_observer_for_method(method)
         self.reduce_rage = reduce_range
+        self.scale = None
+        self.zero_point = None
 
     def __get_quant_fn_and_observer_for_method(self, method):
         if self.quant_fn is not None and self.observer is not None:
@@ -49,20 +52,27 @@ class WeightQuantizer(nn.Module):
         return quant_fn, observer
 
     def forward(self, tensor: torch.Tensor):
-
         if self.training:
-            self.observer.reset_min_max_vals()
+            # TODO This module does not do anything in training
+            return tensor
+            #self.observer.reset_min_max_vals()
+        if not self.apply_calibration:
+            print("Calculating Min Max Values")
             tensor = self.observer(tensor)
-            scale, zero_point = self.observer.calculate_qparams()
-        else:
-            # TODO: Ich glaube ein großer Unterschied ist, dass hier quantisiert wird nachdem man die values gesehen hat,
+        if self.iterative_quant or self.apply_calibration:
+            # TODO: self.iterative_quant and self.apply_calibration needs to be the proper variation
+            # TODO: How to check state?
+            # TODO: Ich glaube ein großer Unterschied ist, dass hier quantisiert wird nachdem man die values gesehen hat
             # und nicht erst ganz am Ende. Heißt jeder Batch wird iterativ quantisiert
-            tensor = self.observer(tensor)
-            scale, zero_point = self.observer.calculate_qparams()
-
-        tensor = self.quant_fn(tensor, scale, zero_point, self.quant_min, self.quant_max)
-
+            self.set_scale_and_zp()
+            assert self.scale and self.zero_point
+            print("Applying Quantized values")
+            tensor = self.quant_fn(tensor, self.scale, self.zero_point, self.quant_min, self.quant_max)
         return tensor
+
+    def set_scale_and_zp(self):
+        assert self.observer is not None
+        self.scale, self.zero_point = self.observer.calculate_qparams()
 
 
 class ActivationQuantizer(nn.Module):
@@ -85,6 +95,8 @@ class ActivationQuantizer(nn.Module):
         self.channel_axis = channel_axis
         self.moving_avrg = moving_avrg
         self.reduce_range = reduce_range
+        self.zero_point = None
+        self.scale = None
 
     def __get_quant_fn_and_observer_for_method(self, method):
         if all(x is not None for x in [self.quant_fn, self.base_observer_args, self.observer]):
@@ -135,10 +147,36 @@ class ActivationQuantizer(nn.Module):
 
 
     def forward(self, tensor: torch.Tensor):
-        tensor = self.observer(tensor)
-        scale, zero_point = self.observer.calculate_qparams()
-        tensor = self.quant_fn(tensor, scale, zero_point, *self.base_observer_args)
+        # TODO
+        # tensor = self.observer(tensor)
+        # scale, zero_point = self.observer.calculate_qparams()
+        # tensor = self.quant_fn(tensor, scale, zero_point, *self.base_observer_args)
+        # return tensor
+        if self.training:
+            # TODO This module does not do anything in training
+            return tensor
+            # self.observer.reset_min_max_vals()
+        if not self.apply_calibration:
+            print("Calculating Min Max Values")
+            tensor = self.observer(tensor)
+        # TODO: remove, only for debugging rn
+        if self.apply_calibration:
+            assert self.apply_calibration is True
+        if self.iterative_quant:
+            assert self.iterative_quant is True
+        if self.iterative_quant or self.apply_calibration:
+            # TODO: How to check state?
+            # TODO: Ich glaube ein großer Unterschied ist, dass hier quantisiert wird nachdem man die values gesehen hat
+            # und nicht erst ganz am Ende. Heißt jeder Batch wird iterativ quantisiert
+            self.set_scale_and_zp()
+            assert self.scale and self.zero_point, "Need to calibrate before applying quant, disable apply_calibration"
+            print("Applying Quantized values")
+            tensor = self.quant_fn(tensor, self.scale, self.zero_point, self.quant_min, self.quant_max)
         return tensor
+
+    def set_scale_and_zp(self):
+        assert self.observer is not None
+        self.scale, self.zero_point = self.observer.calculate_qparams()
 
 
 class LinearQuant(nn.Module):
@@ -175,7 +213,7 @@ class LinearQuant(nn.Module):
             moving_avrg=moving_average)
 
     def forward(self, tensor: torch.Tensor):
-        return F.linear(tensor, self.weight_quantizer(self.weight), self.bias)
+        return F.linear(self.activation_quantizer(tensor), self.weight_quantizer(self.weight), self.bias)
 
 # TODO: Check if this is all correct
 class QuantizedMultiheadAttention(nn.Module):
@@ -293,4 +331,3 @@ class QuantizedMultiheadAttention(nn.Module):
         att_out = self.W_o(att_out)
 
         return att_out, alpha
-

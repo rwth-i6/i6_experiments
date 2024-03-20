@@ -52,6 +52,8 @@ def forward_init_hook(run_ctx, **kwargs):
     else:
         run_ctx.prior = None
 
+    run_ctx.apply_calibration = kwargs.get("quantization_mode", None)
+
     run_ctx.running_audio_len_s = 0
     run_ctx.total_am_time = 0
     run_ctx.total_search_time = 0
