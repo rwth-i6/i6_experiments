@@ -379,8 +379,8 @@ def eow_phon_ls960_1023_base():
         pick_optimal_params_job.add_alias(
             prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_large_LRv2_50epsJJ_halfspec_amp16/pick_best_{key}")
         search_args = copy.deepcopy(default_search_args)
-        search_args["lm_weight"] = pick_optimal_params_job.optimal_parameters[0]
-        search_args["prior_scale"] = pick_optimal_params_job.optimal_parameters[1]
+        search_args["lm_weight"] = pick_optimal_params_job.out_optimal_parameters[0]
+        search_args["prior_scale"] = pick_optimal_params_job.out_optimal_parameters[1]
         search_args["prior_file"] = prior_file
         dedicated_search(
             ft_name=prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_large_LRv2_50epsJJ_halfspec_amp16",

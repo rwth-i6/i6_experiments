@@ -249,8 +249,8 @@ def eow_phon_ls100_1023_synthetic():
         pick_optimal_params_job.add_alias(
             prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16/pick_best_{key}")
         search_args = copy.deepcopy(default_search_args)
-        search_args["lm_weight"] = pick_optimal_params_job.optimal_parameters[0]
-        search_args["prior_scale"] = pick_optimal_params_job.optimal_parameters[1]
+        search_args["lm_weight"] = pick_optimal_params_job.out_optimal_parameters[0]
+        search_args["prior_scale"] = pick_optimal_params_job.out_optimal_parameters[1]
         search_args["prior_file"] = prior_file
         dedicated_search(
             ft_name=prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16",
@@ -289,8 +289,8 @@ def eow_phon_ls100_1023_synthetic():
         pick_optimal_params_job.add_alias(
             prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16_resume/pick_best_{key}")
         search_args = copy.deepcopy(default_search_args)
-        search_args["lm_weight"] = pick_optimal_params_job.optimal_parameters[0]
-        search_args["prior_scale"] = pick_optimal_params_job.optimal_parameters[1]
+        search_args["lm_weight"] = pick_optimal_params_job.out_optimal_parameters[0]
+        search_args["prior_scale"] = pick_optimal_params_job.out_optimal_parameters[1]
         search_args["prior_file"] = prior_file
         dedicated_search(
             ft_name=prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16_resume",
@@ -425,8 +425,8 @@ def eow_phon_ls100_1023_synthetic():
                 pick_optimal_params_job = PickOptimalParametersJob(parameters=tune_parameters, values=tune_values)
                 pick_optimal_params_job.add_alias(prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16_syn/{syn_name}/pick_best_{key}")
                 search_args = copy.deepcopy(default_search_args)
-                search_args["lm_weight"] = pick_optimal_params_job.optimal_parameters[0]
-                search_args["prior_scale"] = pick_optimal_params_job.optimal_parameters[1]
+                search_args["lm_weight"] = pick_optimal_params_job.out_optimal_parameters[0]
+                search_args["prior_scale"] = pick_optimal_params_job.out_optimal_parameters[1]
                 search_args["prior_file"] = prior_file
                 dedicated_search(
                     ft_name=prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16_syn/{syn_name}",
@@ -498,8 +498,8 @@ def eow_phon_ls100_1023_synthetic():
                 pick_optimal_params_job = PickOptimalParametersJob(parameters=tune_parameters, values=tune_values)
                 pick_optimal_params_job.add_alias(prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16_resume_syn/{syn_name}/pick_best_{key}")
                 search_args = copy.deepcopy(default_search_args)
-                search_args["lm_weight"] = pick_optimal_params_job.optimal_parameters[0]
-                search_args["prior_scale"] = pick_optimal_params_job.optimal_parameters[1]
+                search_args["lm_weight"] = pick_optimal_params_job.out_optimal_parameters[0]
+                search_args["prior_scale"] = pick_optimal_params_job.out_optimal_parameters[1]
                 search_args["prior_file"] = prior_file
                 dedicated_search(
                     ft_name=prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16_resume_syn/{syn_name}",
@@ -558,8 +558,8 @@ def eow_phon_ls100_1023_synthetic():
             pick_optimal_params_job = PickOptimalParametersJob(parameters=tune_parameters, values=tune_values)
             pick_optimal_params_job.add_alias(prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16_resume_syn/{syn_name}/pick_best_{key}")
             search_args = copy.deepcopy(default_search_args)
-            search_args["lm_weight"] = pick_optimal_params_job.optimal_parameters[0]
-            search_args["prior_scale"] = pick_optimal_params_job.optimal_parameters[1]
+            search_args["lm_weight"] = pick_optimal_params_job.out_optimal_parameters[0]
+            search_args["prior_scale"] = pick_optimal_params_job.out_optimal_parameters[1]
             search_args["prior_file"] = prior_file
             dedicated_search(
                 ft_name=prefix_name + f"conformer_1023/i6modelsV1_VGG4LayerActFrontendV1_v6_JJLR_peaknorm_gc1_amp16_resume_syn/{syn_name}",

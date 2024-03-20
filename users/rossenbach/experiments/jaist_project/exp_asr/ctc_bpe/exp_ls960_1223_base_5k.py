@@ -360,8 +360,8 @@ def conformer_baseline_5k():
         pick_optimal_params_job.add_alias(
             prefix_name + f"conformer_1223_5k/i6modelsV1_VGG4LayerActFrontendV1_v6_sub6_LRv2_halfspec_start11_50eps_amp16/pick_best_{key}")
         search_args = copy.deepcopy(default_search_args)
-        search_args["lm_weight"] = pick_optimal_params_job.optimal_parameters[0]
-        search_args["prior_scale"] = pick_optimal_params_job.optimal_parameters[1]
+        search_args["lm_weight"] = pick_optimal_params_job.out_optimal_parameters[0]
+        search_args["prior_scale"] = pick_optimal_params_job.out_optimal_parameters[1]
         search_args["prior_file"] = prior_file
         dedicated_search(
             ft_name=prefix_name + f"conformer_1223_5k/i6modelsV1_VGG4LayerActFrontendV1_v6_sub6_LRv2_halfspec_start11_50eps_amp16",
