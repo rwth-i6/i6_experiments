@@ -15,7 +15,7 @@ import i6_core.util as util
 
 class CreateBPELexiconJob(Job):
     """
-    Create a Bliss lexicon from bpe transcriptions.
+    Create a Bliss lexicon from bpe transcriptions that can be used e.g, for lexicon constrained BPE search.
     """
 
     def __init__(
@@ -24,13 +24,14 @@ class CreateBPELexiconJob(Job):
         bpe_codes: tk.Path,
         bpe_vocab: tk.Path,
         subword_nmt_repo: tk.Path,
-        unk_label="UNK",
+        unk_label:str = "UNK",
     ):
         """
-        :param Path base_lexicon_path:
-        :param Path bpe_codes:
-        :param Path|None bpe_vocab:
-        :param Path|str|None subword_nmt_repo:
+        :param base_lexicon_path: base lexicon (can be phoneme based) to take the lemmas from
+        :param bpe_codes: bpe codes from the ReturnnTrainBPEJob
+        :param bpe_vocab: vocab file to limit which bpe splits can be created
+        :param subword_nmt_repo: cloned repository
+        :param unk_label:
         """
         self.base_lexicon_path = base_lexicon_path
         self.bpe_codes = bpe_codes
