@@ -25,7 +25,7 @@ class PickOptimalParametersJob(Job):
         self.num_values = len(values)
         self.num_parameters = len(parameters[0])
 
-        self.optimal_parameters = [self.output_var("param_%i" % i) for i in range(self.num_parameters)]
+        self.out_optimal_parameters = [self.output_var("param_%i" % i) for i in range(self.num_parameters)]
 
 
     def tasks(self) -> Iterator[Task]:
