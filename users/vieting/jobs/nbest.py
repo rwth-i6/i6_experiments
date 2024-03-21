@@ -1,14 +1,14 @@
-__all__ = ["NBestListsFromLatticeJob"]
+__all__ = ["LatticeToNBestListJob"]
 
-import shutil
 import os
+import shutil
 
-from sisyphus import *
+from sisyphus import tk, Job, Task
 
 import i6_core.rasr as rasr
 
 
-class NBestListsFromLatticeJob(rasr.RasrCommand, Job):
+class LatticeToNBestListJob(rasr.RasrCommand, Job):
     def __init__(
         self,
         crp,
