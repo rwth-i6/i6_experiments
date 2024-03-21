@@ -2,6 +2,7 @@ __all__ = ["LatticeToNBestListJob"]
 
 import os
 import shutil
+from typing import Optional
 
 from sisyphus import tk, Job, Task
 
@@ -11,13 +12,13 @@ import i6_core.rasr as rasr
 class LatticeToNBestListJob(rasr.RasrCommand, Job):
     def __init__(
         self,
-        crp,
-        lattice_cache,
-        n,
+        crp: rasr.CommonRasrParameters,
+        lattice_cache: tk.Path,
+        n: int,
         *,
-        parallelize=False,
-        extra_config=None,
-        extra_post_config=None,
+        parallelize: bool = False,
+        extra_config: Optional[rasr.RasrConfig] = None,
+        extra_post_config: Optional[rasr.RasrConfig] = None,
     ):
         kwargs = locals()
         del kwargs["self"]
