@@ -172,21 +172,21 @@ def get_returnn_base_data(
         partition_epoch=partition_epoch["train"],
         ogg_args={"segment_file": segments["train"], "targets": None},
         seq_ordering="laplace:.384",
-        **ogg_zip_base_args,
+        **copy.deepcopy(ogg_zip_base_args),
     )
 
     nn_cv_data = OggZipHdfDataInput(
         partition_epoch=partition_epoch["dev"],
         seq_ordering="sorted_reverse",
         ogg_args={"segment_file": segments["cv"], "targets": None},
-        **ogg_zip_base_args,
+        **copy.deepcopy(ogg_zip_base_args),
     )
 
     nn_devtrain_data = OggZipHdfDataInput(
         partition_epoch=partition_epoch["dev"],
         seq_ordering="sorted_reverse",
         ogg_args={"segment_file": segments["devtrain"], "targets": None},
-        **ogg_zip_base_args,
+        **copy.deepcopy(ogg_zip_base_args),
     )
 
     returnn_datasets = {
@@ -210,7 +210,7 @@ def get_returnn_ogg_datasets(use_multi_proc_dataset=False, **kwargs) -> Dict[str
     if use_multi_proc_dataset:
         returnn_datasets["train"] = {
             "class": "MultiProcDataset",
-            "dataset": returnn_datasets["train"]["datasets"]["ogg"],
+            "dataset": returnn_datasets["train"],
             "num_workers": 2,
             "buffer_size": 5,
         }
