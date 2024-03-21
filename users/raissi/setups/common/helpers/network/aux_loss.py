@@ -106,8 +106,6 @@ def add_intermediate_loss(
         network.pop(f"{prefix}left-output", None)
         network.pop(f"{prefix}right-output", None)
 
-
-
     return network
 
 
@@ -163,7 +161,7 @@ def add_intermediate_loss_v2(
             final_ctx_type=final_ctx_type,
             frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info,
             encoder_output_len=encoder_output_len,
-            encoder_output_layer=f'{prefix}encoder',
+            encoder_output_layer=f"{prefix}encoder",
             focal_loss_factor=focal_loss_factor,
             label_smoothing=label_smoothing,
             l2=l2,

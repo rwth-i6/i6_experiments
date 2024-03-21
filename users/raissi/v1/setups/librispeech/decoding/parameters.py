@@ -21,7 +21,7 @@ from i6_experiments.users.raissi.setups.common.decoder.config import SearchParam
 
 
 @dataclass(eq=True, frozen=True)
-class LibriSpeechSearchParameters(SearchParameters):
+class LBSSearchParameters(SearchParameters):
     @classmethod
     def default_monophone(cls, *, priors: PriorInfo) -> "SearchParameters":
         return cls(

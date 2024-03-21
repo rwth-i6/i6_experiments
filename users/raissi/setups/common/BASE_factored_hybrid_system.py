@@ -386,7 +386,7 @@ class BASEFactoredHybridSystem(NnSystem):
             self.ctm_files[c_key] = {}
             self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
             self.feature_flows[c_key] = c_data.feature_flow
-            self.set_sclite_scorer(c_key)
+            self._set_scorer_for_corpus(c_key)
 
     def _update_crp_am_setting(
         self,
@@ -1030,7 +1030,6 @@ class BASEFactoredHybridSystem(NnSystem):
             if isinstance(data.features, tk.Path):
                 feature_flow.flags = {"cache_mode": "bundle"}
 
-
         if isinstance(data.alignments, rasr.FlagDependentFlowAttribute):
             alignments = copy.deepcopy(data.alignments)
             net = rasr.FlowNetwork()
@@ -1088,12 +1087,11 @@ class BASEFactoredHybridSystem(NnSystem):
             )
             feature_flow["dev"], alignments["dev"] = self.get_feature_and_alignment_flows_for_training(data=dev_data)
 
-
         if self.segments_to_exclude is not None:
-            extra_config = rasr.RasrConfig() if "extra_rasr_config" not in nn_train_args else nn_train_args["extra_rasr_config"]
-            extra_config[
-                "*"
-            ].segments_to_skip = self.segments_to_exclude
+            extra_config = (
+                rasr.RasrConfig() if "extra_rasr_config" not in nn_train_args else nn_train_args["extra_rasr_config"]
+            )
+            extra_config["*"].segments_to_skip = self.segments_to_exclude
             nn_train_args["extra_rasr_config"] = extra_config
 
         train_job = trainer(

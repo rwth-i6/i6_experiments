@@ -145,7 +145,6 @@ class SearchParameters:
     lm_scale: Float
     non_word_phonemes: str
     prior_info: PriorInfo
-    pron_scale: Float
     tdp_scale: Optional[Float]
     tdp_silence: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     tdp_speech: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
@@ -154,6 +153,7 @@ class SearchParameters:
     we_pruning_limit: Int
 
     add_all_allophones: bool = True
+    pron_scale: Optional[Float] = None
     altas: Optional[float] = None
     lm_lookahead_scale: Optional[float] = None
     lm_lookahead_history_limit: Int = 1
@@ -219,7 +219,7 @@ class SearchParameters:
         return dataclasses.replace(self, posterior_scales=posterior_scales)
 
     @classmethod
-    def default_monophone(cls, *, priors: PriorInfo) -> "SearchParameters":
+    def default_monophone(cls, *, priors: PriorInfo, frame_rate: int = 1) -> "SearchParameters":
         return cls(
             beam=22,
             beam_limit=500_000,
@@ -227,8 +227,8 @@ class SearchParameters:
             tdp_scale=0.4,
             pron_scale=2.0,
             prior_info=priors.with_scale(0.2),
-            tdp_speech=(3.0, 0.0, "infinity", 0.0),
-            tdp_silence=(0.0, 3.0, "infinity", 20.0),
+            tdp_speech=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (3.0, 0.0, "infinity", 0.0),
+            tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 20.0),
             tdp_non_word=(0.0, 3.0, "infinity", 20.0),
             non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
@@ -236,7 +236,7 @@ class SearchParameters:
         )
 
     @classmethod
-    def default_diphone(cls, *, priors: PriorInfo) -> "SearchParameters":
+    def default_diphone(cls, *, priors: PriorInfo, frame_rate: int = 1) -> "SearchParameters":
         return cls(
             beam=20,
             beam_limit=500_000,
@@ -244,8 +244,8 @@ class SearchParameters:
             tdp_scale=0.4,
             pron_scale=2.0,
             prior_info=priors.with_scale(center=0.2, left=0.1),
-            tdp_speech=(3.0, 0.0, "infinity", 0.0),
-            tdp_silence=(0.0, 3.0, "infinity", 20.0),
+            tdp_speech=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (3.0, 0.0, "infinity", 0.0),
+            tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 20.0),
             tdp_non_word=(0.0, 3.0, "infinity", 20.0),
             non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
@@ -253,7 +253,7 @@ class SearchParameters:
         )
 
     @classmethod
-    def default_triphone(cls, *, priors: PriorInfo) -> "SearchParameters":
+    def default_triphone(cls, *, priors: PriorInfo, frame_rate: int = 1) -> "SearchParameters":
         return cls(
             beam=20,
             beam_limit=500_000,
@@ -261,8 +261,8 @@ class SearchParameters:
             tdp_scale=0.6,
             pron_scale=2.0,
             prior_info=priors.with_scale(center=0.2, left=0.1, right=0.1),
-            tdp_speech=(3.0, 0.0, "infinity", 0.0),
-            tdp_silence=(0.0, 3.0, "infinity", 20.0),
+            tdp_speech=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (3.0, 0.0, "infinity", 0.0),
+            tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 20.0),
             tdp_non_word=(0.0, 3.0, "infinity", 20.0),
             non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
@@ -270,7 +270,7 @@ class SearchParameters:
         )
 
     @classmethod
-    def default_joint_diphone(cls, *, priors: PriorInfo) -> "SearchParameters":
+    def default_joint_diphone(cls, *, priors: PriorInfo, frame_rate: int = 1) -> "SearchParameters":
         return cls(
             beam=20,
             beam_limit=500_000,
@@ -278,29 +278,27 @@ class SearchParameters:
             tdp_scale=0.4,
             pron_scale=2.0,
             prior_info=priors.with_scale(diphone=0.4),
-            tdp_speech=(3.0, 0.0, "infinity", 0.0),
-            tdp_silence=(0.0, 3.0, "infinity", 20.0),
+            tdp_speech=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (3.0, 0.0, "infinity", 0.0),
+            tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 20.0),
             tdp_non_word=(0.0, 3.0, "infinity", 20.0),
             non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
             we_pruning_limit=10000,
         )
 
-
     @classmethod
-    def default_for_ctx(cls, context: PhoneticContext, priors: PriorInfo) -> "SearchParameters":
+    def default_for_ctx(cls, context: PhoneticContext, priors: PriorInfo, frame_rate: int = 1) -> "SearchParameters":
         if context == PhoneticContext.monophone:
-            return cls.default_monophone(priors=priors)
+            return cls.default_monophone(priors=priors, frame_rate=frame_rate)
         elif context == PhoneticContext.diphone:
-            return cls.default_diphone(priors=priors)
+            return cls.default_diphone(priors=priors, frame_rate=frame_rate)
         elif context == PhoneticContext.triphone_forward:
-            return cls.default_triphone(priors=priors)
+            return cls.default_triphone(priors=priors, frame_rate=frame_rate)
         elif context == PhoneticContext.joint_diphone:
-            return cls.default_joint_diphone(priors=priors)
+            return cls.default_joint_diphone(priors=priors, frame_rate=frame_rate)
 
         else:
             raise NotImplementedError(f"unimplemented context {context}")
-
 
 
 @dataclass(eq=True, frozen=True)
@@ -352,63 +350,63 @@ class AlignmentParameters:
         return dataclasses.replace(self, posterior_scales=posterior_scales)
 
     @classmethod
-    def default_monophone(cls, *, priors: PriorInfo) -> "AlignmentParameters":
+    def default_monophone(cls, *, priors: PriorInfo, frame_rate: int = 1) -> "AlignmentParameters":
         return cls(
             tdp_scale=1.0,
             pron_scale=2.0,
             prior_info=priors.with_scale(0.2),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
-            tdp_silence=(0.0, 3.0, "infinity", 0.0),
+            tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 0.0),
             tdp_non_word=(0.0, 3.0, "infinity", 0.0),
             non_word_phonemes="[UNKNOWN]",
         )
 
     @classmethod
-    def default_diphone(cls, *, priors: PriorInfo) -> "AlignmentParameters":
+    def default_diphone(cls, *, priors: PriorInfo, frame_rate: int = 1) -> "AlignmentParameters":
         return cls(
             tdp_scale=1.0,
             pron_scale=2.0,
             prior_info=priors.with_scale(center=0.2, left=0.1),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
-            tdp_silence=(0.0, 3.0, "infinity", 0.0),
+            tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 0.0),
             tdp_non_word=(0.0, 3.0, "infinity", 0.0),
             non_word_phonemes="[UNKNOWN]",
         )
 
     @classmethod
-    def default_triphone(cls, *, priors: PriorInfo) -> "AlignmentParameters":
+    def default_triphone(cls, *, priors: PriorInfo, frame_rate: int = 1) -> "AlignmentParameters":
         return cls(
             tdp_scale=1.0,
             pron_scale=2.0,
             prior_info=priors.with_scale(center=0.2, left=0.1, right=0.1),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
-            tdp_silence=(0.0, 3.0, "infinity", 0.0),
+            tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 0.0),
             tdp_non_word=(0.0, 3.0, "infinity", 0.0),
             non_word_phonemes="[UNKNOWN]",
         )
 
     @classmethod
-    def default_joint_diphone(cls, *, priors: PriorInfo) -> "AlignmentParameters":
+    def default_joint_diphone(cls, *, priors: PriorInfo, frame_rate: int = 1) -> "AlignmentParameters":
         return cls(
             tdp_scale=1.0,
             pron_scale=2.0,
             prior_info=priors.with_scale(diphone=0.4),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
-            tdp_silence=(0.0, 3.0, "infinity", 0.0),
+            tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 0.0),
             tdp_non_word=(0.0, 3.0, "infinity", 0.0),
             non_word_phonemes="[UNKNOWN]",
         )
 
     @classmethod
-    def default_for_ctx(cls, context: PhoneticContext, priors: PriorInfo) -> "AlignmentParameters":
+    def default_for_ctx(cls, context: PhoneticContext, priors: PriorInfo, frame_rate: int = 1) -> "AlignmentParameters":
         if context == PhoneticContext.monophone:
-            return cls.default_monophone(priors=priors)
+            return cls.default_monophone(priors=priors, frame_rate=frame_rate)
         elif context == PhoneticContext.diphone:
-            return cls.default_diphone(priors=priors)
+            return cls.default_diphone(priors=priors, frame_rate=frame_rate)
         elif context == PhoneticContext.triphone_forward:
-            return cls.default_triphone(priors=priors)
+            return cls.default_triphone(priors=priors, frame_rate=frame_rate)
         elif context == PhoneticContext.joint_diphone:
-            return cls.default_joint_diphone(priors=priors)
+            return cls.default_joint_diphone(priors=priors, frame_rate=frame_rate)
 
         else:
             raise NotImplementedError(f"unimplemented context {context}")

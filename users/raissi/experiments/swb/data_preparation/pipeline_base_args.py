@@ -66,7 +66,7 @@ def get_data_inputs(
 
     final_segment_files = SegmentCorpusJob(train_corpus_object.corpus_file, 1).out_single_segment_files
     if filter_short_segments:
-        filtered_segment_files = FilterSegmentsByListJob( #too short not good for 40ms training
+        filtered_segment_files = FilterSegmentsByListJob(  # too short not good for 40ms training
             final_segment_files,
             filter_list=[
                 "switchboard-1/sw04118A/sw4118A-ms98-a-0045",
@@ -92,7 +92,7 @@ def get_data_inputs(
 
         final_segment_files = SegmentCorpusJob(cv_corpus_object.corpus_file, 1).out_single_segment_files
         if filter_short_segments:
-            filtered_segment_files = FilterSegmentsByListJob( #too short not good for 40ms training
+            filtered_segment_files = FilterSegmentsByListJob(  # too short not good for 40ms training
                 final_segment_files,
                 filter_list=[
                     "hub5e_00/en_6189a/36",
@@ -158,10 +158,7 @@ def get_init_args(
 
     costa_args = {"eval_recordings": False, "eval_lm": False}
 
-    feature_extraction_args = {
-        "gt": None
-
-    }
+    feature_extraction_args = {"gt": None}
 
     am_args = {
         "state_tying": "monophone",
@@ -184,13 +181,10 @@ def get_init_args(
     if am_extra_args is not None:
         am_args.update(am_extra_args)
 
-
-
-
-    #ToDo check feature extraction
+    # ToDo check feature extraction
     return rasr_util.RasrInitArgs(
         costa_args=costa_args,
         am_args=am_args,
         feature_extraction_args=feature_extraction_args,
+        scorer="hub5"
     )
-

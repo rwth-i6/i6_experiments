@@ -1,4 +1,4 @@
-__all__=["ComputeArgminJob"]
+__all__ = ["ComputeArgminJob"]
 import typing
 
 from sisyphus import tk, Job, Task

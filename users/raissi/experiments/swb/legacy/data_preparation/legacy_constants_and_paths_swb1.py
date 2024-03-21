@@ -89,26 +89,34 @@ glm_path = {
 prepath_dependencies = "/work/asr4/raissi/ms-thesis-setups/lm-sa-swb/dependencies"
 prepath_work_folder = "/work/asr3/raissi/master-thesis/raissi/work"
 feature_bundles = {
-    "train": Path(("/").join(
-        [
-            prepath_work_folder,
-            "features/extraction/FeatureExtraction.Gammatone.Jlfrg2riiRX3/output/gt.cache.bundle",
-        ]
-    ), hash_overwrite="legacy_train_features"),
-    "hub500": Path(("/").join(
-        [
-            prepath_work_folder,
-            "features/extraction/FeatureExtraction.Gammatone.dVkMNkHYPXb4/output/gt.cache.bundle",
-        ]
-    ), hash_overwrite="legacy_dev_features"),
-    "hub501": Path(("/").join(
-        [
-            prepath_dependencies,
-            "hub5-01/gammatone/FeatureExtraction.Gammatone.osrT6JyBKDB2/output/gt.cache.bundle",
-        ]
-    ), hash_overwrite="legacy_eval_features"),
+    "train": Path(
+        ("/").join(
+            [
+                prepath_work_folder,
+                "features/extraction/FeatureExtraction.Gammatone.Jlfrg2riiRX3/output/gt.cache.bundle",
+            ]
+        ),
+        hash_overwrite="legacy_train_features",
+    ),
+    "hub500": Path(
+        ("/").join(
+            [
+                prepath_work_folder,
+                "features/extraction/FeatureExtraction.Gammatone.dVkMNkHYPXb4/output/gt.cache.bundle",
+            ]
+        ),
+        hash_overwrite="legacy_dev_features",
+    ),
+    "hub501": Path(
+        ("/").join(
+            [
+                prepath_dependencies,
+                "hub5-01/gammatone/FeatureExtraction.Gammatone.osrT6JyBKDB2/output/gt.cache.bundle",
+            ]
+        ),
+        hash_overwrite="legacy_eval_features",
+    ),
 }
-
 
 
 merged_train_cv = {

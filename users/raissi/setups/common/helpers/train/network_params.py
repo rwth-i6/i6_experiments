@@ -25,7 +25,7 @@ class GeneralNetworkParams:
     label_smoothing: Optional[float] = 0.0
     use_multi_task: Optional[bool] = True
     add_mlps: Optional[bool] = True
-    auxilary_loss_layers: Optional[List] = [6],
+    auxilary_loss_layers: Optional[List] = ([6],)
     specaug_args: Optional[dict] = None
     frame_rate_reduction_ratio_factor: Optional[int] = 1
 
@@ -60,19 +60,18 @@ frameshift40_conformer_fullsum = GeneralNetworkParams(
     l2=1e-6, specaug_args=asdict(default_sa_args), frame_rate_reduction_ratio_factor=4
 )
 
-#Comaprison with transducer
+# Comaprison with transducer
 frameshift40_conformer_viterbi_zhou = GeneralNetworkParams(
     l2=5e-6, chunking="256:128", frame_rate_reduction_ratio_factor=4, auxilary_loss_layers=[6, 12]
 )
 frameshift40_conformer_viterbi_mix_48 = GeneralNetworkParams(
-    l2=5e-6, chunking="256:128", frame_rate_reduction_ratio_factor=4, auxilary_loss_layers=[4,8]
+    l2=5e-6, chunking="256:128", frame_rate_reduction_ratio_factor=4, auxilary_loss_layers=[4, 8]
 )
 
 frameshift40_conformer_viterbi_mix_369 = GeneralNetworkParams(
-    l2=5e-6, chunking="256:128", frame_rate_reduction_ratio_factor=4, auxilary_loss_layers=[3,6,9]
+    l2=5e-6, chunking="256:128", frame_rate_reduction_ratio_factor=4, auxilary_loss_layers=[3, 6, 9]
 )
 
 frameshift40_conformer_viterbi_mix_base = GeneralNetworkParams(
     l2=5e-6, chunking="256:128", frame_rate_reduction_ratio_factor=4, auxilary_loss_layers=[6]
 )
-

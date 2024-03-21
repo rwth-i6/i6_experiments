@@ -16,7 +16,7 @@ class CorpusData:
     test_data: Dict[str, RasrDataInput]
 
 
-def get_corpus_object(bliss_corpus, duration, audio_dir =None, audio_format="wav"):
+def get_corpus_object(bliss_corpus, duration, audio_dir=None, audio_format="wav"):
     corpus_object = CorpusObject()
     corpus_object.corpus_file = bliss_corpus
     corpus_object.audio_format = audio_format

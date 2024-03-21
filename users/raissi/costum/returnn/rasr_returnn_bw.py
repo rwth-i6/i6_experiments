@@ -293,10 +293,6 @@ class ReturnnRasrTrainingJob(ReturnnTrainingJob):
         return Job.hash(d)
 
 
-
-
-
-
 class ReturnnRasrTrainingBWJob(ReturnnTrainingJob):
     """
     Train a RETURNN model using rnn.py that uses ExternSpringDataset, and needs

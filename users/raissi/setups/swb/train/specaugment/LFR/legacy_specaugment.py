@@ -1,4 +1,3 @@
-
 def _mask(x, batch_axis, axis, pos, max_amount):
     """
     :param tf.Tensor x: (batch,time,feature)
@@ -140,5 +139,3 @@ def dynamic_learning_rate(*, network, global_train_step, learning_rate, **kwargs
             tf.maximum(initialLR - stepSize2 * (n - 2 * steps), finalLR),
         ),
     )
-
-

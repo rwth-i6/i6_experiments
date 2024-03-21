@@ -21,7 +21,10 @@ import i6_experiments.users.raissi.experiments.librispeech.data_preparation.othe
 import i6_experiments.users.raissi.utils.default_tools as run_tools
 import i6_experiments.users.raissi.setups.common.helpers.train as train_helpers
 
-from i6_experiments.users.raissi.setups.common.analysis import PlotViterbiAlignmentsJob, ComputeWordLevelTimestampErrorJob
+from i6_experiments.users.raissi.setups.common.analysis import (
+    PlotViterbiAlignmentsJob,
+    ComputeWordLevelTimestampErrorJob,
+)
 
 from i6_experiments.users.raissi.setups.common.data.factored_label import RasrStateTying
 
@@ -43,7 +46,7 @@ from i6_experiments.users.raissi.utils.general_helpers import load_pickle
 from i6_experiments.users.raissi.setups.common.helpers.network.augment import (
     add_fast_bw_layer_to_returnn_config,
     augment_net_with_monophone_outputs,
-    LogLinearScales
+    LogLinearScales,
 )
 
 from i6_experiments.users.raissi.setups.librispeech.train.parameters import (
@@ -55,7 +58,7 @@ from i6_experiments.users.raissi.experiments.librispeech.configs.LFR_factored.ba
     ALIGN_GMM_TRI_ALLOPHONES,
     ALIGN_GMM_TRI_10MS,
     ZHOU_SUBSAMPLED_ALIGNMENT,
-    ZHOU_ALLOPHONES
+    ZHOU_ALLOPHONES,
 )
 
 
@@ -72,8 +75,8 @@ def get_system(key, lr=4e-4, num_epochs=None, am_scale=1.0, tdp_scale=0.1):
     label_info_init_args = {
         "ph_emb_size": 0,
         "st_emb_size": 0,
-        "state_tying": 'monophone-dense',#RasrStateTying.monophone,
-        "n_states_per_phone": 1
+        "state_tying": "monophone-dense",  # RasrStateTying.monophone,
+        "n_states_per_phone": 1,
     }
     init_args_system = {
         "label_info": label_info_init_args,
@@ -108,7 +111,7 @@ def get_system(key, lr=4e-4, num_epochs=None, am_scale=1.0, tdp_scale=0.1):
     # setting up parameters for full-sum
     s.training_criterion = TrainingCriterion.FULLSUM
 
-    #specific to full-sum
+    # specific to full-sum
     s.lexicon_args["norm_pronunciation"] = False
     s.shuffling_params["segment_order_sort_by_time_length_chunk_size"] = 1044
 
@@ -118,14 +121,10 @@ def get_system(key, lr=4e-4, num_epochs=None, am_scale=1.0, tdp_scale=0.1):
     s.run(steps)
     s.set_crp_pairings(dev_key="dev-other", test_key="test-other")
     s.set_rasr_returnn_input_datas(
-        input_key="data_preparation",
-        is_cv_separate_from_train=True,
-        cv_corpus_key="dev-other"
+        input_key="data_preparation", is_cv_separate_from_train=True, cv_corpus_key="dev-other"
     )
-    s.update_am_setting_for_all_crps(
-        train_tdp_type="heuristic", eval_tdp_type="heuristic"
-    )
-    exp_name = f'am{am_scale}-t{tdp_scale}'
+    s.update_am_setting_for_all_crps(train_tdp_type="heuristic", eval_tdp_type="heuristic")
+    exp_name = f"am{am_scale}-t{tdp_scale}"
     s.set_experiment_dict(key=key, alignment="scratch", context="mono", postfix_name=exp_name)
     # ----------------------------- train -----------------------------------------------------
     blstm_args = {"spec_aug_as_data": True, "l2": hyper_params.l2}
@@ -161,12 +160,12 @@ def get_system(key, lr=4e-4, num_epochs=None, am_scale=1.0, tdp_scale=0.1):
 
     bw_crp = s.crp[s.crp_names["bw"]]
     log_linear_scales = LogLinearScales.default()
-    log_linear_scales = dataclasses.replace(log_linear_scales, label_posterior_scale=am_scale, transition_scale=tdp_scale)
+    log_linear_scales = dataclasses.replace(
+        log_linear_scales, label_posterior_scale=am_scale, transition_scale=tdp_scale
+    )
 
     bw_augmented_returnn_config = add_fast_bw_layer_to_returnn_config(
-        crp=bw_crp,
-        returnn_config=s.experiments[key]["returnn_config"],
-        log_linear_scales=log_linear_scales
+        crp=bw_crp, returnn_config=s.experiments[key]["returnn_config"], log_linear_scales=log_linear_scales
     )
 
     s.experiments[key]["returnn_config"] = bw_augmented_returnn_config
@@ -185,9 +184,9 @@ def get_system(key, lr=4e-4, num_epochs=None, am_scale=1.0, tdp_scale=0.1):
         epilog_additional_str=train_helpers.specaugment.get_legacy_specaugment_epilog_blstm(
             t_num=1, t=15, f_num=5, f=5
         ),
-        add_extern_data_for_fullsum=True)
+        add_extern_data_for_fullsum=True,
+    )
     s.set_returnn_config_for_experiment(key=key, config_dict=return_config_dict_infer)
-
 
     s.set_single_prior_returnn_rasr(
         key=key,
@@ -197,47 +196,36 @@ def get_system(key, lr=4e-4, num_epochs=None, am_scale=1.0, tdp_scale=0.1):
         data_share=0.1,
         context_type=PhoneticContext.monophone,
         smoothen=True,
-        output_layer_name="center-output"
+        output_layer_name="center-output",
     )
-
 
     aligner, cfg = s.get_aligner_and_args(
         key=key,
         context_type=PhoneticContext.monophone,
         feature_scorer_type=RasrFeatureScorer.nn_precomputed,
-        crp_corpus=s.crp_names['align.train'],
+        crp_corpus=s.crp_names["align.train"],
         epoch=500,
         tf_library=s.native_lstm2_path,
         tensor_map=BLSTM_FH_DECODING_TENSOR_CONFIG_TF2,
-        set_batch_major_for_feature_scorer=False
+        set_batch_major_for_feature_scorer=False,
     )
-    #the tdps are adjusted for factor 4
-    align_cfg = (
-        cfg.with_prior_scale(center=0.4)
-        .with_tdp_scale(1.0)
-    )
+    # the tdps are adjusted for factor 4
+    align_cfg = cfg.with_prior_scale(center=0.4).with_tdp_scale(1.0)
     alignment_j = aligner.get_alignment_job(
         label_info=s.label_info,
         alignment_parameters=align_cfg,
         num_encoder_output=hyper_params.encoder_out_len,
-
     )
     s.experiments[key]["align_job"] = alignment_j
-
 
     return s
 
 
+# get_system(key='exp2', am_scale=1.0, tdp_scale=0.1)
+# WER 9.0, TSE 57ms
 
+# get_system(key='exp3', am_scale=0.5, tdp_scale=0.1)
+# WER 9.2, TSE 129ms
 
-#get_system(key='exp2', am_scale=1.0, tdp_scale=0.1)
-#WER 9.0, TSE 57ms
-
-#get_system(key='exp3', am_scale=0.5, tdp_scale=0.1)
-#WER 9.2, TSE 129ms
-
-#get_system(key='exp4', am_scale=0.5, tdp_scale=0.3)
-#WER 9.5, TSE 121ms
-
-
-
+# get_system(key='exp4', am_scale=0.5, tdp_scale=0.3)
+# WER 9.5, TSE 121ms

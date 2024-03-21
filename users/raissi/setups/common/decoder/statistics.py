@@ -166,7 +166,7 @@ class ExtractSearchStatisticsJob(Job):
         self.ss_statistics.set(dict(ss_statistics.items()))
         self.seq_ss_statistics.set(seq_ss_statistics)
         self.eval_statistics.set(eval_statistics)
-        self.overall_rtf.set(self.recognizer_rtf+self.ss_statistics["tf_fwd"])
+        self.overall_rtf.set(self.recognizer_rtf + self.ss_statistics["tf_fwd"])
 
 
 class ExtractSearchStatisticsJobWeiV2(Job):
@@ -236,7 +236,6 @@ class ExtractSearchStatisticsJobWeiV2(Job):
                 total_frames += frames
 
                 recognizer_time += float(layer.findall("./flf-recognizer-time")[0].text)
-
 
             for seg in root.findall(".//segment"):
                 seg_stats = {}

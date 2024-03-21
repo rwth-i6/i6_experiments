@@ -15,7 +15,6 @@ from i6_core.util import chunks, uopen
 from sisyphus import *
 
 
-
 class SegmentCorpusNoPrefixJob(Job):
     def __init__(self, bliss_corpus, num_segments, remove_prefix):
         self.set_vis_name("Segment Corpus")
@@ -41,7 +40,7 @@ class SegmentCorpusNoPrefixJob(Job):
             with open(self.out_single_segment_files[idx + 1].get_path(), "wt") as segment_file:
                 for segment in segments:
                     name = segment.fullname() + "\n"
-                    name = name[name.startswith(self.remove_prefix) and len(self.remove_prefix):]
+                    name = name[name.startswith(self.remove_prefix) and len(self.remove_prefix) :]
                     segment_file.write(name)
 
     @classmethod

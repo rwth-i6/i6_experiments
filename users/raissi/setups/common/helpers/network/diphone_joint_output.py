@@ -56,7 +56,7 @@ def augment_returnn_config_to_joint_diphone_softmax(
         left_context_softmax_layer=left_context_softmax_layer,
         encoder_output_layer=encoder_output_layer,
         prepare_for_train=prepare_for_train,
-        keep_right_context=keep_right_context
+        keep_right_context=keep_right_context,
     )
 
     update_cfg = returnn.ReturnnConfig({}, python_prolog=dim_prolog)

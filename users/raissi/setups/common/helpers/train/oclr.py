@@ -5,6 +5,7 @@ import numpy as np
 from textwrap import dedent
 from typing import Optional
 
+
 def get_oclr_function(
     num_epochs: int,
     n_steps_per_epoch: int,
@@ -44,6 +45,7 @@ def get_oclr_function(
                        tf.where(global_train_step <= 2*steps, peak_lr - step_size * (n - steps), 
                            tf.maximum(initial_lr - step_size_final * (n - 2*steps), final_lr)))"""
     )
+
 
 # This function is designed by Wei Zhou
 def get_learning_rates(

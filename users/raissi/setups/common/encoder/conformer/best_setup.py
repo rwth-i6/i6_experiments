@@ -53,7 +53,7 @@ def get_best_model_config(
     assert model_dim % att_dim == 0, "model_dim must be divisible by number of att heads"
 
     if isinstance(chunking, tuple):
-        [clipping, overlap] = [ele['data'] for ele in chunking]
+        [clipping, overlap] = [ele["data"] for ele in chunking]
     else:
         clipping, overlap = [int(v) for v in chunking.split(":")] if chunking is not None else (400, 200)
 

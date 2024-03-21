@@ -105,7 +105,7 @@ CONF_JOINT_DECODING_TENSOR_CONFIG = dataclasses.replace(
 )
 
 
-#BLSTMS
+# BLSTMS
 BLSTM_FH_DECODING_TENSOR_CONFIG_TF2 = dataclasses.replace(
     CONF_FH_DECODING_TENSOR_CONFIG,
     in_encoder_output="concat_lstm_fwd_6_lstm_bwd_6/concat_sources/concat",
@@ -117,7 +117,6 @@ BLSTM_FH_DECODING_TENSOR_CONFIG_TF1 = dataclasses.replace(
     in_encoder_output="concat_fwd_6_bwd_6/concat_sources/concat:0",
     in_seq_length="extern_data/placeholders/data/data_dim0_size",
 )
-
 
 
 MLP_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(

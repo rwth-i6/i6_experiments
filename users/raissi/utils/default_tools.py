@@ -35,7 +35,10 @@ u16_rasr_path_ted_common = tk.Path(
     hash_overwrite="TEDLIUM2_DEFAULT_RASR_BINARY_PATH",
 )
 
-u16_moritz_path = tk.Path("/work/tools/users/raissi/shared/mgunz/rasr_apptainer_tf2.3_u16/arch/linux-x86_64-standard", hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2")
+u16_moritz_path = tk.Path(
+    "/work/tools/users/raissi/shared/mgunz/rasr_apptainer_tf2.3_u16/arch/linux-x86_64-standard",
+    hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2",
+)
 
 U16_RASR_BINARY_PATHS = {"TF1": u16_rasr_path_tf2, "TF2": u16_rasr_path_tf2, "TED_COMMON": u16_rasr_path_ted_common}
 u16_returnn_launcher_tf2 = tk.Path(
@@ -80,7 +83,10 @@ U22_RETURNN_LAUNCHERS = {"TF2": u22_returnn_launcher_tf2}
 
 # common
 RETURNN_ROOT = tk.Path("/work/tools/users/raissi/returnn_versions/conformer", hash_overwrite="CONFORMER_RETURNN_ROOT")
-RETURNN_ROOT_MORITZ = tk.Path("/work/asr3/raissi/shared_workspaces/gunz/2023-05--thesis-baselines-tf2/i6_core/tools/git/CloneGitRepositoryJob.0TxYoqLkxbuC/output/returnn", hash_overwrite="CONFORMER_RETURNN_Len_FIX")
+RETURNN_ROOT_MORITZ = tk.Path(
+    "/work/asr3/raissi/shared_workspaces/gunz/2023-05--thesis-baselines-tf2/i6_core/tools/git/CloneGitRepositoryJob.0TxYoqLkxbuC/output/returnn",
+    hash_overwrite="CONFORMER_RETURNN_Len_FIX",
+)
 RETURNN_ROOT_TORCH = tk.Path("/work/tools/users/raissi/returnn_versions/torch", hash_overwrite="TORCH_RETURNN_ROOT")
 
 SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
@@ -125,8 +131,6 @@ u16_default_tools_ted = ToolPaths(
     returnn_python_exe=U16_RETURNN_LAUNCHERS["TF2"],
     rasr_binary_path=U16_RASR_BINARY_PATHS["TED_COMMON"],
 )
-
-
 
 
 u22_tools_tf = ToolPaths(

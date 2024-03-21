@@ -150,7 +150,7 @@ class DecodingTensorMap:
 @dataclass
 class RecognitionJobs:
     lat2ctm: Optional[recog.LatticeToCtmJob]
-    sclite: Optional[recog.ScliteJob]
+    scorer: Optional[recog.ScliteJob]
     search: recog.AdvancedTreeSearchJob
     search_crp: rasr.RasrConfig
     search_feature_scorer: rasr.FeatureScorer
@@ -264,9 +264,10 @@ class BASEFactoredHybridDecoder:
         graph: Path,
         mixtures: Path,
         eval_files,
+        scorer: Optional[Union[recog.ScliteJob, recog.Hub5ScoreJob, recog.Hub5ScoreJob]] = None,
         tensor_map: Optional[Union[dict, DecodingTensorMap]] = None,
-        is_multi_encoder_output=False,
-        silence_id=40,
+        is_multi_encoder_output: bool = False,
+        silence_id: int = 40,
         set_batch_major_for_feature_scorer: bool = True,
         lm_gc_simple_hash=False,
         tf_library: Optional[Union[str, Path]] = None,
@@ -299,6 +300,7 @@ class BASEFactoredHybridDecoder:
         self.bellman_post_config = False
         self.gpu = gpu
         self.library_path = DelayedJoin(tf_library, ":") if isinstance(tf_library, list) else tf_library
+        self.scorer = scorer if scorer is not None else recog.ScliteJob
 
         # setting other attributes
         self.set_tf_fs_flow()
@@ -527,137 +529,6 @@ class BASEFactoredHybridDecoder:
 
         return fs_tf_config
 
-    def get_ls_kazuki_lstm_lm_config(
-        self,
-        scale: Optional[float] = None,
-    ) -> rasr.RasrConfig:
-        assert self.library_path is not None
-
-        lm_model_dir = Path("/u/mgunz/gunz/dependencies/kazuki_lstmlm_20190627")
-
-        return TfRnnLmRasrConfig(
-            vocab_path=lm_model_dir.join_right("vocabulary"),
-            meta_graph_path=lm_model_dir.join_right("network.040.meta"),
-            returnn_checkpoint=returnn.Checkpoint(lm_model_dir.join_right("network.040.index")),
-            scale=scale,
-            libraries=self.library_path,
-            state_manager="lstm",
-        ).get()
-
-    def get_ls_eugen_trafo_config(
-        self,
-        min_batch_size: int = 0,
-        opt_batch_size: int = 64,
-        max_batch_size: int = 64,
-        scale: Optional[float] = None,
-    ) -> rasr.RasrConfig:
-        # assert self.library_path is not None
-
-        trafo_config = rasr.RasrConfig()
-
-        # Taken from /work/asr4/beck/setups/librispeech/2019-09-15_state_compression/work/recognition/advanced_tree_search/AdvancedTreeSearchJob.9vgSulF2hfbc/work/recognition.config
-
-        trafo_config.min_batch_size = min_batch_size
-        trafo_config.opt_batch_size = opt_batch_size
-        trafo_config.max_batch_size = max_batch_size
-        trafo_config.allow_reduced_history = True
-        if scale is not None:
-            trafo_config.scale = scale
-        trafo_config.type = "tfrnn"
-        trafo_config.vocab_file = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/ls-eugen-trafo-lm/vocabulary"
-        trafo_config.transform_output_negate = True
-        trafo_config.vocab_unknown_word = "<UNK>"
-
-        trafo_config.input_map.info_0.param_name = "word"
-        trafo_config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
-        trafo_config.input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/delayed/delayed_dim0_size"
-
-        trafo_config.input_map.info_1.param_name = "state-lengths"
-        trafo_config.input_map.info_1.tensor_name = "output/rec/dec_0_self_att_att/state_lengths"
-
-        trafo_config.loader.type = "meta"
-        trafo_config.loader.meta_graph_file = (
-            "/work/asr3/raissi/shared_workspaces/gunz/dependencies/ls-eugen-trafo-lm/graph.meta"
-        )
-        model_path = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/ls-eugen-trafo-lm/epoch.030"
-        trafo_config.loader.saved_model_file = rasr.StringWrapper(model_path, f"{model_path}.index")
-        trafo_config.loader.required_libraries = self.library_path
-
-        trafo_config.nn_output_compression.bits_per_val = 16
-        trafo_config.nn_output_compression.epsilon = 0.001
-        trafo_config.nn_output_compression.type = "fixed-quantization"
-
-        trafo_config.output_map.info_0.param_name = "softmax"
-        trafo_config.output_map.info_0.tensor_name = "output/rec/decoder/add"
-
-        trafo_config.output_map.info_1.param_name = "weights"
-        trafo_config.output_map.info_1.tensor_name = "output/rec/output/W/read"
-
-        trafo_config.output_map.info_2.param_name = "bias"
-        trafo_config.output_map.info_2.tensor_name = "output/rec/output/b/read"
-
-        trafo_config.softmax_adapter.type = "quantized-blas-nce-16bit"
-        trafo_config.softmax_adapter.weights_bias_epsilon = 0.001
-
-        trafo_config.state_compression.bits_per_val = 16
-        trafo_config.state_compression.epsilon = 0.001
-        trafo_config.state_compression.type = "fixed-quantization"
-
-        trafo_config.state_manager.cache_prefix = True
-        trafo_config.state_manager.min_batch_size = min_batch_size
-        trafo_config.state_manager.min_common_prefix_length = 0
-        trafo_config.state_manager.type = "transformer-with-common-prefix-16bit"
-
-        trafo_config.state_manager.var_map.item_0.common_prefix_initial_value = (
-            "output/rec/dec_0_self_att_att/zeros_1:0"
-        )
-        trafo_config.state_manager.var_map.item_0.common_prefix_initializer = (
-            "output/rec/dec_0_self_att_att/common_prefix/Assign:0"
-        )
-        trafo_config.state_manager.var_map.item_0.var_name = "output/rec/dec_0_self_att_att/keep_state_var:0"
-
-        trafo_config.state_manager.var_map.item_1.common_prefix_initial_value = (
-            "output/rec/dec_1_self_att_att/zeros_1:0"
-        )
-        trafo_config.state_manager.var_map.item_1.common_prefix_initializer = (
-            "output/rec/dec_1_self_att_att/common_prefix/Assign:0"
-        )
-        trafo_config.state_manager.var_map.item_1.var_name = "output/rec/dec_1_self_att_att/keep_state_var:0"
-
-        trafo_config.state_manager.var_map.item_2.common_prefix_initial_value = (
-            "output/rec/dec_2_self_att_att/zeros_1:0"
-        )
-        trafo_config.state_manager.var_map.item_2.common_prefix_initializer = (
-            "output/rec/dec_2_self_att_att/common_prefix/Assign:0"
-        )
-        trafo_config.state_manager.var_map.item_2.var_name = "output/rec/dec_2_self_att_att/keep_state_var:0"
-
-        trafo_config.state_manager.var_map.item_3.common_prefix_initial_value = (
-            "output/rec/dec_3_self_att_att/zeros_1:0"
-        )
-        trafo_config.state_manager.var_map.item_3.common_prefix_initializer = (
-            "output/rec/dec_3_self_att_att/common_prefix/Assign:0"
-        )
-        trafo_config.state_manager.var_map.item_3.var_name = "output/rec/dec_3_self_att_att/keep_state_var:0"
-
-        trafo_config.state_manager.var_map.item_4.common_prefix_initial_value = (
-            "output/rec/dec_4_self_att_att/zeros_1:0"
-        )
-        trafo_config.state_manager.var_map.item_4.common_prefix_initializer = (
-            "output/rec/dec_4_self_att_att/common_prefix/Assign:0"
-        )
-        trafo_config.state_manager.var_map.item_4.var_name = "output/rec/dec_4_self_att_att/keep_state_var:0"
-
-        trafo_config.state_manager.var_map.item_5.common_prefix_initial_value = (
-            "output/rec/dec_5_self_att_att/zeros_1:0"
-        )
-        trafo_config.state_manager.var_map.item_5.common_prefix_initializer = (
-            "output/rec/dec_5_self_att_att/common_prefix/Assign:0"
-        )
-        trafo_config.state_manager.var_map.item_5.var_name = "output/rec/dec_5_self_att_att/keep_state_var:0"
-
-        return trafo_config
-
     def recognize_count_lm(
         self,
         *,
@@ -684,7 +555,7 @@ class BASEFactoredHybridDecoder:
         lm_config: rasr.RasrConfig = None,
         create_lattice: bool = True,
         remove_or_set_concurrency: Union[bool, int] = False,
-        search_rqmt_update = None,
+        search_rqmt_update=None,
         adv_search_extra_config: Optional[rasr.RasrConfig] = None,
         adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
         cpu_omp_thread=2,
@@ -717,61 +588,7 @@ class BASEFactoredHybridDecoder:
             search_rqmt_update=search_rqmt_update,
             adv_search_extra_config=adv_search_extra_config,
             adv_search_extra_post_config=adv_search_extra_post_config,
-            cpu_omp_thread=cpu_omp_thread
-        )
-
-    def recognize_ls_trafo_lm(
-        self,
-        *,
-        label_info: LabelInfo,
-        num_encoder_output: int,
-        search_parameters: SearchParameters,
-        calculate_stats=False,
-        is_min_duration=False,
-        opt_lm_am=True,
-        only_lm_opt=True,
-        keep_value=12,
-        use_estimated_tdps=False,
-        add_sis_alias_and_output=True,
-        rerun_after_opt_lm=False,
-        name_override: Union[str, None] = None,
-        name_prefix: str = "",
-        gpu: Optional[bool] = None,
-        cpu_rqmt: Optional[int] = None,
-        mem_rqmt: Optional[int] = None,
-        crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
-        rtf_gpu: Optional[float] = None,
-        rtf_cpu: Optional[float] = None,
-        create_lattice: bool = True,
-        adv_search_extra_config: Optional[rasr.RasrConfig] = None,
-        adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
-    ) -> RecognitionJobs:
-        return self.recognize(
-            add_sis_alias_and_output=add_sis_alias_and_output,
-            calculate_stats=calculate_stats,
-            gpu=gpu,
-            cpu_rqmt=cpu_rqmt,
-            mem_rqmt=mem_rqmt,
-            is_min_duration=is_min_duration,
-            is_nn_lm=True,
-            keep_value=keep_value,
-            label_info=label_info,
-            lm_config=self.get_ls_eugen_trafo_config(),
-            name_override=name_override,
-            name_prefix=name_prefix,
-            num_encoder_output=num_encoder_output,
-            only_lm_opt=only_lm_opt,
-            opt_lm_am=opt_lm_am,
-            pre_path="decoding-eugen-trafo-lm",
-            rerun_after_opt_lm=rerun_after_opt_lm,
-            search_parameters=search_parameters,
-            use_estimated_tdps=use_estimated_tdps,
-            crp_update=crp_update,
-            rtf_cpu=rtf_cpu,
-            rtf_gpu=rtf_gpu,
-            create_lattice=create_lattice,
-            adv_search_extra_config=adv_search_extra_config,
-            adv_search_extra_post_config=adv_search_extra_post_config
+            cpu_omp_thread=cpu_omp_thread,
         )
 
     def recognize(
@@ -803,7 +620,7 @@ class BASEFactoredHybridDecoder:
         create_lattice: bool = True,
         adv_search_extra_config: Optional[rasr.RasrConfig] = None,
         adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
-        search_rqmt_update = None,
+        search_rqmt_update=None,
         cpu_omp_thread=2,
         remove_or_set_concurrency: Union[bool, int] = False,
     ) -> RecognitionJobs:
@@ -825,7 +642,7 @@ class BASEFactoredHybridDecoder:
 
         search_crp = copy.deepcopy(self.crp)
 
-        if search_crp.lexicon_config.normalize_pronunciation:
+        if search_crp.lexicon_config.normalize_pronunciation and pron_scale is not None:
             model_combination_config = rasr.RasrConfig()
             model_combination_config.pronunciation_scale = search_parameters.pron_scale
             pron_scale = search_parameters.pron_scale
@@ -847,7 +664,7 @@ class BASEFactoredHybridDecoder:
             if search_parameters.we_pruning > 0.5:
                 name += f"-wep{search_parameters.we_pruning}"
             if search_parameters.we_pruning_limit < 5000:
-                #condition for rtf
+                # condition for rtf
                 name += f"-wep{search_parameters.we_pruning}"
                 name += f"-wepLim{search_parameters.we_pruning_limit}"
             if search_parameters.altas is not None:
@@ -1070,16 +887,16 @@ class BASEFactoredHybridDecoder:
                 pre = f"{pre_path}-" if pre_path != "decoding" and pre_path != "decoding-gridsearch" else ""
                 stat.add_alias(f"{pre}statistics/{name}")
                 tk.register_output(f"{pre}statistics/rtf/{name}.rtf", stat.overall_rtf)
-                #tk.register_output(f"{pre}statistics/rtf/{name}.rtf", stat.decoding_rtf)
-                #tk.register_output(f"{pre}statistics/rtf/{name}.recognizer.rtf", stat.recognizer_rtf)
-                #tk.register_output(f"{pre}statistics/rtf/{name}.stats", stat.ss_statistics)
+                # tk.register_output(f"{pre}statistics/rtf/{name}.rtf", stat.decoding_rtf)
+                # tk.register_output(f"{pre}statistics/rtf/{name}.recognizer.rtf", stat.recognizer_rtf)
+                # tk.register_output(f"{pre}statistics/rtf/{name}.stats", stat.ss_statistics)
         else:
             stat = None
 
         if not create_lattice:
             return RecognitionJobs(
                 lat2ctm=None,
-                sclite=None,
+                scorer=None,
                 search=search,
                 search_crp=crp,
                 search_feature_scorer=feature_scorer,
@@ -1099,21 +916,21 @@ class BASEFactoredHybridDecoder:
 
         s_kwrgs = copy.copy(self.eval_files)
         s_kwrgs["hyp"] = lat2ctm.out_ctm_file
-        scorer = recog.ScliteJob(**s_kwrgs)
+        scorer = self.scorer(**s_kwrgs)
         if add_sis_alias_and_output:
             tk.register_output(f"{pre_path}/{name}.wer", scorer.out_report_dir)
 
         if opt_lm_am and search_parameters.altas is None:
             assert search_parameters.beam >= 15.0
             if pron_scale is not None:
-              if isinstance(pron_scale,DelayedBase) and pron_scale.is_set():
-                  pron_scale = pron_scale.get()
+                if isinstance(pron_scale, DelayedBase) and pron_scale.is_set():
+                    pron_scale = pron_scale.get()
             opt = recog.OptimizeAMandLMScaleJob(
                 crp=search_crp,
                 lattice_cache=search.out_lattice_bundle,
                 initial_am_scale=pron_scale,
                 initial_lm_scale=search_parameters.lm_scale,
-                scorer_cls=recog.ScliteJob,
+                scorer_cls=self.scorer,
                 scorer_kwargs=s_kwrgs,
                 opt_only_lm_scale=only_lm_opt,
             )
@@ -1157,7 +974,7 @@ class BASEFactoredHybridDecoder:
 
         return RecognitionJobs(
             lat2ctm=lat2ctm,
-            sclite=scorer,
+            scorer=scorer,
             search=search,
             search_crp=search_crp,
             search_feature_scorer=feature_scorer,
@@ -1235,35 +1052,35 @@ class BASEFactoredHybridDecoder:
                     ).with_prior_scale(left=l, center=c, right=r, diphone=c),
                     remove_or_set_concurrency=False,
                 )
-                for ((c, l, r), tdp, tdp_sl, tdp_sp, pron) in
-                itertools.product(prior_scales, tdp_scales, tdp_sil, tdp_speech, pron_scales)
+                for ((c, l, r), tdp, tdp_sl, tdp_sp, pron) in itertools.product(
+                    prior_scales, tdp_scales, tdp_sil, tdp_speech, pron_scales
+                )
             }
-
 
         else:
             jobs = {
-            ((c, l, r), tdp, tdp_sl, tdp_sp): self.recognize_count_lm(
-                add_sis_alias_and_output=False,
-                calculate_stats=False,
-                cpu_rqmt=cpu_rqmt,
-                crp_update=crp_update,
-                gpu=gpu,
-                is_min_duration=False,
-                keep_value=keep_value,
-                label_info=label_info,
-                mem_rqmt=mem_rqmt,
-                name_override=f"{self.name}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{tdp_sl}-tdpSp{tdp_sp}",
-                num_encoder_output=num_encoder_output,
-                opt_lm_am=False,
-                rerun_after_opt_lm=False,
-                search_parameters=dataclasses.replace(
-                    recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_speech=tdp_sp
-                ).with_prior_scale(left=l, center=c, right=r, diphone=c),
-                remove_or_set_concurrency=False,
-            )
-            for ((c, l, r), tdp, tdp_sl, tdp_sp) in itertools.product(prior_scales, tdp_scales, tdp_sil, tdp_speech)
-        }
-        jobs_num_e = {k: v.sclite.out_num_errors for k, v in jobs.items()}
+                ((c, l, r), tdp, tdp_sl, tdp_sp): self.recognize_count_lm(
+                    add_sis_alias_and_output=False,
+                    calculate_stats=False,
+                    cpu_rqmt=cpu_rqmt,
+                    crp_update=crp_update,
+                    gpu=gpu,
+                    is_min_duration=False,
+                    keep_value=keep_value,
+                    label_info=label_info,
+                    mem_rqmt=mem_rqmt,
+                    name_override=f"{self.name}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{tdp_sl}-tdpSp{tdp_sp}",
+                    num_encoder_output=num_encoder_output,
+                    opt_lm_am=False,
+                    rerun_after_opt_lm=False,
+                    search_parameters=dataclasses.replace(
+                        recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_speech=tdp_sp
+                    ).with_prior_scale(left=l, center=c, right=r, diphone=c),
+                    remove_or_set_concurrency=False,
+                )
+                for ((c, l, r), tdp, tdp_sl, tdp_sp) in itertools.product(prior_scales, tdp_scales, tdp_sil, tdp_speech)
+            }
+        jobs_num_e = {k: v.scorer.out_num_errors for k, v in jobs.items()}
 
         if use_pron:
             for ((c, l, r), tdp, tdp_sl, tdp_sp, pron), recog_jobs in jobs.items():
@@ -1276,7 +1093,7 @@ class BASEFactoredHybridDecoder:
                 recog_jobs.search.set_keep_value(keep_value)
 
                 recog_jobs.search.add_alias(pre_name)
-                tk.register_output(f"{pre_name}.wer", recog_jobs.sclite.out_report_dir)
+                tk.register_output(f"{pre_name}.wer", recog_jobs.scorer.out_report_dir)
         else:
             for ((c, l, r), tdp, tdp_sl, tdp_sp), recog_jobs in jobs.items():
                 if cpu_slow:
@@ -1288,9 +1105,9 @@ class BASEFactoredHybridDecoder:
                 recog_jobs.search.set_keep_value(keep_value)
 
                 recog_jobs.search.add_alias(pre_name)
-                tk.register_output(f"{pre_name}.wer", recog_jobs.sclite.out_report_dir)
+                tk.register_output(f"{pre_name}.wer", recog_jobs.scorer.out_report_dir)
 
-        best_overall_wer = ComputeArgminJob({k: v.sclite.out_wer for k, v in jobs.items()})
+        best_overall_wer = ComputeArgminJob({k: v.scorer.out_wer for k, v in jobs.items()})
         best_overall_n = ComputeArgminJob(jobs_num_e)
         tk.register_output(
             f"decoding/scales-best/{self.name}/args",
@@ -1319,7 +1136,7 @@ class BASEFactoredHybridDecoder:
                 tdp_scale=best_tdp_scale,
                 tdp_silence=push_delayed_tuple(best_tdp_sil),
                 tdp_speech=push_delayed_tuple(best_tdp_sp),
-                pron_scale=best_pron
+                pron_scale=best_pron,
             )
         else:
             base_cfg = dataclasses.replace(
@@ -1328,7 +1145,6 @@ class BASEFactoredHybridDecoder:
                 tdp_silence=push_delayed_tuple(best_tdp_sil),
                 tdp_speech=push_delayed_tuple(best_tdp_sp),
             )
-
 
         best_center_prior = best_priors[0]
         if self.context_type.is_monophone():
@@ -1432,7 +1248,10 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
             name += f"-tdpScale-{alignment_parameters.tdp_scale}"
             name += f"-spTdp-{format_tdp(alignment_parameters.tdp_speech[:3])}"
             name += f"-silTdp-{format_tdp(alignment_parameters.tdp_silence[:3])}"
-            if not alignment_parameters.tdp_speech[2] == "infinity" and not alignment_parameters.tdp_silence[2] == "infinity":
+            if (
+                not alignment_parameters.tdp_speech[2] == "infinity"
+                and not alignment_parameters.tdp_silence[2] == "infinity"
+            ):
                 name += "-withSkip"
             if self.feature_scorer_type.is_factored():
                 if alignment_parameters.transition_scales is not None:
@@ -1454,10 +1273,14 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
         state_tying = align_crp.acoustic_model_config.state_tying.type
 
         tdp_transition = (
-            alignment_parameters.tdp_speech if alignment_parameters.tdp_scale is not None else (0.0, 0.0, "infinity", 0.0)
+            alignment_parameters.tdp_speech
+            if alignment_parameters.tdp_scale is not None
+            else (0.0, 0.0, "infinity", 0.0)
         )
         tdp_silence = (
-            alignment_parameters.tdp_silence if alignment_parameters.tdp_scale is not None else (0.0, 0.0, "infinity", 0.0)
+            alignment_parameters.tdp_silence
+            if alignment_parameters.tdp_scale is not None
+            else (0.0, 0.0, "infinity", 0.0)
         )
         tdp_non_word = (
             alignment_parameters.tdp_non_word
