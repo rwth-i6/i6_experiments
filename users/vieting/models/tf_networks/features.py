@@ -32,7 +32,7 @@ class PreemphasisNetwork(NetworkDict):
         "set_axes": {"T": "time"},
         "size_base": "shift_0",
       },
-      output_name: {"class": "combine", "from": ["shift_1", "shift_0"], "kind": "sub"},
+      output_name: {"class": "combine", "from": ["shift_1", "shift_0_mul"], "kind": "sub"},
     }
 
 
