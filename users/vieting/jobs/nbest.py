@@ -100,13 +100,9 @@ class LatticeToNBestListJob(rasr.RasrCommand, Job):
         config.flf_lattice_tool.network.to_lemma.type = "map-alphabet"
         config.flf_lattice_tool.network.to_lemma.map_input = "to-lemma" if word_level else "to-lemma-pron"
         config.flf_lattice_tool.network.to_lemma.project_input = True
-        config.flf_lattice_tool.network.to_lemma.links = "reduce-scores"
+        config.flf_lattice_tool.network.to_lemma.links = "n-best"
 
         # dump n-best
-        config.flf_lattice_tool.network.reduce_scores.type = "reduce"
-        config.flf_lattice_tool.network.reduce_scores.keys = "am lm"
-        config.flf_lattice_tool.network.reduce_scores.links = "n-best"
-
         config.flf_lattice_tool.network.n_best.type = "n-best"
         config.flf_lattice_tool.network.n_best.n = n
         config.flf_lattice_tool.network.n_best.remove_duplicates = remove_duplicates
