@@ -89,8 +89,6 @@ class LatticeToNBestListJob(rasr.RasrCommand, Job):
         config.flf_lattice_tool.network.archive_reader.links = "reduce-scores"
         config.flf_lattice_tool.network.archive_reader.format = "flf"
         config.flf_lattice_tool.network.archive_reader.path = lattice_cache
-        config.flf_lattice_tool.network.archive_reader.flf.append.keys = "confidence"
-        config.flf_lattice_tool.network.archive_reader.flf.append.confidence.scale = 0.0
 
         # dump n-best
         config.flf_lattice_tool.network.reduce_scores.type = "reduce"
