@@ -19,6 +19,7 @@ class LatticeToNBestListJob(rasr.RasrCommand, Job):
         parallelize: bool = False,
         remove_duplicates: bool = True,
         ignore_non_words: bool = True,
+        word_level: bool = True,
         extra_config: Optional[rasr.RasrConfig] = None,
         extra_post_config: Optional[rasr.RasrConfig] = None,
     ):
@@ -71,6 +72,7 @@ class LatticeToNBestListJob(rasr.RasrCommand, Job):
         parallelize,
         remove_duplicates,
         ignore_non_words,
+        word_level,
         extra_config,
         extra_post_config,
         **kwargs,
@@ -90,9 +92,15 @@ class LatticeToNBestListJob(rasr.RasrCommand, Job):
 
         # read lattice
         config.flf_lattice_tool.network.archive_reader.type = "archive-reader"
-        config.flf_lattice_tool.network.archive_reader.links = "reduce-scores"
+        config.flf_lattice_tool.network.archive_reader.links = "to-lemma"
         config.flf_lattice_tool.network.archive_reader.format = "flf"
         config.flf_lattice_tool.network.archive_reader.path = lattice_cache
+
+        # map alphabet
+        config.flf_lattice_tool.network.to_lemma.type = "map-alphabet"
+        config.flf_lattice_tool.network.to_lemma.map_input = "to-lemma" if word_level else "to-lemma-pron"
+        config.flf_lattice_tool.network.to_lemma.project_input = True
+        config.flf_lattice_tool.network.to_lemma.links = "reduce-scores"
 
         # dump n-best
         config.flf_lattice_tool.network.reduce_scores.type = "reduce"
