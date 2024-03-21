@@ -17,6 +17,8 @@ class LatticeToNBestListJob(rasr.RasrCommand, Job):
         n: int,
         *,
         parallelize: bool = False,
+        remove_duplicates: bool = True,
+        ignore_non_words: bool = True,
         extra_config: Optional[rasr.RasrConfig] = None,
         extra_post_config: Optional[rasr.RasrConfig] = None,
     ):
@@ -67,6 +69,8 @@ class LatticeToNBestListJob(rasr.RasrCommand, Job):
         lattice_cache,
         n,
         parallelize,
+        remove_duplicates,
+        ignore_non_words,
         extra_config,
         extra_post_config,
         **kwargs,
@@ -97,8 +101,8 @@ class LatticeToNBestListJob(rasr.RasrCommand, Job):
 
         config.flf_lattice_tool.network.n_best.type = "n-best"
         config.flf_lattice_tool.network.n_best.n = n
-        config.flf_lattice_tool.network.n_best.remove_duplicates = True
-        config.flf_lattice_tool.network.n_best.ignore_non_words = True
+        config.flf_lattice_tool.network.n_best.remove_duplicates = remove_duplicates
+        config.flf_lattice_tool.network.n_best.ignore_non_words = ignore_non_words
         config.flf_lattice_tool.network.n_best.links = "dump-n-best"
 
         config.flf_lattice_tool.network.dump_n_best.type = "dump-n-best"
