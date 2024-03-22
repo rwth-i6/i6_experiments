@@ -350,7 +350,7 @@ class InvBatchNorm(nn.Module):
     def forward(self, x, x_mask, reverse=False, **kwargs):
         x_len = torch.sum(x_mask, [1, 2])
         if not reverse:
-            var = x.var(dim=(0,2), correction=0.0).unsqueeze(0).unsqueeze(-1)
+            var = x.var(dim=(0,2), correction=0).unsqueeze(0).unsqueeze(-1)
             mean = x.mean(dim=(0,2)).unsqueeze(0).unsqueeze(-1)
             logvar = torch.log(var)
 
