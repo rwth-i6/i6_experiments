@@ -162,12 +162,14 @@ def forward_step_corpus_gl(*, model, data, run_ctx, **kwargs):
     phonemes_len = data["phonemes:size1"]  # [B]
     speaker_labels = data["speaker_labels"]  # [B, 1] (sparse)
 
-    tags = data["seq_tag"]
+    breakpoint()
 
     if "xvectors" in data.keys():
         g = data["xvectors"]
     else:
         g = speaker_labels
+
+    tags = data["seq_tag"]
 
     (log_mels, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(
         phonemes,

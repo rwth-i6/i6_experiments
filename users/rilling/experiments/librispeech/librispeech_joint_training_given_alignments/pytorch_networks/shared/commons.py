@@ -53,7 +53,7 @@ def duration_loss(logw, logw_, lengths):
     return l
 
 
-def encoding_distance_loss(phoneme_sequences, encodings, seq_lenghts):
+def encoding_distance_loss(phoneme_sequences, encodings, seq_lenghts, log=False):
     # Create mask and apply mask an offset of -1 to have an additional value as the masked phoneme,
     # which can later be used to filter out the mean for that special label
     mask = sequence_mask(seq_lenghts, phoneme_sequences.shape[-1])
@@ -85,7 +85,12 @@ def encoding_distance_loss(phoneme_sequences, encodings, seq_lenghts):
     mean_encodings = (sum_encodings_masked / counts_masked.unsqueeze(1)).unsqueeze(0)
 
     # Use cdist to calculate pairwise distance for all encodings, the negative sum of which is the loss
-    loss = -1 * (torch.cdist(mean_encodings, mean_encodings).sum() / (phoneme_sequences.shape[0] * float(phoneme_sequences.max())))
+    dist = torch.cdist(mean_encodings, mean_encodings).sum() / (
+        phoneme_sequences.shape[0] * float(phoneme_sequences.max())
+    )
+    if log:
+        dist = torch.log(dist)
+    loss = -1 * dist
     return loss
 
 

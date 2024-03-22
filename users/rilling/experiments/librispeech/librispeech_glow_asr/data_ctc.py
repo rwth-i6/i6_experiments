@@ -72,9 +72,9 @@ def get_librispeech_eow_lexicon(corpus_key="train-clean-100", with_g2p=True) -> 
     :return:
     """
     if with_g2p:
-        lex =  get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)[corpus_key]
+        lex = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, output_prefix="datasets_asr")[corpus_key]
     else:
-        lex =  get_bliss_lexicon(use_stress_marker=False)
+        lex = get_bliss_lexicon(use_stress_marker=False, output_prefix="datasets_asr")
 
     return AddEowPhonemesToLexiconJob(lex).out_lexicon
 
@@ -140,7 +140,6 @@ def get_vocab_datastream(with_blank: bool = False, corpus_key="train-clean-100")
     )
 
     return vocab_datastream
-
 
 
 def get_train_bliss_and_zip(ls_corpus_key, remove_unk_seqs=False):
@@ -214,7 +213,7 @@ def get_log_mel_datastream() -> AudioFeatureDatastream:
         use_scalar_only=True,
         returnn_python_exe=RETURNN_EXE,
         returnn_root=MINI_RETURNN_ROOT,
-        alias_path=DATA_PREFIX + "ls100/",
+        alias_path=DATA_PREFIX + "/ls100/",
     )
     return audio_datastream
 

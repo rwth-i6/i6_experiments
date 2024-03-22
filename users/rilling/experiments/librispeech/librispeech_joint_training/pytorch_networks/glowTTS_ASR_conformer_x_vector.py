@@ -455,9 +455,6 @@ class Model(nn.Module):
             return (y, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_)
         else:
             z, logdet = self.decoder(y, z_mask, g=g, reverse=False)
-
-            from IPython import embed
-            embed()
             
             spec_augment_in = z.transpose(1, 2)  # [B, T, F]
             mask = mask_tensor(spec_augment_in, y_lengths)

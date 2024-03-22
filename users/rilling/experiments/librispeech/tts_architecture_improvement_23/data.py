@@ -280,7 +280,7 @@ def get_tts_log_mel_datastream() -> AudioFeatureDatastream:
         use_scalar_only=True,
         returnn_python_exe=RETURNN_EXE,
         returnn_root=RETURNN_ROOT,
-        alias_path=DATA_PREFIX + "ls100/",
+        alias_path=DATA_PREFIX + "/ls100/",
     )
     return audio_datastream
 

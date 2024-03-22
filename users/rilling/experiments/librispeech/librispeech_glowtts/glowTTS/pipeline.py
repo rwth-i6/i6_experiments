@@ -1,10 +1,13 @@
 import os
+import copy
 from sisyphus import tk
 from i6_core.returnn import ReturnnTrainingJob
 from i6_core.returnn.forward import ReturnnForwardJob, ReturnnForwardJobV2
+from i6_core.returnn.search import SearchBPEtoWordsJob
+from i6_experiments.users.rossenbach.common_setups.returnn.datasets import GenericDataset
 from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAMosPredictionJob
 
-from ..default_tools import NISQA_REPO
+from ..default_tools import NISQA_REPO, SCTK_BINARY_PATH
 
 def glowTTS_training(config, returnn_exe, returnn_root, prefix, num_epochs=65):
 
@@ -85,7 +88,8 @@ def tts_eval(
     returnn_exe,
     returnn_root,
     mem_rqmt=12,
-    vocoder="univnet"
+    vocoder="univnet",
+    swer_eval=False
 ):
     """
     Run search for a specific test dataset
@@ -111,6 +115,8 @@ def tts_eval(
     )
     forward_job.add_alias(prefix_name + f"/tts_eval_{vocoder}/forward")
     evaluate_nisqa(prefix_name, forward_job.out_files["out_corpus.xml.gz"], vocoder=vocoder)
+    if swer_eval: 
+        evaluate_swer(prefix_name, forward_job=forward_job, returnn_exe=returnn_exe, returnn_root=returnn_root)
     return forward_job
 
 
@@ -125,3 +131,99 @@ def evaluate_nisqa(
     tk.register_output(os.path.join(prefix_name, f"tts_eval_{vocoder}/nisqa_mos/min"), predict_mos_job.out_mos_min)
     tk.register_output(os.path.join(prefix_name, f"tts_eval_{vocoder}/nisqa_mos/max"), predict_mos_job.out_mos_max)
     tk.register_output(os.path.join(prefix_name, f"tts_eval_{vocoder}/nisqa_mos/std_dev"), predict_mos_job.out_mos_std_dev)
+
+
+def evaluate_swer(
+    name: str,
+    forward_job: tk.Job,
+    returnn_exe,
+    returnn_root,
+    # synthetic_bliss: tk.Path,
+    # system: ASRRecognizerSystem,
+    # with_confidence=False,
+):
+    asr_system = "ls960eow_phon_ctc_50eps_fastsearch"
+
+    from i6_experiments.users.rossenbach.experiments.jaist_project.storage import asr_recognizer_systems
+    from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob, MergeStrategy
+    from .data import build_swer_test_dataset
+    from ..data import get_cv_bliss
+
+    synthetic_bliss = MergeCorporaWithPathResolveJob(
+        bliss_corpora=[forward_job.out_files["out_corpus.xml.gz"]],
+        name="train-clean-100",  # important to keep the original sequence names for matching later
+        merge_strategy=MergeStrategy.FLAT,
+    ).out_merged_corpus
+    system = asr_recognizer_systems[asr_system]
+
+    search_single(
+        prefix_name=name + "/swer/" + asr_system,
+        returnn_config=system.config,
+        checkpoint=system.checkpoint,
+        recognition_dataset=build_swer_test_dataset(
+            synthetic_bliss=synthetic_bliss,
+            preemphasis=system.preemphasis,
+            peak_normalization=system.peak_normalization,
+        ),
+        recognition_bliss_corpus=get_cv_bliss(),
+        returnn_exe=returnn_exe,
+        returnn_root=returnn_root,
+        # with_confidence=with_confidence,
+    )
+
+
+@tk.block()
+def search_single(
+    prefix_name,
+    returnn_config,
+    checkpoint,
+    recognition_dataset: GenericDataset,
+    recognition_bliss_corpus,
+    returnn_exe,
+    returnn_root,
+    mem_rqmt=8,
+):
+    """
+    Run search for a specific test dataset
+
+    :param str prefix_name:
+    :param ReturnnConfig returnn_config:
+    :param Checkpoint checkpoint:
+    :param returnn_standalone.data.datasets.dataset.GenericDataset recognition_dataset:
+    :param Path recognition_reference: Path to a py-dict format reference file
+    :param Path returnn_exe:
+    :param Path returnn_root:
+    """
+    returnn_config = copy.deepcopy(returnn_config)
+    returnn_config.config["forward"] = recognition_dataset.as_returnn_opts()
+    search_job = ReturnnForwardJob(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        hdf_outputs=["search_out.py"],
+        device="cpu",
+    )
+    search_job.add_alias(prefix_name + "/search_job")
+
+    search_words = SearchBPEtoWordsJob(search_job.out_hdf_files["search_out.py"]).out_word_search_results
+
+    from i6_core.returnn.search import SearchWordsToCTMJob
+    from i6_core.corpus.convert import CorpusToStmJob
+    from i6_core.recognition.scoring import ScliteJob
+
+    search_ctm = SearchWordsToCTMJob(
+        recog_words_file=search_words,
+        bliss_corpus=recognition_bliss_corpus,
+    ).out_ctm_file
+
+    stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
+
+    sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH)
+    tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
+    tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
+
+    return sclite_job.out_wer

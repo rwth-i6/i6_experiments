@@ -16,11 +16,64 @@ from .shared import attentions
 from .monotonic_align import maximum_path
 
 from .shared.feature_extraction import DbMelFeatureExtraction
-from .shared.configs import DbMelFeatureExtractionConfig
-from .shared.model_config import ModelConfig, FlowDecoderConfig, TextEncoderConfig, ConformerCouplingFlowDecoderConfig
-from .shared.mask import mask_tensor
+from .shared.configs import DbMelFeatureExtractionConfig, ModelConfigV1
 
-from .eval_forward import *
+from .shared.eval_forward import *
+
+
+class XVector(nn.Module):
+    def __init__(self, input_dim=40, num_classes=8, **kwargs):
+        super(XVector, self).__init__()
+        self.tdnn1 = modules.TDNN(
+            input_dim=input_dim,
+            output_dim=512,
+            context_size=5,
+            dilation=1,
+            dropout_p=0.5,
+            batch_norm=True
+        )
+        self.tdnn2 = modules.TDNN(
+            input_dim=512, output_dim=512, context_size=3, dilation=2, dropout_p=0.5, batch_norm=True
+        )
+        self.tdnn3 = modules.TDNN(
+            input_dim=512, output_dim=512, context_size=2, dilation=3, dropout_p=0.5, batch_norm=True
+        )
+        self.tdnn4 = modules.TDNN(
+            input_dim=512, output_dim=512, context_size=1, dilation=1, dropout_p=0.5, batch_norm=True
+        )
+        self.tdnn5 = modules.TDNN(
+            input_dim=512, output_dim=512, context_size=1, dilation=1, dropout_p=0.5, batch_norm=True
+        )
+        #### Frame levelPooling
+        self.segment6 = nn.Linear(1024, 512)
+        self.segment7 = nn.Linear(512, 512)
+        self.output = nn.Linear(512, num_classes)
+        self.softmax = nn.Softmax(dim=1)
+
+        # fe_config = DbMelFeatureExtractionConfig.from_dict(kwargs["fe_config"])
+        # self.feature_extraction = DbMelFeatureExtraction(config=fe_config)
+
+    def forward(self, x, x_lengths):
+        # with torch.no_grad():
+        #     squeezed_audio = torch.squeeze(raw_audio)
+        #     x, x_lengths = self.feature_extraction(squeezed_audio, raw_audio_lengths)  # [B, T, F]
+
+        # x = x.transpose(1, 2)
+        tdnn1_out = self.tdnn1(x)
+        # return tdnn1_out
+        tdnn2_out = self.tdnn2(tdnn1_out)
+        tdnn3_out = self.tdnn3(tdnn2_out)
+        tdnn4_out = self.tdnn4(tdnn3_out)
+        tdnn5_out = self.tdnn5(tdnn4_out)
+        ### Stat Pool
+        mean = torch.mean(tdnn5_out, 2)
+        std = torch.std(tdnn5_out, 2)
+        stat_pooling = torch.cat((mean, std), 1)
+        segment6_out = self.segment6(stat_pooling)
+        x_vec = self.segment7(segment6_out)
+        output = self.output(x_vec)
+        predictions = self.softmax(output)
+        return output, predictions, x_vec
 
 
 class DurationPredictor(nn.Module):
@@ -66,71 +119,97 @@ class TextEncoder(nn.Module):
 
     def __init__(
         self,
-        cfg: TextEncoderConfig,
+        n_vocab,
         out_channels,
+        hidden_channels,
+        filter_channels,
+        filter_channels_dp,
+        n_heads,
+        n_layers,
+        kernel_size,
+        p_dropout,
+        window_size=None,
+        block_length=None,
+        mean_only=False,
+        prenet=False,
         gin_channels=0,
     ):
         """Text Encoder Model based on Multi-Head Self-Attention combined with FF-CCNs
 
         Args:
-
+            n_vocab (int): Size of vocabulary for embeddings
+            out_channels (int): Number of output channels
+            hidden_channels (int): Number of hidden channels
+            filter_channels (int): Number of filter channels
+            filter_channels_dp (int): Number of filter channels for duration predictor
+            n_heads (int): Number of heads in encoder's Multi-Head Attention
+            n_layers (int): Number of layers consisting of Multi-Head Attention and CNNs in encoder
+            kernel_size (int): Kernel Size for CNNs in encoder layers
+            p_dropout (float): Dropout probability for both encoder and duration predictor
+            window_size (int, optional): Window size  in Multi-Head Self-Attention for encoder. Defaults to None.
+            block_length (_type_, optional): Block length for optional block masking in Multi-Head Attention for encoder. Defaults to None.
+            mean_only (bool, optional): Boolean to only project text encodings to mean values instead of mean and std. Defaults to False.
+            prenet (bool, optional): Boolean to add ConvReluNorm prenet before encoder . Defaults to False.
+            gin_channels (int, optional): Number of channels for speaker condition. Defaults to 0.
         """
         super().__init__()
-        self.cfg = cfg
+
+        self.n_vocab = n_vocab
         self.out_channels = out_channels
+        self.hidden_channels = hidden_channels
+        self.filter_channels = filter_channels
+        self.filter_channels_dp = filter_channels_dp
+        self.n_heads = n_heads
+        self.n_layers = n_layers
+        self.kernel_size = kernel_size
+        self.p_dropout = p_dropout
+        self.window_size = window_size
+        self.block_length = block_length
+        self.mean_only = mean_only
+        self.prenet = prenet
         self.gin_channels = gin_channels
 
-        self.emb = nn.Embedding(self.cfg.n_vocab, self.cfg.hidden_channels)
-        nn.init.normal_(self.emb.weight, 0.0, self.cfg.hidden_channels**-0.5)
+        self.emb = nn.Embedding(n_vocab, hidden_channels)
+        nn.init.normal_(self.emb.weight, 0.0, hidden_channels**-0.5)
 
-        if self.cfg.prenet:
+        if prenet:
             self.pre = modules.ConvReluNorm(
-                self.cfg.hidden_channels,
-                self.cfg.hidden_channels,
-                self.cfg.hidden_channels,
-                kernel_size=5,
-                n_layers=3,
-                p_dropout=0.5,
+                hidden_channels, hidden_channels, hidden_channels, kernel_size=5, n_layers=3, p_dropout=0.5
             )
         self.encoder = attentions.Encoder(
-            self.cfg.hidden_channels,
-            self.cfg.filter_channels,
-            self.cfg.n_heads,
-            self.cfg.n_layers,
-            self.cfg.kernel_size,
-            self.cfg.p_dropout,
-            window_size=self.cfg.window_size,
-            block_length=self.cfg.block_length,
+            hidden_channels,
+            filter_channels,
+            n_heads,
+            n_layers,
+            kernel_size,
+            p_dropout,
+            window_size=window_size,
+            block_length=block_length,
         )
 
-        self.proj_m = nn.Conv1d(self.cfg.hidden_channels, out_channels, 1)
-        if not self.cfg.mean_only:
-            self.proj_s = nn.Conv1d(self.cfg.hidden_channels, out_channels, 1)
-        self.proj_w = DurationPredictor(
-            self.cfg.hidden_channels + gin_channels,
-            self.cfg.filter_channels_dp,
-            self.cfg.kernel_size,
-            self.cfg.p_dropout,
-        )
+        self.proj_m = nn.Conv1d(hidden_channels, out_channels, 1)
+        if not mean_only:
+            self.proj_s = nn.Conv1d(hidden_channels, out_channels, 1)
+        self.proj_w = DurationPredictor(hidden_channels + gin_channels, filter_channels_dp, kernel_size, p_dropout)
 
     def forward(self, x, x_lengths, g=None):
-        x = self.emb(x) * math.sqrt(self.cfg.hidden_channels)  # [b, t, h]
+        x = self.emb(x) * math.sqrt(self.hidden_channels)  # [b, t, h]
         x = torch.transpose(x, 1, -1)  # [b, h, t]
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x.size(2)), 1).to(x.dtype)
 
-        if self.cfg.prenet:
+        if self.prenet:
             x = self.pre(x, x_mask)
         x = self.encoder(x, x_mask)
 
         if g is not None:
-            g_exp = g.expand(-1, -1, x.size(-1))
+            g_exp = g.unsqueeze(-1).expand(-1, -1, x.size(-1))
             # print(f"Dimension of input in Text Encoder: x.shape: {x.shape}; g: {g.shape}, g_exp: {g_exp.shape}")
             x_dp = torch.cat([torch.detach(x), g_exp], 1)
         else:
             x_dp = torch.detach(x)
 
         x_m = self.proj_m(x) * x_mask
-        if not self.cfg.mean_only:
+        if not self.mean_only:
             x_logs = self.proj_s(x) * x_mask
         else:
             x_logs = torch.zeros_like(x_m)
@@ -144,37 +223,63 @@ class TextEncoder(nn.Module):
 class FlowDecoder(nn.Module):
     def __init__(
         self,
-        cfg: ConformerCouplingFlowDecoderConfig,
         in_channels,
+        hidden_channels,
+        kernel_size,
+        dilation_rate,
+        n_blocks,
+        n_layers,
+        p_dropout=0.0,
+        n_split=4,
+        n_sqz=2,
+        sigmoid_scale=False,
         gin_channels=0,
+        p_speaker_drop=0,
     ):
         """Flow-based decoder model
 
         Args:
-            cfg (FlowDecoderConfig): Decoder specific parameters wrapped in FlowDecoderConfig
             in_channels (int): Number of incoming channels
+            hidden_channels (int): Number of hidden channels
+            kernel_size (int): Kernel Size for convolutions in coupling blocks
+            dilation_rate (float): Dilation Rate to define dilation in convolutions of coupling block
+            n_blocks (int): Number of coupling blocks
+            n_layers (int): Number of layers in CNN of the coupling blocks
+            p_dropout (float, optional): Dropout probability for CNN in coupling blocks. Defaults to 0..
+            n_split (int, optional): Number of splits for the 1x1 convolution for flows in the decoder. Defaults to 4.
+            n_sqz (int, optional): Squeeze. Defaults to 1.
+            sigmoid_scale (bool, optional): Boolean to define if log probs in coupling layers should be rescaled using sigmoid. Defaults to False.
+            gin_channels (int, optional): Number of speaker embedding channels. Defaults to 0.
         """
         super().__init__()
 
-        self.cfg = cfg
         self.in_channels = in_channels
+        self.hidden_channels = hidden_channels
+        self.kernel_size = kernel_size
+        self.dilation_rate = dilation_rate
+        self.n_blocks = n_blocks
+        self.n_layers = n_layers
+        self.p_dropout = p_dropout
+        self.n_split = n_split
+        self.n_sqz = n_sqz
+        self.sigmoid_scale = sigmoid_scale
+        self.gin_channels = gin_channels
 
         self.flows = nn.ModuleList()
 
-        for _ in range(self.cfg.n_blocks):
-            self.flows.append(modules.ActNorm(channels=in_channels * self.cfg.n_sqz, ddi=self.cfg.ddi))
-            self.flows.append(modules.InvConvNear(channels=in_channels * self.cfg.n_sqz, n_split=self.cfg.n_split))
+        for b in range(n_blocks):
+            self.flows.append(modules.ActNorm(channels=in_channels * n_sqz))
+            self.flows.append(modules.InvConvNear(channels=in_channels * n_sqz, n_split=n_split))
             self.flows.append(
-                attentions.ConformerCouplingBlock(
-                    in_channels * self.cfg.n_sqz,
-                    self.cfg.hidden_channels,
-                    kernel_size=self.cfg.kernel_size,
-                    dilation_rate=self.cfg.dilation_rate,
-                    n_layers=self.cfg.n_layers,
-                    n_heads=self.cfg.n_heads,
+                attentions.CouplingBlock(
+                    in_channels * n_sqz,
+                    hidden_channels,
+                    kernel_size=kernel_size,
+                    dilation_rate=dilation_rate,
+                    n_layers=n_layers,
                     gin_channels=gin_channels,
-                    p_dropout=self.cfg.p_dropout,
-                    sigmoid_scale=self.cfg.sigmoid_scale,
+                    p_dropout=p_dropout,
+                    sigmoid_scale=sigmoid_scale,
                 )
             )
 
@@ -186,17 +291,19 @@ class FlowDecoder(nn.Module):
             flows = reversed(self.flows)
             logdet_tot = None
 
-        if self.cfg.n_sqz > 1:
-            x, x_mask = commons.channel_squeeze(x, x_mask, self.cfg.n_sqz)
+        if g is not None:
+            g = g.unsqueeze(-1)
 
+        if self.n_sqz > 1:
+            x, x_mask = commons.channel_squeeze(x, x_mask, self.n_sqz)
         for f in flows:
             if not reverse:
                 x, logdet = f(x, x_mask, g=g, reverse=reverse)
                 logdet_tot += logdet
             else:
                 x, logdet = f(x, x_mask, g=g, reverse=reverse)
-        if self.cfg.n_sqz > 1:
-            x, x_mask = commons.channel_unsqueeze(x, x_mask, self.cfg.n_sqz)
+        if self.n_sqz > 1:
+            x, x_mask = commons.channel_unsqueeze(x, x_mask, self.n_sqz)
         return x, logdet_tot
 
     def store_inverse(self):
@@ -214,30 +321,132 @@ class Model(nn.Module):
     def __init__(
         self,
         model_config: dict,
+        # n_vocab: int,
+        # hidden_channels: int,
+        # filter_channels: int,
+        # filter_channels_dp: int,
+        # out_channels: int,
+        # kernel_size: int = 3,
+        # n_heads: int = 2,
+        # n_layers_enc: int = 6,
+        # p_dropout: float = 0.0,
+        # n_blocks_dec: int = 12,
+        # kernel_size_dec: int = 5,
+        # dilation_rate: int = 5,
+        # n_block_layers: int = 4,
+        # p_dropout_dec: float = 0.0,
+        # n_speakers: int = 0,
+        # gin_channels: int = 0,
+        # n_split: int = 4,
+        # n_sqz: int = 1,
+        # sigmoid_scale: bool = False,
+        # window_size: int = None,
+        # block_length: int = None,
+        # mean_only: bool = False,
+        # hidden_channels_enc: int = None,
+        # hidden_channels_dec: int = None,
+        # prenet: bool = False,
+        # p_speaker_drop=0,
         **kwargs,
     ):
-        """_summary_"""
+        """_summary_
+
+        Args:
+            n_vocab (int): vocabulary size
+            hidden_channels (int): Number of hidden channels in encoder
+            filter_channels (int): Number of filter channels in encoder
+            filter_channels_dp (int): Number of filter channels in decoder
+            out_channels (int): Number of channels in the output
+            kernel_size (int, optional): Size of kernels in the encoder. Defaults to 3.
+            n_heads (int, optional): Number of heads in the Multi-Head Attention of the encoder. Defaults to 2.
+            n_layers_enc (int, optional): Number of layers in the encoder. Defaults to 6.
+            p_dropout (_type_, optional): Dropout probability in the encoder. Defaults to 0..
+            n_blocks_dec (int, optional): Number of coupling blocks in the decoder. Defaults to 12.
+            kernel_size_dec (int, optional): Kernel size in the decoder. Defaults to 5.
+            dilation_rate (int, optional): Dilation rate for CNNs of coupling blocks in decoder. Defaults to 5.
+            n_block_layers (int, optional): Number of layers in the CNN of the coupling blocks in decoder. Defaults to 4.
+            p_dropout_dec (_type_, optional): Dropout probability in the decoder. Defaults to 0..
+            n_speakers (int, optional): Number of speakers. Defaults to 0.
+            gin_channels (int, optional): Number of speaker embedding channels. Defaults to 0.
+            n_split (int, optional): Number of splits for the 1x1 convolution for flows in the decoder. Defaults to 4.
+            n_sqz (int, optional): Squeeze. Defaults to 1.
+            sigmoid_scale (bool, optional): Boolean to define if log probs in coupling layers should be rescaled using sigmoid. Defaults to False.
+            window_size (int, optional): Window size  in Multi-Head Self-Attention for encoder. Defaults to None.
+            block_length (_type_, optional): Block length for optional block masking in Multi-Head Attention for encoder. Defaults to None.
+            mean_only (bool, optional): Boolean to only project text encodings to mean values instead of mean and std. Defaults to False.
+            hidden_channels_enc (int, optional): Number of hidden channels in encoder. Defaults to hidden_channels.
+            hidden_channels_dec (_type_, optional): Number of hidden channels in decodder. Defaults to hidden_channels.
+            prenet (bool, optional): Boolean to add ConvReluNorm prenet before encoder . Defaults to False.
+        """
         super().__init__()
-        self.cfg = ModelConfig.from_dict(model_config)
+        self.cfg = ModelConfigV1.from_dict(model_config)
+        # self.n_vocab = n_vocab
+        # self.hidden_channels = hidden_channels
+        # self.filter_channels = filter_channels
+        # self.filter_channels_dp = filter_channels_dp
+        # self.out_channels = out_channels
+        # self.kernel_size = kernel_size
+        # self.n_heads = n_heads
+        # self.n_layers_enc = n_layers_enc
+        # self.p_dropout = p_dropout
+        # self.n_blocks_dec = n_blocks_dec
+        # self.kernel_size_dec = kernel_size_dec
+        # self.dilation_rate = dilation_rate
+        # self.n_block_layers = n_block_layers
+        # self.p_dropout_dec = p_dropout_dec
+        # self.n_speakers = n_speakers
+        # self.gin_channels = gin_channels
+        # self.n_split = n_split
+        # self.n_sqz = n_sqz
+        # self.sigmoid_scale = sigmoid_scale
+        # self.window_size = window_size
+        # self.block_length = block_length
+        # self.mean_only = mean_only
+        # self.hidden_channels_enc = hidden_channels_enc
+        # self.hidden_channels_dec = hidden_channels_dec
+        # self.prenet = prenet
+        # self.p_speaker_drop = p_speaker_drop
 
         fe_config = DbMelFeatureExtractionConfig.from_dict(kwargs["fe_config"])
         self.feature_extraction = DbMelFeatureExtraction(config=fe_config)
 
         self.encoder = TextEncoder(
-            self.cfg.text_encoder_config,
+            self.cfg.text_encoder_config.n_vocab,
             self.cfg.out_channels,
+            self.cfg.text_encoder_config.hidden_channels,
+            self.cfg.text_encoder_config.filter_channels,
+            self.cfg.text_encoder_config.filter_channels_dp,
+            self.cfg.text_encoder_config.n_heads,
+            self.cfg.text_encoder_config.n_layers,
+            self.cfg.text_encoder_config.kernel_size,
+            self.cfg.text_encoder_config.p_dropout,
+            window_size=self.cfg.text_encoder_config.window_size,
+            block_length=self.cfg.text_encoder_config.block_length,
+            mean_only=self.cfg.text_encoder_config.mean_only,
+            prenet=self.cfg.text_encoder_config.prenet,
             gin_channels=self.cfg.gin_channels,
         )
 
         self.decoder = FlowDecoder(
-            self.cfg.decoder_config,
             self.cfg.out_channels,
+            self.cfg.decoder_config.hidden_channels,
+            self.cfg.decoder_config.kernel_size,
+            self.cfg.decoder_config.dilation_rate,
+            self.cfg.decoder_config.n_blocks,
+            self.cfg.decoder_config.n_layers,
+            p_dropout=self.cfg.decoder_config.p_dropout,
+            n_split=self.cfg.decoder_config.n_split,
+            n_sqz=self.cfg.decoder_config.n_sqz,
+            sigmoid_scale=self.cfg.decoder_config.sigmoid_scale,
             gin_channels=self.cfg.gin_channels,
         )
 
         if self.cfg.n_speakers > 1:
-            self.emb_g = nn.Embedding(self.cfg.n_speakers, self.cfg.gin_channels)
-            nn.init.uniform_(self.emb_g.weight, -0.1, 0.1)
+            self.x_vector = XVector(self.cfg.out_channels, self.cfg.n_speakers)
+            self.x_vector_bottleneck = nn.Sequential(
+                nn.Linear(512, self.cfg.gin_channels),
+                nn.ReLU()
+            )
 
     def forward(
         self, x, x_lengths, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, noise_scale=1.0, length_scale=1.0
@@ -250,9 +459,13 @@ class Model(nn.Module):
         else:
             y, y_lengths = (None, None)
 
-        if g is not None:
-            g = nn.functional.normalize(self.emb_g(g.squeeze(-1))).unsqueeze(-1)
+        assert (not gen) or (gen and (g is not None)), "Generating speech without given speaker embedding is not supported!"
 
+        if not gen:
+            with torch.no_grad():
+                self.x_vector.eval()
+                _, _, g = self.x_vector(y, y_lengths)
+        g = self.x_vector_bottleneck(g)
         x_m, x_logs, logw, x_mask = self.encoder(x, x_lengths, g=g)  # mean, std logs, duration logs, mask
 
         if gen:  # durations from dp only used during generation
@@ -322,20 +535,22 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     audio_features = audio_features[indices, :, :]
     phonemes = data["phonemes"][indices, :]  # [B, T] (sparse)
     phonemes_len = data["phonemes:size1"][indices]  # [B, T]
-    speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
+    # speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
     tags = list(np.array(tags)[indices.detach().cpu().numpy()])
 
     (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), y_lengths, (attn, logw, logw_) = model(
-        phonemes, phonemes_len, audio_features, audio_features_len, speaker_labels
+        phonemes, phonemes_len, audio_features, audio_features_len
     )
-    # from IPython import embed
-    # embed()
 
     l_mle = commons.mle_loss(z, z_m, z_logs, logdet, z_mask)
     l_dp = commons.duration_loss(logw, logw_, phonemes_len)
+    l_ed = commons.encoding_distance_loss(phonemes, x_m, phonemes_len, log=True)
+
+    ed_loss_scale = kwargs["ed_scale"] if "ed_scale" in kwargs else 1.0
 
     run_ctx.mark_as_loss(name="mle", loss=l_mle)
     run_ctx.mark_as_loss(name="dp", loss=l_dp)
+    run_ctx.mark_as_loss(name="ed", loss=l_ed, scale=ed_loss_scale)
 
 
 ############# FORWARD STUFF ################
@@ -389,15 +604,14 @@ def forward_init_hook(run_ctx, **kwargs):
 
     generator = Generator(h).to(run_ctx.device)
 
-    state_dict_g = load_checkpoint(
-        "/work/asr3/rossenbach/rilling/vocoder/univnet/glow_finetuning/g_01080000", run_ctx.device
-    )
+    state_dict_g = load_checkpoint("/work/asr3/rossenbach/rilling/vocoder/univnet/glow_finetuning/g_01080000", run_ctx.device)
     generator.load_state_dict(state_dict_g["generator"])
 
     run_ctx.generator = generator
 
-    run_ctx.ddi_initialized = False
-
+    run_ctx.speaker_x_vectors = torch.load(
+        "/work/asr3/rossenbach/rilling/sisyphus_work_dirs/glow_tts_asr_v2/i6_core/returnn/forward/ReturnnForwardJob.U6UwGhE7ENbp/output/output_pooled.hdf"
+    )
 
 def forward_finish_hook(run_ctx, **kwargs):
     pass
@@ -414,16 +628,12 @@ def forward_step(*, model: Model, data, run_ctx, **kwargs):
 
     tags = data["seq_tag"]
 
-    if not run_ctx.ddi_initialized:
-        for f in model.decoder.flows:
-            if hasattr(f, "set_ddi"):
-                f.set_ddi(False) # This sets initialized to True in the ActNorm Layers, which prevents the fresh initialization of the Layer during forwarding.
-        run_ctx.ddi_initialized = True
+    speaker_x_vector = run_ctx.speaker_x_vectors[speaker_labels.detach().cpu().numpy(), :].squeeze(1)
 
     (log_mels, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(
         phonemes,
         phonemes_len,
-        g=speaker_labels,
+        g=speaker_x_vector.to(run_ctx.device),
         gen=True,
         noise_scale=kwargs["noise_scale"],
         length_scale=kwargs["length_scale"],

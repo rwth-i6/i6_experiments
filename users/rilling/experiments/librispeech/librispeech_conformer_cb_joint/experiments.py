@@ -14,6 +14,8 @@ from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config
 from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwardV1Config
 from i6_models.parts.conformer.mhsa import ConformerMHSAV1Config
 
+from i6_experiments.users.rilling.experiments.librispeech.librispeech_x_vectors.storage import x_vector_extractions
+
 
 from .data import (
     build_training_dataset,
@@ -24,7 +26,7 @@ from .data import (
     get_text_lexicon,
 )
 from .config import get_training_config, get_extract_durations_forward__config, get_forward_config, get_search_config
-from .pipeline import training, forward, search
+from .pipeline import training, forward, search, tts_eval
 
 from .default_tools import RETURNN_COMMON, RETURNN_PYTORCH_EXE, MINI_RETURNN_ROOT
 from .pytorch_networks.shared.model_config import (
@@ -38,7 +40,7 @@ from .pytorch_networks.shared.model_config import (
 )
 
 
-def get_conformer_coupling_glow(x_vector_exp):
+def get_conformer_coupling_glow(x_vector_exp, gl_checkpoint):
     """
     Baseline for the glow TTS in returnn_common with serialization
 
@@ -66,7 +68,12 @@ def get_conformer_coupling_glow(x_vector_exp):
         asr_search=True,
         use_speaker_labels_in_dev=False,
         given_train_job_for_forward=None,
+        forward_dataset=None,
     ):
+
+        assert not tts_forward or (
+            "x_vector" not in name or forward_dataset is not None
+        ), "Attempting to evaluate a model with x-vector speaker embeddings, but missing explicit forward dataset with precalculated x-vector speaker embeddings."
         exp = {}
 
         if given_train_job_for_forward is None:
@@ -105,14 +112,27 @@ def get_conformer_coupling_glow(x_vector_exp):
         exp["train_job"] = train_job
 
         if tts_forward:
-            forward_job = forward(
+            forward_config_gl = get_forward_config(
+                forward_dataset=forward_dataset or dataset,
+                **{**args, **{"config": {"batch_size": 50 * 16000}}},
+                forward_args={
+                    **forward_args,
+                    "gl_net_checkpoint": gl_checkpoint["checkpoint"],
+                    "gl_net_config": gl_checkpoint["config"],
+                },
+                target="corpus_gl",
+            )
+            forward_job_gl = tts_eval(
                 checkpoint=train_job.out_checkpoints[num_epochs],
-                config=forward_config,
+                prefix_name=prefix + name,
+                returnn_config=forward_config_gl,
                 returnn_exe=RETURNN_PYTORCH_EXE,
                 returnn_root=MINI_RETURNN_ROOT,
-                prefix=prefix + name,
+                vocoder="gl",
+                nisqa_eval=True,
+                swer_eval=True,
             )
-            exp["forward_job"] = forward_job
+            exp["forward_job_gl"] = forward_job_gl
 
         if extract_x_vector:
             forward_x_vector_config = get_forward_config(
@@ -170,6 +190,15 @@ def get_conformer_coupling_glow(x_vector_exp):
     training_datasets = build_training_dataset(
         settings=train_settings, librispeech_key="train-clean-100", silence_preprocessing=False
     )
+
+    forward_dataset_xvector = build_training_dataset(
+        settings=train_settings,
+        librispeech_key="train-clean-100",
+        silence_preprocessing=False,
+        xvectors_file=x_vector_extractions["x_vector_cnn/1e-3_not_silence_preprocessed"]["hdf"],
+        use_tts_train_segments=True
+    )
+
     training_datasets_tts_segments = build_training_dataset(
         settings=train_settings,
         librispeech_key="train-clean-100",
@@ -542,6 +571,7 @@ def get_conformer_coupling_glow(x_vector_exp):
         forward_args=forward_args,
         search_args=default_search_args,
         asr_search=False,
+        forward_dataset=forward_dataset_xvector
     )
 
     net_module = "glowTTS_ASR_conformer_x_vector"
@@ -555,6 +585,7 @@ def get_conformer_coupling_glow(x_vector_exp):
         250,
         forward_args=forward_args,
         search_args=default_search_args,
+        forward_dataset=forward_dataset_xvector
     )
     tune_lm(alias, train_args_with_x_vector, training_datasets, asr_test_datasets, 250, search_args=default_search_args)
 

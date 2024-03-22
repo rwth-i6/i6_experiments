@@ -14,6 +14,8 @@ from i6_experiments.users.rossenbach.experiments.alignment_analysis_tts.gl_vocod
     get_default_vocoder,
 )
 
+from i6_experiments.users.rilling.experiments.librispeech.librispeech_x_vectors.storage import x_vector_extractions
+
 from ..pytorch_networks.glowTTS_nar_taco_encoder import NarEncoderConfig
 
 
@@ -47,11 +49,13 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
         keep_epochs=None,
         skip_forward=False,
         nisqa_evaluation=False,
+        forward_dataset=None,
         forward_device="gpu",
     ):
         exp = {}
 
         assert not nisqa_evaluation or (nisqa_evaluation and not skip_forward), "NISQA evaluation with skipping forward jobs is not possible"
+        assert not nisqa_evaluation or ("x_vector" not in name or forward_dataset is not None), "Attempting to evaluate a model with x-vector speaker embeddings, but missing explicit forward dataset with precalculated x-vector speaker embeddings."
 
         training_config = get_training_config(
             returnn_common_root=None,
@@ -134,7 +138,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
             else:
                 forward_config_univnet = get_forward_config(
                     returnn_common_root=RETURNN_COMMON,
-                    forward_dataset=dataset,
+                    forward_dataset=forward_dataset or dataset,
                     **args,
                     forward_args=forward_args,
                     pytorch_mode=True,
@@ -152,9 +156,13 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
 
                 forward_config_gl = get_forward_config(
                     returnn_common_root=RETURNN_COMMON,
-                    forward_dataset=dataset,
+                    forward_dataset=forward_dataset or dataset,
                     **args,
-                    forward_args={**forward_args, "gl_net_checkpoint": gl_checkpoint["checkpoint"], "gl_net_config": gl_checkpoint["config"]},
+                    forward_args={
+                        **forward_args,
+                        "gl_net_checkpoint": gl_checkpoint["checkpoint"],
+                        "gl_net_config": gl_checkpoint["config"],
+                    },
                     pytorch_mode=True,
                     target="corpus_gl",
                 )
@@ -164,7 +172,8 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
                     returnn_config=forward_config_gl,
                     returnn_exe=RETURNN_PYTORCH_EXE,
                     returnn_root=MINI_RETURNN_ROOT,
-                    vocoder="gl"
+                    vocoder="gl", 
+                    swer_eval=True
                 )
                 exp["forward_job_gl"] = forward_job_gl
 
@@ -447,6 +456,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
         num_epochs=200,
         forward_args=forward_args,
         spectrogram_foward=True,
+        nisqa_evaluation=True,
     )
 
     experiments[net_module + "/enc768/mean_only/not_silence_preprocessed"] = exp_dict
@@ -459,6 +469,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
         dataset=training_datasets_silence_preprocessed,
         num_epochs=200,
         forward_args=forward_args,
+        nisqa_evaluation=True,
     )
 
     train_args["net_args"]["mean_only"] = False
@@ -564,6 +575,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
         num_epochs=100,
         forward_args=forward_args,
         spectrogram_foward=True,
+        nisqa_evaluation=True,
     )
 
     train_args_newbob = copy.deepcopy(train_args_alternative_lr)
@@ -635,6 +647,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
         train_data_forward=True,
         joint_durations_forward=True,
         keep_epochs={100},
+        nisqa_evaluation=True,
     )
     experiments[net_module + "/enc192/200ep/long_cooldown/not_silence_preprocessed"] = exp_dict
 
@@ -646,6 +659,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
         forward_args=forward_args,
         spectrogram_foward=True,
         keep_epochs={100},
+        nisqa_evaluation=True,
     )
 
     train_args_fs4 = copy.deepcopy(train_args_long_cooldown)
@@ -738,6 +752,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
         num_epochs=200,
         forward_args=forward_args,
         spectrogram_foward=True,
+        nisqa_evaluation=True,
         extra_evaluate_epoch=107,  # was to late so 100 was already deleted
     )
     exp_dict = run_exp(
@@ -785,19 +800,19 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
         durations_forward=True,
     )
 
-    train_args_nar_taco_encoder_no_blstm_no_warmup = copy.deepcopy(train_args_nar_taco_encoder_no_blstm)
-    train_args_nar_taco_encoder_no_blstm_no_warmup["config"]["learning_rates"] = list(
-        np.concatenate((np.linspace(5e-4, 5e-4, 50), np.linspace(5e-4, 1e-6, 50)))
-    )
+    # train_args_nar_taco_encoder_no_blstm_no_warmup = copy.deepcopy(train_args_nar_taco_encoder_no_blstm)
+    # train_args_nar_taco_encoder_no_blstm_no_warmup["config"]["learning_rates"] = list(
+    #     np.concatenate((np.linspace(5e-4, 5e-4, 50), np.linspace(5e-4, 1e-6, 50)))
+    # )
 
-    exp_dict = run_exp(
-        net_module + "/16blocks/radam_no_warmup/silence_preprocessed",
-        train_args_nar_taco_encoder_no_blstm_no_warmup,
-        dataset=training_datasets_silence_preprocessed,
-        num_epochs=100,
-        forward_args=forward_args,
-        spectrogram_foward=True,
-    )
+    # exp_dict = run_exp(
+    #     net_module + "/16blocks/radam_no_warmup/silence_preprocessed",
+    #     train_args_nar_taco_encoder_no_blstm_no_warmup,
+    #     dataset=training_datasets_silence_preprocessed,
+    #     num_epochs=100,
+    #     forward_args=forward_args,
+    #     spectrogram_foward=True,
+    # )
 
     net_module = "glowTTS_simple_encoder"
     train_args_simple_encoder = copy.deepcopy(train_args_nar_taco_encoder_no_blstm)
@@ -877,6 +892,12 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
     # )
 
     # ============== X-Vector speaker embeddings ====================#
+    forward_dataset_xvector = build_training_dataset(
+        settings=train_settings,
+        librispeech_key="train-clean-100",
+        silence_preprocessing=False,
+        xvectors_file=x_vector_extractions["x_vector_cnn/1e-3_not_silence_preprocessed"]["hdf"],
+    )
     train_args_x_vector = copy.deepcopy(train_args_alternative_lr)
     net_module = "glowTTS_x_vector"
     train_args_x_vector["network_module"] = net_module
@@ -897,6 +918,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
         num_epochs=100,
         forward_args=forward_args,
         nisqa_evaluation=True,
+        forward_dataset=forward_dataset_xvector,
         forward_device="cpu",
     )
 
@@ -986,6 +1008,8 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
         dataset=training_datasets,
         num_epochs=100,
         forward_args=forward_args,
+        nisqa_evaluation=True,
+        forward_dataset=forward_dataset_xvector
     )
     experiments[net_module + "/enc768/100ep/not_silence_preprocessed"] = exp_dict
 
@@ -1383,5 +1407,5 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
         forward_args=forward_args,
         forward_device="cpu",
     )
-    
+
     return experiments

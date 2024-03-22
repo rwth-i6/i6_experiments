@@ -2,12 +2,14 @@ from sisyphus import tk
 import copy
 import os
 from i6_core.returnn import ReturnnTrainingJob
-from i6_core.returnn.forward import ReturnnForwardJob
+from i6_core.returnn.forward import ReturnnForwardJob, ReturnnForwardJobV2
 from i6_core.returnn.search import SearchBPEtoWordsJob
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datasets import GenericDataset
 
-from .default_tools import SCTK_BINARY_PATH
+from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAMosPredictionJob
+
+from .default_tools import SCTK_BINARY_PATH, NISQA_REPO
 
 def training(config, returnn_exe, returnn_root, prefix, num_epochs=65):
     train_job = ReturnnTrainingJob(
@@ -87,6 +89,90 @@ def forward(
         tk.register_output(forward_prefix + forward_suffix, tts_hdf)
 
     return last_forward_job
+
+
+def tts_eval(
+    prefix_name, returnn_config, checkpoint, returnn_exe, returnn_root, mem_rqmt=12, vocoder="univnet", nisqa_eval=False, swer_eval=False
+):
+    """
+    Run search for a specific test dataset
+
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: override the default memory requirement
+    """
+    forward_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=1,
+        device="cpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=["audio_files", "out_corpus.xml.gz"],
+    )
+    forward_job.add_alias(prefix_name + f"/tts_eval_{vocoder}/forward")
+    if nisqa_eval:
+        evaluate_nisqa(prefix_name, forward_job.out_files["out_corpus.xml.gz"], vocoder=vocoder)
+    if swer_eval:
+        evaluate_swer(prefix_name, forward_job=forward_job, returnn_exe=returnn_exe, returnn_root=returnn_root)
+    return forward_job
+
+
+def evaluate_nisqa(prefix_name: str, bliss_corpus: tk.Path, vocoder: str = "univnet"):
+    predict_mos_job = NISQAMosPredictionJob(bliss_corpus, nisqa_repo=NISQA_REPO)
+    predict_mos_job.add_alias(prefix_name + f"/tts_eval_{vocoder}/nisqa_mos")
+    tk.register_output(
+        os.path.join(prefix_name, f"tts_eval_{vocoder}/nisqa_mos/average"), predict_mos_job.out_mos_average
+    )
+    tk.register_output(os.path.join(prefix_name, f"tts_eval_{vocoder}/nisqa_mos/min"), predict_mos_job.out_mos_min)
+    tk.register_output(os.path.join(prefix_name, f"tts_eval_{vocoder}/nisqa_mos/max"), predict_mos_job.out_mos_max)
+    tk.register_output(
+        os.path.join(prefix_name, f"tts_eval_{vocoder}/nisqa_mos/std_dev"), predict_mos_job.out_mos_std_dev
+    )
+
+
+def evaluate_swer(
+    name: str,
+    forward_job: tk.Job,
+    returnn_exe,
+    returnn_root,
+    # synthetic_bliss: tk.Path,
+    # system: ASRRecognizerSystem,
+    # with_confidence=False,
+):
+    asr_system = "ls960eow_phon_ctc_50eps_fastsearch"
+
+    from i6_experiments.users.rossenbach.experiments.jaist_project.storage import asr_recognizer_systems
+    from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob, MergeStrategy
+    from .data import build_swer_test_dataset, get_cv_bliss
+
+    synthetic_bliss = MergeCorporaWithPathResolveJob(
+        bliss_corpora=[forward_job.out_files["out_corpus.xml.gz"]],
+        name="train-clean-100",  # important to keep the original sequence names for matching later
+        merge_strategy=MergeStrategy.FLAT,
+    ).out_merged_corpus
+    system = asr_recognizer_systems[asr_system]
+
+    search_single(
+        prefix_name=name + "/swer/" + asr_system,
+        returnn_config=system.config,
+        checkpoint=system.checkpoint,
+        recognition_dataset=build_swer_test_dataset(
+            synthetic_bliss=synthetic_bliss,
+            preemphasis=system.preemphasis,
+            peak_normalization=system.peak_normalization,
+        ),
+        recognition_bliss_corpus=get_cv_bliss(),
+        returnn_exe=returnn_exe,
+        returnn_root=returnn_root,
+        # with_confidence=with_confidence,
+    )
 
 
 @tk.block()

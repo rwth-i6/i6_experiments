@@ -34,3 +34,6 @@ SCTK_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_SCTK_BINARY_PATH"
 kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository
 KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
 KENLM_BINARY_PATH.hash_overwrite = "TEDLIUM2_DEFAULT_KENLM_BINARY_PATH"
+
+NISQA_REPO = CloneGitRepositoryJob("https://github.com/gabrielmittag/NISQA").out_repository.copy()
+NISQA_REPO.hash_overwrite = "LIBRISPEECH_DEFAULT_NISQA_REPO"

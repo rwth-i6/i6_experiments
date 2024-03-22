@@ -121,7 +121,7 @@ def get_forward_config(
         "forward_use_search": True,
         "batch_size": 100 * 16000,
         #############
-        "forward": forward_dataset.devtrain.as_returnn_opts()
+        "forward": forward_dataset.cv.as_returnn_opts()
         if not (train_data or joint_data)
         else (forward_dataset.joint.as_returnn_opts() if joint_data else forward_dataset.train.as_returnn_opts()),
     }

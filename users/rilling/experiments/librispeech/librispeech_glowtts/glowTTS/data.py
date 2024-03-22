@@ -19,7 +19,7 @@ from ..data import (
     get_vocab_datastream,
     get_mixed_cv_segments
 )
-from ..default_tools import MINI_RETURNN_ROOT
+from ..default_tools import MINI_RETURNN_ROOT, RETURNN_PYTORCH_EXE
 
 EpochWiseFilter = Tuple[int, int, int]
 
@@ -44,7 +44,7 @@ class TrainingDatasetSettings:
     epoch_wise_filters: List[EpochWiseFilter]
     seq_ordering: str
 
-def make_meta_dataset(audio_dataset, speaker_dataset, duration_dataset=None):
+def make_meta_dataset(audio_dataset, speaker_dataset, duration_dataset=None, xvector_dataset=None):
     """
     Shared function to create a metadatset with joined audio and speaker information
 
@@ -58,7 +58,7 @@ def make_meta_dataset(audio_dataset, speaker_dataset, duration_dataset=None):
         "phonemes": ("audio", "classes"),
         "speaker_labels": ("speaker", "data"),
     }
-    
+
     ds = {
         "audio": audio_dataset.as_returnn_opts(), 
         "speaker": speaker_dataset.as_returnn_opts()
@@ -67,6 +67,10 @@ def make_meta_dataset(audio_dataset, speaker_dataset, duration_dataset=None):
     if duration_dataset:
         data_map["durations"] = ("durations", "data")
         ds["durations"] = duration_dataset.as_returnn_opts()
+
+    if xvector_dataset is not None:
+        data_map["xvectors"] = ("xvectors", "data")
+        ds["xvectors"] = xvector_dataset.as_returnn_opts()
 
     meta_dataset = MetaDataset(
         data_map=data_map,
@@ -78,14 +82,14 @@ def make_meta_dataset(audio_dataset, speaker_dataset, duration_dataset=None):
 def build_training_dataset(
     librispeech_key: str,
     settings: TrainingDatasetSettings,
-    silence_preprocessing=False
+    silence_preprocessing=False,
+    xvectors_file=None,
 ) -> TrainingDataset:
     """
 
     :param settings:
     :param output_path:
     """
-
     train_bliss, train_ogg = get_train_bliss_and_zip("train-clean-100", silence_preprocessed=silence_preprocessing)
     # _, dev_clean_ogg = get_train_bliss_and_zip("dev-clean", silence_preprocessed=silence_preprocessing, remove_unk_seqs=True)
     # _, dev_other_ogg = get_train_bliss_and_zip("dev-other", silence_preprocessed=silence_preprocessing, remove_unk_seqs=True)
@@ -116,6 +120,13 @@ def build_training_dataset(
         "speaker_labels": speaker_datastream,
     }
 
+    if xvectors_file is not None:
+        xvector_dataset = HDFDataset(files=[xvectors_file])
+        xvector_dataset_train = HDFDataset(files=[xvectors_file], segment_file=train_segments)
+        xvector_dataset_cv = HDFDataset(files=[xvectors_file], segment_file=cv_segments)
+    else:
+        xvector_dataset, xvector_dataset_train, xvector_dataset_cv = (None, None, None)
+
     training_audio_opts = audio_datastream.as_returnn_audio_opts()
     if settings.custom_processing_function:
         training_audio_opts["pre_process"] = CodeWrapper(settings.custom_processing_function)
@@ -126,7 +137,6 @@ def build_training_dataset(
         for fr, to, max_mean_len in settings.epoch_wise_filters:
             additional_opts["epoch_wise_filter"][(fr, to)] = {"max_mean_len": max_mean_len}
 
-
     train_zip_dataset = OggZipDataset(
         files=train_ogg,
         audio_options=training_audio_opts,
@@ -136,7 +146,7 @@ def build_training_dataset(
         seq_ordering=settings.seq_ordering,
         additional_options=additional_opts,
     )
-    train_dataset = make_meta_dataset(train_zip_dataset, joint_speaker_dataset)
+    train_dataset = make_meta_dataset(train_zip_dataset, joint_speaker_dataset, xvector_dataset=xvector_dataset_train)
 
     cv_zip_dataset = OggZipDataset(
         files=train_ogg,
@@ -145,7 +155,7 @@ def build_training_dataset(
         segment_file=cv_segments,
         seq_ordering="sorted_reverse",
     )
-    cv_dataset = make_meta_dataset(cv_zip_dataset, joint_speaker_dataset)
+    cv_dataset = make_meta_dataset(cv_zip_dataset, joint_speaker_dataset, xvector_dataset=xvector_dataset_cv)
 
     devtrain_zip_dataset = OggZipDataset(
         files=train_ogg,
@@ -154,7 +164,7 @@ def build_training_dataset(
         seq_ordering="sorted_reverse",
         # random_subset=3000,
     )
-    devtrain_dataset = make_meta_dataset(devtrain_zip_dataset, joint_speaker_dataset)
+    devtrain_dataset = make_meta_dataset(devtrain_zip_dataset, joint_speaker_dataset, xvector_dataset=xvector_dataset)
 
     return TrainingDataset(train=train_dataset, cv=cv_dataset, joint=devtrain_dataset, datastreams=datastreams)
 
@@ -204,7 +214,6 @@ def build_training_dataset2(
             files=[durations_file]
         )
 
-
     # ----- Ogg and Meta datasets
     training_audio_opts = audio_datastream.as_returnn_audio_opts()
 
@@ -216,7 +225,6 @@ def build_training_dataset2(
         additional_opts["epoch_wise_filter"] = {}
         for fr, to, max_mean_len in settings.epoch_wise_filters:
             additional_opts["epoch_wise_filter"][(fr, to)] = {"max_mean_len": max_mean_len}
-
 
     train_ogg_dataset = OggZipDataset(
         path=train_ogg,
@@ -269,3 +277,32 @@ def build_training_dataset2(
     )
 
     return align_datasets
+
+def build_swer_test_dataset(synthetic_bliss, preemphasis: Optional[float] = None, peak_normalization: bool = False):
+    """
+
+    :param synthetic_bliss:
+    :param preemphasis:
+    :param peak_normalization:
+    """
+    zip_dataset_job = BlissToOggZipJob(
+        bliss_corpus=synthetic_bliss,
+        no_conversion=True,  # for Librispeech we are already having ogg
+        returnn_python_exe=RETURNN_PYTORCH_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+    )
+
+    audio_datastream = get_audio_raw_datastream(preemphasis, peak_normalization)
+
+    data_map = {"raw_audio": ("zip_dataset", "data")}
+
+    test_zip_dataset = OggZipDataset(
+        files=[zip_dataset_job.out_ogg_zip],
+        audio_options=audio_datastream.as_returnn_audio_opts(),
+        seq_ordering="sorted_reverse",
+    )
+    test_dataset = MetaDataset(
+        data_map=data_map, datasets={"zip_dataset": test_zip_dataset}, seq_order_control_dataset="zip_dataset"
+    )
+
+    return test_dataset

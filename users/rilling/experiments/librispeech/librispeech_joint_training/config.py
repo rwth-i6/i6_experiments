@@ -17,10 +17,10 @@ def get_training_config(
     net_args: Dict[str, Any],
     config: Dict[str, Any],
     debug: bool = False,
-    training_args: Dict[str, Any]={},
+    training_args: Dict[str, Any] = {},
     use_custom_engine=False,
     keep_epochs: set = None,
-    use_speaker_labels_in_dev: bool = False
+    use_speaker_labels_in_dev: bool = False,
 ):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_aligner
@@ -35,16 +35,20 @@ def get_training_config(
         "cleanup_old_models": True if keep_epochs is None else {"keep": keep_epochs},
         "stop_on_nonfinite_train_score": True,  # this might break now with True
         "allow_missing_optimizer_checkpoint": True,
-        "backend": "torch"
+        "backend": "torch",
     }
 
     base_config = {
         #############
         "train": training_datasets.train.as_returnn_opts(),
-        "dev": training_datasets.cv.as_returnn_opts() if not use_speaker_labels_in_dev else training_datasets.devtrain.as_returnn_opts(),
-        "eval_datasets": {
-            "devtrain": training_datasets.devtrain.as_returnn_opts()
-        } if not use_speaker_labels_in_dev else {}
+        "dev": (
+            training_datasets.cv.as_returnn_opts()
+            if not use_speaker_labels_in_dev
+            else training_datasets.devtrain.as_returnn_opts()
+        ),
+        "eval_datasets": (
+            {"devtrain": training_datasets.devtrain.as_returnn_opts()} if not use_speaker_labels_in_dev else {}
+        ),
     }
     config = {**base_config, **copy.deepcopy(config)}
 
@@ -108,6 +112,7 @@ def get_forward_config(
     target="audio",
     train_data=False,
     joint_data=False,
+    cv_data=False,
 ):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for forward_ctc_aligner
@@ -121,9 +126,15 @@ def get_forward_config(
         "forward_use_search": True,
         "batch_size": 100 * 16000,
         #############
-        "forward": forward_dataset.devtrain.as_returnn_opts()
-        if not (train_data or joint_data)
-        else (forward_dataset.joint.as_returnn_opts() if joint_data else forward_dataset.train.as_returnn_opts()),
+        "forward": (
+            forward_dataset.devtrain.as_returnn_opts()
+            if not (train_data or joint_data or cv_data)
+            else (
+                forward_dataset.joint.as_returnn_opts()
+                if joint_data
+                else (forward_dataset.train.as_returnn_opts() if train_data else forward_dataset.cv.as_returnn_opts())
+            )
+        ),
     }
 
     config = {**base_config, **copy.deepcopy(config)}
@@ -177,7 +188,7 @@ def get_search_config(
         use_custom_engine=use_custom_engine,
         forward=True,
         forward_args=search_args,
-        target="text"
+        target="text",
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
     return returnn_config

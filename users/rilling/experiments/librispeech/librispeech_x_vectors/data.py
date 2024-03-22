@@ -84,9 +84,9 @@ def get_librispeech_lexicon(corpus_key="train-clean-100", with_g2p: bool = True)
     :return:
     """
     if (with_g2p):
-        return extend_lexicon_with_tts_lemmas(get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)[corpus_key])
+        return extend_lexicon_with_tts_lemmas(get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, output_prefix="datasets_tts",)[corpus_key])
     else:
-        return extend_lexicon_with_tts_lemmas(get_bliss_lexicon(use_stress_marker=False))
+        return extend_lexicon_with_tts_lemmas(get_bliss_lexicon(use_stress_marker=False, output_prefix="datasets_tts"))
 
 def get_text_lexicon(corpus_key="train-clean-100") -> tk.Path:
     lexicon = get_lexicon(with_blank=True, with_g2p=False, corpus_key=corpus_key)
@@ -243,13 +243,14 @@ def get_tts_log_mel_datastream(silence_preprocessing=False) -> AudioFeatureDatas
     ls100_bliss, ls100_ogg_zip = get_train_bliss_and_zip("train-clean-100", silence_preprocessed=silence_preprocessing)
     train_segments, _ = get_librispeech_tts_segments()
 
+    alias_addition = "/ls100/silence_preprocessed/" if silence_preprocessing else "/ls100/not_silence_preprocessed/"
     audio_datastream.add_global_statistics_to_audio_feature_datastream(
         [ls100_ogg_zip],
         segment_file=train_segments,
         use_scalar_only=True,
         returnn_python_exe=RETURNN_EXE,
         returnn_root=MINI_RETURNN_ROOT,
-        alias_path=DATA_PREFIX + "ls100/",
+        alias_path=DATA_PREFIX + alias_addition,
     )
     return audio_datastream
 

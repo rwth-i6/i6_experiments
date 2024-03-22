@@ -84,9 +84,11 @@ def get_librispeech_lexicon(corpus_key="train-clean-100", with_g2p: bool = True)
     :return:
     """
     if with_g2p:
-        return extend_lexicon_with_tts_lemmas(get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)[corpus_key])
+        return extend_lexicon_with_tts_lemmas(
+            get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, output_prefix="datasets_tts")[corpus_key]
+        )
     else:
-        return extend_lexicon_with_tts_lemmas(get_bliss_lexicon(use_stress_marker=False))
+        return extend_lexicon_with_tts_lemmas(get_bliss_lexicon(use_stress_marker=False, output_prefix="datasets_tts"))
 
 
 def get_text_lexicon(corpus_key="train-clean-100") -> tk.Path:
@@ -212,6 +214,23 @@ def get_test_bliss_and_zip(ls_corpus_key):
         get_ogg_zip_dict(returnn_root=MINI_RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)[ls_corpus_key],
     )
 
+def get_cv_bliss():
+    """
+    Build the 1004 sequences tts bliss corpus
+
+    used only for SWER calculation
+    """
+    from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech_tts_segments
+
+    train_segments, cv_segments = get_librispeech_tts_segments(ls_corpus_key="train-clean-100")
+    train_clean_100_bliss = get_bliss_corpus_dict(audio_format="ogg")["train-clean-100"]
+    from i6_core.corpus.filter import FilterCorpusBySegmentsJob
+
+    tts_cv_bliss = FilterCorpusBySegmentsJob(
+        bliss_corpus=train_clean_100_bliss, segment_file=cv_segments, compressed=True, delete_empty_recordings=True
+    ).out_corpus
+    return tts_cv_bliss
+
 
 def get_tts_log_mel_datastream(silence_preprocessing=False) -> AudioFeatureDatastream:
     """
@@ -246,21 +265,22 @@ def get_tts_log_mel_datastream(silence_preprocessing=False) -> AudioFeatureDatas
     ls100_bliss, ls100_ogg_zip = get_train_bliss_and_zip("train-clean-100", silence_preprocessed=silence_preprocessing)
     train_segments, _ = get_librispeech_tts_segments()
 
+    alias_addition = "/ls100/silence_preprocessed/" if silence_preprocessing else "/ls100/not_silence_preprocessed/"
     audio_datastream.add_global_statistics_to_audio_feature_datastream(
         [ls100_ogg_zip],
         segment_file=train_segments,
         use_scalar_only=True,
         returnn_python_exe=RETURNN_EXE,
         returnn_root=MINI_RETURNN_ROOT,
-        alias_path=DATA_PREFIX + "ls100/",
+        alias_path=DATA_PREFIX + alias_addition,
     )
     return audio_datastream
 
 
 @lru_cache()
-def get_audio_raw_datastream():
+def get_audio_raw_datastream(peak_normalization=False, preemphasis=0.97):
     audio_datastream = AudioRawDatastream(
-        available_for_inference=True, options=ReturnnAudioRawOptions(peak_normalization=False, preemphasis=0.97)
+        available_for_inference=True, options=ReturnnAudioRawOptions(peak_normalization=peak_normalization, preemphasis=preemphasis)
     )
     return audio_datastream
 

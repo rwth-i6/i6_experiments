@@ -115,7 +115,7 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
             swer_eval=swer_evaluation
         )
         exp["forward_job_gl"] = forward_job_gl
-        
+
         if extract_x_vector:
             forward_x_vector_config = get_forward_config(
                 forward_dataset=dataset, **args, forward_args=forward_args, target="xvector", train_data=True
@@ -402,6 +402,7 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         200,
         forward_args=forward_args,
         forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        swer_evaluation=True
     )
 
     train_args_TTS_xvector_200ep["net_args"]["model_config"]["text_encoder_config"]["filter_channels"] = 192
@@ -413,6 +414,7 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         200,
         forward_args=forward_args,
         forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        swer_evaluation=True
     )
 
     train_args_TTS_xvector_200ep_no_dec_dropout = copy.deepcopy(train_args_TTS_xvector_200ep)
@@ -430,6 +432,7 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         200,
         forward_args=forward_args,
         forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        swer_evaluation=True
     )
 
     train_args_TTS_xvector_200ep_no_dec_dropout["net_args"]["model_config"]["text_encoder_config"][
@@ -443,6 +446,7 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         200,
         forward_args=forward_args,
         forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        swer_evaluation=True
     )
 
     train_args_xvector_altLR = copy.deepcopy(train_args_TTS_xvector_200ep)
@@ -459,6 +463,7 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         200,
         forward_args=forward_args,
         forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        swer_evaluation=True
     )
 
     train_args_xvector_altLR_no_dec_drop = copy.deepcopy(train_args_xvector_altLR)
@@ -471,6 +476,7 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         200,
         forward_args=forward_args,
         forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        swer_evaluation=True
     )
 
     net_module = "glowTTS"
@@ -481,6 +487,18 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
     exp_dict = run_exp(
         net_module + "/enc768/100ep/dec_drop_0.05",
         train_args_TTS,
+        training_datasets_pe1_tts_segments,
+        asr_test_datasets,
+        100,
+        forward_args=forward_args,
+    )
+
+    train_args_TTS_100ep_no_dec_dropout = copy.deepcopy(train_args_TTS)
+    train_args_TTS_100ep_no_dec_dropout["net_args"]["model_config"]["decoder_config"] = asdict(flow_decoder_config_no_dropout)
+    train_args_TTS_100ep_no_dec_dropout["config"]["gradient_clip_norm"] = 10.0
+    exp_dict = run_exp(
+        net_module + "/enc768/100ep/dec_drop_0.00",
+        train_args_TTS_100ep_no_dec_dropout,
         training_datasets_pe1_tts_segments,
         asr_test_datasets,
         100,
@@ -499,6 +517,7 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         asr_test_datasets,
         200,
         forward_args=forward_args,
+        swer_evaluation=True
     )
 
     exp_dict = run_exp(
@@ -520,6 +539,7 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         asr_test_datasets,
         100,
         forward_args=forward_args,
+        swer_evaluation=True
     )
 
     exp_dict = run_exp(
@@ -603,6 +623,7 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         asr_test_datasets,
         200,
         forward_args=forward_args,
+        swer_evaluation=True
     )
 
     train_args_TTS_simple_encoder["net_args"]["model_config"] = asdict(model_config_simple_encoder_20cb)
@@ -614,6 +635,7 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         asr_test_datasets,
         200,
         forward_args=forward_args,
+        swer_evaluation=True
     )
 
     # net_module = "glowTTS_simple_encoder_x_vector"
@@ -657,6 +679,7 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         200,
         forward_args=forward_args,
         forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        swer_evaluation=True
     )
 
     # ===================== Multi-Scale =======================
@@ -687,6 +710,7 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         200,
         forward_args=forward_args,
         forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        swer_evaluation=True
     )
 
     # ============= Encoding Distance Loss ========================
@@ -705,3 +729,47 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
             forward_args=forward_args,
             forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
         )
+
+    net_module = "glowTTS_x_vector_v2_logdist_loss"
+    train_args_xvector_dist_loss["network_module"] = net_module
+
+    for s in [0.1, 1.0]:
+        exp_dict = run_exp(
+            net_module + f"/ed_scale_{s}",
+            train_args_xvector_dist_loss,
+            training_datasets_pe1_tts_segments,
+            asr_test_datasets,
+            200,
+            training_args={"ed_scale": s},
+            forward_args=forward_args,
+            forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        )
+
+    train_args_xvector_dist_loss["config"]["gradient_clip_norm"] = 10.0
+    for s in [0.1, 1.0]:
+        exp_dict = run_exp(
+            net_module + f"_grad_clip_10/ed_scale_{s}",
+            train_args_xvector_dist_loss,
+            training_datasets_pe1_tts_segments,
+            asr_test_datasets,
+            200,
+            training_args={"ed_scale": s},
+            forward_args=forward_args,
+            forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        )
+
+    # ================= InvBatchNorm =================
+    net_module = "glowTTS_batch_norm"
+    train_args_TTS_200ep_batch_norm = copy.deepcopy(train_args_TTS_200ep)
+    train_args_TTS_200ep_batch_norm["network_module"] = net_module
+    train_args_TTS_200ep_batch_norm["net_args"]["model_config"] = asdict(model_config)
+
+    exp_dict = run_exp(
+        net_module + "/enc768/200ep/dec_drop_0.05",
+        train_args_TTS_200ep_batch_norm,
+        training_datasets_pe1_tts_segments,
+        asr_test_datasets,
+        200,
+        forward_args=forward_args,
+        swer_evaluation=True,
+    )

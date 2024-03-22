@@ -53,6 +53,7 @@ def forward(
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
         mem_rqmt=20,
+        device="cpu"
     )
 
     # last_forward_job.rqmt["gpu_mem"] = 24

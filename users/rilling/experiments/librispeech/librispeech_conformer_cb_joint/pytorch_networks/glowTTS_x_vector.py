@@ -19,6 +19,8 @@ from .shared.feature_extraction import DbMelFeatureExtraction
 from .shared.configs import DbMelFeatureExtractionConfig
 from .shared.model_config import ModelConfig, FlowDecoderConfig, TextEncoderConfig, ConformerCouplingFlowDecoderConfig
 
+from .eval_forward import *
+
 class XVector(nn.Module):
     def __init__(self, input_dim=40, num_classes=8, **kwargs):
         super(XVector, self).__init__()
@@ -295,7 +297,6 @@ class Model(nn.Module):
             y, y_lengths = (None, None)
 
         assert (not gen) or (gen and (g is not None)), "Generating speech without given speaker embedding is not supported!"
-
         if not gen:
             with torch.no_grad():
                 _, _, g = self.x_vector(y, y_lengths)

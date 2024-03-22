@@ -43,7 +43,9 @@ def get_librispeech_lexicon(corpus_key="train-clean-100") -> tk.Path:
     get the TTS-extended g2p bliss lexicon with [start], [end] and [space] marker
     :return:
     """
-    return extend_lexicon_with_tts_lemmas(get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)[corpus_key])
+    return extend_lexicon_with_tts_lemmas(
+        get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, output_prefix="datasets_tts")[corpus_key]
+    )
 
 
 def get_tts_extended_bliss(ls_corpus_key) -> tk.Path:
@@ -280,7 +282,7 @@ def get_tts_log_mel_datastream_alt(center=True) -> AudioFeatureDatastream:
         use_scalar_only=True,
         returnn_python_exe=RETURNN_PYTORCH_EXE,
         returnn_root=MINI_RETURNN_ROOT,
-        alias_path=DATA_PREFIX + "ls100/",
+        alias_path=DATA_PREFIX + "/ls100/",
     )
     if center == False:
         # take the normalization from center=True so that everything is compatible
@@ -347,7 +349,7 @@ def get_tts_log_mel_datastream(center=True) -> AudioFeatureDatastream:
         use_scalar_only=True,
         returnn_python_exe=RETURNN_PYTORCH_EXE,
         returnn_root=MINI_RETURNN_ROOT,
-        alias_path=DATA_PREFIX + "ls100/",
+        alias_path=DATA_PREFIX + "/ls100/",
     )
     return audio_datastream
 

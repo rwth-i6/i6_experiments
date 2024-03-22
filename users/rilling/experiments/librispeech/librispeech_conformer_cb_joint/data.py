@@ -53,7 +53,7 @@ from i6_experiments.users.rilling.joint_training.text_hdf.text_hdf_from_bliss im
 
 from returnn_common.datasets import Dataset, OggZipDataset, MetaDataset, HDFDataset
 
-from .default_tools import MINI_RETURNN_ROOT, RETURNN_EXE, KENLM_BINARY_PATH
+from .default_tools import MINI_RETURNN_ROOT, RETURNN_EXE, KENLM_BINARY_PATH, RETURNN_PYTORCH_EXE
 
 DATA_PREFIX = "experiments/librispeech/data/joint"
 
@@ -95,9 +95,15 @@ def get_librispeech_lexicon(corpus_key="train-clean-100", with_g2p: bool = True,
     :return:
     """
     if with_g2p:
-        return extend_lexicon_with_tts_lemmas(get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, add_silence=add_silence)[corpus_key])
+        return extend_lexicon_with_tts_lemmas(
+            get_g2p_augmented_bliss_lexicon_dict(
+                use_stress_marker=False, add_silence=add_silence, output_prefix="datasets_tts"
+            )[corpus_key]
+        )
     else:
-        return extend_lexicon_with_tts_lemmas(get_bliss_lexicon(use_stress_marker=False, add_silence=add_silence))
+        return extend_lexicon_with_tts_lemmas(
+            get_bliss_lexicon(use_stress_marker=False, add_silence=add_silence, output_prefix="datasets_tts")
+        )
 
 def get_librispeech_eow_lexicon(corpus_key="train-clean-100", with_g2p=True) -> tk.Path:
 
@@ -106,9 +112,9 @@ def get_librispeech_eow_lexicon(corpus_key="train-clean-100", with_g2p=True) -> 
     :return:
     """
     if with_g2p:
-        lex =  get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)[corpus_key]
+        lex = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, output_prefix="datasets_asr")[corpus_key]
     else:
-        lex =  get_bliss_lexicon(use_stress_marker=False)
+        lex = get_bliss_lexicon(use_stress_marker=False, output_prefix="datasets_asr")
 
     return AddEowPhonemesToLexiconJob(lex).out_lexicon
 
@@ -184,8 +190,7 @@ def get_asr_lexicon(corpus_key="train-clean-100", with_g2p=True) -> tk.Path:
     return lexicon
 
 
-
-def get_vocab_datastream_from_lexicon(lexicon, with_blank: bool = False) -> LabelDatastream:
+def get_vocab_datastream_from_lexicon(lexicon, with_blank: bool = False, alias_addition="") -> LabelDatastream:
     """
     Default VocabularyDatastream for LibriSpeech (uppercase ARPA phoneme symbols)
 
@@ -194,7 +199,7 @@ def get_vocab_datastream_from_lexicon(lexicon, with_blank: bool = False) -> Labe
     # lexicon = get_tts_lexicon(with_blank, corpus_key=corpus_key)
     blacklist = {"[SILENCE]"}
     returnn_vocab_job = ReturnnVocabFromPhonemeInventory(lexicon, blacklist=blacklist)
-    name = "returnn_vocab_from_lexicon_with_blank" if with_blank else "returnn_vocab_from_lexicon"
+    name = "returnn_vocab_from_lexicon_with_blank" + alias_addition if with_blank else "returnn_vocab_from_lexicon" + alias_addition
     returnn_vocab_job.add_alias(os.path.join(DATA_PREFIX, name))
 
     vocab_datastream = LabelDatastream(
@@ -287,6 +292,25 @@ def get_asr_bliss(ls_corpus_key, remove_unk_seqs=False) -> tk.Path:
 
     return converted_bliss_corpus
 
+
+def get_cv_bliss():
+    """
+    Build the 1004 sequences tts bliss corpus
+
+    used only for SWER calculation
+    """
+    from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech_tts_segments
+
+    train_segments, cv_segments = get_librispeech_tts_segments(ls_corpus_key="train-clean-100")
+    train_clean_100_bliss = get_bliss_corpus_dict(audio_format="ogg")["train-clean-100"]
+    from i6_core.corpus.filter import FilterCorpusBySegmentsJob
+
+    tts_cv_bliss = FilterCorpusBySegmentsJob(
+        bliss_corpus=train_clean_100_bliss, segment_file=cv_segments, compressed=True, delete_empty_recordings=True
+    ).out_corpus
+    return tts_cv_bliss
+
+
 def get_tts_log_mel_datastream(silence_preprocessing=False) -> AudioFeatureDatastream:
     """
     Returns the AudioFeatureDatastream using the default feature parameters
@@ -320,21 +344,22 @@ def get_tts_log_mel_datastream(silence_preprocessing=False) -> AudioFeatureDatas
     ls100_bliss, ls100_ogg_zip = get_train_bliss_and_zip("train-clean-100", silence_preprocessed=silence_preprocessing)
     train_segments, _ = get_librispeech_tts_segments()
 
+    alias_addition = "/ls100/silence_preprocessed/" if silence_preprocessing else "/ls100/not_silence_preprocessed/"
     audio_datastream.add_global_statistics_to_audio_feature_datastream(
         [ls100_ogg_zip],
         segment_file=train_segments,
         use_scalar_only=True,
         returnn_python_exe=RETURNN_EXE,
         returnn_root=MINI_RETURNN_ROOT,
-        alias_path=DATA_PREFIX + "ls100/",
+        alias_path=DATA_PREFIX + alias_addition,
     )
     return audio_datastream
 
 
 @lru_cache()
-def get_audio_raw_datastream():
+def get_audio_raw_datastream(peak_normalization=False, preemphasis=0.97):
     audio_datastream = AudioRawDatastream(
-        available_for_inference=True, options=ReturnnAudioRawOptions(peak_normalization=False, preemphasis=0.97)
+        available_for_inference=True, options=ReturnnAudioRawOptions(peak_normalization=peak_normalization, preemphasis=preemphasis)
     )
     return audio_datastream
 
@@ -342,7 +367,7 @@ def get_audio_raw_datastream():
 # --------------------------- Dataset functions  -----------------------------------
 
 
-def make_meta_dataset(audio_dataset, speaker_dataset, asr_text_dataset, duration_dataset=None):
+def make_meta_dataset(audio_dataset, speaker_dataset, asr_text_dataset, duration_dataset=None, xvector_dataset=None):
     """
     Shared function to create a metadatset with joined audio and speaker information
 
@@ -367,6 +392,10 @@ def make_meta_dataset(audio_dataset, speaker_dataset, asr_text_dataset, duration
         data_map["durations"] = ("durations", "data")
         ds["durations"] = duration_dataset.as_returnn_opts()
 
+    if xvector_dataset is not None:
+        data_map["xvectors"] = ("xvectors", "data")
+        ds["xvectors"] = xvector_dataset.as_returnn_opts()
+
     meta_dataset = MetaDataset(
         data_map=data_map,
         datasets=ds,
@@ -380,12 +409,16 @@ def build_training_dataset(
     settings: TrainingDatasetSettings,
     silence_preprocessing=False,
     use_tts_train_segments=False,
+    xvectors_file=None,
 ) -> TrainingDataset:
     """
 
     :param settings:
     :param output_path:
     """
+    assert xvectors_file is None or (
+        xvectors_file is not None and use_tts_train_segments
+    ), "Using TTS Train Segments is mandatory when using average x-vector speaker embeddings."
 
     train_bliss, train_ogg = get_train_bliss_and_zip("train-clean-100", silence_preprocessed=silence_preprocessing)
     dev_clean_bliss_tts, dev_clean_ogg = get_train_bliss_and_zip(
@@ -396,11 +429,11 @@ def build_training_dataset(
     )
 
     tts_lexicon = get_tts_lexicon(with_blank=True)
-    train_phoneme_datastream_tts = get_vocab_datastream_from_lexicon(tts_lexicon, with_blank=True)
+    train_phoneme_datastream_tts = get_vocab_datastream_from_lexicon(tts_lexicon, with_blank=True, alias_addition="_tts")
 
     train_bliss_asr = get_asr_bliss("train-clean-100") 
     asr_lexicon = get_asr_lexicon(corpus_key=librispeech_key)
-    train_phoneme_datastream_asr = get_vocab_datastream_from_lexicon(asr_lexicon, with_blank=True)
+    train_phoneme_datastream_asr = get_vocab_datastream_from_lexicon(asr_lexicon, with_blank=True, alias_addition="_asr")
     train_eow_phonemes_hdf_job = TextHDFFromBliss(train_bliss_asr, train_phoneme_datastream_asr.vocab)
     train_eow_phonemes_dataset = HDFDataset(files=[train_eow_phonemes_hdf_job.out_text_hdf])
 
@@ -408,15 +441,15 @@ def build_training_dataset(
     devother_asr_lexicon = get_asr_lexicon("dev-other", with_g2p=False)
     devclean_bliss_asr = get_asr_bliss("dev-clean", remove_unk_seqs=True)
     devother_bliss_asr = get_asr_bliss("dev-other", remove_unk_seqs=True)
-    devclean_phoneme_datastream_asr = get_vocab_datastream_from_lexicon(devclean_asr_lexicon, with_blank=True)
-    devother_phoneme_datastream_asr = get_vocab_datastream_from_lexicon(devother_asr_lexicon, with_blank=True)
+    devclean_phoneme_datastream_asr = get_vocab_datastream_from_lexicon(devclean_asr_lexicon, with_blank=True, alias_addition="_asr_devclean")
+    devother_phoneme_datastream_asr = get_vocab_datastream_from_lexicon(devother_asr_lexicon, with_blank=True, alias_addition="_asr_devother")
     dev_eow_phonemes_hdf_job = TextHDFFromBliss([devclean_bliss_asr, devother_bliss_asr], [devclean_phoneme_datastream_asr.vocab, devother_phoneme_datastream_asr.vocab])
     dev_eow_phonemes_dataset = HDFDataset(files=[dev_eow_phonemes_hdf_job.out_text_hdf])
 
     audio_datastream = get_audio_raw_datastream()
 
     if use_tts_train_segments:
-        train_segments, _ = get_librispeech_tts_segments(ls_corpus_key=librispeech_key)
+        train_segments, cv_segments = get_librispeech_tts_segments(ls_corpus_key=librispeech_key)
     else:
         train_segments = None
 
@@ -436,7 +469,7 @@ def build_training_dataset(
     #     returnn_root=MINI_RETURNN_ROOT,
     # )
     # dev_other_speaker_hdf = dev_other_speaker_label_job.out_speaker_hdf
-    
+
     joint_speaker_dataset = HDFDataset(files=[joint_speaker_hdf])
     speaker_datastream = LabelDatastream(
         available_for_inference=True,
@@ -450,6 +483,13 @@ def build_training_dataset(
         "phonemes_eow": train_phoneme_datastream_asr,
         "speaker_labels": speaker_datastream,
     }
+
+    if xvectors_file is not None:
+        xvector_dataset = HDFDataset(files=[xvectors_file])
+        xvector_dataset_train = HDFDataset(files=[xvectors_file], segment_file=train_segments)
+        xvector_dataset_cv = HDFDataset(files=[xvectors_file], segment_file=cv_segments)
+    else:
+        xvector_dataset, xvector_dataset_train, xvector_dataset_cv = (None, None, None)
 
     training_audio_opts = audio_datastream.as_returnn_audio_opts()
     if settings.custom_processing_function:
@@ -470,7 +510,7 @@ def build_training_dataset(
         seq_ordering=settings.seq_ordering,
         additional_options=additional_opts,
     )
-    train_dataset = make_meta_dataset(train_zip_dataset, joint_speaker_dataset, train_eow_phonemes_dataset)
+    train_dataset = make_meta_dataset(train_zip_dataset, joint_speaker_dataset, train_eow_phonemes_dataset, xvector_dataset=xvector_dataset_train)
 
     cv_zip_dataset = OggZipDataset(
         files=[dev_clean_ogg, dev_other_ogg],
@@ -479,7 +519,7 @@ def build_training_dataset(
         segment_file=get_mixed_cv_segments(),
         seq_ordering="sorted_reverse",
     )
-    cv_dataset = make_meta_dataset(cv_zip_dataset, None, dev_eow_phonemes_dataset)
+    cv_dataset = make_meta_dataset(cv_zip_dataset, None, dev_eow_phonemes_dataset, xvector_dataset=xvector_dataset_cv)
 
     devtrain_zip_dataset = OggZipDataset(
         files=train_ogg,
@@ -488,7 +528,7 @@ def build_training_dataset(
         seq_ordering="sorted_reverse",
         random_subset=3000,
     )
-    devtrain_dataset = make_meta_dataset(devtrain_zip_dataset, joint_speaker_dataset, train_eow_phonemes_dataset)
+    devtrain_dataset = make_meta_dataset(devtrain_zip_dataset, joint_speaker_dataset, train_eow_phonemes_dataset, xvector_dataset=xvector_dataset)
 
     return TrainingDataset(train=train_dataset, cv=cv_dataset, devtrain=devtrain_dataset, datastreams=datastreams)
 
@@ -530,3 +570,32 @@ def build_test_dataset(librispeech_key: str, dataset_key: str, silence_preproces
     )
 
     return test_dataset, bliss_corpus
+
+def build_swer_test_dataset(synthetic_bliss, preemphasis: Optional[float] = None, peak_normalization: bool = False):
+    """
+
+    :param synthetic_bliss:
+    :param preemphasis:
+    :param peak_normalization:
+    """
+    zip_dataset_job = BlissToOggZipJob(
+        bliss_corpus=synthetic_bliss,
+        no_conversion=True,  # for Librispeech we are already having ogg
+        returnn_python_exe=RETURNN_PYTORCH_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+    )
+
+    audio_datastream = get_audio_raw_datastream(preemphasis, peak_normalization)
+
+    data_map = {"raw_audio": ("zip_dataset", "data")}
+
+    test_zip_dataset = OggZipDataset(
+        files=[zip_dataset_job.out_ogg_zip],
+        audio_options=audio_datastream.as_returnn_audio_opts(),
+        seq_ordering="sorted_reverse",
+    )
+    test_dataset = MetaDataset(
+        data_map=data_map, datasets={"zip_dataset": test_zip_dataset}, seq_order_control_dataset="zip_dataset"
+    )
+
+    return test_dataset

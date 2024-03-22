@@ -121,6 +121,7 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
                 returnn_exe=RETURNN_PYTORCH_EXE,
                 returnn_root=MINI_RETURNN_ROOT,
                 vocoder="gl",
+                nisqa_eval=True
             )
             exp["forward_job_gl"] = forward_job_gl
 
@@ -155,6 +156,8 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
                 returnn_exe=RETURNN_PYTORCH_EXE,
                 returnn_root=MINI_RETURNN_ROOT
             )
+        # if "ce_loss_scale" in training_args and training_args["ce_loss_scale"] == 0.01:
+        #     breakpoint()
         return exp
 
     glowTTS_durations_job = tts_exps["glowTTS/enc192/200ep/long_cooldown/not_silence_preprocessed"]["forward_job_joint_durations"]
