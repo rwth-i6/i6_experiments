@@ -279,7 +279,7 @@ def get_returnn_config(
             "network": network,
             "batch_size": {"classes": batch_size, "data": batch_size * sample_rate // 100},
             "chunking": (
-                {"classes": 500, "data": 80000},
+                {"classes": 250, "data": 40000},
                 {"classes": 500, "data": 80000},
             ),
             "min_chunk_size": {"classes": 10, "data": 10 * sample_rate // 100},
