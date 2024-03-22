@@ -1,7 +1,6 @@
 import copy
 from typing import Any, Dict, Optional
 from sisyphus import gs, tk
-import ipdb
 from i6_core.features.common import samples_flow
 from i6_experiments.common.setups.rasr.util import RasrSteps
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
@@ -29,7 +28,7 @@ def get_hybrid_nn_system(
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
 
 
-    data = get_ls100_oggzip_hdf_data_split_train_cv(gmm_system)
+    data = get_ls100_oggzip_hdf_data_split_train_cv(gmm_system, sync_ogg=True)
     (
         nn_train_data_inputs,
         nn_cv_data_inputs,
@@ -49,8 +48,6 @@ def get_hybrid_nn_system(
         returnn_python_exe=RETURNN_EXE,
         rasr_binary_path=RASR_BINARY_PATH,
     )
-    import ipdb 
-    ipdb.set_trace()
     hybrid_nn_system.init_system(
         rasr_init_args=rasr_init_args,
         train_data={"train-clean-100.train": data["train"].get_data_dict()},

@@ -101,10 +101,10 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, datasets=None,
     return nn_args
 
 def get_nn_args_single(
-    num_outputs: int = 9001, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None,
+    num_outputs: int = 12001, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None,
     peak_lr=1e-3, feature_args=None, datasets=None, returnn_args=None,
 ):
-    feature_args = copy.deepcopy(feature_args) or {"class": "GammatoneNetwork", "sample_rate": 16000}
+    feature_args = copy.deepcopy(feature_args) or {"class": "LogMelNetwork", "sample_rate": 16000}
     preemphasis = feature_args.pop("preemphasis", None)
     wave_norm = feature_args.pop("wave_norm", False)
     feature_network_class = {
@@ -137,7 +137,6 @@ def get_nn_args_single(
     )
 
 
-
     return returnn_config, returnn_config
 
 def fix_network_for_sparse_output(net):
@@ -146,7 +145,7 @@ def fix_network_for_sparse_output(net):
         "classes_int": {"class": "cast", "dtype": "int16", "from": "data:classes"},
         "classes_squeeze": {"class": "squeeze", "axis": "F", "from": "classes_int"},
         "classes_sparse": {
-            "class": "reinterpret_data", "from": "classes_squeeze", "set_sparse": True, "set_sparse_dim": 9001},
+            "class": "reinterpret_data", "from": "classes_squeeze", "set_sparse": True, "set_sparse_dim": 12001},
     })
     for layer in net:
         if net[layer].get("target", None) == "classes":
@@ -181,8 +180,8 @@ def get_returnn_config(
     peak_lr: float,
     num_epochs: int,
     feature_net: Dict[str, Any],
-    batch_size: int = 10000,
-    sample_rate: int = 8000,
+    batch_size: int = 5000,
+    sample_rate: int = 16000,
     recognition: bool = False,
     extra_args: Optional[Dict[str, Any]] = None,
     staged_opts: Optional[Dict[int, Any]] = None,
@@ -198,12 +197,10 @@ def get_returnn_config(
     datasets["train"] = datasets["train"].get_data_dict()
     datasets["cv"] = datasets["cv"].get_data_dict()
     datasets["devtrain"] = datasets["devtrain"].get_data_dict()
-    import ipdb
-    ipdb.set_trace()
     base_config = {
         "extern_data": {
-            "data": {"dim": num_inputs},
-            "classes": {"dim": 1, "dtype": "int16"},
+            "data": {"dim": 1},
+            "classes": {"dim": 12001, "dtype": "int16", "sparse": True},
             # "classes": {"dim": num_outputs, "sparse": True},  # alignment stored as data with F dim
         },
         **datasets
@@ -282,8 +279,8 @@ def get_returnn_config(
             "network": network,
             "batch_size": {"classes": batch_size, "data": batch_size * sample_rate // 100},
             "chunking": (
-                {"classes": 500, "data": 500 * sample_rate // 100},
-                {"classes": 250, "data": 250 * sample_rate // 100},
+                {"classes": 500, "data": 80000},
+                {"classes": 500, "data": 80000},
             ),
             "min_chunk_size": {"classes": 10, "data": 10 * sample_rate // 100},
             "optimizer": {"class": "nadam", "epsilon": 1e-8},
@@ -322,7 +319,7 @@ def get_returnn_config(
             "class": "linear",
             "activation": "log_softmax",
             "from": ["MLP_output"],
-            "n_out": 9001
+            "n_out": 12001
         }
         conformer_base_config["network"] = rec_network
 

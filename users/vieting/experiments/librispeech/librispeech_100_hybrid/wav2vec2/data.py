@@ -4,7 +4,7 @@ from sisyphus import tk
 from i6_core import corpus as corpus_recipe
 from i6_core import text
 from i6_core.lexicon.allophones import DumpStateTyingJob
-from i6_core.returnn.hdf import RasrAlignmentDumpHDFJob
+from i6_core.returnn import RasrAlignmentDumpHDFJob, BlissToOggZipJob
 from i6_core.tools.git import CloneGitRepositoryJob
 from i6_experiments.common.setups.rasr.util import OggZipHdfDataInput
 from i6_experiments.common.setups.rasr.gmm_system import GmmSystem
@@ -18,15 +18,14 @@ def get_ls100_oggzip_hdf_data(gmm_system: GmmSystem):
         "https://github.com/rwth-i6/returnn", commit="45fad83c785a45fa4abfeebfed2e731dd96f960c").out_repository
     returnn_root.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
 
-    from i6_core.returnn.hdf import RasrAlignmentDumpHDFJob
-    from i6_core.lexicon.allophones import DumpStateTyingJob
     state_tying = DumpStateTyingJob(gmm_system.outputs["train-clean-100"]["final"].crp)
     train_align_job = RasrAlignmentDumpHDFJob(
-        alignment_caches=gmm_system.outputs["train-clean-100"]["final"].alignments.hidden_paths,  # TODO: needs to be list
+        alignment_caches=list(gmm_system.outputs["train-clean-100"]["final"].alignments.hidden_paths.values()),
         state_tying_file=state_tying.out_state_tying,
         allophone_file=gmm_system.outputs["train-clean-100"]["final"].crp.acoustic_model_post_config.allophones.add_from_file,
         data_type=np.int16,
         returnn_root=returnn_root,
+        sparse=True,
     )
 
     ogg_zip_dict = get_ogg_zip_dict(returnn_python_exe=returnn_exe, returnn_root=returnn_root)
@@ -59,7 +58,7 @@ def get_ls100_oggzip_hdf_data(gmm_system: GmmSystem):
     return nn_data_inputs
 
 
-def get_ls100_oggzip_hdf_data_split_train_cv(gmm_system: GmmSystem):
+def get_ls100_oggzip_hdf_data_split_train_cv(gmm_system: GmmSystem, sync_ogg: bool = False):
     returnn_exe = tk.Path(
         "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
     returnn_root = CloneGitRepositoryJob(
@@ -90,11 +89,21 @@ def get_ls100_oggzip_hdf_data_split_train_cv(gmm_system: GmmSystem):
         allophone_file=gmm_system.outputs["train-clean-100"]["final"].crp.acoustic_model_post_config.allophones.add_from_file,
         data_type=np.int16,
         returnn_root=returnn_root,
+        sparse=True,
     )
-
-    ogg_zip_dict = get_ogg_zip_dict(returnn_python_exe=returnn_exe, returnn_root=returnn_root)
+    ogg_zip_file = get_ogg_zip_dict(returnn_python_exe=returnn_exe, returnn_root=returnn_root)["train-clean-100"]
+    if sync_ogg:
+        ogg_zip_file = BlissToOggZipJob(
+            bliss_corpus=ogg_zip_file.creator.bliss_corpus,
+            rasr_cache=gmm_system.outputs["train-clean-100"]["final"].features[
+                "mfcc+context+lda+vtln"].hidden_paths[1].creator.out_feature_bundle["vtln"],
+            raw_sample_rate=16000,
+            feat_sample_rate=100,
+            no_conversion=ogg_zip_file.creator.no_conversion,
+            returnn_root=returnn_root,
+        ).out_ogg_zip
     ogg_zip_base_args = dict(
-        oggzip_files=[ogg_zip_dict["train-clean-100"]],
+        oggzip_files=[ogg_zip_file],
         alignments=train_align_job.out_hdf_files,
         audio={"features": "raw", "peak_normalization": True, "preemphasis": None},
         meta_args={
