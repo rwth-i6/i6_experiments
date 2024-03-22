@@ -388,11 +388,47 @@ def add_transducer_mbr_layers(
     from_list: Union[str, List[str]],
 ):
     network.update({
+        "nbest_classes_size_dense": {
+            "class": "reinterpret_data",
+            "from": "data:nbest_classes_size",
+            "set_sparse": False,
+        },
+        "nbest_classes_size_int32": {
+            "class": "cast",
+            "dtype": "int32",
+            "from": "nbest_classes_size_dense",
+        },
+        "nbest_risk_dense": {
+            "class": "reinterpret_data",
+            "from": "data:nbest_risk",
+            "set_sparse": False,
+        },
+        "nbest_risk_float32": {
+            "class": "cast",
+            "dtype": "float32",
+            "from": "nbest_risk_dense",
+        },
+        "nbest_score_float32": {
+            "class": "cast",
+            "dtype": "float32",
+            "from": "data:nbest_score",
+        },
+        "nbest_classes_int32": {
+            "class": "cast",
+            "dtype": "int32",
+            "from": "data:nbest_classes",
+        },
+        "nbest_classes_sparse": {
+            "class": "reinterpret_data",
+            "set_sparse": True,
+            "set_sparse_dim": 88,
+            "from": "nbest_classes_int32",
+        },
         "nbest_embedding": {
             "L2": 5e-06,
             "activation": None,
             "class": "linear",
-            "from": "data:nbest_classes",
+            "from": "nbest_classes_sparse",
             "n_out": 128,
             "reuse_params": "output/rec/embedding",
             "with_bias": False,
@@ -430,9 +466,10 @@ def add_transducer_mbr_layers(
             "dropout": 0.25,
             "from": from_list + [
                 "nbest_label_lm_2",
-                "data:nbest_classes",
-                "data:nbest_score",
-                "data:nbest_risk",
+                "nbest_classes_sparse",
+                "nbest_score_float32",
+                "nbest_risk_float32",
+                "nbest_classes_size_int32",
             ],
             "loss": "as_is",
             "nbest": 4,

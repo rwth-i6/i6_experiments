@@ -6,6 +6,7 @@ In order to use different software paths without hash changes, just use the same
 If you want a stronger guarantee that you get the intended results, please consider using the explicit software
 version listed here. Nevertheless, the most recent "head" should be safe to be used as well
 """
+import copy
 import os.path
 
 from sisyphus import tk

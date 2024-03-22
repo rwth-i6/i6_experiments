@@ -21,13 +21,14 @@ from i6_experiments.users.berger.recipe.lexicon.modification import (
     DeleteEmptyOrthJob,
     EnsureSilenceFirstJob,
     MakeBlankLexiconJob,
+    DeleteLemmataFromLexiconJob,
 )
 from i6_experiments.users.vieting.jobs.returnn import PeakyAlignmentJob
 from .default_tools import RETURNN_ROOT, RETURNN_EXE
 import i6_experiments.users.vieting.util.returnn as returnn_util
 
 
-def get_switchboard_data():
+def get_switchboard_data(lexicon_remove_sentence_boundary: bool = False):
     """
     Get train and test data for switchboard dataset. This is on the level of RASR corpus and segment file, lexicon,
     language model etc., not yet involving anything RETURNN specific.
@@ -84,6 +85,8 @@ def get_switchboard_data():
     lexicon_recog_ctc = AddEowPhonemesToLexiconJob(lexicon_rasr_loss, nonword_phones=non_word_phones).out_lexicon
     lexicon_transducer = AddEowPhonemesToLexiconJob(lexicon_base, nonword_phones=non_word_phones).out_lexicon
     lexicon_transducer = EnsureSilenceFirstJob(lexicon_transducer).out_lexicon
+    if lexicon_remove_sentence_boundary:
+        lexicon_transducer = DeleteLemmataFromLexiconJob(lexicon_transducer, ["[SENTENCE-END]"]).out_lexicon
     lexicon_args = {
         "normalize_pronunciation": False,
         "add_all": True,

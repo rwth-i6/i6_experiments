@@ -1,6 +1,17 @@
+import numpy as np
 import tensorflow as tf
-from returnn.tf.layers.basic import _ConcatInputLayer, register_layer_class
+from returnn.tf.layers.basic import (
+    _ConcatInputLayer,
+    register_layer_class,
+)
+from returnn.tf.util.basic import (
+    dot,
+    reuse_name_scope,
+    dropout,
+    get_activation_function,
+)
 from returnn.tf.util.data import Data
+from returnn.extern_private.BergerMonotonicRNNT import rnnt_loss
 
 
 # iterative computation over NBest to solve memory issue (still N limit due to gradients)
@@ -29,21 +40,28 @@ class IterativeNBestMBRLossLayer(_ConcatInputLayer):
         dec = dec_out.get_placeholder_as_batch_major()
         seq = seq_out.get_placeholder_as_batch_major()
         enc_lens = enc_out.get_sequence_lengths()
-        dec_lens = dec_out.get_sequence_lengths()
-        seq_lens = seq_out.get_sequence_lengths()
+        seq_lens = sources[5].output.get_placeholder_as_batch_major()  # (B, N)
+        dec_lens = seq_lens + 1
+
         # additional scores used in NBest generation, e.g. lm_score
-        add_scores = sources[3].output.get_placeholder_as_batch_major()  # (B*N,)
-        nbest_risks = sources[4].output.get_placeholder_as_batch_major()
+        add_scores = sources[3].output.get_placeholder_as_batch_major()  # (B, N)
+        nbest_risks = sources[4].output.get_placeholder_as_batch_major()  # (B, N)
+
+        # flatten to be consistent with Wei's data format
+        dec = tf.transpose(dec, [0, 2, 1, 3])
+        dec = tf.reshape(dec, [tf.shape(dec)[0] * tf.shape(dec)[1], tf.shape(dec)[2], tf.shape(dec)[3]])
+        seq = tf.transpose(seq, [0, 2, 1])
+        seq = tf.reshape(seq, [tf.shape(seq)[0] * tf.shape(seq)[1], tf.shape(seq)[2]])
+        add_scores = tf.reshape(add_scores, [-1])  # (B*N,)
+        nbest_risks = tf.reshape(nbest_risks, [-1])  # (B*N,)
+        seq_lens = tf.reshape(seq_lens, [-1])  # (B*N,)
+        dec_lens = tf.reshape(dec_lens, [-1])  # (B*N,)
+
         # all further input regarded as computation dependency for memory issue
         if len(sources) >= 6:
             extra_dep = [s.output.placeholder for s in sources[5:]]
         else:
             extra_dep = []
-
-        import tensorflow as tf
-        import numpy as np
-        from returnn.tf.util import dot, reuse_name_scope, dropout, get_activation_function
-        from returnn.extern_private.BergerMonotonicRNNT import rnnt_loss
 
         B = tf.shape(enc)[0]
         BN = tf.shape(add_scores)[0]
@@ -56,21 +74,21 @@ class IterativeNBestMBRLossLayer(_ConcatInputLayer):
         assert len(reuse_joint) >= 3 and len(reuse_output) >= 2
         with self.var_creation_scope(param_name_suffix=reuse_joint[0]):
             W_joint = self.add_param(
-                tf.get_variable(name="W", shape=(F1 + F2, reuse_joint[1]), dtype=tf.float32),
+                tf.compat.v1.get_variable(name="W", shape=(F1 + F2, reuse_joint[1]), dtype=tf.float32),
                 param_name_suffix=reuse_joint[0],
             )
             b_joint = self.add_param(
-                tf.get_variable(name="b", shape=(reuse_joint[1],), dtype=tf.float32),
+                tf.compat.v1.get_variable(name="b", shape=(reuse_joint[1],), dtype=tf.float32),
                 param_name_suffix=reuse_joint[0],
             )
         joint_act_func = get_activation_function(reuse_joint[2])
         with self.var_creation_scope(param_name_suffix=reuse_output[0]):
             W_output = self.add_param(
-                tf.get_variable(name="W", shape=(reuse_joint[1], reuse_output[1]), dtype=tf.float32),
+                tf.compat.v1.get_variable(name="W", shape=(reuse_joint[1], reuse_output[1]), dtype=tf.float32),
                 param_name_suffix=reuse_output[0],
             )
             b_output = self.add_param(
-                tf.get_variable(name="b", shape=(reuse_output[1],), dtype=tf.float32),
+                tf.compat.v1.get_variable(name="b", shape=(reuse_output[1],), dtype=tf.float32),
                 param_name_suffix=reuse_output[0],
             )
         # no L2 on output layer
@@ -128,7 +146,7 @@ class IterativeNBestMBRLossLayer(_ConcatInputLayer):
                         compress_concat,
                         keep_prob=1 - self.dropout,
                         noise_shape=(1, F1 + F2),
-                        seed=self.network.random.randint(2**31),
+                        seed=self.network.random.randint(2 ** 31),
                     ),
                     lambda: compress_concat,
                 )
@@ -161,9 +179,9 @@ class IterativeNBestMBRLossLayer(_ConcatInputLayer):
         ref_mask = tf.where(tf.greater(seq_lens, 0), ref_mask, tf.zeros_like(ref_mask))
         # optional scaled rnnt-loss
         if rnnt_loss_scale > 0:
-            rnnt_loss = rnnt_loss_scale * tf.reduce_sum(nbest_scores * ref_mask)
+            rnnt_loss_scaled = rnnt_loss_scale * tf.reduce_sum(nbest_scores * ref_mask)
         else:
-            rnnt_loss = 0
+            rnnt_loss_scaled = 0
         # add additional score and gobal scale before renormalization
         if use_nbest_score:
             nbest_scores = nbest_scores + add_scores
@@ -178,12 +196,10 @@ class IterativeNBestMBRLossLayer(_ConcatInputLayer):
         nbest_mbr = tf.reshape(norm_nbest, [-1]) * nbest_risks
         nbest_mbr = tf.where(tf.equal(seq_lens, 0), tf.zeros_like(nbest_mbr), nbest_mbr)
         # directly a scalar MBR loss + optional scaled rnnt-loss
-        self.output.placeholder = tf.reduce_sum(nbest_mbr) + rnnt_loss
+        self.output.placeholder = tf.reduce_sum(nbest_mbr) + rnnt_loss_scaled
 
     @classmethod
     def get_out_data_from_opts(cls, name, sources, **kwargs):
-        from returnn.tf.util.data import Data
-
         return Data(
             name="%s_output" % name,
             shape=(),
@@ -194,8 +210,6 @@ class IterativeNBestMBRLossLayer(_ConcatInputLayer):
         )
 
     def get_params_l2_norm(self):
-        import tensorflow as tf
-
         return 2 * sum(
             [tf.nn.l2_loss(param) for (name, param) in sorted(self.params.items()) if not name in self.no_l2_params]
         )
