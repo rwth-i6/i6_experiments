@@ -331,6 +331,50 @@ class TDNN(nn.Module):
             x = self.drop(x)
 
         return x
+    
+class InvBatchNorm(nn.Module):
+    def __init__(self, channels, affine=True, momentum=0.1):
+        super().__init__()
+        self.channels = channels
+
+        self.affine = affine
+        self.momentum = momentum
+
+        self.register_buffer("running_mean", torch.zeros(1, channels, 1))
+        self.register_buffer("running_var", torch.ones(1, channels, 1))
+
+        if affine:
+            self.log_gamma = nn.Parameter(torch.zeros(1, channels, 1))
+            self.beta = nn.Parameter(torch.zeros(1, channels, 1))
+
+    def forward(self, x, x_mask, reverse=False, **kwargs):
+        x_len = torch.sum(x_mask, [1, 2])
+        if not reverse:
+            var = x.var(dim=(0,2)).unsqueeze(0).unsqueeze(-1)
+            mean = x.mean(dim=(0,2)).unsqueeze(0).unsqueeze(-1)
+            # std, mean = torch.std_mean(x, dim=1)
+            logvar = torch.log(var)
+
+            x = (x - mean) / torch.sqrt(var + 1e-8) * x_mask
+
+            self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean
+            self.running_var = (1 - self.momentum) * self.running_var + self.momentum * var
+
+            logdet = -0.5 * logvar.sum() * x_len
+
+            if self.affine:
+                x = (self.beta + torch.exp(self.log_gamma) * x) * x_mask
+
+                logdet += torch.sum(self.log_gamma) * x_len
+        else:
+            if self.affine:
+                x = (x - self.beta) * torch.exp(-self.log_gamma) * x_mask
+
+            x = self.running_mean + (torch.sqrt(self.running_var + 1e-8) * x)
+
+            logdet = None
+
+        return x, logdet
 
 
 class ActNorm(nn.Module):
