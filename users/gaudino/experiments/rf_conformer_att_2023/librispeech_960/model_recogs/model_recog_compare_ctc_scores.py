@@ -114,7 +114,7 @@ def model_recog_compare_ctc_scores(
     for i in range(batch_size):
         seq = ground_truth.raw_tensor[i]
         seq = seq[seq != 0]
-        ctc_scores[i] = ctc_forward_algorithm(ctc_out[i].to('cpu') , seq, blank_index)
+        ctc_scores[i] = ctc_forward_algorithm(ctc_out[i].to('cpu'), seq, blank_index)
 
     ctc_scores = rf.Tensor('ctc_scores', [batch_size_dim], dtype="float32", raw_tensor=ctc_scores)
 

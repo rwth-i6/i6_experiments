@@ -56,6 +56,45 @@ def forward_model(
         # outputs[name] = score_out
     return recog_out
 
+def forward_custom_dataset(
+    *,
+    dataset: DatasetConfig,
+    model: ModelWithCheckpoint,
+    recog_def: RecogDef,
+    search_post_config: Optional[Dict[str, Any]] = None,
+    search_mem_rqmt: Union[int, float] = 6,
+    recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
+    model_args: Optional[Dict[str, Any]] = None,
+    search_args: Optional[Dict[str, Any]] = None,
+    prefix_name: str,
+    forward_lm: bool = False,
+) -> RecogOutput:
+    """
+    recog on the specific dataset
+    """
+    forward_job = ReturnnForwardJobV2(
+        model_checkpoint=model.checkpoint,
+        returnn_config=forward_config(dataset, model.definition, recog_def, post_config=search_post_config,
+                                      search_args=search_args, model_args=model_args, forward_lm=forward_lm),
+        output_files=[_v2_forward_out_filename],
+        returnn_python_exe=tools_paths.get_returnn_python_exe(),
+        returnn_root=tools_paths.get_returnn_root(),
+        mem_rqmt=search_mem_rqmt,
+    )
+    forward_job.add_alias(prefix_name + "/forward_custom_job")
+    res = forward_job.out_files[_v2_forward_out_filename]
+
+    # if recog_def.output_blank_label:
+    #     res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
+    # for f in recog_post_proc_funcs:  # for example BPE to words
+    #     res = f(RecogOutput(output=res)).output
+    # if recog_def.output_with_beam:
+    #     # Don't join scores here (SearchBeamJoinScoresJob).
+    #     #   It's not clear whether this is helpful in general.
+    #     #   As our beam sizes are very small, this might boost some hyps too much.
+    #     res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
+    return RecogOutput(output=res)
+
 
 def forward_dataset(
     *,

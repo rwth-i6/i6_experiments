@@ -123,16 +123,16 @@ def test_import_search():
         #     "mel_normalization": True,
         # }
         # pt_checkpoint_path = _tedlium2_ckpt_path_ctc_only
-        #
-        # model_args_ctc_only = {
-        #     # "add_trafo_lm": True,
-        #     "target_embed_dim": 256,
-        #     "mel_normalization": True,
-        #     "encoder_ctc": True,
-        # }
-        # pt_checkpoint_path = _tedlium2_ckpt_path_baseline__ctc_only
 
-        model_args = model_args_att_only
+        model_args_sep_enc = {
+            # "add_trafo_lm": True,
+            "target_embed_dim": 256,
+            "mel_normalization": True,
+            "encoder_ctc": True,
+        }
+        pt_checkpoint_path = _tedlium2_ckpt_path_baseline__ctc_only
+
+        model_args = model_args_sep_enc
 
 
 
@@ -266,9 +266,9 @@ def test_import_search():
     search_args = {
         "beam_size": 12,
         "att_scale": 1.0,
-        # "ctc_scale": 0.0,
-        # "use_ctc": True,
-        # "encoder_ctc": True,
+        "ctc_scale": 0.3,
+        "use_ctc": True,
+        "encoder_ctc": True,
         # "add_trafo_lm": True,
         # "lm_scale": 0.5,
         # "ctc_scale": 1.0,

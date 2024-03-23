@@ -28,7 +28,7 @@ def ctc_forward_algorithm(ctc_log_probs, seq, blank_idx=10025, rescale=False):
     """ctc forward score for all possible paths."""
 
     mod_seq = torch.stack([seq, torch.fill(seq, blank_idx)], dim=1).flatten()
-    mod_seq = torch.cat((torch.tensor([blank_idx], device="cpu"), mod_seq))
+    mod_seq = torch.cat((torch.tensor([blank_idx], device=mod_seq.device), mod_seq))
     mod_seq_len = mod_seq.size(0)
 
     # ctc_log_probs [T, O]

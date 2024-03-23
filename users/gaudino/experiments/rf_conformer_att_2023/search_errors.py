@@ -54,7 +54,7 @@ class ComputeSearchErrorsJob(Job):
                     score_ground_truth,
                     score_search,
                 )
-                log_txt += "\n\tGround-truth seq: %s\n\tSearch seq: %s" % (
+                log_txt += "\n\tGround-truth seq: %s\n\tSearch seq:       %s" % (
                     str(targets_ground_truth),
                     str(targets_search),
                 )
