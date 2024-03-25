@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from typing import Optional, Any, Tuple, Dict, Sequence, List
-import tree
 from itertools import product
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.lm_import_2023_11_09 import (
@@ -14,14 +13,13 @@ from sisyphus import tk
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
-from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.lm_import_2023_09_03 import (
     LSTM_LM_Model,
     # MakeModel,
 )
-from i6_experiments.users.gaudino.model_interfaces import ModelDef, RecogDef, TrainDef
+from i6_experiments.users.gaudino.model_interfaces.model_interfaces import ModelDef, TrainDef
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog import (
     model_recog,
@@ -65,10 +63,8 @@ _log_mel_feature_dim = 80
 
 def sis_run_with_prefix(prefix_name: str = None):
     """run the exp"""
-    from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
-    from ._moh_att_2023_06_30_import import map_param_func_v3
     from .sis_setup import get_prefix_for_config
-    from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
+    from i6_core.returnn.training import PtCheckpoint
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
     from i6_experiments.users.gaudino.recog import recog_model
     from i6_experiments.users.gaudino.forward import forward_model
