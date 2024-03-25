@@ -23,7 +23,9 @@ import i6_core.mm as mm
 import i6_core.rasr as rasr
 import i6_core.recognition as recog
 
-# common modules
+import i6_experiments.users.raissi.setups.librispeech.decoder as lbs_decoder
+
+# --------------------------------------------------------------------------------
 from i6_experiments.common.setups.rasr.util import (
     OggZipHdfDataInput,
     RasrInitArgs,
@@ -38,18 +40,15 @@ from i6_experiments.users.raissi.setups.common.TF_factored_hybrid_system import 
     TFFactoredHybridBaseSystem,
 )
 
-
 from i6_experiments.users.raissi.setups.common.data.factored_label import (
     LabelInfo,
     PhoneticContext,
     RasrStateTying,
 )
 
-
 from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import (
     RasrFeatureScorer,
 )
-
 
 from i6_experiments.users.raissi.setups.common.decoder.config import (
     PriorInfo,
@@ -57,7 +56,8 @@ from i6_experiments.users.raissi.setups.common.decoder.config import (
     PosteriorScales,
 )
 
-import i6_experiments.users.raissi.setups.librispeech.decoder as lbs_decoder
+from i6_experiments.users.raissi.setups.librispeech.config import CV_SEGMENTS, P_HMM_AM7T1_ALIGNMENT_40ms
+
 
 class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
     """
@@ -88,8 +88,7 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             initial_nn_args=initial_nn_args,
         )
         self.recognizers = {"base": lbs_decoder.LBSFactoredHybridDecoder}
-
-
+        self.cv_info = {"segment_list": CV_SEGMENTS, "alignment": {"dev-other_dev-clean": P_HMM_AM7T1_ALIGNMENT_40ms}}
 
     def get_recognizer_and_args(
         self,

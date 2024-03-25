@@ -407,7 +407,7 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
 
         #consider if you need to create separate alignment params
         align_args = self.get_parameters_for_aligner(context_type=context_type, prior_info=p_info)
-        dataclasses.replace(align_args, non_word_phonemes="[LAUGHTER],[NOISE],[VOCALIZEDNOISE]")
+        align_args = dataclasses.replace(align_args, non_word_phonemes="[LAUGHTER],[NOISE],[VOCALIZEDNOISE]")
 
         aligner = self.aligners[aligner_key](
             name=name,

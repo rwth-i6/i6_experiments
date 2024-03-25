@@ -222,6 +222,7 @@ class BASEFactoredHybridSystem(NnSystem):
         # keys when you have different dev and test sets
         self.train_key = None
         self.cv_num_segments = 100
+        self.cv_info = None
 
         self.set_initial_nn_args(initial_nn_args=initial_nn_args)
 
@@ -249,6 +250,7 @@ class BASEFactoredHybridSystem(NnSystem):
 
         self.crp_names["dev"] = dev_key
         self.crp_names["test"] = test_key
+        self.sort_returnn_config = True
 
     def set_experiment_dict(self, key, alignment, context, postfix_name=""):
         prefix_name = f"{context}-from-{alignment}"
@@ -889,6 +891,7 @@ class BASEFactoredHybridSystem(NnSystem):
             hash_full_python_code=True,
             python_prolog=python_prolog,
             python_epilog=python_epilog,
+            sort_config=self.sort_returnn_config,
         )
         self.experiments[key]["returnn_config"] = returnn_config
         self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
@@ -1218,8 +1221,12 @@ class BASEFactoredHybridSystem(NnSystem):
                 native_lstm_compilation_args=native_lstm_compilation_args,
             )
             if len(self.cv_corpora) > 1:
-                assert "cv_info" in init_args, "please set the segment file for the cross validation data"
-                self._add_merged_cv_corpus(segment_list=init_args["cv_info"]["segment_list"])
+                if self.cv_info is None or self.cv_info["segment_list"] is None:
+                    assert "cv_info" in init_args, "please set the segment file for the cross validation data"
+                    segment_list = init_args["cv_info"]["segment_list"]
+                else:
+                    segment_list = self.cv_info["segment_list"]
+                self._add_merged_cv_corpus(segment_list=segment_list)
         all_corpora = self.train_corpora + self.cv_corpora + self.dev_corpora + self.test_corpora
         for eval_c in self.dev_corpora + self.test_corpora:
             stm_args = self.rasr_init_args.stm_args if self.rasr_init_args.stm_args is not None else {}
@@ -1242,6 +1249,8 @@ class BASEFactoredHybridSystem(NnSystem):
             # here you might one to align cv with a given aligner
             if step_name.startswith("alignment"):
                 # step_args here is a dict that has the keys as corpora
+                if self.cv_info is not None:
+                    step_args.update(self.cv_info["alignment"])
                 for c in step_args.keys():
                     self.alignments[c] = step_args[c]
             # ---------------Step Input ----------

@@ -642,7 +642,7 @@ class BASEFactoredHybridDecoder:
 
         search_crp = copy.deepcopy(self.crp)
 
-        if search_crp.lexicon_config.normalize_pronunciation and pron_scale is not None:
+        if search_crp.lexicon_config.normalize_pronunciation and search_parameters.pron_scale is not None:
             model_combination_config = rasr.RasrConfig()
             model_combination_config.pronunciation_scale = search_parameters.pron_scale
             pron_scale = search_parameters.pron_scale
