@@ -33,6 +33,7 @@ Path = tk.setup_path(__package__)
 # Either returnn config or a function that creates a config out of an optuna trial object
 ReturnnConfigType = Union[returnn.ReturnnConfig, custom_returnn.OptunaReturnnConfig]
 TrainJobType = Union[returnn.ReturnnTrainingJob, custom_returnn.OptunaReturnnTrainingJob]
+RecogJobType = Union[recognition.AdvancedTreeSearchJob, custom_recognition.GenericSeq2SeqSearchJob]
 ScoreJobType = Union[Type[recognition.ScliteJob], Type[recognition.Hub5ScoreJob]]
 ScoreJob = Union[recognition.ScliteJob, recognition.Hub5ScoreJob]
 EpochType = Union[int, Literal["best"]]
@@ -121,8 +122,9 @@ class TransducerSystem:
         # exp-name mapped to ReturnnConfigs collection
         self.returnn_configs: Dict[str, ReturnnConfigs] = {}
 
-        # exp-name mapped to train job
+        # exp-name mapped to train/recog job
         self.train_jobs: Dict[str, TrainJobType] = {}
+        self.recog_jobs: Dict[str, RecogJobType] = {}
 
         # exp-name mapped to Checkpoint object
         self.best_checkpoints: Dict[str, returnn.Checkpoint] = {}
@@ -644,6 +646,7 @@ class TransducerSystem:
 
             rec.set_vis_name(f"Recog {path}")
             rec.add_alias(path)
+            self.recog_jobs[path] = rec
 
             scorer_job = self._lattice_scoring(
                 filename=path,
