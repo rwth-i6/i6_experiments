@@ -639,7 +639,9 @@ class BASEFactoredHybridSystem(NnSystem):
         if self.training_criterion == TrainingCriterion.FULLSUM:
             configure_automata = True
         # get the train data for alignment before you changed any setting
-        nn_train_align_data = copy.deepcopy(self.inputs[self.train_key][input_key].as_returnn_rasr_data_input())
+        nn_train_align_data = copy.deepcopy(
+            self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(feature_flow_key=self.nn_feature_type)
+        )
 
         if is_cv_separate_from_train:
             (
@@ -659,10 +661,14 @@ class BASEFactoredHybridSystem(NnSystem):
         nn_train_data_inputs[self.crp_names["align.train"]] = nn_train_align_data
 
         nn_dev_data_inputs = {
-            self.crp_names["dev"]: self.inputs[self.crp_names["dev"]][input_key].as_returnn_rasr_data_input(),
+            self.crp_names["dev"]: self.inputs[self.crp_names["dev"]][input_key].as_returnn_rasr_data_input(
+                feature_flow_key=self.nn_feature_type
+            ),
         }
         nn_test_data_inputs = {
-            self.crp_names["test"]: self.inputs[self.crp_names["test"]][input_key].as_returnn_rasr_data_input(),
+            self.crp_names["test"]: self.inputs[self.crp_names["test"]][input_key].as_returnn_rasr_data_input(
+                feature_flow_key=self.nn_feature_type
+            ),
         }
         self._init_datasets(
             train_data=nn_train_data_inputs,
@@ -698,16 +704,20 @@ class BASEFactoredHybridSystem(NnSystem):
 
         # ******************** NN Init ********************
         nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
-            shuffling_parameters=self.shuffling_params
+            feature_flow_key=self.nn_feature_type, shuffling_parameters=self.shuffling_params
         )
         nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
         nn_train_data_inputs = {self.crp_names["train"]: nn_train_data}
 
-        nn_cv_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input()
+        nn_cv_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
+            feature_flow_key=self.nn_feature_type
+        )
         nn_cv_data.update_crp_with(segment_path=cv_segments, concurrent=1)
         nn_cv_data_inputs = {self.crp_names["cvtrain"]: nn_cv_data}
 
-        nn_devtrain_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input()
+        nn_devtrain_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
+            feature_flow_key=self.nn_feature_type
+        )
         nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
         nn_devtrain_data_inputs = {self.crp_names["devtrain"]: nn_devtrain_data}
 
@@ -744,6 +754,7 @@ class BASEFactoredHybridSystem(NnSystem):
             self.crp[self.crp_names["bw"]] = crp_bw
 
         nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
+            feature_flow_key=self.nn_feature_type,
             shuffling_parameters=self.shuffling_params,
             returnn_rasr_training_args=ReturnnRasrTrainingArgs(partition_epochs=self.partition_epochs["train"]),
         )
@@ -751,12 +762,15 @@ class BASEFactoredHybridSystem(NnSystem):
         nn_train_data_inputs = {self.crp_names["train"]: nn_train_data}
 
         nn_cv_data = self.inputs[cv_corpus_key][input_key].as_returnn_rasr_data_input(
-            returnn_rasr_training_args=ReturnnRasrTrainingArgs(partition_epochs=self.partition_epochs["dev"])
+            feature_flow_key=self.nn_feature_type,
+            returnn_rasr_training_args=ReturnnRasrTrainingArgs(partition_epochs=self.partition_epochs["dev"]),
         )
         nn_cv_data.update_crp_with(corpus_file=cv_corpus, segment_path=cv_segments, concurrent=1)
         nn_cv_data_inputs = {self.crp_names["cvtrain"]: nn_cv_data}
 
-        nn_devtrain_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input()
+        nn_devtrain_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
+            feature_flow_key=self.nn_feature_type
+        )
         nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
         nn_devtrain_data_inputs = {self.crp_names["devtrain"]: nn_devtrain_data}
 
@@ -1170,7 +1184,7 @@ class BASEFactoredHybridSystem(NnSystem):
         return self.hdfs[self.train_key]
 
     def create_hdf(self):
-        gammatone_features_paths: MultiPath = self.feature_caches[self.train_key]["gt"]
+        gammatone_features_paths: MultiPath = self.feature_caches[self.train_key][self.nn_feature_type]
         hdf_job = RasrFeaturesToHdf(
             feature_caches=gammatone_features_paths,
         )

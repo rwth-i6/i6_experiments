@@ -209,6 +209,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             upsample_by_transposed_conv=self.frame_rate_reduction_ratio_info.factor == 1,
             chunking=chunking,
             label_smoothing=label_smoothing,
+            clipping=kwargs.pop("clipping", None),
             additional_args=kwargs,
         )
         network = network_builder.network

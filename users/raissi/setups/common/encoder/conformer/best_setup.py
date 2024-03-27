@@ -37,6 +37,7 @@ def get_best_model_config(
     time_tag_name: Optional[str] = None,
     upsample_by_transposed_conv: bool = True,
     feature_stacking_size: int = 3,
+    clipping: Optional[int] = None,
     weights_init: str = DEFAULT_INIT,
     additional_args: Optional[dict] = None,
 ) -> attention_for_hybrid:
@@ -53,9 +54,11 @@ def get_best_model_config(
     assert model_dim % att_dim == 0, "model_dim must be divisible by number of att heads"
 
     if isinstance(chunking, tuple):
-        [clipping, overlap] = [ele["data"] for ele in chunking]
+        [clip, overlap] = [ele["data"] for ele in chunking]
     else:
-        clipping, overlap = [int(v) for v in chunking.split(":")] if chunking is not None else (400, 200)
+        clip, overlap = [int(v) for v in chunking.split(":")] if chunking is not None else (400, 200)
+    if clipping is not None:
+        clip = clipping
 
     enc_args = get_encoder_args(
         model_dim // att_dim,
@@ -66,7 +69,7 @@ def get_best_model_config(
         32,
         0.1,
         0.0,
-        clipping=clipping,
+        clipping=clip,
         layer_norm_instead_of_batch_norm=True,
         relative_pe=True,
         initialization=weights_init,
