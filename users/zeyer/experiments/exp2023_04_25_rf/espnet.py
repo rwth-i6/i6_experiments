@@ -178,6 +178,23 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
+    train_exp(  # 5.11
+        "v6-11gb-f32-bs8k-mgpu4-pavg100-wd1e_2-lrlin1e_5_558k-EBranchformer-dynGradAccumV2",
+        config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
+        {
+            "espnet_config": "egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml",
+            "espnet_fixed_sos_eos": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(8_000, 500),
+            "torch_distributed.sync_on_cpu": True,  # https://github.com/rwth-i6/returnn/issues/1482
+            "optimizer.weight_decay": 1e-2,
+            "accum_grad_multiple_step": dyn_accum_grad_piecewise_linear,
+            "accum_grad_piecewise_steps": [50_000, 100_000, 1_100_000, 1_242_000],
+            "accum_grad_piecewise_values": [1, 100, 1, 1, 10],
+        },
+    )
+
     train_exp(  # 6.13
         "v6-11gb-f32-bs8k-mgpu2-nep500-pavg100-wd1e_4-lrlin1e_5_558k-EBranchformer-dynGradAccumV2",
         config_11gb_v6_f32_bs15k_accgrad1_mgpu4_pavg100_wd1e_4_lrlin1e_5_295k,
