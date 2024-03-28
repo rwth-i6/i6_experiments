@@ -1035,6 +1035,466 @@ def _aed_experiments():
         )
 
 
+def _aed_lstm_moh_experiments():
+    from .configs import config_24gb_v6, dyn_lr_piecewise_linear, _batch_size_factor
+    from .conformer_import_moh_att_2023_06_30 import train_exp, _recog, model_recog_pure_torch, model_warmup
+    from . import trafo_lm_kazuki_import
+
+    model = train_exp(  # 5.41
+        "base-24gb-v6-lrlin1e_5_600k",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+    )
+
+    # All beam search experiments using model_recog_pure_torch, beam_search_sep_ended_keep_v6.
+    for name, recog_config in {
+        "beam12-batch200-lenReward01": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.1,
+            },
+        },
+        "beam12-batch200-lenReward02": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.2,
+            },
+        },
+        "beam12-batch200-lenReward03": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.3,
+            },
+        },
+        "beam12-batch200-lenReward04": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.4,
+            },
+        },
+        "beam12-batch200-lenReward05": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.5,
+            },
+        },
+        "beam12-batch200-lenReward04-thresh2": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.4,
+                "pruning_threshold": 2.0,
+            },
+        },
+        "beam12-batch200-lenReward04-thresh2-maxSeqLen03": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.4,
+                "pruning_threshold": 2.0,
+                "max_seq_len_factor": 0.3,
+            },
+        },
+        "beam12-batch200-lenReward04-thresh2-maxSeqLen05": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.4,
+                "pruning_threshold": 2.0,
+                "max_seq_len_factor": 0.5,
+            },
+            "load_model_post_hooks": [model_warmup],  # test
+        },
+        "beam12-batch200-lenReward04-thresh2-adaptThresh": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.4,
+                "pruning_threshold": 2.0,
+                "adaptive_pruning": True,
+            },
+        },
+        "beam12-batch200-lenReward04-thresh2-adaptThresh-maxSeqLen03": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.4,
+                "pruning_threshold": 2.0,
+                "adaptive_pruning": True,
+                "max_seq_len_factor": 0.3,
+            },
+        },
+        "beam12-batch200-lenReward04-thresh2-adaptThresh-maxSeqLen05": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 0.0,
+                "length_reward": 0.4,
+                "pruning_threshold": 2.0,
+                "adaptive_pruning": True,
+                "max_seq_len_factor": 0.5,
+            },
+            "load_model_post_hooks": [model_warmup],  # test
+        },
+        # "beam12-batch200-lenReward01-thresh10": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #         "pruning_threshold": 10.0,
+        #     },
+        # },
+        # "beam12-batch1-lenReward01-thresh10": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #         "pruning_threshold": 10.0,
+        #     },
+        #     "max_seqs": 1,
+        # },
+        # "beam12-batch200-lenReward01-thresh5": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #         "pruning_threshold": 5.0,
+        #     },
+        # },
+        # "beam12-batch200-lenReward01-thresh2": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #         "pruning_threshold": 2.0,
+        #     },
+        # },
+        # "beam12-batch200-lenReward01-thresh0": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #         "pruning_threshold": 0.0,
+        #     },
+        # },
+        # "beam12-batch200-lenReward01-thresh5-threshW0": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #         "pruning_threshold": 5.0,
+        #         "pruning_threshold_worst": 0.0,
+        #     },
+        # },
+        # "beam12-batch200-lenReward02-thresh2": {
+        #     "beam_search_opts": {
+        #         "beam_size": 12,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.2,
+        #         "pruning_threshold": 2.0,
+        #     },
+        # },
+        "beam12-batch200-lenNorm1": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 1.0,
+            },
+        },
+        "beam12-batch200-lenNorm1-thresh2": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 1.0,
+                "pruning_threshold": 2.0,
+            },
+        },
+        "beam12-batch200-lenNorm1-thresh2-adaptThresh": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 1.0,
+                "pruning_threshold": 2.0,
+                "adaptive_pruning": True,
+            },
+        },
+        "beam12-batch200-lenNorm1-thresh2-adaptThresh-maxSeqLen03": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 1.0,
+                "pruning_threshold": 2.0,
+                "adaptive_pruning": True,
+                "max_seq_len_factor": 0.3,
+            },
+        },
+        "beam12-batch200-lenNorm1-lenNormOff5-thresh20-adaptThresh-maxSeqLen05": {
+            "beam_search_opts": {
+                "beam_size": 12,
+                "length_normalization_exponent": 1.0,
+                "length_normalization_offset": 5,
+                "pruning_threshold": 20.0,
+                "adaptive_pruning": True,
+                "max_seq_len_factor": 0.5,
+            },
+        },
+        "beam20-batch50-lenNorm05-maxSeqLen05-lm03": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "length_normalization_exponent": 0.5,
+                "lm_scale": 0.3,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+            "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM...
+        },
+        "beam20-batch50-lenNorm1-maxSeqLen05-lm03": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "length_normalization_exponent": 1.0,
+                "lm_scale": 0.3,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+            "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM...
+        },
+        "beam20-batch50-lenNorm1-maxSeqLen05-lm05": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "length_normalization_exponent": 1.0,
+                "lm_scale": 0.5,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+        },
+        # "beam60-batch50-lenReward01": {
+        #     "beam_search_opts": {
+        #         "beam_size": 60,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.1,
+        #     },
+        #     "max_seqs": 50,
+        #     "batch_size": 5000 * _batch_size_factor,
+        # },
+        # "beam60-batch50-lenReward02": {
+        #     "beam_search_opts": {
+        #         "beam_size": 60,
+        #         "length_normalization_exponent": 0.0,
+        #         "length_reward": 0.2,
+        #     },
+        #     "max_seqs": 50,
+        #     "batch_size": 5000 * _batch_size_factor,
+        # },
+        "beam60-batch50-lenNorm1": {
+            "beam_search_opts": {
+                "beam_size": 60,
+                "length_normalization_exponent": 1.0,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        # "beam60-batch50-lenNorm0-lenReward0": {
+        #     "beam_search_opts": {
+        #         "beam_size": 60,
+        #         "length_normalization_exponent": 0.0,
+        #     },
+        #     "max_seqs": 50,
+        #     "batch_size": 5000 * _batch_size_factor,
+        # },
+        "beam60-batch50bs2k-lenNorm1-maxSeqLen05-lm03": {
+            "beam_search_opts": {
+                "beam_size": 60,
+                "length_normalization_exponent": 1.0,
+                "lm_scale": 0.3,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 2000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+            "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM...
+        },
+        "beam60-batch50bs2k-lenNorm1-maxSeqLen05-lm05": {
+            "beam_search_opts": {
+                "beam_size": 60,
+                "length_normalization_exponent": 1.0,
+                "lm_scale": 0.5,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 2000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+            "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM...
+        },
+    }.items():
+        for k, v in {
+            "beam_search_version": "sep_ended_keep_v6",
+            "__batch_size_dependent": True,
+            "__recog_def_ext": True,
+            "beam_search_collect_individual_seq_scores": True,
+        }.items():
+            recog_config.setdefault(k, v)
+        recog_config["beam_search_opts"].setdefault("beam_ended_size", recog_config["beam_search_opts"]["beam_size"])
+        _recog(
+            "base-24gb-v6-lrlin1e_5_600k/recog_last_keep_" + name,
+            model.get_last_fixed_epoch(),
+            model_recog_pure_torch,
+            recog_config,
+        )
+    # recog_last_std_*: using beam_search_v5
+    for name, recog_config in {
+        "beam20-batch50-lenNorm1": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "length_normalization_exponent": 1.0,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+        },
+        "beam20-batch50-lenNorm1-maxSeqLen05-lm02": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "length_normalization_exponent": 1.0,
+                "lm_scale": 0.2,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+        },
+        "beam20-batch50-lenNorm1-maxSeqLen05-lm03": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "length_normalization_exponent": 1.0,
+                "lm_scale": 0.3,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+        },
+        "beam20-batch50-lenNorm1-maxSeqLen05-lm04": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "length_normalization_exponent": 1.0,
+                "lm_scale": 0.4,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+        },
+        "beam20-batch50-lenNorm1-maxSeqLen05-lm05": {
+            "beam_search_opts": {
+                "beam_size": 20,
+                "length_normalization_exponent": 1.0,
+                "lm_scale": 0.5,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 5000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+        },
+        "beam60-batch50bs2k-lenNorm1-maxSeqLen05-lm05": {
+            "beam_search_opts": {
+                "beam_size": 60,
+                "length_normalization_exponent": 1.0,
+                "lm_scale": 0.5,
+                "max_seq_len_factor": 0.5,
+            },
+            "max_seqs": 50,
+            "batch_size": 2000 * _batch_size_factor,
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                }
+            },
+            "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM...
+        },
+    }.items():
+        for k, v in {
+            "beam_search_version": 5,
+            "__batch_size_dependent": True,
+            "__recog_def_ext": True,
+            "beam_search_collect_individual_seq_scores": True,
+        }.items():
+            recog_config.setdefault(k, v)
+        _recog(
+            "base-24gb-v6-lrlin1e_5_600k/recog_last_std_" + name,
+            model.get_last_fixed_epoch(),
+            model_recog_pure_torch,
+            recog_config,
+        )
+
+
 def _espnet_model_experiments():
     from .espnet import train_exp, _recog, model_recog, model_recog_our
     from .configs import (
