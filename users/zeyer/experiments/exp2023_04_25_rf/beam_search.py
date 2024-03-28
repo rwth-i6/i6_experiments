@@ -8,6 +8,7 @@ Beam search related experiments.
 def py():
     """Sis entry point"""
     _aed_experiments()
+    _aed_lstm_moh_experiments()
     _espnet_model_experiments()
     _espnet_orig_ebranchformer_experiments()
 
