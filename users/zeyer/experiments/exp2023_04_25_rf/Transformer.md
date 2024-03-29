@@ -119,3 +119,5 @@ Via https://huggingface.co/transformers/v3.5.1/_modules/transformers/modeling_t5
 - separate LR for bias terms, scaled larger by dimension?
   At the same time, weight decay is smaller by the same inverse factor.
   (https://github.com/tysam-code/hlb-CIFAR10/blob/ad103b43d29f08b348b522ad89d38beba8955f7c/main.py#L50)
+
+- start with Adam, then switch to SGD with momentum
