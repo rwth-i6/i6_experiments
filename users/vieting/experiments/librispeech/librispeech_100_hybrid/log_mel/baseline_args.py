@@ -136,8 +136,20 @@ def get_nn_args_single(
         **(returnn_args or {}),
     )
 
+    returnn_recog_config = get_returnn_config(
+        num_inputs=1,
+        num_outputs=num_outputs,
+        evaluation_epochs=evaluation_epochs,
+        peak_lr=peak_lr,
+        num_epochs=num_epochs,
+        feature_net=feature_net,
+        recognition=True,
+        datasets=datasets,
+        **(returnn_args or {}),
+    )
 
-    return returnn_config, returnn_config
+
+    return returnn_config, returnn_recog_config
 
 def fix_network_for_sparse_output(net):
     net = copy.deepcopy(net)
@@ -194,9 +206,9 @@ def get_returnn_config(
     datasets = None,
 
 ):
-    datasets["train"] = datasets["train"].get_data_dict()
-    datasets["cv"] = datasets["cv"].get_data_dict()
-    datasets["devtrain"] = datasets["devtrain"].get_data_dict()
+    datasets["train"] = datasets["train"] if isinstance(datasets["train"], dict) else datasets["train"].get_data_dict()
+    datasets["cv"] = datasets["cv"] if isinstance(datasets["cv"], dict) else datasets["cv"].get_data_dict()
+    datasets["devtrain"] = datasets["devtrain"] if isinstance(datasets["devtrain"], dict) else datasets["devtrain"].get_data_dict()
     base_config = {
         "extern_data": {
             "data": {"dim": 1},
@@ -333,13 +345,6 @@ def get_returnn_config(
         pprint_kwargs={"sort_dicts": False},
     )
 
-
-def get_rc_returnn_configs(
-        num_inputs: int,
-        datasets: Dict[str, Dict],
-        num_outputs: int, batch_size: int, evaluation_epochs: List[int],
-        recognition=False
-):
     # ******************** blstm base ********************
     base_config = {
         **datasets,
@@ -356,7 +361,7 @@ def get_rc_returnn_configs(
     blstm_base_config.update(
         {
             "behavior_version": 15,
-            "batch_size": batch_size,  # {"classes": batch_size, "data": batch_size},
+            "batch_size": {"classes": batch_size, "data": batch_size},
             "chunking": "50:25",
             "extern_data": {"classes": {"dim": num_outputs,"sparse_dim": num_outputs, "sparse": True, "shape": (None, 1)}, "data": {"dim": 50}},
             "optimizer": {"class": "nadam", "epsilon": 1e-8},

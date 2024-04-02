@@ -91,6 +91,30 @@ def run_baseline_mel():
         # noinspection PyUnresolvedReferences
         train_job.rqmt.update({"gpu_mem": 11, "mem": 10})
 
+def run_baseline_scf():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librespeech/hybrid/feat/"
+    scf_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}   
+    hybrid_nn_system = get_hybrid_nn_system(context_window=441)
+    nn_args = get_nn_args_baseline(
+        nn_base_args={
+            "scf": dict(
+                returnn_args={
+                    "batch_size": 5000,
+                    },
+                feature_args=scf_args,
+            ),
+        },
+        num_epochs=125,
+        prefix="bs5k_",
+        datasets=hybrid_nn_system.datasets
+    )
+    nn_steps = RasrSteps()
+    nn_steps.add_step("nn", nn_args)
+    hybrid_nn_system.run(nn_steps)
+    for train_job in hybrid_nn_system.jobs["train-clean-100.train_train-clean-100.cv"].values():
+        # noinspection PyUnresolvedReferences
+        train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
+
 def py():
     """
     called if the file is passed to sis manager, used to run all experiments (replacement for main)

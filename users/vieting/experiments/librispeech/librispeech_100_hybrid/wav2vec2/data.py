@@ -99,7 +99,7 @@ def get_ls100_oggzip_hdf_data_split_train_cv(gmm_system: GmmSystem, sync_ogg: bo
                 "mfcc+context+lda+vtln"].hidden_paths[1].creator.out_feature_bundle["vtln"],
             raw_sample_rate=16000,
             feat_sample_rate=100,
-            no_conversion=ogg_zip_file.creator.no_conversion,
+            no_conversion=False,
             returnn_root=returnn_root,
         ).out_ogg_zip
     ogg_zip_base_args = dict(
