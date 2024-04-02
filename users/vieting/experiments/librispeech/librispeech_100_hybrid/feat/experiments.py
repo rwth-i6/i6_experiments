@@ -37,11 +37,11 @@ def get_hybrid_nn_system(
         nn_test_data_inputs,
     ) = get_corpus_data_inputs(gmm_system)
     if train_seq_ordering:
-        nn_train_data_inputs["librespeech.train"].seq_ordering = train_seq_ordering
+        nn_train_data_inputs["librispeech.train"].seq_ordering = train_seq_ordering
     if audio_opts:
-        nn_train_data_inputs["librespeech.train"].audio = audio_opts
-        nn_cv_data_inputs["librespeech.cv"].audio = audio_opts
-        nn_devtrain_data_inputs["librespeech.devtrain"].audio = audio_opts
+        nn_train_data_inputs["librispeech.train"].audio = audio_opts
+        nn_cv_data_inputs["librispeech.cv"].audio = audio_opts
+        nn_devtrain_data_inputs["librispeech.devtrain"].audio = audio_opts
     #returnn_root = tk.Path("/u/vieting/testing/returnn", hash_overwrite="LIBRISPEECH_DEFAULT_RETURNN_ROOT")
     hybrid_nn_system = HybridSystem(
         returnn_root=RETURNN_ROOT,
@@ -62,7 +62,7 @@ def get_hybrid_nn_system(
 
 
 def run_baseline_mel():
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librespeech/hybrid/feat/"
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/hybrid/feat/"
     log_mel_args_8khz = {
         "class": "LogMelNetwork",
         "wavenorm": True,
@@ -92,7 +92,7 @@ def run_baseline_mel():
         train_job.rqmt.update({"gpu_mem": 11, "mem": 10})
 
 def run_baseline_scf():
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librespeech/hybrid/feat/"
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/hybrid/feat/"
     scf_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}   
     hybrid_nn_system = get_hybrid_nn_system(context_window=441)
     nn_args = get_nn_args_baseline(
