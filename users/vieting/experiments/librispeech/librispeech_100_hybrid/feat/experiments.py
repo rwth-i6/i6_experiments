@@ -1,4 +1,5 @@
 import copy
+import numpy as np
 from typing import Any, Dict, Optional
 from sisyphus import gs, tk
 from i6_core.features.common import samples_flow
@@ -28,7 +29,7 @@ def get_hybrid_nn_system(
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
 
 
-    data = get_ls100_oggzip_hdf_data_split_train_cv(gmm_system, sync_ogg=True)
+    data = get_ls100_oggzip_hdf_data_split_train_cv(gmm_system, sync_ogg=True, context_window=context_window)
     (
         nn_train_data_inputs,
         nn_cv_data_inputs,
@@ -61,7 +62,7 @@ def get_hybrid_nn_system(
     return hybrid_nn_system
 
 
-def run_baseline_mel():
+def run_baseline_mel_legacy():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/hybrid/feat/"
     log_mel_args_8khz = {
         "class": "LogMelNetwork",
@@ -74,22 +75,81 @@ def run_baseline_mel():
     nn_args = get_nn_args_baseline(
         nn_base_args={
             "lm80_fft256": dict(
+                feature_args=log_mel_args_8khz,
                 returnn_args={
                     "batch_size": 5000,
+                    "extra_args": {
+                        "chunking": (
+                            {"classes": 250, "data": 40000},
+                            {"classes": 500, "data": 80000},
+                        ),
                     },
-                feature_args=log_mel_args_8khz,
+                },
             ),
         },
-        num_epochs=125,
+        num_epochs=250,
         prefix="bs5k_",
-        datasets=hybrid_nn_system.datasets
+        datasets=hybrid_nn_system.datasets,
+        evaluation_epochs=[64, 128, 200, 230, 240, 250],
     )
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
     hybrid_nn_system.run(nn_steps)
     for train_job in hybrid_nn_system.jobs["train-clean-100.train_train-clean-100.cv"].values():
         # noinspection PyUnresolvedReferences
-        train_job.rqmt.update({"gpu_mem": 11, "mem": 10})
+        train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
+
+
+def run_baseline_mel():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/hybrid/feat/"
+    log_mel_args = {
+        "class": "LogMelNetwork",
+        "wavenorm": True,
+        "frame_size": 400,
+        "frame_shift": 160,
+        "fft_size": 512,
+    }    
+    hybrid_nn_system = get_hybrid_nn_system(context_window=241)
+    nn_args = get_nn_args_baseline(
+        nn_base_args={
+            "v0": dict(
+                feature_args=log_mel_args,
+                returnn_args={"batch_size": 5000},
+            ),
+            "v1": dict(
+                feature_args=log_mel_args,
+                returnn_args={
+                    "batch_size": 5000,
+                    "extra_args": {
+                        "chunking": (
+                            {"classes": 250, "data": 250 * 160},
+                            {"classes": 200, "data": 200 * 160},
+                        ),
+                        "gradient_clip": 1.0,
+                        "gradient_noise": 0.3,
+                        "learning_rates": list(np.linspace(7e-6, 7e-4, 110)) + list(
+                            np.linspace(7e-4, 7e-5, 110)) + list(np.linspace(7e-5, 1e-8, 30)),
+                        "optimizer": {"class": "adam", "epsilon": 1e-08},
+                    },
+                    "conformer_args": {
+                        "encoder_layers": 12,
+                        "conv_filter_size": (31,),
+                    },
+                },
+            ),
+        },
+        num_epochs=250,
+        prefix="lm80_bs5k_",
+        datasets=hybrid_nn_system.datasets,
+        evaluation_epochs=[64, 128, 200, 230, 240, 250],
+    )
+    nn_steps = RasrSteps()
+    nn_steps.add_step("nn", nn_args)
+    hybrid_nn_system.run(nn_steps)
+    for train_job in hybrid_nn_system.jobs["train-clean-100.train_train-clean-100.cv"].values():
+        # noinspection PyUnresolvedReferences
+        train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
+
 
 def run_baseline_scf():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/hybrid/feat/"
@@ -104,9 +164,10 @@ def run_baseline_scf():
                 feature_args=scf_args,
             ),
         },
-        num_epochs=125,
+        num_epochs=260,
         prefix="bs5k_",
-        datasets=hybrid_nn_system.datasets
+        datasets=hybrid_nn_system.datasets,
+        evaluation_epochs=[64, 128, 200, 230, 240, 250, 260],
     )
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
@@ -114,6 +175,7 @@ def run_baseline_scf():
     for train_job in hybrid_nn_system.jobs["train-clean-100.train_train-clean-100.cv"].values():
         # noinspection PyUnresolvedReferences
         train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
+
 
 def py():
     """

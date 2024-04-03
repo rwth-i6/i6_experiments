@@ -79,7 +79,7 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, datasets=None,
                 "fill_empty_segments": True,
                 "best_path_algo": "bellman-ford",
             },
-            "optimize_am_lm_scale": True,
+            "optimize_am_lm_scale": False,
             "rtf": 50,
             "mem": 8,
             "lmgc_mem": 16,
@@ -151,6 +151,7 @@ def get_nn_args_single(
 
     return returnn_config, returnn_recog_config
 
+
 def fix_network_for_sparse_output(net):
     net = copy.deepcopy(net)
     net.update({
@@ -165,7 +166,6 @@ def fix_network_for_sparse_output(net):
         if net[layer].get("size_base", None) == "data:classes":
             net[layer]["size_base"] = "classes_sparse"
     return net
-
 
 
 def get_default_data_init_args(num_inputs: int, num_outputs: int):
@@ -185,6 +185,7 @@ def get_default_data_init_args(num_inputs: int, num_outputs: int):
         DataInitArgs(name="classes", available_for_inference=False, dim_tags=[time_dim], sparse_dim=classes_feature)
     ]
 
+
 def get_returnn_config(
     num_inputs: int,
     num_outputs: int,
@@ -196,6 +197,7 @@ def get_returnn_config(
     sample_rate: int = 16000,
     recognition: bool = False,
     extra_args: Optional[Dict[str, Any]] = None,
+    conformer_args: Optional[Dict[str, Any]] = None,
     staged_opts: Optional[Dict[int, Any]] = None,
     enable_specaug: bool = True,
     specaug_mask_sorting: bool = False,
@@ -204,11 +206,13 @@ def get_returnn_config(
     specaug_shuffled: bool = False,
     mask_divisor: int = None,
     datasets = None,
-
 ):
-    datasets["train"] = datasets["train"] if isinstance(datasets["train"], dict) else datasets["train"].get_data_dict()
-    datasets["cv"] = datasets["cv"] if isinstance(datasets["cv"], dict) else datasets["cv"].get_data_dict()
-    datasets["devtrain"] = datasets["devtrain"] if isinstance(datasets["devtrain"], dict) else datasets["devtrain"].get_data_dict()
+    datasets = copy.deepcopy(datasets)
+    datasets = {} if recognition else {
+        "train": datasets["train"].get_data_dict(),
+        "dev": datasets["cv"].get_data_dict(),
+        "eval_datasets": {"devtrain": datasets["devtrain"].get_data_dict()},
+    }
     base_config = {
         "extern_data": {
             "data": {"dim": 1},
@@ -231,9 +235,41 @@ def get_returnn_config(
             "keep": evaluation_epochs,
         }
 
-    from .network_helpers.reduced_dim import network
-    network = copy.deepcopy(network)
+    from .network_helpers.reduced_dim import network as network_hybrid_old
+    network_hybrid_old = copy.deepcopy(network_hybrid_old)
+    from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.network_helpers.conformer_wei import add_conformer_stack as add_conformer_stack_wei
+    from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.network_helpers.conformer_wei import add_vgg_stack as add_vgg_stack_wei
+    network = {}
+    from_list = ["features"]
+    network, from_list = add_vgg_stack_wei(network, from_list)
+    conformer_args = {
+        "encoder_layers": 8,
+        "encoder_size": 384,
+        "dropout": 0.2,
+        "num_att_heads": 4,
+        "conv_filter_size": (9,),
+        "pos_enc_size": 96,
+        "pos_enc_clip": 32,
+        "batch_norm_fix": True,
+        "switch_conv_mhsa_module": True,
+        **(conformer_args or {}),
+    }
+    network, from_list = add_conformer_stack_wei(network, from_list, **conformer_args)
     network["features"] = copy.deepcopy(feature_net)
+    for layer in [
+        "MLP_output", "aux_MLP_block_4", "aux_output_block_4", "aux_output_block_4_ce", "aux_MLP_block_8", "aux_output_block_8", "aux_output_block_8_ce", "encoder", "masked_tconv",
+        "masked_tconv_4", "masked_tconv_8", "transposedconv", "transposedconv_4", "transposedconv_8", "output",
+    ]:
+        if conformer_args["encoder_layers"] <= 8 and "8" in layer:
+            continue
+        network[layer] = network_hybrid_old[layer]
+    network["encoder"]["from"] = "conformer_8_output"
+    network["transposedconv_4"]["from"] = "conformer_4_output"
+    network["transposedconv"]["strides"] = [4]
+    network["transposedconv_4"]["strides"] = [4]
+    if conformer_args["encoder_layers"] > 8:
+        network["transposedconv_8"]["from"] = "conformer_8_output"
+        network["transposedconv_8"]["strides"] = [4]
     prolog = None
     if recognition:
         for layer in list(network.keys()):
@@ -291,8 +327,8 @@ def get_returnn_config(
             "network": network,
             "batch_size": {"classes": batch_size, "data": batch_size * sample_rate // 100},
             "chunking": (
-                {"classes": 250, "data": 40000},
                 {"classes": 500, "data": 80000},
+                {"classes": 250, "data": 40000},
             ),
             "min_chunk_size": {"classes": 10, "data": 10 * sample_rate // 100},
             "optimizer": {"class": "nadam", "epsilon": 1e-8},
@@ -300,13 +336,6 @@ def get_returnn_config(
             "learning_rates": list(np.linspace(peak_lr / 10, peak_lr, 100))
             + list(np.linspace(peak_lr, peak_lr / 10, 100))
             + list(np.linspace(peak_lr / 10, 1e-8, 60)),
-            "learning_rate_control": "newbob_multi_epoch",
-            "learning_rate_control_min_num_epochs_per_new_lr": 3,
-            "learning_rate_control_relative_error_relative_lr": True,
-            # "min_learning_rate": 1e-5,
-            "newbob_learning_rate_decay": 0.9,
-            "newbob_multi_num_epochs": 3,
-            "newbob_multi_update_interval": 1,
         }
     )
     conformer_base_config.update(extra_args or {})
@@ -334,6 +363,7 @@ def get_returnn_config(
             "n_out": 12001
         }
         conformer_base_config["network"] = rec_network
+        conformer_base_config["batch_size"] = conformer_base_config["batch_size"]["data"]
 
     return ReturnnConfig(
         config=conformer_base_config,
@@ -344,105 +374,3 @@ def get_returnn_config(
         python_epilog=RECUSRION_LIMIT,
         pprint_kwargs={"sort_dicts": False},
     )
-
-    # ******************** blstm base ********************
-    base_config = {
-        **datasets,
-    }
-    base_post_config = {
-        "use_tensorflow": True,
-        "debug_print_layer_output_template": True,
-        "log_batch_size": True,
-        "tf_log_memory_usage": True,
-        "cache_size": "0",
-
-    }
-    blstm_base_config = copy.deepcopy(base_config)
-    blstm_base_config.update(
-        {
-            "behavior_version": 15,
-            "batch_size": {"classes": batch_size, "data": batch_size},
-            "chunking": "50:25",
-            "extern_data": {"classes": {"dim": num_outputs,"sparse_dim": num_outputs, "sparse": True, "shape": (None, 1)}, "data": {"dim": 50}},
-            "optimizer": {"class": "nadam", "epsilon": 1e-8},
-            "gradient_noise": 0.3,
-            "learning_rates": list(np.linspace(2.5e-5, 3e-4, 50)) + list(np.linspace(3e-4, 2.5e-5, 50)),
-            "learning_rate_control": "newbob_multi_epoch",
-            "learning_rate_control_min_num_epochs_per_new_lr": 3,
-            "learning_rate_control_relative_error_relative_lr": True,
-            #"min_learning_rate": 1e-5,
-            "newbob_learning_rate_decay": 0.707,
-            "newbob_multi_num_epochs": 40,
-            "newbob_multi_update_interval": 1,
-        }
-    )
-    if not recognition:
-        base_post_config["cleanup_old_models"] = {
-            "keep_last_n": 5,
-            "keep_best_n": 5,
-            "keep": evaluation_epochs,
-        }
-
-    rc_extern_data = ExternData(extern_data=get_default_data_init_args(num_inputs=num_inputs, num_outputs=num_outputs))
-    # those are hashed
-    rc_package = "i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hybrid.rc_networks"
-    rc_construction_code = Import(rc_package + ".default_hybrid_v2.construct_hybrid_network")
-
-
-    net_kwargs = {
-       "train": not recognition,
-       "num_layers": 8,
-       "size": 1024,
-       "dropout": 0.0,
-       "specaugment_options": {
-           "min_frame_masks": 1,
-           "mask_each_n_frames": 100,
-           "max_frames_per_mask": 20,
-           "min_feature_masks": 1,
-           "max_feature_masks": 2,
-           "max_features_per_mask": 10
-       }
-    }
-
-    net_kwargs_focal_loss = copy.deepcopy(net_kwargs)
-    net_kwargs_focal_loss["focal_loss_scale"] = 2.0
-
-    def construct_from_net_kwargs(base_config, net_kwargs, explicit_hash=None):
-        rc_network = Network(
-            net_func_name=rc_construction_code.object_name,
-            net_func_map={
-                "audio_data": "data",  # name of the constructor parameter vs name of the data object in RETURNN
-                "label_data": "classes"
-            },  # this is hashed
-            net_kwargs=net_kwargs,
-        )
-        ipdb.set_trace()
-        
-        serializer_objects = [
-            rc_extern_data,
-            rc_construction_code,
-            rc_network,
-        ]
-        if explicit_hash:
-            serializer_objects.append(ExplicitHash(explicit_hash))
-        serializer = Collection(
-            serializer_objects=serializer_objects,
-            returnn_common_root=RETURNN_COMMON,
-            make_local_package_copy=True,
-            packages={
-                rc_package,
-            },
-        )
-
-        blstm_base_returnn_config = ReturnnConfig(
-            config=base_config,
-            post_config=base_post_config,
-            python_epilog=[serializer],
-            pprint_kwargs={"sort_dicts": False},
-        )
-        return blstm_base_returnn_config
-
-    return {
-        "blstm_oclr_v1": construct_from_net_kwargs(blstm_base_config, net_kwargs),
-        "blstm_oclr_v1_focal_loss": construct_from_net_kwargs(blstm_base_config, net_kwargs_focal_loss),
-    }

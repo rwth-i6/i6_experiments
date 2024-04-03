@@ -58,7 +58,7 @@ def get_ls100_oggzip_hdf_data(gmm_system: GmmSystem):
     return nn_data_inputs
 
 
-def get_ls100_oggzip_hdf_data_split_train_cv(gmm_system: GmmSystem, sync_ogg: bool = False):
+def get_ls100_oggzip_hdf_data_split_train_cv(gmm_system: GmmSystem, sync_ogg: bool = False, context_window: int = 400):
     returnn_exe = tk.Path(
         "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
     returnn_root = CloneGitRepositoryJob(
@@ -108,7 +108,7 @@ def get_ls100_oggzip_hdf_data_split_train_cv(gmm_system: GmmSystem, sync_ogg: bo
         audio={"features": "raw", "peak_normalization": True, "preemphasis": None},
         meta_args={
             "data_map": {"classes": ("hdf", "data"), "data": ("ogg", "data")},
-            "context_window": {"classes": 1, "data": 400},
+            "context_window": {"classes": 1, "data": context_window},
         },
         acoustic_mixtures=gmm_system.outputs["train-clean-100"]["final"].acoustic_mixtures,
     )
