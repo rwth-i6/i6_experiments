@@ -4,7 +4,7 @@ import tarfile
 from io import TextIOWrapper
 from sisyphus import Job
 from contextlib import contextmanager
-from . import sis_path
+from .job_dir import get_job_base_dir
 
 
 @contextmanager
@@ -14,22 +14,13 @@ def open_job_log(job: Union[str, Job], task: str = "run", index: int = 1) -> Tup
     :param task:
     :param index:
     """
-    if isinstance(job, Job):
-        # noinspection PyProtectedMember
-        job = job._sis_path()
-        assert os.path.isdir(job), f"job not valid: {job}"
-    elif job.startswith("work/") or job.startswith("/"):
-        assert os.path.isdir(job), f"job dir not valid: {job}"
-    else:
-        work_dir_prefix = sis_path.get_work_dir_prefix()
-        assert os.path.isdir(work_dir_prefix + job), f"job dir not valid: job {job}, work dir prefix {work_dir_prefix}"
-        job = work_dir_prefix + job
+    job_dir = get_job_base_dir(job)
     log_base_fn = f"log.{task}.{index}"
-    log_fn = f"{job}/{log_base_fn}"
+    log_fn = f"{job_dir}/{log_base_fn}"
     if os.path.exists(log_fn):
         yield open(log_fn), log_fn
         return
-    tar_fn = f"{job}/finished.tar.gz"
+    tar_fn = f"{job_dir}/finished.tar.gz"
     if os.path.exists(tar_fn):
         with tarfile.open(tar_fn) as tarf:
             while True:

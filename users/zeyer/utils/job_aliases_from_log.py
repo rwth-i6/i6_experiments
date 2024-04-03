@@ -3,16 +3,16 @@ import os
 import re
 import tarfile
 from glob import glob
-from . import sis_path
+from .job_dir import get_job_base_dir
 
 
 def get_job_aliases(job: str) -> Optional[List[str]]:
     """
     :param job: without "work/" prefix
     """
-    work_dir_prefix = sis_path.get_work_dir_prefix()
-    if os.path.exists(f"{work_dir_prefix}{job}/finished.tar.gz"):
-        with tarfile.open(f"{work_dir_prefix}{job}/finished.tar.gz") as tarf:
+    job_dir = get_job_base_dir(job)
+    if os.path.exists(f"{job_dir}/finished.tar.gz"):
+        with tarfile.open(f"{job_dir}/finished.tar.gz") as tarf:
             while True:
                 f = tarf.next()
                 if not f:
@@ -22,7 +22,7 @@ def get_job_aliases(job: str) -> Optional[List[str]]:
                     res = _read_job_log_check_for_alias(f)
                     if res:
                         return res
-    for logfn in glob(f"{work_dir_prefix}{job}/log.*"):
+    for logfn in glob(f"{job_dir}/log.*"):
         with open(logfn, "rb") as f:
             res = _read_job_log_check_for_alias(f)
             if res:
