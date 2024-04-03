@@ -1,19 +1,24 @@
-from typing import Tuple, Optional, TextIO
+from typing import Optional, Union, Tuple, TextIO
 import os
 import tarfile
 from io import TextIOWrapper
+from sisyphus import Job
 from contextlib import contextmanager
 from . import sis_path
 
 
 @contextmanager
-def open_job_log(job: str, task: str = "run", index: int = 1) -> Tuple[Optional[TextIO], Optional[str]]:
+def open_job_log(job: Union[str, Job], task: str = "run", index: int = 1) -> Tuple[Optional[TextIO], Optional[str]]:
     """
-    :param job: dir
+    :param job: dir or Job object
     :param task:
     :param index:
     """
-    if job.startswith("work/") or job.startswith("/"):
+    if isinstance(job, Job):
+        # noinspection PyProtectedMember
+        job = job._sis_path()
+        assert os.path.isdir(job), f"job not valid: {job}"
+    elif job.startswith("work/") or job.startswith("/"):
         assert os.path.isdir(job), f"job dir not valid: {job}"
     else:
         work_dir_prefix = sis_path.get_work_dir_prefix()
