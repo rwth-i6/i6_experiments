@@ -92,6 +92,7 @@ def _read_used_gpus_from_log(job: Union[str, Job]) -> Set[str]:
 
 def main():
     import argparse
+    from i6_experiments.users.zeyer.utils.job_log import open_job_logs
 
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("job", help="job dir")
@@ -108,6 +109,14 @@ def main():
     print(f"min, max, avg: {min_:.2f}, {max_:.2f}, {avg:.2f}")
     times_per_epoch.sort()
     print(f"median: {times_per_epoch[len(times_per_epoch) // 2]:.2f}")
+
+    for log_file, log_filename in open_job_logs(args.job):
+        print("log file:", log_filename)
+        for i, line in enumerate(log_file):
+            if line.startswith("Host: ") or line.startswith("Load: "):
+                print(line.rstrip())
+            if i > 100:
+                break
 
 
 if __name__ == "__main__":
