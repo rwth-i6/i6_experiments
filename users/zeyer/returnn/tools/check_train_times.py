@@ -2,7 +2,7 @@
 Given some training job, get the training time per epoch
 """
 
-from typing import Union, Any, Dict, Set
+from typing import Union, Any, Dict, Set, List
 import re
 from sisyphus import Job
 from i6_core.returnn.training import ReturnnTrainingJob
@@ -10,8 +10,11 @@ from i6_experiments.users.zeyer.utils.job_dir import get_job_base_dir
 
 
 def get_training_times_per_epoch(
-    training_job: Union[str, ReturnnTrainingJob], *, expected_gpu: str, ignore_first_n_epochs: int = 0
-):
+    training_job: Union[str, ReturnnTrainingJob],
+    *,
+    expected_gpu: str,
+    ignore_first_n_epochs: int = 0,
+) -> List[Union[float, int]]:
     """
     :param training_job: reads out_learning_rates and the log from it
     :param expected_gpu: e.g. "NVIDIA GeForce GTX 1080 Ti"
@@ -30,13 +33,12 @@ def get_training_times_per_epoch(
     epoch_steps_min = min(epoch_steps.values())
     epoch_steps_max = max(epoch_steps.values())
     assert epoch_steps_max - epoch_steps_min <= epoch_steps_max * 0.1, f"epoch_steps: {epoch_steps}"  # sanity check
-    time_per_epoch = sum(epoch_times.values()) / len(epoch_times)
 
     # We also need to check that we have the same GPU. For that, we currently need to check the log.
     gpus = _read_used_gpus_from_log(job_dir)
     assert gpus == {expected_gpu}, f"expected GPU {expected_gpu}, found in log: {gpus}"
 
-    return time_per_epoch
+    return list(epoch_times.values())
 
 
 def _read_scores_and_learning_rates(filename: str) -> Dict[int, Dict[str, Union[float, Any]]]:
@@ -97,10 +99,15 @@ def main():
     arg_parser.add_argument("--ignore-first-n-epochs", type=int, default=0)
     args = arg_parser.parse_args()
 
-    time_per_epoch = get_training_times_per_epoch(
+    times_per_epoch = get_training_times_per_epoch(
         args.job, expected_gpu=args.gpu, ignore_first_n_epochs=args.ignore_first_n_epochs
     )
-    print(f"time per epoch: {time_per_epoch:.2f} secs")
+    print("times per epoch:")
+    print(f"(num epochs: {len(times_per_epoch)})")
+    min_, max_, avg = min(times_per_epoch), max(times_per_epoch), sum(times_per_epoch) / len(times_per_epoch)
+    print(f"min, max, avg: {min_:.2f}, {max_:.2f}, {avg:.2f}")
+    times_per_epoch.sort()
+    print(f"median: {times_per_epoch[len(times_per_epoch) // 2]:.2f}")
 
 
 if __name__ == "__main__":
