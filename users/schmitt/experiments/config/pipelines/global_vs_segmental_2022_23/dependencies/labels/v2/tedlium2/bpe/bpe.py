@@ -9,7 +9,7 @@ from sisyphus import *
 class TedLium2BPE1058(LabelDefinition, ABC):
   @property
   def vocab_path(self) -> Path:
-    pass
+    return Path("/u/zeineldeen/setups/ubuntu_22_setups/2023-06-14--streaming-conf/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.Jc3xHSQQbXD9/output/bpe.vocab")
 
   @property
   def bpe_codes_path(self) -> Path:

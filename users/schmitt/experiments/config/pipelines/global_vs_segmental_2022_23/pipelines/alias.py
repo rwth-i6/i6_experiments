@@ -1,1 +1,1 @@
-alias = "models/"
+alias = "models"

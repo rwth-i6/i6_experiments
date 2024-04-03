@@ -8,8 +8,9 @@ from i6_core.returnn.training import Checkpoint, ReturnnTrainingJob
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.base import ConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.segmental import SegmentalConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.global_ import GlobalConfigBuilder
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf import ctc_aligns
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.ctc import CtcConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.checkpoints import external_checkpoints
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LibrispeechBPE10025_LABELS_WITH_SILENCE, LibrispeechBPE10025_CTC_ALIGNMENT
 
 default_import_model_name = "glob.conformer.mohammad.5.6"
 
@@ -82,7 +83,7 @@ class SegmentalTrainExperiment(TrainExperiment):
   def default_train_opts(self) -> Dict:
     return {
       "chunking_opts": None,
-      "dataset_opts": {"hdf_targets": ctc_aligns.global_att_ctc_align.ctc_alignments},
+      "dataset_opts": {"hdf_targets": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths},
       "import_model_train_epoch1": external_checkpoints[default_import_model_name],
       "lr_opts": {
         "type": "const_then_linear",
@@ -116,4 +117,29 @@ class GlobalTrainExperiment(TrainExperiment):
       "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}},
       "max_seq_length": {"targets": 75},
       "train_mini_lstm_opts": None,
+    }
+
+
+class CtcTrainExperiment(TrainExperiment):
+  def __init__(self, config_builder: CtcConfigBuilder, **kwargs):
+    super().__init__(config_builder=config_builder, **kwargs)
+
+  @property
+  def default_train_opts(self) -> Dict:
+    return {
+      "import_model_train_epoch1": external_checkpoints[default_import_model_name],
+      "dataset_opts": {"hdf_targets": {
+        "train": LibrispeechBPE10025_LABELS_WITH_SILENCE._label_paths["train"],
+        "devtrain": LibrispeechBPE10025_LABELS_WITH_SILENCE._label_paths["train"],
+        "cv": LibrispeechBPE10025_LABELS_WITH_SILENCE._label_paths["train"]
+      }},
+      "lr_opts": {
+        "type": "const_then_linear",
+        "const_lr": 1e-4,
+        "const_frac": 1 / 3,
+        "final_lr": 1e-6,
+        "num_epochs": self.num_epochs
+      },
+      # "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}},
+      # "max_seq_length": {"targets": 75},
     }

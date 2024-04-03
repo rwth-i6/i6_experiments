@@ -2,7 +2,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora.librispeech import LibrispeechCorpora
 
 from abc import ABC
-from typing import Dict
+from typing import Dict, List
 
 from sisyphus import Path
 
@@ -24,7 +24,7 @@ class LibrispeechLabelDefinition(LabelDefinition, ABC):
     return LIBRISPEECH_CORPUS.corpus_keys
 
   @property
-  def oggzip_paths(self) -> Dict[str, Path]:
+  def oggzip_paths(self) -> Dict[str, List[Path]]:
     return LIBRISPEECH_CORPUS.oggzip_paths
 
   @property

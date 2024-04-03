@@ -16,7 +16,7 @@ from matplotlib import ticker
 import ast
 import numpy as np
 import h5py
-from typing import Optional, Any, Dict, Tuple
+from typing import Optional, Any, Dict, Tuple, List
 
 import recipe.i6_experiments.users.schmitt.tools as tools_mod
 tools_dir = os.path.dirname(tools_mod.__file__)
@@ -386,3 +386,89 @@ class PlotAttentionWeightsJobV2(Job):
       d.pop("ctc_alignment_hdf")
 
     return super().hash(d)
+
+
+class PlotAlignmentJob(Job):
+  def __init__(
+          self,
+          alignment_hdf: Path,
+          json_vocab_path: Path,
+          target_blank_idx: int,
+          segment_list: List[str],
+          silence_idx: Optional[int] = None,
+  ):
+    self.alignment_hdf = alignment_hdf
+    self.json_vocab_path = json_vocab_path
+    self.target_blank_idx = target_blank_idx
+    self.segment_list = segment_list
+    self.silence_idx = silence_idx
+
+    self.out_plot_dir = self.output_path("plots", True)
+
+  def tasks(self):
+    yield Task(
+      "run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0}, mini_task=True)
+
+  @staticmethod
+  def _get_fig_ax(alignment: np.ndarray):
+    """
+      Initialize the figure and axis for the plot.
+    """
+    num_frames = len(alignment)
+    fig_width = num_frames / 12
+    fig_height = 4.0
+    figsize = (fig_width, fig_height)
+    return plt.subplots(figsize=figsize, constrained_layout=True)
+
+  @staticmethod
+  def _set_ticks(
+          ax: plt.Axes,
+          alignment: np.ndarray,
+          labels: np.ndarray,
+          vocab: Dict[int, str],
+          blank_idx: int,
+          ymin=1.0,
+          ymax=0.0,
+          color="r"
+  ):
+    """
+      Set the ticks and labels for the x and y axis.
+      x-axis: reference alignment
+      y-axis: model output
+    """
+    # positions of reference labels in the reference alignment
+    # +1 bc plt starts at 1, not at 0
+    label_positions = np.where(alignment != blank_idx)[-1] + 1
+    labels = [vocab[idx] for idx in labels]
+    # x axis
+    ax.set_xticks([tick - 1.0 for tick in label_positions])
+    ax.set_xticklabels(labels, rotation=90)
+
+    for i, position in enumerate(label_positions):
+      ax.axvline(x=position - 1.0, ymin=ymin, ymax=ymax, color=color)
+
+  def run(self):
+    # load data from hdf
+    alignment_dict = hdf.load_hdf_data(self.alignment_hdf, segment_list=self.segment_list)
+
+    # load vocabulary as dictionary
+    with open(self.json_vocab_path.get_path(), "r") as f:
+      json_data = f.read()
+      vocab = ast.literal_eval(json_data)  # label -> idx
+      vocab = {v: k for k, v in vocab.items()}  # idx -> label
+      if self.silence_idx is not None:
+        vocab[self.silence_idx] = "[Silence]"
+
+    # for each seq tag, plot the corresponding att weights
+    for seq_tag in alignment_dict.keys():
+      alignment = alignment_dict[seq_tag]
+      labels = alignment[alignment != self.target_blank_idx]
+
+      fig, ax = self._get_fig_ax(alignment)
+      # set y ticks and labels
+      self._set_ticks(ax, alignment, labels, vocab, self.target_blank_idx)
+
+      dirname = self.out_plot_dir.get_path()
+      filename = os.path.join(dirname, "plot.%s" % seq_tag.replace("/", "_"))
+      plt.savefig(filename + ".png")
+      plt.savefig(filename + ".pdf")

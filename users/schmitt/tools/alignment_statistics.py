@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Union, List
 import os
+import re
 
 
 class SegmentStatistics:
@@ -37,6 +38,7 @@ class SegmentStatistics:
   """
   def __init__(self, sil_idx: Optional[int], vocab: Dict[int, str]):
     self.sil_idx = sil_idx
+    self.vocab = vocab
 
     self.accum_segment_len_per_label = Counter()
     self.accum_num_segments_per_label = Counter()
@@ -44,10 +46,14 @@ class SegmentStatistics:
     self.accum_num_segments_silence = Counter({"init": 0, "inter": 0, "final": 0})
 
     self.max_segment_len = 0
+    self.max_segment_len_sil = 0
 
     self.segment_len_count_statistics = SegmentLenCountStatistics(vocab)
 
-  def update(self, labels, label_positions):
+    self.long_segment_threshold = 20
+    self.seqs_w_long_segments = {}
+
+  def update(self, labels, label_positions, seq_tag):
     num_labels_in_seq = len(labels)
     for i, label in enumerate(labels):
       if i == 0:
@@ -65,12 +71,20 @@ class SegmentStatistics:
         else:
           self.accum_segment_len_silence["inter"] += segment_len
           self.accum_num_segments_silence["inter"] += 1
+
+        if segment_len > self.max_segment_len_sil:
+          self.max_segment_len_sil = segment_len
       else:
         self.accum_segment_len_per_label[label] += segment_len
         self.accum_num_segments_per_label[label] += 1
 
-      if segment_len > self.max_segment_len:
-        self.max_segment_len = segment_len
+        if segment_len > self.max_segment_len:
+          self.max_segment_len = segment_len
+
+      if segment_len > self.long_segment_threshold:
+        if seq_tag not in self.seqs_w_long_segments:
+          self.seqs_w_long_segments[seq_tag] = []
+        self.seqs_w_long_segments[seq_tag].append((self.vocab[label], segment_len))
 
       self.segment_len_count_statistics.update(label, segment_len)
 
@@ -118,7 +132,8 @@ class SegmentStatistics:
     string += f"\t\tMean length per segment: {self.get_mean_segment_len_for_non_silence()} \n"
     string += f"\t\tNum segments: {sum(self.accum_num_segments_per_label.values())} \n\n"
     string += "\n"
-    string += "\tOverall maximum segment length: %d \n" % self.max_segment_len
+    string += "\tOverall maximum non-silence segment length: %d \n" % self.max_segment_len
+    string += "\tOverall maximum silence segment length: %d \n" % self.max_segment_len_sil
     string += "\n"
     return string
 
@@ -127,6 +142,13 @@ class SegmentStatistics:
 
   def write_label_dependent_means_to_file(self):
     self.segment_len_count_statistics.write_label_dependent_means_to_file()
+
+  def write_seqs_w_long_segments_to_file(self):
+    with open("seqs_w_long_segments", "w+") as f:
+      f.write("{\n")
+      for seq_tag, segments in self.seqs_w_long_segments.items():
+        f.write(f"'{seq_tag}': {segments},\n")
+      f.write("}\n")
 
 
 class SegmentLenCountStatistics:
@@ -199,6 +221,13 @@ class SegmentLenCountStatistics:
 
     return variances, means
 
+  def get_total_variance_and_mean(self):
+    total_counter = sum(self.segment_len_counters.values(), Counter())
+    return (
+      np.var(self.counter_to_individual_len_list(total_counter)),
+      np.mean(self.counter_to_individual_len_list(total_counter))
+    )
+
   @staticmethod
   def plot_histogram(counter, title, filename, remove_outliers=False):
     x, y = SegmentLenCountStatistics.counter_to_hist_data(counter, remove_outliers=remove_outliers)
@@ -212,10 +241,13 @@ class SegmentLenCountStatistics:
     if not os.path.exists(dirname):
       os.makedirs(dirname)
 
+    total_var, total_mean = self.get_total_variance_and_mean()
+    title = "Segment length histogram for all labels."
+    title += f"\nMean/Variance: {total_mean:.2f}/{total_var:.2f}"
     self.plot_histogram(
       sum(self.segment_len_counters.values(),
           Counter()),
-      "Histogram of segment lengths for all labels.",
+      title,
       os.path.join(dirname, "all_segments_histogram.png"),
       remove_outliers=False
     )
@@ -415,7 +447,7 @@ class AlignmentStatistics:
     self.sil_idx = sil_idx
     self.vocab = vocab
 
-    self.segment_statistics = SegmentStatistics(sil_idx, vocab)
+    self.label_segment_statistics = SegmentStatistics(sil_idx, vocab)
     self.label_repetition_statistics = BPERepetitionStatistics()
     self.char_repetition_statistics = CharRepetitionStatistics()
     self.sequence_statistics = SequenceStatistics()
@@ -435,7 +467,7 @@ class AlignmentStatistics:
 
     self.sequence_statistics.update(alignment, labels)
     self.word_statistics.update([self.vocab[label] for label in labels])
-    self.segment_statistics.update(labels, label_positions)
+    self.label_segment_statistics.update(labels, label_positions, seq_tag)
 
     labels_str = [self.vocab[label] for label in labels]
     self.label_repetition_statistics.update(labels_str)
@@ -445,14 +477,15 @@ class AlignmentStatistics:
 
   def write_statistics_to_file(self, filename: str):
     with open(filename, "w+") as f:
-      f.write(str(self.segment_statistics))
+      f.write(str(self.label_segment_statistics))
       f.write(str(self.sequence_statistics))
       f.write(str(self.word_statistics))
       f.write(str(self.label_repetition_statistics))
       f.write(str(self.char_repetition_statistics))
 
-    self.segment_statistics.plot_histograms()
-    self.segment_statistics.write_label_dependent_means_to_file()
+    self.label_segment_statistics.plot_histograms()
+    self.label_segment_statistics.write_label_dependent_means_to_file()
+    self.label_segment_statistics.write_seqs_w_long_segments_to_file()
 
 
 def init(hdf_file, seq_list_filter_file):
@@ -490,9 +523,14 @@ def main():
 
   init(args.hdf_file, args.seq_list_filter_file)
 
+  # load vocab as dict
   with open(args.json_vocab, "r") as f:
     vocab = ast.literal_eval(f.read())
     vocab = {int(v): k for k, v in vocab.items()}
+    # add silence manually to vocab, if not present yet
+    # (for my bpe models with silence, i have not created a separate vocab yet)
+    if args.sil_idx is not None and args.sil_idx not in vocab:
+      vocab[args.sil_idx] = "[SILENCE]"
 
   try:
     alignment_statistics = AlignmentStatistics(args.blank_idx, args.sil_idx, vocab)

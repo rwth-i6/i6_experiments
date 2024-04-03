@@ -13,6 +13,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.segmental import LibrispeechConformerSegmentalAttentionConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.model_variants.model_variants_ls_conf import models
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.checkpoints import external_checkpoints
+from i6_experiments.users.schmitt.visualization.visualization import PlotAlignmentJob
 
 from i6_experiments.users.schmitt.alignment.alignment import AlignmentStatisticsJob, AlignmentAddEosJob
 
@@ -21,9 +22,33 @@ directory_name = "models/ls_conformer/ctc_aligns"
 
 class GlobalAttCtcAlignment:
   def __init__(self):
+    model_type = "librispeech_conformer_glob_att"
+    variant_name = "glob.conformer.mohammad.5.6"
+    variant_params = copy.deepcopy(models[model_type][variant_name])
+    self.base_alias = "%s/%s/%s" % (directory_name, model_type, variant_name)
+    self.config_builder = config_builder = LibrispeechConformerGlobalAttentionConfigBuilder(
+      dependencies=variant_params["dependencies"],
+      variant_params=variant_params,
+    )
+
     self._ctc_alignments = {}
+    self._statistics_jobs = {}
 
     self.get_global_attention_ctc_align()
+    self.get_statistics_jobs()
+
+  @property
+  def statistics_jobs(self) -> Dict[str, AlignmentStatisticsJob]:
+    if self._statistics_jobs == {}:
+      raise ValueError("You first need to run get_statistics_jobs()!")
+    else:
+      return self._statistics_jobs
+
+  @statistics_jobs.setter
+  def statistics_jobs(self, value):
+    assert isinstance(value, dict)
+    assert "train" in value and "cv" in value and "devtrain" in value
+    self._statistics_jobs = value
 
   @property
   def ctc_alignments(self):
@@ -37,6 +62,18 @@ class GlobalAttCtcAlignment:
     assert isinstance(value, dict)
     assert "train" in value and "cv" in value and "devtrain" in value
     self._ctc_alignments = value
+    # plot_align_job = PlotAlignmentJob(
+    #   alignment_hdf=value["train"],
+    #   json_vocab_path=self.config_builder.dependencies.vocab_path,
+    #   target_blank_idx=10025,
+    #   segment_list=[
+    #     "train-other-960/6157-40556-0085/6157-40556-0085",
+    #     "train-other-960/421-124401-0044/421-124401-0044",
+    #     "train-other-960/4211-3819-0000/4211-3819-0000",
+    #     "train-other-960/5911-52164-0075/5911-52164-0075"
+    #   ]
+    # )
+    # tk.register_output("plot_alignment", plot_align_job.out_plot_dir)
 
   def ctc_alignments_with_eos(self, segment_paths: Dict[str, Path], blank_idx: int, eos_idx: int):
     return {
@@ -50,25 +87,31 @@ class GlobalAttCtcAlignment:
       ).out_align for corpus_key, alignment_path in self.ctc_alignments.items()
     }
 
+  def get_statistics_jobs(self):
+    statistics_jobs = {}
+    for corpus_key in self.ctc_alignments:
+      statistics_job = AlignmentStatisticsJob(
+        alignment=self.ctc_alignments[corpus_key],
+        json_vocab=self.config_builder.dependencies.vocab_path,
+        blank_idx=10025,
+        silence_idx=20000,  # dummy idx which is larger than the vocab size
+        returnn_root=RETURNN_ROOT,
+        returnn_python_exe=RETURNN_EXE_NEW
+      )
+      statistics_job.add_alias("datasets/LibriSpeech/statistics/%s" % corpus_key)
+      tk.register_output(statistics_job.get_one_alias(), statistics_job.out_statistics)
+      statistics_jobs[corpus_key] = statistics_job
+    self.statistics_jobs = statistics_jobs
+
   def get_global_attention_ctc_align(self):
     """
 
     :return:
     """
-    model_type = "librispeech_conformer_glob_att"
-    variant_name = "glob.conformer.mohammad.5.6"
-    variant_params = copy.deepcopy(models[model_type][variant_name])
-    base_alias = "%s/%s/%s" % (directory_name, model_type, variant_name)
-
     ctc_aligns_global_att = {}
 
-    config_builder = LibrispeechConformerGlobalAttentionConfigBuilder(
-      dependencies=variant_params["dependencies"],
-      variant_params=variant_params,
-    )
-
     for corpus_key in ("cv", "train", "dev-other"):
-      eval_config = config_builder.get_ctc_align_config(
+      eval_config = self.config_builder.get_ctc_align_config(
         corpus_key=corpus_key,
         opts={
           "align_target": "data:targets",
@@ -85,101 +128,25 @@ class GlobalAttCtcAlignment:
         hdf_outputs=["alignments.hdf"],
         eval_mode=True
       )
-      forward_job.add_alias("%s/dump_ctc_%s" % (base_alias, corpus_key))
+      forward_job.add_alias("%s/dump_ctc_%s" % (self.base_alias, corpus_key))
       tk.register_output(forward_job.get_one_alias(), forward_job.out_hdf_files["alignments.hdf"])
 
       ctc_aligns_global_att[corpus_key] = forward_job.out_hdf_files["alignments.hdf"]
 
-      statistics_job = AlignmentStatisticsJob(
-        alignment=ctc_aligns_global_att[corpus_key],
-        json_vocab=config_builder.dependencies.vocab_path,
-        blank_idx=10025,
-        silence_idx=20000,  # dummy idx which is larger than the vocab size
-        returnn_root=RETURNN_ROOT,
-        returnn_python_exe=RETURNN_EXE_NEW
-      )
-      statistics_job.add_alias("datasets/LibriSpeech/statistics/%s" % corpus_key)
-      tk.register_output(statistics_job.get_one_alias(), statistics_job.out_statistics)
+      # statistics_job = AlignmentStatisticsJob(
+      #   alignment=ctc_aligns_global_att[corpus_key],
+      #   json_vocab=self.config_builder.dependencies.vocab_path,
+      #   blank_idx=10025,
+      #   silence_idx=20000,  # dummy idx which is larger than the vocab size
+      #   returnn_root=RETURNN_ROOT,
+      #   returnn_python_exe=RETURNN_EXE_NEW
+      # )
+      # statistics_job.add_alias("datasets/LibriSpeech/statistics/%s" % corpus_key)
+      # tk.register_output(statistics_job.get_one_alias(), statistics_job.out_statistics)
 
     ctc_aligns_global_att["devtrain"] = ctc_aligns_global_att["train"]
 
     self.ctc_alignments = ctc_aligns_global_att
 
 
-global_att_ctc_align = GlobalAttCtcAlignment()
-
-
-def get_seg_attention_ctc_align():
-  model_type = "librispeech_conformer_seg_att"
-  variant_name = "seg.conformer.like-global"
-  variant_params = copy.deepcopy(models[model_type][variant_name])
-  base_alias = "%s/%s/%s" % (directory_name, model_type, variant_name)
-
-  ctc_aligns_seg_att = {}
-
-  config_builder = LibrispeechConformerSegmentalAttentionConfigBuilder(
-    dependencies=variant_params["dependencies"],
-    variant_params=variant_params,
-  )
-
-  num_epochs = 1
-
-  train_job = ReturnnTrainingJob(
-    config_builder.get_train_config(
-      opts={
-        "cleanup_old_models": {"keep_best_n": 0, "keep_last_n": 1},
-        "lr_opts": {
-          "type": "const",
-          "const_lr": 1e-4,
-        },
-        "import_model_train_epoch1": external_checkpoints["glob.conformer.mohammad.5.6"],
-        "dataset_opts": {
-          "hdf_targets": get_global_attention_ctc_align()
-        }
-      }),
-    num_epochs=num_epochs,
-    keep_epochs=[num_epochs],
-    log_verbosity=5,
-    returnn_python_exe=variant_params["returnn_python_exe"],
-    returnn_root=variant_params["returnn_root"],
-    mem_rqmt=24,
-    time_rqmt=12)
-  train_job.add_alias(base_alias + "/import-from-global-train-%d-epochs" % num_epochs)
-  alias = train_job.get_one_alias()
-  tk.register_output(alias + "/models", train_job.out_model_dir)
-  tk.register_output(alias + "/plot_lr", train_job.out_plot_lr)
-
-  train_1_epoch_after_loading_global_checkpoint = train_job.out_checkpoints[1]
-
-  for corpus_key in ("cv", "train"):
-    config_builder = LibrispeechConformerSegmentalAttentionConfigBuilder(
-      dependencies=variant_params["dependencies"],
-      variant_params=variant_params,
-    )
-    eval_config = config_builder.get_eval_config(
-      eval_corpus_key=corpus_key,
-      opts={
-        "align_target": "data:label_ground_truth",
-        "hdf_filename": "alignments.hdf",
-        "use_train_net": True,
-        "dataset_opts": {
-          "hdf_targets": get_global_attention_ctc_align()
-        }
-      }
-    )
-
-    forward_job = ReturnnForwardJob(
-      model_checkpoint=train_1_epoch_after_loading_global_checkpoint,
-      returnn_config=eval_config,
-      returnn_root=variant_params["returnn_root"],
-      returnn_python_exe=variant_params["returnn_python_exe"],
-      hdf_outputs=["alignments.hdf"],
-      eval_mode=True
-    )
-    forward_job.add_alias("%s/dump_ctc_%s" % (base_alias, corpus_key))
-
-    ctc_aligns_seg_att[corpus_key] = forward_job.out_hdf_files["alignments.hdf"]
-
-  ctc_aligns_seg_att["devtrain"] = ctc_aligns_seg_att["train"]
-
-  return ctc_aligns_seg_att
+# global_att_ctc_align = GlobalAttCtcAlignment()

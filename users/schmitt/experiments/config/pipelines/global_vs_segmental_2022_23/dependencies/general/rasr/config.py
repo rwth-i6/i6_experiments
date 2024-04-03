@@ -125,7 +125,7 @@ class RasrConfigBuilder:
 
     config.neural_network_trainer._update(nn_trainer_config)
 
-    return RasrConfigBuilder._write_config(config=config, post_config=post_config)
+    return config, post_config
 
   @staticmethod
   def get_feature_extraction_config(segment_path: Optional[Path], feature_cache_path: Path, corpus_path: Path) -> Path:
@@ -520,35 +520,36 @@ class RasrConfigBuilder:
 
     am_model_trainer_config = RasrConfig()
 
+    am_model_trainer_config.alignment.allophone_state_graph_builder.topology = "rna"
+
     am_model_trainer_config.alignment.aligner.label_pruning = label_pruning
     am_model_trainer_config.alignment.aligner.label_pruning_limit = label_pruning_limit
     am_model_trainer_config.alignment.aligner.label_recombination_limit = label_recombination_limit
     am_model_trainer_config.alignment.aligner.max_segment_len = max_segment_len
     am_model_trainer_config.alignment.aligner.length_normalization = length_norm
 
-    am_model_trainer_config.alignment.label_scorer.blank_label_index = blank_label_index
-    am_model_trainer_config.alignment.label_scorer.context_size = context_size
-    am_model_trainer_config.alignment.label_scorer.label_file = label_file
-    am_model_trainer_config.alignment.label_scorer.label_scorer_type = "tf-rnn-transducer"
-    am_model_trainer_config.alignment.label_scorer.max_batch_size = 256
-    am_model_trainer_config.alignment.label_scorer.reduction_factors = reduction_factors
-    am_model_trainer_config.alignment.label_scorer.reduction_subtrahend = reduction_subtrahend
-    am_model_trainer_config.alignment.label_scorer.scale = 1.0
-    am_model_trainer_config.alignment.label_scorer.start_label_index = start_label_index
-    am_model_trainer_config.alignment.label_scorer.transform_output_negate = True
-    am_model_trainer_config.alignment.label_scorer.use_start_label = True
+    am_model_trainer_config.alignment.model_combination.label_scorer.blank_label_index = blank_label_index
+    am_model_trainer_config.alignment.model_combination.label_scorer.context_size = context_size
+    am_model_trainer_config.alignment.model_combination.label_scorer.label_file = label_file
+    am_model_trainer_config.alignment.model_combination.label_scorer.label_scorer_type = "tf-rnn-transducer"
+    am_model_trainer_config.alignment.model_combination.label_scorer.max_batch_size = 256
+    am_model_trainer_config.alignment.model_combination.label_scorer.reduction_factors = reduction_factors
+    am_model_trainer_config.alignment.model_combination.label_scorer.reduction_subtrahend = reduction_subtrahend
+    am_model_trainer_config.alignment.model_combination.label_scorer.scale = 1.0
+    am_model_trainer_config.alignment.model_combination.label_scorer.transform_output_negate = True
+    am_model_trainer_config.alignment.model_combination.label_scorer.use_start_label = False
     if blank_update_history:
-      am_model_trainer_config.alignment.label_scorer.blank_update_history = True
+      am_model_trainer_config.alignment.model_combination.label_scorer.blank_update_history = True
     if loop_update_history:
-      am_model_trainer_config.alignment.label_scorer.loop_update_history = True
+      am_model_trainer_config.alignment.model_combination.label_scorer.loop_update_history = True
 
-    am_model_trainer_config.alignment.label_scorer.feature_input_map.info_0.param_name = "feature"
-    am_model_trainer_config.alignment.label_scorer.feature_input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/data/data_dim0_size"
-    am_model_trainer_config.alignment.label_scorer.feature_input_map.info_0.tensor_name = "extern_data/placeholders/data/data"
-    am_model_trainer_config.alignment.label_scorer.loader.meta_graph_file = meta_graph_path
+    am_model_trainer_config.alignment.model_combination.label_scorer.feature_input_map.info_0.param_name = "feature"
+    am_model_trainer_config.alignment.model_combination.label_scorer.feature_input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/data/data_dim0_size"
+    am_model_trainer_config.alignment.model_combination.label_scorer.feature_input_map.info_0.tensor_name = "extern_data/placeholders/data/data"
+    am_model_trainer_config.alignment.model_combination.label_scorer.loader.meta_graph_file = meta_graph_path
     # am_model_trainer_config.alignment.label_scorer.loader.required_libraries = Path("/u/rossenbach/temp/ctc_speedtest/tf_new_native_mkl/NativeLstm2.so")
-    am_model_trainer_config.alignment.label_scorer.loader.required_libraries = native_lstm2_so_path
-    am_model_trainer_config.alignment.label_scorer.loader.type = "meta"
+    am_model_trainer_config.alignment.model_combination.label_scorer.loader.required_libraries = native_lstm2_so_path
+    am_model_trainer_config.alignment.model_combination.label_scorer.loader.type = "meta"
 
     # flow_path = "/u/schmitt/experiments/transducer/config/rasr-configs/realignment.flow"
     am_model_trainer_config.file = feature_extraction_file

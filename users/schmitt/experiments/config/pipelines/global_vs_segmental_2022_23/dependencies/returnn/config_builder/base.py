@@ -120,7 +120,7 @@ class ConfigBuilder(ABC):
     if opts.get("no_ctc_loss", False):
       # remove the ctc layer from the network(s)
       if networks_dict is not None:
-        for network in networks_dict:
+        for _, network in networks_dict.items():
           network.pop("ctc", None)
       if net_dict is not None:
         net_dict.pop("ctc", None)
@@ -188,6 +188,9 @@ class ConfigBuilder(ABC):
       net_dict.pop("ctc")  # not needed during recognition
       # set beam size
       net_dict["output"]["unit"]["output"]["beam_size"] = opts.get("beam_size", self.get_default_beam_size())
+
+      if opts.get("use_same_static_padding"):
+        self.edit_network_use_same_static_padding(net_dict)
 
       config_dict["network"] = net_dict
     else:
@@ -291,6 +294,9 @@ class ConfigBuilder(ABC):
   @abstractmethod
   def edit_network_freeze_encoder(self, net_dict: Dict):
     pass
+
+  def edit_network_use_same_static_padding(self, net_dict: Dict):
+    raise NotImplementedError
 
   def add_align_augment(self, net_dict, networks_dict, python_prolog):
     raise NotImplementedError
@@ -419,13 +425,15 @@ class ConfigBuilder(ABC):
   def get_default_dataset_opts(self, corpus_key: str, dataset_opts: Dict):
     hdf_targets = dataset_opts.get("hdf_targets", self.dependencies.hdf_targets)
     segment_paths = dataset_opts.get("segment_paths", self.dependencies.segment_paths)
+    oggzip_paths = dataset_opts.get("oggzip_paths", self.variant_params["dataset"]["corpus"].oggzip_paths)
     if self.variant_params["dataset"]["feature_type"] == "raw":
       return {
-        "oggzip_path_list": self.variant_params["dataset"]["corpus"].oggzip_paths[corpus_key],
+        "oggzip_path_list": oggzip_paths[corpus_key],
         "bpe_file": self.dependencies.bpe_codes_path,
         "vocab_file": self.dependencies.vocab_path,
         "segment_file": segment_paths.get(corpus_key, None),
-        "hdf_targets": hdf_targets.get(corpus_key, None)
+        "hdf_targets": hdf_targets.get(corpus_key, None),
+        "peak_normalization": dataset_opts.get("peak_normalization", True),
       }
     else:
       assert self.variant_params["dataset"]["feature_type"] == "gammatone"
@@ -542,7 +550,7 @@ class ConfigBuilder(ABC):
         **self.get_default_dataset_opts(corpus_key, dataset_opts)
       )
 
-  def get_extern_data_dict(self):
+  def get_extern_data_dict(self, dataset_opts: Dict):
     extern_data_dict = {}
 
     if self.variant_params["dataset"]["feature_type"] == "raw":
@@ -566,6 +574,9 @@ class ConfigBuilder(ABC):
       "sparse": True
     }
 
+    if dataset_opts.get("targets_dtype") is not None:
+      extern_data_dict["targets"]["dtype"] = dataset_opts["targets_dtype"]
+
     return extern_data_dict
 
   @abstractmethod
@@ -578,7 +589,7 @@ class ConfigBuilder(ABC):
 
   def get_train_datasets(self, dataset_opts: Dict):
     return dict(
-      extern_data=self.get_extern_data_dict(),
+      extern_data=self.get_extern_data_dict(dataset_opts),
       train=self.get_train_dataset_dict(dataset_opts),
       dev=self.get_cv_dataset_dict(dataset_opts),
       eval_datasets={"devtrain": self.get_devtrain_dataset_dict(dataset_opts)}
@@ -586,13 +597,13 @@ class ConfigBuilder(ABC):
 
   def get_search_dataset(self, search_corpus_key: str, dataset_opts: Dict):
     return dict(
-      extern_data=self.get_extern_data_dict(),
+      extern_data=self.get_extern_data_dict(dataset_opts),
       search_data=self.get_search_dataset_dict(corpus_key=search_corpus_key, dataset_opts=dataset_opts)
     )
 
   def get_eval_dataset(self, eval_corpus_key: str, dataset_opts: Dict):
     return dict(
-      extern_data=self.get_extern_data_dict(),
+      extern_data=self.get_extern_data_dict(dataset_opts),
       eval=self.get_eval_dataset_dict(corpus_key=eval_corpus_key, dataset_opts=dataset_opts)
     )
 
@@ -639,3 +650,7 @@ class LibrispeechConformerConfigBuilder(ConfigBuilder, ABC):
       layers_to_include=["subsample_conv0", "subsample_conv1", "conv0", "source_linear"],
       prefix_to_include="conformer"
     )
+
+  def edit_network_use_same_static_padding(self, net_dict: Dict):
+    net_dict["subsample_conv0"]["padding"] = "same_static"
+    net_dict["subsample_conv1"]["padding"] = "same_static"

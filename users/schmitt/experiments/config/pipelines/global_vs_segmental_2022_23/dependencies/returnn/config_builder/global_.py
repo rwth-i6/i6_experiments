@@ -124,16 +124,32 @@ class GlobalConfigBuilder(ConfigBuilder, ABC):
 
     hdf_filenames = opts["hdf_filenames"]
     returnn_config.config["network"].update({
+      # att weights
       "att_weights_dump": {
         "class": "hdf_dump",
         "filename": hdf_filenames["att_weights"],
         "from": "output/att_weights",
         "is_output_layer": True,
       },
+      # output labels
       "targets_dump": {
         "class": "hdf_dump",
         "filename": hdf_filenames["targets"],
         "from": "data:targets",
+        "is_output_layer": True,
+      },
+      # ctc alignment
+      "ctc_forced_align": {
+        "align_target": "data:targets",
+        "class": "forced_align",
+        "from": "ctc",
+        "input_type": "prob",
+        "topology": "rna",
+      },
+      "ctc_forced_align_dump": {
+        "class": "hdf_dump",
+        "filename": hdf_filenames["ctc_alignment"],
+        "from": "ctc_forced_align",
         "is_output_layer": True,
       },
     })

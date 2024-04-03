@@ -11,3 +11,4 @@ class RasrExecutablesNew:
   flf_tool_path = Path("/u/schmitt/src/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard/flf-tool.linux-x86_64-standard")
   nn_trainer_path = Path("/u/schmitt/src/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard/nn-trainer.linux-x86_64-standard")
   am_trainer_path = Path("/u/schmitt/src/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard/acoustic-model-trainer.linux-x86_64-standard")
+  archiver_path = Path("/u/schmitt/src/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard/archiver.linux-x86_64-standard")

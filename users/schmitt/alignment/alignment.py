@@ -13,18 +13,31 @@ import tempfile
 import shutil
 import os
 import json
+import ast
+from typing import Optional
 
 import recipe.i6_experiments.users.schmitt.tools as tools_mod
 tools_dir = os.path.dirname(tools_mod.__file__)
 
 
 class DumpPhonemeAlignJob(Job):
-  def __init__(self, rasr_config, time_red, rasr_exe, state_tying_file, time_rqtm=1, mem_rqmt=2, returnn_python_exe=None,
-               returnn_root=None):
-    self.returnn_python_exe = (returnn_python_exe if returnn_python_exe is not None else gs.RETURNN_PYTHON_EXE)
-    self.returnn_root = (returnn_root if returnn_root is not None else gs.RETURNN_ROOT)
+  def __init__(
+          self,
+          rasr_config,
+          rasr_post_config,
+          time_red,
+          rasr_exe,
+          state_tying_file,
+          returnn_python_exe,
+          returnn_root,
+          time_rqtm=1,
+          mem_rqmt=2,
+  ):
+    self.returnn_python_exe = returnn_python_exe
+    self.returnn_root = returnn_root
 
     self.rasr_config = rasr_config
+    self.rasr_post_config = rasr_post_config
     self.rasr_exe = rasr_exe
     self.state_tying_file = state_tying_file
     self.time_red = str(time_red)
@@ -36,15 +49,21 @@ class DumpPhonemeAlignJob(Job):
     self.out_phoneme_vocab = self.output_path("phoneme_vocab")
 
   def tasks(self):
+    yield Task("create_files", mini_task=True)
     yield Task("run", rqmt={"cpu": 1, "mem": self.mem_rqtm, "time": self.time_rqmt})
+
+  def create_files(self):
+    RasrCommand.write_config(self.rasr_config, self.rasr_post_config, "rasr.config")
 
   def run(self):
     command = [
-      self.returnn_python_exe,
+      self.returnn_python_exe.get_path(),
       os.path.join(tools_dir, "dump_phoneme_align.py"),
-      self.rasr_config.get_path(), "--rasr_exe", self.rasr_exe.get_path(),
-      "--time_red", str(self.time_red), "--returnn_root", self.returnn_root,
-      "--state_tying_file", self.state_tying_file.get_path()
+      "rasr.config",
+      "--rasr_exe", self.rasr_exe.get_path(),
+      "--time_red", str(self.time_red),
+      "--returnn_root", self.returnn_root.get_path(),
+      # "--state_tying_file", self.state_tying_file.get_path()
     ]
 
     create_executable("rnn.sh", command)
@@ -187,12 +206,14 @@ class AlignmentStatisticsJob(Job):
       self.alignment.get_path(),
       "--json-vocab", self.json_vocab.get_path(),
       "--blank-idx", str(self.blank_idx),
-      "--sil-idx", str(self.silence_idx),
       "--returnn-root", self.returnn_root.get_path()
     ]
 
     if self.seq_list_filter_file:
       command += ["--seq-list-filter-file", str(self.seq_list_filter_file)]
+
+    if self.silence_idx is not None:
+      command += ["--sil-idx", str(self.silence_idx)]
 
     create_executable("rnn.sh", command)
     subprocess.check_call(["./rnn.sh"])
@@ -623,9 +644,71 @@ class AlignmentRemoveAllBlankSeqsJob(Job):
     shutil.move("out_segment_file", self.out_segment_file.get_path())
 
 
-def extract_ctc_alignment(
-        returnn_config: ReturnnConfig,
-        ctc_layer_name: str,
-        topology: str
-):
-  pass
+class CompareBpeAndGmmAlignments(Job):
+  def __init__(
+          self,
+          bpe_align_hdf: Path,
+          bpe_vocab: Path,
+          bpe_blank_idx: int,
+          bpe_downsampling_factor: int,
+          phoneme_alignment_cache: Path,
+          phoneme_downsampling_factor: int,
+          allophone_file: Path,
+          silence_phone: str,
+          segment_file: Optional[Path] = None,
+          time_rqmt=1,
+          mem_rqmt=4,
+          returnn_python_exe=None,
+          returnn_root=None
+  ):
+    self.returnn_python_exe = returnn_python_exe
+    self.returnn_root = returnn_root
+
+    self.bpe_align_hdf = bpe_align_hdf
+    self.bpe_vocab = bpe_vocab
+    self.bpe_blank_idx = bpe_blank_idx
+    self.bpe_downsampling_factor = bpe_downsampling_factor
+    self.phoneme_alignment_cache = phoneme_alignment_cache
+    self.phoneme_downsampling_factor = phoneme_downsampling_factor
+    self.allophone_file = allophone_file
+    self.segment_file = segment_file
+    self.silence_phone = silence_phone
+
+    self.time_rqmt = time_rqmt
+    self.mem_rqtm = mem_rqmt
+
+    self.out_statistics = self.output_path("statistics")
+    self.out_filtered_segments = self.output_path("filtered_segments")
+
+  def tasks(self):
+    yield Task("create_files", mini_task=True)
+    yield Task("run", rqmt={"cpu": 1, "mem": self.mem_rqtm, "time": self.time_rqmt})
+
+  def create_files(self):
+    command = [
+      self.returnn_python_exe.get_path(),
+      os.path.join(tools_dir, "compare_bpe_and_gmm_alignment.py"),
+      "--bpe_align_hdf", self.bpe_align_hdf.get_path(),
+      "--bpe_vocab", self.bpe_vocab.get_path(),
+      "--bpe_blank_idx", str(self.bpe_blank_idx),
+      "--bpe_downsampling_factor", str(self.bpe_downsampling_factor),
+      "--phoneme_align_cache", self.phoneme_alignment_cache.get_path(),
+      "--phoneme_downsampling_factor", str(self.phoneme_downsampling_factor),
+      "--allophone_file", self.allophone_file.get_path(),
+      "--silence_phone", self.silence_phone,
+      "--returnn_root", self.returnn_root.get_path(),
+    ]
+
+    if self.segment_file is not None:
+      command += ["--segment_file", self.segment_file.get_path()]
+
+    create_executable("rnn.sh", command)
+
+  def run(self):
+    subprocess.check_call(["./rnn.sh"])
+
+  @classmethod
+  def hash(cls, kwargs):
+    kwargs.pop("time_rqmt")
+    kwargs.pop("mem_rqmt")
+    return super().hash(kwargs)

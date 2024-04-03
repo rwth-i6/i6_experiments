@@ -37,20 +37,29 @@ class LibrispeechCorpora:
       "train": None,
       "cv": Path("/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/processing/PipelineJob.gTty7UHs0uBu/output/out", cached=True),
       "devtrain": None,
-      "dev-other": None
+      "dev-other": None,
+      "dev-clean": None
     }
 
     self.corpus_paths = get_bliss_corpus_dict()
+    self.corpus_paths_wav_imported = get_bliss_corpus_dict(audio_format="wav")
     self.corpus_paths_wav = {
-      key: BlissChangeEncodingJob(
-        corpus_file=val, output_format="wav").out_corpus for key, val in self.corpus_paths.items()
+      "dev-other": BlissChangeEncodingJob(
+        corpus_file=self.corpus_paths["dev-other"], output_format="wav").out_corpus,
+      "dev-clean": self.corpus_paths_wav_imported["dev-clean"]
     }
-    self.oggzip_paths_wav = {
+
+    self.oggzip_paths_mine = {
       key: BlissToOggZipJob(
-        self.corpus_paths_wav[key], returnn_python_exe=RETURNN_EXE_NEW, returnn_root=RETURNN_CURRENT_ROOT
+        self.corpus_paths_wav[key],
+        returnn_python_exe=RETURNN_EXE_NEW,
+        returnn_root=RETURNN_CURRENT_ROOT
       ) for key in self.corpus_paths_wav
     }
-    tk.register_output("dev-other-wav-oggzip", self.oggzip_paths_wav["dev-other"].out_ogg_zip)
+    tk.register_output("dev-other-my-oggzip", self.oggzip_paths_mine["dev-other"].out_ogg_zip)
+
+    self.corpus_paths_ogg = get_bliss_corpus_dict(audio_format="ogg")
+    tk.register_output("dev-other_corpus_ogg", self.corpus_paths_ogg["dev-other"])
 
     self.stm_jobs = {
       "dev-other": CorpusToStmJob(self.corpus_paths["dev-other"]),

@@ -1866,152 +1866,275 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
 
     def _add_length_model(length_model_opts: Dict):
       length_model_dict = {}
-      # build base structure
-      length_model_dict.update({
-        "am": {"class": "copy", "from": "data:source"},
-        "blank_log_prob": {
-          "class": "eval",
-          "eval": "tf.math.log_sigmoid(-source(0))",
-          "from": "emit_prob0",
-        },
-        "const1": {"class": "constant", "value": 1},
-        "emit_log_prob": {
-          "activation": "log_sigmoid",
-          "class": "activation",
-          "from": "emit_prob0",
-        },
-        "emit_prob0": {
-          "activation": None,
-          "class": "linear",
-          "from": "s_length_model",
-          "is_output_layer": True,
-          "n_out": 1,
-        },
-        "output_emit": {
-          "class": "compare",
-          "from": "output",
-          "initial_output": True,
-          "kind": "not_equal",
-          "value": blank_idx,
-        },
-        "s_length_model": {  # set remaining params below
-          "from": [],
-          "n_out": 128
-        },
-      })
-
-      # build inputs
-
-      # current frame
-      assert length_model_opts["use_current_frame"] or length_model_opts["use_embedding"] or length_model_opts["use_label_model_state"]
-      if length_model_opts["use_current_frame"]:
-        length_model_dict["s_length_model"]["from"].append("am")
-
-      # label context: either full alignment or non-blank
-      if length_model_opts["use_embedding"]:
-        assert "embedding_size" in length_model_opts
-
-        # in this case, we feed all alignment labels (blank + non-blank) to the length model state
-        if length_model_opts["use_alignment_ctx"]:
-          length_model_dict.update({
-              "target_embed_length_model": {
-                "activation": None,
-                "class": "linear",
-                "from": "output",
-                "n_out": length_model_opts["embedding_size"],
-              },
-            })
-        # in this case, we only update the embedding for non-blank labels
-        else:
-          length_model_dict.update({
-            "target_embed_length_model": {
-              "class": "unmask",
-              "from": "target_embed_length_model_masked",
-              "initial_output": 0,
-              "mask": "output_emit",
-            },
-            "target_embed_length_model_masked": {
-              "class": "masked_computation",
-              "from": "output",
-              "mask": "output_emit",
-              "unit": {
-                "class": "subnetwork",
-                "initial_output": 0,
-                "from": "data",
-                "subnetwork": {
-                  "output": {"class": "copy", "from": "target_embed_length_model"},
-                  "output_non_blank": {
-                    "class": "reinterpret_data",
-                    "from": "data",
-                    "set_sparse_dim": 10025,
-                  },
-                  "target_embed_length_model": {
-                    "activation": None,
-                    "class": "linear",
-                    "from": "output_non_blank",
-                    "n_out": length_model_opts["embedding_size"],
-                  }}}}})
-        length_model_dict["s_length_model"]["from"].append("prev:target_embed_length_model")
-
-      # label model state
-      if length_model_opts["use_label_model_state"]:
-        # in case of training, we need to access the label model state from the label_model rec layer
-        if task == "train":
-          seg_net_dict["label_model"]["unit"]["s"]["is_output_layer"] = True
-          length_model_dict.update({
-            "s": {
-              "class": "unmask",
-              "mask": "prev:output_emit",
-              "from": "base:label_model/s",
-            }
-          })
-        length_model_dict["s_length_model"]["from"].append("s")
-
-      # build layer type: linear layer, native lstm or explicit lstm
-      assert length_model_opts["layer_class"] in ("lstm", "lstm_explicit", "linear")
-      if length_model_opts["layer_class"] == "lstm":
-        length_model_dict["s_length_model"].update({
-          "L2": 0.0001,
-          "class": "rec",
-          "dropout": 0.3,
-          "unit": "nativelstm2",
-          "unit_opts": {"rec_weight_dropout": 0.3},
-        })
-      elif length_model_opts["layer_class"] == "lstm_explicit":
-        length_model_dict.update(network_builder2.get_explicit_lstm(
-          layer_name="s_length_model",
-          n_out=128,
-          from_=length_model_dict["s_length_model"]["from"]
-        ))
-      else:
-        length_model_dict["s_length_model"].update({
-          "L2": 0.0001,
-          "class": "linear",
-          "dropout": 0.3,
-        })
-
-      # length model scale
-      length_scale = network_opts.get("length_scale")
-      if type(length_scale) == float and length_scale != 1.0:
-        # scale both blank and emit log prob by a constant factor
+      if length_model_opts["type"] == "neural-framewise":
+        # build base structure
         length_model_dict.update({
+          "am": {"class": "copy", "from": "data:source"},
           "blank_log_prob": {
             "class": "eval",
-            "eval": "tf.math.log_sigmoid(-source(0)) * %f" % length_scale,
+            "eval": "tf.math.log_sigmoid(-source(0))",
             "from": "emit_prob0",
           },
+          "const1": {"class": "constant", "value": 1},
+          "emit_log_prob": {
+            "activation": "log_sigmoid",
+            "class": "activation",
+            "from": "emit_prob0",
+          },
+          "emit_prob0": {
+            "activation": None,
+            "class": "linear",
+            "from": "s_length_model",
+            "is_output_layer": True,
+            "n_out": 1,
+          },
+          "output_emit": {
+            "class": "compare",
+            "from": "output",
+            "initial_output": True,
+            "kind": "not_equal",
+            "value": blank_idx,
+          },
+          "s_length_model": {  # set remaining params below
+            "from": [],
+            "n_out": 128
+          },
+        })
+
+        # build inputs
+
+        # current frame
+        assert length_model_opts["use_current_frame"] or length_model_opts["use_embedding"] or length_model_opts["use_label_model_state"]
+        if length_model_opts["use_current_frame"]:
+          length_model_dict["s_length_model"]["from"].append("am")
+
+        # label context: either full alignment or non-blank
+        if length_model_opts["use_embedding"]:
+          assert "embedding_size" in length_model_opts
+
+          # in this case, we feed all alignment labels (blank + non-blank) to the length model state
+          if length_model_opts["use_alignment_ctx"]:
+            length_model_dict.update({
+                "target_embed_length_model": {
+                  "activation": None,
+                  "class": "linear",
+                  "from": "output",
+                  "n_out": length_model_opts["embedding_size"],
+                },
+              })
+          # in this case, we only update the embedding for non-blank labels
+          else:
+            length_model_dict.update({
+              "target_embed_length_model": {
+                "class": "unmask",
+                "from": "target_embed_length_model_masked",
+                "initial_output": 0,
+                "mask": "output_emit",
+              },
+              "target_embed_length_model_masked": {
+                "class": "masked_computation",
+                "from": "output",
+                "mask": "output_emit",
+                "unit": {
+                  "class": "subnetwork",
+                  "initial_output": 0,
+                  "from": "data",
+                  "subnetwork": {
+                    "output": {"class": "copy", "from": "target_embed_length_model"},
+                    "output_non_blank": {
+                      "class": "reinterpret_data",
+                      "from": "data",
+                      "set_sparse_dim": 10025,
+                    },
+                    "target_embed_length_model": {
+                      "activation": None,
+                      "class": "linear",
+                      "from": "output_non_blank",
+                      "n_out": length_model_opts["embedding_size"],
+                    }}}}})
+          length_model_dict["s_length_model"]["from"].append("prev:target_embed_length_model")
+
+        # label model state
+        if length_model_opts["use_label_model_state"]:
+          # in case of training, we need to access the label model state from the label_model rec layer
+          if task == "train":
+            seg_net_dict["label_model"]["unit"]["s"]["is_output_layer"] = True
+            length_model_dict.update({
+              "s": {
+                "class": "unmask",
+                "mask": "prev:output_emit",
+                "from": "base:label_model/s",
+              }
+            })
+          length_model_dict["s_length_model"]["from"].append("s")
+
+        # build layer type: linear layer, native lstm or explicit lstm
+        assert length_model_opts["layer_class"] in ("lstm", "lstm_explicit", "linear")
+        if length_model_opts["layer_class"] == "lstm":
+          length_model_dict["s_length_model"].update({
+            "L2": 0.0001,
+            "class": "rec",
+            "dropout": 0.3,
+            "unit": "nativelstm2",
+            "unit_opts": {"rec_weight_dropout": 0.3},
+          })
+        elif length_model_opts["layer_class"] == "lstm_explicit":
+          length_model_dict.update(network_builder2.get_explicit_lstm(
+            layer_name="s_length_model",
+            n_out=128,
+            from_=length_model_dict["s_length_model"]["from"]
+          ))
+        else:
+          length_model_dict["s_length_model"].update({
+            "L2": 0.0001,
+            "class": "linear",
+            "dropout": 0.3,
+          })
+
+        # length model scale
+        length_scale = network_opts.get("length_scale")
+        if type(length_scale) == float and length_scale != 1.0:
+          # scale both blank and emit log prob by a constant factor
+          length_model_dict.update({
+            "blank_log_prob": {
+              "class": "eval",
+              "eval": "tf.math.log_sigmoid(-source(0)) * %f" % length_scale,
+              "from": "emit_prob0",
+            },
+            "emit_log_prob": {
+              "class": "eval",
+              "eval": "tf.math.log_sigmoid(source(0)) * %f" % length_scale,
+              "from": "emit_prob0",
+            },
+          })
+      else:
+        assert length_model_opts["type"] == "static-segmental"
+        seg_net_dict.update({
+          "max_seg_len_range0": {
+            "class": "range",
+            "limit": length_model_opts["max_segment_len"] + 1,
+            "start": 1,
+            "delta": 1
+          },
+          "max_seg_len_range": {
+            "class": "cast",
+            "from": "max_seg_len_range0",
+            "dtype": "float32"
+          },
+          "mean_seg_lens0": {
+            "class": "constant",
+            "value": CodeWrapper("np.array(%s)" % length_model_opts["label_dependent_means"]),
+            "with_batch_dim": True
+          },
+          "mean_seg_lens": {
+            "class": "cast",
+            "dtype": "float32",
+            "from": "mean_seg_lens0"
+          },
+          # length model norm factor
+          # calculate prob for each possible segment length and sum them up
+          "length_model_norm0": {
+            "class": "eval",
+            "from": ["mean_seg_lens", "max_seg_len_range"],
+            "eval": "tf.math.exp(-tf.math.abs(source(0) - source(1))%s)" % ""
+          },
+          "length_model_norm": {
+            "class": "reduce",
+            "from": ["length_model_norm0"],
+            "mode": "sum",
+            "axes": ["stag:max_seg_len_range0:range"]
+          },
+        })
+        length_model_dict.update({
+          "output_emit": {
+            "class": "compare",
+            "from": "output",
+            "initial_output": True,
+            "kind": "not_equal",
+            "value": blank_idx,
+          },
+          "max_seg_len": {
+            "class": "constant",
+            "value": length_model_opts["max_segment_len"] - 1
+          },
+          "is_segment_longer_than_max": {
+            "class": "compare",
+            "from": ["segment_lens", "max_seg_len"],
+            "kind": "greater"
+          },
+          # distance from current t to previous center position as float
+          "seg_lens_float": {
+            "class": "cast",
+            "dtype": "float32",
+            "from": "segment_lens1"
+          },
+          # length model (exp(-deviation from mean center distance) / norm_factor)
+          "length_model0": {
+            "class": "eval",
+            "from": ["seg_lens_float", "base:mean_seg_lens"],
+            "eval": "tf.math.exp(-tf.math.abs(source(1) - source(0))%s)" % ""
+          },
+          "length_model": {
+            "class": "combine",
+            "from": ["length_model0", "base:length_model_norm"],
+            "kind": "truediv"
+          },
+          # log probs of length model
+          # "blank_log_prob0": {
+          #   "class": "eval",
+          #   "from": "length_model",
+          #   "eval": "tf.math.log(1 - source(0))"
+          # },
+          # blank log prob is 0 if within max segment len and else -inf
+          "const0.0_0": {
+            "class": "constant",
+            "value": 0.0,
+            "with_batch_dim": True
+          },
+          "const0.0": {
+            "class": "expand_dims",
+            "axis": "F",
+            "from": "const0.0_0"
+          },
+          "const_neg_inf_0": {
+            "class": "constant",
+            "value": CodeWrapper('float("-inf")'),
+            "with_batch_dim": True,
+          },
+          'const_neg_inf': {
+            'axis': 'F',
+            'class': 'expand_dims',
+            'from': 'const_neg_inf_0'
+          },
+          "blank_log_prob": {
+            "class": "switch",
+            "condition": "is_segment_longer_than_max",
+            "true_from": "const_neg_inf",
+            "false_from": "const0.0"
+          },
+          # emit log probs depend on label
           "emit_log_prob": {
             "class": "eval",
-            "eval": "tf.math.log_sigmoid(source(0)) * %f" % length_scale,
-            "from": "emit_prob0",
+            "from": "length_model",
+            "eval": "tf.math.log(source(0))"
           },
         })
 
       # blank penalty
       blank_penalty = network_opts.get("blank_penalty")
-      if type(blank_penalty) == float and blank_penalty != 0.0:
+      if isinstance(blank_penalty, float) and blank_penalty != 0.0:
         # add constant penalty to blank log prob
         length_model_dict["blank_log_prob"]["eval"] += (" - %f" % blank_penalty)
+      elif isinstance(blank_penalty, str):
+        assert blank_penalty == "dynamic"
+        blank_log_prob = length_model_dict["blank_log_prob"]
+        if isinstance(blank_log_prob["from"], str):
+          blank_log_prob["from"] = [blank_log_prob["from"], "segment_lens1"]
+        else:
+          assert isinstance(blank_log_prob["from"], list)
+          blank_log_prob["from"].append("segment_lens1")
+        assert len(blank_log_prob["from"]) == 2
+        blank_log_prob["eval"] += " - 0.01 * tf.cast(source(1), tf.float32)"
 
       seg_net_dict["output"]["unit"].update(length_model_dict)
 
