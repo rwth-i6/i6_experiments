@@ -71,11 +71,11 @@ def _read_epoch_steps_from_scores_and_learning_rates(scores: Dict[int, Dict[str,
 
 
 def _read_used_gpus_from_log(job: Union[str, Job]) -> Set[str]:
-    from i6_experiments.users.zeyer.utils.job_log import open_job_log
+    from i6_experiments.users.zeyer.utils.job_log import open_job_logs
 
     gpus = set()
 
-    with open_job_log(job) as (log_file, log_filename):
+    for log_file, log_filename in open_job_logs(job):
         for line in log_file:
             # Example: "Using gpu device 3: NVIDIA GeForce GTX 1080 Ti"
             if not line.startswith("Using gpu device "):
