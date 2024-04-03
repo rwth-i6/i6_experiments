@@ -70,8 +70,8 @@ def open_job_logs(job: Union[str, Job], task: str = "run", index: int = 1) -> It
                 if not f:
                     break
                 if re.match(f"^engine/{log_fn_engine_pattern}$", f.name):
-                    f = tarf.extractfile(f)
-                    yield TextIOWrapper(f), f"{tar_fn}:{f.name}"
+                    f_ = tarf.extractfile(f)
+                    yield TextIOWrapper(f_), f"{tar_fn}:{f.name}"
                     count += 1
 
     assert count > 0, f"No logs found for {job} {task} {index}"
