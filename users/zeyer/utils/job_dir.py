@@ -17,6 +17,8 @@ def get_job_base_dir(job: Union[str, Job]) -> str:
     elif job.startswith("work/") or job.startswith("/"):
         assert os.path.isdir(job), f"job dir not valid: {job}"
         return job
+    elif os.path.isdir(job) and os.path.exists(f"{job}/info"):
+        return job
     else:
         work_dir_prefix = sis_path.get_work_dir_prefix()
         assert os.path.isdir(work_dir_prefix + job), f"job dir not valid: job {job}, work dir prefix {work_dir_prefix}"
