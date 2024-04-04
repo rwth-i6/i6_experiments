@@ -111,6 +111,7 @@ config_24gb_v6 = dict_update_deep(config_24gb_v5, None, ["pretrain_opts"])
 # i.e. the same as single-GPU 2000 subepochs.
 # If the dict is missing some entry,
 # unfortunately there is currently no good automatic way to get the number.
+# I need to log at the stats of some setup with this batch size.
 # I just run some setup with some arbitrary LR scheduling (calling it "wrongLr"),
 # or maybe with sqrt-decay, and then look at the stats (steps/ep, or total num steps),
 # and give some estimates for the steps here, i.e. 45%, 90%, almost 100%,
@@ -120,7 +121,9 @@ _lrlin_oclr_steps_by_bs_nep = {
     (8, 250): [279_000, 558_000, 621_000],  # ~2485steps/ep, 250 eps -> 621k steps in total
     (8, 500): [558_000, 1_117_000, 1_242_000],  # ~2485steps/ep, 500 eps -> 1.242k steps in total
     (10, 500): [443_000, 887_000, 986_000],  # ~1973 steps/epoch, total steps after 500 epochs: ~986k
+    (15, 400): [234_000, 469_000, 521_000],  # total steps after 400 epochs: ~521k
     (15, 500): [295_000, 590_000, 652_000],  # total steps after 500 epochs: ~652k
+    (15, 600): [352_000, 704_000, 782_000],  # total steps after 600 epochs: ~782k
     (20, 1000): [438_000, 877_000, 974_000],  # total steps after 1000 epochs: 974.953
     (20, 2000): [878_000, 1_757_000, 1_952_000],  # total steps after 2000 epochs: 1.952.394
     (30, 2000): [587_000, 1_174_000, 1_305_000],  # total steps after 2000 epochs: 1.305.182
