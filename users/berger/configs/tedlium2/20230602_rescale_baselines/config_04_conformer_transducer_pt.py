@@ -163,18 +163,18 @@ def run_exp() -> SummaryReport:
 
     # ********** Returnn Configs **********
 
-    system.add_experiment_configs(
-        "Conformer_Transducer",
-        get_returnn_config_collection(
-            data.train_data_config,
-            data.cv_data_config,
-            data.forward_data_config["dev"],
-            bpe_lexicon=data.bpe_lexicon,
-            beam_sizes=[10],
-            k2=False,
-            pruned=False,
-        ),
-    )
+    # system.add_experiment_configs(
+    #     "Conformer_Transducer",
+    #     get_returnn_config_collection(
+    #         data.train_data_config,
+    #         data.cv_data_config,
+    #         data.forward_data_config["dev"],
+    #         bpe_lexicon=data.bpe_lexicon,
+    #         beam_sizes=[10],
+    #         k2=False,
+    #         pruned=False,
+    #     ),
+    # )
 
     system.add_experiment_configs(
         "Conformer_Transducer_k2",
@@ -190,63 +190,63 @@ def run_exp() -> SummaryReport:
         ),
     )
 
-    system.add_experiment_configs(
-        "Conformer_Transducer_k2-pruned",
-        get_returnn_config_collection(
-            data.train_data_config,
-            data.cv_data_config,
-            data.forward_data_config["dev"],
-            bpe_lexicon=data.bpe_lexicon,
-            beam_sizes=[10],
-            k2=True,
-            pruned=True,
-            rnnt_type="modified",
-        ),
-    )
+    # system.add_experiment_configs(
+    #     "Conformer_Transducer_k2-pruned",
+    #     get_returnn_config_collection(
+    #         data.train_data_config,
+    #         data.cv_data_config,
+    #         data.forward_data_config["dev"],
+    #         bpe_lexicon=data.bpe_lexicon,
+    #         beam_sizes=[10],
+    #         k2=True,
+    #         pruned=True,
+    #         rnnt_type="modified",
+    #     ),
+    # )
 
-    system.add_experiment_configs(
-        "Conformer_Transducer_i6-cfg",
-        get_returnn_config_collection(
-            data.train_data_config,
-            data.cv_data_config,
-            data.forward_data_config["dev"],
-            bpe_lexicon=data.bpe_lexicon,
-            beam_sizes=[10],
-            k2=False,
-            i6_config=True,
-            pruned=False,
-        ),
-    )
+    # system.add_experiment_configs(
+    #     "Conformer_Transducer_i6-cfg",
+    #     get_returnn_config_collection(
+    #         data.train_data_config,
+    #         data.cv_data_config,
+    #         data.forward_data_config["dev"],
+    #         bpe_lexicon=data.bpe_lexicon,
+    #         beam_sizes=[10],
+    #         k2=False,
+    #         i6_config=True,
+    #         pruned=False,
+    #     ),
+    # )
 
-    system.add_experiment_configs(
-        "Conformer_Transducer_k2_i6-cfg",
-        get_returnn_config_collection(
-            data.train_data_config,
-            data.cv_data_config,
-            data.forward_data_config["dev"],
-            bpe_lexicon=data.bpe_lexicon,
-            beam_sizes=[10],
-            k2=True,
-            i6_config=True,
-            pruned=False,
-            rnnt_type="modified",
-        ),
-    )
+    # system.add_experiment_configs(
+    #     "Conformer_Transducer_k2_i6-cfg",
+    #     get_returnn_config_collection(
+    #         data.train_data_config,
+    #         data.cv_data_config,
+    #         data.forward_data_config["dev"],
+    #         bpe_lexicon=data.bpe_lexicon,
+    #         beam_sizes=[10],
+    #         k2=True,
+    #         i6_config=True,
+    #         pruned=False,
+    #         rnnt_type="modified",
+    #     ),
+    # )
 
-    system.add_experiment_configs(
-        "Conformer_Transducer_k2-pruned_i6-cfg",
-        get_returnn_config_collection(
-            data.train_data_config,
-            data.cv_data_config,
-            data.forward_data_config["dev"],
-            bpe_lexicon=data.bpe_lexicon,
-            beam_sizes=[10],
-            k2=True,
-            i6_config=True,
-            pruned=True,
-            rnnt_type="modified",
-        ),
-    )
+    # system.add_experiment_configs(
+    #     "Conformer_Transducer_k2-pruned_i6-cfg",
+    #     get_returnn_config_collection(
+    #         data.train_data_config,
+    #         data.cv_data_config,
+    #         data.forward_data_config["dev"],
+    #         bpe_lexicon=data.bpe_lexicon,
+    #         beam_sizes=[10],
+    #         k2=True,
+    #         i6_config=True,
+    #         pruned=True,
+    #         rnnt_type="modified",
+    #     ),
+    # )
 
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)

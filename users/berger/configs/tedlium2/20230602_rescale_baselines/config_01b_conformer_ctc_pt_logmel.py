@@ -13,8 +13,8 @@ from i6_experiments.users.berger.corpus.tedlium2.ctc_data import get_tedlium2_da
 from i6_experiments.users.berger.pytorch.models import conformer_ctc
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.dataclasses import ConfigVariant, FeatureType, ReturnnConfigs
-from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
-    ReturnnSeq2SeqSystem,
+from i6_experiments.users.berger.systems.returnn_native_system import (
+    ReturnnNativeSystem,
 )
 from i6_experiments.users.berger.util import default_tools_v2
 
@@ -48,7 +48,7 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
         num_epochs=num_subepochs,
         num_inputs=1,
         num_outputs=num_outputs,
-        target="targets",
+        target="classes",
         extra_python=[conformer_ctc.get_serializer(model_config, variant=variant)],
         extern_data_config=True,
         backend=Backend.PYTORCH,
@@ -105,7 +105,7 @@ def run_exp() -> SummaryReport:
 
     # ********** System **********
 
-    system = ReturnnSeq2SeqSystem(tools)
+    system = ReturnnNativeSystem(tools)
 
     system.init_corpora(
         dev_keys=data.dev_keys,

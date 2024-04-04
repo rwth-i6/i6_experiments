@@ -54,15 +54,14 @@ class ConformerCTCModel(torch.nn.Module):
     def forward(
         self,
         audio_features: torch.Tensor,
-        audio_features_len: Optional[torch.Tensor] = None,
+        audio_features_len: torch.Tensor,
     ):
         with torch.no_grad():
             if self.feature_extraction is None:
-                assert audio_features_len is not None
                 x = audio_features
                 input_len = audio_features_len
             else:
-                x, input_len = self.feature_extraction(audio_features)
+                x, input_len = self.feature_extraction(audio_features, audio_features_len)
 
             sequence_mask = lengths_to_padding_mask(input_len)
 
