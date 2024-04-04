@@ -79,7 +79,6 @@ def get_center_window_att_config_builder(
         expected_position_aux_loss_opts: Optional[Dict] = None,
         pos_pred_att_weight_interpolation_opts: Optional[Dict] = None,
         search_remove_eos: bool = False,
-        use_old_global_att_to_seg_att_maker: bool = False,
 ):
   model_type = "librispeech_conformer_seg_att"
   variant_name = "seg.conformer.like-global"
@@ -103,7 +102,6 @@ def get_center_window_att_config_builder(
   config_builder = LibrispeechConformerSegmentalAttentionConfigBuilder(
     dependencies=variant_params["dependencies"],
     variant_params=variant_params,
-    use_old_global_att_to_seg_att_maker=use_old_global_att_to_seg_att_maker
   )
 
   return config_builder

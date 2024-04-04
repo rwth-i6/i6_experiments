@@ -29,7 +29,6 @@ def center_window_att_import_global_global_ctc_align_att_weight_penalty_recog(
             train_config_builder = get_center_window_att_config_builder(
               win_size=win_size,
               use_weight_feedback=True,
-              use_old_global_att_to_seg_att_maker=False
             )
             train_exp = SegmentalTrainExperiment(
               config_builder=train_config_builder,
@@ -46,7 +45,6 @@ def center_window_att_import_global_global_ctc_align_att_weight_penalty_recog(
                 "mult_weight": mult_weight,
                 "exp_weight": exp_weight
               },
-              use_old_global_att_to_seg_att_maker=False
             )
 
             for checkpoint_alias in ("last", "best", "best-4-avg"):
@@ -98,7 +96,6 @@ def center_window_att_import_global_global_ctc_align_att_weight_penalty_train(
                   "use_as_loss": True,
                   "loss_scale": loss_scale,
                 },
-                use_old_global_att_to_seg_att_maker=False
               )
               train_exp = SegmentalTrainExperiment(
                 config_builder=train_config_builder,
@@ -115,7 +112,6 @@ def center_window_att_import_global_global_ctc_align_att_weight_penalty_train(
                   "mult_weight": mult_weight,
                   "exp_weight": exp_weight
                 },
-                use_old_global_att_to_seg_att_maker=False
               )
 
               for checkpoint_alias in ("last", "best", "best-4-avg"):

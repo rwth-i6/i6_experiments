@@ -1,45 +1,25 @@
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import GlobalLabelDefinition, SegmentalLabelDefinition, LabelDefinition
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora.librispeech import LibrispeechCorpora
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora.swb import SWBSprintCorpora, SWBOggZipCorpora
-from i6_experiments.users.schmitt.datasets.oggzip import get_dataset_dict as get_oggzip_dataset_dict
-from i6_experiments.users.schmitt.datasets.concat import get_concat_dataset_dict
-from i6_experiments.users.schmitt.datasets.extern_sprint import get_dataset_dict as get_extern_sprint_dataset_dict
-from i6_experiments.users.schmitt.conformer_pretrain import get_network
-from i6_experiments.users.schmitt.specaugment import *
-from i6_experiments.users.schmitt.specaugment import _mask
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import SegmentalLabelDefinition
 from i6_experiments.users.schmitt.augmentation.alignment import shift_alignment_boundaries_func_str
-from i6_experiments.users.schmitt.dynamic_lr import dynamic_lr_str
 from i6_experiments.users.schmitt.chunking import custom_chunkin_func_str, custom_chunkin_w_reduction_func_str
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder, network_builder2
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.lm import lm_irie, lstm_bpe_10k
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.lm import base as lm_base
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.ilm_correction import mini_att as mini_att_ilm_correction
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn import custom_construction_algos
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.base import ConfigBuilder, SWBBlstmConfigBuilder, SwbConformerConfigBuilder, LibrispeechConformerConfigBuilder, ConformerConfigBuilder
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
 
-from i6_core.returnn.config import ReturnnConfig, CodeWrapper
+from i6_core.returnn.config import CodeWrapper
 
-from sisyphus import Path
-
-import os
-import re
-from abc import abstractmethod, ABC
-from typing import Dict, Optional, List, Any
+from abc import ABC
+from typing import Dict, Optional, List
 import copy
-import numpy as np
 
 
 class SegmentalConfigBuilder(ConfigBuilder, ABC):
-  def __init__(self, dependencies: SegmentalLabelDefinition, use_old_global_att_to_seg_att_maker: bool = True, **kwargs):
+  def __init__(self, dependencies: SegmentalLabelDefinition, **kwargs):
     super().__init__(dependencies=dependencies, **kwargs)
 
     self.dependencies = dependencies
-
-    if use_old_global_att_to_seg_att_maker:
-      self.global_att_to_seg_att_maker = MohammadGlobalAttToSegmentalAttentionMaker
-    else:
-      self.global_att_to_seg_att_maker = MohammadGlobalAttToSegmentalAttentionMaker2
 
   def get_train_config(self, opts: Dict, python_epilog: Optional[Dict] = None):
     train_config = super().get_train_config(opts=opts, python_epilog=python_epilog)
@@ -284,7 +264,7 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
 
     if "center_positions" in hdf_filenames:
       # additionally dump the center positions into hdf
-      network_builder2.add_center_positions(
+      network_builder.add_center_positions(
         network=returnn_config.config["network"],
         segment_lens_starts_layer_name=SegmentalConfigBuilder.get_segment_lens_starts_layer_name(
           network_opts=self.variant_params["network"], task="train"
@@ -338,7 +318,7 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
       returnn_config.config[blank_log_prob_dim_tag_str] = CodeWrapper(
         'DimensionTag(kind=DimensionTag.Types.Spatial, description="sliced-time:blank_log_prob", dimension=None)')
 
-      network_builder2.add_length_model_pos_probs(
+      network_builder.add_length_model_pos_probs(
         network=returnn_config.config["network"],
         rec_layer_name=rec_layer_name,
         use_normalization=False,
@@ -399,7 +379,7 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
 
     if "center_positions" in hdf_filenames:
       # additionally dump the center positions into hdf
-      network_builder2.add_center_positions(
+      network_builder.add_center_positions(
         network=returnn_config.config["network"],
         segment_lens_starts_layer_name=segment_lens_starts_layer_name
       )
@@ -560,7 +540,7 @@ class SWBConformerSegmentalAttentionConfigBuilder(SwbConformerConfigBuilder, Seg
       return None
     else:
       from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.mohammad_conformer.networks_11_4 import networks_dict
-      return self.global_att_to_seg_att_maker.make_global_attention_segmental(
+      return MohammadGlobalAttToSegmentalAttentionMaker2.make_global_attention_segmental(
         copy.deepcopy(networks_dict[22]),
         task=task,
         blank_idx=self.dependencies.model_hyperparameters.blank_idx,
@@ -578,7 +558,7 @@ class SWBConformerSegmentalAttentionConfigBuilder(SwbConformerConfigBuilder, Seg
 
       new_networks_dict = {}
       for i, net_dict in networks_dict.items():
-        new_networks_dict[i] =self.global_att_to_seg_att_maker.make_global_attention_segmental(
+        new_networks_dict[i] =MohammadGlobalAttToSegmentalAttentionMaker2.make_global_attention_segmental(
           copy.deepcopy(net_dict),
           task=task,
           blank_idx=self.dependencies.model_hyperparameters.blank_idx,
@@ -605,7 +585,7 @@ class LibrispeechConformerSegmentalAttentionConfigBuilder(SegmentalConfigBuilder
       return None
     else:
       from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.librispeech.returnn.network_builder.networks import networks_dict
-      return self.global_att_to_seg_att_maker.make_global_attention_segmental(
+      return MohammadGlobalAttToSegmentalAttentionMaker2.make_global_attention_segmental(
         copy.deepcopy(networks_dict[36]),
         task=task,
         blank_idx=self.dependencies.model_hyperparameters.blank_idx,
@@ -623,7 +603,7 @@ class LibrispeechConformerSegmentalAttentionConfigBuilder(SegmentalConfigBuilder
 
       new_networks_dict = {}
       for i, net_dict in networks_dict.items():
-        new_networks_dict[i] = self.global_att_to_seg_att_maker.make_global_attention_segmental(
+        new_networks_dict[i] = MohammadGlobalAttToSegmentalAttentionMaker2.make_global_attention_segmental(
           copy.deepcopy(net_dict),
           task=task,
           blank_idx=self.dependencies.model_hyperparameters.blank_idx,
@@ -638,902 +618,6 @@ class LibrispeechConformerSegmentalAttentionConfigBuilder(SegmentalConfigBuilder
       return new_networks_dict
     else:
       return None
-
-
-class MohammadGlobalAttToSegmentalAttentionMaker:
-  @staticmethod
-  def make_global_attention_segmental(
-          global_net_dict,
-          task: str,
-          blank_idx: int,
-          sos_idx: int,
-          target_num_labels_w_blank: int,
-          target_num_labels_wo_blank: int,
-          network_opts: Dict,
-          config_dict: Dict,
-          python_prolog: List,
-          use_get_global_config: bool = False  # not used here, only in the new version
-  ) -> Dict:
-    def _remove_not_needed_layers():
-      del seg_net_dict["enc_value"]
-      del seg_net_dict["enc_ctx"]
-      if task == "train":
-        del seg_net_dict["decision"]
-
-      if "ctc_forced_align" in seg_net_dict:
-        del seg_net_dict["ctc_forced_align"]
-        del seg_net_dict["ctc_forced_align_dump"]
-
-      del seg_net_dict["output"]["unit"]["end"]
-
-    def _add_base_layers():
-      seg_net_dict.update({
-        "existing_alignment": {
-          "class": "reinterpret_data",
-          "from": "data:targets",
-          "set_sparse": True,
-          "set_sparse_dim": target_num_labels_w_blank,
-          "size_base": "encoder",
-        },
-        "is_label": {
-          "class": "compare",
-          "from": "existing_alignment",
-          "kind": "not_equal",
-          "value": blank_idx,
-        },
-        "label_ground_truth_masked": {
-          "class": "reinterpret_data",
-          "enforce_batch_major": True,
-          "from": "label_ground_truth_masked0",
-          "register_as_extern_data": "label_ground_truth",
-          "set_sparse_dim": target_num_labels_wo_blank,
-        },
-        "label_ground_truth_masked0": {
-          "class": "masked_computation",
-          "from": "existing_alignment",
-          "mask": "is_label",
-          "unit": {"class": "copy", "from": "data"},
-        },
-        "emit_ground_truth": {
-          "class": "reinterpret_data",
-          "from": "emit_ground_truth0",
-          "is_output_layer": True,
-          "register_as_extern_data": "emit_ground_truth",
-          "set_sparse": True,
-          "set_sparse_dim": 2,
-        },
-        "emit_ground_truth0": {
-          "class": "switch",
-          "condition": "is_label",
-          "false_from": "const0",
-          "true_from": "const1",
-        },
-        "const0": {"class": "constant", "value": 0, "with_batch_dim": True},
-        "const1": {"class": "constant", "value": 1, "with_batch_dim": True},
-        "labels_with_blank_ground_truth": {
-          "class": "copy",
-          "from": "existing_alignment",
-          "register_as_extern_data": "targetb",
-        },
-        "segment_lens_masked": {
-          "class": "masked_computation",
-          "from": "output/segment_lens",
-          "mask": "is_label",
-          "register_as_extern_data": "segment_lens_masked",
-          "unit": {"class": "copy", "from": "data"},
-        },
-        "segment_starts_masked": {
-          "class": "masked_computation",
-          "from": "output/segment_starts",
-          "mask": "is_label",
-          "register_as_extern_data": "segment_starts_masked",
-          "unit": {"class": "copy", "from": "data"},
-        },
-      })
-
-      seg_net_dict["ctc"]["target"] = "label_ground_truth"
-
-    def _add_label_model_layer():
-      seg_net_dict["label_model"] = copy.deepcopy(seg_net_dict["output"])
-
-      seg_net_dict["label_model"]["name_scope"] = "output/rec"
-      seg_net_dict["label_model"]["is_output_layer"] = True
-      seg_net_dict["label_model"]["target"] = "label_ground_truth"
-      del seg_net_dict["label_model"]["max_seq_len"]
-
-      seg_net_dict["label_model"]["unit"]["output"]["target"] = "label_ground_truth"
-      seg_net_dict["label_model"]["unit"]["output_prob"]["target"] = "label_ground_truth"
-
-      seg_net_dict["label_model"]["unit"].update({
-        "segment_lens": {
-          "axis": "t",
-          "class": "gather",
-          "from": "base:data:segment_lens_masked",
-          "position": ":i",
-        },
-        "segment_starts": {
-          "axis": "t",
-          "class": "gather",
-          "from": "base:data:segment_starts_masked",
-          "position": ":i",
-        },
-      })
-
-    def _add_label_model_att_layers(rec_layer_name: str):
-      if "att_weights0" in seg_net_dict[rec_layer_name]["unit"]:
-        assert seg_net_dict[rec_layer_name]["unit"]["att_weights0"]["class"] == "softmax_over_spatial"
-        att_weights_layer_name = "att_weights0"
-      else:
-        att_weights_layer_name = "att_weights"
-      seg_net_dict[rec_layer_name]["unit"][att_weights_layer_name]["axis"] = "stag:sliced-time:segments"
-      seg_net_dict[rec_layer_name]["unit"]["energy_in"]["from"] = [
-        "att_ctx",
-        "weight_feedback",
-        "s_transformed" if task == "train" else "att_query"]
-      seg_net_dict[rec_layer_name]["unit"]["att0"]["base"] = "att_val"
-
-      seg_net_dict[rec_layer_name]["unit"].update({
-        "segments": {
-          "class": "slice_nd",
-          "from": "base:encoder",
-          "size": "segment_lens",
-          "start": "segment_starts"
-        },
-        "att_ctx": {
-          "activation": None,
-          "class": "linear",
-          "name_scope": "/enc_ctx",
-          "from": "segments",
-          "n_out": 1024,
-          "with_bias": True,
-        },
-        "att_val": {"class": "copy", "from": "segments"},
-      })
-
-    def _add_output_layer(length_model_opts: Dict):
-      if task == "train":
-        seg_net_dict["output"]["unit"] = {}
-        del seg_net_dict["output"]["max_seq_len"]
-        target = "targetb"
-
-        seg_net_dict["output"]["unit"].update({
-          "emit_blank_log_prob": {
-            "class": "copy",
-            "from": ["blank_log_prob", "emit_log_prob"],
-          },
-          "emit_blank_prob": {
-            "activation": "exp",
-            "class": "activation",
-            "from": "emit_blank_log_prob",
-            "loss": "ce",
-            "loss_opts": {"focal_loss_factor": 0.0},
-            "target": "emit_ground_truth",
-          },
-          "output": {
-            "beam_size": 4,
-            "cheating": "exclusive",
-            "class": "choice",
-            "from": "data",
-            "initial_output": 0,
-            "input_type": "log_prob",
-            "target": target,
-          },
-        })
-
-      else:
-        target = "targets"
-
-        seg_net_dict["output"]["unit"]["output"]["length_normalization"] = False
-        seg_net_dict["output"]["unit"]["att_query"] = seg_net_dict["output"]["unit"]["s_transformed"].copy()
-        seg_net_dict["output"]["unit"]["att_query"]["name_scope"] = "/output/rec/s_transformed"
-        seg_net_dict["output"]["unit"]["att_query"]["from"] = "lm"
-        del seg_net_dict["output"]["unit"]["s_transformed"]
-        del seg_net_dict["output"]["unit"]["output_prob"]
-        seg_net_dict["output"]["unit"]["readout_in"]["from"] = ["lm", "prev:target_embed", "att"]
-        seg_net_dict["output"]["unit"].update({
-          "label_log_prob0": {
-            "class": "linear",
-            "activation": "log_softmax",
-            "from": "readout",
-            "n_out": target_num_labels_wo_blank,
-            "name_scope": "/output/rec/output_prob"
-          },
-          "label_log_prob": {
-            "class": "combine",
-            "from": ["label_log_prob0", "emit_log_prob"],
-            "kind": "add",
-          },
-          "lm": {"class": "unmask", "from": "lm_masked", "mask": "prev:output_emit"},
-          "lm_masked": {
-            "class": "masked_computation",
-            "from": "prev:target_embed",
-            "mask": "prev:output_emit",
-            "unit": {
-              "class": "subnetwork",
-              "from": "data",
-              "subnetwork": {
-                "lm": {
-                  "class": "rnn_cell",
-                  "from": ["data", "base:prev:att"],
-                  "n_out": 1024,
-                  "name_scope": "/output/rec/s/rec",
-                  "unit": "zoneoutlstm",
-                  "unit_opts": {
-                    "zoneout_factor_cell": 0.15,
-                    "zoneout_factor_output": 0.05,
-                  },
-                },
-                "output": {"class": "copy", "from": "lm"},
-              },
-            },
-          },
-          "output_log_prob": {
-            "class": "copy",
-            "from": ["label_log_prob", "blank_log_prob"],
-          },
-          "output": {
-            "beam_size": 12,
-            "cheating": None,
-            "class": "choice",
-            "from": "output_log_prob",
-            "initial_output": 0,
-            "input_type": "log_prob",
-            "length_normalization": False,
-            "target": "targets",
-          },
-          "target_embed_masked": {
-            "class": "masked_computation",
-            "from": "output",
-            "mask": "output_emit",
-            "initial_output": 0,
-            "unit": {
-              "class": "subnetwork",
-              "from": "data",
-              "subnetwork": {
-                "output_non_blank": {
-                  "class": "reinterpret_data",
-                  "from": "data",
-                  "set_sparse_dim": target_num_labels_wo_blank
-                },
-                "target_embed0": copy.deepcopy(seg_net_dict["output"]["unit"]["target_embed0"]),
-                "target_embed": copy.deepcopy(seg_net_dict["output"]["unit"]["target_embed"]),
-                "output": {"class": "copy", "from": "target_embed"},
-              },
-            },
-          },
-          "target_embed": {
-            "class": "unmask",
-            "from": "target_embed_masked",
-            # "mask": "prev:output_emit",
-            "mask": "output_emit",
-            "initial_output": 0
-          },
-        })
-
-        del seg_net_dict["output"]["unit"]["target_embed0"]
-        seg_net_dict["output"]["unit"]["target_embed_masked"]["unit"]["subnetwork"]["target_embed0"][
-          "from"] = "output_non_blank"
-        seg_net_dict["output"]["unit"]["target_embed_masked"]["unit"]["subnetwork"]["target_embed0"][
-          "name_scope"] = "/output/rec/target_embed0"
-
-        if network_opts["search_remove_eos"]:
-          seg_net_dict.update({
-            "output_range": {
-              "class": "range_in_axis",
-              "from": "output",
-              "axis": "t"
-            },
-            "output_length": {
-              "class": "length",
-              "from": "output"
-            },
-            "output_length_minus_1": {
-              "class": "eval",
-              "from": "output_length",
-              "eval": "source(0) - 1"
-            },
-            "output_not_last_frame": {
-              "class": "compare",
-              "from": ["output_range", "output_length_minus_1"],
-              "kind": "not_equal",
-            },
-            "output_non_eos": {
-              "class": "compare",
-              "from": "output",
-              "kind": "not_equal",
-              "value": sos_idx,
-            },
-            # only set mask to 0 if it is EOS in the last frame
-            "output_non_eos_mask": {
-              "class": "combine",
-              "from": ["output_not_last_frame", "output_non_eos"],
-              "kind": "logical_or"
-            },
-            "output_wo_eos": {
-              "class": "masked_computation",
-              "from": "output",
-              "mask": "output_non_eos_mask",
-              "unit": {"class": "copy"},
-            },
-          })
-
-        seg_net_dict.update({
-          "output_non_blank": {
-            "class": "compare",
-            "from": "output" if not network_opts["search_remove_eos"] else "output_wo_eos",
-            "kind": "not_equal",
-            "value": blank_idx,
-          },
-          "output_wo_b": {
-            "class": "masked_computation",
-            "from": "output" if not network_opts["search_remove_eos"] else "output_wo_eos",
-            "mask": "output_non_blank",
-            "unit": {"class": "copy"},
-          },
-        })
-        seg_net_dict["decision"]["from"] = "output_wo_b"
-
-      seg_net_dict["output"].update({
-        "back_prop": True if task == "train" else False,
-        "class": "rec",
-        "from": "encoder",
-        "include_eos": True,
-        "size_target": "targetb" if task == "train" else None,
-        "target": target,
-      })
-
-      seg_net_dict["output"]["unit"].update(
-        {
-          "am": {"class": "copy", "from": "data:source"},
-          "blank_log_prob": {
-            "class": "eval",
-            "eval": "tf.math.log_sigmoid(-source(0))",
-            "from": "emit_prob0",
-          },
-          "const1": {"class": "constant", "value": 1},
-          "emit_log_prob": {
-            "activation": "log_sigmoid",
-            "class": "activation",
-            "from": "emit_prob0",
-          },
-          "emit_prob0": {
-            "activation": None,
-            "class": "linear",
-            "from": "s",
-            "is_output_layer": True,
-            "n_out": 1,
-          },
-          "output_emit": {
-            "class": "compare",
-            "from": "output",
-            "initial_output": True,
-            "kind": "not_equal",
-            "value": blank_idx,
-          },
-          "prev_out_embed": {
-            "activation": None,
-            "class": "linear",
-            "from": "prev:output",
-            "n_out": 128,
-          },
-          "s": {
-            "L2": 0.0001,
-            "class": "rec",
-            "dropout": 0.3,
-            "from": ["am"],
-            "n_out": 128,
-            "unit": "nativelstm2",
-            "unit_opts": {"rec_weight_dropout": 0.3},
-          },
-        },
-      )
-
-      if length_model_opts["use_embedding"]:
-        assert "embedding_size" in length_model_opts
-        seg_net_dict["output"]["unit"].update({
-            "prev_out_embed": {
-              "activation": None,
-              "class": "linear",
-              "from": "prev:output",
-              "n_out": length_model_opts["embedding_size"],
-            },
-          })
-        seg_net_dict["output"]["unit"]["s"]["from"].append("prev_out_embed")
-
-      length_scale = network_opts.get("length_scale")
-      if type(length_scale) == float and length_scale != 1.0:
-        # scale both blank and emit log prob by a constant factor
-        seg_net_dict["output"]["unit"].update({
-          "blank_log_prob": {
-            "class": "eval",
-            "eval": "tf.math.log_sigmoid(-source(0)) * %f" % length_scale,
-            "from": "emit_prob0",
-          },
-          "emit_log_prob": {
-            "class": "eval",
-            "eval": "tf.math.log_sigmoid(source(0)) * %f" % length_scale,
-            "from": "emit_prob0",
-          },
-        })
-
-      blank_penalty = network_opts.get("blank_penalty")
-      if type(blank_penalty) == float and blank_penalty != 0.0:
-        # add constant penalty to blank log prob
-        seg_net_dict["output"]["unit"]["blank_log_prob"]["eval"] += (" - %f" % blank_penalty)
-
-    def _add_att_weight_aux_train_loss(rec_layer_name: str):
-      raise NotImplementedError
-
-    def _add_att_weight_recog_penalty(rec_layer_name: str, opts):
-      mult_weight = opts["mult_weight"]
-      exp_weight = opts["exp_weight"]
-
-      network_builder.add_center_positions(network=seg_net_dict)
-      network_builder.add_att_weights_center_of_gravity(network=seg_net_dict, rec_layer_name=rec_layer_name)
-
-      seg_net_dict[rec_layer_name]["unit"].update({
-        "att_weight_penalty": {
-          "class": "eval",
-          "from": ["att_weights_center_of_gravity", "center_positions"],
-          "eval": "-%f * tf.math.abs(source(0) - tf.cast(source(1), tf.float32)) ** %f" % (mult_weight, exp_weight)
-        },
-      })
-
-      if opts.get("use_as_loss"):
-        assert "loss_scale" in opts
-        seg_net_dict[rec_layer_name]["unit"].update({
-          "att_weight_penalty_loss": {
-            "class": "eval",
-            "from": "att_weight_penalty",
-            "eval": "-source(0)",  # penalty is negative, but we want to minimize loss, there -
-            "loss": "as_is",
-            "loss_opts": {"scale": opts["loss_scale"]}
-          }
-        })
-
-      if rec_layer_name == "label_model":
-        # raise NotImplementedError
-        assert "output_prob" in seg_net_dict[rec_layer_name]["unit"]
-        seg_net_dict[rec_layer_name]["unit"]["output_log_prob0"] = network_builder.get_output_log_prob("output_prob")
-        seg_net_dict[rec_layer_name]["unit"]["output_log_prob"] = {
-          "class": "eval",
-          "from": ["output_log_prob0", "att_weight_penalty"],
-          "eval": "source(0) + source(1)"
-        }
-      else:
-        seg_net_dict[rec_layer_name]["unit"].update({
-          "label_log_prob_w_penalty": {
-            "class": "eval",
-            "from": ["label_log_prob", "att_weight_penalty"],
-            "eval": "source(0) + source(1)"
-          },
-        })
-        seg_net_dict[rec_layer_name]["unit"]["output_log_prob"]["from"] = ["label_log_prob_w_penalty", "blank_log_prob"]
-
-    def _add_gaussian_att_weight_interpolation(rec_layer_name: str, opts: Dict):
-      # just to make sure the network looks as we expect
-      assert seg_net_dict[rec_layer_name]["unit"]["att_weights"]["class"] == "softmax_over_spatial"
-      assert "att_weights0" not in seg_net_dict[rec_layer_name]["unit"]
-      assert network_opts["segment_center_window_size"] is not None
-
-      network_builder.add_center_positions(network=seg_net_dict)
-
-      if opts["dist_type"] == "gauss_double_exp_clipped":
-        tf_gauss_str = "1.0 / ({std} * tf.sqrt(2 * 3.141592)) * tf.exp(-0.5 * ((tf.cast({range} - {mean}, tf.float32)) / {std}) ** 2)".format(
-          std=opts["std"], mean="source(1)", range="source(0)"
-        )
-        gaussian_clip_window_size = 3
-
-        seg_net_dict[rec_layer_name]["unit"].update({
-          "gaussian_mask": {  # true, only in (gaussian_clip_window_size * 2 - 1) frames around center
-            "class": "compare",
-            "from": ["gaussian_start", "gaussian_range", "gaussian_end"],
-            "kind": "less"
-          },
-          "gaussian_start": {
-            "class": "eval",
-            "from": "center_positions",
-            "eval": "source(0) - %d" % gaussian_clip_window_size
-          },
-          "gaussian_end": {
-            "class": "eval",
-            "from": "center_positions",
-            "eval": "source(0) + %d" % gaussian_clip_window_size
-          },
-          "gaussian1": {
-            "class": "switch",
-            "condition": "gaussian_mask",
-            "true_from": "gaussian0",
-            "false_from": CodeWrapper('float("-inf")')
-          },
-        })
-        gauss_before_norm_str = "gaussian1"
-      elif opts["dist_type"] == "gauss":
-        tf_gauss_str = "-0.5 * ((tf.cast({range} - {mean}, tf.float32)) / {std}) ** 2".format(
-          std=opts["std"], mean="source(1)", range="source(0)"
-        )
-        gauss_before_norm_str = "gaussian0"
-      else:
-        assert opts["dist_type"] == "laplace"
-
-        tf_gauss_str = "-tf.abs((tf.cast({range} - {mean}, tf.float32)) / {std})".format(
-          std=opts["std"], mean="source(1)", range="source(0)"
-        )
-        gauss_before_norm_str = "gaussian0"
-
-      seg_net_dict[rec_layer_name]["unit"].update({
-        "gaussian_range0": {
-          "class": "range_in_axis",
-          "from": "att_weights0",
-          "axis": "stag:sliced-time:segments",
-        },
-        "gaussian_range": {
-          "class": "eval",
-          "from": ["gaussian_range0", "segment_starts"],
-          "eval": "source(0) + source(1)"
-        },
-        "gaussian0": {
-          "class": "eval",
-          "from": ["gaussian_range", "center_positions"],
-          "eval": tf_gauss_str,
-          "out_type": {"dtype": "float32"}
-        },
-        "gaussian": {
-          "class": "softmax_over_spatial",
-          "axis": "stag:sliced-time:segments",
-          "from": gauss_before_norm_str
-        },
-      })
-
-      network_builder.add_att_weight_interpolation(
-        network=seg_net_dict,
-        rec_layer_name=rec_layer_name,
-        interpolation_layer_name="gaussian",
-        interpolation_scale=opts["gauss_scale"],
-      )
-
-    def _add_pos_pred_att_weight_interpolation(rec_layer_name: str, opts: Dict):
-      network_builder.add_length_model_pos_probs(
-        network=seg_net_dict, rec_layer_name=rec_layer_name, att_t_dim_tag=CodeWrapper("att_t_dim_tag"))
-      network_builder.add_att_weight_interpolation(
-        network=seg_net_dict,
-        rec_layer_name=rec_layer_name,
-        interpolation_layer_name="label_sync_pos_prob_norm",
-        interpolation_scale=opts["pos_pred_scale"],
-      )
-
-    def _add_expected_position_aux_loss(rec_layer_name: str, opts: Dict):
-      config_dict["att_t_dim_tag"] = SegmentalConfigBuilder.get_att_t_dim_tag_code_wrapper()
-
-      network_builder.add_att_weights_center_of_gravity(network=seg_net_dict, rec_layer_name=rec_layer_name)
-      network_builder.add_length_model_pos_probs(
-        network=seg_net_dict, rec_layer_name=rec_layer_name, att_t_dim_tag=CodeWrapper("att_t_dim_tag"))
-
-      seg_net_dict[rec_layer_name]["unit"].update({
-        "pos_pred_weighted_segment_abs_positions": {
-          "class": "eval",
-          "from": ["segment_abs_positions", "label_sync_pos_prob_norm"],
-          "eval": "tf.cast(source(0), tf.float32) * source(1)"
-        },
-        "expected_pos_pred": {
-          "class": "reduce",
-          "mode": "sum",
-          "from": "pos_pred_weighted_segment_abs_positions",
-          "axis": CodeWrapper("att_t_dim_tag")
-        },
-        "expected_pos_aux_loss": {
-          "class": "eval",
-          "from": ["expected_pos_pred", "att_weights_center_of_gravity"],
-          "eval": "(source(0) - source(1)) ** 2",
-          "loss": "as_is",
-          "loss_opts": {"scale": opts["loss_scale"]}
-        }
-      })
-
-    def _add_weight_feedback(rec_layer_name: str):
-      if network_opts["use_weight_feedback"]:
-        config_dict["att_t_dim_tag"] = SegmentalConfigBuilder.get_att_t_dim_tag_code_wrapper()
-        config_dict["att_t_overlap_dim_tag"] = SegmentalConfigBuilder.get_att_t_overlap_dim_tag_code_wrapper()
-        config_dict["accum_att_weights_dim_tag"] = SegmentalConfigBuilder.get_accum_att_weights_dim_tag_code_wrapper(
-          window_size=network_opts["segment_center_window_size"]
-        )
-
-        python_prolog.append("from returnn.tensor import batch_dim")
-
-        if task == "train":
-          prev_segment_starts_name = "prev:segment_starts"
-          prev_segment_lens_name = "prev:segment_lens"
-          prev_accum_att_weights_name = "prev:accum_att_weights"
-        else:
-          prev_segment_starts_name = "prev_segment_starts"
-          prev_segment_lens_name = "prev_segment_lens"
-          prev_accum_att_weights_name = "prev_accum_att_weights_masked"
-
-          seg_net_dict[rec_layer_name]["unit"].update({
-            "prev_segment_starts": {
-              "class": "unmask", "from": "prev_segment_starts_masked", "mask": "prev:output_emit"},
-            "prev_segment_starts_masked": {
-              "class": "masked_computation",
-              "from": "prev:segment_starts",
-              "mask": "prev:output_emit",
-              "unit": {
-                "class": "subnetwork",
-                "from": "data",
-                "subnetwork": {
-                  "output": {"class": "copy", "from": "data"},
-                },
-              },
-            },
-            "prev_segment_lens": {"class": "unmask", "from": "prev_segment_lens_masked", "mask": "prev:output_emit"},
-            "prev_segment_lens_masked": {
-              "class": "masked_computation",
-              "from": "prev:segment_lens",
-              "mask": "prev:output_emit",
-              "unit": {
-                "class": "subnetwork",
-                "from": "data",
-                "subnetwork": {
-                  "output": {"class": "copy", "from": "data"},
-                },
-              },
-            },
-            # "prev_accum_att_weights": {
-            #   "class": "unmask", "from": "prev_accum_att_weights_masked", "mask": "prev:output_emit"},
-            "prev_accum_att_weights_masked": {
-              "class": "masked_computation",
-              "from": "prev:accum_att_weights",
-              "mask": "prev:output_emit",
-              "unit": {
-                "class": "subnetwork",
-                "from": "data",
-                "subnetwork": {
-                  "output": {"class": "copy", "from": "data"},
-                },
-              },
-            },
-          })
-
-        seg_net_dict[rec_layer_name]["unit"].update({
-          "overlap_len0": {
-            "class": "eval",
-            "from": [prev_segment_starts_name, prev_segment_lens_name, "segment_starts"],
-            "eval": "source(0) + source(1) - source(2)"
-          },
-          "overlap_mask": {
-            "class": "compare",
-            "from": "overlap_len0",
-            "value": 0,
-            "kind": "less"
-          },
-          "overlap_len": {
-            "class": "switch",
-            "condition": "overlap_mask",
-            "true_from": 0,
-            "false_from": "overlap_len0"
-          },
-          "overlap_range": {
-            "class": "range_in_axis",
-            "from": "overlap_accum_weights",
-            "axis": CodeWrapper("att_t_overlap_dim_tag"),
-          },
-          "att_weights_range": {
-            "class": "range_in_axis",
-            "from": "att_weights",
-            "axis": CodeWrapper("att_t_dim_tag"),
-          },
-          "overlap_start": {
-            "class": "combine",
-            "from": [prev_segment_lens_name, "overlap_len"],
-            "kind": "sub"
-          },
-          "overlap_accum_weights": {
-            "class": "slice_nd",
-            "from": prev_accum_att_weights_name,
-            "start": "overlap_start",
-            "size": "overlap_len",
-            "axis": CodeWrapper("accum_att_weights_dim_tag"),
-            "out_spatial_dim": CodeWrapper("att_t_overlap_dim_tag"),
-            "initial_output": 0.
-          },
-          "accum_att_weights_scattered0": {
-            "class": "scatter_nd",
-            "from": "overlap_accum_weights",
-            "position": "overlap_range",
-            "position_axis": CodeWrapper("att_t_overlap_dim_tag"),
-            "out_spatial_dim": CodeWrapper("accum_att_weights_dim_tag"),
-          },
-          "accum_att_weights_scattered": {
-            "class": "reinterpret_data",
-            "from": "accum_att_weights_scattered0",
-            "enforce_batch_major": True
-          },
-          "att_weights_scattered": {
-            "class": "scatter_nd",
-            "from": "att_weights",
-            "position": "att_weights_range",
-            "position_axis": CodeWrapper("att_t_dim_tag"),
-            "out_spatial_dim": CodeWrapper("accum_att_weights_dim_tag"),
-          },
-          "inv_fertility_scattered": {
-            "class": "scatter_nd",
-            "from": "inv_fertility",
-            "position": "att_weights_range",
-            "position_axis": CodeWrapper("att_t_dim_tag"),
-            "out_spatial_dim": CodeWrapper("accum_att_weights_dim_tag"),
-          },
-          "inv_fertility": {
-            "class": "slice_nd",
-            "from": "base:inv_fertility",
-            "start": "segment_starts",
-            "size": "segment_lens",
-            "out_spatial_dim": CodeWrapper("att_t_dim_tag")
-          },
-          'accum_att_weights0': {
-            'class': 'eval',
-            'eval': 'source(0) + source(1) * source(2) * 0.5',
-            'from': ['accum_att_weights_scattered', 'att_weights_scattered', 'inv_fertility_scattered'],
-            "initial_output": "base:initial_output_layer"
-          },
-          "accum_att_weights": {
-            "class": "reinterpret_data",
-            "from": "accum_att_weights0",
-            "enforce_batch_major": True,
-          },
-          "prev_accum_att_weights_sliced": {
-            "class": "slice_nd",
-            "from": "accum_att_weights_scattered",
-            "start": 0,
-            "size": "segment_lens",
-            "axis": CodeWrapper("accum_att_weights_dim_tag"),
-            "out_spatial_dim": CodeWrapper("att_t_dim_tag")
-          },
-          "weight_feedback": {
-            "class": "linear",
-            "activation": None,
-            "with_bias": False,
-            "from": "prev_accum_att_weights_sliced",
-            "n_out": 1024,
-          },
-        })
-
-        seg_net_dict[rec_layer_name]["unit"]["segments"]["out_spatial_dim"] = CodeWrapper("att_t_dim_tag")
-
-        seg_net_dict.update({
-          "initial_output_layer": {
-            "class": "constant",
-            "value": 0.,
-            "shape": [
-              CodeWrapper("batch_dim"),
-              CodeWrapper("accum_att_weights_dim_tag"),
-            ]
-          },
-        })
-
-      else:
-        seg_net_dict[rec_layer_name]["unit"].update({
-          "weight_feedback": {
-            "class": "constant",
-            "value": 0,
-            "dtype": "float32",
-            "with_batch_dim": True
-          }
-        })
-
-    def _add_segments():
-      seg_net_dict["output"]["unit"].update(
-        network_builder.get_segment_starts_and_lengths(network_opts["segment_center_window_size"]))
-
-    def _add_positional_embedding(rec_layer_name: str):
-      if task == "train":
-        seg_net_dict.update({
-          'segment_starts1_masked': {
-            'class': 'masked_computation',
-            'from': 'output/segment_starts1',
-            'mask': 'is_label',
-            'register_as_extern_data': 'segment_starts1_masked',
-            'unit': {
-              'class': 'copy',
-              'from': 'data'
-            }
-          },
-        })
-        seg_net_dict["label_model"]["unit"].update({
-          'segment_starts1': {
-            'axis': 't',
-            'class': 'gather',
-            'from': 'base:data:segment_starts1_masked',
-            'position': ':i',
-            "initial_output": -1
-          },
-        })
-
-      seg_net_dict[rec_layer_name]["unit"].update({
-        "segment_start_delta0": {
-          "class": "combine",
-          "from": ["segment_starts1", "prev:segment_starts1"],
-          "kind": "sub"
-        },
-        "segment_start_delta_max_mask": {
-          "class": "compare",
-          "from": "segment_start_delta0",
-          "value": 20,
-          "kind": "greater"
-        },
-        "segment_start_delta1": {
-          "class": "switch",
-          "condition": "segment_start_delta_max_mask",
-          "true_from": 20,
-          "false_from": "segment_start_delta0"
-        },
-        "segment_start_delta2": {
-          "class": "eval",
-          "from": ["segment_start_delta1"],
-          "eval": "source(0) - 1"
-        },
-        "segment_start_delta": {
-          "class": "reinterpret_data",
-          "from": "segment_start_delta2",
-          "set_sparse_dim": 20,
-          "set_sparse": True
-        },
-        'segment_start_delta_embed': {
-          'class': 'linear',
-          'activation': None,
-          'with_bias': False,
-          'from': 'segment_start_delta',
-          'n_out': 128,
-          'initial_output': 0
-        },
-      })
-
-      if task == "train":
-        seg_net_dict["label_model"]["unit"]["s"]["from"].append("segment_start_delta_embed")
-      else:
-        seg_net_dict["output"]["unit"]["lm_masked"]["unit"]["subnetwork"]["lm"]["from"].append(
-          "base:segment_start_delta_embed")
-
-    seg_net_dict = copy.deepcopy(global_net_dict)
-
-    if task == "train":
-      rec_layer_name = "label_model"
-      _remove_not_needed_layers()
-      _add_base_layers()
-      _add_label_model_layer()
-      _add_output_layer(length_model_opts=network_opts["length_model_opts"])
-      _add_label_model_att_layers(rec_layer_name)
-      _add_weight_feedback(rec_layer_name)
-      _add_segments()
-    else:
-      rec_layer_name = "output"
-      _remove_not_needed_layers()
-      _add_label_model_att_layers(rec_layer_name)
-      _add_weight_feedback(rec_layer_name)
-      _add_output_layer(length_model_opts=network_opts["length_model_opts"])
-      _add_segments()
-
-    if network_opts.get("use_positional_embedding"):
-      _add_positional_embedding(rec_layer_name)
-
-    if network_opts.get("use_att_weight_aux_train_loss"):
-      _add_att_weight_aux_train_loss(rec_layer_name)
-
-    att_weights_recog_penalty_opts = network_opts.get("att_weight_recog_penalty_opts")
-    if att_weights_recog_penalty_opts:
-      _add_att_weight_recog_penalty(rec_layer_name, att_weights_recog_penalty_opts)
-
-    gaussian_att_weight_interpolation_opts = network_opts.get("gaussian_att_weight_interpolation_opts")
-    if gaussian_att_weight_interpolation_opts:
-      _add_gaussian_att_weight_interpolation(rec_layer_name, gaussian_att_weight_interpolation_opts)
-
-    pos_pred_att_weight_interpolation_opts = network_opts.get("pos_pred_att_weight_interpolation_opts")
-    if pos_pred_att_weight_interpolation_opts:
-      _add_pos_pred_att_weight_interpolation(rec_layer_name, pos_pred_att_weight_interpolation_opts)
-
-    expected_position_aux_loss_opts = network_opts.get("expected_position_aux_loss_opts")
-    if expected_position_aux_loss_opts:
-      _add_expected_position_aux_loss(rec_layer_name, expected_position_aux_loss_opts)
-
-    return seg_net_dict
 
 
 class MohammadGlobalAttToSegmentalAttentionMaker2:
@@ -1979,7 +1063,7 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
             "unit_opts": {"rec_weight_dropout": 0.3},
           })
         elif length_model_opts["layer_class"] == "lstm_explicit":
-          length_model_dict.update(network_builder2.get_explicit_lstm(
+          length_model_dict.update(network_builder.get_explicit_lstm(
             layer_name="s_length_model",
             n_out=128,
             from_=length_model_dict["s_length_model"]["from"]
@@ -2148,13 +1232,13 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
       mult_weight = opts["mult_weight"]
       exp_weight = opts["exp_weight"]
 
-      network_builder2.add_center_positions(
+      network_builder.add_center_positions(
         network=seg_net_dict,
         segment_lens_starts_layer_name=SegmentalConfigBuilder.get_segment_lens_starts_layer_name(
           network_opts=network_opts, task=task
         )
       )
-      network_builder2.add_att_weights_center_of_gravity(
+      network_builder.add_att_weights_center_of_gravity(
         network=seg_net_dict,
         rec_layer_name=rec_layer_name,
         att_t_dim_tag_code_wrapper=CodeWrapper(att_t_dim_tag_str)
@@ -2183,7 +1267,7 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
       if rec_layer_name == "label_model":
         # raise NotImplementedError
         assert "output_prob" in seg_net_dict[rec_layer_name]["unit"]
-        seg_net_dict[rec_layer_name]["unit"]["output_log_prob0"] = network_builder2.get_output_log_prob("output_prob")
+        seg_net_dict[rec_layer_name]["unit"]["output_log_prob0"] = network_builder.get_output_log_prob("output_prob")
         seg_net_dict[rec_layer_name]["unit"]["output_log_prob"] = {
           "class": "eval",
           "from": ["output_log_prob0", "att_weight_penalty"],
@@ -2207,7 +1291,7 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
 
       att_t_dim_tag_str = "att_t_dim_tag"
       config_dict[att_t_dim_tag_str] = SegmentalConfigBuilder.get_att_t_dim_tag_code_wrapper()
-      network_builder2.add_center_positions(
+      network_builder.add_center_positions(
         network=seg_net_dict,
         segment_lens_starts_layer_name=SegmentalConfigBuilder.get_segment_lens_starts_layer_name(
           network_opts=network_opts, task=task
@@ -2281,7 +1365,7 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
         },
       })
 
-      network_builder2.add_att_weight_interpolation(
+      network_builder.add_att_weight_interpolation(
         network=seg_net_dict,
         rec_layer_name=rec_layer_name,
         interpolation_layer_name="gaussian",
@@ -2295,7 +1379,7 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
       config_dict[blank_log_prob_dim_tag_str] = CodeWrapper(
         'DimensionTag(kind=DimensionTag.Types.Spatial, description="sliced-time:blank_log_prob", dimension=None)')
 
-      network_builder2.add_length_model_pos_probs(
+      network_builder.add_length_model_pos_probs(
         network=seg_net_dict,
         rec_layer_name=rec_layer_name,
         use_normalization=opts["use_normalization"],
@@ -2305,7 +1389,7 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
           network_opts=network_opts, task=task
         )
       )
-      network_builder2.add_att_weight_interpolation(
+      network_builder.add_att_weight_interpolation(
         network=seg_net_dict,
         rec_layer_name=rec_layer_name,
         interpolation_layer_name="label_sync_pos_prob",
@@ -2319,12 +1403,12 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
       config_dict[blank_log_prob_dim_tag_str] = CodeWrapper(
         'DimensionTag(kind=DimensionTag.Types.Spatial, description="sliced-time:blank_log_prob", dimension=None)')
 
-      network_builder2.add_att_weights_center_of_gravity(
+      network_builder.add_att_weights_center_of_gravity(
         network=seg_net_dict,
         rec_layer_name=rec_layer_name,
         att_t_dim_tag_code_wrapper=CodeWrapper(att_t_dim_tag_str)
       )
-      network_builder2.add_length_model_pos_probs(
+      network_builder.add_length_model_pos_probs(
         network=seg_net_dict,
         rec_layer_name=rec_layer_name,
         use_normalization=opts["use_normalization"],
@@ -2564,7 +1648,7 @@ class MohammadGlobalAttToSegmentalAttentionMaker2:
           "output": copy.deepcopy(seg_net_dict["output"]["unit"]["output"]),
         }
       seg_net_dict[segment_lens_starts_layer_name]["unit"].update(
-        network_builder2.get_segment_starts_and_lengths(network_opts["segment_center_window_size"]))
+        network_builder.get_segment_starts_and_lengths(network_opts["segment_center_window_size"]))
 
       if task == "train":
         seg_net_dict.update({

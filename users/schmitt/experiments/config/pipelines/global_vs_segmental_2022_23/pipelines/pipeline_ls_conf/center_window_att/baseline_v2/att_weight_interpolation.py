@@ -30,5 +30,4 @@ def center_window_att_gaussian_att_weight_interpolation(
                 use_weight_feedback=True,
                 gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale, "dist_type": dist_type},
                 length_model_opts={"use_label_model_state": True, "use_alignment_ctx": False},
-                use_old_global_att_to_seg_att_maker=False
               )

@@ -108,7 +108,6 @@ def center_window_att_import_global_global_ctc_align_only_train_length_model(
         config_builder = get_center_window_att_config_builder(
           win_size=win_size,
           use_weight_feedback=True,
-          use_old_global_att_to_seg_att_maker=False,
         )
 
         train_exp = SegmentalTrainExperiment(
@@ -170,7 +169,6 @@ def center_window_att_import_global_global_ctc_align_only_train_length_model_chu
           config_builder = get_center_window_att_config_builder(
             win_size=win_size,
             use_weight_feedback=True,
-            use_old_global_att_to_seg_att_maker=False,
           )
 
           train_exp = SegmentalTrainExperiment(
@@ -240,7 +238,6 @@ def center_window_att_import_global_global_ctc_align_only_train_length_model_chu
 #           win_size=win_size,
 #           use_weight_feedback=True,
 #           length_model_opts={"use_label_model_state": True, "use_alignment_ctx": False},
-#           use_old_global_att_to_seg_att_maker=False,
 #         )
 #
 #         checkpoints, model_dir, learning_rates = train_center_window_att_import_global(
@@ -278,7 +275,6 @@ def center_window_att_import_global_global_ctc_align_only_train_length_model_chu
 #           win_size=win_size,
 #           use_weight_feedback=True,
 #           length_model_opts={"use_label_model_state": True, "use_alignment_ctx": False},
-#           use_old_global_att_to_seg_att_maker=False,
 #           search_remove_eos=True,
 #         )
 #

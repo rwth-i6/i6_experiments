@@ -26,7 +26,6 @@ def center_window_att_import_global_global_ctc_align_bpe_lm(
         config_builder = get_center_window_att_config_builder(
           win_size=win_size,
           use_weight_feedback=True,
-          use_old_global_att_to_seg_att_maker=False
         )
 
         checkpoints, model_dir, learning_rates = train_center_window_att_import_global(
@@ -76,7 +75,6 @@ def center_window_att_import_global_global_ctc_align_bpe_lm_ilm_correction(
         config_builder = get_center_window_att_config_builder(
           win_size=win_size,
           use_weight_feedback=True,
-          use_old_global_att_to_seg_att_maker=False
         )
 
         for mini_lstm_use_eos in mini_lstm_use_eos_list:

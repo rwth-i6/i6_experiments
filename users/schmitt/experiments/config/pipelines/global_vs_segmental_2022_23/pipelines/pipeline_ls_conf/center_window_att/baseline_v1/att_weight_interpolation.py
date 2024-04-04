@@ -41,7 +41,6 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
                 win_size=win_size,
                 use_weight_feedback=True,
                 gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale, "dist_type": dist_type},
-                use_old_global_att_to_seg_att_maker=False
               )
 
               train_exp = SegmentalTrainExperiment(
@@ -106,7 +105,6 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
                 win_size=win_size,
                 use_weight_feedback=True,
                 gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale, "dist_type": dist_type},
-                use_old_global_att_to_seg_att_maker=False
               )
 
               train_exp = SegmentalTrainExperiment(
@@ -179,7 +177,6 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
                 win_size=win_size,
                 use_weight_feedback=True,
                 gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale, "dist_type": dist_type},
-                use_old_global_att_to_seg_att_maker=False
               )
 
               train_exp = SegmentalTrainExperiment(
@@ -252,7 +249,6 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
                 win_size=win_size,
                 use_weight_feedback=True,
                 gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale, "dist_type": dist_type},
-                use_old_global_att_to_seg_att_maker=False
               )
 
               train_exp = SegmentalTrainExperiment(
@@ -320,7 +316,6 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
               win_size=win_size,
               use_weight_feedback=True,
               gaussian_att_weight_interpolation_opts={"std": std, "gauss_scale": gauss_scale, "dist_type": dist_type},
-              use_old_global_att_to_seg_att_maker=False
             )
             checkpoints, model_dir, learning_rates = train_center_window_att_import_global(
               alias=alias,
@@ -336,7 +331,6 @@ def center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpo
                 "mult_weight": 0.005,
                 "exp_weight": 2.0
               },
-              use_old_global_att_to_seg_att_maker=False
             )
             returnn_recog_center_window_att_import_global(
               alias=alias,

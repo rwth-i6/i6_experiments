@@ -1,7 +1,4 @@
 import copy
-from typing import Optional, Dict, List
-
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder2
 
 
 def get_lm_dict():

@@ -32,7 +32,6 @@ def center_window_att_import_global_global_ctc_align_pos_pred_att_weight_interpo
                 "pos_pred_scale": pos_pred_scale, "use_normalization": use_normalization
               },
               length_model_opts={"use_embedding": False, "layer_class": "lstm"},
-              use_old_global_att_to_seg_att_maker=False,
             )
 
             train_exp = SegmentalTrainExperiment(
@@ -85,7 +84,6 @@ def center_window_att_import_global_global_ctc_align_expected_position_aux_loss(
               use_weight_feedback=True,
               expected_position_aux_loss_opts={"loss_scale": loss_scale, "use_normalization": use_normalization},
               length_model_opts={"use_embedding": False, "layer_class": "lstm"},
-              use_old_global_att_to_seg_att_maker=False,
             )
             train_exp = SegmentalTrainExperiment(
               config_builder=train_config_builder,
@@ -101,7 +99,6 @@ def center_window_att_import_global_global_ctc_align_expected_position_aux_loss(
                 "use_embedding": False,
                 "layer_class": "lstm"
               },
-              use_old_global_att_to_seg_att_maker=False,
             )
 
             for checkpoint_alias in ("last", "best", "best-4-avg"):

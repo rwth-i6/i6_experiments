@@ -17,7 +17,6 @@ def center_window_att_baseline(
       win_size=win_size,
       use_weight_feedback=True,
       length_model_opts={"use_label_model_state": True, "use_alignment_ctx": False},
-      use_old_global_att_to_seg_att_maker=False
     )
 
 

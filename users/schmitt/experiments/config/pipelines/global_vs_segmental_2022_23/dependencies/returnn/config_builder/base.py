@@ -1,17 +1,10 @@
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import GlobalLabelDefinition, SegmentalLabelDefinition, LabelDefinition
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora.librispeech import LibrispeechCorpora
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora.swb import SWBSprintCorpora, SWBOggZipCorpora
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import LabelDefinition
 from i6_experiments.users.schmitt.datasets.oggzip import get_dataset_dict as get_oggzip_dataset_dict
 from i6_experiments.users.schmitt.datasets.concat import get_concat_dataset_dict
 from i6_experiments.users.schmitt.datasets.extern_sprint import get_dataset_dict as get_extern_sprint_dataset_dict
-from i6_experiments.users.schmitt.conformer_pretrain import get_network
 from i6_experiments.users.schmitt.specaugment import *
 from i6_experiments.users.schmitt.specaugment import _mask
-from i6_experiments.users.schmitt.augmentation.alignment import shift_alignment_boundaries_func_str
 from i6_experiments.users.schmitt.dynamic_lr import dynamic_lr_str
-from i6_experiments.users.schmitt.chunking import custom_chunkin_func_str
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder, ilm_correction
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn import custom_construction_algos
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
@@ -19,8 +12,6 @@ from i6_core.returnn.training import AverageTFCheckpointsJob, GetBestEpochJob, C
 
 from sisyphus import Path
 
-import os
-import re
 from abc import abstractmethod, ABC
 from typing import Dict, Optional, List
 import copy

@@ -1,7 +1,7 @@
 import copy
 from typing import Optional, Dict, List, Callable
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder2
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder
 
 
 def add_lm(
@@ -50,7 +50,7 @@ def add_lm(
       del network[rec_layer_name]["unit"]["lm_output_masked"]["unit"]["subnetwork"][lm_embedding_layer_name]["param_device"]
 
     if opts["add_lm_eos_last_frame"]:
-      network_builder2.add_is_last_frame_condition(network, rec_layer_name)  # adds layer "is_last_frame"
+      network_builder.add_is_last_frame_condition(network, rec_layer_name)  # adds layer "is_last_frame"
       network[rec_layer_name]["unit"].update({
         "lm_eos_log_prob": {
             "class": "switch",
