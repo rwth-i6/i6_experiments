@@ -4,6 +4,7 @@ Given some training job, get the training time per epoch
 
 from typing import Union, Any, Dict, Set, List
 import re
+import numpy as np
 from sisyphus import Job
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_experiments.users.zeyer.utils.job_dir import get_job_base_dir
@@ -98,6 +99,7 @@ def main():
     arg_parser.add_argument("job", help="job dir")
     arg_parser.add_argument("--gpu", required=True, help="expected GPU, e.g. 'NVIDIA GeForce GTX 1080 Ti'")
     arg_parser.add_argument("--ignore-first-n-epochs", type=int, default=0)
+    arg_parser.add_argument("--take-n-fastest-epochs", type=int, default=None, help="take the N fastest epochs")
     args = arg_parser.parse_args()
 
     times_per_epoch = get_training_times_per_epoch(
@@ -105,9 +107,15 @@ def main():
     )
     print("times per epoch:")
     print(f"(num epochs: {len(times_per_epoch)})")
-    min_, max_, avg = min(times_per_epoch), max(times_per_epoch), sum(times_per_epoch) / len(times_per_epoch)
-    print(f"min, max, avg: {min_:.2f}, {max_:.2f}, {avg:.2f}")
+    print(f"min, max: {min(times_per_epoch):.2f}, {max(times_per_epoch):.2f}")
+    print(f"mean: {np.mean(times_per_epoch):.2f}, std: {np.std(times_per_epoch):.2f}")
     times_per_epoch.sort()
+    print(f"median: {times_per_epoch[len(times_per_epoch) // 2]:.2f}")
+    if args.take_n_fastest_epochs:
+        times_per_epoch = times_per_epoch[: args.take_n_fastest_epochs]
+    print(f"after outlier removal: (num: {len(times_per_epoch)})")
+    print(f"min, max: {min(times_per_epoch):.2f}, {max(times_per_epoch):.2f}")
+    print(f"mean: {np.mean(times_per_epoch):.2f}, std: {np.std(times_per_epoch):.2f}")
     print(f"median: {times_per_epoch[len(times_per_epoch) // 2]:.2f}")
 
     for log_file, log_filename in open_job_logs(args.job):
@@ -117,6 +125,22 @@ def main():
                 print(line.rstrip())
             if i > 100:
                 break
+
+
+def _z_score_outlier_removal(ls: List[float], threshold: float = 3.0) -> List[float]:
+    ls = np.array(ls)
+    mean = np.mean(ls)
+    std = np.std(ls)
+    z_scores = (ls - mean) / std
+    return [v for v, z in zip(ls, z_scores) if abs(z) <= threshold]
+
+
+def _zmin_score_outlier_removal(ls: List[float], threshold: float = 3.0) -> List[float]:
+    ls = np.array(ls)
+    min_ = np.min(ls)
+    std = np.std(ls)
+    z_scores = (ls - min_) / std
+    return [v for v, z in zip(ls, z_scores) if abs(z) <= threshold]
 
 
 if __name__ == "__main__":
