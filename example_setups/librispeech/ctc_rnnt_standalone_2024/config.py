@@ -109,7 +109,7 @@ def get_prior_config(
         "batch_size": 2000 * 16000,
         "max_seqs": 240,
         #############
-        "forward": training_datasets.prior.as_returnn_opts(),
+        "forward": copy.deepcopy(training_datasets.prior.as_returnn_opts()),
     }
     config = {**base_config, **copy.deepcopy(config)}
     post_config["backend"] = "torch"
