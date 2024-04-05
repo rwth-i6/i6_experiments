@@ -272,7 +272,7 @@ def prepare_asr_model(
             config=prior_config if prior_config is not None else {},
             net_args=train_args["net_args"],
             unhashed_net_args=train_args.get("unhashed_net_args", None),
-            debug=train_args.get("debug", False)
+            debug=train_args.get("debug", False),
         )
         prior_file = compute_prior(
             training_name,
