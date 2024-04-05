@@ -212,6 +212,7 @@ def prepare_asr_model(
     get_specific_checkpoint: Optional[int] = None,
     get_best_averaged_checkpoint: Optional[Tuple[int, str]] = None,
     get_last_averaged_checkpoint: Optional[int] = None,
+    prior_config: Optional[Dict[str, Any]] = None,
 ):
     """
     :param training_name:
@@ -222,6 +223,7 @@ def prepare_asr_model(
     :param get_specific_checkpoint: return a specific epoch (set one get_*)
     :param get_best_averaged_checkpoint: return the average with (n checkpoints, loss-key), n checkpoints can be 1
     :param get_last_averaged_checkpoint: return the average of the last n checkpoints
+    :param prior_config: if with_prior is true, can be used to add Returnn config parameters for the prior compute job
     :return:
     """
 
@@ -264,7 +266,14 @@ def prepare_asr_model(
 
     prior_file = None
     if with_prior:
-        returnn_config = get_prior_config(training_datasets=datasets, **train_args)
+        returnn_config = get_prior_config(
+            training_datasets=datasets,
+            network_module=train_args["network_module"],
+            config=prior_config if prior_config is not None else {},
+            net_args=train_args["net_args"],
+            unhashed_net_args=train_args.get("unhashed_net_args", None),
+            debug=train_args.get("debug", False)
+        )
         prior_file = compute_prior(
             training_name,
             returnn_config,
@@ -273,6 +282,9 @@ def prepare_asr_model(
             returnn_root=MINI_RETURNN_ROOT,
         )
         tk.register_output(training_name + "/prior.txt", prior_file)
+    else:
+        if prior_config is not None:
+            raise ValueError("prior_config can only be set if with_prior is True")
 
     asr_model = ASRModel(
         checkpoint=checkpoint,

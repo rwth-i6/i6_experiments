@@ -101,12 +101,12 @@ def get_prior_config(
 
     # changing these does not change the hash
     post_config = {
-        "num_workers_per_gpu": 4,
+        "num_workers_per_gpu": 2,
     }
 
     base_config = {
         #############
-        "batch_size": 2000 * 16000,
+        "batch_size": 500 * 16000,
         "max_seqs": 240,
         #############
         "forward": copy.deepcopy(training_datasets.prior.as_returnn_opts()),
