@@ -17,7 +17,7 @@ from ...pipeline import training, prepare_asr_model, search, ASRModel
 
 
 def bpe_ls960_1023_base():
-    prefix_name = "experiments/librispeech/ctc_rnnt_standalone_2024/ls960_ctc_bpe_5k"
+    prefix_name = "example_setups/librispeech/ctc_rnnt_standalone_2024/ls960_ctc_bpe_5k"
 
     train_settings = DatasetSettings(
         preemphasis=0.97,  # TODO: Check if this is really useful
