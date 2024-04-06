@@ -54,33 +54,42 @@ def get_alignment_hdf():
     return job.out_hdf_files
 
 
-def get_fairseq_root():
+def get_fairseq_root(commit="e4a2e4e93efbcbaaae52a17ae6600beb2083fb33", fairseq_exe=None):
     fairseq_root = CloneGitRepositoryJob(
         "git@github.com:vieting/fairseq_phoneme.git",
         checkout_folder_name="fairseq",
-        commit="b9fd659d427a946e9d5dc675fd88e26c3ef1ba23").out_repository
-    fairseq_root = SetupFairseqJob(fairseq_root).out_fairseq_root
+        commit=commit).out_repository
+    fairseq_root = SetupFairseqJob(fairseq_root, python_exe=fairseq_exe).out_fairseq_root
     return fairseq_root
 
 
 def run_fairseq_pretraining_informed():
     prefix_name = "experiments/librispeech/librispeech_960_pretraining/wav2vec2/"
-    # run pre-training
-    exp_name = "monophone1"
     alignment = get_alignment_hdf()
     num_gpus = 8
-    fairseq_args = get_fairseq_args(num_gpus=num_gpus)
-    fairseq_args["task"]["alignment"] = alignment
-    fairseq_config = FairseqHydraConfig(fairseq_args)
-    fairseq_root = get_fairseq_root()
-    job = FairseqHydraTrainingJob(
-        fairseq_config,
+    fairseq_python_exe = tk.Path(
+        "/home/pv653172/setups/librispeech/20230328_wav2vec2/dependencies/python_launcher.sh",
+        hash_overwrite="itc_python_launcher_py310_torch",
+    )
+    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe)
+    fairseq_training_args = dict(
         save_interval=25,
         max_epoch=300,
         max_update=400000,
         fairseq_root=fairseq_root,
-        rqmt={"time": 120, "mem": 8, "cpu": 2, "gpu": num_gpus},
+        fairseq_python_exe=fairseq_python_exe,
+        rqmt={"time": 120, "mem": 12, "cpu": 2, "gpu": num_gpus},
     )
+
+    # run pre-training
+    exp_name = "monophone1"
+    fairseq_args = get_fairseq_args(num_gpus=num_gpus)
+    fairseq_args["task"]["alignment"] = alignment
+    fairseq_args["model"]["negative_sampling_strategy"] = "other_target"
+    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe, commit="1397363c5c0e3c4e3ab620be562730399c852493")
+    fairseq_training_args["fairseq_root"] = fairseq_root
+    fairseq_config = FairseqHydraConfig(fairseq_args)
+    job = FairseqHydraTrainingJob(fairseq_config, **fairseq_training_args)
     job.add_alias(os.path.join(prefix_name, exp_name, "pretraining"))
     tk.register_output(f"{prefix_name}/{exp_name}/pretraining/scores.png", job.out_plot_se)
     return job
