@@ -254,7 +254,6 @@ def otps_recogs_additonal_trainings():
     #                     **kwargs,
     #                 )
 
-
     def compute_ctc_prior(prior_exp_name, train_args, model_ckpt, bpe_size):
         exp_prefix = os.path.join(prefix_name, prior_exp_name)
         ctc_prior_train_data = build_training_datasets(
@@ -490,7 +489,7 @@ def otps_recogs_additonal_trainings():
     search_args = copy.deepcopy(args)
     search_args["decoder_args"] = CTCDecoderArgs(target_dim=1057)
 
-    for model_name in list(models.keys())[:-3] + ["model_ctc_only"]:
+    for model_name in []:  # list(models.keys())[:-3] + ["model_ctc_only"]:
         search_args = copy.deepcopy(args)
         search_args["decoder_args"] = CTCDecoderArgs(target_dim=1057)
         search_args["encoder_args"] = adjust_enc_args_to_model_name(
@@ -522,22 +521,22 @@ def otps_recogs_additonal_trainings():
             "prior_scale": [0.2],
         },
         "model_ctc0.9_att0.1": {
-            "prior_scale": [0.22], # bsf 10 dev/test 9.04/8.33 -> 8.85/8.44
+            "prior_scale": [0.22],  # bsf 10 dev/test 9.04/8.33 -> 8.85/8.44
         },
         "model_ctc0.8_att0.2": {
-            "prior_scale": [0.2], # bsf 10 dev/test 9.03/8.24 -> 8.96/8.21
+            "prior_scale": [0.2],  # bsf 10 dev/test 9.03/8.24 -> 8.96/8.21
         },
         "model_ctc0.7_att0.3": {
-            "prior_scale": [0.22], # bsf 10 dev/test 8.67/8.00 -> 8.58/7.94
+            "prior_scale": [0.22],  # bsf 10 dev/test 8.67/8.00 -> 8.58/7.94
         },
         "model_ctc0.6_att0.4": {
-            "prior_scale": [0.2], # bsf 10 dev/test 8.65/8.04 -> 8.64/7.98
+            "prior_scale": [0.2],  # bsf 10 dev/test 8.65/8.04 -> 8.64/7.98
         },
         "model_ctc0.5_att0.5": {
-            "prior_scale": [0.2], # bsf 10 dev/test 8.50/8.03 -> 8.31/7.92
+            "prior_scale": [0.2],  # bsf 10 dev/test 8.50/8.03 -> 8.31/7.92
         },
         "model_ctc0.4_att0.6": {
-            "prior_scale": [0.2], # bsf 10 dev/test 8.55/7.76 -> 8.42/7.89
+            "prior_scale": [0.2],  # bsf 10 dev/test 8.55/7.76 -> 8.42/7.89
         },
         "model_ctc0.3_att0.7": {
             "prior_scale": [0.25],  # dev/test 8.58/8.15 -> 8.46/8.11
@@ -574,9 +573,9 @@ def otps_recogs_additonal_trainings():
         },
     }
 
-    for model_name in list(ctc_prior_model_names.keys())[4:10]:
+    for model_name in []:  # list(ctc_prior_model_names.keys())[4:10]:
         for prior_scale in ctc_prior_model_names[model_name]["prior_scale"]:
-        # for prior_scale in [0.15, 0.17, 0.2, 0.22, 0.25]:
+            # for prior_scale in [0.15, 0.17, 0.2, 0.22, 0.25]:
             search_args = copy.deepcopy(args)
             search_args["encoder_args"] = adjust_enc_args_to_model_name(
                 search_args["encoder_args"], model_name
@@ -609,7 +608,7 @@ def otps_recogs_additonal_trainings():
         lr, ep, enc_drop=enc_drop, use_legacy_stats=False
     )
     base_v2_args["batch_size"] = bsf * 20000
-    for model_name, scales in product(["model_baseline"], [(1, 0.008)]):
+    for model_name, scales in product(["model_ctc0.5_att0.5"], [(1, 0.008), (1, 0.01), (1, 0.1)]):
         att_scale, ctc_scale = scales
         prior_scale = 0.0
         beam_size = 12
@@ -653,22 +652,22 @@ def otps_recogs_additonal_trainings():
             "scales": [(0.8, 0.2, 0.5)],
         },
         "model_ctc0.9_att0.1": {
-            "scales": [(0.6, 0.4, 0.45)], # bsf 10
+            "scales": [(0.6, 0.4, 0.45)],  # bsf 10
         },
         "model_ctc0.8_att0.2": {
-            "scales": [(0.8, 0.2, 0.55)], # bsf 10
+            "scales": [(0.8, 0.2, 0.55)],  # bsf 10
         },
         "model_ctc0.7_att0.3": {
-            "scales": [(0.7, 0.3, 0.5)], # bsf 10
+            "scales": [(0.7, 0.3, 0.5)],  # bsf 10
         },
         "model_ctc0.6_att0.4": {
-            "scales": [(0.7, 0.3, 0.45)], # bsf 10
+            "scales": [(0.7, 0.3, 0.45)],  # bsf 10
         },
         "model_ctc0.5_att0.5": {
-            "scales": [(0.85, 0.15, 0.4)], # bsf 10
+            "scales": [(0.85, 0.15, 0.4)],  # bsf 10
         },
         "model_ctc0.4_att0.6": {
-            "scales": [(0.75, 0.25, 0.55)], # bsf 10
+            "scales": [(0.75, 0.25, 0.55)],  # bsf 10
         },
         "model_ctc0.3_att0.7": {
             "scales": [(0.8, 0.2, 0.5)],
@@ -704,7 +703,7 @@ def otps_recogs_additonal_trainings():
 
     for model_name, beam_size in product(
         list(joint_training_model_names.keys())[4:10],
-        [32, 64],
+        [],
     ):
         for scales in joint_training_model_names[model_name]["scales"]:
             # for scales in joint_training_model_names[model_name]["scales"]:
@@ -758,7 +757,9 @@ def otps_recogs_additonal_trainings():
                 recombine=True,
             )
             run_decoding(
-                f"bsf{bsf}/" + model_name + f"/ctc_ts"
+                f"bsf{bsf}/"
+                + model_name
+                + f"/ctc_ts"
                 + (f"_prior{prior_scale}" if prior_scale > 0 else "")
                 + f"_beam{beam_size}",
                 train_data_baseline,
@@ -770,7 +771,7 @@ def otps_recogs_additonal_trainings():
                 use_sclite=True,
             )
 
-    # optsr (with recombine) + att bsf 10
+    # optsr (with recombine) + att bsf 10 (sum approx, omt 1.0, renorm after remove blank)
     dict_recombine = {
         # --tuning done--
         "model_baseline": {
@@ -824,7 +825,7 @@ def otps_recogs_additonal_trainings():
         # "model_ctc1.0_att1.0_lay10": {
         #     "scales":[(0.97, 0.03, 0.45)],
         # },
-        #----
+        # ----
         # "model_ctc0.43_att1.0": {
         #     "scales": [],
         # },
@@ -835,7 +836,9 @@ def otps_recogs_additonal_trainings():
         #     "scales": [],
         # },
     }
-    for model_name, beam_size, omt_scale, length_norm_scale in product(dict_recombine.keys(), [32], [0.0, 0.2, 0.4, 0.6], [0.0, 0.5, 1.0]):
+    for model_name, beam_size, omt_scale, length_norm_scale in product(
+        dict_recombine.keys(), [32], [1.0], [0.0]
+    ):
         for scales in dict_recombine[model_name]["scales"]:
             # for scales in joint_training_model_names[model_name]["scales"]:
             search_args = copy.deepcopy(args)
@@ -866,6 +869,128 @@ def otps_recogs_additonal_trainings():
                 + (f"_prior{prior_scale}" if prior_scale > 0 else "")
                 + (f"_lenNorm{length_norm_scale}" if length_norm_scale > 0 else "")
                 + f"_omt{omt_scale}"
+                + f"_beam{beam_size}_3",
+                # + f"/opts_ctc{ctc_scale}_att{att_scale}_beam{beam_size}",
+                train_data_baseline,
+                checkpoint=models[model_name]["ckpt"],
+                search_args=search_args,
+                bpe_size=BPE_1K,
+                test_sets=["dev"],
+                remove_label={"<s>", "<blank>"},
+                use_sclite=True,
+            )
+
+
+    # optsr 2.0 (max approx, vanilla, label scale)
+    dict_recombine_optsr_max = {
+        # --tuning done--
+        # "model_baseline": {
+        #     "scales": [(0.8, 0.2, 0.5, 0.9)],
+        # },
+        # ----
+        "model_ctc0.9_att0.1": {
+            "scales": [(0.7,0.3, 0.6, 1.0)],
+        },
+        "model_ctc0.8_att0.2": {
+            "scales": [(0.75, 0.25, 0.3, 0.8), (0.75, 0.25, 0.55, 1.0)],
+        },
+        "model_ctc0.7_att0.3": {
+            "scales": [(0.7, 0.3, 0.6, 1.0)],
+        },
+        "model_ctc0.6_att0.4": {
+            "scales": [(0.7, 0.3, 0.4, 0.95)],
+        },
+        "model_ctc0.5_att0.5": {
+            "scales": [(0.7, 0.3, 0.45, 1.0)],
+        },
+        "model_ctc0.4_att0.6": {
+            "scales": [(0.75, 0.25, 0.4, 0.9), (0.75, 0.25, 0.5, 0.8), (0.75, 0.25, 0.5, 0.99)],
+        },
+        "model_ctc0.3_att0.7": {
+            "scales": [(0.75, 0.25, 0.4, 0.8), (0.75, 0.25, 0.45, 0.9)],
+        },
+        "model_ctc0.2_att0.8": {
+            "scales": [(0.85, 0.15, 0.4, 1.0), (0.8, 0.2, 0.3, 0.8)],
+        },
+        "model_ctc0.1_att0.9": {
+            "scales": [(0.9, 0.1, 0.0, 0.95)],
+        },
+        "model_ctc0.001_att0.999": {
+            "scales": [(0.9, 0.1, 0.0, 0.95)],
+        },
+        "model_ctc0.3_att0.7_lay6": {
+            "scales": [(0.85, 0.15, 0.5, 1.0)],
+        },
+        "model_ctc0.3_att0.7_lay8": {
+            "scales": [(0.9, 0.1, 0.4, 1.0)],
+        },
+        "model_ctc0.3_att0.7_lay10": {
+            "scales": [(0.9, 0.1, 0.4, 1.0), (0.9, 0.1, 0.45, 0.9), (0.9, 0.1, 0.5, 0.9)],
+        },
+        "model_ctc1.0_att1.0_lay6": {
+            "scales":[(0.85, 0.15, 0.4, 0.95)],
+        },
+        "model_ctc1.0_att1.0_lay8": {
+            "scales":[(0.75, 0.25, 0.5, 1.0)],
+        },
+        "model_ctc1.0_att1.0_lay10": {
+            "scales":[(0.95, 0.05, 0.0, 0.99)],
+        },
+        # "model_ctc0.43_att1.0": {
+        #     "scales": [],
+        # },
+        # "model_ctc0.25_att1.0": {
+        #     "scales": [],
+        # },
+        # "model_ctc0.2_att1.0": {
+        #     "scales": [],
+        # },
+    }
+
+    for model_name, prior_scale, beam_size in product(
+        ["model_baseline", "model_ctc0.5_att0.5", "model_ctc0.2_att0.8", "model_ctc_only"],
+        # dict_recombine_optsr_max.keys(),
+        [0.0, 0.05 ,0.1],
+        [12, 32],
+    ):
+        for scales in [(0.0, 1.0)]:
+        # for scales in dict_recombine_optsr_max[model_name]["scales"]:
+            # for scales in joint_training_model_names[model_name]["scales"]:
+            search_args = copy.deepcopy(args)
+            search_args["encoder_args"] = adjust_enc_args_to_model_name(
+                search_args["encoder_args"], model_name
+            )
+            search_args["beam_size"] = beam_size
+            search_args["ctc_log_prior_file"] = models[model_name]["prior"]
+            label_scale = 1.0
+            att_scale, ctc_scale = scales
+            search_args["decoder_args"] = CTCDecoderArgs(
+                add_att_dec=True,
+                att_scale=att_scale,
+                ctc_scale=ctc_scale,
+                target_dim=1057,
+                target_embed_dim=256,
+                ctc_prior_correction=prior_scale > 0,
+                prior_scale=prior_scale,
+                recombine=True,
+                max_approx=True,
+                # normalization settings
+                one_minus_term_mul_scale=0.0,
+                renorm_after_remove_blank=False,
+                blank_prob_scale=1.0,
+                repeat_prob_scale=1.0,
+                label_prob_scale=label_scale,
+            )
+            run_decoding(
+                f"bsf{bsf}/"
+                + model_name
+                + f"/optsr_max_ctc{ctc_scale}"
+                + (f"_att{att_scale}" if att_scale > 0.0 else "")
+                + (f"_prior{prior_scale}" if prior_scale > 0 else "")
+                + (f"_scales_l{label_scale}" if label_scale != 1.0 else "")
+                + f"_vanilla"
+                # + (f"_lenNorm{length_norm_scale}" if length_norm_scale > 0 else "")
+                # + f"_omt{0.0}"
                 + f"_beam{beam_size}",
                 # + f"/opts_ctc{ctc_scale}_att{att_scale}_beam{beam_size}",
                 train_data_baseline,
@@ -877,8 +1002,14 @@ def otps_recogs_additonal_trainings():
                 use_sclite=True,
             )
 
-    # optsr different normalization experiments
-    for model_name, beam_size, prior_scale, length_norm_scale in product(["model_baseline"], [32], [0.0, 0.2, 0.4], [0.0, 0.5, 1.0]):
+    # optsr max approx + lenNorm fix 3
+    for model_name, beam_size, label_scale, prior_scale, length_norm_scale in product(
+        ["model_baseline"],
+        [12],
+        [1.0],
+        [0.0, 0.5],
+        [0.1, 0.2, 0.5, 0.8, 1.0],
+    ):
         for scales in [(0.8, 0.2)]:
             # for scales in joint_training_model_names[model_name]["scales"]:
             search_args = copy.deepcopy(args)
@@ -888,28 +1019,37 @@ def otps_recogs_additonal_trainings():
             search_args["beam_size"] = beam_size
             search_args["ctc_log_prior_file"] = models[model_name]["prior"]
             att_scale, ctc_scale = scales
+            blank_scale = 1.0
+            repeat_scale = 1.0
             search_args["decoder_args"] = CTCDecoderArgs(
                 add_att_dec=True,
                 att_scale=att_scale,
                 ctc_scale=ctc_scale,
-                att_masking_fix=True,
                 target_dim=1057,
                 target_embed_dim=256,
                 ctc_prior_correction=prior_scale > 0,
                 prior_scale=prior_scale,
                 recombine=True,
+                max_approx=True,
                 # normalization settings
                 one_minus_term_mul_scale=0.0,
+                renorm_after_remove_blank=False,
+                blank_prob_scale=blank_scale,
+                repeat_prob_scale=repeat_scale,
+                label_prob_scale=label_scale,
+                # length_normalization=True,
                 length_normalization=length_norm_scale > 0,
                 length_normalization_scale=length_norm_scale,
             )
             run_decoding(
                 f"bsf{bsf}/"
                 + model_name
-                + f"/optsr_ctc{ctc_scale}_att{att_scale}"
+                + f"/optsr_max_ctc{ctc_scale}_att{att_scale}"
                 + (f"_prior{prior_scale}" if prior_scale > 0 else "")
-                + (f"_lenNorm{length_norm_scale}" if length_norm_scale > 0 else "")
-                + f"_omt{0.0}"
+                + (f"_scales_l{label_scale}_b{blank_scale}_r{repeat_scale}" if label_scale != 1.0 or blank_scale != 1.0 or repeat_scale != 1.0 else "")
+                + f"_vanilla"
+                + (f"_lenNorm{length_norm_scale}_fix_3" if length_norm_scale > 0 else "")
+                # + f"_omt{0.0}"
                 + f"_beam{beam_size}",
                 # + f"/opts_ctc{ctc_scale}_att{att_scale}_beam{beam_size}",
                 train_data_baseline,
@@ -920,7 +1060,6 @@ def otps_recogs_additonal_trainings():
                 remove_label={"<s>", "<blank>"},
                 use_sclite=True,
             )
-
 
     # ------------------------- Separate Encoder (system combination) -------------------------
     # optsnr some model + ctc only
@@ -943,27 +1082,27 @@ def otps_recogs_additonal_trainings():
             "beam_sizes": [32, 64],
         },
         "model_ctc0.9_att0.1": {
-            "scales": [(0.75, 0.25, 0.7)], # bsf 10
+            "scales": [(0.75, 0.25, 0.7)],  # bsf 10
             "beam_sizes": [],
         },
         "model_ctc0.8_att0.2": {
-            "scales": [(0.8, 0.2, 0.6)], # bsf 10
+            "scales": [(0.8, 0.2, 0.6)],  # bsf 10
             "beam_sizes": [],
         },
         "model_ctc0.7_att0.3": {
-            "scales": [(0.8, 0.2, 0.5)], # bsf 10
+            "scales": [(0.8, 0.2, 0.5)],  # bsf 10
             "beam_sizes": [],
         },
         "model_ctc0.6_att0.4": {
-            "scales": [(0.75, 0.25, 0.45)], # bsf 10
+            "scales": [(0.75, 0.25, 0.45)],  # bsf 10
             "beam_sizes": [],
         },
         "model_ctc0.5_att0.5": {
-            "scales": [(0.8, 0.2, 0.45)], # bsf 10
+            "scales": [(0.8, 0.2, 0.45)],  # bsf 10
             "beam_sizes": [],
         },
         "model_ctc0.4_att0.6": {
-            "scales": [(0.8, 0.2, 0.4), (0.8, 0.2, 0.5)], # bsf 10
+            "scales": [(0.8, 0.2, 0.4), (0.8, 0.2, 0.5)],  # bsf 10
             "beam_sizes": [],
         },
         "model_ctc0.3_att0.7": {
@@ -1018,7 +1157,7 @@ def otps_recogs_additonal_trainings():
 
     second_model_name = "model_ctc_only"
 
-    for first_model_name in list(joint_training_model_names_2.keys())[4:10]:
+    for first_model_name in []:  # list(joint_training_model_names_2.keys())[4:10]:
         # for beam_size, scales in product(
         #     joint_training_model_names_2[first_model_name]["beam_sizes"],
         #     joint_training_model_names_2[first_model_name]["scales"],
@@ -1068,61 +1207,60 @@ def otps_recogs_additonal_trainings():
                 time_rqmt=2.0,
             )
 
-    # optsr some model + ctc only bsf 10
+    # optsr max some model + ctc only bsf 10
     dict_sep_recombine = {
-        #--tuning done--
-        # "model_baseline": {
-        #     "scales": [(0.9, 0.1, 0.6)],
-        #     "beam_sizes": [32, 64],
-        # },
-        # "model_ctc0.9_att0.1": {
-        #     "scales": [(0.75, 0.25, 0.6), (0.75, 0.25, 0.65)],
-        #     "beam_sizes": [],
-        # },
-        # "model_ctc0.8_att0.2": {
-        #     "scales": [(0.8, 0.2, 0.65)],
-        #     "beam_sizes": [],
-        # },
-        # "model_ctc0.7_att0.3": {
-        #     "scales": [(0.8, 0.2, 0.6)],
-        #     "beam_sizes": [],
-        # },
-        # "model_ctc0.6_att0.4": {
-        #     "scales": [(0.85 ,0.15, 0.7)],
-        #     "beam_sizes": [],
-        # },
-        # "model_ctc0.5_att0.5": {
-        #     "scales": [(0.9, 0.1, 0.4)],
-        #     "beam_sizes": [],
-        # },
-        # "model_ctc0.4_att0.6": {
-        #     "scales": [(0.75, 0.25, 0.75), (0.75, 0.25, 0.8)],
-        #     "beam_sizes": [],
-        # },
-        # "model_ctc0.3_att0.7": {
-        #     "scales": [(0.8, 0.2, 0.75), (0.8, 0.2, 0.8)], # keep all
-        #     "beam_sizes": [32, 64],
-        # },
-        # "model_ctc0.2_att0.8": {
-        #     "scales": [ (0.85, 0.15, 0.7)],
-        #     "beam_sizes": [32, 64],
-        # },
-        # "model_ctc0.1_att0.9": {
-        #     "scales": [(0.8, 0.2, 0.65), (0.8, 0.2, 0.7)],
-        #     "beam_sizes": [32, 64],
-        # },
-        # "model_ctc0.001_att0.999": {
-        #     "scales": [(0.8, 0.2, 0.45)],
-        #     "beam_sizes": [32, 64],
-        # },
+        # --tuning done--
+        "model_baseline": {
+            "scales": [(0.9, 0.1, 0.1, 1.0)],
+            "beam_sizes": [32],
+        },
+        "model_ctc0.9_att0.1": {
+            "scales": [(0.7, 0.3, 0.5, 0.9), (0.7, 0.3, 0.5, 1.0)],
+            "beam_sizes": [],
+        },
+        "model_ctc0.8_att0.2": {
+            "scales": [(0.8, 0.2, 0.4, 1.0)],
+            "beam_sizes": [],
+        },
+        "model_ctc0.7_att0.3": {
+            "scales": [(0.8, 0.2, 0.5, 1.0)],
+            "beam_sizes": [],
+        },
+        "model_ctc0.6_att0.4": {
+            "scales": [(0.8 ,0.2, 0.4, 1.0)],
+            "beam_sizes": [],
+        },
+        "model_ctc0.5_att0.5": {
+            "scales": [(0.85, 0.15, 0.3, 1.0)],
+            "beam_sizes": [],
+        },
+        "model_ctc0.4_att0.6": {
+            "scales": [(0.8, 0.2, 0.2, 0.9)],
+            "beam_sizes": [],
+        },
+        "model_ctc0.3_att0.7": {
+            "scales": [(0.8, 0.2, 0.5, 0.9)], # keep all
+            "beam_sizes": [32, 64],
+        },
+        "model_ctc0.2_att0.8": {
+            "scales": [ (0.9, 0.1, 0.3, 0.9)],
+            "beam_sizes": [32, 64],
+        },
+        "model_ctc0.1_att0.9": {
+            "scales": [(0.75, 0.25, 0.5, 1.0)],
+            "beam_sizes": [32, 64],
+        },
+        "model_ctc0.001_att0.999": {
+            "scales": [(0.8, 0.2, 0.5, 0.9)],
+            "beam_sizes": [32, 64],
+        },
         # "model_att_only_adjSpec": {
         #     "scales": [(0.7, 0.3, 0.65)],
         #     "beam_sizes": [32, 70],
         # },
-        # "model_att_only_currL": {
-        #     "scales": [(0.75, 0.25, 0.65)],
-        #     "beam_sizes": [32, 64, 70],
-        # },
+        "model_att_only_currL": {
+            "scales": [(0.7, 0.3, 0.0, 1.0)],
+        },
         # "model_ctc0.3_att0.7_lay6": {
         #     "scales": [(0.8, 0.2, 0.55)],
         # },
@@ -1141,7 +1279,7 @@ def otps_recogs_additonal_trainings():
         # "model_ctc1.0_att1.0_lay10": {
         #     "scales":[(0.75, 0.25, 0.7), (0.75, 0.25, 0.75)],
         # },
-        #----
+        # ----
         # "model_ctc0.43_att1.0": {
         #     "scales": [(0.8, 0.2, 0.4)],
         #     "beam_sizes": [32, 70],
@@ -1158,13 +1296,15 @@ def otps_recogs_additonal_trainings():
 
     second_model_name = "model_ctc_only"
 
-    for first_model_name in list(dict_sep_recombine.keys()):
+    for first_model_name in ["model_att_only_currL"]:
+    # for first_model_name in list(dict_sep_recombine.keys()):
         # for beam_size, scales in product(
         #     joint_training_model_names_2[first_model_name]["beam_sizes"],
         #     joint_training_model_names_2[first_model_name]["scales"],
         # ):
-        for beam_size, scales in product(
-            [32, 64],
+        for beam_size, prior_scale, scales in product(
+            [32],
+            [0.0, 0.1 ,0.2 ,0.3, 0.4, 0.5, 0.6, 0.7],
             dict_sep_recombine[first_model_name]["scales"],
         ):
             search_args = copy.deepcopy(args)
@@ -1177,7 +1317,9 @@ def otps_recogs_additonal_trainings():
             }
             search_args["beam_size"] = beam_size
             search_args["ctc_log_prior_file"] = models["model_ctc_only"]["prior"]
-            att_scale, ctc_scale, prior_scale = scales
+            att_scale, ctc_scale,_,_= scales
+            label_scale = 1.0
+
             search_args["decoder_args"] = CTCDecoderArgs(
                 add_att_dec=True,
                 att_scale=att_scale,
@@ -1188,6 +1330,13 @@ def otps_recogs_additonal_trainings():
                 ctc_prior_correction=prior_scale > 0,
                 prior_scale=prior_scale,
                 recombine=True,
+                max_approx=True,
+                # normalization settings
+                one_minus_term_mul_scale=0.0,
+                renorm_after_remove_blank=False,
+                blank_prob_scale=1.0,
+                repeat_prob_scale=1.0,
+                label_prob_scale=label_scale,
             )
             search_args[
                 "second_encoder_ckpt"
@@ -1196,14 +1345,16 @@ def otps_recogs_additonal_trainings():
             run_decoding(
                 f"bsf{bsf}/" + first_model_name
                 # + f"__ctc_only/opts_ctc{ctc_scale}_att{att_scale}_beam{beam_size}",
-                + f"__ctc_only/optsr_ctc{ctc_scale}_att{att_scale}"
+                + f"__ctc_only/optsr_max_ctc{ctc_scale}_att{att_scale}"
                 + (f"_prior{prior_scale}" if prior_scale > 0 else "")
+                + (f"_scales_l{label_scale}" if label_scale != 1.0 else "")
+                + f"_vanilla"
                 + f"_beam{beam_size}",
                 train_data_baseline,
                 checkpoint=models[first_model_name]["ckpt"],
                 search_args=search_args,
                 bpe_size=BPE_1K,
-                test_sets=["dev", "test"],
+                test_sets=["dev"],
                 remove_label={"<s>", "<blank>"},
                 use_sclite=True,
                 time_rqmt=2.0,

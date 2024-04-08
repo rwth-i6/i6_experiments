@@ -1,10 +1,20 @@
 from i6_core.returnn.config import CodeWrapper
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 from i6_experiments.users.zeineldeen.modules.attention import AttentionMechanism
-from i6_experiments.users.gaudino.models.asr.decoder.att_decoder_dicts import get_attention_decoder_dict
-from  i6_experiments.users.gaudino.models.asr.decoder.recombine_functions import get_funcs
+from i6_experiments.users.gaudino.models.asr.decoder.att_decoder_dicts import (
+    get_attention_decoder_dict,
+)
+from i6_experiments.users.gaudino.models.asr.decoder.recombine_functions import (
+    get_funcs as get_funcs_sum,
+)
+from i6_experiments.users.gaudino.models.asr.decoder.recombine_functions_max import (
+    get_funcs as get_funcs_max,
+)
 
-def get_attention_decoder_dict_with_fix(label_dim=10025, target_embed_dim=640, use_zoneout_output=False):
+
+def get_attention_decoder_dict_with_fix(
+    label_dim=10025, target_embed_dim=640, use_zoneout_output=False
+):
     attention_decoder_dict_with_fix = {
         # reinterpreted for target_embed
         "output_reinterpret": {
@@ -135,7 +145,9 @@ def get_attention_decoder_dict_with_fix(label_dim=10025, target_embed_dim=640, u
                         # "use_zoneout_output": use_zoneout_output, TODO
                     },
                     "name_scope": "s/rec",  # compatibility with old models
-                    "state": CodeWrapper("tf_v1.nn.rnn_cell.LSTMStateTuple('prev:s_c', 'prev:s_h')"),
+                    "state": CodeWrapper(
+                        "tf_v1.nn.rnn_cell.LSTMStateTuple('prev:s_c', 'prev:s_h')"
+                    ),
                 },
                 "s": {
                     "class": "switch",
@@ -200,6 +212,7 @@ def get_attention_decoder_dict_with_fix(label_dim=10025, target_embed_dim=640, u
     }
     return attention_decoder_dict_with_fix
 
+
 ctc_beam_search_tf_string = """
 def ctc_beam_search_decoder_tf(source, **kwargs):
     # import beam_search_decoder from tensorflow
@@ -258,8 +271,9 @@ class CTCDecoder:
         att_scale=0.3,
         ts_reward=0.0,
         ctc_scale=1.0,
-        blank_prob_scale=0.0,  # minus this in log space
-        repeat_prob_scale=0.0,  # minus this in log space
+        blank_prob_scale=1.0,  # mul this in log space
+        repeat_prob_scale=1.0,  # mul this in log space
+        label_prob_scale=1.0,
         ctc_prior_correction=False,
         prior_scale=1.0,
         # loc_conv_att_filter_size=None,
@@ -286,7 +300,9 @@ class CTCDecoder:
         one_minus_term_sub_scale=0.0,
         blank_collapse=False,
         renorm_p_comb=False,
+        renorm_after_remove_blank=True,
         recombine=False,
+        max_approx=False,
     ):
         """
         :param base_model: base/encoder model instance
@@ -369,6 +385,7 @@ class CTCDecoder:
         self.ctc_scale = ctc_scale
         self.blank_prob_scale = blank_prob_scale
         self.repeat_prob_scale = repeat_prob_scale
+        self.label_prob_scale = label_prob_scale
         self.ctc_prior_correction = ctc_prior_correction
         self.prior_scale = prior_scale
         # self.loc_conv_att_filter_size = loc_conv_att_filter_size
@@ -403,8 +420,10 @@ class CTCDecoder:
 
         self.blank_collapse = blank_collapse
         self.renorm_p_comb = renorm_p_comb
+        self.renorm_after_remove_blank = renorm_after_remove_blank
 
         self.recombine = recombine
+        self.max_approx = max_approx
 
         self.network = ReturnnNetwork()
         self.subnet_unit = ReturnnNetwork()
@@ -417,9 +436,14 @@ class CTCDecoder:
         if self.add_att_dec:
             python_prolog += ["from returnn.tf.compat import v1 as tf_v1"]
         if self.ctc_beam_search_tf:
-            python_prolog += [ctc_beam_search_tf_string.format(beam_size=self.beam_size)]
+            python_prolog += [
+                ctc_beam_search_tf_string.format(beam_size=self.beam_size)
+            ]
         if self.recombine:
-            python_prolog += get_funcs()
+            if self.max_approx:
+                python_prolog += get_funcs_max()
+            else:
+                python_prolog += get_funcs_sum()
 
         return python_prolog
 
@@ -549,7 +573,9 @@ class CTCDecoder:
             }
         )
 
-    def add_score_combination(self, subnet_unit: ReturnnNetwork, att_layer: str = None, lm_layer: str = None):
+    def add_score_combination(
+        self, subnet_unit: ReturnnNetwork, att_layer: str = None, lm_layer: str = None
+    ):
         one_minus_term_scale_old = 1
         combine_list = []
         if self.ctc_scale > 0:
@@ -569,6 +595,76 @@ class CTCDecoder:
                     },
                 }
             )
+            if self.length_normalization:
+                subnet_unit.update(
+                    {
+                        # accum attention contributions
+                        "gather_att_log_scores": {
+                            "class": "gather",
+                            "from": "att_log_scores",
+                            "position": "output_reinterpret",
+                            "axis": "f",
+                        },
+                        "_accum_att_log_scores": {
+                            "class": "eval",
+                            "eval": "source(0) + source(1)",
+                            "from": ["prev:accum_att_log_scores", "gather_att_log_scores"],
+                            "initial_output": 0.0,
+                        },
+                        "accum_att_log_scores": {
+                            "class": "switch",
+                            "condition": "curr_mask",
+                            "true_from": "_accum_att_log_scores",
+                            "false_from": "prev:accum_att_log_scores",
+                        },
+                        # keep track of u step
+                        "const0": {"class": "constant", "value": 0, "collocate_with": "du"},
+                        "const1": {"class": "constant", "value": 1, "collocate_with": "du"},
+                        # pos in target, [B]
+                        "du": {
+                            "class": "switch",
+                            "condition": "curr_mask",
+                            "true_from": "const1",
+                            "false_from": "const0",
+                        },
+                        "u": {
+                            "class": "combine",
+                            "from": ["prev:u", "du"],
+                            "kind": "add",
+                            "initial_output": 0,
+                        },
+                        # modify attention scores with length normalization
+                        "att_log_scores_1": {
+                            "class": "eval",
+                            "from": "att_log_scores",
+                            "eval": "source(0) * 0.8",
+                        },
+                        "first_mask": {
+                            "class": "compare",
+                            "from": "prev:u",
+                            "kind": "equal",
+                            "value": 0,
+                        },
+                        "att_contrib_term_w_length_norm": {
+                            "class": "eval",
+                            "from": ["att_log_scores", "prev:accum_att_log_scores", "prev:u"],
+                            "eval": f"(source(1) + source(0)) / tf.math.pow(tf.cast(source(2)+1, tf.float32), {self.length_normalization_scale}) - source(1)/tf.math.pow(tf.cast(source(2),tf.float32), {self.length_normalization_scale})",
+                            "out_type": {"dtype": "float32"},
+                        },
+                        "scaled_att_contrib_term_w_length_norm": {
+                            "class": "eval",
+                            "from": "att_contrib_term_w_length_norm",
+                            "eval": "0.8 * source(0)",
+                        },
+                        "scaled_att_log_scores": {
+                            "class": "switch",
+                            "condition": "first_mask",
+                            "true_from": "att_log_scores_1",
+                            "false_from": "scaled_att_contrib_term_w_length_norm",
+                        },
+
+                    }
+                )
             combine_list.append("scaled_att_log_scores")
 
         if self.add_ext_lm:
@@ -602,7 +698,6 @@ class CTCDecoder:
 
         subnet_unit.update(
             {
-                # log p_comb_sigma = log p_att_sigma + log p_ctc_sigma (using only labels without blank)
                 "ctc_log_scores_slice": {
                     "class": "slice",
                     "from": "ctc_log_scores",
@@ -610,23 +705,51 @@ class CTCDecoder:
                     "slice_start": 0,
                     "slice_end": self.target_dim,  # excluding blank
                 },  # [B,V]
-                "ctc_log_scores_norm": {
-                    "class": "reduce",
-                    "mode": "logsumexp",
-                    "from": "ctc_log_scores_slice",
-                    "axis": "f",
-                },
-                # renormalize ctc label probs without blank
-                "ctc_log_scores_renorm": {
-                    "class": "combine",
-                    "kind": "sub",
-                    "from": ["ctc_log_scores_slice", "ctc_log_scores_norm"],
-                },
-                "scaled_ctc_log_scores": {
-                    "class": "eval",
-                    "from": "ctc_log_scores_renorm",
-                    "eval": f"{self.ctc_scale} * source(0)",
-                },
+            }
+        )
+
+        if self.renorm_after_remove_blank:
+            subnet_unit.update(
+                {
+                    "ctc_log_scores_norm": {
+                        "class": "reduce",
+                        "mode": "logsumexp",
+                        "from": "ctc_log_scores_slice",
+                        "axis": "f",
+                    },
+                    # renormalize ctc label probs without blank
+                    "ctc_log_scores_renorm": {
+                        "class": "combine",
+                        "kind": "sub",
+                        "from": ["ctc_log_scores_slice", "ctc_log_scores_norm"],
+                    },
+                    "scaled_ctc_log_scores": {
+                        "class": "eval",
+                        "from": "ctc_log_scores_renorm",
+                        "eval": f"{self.ctc_scale} * source(0)",
+                    },
+                }
+            )
+        else:
+            subnet_unit.update(
+                {
+                    "ctc_log_scores_slice": {
+                        "class": "slice",
+                        "from": "ctc_log_scores",
+                        "axis": "f",
+                        "slice_start": 0,
+                        "slice_end": self.target_dim,  # excluding blank
+                    },  # [B,V]
+                    "scaled_ctc_log_scores": {
+                        "class": "eval",
+                        "from": "ctc_log_scores_slice",
+                        "eval": f"{self.ctc_scale} * source(0)",
+                    },
+                }
+            )
+
+        subnet_unit.update(
+            {
                 "combined_att_ctc_scores": {
                     "class": "combine",
                     "kind": "add",
@@ -635,7 +758,24 @@ class CTCDecoder:
             }
         )
 
-        subnet_unit.update({
+        if self.label_prob_scale != 1.0:
+            subnet_unit.update(
+                {
+                    "combined_att_ctc_scores_1": {
+                        "class": "combine",
+                        "kind": "add",
+                        "from": combine_list,
+                    },  # [B,V]
+                    "combined_att_ctc_scores": {
+                        "class": "eval",
+                        "from": "combined_att_ctc_scores_1",
+                        "eval": f"{self.label_prob_scale} * source(0)",
+                    },
+                }
+            )
+
+        subnet_unit.update(
+            {
                 # log p_ctc_sigma' (blank | ...)
                 # ----------------------------- #
                 "vocab_range": {"class": "range", "limit": self.target_dim},
@@ -655,7 +795,7 @@ class CTCDecoder:
                 "scaled_blank_log_prob": {
                     "class": "eval",
                     "from": "blank_log_prob",
-                    "eval": f"source(0) - {self.blank_prob_scale} ",
+                    "eval": f"source(0) * {self.blank_prob_scale} ",
                 },
                 "scaled_blank_log_prob_expand": {
                     "class": "expand_dims",
@@ -708,7 +848,7 @@ class CTCDecoder:
                 "scaled_ctc_log_scores_slice": {
                     "class": "eval",
                     "from": "ctc_log_scores_slice",
-                    "eval": f"source(0) - {self.repeat_prob_scale}",
+                    "eval": f"source(0) * {self.repeat_prob_scale}",
                 },
                 "scaled_label_score": {
                     "class": "switch",
@@ -719,97 +859,56 @@ class CTCDecoder:
                 },
                 "p_comb_sigma_prime": {
                     "class": "concat",
-                    "from": [("scaled_label_score", "f"), ("scaled_blank_log_prob_expand", "f")],
+                    "from": [
+                        ("scaled_label_score", "f"),
+                        ("scaled_blank_log_prob_expand", "f"),
+                    ],
                 },  # [B,V+1]
             }
         )
 
-        if self.length_normalization:
+
+        if self.recombine:
             subnet_unit.update(
                 {
-                    "const0": {"class": "constant", "value": 0, "collocate_with": "du"},
-                    "const1": {"class": "constant", "value": 1, "collocate_with": "du"},
-
-                    # pos in target, [B]
-                    "du": {"class": "switch", "condition": "prev_mask", "true_from": "const1", "false_from": "const0"},
-                    "u": {"class": "combine", "from": ["prev:u", "du"], "kind": "add", "initial_output": 0},
-
-                    "log_u": {
+                    "output": {
+                        "class": "choice",
+                        "target": "bpe_labels_w_blank",
+                        "beam_size": self.beam_size,
+                        "from": "p_comb_sigma_prime"
+                        if not self.rescore_last_eos
+                        else "p_comb_sigma_prime_w_eos",
+                        "input_type": "log_prob",
+                        "initial_output": 0,
+                        "length_normalization": False,
+                        "explicit_search_sources": ["prev:out_str", "prev:output"],
+                        "custom_score_combine": (CodeWrapper("targetb_recomb_recog_max") if self.max_approx else CodeWrapper("targetb_recomb_recog")),
+                    },
+                    "out_str": {
                         "class": "eval",
-                        "from": "u",
-                        "eval": "tf.math.log(tf.cast(source(0), tf.float32))",
-                        "out_type": {"dtype": "float32"},
-                    },
-
-                    "p_comb_sigma_prime_no_length_norm": {
-                        "class": "concat",
-                        "from": [
-                            ("scaled_label_score", "f"),
-                            ("scaled_blank_log_prob_expand", "f"),
-                        ],
-                    },
-                    "length_norm_term_mask": {
-                        "class": "compare",
-                        "from": "prev:u",
-                        "kind": "not_equal",
-                        "value": 0,
-                    },
-                    "length_norm_term_1": {
-                        "class": "eval",
-                        "from": ["log_u", "prev:log_u"],
-                        "eval": "source(1) - source(0)",
-                    },
-                    "length_norm_term": {
-                        "class": "switch",
-                        "condition": "length_norm_term_mask",
-                        "true_from": "length_norm_term_1",
-                        "false_from": 0.0,
-                    },
-                    "scaled_length_norm_term": {
-                        "class": "eval",
-                        "from": "length_norm_term",
-                        "eval": f"{self.length_normalization_scale} * source(0)",
-                    },
-                    "p_comb_sigma_prime": {
-                        "class": "combine",
-                        "kind": "add",
-                        "from": ["p_comb_sigma_prime_no_length_norm", "scaled_length_norm_term"],
+                        "from": ["prev:out_str", "curr_mask", "output"],
+                        "initial_output": None,
+                        "out_type": {"shape": (), "dtype": "string"},
+                        "eval": CodeWrapper("out_str"),
                     },
                 }
             )
-
-        if self.recombine:
-            subnet_unit.update({
-                "output": {
-                    "class": "choice",
-                    "target": "bpe_labels_w_blank",
-                    "beam_size": self.beam_size,
-                    "from": "p_comb_sigma_prime" if not self.rescore_last_eos else "p_comb_sigma_prime_w_eos",
-                    "input_type": "log_prob",
-                    "initial_output": 0,
-                    "length_normalization": False,
-                    "explicit_search_sources": ["prev:out_str", "prev:output"],
-                    "custom_score_combine": CodeWrapper("targetb_recomb_recog"),
-                },
-
-                "out_str": {
-                    "class": "eval", "from": ["prev:out_str", "curr_mask", "output"],
-                    "initial_output": None, "out_type": {"shape": (), "dtype": "string"},
-                    "eval": CodeWrapper("out_str")
-                },
-            })
         else:
-            subnet_unit.update({
-                "output": {
-                    "class": "choice",
-                    "target": "bpe_labels_w_blank",
-                    "beam_size": self.beam_size,
-                    "from": "p_comb_sigma_prime" if not self.rescore_last_eos else "p_comb_sigma_prime_w_eos",
-                    "input_type": "log_prob",
-                    "initial_output": 0,
-                    "length_normalization": False,
-                },
-            })
+            subnet_unit.update(
+                {
+                    "output": {
+                        "class": "choice",
+                        "target": "bpe_labels_w_blank",
+                        "beam_size": self.beam_size,
+                        "from": "p_comb_sigma_prime"
+                        if not self.rescore_last_eos
+                        else "p_comb_sigma_prime_w_eos",
+                        "input_type": "log_prob",
+                        "initial_output": 0,
+                        "length_normalization": False,
+                    },
+                }
+            )
 
         if self.one_minus_term_mul_scale != 1.0 or self.one_minus_term_sub_scale != 0.0:
             subnet_unit.update(
@@ -835,7 +934,12 @@ class CTCDecoder:
             # remove EOS from ts scores
             subnet_unit.update(
                 {
-                    "log_zeros": {"class": "constant", "value": -1e30, "shape": (1,), "with_batch_dim": True},
+                    "log_zeros": {
+                        "class": "constant",
+                        "value": -1e30,
+                        "shape": (1,),
+                        "with_batch_dim": True,
+                    },
                     "combined_att_ctc_scores_w_eos": {
                         "class": "combine",
                         "kind": "add",
@@ -854,25 +958,29 @@ class CTCDecoder:
                             ("log_zeros", "f"),
                             ("combined_att_ctc_scores_no_eos", "f"),
                         ],
-                    }
+                    },
                 }
             )
 
         if self.renorm_p_comb:
-            subnet_unit.update({
-                "combined_att_ctc_scores_1": {
-                    "class": "combine",
-                    "kind": "add",
-                    "from": combine_list,
-                },  # [B,V]
-            })
+            subnet_unit.update(
+                {
+                    "combined_att_ctc_scores_1": {
+                        "class": "combine",
+                        "kind": "add",
+                        "from": combine_list,
+                    },  # [B,V]
+                }
+            )
             self.add_norm_layer(subnet_unit, "combined_att_ctc_scores_1")
-            subnet_unit.update({
-                "combined_att_ctc_scores": {
-                    "class": "copy",
-                    "from": "combined_att_ctc_scores_1_renorm",
-                },
-            })
+            subnet_unit.update(
+                {
+                    "combined_att_ctc_scores": {
+                        "class": "copy",
+                        "from": "combined_att_ctc_scores_1_renorm",
+                    },
+                }
+            )
 
         if self.rescore_last_eos:
             # rescores with EOS of ts at last frame
@@ -918,7 +1026,12 @@ class CTCDecoder:
                         "from": "ts_eos_prob",
                         "axis": "f",
                     },
-                    "zeros": {"class": "constant", "value": 0.0, "shape": (self.target_dim,), "with_batch_dim": True},
+                    "zeros": {
+                        "class": "constant",
+                        "value": 0.0,
+                        "shape": (self.target_dim,),
+                        "with_batch_dim": True,
+                    },
                     "last_frame_prob": {
                         "class": "concat",
                         "from": [
@@ -943,7 +1056,10 @@ class CTCDecoder:
 
     def add_output_layer(self, subnet_unit):
         self.network.add_subnet_rec_layer(
-            "output", unit=subnet_unit.get_net(), target=self.target_w_blank, source=self.ctc_source
+            "output",
+            unit=subnet_unit.get_net(),
+            target=self.target_w_blank,
+            source=self.ctc_source,
         )
         self.network["output"].pop("max_seq_len", None)
 
@@ -1015,52 +1131,66 @@ class CTCDecoder:
             )
             choice_layer_source = "ctc_log_scores_w_prior"
         elif self.recombine and not self.ctc_prior_correction:
-            subnet_unit.update({
-                "ctc_log_scores": {
-                    "class": "activation",
-                    "activation": "safe_log",
-                    "from": "data:source",
-                }}
+            subnet_unit.update(
+                {
+                    "ctc_log_scores": {
+                        "class": "activation",
+                        "activation": "safe_log",
+                        "from": "data:source",
+                    }
+                }
             )
             choice_layer_source = "ctc_log_scores"
 
         if self.recombine:
-            subnet_unit.update({
-                "output": {
-                    "class": "choice",
-                    "target": "bpe_labels_w_blank",
-                    "beam_size": self.beam_size,
-                    "from": choice_layer_source,
-                    "input_type": "log_prob",
-                    "initial_output": 0,
-                    "length_normalization": False,
-                    "explicit_search_sources": ["prev:out_str", "prev:output"],
-                    "custom_score_combine": CodeWrapper("targetb_recomb_recog"),
-                },
-
-                "out_str": {
-                    "class": "eval", "from": ["prev:out_str", "output_emit", "output"],
-                    "initial_output": None, "out_type": {"shape": (), "dtype": "string"},
-                    "eval": CodeWrapper("out_str")
-                },
-
-                "output_is_diff_to_before": {"class": "compare", "from": ["output", "prev:output"],
-                                             "kind": "not_equal"},
-
-                # We allow repetitions of the output label. This "output_emit" is True on the first label but False otherwise, and False on blank.
-                "output_emit": {
-                    "class": "eval", "from": ["is_curr_out_not_blank_mask", "output_is_diff_to_before"],
-                    "is_output_layer": True, "initial_output": True,
-                    "eval": "tf.logical_and(source(0), source(1))"},
-            })
-            subnet_unit.update({
-                "is_curr_out_not_blank_mask": {
-                    "class": "compare",
-                    "kind": "not_equal",
-                    "from": "output",
-                    "value": self.target_dim,
-                },
-            })
+            subnet_unit.update(
+                {
+                    "output": {
+                        "class": "choice",
+                        "target": "bpe_labels_w_blank",
+                        "beam_size": self.beam_size,
+                        "from": choice_layer_source,
+                        "input_type": "log_prob",
+                        "initial_output": 0,
+                        "length_normalization": False,
+                        "explicit_search_sources": ["prev:out_str", "prev:output"],
+                        "custom_score_combine": (CodeWrapper("targetb_recomb_recog_max") if self.max_approx else CodeWrapper("targetb_recomb_recog")),
+                    },
+                    "out_str": {
+                        "class": "eval",
+                        "from": ["prev:out_str", "output_emit", "output"],
+                        "initial_output": None,
+                        "out_type": {"shape": (), "dtype": "string"},
+                        "eval": CodeWrapper("out_str"),
+                    },
+                    "output_is_diff_to_before": {
+                        "class": "compare",
+                        "from": ["output", "prev:output"],
+                        "kind": "not_equal",
+                    },
+                    # We allow repetitions of the output label. This "output_emit" is True on the first label but False otherwise, and False on blank.
+                    "output_emit": {
+                        "class": "eval",
+                        "from": [
+                            "is_curr_out_not_blank_mask",
+                            "output_is_diff_to_before",
+                        ],
+                        "is_output_layer": True,
+                        "initial_output": True,
+                        "eval": "tf.logical_and(source(0), source(1))",
+                    },
+                }
+            )
+            subnet_unit.update(
+                {
+                    "is_curr_out_not_blank_mask": {
+                        "class": "compare",
+                        "kind": "not_equal",
+                        "from": "output",
+                        "value": self.target_dim,
+                    },
+                }
+            )
         else:
             subnet_unit.add_choice_layer(
                 "output",
@@ -1132,9 +1262,13 @@ class CTCDecoder:
             assert (
                 "load_on_init_opts" in self.ext_lm_opts
             ), "load_on_init opts or lm_model are missing for loading subnet."
-            assert "filename" in self.ext_lm_opts["load_on_init_opts"], "Checkpoint missing for loading subnet."
+            assert (
+                "filename" in self.ext_lm_opts["load_on_init_opts"]
+            ), "Checkpoint missing for loading subnet."
             load_on_init = self.ext_lm_opts["load_on_init_opts"]
-        lm_net_out.add_subnetwork("lm_output", "data", subnetwork_net=ext_lm_subnet, load_on_init=load_on_init)
+        lm_net_out.add_subnetwork(
+            "lm_output", "data", subnetwork_net=ext_lm_subnet, load_on_init=load_on_init
+        )
 
         return lm_net_out.get_net()["lm_output"]
 
@@ -1177,7 +1311,11 @@ class CTCDecoder:
         self.add_masks(subnet_unit)
         # add attention decoder
         if self.att_masking_fix:
-            subnet_unit.update(get_attention_decoder_dict_with_fix(self.target_dim, self.target_embed_dim))
+            subnet_unit.update(
+                get_attention_decoder_dict_with_fix(
+                    self.target_dim, self.target_embed_dim
+                )
+            )
         else:
             subnet_unit.update(get_attention_decoder_dict(self.target_dim))
 
@@ -1191,7 +1329,11 @@ class CTCDecoder:
         self.add_masks(subnet_unit)
         # add attention decoder
         if self.att_masking_fix:
-            subnet_unit.update(get_attention_decoder_dict_with_fix(self.target_dim, self.target_embed_dim))
+            subnet_unit.update(
+                get_attention_decoder_dict_with_fix(
+                    self.target_dim, self.target_embed_dim
+                )
+            )
         else:
             subnet_unit.update(get_attention_decoder_dict(self.target_dim))
         # add lstm lm
@@ -1213,22 +1355,33 @@ class CTCDecoder:
             }
         )
 
-        self.add_score_combination(subnet_unit, att_layer="trigg_att", lm_layer="lm_output_prob")
+        self.add_score_combination(
+            subnet_unit, att_layer="trigg_att", lm_layer="lm_output_prob"
+        )
 
         self.add_output_layer(subnet_unit)
 
-
     def remove_eos_from_ctc_logits(self):
         """Remove eos from ctc logits and set ctc_source to the new logits."""
-        self.network.add_slice_layer("ctc_eos_slice", self.ctc_source, axis="f", slice_start=0, slice_end=1)
+        self.network.add_slice_layer(
+            "ctc_eos_slice", self.ctc_source, axis="f", slice_start=0, slice_end=1
+        )
         self.network.add_eval_layer("zeros", "ctc_eos_slice", eval="source(0)*0.0")
 
         if self.add_eos_to_blank:
             self.network.add_slice_layer(
-                "ctc_no_eos_no_blank_slice", self.ctc_source, axis="f", slice_start=1, slice_end=self.target_dim
+                "ctc_no_eos_no_blank_slice",
+                self.ctc_source,
+                axis="f",
+                slice_start=1,
+                slice_end=self.target_dim,
             )
             self.network.add_slice_layer(
-                "ctc_blank_slice", self.ctc_source, axis="f", slice_start=self.target_dim, slice_end=self.target_dim+1
+                "ctc_blank_slice",
+                self.ctc_source,
+                axis="f",
+                slice_start=self.target_dim,
+                slice_end=self.target_dim + 1,
             )
             self.network.update(
                 {
@@ -1248,7 +1401,13 @@ class CTCDecoder:
                 }
             )
         else:
-            self.network.add_slice_layer("ctc_no_eos_slice", self.ctc_source, axis="f", slice_start=1, slice_end=self.target_dim+1)
+            self.network.add_slice_layer(
+                "ctc_no_eos_slice",
+                self.ctc_source,
+                axis="f",
+                slice_start=1,
+                slice_end=self.target_dim + 1,
+            )
             self.network.update(
                 {
                     "ctc_no_eos": {
@@ -1273,10 +1432,11 @@ class CTCDecoder:
             )
             self.ctc_source = "ctc_no_eos_postfix_in_time"
 
-
     def add_blank_collapse(self):
         """Collpase blanks in ctc logits and set ctc_source to the new logits."""
-        from i6_experiments.users.gruev.implementations.returnn.blank_collapse import blank_collapse
+        from i6_experiments.users.gruev.implementations.returnn.blank_collapse import (
+            blank_collapse,
+        )
 
         # apply_log = False
         #
@@ -1285,126 +1445,129 @@ class CTCDecoder:
 
         ### INITIAL BLANK THRESHOLDING
         # computes softmax_layer_output[:, :, blank_idx], output_dims=[B, T]
-        self.network.update({
-            "ctc_sequence": {
-                "class": "gather",
-                "from": self.ctc_source,
-                "axis": "B",
-                "position": 0,
-            },
-            # "print_ctc_sequence": {
-            #    "class": "print",
-            #    "from": "ctc_sequence",
-            #    "is_output_layer": True,
-            # },
-            ### Obtain probs[:, :, blank_idx], dims=[B, T]
-            ### Status: OK
-            "blank_axis": {
-                "class": "gather",
-                "from": self.ctc_source,
-                "position": 10_025,
-                "axis": "F",
-            },
-            ### Mask via probs[:, :, blank_idx] > 0.999, dims=[B, T]
-            ### Status: OK
-            "blank_mask": {
-                "class": "compare",
-                "from": "blank_axis",
-                "kind": "greater",
-                "value": 0.999,
-            },
-            ### Obtain audio lengths of sequence in batch, dims=[B,]
-            ### Status: OK
-            "audio_lens": {
-                "class": "length",
-                "from": self.ctc_source,
-                "axis": "T",
-            },
-            ### Obtain a range over largest audio length, dims=[T,]
-            ### Status: OK
-            "audio_range": {
-                "class": "range_from_length",
-                "from": "audio_lens",
-            },
-            ### Mask for sequence audio lengths, dims=[B, T]
-            ### Status: OK
-            "audio_lens_mask": {
-                "class": "compare",
-                "kind": "less_equal",
-                "from": ["audio_lens", "audio_range"],
-            },
-            ### Combined mask from threshold and audio lengths, dims=[B, T]
-            ### Status: OK
-            "blank_mask_w_audio_lens": {
-                "class": "combine",
-                "from": ["blank_mask", "audio_lens_mask"],
-                "kind": "logical_or",
-            },
-            ### One masking to shift blanks at start is enough, see corner cases
-            ### Status: OK
-            ### Cast True to +inf and False to audio_len_range, dims=[B, T]
-            ### Another corner case: what if there are no False, i.e. only blanks??
-            ### Status: OK
-            "mapping_start": {
-                "class": "switch",
-                "condition": "blank_mask_w_audio_lens",
-                "true_from": int(1e4),
-                "false_from": "audio_range",
-            },
-            ### Indices of first non-blank elements, dims=[B,]
-            ### Status: OK
-            "sequences_start": {
-                "class": "reduce",
-                "from": "mapping_start",
-                "mode": "argmin",
-                "axis": "T",
-            },
-            ### Restore proper boundaries
-            "sequences_start_mask": {
-                "class": "compare",
-                "kind": "less",
-                "from": ["audio_range", "sequences_start"],
-            },
-            ### Construct shifted mask for single blanks, dims=[B, T]
-            ### Set adjust_size_info to False, preserves 'T' Dim
-            ### Status: OK
-            "blank_mask_w_audio_lens_shifted": {
-                "class": "shift_axis",
-                "from": ["blank_mask_w_audio_lens"],
-                "axis": "T",
-                "amount": -1,
-                "pad_value": True,
-                "adjust_size_info": False,
-            },
-            ### Apply logical_and towards final mask, dims=[B, T]
-            ### Status: OK
-            "blank_mask_w_shift": {
-                "class": "combine",
-                "kind": "logical_and",
-                "from": ["blank_mask_w_audio_lens", "blank_mask_w_audio_lens_shifted"],
-            },
-            ### Final mask, dims=[B, T]
-            "blank_mask_final_": {
-                "class": "combine",
-                "kind": "logical_or",
-                "from": ["blank_mask_w_shift", "sequences_start_mask"],
-            },
-            "blank_mask_final": {
-                "class": "eval",
-                "from": "blank_mask_final_",
-                "eval": "tf.math.logical_not(source(0))",
-            },
-            "blank_collapse_apply": {
-                "class": "masked_computation",
-                "from": [self.ctc_source],
-                "mask": "blank_mask_final",
-                "unit": {"class": "copy"},
-            },
-        })
+        self.network.update(
+            {
+                "ctc_sequence": {
+                    "class": "gather",
+                    "from": self.ctc_source,
+                    "axis": "B",
+                    "position": 0,
+                },
+                # "print_ctc_sequence": {
+                #    "class": "print",
+                #    "from": "ctc_sequence",
+                #    "is_output_layer": True,
+                # },
+                ### Obtain probs[:, :, blank_idx], dims=[B, T]
+                ### Status: OK
+                "blank_axis": {
+                    "class": "gather",
+                    "from": self.ctc_source,
+                    "position": 10_025,
+                    "axis": "F",
+                },
+                ### Mask via probs[:, :, blank_idx] > 0.999, dims=[B, T]
+                ### Status: OK
+                "blank_mask": {
+                    "class": "compare",
+                    "from": "blank_axis",
+                    "kind": "greater",
+                    "value": 0.999,
+                },
+                ### Obtain audio lengths of sequence in batch, dims=[B,]
+                ### Status: OK
+                "audio_lens": {
+                    "class": "length",
+                    "from": self.ctc_source,
+                    "axis": "T",
+                },
+                ### Obtain a range over largest audio length, dims=[T,]
+                ### Status: OK
+                "audio_range": {
+                    "class": "range_from_length",
+                    "from": "audio_lens",
+                },
+                ### Mask for sequence audio lengths, dims=[B, T]
+                ### Status: OK
+                "audio_lens_mask": {
+                    "class": "compare",
+                    "kind": "less_equal",
+                    "from": ["audio_lens", "audio_range"],
+                },
+                ### Combined mask from threshold and audio lengths, dims=[B, T]
+                ### Status: OK
+                "blank_mask_w_audio_lens": {
+                    "class": "combine",
+                    "from": ["blank_mask", "audio_lens_mask"],
+                    "kind": "logical_or",
+                },
+                ### One masking to shift blanks at start is enough, see corner cases
+                ### Status: OK
+                ### Cast True to +inf and False to audio_len_range, dims=[B, T]
+                ### Another corner case: what if there are no False, i.e. only blanks??
+                ### Status: OK
+                "mapping_start": {
+                    "class": "switch",
+                    "condition": "blank_mask_w_audio_lens",
+                    "true_from": int(1e4),
+                    "false_from": "audio_range",
+                },
+                ### Indices of first non-blank elements, dims=[B,]
+                ### Status: OK
+                "sequences_start": {
+                    "class": "reduce",
+                    "from": "mapping_start",
+                    "mode": "argmin",
+                    "axis": "T",
+                },
+                ### Restore proper boundaries
+                "sequences_start_mask": {
+                    "class": "compare",
+                    "kind": "less",
+                    "from": ["audio_range", "sequences_start"],
+                },
+                ### Construct shifted mask for single blanks, dims=[B, T]
+                ### Set adjust_size_info to False, preserves 'T' Dim
+                ### Status: OK
+                "blank_mask_w_audio_lens_shifted": {
+                    "class": "shift_axis",
+                    "from": ["blank_mask_w_audio_lens"],
+                    "axis": "T",
+                    "amount": -1,
+                    "pad_value": True,
+                    "adjust_size_info": False,
+                },
+                ### Apply logical_and towards final mask, dims=[B, T]
+                ### Status: OK
+                "blank_mask_w_shift": {
+                    "class": "combine",
+                    "kind": "logical_and",
+                    "from": [
+                        "blank_mask_w_audio_lens",
+                        "blank_mask_w_audio_lens_shifted",
+                    ],
+                },
+                ### Final mask, dims=[B, T]
+                "blank_mask_final_": {
+                    "class": "combine",
+                    "kind": "logical_or",
+                    "from": ["blank_mask_w_shift", "sequences_start_mask"],
+                },
+                "blank_mask_final": {
+                    "class": "eval",
+                    "from": "blank_mask_final_",
+                    "eval": "tf.math.logical_not(source(0))",
+                },
+                "blank_collapse_apply": {
+                    "class": "masked_computation",
+                    "from": [self.ctc_source],
+                    "mask": "blank_mask_final",
+                    "unit": {"class": "copy"},
+                },
+            }
+        )
 
         self.ctc_source = "blank_collapse_apply"
-
-
 
     def create_network(self):
         self.decision_layer_name = "out_best_wo_blank"
@@ -1433,14 +1596,17 @@ class CTCDecoder:
 
         self.add_filter_blank_and_merge_labels_layers(self.network)
 
-
     def add_filter_blank_and_merge_labels_layers(self, net):
         """
         Add layers to filter out blank and merge repeated labels of a CTC output sequence.
         :param dict net: network dict
         """
 
-        net["out_best_"] = {"class": "decide", "from": "output", "target": self.target_w_blank}
+        net["out_best_"] = {
+            "class": "decide",
+            "from": "output",
+            "target": self.target_w_blank,
+        }
         net["out_best"] = {
             "class": "reinterpret_data",
             "from": "out_best_",
@@ -1494,12 +1660,22 @@ class CTCDecoder:
     def add_enc_output_for_att(self):
         # add to base model
         self.network.add_linear_layer(
-            "enc_ctx", "encoder", with_bias=True, n_out=self.enc_key_dim, l2=self.base_model.l2
+            "enc_ctx",
+            "encoder",
+            with_bias=True,
+            n_out=self.enc_key_dim,
+            l2=self.base_model.l2,
         )
         self.network.add_split_dim_layer(
-            "enc_value", "encoder", dims=(self.att_num_heads, self.enc_value_dim // self.att_num_heads)
+            "enc_value",
+            "encoder",
+            dims=(self.att_num_heads, self.enc_value_dim // self.att_num_heads),
         )
         self.network.add_linear_layer(
-            "inv_fertility", "encoder", activation="sigmoid", n_out=self.att_num_heads, with_bias=False
+            "inv_fertility",
+            "encoder",
+            activation="sigmoid",
+            n_out=self.att_num_heads,
+            with_bias=False,
         )
         self.network.add_length_layer("enc_seq_len", self.ctc_source, sparse=False)

@@ -637,6 +637,10 @@ def rescore_att_ctc_search(
     search_job.add_alias(prefix_name + "/search_job")
 
     ctc_search_config = copy.deepcopy(returnn_config)
+    ctc_search_config.config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(
+        ctc_search_config.config["extern_data"]["bpe_labels"]
+    )
+    ctc_search_config.config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
     add_ctc_forced_align_for_rescore(ctc_search_config.config["network"], ctc_prior_scale)
     ctc_search_config.config["need_data"] = True
     ctc_search_config.config["target"] = "bpe_labels"
