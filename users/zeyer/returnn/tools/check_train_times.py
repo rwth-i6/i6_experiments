@@ -8,6 +8,7 @@ Call this via:
 """
 
 from typing import Optional, Union, Any, Dict, Set, List, Tuple
+import os
 import re
 import numpy as np
 from sisyphus import Job
@@ -33,7 +34,10 @@ def get_training_times_per_epoch(
     """
     # We can read the learning_rates to get the time per epoch in secs.
     job_dir = get_job_base_dir(training_job)
-    scores = _read_scores_and_learning_rates(f"{job_dir}/output/learning_rates")
+    scores_and_lr_filename = f"{job_dir}/work/learning_rates"
+    if not os.path.exists(scores_and_lr_filename):
+        scores_and_lr_filename = f"{job_dir}/output/learning_rates"
+    scores = _read_scores_and_learning_rates(scores_and_lr_filename)
     scores = {epoch: v for epoch, v in scores.items() if epoch > ignore_first_n_epochs}
     scores, filtered_by_device = _filter_learning_rates_by_device(
         scores, device=expected_gpu, min_required=min_required or len(scores)
