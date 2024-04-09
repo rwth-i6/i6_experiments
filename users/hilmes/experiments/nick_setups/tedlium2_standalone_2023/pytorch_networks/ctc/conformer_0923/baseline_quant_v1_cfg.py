@@ -178,14 +178,13 @@ class QuantModelTrainConfigV1:
 
 @dataclass
 class QuantModelConfigV1:
-    train_config: QuantModelTrainConfigV1
-    weight_quant_dtype: torch.dtype
+    weight_quant_dtype: Union[torch.dtype, str]
     weight_quant_method: str
-    activation_quant_dtype: torch.dtype
+    activation_quant_dtype: Union[torch.dtype, str]
     activation_quant_method: str
-    dot_quant_dtype: torch.dtype
+    dot_quant_dtype: Union[torch.dtype, str]
     dot_quant_method: str
-    Av_quant_dtype: torch.dtype
+    Av_quant_dtype: Union[torch.dtype, str]
     Av_quant_method: str
     moving_average: Optional[float]  # default if enabled should be 0.01, if set enables moving average
     bit_prec: int
@@ -193,19 +192,23 @@ class QuantModelConfigV1:
     @classmethod
     def from_dict(cls, d) -> "QuantModelConfigV1":
         d = d.copy()
-        d["train_config"] = QuantModelTrainConfigV1.from_dict(d["train_config"])
-        if d["weight_quant_dtype"] == "qint8":
-            weight_dtype = torch.qint8
-        elif d["weight_quant_dtype"] == "quint8":
-            weight_dtype = torch.quint8
-        else:
-            raise NotImplementedError
-        d['weight_quant_dtype'] = weight_dtype
-        if d["activation_quant_dtype"] == "qint8":
-            activation_dtype = torch.qint8
-        elif d["activation_quant_dtype"] == "quint8":
-            activation_dtype = torch.quint8
-        else:
-            raise NotImplementedError
-        d['activation_quant_dtype'] = activation_dtype
+        for name in ["weight_quant_dtype", "activation_quant_dtype", "dot_quant_dtype", "Av_quant_dtype"]:
+            if d[name] == "qint8":
+                weight_dtype = torch.qint8
+            elif d[name] == "quint8":
+                weight_dtype = torch.quint8
+            else:
+                raise NotImplementedError
+            d[name] = weight_dtype
         return QuantModelConfigV1(**d)
+
+    def __post_init__(self):
+        for param in [self.weight_quant_dtype, self.activation_quant_dtype, self.dot_quant_dtype, self.Av_quant_dtype]:
+            if param == "qint8":
+                param = torch.qint8
+            elif param == "quint8":
+                param = torch.quint8
+            elif any(param == x for x in [torch.quint8, torch.qint8]):
+                continue
+            else:
+                raise NotImplementedError

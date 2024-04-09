@@ -139,7 +139,8 @@ def pretrained_experiments():
                     checkpoint=train_job.out_checkpoints[epoch],
                     returnn_exe=RETURNN_EXE,
                     returnn_root=MINI_RETURNN_ROOT,
-                    epoch=str(epoch)  # just for alias generation
+                    epoch=str(epoch),  # just for alias generation
+                    mem_rqmt=8 if not "1.1b" in ft_name else 16,
                 )
                 tk.register_output(training_name + f"/prior/{epoch}.txt", prior_file)
                 search_args["prior_file"] = prior_file
@@ -233,6 +234,8 @@ def pretrained_experiments():
                 chkpts.append(best_job.out_checkpoint)
             avrg_job = AverageTorchCheckpointsJob(checkpoints=chkpts, returnn_python_exe=RETURNN_EXE,
                                                   returnn_root=MINI_RETURNN_ROOT)
+            if "1.1b" in ft_name:
+                avrg_job.rqmt["mem"] = 10
             avrg_job.add_alias(ft_name + "/avrg_chkpt_job")
             format_string_report, values_report, search_jobs = search(
                 ft_name + "/avrg_chkpt",
@@ -1188,122 +1191,6 @@ def pretrained_experiments():
     #     results=results, exp_name=prefix_name + "conformer_0923/hubert_pretrain_v3_large60k_tune2_jjlr"
     # )
     # del results
-
-    hubert_cfg_2 = hubert_pretrained_v1_cfg.HubertConfig(
-        finetune_layer=2,
-        name="xlarge-ll60k",
-    )
-    model_config_hubert_2 = hubert_pretrained_v1_cfg.ModelConfig(
-        specauc_start_epoch=0,
-        label_target_size=vocab_size_without_blank,
-        final_dropout=0.2,
-        hubert_cfg=hubert_cfg_2,
-    )
-    train_args_hubert_adam_accum25_jjlr = {
-        "config": {
-            "optimizer": {"class": "adam", "epsilon": 1e-08, "betas": (0.9, 0.98)},
-            "learning_rates": list(np.linspace(7e-6, 7e-4, 130))
-                              + list(np.linspace(7e-4, 7e-5, 230))
-                              + list(np.linspace(7e-5, 1e-8, 140)),
-            #############
-            "batch_size": 180 * 16000,
-            "max_seq_length": {"audio_features": 35 * 16000},
-            "max_seqs": 1,
-            "accum_grad_multiple_step": 100,
-        },
-        "debug": False,
-    }
-    eval_epochs = [250, 300, 400, 500]
-    train_args = {
-        **copy.deepcopy(train_args_hubert_adam_accum25_jjlr),
-        "network_module": "ctc.conformer_0923.hubert_pretrained_v3",
-        "net_args": {"model_config_dict": asdict(model_config_hubert_2)},
-    }
-    results = {}
-    for lm_weight in [1.6, 1.8, 2.0, 2.2]:
-        for prior_scale in [0.3, 0.5]:
-            search_args = {
-                **default_search_args,
-                "lm_weight": lm_weight,
-                "prior_scale": prior_scale,
-                "beam_size_token": 128,
-            }
-            train_job, _, _, wer_values = run_exp(
-                prefix_name
-                + "conformer_0923/hubert_pretrain_v3_xlarge60k_tune2_jjlr/lm%.1f_prior%.2f_bs1024_th14" % (
-                lm_weight, prior_scale),
-                datasets=train_data,
-                train_args=train_args,
-                search_args=search_args,
-                with_prior=True,
-                eval_epochs=eval_epochs,
-                num_epochs=500
-            )
-            train_job.rqmt["gpu_mem"] = 24
-            results.update(wer_values)
-            del wer_values
-    generate_report(
-        results=results, exp_name=prefix_name + "conformer_0923/hubert_pretrain_v3_xlarge60k_tune2_jjlr"
-    )
-    del results
-
-    hubert_cfg_2 = hubert_pretrained_v1_cfg.HubertConfig(
-        finetune_layer=2,
-        name="xlarge-ls960-ft",
-    )
-    model_config_hubert_2 = hubert_pretrained_v1_cfg.ModelConfig(
-        specauc_start_epoch=0,
-        label_target_size=vocab_size_without_blank,
-        final_dropout=0.2,
-        hubert_cfg=hubert_cfg_2,
-    )
-    train_args_hubert_adam_accum25_jjlr = {
-        "config": {
-            "optimizer": {"class": "adam", "epsilon": 1e-08, "betas": (0.9, 0.98)},
-            "learning_rates": list(np.linspace(7e-6, 7e-4, 130))
-                              + list(np.linspace(7e-4, 7e-5, 230))
-                              + list(np.linspace(7e-5, 1e-8, 140)),
-            #############
-            "batch_size": 180 * 16000,
-            "max_seq_length": {"audio_features": 35 * 16000},
-            "max_seqs": 1,
-            "accum_grad_multiple_step": 100,
-        },
-        "debug": True,
-    }
-    eval_epochs = [250, 300, 400, 500]
-    train_args = {
-        **copy.deepcopy(train_args_hubert_adam_accum25_jjlr),
-        "network_module": "ctc.conformer_0923.hubert_pretrained_v3",
-        "net_args": {"model_config_dict": asdict(model_config_hubert_2)},
-    }
-    results = {}
-    for lm_weight in [1.6, 1.8, 2.0, 2.2]:
-        for prior_scale in [0.3, 0.5]:
-            search_args = {
-                **default_search_args,
-                "lm_weight": lm_weight,
-                "prior_scale": prior_scale,
-                "beam_size_token": 128,
-            }
-            train_job, _, _, wer_values = run_exp(
-                prefix_name
-                + "conformer_0923/hubert_pretrain_v3_xlarge960_tune2_jjlr/lm%.1f_prior%.2f_bs1024_th14" % (
-                lm_weight, prior_scale),
-                datasets=train_data,
-                train_args=train_args,
-                search_args=search_args,
-                with_prior=True,
-                eval_epochs=eval_epochs,
-                num_epochs=500
-            )
-            train_job.rqmt["gpu_mem"] = 24
-            results.update(wer_values)
-            del wer_values
-    generate_report(
-        results=results, exp_name=prefix_name + "conformer_0923/hubert_pretrain_v3_xlarge960_tune2_jjlr"
-    )
-    del results
 
     from ..pytorch_networks.ctc.conformer_0923 import hubert_pretrained_v2_cfg
     for layer_num in range(18, 24):

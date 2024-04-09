@@ -26,7 +26,7 @@ def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs)
     :return:
     """
     default_rqmt = {
-        "mem_rqmt": 15,
+        "mem_rqmt": 15 if not "1.1b" in prefix_name else 20,
         "time_rqmt": 168,
         "cpu_rqmt": 4,
         "log_verbosity": 5,
@@ -93,7 +93,7 @@ def search_single(
 
     stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
 
-    sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH)
+    sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=1 if not "quant" in prefix_name else 4)
     tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
     tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
 
@@ -124,7 +124,7 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
             test_dataset_reference,
             returnn_exe,
             returnn_root,
-            mem_rqmt=16 if not any(x in prefix_name for x in ["whisper", "xlarge"]) else 64,
+            mem_rqmt=16 if not any(x in prefix_name for x in ["whisper", "xlarge", "parakeet"]) else 64,
             use_gpu=use_gpu,
         )
         search_jobs.append(search_job)
@@ -170,10 +170,11 @@ def compute_prior(
     """
     if any(x in prefix_name for x in ["xlarge"]):
         time = 8
-    elif any(x in prefix_name for x in ["whisper", "xlarge"]):
+    elif any(x in prefix_name for x in ["whisper", "parakeet"]):
         time = 4
     else:
         time = 2
+
     search_job = ReturnnForwardJobV2(
         model_checkpoint=checkpoint,
         returnn_config=returnn_config,
@@ -192,3 +193,45 @@ def compute_prior(
         epoch = "/" + epoch
     search_job.add_alias(prefix_name + "/prior" + epoch)
     return search_job.out_files["prior.txt"]
+
+
+@tk.block()
+def quantize_static(
+    prefix_name,
+    returnn_config,
+    checkpoint,
+    returnn_exe,
+    returnn_root,
+    mem_rqmt=8,
+    epoch=None
+):
+    """
+    Run search for a specific test dataset
+
+    :param str prefix_name:
+    :param ReturnnConfig returnn_config:
+    :param Checkpoint checkpoint:
+    :param Path returnn_exe:
+    :param Path returnn_root:
+    :param Optional[str] epoch: alias generation
+    """
+    time = 1  # maybe this needs to be more, will develop formula based on iterations
+    quantize_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=time,
+        device="cpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=['model.pt', "seq_tags.txt"],
+    )
+    quantize_job.set_keep_value(5)
+    if epoch is None:
+        epoch = ""
+    else:
+        epoch = "/" + epoch
+    quantize_job.add_alias(prefix_name + "calibration" + epoch)
+    return quantize_job.out_files['model.pt']

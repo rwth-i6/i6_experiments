@@ -338,6 +338,33 @@ def conformer_baseline():
         results=results, exp_name=prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v5_JJLR_specstart11_longer"
     )
     del results
+    results = {}
+
+    for lm_weight in [0]:
+        for prior_scale in [0.3, 0.5, 0.7, 0.9, 1.1]:
+            search_args = {
+                **default_search_args,
+                "lm_weight": lm_weight,
+                "prior_scale": prior_scale,
+                "beam_size_token": 128,
+                'beam_size': 1,
+            }
+            _, _, _, wer_values = run_exp(
+                prefix_name
+                + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v5_JJLR_specstart11_longer/lm%.1f_prior%.2f_greedy"
+                % (lm_weight, prior_scale),
+                datasets=train_data,
+                train_args=train_args,
+                search_args=search_args,
+                with_prior=True,
+                num_epochs=500,
+            )
+            results.update(wer_values)
+            del wer_values
+    generate_report(
+        results=results, exp_name=prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v5_JJLR_specstart11_longer_greedy"
+    )
+    del results
 
     results = {}
     train_args = {

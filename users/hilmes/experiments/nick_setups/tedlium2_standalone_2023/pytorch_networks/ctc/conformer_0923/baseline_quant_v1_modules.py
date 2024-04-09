@@ -1,3 +1,5 @@
+import copy
+
 import torch
 from torch import nn
 import torch.ao.quantization as torch_quant
@@ -6,6 +8,7 @@ from typing import Optional
 from .baseline_quant_v1_cfg import QuantizedMultiheadAttentionV1Config
 import math
 from returnn.torch.context import get_run_ctx
+from torch.ao.quantization.utils import check_min_max_valid
 
 def get_quantization_range_from_bit_precision(bits, dtype):
 
@@ -29,9 +32,9 @@ class WeightQuantizer(nn.Module):
 
         self.quant_min, self.quant_max = get_quantization_range_from_bit_precision(bit_precision, dtype)
         self.dtype = dtype
+        self.reduce_range = reduce_range
         self.quant_fn, self.observer = None, None
         self.quant_fn, self.observer = self.__get_quant_fn_and_observer_for_method(method)
-        self.reduce_rage = reduce_range
         self.scale = None
         self.zero_point = None
 
@@ -44,7 +47,7 @@ class WeightQuantizer(nn.Module):
                 quant_min=self.quant_min,
                 quant_max=self.quant_max,
                 dtype=self.dtype,
-                reduce_range=self.reduce_rage
+                reduce_range=self.reduce_range
             )
         else:
             raise ValueError(f'Unknown quantization method: {method}!')
@@ -53,25 +56,20 @@ class WeightQuantizer(nn.Module):
 
     def forward(self, tensor: torch.Tensor):
         if self.training:
-            # TODO This module does not do anything in training
+            # This module does not do anything in training
             return tensor
-            #self.observer.reset_min_max_vals()
-        if not self.apply_calibration:
-            print("Calculating Min Max Values")
+        if not get_run_ctx().apply_quant:
             tensor = self.observer(tensor)
-        if self.iterative_quant or self.apply_calibration:
-            # TODO: self.iterative_quant and self.apply_calibration needs to be the proper variation
-            # TODO: How to check state?
-            # TODO: Ich glaube ein großer Unterschied ist, dass hier quantisiert wird nachdem man die values gesehen hat
+        if get_run_ctx().iterative_quant or get_run_ctx().apply_quant:
             # und nicht erst ganz am Ende. Heißt jeder Batch wird iterativ quantisiert
             self.set_scale_and_zp()
-            assert self.scale and self.zero_point
-            print("Applying Quantized values")
+            assert self.scale is not None and self.zero_point is not None
             tensor = self.quant_fn(tensor, self.scale, self.zero_point, self.quant_min, self.quant_max)
         return tensor
 
     def set_scale_and_zp(self):
         assert self.observer is not None
+        assert check_min_max_valid(self.observer.min_val, self.observer.max_val), "Need to init observer first"
         self.scale, self.zero_point = self.observer.calculate_qparams()
 
 
@@ -87,14 +85,13 @@ class ActivationQuantizer(nn.Module):
             reduce_range: bool = False,
     ):
         super().__init__()
-
         self.quant_min, self.quant_max = get_quantization_range_from_bit_precision(bit_precision, dtype)
         self.dtype = dtype
-        self.quant_fn, self.observer = None, None
-        self.quant_fn, self.observer, self.base_observer_args = self.__get_quant_fn_and_observer_for_method(method)
         self.channel_axis = channel_axis
         self.moving_avrg = moving_avrg
         self.reduce_range = reduce_range
+        self.quant_fn, self.observer, self.base_observer_args = None, None, None
+        self.quant_fn, self.observer, self.base_observer_args = self.__get_quant_fn_and_observer_for_method(method)
         self.zero_point = None
         self.scale = None
 
@@ -117,7 +114,7 @@ class ActivationQuantizer(nn.Module):
                     quant_min=self.quant_min,
                     quant_max=self.quant_max,
                     dtype=self.dtype,
-                    reduce_range=self.reduce_rage
+                    reduce_range=self.reduce_range
                 )
         elif method == 'per_channel':
             quant_fn = torch.fake_quantize_per_channel_affine
@@ -147,35 +144,23 @@ class ActivationQuantizer(nn.Module):
 
 
     def forward(self, tensor: torch.Tensor):
-        # TODO
-        # tensor = self.observer(tensor)
-        # scale, zero_point = self.observer.calculate_qparams()
-        # tensor = self.quant_fn(tensor, scale, zero_point, *self.base_observer_args)
-        # return tensor
         if self.training:
-            # TODO This module does not do anything in training
+            # This module does not do anything in training
             return tensor
             # self.observer.reset_min_max_vals()
-        if not self.apply_calibration:
-            print("Calculating Min Max Values")
+        if get_run_ctx().apply_quant is not True:
             tensor = self.observer(tensor)
-        # TODO: remove, only for debugging rn
-        if self.apply_calibration:
-            assert self.apply_calibration is True
-        if self.iterative_quant:
-            assert self.iterative_quant is True
-        if self.iterative_quant or self.apply_calibration:
-            # TODO: How to check state?
-            # TODO: Ich glaube ein großer Unterschied ist, dass hier quantisiert wird nachdem man die values gesehen hat
-            # und nicht erst ganz am Ende. Heißt jeder Batch wird iterativ quantisiert
+        if get_run_ctx().iterative_quant is True or get_run_ctx().apply_quant is True:
             self.set_scale_and_zp()
-            assert self.scale and self.zero_point, "Need to calibrate before applying quant, disable apply_calibration"
-            print("Applying Quantized values")
+            assert self.scale is not None and self.zero_point is not None, "Need to calibrate before applying quant, disable apply_calibration"
+            old_tensor = copy.deepcopy(tensor)
             tensor = self.quant_fn(tensor, self.scale, self.zero_point, self.quant_min, self.quant_max)
+            assert not torch.equal(old_tensor, tensor)
         return tensor
 
     def set_scale_and_zp(self):
         assert self.observer is not None
+        assert check_min_max_valid(self.observer.min_val, self.observer.max_val), "Need to init observer first"
         self.scale, self.zero_point = self.observer.calculate_qparams()
 
 
@@ -194,7 +179,7 @@ class LinearQuant(nn.Module):
             bias: bool
     ):
         super().__init__()
-        self.weight = nn.Parameter(torch.empty((in_features, out_features)), requires_grad=True)
+        self.weight = nn.Parameter(torch.empty((out_features, in_features)), requires_grad=True)
         if bias:
             self.bias = nn.Parameter(torch.empty((out_features,)), requires_grad=True)
         self.bit_prec = bit_prec
@@ -215,7 +200,6 @@ class LinearQuant(nn.Module):
     def forward(self, tensor: torch.Tensor):
         return F.linear(self.activation_quantizer(tensor), self.weight_quantizer(self.weight), self.bias)
 
-# TODO: Check if this is all correct
 class QuantizedMultiheadAttention(nn.Module):
     def __init__(
             self,
@@ -238,10 +222,12 @@ class QuantizedMultiheadAttention(nn.Module):
         self.Av_quant_dtype = cfg.Av_quant_dtype
         self.Av_quant_method = cfg.Av_quant_method
 
-        self.W_q = self._create_linear_layer(cfg.bit_prec_W_q)
-        self.W_k = self._create_linear_layer(cfg.bit_prec_W_k)
-        self.W_v = self._create_linear_layer(cfg.bit_prec_W_v)
-        self.W_o = self._create_linear_layer(cfg.bit_prec_W_o)
+        self.out_proj = self._create_linear_layer(cfg.bit_prec_W_o)
+
+        # For some reason pytorch saves the in_proj_weight and bias in this format not with . so we need to adjust
+        self.in_proj = self._create_linear_layer(cfg.bit_prec_W_q, output_dim=3 * self.input_dim)
+        self.register_parameter("in_proj_weight", self.in_proj.weight)
+        self.register_parameter("in_proj_bias", self.in_proj.bias)
 
         if self.bit_prec_dot < 16:
             self.q_quantizer = ActivationQuantizer(
@@ -276,18 +262,18 @@ class QuantizedMultiheadAttention(nn.Module):
         self.softmax = nn.Softmax(-1)
         self.dropout = nn.Dropout(cfg.att_weights_dropout)
 
-    def _create_linear_layer(self, bits):
+    def _create_linear_layer(self, bits, output_dim = None):
         if bits < 16:  # TODO: why 16?
             return LinearQuant(
                 in_features=self.input_dim,
-                out_features=self.input_dim,
+                out_features=output_dim or self.input_dim,
                 bit_prec=bits,
                 weight_quant_dtype=self.weight_quant_dtype,
                 weight_quant_method=self.weight_quant_method,
                 activation_quant_dtype=self.activation_quant_dtype,
                 activation_quant_method=self.activation_quant_method,
                 moving_average=self.cfg.moving_average,
-                bias=False,  # TODO: This has to be false right?
+                bias=True,  # TODO: This has to be True it seems like
             )
         else:
             return nn.Linear(self.input_dim, self.input_dim, bias=False)
@@ -296,9 +282,14 @@ class QuantizedMultiheadAttention(nn.Module):
 
         batch_dim = query.shape[0]
 
-        query = self.W_q(query)
-        key = self.W_k(key)
-        value = self.W_v(value)
+        #query = self.W_q(query)
+        #key = self.W_k(key)
+        #value = self.W_v(value)
+        assert query is value is key, "currently only this case is implemented"
+
+        x = self.in_proj(query)
+        hidden_dim = query.size(-1)
+        query, key, value = x.unflatten(-1, (3, hidden_dim)).unsqueeze(0).transpose(0, -2).squeeze(-2).contiguous()
 
         query = query.view(batch_dim, -1, self.num_att_heads, self.dim_heads)  # [B, T, D//H, D']
         key = key.view(batch_dim, -1, self.num_att_heads, self.dim_heads)  # [B, T, D//H, D']
@@ -310,24 +301,25 @@ class QuantizedMultiheadAttention(nn.Module):
 
         key = torch.transpose(key, -2, -1)  # [B, D//H, D', T]
 
-        if self.bits_dot < 16:
+        if self.bit_prec_dot < 16:
             query = self.q_quantizer(query)
             key = self.k_quantizer(key)
 
         dot = torch.matmul(query, key)  # [B, D//H, T, T]
         dot = dot / self.norm
         if mask is not None:
-            dot = dot.masked_fill(dot, -float('inf'))
+            mask = mask.view(batch_dim, 1, 1, mask.size(1))
+            dot = dot.masked_fill(mask, -float('inf'))
         alpha = self.softmax(dot)
         alpha = self.dropout(alpha)
 
-        if self.bits_Av < 16:
+        if self.bit_prec_Av < 16:
             alpha = self.a_quantizer(alpha)
             value = self.v_quantizer(value)
 
         att_out = torch.matmul(alpha, value)  # [B, D//H, T, D']
         att_out = torch.transpose(att_out, 1, 2)  # [B, D//H, T, D']
         att_out = att_out.reshape(batch_dim, -1, self.input_dim)  # [B, T, D]
-        att_out = self.W_o(att_out)
+        att_out = self.out_proj(att_out)
 
         return att_out, alpha

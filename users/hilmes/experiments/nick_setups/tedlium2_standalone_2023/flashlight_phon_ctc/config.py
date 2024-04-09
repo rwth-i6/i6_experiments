@@ -103,7 +103,7 @@ def get_prior_config(
         "batch_size": 50000 * 160,
         "max_seqs": 60,
         #############
-        "forward": training_datasets.prior.as_returnn_opts(),
+        "forward": copy.deepcopy(training_datasets.prior.as_returnn_opts()),
     }
     config = {**base_config, **copy.deepcopy(config)}
     post_config["backend"] = "torch"
@@ -119,7 +119,7 @@ def get_prior_config(
     return returnn_config
 
 
-def get_quant_config(
+def get_static_quant_config(
     training_datasets: TrainingDatasets,
     network_module: str,
     net_args: Dict[str, Any],
@@ -138,6 +138,8 @@ def get_quant_config(
     """
 
     # changing these does not change the hash
+    num_samples = quant_args.pop("num_samples", 10)
+    dataset_seed = quant_args.pop("dataset_seed", None)
     post_config = {}
 
     base_config = {
@@ -145,12 +147,12 @@ def get_quant_config(
         "batch_size": 50000 * 160,
         "max_seqs": 60,
         #############
-        "forward": training_datasets.prior.as_returnn_opts(),
+        "forward": copy.deepcopy(training_datasets.prior.as_returnn_opts()),
     }
     base_config['forward']['seq_ordering'] = 'random'
-    if kwargs.get("shuffling_seed", None):
-        # TODO
-        raise NotImplementedError
+    base_config['forward']['datasets']['zip_dataset']['fixed_random_subset'] = num_samples
+    if dataset_seed is not None:
+        base_config['forward']['datasets']['zip_dataset']['fixed_random_subset_seed'] = dataset_seed
     config = {**base_config, **copy.deepcopy(config)}
     post_config["backend"] = "torch"
     assert net_args.keys().isdisjoint(quant_args.keys())
@@ -159,7 +161,7 @@ def get_quant_config(
         net_args=net_args | quant_args,
         debug=debug,
         use_custom_engine=use_custom_engine,
-        quant=True,
+        static_quant=True,
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
     return returnn_config
@@ -173,6 +175,7 @@ def get_search_config(
     config: Dict[str, Any],
     debug: bool = False,
     use_custom_engine=False,
+    quant_args: Optional[Dict[str, Any]] = None,
     **kwargs,
 ):
     """
@@ -195,7 +198,9 @@ def get_search_config(
     }
     config = {**base_config, **copy.deepcopy(config)}
     post_config["backend"] = "torch"
-
+    if quant_args:
+        assert net_args.keys().isdisjoint(quant_args.keys())
+        net_args = net_args | quant_args
     serializer = get_pytorch_serializer_v3(
         network_module=network_module,
         net_args=net_args,
