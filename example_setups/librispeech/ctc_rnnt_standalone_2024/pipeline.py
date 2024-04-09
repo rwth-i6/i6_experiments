@@ -29,6 +29,7 @@ class ASRModel:
     net_args: Dict[str, Any]
     network_module: str
     prior_file: Optional[tk.Path]
+    prefix_name: Optional[str]
 
 
 def search_single(
@@ -232,9 +233,9 @@ def prepare_asr_model(
     assert not with_prior or datasets is not None
 
     if get_best_averaged_checkpoint is not None:
-        n_checkpoints, loss_key = get_best_averaged_checkpoint
+        num_checkpoints, loss_key = get_best_averaged_checkpoint
         checkpoints = []
-        for index in range(n_checkpoints):
+        for index in range(num_checkpoints):
             best_job = GetBestPtCheckpointJob(
                 train_job.out_model_dir,
                 train_job.out_learning_rates,
@@ -243,15 +244,17 @@ def prepare_asr_model(
             )
             best_job.add_alias(training_name + f"/get_best_job_{index}")
             checkpoints.append(best_job.out_checkpoint)
-        if n_checkpoints > 1:
+        if num_checkpoints > 1:
             # perform averaging
             avg = AverageTorchCheckpointsJob(
                 checkpoints=checkpoints, returnn_python_exe=RETURNN_EXE, returnn_root=MINI_RETURNN_ROOT
             )
             checkpoint = avg.out_checkpoint
+            training_name = training_name + "/avg_best_%i_cpkt" % num_checkpoints
         else:
             # we only have one
             checkpoint = checkpoints[0]
+            training_name = training_name + "/best_cpkt"
     elif get_last_averaged_checkpoint is not None:
         assert get_last_averaged_checkpoint >= 2, "For the single last checkpoint use get_specific_checkpoint instead"
         num_checkpoints = len(train_job.out_checkpoints)
@@ -261,8 +264,10 @@ def prepare_asr_model(
             returnn_root=MINI_RETURNN_ROOT,
         )
         checkpoint = avg.out_checkpoint
+        training_name = training_name + "/avg_last_%i_cpkt" % num_checkpoints
     else:
         checkpoint = train_job.out_checkpoints[get_specific_checkpoint]
+        training_name = training_name + "/ep_%i_cpkt" % get_specific_checkpoint
 
     prior_file = None
     if with_prior:
@@ -291,6 +296,7 @@ def prepare_asr_model(
         network_module=train_args["network_module"],
         net_args=train_args["net_args"],
         prior_file=prior_file,
+        prefix_name=training_name,
     )
 
     return asr_model
