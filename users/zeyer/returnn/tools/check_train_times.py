@@ -144,6 +144,7 @@ def main():
     times_per_epoch.sort()
     print(f"median: {times_per_epoch[len(times_per_epoch) // 2]:.2f}")
     if args.take_n_fastest_epochs:
+        assert len(times_per_epoch) >= args.take_n_fastest_epochs, f"only {len(times_per_epoch)} epochs"
         times_per_epoch = times_per_epoch[: args.take_n_fastest_epochs]
     print(f"after outlier removal: (num: {len(times_per_epoch)})")
     print(f"min, max: {min(times_per_epoch):.2f}, {max(times_per_epoch):.2f}")
