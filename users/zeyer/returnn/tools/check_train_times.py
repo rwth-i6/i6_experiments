@@ -1,8 +1,13 @@
 """
 Given some training job, get the training time per epoch
+
+Call this via:
+
+    export PYTHONPATH=recipe
+    python3 -m i6_experiments.users.zeyer.returnn.tools.check_train_times ...
 """
 
-from typing import Union, Any, Dict, Set, List
+from typing import Optional, Union, Any, Dict, Set, List, Tuple
 import re
 import numpy as np
 from sisyphus import Job
@@ -15,6 +20,7 @@ def get_training_times_per_epoch(
     *,
     expected_gpu: str,
     ignore_first_n_epochs: int = 0,
+    min_required: Optional[int] = None,
 ) -> List[Union[float, int]]:
     """
     :param training_job: reads out_learning_rates and the log from it
@@ -22,22 +28,28 @@ def get_training_times_per_epoch(
     :param ignore_first_n_epochs: ignore the first N epochs,
         e.g. because we might use smaller models, or data filtering, or so,
         so they are much faster and not comparable to the others
+    :param min_required:
     :return: avg time per epoch in secs
     """
     # We can read the learning_rates to get the time per epoch in secs.
     job_dir = get_job_base_dir(training_job)
     scores = _read_scores_and_learning_rates(f"{job_dir}/output/learning_rates")
+    scores = {epoch: v for epoch, v in scores.items() if epoch > ignore_first_n_epochs}
+    scores, filtered_by_device = _filter_learning_rates_by_device(
+        scores, device=expected_gpu, min_required=min_required or len(scores)
+    )
     epoch_times = _read_epoch_times_from_scores_and_learning_rates(scores)
-    epoch_times = {ep: t for ep, t in epoch_times.items() if ep > ignore_first_n_epochs}
+    epoch_times = {ep: t for ep, t in epoch_times.items()}
     epoch_steps = _read_epoch_steps_from_scores_and_learning_rates(scores)
-    epoch_steps = {ep: t for ep, t in epoch_steps.items() if ep > ignore_first_n_epochs}
+    epoch_steps = {ep: t for ep, t in epoch_steps.items()}
     epoch_steps_min = min(epoch_steps.values())
     epoch_steps_max = max(epoch_steps.values())
     assert epoch_steps_max - epoch_steps_min <= epoch_steps_max * 0.1, f"epoch_steps: {epoch_steps}"  # sanity check
 
-    # We also need to check that we have the same GPU. For that, we currently need to check the log.
-    gpus = _read_used_gpus_from_log(job_dir)
-    assert gpus == {expected_gpu}, f"expected GPU {expected_gpu}, found in log: {gpus}"
+    if not filtered_by_device:
+        # We also need to check that we have the same GPU. For that, we currently need to check the log.
+        gpus = _read_used_gpus_from_log(job_dir)
+        assert gpus == {expected_gpu}, f"expected GPU {expected_gpu}, found in log: {gpus}"
 
     return list(epoch_times.values())
 
@@ -73,6 +85,19 @@ def _read_epoch_steps_from_scores_and_learning_rates(scores: Dict[int, Dict[str,
     return {epoch: v[":meta:epoch_num_train_steps"] for epoch, v in scores.items()}
 
 
+def _filter_learning_rates_by_device(
+    scores: Dict[int, Dict[str, Any]], *, device: str, min_required: int
+) -> Tuple[Dict[int, Dict[str, Any]], bool]:
+    """
+    :return: filtered scores if we can apply the filter, whether we applied the filter
+    """
+    assert len(scores) >= min_required
+    res = {epoch: v for epoch, v in scores.items() if v.get(":meta:device") == device}
+    if len(res) < min_required:
+        return scores, False
+    return res, True
+
+
 def _read_used_gpus_from_log(job: Union[str, Job]) -> Set[str]:
     from i6_experiments.users.zeyer.utils.job_log import open_job_logs
 
@@ -103,7 +128,10 @@ def main():
     args = arg_parser.parse_args()
 
     times_per_epoch = get_training_times_per_epoch(
-        args.job, expected_gpu=args.gpu, ignore_first_n_epochs=args.ignore_first_n_epochs
+        args.job,
+        expected_gpu=args.gpu,
+        ignore_first_n_epochs=args.ignore_first_n_epochs,
+        min_required=args.take_n_fastest_epochs,
     )
     print("times per epoch:")
     print(f"(num epochs: {len(times_per_epoch)})")
