@@ -1,0 +1,56 @@
+                                    if (quant_mode == CalibrationMethod.MinMax and
+                                            average is False and
+                                            name == "train.train-torch_jj_config2-quant"
+                                            and sym is False):
+                                        tmp_mode = mode_str + "random"
+                                        tmp_data = copy.deepcopy(prior_config.config["train"]["datasets"]["feat"])
+                                        tmp_data["seq_ordering"] = "random"
+                                        quant_job = ModelQuantizeStaticJob(
+                                            model=onnx_model,
+                                            dataset=tmp_data,
+                                            num_seqs=data_num,
+                                            num_parallel_seqs=10,
+                                            calibrate_method=quant_mode,
+                                            moving_average=average,
+                                            symmetric=sym
+                                        )
+                                        quant_job.add_alias(
+                                            "quantize_static/" + name + "/" + tmp_mode + "/epoch" + epoch_str + "_" + str(
+                                                data_num))
+                                        quant_model = quant_job.out_model
+                                        scorer = OnnxFeatureScorer(
+                                            mixtures=acoustic_mixture_path,
+                                            model=quant_model,
+                                            priori_scale=prior,
+                                            io_map=io_map,
+                                            inter_op_threads=kwargs.get("cpu", 1),
+                                            intra_op_threads=kwargs.get("cpu", 1),
+                                            prior_file=prior_file
+                                        )
+
+                                        self.feature_scorers[recognition_corpus_key][
+                                            f"pre-nn-{name}-{prior:02.2f}-{tmp_mode}-{data_num}"] = scorer
+                                        self.feature_flows[recognition_corpus_key][
+                                            f"{feature_flow_key}-onnx-{epoch_str}-{tmp_mode}-{data_num}"] = feature_flow
+
+                                        recog_name = f"e{epoch_str}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}-{tmp_mode}-{data_num}"
+                                        recog_func(
+                                            name=f"{name}-{recognition_corpus_key}-{recog_name}",
+                                            prefix=f"nn_recog/{name}/",
+                                            corpus=recognition_corpus_key,
+                                            flow=feature_flow,
+                                            feature_scorer=scorer,
+                                            pronunciation_scale=pron,
+                                            lm_scale=lm,
+                                            search_parameters=search_parameters,
+                                            lattice_to_ctm_kwargs=lattice_to_ctm_kwargs,
+                                            parallelize_conversion=parallelize_conversion,
+                                            rtf=rtf,
+                                            mem=mem,
+                                            lmgc_alias=f"lmgc/{name}/{recognition_corpus_key}-{recog_name}",
+                                            lmgc_scorer=lmgc_scorer,
+                                            **kwargs,
+                                        )
+
+
+

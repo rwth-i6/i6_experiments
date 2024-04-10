@@ -9,6 +9,7 @@ from i6_core.returnn.training import PtCheckpoint
 from onnxruntime.quantization import quant_pre_process, quantize_static, CalibrationDataReader, CalibrationMethod, QuantType, QuantFormat
 from onnxruntime import InferenceSession, SessionOptions
 from returnn.datasets import Dataset, init_dataset
+from returnn.datasets.hdf import HDFDataset
 from returnn.datasets.meta import MetaDataset
 import numpy as np
 
@@ -41,7 +42,7 @@ class ExportPyTorchModelToOnnxJob(Job):
         self.returnn_config.write("returnn.config")
         config.load_file("returnn.config")
         
-        model_state = torch.load(str(self.pytorch_checkpoint),map_location=torch.device("cpu"))
+        model_state = torch.load(str(self.pytorch_checkpoint), map_location=torch.device("cpu"))
         if isinstance(model_state, dict):
             epoch = model_state["epoch"]
             step = model_state["step"]
@@ -55,7 +56,10 @@ class ExportPyTorchModelToOnnxJob(Job):
         model = get_model_func(epoch=epoch, step=step)
         assert isinstance(model, torch.nn.Module)
 
-        model.load_state_dict(model_state)
+        missing_keys, unexpected_keys = model.load_state_dict(model_state, strict=False)
+        missing_keys = [k for k in missing_keys if k not in config.typed_value("save_ignore_params", []) and not any(
+            k.startswith(prefix) for prefix in config.typed_value("save_ignore_params_prefixes", []))]
+        assert len(missing_keys) == len(unexpected_keys) == 0, ("Some keys where not found", missing_keys, unexpected_keys)
 
         export_func = config.typed_value("export")
         assert export_func
@@ -82,12 +86,16 @@ class ModelQuantizeStaticJob(Job):
         "final_skip": (None, None),
         "ops_to_quant": None,
         "smooth_quant": False,
+        "percentile": None,
+        "num_bins": None,
+        "random_seed": 0,
+        "filter_opts": None
     }
 
     def __init__(self,
         model: tk.Path,
         dataset: Dict[str, Any],
-        num_seqs: int = 10,
+        num_seqs: Union[int, str] = 10,
         num_parallel_seqs: int = 25,
         calibrate_method: CalibrationMethod = CalibrationMethod.MinMax,
         moving_average: bool = False,
@@ -99,6 +107,10 @@ class ModelQuantizeStaticJob(Job):
         final_skip: Tuple[Optional[int], Optional[int]] = (None, None),
         ops_to_quant: Optional[List[str]] = None,
         smooth_quant: bool = False,
+        percentile: Optional[float] = None,
+        num_bins: Optional[int] = None,
+        random_seed: int = 0,
+        filter_opts: Optional[Dict[str, Any]] = None,
     ):
         """
         :param model:
@@ -115,9 +127,16 @@ class ModelQuantizeStaticJob(Job):
         self.activation_type = activation_type
         self.quant_format = quant_format
         self.weight_type = weight_type
+        self.filter_opts = filter_opts
 
         self.out_model = self.output_path("model.onnx")
-        if num_seqs >= 5000:
+        if num_seqs >= 50000:
+            time = 48
+        elif num_seqs >= 25000:
+            time = 24
+        elif num_seqs >= 10000:
+            time = 16
+        elif num_seqs >= 5000:
             time = 12
         elif num_seqs >= 2500:
             time = 6
@@ -128,8 +147,13 @@ class ModelQuantizeStaticJob(Job):
         if not calibrate_method == CalibrationMethod.MinMax:
             time *= 2
 
-        self.rqmt = {"cpu": 8 if num_seqs > 100 else 4, "mem": 16.0 if calibrate_method == CalibrationMethod.MinMax else 48, "time": time}
+        self.rqmt = {"cpu": 8 if num_seqs > 100 else 4, "mem": 16.0 if calibrate_method == CalibrationMethod.MinMax else 64, "time": time}
         self.calibration_method = calibrate_method
+        self.percentile = percentile
+        self.num_bins = num_bins
+        self.random_seed = random_seed
+        if percentile or num_bins:
+            assert self.calibration_method == CalibrationMethod.Percentile
         self.smoothing_factor = smoothing_factor
         self.symmetric = symmetric
         self.final_skip = final_skip
@@ -152,65 +176,100 @@ class ModelQuantizeStaticJob(Job):
         return res
 
     def run(self):
-        print("Start")
+        logging.info("Start Prep")
         quant_pre_process(
             input_model_path=self.model.get_path(),
             output_model_path="model_prep.onnx")
-
+        logging.info("Start Quant")
+        seed = self.random_seed
+        import random
+        random.seed(seed)
         class DummyDataReader(CalibrationDataReader):
 
-            def __init__(self, model_str: str, data: Union[Dataset, MetaDataset], max_seqs: int, final_skip:  Optional[Tuple[int, int]] = (None, None)):
+            def __init__(self, model_str: str, data: Union[Dataset, MetaDataset], max_seqs: int, final_skip:  Optional[Tuple[int, int]] = (None, None), filter_opts: Optional[Dict[str, Any]] = None):
 
                 self.max_seqs = max_seqs
                 self.data = data
-                self.idx: int = 0
+                self.counter: int = 0
                 sess_option = SessionOptions()
                 logging.info(f"Data Loading {os.getenv('SLURM_CPUS_PER_TASK')}")
                 sess_option.intra_op_num_threads = int(os.getenv('SLURM_CPUS_PER_TASK'))
                 session = InferenceSession(model_str, sess_option)
                 self.input_name_1 = session.get_inputs()[0].name
-                self.input_name_2 = session.get_inputs()[1].name
+                inputs = []
+                for x in session.get_inputs():
+                    inputs.append(x.name)
+                logging.info(f"Session Inputs: {inputs}")
+                self.input_name_2 = session.get_inputs()[1].name if len(session.get_inputs()) > 1 else None
                 self.final_skip_step = final_skip[0]
                 self.final_skip_count = final_skip[1]
+                self.seen_seqs = []
+                self.filter_opts = filter_opts
 
             def get_next(self):
-                init_dataset(self.data)
-                key = "data" if "data" in self.data.data_keys else "raw_audio"  # hack to make it compatible with both setups for now
-                if not self.data.is_less_than_num_seqs(self.idx) or self.idx >= self.max_seqs:
-                    if self.final_skip_step is not None and self.idx < self.max_seqs + self.final_skip_step * self.final_skip_count:
-                        self.idx += self.final_skip_step
-                        logging.info(f"Skipping to Seq {self.idx}")
-                        self.data.load_seqs(self.idx, self.idx + 1)
-                        seq_len: np.ndarray = self.data.get_seq_length(self.idx)[key]
-                        data: np.ndarray = self.data.get_data(self.idx, key)
-                        seq_len = np.array([seq_len], dtype=np.int32)
-                        data = np.expand_dims(data, axis=0)
-                        return {self.input_name_1: data, self.input_name_2: seq_len}
-                    else:
+                key = "data" if "data" in self.data.get_data_keys() else "raw_audio"  # hack to make it compatible with both setups for now
+                seq_number = None
+                if not self.data.is_less_than_num_seqs(self.counter) or self.counter >= self.max_seqs:
+                    if not self.data.is_less_than_num_seqs(self.counter):
+                        logging.info(f"Finished after {self.counter} sequences")
                         return None
-                self.data.load_seqs(self.idx, self.idx + 1)
-                seq_len: np.ndarray = self.data.get_seq_length(self.idx)[key]
-                data: np.ndarray = self.data.get_data(self.idx, key)
-                if self.idx % 10 == 0:
-                    logging.info(f"{self.idx} seqs seen")
-                seq_len = np.array([seq_len], dtype=np.int32)
+                    elif self.final_skip_step is not None and self.counter < self.max_seqs + self.final_skip_step * self.final_skip_count:
+                        logging.info("Drawing skip step")
+                        for _ in range(self.final_skip_step):
+                            seq_number = random.randint(0, self.data.num_seqs - 1)
+                        while seq_number in self.seen_seqs:
+                            seq_number = random.randint(0, self.data.num_seqs - 1)
+                    else:
+                        logging.info("Seen all sequences in dataset")
+                        return None
+                if seq_number is None:
+                    if not seed == 0:
+                        while not seq_number or seq_number in self.seen_seqs or not self.check_filter(seq_number):
+                            seq_number = random.randint(0, self.data.num_seqs - 1)
+                    else:
+                        seq_number = self.counter
+                self.seen_seqs.append(seq_number)
+                self.data.load_seqs(seq_number, seq_number+1)
+                data: np.ndarray = self.data.get_data(seq_number, key)
+                seq_len: np.ndarray = self.data.get_seq_length(seq_number)[key]
+                logging.info(f"Next Seq Tag {self.data.get_tag(seq_number)} with idx number {seq_number} and len {seq_len}")
+                if self.counter % 10 == 0:
+                    logging.info(f"{self.counter} seqs seen")
                 data = np.expand_dims(data, axis=0)
-                self.idx += 1
-                return {self.input_name_1: data, self.input_name_2: seq_len}
+                if self.input_name_2 is not None:
+                    assert seq_len == data.shape[1], (data.shape, seq_len)
+                    seq_len = np.array([seq_len], dtype=np.int32)
+                    self.counter += 1
+                    return {self.input_name_1: data, self.input_name_2: seq_len}
+                else:
+                    self.counter += 1
+                    return {self.input_name_1: data}
 
-            def __iter__(self):
-                data = []
-                x = self.get_next()
-                while x is not None:
-                    data.append(x)
-                    x = self.get_next()
-                for x in data:
-                    yield x
+            def check_filter(self, seq_number) -> bool:
+                if self.filter_opts is not None:
+                    for name, value in self.filter_opts.items():
+                        if name == "max_seq_len":
+                            seq_len = self.data.get_seq_length(seq_number)["data" if "data" in self.data.get_data_keys() else "raw_audio"]
+                            if seq_len > value:
+                                logging.info(
+                                    f"FILTER: Seq {self.data.get_tag(seq_number)} has length {seq_len} longer than {value}")
+                                return False
+                        elif name == "min_seq_len":
+                            seq_len = self.data.get_seq_length(seq_number)[
+                                "data" if "data" in self.data.get_data_keys() else "raw_audio"]
+                            if seq_len < value:
+                                logging.info(
+                                    f"FILTER: Seq {self.data.get_tag(seq_number)}has length {seq_len} shorter than {value}")
+                                return False
+                        else:
+                            raise NotImplementedError
+                return True
 
         self.dataset = self.convert_to_str(self.dataset)
         dataset: Dataset = init_dataset(self.dataset)
         dataset.init_seq_order(1)
-        y = DummyDataReader(model_str="model_prep.onnx", data=dataset, max_seqs=self.num_seqs, final_skip=self.final_skip)
+
+        y = DummyDataReader(model_str="model_prep.onnx", data=dataset, max_seqs=self.num_seqs, final_skip=self.final_skip, filter_opts=self.filter_opts)
         quant_options = {
                 "CalibMaxIntermediateOutputs": self.num_parallel_seqs,
                 "CalibMovingAverage": self.moving_average,
@@ -220,6 +279,10 @@ class ModelQuantizeStaticJob(Job):
             quant_options["CalibSmoothRange"] = self.smoothing_factor
         if self.smooth_quant:
             quant_options["SmoothQuant"] = True
+        if self.num_bins:
+            quant_options["CalibNumBins"] = self.num_bins
+        if self.percentile:
+            quant_options["CalibPercentile"] = self.percentile
         quantize_static(
             model_input="model_prep.onnx",
             model_output=self.out_model.get_path(),

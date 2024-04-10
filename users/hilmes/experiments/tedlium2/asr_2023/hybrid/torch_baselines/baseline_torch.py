@@ -1,14 +1,15 @@
 import copy
 from sisyphus import gs, tk
 
+from i6_core.tools.git import CloneGitRepositoryJob
 from i6_core.features import FilterbankJob
 
 from i6_experiments.users.hilmes.common.setups.rasr.util import RasrSteps
-from .default_tools import RASR_BINARY_PATH, RETURNN_EXE, RETURNN_ROOT
 
-from .data import get_corpus_data_inputs, get_log_mel_feature_extraction_args
+from i6_experiments.users.hilmes.common.tedlium2.hybrid.data import get_corpus_data_inputs
+from i6_experiments.users.hilmes.common.tedlium2.hybrid.baseline_args import get_log_mel_feature_extraction_args
 from i6_experiments.users.hilmes.experiments.tedlium2.asr_2023.hybrid.torch_baselines.torch_args import get_nn_args
-from .onnx_precomputed_hybrid_system import OnnxPrecomputedHybridSystem
+from i6_experiments.users.hilmes.modules.pytorch_onnx_hybrid_system import PyTorchOnnxHybridSystem
 
 
 def run_gmm_system():
@@ -17,7 +18,7 @@ def run_gmm_system():
     )
 
     system = run_tedlium2_common_baseline()
-    return system
+    return copy.deepcopy(system)
 
 
 def run_tedlium2_torch_conformer():
@@ -35,28 +36,33 @@ def run_tedlium2_torch_conformer():
         nn_dev_data_inputs,
         nn_test_data_inputs,
     ) = get_corpus_data_inputs(
-        gmm_system, rasr_init_args.feature_extraction_args["fb"], FilterbankJob, alias_prefix=prefix
+        gmm_system, rasr_init_args.feature_extraction_args["fb"], FilterbankJob, alias_prefix=prefix, fix_dev_set=True
     )
+    nn_args = get_nn_args(num_epochs=250)
     steps = RasrSteps()
     steps.add_step("extract", rasr_init_args.feature_extraction_args)
     gmm_system.run(steps)
-    nn_args = get_nn_args(num_epochs=250)
+    nn_dev_data_inputs["dev"].feature_flow = gmm_system.feature_flows["dev"]
 
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 
     # image only, so just python3
-    returnn_exe = RETURNN_EXE
+    returnn_exe = tk.Path("/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
     blas_lib = tk.Path(
         "/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so",
         hash_overwrite="TF23_MKL_BLAS",
     )
-    rasr_binary = RASR_BINARY_PATH
+    rasr_binary = tk.Path(
+        "/work/asr4/hilmes/dev/rasr_onnx_115_24_01_24/arch/linux-x86_64-standard")
     rasr_binary.hash_overwrite = "TEDLIUM2_DEFAULT_RASR_BINARY_PATH"
 
-    returnn_root = RETURNN_ROOT
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="0963d5b0ad55145a092c1de9bba100c94ee8600c",
+    ).out_repository
 
-    tedlium_nn_system = OnnxPrecomputedHybridSystem(
+    tedlium_nn_system = PyTorchOnnxHybridSystem(
         returnn_root=returnn_root,
         returnn_python_exe=returnn_exe,
         blas_lib=blas_lib,
