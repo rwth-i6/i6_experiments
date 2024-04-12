@@ -19,6 +19,7 @@ from sisyphus.delayed_ops import DelayedFormat
 Path = tk.setup_path(__package__)
 
 # -------------------- Recipes --------------------
+import i6_core.corpus as corpus_recipe
 import i6_core.mm as mm
 import i6_core.rasr as rasr
 import i6_core.recognition as recog
@@ -88,6 +89,13 @@ class TEDTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         )
         self.recognizers = {"base": ted_decoder.TEDFactoredHybridDecoder}
         self.nn_feature_type = "fb"
+
+    def _get_merged_corpus_for_corpora(
+        self, corpora, name="TED-LIUM-realease2", strategy=corpus_recipe.MergeStrategy.FLAT
+    ):
+        #due to current bug in the i6_core I need to hack the name as it is
+        merged_corpus_job = corpus_recipe.MergeCorporaJob(corpora, name="TED-LIUM-realease2", merge_strategy=strategy)
+        return merged_corpus_job.out_merged_corpus
 
     def get_recognizer_and_args(
         self,

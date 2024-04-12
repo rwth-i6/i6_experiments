@@ -1,3 +1,4 @@
 from .best_setup import get_best_model_config
 from .conformer import get_best_conformer_network
+from .conformer_zhou import add_conformer_stack, add_initial_conv, get_conformer_network_moritz_dict
 from .transformer_network import attention_for_hybrid

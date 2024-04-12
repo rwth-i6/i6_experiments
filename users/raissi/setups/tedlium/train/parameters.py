@@ -1,4 +1,4 @@
-def get_initial_nn_args_viterbi(train_partition: int = 5, num_epochs: int = 50):
+def get_initial_nn_args_viterbi(train_partition: int = 5, num_epochs: int = 32):
     num_epochs *= train_partition
     return {
         "num_input": 80,

@@ -39,9 +39,16 @@ def get_base_returnn_dict_v3(debug=False):
 
 
 def get_base_returnn_dict_zhou(debug=False):
+    base_params = get_base_returnn_dict(debug=debug)
+    base_params["optimizer"] = {"class": "nadam", "epsilon": 1e-08}
+    del base_params["optimizer_epsilon"]
 
-    params = get_base_returnn_dict(debug=debug)
-    params["gradient_clip"] = 20.0
+    params = {
+        **base_params,
+        "max_seqs": 128,
+        "batching": "random"
+    }
+
 
     return params
 

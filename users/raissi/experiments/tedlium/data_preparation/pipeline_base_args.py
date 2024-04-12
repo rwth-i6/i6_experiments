@@ -91,7 +91,7 @@ def get_corpus_data_inputs(add_unknown_phoneme_and_mapping: bool = True) -> Dict
         False,
     )
 
-    lms_system = run_tedlium2_ngram_lm(add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping)
+    lms_system = run_tedlium2_ngram_lm(add_unknown_phoneme_and_mapping=False)
     lm = lms_system.interpolated_lms["dev-pruned"]["4gram"]
     comb_lm = ArpaLmRasrConfig(lm_path=lm.ngram_lm)
 

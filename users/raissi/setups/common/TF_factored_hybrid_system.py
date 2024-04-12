@@ -34,7 +34,6 @@ from i6_experiments.common.setups.rasr.util import (
     RasrDataInput,
 )
 
-from i6_experiments.users.berger.network.helpers.conformer_wei import add_initial_conv, add_conformer_stack
 
 from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import (
     BASEFactoredHybridSystem,
@@ -200,7 +199,11 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             "reduction_factor": (1, frame_rate_reduction_ratio_info.factor),
         }
         kwargs.update(frame_rate_args)
-        # this only includes auxilaury losses
+
+        from i6_experiments.users.raissi.setups.common.encoder.conformer.layers import DEFAULT_INIT
+
+        weights_init = DEFAULT_INIT if "weights_init" not in kwargs else kwargs.pop("weights_init")
+
         network_builder = encoder_archs.conformer.get_best_conformer_network(
             size=conf_model_dim,
             num_classes=self.label_info.get_n_of_dense_classes(),
@@ -210,6 +213,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             chunking=chunking,
             label_smoothing=label_smoothing,
             clipping=kwargs.pop("clipping", None),
+            weights_init=weights_init,
             additional_args=kwargs,
         )
         network = network_builder.network
@@ -231,15 +235,22 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         self,
         conf_model_dim: int,
         out_layer_name: str = "encoder-output",
+        spec_augment_as_data: bool = True,
         auxilary_loss_layers: list = [6],
         frame_rate_reduction_ratio_info: Optional[net_helpers.FrameRateReductionRatioinfo] = None,
     ):
 
         if frame_rate_reduction_ratio_info is None:
             frame_rate_reduction_ratio_info = self.frame_rate_reduction_ratio_info
-        encoder_net = {}
-        from_list = add_initial_conv(network=encoder_net, linear_size=conf_model_dim, from_list="data")
-        add_conformer_stack(encoder_net, from_list=from_list)
+        encoder_net = {
+            "specaug": {
+                "class": "eval",
+                "from": "data",
+                "eval": f"self.network.get_config().typed_value('transform')(source(0, as_data={spec_augment_as_data}), network=self.network)",
+            }
+        }
+        from_list = encoder_archs.add_initial_conv(network=encoder_net, linear_size=conf_model_dim, from_list="specaug")
+        encoder_archs.add_conformer_stack(encoder_net, from_list=from_list)
         encoder_net[out_layer_name] = {
             "class": "copy",
             "from": "conformer_12_output",
