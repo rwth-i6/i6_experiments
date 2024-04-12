@@ -19,6 +19,8 @@ from .shared.feature_extraction import DbMelFeatureExtraction
 from .shared.configs import DbMelFeatureExtractionConfig
 from .shared.i6modelsV1_VGG4LayerActFrontendV1_v4_cfg import ModelConfig
 
+from .shared.eval_forward import *
+
 class XVector(nn.Module):
     def __init__(self, input_dim=40, num_classes=8, **kwargs):
         super(XVector, self).__init__()

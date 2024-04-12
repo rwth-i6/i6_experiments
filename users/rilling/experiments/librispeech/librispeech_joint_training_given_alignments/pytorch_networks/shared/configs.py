@@ -223,10 +223,10 @@ class ModelConfigV1:
     specaug_config: Union[SpecaugConfig, None]
     decoder_config: FlowDecoderConfig
     text_encoder_config: TextEncoderConfig
-    ffn_layers: int
-    ffn_channels: int
-    specauc_start_epoch: int
-    label_target_size: int
+    ffn_layers: Union[int, None]
+    ffn_channels: Union[int, None]
+    specauc_start_epoch: Union[int, None]
+    label_target_size: Union[int, None]
     out_channels: int
     gin_channels: int
     n_speakers: Union[tk.Variable, int]

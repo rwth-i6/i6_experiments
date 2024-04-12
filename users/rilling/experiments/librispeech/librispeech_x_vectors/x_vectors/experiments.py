@@ -4,7 +4,7 @@ import numpy as np
 from sisyphus import tk
 from dataclasses import asdict
 
-from .data import build_training_dataset, TrainingDatasetSettings
+from .data import build_training_dataset, TrainingDatasetSettings, build_test_dataset
 from .config import get_training_config, get_forward_config
 from .pipeline import x_vector_training, x_vector_forward
 
@@ -81,6 +81,8 @@ def get_pytorch_xvector():
     training_datasets_silence_preprocessed = build_training_dataset(
         settings=train_settings, librispeech_key="train-clean-100", silence_preprocessing=True
     )
+
+    test_clean_dataset = build_test_dataset(dataset_key="test-clean")
 
     from .data import get_tts_log_mel_datastream
     from .feature_config import DbMelFeatureExtractionConfig
@@ -186,5 +188,25 @@ def get_pytorch_xvector():
         "x_vector_cnn/1e-3_not_silence_preprocessed", train_args_no_spp, training_datasets, num_epochs=100
     )
     exps_dict["x_vector_cnn/1e-3_not_silence_preprocessed"] = {"train_job": train_job}
+
+    args_forward_test_clean = copy.deepcopy(train_args_no_spp)
+    del args_forward_test_clean["config"]["max_seq_length"]
+    forward_config_test_clean = get_forward_config(
+        returnn_common_root=RETURNN_COMMON,
+        forward_dataset=test_clean_dataset,
+        **args_forward_test_clean,
+        forward_args={},
+        pytorch_mode=True,
+    )
+
+    tts_hdf = x_vector_forward(
+            checkpoint=train_job.out_checkpoints[100],
+            config=forward_config_test_clean,
+            returnn_exe=RETURNN_PYTORCH_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+            prefix=prefix + net_module + "/test-clean",
+        )
+
+    add_x_vector_extraction("x_vector_cnn/1e-3_not_silence_preprocessed/test-clean", tts_hdf, average=True)
 
     return exps_dict

@@ -1,4 +1,4 @@
-from ..pipeline import evaluate_nisqa
+from ..tts_eval import evaluate_nisqa
 from ..data import get_librispeech_tts_segments, get_bliss_corpus_dict, FilterCorpusBySegmentsJob
 
 prefix = "experiments/librispeech/eval_references"

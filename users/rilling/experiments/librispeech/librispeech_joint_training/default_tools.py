@@ -11,6 +11,8 @@ RETURNN_PYTORCH_EXE = tk.Path(
     "/u/lukas.rilling/bin/returnn/returnn_pt20_experimental.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER"
 )
 
+RETURNN_PYTORCH_ASR_SEARCH_EXE = tk.Path("/usr/bin/python3", hash_overwrite="ASR_SEARCH_FIX")
+
 # outdated version using DataLoader v1 and the Tensor fix for RC networks
 # RETURNN_ROOT = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn", commit="d98a6c606d2c007e2a6771684e77a7650bb3fad6").out_repository
 # RETURNN_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
@@ -34,3 +36,6 @@ SCTK_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_SCTK_BINARY_PATH"
 kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository
 KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
 KENLM_BINARY_PATH.hash_overwrite = "TEDLIUM2_DEFAULT_KENLM_BINARY_PATH"
+
+NISQA_REPO = CloneGitRepositoryJob("https://github.com/gabrielmittag/NISQA").out_repository.copy()
+NISQA_REPO.hash_overwrite = "LIBRISPEECH_DEFAULT_NISQA_REPO"

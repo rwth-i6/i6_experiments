@@ -145,22 +145,33 @@ class Model(nn.Module):
             self.drop_after_flow = nn.Dropout(p_dropout)
             self.drop_after_blstm = nn.Dropout(p_dropout)
 
-
     def forward(self, raw_audio, raw_audio_len):
         with torch.no_grad():
             squeezed_audio = torch.squeeze(raw_audio)
             log_mel_features, log_mel_features_len = self.feature_extraction(squeezed_audio, raw_audio_len)  # [B, T, F]
 
+            spec_augment_in = log_mel_features
+            if self.training and self.spec_augment:
+                audio_features_masked_2 = apply_spec_aug(
+                    spec_augment_in,
+                    num_repeat_time=torch.max(log_mel_features_len).detach().cpu().numpy()
+                    // self.net_kwargs["repeat_per_num_frames"],
+                    max_dim_time=self.net_kwargs["max_dim_time"],
+                    num_repeat_feat=self.net_kwargs["num_repeat_feat"],
+                    max_dim_feat=self.net_kwargs["max_dim_feat"],
+                )
+            else:
+                audio_features_masked_2 = spec_augment_in
 
-        audio_max_length = log_mel_features.size(1)
+        audio_max_length = audio_features_masked_2.size(1)
 
         # mask = mask_tensor(flow_in, log_mel_features_len)
         mask = torch.unsqueeze(commons.sequence_mask(log_mel_features_len, audio_max_length), 1).to(log_mel_features.dtype)
 
         if (self.dropout_around_blstm):
             flow_out = self.drop_after_flow(flow_out)
-        
-        blstm_in = log_mel_features.transpose(1,2)
+
+        blstm_in = audio_features_masked_2.transpose(1, 2)
         blstm_in, mask = commons.channel_squeeze(blstm_in, None, self.subsampling_factor) # frame stacking for subsampling is equivalent to the channel squeezing operation in glowTTS
         blstm_in_length = log_mel_features_len // 4
         blstm_in = blstm_in.transpose(1,2)
@@ -169,7 +180,7 @@ class Model(nn.Module):
             blstm_out = self.drop_after_blstm(blstm_out)
         logits = self.final_linear(blstm_out)
         log_probs = torch.log_softmax(logits, dim=2)
-        
+
         return log_probs, blstm_in_length
 
     def preprocess(self, y, y_lengths, y_max_length):
@@ -181,4 +192,3 @@ class Model(nn.Module):
 
     def store_inverse(self):
         self.decoder.store_inverse()
-

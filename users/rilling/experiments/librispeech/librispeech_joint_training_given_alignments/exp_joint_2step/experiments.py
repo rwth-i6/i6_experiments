@@ -16,9 +16,11 @@ from ..data import (
     get_bliss_corpus_dict
 )
 from ..config import get_training_config, get_extract_durations_forward__config, get_forward_config, get_search_config
-from ..pipeline import training, forward, search, compute_phoneme_pred_accuracy, tts_eval
+from ..pipeline import training, forward, search, compute_phoneme_pred_accuracy
 
-from ..default_tools import RETURNN_COMMON, RETURNN_PYTORCH_EXE, MINI_RETURNN_ROOT
+from i6_experiments.users.rilling.experiments.librispeech.common.tts_eval import tts_eval
+
+from ..default_tools import RETURNN_COMMON, RETURNN_PYTORCH_EXE, RETURNN_PYTORCH_ASR_SEARCH_EXE, MINI_RETURNN_ROOT
 from ..pytorch_networks.shared.configs import (
     SpecaugConfig,
     ModelConfigV1,
@@ -120,6 +122,7 @@ def get_glow_joint_2step(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
                 prefix_name=prefix + name,
                 returnn_config=forward_config_gl,
                 returnn_exe=RETURNN_PYTORCH_EXE,
+                returnn_exe_asr=RETURNN_PYTORCH_ASR_SEARCH_EXE,
                 returnn_root=MINI_RETURNN_ROOT,
                 vocoder="gl",
             )
@@ -144,7 +147,7 @@ def get_glow_joint_2step(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
                 search_config,
                 train_job.out_checkpoints[num_epochs],
                 test_dataset,
-                RETURNN_PYTORCH_EXE,
+                RETURNN_PYTORCH_ASR_SEARCH_EXE,
                 MINI_RETURNN_ROOT,
             )
         if phoneme_pred:

@@ -201,7 +201,6 @@ class TextEncoder(nn.Module):
         x = self.encoder(x, x_mask)
 
         if g is not None:
-            breakpoint()
             g_exp = g.unsqueeze(-1).expand(-1, -1, x.size(-1))
             # print(f"Dimension of input in Text Encoder: x.shape: {x.shape}; g: {g.shape}, g_exp: {g_exp.shape}")
             x_dp = torch.cat([torch.detach(x), g_exp], 1)

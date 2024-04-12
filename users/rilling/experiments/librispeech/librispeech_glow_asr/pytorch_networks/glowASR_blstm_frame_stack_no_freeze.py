@@ -189,7 +189,6 @@ class Model(nn.Module):
         else:
             audio_features_masked_2 = spec_augment_in
 
-
         if (self.dropout_around_blstm):
             audio_features_masked_2 = self.drop_after_flow(audio_features_masked_2)
         blstm_in, mask = commons.channel_squeeze(audio_features_masked_2.transpose(1,2), mask.unsqueeze(1), self.subsampling_factor) # frame stacking for subsampling is equivalent to the channel squeezing operation in glowTTS

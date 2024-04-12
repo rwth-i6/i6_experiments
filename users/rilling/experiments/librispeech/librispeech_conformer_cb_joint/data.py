@@ -571,6 +571,66 @@ def build_test_dataset(librispeech_key: str, dataset_key: str, silence_preproces
 
     return test_dataset, bliss_corpus
 
+
+@lru_cache()
+def build_tts_forward_dataset(librispeech_key: str, dataset_key: str, xvectors_file: tk.Path = None):
+    """
+
+    :param librispeech_key: base librispeech training set for vocab generation
+    :param dataset_key: test dataset to generate
+    :param silence_preprocessing: use a setup with silence preprocessing
+    """
+
+    _, test_ogg = get_train_bliss_and_zip(ls_corpus_key=dataset_key, silence_preprocessed=False, remove_unk_seqs=True)
+    bliss_dict = get_bliss_corpus_dict()
+    # audio_datastream = get_audio_raw_datastream()
+    tts_lexicon = get_tts_lexicon(with_blank=True)
+    phonemes_datastream = get_vocab_datastream_from_lexicon(tts_lexicon, with_blank=True, alias_addition="_tts")
+
+    bliss_corpus = bliss_dict[dataset_key]
+
+    data_map = {"audio": ("zip_dataset", "data"), "phonemes": ("zip_dataset", "classes")}
+
+    audio_datastream = get_audio_raw_datastream()
+    test_zip_dataset = OggZipDataset(
+        files=[test_ogg],
+        audio_options=audio_datastream.as_returnn_audio_opts(),
+        target_options=phonemes_datastream.as_returnn_targets_opts(),
+        seq_ordering="sorted_reverse",
+    )
+
+    if xvectors_file is not None:
+        x_vectors_dataset = HDFDataset(files=[xvectors_file])
+        data_map["xvectors"] = ("xvectors", "data")
+        test_dataset = MetaDataset(
+            data_map=data_map,
+            datasets={"zip_dataset": test_zip_dataset, "xvectors": x_vectors_dataset},
+            seq_order_control_dataset="zip_dataset",
+        )
+    else:
+        speaker_label_job = SpeakerLabelHDFFromBlissJob(
+            bliss_corpus=bliss_corpus,
+            returnn_root=MINI_RETURNN_ROOT,
+        )
+        joint_speaker_hdf = speaker_label_job.out_speaker_hdf
+
+        joint_speaker_dataset = HDFDataset(files=[joint_speaker_hdf])
+        speaker_datastream = LabelDatastream(
+            available_for_inference=True,
+            vocab_size=speaker_label_job.out_num_speakers,
+            vocab=speaker_label_job.out_speaker_dict,
+        )
+
+        data_map["speakers"] = ("speakers", "data")
+        test_dataset = MetaDataset(
+            data_map=data_map,
+            datasets={"zip_dataset": test_zip_dataset, "speakers": joint_speaker_dataset},
+            seq_order_control_dataset="zip_dataset",
+        )
+
+    return test_dataset, bliss_corpus
+
+
 def build_swer_test_dataset(synthetic_bliss, preemphasis: Optional[float] = None, peak_normalization: bool = False):
     """
 

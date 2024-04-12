@@ -57,7 +57,7 @@ from .monotonic_align import maximum_path
 
 from .shared.forward import search_init_hook, search_finish_hook
 
-from .eval_forward import *
+from .shared.eval_forward import *
 
 from IPython import embed
 

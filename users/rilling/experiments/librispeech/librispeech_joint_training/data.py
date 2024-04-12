@@ -53,7 +53,7 @@ from i6_experiments.users.rilling.joint_training.text_hdf.text_hdf_from_bliss im
 
 from returnn_common.datasets import Dataset, OggZipDataset, MetaDataset, HDFDataset
 
-from .default_tools import MINI_RETURNN_ROOT, RETURNN_EXE, KENLM_BINARY_PATH
+from .default_tools import MINI_RETURNN_ROOT, RETURNN_EXE, KENLM_BINARY_PATH, RETURNN_PYTORCH_EXE
 
 DATA_PREFIX = "experiments/librispeech/data/joint"
 
@@ -248,7 +248,7 @@ def get_train_bliss_and_zip(ls_corpus_key, silence_preprocessed=True, remove_unk
     zip_dataset = BlissToOggZipJob(
         bliss_corpus=bliss_dataset,
         no_conversion=True,
-        returnn_python_exe=RETURNN_EXE,
+        returnn_python_exe=RETURNN_PYTORCH_EXE,
         returnn_root=MINI_RETURNN_ROOT,
     ).out_ogg_zip
 
@@ -265,6 +265,24 @@ def get_test_bliss_and_zip(ls_corpus_key):
     return (
         get_bliss_corpus_dict(audio_format="ogg")[ls_corpus_key],
         get_ogg_zip_dict(returnn_root=MINI_RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)[ls_corpus_key],
+    )
+
+def get_tts_test_bliss_and_zip(ls_corpus_key):
+    ls_bliss = get_bliss_corpus_dict(audio_format="ogg")[ls_corpus_key]
+    bliss_dataset = process_corpus_text_with_extended_lexicon(
+        bliss_corpus=ls_bliss, lexicon=get_librispeech_lexicon(corpus_key=ls_corpus_key)
+    )
+
+    zip_dataset = BlissToOggZipJob(
+        bliss_corpus=bliss_dataset,
+        no_conversion=True,
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+    ).out_ogg_zip
+
+    return (
+        bliss_dataset, 
+        zip_dataset
     )
 
 def filter_bliss_corpus_by_segments(corpus, segments):
@@ -340,9 +358,9 @@ def get_tts_log_mel_datastream(silence_preprocessing=False) -> AudioFeatureDatas
 
 
 @lru_cache()
-def get_audio_raw_datastream():
+def get_audio_raw_datastream(peak_normalization=False, preemphasis=0.97):
     audio_datastream = AudioRawDatastream(
-        available_for_inference=True, options=ReturnnAudioRawOptions(peak_normalization=False, preemphasis=0.97)
+        available_for_inference=True, options=ReturnnAudioRawOptions(peak_normalization=peak_normalization, preemphasis=preemphasis)
     )
     return audio_datastream
 
@@ -536,5 +554,62 @@ def build_test_dataset(librispeech_key: str, dataset_key: str, silence_preproces
     test_dataset = MetaDataset(
         data_map=data_map, datasets={"zip_dataset": test_zip_dataset}, seq_order_control_dataset="zip_dataset"
     )
+
+    return test_dataset, bliss_corpus
+
+
+@lru_cache()
+def build_tts_forward_dataset(librispeech_key: str, dataset_key: str, xvectors_file: tk.Path=None):
+    """
+
+    :param librispeech_key: base librispeech training set for vocab generation
+    :param dataset_key: test dataset to generate
+    :param silence_preprocessing: use a setup with silence preprocessing
+    """
+
+    _, test_ogg = get_train_bliss_and_zip(ls_corpus_key=dataset_key, silence_preprocessed=False, remove_unk_seqs=True)
+    bliss_dict = get_bliss_corpus_dict()
+    # audio_datastream = get_audio_raw_datastream()
+    tts_lexicon = get_tts_lexicon(with_blank=True)
+    phonemes_datastream = get_vocab_datastream_from_lexicon(tts_lexicon, with_blank=True, alias_addition="_tts")
+
+    bliss_corpus = bliss_dict[dataset_key]
+
+    data_map = {"audio": ("zip_dataset", "data"),"phonemes": ("zip_dataset", "classes")}
+
+    audio_datastream = get_audio_raw_datastream()
+    test_zip_dataset = OggZipDataset(
+        files=[test_ogg],
+        audio_options=audio_datastream.as_returnn_audio_opts(),
+        target_options=phonemes_datastream.as_returnn_targets_opts(),
+        seq_ordering="sorted_reverse",
+    )
+
+    if xvectors_file is not None:
+        x_vectors_dataset = HDFDataset(files=[xvectors_file])
+        data_map["xvectors"] = ("xvectors", "data")
+        test_dataset = MetaDataset(
+            data_map=data_map, datasets={"zip_dataset": test_zip_dataset, "xvectors": x_vectors_dataset}, seq_order_control_dataset="zip_dataset"
+        )
+    else:
+        speaker_label_job = SpeakerLabelHDFFromBlissJob(
+            bliss_corpus=bliss_corpus,
+            returnn_root=MINI_RETURNN_ROOT,
+        )
+        joint_speaker_hdf = speaker_label_job.out_speaker_hdf
+
+        joint_speaker_dataset = HDFDataset(files=[joint_speaker_hdf])
+        speaker_datastream = LabelDatastream(
+            available_for_inference=True,
+            vocab_size=speaker_label_job.out_num_speakers,
+            vocab=speaker_label_job.out_speaker_dict,
+        )
+
+        data_map["speaker_labels"] = ("speakers", "data")
+        test_dataset = MetaDataset(
+            data_map=data_map,
+            datasets={"zip_dataset": test_zip_dataset, "speakers": joint_speaker_dataset},
+            seq_order_control_dataset="zip_dataset",
+        )
 
     return test_dataset, bliss_corpus

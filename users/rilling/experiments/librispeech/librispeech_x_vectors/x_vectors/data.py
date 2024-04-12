@@ -17,7 +17,9 @@ from ..data import (
     get_audio_raw_datastream,
     get_train_bliss_and_zip,
     get_vocab_datastream,
-    get_mixed_cv_segments
+    get_mixed_cv_segments,
+    get_test_bliss_and_zip,
+    get_bliss_corpus_dict
 )
 from ..default_tools import MINI_RETURNN_ROOT
 
@@ -269,3 +271,40 @@ def build_training_dataset2(
     )
 
     return align_datasets
+
+def build_test_dataset(dataset_key):
+    _, test_ogg = get_test_bliss_and_zip(dataset_key)
+    bliss_dict = get_bliss_corpus_dict()
+    audio_datastream = get_audio_raw_datastream()
+
+    bliss_corpus = bliss_dict[dataset_key]
+
+    data_map = {"audio_features": ("zip_dataset", "data")}
+
+    test_zip_dataset = OggZipDataset(
+        files=[test_ogg],
+        audio_options=audio_datastream.as_returnn_audio_opts(),
+        seq_ordering="sorted_reverse",
+    )
+
+    speaker_label_job = SpeakerLabelHDFFromBlissJob(
+        bliss_corpus=bliss_corpus,
+        returnn_root=MINI_RETURNN_ROOT,
+    )
+    joint_speaker_hdf = speaker_label_job.out_speaker_hdf
+
+    joint_speaker_dataset = HDFDataset(files=[joint_speaker_hdf])
+    speaker_datastream = LabelDatastream(
+        available_for_inference=True,
+        vocab_size=speaker_label_job.out_num_speakers,
+        vocab=speaker_label_job.out_speaker_dict,
+    )
+
+    data_map["speaker_labels"] = ("speaker", "data")
+    test_dataset = MetaDataset(
+        data_map=data_map,
+        datasets={"zip_dataset": test_zip_dataset.as_returnn_opts(), "speaker": joint_speaker_dataset.as_returnn_opts()},
+        seq_order_control_dataset="zip_dataset",
+    )
+
+    return test_dataset, bliss_corpus

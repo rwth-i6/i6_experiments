@@ -19,7 +19,7 @@ from .shared.feature_extraction import DbMelFeatureExtraction
 from .shared.configs import DbMelFeatureExtractionConfig
 from .shared.model_config import ModelConfig, FlowDecoderConfig, TextEncoderConfig, ConformerCouplingFlowDecoderConfig
 
-from .eval_forward import *
+from .shared.eval_forward import *
 
 class XVector(nn.Module):
     def __init__(self, input_dim=40, num_classes=8, **kwargs):
