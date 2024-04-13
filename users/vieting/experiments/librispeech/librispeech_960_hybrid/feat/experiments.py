@@ -29,8 +29,8 @@ def get_hybrid_nn_system(
     gmm_system = run_gmm_system()
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
 
-
-    data = get_ls100_oggzip_hdf_data_split_train_cv(gmm_system, sync_ogg=True, context_window=context_window)
+    data = get_librispeech_data(returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
+    #data = get_ls100_oggzip_hdf_data_split_train_cv(gmm_system, sync_ogg=True, context_window=context_window)
     (
         nn_train_data_inputs,
         nn_cv_data_inputs,

@@ -114,7 +114,7 @@ def get_ls100_oggzip_hdf_data_split_train_cv(gmm_system: GmmSystem, sync_ogg: bo
     )
     nn_data_inputs = {}
     nn_data_inputs["train"] = OggZipHdfDataInput(
-        partition_epoch=3,
+        partition_epoch=10,
         ogg_args={"segment_file": train_segments, "targets": None},
         **ogg_zip_base_args,
     )
