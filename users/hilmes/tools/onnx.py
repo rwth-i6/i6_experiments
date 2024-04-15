@@ -205,6 +205,7 @@ class ModelQuantizeStaticJob(Job):
                 self.final_skip_count = final_skip[1]
                 self.seen_seqs = []
                 self.filter_opts = filter_opts
+                self.visited_seqs = set()
 
             def get_next(self):
                 key = "data" if "data" in self.data.get_data_keys() else "raw_audio"  # hack to make it compatible with both setups for now
@@ -217,17 +218,19 @@ class ModelQuantizeStaticJob(Job):
                         logging.info("Drawing skip step")
                         for _ in range(self.final_skip_step):
                             seq_number = random.randint(0, self.data.num_seqs - 1)
+                            self.visited_seqs.add(seq_number)
                         while seq_number in self.seen_seqs:
                             seq_number = random.randint(0, self.data.num_seqs - 1)
+                            self.visited_seqs.add(seq_number)
+                            assert len(self.visited_seqs) < self.data.num_seqs, "Visited all sequences"
                     else:
                         logging.info("Seen all sequences in dataset")
                         return None
                 if seq_number is None:
-                    if not seed == 0:
                         while not seq_number or seq_number in self.seen_seqs or not self.check_filter(seq_number):
                             seq_number = random.randint(0, self.data.num_seqs - 1)
-                    else:
-                        seq_number = self.counter
+                            self.visited_seqs.add(seq_number)
+                            assert len(self.visited_seqs) < self.data.num_seqs, "Visited all sequences"
                 self.seen_seqs.append(seq_number)
                 self.data.load_seqs(seq_number, seq_number+1)
                 data: np.ndarray = self.data.get_data(seq_number, key)
@@ -261,6 +264,19 @@ class ModelQuantizeStaticJob(Job):
                                 logging.info(
                                     f"FILTER: Seq {self.data.get_tag(seq_number)}has length {seq_len} shorter than {value}")
                                 return False
+                        elif name == "partition":
+                            seq_len = self.data.get_seq_length(seq_number)[
+                                "data" if "data" in self.data.get_data_keys() else "raw_audio"]
+                            for lower, upper in value:
+                                if seq_len > upper or seq_len < lower:
+                                    continue
+                                logging.info(f"FILTER: Removing {(lower, upper)} for Seq {self.data.get_tag(seq_number)} of length {seq_len}")
+                                value.remove((lower, upper))
+                                logging.info(value)
+                                return True
+                            logging.info(
+                                f"FILTER: {self.data.get_tag(seq_number)} of length {seq_len} not matching {value}")
+                            return False
                         else:
                             raise NotImplementedError
                 return True

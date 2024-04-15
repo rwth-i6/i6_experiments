@@ -51,7 +51,7 @@ def run_tedlium2_torch_distill_hubert():
     steps = RasrSteps()
     steps.add_step("extract", rasr_init_args.feature_extraction_args)
     gmm_system.run(steps)
-    nn_args = get_nn_args(num_epochs=350)
+    nn_args = get_nn_args(num_epochs=250)
 
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
@@ -72,7 +72,7 @@ def run_tedlium2_torch_distill_hubert():
 
     returnn_root = CloneGitRepositoryJob(
         "https://github.com/rwth-i6/returnn",
-        commit="ac7e7a74c6abc7cb548549a24c1391c38984e9b7",
+        commit="d4ab1d8fcbe3baa11f6d8e2cf8e443bc0e9e9fa2",
     ).out_repository.copy()
     returnn_root.hash_overwrite = "TEDLIUM_DISTILL_HUBERT_RETURNN__COMMIT"
 

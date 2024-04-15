@@ -80,6 +80,8 @@ def get_quant_str(
             mode_str_tmp += f"_max_calib_len_{filter_opts['max_seq_len']}"
         if "min_seq_len" in filter_opts:
             mode_str_tmp += f"_min_calib_len_{filter_opts['min_seq_len']}"
+        if "partition" in filter_opts:
+            mode_str_tmp += f"_partition_{sum([x * y for x,y in filter_opts['partition']])}"
 
     return mode_str_tmp
 
@@ -475,7 +477,7 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                                     **tmp_kwargs,
                                 )
 
-                if "quant" in name:
+                if "quant" in name and not "rtf" in name:
                     continue
                 scorer = OnnxFeatureScorer(
                     mixtures=acoustic_mixture_path,

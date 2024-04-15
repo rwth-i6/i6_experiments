@@ -13,6 +13,7 @@ from i6_models.assemblies.conformer.conformer_v1 import (
     ConformerConvolutionV1Config,
     ConformerMHSAV1Config,
 )
+from i6_models.primitives.specaugment import specaugment_v1_by_length
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.config import ModelConfiguration, ModuleFactoryV1
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
@@ -53,6 +54,7 @@ class ConformerStudentConfig:
     upsample_stride: int
     upsample_padding: int
     upsample_out_padding: int
+    dropout: float
 
 class Model(nn.Module):
 
@@ -96,21 +98,21 @@ class Model(nn.Module):
         conv_cfg = ConformerConvolutionV1Config(
             channels=self.conformer_cfg.hidden_d,
             kernel_size=self.conformer_cfg.conv_kernel_size,
-            dropout=0.2,
+            dropout=self.conformer_cfg.dropout,
             activation=nn.SiLU(),
             norm=LayerNormNC(self.conformer_cfg.hidden_d),
         )
         mhsa_cfg = ConformerMHSAV1Config(
             input_dim=self.conformer_cfg.hidden_d,
             num_att_heads=self.conformer_cfg.att_heads,
-            att_weights_dropout=0.2,
-            dropout=0.2
+            att_weights_dropout=self.conformer_cfg.dropout,
+            dropout=self.conformer_cfg.dropout
         )
         ff_cfg = ConformerPositionwiseFeedForwardV1Config(
             input_dim=self.conformer_cfg.hidden_d,
             hidden_dim=self.conformer_cfg.ff_dim,
             activation=nn.SiLU(),
-            dropout=0.2,
+            dropout=self.conformer_cfg.dropout,
         )
         block_cfg = ConformerBlockV1Config(ff_cfg=ff_cfg, mhsa_cfg=mhsa_cfg, conv_cfg=conv_cfg)
         frontend_cfg = VGG4LayerActFrontendV1Config(
@@ -151,6 +153,7 @@ class Model(nn.Module):
         run_ctx = rf.get_run_ctx()
         # Hubert teacher:
         if (self.training or run_ctx.stage == "train_step") and raw_audio is not None and raw_audio_len is not None and False:
+            assert False, "Since this is just testing this should not happen, if entering here is correct please just delete this line"
             squeezed_features = torch.squeeze(raw_audio, dim=-1)
             hubert_outputs = self.hubert(input_values=squeezed_features)
             audio_features_size = self.hubert._get_feat_extract_output_lengths(raw_audio_len).to(dtype=torch.int64)
@@ -159,14 +162,26 @@ class Model(nn.Module):
             teacher_features = upsampled[:, :audio_features.size()[1], :]
         else:
             teacher_features = None
+        if self.training:
+            audio_features_masked = specaugment_v1_by_length(
+                audio_features,
+                time_min_num_masks=2,
+                time_max_mask_per_n_frames=self.conformer_cfg.spec_num_time,
+                time_mask_max_size=self.conformer_cfg.spec_max_time,
+                freq_min_num_masks=2,
+                freq_max_num_masks=self.conformer_cfg.spec_num_feat,
+                freq_mask_max_size=self.conformer_cfg.spec_max_feat
+            )
+        else:
+            audio_features_masked = audio_features
 
-        mask = _lengths_to_padding_mask(audio_features_len, audio_features)
+        mask = _lengths_to_padding_mask(audio_features_len, audio_features_masked)
         conformer_out, _ = self.conformer(audio_features, mask)
 
         upsampled = self.upsample_conv(conformer_out.transpose(1, 2)).transpose(1, 2)  # final upsampled [B, T, F]
         upsampled = upsampled[:, 0: audio_features.size()[1], :]
         student_features = upsampled
-        upsampled_dropped = nn.functional.dropout(student_features, p=0.2, training=self.training)
+        upsampled_dropped = nn.functional.dropout(student_features, p=self.conformer_cfg.dropout, training=self.training)
 
         final_out = self.final_linear(upsampled_dropped)  # [B, T, F]
         logits_ce_order = torch.permute(final_out, dims=(0, 2, 1))  # CE expects [B, F, T]
@@ -174,7 +189,7 @@ class Model(nn.Module):
 
         if teacher_features is not None:
             return log_probs, logits_ce_order, teacher_features, student_features
-        elif self.training:
+        elif self.training or run_ctx.stage == "train_step":
             return log_probs, logits_ce_order, None, None
         else:
             return log_probs, logits_ce_order

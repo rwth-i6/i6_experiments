@@ -80,9 +80,9 @@ def hybrid_report_format(report: _Report_Type) -> str:
                             out.extend(out2)
                             best_ls.append(out2[0])
         elif extra == "filter":
-            for quant, count, mode, thresh in itertools.product(["min_max", "entropy", "percentile"], ["10", "500", "1000"], ["max_calib_len_", "min_calib_len_"], ["1000"]):
+            for quant, count, mode, thresh in itertools.product(["min_max", "entropy", "percentile"], ["10", "500", "1000"], ["max_calib_len_", "min_calib_len_", "partition_"], ["500", "1000" "1500", "11650000"]):
                 out2 = [(recog, str(report[recog])) for recog in report if "filter" in recog and quant in recog and (
-                            recog.endswith(count) or recog.endswith(count + "-optlm") and mode+thresh in recog)]
+                            recog.endswith(count) or recog.endswith(count + "-optlm")) and mode+thresh in recog]
                 out2 = sorted(out2, key=lambda x: float(x[1]))
                 if len(out2) > 0:
                     ex_str = calc_stat(out2)
@@ -90,7 +90,7 @@ def hybrid_report_format(report: _Report_Type) -> str:
                     out.extend(out2)
                     best_ls.append(out2[0])
         else:
-            out2 = [(recog, str(report[recog])) for recog in report if extra in recog and not ("iter" in recog and not extra == "iter")]
+            out2 = [(recog, str(report[recog])) for recog in report if extra in recog and not ("iter" in recog or "filter" in recog)]
             out2 = sorted(out2, key=lambda x: float(x[1]))
             if len(out2) > 0:
                 ex_str = calc_stat(out2)
@@ -99,8 +99,9 @@ def hybrid_report_format(report: _Report_Type) -> str:
                 best_ls.append(out2[0])
 
     best_ls = sorted(best_ls, key=lambda x: float(x[1]))
-    out.append(("Best Results", ""))
-    out.extend(best_ls)
+    best_ls += [("Base Results:", "")]
+    out = best_ls + out
+    out.insert(0, ("Best Results", ""))
     return "\n".join([f"{pair[0]}:  {str(pair[1])}" for pair in out])
 
 

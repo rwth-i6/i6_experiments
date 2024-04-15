@@ -184,6 +184,11 @@ def get_pytorch_returnn_configs(
     hubert_config["batch_size"] = batch_size
     hubert_config["max_seqs"] = 50
 
+    chunk_400_200_config = copy.deepcopy(hubert_config)
+    chunk_400_200_config["chunking"] = "400:200"
+    if not recognition:
+        del chunk_400_200_config['extern_data']['data_raw']
+
     # those are hashed
     PACKAGE = __package__
     package = PACKAGE
@@ -246,10 +251,8 @@ def get_pytorch_returnn_configs(
             url="https://github.com/rwth-i6/i6_models",
             commit=models_commit,
             checkout_folder_name="i6_models",
-            branch="bene_conf_enc" if models_commit == "75e03f37ac74d3d0c7358d29bb9b71dcec1bf120" else None,
         ).out_repository
-        if models_commit == "75e03f37ac74d3d0c7358d29bb9b71dcec1bf120":
-            i6_models_repo.hash_overwrite = "TEDLIUM2_DEFAULT_I6_MODELS"
+        i6_models_repo.hash_overwrite = "TEDLIUM2_HUBERT_DISTILL_I6_MODELS"
         i6_models = ExternalImport(import_path=i6_models_repo)
         serializer_objects.insert(0, i6_models)
         if explicit_hash:
@@ -300,9 +303,45 @@ def get_pytorch_returnn_configs(
                     "upsample_stride": 3,
                     "upsample_padding": 0,
                     "upsample_out_padding": 0,
+                    "dropout": 0.2,
                 },
             },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+            models_commit="3c9173691521778b1e8b4070c172cbe929e4826b",
+            max_seqs=2,
+            grad_acc=14,
+        ) for x in [0.00]},
+        **{f"torch_distill_hubert_large_test_chunk_{x}": construct_from_net_kwargs(
+            chunk_400_200_config,
+            {
+                "model_type": "distill_hubert_v1",
+                "hubert_dict": {
+                    "model_name": "base-ls960",
+                    "distill_scale": x
+                },
+                "conformer_dict": {
+                    "hidden_d": 384,
+                    "conv_kernel_size": 7,
+                    "att_heads": 6,
+                    "ff_dim": 1536,
+                    "spec_num_time": 20,
+                    "spec_max_time": 20,
+                    "spec_num_feat": 5,
+                    "spec_max_feat": 16,
+                    "pool_1_stride": (3, 1),
+                    "pool_1_kernel_size": (1, 2),
+                    "pool_1_padding": None,
+                    "pool_2_stride": None,
+                    "pool_2_kernel_size": (1, 2),
+                    "pool_2_padding": None,
+                    "num_layers": 12,
+                    "upsample_kernel": 3,
+                    "upsample_stride": 3,
+                    "upsample_padding": 0,
+                    "upsample_out_padding": 0,
+                    "dropout": 0.2,
+                },
+            },
+            models_commit="3c9173691521778b1e8b4070c172cbe929e4826b",
             max_seqs=2,
             grad_acc=14,
         ) for x in [0.00]},
