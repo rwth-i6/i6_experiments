@@ -71,6 +71,8 @@ def test_convert_checkpoint():
             "num_layers": 24,
             "layer_out_dim": 1024,
             "att_num_heads": 8,
+            "use_pos_enc": True,
+            "ff_activation": "relu",
         },
     }
     model_args={}

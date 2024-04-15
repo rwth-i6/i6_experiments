@@ -251,6 +251,7 @@ def map_param_func_v3(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
 
 
 # See comment below, use `py = test_import_forward` to easily run this.
+# Important: use ~/bin/returnn_launcher_cuda11_7.sh test_import_forward_call.py to run this on cluster node.
 def test_import_forward():
     from returnn.util import better_exchook
 
@@ -302,7 +303,7 @@ def test_import_forward():
         "encoder": (Model.encode, 0, "enc", 0),
         "inv_fertility": (Model.encode, 0, "inv_fertility", 0),
         "enc_ctx": (Model.encode, 0, "enc_ctx", 0),
-        "output/prev:target_embed": (from_scratch_training, 0, "input_embeddings", -1),
+        # "output/prev:target_embed": (from_scratch_training, 0, "input_embeddings", -1),
         # Note: Some of these commented-out checks are not available anymore because we cleaned up the code.
         # If we want to test this again, we need to re-add the corresponding locals and outputs from rf.scan.
         # "output/weight_feedback": (from_scratch_training, 0, "weight_feedback", 0),
@@ -560,7 +561,7 @@ def test_import_forward():
                 print(f"** mean_rel_diff {mean_rel_diff}, max_rel_diff {max_rel_diff}")
             # Using equal_nan=False because we do not want any nan in any of the values.
             # rtol, atol = 0.2, 5e-5
-            rtol, atol = 0.05, 5e-5
+            rtol, atol = 0.01, 5e-5
             if numpy.allclose(old_v, new_v, rtol=rtol, atol=atol):
                 continue
             print("** not all close. close:")

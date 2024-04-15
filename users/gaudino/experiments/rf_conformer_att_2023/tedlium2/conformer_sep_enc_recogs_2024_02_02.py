@@ -105,7 +105,6 @@ def sis_run_with_prefix(prefix_name: str = None):
     for model_name in model_names:
         model_args = {
             "target_embed_dim": 256,
-            "add_ted2_trafo_lm": True,
             "mel_normalization": True,
             "no_ctc": models[model_name].get("no_ctc", False),
             "enc_layer_w_ctc": models[model_name].get("enc_layer_w_ctc", None),
@@ -127,66 +126,66 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     opls_model_names = {
         # --tuning done--
-        # "model_baseline":{
-        #     "scales": [(0.82, 0.18, 0.5)],
+        "model_baseline":{
+            "scales": [(0.82, 0.18, 0.5, 0.45), (0.82, 0.18, 0.5, 0.5)],
+        },
+        # "model_ctc0.9_att0.1": {
+        #     "scales": [(0.7, 0.3, 0.7)],
         # },
-        # ----
-        "model_ctc0.9_att0.1": {
-            "scales": [(0.7, 0.3, 0.7)],
-        },
-        "model_ctc0.8_att0.2": {
-            "scales": [(0.75, 0.25, 0.5)],
-        },
-        "model_ctc0.7_att0.3": {
-            "scales": [(0.8, 0.2, 0.8)],
-        },
-        "model_ctc0.6_att0.4": {
-            "scales": [(0.85, 0.15, 0.4), (0.85, 0.15, 0.8)],
-        },
-        "model_ctc0.5_att0.5": {
-            "scales": [(0.8, 0.2, 0.8), (0.8, 0.2, 0.7)],
-        },
-        "model_ctc0.4_att0.6": {
-            "scales": [(0.8, 0.2, 0.8), (0.8, 0.2, 0.7)],
-        },
+        # "model_ctc0.8_att0.2": {
+        #     "scales": [(0.75, 0.25, 0.5)],
+        # },
+        # "model_ctc0.7_att0.3": {
+        #     "scales": [(0.8, 0.2, 0.8)],
+        # },
+        # "model_ctc0.6_att0.4": {
+        #     "scales": [(0.85, 0.15, 0.4), (0.85, 0.15, 0.8)],
+        # },
+        # "model_ctc0.5_att0.5": {
+        #     "scales": [(0.8, 0.2, 0.8), (0.8, 0.2, 0.7)],
+        # },
+        # "model_ctc0.4_att0.6": {
+        #     "scales": [(0.8, 0.2, 0.8), (0.8, 0.2, 0.7)],
+        # },
         "model_ctc0.3_att0.7": {
             "scales": [
-                (0.7, 0.3, 0.7),
+                (0.7, 0.3, 0.7, 0.4), (0.7, 0.3, 0.7, 0.45),
             ],
         },
         "model_ctc0.2_att0.8": {
-            "scales": [(0.85, 0.15, 0.5)], # 0.5
+            "scales": [(0.85, 0.15, 0.5, 0.4), (0.85, 0.15, 0.5, 0.45)], # 0.5
         },
         "model_ctc0.1_att0.9": {
-            "scales": [(0.7, 0.3, 0.6)],
+            "scales": [(0.7, 0.3, 0.6, 0.45)],
         },
         "model_ctc0.001_att0.999": {
-            "scales": [(0.75, 0.25, 0.7)],
+            "scales": [(0.75, 0.25, 0.7, 0.4)],
         },
-        # "model_ctc0.3_att0.7_lay6": {
-        #     "scales": [],
+        # "model_att_only_currL": {
+        #     "scales": [(0.6, 0.4, 0.6), (0.65, 0.35, 0.6)],
         # },
-        # "model_ctc0.3_att0.7_lay8": {
-        #     "scales": [],
+        # "model_att_only_adjSpec": {
+        #     "scales": [(0.6, 0.4, 0.3), (0.65, 0.35, 0.4)],
         # },
-        # "model_ctc0.3_att0.7_lay10": {
-        #     "scales": [],
-        # },
-        # "model_ctc1.0_att1.0_lay6": {
-        #     "scales": [],
-        # },
+        # ----
+        "model_ctc0.3_att0.7_lay6": {
+            "scales": [(0.8, 0.2, 0.9, 0.5)],
+        },
+        "model_ctc0.3_att0.7_lay8": {
+            "scales": [(0.85, 0.15, 0.6, 0.6), (0.85, 0.15, 0.7, 0.5)],
+        },
+        "model_ctc0.3_att0.7_lay10": {
+            "scales": [(0.9, 0.1, 0.65, 0.5)],
+        },
+        "model_ctc1.0_att1.0_lay6": {
+            "scales": [(0.7, 0.3, 0.7, 0.45)],
+        },
         # "model_ctc1.0_att1.0_lay8": {
-        #     "scales": [],
+        #     "scales": [(0.8, 0.2, 0.3)],
         # },
         # "model_ctc1.0_att1.0_lay10": {
-        #     "scales": [],
+        #     "scales": [(0.7, 0.3, 0.6), (0.7, 0.3, 0.65)],
         # },
-        "model_att_only_currL": {
-            "scales": [(0.6, 0.4, 0.6), (0.65, 0.35, 0.6)],
-        },
-        "model_att_only_adjSpec": {
-            "scales": [(0.6, 0.4, 0.3), (0.65, 0.35, 0.4)],
-        },
         # "model_ctc0.43_att1.0": {
         #     "scales": [],
         # },
@@ -204,7 +203,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     # for model_name in ["model_ctc0.2_att0.8"]:
         for scales, beam_size in product(
             opls_model_names[model_name]["scales"],
-            [12, 24, 32],
+            [], # [6, 12, 32],
         ):
             att_scale, ctc_scale, prior_scale = scales
 
@@ -228,6 +227,79 @@ def sis_run_with_prefix(prefix_name: str = None):
                 + model_name
                 + "__ctc_only"
                 + f"/opls_att{att_scale}_ctc{ctc_scale}"
+                + (f"_prior{prior_scale}" if prior_scale > 0 else "")
+                + f"_beam{beam_size}"
+            )
+            res, _ = recog_model(
+                task,
+                models_with_pt_ckpt[model_name]["ckpt"],
+                model_recog,
+                dev_sets=["dev", "test"],  # set to None for all
+                model_args=models_with_pt_ckpt[model_name]["model_args"],
+                search_args=search_args,
+                prefix_name=name,
+            )
+            tk.register_output(
+                name + f"/recog_results",
+                res.output,
+            )
+
+    # --- With Trafo LM ---
+
+    models_with_pt_ckpt = {}
+
+    model_names = models.keys()
+    for model_name in model_names:
+        model_args = {
+            "target_embed_dim": 256,
+            "add_trafo_lm": True,
+            "mel_normalization": True,
+            "no_ctc": models[model_name].get("no_ctc", False),
+            "enc_layer_w_ctc": models[model_name].get("enc_layer_w_ctc", None),
+            "encoder_ctc": True,
+        }
+        new_ckpt_path = tk.Path(
+            _torch_ckpt_dir_path + model_name + "__ctc_only__trafo_lm" + "/average.pt",
+            hash_overwrite=model_name + "_torch_ckpt",
+        )
+        new_ckpt = PtCheckpoint(new_ckpt_path)
+        models_with_pt_ckpt[model_name] = {}
+        models_with_pt_ckpt[model_name]["ckpt"] = ModelWithCheckpoint(
+            definition=from_scratch_model_def, checkpoint=new_ckpt
+        )
+        models_with_pt_ckpt[model_name]["model_args"] = model_args
+
+    # sep enc: opls aed + ctc prefix + trafo lm
+    for model_name in opls_model_names.keys():
+    # for model_name in ["model_ctc0.2_att0.8"]:
+        for scales, beam_size in product(
+            opls_model_names[model_name]["scales"],
+            [12, 32],
+        ):
+            att_scale, ctc_scale, prior_scale, lm_scale = scales
+
+            search_args = {
+                "beam_size": beam_size,
+                "blank_idx": 1057,
+                "bsf": bsf,
+                "att_scale": att_scale,
+                "ctc_scale": ctc_scale,
+                "use_ctc": True,
+                "encoder_ctc": True,
+                "prior_corr": True if prior_scale > 0 else False,
+                "prior_scale": prior_scale,
+                "ctc_prior_file": models["model_ctc_only"]["prior"],
+                "add_trafo_lm": True,
+                "lm_scale": lm_scale,
+                # "hash_overwrite": "v2"
+            }
+
+            name = (
+                prefix_name
+                + "/"
+                + model_name
+                + "__ctc_only"
+                + f"/opls_att{att_scale}_ctc{ctc_scale}_trafolm{lm_scale}"
                 + (f"_prior{prior_scale}" if prior_scale > 0 else "")
                 + f"_beam{beam_size}"
             )

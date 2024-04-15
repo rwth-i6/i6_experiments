@@ -83,7 +83,7 @@ class BeamSearchTimeSync(torch.nn.Module):
         self.attn_cache = dict()
         self.lm_cache = dict()
         self.enc_output = enc_output
-        self.sos_th = self.sos_th.to(enc_output.device)
+        self.sos_th = self.sos_th.to(enc_output["enc"].device)
 
         if self.decoder is not None:
             init_decoder_state = self.decoder.init_state(enc_output)
@@ -115,7 +115,7 @@ class BeamSearchTimeSync(torch.nn.Module):
             root_root = root[:-1]
             root_root_state = cache[root_root].state
             root_scores, root_state = scorer.score(
-                torch.tensor(root, device=self.enc_output.device).long(),
+                torch.tensor(root, device=self.enc_output["enc"].device).long(),
                 root_root_state,
                 self.enc_output,
             )
@@ -199,7 +199,7 @@ class BeamSearchTimeSync(torch.nn.Module):
         return ctc_score_dp, hyps, scores
 
     def forward(
-        self, x: torch.Tensor, maxlenratio: float = 0.0, minlenratio: float = 0.0
+        self, ctc: torch.Tensor, enc_args, maxlenratio: float = 0.0, minlenratio: float = 0.0
     ) -> List[Hypothesis]:
         """Perform beam search.
 
@@ -210,11 +210,12 @@ class BeamSearchTimeSync(torch.nn.Module):
             list[Hypothesis]
 
         """
-        logging.info("decoder input lengths: " + str(x.shape[0]))
-        lpz = self.ctc.log_softmax(x.unsqueeze(0))
-        lpz = lpz.squeeze(0)
+        logging.info("decoder input lengths: " + str(ctc.shape[0]))
+        lpz = ctc
+        # lpz = self.ctc.log_softmax(x.unsqueeze(0))
+        # lpz = lpz.squeeze(0)
         lpz = lpz.cpu().detach().numpy()
-        self.reset(x)
+        self.reset(enc_args)
 
         hyps = [(self.sos,)]
         ctc_score_dp = defaultdict(
@@ -229,11 +230,11 @@ class BeamSearchTimeSync(torch.nn.Module):
             Hypothesis(yseq=torch.tensor(list(h) + [self.sos]), score=scores[h])
             for h in hyps
         ]
-        best_hyp = "".join([self.token_list[x] for x in ret[0].yseq.tolist()])
-        best_hyp_len = len(ret[0].yseq)
-        best_score = ret[0].score
-        logging.info(f"output length: {best_hyp_len}")
-        logging.info(f"total log probability: {best_score:.2f}")
-        logging.info(f"best hypo: {best_hyp}")
+        # best_hyp = "".join([self.token_list[x] for x in ret[0].yseq.tolist()])
+        # best_hyp_len = len(ret[0].yseq)
+        # best_score = ret[0].score
+        # logging.info(f"output length: {best_hyp_len}")
+        # logging.info(f"total log probability: {best_score:.2f}")
+        # logging.info(f"best hypo: {best_hyp}")
 
         return ret

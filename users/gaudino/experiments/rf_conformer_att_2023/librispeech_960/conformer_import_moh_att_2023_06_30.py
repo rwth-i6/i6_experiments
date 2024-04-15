@@ -97,11 +97,11 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # att only
     for beam_size in [12, 18]:
-        recog_name = f"/bsf20/att_beam{beam_size}"
+        recog_name = f"/bsf10/att_beam{beam_size}"
         name = prefix_name + recog_name
         search_args = {
             "beam_size": beam_size,
-            "bsf": 20,
+            "bsf": 10,
         }
 
         res, _ = recog_model(
@@ -413,6 +413,8 @@ def sis_run_with_prefix(prefix_name: str = None):
             "num_layers": 24,
             "layer_out_dim": 1024,
             "att_num_heads": 8,
+            "use_pos_enc": True,
+            "ff_activation": "relu",
         },
     }
 

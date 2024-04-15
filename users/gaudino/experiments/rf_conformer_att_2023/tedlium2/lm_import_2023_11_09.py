@@ -122,8 +122,8 @@ class Trafo_LM_Model(rf.Module):
         embed_dim: int = 128,
         num_layers: int = 30,
         att_num_heads: int = 12,
-        ff_activation: str = "relu",
-        use_pos_enc: bool = True, # False for Tedlium2 LM
+        ff_activation: str = "gelu",
+        use_pos_enc: bool = False, # False for Tedlium2 LM
         search_args: Optional[Dict[str, Any]] = None,
     ):
         super(Trafo_LM_Model, self).__init__()

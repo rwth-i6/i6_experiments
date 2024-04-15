@@ -4,13 +4,13 @@ helpers for training
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, Dict, Any, Sequence
-from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef, serialize_model_def
+from i6_experiments.users.gaudino.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef, serialize_model_def
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
     from i6_experiments.common.setups import serialization
-    from i6_experiments.users.zeyer.datasets.task import Task
-    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
+    from i6_experiments.users.gaudino.datasets.task import Task
+    from i6_experiments.users.gaudino.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
 
 
 def train(
@@ -45,9 +45,9 @@ def train(
     from i6_experiments.common.setups import serialization
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
     from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
-    from i6_experiments.users.zeyer.datasets.utils import multi_proc as mp_ds_utils
-    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
-    from i6_experiments.users.zeyer.recog import SharedPostConfig
+    from i6_experiments.users.gaudino.datasets.utils import multi_proc as mp_ds_utils
+    from i6_experiments.users.gaudino.model_with_checkpoints import ModelWithCheckpoints
+    from i6_experiments.users.gaudino.recog_2 import SharedPostConfig
     from returnn_common import nn
 
     returnn_train_config_dict: Dict[str, Any] = dict(
