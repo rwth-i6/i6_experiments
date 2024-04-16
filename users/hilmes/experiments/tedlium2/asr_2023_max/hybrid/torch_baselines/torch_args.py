@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Optional
 
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.tools.git import CloneGitRepositoryJob
-from i6_experiments.common.setups.rasr.util import HybridArgs, ReturnnTrainingJobArgs
+from i6_experiments.users.hilmes.common.setups.rasr.util import HybridArgs, ReturnnTrainingJobArgs
 
 from i6_experiments.common.setups.serialization import Import, ExplicitHash, ExternalImport, PartialImport
 from i6_experiments.common.setups.returnn_pytorch.serialization import PyTorchModel, Collection

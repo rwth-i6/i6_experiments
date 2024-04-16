@@ -55,7 +55,7 @@ def calc_stat(ls):
     return ex_str
 
 def hybrid_report_format(report: _Report_Type) -> str:
-    extra_ls = ["iter", "filter", "skip", "quant_min_max", "quant_entropy", "quant_percentile"]
+    extra_ls = ["iter", "filter", "skip", "quant_min_max", "quant_entropy", "quant_percentile", "rtf-intel"]
     out = [(recog, str(report[recog])) for recog in report if not any(extra in recog for extra in extra_ls)]
     out = sorted(out, key=lambda x: float(x[1]))
     best_ls = [out[0]]

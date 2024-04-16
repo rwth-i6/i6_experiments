@@ -10,8 +10,8 @@ from i6_core.mm import CreateDummyMixturesJob
 from i6_core.returnn import ReturnnForwardJobV2
 from i6_core.returnn import GetBestPtCheckpointJob
 from i6_core.returnn.flow import make_precomputed_hybrid_onnx_feature_flow, add_fwd_flow_to_base_flow
-from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
-from i6_experiments.common.setups.rasr.util.nn import HybridArgs, ReturnnRasrDataInput
+from i6_experiments.users.hilmes.common.setups.rasr.hybrid_system import HybridSystem
+from i6_experiments.users.hilmes.common.setups.rasr.util.nn import HybridArgs, ReturnnRasrDataInput
 from i6_experiments.users.hilmes.tools.onnx import ExportPyTorchModelToOnnxJob
 from i6_experiments.users.hilmes.experiments.tedlium2.asr_2023.hybrid.torch_baselines.pytorch_networks.prior.forward import ReturnnForwardComputePriorJob
 
