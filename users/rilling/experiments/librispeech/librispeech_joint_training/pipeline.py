@@ -13,7 +13,7 @@ from i6_experiments.users.rilling.evaluation.jobs.hdf_mean import MeanHDFContent
 
 from .default_tools import SCTK_BINARY_PATH, NISQA_REPO
 
-def training(config, returnn_exe, returnn_root, prefix, num_epochs=65):
+def training(config, returnn_exe, returnn_root, prefix, num_epochs=65, large_gpu=False):
     train_job = ReturnnTrainingJob(
         config,
         log_verbosity=5,
@@ -24,6 +24,10 @@ def training(config, returnn_exe, returnn_root, prefix, num_epochs=65):
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
     )
+
+    if (large_gpu):
+        train_job.rqmt["gpu_mem"] = 24
+        
     train_job.add_alias(prefix + "/training")
     tk.register_output(prefix + "/training.models", train_job.out_model_dir)
 

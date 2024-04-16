@@ -33,7 +33,7 @@ from ..pytorch_networks.shared.configs import (
     PhonemePredictionConfigCNN
 )
 
-from ..storage import tts_models
+from ..storage import tts_models, add_tts_model, TTSModel
 
 
 def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
@@ -768,6 +768,8 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         tts_eval_datasets=tts_forward_datasets_xvectors
     )
 
+    add_tts_model(net_module + "/basic_init/no_specaug/tts_target_size/ce_ls_0.1", TTSModel(model_config_cnn, exp_dict["train_job"].out_checkpoints[200]))
+
     train_args_cnn_pretrained = copy.deepcopy(train_args_cnn)
     train_args_cnn_pretrained["config"]["preload_from_files"] = {
         "glowTTS_xvector": {
@@ -789,3 +791,5 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         asr_search=False,
         tts_eval_datasets=tts_forward_datasets_xvectors
     )
+
+    add_tts_model(net_module + "/tts_pretrained/no_specaug/tts_target_size/ce_ls_0.1", TTSModel(model_config_cnn, exp_dict["train_job"].out_checkpoints[200]))

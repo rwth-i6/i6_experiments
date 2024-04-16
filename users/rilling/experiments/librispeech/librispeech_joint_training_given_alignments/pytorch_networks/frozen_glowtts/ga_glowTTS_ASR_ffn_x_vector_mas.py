@@ -414,7 +414,7 @@ class Model(nn.Module):
                 1, 2
             )  # [b, t', t], [b, t, d] -> [b, d, t']
 
-        if recognition_input == "encoder":
+        if recognition_input == "encoder": #TODO: This is wrong!
             asr_in = z.transpose(1,2)
         else:
             asr_in = ((z_m + torch.exp(z_logs) * torch.randn_like(z_m) * noise_scale) * z_mask).transpose(1,2)
@@ -508,12 +508,8 @@ def phoneme_prediction_step(*, model: Model, data, run_ctx, **kwargs):
         g=speaker_labels,
         recognition_input=run_ctx.recognition_input,
     )
-    x_mask = torch.unsqueeze(commons.sequence_mask(phonemes_len, phonemes.size(1)), 1).to(phonemes.dtype)
 
-    attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
-    given_attn = commons.generate_path(durations.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
-
-    upsampled_phonemes = torch.matmul(given_attn.squeeze(1).transpose(1, 2), phonemes.unsqueeze(-1)).squeeze(-1)
+    upsampled_phonemes = torch.matmul(attn.squeeze(1).transpose(1, 2), phonemes.unsqueeze(-1)).squeeze(-1)
 
     mask = commons.sequence_mask(y_lengths)
     pred = torch.softmax(logits, dim=2).argmax(dim=2)

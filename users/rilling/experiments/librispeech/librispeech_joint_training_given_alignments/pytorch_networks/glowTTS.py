@@ -18,6 +18,7 @@ from .shared.configs import DbMelFeatureExtractionConfig, ModelConfigV1
 
 from .shared.eval_forward import *
 
+from .shared.eval_invertibility import *
 
 class DurationPredictor(nn.Module):
     """

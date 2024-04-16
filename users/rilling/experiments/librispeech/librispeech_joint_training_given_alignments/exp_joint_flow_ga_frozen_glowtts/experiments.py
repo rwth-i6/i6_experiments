@@ -543,3 +543,59 @@ def get_glow_joint_flow_ga_frozen_glowtts(x_vector_exp, joint_exps, tts_exps, gl
         search_args=default_search_args,
         phoneme_pred=True,
     )
+
+    net_module = "frozen_glowtts.ga_glowTTS_ASR_ffn_mas"
+    train_args_no_xvectors_mas = copy.deepcopy(train_args_no_xvectors)
+    train_args_no_xvectors_mas["network_module"] = net_module
+    
+    exp_dict = run_exp(
+        net_module.replace(".", "/") + "/100ep/encoder",
+        train_args_no_xvectors_mas,
+        training_datasets_pe1_tts_segments,
+        dev_dataset_tuples_with_phon,
+        100,
+        forward_args=forward_args,
+        training_args={"recognition_input": "encoder"},
+        search_args=default_search_args,
+        phoneme_pred=True,
+    )
+
+    exp_dict = run_exp(
+        net_module.replace(".", "/") + "/100ep/decoder",
+        train_args_no_xvectors_mas,
+        training_datasets_pe1_tts_segments,
+        dev_dataset_tuples_with_phon,
+        100,
+        forward_args=forward_args,
+        training_args={"recognition_input": "decoder"},
+        search_args=default_search_args,
+        phoneme_pred=True,
+    )
+
+    net_module = "frozen_glowtts.ga_glowTTS_ASR_ffn_mas_no_eval"
+    train_args_no_xvectors_mas_no_eval = copy.deepcopy(train_args_no_xvectors_mas)
+    train_args_no_xvectors_mas_no_eval["network_module"] = net_module
+
+    exp_dict = run_exp(
+        net_module.replace(".", "/") + "/100ep/encoder",
+        train_args_no_xvectors_mas_no_eval,
+        training_datasets_pe1_tts_segments,
+        dev_dataset_tuples_with_phon,
+        100,
+        forward_args=forward_args,
+        training_args={"recognition_input": "encoder"},
+        search_args=default_search_args,
+        phoneme_pred=True,
+    )
+
+    exp_dict = run_exp(
+        net_module.replace(".", "/") + "/100ep/decoder",
+        train_args_no_xvectors_mas_no_eval,
+        training_datasets_pe1_tts_segments,
+        dev_dataset_tuples_with_phon,
+        100,
+        forward_args=forward_args,
+        training_args={"recognition_input": "decoder"},
+        search_args=default_search_args,
+        phoneme_pred=True,
+    )

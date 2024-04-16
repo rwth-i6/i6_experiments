@@ -3,6 +3,7 @@ import os
 import numpy as np
 from sisyphus import tk
 from dataclasses import asdict
+import torch
 
 
 from .data import (
@@ -62,6 +63,7 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
         eval_tts=False,
         tts_eval_datasets=None,
         eval_invertibility=False,
+        large_gpu_training=False,
     ):
         exp = {}
 
@@ -82,6 +84,7 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
                 returnn_root=MINI_RETURNN_ROOT,
                 prefix=prefix + name,
                 num_epochs=num_epochs,
+                large_gpu=large_gpu_training
             )
         else:
             train_job = given_train_job_for_forward
@@ -168,6 +171,7 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
                     nisqa_eval=True,
                     swer_eval=True,
                     swer_eval_corpus_key=ds_k,
+                    nisqa_confidence=True,
                 )
 
             # forward_job_gl = tts_eval(
@@ -380,6 +384,52 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
         specauc_start_epoch=1,
         out_channels=80,
         gin_channels=512,
+        n_speakers=speaker_datastream.vocab_size,
+    )
+
+    strong_specaug_config = SpecaugConfig(
+        repeat_per_n_frames=25,
+        max_dim_time=20,
+        max_dim_feat=16,
+        num_repeat_feat=5,
+    )
+    strong_frontend_config = VGG4LayerActFrontendV1Config_mod(
+        in_features=80,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(2, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        out_features=384,
+        activation_str="ReLU",
+        activation=None
+    )
+    model_config_strong_conformer = ModelConfig(
+        frontend_config=strong_frontend_config,
+        specaug_config=strong_specaug_config,
+        text_encoder_config=text_encoder_config,
+        decoder_config=flow_decoder_config,
+        label_target_size=vocab_size_without_blank_asr,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=1,
+        out_channels=80,
+        gin_channels=256,
         n_speakers=speaker_datastream.vocab_size,
     )
 
@@ -972,6 +1022,7 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
         search_args=default_search_args,
         eval_tts=True,
         tts_eval_datasets=tts_forward_datasets,
+        eval_invertibility=True,
     )
     exp_dict = run_exp(
         net_module + "_ctc_scale_0.1",
@@ -984,6 +1035,7 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
         search_args=default_search_args,
         eval_tts=True,
         tts_eval_datasets=tts_forward_datasets,
+        eval_invertibility=True,
     )
 
     for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
@@ -1006,6 +1058,23 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
             forward_args=forward_args,
             search_args={**default_search_args, **{"lm_weight": lm}},
         )
+
+    train_args_two_forward_no_xvector_strong_conformer = copy.deepcopy(train_args_two_forward_no_xvector)
+    train_args_two_forward_no_xvector_strong_conformer["net_args"]["model_config"] = asdict(model_config_strong_conformer)
+
+    exp_dict = run_exp(
+        net_module + "_strong_conformer_ctc_scale_0.1",
+        train_args_two_forward_no_xvector_strong_conformer,
+        training_datasets,
+        asr_test_datasets,
+        250,
+        training_args={"ctc_scale": 0.1},
+        forward_args=forward_args,
+        search_args=default_search_args,
+        eval_tts=True,
+        tts_eval_datasets=tts_forward_datasets,
+        large_gpu_training=True
+    )
 
     train_args_conformer_only = copy.deepcopy(train_args)
     train_args_conformer_only["net_args"]["model_config"] = asdict(model_config)

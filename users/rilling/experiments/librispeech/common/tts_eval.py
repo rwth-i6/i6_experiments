@@ -79,6 +79,7 @@ def tts_eval(
     nisqa_eval=False,
     swer_eval=False,
     swer_eval_corpus_key="train-clean",
+    nisqa_confidence=False
 ):
     """
     Run search for a specific test dataset
@@ -106,19 +107,25 @@ def tts_eval(
     name = prefix_name + f"/tts_eval_{vocoder}/{swer_eval_corpus_key}"
     forward_job.add_alias(name + "/forward")
     if nisqa_eval:
-        evaluate_nisqa(name, forward_job.out_files["out_corpus.xml.gz"], vocoder=vocoder)
+        evaluate_nisqa(name, forward_job.out_files["out_corpus.xml.gz"], vocoder=vocoder, with_bootstrap=nisqa_confidence)
     if swer_eval:
         evaluate_swer(name, forward_job, returnn_exe=returnn_exe_asr, returnn_root=returnn_root, corpus_key=swer_eval_corpus_key)
     return forward_job
 
 
-def evaluate_nisqa(prefix_name: str, bliss_corpus: tk.Path, vocoder: str = "univnet"):
+def evaluate_nisqa(prefix_name: str, bliss_corpus: tk.Path, vocoder: str = "univnet", with_bootstrap=False):
     predict_mos_job = NISQAMosPredictionJob(bliss_corpus, nisqa_repo=NISQA_REPO)
     predict_mos_job.add_alias(prefix_name + f"/nisqa_mos")
     tk.register_output(os.path.join(prefix_name, "nisqa_mos/average"), predict_mos_job.out_mos_average)
     tk.register_output(os.path.join(prefix_name, "nisqa_mos/min"), predict_mos_job.out_mos_min)
     tk.register_output(os.path.join(prefix_name, "nisqa_mos/max"), predict_mos_job.out_mos_max)
     tk.register_output(os.path.join(prefix_name, "nisqa_mos/std_dev"), predict_mos_job.out_mos_std_dev)
+
+    if with_bootstrap:
+        from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAConfidenceJob
+        nisqa_confidence_job = NISQAConfidenceJob(predict_mos_job.output_dir, bliss_corpus)
+        nisqa_confidence_job.add_alias(prefix_name + "/nisqa_mos_confidence")
+        tk.register_output(os.path.join(prefix_name, "nisqa_mos/confidence_max_interval"), nisqa_confidence_job.out_max_interval_bound)
 
 
 def evaluate_swer(

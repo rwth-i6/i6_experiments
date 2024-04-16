@@ -431,7 +431,7 @@ def build_training_dataset(
     if use_tts_train_segments:
         train_segments, cv_segments = get_librispeech_tts_segments(ls_corpus_key=librispeech_key)
     else:
-        train_segments = None
+        train_segments, cv_segments = (None, None)
 
     train_bliss, train_ogg = get_train_bliss_and_zip("train-clean-100", silence_preprocessed=silence_preprocessing)
     dev_clean_bliss_tts, dev_clean_ogg = get_train_bliss_and_zip(

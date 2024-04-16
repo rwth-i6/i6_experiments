@@ -33,10 +33,13 @@ def get_training_config(
     # changing these does not change the hash
     post_config = {
         "cleanup_old_models": True if keep_epochs is None else {"keep": keep_epochs},
-        "stop_on_nonfinite_train_score": True,  # this might break now with True
+        # "stop_on_nonfinite_train_score": True,  # this might break now with True
         "allow_missing_optimizer_checkpoint": True,
         "backend": "torch"
     }
+
+    if "stop_on_nonfinite_train_score" not in config:
+        post_config["stop_on_nonfinite_train_score"] = True
 
     base_config = {
         #############
