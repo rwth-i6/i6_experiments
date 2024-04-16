@@ -132,8 +132,8 @@ default_audio_opts = _default_audio_opts_log_mel_fbank_no_stats
 #     }
 # )
 
-# default_train_epoch_split = 4
-default_train_epoch_split = 20 # TODO
+default_train_epoch_split = 4
+# default_train_epoch_split = 20
 #
 # default_dataset_config = {
 #     "train": _get_dataset(
@@ -150,7 +150,7 @@ default_train_epoch_split = 20 # TODO
 # }
 
 _default_train_epoch_wise_filter = {
-    (1, 5): {"max_mean_len": 1000},  # better? # TODO
+    (1, 5): {"max_mean_len": 1000},  # better?
     # older settings:
     # (1, 5): {"max_mean_len": 200},
     # (6, 10): {"max_mean_len": 500},

@@ -39,7 +39,8 @@ config_11gb = dict(
 )
 post_config = dict(
     cleanup_old_models=dict(keep_last_n=5),
-    torch_dataloader_opts=dict(num_workers=1),
+    torch_dataloader_opts=dict(num_workers=0),
+    # torch_dataloader_opts=dict(num_workers=1), # changed 15.04.24 because of error
 )
 
 config_24gb = config_11gb.copy()

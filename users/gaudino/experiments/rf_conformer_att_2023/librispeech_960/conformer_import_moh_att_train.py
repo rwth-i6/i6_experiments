@@ -16,14 +16,23 @@ import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
-from i6_experiments.users.gaudino.model_interfaces.supports_label_scorer_torch import RFModelWithMakeLabelScorer
+from i6_experiments.users.gaudino.model_interfaces.supports_label_scorer_torch import (
+    RFModelWithMakeLabelScorer,
+)
 from .configs import *
-from .configs import _batch_size_factor, _cfg_lrlin1e_5_295k, _get_cfg_lrlin_oclr_by_bs_nep
+from .configs import (
+    _batch_size_factor,
+    _cfg_lrlin1e_5_295k,
+    _get_cfg_lrlin_oclr_by_bs_nep,
+)
 from .trafo_lm import trafo_lm_kazuki_import
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
-    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
+    from i6_experiments.users.zeyer.model_with_checkpoints import (
+        ModelWithCheckpoints,
+        ModelWithCheckpoint,
+    )
 
 # From Mohammad, 2023-06-29
 # dev-clean  2.27
@@ -930,10 +939,14 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
 
 def _recog_imported():
     from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
-    from i6_experiments.users.zeyer.experiments.exp2023_04_25_rf._moh_att_2023_06_30_import import map_param_func_v2
+    from i6_experiments.users.zeyer.experiments.exp2023_04_25_rf._moh_att_2023_06_30_import import (
+        map_param_func_v2,
+    )
     from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
-    from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
+    from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import (
+        ConvertTfCheckpointToRfPtJob,
+    )
 
     task = _get_ls_task()
     extern_data_dict = task.train_dataset.get_extern_data()
@@ -942,7 +955,9 @@ def _recog_imported():
     target_dim = targets.feature_dim_or_sparse_dim
 
     new_chkpt_path = ConvertTfCheckpointToRfPtJob(
-        checkpoint=TfCheckpoint(index_path=generic_job_output(_returnn_tf_ckpt_filename)),
+        checkpoint=TfCheckpoint(
+            index_path=generic_job_output(_returnn_tf_ckpt_filename)
+        ),
         make_model_func=MakeModel(
             in_dim=_log_mel_feature_dim,
             target_dim=target_dim.dimension,
@@ -951,7 +966,9 @@ def _recog_imported():
         map_func=map_param_func_v2,
     ).out_checkpoint
     new_chkpt = PtCheckpoint(new_chkpt_path)
-    model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
+    model_with_checkpoint = ModelWithCheckpoint(
+        definition=from_scratch_model_def, checkpoint=new_chkpt
+    )
 
     _recog("recog_results", model_with_checkpoint)
 
@@ -1002,7 +1019,9 @@ def train_exp(
     """
     Train experiment
     """
-    from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.train import train
+    from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.train import (
+        train,
+    )
     from i6_experiments.users.zeyer.recog import recog_training_exp
 
     if _sis_prefix is None:
@@ -1032,7 +1051,9 @@ def train_exp(
         distributed_launch_cmd="torchrun" if num_processes else "mpirun",
         time_rqmt=time_rqmt,
     )
-    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog, model_avg=model_avg)
+    recog_training_exp(
+        prefix, task, model_with_checkpoint, recog_def=model_recog, model_avg=model_avg
+    )
 
     if fine_tune:
         if isinstance(fine_tune, int):
@@ -1052,11 +1073,15 @@ def train_exp(
                         suffix += v
             num_epochs_ = opts.pop("num_epochs", 50)
             config_ = config.copy()
-            config_["import_model_train_epoch1"] = model_with_checkpoint.get_epoch(ep).checkpoint
+            config_["import_model_train_epoch1"] = model_with_checkpoint.get_epoch(
+                ep
+            ).checkpoint
             config_.pop("dynamic_learning_rate")
             lrs = opts.pop("learning_rates", None)
             if lrs is None:
-                lr_decay_type = opts.pop("lr_decay_type", "geomspace")  # geomspace or linspace
+                lr_decay_type = opts.pop(
+                    "lr_decay_type", "geomspace"
+                )  # geomspace or linspace
                 lr_decay_func = getattr(np, lr_decay_type)
                 lr = config_["learning_rate"]
                 final_lr = opts.pop("final_lr", 1e-7)
@@ -1080,7 +1105,9 @@ def train_exp(
                 gpu_mem=gpu_mem,
             )
             # _recog(name + suffix + "/recog/last", finetune_model_with_ckpt.get_last_fixed_epoch())
-            recog_training_exp(prefix + suffix, task, finetune_model_with_ckpt, recog_def=model_recog)
+            recog_training_exp(
+                prefix + suffix, task, finetune_model_with_ckpt, recog_def=model_recog
+            )
 
     return model_with_checkpoint
 
@@ -1093,7 +1120,9 @@ def _get_ls_task():
     if _ls_task:
         return _ls_task
 
-    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_bpe10k_raw
+    from i6_experiments.users.zeyer.datasets.librispeech import (
+        get_librispeech_task_bpe10k_raw,
+    )
 
     _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
     return _ls_task
@@ -1105,7 +1134,14 @@ py = sis_run_with_prefix  # if run directly via `sis m ...`
 class MakeModel:
     """for import"""
 
-    def __init__(self, in_dim: int, target_dim: int, *, eos_label: int = 0, num_enc_layers: int = 12):
+    def __init__(
+        self,
+        in_dim: int,
+        target_dim: int,
+        *,
+        eos_label: int = 0,
+        num_enc_layers: int = 12,
+    ):
         self.in_dim = in_dim
         self.target_dim = target_dim
         self.eos_label = eos_label
@@ -1115,7 +1151,9 @@ class MakeModel:
         from returnn.datasets.util.vocabulary import Vocabulary
 
         in_dim = Dim(name="in", dimension=self.in_dim, kind=Dim.Types.Feature)
-        target_dim = Dim(name="target", dimension=self.target_dim, kind=Dim.Types.Feature)
+        target_dim = Dim(
+            name="target", dimension=self.target_dim, kind=Dim.Types.Feature
+        )
         target_dim.vocab = Vocabulary.create_vocab_from_labels(
             [str(i) for i in range(target_dim.dimension)], eos_label=self.eos_label
         )
@@ -1214,7 +1252,11 @@ class Model(rf.Module):
             ff_dim=enc_ff_dim,
             input_layer=ConformerConvSubsample(
                 in_dim,
-                out_dims=[Dim(32, name="conv1"), Dim(64, name="conv2"), Dim(64, name="conv3")],
+                out_dims=[
+                    Dim(32, name="conv1"),
+                    Dim(64, name="conv2"),
+                    Dim(64, name="conv3"),
+                ],
                 filter_sizes=[(3, 3), (3, 3), (3, 3)],
                 pool_sizes=[(1, 2)],
                 strides=[(1, 1), (3, 1), (2, 1)],
@@ -1243,11 +1285,17 @@ class Model(rf.Module):
         self.enc_ctx_dropout = 0.2
         self.enc_win_dim = Dim(name="enc_win_dim", dimension=5)
 
-        self.inv_fertility = rf.Linear(self.encoder.out_dim, att_num_heads, with_bias=False)
+        self.inv_fertility = rf.Linear(
+            self.encoder.out_dim, att_num_heads, with_bias=False
+        )
 
-        self.target_embed = rf.Embedding(target_dim, Dim(name="target_embed", dimension=640))
+        self.target_embed = rf.Embedding(
+            target_dim, Dim(name="target_embed", dimension=640)
+        )
         if config.float("embed_init_stddev", None):
-            self.target_embed.weight.initial = rf.init.Normal(stddev=config.float("embed_init_stddev", 0.0))
+            self.target_embed.weight.initial = rf.init.Normal(
+                stddev=config.float("embed_init_stddev", 0.0)
+            )
 
         self.s = rf.ZoneoutLSTM(
             self.target_embed.out_dim + att_num_heads * self.encoder.out_dim,
@@ -1261,11 +1309,17 @@ class Model(rf.Module):
             forget_bias=0.0,  # the code above already adds it during conversion
         )
 
-        self.weight_feedback = rf.Linear(att_num_heads, enc_key_total_dim, with_bias=False)
-        self.s_transformed = rf.Linear(self.s.out_dim, enc_key_total_dim, with_bias=False)
+        self.weight_feedback = rf.Linear(
+            att_num_heads, enc_key_total_dim, with_bias=False
+        )
+        self.s_transformed = rf.Linear(
+            self.s.out_dim, enc_key_total_dim, with_bias=False
+        )
         self.energy = rf.Linear(enc_key_total_dim, att_num_heads, with_bias=False)
         self.readout_in = rf.Linear(
-            self.s.out_dim + self.target_embed.out_dim + att_num_heads * self.encoder.out_dim,
+            self.s.out_dim
+            + self.target_embed.out_dim
+            + att_num_heads * self.encoder.out_dim,
             Dim(name="readout", dimension=1024),
         )
         self.output_prob = rf.Linear(self.readout_in.out_dim // 2, target_dim)
@@ -1277,23 +1331,42 @@ class Model(rf.Module):
             if not wb_target_dim:
                 wb_target_dim = target_dim + 1
         for i in enc_aux_logits:
-            setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
+            setattr(
+                self,
+                f"enc_aux_logits_{i}",
+                rf.Linear(self.encoder.out_dim, wb_target_dim),
+            )
 
         self._specaugment_opts = {
             "steps": config.typed_value("specaugment_steps") or (0, 1000, 2000),
-            "max_consecutive_spatial_dims": config.typed_value("specaugment_max_consecutive_spatial_dims") or 20,
-            "max_consecutive_feature_dims": config.typed_value("specaugment_max_consecutive_feature_dims")
+            "max_consecutive_spatial_dims": config.typed_value(
+                "specaugment_max_consecutive_spatial_dims"
+            )
+            or 20,
+            "max_consecutive_feature_dims": config.typed_value(
+                "specaugment_max_consecutive_feature_dims"
+            )
             or (_log_mel_feature_dim // 5),
-            "num_spatial_mask_factor": config.typed_value("specaugment_num_spatial_mask_factor") or 100,
+            "num_spatial_mask_factor": config.typed_value(
+                "specaugment_num_spatial_mask_factor"
+            )
+            or 100,
         }
 
-        self._pretrain_opts: Optional[Dict[str, Any]] = config.typed_value("pretrain_opts")
+        self._pretrain_opts: Optional[Dict[str, Any]] = config.typed_value(
+            "pretrain_opts"
+        )
 
         self._mixup = None
         if config.typed_value("mixup", None) is not None:
-            from i6_experiments.users.zeyer.returnn.models.rf_mixup import Mixup, MixupOpts
+            from i6_experiments.users.zeyer.returnn.models.rf_mixup import (
+                Mixup,
+                MixupOpts,
+            )
 
-            self._mixup = Mixup(feature_dim=self.in_dim, opts=MixupOpts(**config.typed_value("mixup")))
+            self._mixup = Mixup(
+                feature_dim=self.in_dim, opts=MixupOpts(**config.typed_value("mixup"))
+            )
 
         # Note: Even though we have this here, it is not used in loop_step or decode_logits.
         # Instead, it is intended to make a separate label scorer for it.
@@ -1328,21 +1401,33 @@ class Model(rf.Module):
             **self._specaugment_opts,
         )
         # Encoder including convolutional frontend
-        with _opt_apply_pretrain_to_encoder(self.encoder, collected_outputs, self._pretrain_opts):
+        with _opt_apply_pretrain_to_encoder(
+            self.encoder, collected_outputs, self._pretrain_opts
+        ):
             enc, enc_spatial_dim = self.encoder(
-                source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
+                source,
+                in_spatial_dim=in_spatial_dim,
+                collected_outputs=collected_outputs,
             )
         enc_ctx = self.enc_ctx(enc)
         inv_fertility = rf.sigmoid(self.inv_fertility(enc))
-        return dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility), enc_spatial_dim
+        return (
+            dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility),
+            enc_spatial_dim,
+        )
 
-    def decoder_default_initial_state(self, *, batch_dims: Sequence[Dim], enc_spatial_dim: Dim) -> rf.State:
+    def decoder_default_initial_state(
+        self, *, batch_dims: Sequence[Dim], enc_spatial_dim: Dim
+    ) -> rf.State:
         """Default initial state"""
         state = rf.State(
             s=self.s.default_initial_state(batch_dims=batch_dims),
-            att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.encoder.out_dim]),
+            att=rf.zeros(
+                list(batch_dims) + [self.att_num_heads * self.encoder.out_dim]
+            ),
             accum_att_weights=rf.zeros(
-                list(batch_dims) + [enc_spatial_dim, self.att_num_heads], feature_dim=self.att_num_heads
+                list(batch_dims) + [enc_spatial_dim, self.att_num_heads],
+                feature_dim=self.att_num_heads,
             ),
         )
         state.att.feature_dim_axis = len(state.att.dims) - 1
@@ -1352,7 +1437,10 @@ class Model(rf.Module):
         """loop step out"""
         return {
             "s": Tensor(
-                "s", dims=batch_dims + [self.s.out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
+                "s",
+                dims=batch_dims + [self.s.out_dim],
+                dtype=rf.get_default_float_dtype(),
+                feature_dim_axis=-1,
             ),
             "att": Tensor(
                 "att",
@@ -1375,21 +1463,31 @@ class Model(rf.Module):
         """step of the inner loop"""
         if state is None:
             batch_dims = enc.remaining_dims(
-                remove=(enc.feature_dim, enc_spatial_dim) if enc_spatial_dim != single_step_dim else (enc.feature_dim,)
+                remove=(enc.feature_dim, enc_spatial_dim)
+                if enc_spatial_dim != single_step_dim
+                else (enc.feature_dim,)
             )
-            state = self.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim)
+            state = self.decoder_default_initial_state(
+                batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim
+            )
         state_ = rf.State()
 
         prev_att = state.att
 
-        s, state_.s = self.s(rf.concat_features(input_embed, prev_att), state=state.s, spatial_dim=single_step_dim)
+        s, state_.s = self.s(
+            rf.concat_features(input_embed, prev_att),
+            state=state.s,
+            spatial_dim=single_step_dim,
+        )
 
         weight_feedback = self.weight_feedback(state.accum_att_weights)
         s_transformed = self.s_transformed(s)
         energy_in = enc_ctx + weight_feedback + s_transformed
         energy = self.energy(rf.tanh(energy_in))
         att_weights = rf.softmax(energy, axis=enc_spatial_dim)
-        state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5
+        state_.accum_att_weights = (
+            state.accum_att_weights + att_weights * inv_fertility * 0.5
+        )
         att0 = rf.dot(att_weights, enc, reduce=enc_spatial_dim, use_mask=False)
         att0.feature_dim = self.encoder.out_dim
         att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.encoder.out_dim))
@@ -1400,8 +1498,12 @@ class Model(rf.Module):
     def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
         """logits for the decoder"""
         readout_in = self.readout_in(rf.concat_features(s, input_embed, att))
-        readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
-        readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
+        readout = rf.reduce_out(
+            readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim
+        )
+        readout = rf.dropout(
+            readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim
+        )
         logits = self.output_prob(readout)
         return logits
 
@@ -1442,7 +1544,11 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
     lm_opts = config.typed_value("external_language_model")
     return MakeModel.make_model(
-        in_dim, target_dim, enc_aux_logits=enc_aux_logits or (), pos_emb_dropout=pos_emb_dropout, language_model=lm_opts
+        in_dim,
+        target_dim,
+        enc_aux_logits=enc_aux_logits or (),
+        pos_emb_dropout=pos_emb_dropout,
+        language_model=lm_opts,
     )
 
 
@@ -1453,14 +1559,21 @@ from_scratch_model_def.batch_size_factor = _batch_size_factor
 
 
 def from_scratch_training(
-    *, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim
+    *,
+    model: Model,
+    data: rf.Tensor,
+    data_spatial_dim: Dim,
+    targets: rf.Tensor,
+    targets_spatial_dim: Dim,
 ):
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
 
     config = get_global_config()  # noqa
     aux_loss_layers = config.typed_value("aux_loss_layers")
-    aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
+    aux_loss_scales = config.typed_value(
+        "aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None
+    )
     aed_loss_scale = config.float("aed_loss_scale", 1.0)
     use_normalized_loss = config.bool("use_normalized_loss", True)
 
@@ -1469,7 +1582,9 @@ def from_scratch_training(
     assert not data.feature_dim  # raw audio
 
     collected_outputs = {}
-    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+    enc_args, enc_spatial_dim = model.encode(
+        data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs
+    )
     if aux_loss_layers:
         for i, layer_idx in enumerate(aux_loss_layers):
             if layer_idx > len(model.encoder.layers):
@@ -1497,7 +1612,9 @@ def from_scratch_training(
 
     batch_dims = data.remaining_dims(data_spatial_dim)
     input_embeddings = model.target_embed(targets)
-    input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
+    input_embeddings = rf.shift_right(
+        input_embeddings, axis=targets_spatial_dim, pad_value=0.0
+    )
 
     def _body(input_embed: Tensor, state: rf.State):
         new_state = rf.State()
@@ -1514,23 +1631,35 @@ def from_scratch_training(
         xs=input_embeddings,
         ys=model.loop_step_output_templates(batch_dims=batch_dims),
         initial=rf.State(
-            decoder=model.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim),
+            decoder=model.decoder_default_initial_state(
+                batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim
+            ),
         ),
         body=_body,
     )
 
     logits = model.decode_logits(input_embed=input_embeddings, **loop_out)
-    logits_packed, pack_dim = rf.pack_padded(logits, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False)
+    logits_packed, pack_dim = rf.pack_padded(
+        logits, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False
+    )
     targets_packed, _ = rf.pack_padded(
-        targets, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim
+        targets,
+        dims=batch_dims + [targets_spatial_dim],
+        enforce_sorted=False,
+        out_dim=pack_dim,
     )
 
     log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
     log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
     loss = rf.cross_entropy(
-        target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
+        target=targets_packed,
+        estimated=log_prob,
+        estimated_type="log-probs",
+        axis=model.target_dim,
     )
-    loss.mark_as_loss("ce", scale=aed_loss_scale, use_normalized_loss=use_normalized_loss)
+    loss.mark_as_loss(
+        "ce", scale=aed_loss_scale, use_normalized_loss=use_normalized_loss
+    )
 
     best = rf.reduce_argmax(logits_packed, axis=model.target_dim)
     frame_error = best != targets_packed
@@ -1543,14 +1672,18 @@ from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
 
 @contextlib.contextmanager
 def _opt_apply_pretrain_to_encoder(
-    encoder: ConformerEncoder, collected_outputs: Optional[Dict[str, Tensor]], pretrain_opts: Optional[Dict[str, Any]]
+    encoder: ConformerEncoder,
+    collected_outputs: Optional[Dict[str, Tensor]],
+    pretrain_opts: Optional[Dict[str, Any]],
 ):
     """Function is run within RETURNN."""
     if not pretrain_opts:
         yield
         return
     step = rf.get_run_ctx().step
-    steps: Union[Sequence[Tuple[int, Dict[str, Any]]], Dict[int, Dict[str, Any]]] = pretrain_opts["steps"]
+    steps: Union[
+        Sequence[Tuple[int, Dict[str, Any]]], Dict[int, Dict[str, Any]]
+    ] = pretrain_opts["steps"]
     if isinstance(steps, (list, tuple)):
         steps_ = {}
         step_bound = 0
@@ -1565,7 +1698,9 @@ def _opt_apply_pretrain_to_encoder(
             opts_ = opts.copy()
             # somewhat hacky but that is still the easiest way I can think of, without touching a lot of other code
             pretrain_num_layers = opts_.pop("num_layers")
-            assert not opts_, f"unhandled opts: {opts_} in opts {opts} for step bound {step_bound}"
+            assert (
+                not opts_
+            ), f"unhandled opts: {opts_} in opts {opts} for step bound {step_bound}"
             orig_layers = encoder.layers[:]
             del encoder.layers[pretrain_num_layers:]
             yield
@@ -1573,7 +1708,9 @@ def _opt_apply_pretrain_to_encoder(
             if collected_outputs is not None:
                 assert len(collected_outputs) == pretrain_num_layers
                 for i in range(pretrain_num_layers, len(orig_layers)):
-                    collected_outputs[str(i)] = collected_outputs[str(pretrain_num_layers - 1)]
+                    collected_outputs[str(i)] = collected_outputs[
+                        str(pretrain_num_layers - 1)
+                    ]
             return
     yield
     return
@@ -1599,7 +1736,9 @@ def model_recog(
         out_spatial_dim,
         final beam_dim
     """
-    assert not model.language_model  # not implemented here. use the pure PyTorch search instead
+    assert (
+        not model.language_model
+    )  # not implemented here. use the pure PyTorch search instead
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
@@ -1615,7 +1754,9 @@ def model_recog(
     # Initial state.
     beam_dim = Dim(1, name="initial-beam")
     batch_dims_ = [beam_dim] + batch_dims
-    decoder_state = model.decoder_default_initial_state(batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+    decoder_state = model.decoder_default_initial_state(
+        batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
+    )
     target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
     ended = rf.constant(False, dims=batch_dims_)
     out_seq_len = rf.constant(0, dims=batch_dims_)
@@ -1626,7 +1767,10 @@ def model_recog(
     seq_backrefs = []
     while True:
         if i == 0:
-            input_embed = rf.zeros(batch_dims_ + [model.target_embed.out_dim], feature_dim=model.target_embed.out_dim)
+            input_embed = rf.zeros(
+                batch_dims_ + [model.target_embed.out_dim],
+                feature_dim=model.target_embed.out_dim,
+            )
         else:
             input_embed = model.target_embed(target)
         step_out, decoder_state = model.loop_step(
@@ -1640,16 +1784,25 @@ def model_recog(
         # Filter out finished beams
         label_log_prob = rf.where(
             ended,
-            rf.sparse_to_dense(model.eos_idx, axis=model.target_dim, label_value=0.0, other_value=-1.0e30),
+            rf.sparse_to_dense(
+                model.eos_idx,
+                axis=model.target_dim,
+                label_value=0.0,
+                other_value=-1.0e30,
+            ),
             label_log_prob,
         )
         seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
         seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
-            seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{i}-beam"), axis=[beam_dim, model.target_dim]
+            seq_log_prob,
+            k_dim=Dim(beam_size, name=f"dec-step{i}-beam"),
+            axis=[beam_dim, model.target_dim],
         )  # seq_log_prob, backrefs, target: Batch, Beam
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
-        decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), decoder_state)
+        decoder_state = tree.map_structure(
+            lambda s: rf.gather(s, indices=backrefs), decoder_state
+        )
         ended = rf.gather(ended, indices=backrefs)
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         i += 1
@@ -1727,7 +1880,10 @@ def model_recog_pure_torch(
     """
     import torch
     import time
-    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v5 import BeamSearchOptsV5, beam_search_v5
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v5 import (
+        BeamSearchOptsV5,
+        beam_search_v5,
+    )
     from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_sep_ended import (
         BeamSearchDynBeamOpts,
         beam_search_sep_ended,
@@ -1736,24 +1892,36 @@ def model_recog_pure_torch(
         BeamSearchSepEndedKeepOpts,
         beam_search_sep_ended_keep_v6,
     )
-    from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.length_reward import LengthRewardScorer
-    from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.shallow_fusion import ShallowFusedLabelScorers
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.length_reward import (
+        LengthRewardScorer,
+    )
+    from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.shallow_fusion import (
+        ShallowFusedLabelScorers,
+    )
     from returnn.config import get_global_config
 
     config = get_global_config()
 
-    torch.cuda.set_sync_debug_mode(1)  # debug CUDA sync. does not hurt too much to leave this always in?
+    torch.cuda.set_sync_debug_mode(
+        1
+    )  # debug CUDA sync. does not hurt too much to leave this always in?
     start_time = time.perf_counter_ns()
 
     data_concat_zeros = config.float("data_concat_zeros", 0)
     if data_concat_zeros:
-        data_concat_zeros_dim = Dim(int(data_concat_zeros * _batch_size_factor * 100), name="data_concat_zeros")
+        data_concat_zeros_dim = Dim(
+            int(data_concat_zeros * _batch_size_factor * 100), name="data_concat_zeros"
+        )
         data, data_spatial_dim = rf.concat(
-            (data, data_spatial_dim), (rf.zeros([data_concat_zeros_dim]), data_concat_zeros_dim), allow_broadcast=True
+            (data, data_spatial_dim),
+            (rf.zeros([data_concat_zeros_dim]), data_concat_zeros_dim),
+            allow_broadcast=True,
         )
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-    assert len(batch_dims) == 1, batch_dims  # not implemented otherwise, simple to add...
+    assert (
+        len(batch_dims) == 1
+    ), batch_dims  # not implemented otherwise, simple to add...
     batch_dim = batch_dims[0]
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     if max_seq_len is None:
@@ -1775,7 +1943,9 @@ def model_recog_pure_torch(
     }[beam_search_version]
     if beam_search_version == "sep_ended":
         beam_search_opts_cls = BeamSearchDynBeamOpts
-    elif isinstance(beam_search_version, str) and beam_search_version.startswith("sep_ended_keep"):
+    elif isinstance(beam_search_version, str) and beam_search_version.startswith(
+        "sep_ended_keep"
+    ):
         beam_search_opts_cls = BeamSearchSepEndedKeepOpts
     elif isinstance(beam_search_version, int) and beam_search_version >= 5:
         beam_search_opts_cls = BeamSearchOptsV5
@@ -1785,7 +1955,9 @@ def model_recog_pure_torch(
     if beam_search_opts.get("beam_size") is None:
         beam_search_opts["beam_size"] = config.int("beam_size", 12)
     if beam_search_opts.get("length_normalization_exponent") is None:
-        beam_search_opts["length_normalization_exponent"] = config.float("length_normalization_exponent", 1.0)
+        beam_search_opts["length_normalization_exponent"] = config.float(
+            "length_normalization_exponent", 1.0
+        )
     if beam_search_opts.get("length_reward") is None:
         beam_search_opts["length_reward"] = config.float("length_reward", 0.0)
     extra = {}
@@ -1796,8 +1968,12 @@ def model_recog_pure_torch(
     cheating = config.bool("cheating", False)
     if cheating:
         assert targets and targets_spatial_dim
-        extra["cheating_targets"] = targets.copy_compatible_to_dims_raw([batch_dim, targets_spatial_dim])
-        extra["cheating_targets_seq_len"] = targets_spatial_dim.dyn_size_ext.copy_compatible_to_dims_raw([batch_dim])
+        extra["cheating_targets"] = targets.copy_compatible_to_dims_raw(
+            [batch_dim, targets_spatial_dim]
+        )
+        extra[
+            "cheating_targets_seq_len"
+        ] = targets_spatial_dim.dyn_size_ext.copy_compatible_to_dims_raw([batch_dim])
     coverage_scale = beam_search_opts.pop("attention_coverage_scale", 0.0)
     coverage_opts = beam_search_opts.pop("attention_coverage_opts", {})
     neg_coverage_scale = beam_search_opts.pop("neg_attention_coverage_scale", 0.0)
@@ -1826,16 +2002,27 @@ def model_recog_pure_torch(
         )
     else:
         label_scorer.label_scorers["decoder"] = (
-            get_label_scorer_pure_torch(model=model, batch_dim=batch_dim, enc=enc, enc_spatial_dim=enc_spatial_dim),
+            get_label_scorer_pure_torch(
+                model=model,
+                batch_dim=batch_dim,
+                enc=enc,
+                enc_spatial_dim=enc_spatial_dim,
+            ),
             1.0,
         )
     if isinstance(beam_search_version, str) or beam_search_version >= 5:
         len_reward = beam_search_opts.pop("length_reward", 0.0)
         if len_reward or cheating:
-            label_scorer.label_scorers["length_reward"] = (LengthRewardScorer(), len_reward)
+            label_scorer.label_scorers["length_reward"] = (
+                LengthRewardScorer(),
+                len_reward,
+            )
     if model.language_model:
         lm_scale = beam_search_opts.pop("lm_scale")  # must be defined with LM
-        label_scorer.label_scorers["lm"] = (model.language_model_make_label_scorer(), lm_scale)
+        label_scorer.label_scorers["lm"] = (
+            model.language_model_make_label_scorer(),
+            lm_scale,
+        )
 
     print("** max seq len:", max_seq_len.raw_tensor)
 
@@ -1859,17 +2046,29 @@ def model_recog_pure_torch(
     )
 
     beam_dim = Dim(seq_log_prob.shape[1], name="beam")
-    out_spatial_dim = Dim(rf.convert_to_tensor(out_seq_len, dims=[batch_dim, beam_dim], name="out_spatial"))
+    out_spatial_dim = Dim(
+        rf.convert_to_tensor(
+            out_seq_len, dims=[batch_dim, beam_dim], name="out_spatial"
+        )
+    )
     seq_targets_t = rf.convert_to_tensor(
-        seq_targets, dims=[batch_dim, beam_dim, out_spatial_dim], sparse_dim=model.target_dim
+        seq_targets,
+        dims=[batch_dim, beam_dim, out_spatial_dim],
+        sparse_dim=model.target_dim,
     )
     seq_log_prob_t = rf.convert_to_tensor(seq_log_prob, dims=[batch_dim, beam_dim])
 
     search_end_time = time.perf_counter_ns()
-    data_seq_len_sum = rf.reduce_sum(data_spatial_dim.dyn_size_ext, axis=data_spatial_dim.dyn_size_ext.dims)
+    data_seq_len_sum = rf.reduce_sum(
+        data_spatial_dim.dyn_size_ext, axis=data_spatial_dim.dyn_size_ext.dims
+    )
     data_seq_len_sum_secs = data_seq_len_sum.raw_tensor / _batch_size_factor / 100.0
-    data_seq_len_max_seqs = data_spatial_dim.get_dim_value() / _batch_size_factor / 100.0
-    out_len_longest_sum = rf.reduce_sum(rf.reduce_max(out_spatial_dim.dyn_size_ext, axis=beam_dim), axis=batch_dim)
+    data_seq_len_max_seqs = (
+        data_spatial_dim.get_dim_value() / _batch_size_factor / 100.0
+    )
+    out_len_longest_sum = rf.reduce_sum(
+        rf.reduce_max(out_spatial_dim.dyn_size_ext, axis=beam_dim), axis=batch_dim
+    )
     print(
         "TIMINGS:",
         ", ".join(
@@ -1890,7 +2089,8 @@ def model_recog_pure_torch(
     if out_individual_seq_scores:
         for k, v in out_individual_seq_scores.items():
             extra_recog_results[f"score:{k}"] = rf.convert_to_tensor(
-                v.expand(batch_dim.get_dim_value(), beam_dim.get_dim_value()), dims=[batch_dim, beam_dim]
+                v.expand(batch_dim.get_dim_value(), beam_dim.get_dim_value()),
+                dims=[batch_dim, beam_dim],
             )
 
     return seq_targets_t, seq_log_prob_t, extra_recog_results, out_spatial_dim, beam_dim
@@ -1918,8 +2118,13 @@ def get_label_scorer_pure_torch(
             """Initial state."""
             beam_dim = Dim(1, name="initial-beam")
             batch_dims_ = [batch_dim, beam_dim]
-            decoder_state = model.decoder_default_initial_state(batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
-            return tree.map_structure(functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim), decoder_state)
+            decoder_state = model.decoder_default_initial_state(
+                batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
+            )
+            return tree.map_structure(
+                functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim),
+                decoder_state,
+            )
 
         def max_remaining_seq_score(
             self, *, state: Any, max_remaining_steps: torch.Tensor, device: torch.device
@@ -1947,10 +2152,14 @@ def get_label_scorer_pure_torch(
                 elif isinstance(v, StateObjIgnored):
                     return v.content
                 else:
-                    raise TypeError(f"_map_raw_to_tensor: unexpected {v} ({type(v).__name__})")
+                    raise TypeError(
+                        f"_map_raw_to_tensor: unexpected {v} ({type(v).__name__})"
+                    )
 
             input_embed = model.target_embed(
-                rf.convert_to_tensor(prev_label, dims=[batch_dim, beam_dim], sparse_dim=model.target_dim)
+                rf.convert_to_tensor(
+                    prev_label, dims=[batch_dim, beam_dim], sparse_dim=model.target_dim
+                )
             )
             decode_out, decoder_state = model.loop_step(
                 **enc,
@@ -1964,7 +2173,10 @@ def get_label_scorer_pure_torch(
 
             return (
                 self._map_tensor_to_raw(label_log_prob, beam_dim=beam_dim).tensor,
-                tree.map_structure(functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim), decoder_state),
+                tree.map_structure(
+                    functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim),
+                    decoder_state,
+                ),
             )
 
         @staticmethod
@@ -1973,13 +2185,17 @@ def get_label_scorer_pure_torch(
                 if beam_dim not in v.dims:
                     return StateObjIgnored(v)
                 batch_dims_ = [batch_dim, beam_dim]
-                v = v.copy_transpose(batch_dims_ + [dim for dim in v.dims if dim not in batch_dims_])
+                v = v.copy_transpose(
+                    batch_dims_ + [dim for dim in v.dims if dim not in batch_dims_]
+                )
                 raw = v.raw_tensor
                 return StateObjTensorExt(raw, v.copy_template())
             elif isinstance(v, Dim):
                 return StateObjIgnored(v)
             else:
-                raise TypeError(f"_map_tensor_to_raw: unexpected {v} ({type(v).__name__})")
+                raise TypeError(
+                    f"_map_tensor_to_raw: unexpected {v} ({type(v).__name__})"
+                )
 
     return LabelScorer()
 
@@ -2022,7 +2238,9 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
 
     model_att_reduce_type = coverage_opts.get("model_att_reduce_type", "max")
 
-    def hooked_cross_att(self: rf.CrossAttention, q: Tensor, k: Tensor, v: Tensor, *, kv_axis: Dim) -> Tensor:
+    def hooked_cross_att(
+        self: rf.CrossAttention, q: Tensor, k: Tensor, v: Tensor, *, kv_axis: Dim
+    ) -> Tensor:
         """apply attention"""
         nonlocal att_weights_dec_frame
         # Standard dot attention, inline rf.dot_attention.
@@ -2030,9 +2248,13 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
         energy = rf.matmul(q, k, reduce=self.key_dim_per_head)
         att_weights = rf.softmax(energy, axis=kv_axis)
         if model_att_reduce_type == "max":
-            att_weights_dec_frame = rf.maximum(att_weights_dec_frame, rf.reduce_max(att_weights, axis=self.num_heads))
+            att_weights_dec_frame = rf.maximum(
+                att_weights_dec_frame, rf.reduce_max(att_weights, axis=self.num_heads)
+            )
         elif model_att_reduce_type == "avg":
-            att_weights_dec_frame += rf.reduce_mean(att_weights, axis=self.num_heads) * (1 / len(model.decoder.layers))
+            att_weights_dec_frame += rf.reduce_mean(
+                att_weights, axis=self.num_heads
+            ) * (1 / len(model.decoder.layers))
         else:
             raise ValueError(f"invalid model_att_reduce_type {model_att_reduce_type!r}")
         # Masking not needed because softmax should already have masked,
@@ -2040,14 +2262,20 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
         att = rf.matmul(att_weights, v, reduce=kv_axis, use_mask=False)
         if v.feature_dim in att.dims:
             att.feature_dim = v.feature_dim
-        output, _ = rf.merge_dims(att, dims=(self.num_heads, self.value_dim_per_head), out_dim=self.value_dim_total)
+        output, _ = rf.merge_dims(
+            att,
+            dims=(self.num_heads, self.value_dim_per_head),
+            out_dim=self.value_dim_total,
+        )
         if self.proj:
             output = self.proj(output)
         return output
 
     for layer in model.decoder.layers:
         layer: TransformerDecoderLayer
-        layer.cross_att.attention = functools.partial(hooked_cross_att, self=layer.cross_att)
+        layer.cross_att.attention = functools.partial(
+            hooked_cross_att, self=layer.cross_att
+        )
 
     class LabelScorer(LabelScorerIntf):
         """label scorer"""
@@ -2056,10 +2284,15 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             """Initial state."""
             beam_dim = Dim(1, name="initial-beam")
             batch_dims_ = [batch_dim, beam_dim]
-            decoder_state = model.decoder_default_initial_state(batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+            decoder_state = model.decoder_default_initial_state(
+                batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
+            )
             if coverage_scale or neg_coverage_scale or always_add_scorers:
                 decoder_state["accum_att_weights"] = rf.zeros(batch_dims_)
-            return tree.map_structure(functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim), decoder_state)
+            return tree.map_structure(
+                functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim),
+                decoder_state,
+            )
 
         def max_remaining_seq_score(
             self, *, state: Any, max_remaining_steps: torch.Tensor, device: torch.device
@@ -2088,7 +2321,9 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
                 elif isinstance(v, StateObjIgnored):
                     return v.content
                 else:
-                    raise TypeError(f"_map_raw_to_tensor: unexpected {v} ({type(v).__name__})")
+                    raise TypeError(
+                        f"_map_raw_to_tensor: unexpected {v} ({type(v).__name__})"
+                    )
 
             prev_state = tree.map_structure(_map_raw_to_tensor, prev_state)
 
@@ -2096,7 +2331,9 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             accum_att_weights = prev_state["accum_att_weights"]
             att_weights_dec_frame = rf.zeros(())
             logits, decoder_state = model.decoder(
-                rf.convert_to_tensor(prev_label, dims=[batch_dim, beam_dim], sparse_dim=model.target_dim),
+                rf.convert_to_tensor(
+                    prev_label, dims=[batch_dim, beam_dim], sparse_dim=model.target_dim
+                ),
                 spatial_dim=single_step_dim,
                 encoder=enc,
                 state=prev_state,
@@ -2109,7 +2346,10 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
 
             return (
                 self._map_tensor_to_raw(label_log_prob, beam_dim=beam_dim).tensor,
-                tree.map_structure(functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim), decoder_state),
+                tree.map_structure(
+                    functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim),
+                    decoder_state,
+                ),
             )
 
         @staticmethod
@@ -2118,13 +2358,17 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
                 if beam_dim not in v.dims:
                     return StateObjIgnored(v)
                 batch_dims_ = [batch_dim, beam_dim]
-                v = v.copy_transpose(batch_dims_ + [dim for dim in v.dims if dim not in batch_dims_])
+                v = v.copy_transpose(
+                    batch_dims_ + [dim for dim in v.dims if dim not in batch_dims_]
+                )
                 raw = v.raw_tensor
                 return StateObjTensorExt(raw, v.copy_template())
             elif isinstance(v, Dim):
                 return StateObjIgnored(v)
             else:
-                raise TypeError(f"_map_tensor_to_raw: unexpected {v} ({type(v).__name__})")
+                raise TypeError(
+                    f"_map_tensor_to_raw: unexpected {v} ({type(v).__name__})"
+                )
 
     class CoverageScorer(LabelScorerIntf):
         """coverage
@@ -2151,26 +2395,42 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             prev_label  # noqa  # unused
             # We assume the label scorer has run before us (make sure by right ordering).
             accum_att_weights_ = accum_att_weights
-            assert set(accum_att_weights_.dims) == {batch_dim, beam_dim, enc_spatial_dim}
+            assert set(accum_att_weights_.dims) == {
+                batch_dim,
+                beam_dim,
+                enc_spatial_dim,
+            }
             cov_type = self.opts.get("type", "log1p")
             if self.opts.get("rescale", False):
-                accum_att_weights_ /= rf.maximum(rf.reduce_max(accum_att_weights_, axis=enc_spatial_dim), 1.0)
-            if cov_type == "log1p":  # log1p, to avoid having lots of negative numbers. So this starts more around 0.0.
+                accum_att_weights_ /= rf.maximum(
+                    rf.reduce_max(accum_att_weights_, axis=enc_spatial_dim), 1.0
+                )
+            if (
+                cov_type == "log1p"
+            ):  # log1p, to avoid having lots of negative numbers. So this starts more around 0.0.
                 coverage_score = rf.log1p(rf.minimum(accum_att_weights_, 1.0))
-            elif cov_type == "log":  # orig Google NMT: https://arxiv.org/pdf/1609.08144.pdf, but clipped
+            elif (
+                cov_type == "log"
+            ):  # orig Google NMT: https://arxiv.org/pdf/1609.08144.pdf, but clipped
                 eps = self.opts.get("eps", 0.0)
                 clip_min = self.opts.get("clip_min", 0.01)
-                coverage_score = rf.log(rf.clip_by_value(accum_att_weights_, clip_min, 1.0) + eps)
+                coverage_score = rf.log(
+                    rf.clip_by_value(accum_att_weights_, clip_min, 1.0) + eps
+                )
             elif cov_type == "indicator":
                 threshold = self.opts.get("threshold", 0.5)
                 coverage_score = rf.where(accum_att_weights_ >= threshold, 1.0, 0.0)
             elif cov_type == "relu_upper":
                 threshold = self.opts.get("threshold", 0.5)
-                coverage_score = rf.where(accum_att_weights_ >= threshold, accum_att_weights_ - threshold, 0.0)
+                coverage_score = rf.where(
+                    accum_att_weights_ >= threshold, accum_att_weights_ - threshold, 0.0
+                )
             else:
                 raise ValueError(f"invalid coverage opts type {cov_type!r}")
             coverage_score = rf.reduce_sum(coverage_score, axis=enc_spatial_dim)
-            coverage_score_raw = coverage_score.copy_compatible_to_dims_raw((batch_dim, beam_dim))
+            coverage_score_raw = coverage_score.copy_compatible_to_dims_raw(
+                (batch_dim, beam_dim)
+            )
             state = {"prev_score": coverage_score_raw}
             return (coverage_score_raw - prev_state["prev_score"])[:, :, None], state
 
@@ -2190,7 +2450,11 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             """update state"""
             prev_label  # noqa  # unused
             # We assume the label scorer has run before us (make sure by right ordering).
-            assert set(att_weights_dec_frame.dims) == {batch_dim, beam_dim, enc_spatial_dim}
+            assert set(att_weights_dec_frame.dims) == {
+                batch_dim,
+                beam_dim,
+                enc_spatial_dim,
+            }
             att_pos = rf.matmul(
                 att_weights_dec_frame,
                 rf.range_over_dim(enc_spatial_dim, dtype=att_weights_dec_frame.dtype),
@@ -2201,16 +2465,24 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
             delta_raw = prev_state["att_pos"] - att_pos_raw
             threshold = monotonicity_opts.get("threshold", 1.0)
             # Penalize when below threshold. The more it is below (or even negative), the more.
-            score_raw = torch.where(delta_raw < threshold, delta_raw - threshold, 0.0)  # [Batch,Beam]
+            score_raw = torch.where(
+                delta_raw < threshold, delta_raw - threshold, 0.0
+            )  # [Batch,Beam]
             return score_raw[:, :, None], {"att_pos": att_pos_raw}
 
     # Note: insertion order matters here, we want that decoder is scored first.
     res = {"decoder": (LabelScorer(), 1.0)}
     if coverage_scale or always_add_scorers:
-        res["attention_coverage"] = (CoverageScorer(coverage_opts or {}), coverage_scale)
+        res["attention_coverage"] = (
+            CoverageScorer(coverage_opts or {}),
+            coverage_scale,
+        )
     if neg_coverage_scale or (neg_coverage_opts and always_add_scorers):
         # Idea: Too much attention on some frames (e.g. repetitions) is scored negatively.
-        res["attention_neg_coverage"] = (CoverageScorer(neg_coverage_opts or {}), -neg_coverage_scale)
+        res["attention_neg_coverage"] = (
+            CoverageScorer(neg_coverage_opts or {}),
+            -neg_coverage_scale,
+        )
     if monotonicity_scale or always_add_scorers:
         res["attention_monotonicity"] = (MonotonicityScorer(), monotonicity_scale)
     return res

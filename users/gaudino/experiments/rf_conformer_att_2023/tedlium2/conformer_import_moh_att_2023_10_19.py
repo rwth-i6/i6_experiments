@@ -131,30 +131,30 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # att only
     # for model_name in list(model_names)[:-1]:
-    for model_name in ["model_baseline"]:
-        for len_norm in [0.0, 0.5, 1.0, 2.0]:
-            for beam_size in [12, 18]:
-                search_args = {
-                    "beam_size": beam_size,
-                    # "lm_scale": lm_scale,
-                    # "add_trafo_lm": True,
-                    "bsf": bsf,
-                    "length_normalization_exponent": len_norm,
-                }
-                name = prefix_name + "/" + model_name + f"/att_beam{beam_size}_lenNorm{len_norm}"
-                res, _ = recog_model(
-                    task,
-                    models_with_pt_ckpt[model_name]["ckpt"],
-                    model_recog,
-                    dev_sets=["dev", "test"],  # set to None for all
-                    model_args=models_with_pt_ckpt[model_name]["model_args"],
-                    search_args=search_args,
-                    prefix_name=name,
-                )
-                tk.register_output(
-                    name + f"/recog_results",
-                    res.output,
-                )
+    for model_name in ["model_baseline", "model_ctc0.5_att0.5"]:
+        for beam_size in [12, 18]:
+            search_args = {
+                "beam_size": beam_size,
+                # "lm_scale": lm_scale,
+                # "add_trafo_lm": True,
+                "max_seq": 1,
+                "bsf": bsf,
+                # "length_normalization_exponent": len_norm,
+            }
+            name = prefix_name_single_seq + "/" + model_name + f"/att_beam{beam_size}"
+            res, _ = recog_model(
+                task,
+                models_with_pt_ckpt[model_name]["ckpt"],
+                model_recog,
+                dev_sets=["dev", "test"],  # set to None for all
+                model_args=models_with_pt_ckpt[model_name]["model_args"],
+                search_args=search_args,
+                prefix_name=name,
+            )
+            tk.register_output(
+                name + f"/recog_results",
+                res.output,
+            )
 
     # ctc greedy
     # ctc greedy prior 0.15
@@ -262,7 +262,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     # ctc prefix scorer
     # for model_name in list(model_names)[:-3] + ["model_ctc_only"]:
     for model_name in ctc_prefix_scorer_model_names.keys():
-        for beam_size, prior_scale in product([1, 12, 32], ctc_prefix_scorer_model_names[model_name]["scales"]):
+        for beam_size, prior_scale in product([], ctc_prefix_scorer_model_names[model_name]["scales"]):
             search_args = {
                 "beam_size": beam_size,
                 "bsf": bsf,
@@ -408,9 +408,18 @@ def sis_run_with_prefix(prefix_name: str = None):
                 res.output,
             )
 
+    ctc_beam_search_model_names = {
+        "model_ctc0.5_att0.5": {
+            "scales": [(0.5, 0.5)],
+        },
+        "model_baseline": {
+            "scales": [(0.5, 0.5)]
+        }
+    }
+
     # ctc beam search espnet
-    for model_name in ["model_baseline"]:
-        for scales, prior_scale, beam_size in product([(0.5, 0.5), (0.0, 1.0)],[0.1, 0.2, 0.3, 0.4, 0.5], [12]):
+    for model_name in ctc_beam_search_model_names:
+        for scales, prior_scale, beam_size in product(ctc_beam_search_model_names[model_name]["scales"], [0.0, 0.4, 0.5, 0.6, 0.7], [12, 32]):
 
             att_scale, ctc_scale = scales
 

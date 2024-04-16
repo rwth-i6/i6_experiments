@@ -103,19 +103,19 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # RF recog: {"dev-clean": 2.25, "dev-other": 5.34, "test-clean": 2.42, "test-other": 5.56}
     # _recog_imported()
 
-    train_exp("base-11gb", config_11gb, gpu_mem=11)
-    # train_exp("base-11gb-v1", my_config_11gb, num_epochs=400, gpu_mem=11)
-    train_exp(
-        "from-scratch-train-debug",
-        config_24gb_v6,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-        },
-    )
+    # train_exp("base-11gb", config_11gb, gpu_mem=11)
+    train_exp("base-11gb-v1", my_config_11gb, num_epochs=400, gpu_mem=11)
+    # train_exp(
+    #     "from-scratch-train-debug",
+    #     config_24gb_v6,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #     },
+    # )
 
     # train_exp(  # dev-other 7.6
     #     "base-24gb-bs30k-f32",
@@ -1151,7 +1151,7 @@ def _get_ted2_task():
         get_tedlium2_task_bpe1k_raw,
     )
 
-    _ted2_task = get_tedlium2_task_bpe1k_raw(with_eos_postfix=True)
+    _ted2_task = get_tedlium2_task_bpe1k_raw(with_eos_postfix=True, train_epoch_wise_filter=None)
     return _ted2_task
 
 
