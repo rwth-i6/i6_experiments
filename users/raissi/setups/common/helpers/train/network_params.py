@@ -33,6 +33,9 @@ class GeneralNetworkParams:
         if self.frame_rate_reduction_ratio_factor > 1 and self.chunking is not None:
             self.chunking = train_helpers.chunking_with_nfactor(self.chunking, self.frame_rate_reduction_ratio_factor)
 
+    def get_sa_name(self):
+        return f'T{self.specaug_args["min_reps_time"]}.{self.specaug_args["max_reps_time"]}x{self.specaug_args["max_len_time"]}FT{self.specaug_args["min_reps_feature"]}.{self.specaug_args["max_reps_feature"]}x{self.specaug_args["max_len_feature"]}'
+
 
 # SpecAug params
 default_sa_args = SpecAugmentParams()
@@ -62,7 +65,11 @@ frameshift40_conformer_fullsum = GeneralNetworkParams(
 
 # Comaprison with transducer
 frameshift40_conformer_viterbi_zhou = GeneralNetworkParams(
-    l2=5e-6, chunking="256:128", specaug_args=asdict(default_sa_args), frame_rate_reduction_ratio_factor=4, auxilary_loss_layers=[6, 12]
+    l2=5e-6,
+    chunking="256:128",
+    specaug_args=asdict(default_sa_args),
+    frame_rate_reduction_ratio_factor=4,
+    auxilary_loss_layers=[6, 12],
 )
 
 frameshift40_conformer_viterbi_mix_base = GeneralNetworkParams(

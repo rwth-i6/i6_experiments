@@ -43,12 +43,7 @@ def get_base_returnn_dict_zhou(debug=False):
     base_params["optimizer"] = {"class": "nadam", "epsilon": 1e-08}
     del base_params["optimizer_epsilon"]
 
-    params = {
-        **base_params,
-        "max_seqs": 128,
-        "batching": "random"
-    }
-
+    params = {**base_params, "max_seqs": 128, "batching": "random"}
 
     return params
 
