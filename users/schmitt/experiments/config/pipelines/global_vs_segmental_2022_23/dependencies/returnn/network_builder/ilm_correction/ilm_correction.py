@@ -1,8 +1,6 @@
-from i6_core.returnn.config import CodeWrapper
 from typing import Optional, Dict, List
-import copy
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_builder2 import add_is_last_frame_condition
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_builder import add_is_last_frame_condition
 
 
 def add_ilm_correction(

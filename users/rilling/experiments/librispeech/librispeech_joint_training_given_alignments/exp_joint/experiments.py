@@ -9,6 +9,7 @@ from i6_experiments.users.rilling.experiments.librispeech.librispeech_x_vectors.
 from ..data import (
     build_training_dataset,
     build_test_dataset,
+    build_tts_forward_dataset,
     TrainingDatasetSettings,
     get_binary_lm,
     get_arpa_lm,
@@ -16,9 +17,10 @@ from ..data import (
     get_bliss_corpus_dict
 )
 from ..config import get_training_config, get_extract_durations_forward__config, get_forward_config, get_search_config
-from ..pipeline import training, forward, search, compute_phoneme_pred_accuracy, tts_eval
+from ..pipeline import training, forward, search, compute_phoneme_pred_accuracy
+from i6_experiments.users.rilling.experiments.librispeech.common.tts_eval import tts_eval
 
-from ..default_tools import RETURNN_COMMON, RETURNN_PYTORCH_EXE, MINI_RETURNN_ROOT
+from ..default_tools import RETURNN_COMMON, RETURNN_PYTORCH_EXE, RETURNN_PYTORCH_ASR_SEARCH_EXE, MINI_RETURNN_ROOT
 from ..pytorch_networks.shared.configs import (
     SpecaugConfig,
     ModelConfigV1,
@@ -61,9 +63,10 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         tts_forward=True,
         asr_search=True,
         phoneme_pred=True,
+        encoder_phoneme_pred=False,
         asr_cv_set=False,
         given_train_job_for_forward=None,
-        forward_dataset=None,
+        tts_eval_datasets=None,
     ):
         exp = {}
 
@@ -77,18 +80,6 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
                 asr_cv_set=asr_cv_set,
             )  # implicit reconstruction loss
 
-        if tts_forward:
-            forward_config_gl = get_forward_config(
-                forward_dataset=forward_dataset or dataset,
-                **{**args, **{"config": {"batch_size": 50 * 16000}}},
-                forward_args={
-                    **forward_args,
-                    "gl_net_checkpoint": gl_checkpoint["checkpoint"],
-                    "gl_net_config": gl_checkpoint["config"],
-                },
-                target="corpus_gl",
-            )
-
         if asr_search or phoneme_pred:
             search_config = get_search_config(
                 **args,
@@ -101,6 +92,8 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
                 search_args=search_args,
                 target="phoneme"
             )
+        if encoder_phoneme_pred:
+            encoder_phoneme_pred_config = get_search_config(**args, search_args=search_args, target="encoder_phoneme")
 
         if given_train_job_for_forward is None:
             train_job = training(
@@ -115,15 +108,30 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         exp["train_job"] = train_job
 
         if tts_forward:
-            forward_job_gl = tts_eval(
-                checkpoint=train_job.out_checkpoints[num_epochs],
-                prefix_name=prefix + name,
-                returnn_config=forward_config_gl,
-                returnn_exe=RETURNN_PYTORCH_EXE,
-                returnn_root=MINI_RETURNN_ROOT,
-                vocoder="gl",
-            )
-            exp["forward_job_gl"] = forward_job_gl
+            for ds_k, ds in tts_eval_datasets.items():
+                forward_config_gl = get_forward_config(
+                    forward_dataset=ds,
+                    **{**args, **{"config": {"batch_size": 50 * 16000}}},
+                    forward_args={
+                        **forward_args,
+                        "gl_net_checkpoint": gl_checkpoint["checkpoint"],
+                        "gl_net_config": gl_checkpoint["config"],
+                    },
+                    target="corpus_gl",
+                )
+                forward_job_gl = tts_eval(
+                    checkpoint=train_job.out_checkpoints[num_epochs],
+                    prefix_name=prefix + name,
+                    returnn_config=forward_config_gl,
+                    returnn_exe=RETURNN_PYTORCH_EXE,
+                    returnn_exe_asr=RETURNN_PYTORCH_ASR_SEARCH_EXE,
+                    returnn_root=MINI_RETURNN_ROOT,
+                    vocoder="gl",
+                    swer_eval=True,
+                    nisqa_eval=True,
+                    swer_eval_corpus_key=ds_k
+                )
+                exp["forward_job_gl"] = forward_job_gl
 
         if extract_x_vector:
             forward_x_vector_config = get_forward_config(
@@ -144,7 +152,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
                 search_config,
                 train_job.out_checkpoints[num_epochs],
                 test_dataset,
-                RETURNN_PYTORCH_EXE,
+                RETURNN_PYTORCH_ASR_SEARCH_EXE,
                 MINI_RETURNN_ROOT,
             )
         if phoneme_pred:
@@ -155,6 +163,15 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
                 checkpoint=train_job.out_checkpoints[num_epochs],
                 returnn_exe=RETURNN_PYTORCH_EXE,
                 returnn_root=MINI_RETURNN_ROOT
+            )
+        if encoder_phoneme_pred:
+            compute_phoneme_pred_accuracy(
+                prefix + name,
+                encoder_phoneme_pred_config,
+                recognition_datasets=test_dataset,
+                checkpoint=train_job.out_checkpoints[num_epochs],
+                returnn_exe=RETURNN_PYTORCH_EXE,
+                returnn_root=MINI_RETURNN_ROOT,
             )
         return exp
 
@@ -250,6 +267,20 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         num_filters=log_mel_datastream_silence_preprocessed.options.num_feature_filters,
         center=log_mel_datastream_silence_preprocessed.options.feature_options.center,
         norm=norm_silence_preprocessed,
+    )
+
+    tts_forward_datasets = {}
+    tts_forward_datasets_xvectors = {}
+
+    tts_forward_datasets["test-clean"] = build_tts_forward_dataset(
+        librispeech_key="train-clean-100",
+        dataset_key="test-clean",
+    )
+
+    tts_forward_datasets_xvectors["test-clean"] = build_tts_forward_dataset(
+        librispeech_key="train-clean-100",
+        dataset_key="test-clean",
+        xvectors_file=x_vector_extractions["x_vector_cnn/1e-3_not_silence_preprocessed/test-clean"]["hdf"],
     )
 
     asr_test_datasets = {}
@@ -398,7 +429,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         forward_args=forward_args,
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors
+        tts_eval_datasets=tts_forward_datasets_xvectors
     )
 
     exp_dict = run_exp(
@@ -411,7 +442,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors
+        tts_eval_datasets=tts_forward_datasets_xvectors
     )
 
     train_args_joint_training_no_specaug = copy.deepcopy(train_args_joint_training)
@@ -426,7 +457,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         forward_args=forward_args,
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors
+        tts_eval_datasets=tts_forward_datasets_xvectors
     )
 
     exp_dict = run_exp(
@@ -439,7 +470,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors
+        tts_eval_datasets=tts_forward_datasets_xvectors
     )
 
     net_module = "glowTTS_ASR_blstm_x_vector"
@@ -553,7 +584,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors
+        tts_eval_datasets=tts_forward_datasets_xvectors
     )
 
     exp_dict = run_exp(
@@ -566,7 +597,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors
+        tts_eval_datasets=tts_forward_datasets_xvectors
     )
 
     net_module = "glowTTS_ASR_ffn_x_vector_v2"
@@ -582,7 +613,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        tts_eval_datasets=tts_forward_datasets_xvectors,
     )
 
     exp_dict = run_exp(
@@ -595,7 +626,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 1.0},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        tts_eval_datasets=tts_forward_datasets_xvectors,
     )
 
     exp_dict = run_exp(
@@ -608,7 +639,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        tts_eval_datasets=tts_forward_datasets_xvectors,
     )
 
     train_args_mean_only = copy.deepcopy(train_args)
@@ -625,7 +656,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        tts_eval_datasets=tts_forward_datasets_xvectors,
     )
 
     net_module = "glowTTS_ASR_ffn_x_vector_v2_1"
@@ -640,7 +671,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 1.0},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        tts_eval_datasets=tts_forward_datasets_xvectors,
     )
 
     net_module = "glowTTS_ASR_ffn_x_vector_v2_aux_loss"
@@ -654,7 +685,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         forward_args=forward_args,
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        tts_eval_datasets=tts_forward_datasets_xvectors,
     )
 
     net_module = "glowTTS_ASR_blstm_x_vector_v2"
@@ -698,7 +729,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors,
+        tts_eval_datasets=tts_forward_datasets_xvectors,
     )
 
     # =============== CNN ==================
@@ -734,7 +765,7 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors
+        tts_eval_datasets=tts_forward_datasets_xvectors
     )
 
     train_args_cnn_pretrained = copy.deepcopy(train_args_cnn)
@@ -756,5 +787,5 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         asr_search=False,
-        forward_dataset=forward_datasets_pe1_tts_segments_xvectors
+        tts_eval_datasets=tts_forward_datasets_xvectors
     )

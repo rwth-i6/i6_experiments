@@ -62,3 +62,16 @@ def remove_blank_and_eos(hyps: Tensor, max_out_len, batch_dims, beam_dim, target
     )
 
     return seq_targets, out_spatial_dim
+
+def remove_eos_from_start_and_end(hyp: torch.Tensor, eos_idx: int) -> torch.Tensor:
+
+    mask_eos = hyp != eos_idx
+    non_zero_indices = torch.nonzero(mask_eos, as_tuple=False)
+    if len(non_zero_indices) == 0:
+        return hyp
+    first_non_zero = non_zero_indices[0]
+    last_non_zero = non_zero_indices[-1]
+
+    hyp = hyp[first_non_zero:last_non_zero+1]
+
+    return hyp

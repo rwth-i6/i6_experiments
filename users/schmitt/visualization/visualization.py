@@ -16,10 +16,12 @@ from matplotlib import ticker
 import ast
 import numpy as np
 import h5py
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, Tuple, List
 
 import recipe.i6_experiments.users.schmitt.tools as tools_mod
 tools_dir = os.path.dirname(tools_mod.__file__)
+
+from recipe.i6_experiments.users.schmitt import hdf
 
 
 class PlotAttentionWeightsJob(Job):
@@ -189,6 +191,7 @@ class PlotAttentionWeightsJobV2(Job):
           ref_alignment_blank_idx: int,
           ref_alignment_hdf: Path,
           json_vocab_path: Path,
+          ctc_alignment_hdf: Optional[Path] = None,
   ):
     assert target_blank_idx is None or (seg_lens_hdf is not None and seg_starts_hdf is not None)
     self.seg_lens_hdf = seg_lens_hdf
@@ -200,150 +203,175 @@ class PlotAttentionWeightsJobV2(Job):
     self.ref_alignment_blank_idx = ref_alignment_blank_idx
     self.ref_alignment_hdf = ref_alignment_hdf
     self.json_vocab_path = json_vocab_path
+    self.ctc_alignment_hdf = ctc_alignment_hdf
 
     self.out_plot_dir = self.output_path("plots", True)
+    self.out_plot_w_ctc_dir = self.output_path("plots_w_ctc", True)
     self.out_plot_path = MultiOutputPath(self, "plots/plots.$(TASK)", self.out_plot_dir)
 
   def tasks(self):
     yield Task(
       "run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0}, mini_task=True)
 
-  def run(self):
-    att_weight_hdf = self.att_weight_hdf.get_path()
-    targets_hdf = self.targets_hdf.get_path()
-    seg_starts_hdf = self.seg_starts_hdf.get_path() if self.target_blank_idx is not None else None
-    seg_lens_hdf = self.seg_lens_hdf.get_path() if self.target_blank_idx is not None else None
-    center_positions_hdf = self.center_positions_hdf.get_path() if self.center_positions_hdf is not None else None
-    ref_alignment_hdf = self.ref_alignment_hdf.get_path()
-    json_vocab_path = self.json_vocab_path.get_path()
-
-    # first, we load all the necessary data (att_weights, targets, segment starts/lens (if provided)) from the hdf files
-    with h5py.File(att_weight_hdf, "r") as f:
-      # load tags once here and reuse for remaining hdfs
-      seq_tags = f["seqTags"][()]
-      seq_tags = [str(tag) for tag in seq_tags]  # convert from byte to string
-
-      seq_lens = f["seqLengths"][()][:, 0]  # total num frames (num_seqs * num_labels * num_frames)
-      shape_data = f["targets"]["data"]["sizes"][
-        ()]  # shape of att weights for each seq, stored alternating (num_labels, num_frames, ..., num_labels, num_frames)
-      weights_data = f["inputs"][()]  # all att weights as 1D array
-      weights_dict = {}
-      for i, seq_len in enumerate(seq_lens):
-        weights_dict[seq_tags[i]] = weights_data[:seq_len]  # store weights in dict under corresponding tag
-        weights_data = weights_data[seq_len:]  # cut the stored weights from the remaining weights
-        shape = shape_data[i * 2: i * 2 + 2]  # get shape for current weight matrix
-        weights_dict[seq_tags[i]] = weights_dict[seq_tags[i]].reshape(shape)  # reshape corresponding entry in dict
-
-    # follows same principle as the loading of att weights
-    with h5py.File(targets_hdf, "r") as f:
-      targets_data = f["inputs"][()]
-      seq_lens = f["seqLengths"][()][:, 0]
-      targets_dict = {}
-      for i, seq_len in enumerate(seq_lens):
-        targets_dict[seq_tags[i]] = targets_data[:seq_len]
-        targets_data = targets_data[seq_len:]
-
+  def load_data(self) -> Tuple[Dict[str, np.ndarray], ...]:
+    """
+      Load data from the hdf files
+    """
+    att_weights_dict = hdf.load_hdf_data(self.att_weight_hdf, num_dims=2)
+    targets_dict = hdf.load_hdf_data(self.targets_hdf)
     if self.target_blank_idx is not None:
-      # follows same principle as the loading of att weights
-      with h5py.File(seg_starts_hdf, "r") as f:
-        seg_starts_data = f["inputs"][()]
-        seq_lens = f["seqLengths"][()][:, 0]
-        seg_starts_dict = {}
-        for i, seq_len in enumerate(seq_lens):
-          seg_starts_dict[seq_tags[i]] = seg_starts_data[:seq_len]
-          seg_starts_data = seg_starts_data[seq_len:]
+      seg_starts_dict = hdf.load_hdf_data(self.seg_starts_hdf)
+      seg_lens_dict = hdf.load_hdf_data(self.seg_lens_hdf)
+    else:
+      seg_starts_dict = None
+      seg_lens_dict = None
+    if self.center_positions_hdf is not None:
+      center_positions_dict = hdf.load_hdf_data(self.center_positions_hdf)
+    else:
+      center_positions_dict = None
+    if self.ctc_alignment_hdf is not None:
+      ctc_alignment_dict = hdf.load_hdf_data(self.ctc_alignment_hdf)
+    else:
+      ctc_alignment_dict = None
+    ref_alignment_dict = hdf.load_hdf_data(self.ref_alignment_hdf)
+    ref_alignment_dict = {k: v for k, v in ref_alignment_dict.items() if k in att_weights_dict}
 
-      # follows same principle as the loading of att weights
-      with h5py.File(seg_lens_hdf, "r") as f:
-        seg_lens_data = f["inputs"][()]
-        seq_lens = f["seqLengths"][()][:, 0]
-        seg_lens_dict = {}
-        for i, seq_len in enumerate(seq_lens):
-          seg_lens_dict[seq_tags[i]] = seg_lens_data[:seq_len]
-          seg_lens_data = seg_lens_data[seq_len:]
+    return (
+      att_weights_dict,
+      targets_dict,
+      seg_starts_dict,
+      seg_lens_dict,
+      center_positions_dict,
+      ctc_alignment_dict,
+      ref_alignment_dict
+    )
 
-    if center_positions_hdf is not None:
-      # follows same principle as the loading of att weights
-      with h5py.File(center_positions_hdf, "r") as f:
-        center_positions_data = f["inputs"][()]
-        seq_lens = f["seqLengths"][()][:, 0]
-        center_positions_dict = {}
-        for i, seq_len in enumerate(seq_lens):
-          center_positions_dict[seq_tags[i]] = center_positions_data[:seq_len]
-          center_positions_data = center_positions_data[seq_len:]
+  @staticmethod
+  def _get_fig_ax(att_weights: np.ndarray):
+    """
+      Initialize the figure and axis for the plot.
+    """
+    num_labels = att_weights.shape[0]
+    num_frames = att_weights.shape[1]
+    fig_width = num_frames / 8
+    fig_height = num_labels / 4
+    figsize = (fig_width, fig_height)
+    return plt.subplots(figsize=figsize, constrained_layout=True)
 
-    # follows same principle as the loading of att weights
-    with h5py.File(ref_alignment_hdf, "r") as f:
-      # here we need to load the seq tags again because the ref alignment might contain more seqs than what we dumped
-      # into the hdfs
-      seq_tags_ref_alignment = f["seqTags"][()]
-      seq_tags_ref_alignment = [str(tag) for tag in seq_tags_ref_alignment]  # convert from byte to string
+  def _set_ticks(self, ax: plt.Axes, ref_alignment: np.ndarray, targets: np.ndarray, vocab: Dict[int, str]):
+    """
+      Set the ticks and labels for the x and y axis.
+      x-axis: reference alignment
+      y-axis: model output
+    """
+    # positions of reference labels in the reference alignment
+    # +1 bc plt starts at 1, not at 0
+    ref_label_positions = np.where(ref_alignment != self.ref_alignment_blank_idx)[-1] + 1
+    ref_labels = ref_alignment[ref_alignment != self.ref_alignment_blank_idx]
+    ref_labels = [vocab[idx] for idx in ref_labels]
+    # x axis
+    ax.set_xticks([tick - 1.0 for tick in ref_label_positions])
+    ax.set_xticklabels(ref_labels, rotation=90)
 
-      ref_alignment_data = f["inputs"][()]
-      seq_lens = f["seqLengths"][()][:, 0]
-      ref_alignment_dict = {}
-      for i, seq_len in enumerate(seq_lens):
-        # only store the ref alignment if the corresponding seq tag is among the ones for which we dumped att weights
-        if seq_tags_ref_alignment[i] in seq_tags:
-          ref_alignment_dict[seq_tags_ref_alignment[i]] = ref_alignment_data[:seq_len]
-        ref_alignment_data = ref_alignment_data[seq_len:]
+    # output labels of the model
+    # in case of alignment: filter for non-blank targets. otherwise, just leave the targets array as is
+    labels = targets[targets != self.target_blank_idx] if self.target_blank_idx is not None else targets
+    labels = [vocab[idx] for idx in labels]
+    # y axis
+    yticks = [tick for tick in range(len(labels))]
+    ax.set_yticks(yticks)
+    ax.set_yticklabels(labels)
+
+    # horizontal lines to separate labels on y axis
+    for ytick in yticks:
+      ax.axhline(y=ytick - .5, xmin=0, xmax=1, color="k", linewidth=.5)
+
+  @staticmethod
+  def _draw_segment_boundaries(
+          ax: plt.Axes,
+          seg_starts: np.ndarray,
+          seg_lens: np.ndarray,
+          att_weights: np.ndarray,
+  ):
+    """
+      Draw red delimiters to indicate segment boundaries
+    """
+    num_labels = att_weights.shape[0]
+    for i, (seg_start, seg_len) in enumerate(zip(seg_starts, seg_lens)):
+      ymin = (num_labels - i) / num_labels
+      ymax = (num_labels - i - 1) / num_labels
+      ax.axvline(x=seg_start - 0.5, ymin=ymin, ymax=ymax, color="r")
+      ax.axvline(x=min(seg_start + seg_len - .5, att_weights.shape[1] - .5), ymin=ymin, ymax=ymax, color="r")
+
+  @staticmethod
+  def _draw_center_positions(
+          ax: plt.Axes,
+          center_positions: np.ndarray,
+  ):
+    """
+      Draw green delimiters to indicate center positions
+    """
+    num_labels = center_positions.shape[0]
+    for i, center_position in enumerate(center_positions):
+      ymin = (num_labels - i) / num_labels
+      ymax = (num_labels - i - 1) / num_labels
+      ax.axvline(x=center_position - .5, ymin=ymin, ymax=ymax, color="lime")
+      ax.axvline(x=center_position + .5, ymin=ymin, ymax=ymax, color="lime")
+
+  @staticmethod
+  def _plot_ctc_alignment(ax: plt.Axes, ctc_alignment: np.ndarray, num_labels: int):
+    label_idx = 0
+    # store alignment like: 000011112222223333, where the number is the label index (~ height in the plot)
+    ctc_alignment_plot_data = []
+    for x, ctc_label in enumerate(ctc_alignment):
+      ctc_alignment_plot_data.append(label_idx)
+      if ctc_label != 10025:
+        label_idx += 1
+      # stop if we reached the last label, the rest of the ctc alignment are blanks
+      if label_idx == num_labels:
+        break
+    ax.plot(ctc_alignment_plot_data, "o", color="black", alpha=.4)
+
+  def run(self):
+    # load data from hdfs
+    att_weights_dict, targets_dict, seg_starts_dict, seg_lens_dict, center_positions_dict, ctc_alignment_dict, ref_alignment_dict = self.load_data()
 
     # load vocabulary as dictionary
-    with open(json_vocab_path, "r") as f:
+    with open(self.json_vocab_path.get_path(), "r") as f:
       json_data = f.read()
-      vocab = ast.literal_eval(json_data)
-      vocab = {v: k for k, v in vocab.items()}
+      vocab = ast.literal_eval(json_data)  # label -> idx
+      vocab = {v: k for k, v in vocab.items()}  # idx -> label
 
     # for each seq tag, plot the corresponding att weights
-    for seq_tag in seq_tags:
+    for seq_tag in att_weights_dict.keys():
       seg_starts = seg_starts_dict[seq_tag] if self.target_blank_idx is not None else None
       seg_lens = seg_lens_dict[seq_tag] if self.target_blank_idx is not None else None
-      center_positions = center_positions_dict[seq_tag] if center_positions_hdf is not None else None
+      center_positions = center_positions_dict[seq_tag] if self.center_positions_hdf is not None else None
+      ctc_alignment = ctc_alignment_dict[seq_tag] if self.ctc_alignment_hdf is not None else None
       ref_alignment = ref_alignment_dict[seq_tag]
       targets = targets_dict[seq_tag]
-      weights = weights_dict[seq_tag]
+      att_weights = att_weights_dict[seq_tag]
 
-      num_labels = weights.shape[0]
-      num_frames = weights.shape[1]
-      fig_width = num_frames / 8
-      fig_height = num_labels / 4
-      figsize = (fig_width, fig_height)
-      fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
-      ax.matshow(weights, cmap=plt.cm.get_cmap("Blues"), aspect="auto")
+      fig, ax = self._get_fig_ax(att_weights)
+      ax.matshow(att_weights, cmap=plt.cm.get_cmap("Blues"), aspect="auto")
 
-      ref_label_positions = np.where(ref_alignment != self.ref_alignment_blank_idx)[-1] + 1  # +1 bc plt starts at 1, not at 0
-      ref_labels = ref_alignment[ref_alignment != self.ref_alignment_blank_idx]
-      ref_labels = [vocab[idx] for idx in ref_labels]  # the corresponding bpe label
-      labels = targets[targets != self.target_blank_idx] if self.target_blank_idx is not None else targets  # the alignment labels which are not blank (in case of global att model, just use `targets`)
-      labels = [vocab[idx] for idx in labels]  # the corresponding bpe label
-      # x axis
-      ax.set_xticks([tick - 1.0 for tick in ref_label_positions])
-      ax.set_xticklabels(ref_labels, rotation=90)
-      # y axis
-      yticks = [tick for tick in range(num_labels)]
-      ax.set_yticks(yticks)
-      ax.set_yticklabels(labels)
-      for ytick in yticks:
-        ax.axhline(y=ytick - .5, xmin=0, xmax=1, color="k", linewidth=.5)
-
+      # set y ticks and labels
+      self._set_ticks(ax, ref_alignment, targets, vocab)
       if self.target_blank_idx is not None:
-        # red delimiters to indicate segment boundaries
-        for i, (seg_start, seg_len) in enumerate(zip(seg_starts, seg_lens)):
-          ymin = (num_labels - i) / num_labels
-          ymax = (num_labels - i - 1) / num_labels
-          ax.axvline(x=seg_start - 0.5, ymin=ymin, ymax=ymax, color="r")
-          ax.axvline(x=seg_start + seg_len - 1.5, ymin=ymin, ymax=ymax, color="r")
-
+        self._draw_segment_boundaries(ax, seg_starts, seg_lens, att_weights)
       if center_positions is not None:
-        # green markers to indicate center positions
-        for i, center_position in enumerate(center_positions):
-          ymin = (num_labels - i) / num_labels
-          ymax = (num_labels - i - 1) / num_labels
-          ax.axvline(x=center_position - .5, ymin=ymin, ymax=ymax, color="lime")
-          ax.axvline(x=center_position + .5, ymin=ymin, ymax=ymax, color="lime")
+        self._draw_center_positions(ax, center_positions)
 
       dirname = self.out_plot_dir.get_path()
       filename = os.path.join(dirname, "plot.%s" % seq_tag.replace("/", "_"))
+      plt.savefig(filename + ".png")
+      plt.savefig(filename + ".pdf")
+
+      # plot ctc alignment if available
+      if ctc_alignment is not None:
+        self._plot_ctc_alignment(ax, ctc_alignment, num_labels=att_weights.shape[0])
+
+      filename = os.path.join(self.out_plot_w_ctc_dir.get_path(), "plot.%s" % seq_tag.replace("/", "_"))
       plt.savefig(filename + ".png")
       plt.savefig(filename + ".pdf")
 
@@ -354,5 +382,93 @@ class PlotAttentionWeightsJobV2(Job):
 
     if d["center_positions_hdf"] is None:
       d.pop("center_positions_hdf")
+    if d["ctc_alignment_hdf"] is None:
+      d.pop("ctc_alignment_hdf")
 
     return super().hash(d)
+
+
+class PlotAlignmentJob(Job):
+  def __init__(
+          self,
+          alignment_hdf: Path,
+          json_vocab_path: Path,
+          target_blank_idx: int,
+          segment_list: List[str],
+          silence_idx: Optional[int] = None,
+  ):
+    self.alignment_hdf = alignment_hdf
+    self.json_vocab_path = json_vocab_path
+    self.target_blank_idx = target_blank_idx
+    self.segment_list = segment_list
+    self.silence_idx = silence_idx
+
+    self.out_plot_dir = self.output_path("plots", True)
+
+  def tasks(self):
+    yield Task(
+      "run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0}, mini_task=True)
+
+  @staticmethod
+  def _get_fig_ax(alignment: np.ndarray):
+    """
+      Initialize the figure and axis for the plot.
+    """
+    num_frames = len(alignment)
+    fig_width = num_frames / 12
+    fig_height = 4.0
+    figsize = (fig_width, fig_height)
+    return plt.subplots(figsize=figsize, constrained_layout=True)
+
+  @staticmethod
+  def _set_ticks(
+          ax: plt.Axes,
+          alignment: np.ndarray,
+          labels: np.ndarray,
+          vocab: Dict[int, str],
+          blank_idx: int,
+          ymin=1.0,
+          ymax=0.0,
+          color="r"
+  ):
+    """
+      Set the ticks and labels for the x and y axis.
+      x-axis: reference alignment
+      y-axis: model output
+    """
+    # positions of reference labels in the reference alignment
+    # +1 bc plt starts at 1, not at 0
+    label_positions = np.where(alignment != blank_idx)[-1] + 1
+    labels = [vocab[idx] for idx in labels]
+    # x axis
+    ax.set_xticks([tick - 1.0 for tick in label_positions])
+    ax.set_xticklabels(labels, rotation=90)
+
+    for i, position in enumerate(label_positions):
+      ax.axvline(x=position - 1.0, ymin=ymin, ymax=ymax, color=color)
+
+  def run(self):
+    # load data from hdf
+    alignment_dict = hdf.load_hdf_data(self.alignment_hdf, segment_list=self.segment_list)
+
+    # load vocabulary as dictionary
+    with open(self.json_vocab_path.get_path(), "r") as f:
+      json_data = f.read()
+      vocab = ast.literal_eval(json_data)  # label -> idx
+      vocab = {v: k for k, v in vocab.items()}  # idx -> label
+      if self.silence_idx is not None:
+        vocab[self.silence_idx] = "[Silence]"
+
+    # for each seq tag, plot the corresponding att weights
+    for seq_tag in alignment_dict.keys():
+      alignment = alignment_dict[seq_tag]
+      labels = alignment[alignment != self.target_blank_idx]
+
+      fig, ax = self._get_fig_ax(alignment)
+      # set y ticks and labels
+      self._set_ticks(ax, alignment, labels, vocab, self.target_blank_idx)
+
+      dirname = self.out_plot_dir.get_path()
+      filename = os.path.join(dirname, "plot.%s" % seq_tag.replace("/", "_"))
+      plt.savefig(filename + ".png")
+      plt.savefig(filename + ".pdf")

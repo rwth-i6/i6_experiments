@@ -35,25 +35,6 @@ def run_exps():
   # att_weight_penalty.center_window_att_import_global_global_ctc_align_att_weight_penalty_train(
   #   loss_scale_list=(1.,), mult_weight_list=(0.005,), exp_weight_list=(2.0,), win_size_list=(5, 129)
   # )
+  pass
 
-  att_weight_interpolation.center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpolation(
-    std_list=(2.,),
-    gauss_scale_list=(1.,),
-    n_epochs_list=(200,),
-    win_size_list=(129,),
-    dist_type_list=("gauss",),
-    checkpoint_aliases=("best-4-avg",),
-    run_analysis=True
-  )
-  att_weight_interpolation.center_window_att_import_global_global_ctc_align_gaussian_att_weight_interpolation(
-    std_list=(2.,),
-    gauss_scale_list=(1.,),
-    n_epochs_list=(200,),
-    win_size_list=(129,),
-    dist_type_list=("gauss",),
-    lm_scale_list=(0.5, 0.54, 0.56, 0.58, 0.6, 0.62),
-    lm_type="trafo",
-    ilm_scale_list=(0.3, 0.4, 0.5),
-    ilm_type="mini_att",
-    checkpoint_aliases=("best-4-avg",)
-  )
+

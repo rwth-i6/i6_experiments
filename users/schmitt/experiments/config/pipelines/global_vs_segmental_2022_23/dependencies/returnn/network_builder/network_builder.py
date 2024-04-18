@@ -1,5 +1,5 @@
 from i6_core.returnn.config import CodeWrapper
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 import copy
 
 
@@ -450,7 +450,22 @@ def get_output_log_prob(output_prob_layer_name: str):
   }
 
 
-def add_center_positions(network: Dict):
+def add_is_last_frame_condition(network: Dict, rec_layer_name: str):
+  network[rec_layer_name]["unit"].update({
+    "encoder_len": {
+      "class": "length",
+      "from": "base:encoder"
+    },
+    "is_last_frame": {
+      "class": "eval",
+      "from": [":i", "encoder_len"],
+      "eval": "tf.math.equal(source(0), source(1) - 1)",
+      "out_type": {"dtype": "bool"},
+    },
+  })
+
+
+def add_center_positions(network: Dict, segment_lens_starts_layer_name: str):
   """
   For center-window models, add a layer returning the center position of the windows.
   This is defined as "segment_starts1" + "segment_lens1".
@@ -460,7 +475,7 @@ def add_center_positions(network: Dict):
   :param network:
   :return:
   """
-  network["output"]["unit"].update({
+  network[segment_lens_starts_layer_name]["unit"].update({
     "center_positions": {
       "class": "eval",
       "from": ["segment_starts1", "segment_lens1"],
@@ -473,7 +488,7 @@ def add_center_positions(network: Dict):
     network.update({
       "center_positions_masked": {
         "class": "masked_computation",
-        "from": "output/center_positions",
+        "from": "%s/center_positions" % segment_lens_starts_layer_name,
         "mask": "is_label",
         "unit": {"class": "copy", "from": "data"},
       },
@@ -488,7 +503,7 @@ def add_center_positions(network: Dict):
     })
 
 
-def add_abs_segment_positions(network: Dict, rec_layer_name: str):
+def add_abs_segment_positions(network: Dict, rec_layer_name: str, att_t_dim_tag_code_wrapper: CodeWrapper):
   """
   For segmental models, add a layer which computes the absolute (w.r.t. T) positions of frames within a segment.
   E.g. if a segment is 5 frames long and starts at time 4, the layer outputs [4, 5, 6, 7, 8]
@@ -504,7 +519,7 @@ def add_abs_segment_positions(network: Dict, rec_layer_name: str):
     "segment_abs_positions0": {
       "class": "range_in_axis",
       "from": "att_weights",
-      "axis": "stag:sliced-time:segments",
+      "axis": att_t_dim_tag_code_wrapper,
     },
     "segment_abs_positions": {
       "class": "eval",
@@ -514,7 +529,60 @@ def add_abs_segment_positions(network: Dict, rec_layer_name: str):
   })
 
 
-def add_att_weights_center_of_gravity(network: Dict, rec_layer_name: str):
+def get_explicit_lstm(layer_name: str, n_out: int, from_: List[str]):
+  input_ = "%s_input" % layer_name
+  input_gate_ = "%s_input_gate" % layer_name
+  forget_gate_ = "%s_forget_gate" % layer_name
+  output_gate_ = "%s_output_gate" % layer_name
+  cell_in_ = "%s_cell_in" % layer_name
+  c_ = "%s_c" % layer_name
+  output_ = layer_name
+
+  lstm_dict = {
+    input_: {
+      "class": "copy",
+      "from": ["prev:%s" % output_] + from_
+    },
+    input_gate_: {
+      "class": "linear",
+      "from": input_,
+      "activation": "sigmoid",
+      "n_out": n_out
+    },
+    forget_gate_: {
+      "class": "linear",
+      "from": input_,
+      "activation": "sigmoid",
+      "n_out": n_out
+    },
+    output_gate_: {
+      "class": "linear",
+      "from": input_,
+      "activation": "sigmoid",
+      "n_out": n_out
+    },
+    cell_in_: {
+      "class": "linear",
+      "from": input_,
+      "activation": "tanh",
+      "n_out": n_out
+    },
+    c_: {
+      "class": "eval",
+      "from": [input_gate_, cell_in_, forget_gate_, "prev:%s" % c_],
+      "eval": "source(0) * source(1) + source(2) * source(3)"
+    },
+    output_: {
+      "class": "eval",
+      "from": [output_gate_, c_],
+      "eval": "source(0) * source(1)"
+    },
+  }
+
+  return lstm_dict
+
+
+def add_att_weights_center_of_gravity(network: Dict, rec_layer_name: str, att_t_dim_tag_code_wrapper: CodeWrapper):
   """
   For segmental models, add a layer which computes the center of gravity of the attention weights.
   I.e. sum_t [alpha_t * t], where the t are absolute encoder positions (i.e. t \in [0, T))
@@ -526,7 +594,7 @@ def add_att_weights_center_of_gravity(network: Dict, rec_layer_name: str):
   # make sure the network looks like we expect
   assert "att_weights" in network[rec_layer_name]["unit"]
 
-  add_abs_segment_positions(network, rec_layer_name)
+  add_abs_segment_positions(network, rec_layer_name, att_t_dim_tag_code_wrapper)
 
   network[rec_layer_name]["unit"].update({
     "weighted_segment_abs_positions": {
@@ -538,12 +606,19 @@ def add_att_weights_center_of_gravity(network: Dict, rec_layer_name: str):
       "class": "reduce",
       "mode": "sum",
       "from": "weighted_segment_abs_positions",
-      "axis": "stag:sliced-time:segments"
+      "axis": att_t_dim_tag_code_wrapper
     },
   })
 
 
-def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag: CodeWrapper):
+def add_length_model_pos_probs(
+        network: Dict,
+        rec_layer_name: str,
+        use_normalization: bool,
+        att_t_dim_tag: CodeWrapper,
+        blank_log_prob_dim_tag: CodeWrapper,
+        segment_lens_starts_layer_name: str,
+):
   """
   For segmental models, add a layer which, for each frame in a segment, computes the length model probability of this
   frame being an "emit" frame.
@@ -554,11 +629,11 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
   """
   # for now, this is only implemented for the case that the length model is independent of alignment/label context
   # otherwise this cannot be implemented in an efficient way
-  if network["output"]["unit"]["s"]["from"] != ["am"]:
+  if network["output"]["unit"]["s_length_model"]["from"] != ["am"]:
     raise NotImplementedError
 
-  add_abs_segment_positions(network, rec_layer_name)
-  add_center_positions(network)
+  add_abs_segment_positions(network, rec_layer_name, att_t_dim_tag_code_wrapper=att_t_dim_tag)
+  add_center_positions(network, segment_lens_starts_layer_name=segment_lens_starts_layer_name)
 
   network["output"]["unit"]["blank_log_prob"]["is_output_layer"] = True
   network["output"]["unit"]["emit_log_prob"]["is_output_layer"] = True
@@ -575,6 +650,7 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
       "blank_log_prob0": {
         "class": "slice_nd",
         "from": "base:output/blank_log_prob",
+        "out_spatial_dim": blank_log_prob_dim_tag,
         "size": "blank_log_prob_size",
         "start": "prev:center_positions"
       },
@@ -582,7 +658,7 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
       "blank_log_prob_mask_range": {
         "class": "range_in_axis",
         "from": "blank_log_prob0",
-        "axis": "stag:sliced-time:blank_log_prob0"
+        "axis": blank_log_prob_dim_tag
       },
       "blank_log_prob_mask": {
         "class": "compare",
@@ -603,7 +679,7 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
       "blank_log_prob_cum_sum0": {
         "class": "cumsum",
         "from": "blank_log_prob",
-        "axis": "stag:sliced-time:blank_log_prob0"
+        "axis": blank_log_prob_dim_tag
       },
       # get the cum blank log probs corresponding to the current segment
       # in case the segment is overlapping with the last one, we slice from positions which are left of the actual start
@@ -617,7 +693,7 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
       "blank_log_prob_cum_sum": {
         "class": "slice_nd",
         "from": "blank_log_prob_cum_sum0",
-        "axis": "stag:sliced-time:blank_log_prob0",
+        "axis": blank_log_prob_dim_tag,
         "out_spatial_dim": att_t_dim_tag,
         "size": "segment_lens",
         "start": "blank_log_prob_cum_sum_left_bound"
@@ -631,10 +707,10 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
         "start": "segment_starts"
       },
       # get the final length model probs by adding the emit log prob with the cum blank log probs
-      "label_sync_pos_prob0": {
+      "label_sync_pos_log_prob0": {
         "class": "eval",
         "from": ["blank_log_prob_cum_sum", "emit_log_prob"],
-        "eval": "tf.math.exp(source(0) + source(1))"
+        "eval": "source(0) + source(1)"
       },
       # set the prob for the invalid positions to 0.0
       "label_sync_pos_valid_start_idx": {
@@ -644,7 +720,7 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
       },
       "label_sync_pos_range": {
         "class": "range_in_axis",
-        "from": "label_sync_pos_prob0",
+        "from": "label_sync_pos_log_prob0",
         "axis": att_t_dim_tag
       },
       "label_sync_pos_valid_mask": {
@@ -652,19 +728,32 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
         "from": ["label_sync_pos_range", "label_sync_pos_valid_start_idx"],
         "kind": "greater_equal"
       },
-      "label_sync_pos_prob": {
+      "label_sync_pos_log_prob": {
         "class": "switch",
         "condition": "label_sync_pos_valid_mask",
-        "true_from": "label_sync_pos_prob0",
+        "true_from": "label_sync_pos_log_prob0",
         "false_from": CodeWrapper('float("-inf")')
       },
-      # normalize with softmax
-      "label_sync_pos_prob_norm": {
-        "class": "softmax_over_spatial",
-        "from": "label_sync_pos_prob",
-        "axis": att_t_dim_tag,
-      },
     })
+
+    if use_normalization:
+      # normalize with softmax
+      network[rec_layer_name]["unit"].update({
+        "label_sync_pos_prob": {
+          "class": "softmax_over_spatial",
+          "from": "label_sync_pos_log_prob",
+          "axis": att_t_dim_tag
+        }
+      })
+    else:
+      # just use exp without normalization
+      network[rec_layer_name]["unit"].update({
+        "label_sync_pos_prob": {
+          "class": "activation",
+          "from": "label_sync_pos_log_prob",
+          "activation": "exp"
+        }
+      })
   else:
     assert rec_layer_name == "output"
     network["length_model_probs"] = {
@@ -693,7 +782,7 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
         "emit_prob0": {
           "activation": None,
           "class": "linear",
-          "from": "s",
+          "from": "s_length_model",
           "n_out": 1,
           "name_scope": "/output/rec/emit_prob0"
         },
@@ -701,7 +790,7 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
           "class": "copy",
           "from": "am"
         },
-        "s": {
+        "s_length_model": {
           "L2": 0.0001,
           "class": "rec",
           "dropout": 0.3,
@@ -709,7 +798,7 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
           "n_out": 128,
           "unit": "nativelstm2",
           "unit_opts": {"rec_weight_dropout": 0.3},
-          "name_scope": "/output/rec/s/rec"
+          "name_scope": "/output/rec/s_length_model/rec"
         },
       }
     }
@@ -726,7 +815,6 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
       "axis": "t"
     }
     del network[rec_layer_name]["unit"]["emit_prob0"]
-    del network[rec_layer_name]["unit"]["s"]
     network[rec_layer_name]["unit"].update({
       # get all the blank log probs from the prev center pos to the second last frame of the segment
       "accum_blank_log_prob_size": {
@@ -737,6 +825,7 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
       "accum_blank_log_prob0": {
         "class": "slice_nd",
         "from": "base:length_model_probs/blank_log_prob",
+        "out_spatial_dim": blank_log_prob_dim_tag,
         "size": "accum_blank_log_prob_size",
         "start": "prev:center_positions"
       },
@@ -744,7 +833,7 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
       "accum_blank_log_prob_mask_range": {
         "class": "range_in_axis",
         "from": "accum_blank_log_prob0",
-        "axis": "stag:sliced-time:accum_blank_log_prob0"
+        "axis": blank_log_prob_dim_tag
       },
       "accum_blank_log_prob_mask": {
         "class": "compare",
@@ -765,7 +854,7 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
       "blank_log_prob_cum_sum0": {
         "class": "cumsum",
         "from": "accum_blank_log_prob",
-        "axis": "stag:sliced-time:accum_blank_log_prob0"
+        "axis": blank_log_prob_dim_tag
       },
       # get the cum blank log probs corresponding to the current segment
       # in case the segment is overlapping with the last one, we slice from positions which are left of the actual start
@@ -779,7 +868,7 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
       "blank_log_prob_cum_sum": {
         "class": "slice_nd",
         "from": "blank_log_prob_cum_sum0",
-        "axis": "stag:sliced-time:accum_blank_log_prob0",
+        "axis": blank_log_prob_dim_tag,
         "out_spatial_dim": att_t_dim_tag,
         "size": "segment_lens",
         "start": "blank_log_prob_cum_sum_left_bound"
@@ -793,10 +882,10 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
         "start": "segment_starts"
       },
       # get the final length model probs by adding the emit log prob with the cum blank log probs
-      "label_sync_pos_prob0": {
+      "label_sync_pos_log_prob0": {
         "class": "eval",
         "from": ["blank_log_prob_cum_sum", "accum_emit_log_prob"],
-        "eval": "tf.math.exp(source(0) + source(1))"
+        "eval": "source(0) + source(1)"
       },
       # set the prob for the invalid positions to 0.0
       "label_sync_pos_valid_start_idx": {
@@ -806,7 +895,7 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
       },
       "label_sync_pos_range": {
         "class": "range_in_axis",
-        "from": "label_sync_pos_prob0",
+        "from": "label_sync_pos_log_prob0",
         "axis": att_t_dim_tag
       },
       "label_sync_pos_valid_mask": {
@@ -814,19 +903,32 @@ def add_length_model_pos_probs(network: Dict, rec_layer_name: str, att_t_dim_tag
         "from": ["label_sync_pos_range", "label_sync_pos_valid_start_idx"],
         "kind": "greater_equal"
       },
-      "label_sync_pos_prob": {
+      "label_sync_pos_log_prob": {
         "class": "switch",
         "condition": "label_sync_pos_valid_mask",
-        "true_from": "label_sync_pos_prob0",
+        "true_from": "label_sync_pos_log_prob0",
         "false_from": CodeWrapper('float("-inf")')
       },
-      # normalize with softmax
-      "label_sync_pos_prob_norm": {
-        "class": "softmax_over_spatial",
-        "from": "label_sync_pos_prob",
-        "axis": att_t_dim_tag,
-      },
     })
+
+    if use_normalization:
+      # normalize with softmax
+      network[rec_layer_name]["unit"].update({
+        "label_sync_pos_prob": {
+          "class": "softmax_over_spatial",
+          "from": "label_sync_pos_log_prob",
+          "axis": att_t_dim_tag
+        }
+      })
+    else:
+      # just use exp without normalization
+      network[rec_layer_name]["unit"].update({
+        "label_sync_pos_prob": {
+          "class": "activation",
+          "from": "label_sync_pos_log_prob",
+          "activation": "exp"
+        }
+      })
 
 def add_att_weight_interpolation(
         network: Dict, rec_layer_name: str, interpolation_layer_name: str, interpolation_scale: float):

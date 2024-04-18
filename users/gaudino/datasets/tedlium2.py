@@ -132,7 +132,8 @@ default_audio_opts = _default_audio_opts_log_mel_fbank_no_stats
 #     }
 # )
 
-default_train_epoch_split = 20
+default_train_epoch_split = 4
+# default_train_epoch_split = 20
 #
 # default_dataset_config = {
 #     "train": _get_dataset(

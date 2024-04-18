@@ -13,22 +13,48 @@ from .data import build_phon_training_datasets, TrainingDatasetSettings, get_eow
 from ..data import build_test_dataset
 from ..default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 
-from ..pipeline import training, search, compute_prior
+from ..pipeline import training, search, compute_prior, quantize_static
 
-from .config import get_training_config, get_search_config, get_prior_config, get_quant_config
+from .config import get_training_config, get_search_config, get_prior_config, get_static_quant_config
+
+def calc_stat(ls):
+    avrg = np.average([float(x[1]) for x in ls])
+    min = np.min([float(x[1]) for x in ls])
+    max = np.max([float(x[1]) for x in ls])
+    median = np.median([float(x[1]) for x in ls])
+    std = np.std([float(x[1]) for x in ls])
+    ex_str = f"Avrg: {avrg}, Min {min}, Max {max}, Median {median}, Std {std}"
+    return ex_str
 
 def flash_phon_ctc_report_format(report: _Report_Type) -> str:
-    extra_ls = []
-    out = [(" ".join(recog.split("/")[-3:]), str(report[recog])) for recog in report if not any(extra in recog for extra in extra_ls)]
+    extra_ls = ["quantize_static"]
+    out = [(" ".join(recog.split("/")[6:]), str(report[recog])) for recog in report if not any(extra in recog for extra in extra_ls)]
     out = sorted(out, key=lambda x: float(x[1]))
     best_ls = [out[0]]
     for extra in extra_ls:
-        out2 = [(" ".join(recog.split("/")[-3:]), str(report[recog])) for recog in report if extra in recog]
-        out2 = sorted(out2, key=lambda x: float(x[1]))
-        if len(out2) > 0:
-            out.append((extra, ""))
-            out.extend(out2)
-            best_ls.append(out2[0])
+        if extra == "quantize_static":
+            tmp = {recog: report[recog] for recog in report if extra in recog}
+            iters = set()
+            for recog in tmp:
+                x = recog.split("/")
+                for sub in x:
+                    if "samples" in sub:
+                        iters.add(sub[len("samples_"):])
+            for samples in iters:
+                out2 = [(" ".join(recog.split("/")[6:]), str(report[recog])) for recog in report if f"samples_{samples}/" in recog]
+                out2 = sorted(out2, key=lambda x: float(x[1]))
+                if len(out2) > 0:
+                    ex_str = calc_stat(out2)
+                    out.append((extra + f"_samples_{samples}", ex_str))
+                    out.extend(out2)
+                    best_ls.append(out2[0])
+        else:
+            out2 = [(" ".join(recog.split("/")[6:]), str(report[recog])) for recog in report if extra in recog]
+            out2 = sorted(out2, key=lambda x: float(x[1]))
+            if len(out2) > 0:
+                out.append((extra, ""))
+                out.extend(out2)
+                best_ls.append(out2[0])
     best_ls = sorted(best_ls, key=lambda x: float(x[1]))
     out.append(("Best Results", ""))
     out.extend(best_ls)
@@ -63,8 +89,17 @@ def conformer_baseline():
     lms_system = run_tedlium2_ngram_lm(add_unknown_phoneme_and_mapping=False)
     lm = lms_system.interpolated_lms["dev-pruned"]["4gram"]
     arpa_ted_lm = lm.ngram_lm
-    # TODO: Add binary conversion job
-
+    from i6_core.lm.kenlm import CreateBinaryLMJob, CompileKenLMJob
+    from i6_core.tools.git import CloneGitRepositoryJob
+    kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
+    KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
+    KENLM_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
+    arpa_4gram_binary_lm_job = CreateBinaryLMJob(
+        arpa_lm=arpa_ted_lm,
+        kenlm_binary_folder=KENLM_BINARY_PATH
+    )
+    arpa_4gram_binary_lm_job.add_alias("experiments/jaist_project/lm/create_4gram_binary_lm")
+    arpa_4gram_binary_lm = arpa_4gram_binary_lm_job.out_lm
     # ---------------------------------------------------------------------------------------------------------------- #
 
     def run_exp(
@@ -94,8 +129,9 @@ def conformer_baseline():
                 checkpoint=train_job.out_checkpoints[num_epochs],
                 returnn_exe=RETURNN_EXE,
                 returnn_root=MINI_RETURNN_ROOT,
+                epoch=str(num_epochs),
             )
-            tk.register_output(training_name + "/prior.txt", prior_file)
+            tk.register_output(training_name + f"/prior/{str(num_epochs)}.txt", prior_file)
             search_args["prior_file"] = prior_file
 
         returnn_search_config = get_search_config(**train_args, decoder_args=search_args, decoder=decoder)
@@ -130,7 +166,7 @@ def conformer_baseline():
             search_job_ls += search_jobs
             report.update(values_report)
         from i6_core.returnn import AverageTorchCheckpointsJob
-        if eval_average:
+        if eval_average is not None:
             chkpts = []
             for x in [0, 1, 2, 3]:
                 best_job = GetBestPtCheckpointJob(train_job.out_model_dir, train_job.out_learning_rates, key="dev_loss_ctc", index=x)
@@ -149,19 +185,54 @@ def conformer_baseline():
             search_job_ls += search_jobs
             report.update(values_report)
 
-        if quant_args and False:
-            quant_config = get_quant_config(training_datasets=datasets, quant_args=quant_args, **train_args)
-            quant_model = quantize_static(quant_config)
-            format_string_report, values_report, search_jobs = search(
-                ft_name + "/quant_", # TODO find alias
-                returnn_search_config,
-                quant_model,
-                test_dataset_tuples,
-                RETURNN_EXE,
-                MINI_RETURNN_ROOT,
-            )
-            search_job_ls += search_jobs
-            report.update(values_report)
+        if quant_args is not None:
+            # best_job = GetBestPtCheckpointJob(train_job.out_model_dir, train_job.out_learning_rates, key="dev_loss_ctc")
+            # best_job.add_alias(ft_name + "/get_best_job")
+            if with_prior:
+                returnn_config = get_prior_config(training_datasets=datasets, **train_args)
+                prior_file = compute_prior(
+                    ft_name,
+                    returnn_config,
+                    checkpoint=train_job.out_checkpoints[num_epochs],
+                    returnn_exe=RETURNN_EXE,
+                    returnn_root=MINI_RETURNN_ROOT,
+                    epoch=str(num_epochs)
+                )
+                tk.register_output(training_name + f"/prior/{num_epochs}.txt", prior_file)
+                search_args["prior_file"] = prior_file
+            tmp_quant_args = copy.deepcopy(quant_args)
+            quant_decoder = tmp_quant_args.pop("decoder", decoder)
+            sample_ls = tmp_quant_args.pop("sample_ls", [10])
+            iterations = tmp_quant_args.pop("num_iterations", 1)
+            for num_samples in sample_ls:
+                for seed in range(iterations):
+                    it_name = ft_name + f"/quantize_static/samples_{num_samples}/seed_{seed}/"
+                    tmp_quant_args["dataset_seed"] = seed
+                    tmp_quant_args["num_samples"] = num_samples
+                    quant_config = get_static_quant_config(training_datasets=datasets, quant_args=tmp_quant_args, **train_args)
+                    quant_model = quantize_static(
+                        prefix_name=it_name + "default_250/",
+                        returnn_config=quant_config,
+                        checkpoint=train_job.out_checkpoints[num_epochs],
+                        returnn_exe=RETURNN_EXE,
+                        returnn_root=MINI_RETURNN_ROOT,
+                    )
+                    returnn_search_config = get_search_config(
+                        **train_args,
+                        decoder_args=search_args,
+                        decoder=quant_decoder,
+                        quant_args=tmp_quant_args
+                    )
+                    format_string_report, values_report, search_jobs = search(
+                        it_name + "default_250/",
+                        returnn_search_config,
+                        quant_model,
+                        test_dataset_tuples,
+                        RETURNN_EXE,
+                        MINI_RETURNN_ROOT,
+                    )
+                    search_job_ls += search_jobs
+                    report.update(values_report)
 
         return train_job, search_job_ls, format_string_report, report
 
@@ -335,7 +406,7 @@ def conformer_baseline():
             )
             results.update(wer_values)
             del wer_values
-    generate_report(  # 9.8
+    generate_report(  # 9.7
         results=results, exp_name=prefix_name + "conformer_0923/transparent_i6modelsV1_2x1D_frontend_xavierinit_bs1024_prune16"
     )
     del results
@@ -415,14 +486,14 @@ def conformer_baseline():
                 + "conformer_0923/transparent_12x512_i6modelsV1_2x1D_frontend_xavierinit/lm%.1f_prior%.2f"
                 % (lm_weight, prior_scale),
                 datasets=train_data,
-                train_args=train_args,  # 10.2
+                train_args=train_args,
                 search_args=search_args,
                 with_prior=True,
                 eval_best=False,
             )
             results.update(wer_values)
             del wer_values
-    generate_report(  # 10.2
+    generate_report(  # 10.1
         results=results, exp_name=prefix_name + "conformer_0923/transparent_12x512_i6modelsV1_2x1D_frontend_xavierinit"
     )
     del results
@@ -508,7 +579,7 @@ def conformer_baseline():
             )
             results.update(wer_values)
             del wer_values
-    generate_report(  # 9.2
+    generate_report(  # 9.1
         results=results, exp_name=prefix_name + "conformer_0923/i6modelsV1_2x1D_frontend_xavierinit"
     )
     del results
@@ -543,7 +614,7 @@ def conformer_baseline():
             )
             results.update(wer_values)
             del wer_values
-    generate_report(  # 9.4
+    generate_report(  # 9.3
         results=results,
         exp_name=prefix_name + "conformer_0923/i6modelsV1_2x1D_frontend_xavierinit_adam"
     )
@@ -711,7 +782,7 @@ def conformer_baseline():
             )
             results.update(wer_values)
             del wer_values
-    generate_report(  # 8.4
+    generate_report(  # 8.3
         results=results, exp_name=prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_convfirst"
     )
     del results
@@ -1029,7 +1100,7 @@ def conformer_baseline():
             )
             results.update(wer_values)
             del wer_values
-    generate_report(  # 7.7
+    generate_report(  # 7.5
         results=results, exp_name=prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_ep500skewed"
     )
     del results
@@ -1328,6 +1399,7 @@ def conformer_baseline():
             for beam_threshold in [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]:  # 12
                 # for beam_size in [256, 1024, 4096, 8192]:  # 4
                 for beam_size in [256, 1024]:  # 4
+                    continue
                     search_args = {
                         **copy.deepcopy(default_search_args),
                         "lm_weight": lm_weight,
@@ -1485,7 +1557,7 @@ def conformer_baseline():
             )
             results.update(wer_values)
             del wer_values
-    generate_report(  # 7.3
+    generate_report(  # 7.3, 7.1 avrg.
         results=results, exp_name=prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v5_longerJJLR_500ep"
     )
     del results
@@ -1552,41 +1624,41 @@ def conformer_baseline():
     )
     del results
 
-    model_config_v4_start11 = copy.deepcopy(model_config_v4)
-    model_config_v4_start11.specauc_start_epoch = 11
-    train_args = copy.deepcopy(train_args)
-    train_args["net_args"]["model_config_dict"] = asdict(model_config_v4_start11)
-    train_args["config"]["learning_rates"] = list(np.linspace(1e-5, 1e-3, 150)) + list(np.linspace(1e-3, 1e-5, 150))
-    train_args["config"]["batch_size"] = 500 * 16000
-    train_args["config"]["accum_grad_multiple_step"] = 1
-    train_args["config"]["optimizer"]["weight_decay"] = 1e-2
-    results = {}
-    for lm_weight in [1.6, 1.8, 2.0, 2.2]:
-        for prior_scale in [0.5, 0.7]:
-            search_args = {
-                **default_search_args,
-                "lm_weight": lm_weight,
-                "prior_scale": prior_scale,
-            }
-            search_args["beam_size"] = 1024
-            search_args["beam_threshold"] = 14
-            train_job, _, _, wer_values = run_exp(
-                prefix_name
-                + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v5_24gb_bs500/lm%.1f_prior%.2f_bs1024_th14"
-                % (lm_weight, prior_scale),
-                datasets=train_data,
-                train_args=train_args,
-                search_args=search_args,
-                with_prior=True,
-                eval_best=False,
-            )
-            train_job.rqmt["gpu_mem"] = 24
-            results.update(wer_values)
-            del wer_values
-    generate_report(  # 7.8
-        results=results, exp_name=prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v5_24gb_bs500"
-    )
-    del results
+    # model_config_v4_start11 = copy.deepcopy(model_config_v4)
+    # model_config_v4_start11.specauc_start_epoch = 11
+    # train_args = copy.deepcopy(train_args)
+    # train_args["net_args"]["model_config_dict"] = asdict(model_config_v4_start11)
+    # train_args["config"]["learning_rates"] = list(np.linspace(1e-5, 1e-3, 150)) + list(np.linspace(1e-3, 1e-5, 150))
+    # train_args["config"]["batch_size"] = 500 * 16000
+    # train_args["config"]["accum_grad_multiple_step"] = 1
+    # train_args["config"]["optimizer"]["weight_decay"] = 1e-2
+    # results = {}
+    # for lm_weight in [1.6, 1.8, 2.0, 2.2]:
+    #     for prior_scale in [0.5, 0.7]:
+    #         search_args = {
+    #             **default_search_args,
+    #             "lm_weight": lm_weight,
+    #             "prior_scale": prior_scale,
+    #         }
+    #         search_args["beam_size"] = 1024
+    #         search_args["beam_threshold"] = 14
+    #         train_job, _, _, wer_values = run_exp(
+    #             prefix_name
+    #             + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v5_24gb_bs500/lm%.1f_prior%.2f_bs1024_th14"
+    #             % (lm_weight, prior_scale),
+    #             datasets=train_data,
+    #             train_args=train_args,
+    #             search_args=search_args,
+    #             with_prior=True,
+    #             eval_best=False,
+    #         )
+    #         train_job.rqmt["gpu_mem"] = 24
+    #         results.update(wer_values)
+    #         del wer_values
+    # generate_report(  # 7.8
+    #     results=results, exp_name=prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v5_24gb_bs500"
+    # )
+    # del results
 
     frontend_config_large = VGG4LayerActFrontendV1Config_mod(
         in_features=80,
@@ -1654,7 +1726,7 @@ def conformer_baseline():
             )
             results.update(wer_values)
             del wer_values
-    generate_report( # 7.2
+    generate_report(  # 7.2
         results=results, exp_name=prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v3_JJLR_large_accum2"
     )
     del results
@@ -1749,17 +1821,22 @@ def conformer_baseline():
         pool1_kernel_size=(3, 1),
         pool1_stride=(3, 1),
         pool1_padding=None,
-        pool2_kernel_size=(2, 1),
+        pool2_kernel_size=(1, 2),
         pool2_stride=(1, 1),
         pool2_padding=None,
         activation_str="ReLU",
         out_features=384,
         activation=None,
     )
-
+    specaug_config_sub3 = SpecaugConfig(
+        repeat_per_n_frames=25,
+        max_dim_time=20,
+        max_dim_feat=16,
+        num_repeat_feat=5,
+    )
     model_config_v4 = ModelConfigV4(
         frontend_config=frontend_config_sub3,
-        specaug_config=specaug_config,
+        specaug_config=specaug_config_sub3,
         label_target_size=vocab_size_without_blank,
         conformer_size=384,
         num_layers=12,
@@ -1807,15 +1884,14 @@ def conformer_baseline():
             )
             results.update(wer_values)
             del wer_values
-    generate_report(
+    generate_report(  # 9.2 but diverges, running now with more spec
         results=results, exp_name=prefix_name + "conformer_0923/i6modelsV1_VGG4LayerActFrontendV1_v5_JJLR_sub3"
     )
     del results
 
     from ..pytorch_networks.ctc.conformer_0923.baseline_quant_v1_cfg import QuantModelTrainConfigV1, QuantModelConfigV1
-    import torch
     model_train_config_quant_v1 = QuantModelTrainConfigV1(
-        frontend_config=frontend_config_sub3,
+        frontend_config=frontend_config,
         specaug_config=specaug_config,
         label_target_size=vocab_size_without_blank,
         conformer_size=384,
@@ -1830,19 +1906,6 @@ def conformer_baseline():
         final_dropout=0.2,
         specauc_start_epoch=1,
     )
-    model_config_quant_v1 = QuantModelConfigV1(
-        train_config=model_train_config_quant_v1,
-        weight_quant_dtype=torch.qint8,
-        weight_quant_method="per_tensor",
-        activation_quant_dtype=torch.qint8,
-        activation_quant_method="per_tensor",
-        dot_quant_dtype=torch.qint8,
-        dot_quant_method="per_tensor",
-        Av_quant_dtype=torch.qint8,
-        Av_quant_method="per_tensor",
-        moving_average=0.01,
-        bit_prec=8
-    )
 
     train_args = {
         **copy.deepcopy(train_args_adamw03_accum2),
@@ -1856,22 +1919,41 @@ def conformer_baseline():
         list(np.linspace(7e-6, 7e-4, 110)) + list(np.linspace(7e-4, 7e-5, 110)) + list(np.linspace(7e-5, 1e-8, 30))
     )
     train_args["config"]["batch_size"] = 180 * 16000
-    quant_args = {
-        "quant_config_dict": asdict(model_config_quant_v1)
-    }
+
     results = {}
-    for lm_weight in [1.6, 1.8, 2.0, 2.2]:
-        for prior_scale in [0.5, 0.7]:
+    model_config_quant_v1 = QuantModelConfigV1(
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor",
+        moving_average=0.01,
+        bit_prec=8
+    )
+    #for num_samples in [10, 30, 100, 500, 1000]:
+    quant_args = {
+        "sample_ls": [10, 30, 100, 500, 1000],
+        "quant_config_dict": asdict(model_config_quant_v1),
+        "decoder": "ctc.decoder.flashlight_quant_stat_phoneme_ctc",
+        "num_iterations": 100,
+    }
+    # hardcode scales for now since parameter search over quant already is rough
+    for lm_weight in [2.2]:
+        for prior_scale in [0.7]:
             search_args = {
                 **default_search_args,
                 "lm_weight": lm_weight,
                 "prior_scale": prior_scale,
             }
+            search_args["arpa_lm"] = arpa_4gram_binary_lm
             search_args["beam_size"] = 1024
             search_args["beam_threshold"] = 14
             _, _, _, wer_values = run_exp(
                 prefix_name
-                + "conformer_0923/baseline_quant_JJLR/lm%.1f_prior%.2f_bs1024_th14"
+                + f"conformer_0923/baseline_quant_JJLR/lm%.1f_prior%.2f_bs1024_th14"
                 % (lm_weight, prior_scale),
                 datasets=train_data,
                 train_args=train_args,
@@ -1885,3 +1967,185 @@ def conformer_baseline():
         results=results, exp_name=prefix_name + "conformer_0923/baseline_quant_JJLR"
     )
     del results
+
+    for bit_prec in [4, 5, 6, 7]:
+        results = {}
+        model_config_quant_v1 = QuantModelConfigV1(
+            weight_quant_dtype="qint8",
+            weight_quant_method="per_tensor",
+            activation_quant_dtype="qint8",
+            activation_quant_method="per_tensor",
+            dot_quant_dtype="qint8",
+            dot_quant_method="per_tensor",
+            Av_quant_dtype="qint8",
+            Av_quant_method="per_tensor",
+            moving_average=0.01,
+            bit_prec=bit_prec
+        )
+        #for num_samples in [10, 30, 100, 500, 1000]:
+        quant_args = {
+            "sample_ls": [10],
+            "quant_config_dict": asdict(model_config_quant_v1),
+            "decoder": "ctc.decoder.flashlight_quant_stat_phoneme_ctc",
+            "num_iterations": 100,
+        }
+        # hardcode scales for now since parameter search over quant already is rough
+        for lm_weight in [2.2]:
+            for prior_scale in [0.7]:
+                search_args = {
+                    **default_search_args,
+                    "lm_weight": lm_weight,
+                    "prior_scale": prior_scale,
+                }
+                search_args["arpa_lm"] = arpa_4gram_binary_lm
+                search_args["beam_size"] = 1024
+                search_args["beam_threshold"] = 14
+                _, _, _, wer_values = run_exp(
+                    prefix_name
+                    + f"conformer_0923/baseline_quant_JJLR_bitprec_{bit_prec}/lm%.1f_prior%.2f_bs1024_th14"
+                    % (lm_weight, prior_scale),
+                    datasets=train_data,
+                    train_args=train_args,
+                    search_args=search_args,
+                    with_prior=True,
+                    quant_args=quant_args,
+                )
+                results.update(wer_values)
+                del wer_values
+        generate_report(
+            results=results, exp_name=prefix_name + f"conformer_0923/baseline_quant_JJLR_bitprec_{bit_prec}"
+        )
+        del results
+
+    specaug_config_less = SpecaugConfig(
+        repeat_per_n_frames=25,
+        max_dim_time=20,
+        max_dim_feat=8,
+        num_repeat_feat=5,
+    )
+    model_train_config_quant_v2 = QuantModelTrainConfigV1(
+        frontend_config=frontend_config,
+        specaug_config=specaug_config_less,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=1,
+    )
+
+    train_args = {
+        **copy.deepcopy(train_args_adamw03_accum2),
+        "network_module": "ctc.conformer_0923.baseline_quant_v1",
+        "debug": True,
+        "net_args": {
+            "model_config_dict": asdict(model_train_config_quant_v2),
+        },
+    }
+    train_args["config"]["learning_rates"] = (
+        list(np.linspace(7e-6, 7e-4, 110)) + list(np.linspace(7e-4, 7e-5, 110)) + list(np.linspace(7e-5, 1e-8, 30))
+    )
+    train_args["config"]["batch_size"] = 180 * 16000
+
+    results = {}
+    model_config_quant_v1 = QuantModelConfigV1(
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor",
+        moving_average=0.01,
+        bit_prec=8
+    )
+    #for num_samples in [10, 30, 100, 500, 1000]:
+    quant_args = {
+        "sample_ls": [10, 30, 100, 500, 1000],
+        "quant_config_dict": asdict(model_config_quant_v1),
+        "decoder": "ctc.decoder.flashlight_quant_stat_phoneme_ctc",
+        "num_iterations": 100,
+    }
+    # hardcode scales for now since parameter search over quant already is rough
+    for lm_weight in [2.2]:
+        for prior_scale in [0.7]:
+            search_args = {
+                **default_search_args,
+                "lm_weight": lm_weight,
+                "prior_scale": prior_scale,
+            }
+            search_args["arpa_lm"] = arpa_4gram_binary_lm
+            search_args["beam_size"] = 1024
+            search_args["beam_threshold"] = 14
+            _, _, _, wer_values = run_exp(
+                prefix_name
+                + f"conformer_0923/baseline_quant_JJLR_less_spec/lm%.1f_prior%.2f_bs1024_th14"
+                % (lm_weight, prior_scale),
+                datasets=train_data,
+                train_args=train_args,
+                search_args=search_args,
+                with_prior=True,
+                quant_args=quant_args,
+            )
+            results.update(wer_values)
+            del wer_values
+    generate_report(
+        results=results, exp_name=prefix_name + "conformer_0923/baseline_quant_JJLR_less_spec"
+    )
+    del results
+
+    for bit_prec in []:
+        results = {}
+        model_config_quant_v1 = QuantModelConfigV1(
+            weight_quant_dtype="qint8",
+            weight_quant_method="per_tensor",
+            activation_quant_dtype="qint8",
+            activation_quant_method="per_tensor",
+            dot_quant_dtype="qint8",
+            dot_quant_method="per_tensor",
+            Av_quant_dtype="qint8",
+            Av_quant_method="per_tensor",
+            moving_average=0.01,
+            bit_prec=bit_prec
+        )
+        #for num_samples in [10, 30, 100, 500, 1000]:
+        quant_args = {
+            "sample_ls": [10],
+            "quant_config_dict": asdict(model_config_quant_v1),
+            "decoder": "ctc.decoder.flashlight_quant_stat_phoneme_ctc",
+            "num_iterations": 100,
+        }
+        # hardcode scales for now since parameter search over quant already is rough
+        for lm_weight in [2.2]:
+            for prior_scale in [0.7]:
+                search_args = {
+                    **default_search_args,
+                    "lm_weight": lm_weight,
+                    "prior_scale": prior_scale,
+                }
+                search_args["arpa_lm"] = arpa_4gram_binary_lm
+                search_args["beam_size"] = 1024
+                search_args["beam_threshold"] = 14
+                _, _, _, wer_values = run_exp(
+                    prefix_name
+                    + f"conformer_0923/baseline_quant_JJLR_less_spec_bitprec_{bit_prec}/lm%.1f_prior%.2f_bs1024_th14"
+                    % (lm_weight, prior_scale),
+                    datasets=train_data,
+                    train_args=train_args,
+                    search_args=search_args,
+                    with_prior=True,
+                    quant_args=quant_args,
+                )
+                results.update(wer_values)
+                del wer_values
+        generate_report(
+            results=results, exp_name=prefix_name + f"conformer_0923/baseline_quant_JJLR_less_spec_bitprec_{bit_prec}"
+        )
+        del results

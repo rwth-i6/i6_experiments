@@ -90,21 +90,21 @@ def get_serializer(
                 import_as="forward_finish_hook",
             )
             serializer_objects.extend([forward_step, init_hook, finish_hook])
-        elif target == "phoneme":
+        elif "phoneme" in target:
             forward_step = Import(
-                code_object_path=package + ".%s.phoneme_prediction_step" % network_module,
+                code_object_path=package + f".{network_module}.{target}_prediction_step",
                 unhashed_package_root=PACKAGE,
                 import_as="forward_step",
             )
             init_hook = PartialImport(
-                code_object_path=package + ".%s.phoneme_prediction_init_hook" % network_module,
+                code_object_path=package + f".{network_module}.{target}_prediction_init_hook",
                 hashed_arguments=forward_args or {},
                 unhashed_arguments={},
                 unhashed_package_root=PACKAGE,
                 import_as="forward_init_hook",
             )
             finish_hook = Import(
-                code_object_path=package + ".%s.phoneme_prediction_finish_hook" % network_module,
+                code_object_path=package + f".{network_module}.{target}_prediction_finish_hook",
                 unhashed_package_root=PACKAGE,
                 import_as="forward_finish_hook",
             )

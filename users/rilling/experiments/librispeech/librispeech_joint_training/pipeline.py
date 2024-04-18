@@ -2,12 +2,16 @@ from sisyphus import tk
 import copy
 import os
 from i6_core.returnn import ReturnnTrainingJob
-from i6_core.returnn.forward import ReturnnForwardJob
+from i6_core.returnn.forward import ReturnnForwardJob, ReturnnForwardJobV2
 from i6_core.returnn.search import SearchBPEtoWordsJob
+
+from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAMosPredictionJob
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datasets import GenericDataset
 
-from .default_tools import SCTK_BINARY_PATH
+from i6_experiments.users.rilling.evaluation.jobs.hdf_mean import MeanHDFContentJob
+
+from .default_tools import SCTK_BINARY_PATH, NISQA_REPO
 
 def training(config, returnn_exe, returnn_root, prefix, num_epochs=65):
     train_job = ReturnnTrainingJob(
@@ -189,3 +193,21 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
     report = GenerateReportStringJob(report_values=values, report_template=format_string, compress=False).out_report
     tk.register_output(os.path.join(prefix_name, "report"), report)
     return format_string_report, values_report
+
+
+
+# def evaluate_invertibility(name, checkpoint, forward_config, returnn_root, returnn_exe):
+#     forward_job = forward(
+#         checkpoint=checkpoint,
+#         config=forward_config,
+#         returnn_exe=returnn_exe,
+#         returnn_root=returnn_root,
+#         prefix=name,
+#         target="invertibility",
+#     )
+
+#     calc_mean_job = MeanHDFContentJob(forward_job.out_hdf_files["output.hdf"])
+
+#     tk.register_output(name + "/invertibility", calc_mean_job.out_mean)
+
+#     return forward_job

@@ -21,7 +21,7 @@ from i6_experiments.common.setups.returnn_common import serialization
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
-from i6_experiments.users.gaudino.model_interfaces import ModelDef, RecogDef, ModelWithCheckpoint, ModelWithCheckpoints
+from i6_experiments.users.gaudino.model_interfaces.model_interfaces import ModelDef, RecogDef, ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 
 if TYPE_CHECKING:
@@ -312,6 +312,10 @@ def search_config_v2(
     # It's not hashed because we assume that all aspects of the dataset are already covered
     # by the datasets itself as part in the config above.
     extern_data_raw = instanciate_delayed(extern_data_raw)
+
+    if model_args.get("preload_from_files", None):
+        preload_from_files = model_args.pop("preload_from_files")
+        returnn_recog_config_dict["preload_from_files"] = preload_from_files
 
     returnn_recog_config_dict.update({
         "search_args": search_args,

@@ -3,7 +3,7 @@ from sisyphus import gs, tk
 
 from i6_core.features import FilterbankJob
 
-from i6_experiments.common.setups.rasr.util import RasrSteps
+from i6_experiments.users.hilmes.common.setups.rasr.util import RasrSteps
 from .default_tools import RASR_BINARY_PATH, RETURNN_EXE, RETURNN_ROOT
 
 from .data import get_corpus_data_inputs, get_log_mel_feature_extraction_args
@@ -12,7 +12,7 @@ from .onnx_precomputed_hybrid_system import OnnxPrecomputedHybridSystem
 
 
 def run_gmm_system():
-    from i6_experiments.common.baselines.tedlium2.gmm.baseline_config import (
+    from i6_experiments.users.hilmes.common.tedlium2.gmm.baseline_config import (
         run_tedlium2_common_baseline,
     )
 

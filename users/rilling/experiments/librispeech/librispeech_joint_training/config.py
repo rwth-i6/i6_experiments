@@ -91,7 +91,6 @@ def get_extract_durations_forward__config(
 
     serializer = get_serializer(
         training=False,
-        datastreams=forward_dataset.datastreams,
         network_module=network_module,
         net_args=net_args,
         forward=True,
@@ -121,27 +120,30 @@ def get_forward_config(
     :param kwargs: arguments to be passed to the network construction
     :return: RETURNN forward config
     """
+    fd = None
+    if isinstance(forward_dataset, tuple):
+        fd = forward_dataset[0].as_returnn_opts()
+    elif train_data:
+        fd = forward_dataset.train.as_returnn_opts()
+    elif joint_data:
+        fd = forward_dataset.joint.as_returnn_opts()
+    elif cv_data:
+        fd = forward_dataset.cv.as_returnn_opts()
+    else:
+        fd = forward_dataset.devtrain.as_returnn_opts()
+
     base_config = {
         "behavior_version": 16,
         "forward_use_search": True,
         "batch_size": 100 * 16000,
         #############
-        "forward": (
-            forward_dataset.devtrain.as_returnn_opts()
-            if not (train_data or joint_data or cv_data)
-            else (
-                forward_dataset.joint.as_returnn_opts()
-                if joint_data
-                else (forward_dataset.train.as_returnn_opts() if train_data else forward_dataset.cv.as_returnn_opts())
-            )
-        ),
+        "forward": fd,
     }
 
     config = {**base_config, **copy.deepcopy(config)}
 
     serializer = get_serializer(
         training=False,
-        datastreams=forward_dataset.datastreams,
         network_module=network_module,
         net_args=net_args,
         forward_args=forward_args,

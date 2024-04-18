@@ -28,6 +28,7 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_time_sync import (
     model_recog_time_sync,
 )
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_ts_espnet import model_recog_ts_espnet
 from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.search_data_opts import (
@@ -97,7 +98,7 @@ def test_import_search():
         target_dimension = 1057
         search_data_opts = search_data_opts_ted2
         seq_list = [f"TED-LIUM-realease2/AlGore_2009/{i}" for i in range(1, 34)]
-        seq_list = ["TED-LIUM-realease2/BlaiseAguerayArcas_2007/22"] # fixed_random_subset = 1
+        # seq_list = ["TED-LIUM-realease2/BlaiseAguerayArcas_2007/22"] # fixed_random_subset = 1
         # seq_list = ["TED-LIUM-realease2/CraigVenter_2008/22"]
         # seq_list = ['TED-LIUM-realease2/CraigVenter_2008/67', 'TED-LIUM-realease2/CraigVenter_2008/55', 'TED-LIUM-realease2/BarrySchwartz_2005G/78', 'TED-LIUM-realease2/CraigVenter_2008/22']
 
@@ -115,13 +116,13 @@ def test_import_search():
             "mel_normalization": True,
             "no_ctc": True,
         }
-        pt_checkpoint_path = _tedlium2_ckpt_path_att_only_currL
+        # pt_checkpoint_path = _tedlium2_ckpt_path_att_only_currL
 
-        # model_args_ctc_only = {
-        #     # "add_trafo_lm": True,
-        #     "target_embed_dim": 256,
-        #     "mel_normalization": True,
-        # }
+        model_args_ctc_only = {
+            # "add_trafo_lm": True,
+            "target_embed_dim": 256,
+            "mel_normalization": True,
+        }
         # pt_checkpoint_path = _tedlium2_ckpt_path_ctc_only
 
         model_args_sep_enc = {
@@ -130,9 +131,9 @@ def test_import_search():
             "mel_normalization": True,
             "encoder_ctc": True,
         }
-        pt_checkpoint_path = _tedlium2_ckpt_path_baseline__ctc_only
+        # pt_checkpoint_path = _tedlium2_ckpt_path_baseline__ctc_only
 
-        model_args = model_args_sep_enc
+        model_args = model_args
 
 
 
@@ -151,6 +152,8 @@ def test_import_search():
                 "num_layers": 24,
                 "layer_out_dim": 1024,
                 "att_num_heads": 8,
+                "use_pos_enc": True,
+                "ff_activation": "relu",
             },
         }
         pt_checkpoint_path = _librispeech960_ckpt_path_w_trafo_lm
@@ -252,15 +255,11 @@ def test_import_search():
 
     print("*** Create new model")
     ctc_only = False
-    time_sync = False
+    time_sync = True
     time_sync_search_args = {
         "beam_size": 12,
-        # "att_scale": 0.0,
         "ctc_scale": 1.0,
-        "add_trafo_lm": True,
-        "lm_scale": 0.5,
-        "remove_trafo_lm_eos": True,  # ?
-        # "add_eos_to_end": True,
+        "att_scale": 1.0,
     }
     ctc_only_search_args = {}
     search_args = {
@@ -329,7 +328,7 @@ def test_import_search():
                     seq_log_prob,
                     out_spatial_dim,
                     beam_dim,
-                ) = model_recog_time_sync(
+                ) = model_recog_ts_espnet(
                     model=new_model,
                     data=extern_data["audio_features"],
                     data_spatial_dim=time_dim,
@@ -350,6 +349,8 @@ def test_import_search():
     vocab_1 = dataset.datasets["zip_dataset"].targets
     for batch_idx in range(batch_dim.get_dim_value()):
         # process seq
+
+        breakpoint()
         hyps = seq_targets.raw_tensor[:, batch_idx, :]
         scores = seq_log_prob.raw_tensor[batch_idx, :]
         hyps_len = seq_targets.dims[0].dyn_size_ext.raw_tensor[:, batch_idx]

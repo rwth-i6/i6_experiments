@@ -127,8 +127,8 @@ def ctc_forward_algorithm(ctc_log_probs, seq, blank_idx=10025, rescale=False):
 
 def ctc_viterbi_one_seq(ctc_log_probs, seq, t_max, blank_idx=10025):
     mod_len = 2 * seq.shape[0] + 1
-    mod_seq = torch.stack([seq, torch.full(seq.shape, blank_idx,device="cuda")], dim=1).flatten()
-    mod_seq = torch.cat((torch.tensor([blank_idx], device="cuda"), mod_seq))
+    mod_seq = torch.stack([seq, torch.full(seq.shape, blank_idx,device=seq.device)], dim=1).flatten()
+    mod_seq = torch.cat((torch.tensor([blank_idx], device=mod_seq.device), mod_seq))
     V = torch.full((t_max, mod_len), float("-inf"))  # [T, 2S+1]
 
     V[0, 0] = ctc_log_probs[0, blank_idx]

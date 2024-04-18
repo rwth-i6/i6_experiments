@@ -23,6 +23,9 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, Trai
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_forward_ctc_sum import (
     model_forward_ctc_sum,
 )
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_forward_ctc_max import (
+    model_forward_ctc_max,
+)
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.conformer_import_moh_att_2023_06_30 import (
     from_scratch_model_def,
@@ -111,7 +114,6 @@ def sis_run_with_prefix(prefix_name: str = None):
     for model_name in ["model_baseline"]:
         model_args = {
             "target_embed_dim": 256,
-            "add_ted2_trafo_lm": True,
             "mel_normalization": True,
             "no_ctc": models[model_name].get("no_ctc", False),
             "enc_layer_w_ctc": models[model_name].get("enc_layer_w_ctc", None),
@@ -135,23 +137,27 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     ### check for search errors in time sync results with recombination
 
+    search_w_lenNorm = True
+    eval_w_lenNorm = True
+    compare_w_max = True
+
     search_args = {
-        "beam_size": 32,
+        "beam_size": 12,
         "att_scale": 0.8,
         "ctc_scale": 0.2,
         "use_ctc": True,
         # "lm_scale": lm_scale,
         # "add_trafo_lm": True,
         "bsf": bsf,
-        "length_normalization_exponent": 0.0,
+        "length_normalization_exponent": 1.0 if eval_w_lenNorm else 0.0,
     }
-    name = prefix_name + "/" + model_name + f"/optsr_ctc0.2_att0.8_lenNorm_beam32"
-    search_args.update({"hash_override": "3"})
+    name = prefix_name + "/" + model_name + f"/optsr_ctc0.2_att0.8" + ("_lenNorm_fix" if search_w_lenNorm else "") +"_beam12"
+    search_args.update({"hash_override": "1"})
 
     forward_out_gt = forward_model(
         task,
         models_with_pt_ckpt[model_name]["ckpt"],
-        model_forward_ctc_sum,
+        model_forward_ctc_sum if not compare_w_max else model_forward_ctc_max,
         dev_sets=["dev"],
         model_args=model_args,
         search_args=search_args,
@@ -164,16 +170,23 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     dataset_opts = dict(audio=_raw_audio_opts.copy(), audio_dim=1, vocab=bpe1k, main_key="dev")
 
-    hdf_dataset = CustomHdfDataset("/u/luca.gaudino/debug/recombine/lenNorm/out_best_wo_blank_len_Norm.hdf")
+    if search_w_lenNorm:
+        hdf_dataset = CustomHdfDataset("/u/luca.gaudino/debug/recombine/lenNorm/out_best_wo_blank_len_Norm_fix.hdf")
+    else:
+        hdf_dataset = CustomHdfDataset("/u/luca.gaudino/debug/recombine/lenNorm/out_best_wo_blank.hdf")
+
     meta_dataset = Tedlium2MetaDataset(ogg_zip_opts=dataset_opts, additional_dataset=hdf_dataset)
 
-    search_args.update({"remove_eos_from_gt": True, "hash_override_2": "5"})
+    search_args.update({"remove_eos_from_gt": True, "hash_override_2": "1"})
+
+    if eval_w_lenNorm:
+        search_args.update({"length_normalization_exponent": 1.0})
 
     # forward it
     forward_out_search = forward_custom_dataset(
         dataset=meta_dataset,
         model=models_with_pt_ckpt[model_name]["ckpt"],
-        recog_def=model_forward_ctc_sum,
+        recog_def=model_forward_ctc_sum if not compare_w_max else model_forward_ctc_max,
         model_args=model_args,
         search_args=search_args,
         prefix_name=name,
@@ -183,7 +196,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         forward_out_gt.output, forward_out_search.output
     ).out_search_errors
     tk.register_output(
-        name + f"/search_errors_lenNorm1.0_evalLenNorm0.0",
+        name + f"/search_errors" + ("_max" if compare_w_max else "") + ("_evalWLenNorm" if eval_w_lenNorm else ""),
         res,
     )
 

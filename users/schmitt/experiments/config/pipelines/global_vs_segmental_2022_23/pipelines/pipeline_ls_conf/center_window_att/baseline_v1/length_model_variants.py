@@ -73,7 +73,6 @@ def center_window_att_import_global_global_ctc_align_length_model_diff_emb_size(
             win_size=win_size,
             use_weight_feedback=True,
             length_model_opts={"embedding_size": emb_size},
-            use_old_global_att_to_seg_att_maker=False
           )
 
           train_exp = SegmentalTrainExperiment(
@@ -122,7 +121,6 @@ def center_window_att_import_global_global_ctc_align_length_model_only_non_blank
             win_size=win_size,
             use_weight_feedback=True,
             length_model_opts={"embedding_size": emb_size, "use_alignment_ctx": False},
-            use_old_global_att_to_seg_att_maker=False
           )
 
           train_exp = SegmentalTrainExperiment(
@@ -169,7 +167,6 @@ def center_window_att_import_global_global_ctc_align_length_model_use_label_mode
           win_size=win_size,
           use_weight_feedback=True,
           length_model_opts={"use_label_model_state": True},
-          use_old_global_att_to_seg_att_maker=False
         )
 
         train_exp = SegmentalTrainExperiment(
@@ -214,7 +211,6 @@ def center_window_att_import_global_global_ctc_align_length_model_use_label_mode
           win_size=win_size,
           use_weight_feedback=True,
           length_model_opts={"use_label_model_state": True, "use_embedding": False},
-          use_old_global_att_to_seg_att_maker=False
         )
 
         train_exp = SegmentalTrainExperiment(
@@ -259,7 +255,6 @@ def center_window_att_import_global_global_ctc_align_length_model_use_label_mode
           win_size=win_size,
           use_weight_feedback=True,
           length_model_opts={"use_label_model_state": True, "use_embedding": False, "use_current_frame": False},
-          use_old_global_att_to_seg_att_maker=False
         )
 
         train_exp = SegmentalTrainExperiment(
@@ -304,7 +299,6 @@ def center_window_att_import_global_global_ctc_align_length_model_use_label_mode
           win_size=win_size,
           use_weight_feedback=True,
           length_model_opts={"use_label_model_state": True, "use_current_frame": False},
-          use_old_global_att_to_seg_att_maker=False
         )
 
         train_exp = SegmentalTrainExperiment(
@@ -355,7 +349,6 @@ def center_window_att_import_global_global_ctc_align_length_model_use_label_mode
           win_size=win_size,
           use_weight_feedback=True,
           length_model_opts={"use_label_model_state": True, "use_alignment_ctx": False},
-          use_old_global_att_to_seg_att_maker=False
         )
 
         train_exp = SegmentalTrainExperiment(
@@ -407,7 +400,6 @@ def center_window_att_import_global_global_ctc_align_length_model_use_label_mode
           win_size=win_size,
           use_weight_feedback=True,
           length_model_opts={"use_label_model_state": True, "use_alignment_ctx": False},
-          use_old_global_att_to_seg_att_maker=False,
           search_remove_eos=True,
         )
 
@@ -460,7 +452,6 @@ def center_window_att_import_global_global_ctc_align_length_model_linear_layer_u
           win_size=win_size,
           use_weight_feedback=True,
           length_model_opts={"use_label_model_state": True, "layer_class": "linear"},
-          use_old_global_att_to_seg_att_maker=False
         )
 
         train_exp = SegmentalTrainExperiment(
@@ -505,7 +496,6 @@ def center_window_att_import_global_global_ctc_align_length_model_linear_layer(
           win_size=win_size,
           use_weight_feedback=True,
           length_model_opts={"layer_class": "linear"},
-          use_old_global_att_to_seg_att_maker=False
         )
 
         train_exp = SegmentalTrainExperiment(
@@ -550,7 +540,6 @@ def center_window_att_import_global_global_ctc_align_length_model_linear_layer_n
           win_size=win_size,
           use_weight_feedback=True,
           length_model_opts={"layer_class": "linear", "use_embedding": False},
-          use_old_global_att_to_seg_att_maker=False
         )
 
         train_exp = SegmentalTrainExperiment(
@@ -595,7 +584,6 @@ def center_window_att_import_global_global_ctc_align_length_model_linear_layer_o
           win_size=win_size,
           use_weight_feedback=True,
           length_model_opts={"layer_class": "linear", "use_alignment_ctx": False},
-          use_old_global_att_to_seg_att_maker=False
         )
 
         train_exp = SegmentalTrainExperiment(
@@ -640,7 +628,6 @@ def center_window_att_import_global_global_ctc_align_length_model_explicit_lstm(
           win_size=win_size,
           use_weight_feedback=True,
           length_model_opts={"layer_class": "lstm_explicit"},
-          use_old_global_att_to_seg_att_maker=False,
         )
 
         train_exp = SegmentalTrainExperiment(

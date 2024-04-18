@@ -1,4 +1,4 @@
-from typing import Dict, Optional, List, Any, Tuple
+from typing import Dict, Optional, List, Any, Tuple, Union
 import copy
 
 from sisyphus import Path
@@ -17,7 +17,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 default_import_model_name = "glob.conformer.mohammad.5.6"
 default_train_opts = {
   "chunking_opts": None,
-  "align_targets": ctc_aligns.global_att_ctc_align.ctc_alignments,
+  "align_targets": None,
   "import_model_train_epoch1": external_checkpoints[default_import_model_name],
   "num_epochs": 10,
   "const_lr": 1e-4,
@@ -74,12 +74,11 @@ def get_center_window_att_config_builder(
         att_weight_recog_penalty_opts: Optional[Dict] = None,
         length_model_opts: Optional[Dict] = None,
         length_scale: float = 1.0,
-        blank_penalty: float = 0.0,
+        blank_penalty: Union[float, str] = 0.0,
         gaussian_att_weight_interpolation_opts: Optional[Dict] = None,
         expected_position_aux_loss_opts: Optional[Dict] = None,
         pos_pred_att_weight_interpolation_opts: Optional[Dict] = None,
         search_remove_eos: bool = False,
-        use_old_global_att_to_seg_att_maker: bool = False,
 ):
   model_type = "librispeech_conformer_seg_att"
   variant_name = "seg.conformer.like-global"
@@ -103,7 +102,6 @@ def get_center_window_att_config_builder(
   config_builder = LibrispeechConformerSegmentalAttentionConfigBuilder(
     dependencies=variant_params["dependencies"],
     variant_params=variant_params,
-    use_old_global_att_to_seg_att_maker=use_old_global_att_to_seg_att_maker
   )
 
   return config_builder

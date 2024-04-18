@@ -19,7 +19,7 @@ from .shared.feature_extraction import DbMelFeatureExtraction
 from .shared.configs import DbMelFeatureExtractionConfig
 from .shared.i6modelsV1_VGG4LayerActFrontendV1_v4_cfg import ModelConfig
 
-
+from .shared.eval_forward import *
 class DurationPredictor(nn.Module):
     """
     Duration Predictor module, trained using calculated durations coming from monotonic alignment search

@@ -33,7 +33,7 @@ class JsonSubwordVocabToLemmaLexiconJob(Job):
   ):
     special_lemma_dict = []
     if blank:
-      special_lemma_dict.append(('blank', blank, [blank]))
+      special_lemma_dict.append(('silence', blank, [blank]))
     if unknown:
       special_lemma_dict.append(('unknown', "<UNK>", [unknown]))
     if sos:

@@ -135,16 +135,22 @@ def run_fairseq_pretraining():
     prefix_name = "experiments/librispeech/librispeech_960_pretraining/wav2vec2/"
     # run pre-training
     exp_name = "base"
-    fairseq_args = get_fairseq_args(num_gpus=8)
+    num_gpus = 8
+    fairseq_args = get_fairseq_args(num_gpus=num_gpus)
     fairseq_config = FairseqHydraConfig(fairseq_args)
     fairseq_root = get_fairseq_root()
+    fairseq_exe = tk.Path(
+        "/home/pv653172/setups/librispeech/20230328_wav2vec2/dependencies/python_launcher.sh",
+        hash_overwrite="python_launcher",
+    )
     job = FairseqHydraTrainingJob(
         fairseq_config,
         save_interval=25,
         max_epoch=300,
         max_update=400000,
         fairseq_root=fairseq_root,
-        rqmt={"time": 120, "mem": 8, "cpu": 2, "gpu": 8},
+        fairseq_python_exe=fairseq_exe,
+        rqmt={"time": 120, "mem": 12, "cpu": 2, "gpu": num_gpus},
     )
     job.add_alias(os.path.join(prefix_name, exp_name, "pretraining"))
     tk.register_output(f"{prefix_name}/{exp_name}/pretraining/scores.png", job.out_plot_se)

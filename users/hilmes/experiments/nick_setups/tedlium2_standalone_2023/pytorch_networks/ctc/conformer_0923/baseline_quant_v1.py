@@ -12,10 +12,15 @@ import copy
 from typing import Tuple
 
 from i6_models.parts.conformer.norm import LayerNormNC
+from i6_models.assemblies.conformer.conformer_v1 import ConformerEncoderV1Config
+from i6_models.assemblies.conformer.conformer_v1 import ConformerBlockV1Config, ConformerEncoderV1
 from i6_models.config import ModuleFactoryV1
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1
 from i6_models.util import compat
 
+from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config
+from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwardV1Config
+from i6_models.parts.conformer.mhsa import ConformerMHSAV1Config
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
 
@@ -258,25 +263,15 @@ def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
 
 class Model(torch.nn.Module):
     def __init__(self, model_config_dict, quant_config_dict=None, **kwargs):
+        epoch = kwargs.pop("epoch")
+        step = kwargs.pop("step")
+        if len(kwargs) >= 2:
+            assert False, f"You did not use all kwargs: {kwargs}"
+        elif len(kwargs) == 1:
+            assert "random" in list(kwargs.keys())[0], "This must only be RETURNN random arg"
+
         super().__init__()
-        self.train_cfg = QuantModelTrainConfigV1.from_dict(model_config_dict)
-        if quant_config_dict:
-            self.cfg = QuantModelConfigV1.from_dict(quant_config_dict)
-        else:
-            # Dummy values, if they dont break if activated wrongly PhD finished
-            self.cfg = QuantModelConfigV1(
-                train_config=self.train_cfg,
-                weight_quant_dtype=torch.qint8,
-                weight_quant_method="per_tensor",
-                activation_quant_dtype=torch.qint8,
-                activation_quant_method="per_tensor",
-                dot_quant_dtype=torch.qint8,
-                dot_quant_method="per_tensor",
-                Av_quant_dtype=torch.qint8,
-                Av_quant_method="per_tensor",
-                moving_average=10000,
-                bit_prec=1,
-            )
+        self.train_config = QuantModelTrainConfigV1.from_dict(model_config_dict)
         fe_config = LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -287,65 +282,97 @@ class Model(torch.nn.Module):
             num_filters=80,
             center=False,
         )
-        frontend_config = self.cfg.train_config.frontend_config
-        conformer_size = self.cfg.train_config.conformer_size
-        conformer_config = ConformerEncoderQuantV1Config(
-            num_layers=self.cfg.train_config.num_layers,
-            frontend=ModuleFactoryV1(module_class=VGG4LayerActFrontendV1, cfg=frontend_config),
-            block_cfg=ConformerBlockQuantV1Config(
-                ff_cfg=ConformerPositionwiseFeedForwardQuantV1Config(
-                    input_dim=conformer_size,
-                    hidden_dim=self.cfg.train_config.ff_dim,
-                    dropout=self.cfg.train_config.ff_dropout,
-                    activation=nn.functional.silu,
-                    weight_quant_dtype=self.cfg.weight_quant_dtype,
-                    weight_quant_method=self.cfg.weight_quant_method,
-                    activation_quant_dtype=self.cfg.activation_quant_dtype,
-                    activation_quant_method=self.cfg.activation_quant_method,
-                    moving_average=self.cfg.moving_average,
-                    bit_prec=self.cfg.bit_prec,
-                ),
-                mhsa_cfg=QuantizedMultiheadAttentionV1Config(
-                    input_dim=conformer_size,
-                    num_att_heads=self.cfg.train_config.num_heads,
-                    att_weights_dropout=self.cfg.train_config.att_weights_dropout,
-                    dropout=self.cfg.train_config.mhsa_dropout,
-                    weight_quant_dtype=self.cfg.weight_quant_dtype,
-                    weight_quant_method=self.cfg.weight_quant_method,
-                    activation_quant_dtype=self.cfg.activation_quant_dtype,
-                    activation_quant_method=self.cfg.activation_quant_method,
-                    dot_quant_dtype=self.cfg.dot_quant_dtype,
-                    dot_quant_method=self.cfg.dot_quant_method,
-                    Av_quant_dtype=self.cfg.Av_quant_dtype,
-                    Av_quant_method=self.cfg.Av_quant_method,
-                    bit_prec_W_q=self.cfg.bit_prec,
-                    bit_prec_W_k=self.cfg.bit_prec,
-                    bit_prec_W_v=self.cfg.bit_prec,
-                    bit_prec_dot=self.cfg.bit_prec,
-                    bit_prec_A_v=self.cfg.bit_prec,
-                    bit_prec_W_o=self.cfg.bit_prec,
-                    moving_average=self.cfg.moving_average
-                ),
-                conv_cfg=ConformerConvolutionQuantV1Config(
-                    channels=conformer_size,
-                    kernel_size=self.cfg.train_config.conv_kernel_size,
-                    dropout=self.cfg.train_config.conv_dropout,
-                    activation=nn.functional.silu,
-                    norm=LayerNormNC(conformer_size),
-                    weight_quant_dtype=self.cfg.weight_quant_dtype,
-                    weight_quant_method=self.cfg.weight_quant_method,
-                    activation_quant_dtype=self.cfg.activation_quant_dtype,
-                    activation_quant_method=self.cfg.activation_quant_method,
-                    moving_average=self.cfg.moving_average,
-                    bit_prec_point=self.cfg.bit_prec,
-                ),
-            ),
-        )
+        frontend_config = self.train_config.frontend_config
+        conformer_size = self.train_config.conformer_size
         self.feature_extraction = LogMelFeatureExtractionV1(cfg=fe_config)
-        self.conformer = ConformerEncoderQuant(cfg=conformer_config)
-        self.final_linear = nn.Linear(conformer_size, self.cfg.train_config.label_target_size + 1)  # + CTC blank TODO: do we quant here too?
-        self.final_dropout = nn.Dropout(p=self.cfg.train_config.final_dropout)
-        self.specaug_start_epoch = self.cfg.train_config.specauc_start_epoch
+        if quant_config_dict:
+            print("Using Quantizable Model")
+            self.cfg = QuantModelConfigV1.from_dict(quant_config_dict)
+            conformer_config = ConformerEncoderQuantV1Config(
+                num_layers=self.train_config.num_layers,
+                frontend=ModuleFactoryV1(module_class=VGG4LayerActFrontendV1, cfg=frontend_config),
+                block_cfg=ConformerBlockQuantV1Config(
+                    ff_cfg=ConformerPositionwiseFeedForwardQuantV1Config(
+                        input_dim=conformer_size,
+                        hidden_dim=self.train_config.ff_dim,
+                        dropout=self.train_config.ff_dropout,
+                        activation=nn.functional.silu,
+                        weight_quant_dtype=self.cfg.weight_quant_dtype,
+                        weight_quant_method=self.cfg.weight_quant_method,
+                        activation_quant_dtype=self.cfg.activation_quant_dtype,
+                        activation_quant_method=self.cfg.activation_quant_method,
+                        moving_average=self.cfg.moving_average,
+                        bit_prec=self.cfg.bit_prec,
+                    ),
+                    mhsa_cfg=QuantizedMultiheadAttentionV1Config(
+                        input_dim=conformer_size,
+                        num_att_heads=self.train_config.num_heads,
+                        att_weights_dropout=self.train_config.att_weights_dropout,
+                        dropout=self.train_config.mhsa_dropout,
+                        weight_quant_dtype=self.cfg.weight_quant_dtype,
+                        weight_quant_method=self.cfg.weight_quant_method,
+                        activation_quant_dtype=self.cfg.activation_quant_dtype,
+                        activation_quant_method=self.cfg.activation_quant_method,
+                        dot_quant_dtype=self.cfg.dot_quant_dtype,
+                        dot_quant_method=self.cfg.dot_quant_method,
+                        Av_quant_dtype=self.cfg.Av_quant_dtype,
+                        Av_quant_method=self.cfg.Av_quant_method,
+                        bit_prec_W_q=self.cfg.bit_prec,
+                        bit_prec_W_k=self.cfg.bit_prec,
+                        bit_prec_W_v=self.cfg.bit_prec,
+                        bit_prec_dot=self.cfg.bit_prec,
+                        bit_prec_A_v=self.cfg.bit_prec,
+                        bit_prec_W_o=self.cfg.bit_prec,
+                        moving_average=self.cfg.moving_average
+                    ),
+                    conv_cfg=ConformerConvolutionQuantV1Config(
+                        channels=conformer_size,
+                        kernel_size=self.train_config.conv_kernel_size,
+                        dropout=self.train_config.conv_dropout,
+                        activation=nn.functional.silu,
+                        norm=LayerNormNC(conformer_size),
+                        weight_quant_dtype=self.cfg.weight_quant_dtype,
+                        weight_quant_method=self.cfg.weight_quant_method,
+                        activation_quant_dtype=self.cfg.activation_quant_dtype,
+                        activation_quant_method=self.cfg.activation_quant_method,
+                        moving_average=self.cfg.moving_average,
+                        bit_prec_point=self.cfg.bit_prec,
+                    ),
+                ),
+            )
+            self.conformer = ConformerEncoderQuant(cfg=conformer_config)
+        else:
+            conformer_config = ConformerEncoderV1Config(
+                num_layers=self.train_config.num_layers,
+                frontend=ModuleFactoryV1(module_class=VGG4LayerActFrontendV1, cfg=frontend_config),
+                block_cfg=ConformerBlockV1Config(
+                    ff_cfg=ConformerPositionwiseFeedForwardV1Config(
+                        input_dim=conformer_size,
+                        hidden_dim=self.train_config.ff_dim,
+                        dropout=self.train_config.ff_dropout,
+                        activation=nn.functional.silu,
+                    ),
+                    mhsa_cfg=ConformerMHSAV1Config(
+                        input_dim=conformer_size,
+                        num_att_heads=self.train_config.num_heads,
+                        att_weights_dropout=self.train_config.att_weights_dropout,
+                        dropout=self.train_config.mhsa_dropout,
+                    ),
+                    conv_cfg=ConformerConvolutionV1Config(
+                        channels=conformer_size,
+                        kernel_size=self.train_config.conv_kernel_size,
+                        dropout=self.train_config.conv_dropout,
+                        activation=nn.functional.silu,
+                        norm=LayerNormNC(conformer_size),
+                    ),
+                ),
+            )
+            self.conformer = ConformerEncoderV1(cfg=conformer_config)
+
+
+        self.final_linear = nn.Linear(conformer_size, self.train_config.label_target_size + 1)  # + CTC blank TODO: do we quant here too?
+        self.final_dropout = nn.Dropout(p=self.train_config.final_dropout)
+        self.specaug_start_epoch = self.train_config.specauc_start_epoch
 
         # No particular weight init!
 
@@ -369,11 +396,11 @@ class Model(torch.nn.Module):
                 audio_features_masked_2 = specaugment_v1_by_length(
                     audio_features,
                     time_min_num_masks=2,
-                    time_max_mask_per_n_frames=self.cfg.train_config.specaug_config.repeat_per_n_frames,
-                    time_mask_max_size=self.cfg.train_config.specaug_config.max_dim_time,
+                    time_max_mask_per_n_frames=self.train_config.specaug_config.repeat_per_n_frames,
+                    time_mask_max_size=self.train_config.specaug_config.max_dim_time,
                     freq_min_num_masks=2,
-                    freq_mask_max_size=self.cfg.train_config.specaug_config.max_dim_feat,
-                    freq_max_num_masks=self.cfg.train_config.specaug_config.num_repeat_feat,
+                    freq_mask_max_size=self.train_config.specaug_config.max_dim_feat,
+                    freq_max_num_masks=self.train_config.specaug_config.num_repeat_feat,
                 )
             else:
                 audio_features_masked_2 = audio_features
@@ -409,7 +436,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         labels,
         input_lengths=audio_features_len,
         target_lengths=labels_len,
-        blank=model.cfg.train_config.label_target_size,
+        blank=model.train_config.label_target_size,
         reduction="sum",
         zero_infinity=True,
     )
@@ -453,25 +480,24 @@ def prior_step(*, model: Model, data, run_ctx, **kwargs):
 
 
 def static_quant_init_hook(run_ctx, **kwargs):
+    # These flags are not required for quant, only later for forward
     run_ctx.iterative_quant = False
-    run_ctx.apply_calibration = False
+    run_ctx.apply_quant = False
+    run_ctx.tag_file = open("seq_tags.txt", "wt")
 
 
 def static_quant_step(*, model: Model, data, run_ctx, **kwargs):
-    # TODO: num samples
-    num_samples = ...
-    counter = ...
 
     raw_audio = data["raw_audio"]  # [B, T', F]
     raw_audio_len = data["raw_audio:size1"]  # [B]
+    for tag in data["seq_tag"]:
+        run_ctx.tag_file.write(tag + "\n")
+    print(data['seq_tag'])
     _, _ = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
-    if num_samples == counter:
-        # TODO stop calib and save model
-        pass
 
 def static_quant_finish_hook(run_ctx, **kwargs):
-    # TODO
-    pass
+    run_ctx.tag_file.close()
+    torch.save({"model": run_ctx.engine._model.state_dict(), "epoch": 250, "step": run_ctx.engine._train_step}, "model.pt")

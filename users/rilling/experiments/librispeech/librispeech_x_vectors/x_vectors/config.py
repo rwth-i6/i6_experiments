@@ -80,7 +80,7 @@ def get_forward_config(
         "behavior_version": 16,
         "forward_use_search": True,
         #############
-        "forward": forward_dataset.joint.as_returnn_opts()
+        "forward": forward_dataset.joint.as_returnn_opts() if not isinstance(forward_dataset, tuple) else forward_dataset[0].as_returnn_opts()
     }
 
     config = {**base_config, **copy.deepcopy(config)}
@@ -89,7 +89,6 @@ def get_forward_config(
     serializer = get_serializer(
         training=False,
         returnn_common_root=returnn_common_root,
-        datastreams=forward_dataset.datastreams,
         network_module=network_module,
         net_args=net_args,
         forward_args=forward_args,

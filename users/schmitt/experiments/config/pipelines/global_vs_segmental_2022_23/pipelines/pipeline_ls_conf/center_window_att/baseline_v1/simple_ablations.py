@@ -23,7 +23,6 @@ def center_window_att_import_global_global_ctc_align_baseline(
         config_builder = get_center_window_att_config_builder(
           win_size=win_size,
           use_weight_feedback=True,
-          use_old_global_att_to_seg_att_maker=False
         )
 
         train_exp = SegmentalTrainExperiment(
@@ -67,7 +66,6 @@ def center_window_att_import_global_global_ctc_align_no_weight_feedback(
         config_builder = get_center_window_att_config_builder(
           win_size=win_size,
           use_weight_feedback=False,
-          use_old_global_att_to_seg_att_maker=False
         )
 
         train_exp = SegmentalTrainExperiment(
@@ -110,7 +108,6 @@ def center_window_att_import_global_global_ctc_align_no_ctc_loss(
         )
         config_builder = get_center_window_att_config_builder(
           win_size=win_size,
-          use_old_global_att_to_seg_att_maker=False
         )
 
         train_exp = SegmentalTrainExperiment(

@@ -11,11 +11,17 @@ RETURNN_PYTORCH_EXE = tk.Path(
     "/u/lukas.rilling/bin/returnn/returnn_pt20_experimental.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER"
 )
 
+RETURNN_PYTORCH_ASR_SEARCH_EXE = tk.Path("/usr/bin/python3", hash_overwrite="ASR_SEARCH_FIX")
 # outdated version using DataLoader v1 and the Tensor fix for RC networks
 # RETURNN_ROOT = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn", commit="d98a6c606d2c007e2a6771684e77a7650bb3fad6").out_repository
 # RETURNN_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
 
 MINI_RETURNN_ROOT = tk.Path("/u/lukas.rilling/github/MiniReturnn", hash_overwrite="LIBRISPEECH_DEFAULT_RETURNN_ROOT")
+MINI_RETURNN_ROOT2 = CloneGitRepositoryJob(
+    "https://github.com/JackTemaki/MiniReturnn", commit="2e5ffd0750b1b271adfd7c6035e7d7063a629474"
+).out_repository.copy()
+MINI_RETURNN_ROOT2.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT2"
+
 
 RETURNN_COMMON = CloneGitRepositoryJob(
     "https://github.com/rwth-i6/returnn_common",

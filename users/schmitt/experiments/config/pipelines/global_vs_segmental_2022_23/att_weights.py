@@ -5,6 +5,8 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   ConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.segmental import \
   SegmentalConfigBuilder
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.global_ import \
+  GlobalConfigBuilder
 
 from i6_experiments.users.schmitt.visualization.visualization import PlotAttentionWeightsJobV2
 
@@ -140,7 +142,7 @@ def dump_frame_probs(
   dump_frame_probs_opts = {
     "dataset_opts": {
       "segment_paths": {corpus_key: segment_file.out_file},
-      "hdf_targets": {corpus_key: hdf_targets}
+      "hdf_targets": {corpus_key: hdf_targets},
     },
   }
 
@@ -162,6 +164,11 @@ def dump_frame_probs(
       hdf_filenames.update({
         "center_positions": "center_positions.hdf"
       })
+
+  elif isinstance(config_builder, GlobalConfigBuilder):
+    hdf_filenames.update({
+      "ctc_alignment": "ctc_alignment.hdf",
+    })
 
   dump_frame_probs_opts["hdf_filenames"] = hdf_filenames
 
@@ -195,6 +202,7 @@ def dump_frame_probs(
     ref_alignment_blank_idx=ref_alignment_blank_idx,
     ref_alignment_hdf=ref_alignment,
     json_vocab_path=config_builder.dependencies.vocab_path,
+    ctc_alignment_hdf=forward_job.out_hdf_files.get(hdf_filenames.get("ctc_alignment")),
   )
   plot_frame_probs_job.add_alias("%s/analysis/%s/%s/%s/plot" % (alias, probs_name, corpus_key, hdf_alias))
   tk.register_output(("%s/analysis/%s/%s/%s/plot" % (alias, probs_name, corpus_key, hdf_alias)),

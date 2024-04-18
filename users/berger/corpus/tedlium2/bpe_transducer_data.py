@@ -30,7 +30,7 @@ def get_tedlium2_pytorch_data(
     bpe_size: int = 500,
 ) -> BpeSetupData:
     # ********** Data inputs **********
-    train_data_inputs, dev_data_inputs, test_data_inputs = copy.deepcopy(
+    train_data_inputs, cv_data_inputs, dev_data_inputs, test_data_inputs = copy.deepcopy(
         data.get_data_inputs(
             ctc_lexicon=False,
             use_augmented_lexicon=augmented_lexicon,

@@ -27,6 +27,10 @@ from .pipeline import training, search, compute_prior, compute_phoneme_pred_accu
 
 from .config import get_training_config, get_search_config, get_prior_config
 
+from i6_experiments.users.rilling.experiments.librispeech.librispeech_joint_training_given_alignments.storage import (
+    tts_models,
+)
+
 
 def glowASR(TTS_experiments: dict):
     prefix_name = "experiments/librispeech/librispeech_glow_asr/pytorch/"
@@ -166,7 +170,7 @@ def glowASR(TTS_experiments: dict):
 
         if only_forward_no_search:
             compute_phoneme_pred_accuracy(
-                ft_name ,
+                ft_name,
                 returnn_search_config,
                 train_job.out_checkpoints[num_epochs],
                 test_datasets,
@@ -262,16 +266,16 @@ def glowASR(TTS_experiments: dict):
     train_args_blstm2["config"]["learning_rates"] = list(
         np.concatenate((np.linspace(1e-5, 5 * 1e-4, 50), np.linspace(5 * 1e-4, 1e-5, 50)))
     )
-    run_exp(
-        prefix_name + "/test/blstm/warmup",
-        datasets=train_data,
-        train_args=train_args_blstm2,
-        search_args=default_search_args,
-    )
+    # run_exp(
+    #     prefix_name + "/test/blstm/warmup",
+    #     datasets=train_data,
+    #     train_args=train_args_blstm2,
+    #     search_args=default_search_args,
+    # )
 
     train_args_blstm3 = copy.deepcopy(train_args_blstm)
     train_args_blstm3["net_args"]["final_hidden_channels"] = 512
-    run_exp(prefix_name + "/test/blstm512/no_warmup", datasets=train_data, train_args=train_args_blstm3)
+    # run_exp(prefix_name + "/test/blstm512/no_warmup", datasets=train_data, train_args=train_args_blstm3)
 
     train_args_blstm4 = copy.deepcopy(train_args_blstm3)
     train_args_blstm4["config"]["learning_rates"] = list(
@@ -279,58 +283,58 @@ def glowASR(TTS_experiments: dict):
     )
 
     # train_args_blstm["config"]["learning_rates"] = list(np.concatenate((np.linspace(1e-5, 5*1e-4, 50), np.linspace(5*1e-4, 1e-5, 50))))
-    run_exp(
-        prefix_name + "/test/blstm512/warmup/default_search",
-        datasets=train_data,
-        train_args=train_args_blstm4,
-        search_args=default_search_args,
-    )
+    # run_exp(
+    #     prefix_name + "/test/blstm512/warmup/default_search",
+    #     datasets=train_data,
+    #     train_args=train_args_blstm4,
+    #     search_args=default_search_args,
+    # )
 
-    additional_search_args = {}
-    additional_search_args["lm_weight"] = 10
-    additional_search_args["beam_size"] = 32
-    run_exp(
-        prefix_name + "/test/blstm512/warmup/search_lmW10",
-        datasets=train_data,
-        train_args=train_args_blstm4,
-        search_args={**default_search_args, **additional_search_args},
-    )
+    # additional_search_args = {}
+    # additional_search_args["lm_weight"] = 10
+    # additional_search_args["beam_size"] = 32
+    # run_exp(
+    #     prefix_name + "/test/blstm512/warmup/search_lmW10",
+    #     datasets=train_data,
+    #     train_args=train_args_blstm4,
+    #     search_args={**default_search_args, **additional_search_args},
+    # )
 
-    train_args_blstm4["net_args"]["p_dropout"] = 0.2
+    # train_args_blstm4["net_args"]["p_dropout"] = 0.2
 
-    run_exp(
-        prefix_name + "/test/blstm512/warmup/d0.2_b300",
-        datasets=train_data,
-        train_args=train_args_blstm4,
-        search_args=default_search_args,
-    )
+    # run_exp(
+    #     prefix_name + "/test/blstm512/warmup/d0.2_b300",
+    #     datasets=train_data,
+    #     train_args=train_args_blstm4,
+    #     search_args=default_search_args,
+    # )
 
-    train_args_blstm4["config"]["batch_size"] = 100 * 16000
+    # train_args_blstm4["config"]["batch_size"] = 100 * 16000
 
-    run_exp(
-        prefix_name + "/test/blstm512/warmup/d0.2_b100",
-        datasets=train_data,
-        train_args=train_args_blstm4,
-        search_args=default_search_args,
-        extra_evaluate_epoch=72,
-    )
+    # run_exp(
+    #     prefix_name + "/test/blstm512/warmup/d0.2_b100",
+    #     datasets=train_data,
+    #     train_args=train_args_blstm4,
+    #     search_args=default_search_args,
+    #     extra_evaluate_epoch=72,
+    # )
 
-    train_args_blstm4["config"]["batch_size"] = 600 * 16000
+    # train_args_blstm4["config"]["batch_size"] = 600 * 16000
 
-    run_exp(
-        prefix_name + "/test/blstm512/warmup/d0.2_b600",
-        datasets=train_data,
-        train_args=train_args_blstm4,
-        search_args=default_search_args,
-    )
+    # run_exp(
+    #     prefix_name + "/test/blstm512/warmup/d0.2_b600",
+    #     datasets=train_data,
+    #     train_args=train_args_blstm4,
+    #     search_args=default_search_args,
+    # )
 
-    train_args_blstm4["config"]["accum_grad_multiple_step"] = 4
-    run_exp(
-        prefix_name + "/test/blstm512/warmup/d0.2_b600_ga4",
-        datasets=train_data,
-        train_args=train_args_blstm4,
-        search_args=default_search_args,
-    )
+    # train_args_blstm4["config"]["accum_grad_multiple_step"] = 4
+    # run_exp(
+    #     prefix_name + "/test/blstm512/warmup/d0.2_b600_ga4",
+    #     datasets=train_data,
+    #     train_args=train_args_blstm4,
+    #     search_args=default_search_args,
+    # )
 
     train_args_blstm_frame_stack = copy.deepcopy(train_args_blstm3)
     train_args_blstm_frame_stack["network_module"] = "glowASR_blstm_frame_stack"
@@ -361,9 +365,9 @@ def glowASR(TTS_experiments: dict):
 
     default_search_args_tts = copy.deepcopy(default_search_args)
     # default_search_args_tts["lexicon"] = get_text_lexicon_tts()
-    default_search_args_tts[
-        "lexicon"
-    ] = "/u/lukas.rilling/experiments/glow_tts_asr_v2/lexicon.txt"  # TODO: Fix this and use lexicon from Job with deleted [silence] token
+    default_search_args_tts["lexicon"] = (
+        "/u/lukas.rilling/experiments/glow_tts_asr_v2/lexicon.txt"  # TODO: Fix this and use lexicon from Job with deleted [silence] token
+    )
     default_search_args_tts["arpa_lm"] = get_arpa_lm()  # TODO: Delete this when fix above is done.
     default_search_args_tts["returnn_vocab"] = label_datastream.vocab
     # default_search_args_tts["asr_data"] = False
@@ -494,10 +498,30 @@ def glowASR(TTS_experiments: dict):
     run_exp(
         prefix_name + "blstm_2x512_d0.2_b300_fs4/asr_dataset/glow_enc768/glow_eval/not_silence_preprocessed",
         datasets=train_data_normal_ctc,
-        train_args=train_args_blstm_frame_stack,
+        train_args=train_args_blstm_frame_stack_v2,
         search_args=default_search_args_asr,
         test_datasets=dev_dataset_normal_ctc_tuples,
     )
+
+    for lm_w in [2.5, 3.0, 3.5, 4.0]:
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm_w, "prior_scale": ps}
+            run_exp(
+                prefix_name
+                + f"blstm_2x512_d0.2_b300_fs4/asr_dataset/glow_enc768/not_silence_preprocessed/tuning/lm_{lm_w}_ps_{ps}",
+                datasets=train_data_normal_ctc,
+                train_args=train_args_blstm_frame_stack,
+                search_args={**default_search_args_asr, **additional_search_args},
+                test_datasets=dev_dataset_normal_ctc_tuples,
+            )
+            run_exp(
+                prefix_name
+                + f"blstm_2x512_d0.2_b300_fs4/asr_dataset/glow_enc768/glow_eval/not_silence_preprocessed/tuning/lm_{lm_w}_ps_{ps}",
+                datasets=train_data_normal_ctc,
+                train_args=train_args_blstm_frame_stack_v2,
+                search_args={**default_search_args_asr, **additional_search_args},
+                test_datasets=dev_dataset_normal_ctc_tuples,
+            )
 
     train_args_4blstm_frame_stack = copy.deepcopy(train_args_blstm_frame_stack)
     train_args_4blstm_frame_stack["net_args"]["final_n_layers"] = 4
@@ -523,18 +547,41 @@ def glowASR(TTS_experiments: dict):
         "filename"
     ] = "/work/asr3/rossenbach/rilling/sisyphus_work_dirs/glow_tts_asr_v2/i6_core/returnn/training/ReturnnTrainingJob.8PSFfojvDJ2D/output/models/epoch.200.pt"
     run_exp(
-        prefix_name + "blstm_2x512_d0.2_b300_fs4/tts_dataset/glow_enc768/with_sigma/not_silence_preprocessed/lm5",
+        prefix_name + "blstm_2x512_d0.2_b300_fs4/tts_dataset/glow_enc768/with_sigma/not_silence_preprocessed/",
         datasets=train_data,
         train_args=train_args_blstm_frame_stack,
         search_args=default_search_args_tts,
     )
     run_exp(
-        prefix_name + "blstm_2x512_d0.2_b300_fs4/asr_dataset/glow_enc768/with_sigma/not_silence_preprocessed/lm5",
+        prefix_name + "blstm_2x512_d0.2_b300_fs4/asr_dataset/glow_enc768/with_sigma/not_silence_preprocessed/",
         datasets=train_data_normal_ctc,
         train_args=train_args_blstm_frame_stack,
         search_args=default_search_args_asr,
         test_datasets=dev_dataset_normal_ctc_tuples,
     )
+
+    train_args_blstm_frame_stack_v2 = copy.deepcopy(train_args_blstm_frame_stack)
+    train_args_blstm_frame_stack_v2["network_module"] = "glowASR_blstm_frame_stack_v2"
+
+    run_exp(
+        prefix_name + "blstm_2x512_d0.2_b300_fs4/asr_dataset/glow_enc768/with_sigma/not_silence_preprocessed/glow_eval",
+        datasets=train_data_normal_ctc,
+        train_args=train_args_blstm_frame_stack_v2,
+        search_args=default_search_args_asr,
+        test_datasets=dev_dataset_normal_ctc_tuples,
+    )
+
+    for lm_w in [2.5, 3.0, 3.5, 4.0]:
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm_w, "prior_scale": ps}
+            run_exp(
+                prefix_name
+                + f"blstm_2x512_d0.2_b300_fs4/asr_dataset/glow_enc768/with_sigma/not_silence_preprocessed/glow_eval/tuning/lm_{lm_w}_ps_{ps}",
+                datasets=train_data_normal_ctc,
+                train_args=train_args_blstm_frame_stack_v2,
+                search_args={**default_search_args_asr, **additional_search_args},
+                test_datasets=dev_dataset_normal_ctc_tuples,
+            )
     # run_exp(
     #     prefix_name + "blstm_2x512_d0.2_b300_fs4/asr_dataset/glow_enc768/with_sigma/not_silence_preprocessed/lm4",
     #     datasets=train_data_normal_ctc,
@@ -586,6 +633,16 @@ def glowASR(TTS_experiments: dict):
         test_datasets=dev_dataset_normal_ctc_tuples,
     )
 
+    train_args_blstm_only_spec_aug = copy.deepcopy(train_args_blstm_only)
+    train_args_blstm_only_spec_aug["net_args"]["spec_augment"] = True
+    run_exp(
+        prefix_name + "only_blstm_2x512_d0.2_b300_fs4/asr_dataset/spec_augment",
+        datasets=train_data_normal_ctc,
+        train_args=train_args_blstm_only_spec_aug,
+        search_args=default_search_args_asr,
+        test_datasets=dev_dataset_normal_ctc_tuples,
+    )
+
     for lm_w in [2.5, 3.0, 3.5, 4.0]:
         for ps in [0, 0.3, 0.5]:
             additional_search_args = {"lm_weight": lm_w, "prior_scale": ps}
@@ -594,6 +651,14 @@ def glowASR(TTS_experiments: dict):
                 datasets=train_data_normal_ctc,
                 train_args=train_args_blstm_only,
                 search_args={**default_search_args_asr, **additional_search_args},
+                test_datasets=dev_dataset_normal_ctc_tuples,
+            )
+
+            run_exp(
+                prefix_name + f"only_blstm_2x512_d0.2_b300_fs4/asr_dataset/spec_augment/tuning/lm_{lm_w}_ps_{ps}",
+                datasets=train_data_normal_ctc,
+                train_args=train_args_blstm_only_spec_aug,
+                search_args=default_search_args_asr,
                 test_datasets=dev_dataset_normal_ctc_tuples,
             )
 
@@ -816,7 +881,9 @@ def glowASR(TTS_experiments: dict):
     )
 
     train_args_blstm_frame_stack_asr = copy.deepcopy(train_args_blstm_frame_stack)
-    train_args_blstm_frame_stack_asr["net_args"]["vocab"] = vocab_size_without_blank_normal_ctc # This is actually ignored...
+    train_args_blstm_frame_stack_asr["net_args"][
+        "vocab"
+    ] = vocab_size_without_blank_normal_ctc  # This is actually ignored...
     run_exp(
         prefix_name + "blstm_2x512_d0.2_b300_fs4/asr_dataset/glow_simple_encoder/silence_preprocessed",
         datasets=train_data_normal_ctc,
@@ -863,9 +930,9 @@ def glowASR(TTS_experiments: dict):
     train_args_glow100ep_conformer_asr_data = copy.deepcopy(train_args_conformer_asr_data)
     tts_exp_name = "glowTTS/enc192/100ep/not_silence_preprocessed"
     tts_train_job = TTS_experiments[tts_exp_name]["train_job"]
-    train_args_glow100ep_conformer_asr_data["config"]["preload_from_files"]["existing-model"][
-        "filename"
-    ] = tts_train_job.out_checkpoints[tts_train_job.returnn_config.get("num_epochs", 100)]
+    train_args_glow100ep_conformer_asr_data["config"]["preload_from_files"]["existing-model"]["filename"] = (
+        tts_train_job.out_checkpoints[tts_train_job.returnn_config.get("num_epochs", 100)]
+    )
 
     run_exp(
         prefix_name + "conformer/asr_dataset/spec_augment/glow_enc192_100ep_not_silence_preprocessed",
@@ -879,9 +946,9 @@ def glowASR(TTS_experiments: dict):
     train_args_glow_enc768_200ep_conformer_asr_data = copy.deepcopy(train_args_conformer_asr_data)
     tts_exp_name = "glowTTS/enc768/200ep/not_silence_preprocessed"
     tts_train_job = TTS_experiments[tts_exp_name]["train_job"]
-    train_args_glow_enc768_200ep_conformer_asr_data["config"]["preload_from_files"]["existing-model"][
-        "filename"
-    ] = tts_train_job.out_checkpoints[tts_train_job.returnn_config.get("num_epochs", 200)]
+    train_args_glow_enc768_200ep_conformer_asr_data["config"]["preload_from_files"]["existing-model"]["filename"] = (
+        tts_train_job.out_checkpoints[tts_train_job.returnn_config.get("num_epochs", 200)]
+    )
     run_exp(
         prefix_name + "conformer/asr_dataset/spec_augment/glow_enc768_200ep_not_silence_preprocessed",
         datasets=train_data_normal_ctc,
@@ -1160,9 +1227,9 @@ def glowASR(TTS_experiments: dict):
         assert TTS_exp_name in TTS_experiments, "Experiment reference not found!"
 
         TTS_exp_train_job = TTS_experiments[TTS_exp_name]["train_job"]
-        train_args_conformer_speaker_drop_asr_data["config"]["preload_from_files"]["existing-model"][
-            "filename"
-        ] = TTS_exp_train_job.out_checkpoints[TTS_exp_train_job.returnn_config.get("num_epochs", 100)]
+        train_args_conformer_speaker_drop_asr_data["config"]["preload_from_files"]["existing-model"]["filename"] = (
+            TTS_exp_train_job.out_checkpoints[TTS_exp_train_job.returnn_config.get("num_epochs", 100)]
+        )
 
         run_exp(
             prefix_name
@@ -1176,11 +1243,11 @@ def glowASR(TTS_experiments: dict):
 
     speaker_drop_05_TTS_exp_name = "glowTTS/enc192/100ep/speaker_drop/p_speaker_drop_0.5_not_silence_preprocessed"
     speaker_drop_05_TTS_exp_train_job = TTS_experiments[speaker_drop_05_TTS_exp_name]["train_job"]
-    train_args_conformer_speaker_drop_asr_data["config"]["preload_from_files"]["existing-model"][
-        "filename"
-    ] = speaker_drop_05_TTS_exp_train_job.out_checkpoints[
-        speaker_drop_05_TTS_exp_train_job.returnn_config.get("num_epochs", 100)
-    ]
+    train_args_conformer_speaker_drop_asr_data["config"]["preload_from_files"]["existing-model"]["filename"] = (
+        speaker_drop_05_TTS_exp_train_job.out_checkpoints[
+            speaker_drop_05_TTS_exp_train_job.returnn_config.get("num_epochs", 100)
+        ]
+    )
 
     for lm_w in [2.5, 3.0, 3.5, 4.0]:
         for ps in [0, 0.3, 0.5]:
@@ -1197,11 +1264,11 @@ def glowASR(TTS_experiments: dict):
             )
     speaker_drop_1_TTS_exp_name = "glowTTS/enc192/100ep/speaker_drop/p_speaker_drop_1_not_silence_preprocessed"
     speaker_drop_1_TTS_exp_train_job = TTS_experiments[speaker_drop_1_TTS_exp_name]["train_job"]
-    train_args_conformer_speaker_drop_asr_data["config"]["preload_from_files"]["existing-model"][
-        "filename"
-    ] = speaker_drop_1_TTS_exp_train_job.out_checkpoints[
-        speaker_drop_1_TTS_exp_train_job.returnn_config.get("num_epochs", 100)
-    ]
+    train_args_conformer_speaker_drop_asr_data["config"]["preload_from_files"]["existing-model"]["filename"] = (
+        speaker_drop_1_TTS_exp_train_job.out_checkpoints[
+            speaker_drop_1_TTS_exp_train_job.returnn_config.get("num_epochs", 100)
+        ]
+    )
 
     for lm_w in [2.5, 3.0, 3.5, 4.0]:
         for ps in [0, 0.3, 0.5]:
@@ -1232,9 +1299,9 @@ def glowASR(TTS_experiments: dict):
     )
 
     train_args_conformer_no_freeze_asr_data_spec_aug_before = copy.deepcopy(train_args_conformer_no_freeze_asr_data)
-    train_args_conformer_no_freeze_asr_data_spec_aug_before[
-        "network_module"
-    ] = "glowASR_conformer_no_freeze_spec_augment_before"
+    train_args_conformer_no_freeze_asr_data_spec_aug_before["network_module"] = (
+        "glowASR_conformer_no_freeze_spec_augment_before"
+    )
     train_args_conformer_no_freeze_asr_data_spec_aug_before["net_args"]["spec_augment"] = True
     run_exp(
         prefix_name
@@ -1274,7 +1341,7 @@ def glowASR(TTS_experiments: dict):
     del train_args_conformer_no_pretrained_asr_data["config"]["preload_from_files"]
     train_args_conformer_no_pretrained_asr_data["network_module"] = "glowASR_conformer_no_pretrained"
     run_exp(
-        prefix_name + "conformer/asr_dataset/spec_augment/glow_enc192_not_pretrained",
+        prefix_name + "conformer/asr_dataset/spec_augment_before/glow_enc192_not_pretrained",
         datasets=train_data_normal_ctc,
         train_args=train_args_conformer_no_pretrained_asr_data,
         search_args=default_search_args_asr,
@@ -1285,13 +1352,28 @@ def glowASR(TTS_experiments: dict):
         train_args_conformer_no_pretrained_asr_data
     )
     train_args_conformer_no_pretrained_asr_data_no_spec_augment["net_args"]["spec_augment"] = False
-    train_args_conformer_no_pretrained_asr_data_no_spec_augment[
-        "network_module"
-    ] = "glowASR_conformer_no_freeze"  # This is only because it takes the same file as "no_freeze" and we don't want to lose the hash of an already done experiment
+    train_args_conformer_no_pretrained_asr_data_no_spec_augment["network_module"] = (
+        "glowASR_conformer_no_freeze"  # This is only because it takes the same file as "no_freeze" and we don't want to lose the hash of an already done experiment
+    )
     run_exp(
         prefix_name + "conformer/asr_dataset/no_spec_augment/glow_enc192_not_pretrained",
         datasets=train_data_normal_ctc,
         train_args=train_args_conformer_no_pretrained_asr_data_no_spec_augment,
+        search_args=default_search_args_asr,
+        large_gpu_training=False,
+        num_epochs=250,
+    )
+
+    train_args_conformer_no_pretrained_asr_data_spec_augment_after_fe = copy.deepcopy(
+        train_args_conformer_no_pretrained_asr_data
+    )
+    train_args_conformer_no_pretrained_asr_data_spec_augment_after_fe["network_module"] = (
+        "glowASR_conformer_no_freeze_spec_augment"
+    )
+    run_exp(
+        prefix_name + "conformer/asr_dataset/spec_augment/glow_enc192_not_pretrained",
+        datasets=train_data_normal_ctc,
+        train_args=train_args_conformer_no_pretrained_asr_data_spec_augment_after_fe,
         search_args=default_search_args_asr,
         large_gpu_training=False,
         num_epochs=250,
@@ -1310,9 +1392,9 @@ def glowASR(TTS_experiments: dict):
 
     train_args_blstm_asr_no_freeze = copy.deepcopy(train_args_blstm_frame_stack_asr)
     TTS_train_job = TTS_experiments["glowTTS/enc192/200ep/long_cooldown/not_silence_preprocessed"]["train_job"]
-    train_args_blstm_asr_no_freeze["config"]["preload_from_files"]["existing-model"][
-        "filename"
-    ] = TTS_train_job.out_checkpoints[TTS_train_job.returnn_config.get("num_epochs", 200)]
+    train_args_blstm_asr_no_freeze["config"]["preload_from_files"]["existing-model"]["filename"] = (
+        TTS_train_job.out_checkpoints[TTS_train_job.returnn_config.get("num_epochs", 200)]
+    )
     train_args_blstm_asr_no_freeze["network_module"] = "glowASR_blstm_frame_stack_no_freeze"
     run_exp(
         prefix_name + "blstm_2x512_d0.2_b300_fs4/asr_dataset/no_spec_augment/glow_enc192_200ep_not_freezed",
@@ -1332,9 +1414,9 @@ def glowASR(TTS_experiments: dict):
     )
 
     train_args_blstm_asr_no_freeze_spec_augment_before = copy.deepcopy(train_args_blstm_asr_no_freeze_spec_augment)
-    train_args_blstm_asr_no_freeze_spec_augment_before[
-        "network_module"
-    ] = "glowASR_blstm_frame_stack_no_freeze_specaug_before"
+    train_args_blstm_asr_no_freeze_spec_augment_before["network_module"] = (
+        "glowASR_blstm_frame_stack_no_freeze_specaug_before"
+    )
     run_exp(
         prefix_name + "blstm_2x512_d0.2_b300_fs4/asr_dataset/spec_augment_before/glow_enc192_200ep_not_freezed",
         datasets=train_data_normal_ctc,
@@ -1385,6 +1467,16 @@ def glowASR(TTS_experiments: dict):
             )
             run_exp(
                 prefix_name
+                + f"conformer/asr_dataset/spec_augment_before/glow_enc192_200ep_not_silence_preprocessed_not_freezed/lm_tuning/lm{lm_w}_ps{ps}",
+                datasets=train_data_normal_ctc,
+                train_args=train_args_conformer_no_freeze_asr_data_spec_aug_before,
+                search_args={**default_search_args_asr, **additional_search_args},
+                large_gpu_training=False,
+                num_epochs=250,
+                with_prior=True,
+            )
+            run_exp(
+                prefix_name
                 + f"conformer/asr_dataset/no_spec_augment/glow_enc192_200ep_not_silence_preprocessed_not_freezed/lm_tuning/lm{lm_w}_ps{ps}",
                 datasets=train_data_normal_ctc,
                 train_args=train_args_conformer_no_freeze_asr_data_no_spec_augment,
@@ -1395,7 +1487,7 @@ def glowASR(TTS_experiments: dict):
             )
             run_exp(
                 prefix_name
-                + f"conformer/asr_dataset/spec_augment/glow_enc192_not_pretrained/lm_tuning/lm{lm_w}_ps{ps}",
+                + f"conformer/asr_dataset/spec_augment_before/glow_enc192_not_pretrained/lm_tuning/lm{lm_w}_ps{ps}",
                 datasets=train_data_normal_ctc,
                 train_args=train_args_conformer_no_pretrained_asr_data,
                 search_args={**default_search_args_asr, **additional_search_args},
@@ -1413,6 +1505,16 @@ def glowASR(TTS_experiments: dict):
                 num_epochs=250,
                 with_prior=True,
             )
+
+            run_exp(
+                prefix_name
+                + f"conformer/asr_dataset/spec_augment/glow_enc192_not_pretrained/lm_tuning/lm{lm_w}_ps{ps}",
+                datasets=train_data_normal_ctc,
+                train_args=train_args_conformer_no_pretrained_asr_data_spec_augment_after_fe,
+                search_args={**default_search_args_asr, **additional_search_args},
+                large_gpu_training=False,
+                num_epochs=250,
+            )
             run_exp(
                 prefix_name
                 + f"conformer/asr_dataset/spec_augment/glow_enc192_not_pretrained_control/lm_tuning/lm{lm_w}_ps{ps}",
@@ -1425,7 +1527,7 @@ def glowASR(TTS_experiments: dict):
             )
             run_exp(
                 prefix_name
-                + f"blstm_2x512_d0.2_b300_fs4/asr_dataset/no_spec_augment/glow_enc192_not_pretrained/lm_tuning/lm{lm_w}_ps{ps}",
+                + f"blstm_2x512_d0.2_b300_fs4/asr_dataset/no_spec_augment/glow_enc192_200ep_not_pretrained/lm_tuning/lm{lm_w}_ps{ps}",
                 datasets=train_data_normal_ctc,
                 train_args=train_args_blstm_asr_no_pretrained_no_spec_augment,
                 search_args={**default_search_args_asr, **additional_search_args},
@@ -1433,7 +1535,7 @@ def glowASR(TTS_experiments: dict):
             )
             run_exp(
                 prefix_name
-                + f"blstm_2x512_d0.2_b300_fs4/asr_dataset/spec_augment/glow_enc192_not_pretrained/lm_tuning/lm{lm_w}_ps{ps}",
+                + f"blstm_2x512_d0.2_b300_fs4/asr_dataset/spec_augment/glow_enc192_200ep_not_pretrained/lm_tuning/lm{lm_w}_ps{ps}",
                 datasets=train_data_normal_ctc,
                 train_args=train_args_blstm_asr_no_pretrained_spec_augment,
                 search_args={**default_search_args_asr, **additional_search_args},
@@ -1461,9 +1563,9 @@ def glowASR(TTS_experiments: dict):
     train_args_conformer_asr_data_xvector["net_args"]["gin_channels"] = 512
     train_args_conformer_asr_data_xvector["net_args"]["n_speakers"] = 251
     glowTTS_xvector_train_job = TTS_experiments["glowTTS_x_vector/enc768/100ep/not_silence_preprocessed"]["train_job"]
-    train_args_conformer_asr_data_xvector["config"]["preload_from_files"]["existing-model"][
-        "filename"
-    ] = glowTTS_xvector_train_job.out_checkpoints[glowTTS_xvector_train_job.returnn_config.get("num_epochs", 100)]
+    train_args_conformer_asr_data_xvector["config"]["preload_from_files"]["existing-model"]["filename"] = (
+        glowTTS_xvector_train_job.out_checkpoints[glowTTS_xvector_train_job.returnn_config.get("num_epochs", 100)]
+    )
 
     run_exp(
         prefix_name + "conformer/asr_dataset/spec_augment/glow_enc768_100ep_xvector",
@@ -1510,19 +1612,119 @@ def glowASR(TTS_experiments: dict):
                 with_prior=True,
             )
 
+    train_args_conformer_asr_data_v3_768 = copy.deepcopy(train_args_conformer_asr_data)
+    train_args_conformer_asr_data_v3_768["config"]["preload_from_files"]["existing-model"]["filename"] = tts_models[
+        "glowTTS/enc768/200ep/dec_drop_0.05"
+    ].checkpoint
+
+    run_exp(
+        prefix_name + "conformer/asr_dataset/spec_augment/glow_enc768_200ep_dec_0.05_v2",
+        datasets=train_data_normal_ctc,
+        train_args=train_args_conformer_asr_data_v3_768,
+        search_args=default_search_args_asr,
+        large_gpu_training=True,
+        num_epochs=250,
+    )
+
+    train_args_conformer_asr_data_v3_192 = copy.deepcopy(train_args_conformer_asr_data_v3_768)
+    train_args_conformer_asr_data_v3_192["config"]["preload_from_files"]["existing-model"]["filename"] = tts_models[
+        "glowTTS/enc192/200ep/dec_drop_0.05"
+    ].checkpoint
+    run_exp(
+        prefix_name + "conformer/asr_dataset/spec_augment/glow_enc192_200ep_dec_0.05_v2",
+        datasets=train_data_normal_ctc,
+        train_args=train_args_conformer_asr_data_v3_192,
+        search_args=default_search_args_asr,
+        large_gpu_training=True,
+        num_epochs=250,
+    )
+
+    train_args_conformer_asr_data_xvector_v3 = copy.deepcopy(train_args_conformer_asr_data_xvector_v2)
+    train_args_conformer_asr_data_xvector_v3["network_module"] = "glowASR_conformer_x_vector_v2_bottleneck"
+    train_args_conformer_asr_data_xvector_v3["net_args"]["gin_channels"] = 256
+    train_args_conformer_asr_data_xvector_v3["config"]["preload_from_files"]["existing-model"]["filename"] = tts_models[
+        "glowTTS_x_vector_v2/enc768/200ep/dec_drop_0.05"
+    ].checkpoint
+    run_exp(
+        prefix_name + "conformer/asr_dataset/spec_augment/glow_x_vector_enc768_200ep_dec_0.05_v2",
+        datasets=train_data_normal_ctc,
+        train_args=train_args_conformer_asr_data_xvector_v3,
+        search_args=default_search_args_asr,
+        large_gpu_training=False,
+        num_epochs=250,
+    )
+
+    train_args_conformer_asr_data_xvector_v3_192 = copy.deepcopy(train_args_conformer_asr_data_xvector_v3)
+    train_args_conformer_asr_data_xvector_v3_192["config"]["preload_from_files"]["existing-model"]["filename"] = (
+        tts_models["glowTTS_x_vector_v2/enc192/200ep/dec_drop_0.05"].checkpoint
+    )
+    run_exp(
+        prefix_name + "conformer/asr_dataset/spec_augment/glow_x_vector_enc192_200ep_dec_0.05_v2",
+        datasets=train_data_normal_ctc,
+        train_args=train_args_conformer_asr_data_xvector_v3_192,
+        search_args=default_search_args_asr,
+        large_gpu_training=False,
+        num_epochs=250,
+    )
+
+    for lm_w in [2.5, 3.0, 3.5, 4.0]:
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm_w, "prior_scale": ps}
+            run_exp(
+                prefix_name
+                + f"conformer/asr_dataset/spec_augment/glow_enc768_200ep_dec_0.05_v2/search_params/lm_{lm_w}_ps_{ps}",
+                datasets=train_data_normal_ctc,
+                train_args=train_args_conformer_asr_data_v3_768,
+                search_args={**default_search_args_asr, **additional_search_args},
+                large_gpu_training=True,
+                num_epochs=250,
+            )
+
+            run_exp(
+                prefix_name
+                + f"conformer/asr_dataset/spec_augment/glow_enc192_200ep_dec_0.05_v2/search_params/lm_{lm_w}_ps_{ps}",
+                datasets=train_data_normal_ctc,
+                train_args=train_args_conformer_asr_data_v3_192,
+                search_args={**default_search_args_asr, **additional_search_args},
+                large_gpu_training=True,
+                num_epochs=250,
+            )
+
+            run_exp(
+                prefix_name
+                + f"conformer/asr_dataset/spec_augment/glow_x_vector_enc768_200ep_dec_0.05_v2/search_params/lm_{lm_w}_ps_{ps}",
+                datasets=train_data_normal_ctc,
+                train_args=train_args_conformer_asr_data_xvector_v3,
+                search_args={**default_search_args_asr, **additional_search_args},
+                large_gpu_training=True,
+                num_epochs=250,
+            )
+
+            run_exp(
+                prefix_name
+                + f"conformer/asr_dataset/spec_augment/glow_x_vector_enc192_200ep_dec_0.05_v2/search_params/lm_{lm_w}_ps_{ps}",
+                datasets=train_data_normal_ctc,
+                train_args=train_args_conformer_asr_data_xvector_v3_192,
+                search_args={**default_search_args_asr, **additional_search_args},
+                large_gpu_training=True,
+                num_epochs=250,
+            )
+
     train_args_blstm_asr_xvector = copy.deepcopy(train_args_blstm_frame_stack_asr)
     train_args_blstm_asr_xvector["network_module"] = "glowASR_blstm_frame_stack_x_vector"
     train_args_blstm_asr_xvector["net_args"]["gin_channels"] = 512
     train_args_blstm_asr_xvector["net_args"]["n_speakers"] = 251
-    train_args_blstm_asr_xvector["config"]["preload_from_files"]["existing-model"][
-        "filename"
-    ] = glowTTS_xvector_train_job.out_checkpoints[glowTTS_xvector_train_job.returnn_config.get("num_epochs", 100)]
+    train_args_blstm_asr_xvector["config"]["preload_from_files"]["existing-model"]["filename"] = (
+        glowTTS_xvector_train_job.out_checkpoints[glowTTS_xvector_train_job.returnn_config.get("num_epochs", 100)]
+    )
     run_exp(
         prefix_name + "blstm_2x512_d0.2_b300_fs4/asr_dataset/spec_augment/glow_enc768_100ep_xvector",
         datasets=train_data_normal_ctc,
         train_args=train_args_blstm_asr_xvector,
         search_args=default_search_args_asr,
     )
+
+    train_args_blstm_asr_xvector["network_module"] = "glowASR_blstm_frame_stack_x_vector_v2"
 
     # ============================== Weaker Conformer Baseline ==============================
     train_args_conformer_baseline = copy.deepcopy(train_args_conformer_only_asr_data)
@@ -1644,7 +1846,7 @@ def glowASR(TTS_experiments: dict):
         num_epochs=100,
         search_args=default_search_args_tts_fix,
         test_datasets=dev_dataset_tuples_with_phon,
-        only_forward_no_search=True
+        only_forward_no_search=True,
     )
 
     net_module = "glowTTS_encoding_test_multi_layer_ffn"
@@ -1656,7 +1858,7 @@ def glowASR(TTS_experiments: dict):
         num_epochs=100,
         search_args=default_search_args_tts_fix,
         test_datasets=dev_dataset_tuples_with_phon,
-        only_forward_no_search=True
+        only_forward_no_search=True,
     )
 
     net_module = "glowTTS_encoding_test_blstm"
@@ -1668,7 +1870,7 @@ def glowASR(TTS_experiments: dict):
         num_epochs=100,
         search_args=default_search_args_tts_fix,
         test_datasets=dev_dataset_tuples_with_phon,
-        only_forward_no_search=True
+        only_forward_no_search=True,
     )
 
     net_module = "glowTTS_encoding_test_blstm_ce"
@@ -1704,7 +1906,7 @@ def glowASR(TTS_experiments: dict):
         num_epochs=100,
         search_args=default_search_args_tts_fix,
         test_datasets=dev_dataset_tuples_with_phon,
-        only_forward_no_search=True
+        only_forward_no_search=True,
     )
 
     net_module = "glowTTS_encoding_test_multi_layer_ffn_mean_only"
@@ -1716,7 +1918,7 @@ def glowASR(TTS_experiments: dict):
         num_epochs=100,
         search_args=default_search_args_tts_fix,
         test_datasets=dev_dataset_tuples_with_phon,
-        only_forward_no_search=True
+        only_forward_no_search=True,
     )
 
     net_module = "glowTTS_encoding_test_simple_linear_ce"
@@ -1728,7 +1930,7 @@ def glowASR(TTS_experiments: dict):
         num_epochs=100,
         search_args=default_search_args_tts_fix,
         test_datasets=dev_dataset_tuples_with_phon,
-        only_forward_no_search=True
+        only_forward_no_search=True,
     )
 
     net_module = "glowTTS_encoding_test_simple_linear_mean_only"
@@ -1740,7 +1942,7 @@ def glowASR(TTS_experiments: dict):
         num_epochs=100,
         search_args=default_search_args_tts_fix,
         test_datasets=dev_dataset_tuples_with_phon,
-        only_forward_no_search=True
+        only_forward_no_search=True,
     )
 
     glowTTS_train_job = TTS_experiments["glowTTS/enc768/mean_only/not_silence_preprocessed"]["train_job"]

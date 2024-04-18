@@ -21,7 +21,6 @@ from torchaudio.functional import mask_along_axis
 
 from i6_models.parts.blstm import BlstmEncoderV1, BlstmEncoderV1Config
 
-
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.assemblies.conformer.conformer_v1 import ConformerEncoderV1Config
 from i6_models.assemblies.conformer.conformer_v1 import ConformerBlockV1Config, ConformerEncoderV1
@@ -52,12 +51,12 @@ from .shared.mask import mask_tensor
 from .shared import modules
 from .shared import commons
 from .shared import attentions
+from .shared.eval_forward import *
+from .shared.eval_invertibility import *
 from .monotonic_align import maximum_path
 
 from .shared.forward import search_init_hook, search_finish_hook
-
-from IPython import embed
-
+from .shared.eval_forward import *
 
 class XVector(nn.Module):
     def __init__(self, input_dim=40, num_classes=8, **kwargs):
@@ -415,7 +414,7 @@ class Model(nn.Module):
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
 
     def forward(
-        self, x=None, x_lengths=None, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, recognition=False, noise_scale=1.0, length_scale=1.0
+        self, x=None, x_lengths=None, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, recognition=False, noise_scale=1.0, length_scale=1.0, invertibility_check=False
     ):
         if not gen:
             with torch.no_grad():
@@ -440,6 +439,11 @@ class Model(nn.Module):
         y, y_lengths, y_max_length = self.preprocess(y, y_lengths, y_max_length)
         z_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, y_max_length), 1).to(torch.int32)
 
+        if invertibility_check:
+            z, _ = self.decoder(y, z_mask, g=g, reverse=False)
+            y_hat, _ = self.decoder(z, z_mask, g=g, reverse=True)
+            return y_hat, y
+
         if not recognition:
             attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
 
@@ -455,7 +459,7 @@ class Model(nn.Module):
             return (y, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_)
         else:
             z, logdet = self.decoder(y, z_mask, g=g, reverse=False)
-            
+
             spec_augment_in = z.transpose(1, 2)  # [B, T, F]
             mask = mask_tensor(spec_augment_in, y_lengths)
 

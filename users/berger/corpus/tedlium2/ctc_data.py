@@ -81,6 +81,7 @@ def get_tedlium2_data_dumped_labels(
         returnn_python_exe=returnn_python_exe,
         rasr_binary_path=rasr_binary_path,
         rasr_arch=rasr_arch,
+        single_hdf=True,
         extra_config={
             "partition_epoch": 1,
             "seq_ordering": "sorted",

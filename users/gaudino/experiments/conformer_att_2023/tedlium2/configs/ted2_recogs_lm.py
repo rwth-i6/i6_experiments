@@ -321,7 +321,9 @@ def ted2_recogs_lm():
     base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
     args = copy.deepcopy(base_v1_args)
 
-    from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.model_ckpt_info import models
+    from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.model_ckpt_info import (
+        models,
+    )
 
     def adjust_enc_args_to_model_name(enc_args, model_name):
         new_enc_args = copy.deepcopy(enc_args)
@@ -353,9 +355,14 @@ def ted2_recogs_lm():
 
     train_data_baseline = get_train_data()
 
-    # att + trafo lm # TODO: bug when running without ctc
-    for model_name, lm_scale, beam_size in product(["model_baseline"], [0.18], [12]):
-    # for model_name, lm_scale, beam_size in product(list(models.keys())[:-1], [0.1, 0.2, 0.3, 0.4], [12]):
+    bsf = 10
+    args["batch_size"] = bsf * 20000
+
+    # att + trafo lm
+    for model_name, lm_scale, beam_size in product(
+        ["model_ctc0.5_att0.5"], [0.25, 0.3, 0.35], [12]
+    ):
+        # for model_name, lm_scale, beam_size in product(list(models.keys())[:-1], [0.1, 0.2, 0.3, 0.4], [12]):
         search_args = copy.deepcopy(args)
         search_args["encoder_args"] = adjust_enc_args_to_model_name(
             search_args["encoder_args"], model_name
@@ -366,11 +373,10 @@ def ted2_recogs_lm():
             "load_on_init_opts": tedlium_lm_load_on_init,
             "name": "trafo",
         }
-        search_args["batch_size"] = 2000 * 160
         search_args["beam_size"] = beam_size
 
         run_decoding(
-            model_name + f"/att1.0_trafolm{lm_scale}_beam{beam_size}",
+            f"bsf{bsf}/" + model_name + f"/att1.0_trafolm{lm_scale}_beam{beam_size}",
             train_data_baseline,
             checkpoint=models[model_name]["ckpt"],
             search_args=search_args,
@@ -385,7 +391,7 @@ def ted2_recogs_lm():
     ctc_prior_model_names = {
         "model_baseline": {
             "prior_scale": [0.15],  # dev/test 8.39/8.01 -> 8.19/7.92
-            "lm_scale": [0.38, 0.4],
+            "lm_scale": [0.4],
         },
         "model_ctc0.43_att1.0": {  # dev/test 8.62/7.97 -> 8.58/7.86
             "prior_scale": [0.15],
@@ -396,17 +402,37 @@ def ted2_recogs_lm():
         "model_ctc0.2_att1.0": {  # dev/test 9.56/8.67 -> 9.38/8.65
             "prior_scale": [0.2],
         },
+        "model_ctc0.9_att0.1": {
+            "prior_scale": [0.22],  # bsf 10 dev/test 9.04/8.33 -> 8.85/8.44
+        },
+        "model_ctc0.8_att0.2": {
+            "prior_scale": [0.2],  # bsf 10 dev/test 9.03/8.24 -> 8.96/8.21
+        },
+        "model_ctc0.7_att0.3": {
+            "prior_scale": [0.22],  # bsf 10 dev/test 8.67/8.00 -> 8.58/7.94
+        },
+        "model_ctc0.6_att0.4": {
+            "prior_scale": [0.2],  # bsf 10 dev/test 8.65/8.04 -> 8.64/7.98
+        },
+        "model_ctc0.5_att0.5": {
+            "prior_scale": [0.2],  # bsf 10 dev/test 8.50/8.03 -> 8.31/7.92
+            "lm_scale": [0.45],
+        },
+        "model_ctc0.4_att0.6": {
+            "prior_scale": [0.2],  # bsf 10 dev/test 8.55/7.76 -> 8.42/7.89
+            "lm_scale": [0.45],
+        },
         "model_ctc0.3_att0.7": {
             "prior_scale": [0.25],  # dev/test 8.58/8.15 -> 8.46/8.11
-            "lm_scale": [0.4],
+            "lm_scale": [0.5, 0.6],
         },
         "model_ctc0.2_att0.8": {
             "prior_scale": [0.22],  # dev/test 9.05/8.35 -> 8.78/8.33
-            "lm_scale": [0.4],
+            "lm_scale": [0.5],
         },
         "model_ctc0.1_att0.9": {
             "prior_scale": [0.17],  # dev/test 9.92/9.22 -> 9.84/9.20
-            "lm_scale": [0.2],
+            "lm_scale": [0.45],
         },
         "model_ctc0.001_att0.999": {
             "prior_scale": [0.2],  # dev/test 27.00/25.10 -> 26.32/24.76
@@ -431,20 +457,33 @@ def ted2_recogs_lm():
         },
         "model_ctc_only": {
             "prior_scale": [0.17],  # dev/test 9.27/8.46 -> 9.23/8.37
+            "lm_scale": [0.4],
         },
     }
 
-    for model_name in ["model_baseline", "model_ctc0.3_att0.7", "model_ctc0.2_att0.8", "model_ctc0.1_att0.9"]:
-    # for model_name in ctc_prior_model_names.keys():
-        for prior_scale, lm_scale, beam_size in product(ctc_prior_model_names[model_name]["prior_scale"], ctc_prior_model_names[model_name]["lm_scale"], [12, 32]):
+    for model_name in [
+        "model_baseline",
+        "model_ctc0.5_att0.5",
+        "model_ctc0.4_att0.6",
+        "model_ctc0.3_att0.7",
+        "model_ctc0.2_att0.8",
+        "model_ctc0.1_att0.9",
+        "model_ctc_only",
+    ]:
+        # for model_name in ctc_prior_model_names.keys():
+        for prior_scale, lm_scale, beam_size in product(
+            ctc_prior_model_names[model_name]["prior_scale"],
+            ctc_prior_model_names[model_name]["lm_scale"],
+            [32],
+        ):
             search_args = copy.deepcopy(args)
             search_args["encoder_args"] = adjust_enc_args_to_model_name(
                 search_args["encoder_args"], model_name
             )
             search_args["ctc_log_prior_file"] = models[model_name]["prior"]
-            search_args["batch_size"] = 2000 * 160
             search_args["beam_size"] = beam_size
-            ctc_scale=1.0
+            ctc_scale = 1.0
+            label_scale = 1.0
             search_args["decoder_args"] = CTCDecoderArgs(
                 ctc_scale=ctc_scale,
                 add_ext_lm=True,
@@ -453,13 +492,23 @@ def ted2_recogs_lm():
                     "lm_subnet": tedlium_lm_net,
                     "load_on_init_opts": tedlium_lm_load_on_init,
                 },
+                recombine=True,
+                max_approx=True,
                 lm_scale=lm_scale,
                 ctc_prior_correction=True,
                 prior_scale=prior_scale,
                 target_dim=1057,
+                # normalization settings
+                one_minus_term_mul_scale=0.0,
+                renorm_after_remove_blank=False,
+                blank_prob_scale=1.0,
+                repeat_prob_scale=1.0,
+                label_prob_scale=label_scale,
             )
             run_decoding(
-                model_name + f"/opts_ctc{1.0}_trafolm{lm_scale}_prior{prior_scale}_beam{beam_size}",
+                f"bsf{bsf}/"
+                + model_name
+                + f"/optsr_max_ctc{1.0}_trafolm{lm_scale}_prior{prior_scale}_vanilla_beam{beam_size}",
                 train_data_baseline,
                 checkpoint=models[model_name]["ckpt"],
                 search_args=search_args,
@@ -471,58 +520,103 @@ def ted2_recogs_lm():
             )
 
     # aed + ctc + trafo lm
+    # att, ctc, ctc_prior, label_scale, lm_scale
     joint_training_model_names = {
         "model_baseline": {
-            "scales": [(0.7, 0.3, 0.4)],
-            "lm_scales": [0.3, 0.35],
+            "scales": [
+                (0.8, 0.2, 0.5, 0.9, 0.7),
+                (0.8, 0.2, 0.5, 1.0, 0.7),
+                (0.8, 0.2, 0.6, 0.9, 0.7),
+                (0.8, 0.2, 0.4, 0.9, 0.7),
+                (0.8, 0.2, 0.5, 0.9, 0.65),
+                (0.8, 0.2, 0.5, 0.9, 0.75),
+            ],
         },
         # "model_ctc0.43_att1.0",
-        "model_ctc0.25_att1.0": {
-            "scales": [(0.85, 0.15, 0.35)],
+        # "model_ctc0.25_att1.0": {
+        #     "scales": [(0.85, 0.15, 0.35)],
+        # },
+        # "model_ctc0.2_att1.0": {
+        #     "scales": [(0.8, 0.2, 0.5)],
+        # },
+        "model_ctc0.9_att0.1": {
+            "scales": [(0.7, 0.3, 0.6, 1.0, 0.6)],
         },
-        "model_ctc0.2_att1.0": {
-            "scales": [(0.8, 0.2, 0.5)],
+        "model_ctc0.8_att0.2": {
+            "scales": [(0.75, 0.25, 0.3, 0.8, 0.6)],
+        },
+        "model_ctc0.7_att0.3": {
+            "scales": [(0.7, 0.3, 0.6, 1.0, 0.5)],
+        },
+        "model_ctc0.6_att0.4": {
+            "scales": [(0.7, 0.3, 0.4, 0.95, 0.5)],
+        },
+        "model_ctc0.5_att0.5": {
+            "scales": [
+                (0.7, 0.3, 0.45, 1.0, 0.5),
+                (0.7, 0.3, 0.45, 1.0, 0.45),
+                (0.7, 0.3, 0.45, 1.0, 0.55),
+                (0.7, 0.3, 0.5, 1.0, 0.5),
+                (0.7, 0.3, 0.4, 1.0, 0.5),
+            ],
+        },
+        "model_ctc0.4_att0.6": {
+            "scales": [(0.75, 0.25, 0.4, 0.9, 0.6)],
         },
         "model_ctc0.3_att0.7": {
-            "scales": [(0.8, 0.2, 0.5)],
-            "lm_scales": [0.32]
+            "scales": [(0.75, 0.25, 0.45, 0.9, 0.45)],
         },
         "model_ctc0.2_att0.8": {
-            "scales": [(0.75, 0.25, 0.4)],
-            "lm_scales": [0.25, 0.28],
+            "scales": [
+                (0.8, 0.2, 0.3, 0.8, 0.5),
+                (0.8, 0.2, 0.35, 0.8, 0.5),
+                (0.8, 0.2, 0.25, 0.8, 0.5),
+                (0.8, 0.2, 0.3, 0.8, 0.53),
+                (0.8, 0.2, 0.3, 0.8, 0.55),
+                (0.8, 0.2, 0.3, 0.8, 0.57),
+            ],
         },
         "model_ctc0.1_att0.9": {
-            "scales": [(0.75, 0.25, 0.4)],
-            "lm_scales": [0.28, 0.3],
+            "scales": [(0.9, 0.1, 0.0, 0.95, 0.4)],
         },
-        "model_ctc0.001_att0.999": {
-            "scales": [(0.85, 0.15)],
-        },
-        "model_ctc0.3_att0.7_lay6": {
-            "scales": [(0.85, 0.15)],
-        },
-        "model_ctc0.3_att0.7_lay8": {
-            "scales": [(0.85, 0.15)],
-        },
-        "model_ctc0.3_att0.7_lay10": {
-            "scales": [(0.8, 0.2)],
-        },
-        "model_ctc1.0_att1.0_lay6": {
-            "scales": [(0.8, 0.2)],
-        },
-        "model_ctc1.0_att1.0_lay8": {
-            "scales": [(0.9, 0.1)],
-        },
-        "model_ctc1.0_att1.0_lay10": {
-            "scales": [(0.9, 0.1)],
-        },
+        # "model_ctc0.001_att0.999": {
+        #     "scales": [(0.85, 0.15)],
+        # },
+        # "model_ctc0.3_att0.7_lay6": {
+        #     "scales": [(0.85, 0.15)],
+        # },
+        # "model_ctc0.3_att0.7_lay8": {
+        #     "scales": [(0.85, 0.15)],
+        # },
+        # "model_ctc0.3_att0.7_lay10": {
+        #     "scales": [(0.8, 0.2)],
+        # },
+        # "model_ctc1.0_att1.0_lay6": {
+        #     "scales": [(0.8, 0.2)],
+        # },
+        # "model_ctc1.0_att1.0_lay8": {
+        #     "scales": [(0.9, 0.1)],
+        # },
+        # "model_ctc1.0_att1.0_lay10": {
+        #     "scales": [(0.9, 0.1)],
+        # },
     }
 
-
-    for model_name in ["model_baseline", "model_ctc0.3_att0.7", "model_ctc0.2_att0.8", "model_ctc0.1_att0.9"]:
-        for lm_scale, beam_size in product(
-            joint_training_model_names[model_name]["lm_scales"],
-            [],
+    for model_name in [
+        "model_baseline",
+        # "model_ctc0.9_att0.1",
+        # "model_ctc0.8_att0.2",
+        # "model_ctc0.7_att0.3",
+        # "model_ctc0.6_att0.4",
+        "model_ctc0.5_att0.5",
+        # "model_ctc0.4_att0.6",
+        # "model_ctc0.3_att0.7",
+        "model_ctc0.2_att0.8",
+        # "model_ctc0.1_att0.9",
+    ]:
+        for scales, beam_size in product(
+            joint_training_model_names[model_name]["scales"],
+            [32],
         ):
             # for scales in joint_training_model_names[model_name]["scales"]:
             search_args = copy.deepcopy(args)
@@ -530,9 +624,9 @@ def ted2_recogs_lm():
                 search_args["encoder_args"], model_name
             )
             search_args["beam_size"] = beam_size
-            search_args["batch_size"] = 2000 * 160
+
             search_args["ctc_log_prior_file"] = models[model_name]["prior"]
-            att_scale, ctc_scale, prior_scale = joint_training_model_names[model_name]["scales"][0]
+            att_scale, ctc_scale, prior_scale, label_scale, lm_scale = scales
             search_args["decoder_args"] = CTCDecoderArgs(
                 add_att_dec=True,
                 att_scale=att_scale,
@@ -549,11 +643,22 @@ def ted2_recogs_lm():
                 target_embed_dim=256,
                 ctc_prior_correction=prior_scale > 0,
                 prior_scale=prior_scale,
+                recombine=True,
+                max_approx=True,
+                # normalization settings
+                one_minus_term_mul_scale=0.0,
+                renorm_after_remove_blank=False,
+                blank_prob_scale=1.0,
+                repeat_prob_scale=1.0,
+                label_prob_scale=label_scale,
             )
             run_decoding(
-                model_name
-                + f"/opts_ctc{ctc_scale}_att{att_scale}_trafolm{lm_scale}"
+                f"bsf{bsf}/"
+                + model_name
+                + f"/optsr_max_ctc{ctc_scale}_att{att_scale}_trafolm{lm_scale}"
                 + (f"_prior{prior_scale}" if prior_scale > 0 else "")
+                + f"_scales_l{label_scale}"
+                + f"_vanilla"
                 + f"_beam{beam_size}",
                 # + f"/opts_ctc{ctc_scale}_att{att_scale}_beam{beam_size}",
                 train_data_baseline,
@@ -639,7 +744,7 @@ def ted2_recogs_lm():
     for first_model_name, lm_scale, beam_size in product(
         ["model_baseline"],
         [0.2, 0.3, 0.4],
-        [6, 12, 32],
+        [],
     ):
         for scales in joint_training_model_names_2[first_model_name]["scales"]:
             search_args = copy.deepcopy(args)
@@ -648,7 +753,6 @@ def ted2_recogs_lm():
             )
             search_args["second_encoder_args_update_dict"] = {"enc_layer_w_ctc": None}
             search_args["beam_size"] = beam_size
-            search_args["batch_size"] = bsf * 20000
             search_args["ctc_log_prior_file"] = models["model_ctc_only"]["prior"]
             att_scale, ctc_scale, prior_scale = scales
             search_args["decoder_args"] = CTCDecoderArgs(
@@ -674,7 +778,7 @@ def ted2_recogs_lm():
             # search_args["second_encoder_ckpt"] = train_job_avg_ckpt[only_ctc_name]
             # search_args["hash_override_version"] = 1
             run_decoding(
-                f"bsf{bsf}/"+ first_model_name
+                f"bsf{bsf}/" + first_model_name
                 # + f"__ctc_only/opts_ctc{ctc_scale}_att{att_scale}_beam{beam_size}",
                 + f"__ctc_only/opts_att{att_scale}_ctc{ctc_scale}_trafolm{lm_scale}_prior{prior_scale}_beam{beam_size}",
                 train_data_baseline,

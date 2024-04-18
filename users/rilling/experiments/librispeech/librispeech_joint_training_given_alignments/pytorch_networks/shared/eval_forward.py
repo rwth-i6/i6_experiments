@@ -5,7 +5,7 @@ import numpy as np
 import subprocess
 import multiprocessing as mp
 from i6_experiments.users.rossenbach.experiments.jaist_project.pytorch_networks.vocoder.simple_gl.blstm_gl_predictor import Model
-from .corpus import Corpus, Recording, Segment
+from i6_experiments.users.rilling.datasets.corpus import Corpus, Recording, Segment
 
 ENVIRON = os.environ.copy()
 ENVIRON["OMP_NUM_THREADS"] = "2"
@@ -165,12 +165,12 @@ def forward_finish_hook_corpus_gl(run_ctx, **kwargs):
 def forward_step_corpus_gl(*, model, data, run_ctx, **kwargs):
     phonemes = data["phonemes"]  # [B, N] (sparse)
     phonemes_len = data["phonemes:size1"]  # [B]
-    speaker_labels = data["speaker_labels"]  # [B, 1] (sparse)
 
+    assert "xvectors" in data.keys() or "speaker_labels" in data.keys(), "No speaker given for generation!"
     if "xvectors" in data.keys():
         g = data["xvectors"]
-    else:
-        g = speaker_labels
+    elif "speaker_labels" in data.keys():
+        g = data["speaker_labels"]  # [B, 1] (sparse)
 
     tags = data["seq_tag"]
 

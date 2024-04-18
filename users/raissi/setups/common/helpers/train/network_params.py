@@ -63,6 +63,10 @@ frameshift40_conformer_fullsum = GeneralNetworkParams(
     l2=1e-6, specaug_args=asdict(default_sa_args), frame_rate_reduction_ratio_factor=4
 )
 
+frameshift40_conformer_fullsum_wei = GeneralNetworkParams(
+    l2=5e-6, specaug_args=asdict(default_sa_args), frame_rate_reduction_ratio_factor=4
+)
+
 # Comaprison with transducer
 frameshift40_conformer_viterbi_zhou = GeneralNetworkParams(
     l2=5e-6,

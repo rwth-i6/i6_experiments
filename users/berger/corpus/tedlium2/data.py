@@ -104,7 +104,7 @@ def get_data_inputs(
 
     for test_key in test_keys:
         for lm_name, lm in lms.items():
-            dev_data_inputs[f"{test_key}_{lm_name}"] = helpers.RasrDataInput(
+            test_data_inputs[f"{test_key}_{lm_name}"] = helpers.RasrDataInput(
                 corpus_object=helpers.convert_legacy_corpus_object_to_scorable(
                     data_inputs[test_key][test_key].corpus_object
                 ),

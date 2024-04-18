@@ -38,8 +38,8 @@ from i6_experiments.common.setups.rasr.util import (
 from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import (
     BASEFactoredHybridSystem,
     Experiment,
-    TrainingCriterion,
     SingleSoftmaxType,
+    TrainingCriterion,
 )
 
 import i6_experiments.users.raissi.setups.common.encoder as encoder_archs
@@ -49,6 +49,8 @@ import i6_experiments.users.raissi.setups.common.helpers.decode as decode_helper
 
 
 # user based modules
+from i6_experiments.users.raissi.setups.common.data.backend import BackendInfo
+
 from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
     get_lexicon_args,
     get_tdp_values,
@@ -149,6 +151,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
 
         self.graphs = {}
+        self.backend_info = BackendInfo.default()
         # inference related
         self.native_lstm2_path: Optional[Path] = None
 

@@ -20,7 +20,7 @@ from .shared.configs import DbMelFeatureExtractionConfig
 from .shared.model_config import ModelConfig, FlowDecoderConfig, TextEncoderConfig, ConformerCouplingFlowDecoderConfig
 from .shared.mask import mask_tensor
 
-from .eval_forward import *
+from .shared.eval_forward import *
 
 
 class DurationPredictor(nn.Module):

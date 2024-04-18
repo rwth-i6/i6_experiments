@@ -55,6 +55,7 @@ from .shared import attentions
 from .monotonic_align import maximum_path
 
 from .shared.forward import search_init_hook, search_finish_hook
+from .shared.eval_invertibility import forward_init_hook_invertibility, forward_finish_hook_invertibility, forward_step_invertibility
 
 from IPython import embed
 
@@ -342,7 +343,7 @@ class Model(nn.Module):
         self.cfg = ModelConfig.from_dict(model_config)
         frontend_config = self.cfg.frontend_config
         decoder_config = self.cfg.decoder_config
-        
+
         if self.cfg.n_speakers > 1:
             self.x_vector = XVector(self.cfg.out_channels, self.cfg.n_speakers)
 
@@ -384,7 +385,7 @@ class Model(nn.Module):
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
 
     def forward(
-        self, x=None, x_lengths=None, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, recognition=False, noise_scale=1.0, length_scale=1.0
+        self, x=None, x_lengths=None, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, recognition=False, noise_scale=1.0, length_scale=1.0, invertibility_check=False
     ):
         with torch.no_grad():
             squeezed_audio = torch.squeeze(raw_audio)
@@ -412,6 +413,11 @@ class Model(nn.Module):
 
         z, logdet = self.decoder(y, z_mask, g=g, reverse=False)
 
+        if invertibility_check:
+            z, _ = self.decoder(y, z_mask, g=g, reverse=False)
+            y_hat, _ = self.decoder(z, z_mask, g=g, reverse=True)
+            return y_hat, y
+
         conformer_in = z.transpose(1,2)
         mask = mask_tensor(spec_augment_in, y_lengths)
         conformer_out, out_mask = self.conformer(conformer_in, mask)
@@ -420,7 +426,7 @@ class Model(nn.Module):
         log_probs = torch.log_softmax(logits, dim=2)
 
         return log_probs, torch.sum(out_mask, dim=1)
-        
+
     def preprocess(self, y, y_lengths, y_max_length):
         if y_max_length is not None:
             y_max_length = (y_max_length // self.cfg.decoder_config.n_sqz) * self.cfg.decoder_config.n_sqz

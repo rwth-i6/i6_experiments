@@ -69,6 +69,11 @@ class LSTM_LM_Model(rf.Module):
         )
         return state
 
+    def select_state(self, state: rf.State, backrefs) -> rf.State:
+        state = tree.map_structure(
+            lambda s: rf.gather(s, indices=backrefs), state
+        )
+        return state
 
 class MakeModel:
     """for import"""

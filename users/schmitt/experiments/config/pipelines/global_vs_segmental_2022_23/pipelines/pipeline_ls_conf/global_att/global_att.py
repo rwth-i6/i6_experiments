@@ -44,7 +44,8 @@ def glob_att_import_global_no_finetuning():
 def glob_att_import_global_diff_epochs_diff_lrs(
         n_epochs_list: Tuple[int, ...] = (10, 100),
         const_lr_list: Tuple[float] = (1e-4,),
-        analysis_checkpoint_alias: Optional[str] = None
+        analysis_checkpoint_alias: Optional[str] = None,
+        att_weight_seq_tags: Optional[List[str]] = None
 ):
   for n_epochs in n_epochs_list:
     for const_lr in const_lr_list:
@@ -84,10 +85,125 @@ def glob_att_import_global_diff_epochs_diff_lrs(
           checkpoint_alias=checkpoint_alias,
           recog_opts={
             "search_corpus_key": "dev-other",
-          }
+          },
+          analysis_opts={"att_weight_seq_tags": att_weight_seq_tags}
         )
         recog_exp.run_eval()
         if checkpoint_alias == analysis_checkpoint_alias:
+          recog_exp.run_analysis()
+
+
+def glob_att_import_global_diff_epochs_diff_lrs_recog_wav_no_peak_norm_same_static_padding(
+        n_epochs_list: Tuple[int, ...] = (10, 100),
+        const_lr_list: Tuple[float] = (1e-4,),
+        checkpoint_aliases: Tuple[str, ...] = ("last", "best", "best-4-avg"),
+        att_weight_seq_tags: Optional[List[str]] = None,
+        run_analysis: bool = False
+):
+  for n_epochs in n_epochs_list:
+    for const_lr in const_lr_list:
+      alias = "models/ls_conformer/import_%s/glob_att/diff_epochs_recog_wav_no_peak_norm_same_static_padding/%d-epochs_const-lr-%f" % (default_import_model_name, n_epochs, const_lr)
+      config_builder = get_global_att_config_builder(use_weight_feedback=True)
+
+      train_exp = GlobalTrainExperiment(
+        config_builder=config_builder,
+        alias=alias,
+        num_epochs=n_epochs,
+        train_opts={
+          "import_model_train_epoch1": external_checkpoints[default_import_model_name],
+          "lr_opts": {
+            "type": "const_then_linear",
+            "const_lr": const_lr,
+            "const_frac": 1/3,
+            "final_lr": 1e-6,
+            "num_epochs": n_epochs
+          },
+          "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}},
+          "max_seq_length": {"targets": 75}
+        }
+      )
+      checkpoints, model_dir, learning_rates = train_exp.run_train()
+
+      for checkpoint_alias in checkpoint_aliases:
+        recog_exp = ReturnnGlobalAttDecodingExperiment(
+          alias=alias,
+          config_builder=config_builder,
+          checkpoint={
+            "model_dir": model_dir,
+            "learning_rates": learning_rates,
+            "key": "dev_score_output/output_prob",
+            "checkpoints": checkpoints,
+            "n_epochs": n_epochs
+          },
+          checkpoint_alias=checkpoint_alias,
+          recog_opts={
+            "search_corpus_key": "dev-other",
+            "dataset_opts": {
+              "peak_normalization": False,
+              "oggzip_paths": {
+                "dev-other": [
+                  config_builder.variant_params["dataset"]["corpus"].oggzip_paths_wav["dev-other"].out_ogg_zip]}
+            },
+            "use_same_static_padding": True
+          },
+          analysis_opts={"att_weight_seq_tags": att_weight_seq_tags},
+        )
+        recog_exp.run_eval()
+        if run_analysis:
+          recog_exp.run_analysis()
+
+
+def glob_att_import_global_diff_epochs_diff_lrs_freeze_encoder(
+        n_epochs_list: Tuple[int, ...] = (10, 100),
+        const_lr_list: Tuple[float] = (1e-4,),
+        checkpoint_aliases: Tuple[str, ...] = ("last", "best", "best-4-avg"),
+        att_weight_seq_tags: Optional[List[str]] = None,
+        run_analysis: bool = False
+):
+  for n_epochs in n_epochs_list:
+    for const_lr in const_lr_list:
+      alias = "models/ls_conformer/import_%s/glob_att/diff_epochs_freeze_encoder/%d-epochs_const-lr-%f" % (default_import_model_name, n_epochs, const_lr)
+      config_builder = get_global_att_config_builder(use_weight_feedback=True)
+
+      train_exp = GlobalTrainExperiment(
+        config_builder=config_builder,
+        alias=alias,
+        num_epochs=n_epochs,
+        train_opts={
+          "import_model_train_epoch1": external_checkpoints[default_import_model_name],
+          "lr_opts": {
+            "type": "const_then_linear",
+            "const_lr": const_lr,
+            "const_frac": 1/3,
+            "final_lr": 1e-6,
+            "num_epochs": n_epochs
+          },
+          "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}},
+          "max_seq_length": {"targets": 75},
+          "freeze_encoder": True
+        }
+      )
+      checkpoints, model_dir, learning_rates = train_exp.run_train()
+
+      for checkpoint_alias in checkpoint_aliases:
+        recog_exp = ReturnnGlobalAttDecodingExperiment(
+          alias=alias,
+          config_builder=config_builder,
+          checkpoint={
+            "model_dir": model_dir,
+            "learning_rates": learning_rates,
+            "key": "dev_score_output/output_prob",
+            "checkpoints": checkpoints,
+            "n_epochs": n_epochs
+          },
+          checkpoint_alias=checkpoint_alias,
+          recog_opts={
+            "search_corpus_key": "dev-other",
+          },
+          analysis_opts={"att_weight_seq_tags": att_weight_seq_tags},
+        )
+        recog_exp.run_eval()
+        if run_analysis:
           recog_exp.run_analysis()
 
 
@@ -149,48 +265,6 @@ def glob_att_import_global_bpe_lm(
         ilm_scales=ilm_scale_list,
         ilm_opts=ilm_opts
       ).run()
-
-      # batch_size = None
-      # for beam_size in beam_size_list:
-      #   for lm_scale in lm_scale_list:
-      #     if lm_scale > 0.0 and beam_size in (50, 84):
-      #       batch_size = 4000 * 160
-      #
-      #     for ilm_scale in ilm_scale_list:
-      #       if ilm_scale > 0.0:
-      #         assert ilm_type is not None
-      #         ilm_correction_opts = {
-      #           "scale": ilm_scale,
-      #           "type": ilm_type,
-      #         }
-      #         if ilm_type == "mini_att":
-      #           ilm_correction_opts.update({
-      #             "use_se_loss": False,
-      #             "correct_eos": True,
-      #           })
-      #       else:
-      #         ilm_correction_opts = None
-      #
-      #       recog_exp = ReturnnGlobalAttDecodingExperiment(
-      #         alias=alias,
-      #         config_builder=config_builder,
-      #         checkpoint={
-      #           "model_dir": model_dir,
-      #           "learning_rates": learning_rates,
-      #           "key": "dev_score_output/output_prob",
-      #           "checkpoints": checkpoints,
-      #           "n_epochs": n_epochs
-      #         },
-      #         checkpoint_alias=lm_recog_checkpoint_alias,
-      #         recog_opts={
-      #           "search_corpus_key": "dev-other",
-      #           "lm_opts": {"scale": lm_scale, "type": lm_type},
-      #           "ilm_correction_opts": ilm_correction_opts,
-      #           "beam_size": beam_size,
-      #           "batch_size": batch_size
-      #         }
-      #       )
-      #       recog_exp.run_eval()
 
 
 def glob_att_import_global_concat_recog(

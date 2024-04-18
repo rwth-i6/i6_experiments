@@ -54,6 +54,8 @@ from i6_experiments.users.raissi.setups.common.util.rasr import (
 from i6_experiments.users.raissi.setups.common.helpers.train.cache_epilog import hdf_dataset_cache_epilog
 
 # user based modules
+from i6_experiments.users.raissi.setups.common.data.backend import Backend, BackendInfo
+
 from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
     get_lexicon_args,
     get_tdp_values,
@@ -179,6 +181,9 @@ class BASEFactoredHybridSystem(NnSystem):
         self.datasets = {}
         self.hdfs = {}
         self.basic_feature_flows = {}
+
+        # backend for train and decode
+        self.backend_info = BackendInfo.default()
 
         # data and pipeline related
         self.inputs = {}
@@ -824,6 +829,17 @@ class BASEFactoredHybridSystem(NnSystem):
                 train_helpers.specaugment.summary,
                 train_helpers.specaugment.transform,
             ]
+            if self.backend_info.train == Backend.TF:
+
+                for l in config["network"].keys():
+                    if (
+                        config["network"][l]["class"] == "eval"
+                        and "self.network.get_config().typed_value('transform')" in config["network"][l]["eval"]
+                    ):
+
+                        config["network"][l][
+                            "eval"
+                        ] = "self.network.get_config().typed_value('transform')(source(0), network=self.network)"
 
         config["python_epilog"] = {
             "functions": functions,

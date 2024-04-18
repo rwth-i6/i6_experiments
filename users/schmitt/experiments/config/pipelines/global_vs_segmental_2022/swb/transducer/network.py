@@ -761,7 +761,8 @@ def get_extended_net_dict(
           "max_seg_len_range": {"class": "cast", "from": "max_seg_len_range0", "dtype": "float32"},
           "mean_seg_lens0": {
             "class": "constant", "value": CodeWrapper("np.array(%s)" % label_dep_means), "with_batch_dim": True},
-          "mean_seg_lens": {"class": "cast", "dtype": "float32", "from": "mean_seg_lens0"}})
+          "mean_seg_lens": {"class": "cast", "dtype": "float32", "from": "mean_seg_lens0"}
+        })
         net_dict["output"]["unit"].update({
           "const0.0_0": {"class": "constant", "value": 0.0, "with_batch_dim": True},
           "const0.0": {"class": "expand_dims", "axis": "F", "from": "const0.0_0"},
@@ -783,7 +784,8 @@ def get_extended_net_dict(
           'const_neg_inf_0': {'class': 'constant', 'value': CodeWrapper("float('-inf')"), 'with_batch_dim': True},
           "blank_log_prob": {
             "class": "switch", "condition": "max_seg_len_or_last_frame", "true_from": -10000000.,
-            "false_from": "const0.0"}})
+            "false_from": "const0.0"}
+        })
 
         net_dict.update({
           "length_model_norm0": {

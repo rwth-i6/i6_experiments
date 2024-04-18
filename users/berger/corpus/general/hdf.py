@@ -1,4 +1,5 @@
 from typing import Optional, List
+from i6_core.corpus import SegmentCorpusJob
 
 from i6_core.returnn.hdf import BlissToPcmHDFJob
 from i6_experiments.users.berger.recipe.returnn.hdf import BlissCorpusToTargetHdfJob
@@ -54,14 +55,25 @@ def build_feature_hdf_dataset_config(
 
     elif feature_type == FeatureType.SAMPLES:
         for data_input in data_inputs:
-            feature_hdf_job = BlissToPcmHDFJob(
-                data_input.corpus_object.corpus_file,
-                rounding=BlissToPcmHDFJob.RoundingScheme.rasr_compatible,
-                returnn_root=returnn_root,
-            )
-            feature_hdf_job.rqmt["mem"] = 8
-            feature_hdf_job.rqmt["time"] = 24
-            feature_hdfs.append(feature_hdf_job.out_hdf)
+            if single_hdf:
+                segment_files = [None]
+            else:
+                segment_files = list(
+                    SegmentCorpusJob(
+                        data_input.corpus_object.corpus_file, data_input.concurrent
+                    ).out_single_segment_files.values()
+                )
+
+            for segment_file in segment_files:
+                feature_hdf_job = BlissToPcmHDFJob(
+                    data_input.corpus_object.corpus_file,
+                    segment_file=segment_file,
+                    rounding=BlissToPcmHDFJob.RoundingScheme.rasr_compatible,
+                    returnn_root=returnn_root,
+                )
+                feature_hdf_job.rqmt["mem"] = 8
+                feature_hdf_job.rqmt["time"] = 24
+                feature_hdfs.append(feature_hdf_job.out_hdf)
     else:
         raise NotImplementedError
 

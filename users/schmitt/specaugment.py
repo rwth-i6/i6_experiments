@@ -139,6 +139,7 @@ def transform_wei(data, network):
   return x
 
 
+# need to add sys.path.append("/work/asr4/zeineldeen/py_envs/py_3.10_tf_2.9/lib/python3.10/site-packages") to the config for librosa to find the resampy module
 speed_pert_str = """
 def speed_pert(audio, sample_rate, random_state):
   import librosa

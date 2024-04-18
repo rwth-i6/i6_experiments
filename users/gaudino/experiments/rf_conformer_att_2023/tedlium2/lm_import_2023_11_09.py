@@ -122,8 +122,8 @@ class Trafo_LM_Model(rf.Module):
         embed_dim: int = 128,
         num_layers: int = 30,
         att_num_heads: int = 12,
-        ff_activation: str = "relu",
-        use_pos_enc: bool = True, # False for Tedlium2 LM
+        ff_activation: str = "gelu",
+        use_pos_enc: bool = False, # False for Tedlium2 LM
         search_args: Optional[Dict[str, Any]] = None,
     ):
         super(Trafo_LM_Model, self).__init__()
@@ -174,6 +174,21 @@ class Trafo_LM_Model(rf.Module):
             state.pos = rf.zeros(batch_dims, dtype="int32", device="cpu")
         else:
             state.pos = rf.zeros((), dtype="int32", device="cpu")
+        return state
+
+    def select_state(self, state: rf.State, backrefs) -> rf.State:
+        pos = state["pos"]
+        state.pop("pos")
+        def trafo_lm_state_func(s):
+            if type(s) == Dim:
+                return s
+            else:
+                return rf.gather(s, indices=backrefs)
+        state = tree.map_structure(
+            trafo_lm_state_func, state
+        )
+        state["pos"] = pos
+
         return state
 
     def __call__(

@@ -12,7 +12,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf import ctc_aligns
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train import SegmentalTrainExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.recog import ReturnnDecodingExperimentV2
-
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LibrispeechBPE10025_CTC_ALIGNMENT
 
 default_import_model_name = "glob.conformer.mohammad.5.6"
 
@@ -33,7 +33,7 @@ def seg_att_import_global_global_ctc_align(
         alias=alias,
         n_epochs=n_epochs,
         import_model_train_epoch1=external_checkpoints[default_import_model_name],
-        align_targets=ctc_aligns.global_att_ctc_align.ctc_alignments,
+        align_targets=LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths,
         lr_opts={
           "type": "const_then_linear",
           "const_lr": const_lr,
@@ -90,7 +90,7 @@ def seg_att_import_global_global_ctc_align_align_augment(
         alias=alias,
         n_epochs=n_epochs,
         import_model_train_epoch1=external_checkpoints[default_import_model_name],
-        align_targets=ctc_aligns.global_att_ctc_align.ctc_alignments,
+        align_targets=LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths,
         align_augment=True,
         lr_opts={
           "type": "const_then_linear",
@@ -200,8 +200,8 @@ def recog_seg_att_import_global(
       raise NotImplementedError
 
     recog_exp.run_analysis(
-      ground_truth_hdf=ctc_aligns.global_att_ctc_align.ctc_alignments[search_corpus_key],
-      att_weight_ref_alignment_hdf=ctc_aligns.global_att_ctc_align.ctc_alignments[search_corpus_key],
+      ground_truth_hdf=LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[search_corpus_key],
+      att_weight_ref_alignment_hdf=LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[search_corpus_key],
       att_weight_ref_alignment_blank_idx=10025,
       att_weight_seq_tags=att_weight_seq_tags,
     )

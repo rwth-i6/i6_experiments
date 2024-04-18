@@ -16,7 +16,8 @@ def get_dataset_dict(
         epoch_wise_filter: Optional[Dict],
         hdf_targets: Optional[Path] = None,
         seq_postfix: Optional[int] = 0,
-        use_targets: bool = True
+        use_targets: bool = True,
+        peak_normalization: bool = True,
 ):
   assert not use_targets or (bpe_file is not None and vocab_file is not None)
   dataset_dict = {
@@ -31,7 +32,7 @@ def get_dataset_dict(
         "use_cache_manager": True,
         "audio": {
           "features": "raw",
-          "peak_normalization": True,
+          "peak_normalization": peak_normalization,
           "preemphasis": None,
           "pre_process": pre_process
         },

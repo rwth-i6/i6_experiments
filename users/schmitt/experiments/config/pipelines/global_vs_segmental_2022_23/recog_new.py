@@ -16,6 +16,7 @@ from i6_core.text.processing import WriteToTextFileJob
 from i6_core.corpus.filter import FilterCorpusBySegmentsJob
 from i6_core.corpus.convert import CorpusToStmJob
 
+from i6_experiments.users.schmitt.flow import get_raw_wav_feature_flow
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.config import RasrConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.base import ConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.global_ import GlobalConfigBuilder
@@ -30,7 +31,12 @@ from i6_experiments.users.schmitt.rasr.recognition import RASRDecodingJobParalle
 from i6_experiments.users.schmitt.rasr.convert import RASRLatticeToCTMJob, ConvertCTMBPEToWordsJob
 from i6_experiments.users.schmitt.alignment.alignment import AlignmentRemoveAllBlankSeqsJob, AlignmentStatisticsJob
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train_new import GlobalTrainExperiment, SegmentalTrainExperiment
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.realignment_new import RasrRealignmentExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf import ctc_aligns
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import (
+  LibrispeechBPE10025_CTC_ALIGNMENT,
+  LibrispeechBPE10025_CTC_ALIGNMENT_EOS,
+)
 
 
 class DecodingExperiment(ABC):
@@ -41,7 +47,6 @@ class DecodingExperiment(ABC):
           checkpoint: Union[Checkpoint, Dict],
           checkpoint_alias: str,
           recog_opts: Optional[Dict] = None,
-          analysis_opts: Optional[Dict] = None,
   ):
     self.config_builder = config_builder
     self.checkpoint_alias = checkpoint_alias
@@ -58,10 +63,6 @@ class DecodingExperiment(ABC):
     self.corpus_key = self.recog_opts["search_corpus_key"]
     self.stm_corpus_key = self.corpus_key
 
-    self.analysis_opts = copy.deepcopy(self.default_analysis_opts)
-    if analysis_opts is not None:
-      self.analysis_opts.update(analysis_opts)
-
     self.alias = alias
 
     self.returnn_python_exe = self.config_builder.variant_params["returnn_python_exe"]
@@ -69,16 +70,17 @@ class DecodingExperiment(ABC):
 
     self.ilm_correction_opts = self.recog_opts.get("ilm_correction_opts")
     if self.ilm_correction_opts is not None and self.ilm_correction_opts["type"] == "mini_att":
-      assert "mini_att_checkpoint" not in self.ilm_correction_opts, (
-        "mini_att_checkpoint is expected to be set by get_mini_att_checkpoint"
-      )
-      train_mini_lstm_opts = {
-        "use_se_loss": self.ilm_correction_opts["use_se_loss"],
-        "use_eos": self.ilm_correction_opts["correct_eos"],
-      }
-      self.ilm_correction_opts["mini_att_checkpoint"] = self.get_mini_att_checkpoint(
-        train_mini_lstm_opts=train_mini_lstm_opts
-      )
+      if "mini_att_checkpoint" not in self.ilm_correction_opts:
+        assert "mini_att_checkpoint" not in self.ilm_correction_opts, (
+          "mini_att_checkpoint is expected to be set by get_mini_att_checkpoint"
+        )
+        train_mini_lstm_opts = {
+          "use_se_loss": self.ilm_correction_opts["use_se_loss"],
+          "use_eos": self.ilm_correction_opts["correct_eos"],
+        }
+        self.ilm_correction_opts["mini_att_checkpoint"] = self.get_mini_att_checkpoint(
+          train_mini_lstm_opts=train_mini_lstm_opts
+        )
 
   def get_ilm_correction_alias(self, alias: str):
     if self.ilm_correction_opts is not None:
@@ -118,7 +120,7 @@ class DecodingExperiment(ABC):
     pass
 
   @abstractmethod
-  def run_analysis(self):
+  def run_analysis(self, analysis_opts: Optional[Dict] = None):
     pass
 
   @abstractmethod
@@ -185,11 +187,7 @@ class SegmentalAttDecodingExperiment(DecodingExperiment, ABC):
   def get_mini_att_checkpoint(self, train_mini_lstm_opts: Dict) -> Checkpoint:
     train_opts = {}
     if train_mini_lstm_opts["use_eos"]:
-      align_targets = ctc_aligns.global_att_ctc_align.ctc_alignments_with_eos(
-        segment_paths=self.config_builder.dependencies.segment_paths,
-        blank_idx=self.config_builder.dependencies.model_hyperparameters.blank_idx,
-        eos_idx=self.config_builder.dependencies.model_hyperparameters.sos_idx,
-      )
+      align_targets = LibrispeechBPE10025_CTC_ALIGNMENT_EOS.alignment_paths
       train_opts = {"dataset_opts": {"hdf_targets": align_targets}}
 
     num_epochs = 10
@@ -219,6 +217,7 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
   def __init__(
           self,
           search_rqmt: Optional[Dict] = None,
+          search_alias: Optional[str] = None,
           **kwargs):
     super().__init__(**kwargs)
 
@@ -228,7 +227,12 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
 
     self.search_rqmt = search_rqmt if search_rqmt is not None else {}
 
-    self.alias += "/returnn_decoding/%s-checkpoint" % self.checkpoint_alias
+    self.alias += "/returnn_decoding" if search_alias is None else f"/{search_alias}"
+    if isinstance(self, ReturnnSegmentalAttDecodingExperiment):
+      length_scale = self.config_builder.variant_params["network"]["length_scale"]
+      if length_scale != 1.0:
+        self.alias += f"_length-scale-{length_scale:.2f}"
+    self.alias += "/%s-checkpoint" % self.checkpoint_alias
 
     lm_opts = self.recog_opts.get("lm_opts")
     if lm_opts is not None:
@@ -281,11 +285,14 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
 
       return search_words_to_ctm_job.out_ctm_file
 
-  def run_analysis(self):
-    ground_truth_hdf = self.analysis_opts["ground_truth_hdf"]
-    att_weight_ref_alignment_hdf = self.analysis_opts["att_weight_ref_alignment_hdf"]
-    att_weight_ref_alignment_blank_idx = self.analysis_opts["att_weight_ref_alignment_blank_idx"]
-    att_weight_seq_tags = self.analysis_opts["att_weight_seq_tags"]
+  def run_analysis(self, analysis_opts: Optional[Dict] = None):
+    _analysis_opts = copy.deepcopy(self.default_analysis_opts)
+    if analysis_opts is not None:
+      _analysis_opts.update(analysis_opts)
+    ground_truth_hdf = _analysis_opts["ground_truth_hdf"]
+    att_weight_ref_alignment_hdf = _analysis_opts["att_weight_ref_alignment_hdf"]
+    att_weight_ref_alignment_blank_idx = _analysis_opts["att_weight_ref_alignment_blank_idx"]
+    att_weight_seq_tags = _analysis_opts["att_weight_seq_tags"]
 
     forward_recog_config = self.config_builder.get_recog_config_for_forward_job(opts=self.recog_opts)
     forward_search_job = ReturnnForwardJob(
@@ -299,7 +306,7 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
     search_hdf = forward_search_job.out_default_hdf
     search_not_all_blank_segments = None
 
-    if "simple_ablations/diff_win_sizes/win-size-5" in self.alias:
+    if "baseline_v2/baseline/train_from_global_att_checkpoint/standard-training/win-size-5_200-epochs" in self.alias:
       statistics_job = AlignmentStatisticsJob(
         alignment=search_hdf,
         json_vocab=self.config_builder.dependencies.vocab_path,
@@ -314,12 +321,7 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
     # remove the alignments, which only consist of blank labels because this leads to errors in the following Forward jobs
     # temporarily, only do this for selected models to avoid unnecessarily restarting completed jobs
     for variant in [
-      "no_label_feedback",
-      "non_blank_ctx",
-      "linear_layer",
-      "couple_length_and_label_model",
-      "use_label_model_state",
-      "chunking",
+      "att_weight_interpolation_no_length_model",
     ]:
       if variant in self.alias:
         remove_all_blank_seqs_job = AlignmentRemoveAllBlankSeqsJob(
@@ -392,7 +394,7 @@ class ReturnnGlobalAttDecodingExperiment(GlobalAttDecodingExperiment, ReturnnDec
   def default_analysis_opts(self) -> Dict:
     return {
       "ground_truth_hdf": None,
-      "att_weight_ref_alignment_hdf": ctc_aligns.global_att_ctc_align.ctc_alignments[self.corpus_key],
+      "att_weight_ref_alignment_hdf": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[self.corpus_key],
       "att_weight_ref_alignment_blank_idx": 10025,
       "att_weight_seq_tags": None,
     }
@@ -414,8 +416,8 @@ class ReturnnSegmentalAttDecodingExperiment(SegmentalAttDecodingExperiment, Retu
   @property
   def default_analysis_opts(self) -> Dict:
     return {
-      "ground_truth_hdf": ctc_aligns.global_att_ctc_align.ctc_alignments[self.corpus_key],
-      "att_weight_ref_alignment_hdf": ctc_aligns.global_att_ctc_align.ctc_alignments[self.corpus_key],
+      "ground_truth_hdf": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[self.corpus_key],
+      "att_weight_ref_alignment_hdf": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[self.corpus_key],
       "att_weight_ref_alignment_blank_idx": 10025,
       "att_weight_seq_tags": None,
     }
@@ -461,7 +463,7 @@ class RasrDecodingExperiment(DecodingExperiment, ABC):
     self.concurrent = concurrent
     self.max_segment_len = max_segment_len
     self.length_norm = length_norm
-    self.search_rqmt = search_rqmt
+    self.search_rqmt = search_rqmt if search_rqmt is not None else {}
     self.lm_opts = lm_opts
     self.lm_lookahead_opts = lm_lookahead_opts
     self.open_vocab = open_vocab
@@ -616,7 +618,7 @@ class RasrDecodingExperiment(DecodingExperiment, ABC):
       rasr_exe_path=RasrExecutablesNew.flf_tool_path,
       flf_lattice_tool_config=decoding_config,
       crp=decoding_crp,
-      feature_flow=samples_flow(dc_detection=False, scale_input=3.0517578125e-05, input_options={"block-size": "1"}),
+      feature_flow=get_raw_wav_feature_flow(dc_detection=False, scale_input=3.0517578125e-05, input_options={"block-size": "1"}),
       model_checkpoint=self.checkpoint,
       dump_best_trace=False,
       mem_rqmt=self.search_rqmt.get("mem", 4),
@@ -651,7 +653,7 @@ class RasrDecodingExperiment(DecodingExperiment, ABC):
 
     return ConvertCTMBPEToWordsJob(bpe_ctm_file=lattice_to_ctm_job.out_ctm).out_ctm_file
 
-  def run_analysis(self):
+  def run_analysis(self, analysis_opts: Optional[Dict] = None):
     raise NotImplementedError("Analysis is not yet implemented for RASR decoding")
 
 
@@ -689,14 +691,14 @@ class DecodingPipeline(ABC):
           lm_opts: Optional[Dict] = None,
           ilm_scales: Tuple[float, ...] = (0.0,),
           ilm_opts: Optional[Dict] = None,
-          run_analysis: bool = False
+          run_analysis: bool = False,
+          search_rqmt: Optional[Dict] = None,
+          search_alias: Optional[str] = None
   ):
     self.recog_opts = recog_opts if recog_opts is not None else {}
     assert "lm_opts" not in self.recog_opts, "lm_opts are set by the pipeline"
     assert "ilm_correction_opts" not in self.recog_opts, "ilm_correction_opts are set by the pipeline"
     assert "beam_size" not in self.recog_opts, "beam_size is set by the pipeline"
-    assert "batch_size" not in self.recog_opts, "batch_size is set by the pipeline"
-    assert "max_seqs" not in self.recog_opts, "max_seqs is set by the pipeline"
 
     self.alias = alias
     self.config_builder = config_builder
@@ -709,6 +711,8 @@ class DecodingPipeline(ABC):
     self.ilm_scales = ilm_scales
     self.ilm_opts = ilm_opts if ilm_opts is not None else {}
     self.run_analysis = run_analysis
+    self.search_rqmt = search_rqmt
+    self.search_alias = search_alias
 
   @abstractmethod
   def run_experiment(self, beam_size: int, lm_scale: float, ilm_scale: float, checkpoint_alias: str):
@@ -735,11 +739,11 @@ class ReturnnGlobalAttDecodingPipeline(DecodingPipeline):
   def run_experiment(self, beam_size: int, lm_scale: float, ilm_scale: float, checkpoint_alias: str):
     self.recog_opts.update({
       "lm_opts": {"scale": lm_scale, **self.lm_opts} if lm_scale > 0 else None,
-      "ilm_correction_opts": {"scale": ilm_scale, **self.ilm_opts} if ilm_scale > 0 else None,
+      "ilm_correction_opts": {"scale": ilm_scale, **self.ilm_opts} if ilm_scale > 0 and lm_scale > 0 else None,
       "beam_size": beam_size
     })
 
-    if lm_scale > 0 and beam_size in (50, 84):
+    if lm_scale > 0 and beam_size in (50, 84) and "batch_size" not in self.recog_opts:
       self.recog_opts["batch_size"] = 4000 * 160
 
     exp = ReturnnGlobalAttDecodingExperiment(
@@ -748,17 +752,35 @@ class ReturnnGlobalAttDecodingPipeline(DecodingPipeline):
       recog_opts=self.recog_opts,
       checkpoint=self.checkpoint,
       checkpoint_alias=checkpoint_alias,
-      analysis_opts=self.analysis_opts
+      search_alias=self.search_alias,
+      search_rqmt=self.search_rqmt
     )
     exp.run_eval()
     if self.run_analysis:
-      exp.run_analysis()
+      exp.run_analysis(self.analysis_opts)
 
 
 class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
   def __init__(self, config_builder: SegmentalConfigBuilder, **kwargs):
     super().__init__(config_builder=config_builder, **kwargs)
     self.config_builder = config_builder
+
+    self.realignment = RasrRealignmentExperiment(
+      alias=self.alias,
+      reduction_factor=960,
+      reduction_subtrahend=399,
+      job_rqmt={
+        "mem": 4,
+        "time": 1,
+        "gpu": 0
+      },
+      concurrent=100,
+      checkpoint=self.checkpoint,
+      checkpoint_alias=self.checkpoint_aliases[0],
+      config_builder=config_builder,
+    ).get_realignment()
+    if "ground_truth_hdf" not in self.analysis_opts:
+      self.analysis_opts["ground_truth_hdf"] = self.realignment
 
   def run_experiment(self, beam_size: int, lm_scale: float, ilm_scale: float, checkpoint_alias: str):
     self.recog_opts.update({
@@ -768,9 +790,9 @@ class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
     })
 
     if lm_scale > 0:
-      if beam_size == 12:
+      if beam_size == 12 and "batch_size" not in self.recog_opts:
         self.recog_opts["batch_size"] = 7500 * 160
-      elif beam_size in (50, 84):
+      elif beam_size in (50, 84) and "max_seqs" not in self.recog_opts:
         self.recog_opts["max_seqs"] = 1
 
     exp = ReturnnSegmentalAttDecodingExperiment(
@@ -779,8 +801,9 @@ class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
       recog_opts=self.recog_opts,
       checkpoint=self.checkpoint,
       checkpoint_alias=checkpoint_alias,
-      analysis_opts=self.analysis_opts
+      search_rqmt=self.search_rqmt,
+      search_alias=self.search_alias
     )
     exp.run_eval()
     if self.run_analysis:
-      exp.run_analysis()
+      exp.run_analysis(self.analysis_opts)

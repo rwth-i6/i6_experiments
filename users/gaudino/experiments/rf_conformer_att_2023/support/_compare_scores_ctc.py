@@ -119,6 +119,8 @@ def test_import_search():
                 "num_layers": 24,
                 "layer_out_dim": 1024,
                 "att_num_heads": 8,
+                "use_pos_enc": True,
+                "ff_activation": "relu",
             },
         }
         pt_checkpoint_path = _librispeech960_ckpt_path_w_trafo_lm

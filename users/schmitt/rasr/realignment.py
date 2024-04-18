@@ -123,7 +123,7 @@ class RASRRealignmentParallelJob(RasrCommand, Job):
     }, parallelize=True)
     config.acoustic_model_trainer.aligning_feature_extractor.feature_extraction._update(self.am_model_trainer_config)
     config.acoustic_model_trainer.aligning_feature_extractor.feature_extraction.alignment_cache.path = "alignment.cache.$(TASK)"
-    config.acoustic_model_trainer.aligning_feature_extractor.feature_extraction.alignment.label_scorer.loader.saved_model_file = self.model_checkpoint.ckpt_path
+    config.acoustic_model_trainer.aligning_feature_extractor.feature_extraction.alignment.model_combination.label_scorer.loader.saved_model_file = self.model_checkpoint.ckpt_path
     config.acoustic_model_trainer.action = "dry"
 
     # tmp_file = tempfile.NamedTemporaryFile()

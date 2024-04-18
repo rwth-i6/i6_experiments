@@ -8,8 +8,8 @@ from i6_core.returnn import ReturnnDumpHDFJob
 from i6_core.features import FeatureExtractionJob
 
 from i6_experiments.common.datasets.tedlium2.constants import DURATIONS, NUM_SEGMENTS
-from i6_experiments.common.setups.rasr.gmm_system import GmmSystem
-from i6_experiments.common.setups.rasr.util import (
+from i6_experiments.users.hilmes.common.setups.rasr.gmm_system import GmmSystem
+from i6_experiments.users.hilmes.common.setups.rasr.util import (
     HdfDataInput,
     AllophoneLabeling,
     ReturnnRasrDataInput,

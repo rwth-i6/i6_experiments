@@ -31,7 +31,6 @@ def center_window_att_import_global_global_ctc_align_arpa_lm(
         config_builder = get_center_window_att_config_builder(
           win_size=win_size,
           use_weight_feedback=True,
-          use_old_global_att_to_seg_att_maker=False
         )
 
         train_exp = SegmentalTrainExperiment(
@@ -103,7 +102,6 @@ def center_window_att_import_global_global_ctc_align_lstm_lm(
         config_builder = get_center_window_att_config_builder(
           win_size=win_size,
           use_weight_feedback=True,
-          use_old_global_att_to_seg_att_maker=False
         )
 
         train_exp = SegmentalTrainExperiment(
