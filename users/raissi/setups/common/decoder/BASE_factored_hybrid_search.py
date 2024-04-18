@@ -328,9 +328,7 @@ class BASEFactoredHybridDecoder:
         return sp
 
     def get_requirements(self, beam: float, nn_lm=False):
-        # under 27 is short queue
-        rtf = 15
-
+        rtf = 4
         if not self.gpu:
             rtf *= 4
 
@@ -338,10 +336,7 @@ class BASEFactoredHybridDecoder:
             PhoneticContext.monophone,
             PhoneticContext.diphone,
         ]:
-            rtf += 5
-
-        if beam > 17:
-            rtf += 10
+            rtf *= 4
 
         if nn_lm:
             rtf += 20
@@ -349,7 +344,7 @@ class BASEFactoredHybridDecoder:
             if "eval" in self.name:
                 rtf *= 2
         else:
-            mem = 8
+            mem = 3
 
         return {"rtf": rtf, "mem": mem}
 

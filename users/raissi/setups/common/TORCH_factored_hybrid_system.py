@@ -46,14 +46,7 @@ import i6_experiments.users.raissi.setups.common.helpers.train as train_helpers
 
 from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import BASEFactoredHybridSystem
 
-
-from i6_experiments.users.raissi.setups.common.helpers.train.specaugment import (
-    mask as sa_mask,
-    random_mask as sa_random_mask,
-    summary as sa_summary,
-    transform as sa_transform,
-)
-
+from i6_experiments.users.raissi.setups.common.data.backend import Backend, BackendInfo
 
 # user based modules
 from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
@@ -96,3 +89,5 @@ class TORCHFactoredHybridSystem(BASEFactoredHybridSystem):
             test_data=test_data,
             initial_nn_args=initial_nn_args,
         )
+
+        self.backend_info = BackendInfo(train=Backend.TORCH, decode=Backend.ONNX)
