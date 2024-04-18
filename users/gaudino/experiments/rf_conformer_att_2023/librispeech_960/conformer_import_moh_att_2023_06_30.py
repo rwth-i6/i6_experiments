@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Optional, Any, Tuple, Dict, Sequence, List
 from itertools import product
+import functools
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.lm_import_2023_11_09 import (
     Trafo_LM_Model,
@@ -18,6 +19,9 @@ from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSu
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.lm_import_2023_09_03 import (
     LSTM_LM_Model,
     # MakeModel,
+)
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.ilm_import_2024_04_17 import (
+    MiniAtt_ILM_Model,
 )
 from i6_experiments.users.gaudino.model_interfaces.model_interfaces import ModelDef, TrainDef
 
@@ -684,8 +688,33 @@ class MakeModel:
         model_args: Optional[Dict[str, Any]] = {},
         search_args: Optional[Dict[str, Any]] = {},
         num_enc_layers: int = 12,
+        lm_opts: Optional[Dict[str, Any]] = None,
+        ilm_opts: Optional[Dict[str, Any]] = None,
+        **extra,
     ) -> Model:
         """make"""
+        lm = None
+        if lm_opts:
+            assert isinstance(lm_opts, dict)
+            lm_opts = lm_opts.copy()
+            cls_name = lm_opts.pop("class")
+            assert cls_name == "Trafo_LM_Model" or cls_name == "LSTM_LM_Model"
+            lm_opts.pop("vocab_dim", None)  # will just overwrite
+
+            if cls_name == "Trafo_LM_Model":
+                lm = Trafo_LM_Model(target_dim, target_dim, **lm_opts)
+
+            elif cls_name == "LSTM_LM_Model":
+                lm = LSTM_LM_Model(target_dim, target_dim, **lm_opts)
+
+        if ilm_opts:
+            assert isinstance(ilm_opts, dict)
+            ilm_opts = ilm_opts.copy()
+
+            ilm = MiniAtt_ILM_Model(Dim(name="target_embed", dimension=model_args.get("target_embed_dim", 640)), target_dim, **ilm_opts)
+
+        # lm = (lm, functools.partial(trafo_lm.make_label_scorer_torch, model=lm))
+
         return Model(
             in_dim,
             num_enc_layers=num_enc_layers,
@@ -710,6 +739,9 @@ class MakeModel:
             eos_idx=_get_eos_idx(target_dim),
             model_args=model_args,
             search_args=search_args,
+            language_model=lm,
+            ilm=ilm,
+            **extra,
         )
 
 
@@ -737,6 +769,8 @@ class Model(rf.Module):
         l2: float = 0.0001,
         model_args: Optional[Dict[str, Any]] = None,
         search_args: Optional[Dict[str, Any]] = None,
+        language_model: Optional[rf.Module] = None,
+        ilm: Optional[rf.Module] = None,
     ):
         super(Model, self).__init__()
         self.in_dim = in_dim
@@ -818,12 +852,20 @@ class Model(rf.Module):
         if not self.no_ctc:
             self.ctc = rf.Linear(self.encoder.out_dim, self.target_dim_w_b)
 
-        if model_args.get("add_lstm_lm", False):
-            self.lstm_lm = LSTM_LM_Model(target_dim, target_dim)
-        if model_args.get("add_trafo_lm", False):
-            self.trafo_lm = Trafo_LM_Model(
-                target_dim, target_dim, **model_args.get("trafo_lm_args", {})
-            )
+        self.language_model = None
+        if language_model:
+            self.language_model = language_model
+
+        self.ilm = None
+        if ilm:
+            self.ilm = ilm
+
+        # if model_args.get("add_lstm_lm", False):
+        #     self.lstm_lm = LSTM_LM_Model(target_dim, target_dim)
+        # if model_args.get("add_trafo_lm", False):
+        #     self.trafo_lm = Trafo_LM_Model(
+        #         target_dim, target_dim, **model_args.get("trafo_lm_args", {})
+        #     )
 
         self.inv_fertility = rf.Linear(
             self.encoder.out_dim, att_num_heads, with_bias=False
@@ -863,6 +905,8 @@ class Model(rf.Module):
 
         for p in self.parameters():
             p.weight_decay = l2
+
+
 
     def encode(
         self,
@@ -1118,8 +1162,10 @@ def from_scratch_model_def(
     in_dim, epoch  # noqa
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
+    lm_opts = model_args.get("external_language_model")
+    ilm_opts = model_args.get("internal_language_model")
     return MakeModel.make_model(
-        in_dim, target_dim, model_args=model_args, search_args=search_args
+        in_dim, target_dim, model_args=model_args, search_args=search_args, lm_opts=lm_opts, ilm_opts=ilm_opts
     )
 
 

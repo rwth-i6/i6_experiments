@@ -313,6 +313,10 @@ def search_config_v2(
     # by the datasets itself as part in the config above.
     extern_data_raw = instanciate_delayed(extern_data_raw)
 
+    if model_args.get("preload_from_files", None):
+        preload_from_files = model_args.pop("preload_from_files")
+        returnn_recog_config_dict["preload_from_files"] = preload_from_files
+
     returnn_recog_config_dict.update({
         "search_args": search_args,
         "model_args": model_args,

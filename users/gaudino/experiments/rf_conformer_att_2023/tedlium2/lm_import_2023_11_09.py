@@ -176,6 +176,21 @@ class Trafo_LM_Model(rf.Module):
             state.pos = rf.zeros((), dtype="int32", device="cpu")
         return state
 
+    def select_state(self, state: rf.State, backrefs) -> rf.State:
+        pos = state["pos"]
+        state.pop("pos")
+        def trafo_lm_state_func(s):
+            if type(s) == Dim:
+                return s
+            else:
+                return rf.gather(s, indices=backrefs)
+        state = tree.map_structure(
+            trafo_lm_state_func, state
+        )
+        state["pos"] = pos
+
+        return state
+
     def __call__(
         self,
         prev_target,

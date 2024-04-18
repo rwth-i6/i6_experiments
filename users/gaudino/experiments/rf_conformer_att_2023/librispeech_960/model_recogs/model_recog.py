@@ -60,10 +60,16 @@ def model_recog(
         batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
     )
 
-    if model.search_args.get("add_lstm_lm", False):
-        lm_state = model.lstm_lm.lm_default_initial_state(batch_dims=batch_dims_)
-    if model.search_args.get("add_trafo_lm", False):
-        trafo_lm_state = model.trafo_lm.default_initial_state(batch_dims=batch_dims_)
+    if model.search_args.get("lm_scale", 0.0) > 0:
+        lm_state = model.language_model.default_initial_state(batch_dims=batch_dims_)
+
+    if model.search_args.get("ilm_scale", 0.0) > 0:
+        ilm_state = model.ilm.default_initial_state(batch_dims=batch_dims_)
+
+    # if model.search_args.get("add_lstm_lm", False):
+    #     lm_state = model.lstm_lm.lm_default_initial_state(batch_dims=batch_dims_)
+    # if model.search_args.get("add_trafo_lm", False):
+    #     trafo_lm_state = model.trafo_lm.default_initial_state(batch_dims=batch_dims_)
 
     target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
     ended = rf.constant(False, dims=batch_dims_)
@@ -76,19 +82,6 @@ def model_recog(
     target_ctc = [model.bos_idx for _ in range(batch_size * beam_size)]
 
     blank_index = model.target_dim.get_dim_value()
-
-    # ctc prefix scorer speechbrain
-    # from .ctc import CTCPrefixScorer
-    # ctc_scorer = CTCPrefixScorer(
-    #     enc_args['ctc'].raw_tensor,
-    #     max_seq_len.raw_tensor.to('cuda'),
-    #     10, # batch_size -> number of sequences in the batch, 10 for debugging
-    #     beam_size,
-    #     10025, #blank index
-    #     model.bos_idx,
-    #     # self.ctc_window_size,
-    # )
-    # ctc_memory = None
 
     if model.search_args.get("use_ctc", False) or model.search_args.get("rescore_with_ctc", False):
         if model.search_args.get("encoder_ctc", False):
@@ -168,22 +161,25 @@ def model_recog(
 
         label_log_prob = label_log_prob * model.search_args.get("att_scale", 1.0)
 
-        if model.search_args.get("add_lstm_lm", False):
-            lstm_lm_out, lm_state = model.lstm_lm.loop_step(target, lm_state)
-            lstm_log_prob = rf.log_softmax(lstm_lm_out["output"], axis=model.target_dim)
-            label_log_prob = (
-                label_log_prob + model.search_args["lm_scale"] * lstm_log_prob
-            )
+        if model.search_args.get("lm_scale", 0.0) > 0:
+            lm_out = model.language_model(target, state=lm_state, spatial_dim=single_step_dim)
+            lm_state = lm_out["state"]
+            lm_log_prob = rf.log_softmax(lm_out["output"], axis=model.target_dim)
 
-        if model.search_args.get("add_trafo_lm", False):
-            trafo_lm_out = model.trafo_lm(target, state=trafo_lm_state, spatial_dim=single_step_dim)
-            trafo_lm_state = trafo_lm_out["state"]
-            trafo_log_prob = rf.log_softmax(trafo_lm_out["output"], axis=model.target_dim)
-            # breakpoint()
             if i > 0:
                 label_log_prob = (
-                    label_log_prob + model.search_args["lm_scale"] * trafo_log_prob
+                    label_log_prob + model.search_args["lm_scale"] * lm_log_prob
                 )
+
+        if model.search_args.get("ilm_scale", 0.0) > 0:
+            breakpoint()
+            ilm_out = model.ilm(input_embed, state=ilm_state, spatial_dim=single_step_dim)
+            ilm_state = ilm_out["state"]
+            ilm_log_prob = rf.log_softmax(ilm_out["output"], axis=model.target_dim)
+
+            label_log_prob = (
+                label_log_prob + model.search_args["ilm_scale"] * ilm_log_prob
+            )
 
         if model.search_args.get("use_ctc", False):
             # add ctc espnet
@@ -234,22 +230,14 @@ def model_recog(
         decoder_state = tree.map_structure(
             lambda s: rf.gather(s, indices=backrefs), decoder_state
         )
-        if model.search_args.get("add_lstm_lm", False):
-            lm_state = tree.map_structure(
-                lambda s: rf.gather(s, indices=backrefs), lm_state
-            )
-        if model.search_args.get("add_trafo_lm", False):
-            pos = trafo_lm_state["pos"]
-            trafo_lm_state.pop("pos")
-            def trafo_lm_state_func(s):
-                if type(s) == Dim:
-                    return s
-                else:
-                    return rf.gather(s, indices=backrefs)
-            trafo_lm_state = tree.map_structure(
-                trafo_lm_state_func, trafo_lm_state
-            )
-            trafo_lm_state["pos"] = pos
+
+        if model.search_args.get("lm_scale", 0.0) > 0:
+            lm_state = model.language_model.select_state(lm_state, backrefs)
+
+        if model.search_args.get("ilm_scale", 0.0) > 0:
+            ilm_state = model.ilm.select_state(ilm_state, backrefs)
+
+
         ended = rf.gather(ended, indices=backrefs)
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         i += 1
