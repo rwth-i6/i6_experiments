@@ -114,7 +114,7 @@ def get_oclr_config(
     """Returns learning rate RETURNN config for OneCycle LR."""
 
     n = int((num_epochs // 10) * 9)
-    n_rest = num_epochs - n
+    n_rest = num_epochs - n + (num_epochs - n) % 2
     lrates = get_learning_rates(lrate=lrate / 0.3, increase=n // 2, decay=n // 2)
     lrates += list(np.linspace(lrates[-1], min([*lrates, 1e-6]), n_rest))
 

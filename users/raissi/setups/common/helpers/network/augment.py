@@ -577,13 +577,12 @@ def augment_net_with_monophone_outputs(
 
 def augment_net_with_diphone_outputs(
     shared_network: Network,
+    label_info: LabelInfo,
     use_multi_task: bool,
     encoder_output_len: int,
     frame_rate_reduction_ratio_info: FrameRateReductionRatioinfo,
     l2: float = 0.0,
     label_smoothing=0.2,
-    ph_emb_size=64,
-    st_emb_size=256,
     encoder_output_layer: str = "encoder-output",
     prefix: str = "",
     weights_init: str = DEFAULT_INIT,
@@ -595,11 +594,11 @@ def augment_net_with_diphone_outputs(
     network = copy.deepcopy(shared_network)
     center_target = "singleStateCenter" if frame_rate_reduction_ratio_info.single_state_alignment else "centerState"
 
-    network["pastEmbed"] = get_embedding_layer(source="pastLabel", dim=ph_emb_size, l2=l2)
+    network["pastEmbed"] = get_embedding_layer(source="pastLabel", dim=label_info.ph_emb_size, l2=l2)
     network[f"{prefix}linear1-diphone"]["from"] = [encoder_output_layer, "pastEmbed"]
 
     if use_multi_task:
-        network["currentState"] = get_embedding_layer(source=center_target, dim=st_emb_size, l2=l2)
+        network["currentState"] = get_embedding_layer(source=center_target, dim=label_info.st_emb_size, l2=l2)
         network[f"{prefix}linear1-triphone"]["from"] = [encoder_output_layer, "currentState"]
     else:
         loss_opts = copy.deepcopy(network[f"{prefix}center-output"]["loss_opts"])
@@ -621,8 +620,8 @@ def augment_net_with_diphone_outputs(
 
 def augment_with_triphone_embeds(
     shared_network: Network,
-    ph_emb_size: int,
-    st_emb_size: int,
+    frame_rate_reduction_ratio_info: FrameRateReductionRatioinfo,
+    label_info: LabelInfo,
     l2: float,
     copy_net=True,
 ) -> Network:
@@ -633,17 +632,17 @@ def augment_with_triphone_embeds(
         else ("centerState", label_info.get_n_state_classes())
     )
 
-    network["pastEmbed"] = get_embedding_layer(source="pastLabel", dim=ph_emb_size, l2=l2)
-    network["currentState"] = get_embedding_layer(source=center_target, dim=st_emb_size, l2=l2)
+    network["pastEmbed"] = get_embedding_layer(source="pastLabel", dim=label_info.ph_emb_size, l2=l2)
+    network["currentState"] = get_embedding_layer(source=center_target, dim=label_info.st_emb_size, l2=l2)
     return network
 
 
 def augment_net_with_triphone_outputs(
     shared_network: Network,
     variant: PhoneticContext,
+    frame_rate_reduction_ratio_info: FrameRateReductionRatioinfo,
+    label_info: LabelInfo,
     l2: float = 0.0,
-    ph_emb_size=64,
-    st_emb_size=256,
     encoder_output_layer: str = "encoder-output",
     prefix: str = "",
 ) -> Network:
@@ -655,7 +654,11 @@ def augment_net_with_triphone_outputs(
     network = copy.deepcopy(shared_network)
 
     network = augment_with_triphone_embeds(
-        network, ph_emb_size=ph_emb_size, st_emb_size=st_emb_size, l2=l2, copy_net=False
+        network,
+        frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info,
+        label_info=label_info,
+        l2=l2,
+        copy_net=False,
     )
 
     network[f"{prefix}linear1-diphone"]["from"] = [encoder_output_layer, "pastEmbed"]

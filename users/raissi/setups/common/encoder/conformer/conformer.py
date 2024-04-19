@@ -23,6 +23,7 @@ def get_best_conformer_network(
     target: str = "classes",
     upsample_by_transposed_conv: bool = True,
     feature_stacking_size: int = 3,
+    clipping: Optional[int] = None,
     weights_init: str = DEFAULT_INIT,
     additional_args: Optional[Any] = None,
 ) -> attention_for_hybrid:
@@ -38,6 +39,7 @@ def get_best_conformer_network(
         time_tag_name=time_tag_name,
         upsample_by_transposed_conv=upsample_by_transposed_conv,
         feature_stacking_size=feature_stacking_size,
+        clipping=clipping,
         weights_init=weights_init,
         additional_args=additional_args,
     )

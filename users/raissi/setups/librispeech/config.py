@@ -21,23 +21,3 @@ P_HMM_AM7T1_ALIGNMENT_40ms = tk.Path(
     "/work/asr4/raissi/setups/librispeech/960-ls/dependencies/data/cv_alignment_phmmAm0.7T0.1/alignment.cache.bundle",
     cached=True,
 )
-
-
-BLSTM_CHUNKING = "64:32"
-CONF_CHUNKING = "400:200"
-
-CONF_FOCAL_LOSS = 2.0
-CONF_LABEL_SMOOTHING = 0.2
-CONF_NUM_EPOCHS = 600
-
-CONF_SA_CONFIG = {
-    "max_reps_time": 20,
-    "min_reps_time": 0,
-    "max_len_time": 20,  # 200*0.05
-    "max_reps_feature": 1,
-    "min_reps_feature": 0,
-    "max_len_feature": 15,
-}
-
-L2 = 1e-6
-LABEL_SMOOTHING = 0.2

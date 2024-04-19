@@ -1,6 +1,7 @@
 __all__ = ["add_intermediate_loss"]
 
 import copy
+from typing import List, Tuple
 
 import i6_core.returnn as returnn
 
@@ -14,6 +15,143 @@ from i6_experiments.users.raissi.setups.common.helpers.network.augment import (
 )
 
 from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
+
+DEFAULT_INIT = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)"
+
+FH_LOSS_VARIANTS_MONO = [
+    ([(6, PhoneticContext.monophone, True)], True),
+    ([(6, PhoneticContext.monophone, False)], True),
+    ([(6, PhoneticContext.triphone_forward, False)], False),
+    ([(4, PhoneticContext.monophone, True), (8, PhoneticContext.monophone, True)], True),
+    (
+        [
+            (3, PhoneticContext.monophone, True),
+            (6, PhoneticContext.diphone, False),
+            (9, PhoneticContext.triphone_forward, False),
+        ],
+        True,
+    ),
+    (
+        [
+            (3, PhoneticContext.triphone_forward, False),
+            (6, PhoneticContext.diphone, False),
+            (9, PhoneticContext.monophone, True),
+        ],
+        False,
+    ),
+]
+FH_LOSS_VARIANTS_DI = [
+    ([(6, PhoneticContext.monophone, False)], False),
+    ([(6, PhoneticContext.diphone, False)], False),
+    ([(4, PhoneticContext.monophone, True), (8, PhoneticContext.monophone, True)], False),
+    ([(4, PhoneticContext.diphone, False), (8, PhoneticContext.diphone, False)], True),
+    (
+        [
+            (3, PhoneticContext.monophone, True),
+            (6, PhoneticContext.diphone, False),
+            (9, PhoneticContext.triphone_forward, False),
+        ],
+        True,
+    ),
+    (
+        [
+            (3, PhoneticContext.triphone_forward, False),
+            (6, PhoneticContext.diphone, False),
+            (9, PhoneticContext.monophone, True),
+        ],
+        False,
+    ),
+    ([(6, PhoneticContext.triphone_forward, False)], False),
+    (
+        [
+            (4, PhoneticContext.triphone_forward, False),
+            (8, PhoneticContext.triphone_forward, False),
+        ],
+        False,
+    ),
+]
+FH_LOSS_VARIANTS_DI_MULTISTAGE = [
+    ([(6, PhoneticContext.diphone, False)], False, "6mono"),
+    (
+        [(4, PhoneticContext.diphone, False), (8, PhoneticContext.diphone, False)],
+        False,
+        "6mono_c",
+    ),
+]
+FH_LOSS_VARIANTS_TRI = [
+    ([(6, PhoneticContext.monophone, False)], True),
+    ([(6, PhoneticContext.triphone_forward, False)], True),
+    ([(4, PhoneticContext.monophone, True), (8, PhoneticContext.monophone, True)], False),
+    (
+        [
+            (4, PhoneticContext.triphone_forward, False),
+            (8, PhoneticContext.triphone_forward, False),
+        ],
+        False,
+    ),
+    (
+        [
+            (3, PhoneticContext.monophone, True),
+            (6, PhoneticContext.diphone, False),
+            (9, PhoneticContext.triphone_forward, False),
+        ],
+        False,
+    ),
+    (
+        [
+            (3, PhoneticContext.triphone_forward, False),
+            (6, PhoneticContext.diphone, False),
+            (9, PhoneticContext.monophone, True),
+        ],
+        True,
+    ),
+]
+FH_LOSS_VARIANTS_TRI_MULTISTAGE = [
+    ([(6, PhoneticContext.monophone, False)], False, "6mono"),
+    (
+        [
+            (3, PhoneticContext.monophone, True),
+            (6, PhoneticContext.diphone, False),
+            (9, PhoneticContext.triphone_forward, False),
+        ],
+        False,
+        "6mono",
+    ),
+    (
+        [
+            (3, PhoneticContext.triphone_forward, False),
+            (6, PhoneticContext.diphone, False),
+            (9, PhoneticContext.monophone, True),
+        ],
+        False,
+        "6mono_c",
+    ),
+]
+
+
+def get_int_loss_scale(
+    num_final_losses: int,
+    aux_losses: List[Tuple[int, PhoneticContext, bool]],
+    final_loss_share: float = 0.6,
+    final_loss_scale: float = 1.0,
+) -> float:
+    total_num_int_losses = float(sum([1 if center_only else 3 for _, _, center_only in aux_losses]))
+    total_num_final_losses = float(num_final_losses)
+
+    total_loss_weight = (1.0 / final_loss_share) * (total_num_final_losses * final_loss_scale)
+    remaining_int_loss_weight = total_loss_weight - (total_num_final_losses * final_loss_scale)
+
+    return remaining_int_loss_weight / total_num_int_losses if total_num_int_losses > 0 else remaining_int_loss_weight
+
+
+def get_loss_variant_and_scale(
+    int_loss_index, variants=FH_LOSS_VARIANTS_MONO, num_final_losses=3, final_loss_scale=1.0
+):
+    (opt_loss_variant, _) = variants[int_loss_index]
+    int_loss_scale = get_int_loss_scale(
+        num_final_losses=num_final_losses, aux_losses=opt_loss_variant, final_loss_scale=final_loss_scale
+    )
+    return opt_loss_variant, int_loss_scale
 
 
 def add_intermediate_loss(
@@ -32,6 +170,7 @@ def add_intermediate_loss(
     label_smoothing: float = 0.0,
     l2: float = 0.0,
     upsampling: bool = True,
+    weights_init: str = DEFAULT_INIT,
 ) -> Network:
     network = copy.deepcopy(network)
     prefix = f"aux_{at_layer:03d}_"
@@ -71,6 +210,7 @@ def add_intermediate_loss(
         use_multi_task=True,
         prefix=prefix,
         loss_scale=scale,
+        weights_init=weights_init,
     )
 
     if context == PhoneticContext.monophone:
@@ -79,21 +219,21 @@ def add_intermediate_loss(
         network = augment_net_with_diphone_outputs(
             network,
             encoder_output_len=encoder_output_len,
+            label_info=label_info,
             frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info,
             label_smoothing=label_smoothing,
             l2=l2,
-            ph_emb_size=label_info.ph_emb_size,
-            st_emb_size=label_info.st_emb_size,
             use_multi_task=True,
             encoder_output_layer=input_layer,
             prefix=prefix,
+            weights_init=weights_init,
         )
     elif context == PhoneticContext.triphone_forward:
         network = augment_net_with_triphone_outputs(
             network,
+            frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info,
+            label_info=label_info,
             l2=l2,
-            ph_emb_size=label_info.ph_emb_size,
-            st_emb_size=label_info.st_emb_size,
             variant=PhoneticContext.triphone_forward,
             encoder_output_layer=input_layer,
             prefix=prefix,
@@ -177,10 +317,9 @@ def add_intermediate_loss_v2(
                 network,
                 encoder_output_len=encoder_output_len,
                 frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info,
+                label_info=label_info,
                 label_smoothing=label_smoothing,
                 l2=l2,
-                ph_emb_size=label_info.ph_emb_size,
-                st_emb_size=label_info.st_emb_size,
                 use_multi_task=True,
                 encoder_output_layer=input_layer,
                 prefix=prefix,
@@ -188,9 +327,8 @@ def add_intermediate_loss_v2(
         elif context == PhoneticContext.triphone_forward:
             network = augment_net_with_triphone_outputs(
                 network,
+                label_info=label_info,
                 l2=l2,
-                ph_emb_size=label_info.ph_emb_size,
-                st_emb_size=label_info.st_emb_size,
                 variant=PhoneticContext.triphone_forward,
                 encoder_output_layer=input_layer,
                 prefix=prefix,
