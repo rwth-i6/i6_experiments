@@ -79,33 +79,36 @@ lstm_lm_opts_map = {
     BPE_10K: lstm_10k_lm_opts,
 }
 
-trafo_lm_net = TransformerLM(source="prev:output", num_layers=24, vocab_size=10025, use_as_ext_lm=True)
+# Trafo LM trained by willi
+# - setup dir: /u/michel/setups/language_modelling/tedlium/neurallm/trafo_kazuki19
+# - config: /u/michel/setups/language_modelling/tedlium/neurallm/trafo_kazuki19/tdl1.config
+trafo_lm_net = TransformerLM(
+    source="prev:output",
+    num_layers=30,
+    vocab_size=1057,
+    use_as_ext_lm=True,
+    ff_dim=4096,
+    att_num_heads=12,
+    embed_dim=128,
+    qk_dim=768,
+    v_dim=768,
+    out_dim=768,
+    emb_cpu_lookup=False,
+    embed_pos=False,  # wo abs pos encoding
+    conv_act="gelu",
+)
 trafo_lm_net.create_network()
-trafo_10k_lm_opts = {
+trafo_1k_lm_opts = {
     "lm_subnet": trafo_lm_net.network.get_net(),
     "load_on_init_opts": {
-        "filename": "/work/asr3/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/transfo_24_d00.4096_1024.sgd.lr1.8_heads/bk-net-model/network.023",
+        "filename": "/work/asr4/michel/setups-data/language_modelling/tedlium/neurallm/trafo_kazuki19/net-model/network.020",
         "params_prefix": "",
         "load_if_prefix": "lm_output/",
     },
     "name": "trafo",
 }
 
-bpe5k_lm = get_lm("ls960_trafo24_bs3000_5ep_5kbpe")  # type: ZeineldeenLM
-trafo_5k_lm_opts = {
-    "lm_subnet": bpe5k_lm.combination_network,
-    "load_on_init_opts": {
-        "filename": get_best_checkpoint(bpe5k_lm.train_job, key="dev_score_output/output"),
-        "params_prefix": "",
-        "load_if_prefix": "lm_output/",
-    },
-    "name": "trafo",
-}
-
-trafo_lm_opts_map = {
-    BPE_10K: trafo_10k_lm_opts,
-    BPE_5K: trafo_5k_lm_opts,
-}
+trafo_lm_opts_map = {BPE_1K: trafo_1k_lm_opts}
 
 # ----------------------------------------------------------- #
 
@@ -286,9 +289,12 @@ def conformer_baseline():
         prior_type=None,
         mini_lstm_ckpt=None,
         length_norm=True,
+        length_norm_exponent=1.0,
         prior_type_name=None,
         coverage_scale=None,
         coverage_threshold=None,
+        coverage_update=None,
+        monotonic_att_weights_loss_opts=None,
         **kwargs,
     ):
         assert lm_type in ["lstm", "trafo"], "lm type should be lstm or trafo"
@@ -331,6 +337,9 @@ def conformer_baseline():
 
         if not length_norm:
             search_args["decoder_args"].length_normalization = False
+        else:
+            search_args["decoder_args"].length_normalization = True
+            search_args["decoder_args"].length_normalization_exponent = length_norm_exponent
 
         if "decoder_args" in kwargs:
             for k, v in kwargs["decoder_args"].items():
@@ -390,9 +399,13 @@ def conformer_baseline():
                 if prior_type_name is None:
                     prior_type_name = prior_type
 
-                lm_desc = f"lm-scale-{lm_scale}"
+                lm_desc = ""
                 if prior_scale:
-                    lm_desc += f"-prior-{prior_scale}-{prior_type_name}"
+                    lm_desc = f"ILM_{prior_type_name}/"
+
+                lm_desc += f"lm-scale-{lm_scale}"
+                if prior_scale:
+                    lm_desc += f"-prior-{prior_scale}"
                 lm_desc += f"-beam-{beam_size}"
                 if length_norm is False:
                     lm_desc += "-woLenNorm"
@@ -401,7 +414,20 @@ def conformer_baseline():
                     assert isinstance(search_args["decoder_args"], RNNDecoderArgs)
                     search_args["decoder_args"].coverage_scale = coverage_scale
                     search_args["decoder_args"].coverage_threshold = coverage_threshold
-                    lm_desc += f"_coverage-thre{coverage_threshold}-scale{coverage_scale}"
+                    search_args["decoder_args"].coverage_update = coverage_update
+                    lm_desc += f"_coverage-thre{coverage_threshold}-scale{coverage_scale}-{coverage_update}"
+
+                if monotonic_att_weights_loss_opts:
+                    search_args["decoder_args"].monotonic_att_weights_loss_opts = monotonic_att_weights_loss_opts
+                    search_args["decoder_args"].use_monotonic_att_weights_loss_in_recog = True
+                    lm_desc += "_monoAtt"
+                    for k, v in monotonic_att_weights_loss_opts.items():
+                        lm_desc += f"-{k}{v}"
+
+                if not length_norm:
+                    lm_desc += "_noLenNorm"
+                elif length_norm_exponent != 1.0:
+                    lm_desc += f"_lenNormExp{length_norm_exponent}"
 
                 name = f"{exp_name}/recog-{lm_type}-lm/ep-{epoch}/{lm_desc}/{test_set}"
 
@@ -663,6 +689,7 @@ def conformer_baseline():
         exp_name,
         checkpoint,
         args,
+        epoch_split,
         num_epochs=20,
         lr=8e-4,
         time_rqmt=4,
@@ -683,9 +710,11 @@ def conformer_baseline():
                 params_freeze_str = ilm_helpers.get_mini_lstm_params_freeze_str_w_drop()
 
         mini_lstm_args = copy.deepcopy(args)
+        mini_lstm_args["epoch_split"] = epoch_split
         mini_lstm_args["batch_size"] = 20000 * 160
         mini_lstm_args["with_pretrain"] = False
         mini_lstm_args["lr"] = lr
+        mini_lstm_args["learning_rates_list"] = None
         mini_lstm_args["allow_lr_scheduling"] = False
         mini_lstm_args["encoder_args"].with_ctc = False
         mini_lstm_args["keep_all_epochs"] = True  # keep everything
@@ -701,7 +730,7 @@ def conformer_baseline():
 
         exp_prefix = os.path.join(prefix_name, exp_name, name)
         mini_lstm_train_data = build_training_datasets(
-            bpe_size=10000,
+            bpe_size=BPE_1K,
             use_raw_features=True,
             epoch_wise_filter=None,
             link_speed_perturbation=False,  # depends only on text
@@ -974,6 +1003,8 @@ def conformer_baseline():
         exp_name = f"base_bpe1000_peakLR{lr}_ep{ep}_globalNorm_epochOCLR_pre{pretrain_reps}_fixZoneout_encDrop{enc_drop}_woDepthConvPre"
         return base_v1_args, exp_name
 
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12
+    # 7.4     6.85  avg
     for num_blocks in [12]:
         for ep in [100 * 4]:
             for lr in [8e-4]:
@@ -995,7 +1026,7 @@ def conformer_baseline():
                                     exp_name
                                     + f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
                                 )
-                                _, train_data = run_exp(
+                                train_job, train_data = run_exp(
                                     name,
                                     args,
                                     num_epochs=ep,
@@ -1004,32 +1035,155 @@ def conformer_baseline():
                                     partition_epoch=4,
                                 )
 
+                                # TODO: train longer
+                                mini_lstm_job = train_mini_lstm(
+                                    name,
+                                    epoch_split=4,
+                                    checkpoint=train_job_avg_ckpt[name],
+                                    args=args,
+                                    num_epochs=8,  # 2 epochs
+                                    w_drop=True,
+                                )
+
+                                # lm-scale-0.18-beam-12
+                                # dev: 6.8, test: 6.5
+                                run_lm_fusion(
+                                    lm_type="trafo",
+                                    exp_name=name,
+                                    epoch="avg",
+                                    test_set_names=["dev", "test"],
+                                    lm_scales=[0.18],
+                                    train_job=train_job,
+                                    train_data=train_data,
+                                    feature_net=log10_net_10ms,
+                                    bpe_size=BPE_1K,
+                                    args=args,
+                                    beam_size=12,
+                                )
+
+                                # TODO: ILM
+                                for mini_lstm_ep in ["best"]:
+                                    if mini_lstm_ep == "best":
+                                        mini_lstm_ckpt = get_best_checkpoint(mini_lstm_job, key="dev_score")
+                                    else:
+                                        mini_lstm_ckpt = mini_lstm_job.out_checkpoints[mini_lstm_ep]
+
+                                    # beam-12-lm-0.36-ilm-0.28
+                                    # dev: 6.32, test: 6.10
+                                    # beam-12-lm-0.36-ilm-0.36
+                                    # dev: 6.31, test: 6.09
+                                    #
+                                    # lm-scale-0.36-prior-0.36-beam-30_coverage-thre0.6-scale0.5-max_lenNormExp0.2
+                                    # dev: 6.14
+
+                                    for len_norm_exp in [0.2]:
+                                        for beam_size in [30]:
+                                            for lm_scale in [0.36]:
+                                                for ilm_scale in [0.36]:
+                                                    for cov_update in ["max"]:
+                                                        for cov_scale in [0.5]:
+                                                            for cov_thre in [0.4]:
+                                                                run_lm_fusion(
+                                                                    lm_type="trafo",
+                                                                    exp_name=name,
+                                                                    epoch="avg",
+                                                                    test_set_names=["dev"],
+                                                                    lm_scales=[lm_scale],
+                                                                    prior_scales=[ilm_scale],
+                                                                    coverage_scale=cov_scale,
+                                                                    coverage_threshold=cov_thre,
+                                                                    coverage_update=cov_update,
+                                                                    prior_type="mini_lstm",
+                                                                    prior_type_name=f"mini_lstm_{mini_lstm_ep}",
+                                                                    mini_lstm_ckpt=mini_lstm_ckpt,
+                                                                    train_job=train_job,
+                                                                    train_data=train_data,
+                                                                    feature_net=log10_net_10ms,
+                                                                    bpe_size=BPE_1K,
+                                                                    args=args,
+                                                                    beam_size=beam_size,
+                                                                    length_norm=False if len_norm_exp == 0.0 else True,
+                                                                    length_norm_exponent=len_norm_exp,
+                                                                )
+
+                                    run_lm_fusion(
+                                        lm_type="trafo",
+                                        exp_name=name,
+                                        epoch="avg",
+                                        test_set_names=["dev", "test"],
+                                        coverage_scale=0.5,
+                                        coverage_threshold=0.6,
+                                        coverage_update="max",
+                                        length_norm_exponent=0.2,
+                                        lm_scales=[0.36],
+                                        prior_scales=[0.36],
+                                        prior_type="mini_lstm",
+                                        prior_type_name=f"mini_lstm_{mini_lstm_ep}",
+                                        mini_lstm_ckpt=mini_lstm_ckpt,
+                                        train_job=train_job,
+                                        train_data=train_data,
+                                        feature_net=log10_net_10ms,
+                                        bpe_size=BPE_1K,
+                                        args=args,
+                                        beam_size=30,
+                                    )
+
+                                    for mono_att_weights_pen_opts in [
+                                        {"lb_scale": 0.01, "ub_scale": 0.0, "loss_type": "l1"},
+                                        {"lb_scale": 0.01, "ub_scale": 0.01, "ub_limit": 20, "loss_type": "l1"},
+                                        {"lb_scale": 0.01, "ub_scale": 0.01, "ub_limit": 30, "loss_type": "l1"},
+                                        {"lb_scale": 0.01, "ub_scale": 0.01, "ub_limit": 40, "loss_type": "l1"},
+                                    ]:
+                                        run_lm_fusion(
+                                            lm_type="trafo",
+                                            exp_name=name,
+                                            epoch="avg",
+                                            test_set_names=["dev"],
+                                            lm_scales=[0.36],
+                                            prior_scales=[0.36],
+                                            coverage_scale=0.5,
+                                            coverage_threshold=0.4,
+                                            coverage_update="max",
+                                            monotonic_att_weights_loss_opts=mono_att_weights_pen_opts,
+                                            prior_type="mini_lstm",
+                                            prior_type_name=f"mini_lstm_{mini_lstm_ep}",
+                                            mini_lstm_ckpt=mini_lstm_ckpt,
+                                            train_job=train_job,
+                                            train_data=train_data,
+                                            feature_net=log10_net_10ms,
+                                            bpe_size=BPE_1K,
+                                            args=args,
+                                            beam_size=30,
+                                            length_norm=True,
+                                            length_norm_exponent=0.2,
+                                        )
+
                                 recog_datasets_tuples = get_test_dataset_tuples(bpe_size=BPE_1K)
 
                                 # baseline: 7.41/6.85
                                 # dev_coverage0.03_0.11_max/wer  7.34
                                 # test_coverage0.03_0.11_max/wer 6.85
-                                for test_set in ["test"]:
-                                    for cov_update in ["max"]:
-                                        for cov_scale in [0.03, 0.04]:
-                                            for cov_thre in [0.11, 0.13]:
-                                                search_args = copy.deepcopy(args)
-                                                search_args["decoder_args"].coverage_scale = cov_scale
-                                                search_args["decoder_args"].coverage_threshold = cov_thre
-                                                name_ = f"/average_4/{test_set}_coverage{cov_scale}_{cov_thre}"
-                                                if cov_update == "max":
-                                                    name_ += "_max"
-                                                    search_args["decoder_args"].coverage_update = "max"
-                                                run_single_search(
-                                                    exp_name=name + name_,
-                                                    train_data=train_data,
-                                                    search_args=search_args,
-                                                    checkpoint=train_job_avg_ckpt[name],
-                                                    feature_extraction_net=log10_net_10ms,
-                                                    recog_dataset=recog_datasets_tuples[test_set][0],
-                                                    recog_ref=recog_datasets_tuples[test_set][1],
-                                                    recog_bliss=recog_datasets_tuples[test_set][2],
-                                                )
+                                # for test_set in ["test"]:
+                                #     for cov_update in ["max"]:
+                                #         for cov_scale in [0.03, 0.04]:
+                                #             for cov_thre in [0.11, 0.13]:
+                                #                 search_args = copy.deepcopy(args)
+                                #                 search_args["decoder_args"].coverage_scale = cov_scale
+                                #                 search_args["decoder_args"].coverage_threshold = cov_thre
+                                #                 name_ = f"/average_4/{test_set}_coverage{cov_scale}_{cov_thre}"
+                                #                 if cov_update == "max":
+                                #                     name_ += "_max"
+                                #                     search_args["decoder_args"].coverage_update = "max"
+                                #                 run_single_search(
+                                #                     exp_name=name + name_,
+                                #                     train_data=train_data,
+                                #                     search_args=search_args,
+                                #                     checkpoint=train_job_avg_ckpt[name],
+                                #                     feature_extraction_net=log10_net_10ms,
+                                #                     recog_dataset=recog_datasets_tuples[test_set][0],
+                                #                     recog_ref=recog_datasets_tuples[test_set][1],
+                                #                     recog_bliss=recog_datasets_tuples[test_set][2],
+                                #                 )
 
                                 # TODO: only CTC
                                 only_ctc_args = copy.deepcopy(args)
@@ -1057,35 +1211,6 @@ def conformer_baseline():
                                     partition_epoch=4,
                                 )
 
-                                # TODO: more specaug
-                                # specaug_args = copy.deepcopy(args)
-                                # specaug_args["specaug_str_func_opts"] = {
-                                #     "max_time_num": 80,  # more time masking
-                                #     "max_time_dim": 20,
-                                #     "min_num_add_factor": 1,  # more masking
-                                #     "freq_dim_factor": 5,
-                                # }
-                                # _, train_data = run_exp(
-                                #     name + "_specAugV1a",
-                                #     specaug_args,
-                                #     num_epochs=ep,
-                                #     epoch_wise_filter=None,
-                                #     bpe_size=BPE_1K,
-                                #     partition_epoch=4,
-                                # )
-
-                                # TODO: l2 on MHSA
-                                mhsa_l2_args = copy.deepcopy(args)
-                                mhsa_l2_args["encoder_args"].self_att_l2 = 1e-4
-                                _, train_data = run_exp(
-                                    name + "_mhsaL2",
-                                    mhsa_l2_args,
-                                    num_epochs=ep,
-                                    epoch_wise_filter=None,
-                                    bpe_size=BPE_1K,
-                                    partition_epoch=4,
-                                )
-
                                 # TODO: grad clip 5
                                 grad_clip_args = copy.deepcopy(args)
                                 grad_clip_args["gradient_clip_global_norm"] = 5
@@ -1097,50 +1222,3 @@ def conformer_baseline():
                                     bpe_size=BPE_1K,
                                     partition_epoch=4,
                                 )
-
-                                # for with_ctc in [True]:
-                                #     no_pretrain = copy.deepcopy(args)
-                                #     no_pretrain["with_pretrain"] = False
-                                #     no_pretrain["specaug_str_func_opts"] = {
-                                #         "version": 2,
-                                #         "step0": 6_000,
-                                #         "step1": 8_000,
-                                #         "step2": 10_000,
-                                #         "max_time_num": 100,
-                                #         "max_time_dim": 20,
-                                #         "min_num_add_factor": 0,
-                                #         "freq_dim_factor": 5,
-                                #     }
-                                #     no_pretrain["encoder_args"].with_ctc = with_ctc
-                                #     _, train_data = run_exp(
-                                #         name + "_noPretrain" + ("_noCTC" if with_ctc is False else ""),
-                                #         no_pretrain,
-                                #         num_epochs=ep,
-                                #         epoch_wise_filter=None,
-                                #         bpe_size=BPE_1K,
-                                #         partition_epoch=4,
-                                #     )
-
-                                # TODO: retrain
-                                # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12
-                                # 7.4     6.85  avg
-                                # if target_embed_dim == 256 and att_drop == 0.0:
-                                #     # long-form speech recognition
-                                #     for num in [2, 3, 4, 5, 6, 7, 8, 9, 10]:
-                                #         search_args = {}
-                                #         if num >= 5:
-                                #             search_args["max_seqs"] = 1  # o.w OOM
-                                #         run_exp(
-                                #             name,
-                                #             args,
-                                #             num_epochs=ep,
-                                #             epoch_wise_filter=None,
-                                #             bpe_size=BPE_1K,
-                                #             partition_epoch=4,
-                                #             concat_recog_opts={
-                                #                 "num": num,
-                                #                 "corpus_names": ["dev", "test"],
-                                #                 "checkpoint": "avg",
-                                #                 "search_args": search_args,
-                                #             },
-                                #         )

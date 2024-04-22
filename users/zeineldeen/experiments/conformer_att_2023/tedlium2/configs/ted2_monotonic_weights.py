@@ -1014,6 +1014,7 @@ def conformer_baseline():
 
     # baseline
     base_v1_args, exp_name = get_base_v1_args(8e-4, 100 * 4, enc_drop=0.15)
+
     args = copy.deepcopy(base_v1_args)
     args["encoder_args"].num_blocks = 12
     args["encoder_args"].mhsa_weight_dropout = 0.1
@@ -1045,8 +1046,8 @@ def conformer_baseline():
                     ("l1", 0.8, 0.2, 5),
                     ("l1", 1.0, 1.0, 20),
                     #
-                    ("l2", 1.0, 1.0, 20),
-                    ("l2", 0.8, 0.2, 20),
+                    # ("l2", 1.0, 1.0, 20),
+                    # ("l2", 0.8, 0.2, 20),
                     #
                 ]:
                     retrain_args = copy.deepcopy(args)
@@ -1115,8 +1116,8 @@ def conformer_baseline():
                     ("l1", 1.0, 1.0, 20),
                     ("l1", 1.0, 1.0, 30),
                     ("l1", 1.0, 1.0, 40),
-                    ("exp", 1.0, 1.0, 20),
-                    ("log", 1.0, 1.0, 20),
+                    # ("exp", 1.0, 1.0, 20),
+                    # ("log", 1.0, 1.0, 20),
                 ]:
                     retrain_args = copy.deepcopy(args)
                     retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[best_model_name]
@@ -1127,6 +1128,68 @@ def conformer_baseline():
                         "loss_type": loss_type,
                     }
                     exp_name = best_model_name
+                    exp_name += f"_monotonicAttLoss_lb{lb_scale}"
+                    if ub_scale:
+                        exp_name += f"_ub{ub_scale}-{ub_limit}"
+                    exp_name += f"_{loss_type}"
+
+                    # override oclr
+                    retrain_args["learning_rates_list"] = [lr] * const_ep + list(
+                        numpy.linspace(lr, 1e-6, ep - const_ep)
+                    )
+                    exp_name += f"_lr{lr}_constEp{const_ep}_retrain{ep}"
+                    run_exp(
+                        exp_name,
+                        retrain_args,
+                        num_epochs=ep,
+                        epoch_wise_filter=None,
+                        bpe_size=BPE_1K,
+                        partition_epoch=4,
+                    )
+
+    # TODO: for AED trained without CTC
+
+    args = copy.deepcopy(base_v1_args)
+    args["encoder_args"].num_blocks = 12
+    args["encoder_args"].mhsa_weight_dropout = 0.1
+    args["encoder_args"].ff_weight_dropout = 0.1
+    args["encoder_args"].conv_weight_dropout = 0.1
+    args["decoder_args"].embed_dim = 256
+    args["decoder_args"].att_dropout = 0.0
+    args["encoder_args"].with_ctc = False
+    args["pretrain_reps"] = 5
+
+    run_exp(
+        "aed_no_ctc_currv1_reps5",
+        args,
+        num_epochs=ep,
+        bpe_size=BPE_1K,
+        partition_epoch=4,
+        epoch_wise_filter=[(1, 2, 400), (2, 4, 800)],
+        avg_key="dev_score",
+    )
+    aed_no_ctc_v1_name = "aed_no_ctc_currv1_reps5"
+
+    # from luca
+    for ep in [20 * 4]:
+        for const_ep in [2 * 4]:
+            for lr in [2e-4]:
+                for loss_type, lb_scale, ub_scale, ub_limit in [
+                    ("l1", 1.0, 1.0, 30),
+                    #
+                    ("l1", 1.0, 1.0, 40),
+                    ("l1", 0.8, 0.2, 30),
+                    ("l1", 0.9, 0.1, 30),
+                ]:
+                    retrain_args = copy.deepcopy(args)
+                    retrain_args["retrain_checkpoint"] = train_job_best_epoch[aed_no_ctc_v1_name]
+                    retrain_args["decoder_args"].monotonic_att_weights_loss_opts = {
+                        "lb_scale": lb_scale,
+                        "ub_scale": ub_scale,
+                        "ub_limit": ub_limit,
+                        "loss_type": loss_type,
+                    }
+                    exp_name = aed_no_ctc_v1_name
                     exp_name += f"_monotonicAttLoss_lb{lb_scale}"
                     if ub_scale:
                         exp_name += f"_ub{ub_scale}-{ub_limit}"
