@@ -926,10 +926,10 @@ def create_config(
             else:
                 if global_stats and not global_stats.get("use_legacy_version", False):
                     net_as_str = "import numpy\n"
-                    net_as_str += "network = %s" % str(net)
+                    net_as_str += "network = %s" % str(exp_config["network"])
                     staged_network_dict[(idx * pretrain_reps) + 1] = net_as_str
                 else:
-                    staged_network_dict[(idx * pretrain_reps) + 1] = net
+                    staged_network_dict[(idx * pretrain_reps) + 1] = exp_config["network"]
             exp_config.pop("network")
         else:
             if pretrain_opts is None:
