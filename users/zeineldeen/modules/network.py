@@ -45,6 +45,7 @@ class ReturnnNetwork:
         strides=None,
         param_variational_noise=None,
         param_dropout=None,
+        param_dropout_min_ndim=None,
         **kwargs,
     ):
         d = {
@@ -66,6 +67,8 @@ class ReturnnNetwork:
             d["param_variational_noise"] = param_variational_noise
         if param_dropout:
             d["param_dropout"] = param_dropout
+            if param_dropout_min_ndim is not None:
+                d["param_dropout_min_ndim"] = param_dropout_min_ndim
         d.update(kwargs)
         self._net[name] = d
         return name
@@ -81,6 +84,7 @@ class ReturnnNetwork:
         l2=0.0,
         forward_weights_init=None,
         param_dropout=None,
+        param_dropout_min_ndim=None,
         **kwargs,
     ):
         d = {"class": "linear", "activation": activation, "with_bias": with_bias, "from": source}
@@ -96,6 +100,8 @@ class ReturnnNetwork:
             d["forward_weights_init"] = forward_weights_init
         if param_dropout:
             d["param_dropout"] = param_dropout
+            if param_dropout_min_ndim is not None:
+                d["param_dropout_min_ndim"] = param_dropout_min_ndim
         d.update(kwargs)
         self._net[name] = d
         return name
@@ -208,6 +214,8 @@ class ReturnnNetwork:
         loss_opts=None,
         forward_weights_init=None,
         loss_scale=None,
+        param_dropout=None,
+        param_dropout_min_ndim=None,
         **kwargs,
     ):
         d = {"class": "softmax", "from": source}
@@ -223,6 +231,10 @@ class ReturnnNetwork:
             d["L2"] = l2
         if forward_weights_init:
             d["forward_weights_init"] = forward_weights_init
+        if param_dropout:
+            d["param_dropout"] = param_dropout
+            if param_dropout_min_ndim is not None:
+                d["param_dropout_min_ndim"] = param_dropout_min_ndim
         if loss_scale:
             d["loss_scale"] = loss_scale
         d.update(kwargs)
@@ -241,7 +253,7 @@ class ReturnnNetwork:
         self._net[name].update(kwargs)
         return name
 
-    def add_subnet_rec_layer(self, name, unit, target, source=None, include_eos=False, **kwargs):
+    def add_subnet_rec_layer(self, name, unit, target, source=None, include_eos=False, max_seq_len=None, **kwargs):
         if source is None:
             source = []
         self._net[name] = {
@@ -249,8 +261,11 @@ class ReturnnNetwork:
             "from": source,
             "unit": unit,
             "target": target,
-            "max_seq_len": "max_len_from('base:encoder')",
         }
+        if max_seq_len is None:
+            self._net[name]["max_seq_len"] = "max_len_from('base:encoder')"
+        else:
+            self._net[name]["max_seq_len"] = max_seq_len
         if include_eos:
             self._net[name]["include_eos"] = include_eos
         self._net[name].update(kwargs)
@@ -294,6 +309,7 @@ class ReturnnNetwork:
         attention_left_only=False,
         param_variational_noise=None,
         param_dropout=None,
+        param_dropout_min_ndim=None,
         **kwargs,
     ):
         d = {
@@ -313,6 +329,10 @@ class ReturnnNetwork:
             d["L2"] = l2
         if attention_left_only:
             d["attention_left_only"] = attention_left_only
+        if param_dropout:
+            d["param_dropout"] = param_dropout
+            if param_dropout_min_ndim is not None:
+                d["param_dropout_min_ndim"] = param_dropout_min_ndim
         if param_variational_noise:
             d["param_variational_noise"] = param_variational_noise
         d.update(kwargs)
@@ -413,6 +433,8 @@ class ReturnnNetwork:
         spatial_dims=None,
         prefix_name=None,
         param_variational_noise=None,
+        param_dropout=None,
+        param_dropout_min_ndim=None,
     ):
         if split_input:
             src = self.add_split_dim_layer("source0", source)
@@ -446,6 +468,8 @@ class ReturnnNetwork:
                 forward_weights_init=init,
                 strides=pool_size if use_striding else None,
                 param_variational_noise=param_variational_noise,
+                param_dropout=param_dropout,
+                param_dropout_min_ndim=param_dropout_min_ndim,
                 **extra_conv_opts,
             )
             if pool_size and not use_striding:
