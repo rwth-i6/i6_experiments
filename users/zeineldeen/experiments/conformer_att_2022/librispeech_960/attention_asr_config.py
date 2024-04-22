@@ -234,7 +234,9 @@ def pretrain_layers_and_dims(
                 extra_net_dict["#config"]["batch_size"] = second_bs
 
     if extra_net_dict_override:
-        extra_net_dict["#config"].update(extra_net_dict_override)
+        for k, v in extra_net_dict_override:
+            if k == idx:
+                extra_net_dict["#config"].update(v)
 
     if repeat_first:
         idx = max(idx - 1, 0)  # repeat first 0, 0, 1, 2, ...
@@ -539,6 +541,7 @@ class RNNDecoderArgs(DecoderArgs):
     add_lstm_lm: bool = False
 
     length_normalization: bool = True
+    length_normalization_exponent: float = 1.0
 
     coverage_scale: float = None
     coverage_threshold: float = None
@@ -590,6 +593,7 @@ def create_config(
     gradient_noise=0.0,
     param_variational_noise=None,
     adamw=False,
+    optimizer=None,
     retrain_checkpoint=None,
     decouple_constraints_factor=0.025,
     extra_str=None,
@@ -651,8 +655,11 @@ def create_config(
         hyperparams["param_variational_noise"] = param_variational_noise  # applied to all params
 
     # default: Adam optimizer
-    hyperparams["adam"] = True
-    hyperparams["optimizer_epsilon"] = 1e-8
+    if optimizer:
+        hyperparams["optimizer"] = optimizer
+    else:
+        hyperparams["adam"] = True
+        hyperparams["optimizer_epsilon"] = 1e-8
 
     if adamw:
         hyperparams["decouple_constraints"] = True
@@ -774,7 +781,10 @@ def create_config(
             prior_lm_opts=prior_lm_opts,
             beam_size=beam_size,
             dec_type=dec_type,
+            coverage_scale=decoder_args["coverage_scale"],
+            use_monotonic_att_weights_loss_in_recog=decoder_args["use_monotonic_att_weights_loss_in_recog"],
             length_normalization=decoder_args["length_normalization"],
+            length_normalization_exponent=decoder_args["length_normalization_exponent"],
         )
         transformer_decoder.create_network()
 

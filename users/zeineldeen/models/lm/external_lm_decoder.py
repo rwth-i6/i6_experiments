@@ -373,7 +373,10 @@ class ExternalLMDecoder:
         beam_size,
         dec_type,
         prior_lm_opts=None,
+        coverage_scale=None,
+        use_monotonic_att_weights_loss_in_recog=False,
         length_normalization=True,
+        length_normalization_exponent=1.0,
     ):
         self.asr_decoder = copy.deepcopy(asr_decoder)
         self.am_output_prob = self.asr_decoder.output_prob
@@ -382,7 +385,10 @@ class ExternalLMDecoder:
         self.beam_size = beam_size
         self.prior_lm_opts = prior_lm_opts
         self.dec_type = dec_type
+        self.coverage_scale = coverage_scale
+        self.use_monotonic_att_weights_loss_in_recog = use_monotonic_att_weights_loss_in_recog
         self.length_normalization = length_normalization
+        self.length_normalization_exponent = length_normalization_exponent
 
         self.network = None
 
@@ -442,16 +448,35 @@ class ExternalLMDecoder:
         if self.ext_lm_opts.get("local_norm", False):
             fusion_str = f"{fusion_str} - tf.math.reduce_logsumexp({fusion_str}, axis=-1, keepdims=True)"
 
+        if self.coverage_scale:
+            fusion_str += f" + source({len(fusion_source)})"
+            fusion_source += [self.asr_decoder.coverage_reward]
+
+        if self.use_monotonic_att_weights_loss_in_recog:
+            fusion_str += f" - source({len(fusion_source)})"
+            fusion_source += [self.asr_decoder.monotonic_att_weights_penalty]
+
         lm_net_out.add_eval_layer("combo_output_prob", source=fusion_source, eval=fusion_str)
         if self.length_normalization:
-            lm_net_out.add_choice_layer(
-                "output",
-                "combo_output_prob",
-                target=self.target,
-                beam_size=self.beam_size,
-                initial_output=0,
-                input_type="log_prob",
-            )
+            if self.length_normalization_exponent != 1.0:
+                lm_net_out.add_choice_layer(
+                    "output",
+                    "combo_output_prob",
+                    target=self.target,
+                    beam_size=self.beam_size,
+                    initial_output=0,
+                    input_type="log_prob",
+                    length_normalization_exponent=self.length_normalization_exponent,
+                )
+            else:
+                lm_net_out.add_choice_layer(
+                    "output",
+                    "combo_output_prob",
+                    target=self.target,
+                    beam_size=self.beam_size,
+                    initial_output=0,
+                    input_type="log_prob",
+                )
         else:
             lm_net_out.add_choice_layer(
                 "output",

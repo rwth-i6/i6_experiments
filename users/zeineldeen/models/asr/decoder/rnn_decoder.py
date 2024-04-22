@@ -38,6 +38,7 @@ class RNNDecoder:
         embed_weight_init=None,
         lstm_weights_init=None,
         length_normalization=True,
+        length_normalization_exponent=1.0,
         coverage_threshold=None,
         coverage_scale=None,
         coverage_update="sum",
@@ -125,6 +126,8 @@ class RNNDecoder:
         self.reduceout = reduceout
 
         self.length_normalization = length_normalization
+        self.length_normalization_exponent = length_normalization_exponent
+
         self.coverage_threshold = coverage_threshold
         self.coverage_scale = coverage_scale
         assert coverage_update in ["sum", "max"]
@@ -175,7 +178,7 @@ class RNNDecoder:
         )
         subnet_unit.update(att.create())
 
-        monotonic_att_weights_penalty = self.add_att_weights_constraint_loss()
+        self.monotonic_att_weights_penalty = self.add_att_weights_constraint_loss()
 
         # LM-like component same as here https://arxiv.org/pdf/2001.07263.pdf
         lstm_lm_component_proj = None
@@ -262,6 +265,7 @@ class RNNDecoder:
             dropout=self.softmax_dropout,
         )
 
+        self.output_prob_with_coverage = None
         if self.coverage_scale and self.coverage_threshold:
             assert self.att_num_heads == 1, "Not supported for multi-head attention."  # TODO: just average the heads?
             if self.coverage_update == "sum":
@@ -295,28 +299,51 @@ class RNNDecoder:
                 kind="sub",
             )  # [B]
 
-            self.output_prob = self.subnet_unit.add_eval_layer(
-                "output_prob_coverage",
-                source=[self.output_prob, accum_coverage],
-                eval=f"source(0) + {self.coverage_scale} * source(1)",
+            self.coverage_reward = self.subnet_unit.add_eval_layer(
+                "coverage_reward",
+                source=accum_coverage,
+                eval=f"{self.coverage_scale} * source(0)",
             )
 
-        if self.use_monotonic_att_weights_loss_in_recog:
-            assert monotonic_att_weights_penalty
-            self.output_prob = self.subnet_unit.add_eval_layer(
-                "output_prob_monotonic_penalty",
-                source=[self.output_prob, monotonic_att_weights_penalty],
-                eval=f"source(0) - source(1)",
+        if self.coverage_scale or self.use_monotonic_att_weights_loss_in_recog:
+            eval_str_ = "source(0)"
+            eval_srcs = [self.output_prob]
+            if self.coverage_scale:
+                eval_str_ += " + source(1)"
+                eval_srcs.append(self.coverage_reward)
+            if self.use_monotonic_att_weights_loss_in_recog:
+                eval_str_ += " - source(2)"
+                eval_srcs.append(self.monotonic_att_weights_penalty)
+            search_output_prob = self.subnet_unit.add_eval_layer(
+                "search_output_prob",
+                source=eval_srcs,
+                eval=eval_str_,
             )
+        else:
+            search_output_prob = self.output_prob
 
         if self.length_normalization:
-            subnet_unit.add_choice_layer(
-                "output", self.output_prob, target=self.target, beam_size=self.beam_size, initial_output=0
-            )
+            if self.length_normalization_exponent != 1.0:
+                subnet_unit.add_choice_layer(
+                    "output",
+                    search_output_prob,
+                    target=self.target,
+                    beam_size=self.beam_size,
+                    initial_output=0,
+                    length_normalization_exponent=self.length_normalization_exponent,
+                )
+            else:
+                subnet_unit.add_choice_layer(
+                    "output",
+                    search_output_prob,
+                    target=self.target,
+                    beam_size=self.beam_size,
+                    initial_output=0,
+                )
         else:
             subnet_unit.add_choice_layer(
                 "output",
-                self.output_prob,
+                search_output_prob,
                 target=self.target,
                 beam_size=self.beam_size,
                 initial_output=0,
