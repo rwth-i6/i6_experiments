@@ -36,16 +36,10 @@ except:
     print("Dowloading and Compiling Warp-RNNT")
     import subprocess
     import sys
-    subprocess.call(
-        ["git", "clone", "https://github.com/1ytic/warp-rnnt"]
-    )
-    subprocess.call(
-        ["ln", "-s", "warp-rnnt/pytorch_binding/warp_rnnt", "warp_rnnt"]
-    )
-    subprocess.call(
-        [sys.executable, 'setup.py', 'build_ext', '--inplace'],
-        cwd="warp-rnnt/pytorch_binding"
-    )
+
+    subprocess.call(["git", "clone", "https://github.com/1ytic/warp-rnnt"])
+    subprocess.call(["ln", "-s", "warp-rnnt/pytorch_binding/warp_rnnt", "warp_rnnt"])
+    subprocess.call([sys.executable, "setup.py", "build_ext", "--inplace"], cwd="warp-rnnt/pytorch_binding")
     sys.path.insert(0, os.getcwd())
     import warp_rnnt
 
@@ -66,19 +60,13 @@ def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
     return seq_mask
 
 
-
 class Predictor(torch.nn.Module):
     r"""Recurrent neural network transducer (RNN-T) prediction network.
 
     Taken from torchaudio
     """
 
-    def __init__(
-        self,
-        cfg: PredictorConfig,
-        label_target_size: int,
-        output_dim: int
-    ) -> None:
+    def __init__(self, cfg: PredictorConfig, label_target_size: int, output_dim: int) -> None:
         """
 
         :param cfg: model configuration for the predictor
@@ -144,7 +132,9 @@ class Predictor(torch.nn.Module):
         lstm_out = input_layer_norm_out
         state_out: List[List[torch.Tensor]] = []
         for layer_idx, lstm in enumerate(self.lstm_layers):
-            lstm_out, lstm_state_out = lstm(lstm_out, None if state is None else [s.permute(1, 0, 2) for s in state[layer_idx]])
+            lstm_out, lstm_state_out = lstm(
+                lstm_out, None if state is None else [s.permute(1, 0, 2) for s in state[layer_idx]]
+            )
             lstm_out = self.dropout(lstm_out)
             state_out.append([s.permute(1, 0, 2) for s in lstm_state_out])
 
@@ -238,8 +228,11 @@ class Model(torch.nn.Module):
                     dropout=self.cfg.mhsa_dropout,
                 ),
                 conv_cfg=ConformerConvolutionV1Config(
-                    channels=self.cfg.conformer_size, kernel_size=self.cfg.conv_kernel_size, dropout=self.cfg.conv_dropout, activation=nn.functional.silu,
-                    norm=LayerNormNC(self.cfg.conformer_size)
+                    channels=self.cfg.conformer_size,
+                    kernel_size=self.cfg.conv_kernel_size,
+                    dropout=self.cfg.conv_dropout,
+                    activation=nn.functional.silu,
+                    norm=LayerNormNC(self.cfg.conformer_size),
                 ),
             ),
         )
@@ -249,13 +242,13 @@ class Model(torch.nn.Module):
         self.predictor = Predictor(
             cfg=self.cfg.predictor_config,
             label_target_size=self.cfg.label_target_size + 1,  # ctc blank added
-            output_dim=self.cfg.joiner_dim
+            output_dim=self.cfg.joiner_dim,
         )
         self.joiner = Joiner(
             input_dim=self.cfg.joiner_dim,
             output_dim=self.cfg.label_target_size + 1,
             activation=self.cfg.joiner_activation,
-            dropout=self.cfg.joiner_dropout
+            dropout=self.cfg.joiner_dropout,
         )
         self.encoder_out_linear = nn.Linear(self.cfg.conformer_size, self.cfg.joiner_dim)
         if self.cfg.ctc_output_loss > 0:
@@ -266,11 +259,7 @@ class Model(torch.nn.Module):
         # No particular weight init!
 
     def forward(
-            self,
-            raw_audio: torch.Tensor,
-            raw_audio_len: torch.Tensor,
-            labels: torch.Tensor,
-            labels_len: torch.Tensor
+        self, raw_audio: torch.Tensor, raw_audio_len: torch.Tensor, labels: torch.Tensor, labels_len: torch.Tensor
     ):
         """
         :param raw_audio: Audio samples as [B, T, 1]
@@ -279,7 +268,7 @@ class Model(torch.nn.Module):
         :param labels_len: length of N as [B]
         :return: logprobs [B, T + N, #labels + blank]
         """
-        
+
         squeezed_features = torch.squeeze(raw_audio, dim=-1)
         with torch.no_grad():
             audio_features, audio_features_len = self.feature_extraction(squeezed_features, raw_audio_len)
@@ -321,7 +310,7 @@ class Model(torch.nn.Module):
             source_encodings=conformer_joiner_out,
             source_lengths=conformer_out_lengths,
             target_encodings=predict_out,
-            target_lengths=labels_len
+            target_lengths=labels_len,
         )  # output is [B, T, N, #vocab]
 
         if self.cfg.ctc_output_loss > 0:
@@ -353,10 +342,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     prepended_target_lengths = labels_len + 1
 
     logits, audio_features_len, ctc_logprobs = model(
-        raw_audio=raw_audio,
-        raw_audio_len=raw_audio_len,
-        labels=prepended_targets,
-        labels_len=prepended_target_lengths
+        raw_audio=raw_audio, raw_audio_len=raw_audio_len, labels=prepended_targets, labels_len=prepended_target_lengths
     )
 
     # if run_ctx.global_step == 2:
@@ -390,7 +376,6 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         )
         run_ctx.mark_as_loss(name="ctc", loss=ctc_loss, inv_norm_factor=num_phonemes, scale=model.cfg.ctc_output_loss)
 
-
     run_ctx.mark_as_loss(name="rnnt", loss=rnnt_loss, inv_norm_factor=num_phonemes)
 
 
@@ -407,8 +392,8 @@ def prior_finish_hook(run_ctx, **kwargs):
     average_probs = all_probs / all_frames
     log_average_probs = np.log(average_probs)
     print("Prior sum in std-space (should be close to 1.0):", np.sum(average_probs))
-    with open("prior.txt", 'w') as f:
-        np.savetxt(f, log_average_probs, delimiter=' ')
+    with open("prior.txt", "w") as f:
+        np.savetxt(f, log_average_probs, delimiter=" ")
     print("Saved prior in prior.txt in +log space.")
 
 

@@ -61,19 +61,12 @@ def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
 
 
 class Transcriber(nn.Module):
-
-    def __init__(
-            self,
-            feature_extraction: nn.Module,
-            encoder: nn.Module,
-            mapping: nn.Module
-    ):
+    def __init__(self, feature_extraction: nn.Module, encoder: nn.Module, mapping: nn.Module):
         super().__init__()
         self.feature_extraction = feature_extraction
         self.encoder = encoder
         self.mapping = mapping
 
-    
     def forward(self, input: torch.Tensor, lengths: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
 
@@ -81,11 +74,11 @@ class Transcriber(nn.Module):
         :param lengths:
         :return:
         """
-        
+
         squeezed_features = torch.squeeze(input)
         with torch.no_grad():
             audio_features, audio_features_len = self.feature_extraction(squeezed_features, lengths)
-        
+
         mask = mask_tensor(audio_features, audio_features_len)
 
         encoder_out, out_mask = self.encoder(audio_features, mask)
@@ -104,31 +97,29 @@ class Transcriber(nn.Module):
         return output, out_lengths, [[]]
 
 
-
 def forward_init_hook(run_ctx, **kwargs):
     # we are storing durations, but call it output.hdf to match
     # the default output of the ReturnnForwardJob
     config = DecoderConfig(**kwargs["config"])
     extra_config_dict = kwargs.get("extra_config", {})
     extra_config = ExtraConfig(**extra_config_dict)
-    
+
     run_ctx.recognition_file = open("search_out.py", "wt")
     run_ctx.recognition_file.write("{\n")
 
     run_ctx.blank_log_penalty = config.blank_log_penalty
 
     from returnn.datasets.util.vocabulary import Vocabulary
-    vocab = Vocabulary.create_vocab(
-        vocab_file=config.returnn_vocab, unknown_label=None)
+
+    vocab = Vocabulary.create_vocab(vocab_file=config.returnn_vocab, unknown_label=None)
     run_ctx.labels = vocab.labels
 
     print("create RNNT model...")
     model = run_ctx.engine._model
     rnnt_model = RNNT(
         transcriber=Transcriber(
-            feature_extraction=model.feature_extraction,
-            encoder=model.conformer,
-            mapping=model.encoder_out_linear),
+            feature_extraction=model.feature_extraction, encoder=model.conformer, mapping=model.encoder_out_linear
+        ),
         predictor=model.predictor,
         joiner=model.joiner,
     )
@@ -142,7 +133,7 @@ def forward_init_hook(run_ctx, **kwargs):
     run_ctx.beam_size = config.beam_size
 
     run_ctx.batched_encoder_decoding = config.batched_encoder = True
-    
+
     run_ctx.print_rtf = extra_config.print_rtf
     if run_ctx.print_rtf:
         run_ctx.running_audio_len_s = 0
@@ -156,7 +147,9 @@ def forward_finish_hook(run_ctx, **kwargs):
     run_ctx.recognition_file.close()
 
     if run_ctx.print_rtf:
-        print("Total-time: %.2f, Batch-RTF: %.3f" % (run_ctx.total_time, run_ctx.total_time / run_ctx.running_audio_len_s))
+        print(
+            "Total-time: %.2f, Batch-RTF: %.3f" % (run_ctx.total_time, run_ctx.total_time / run_ctx.running_audio_len_s)
+        )
 
 
 def forward_step(*, model, data, run_ctx, **kwargs):
@@ -196,7 +189,7 @@ def forward_step(*, model, data, run_ctx, **kwargs):
 
     for hyp, tag in zip(hyps, tags):
         sequence = [run_ctx.labels[idx] for idx in hyp if idx < len(run_ctx.labels)]
-        text = " ".join(sequence).replace("@@ ","")
+        text = " ".join(sequence).replace("@@ ", "")
         if run_ctx.print_hypothesis:
             print(text)
         run_ctx.recognition_file.write("%s: %s,\n" % (repr(tag), repr(text)))

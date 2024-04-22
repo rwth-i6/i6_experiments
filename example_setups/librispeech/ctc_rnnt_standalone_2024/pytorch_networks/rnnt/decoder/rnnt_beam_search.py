@@ -2,6 +2,7 @@ import torch
 from typing import Optional, Callable, List
 from torchaudio.models.rnnt_decoder import RNNTBeamSearch, RNNT, Hypothesis, _get_hypo_predictor_out
 
+
 class ModifiedRNNTBeamSearch(RNNTBeamSearch):
     r"""Beam search decoder for RNN-T model.
 
@@ -36,7 +37,7 @@ class ModifiedRNNTBeamSearch(RNNTBeamSearch):
             blank=blank,
             temperature=temperature,
             hypo_sort_key=hypo_sort_key,
-            step_max_tokens=step_max_tokens
+            step_max_tokens=step_max_tokens,
         )
         self.blank_penalty = blank_penalty
 
@@ -58,8 +59,10 @@ class ModifiedRNNTBeamSearch(RNNTBeamSearch):
             joined_out[:, :, :, self.blank] -= self.blank_penalty
 
         return joined_out[:, 0, 0]
-    
-    def forward_semi_batched(self, input: torch.Tensor, length: torch.Tensor, beam_width: int) -> List[List[Hypothesis]]:
+
+    def forward_semi_batched(
+        self, input: torch.Tensor, length: torch.Tensor, beam_width: int
+    ) -> List[List[Hypothesis]]:
         r"""Performs beam search for the given input sequence.
 
         T: number of frames;
@@ -87,5 +90,3 @@ class ModifiedRNNTBeamSearch(RNNTBeamSearch):
             search_outputs.append(self._search(enc_out.unsqueeze(0), None, beam_width))
 
         return search_outputs
-
-

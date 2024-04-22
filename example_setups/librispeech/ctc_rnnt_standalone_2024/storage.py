@@ -14,6 +14,7 @@ from .pipeline import ASRModel
 
 _ctc_models: Dict[str, tk.Path] = {}
 
+
 def add_ctc_model(name: str, asr_model: ASRModel):
     global _ctc_models
     assert name not in _ctc_models.keys()
@@ -23,4 +24,3 @@ def add_ctc_model(name: str, asr_model: ASRModel):
 def get_ctc_model(name: str) -> ASRModel:
     global _ctc_models
     return _ctc_models[name]
-

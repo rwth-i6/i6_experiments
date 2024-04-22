@@ -91,12 +91,10 @@ def rnnt_bpe_ls960_1023_base():
         )
 
     greedy_decoder_config_bpe5000 = DecoderConfig(
-        beam_size=1,  # greedy as default
-        returnn_vocab=label_datastream_bpe5000.vocab
+        beam_size=1, returnn_vocab=label_datastream_bpe5000.vocab  # greedy as default
     )
     bs10_decoder_config_bpe5000 = DecoderConfig(
-        beam_size=1,  # greedy as default
-        returnn_vocab=label_datastream_bpe5000.vocab
+        beam_size=1, returnn_vocab=label_datastream_bpe5000.vocab  # greedy as default
     )
 
     from ...pytorch_networks.rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_cfg import (
@@ -104,7 +102,7 @@ def rnnt_bpe_ls960_1023_base():
         VGG4LayerActFrontendV1Config_mod,
         ModelConfig,
         LogMelFeatureExtractionV1Config,
-        PredictorConfig
+        PredictorConfig,
     )
 
     fe_config = LogMelFeatureExtractionV1Config(
@@ -174,7 +172,7 @@ def rnnt_bpe_ls960_1023_base():
         joiner_dim=640,
         joiner_activation="relu",
         joiner_dropout=0.1,
-        ctc_output_loss=0.0
+        ctc_output_loss=0.0,
     )
     model_config_v5_sub6_512lstm_start1 = copy.deepcopy(model_config_v5_sub6_512lstm)
     model_config_v5_sub6_512lstm_start1.specauc_start_epoch = 1
@@ -182,14 +180,13 @@ def rnnt_bpe_ls960_1023_base():
     model_config_v5_sub6_512lstm_start1_full_spec = copy.deepcopy(model_config_v5_sub6_512lstm_start1)
     model_config_v5_sub6_512lstm_start1_full_spec.specaug_config = specaug_config_full
 
-
     train_config_24gbgpu_amp = {
         "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-3},
         "learning_rates": list(np.linspace(5e-5, 5e-4, 240))
         + list(np.linspace(5e-4, 5e-5, 240))
         + list(np.linspace(5e-5, 1e-7, 20)),
         #############
-        "batch_size": 120 * 16000, # RNN-T has very high memory consumption
+        "batch_size": 120 * 16000,  # RNN-T has very high memory consumption
         "max_seq_length": {"audio_features": 35 * 16000},
         "accum_grad_multiple_step": 2,
         "torch_amp_options": {"dtype": "bfloat16"},
@@ -203,14 +200,16 @@ def rnnt_bpe_ls960_1023_base():
         "debug": False,
     }
 
-
     network_module = "rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_i6_native"
     train_args_warprnnt_accum2_fullspec1 = copy.deepcopy(train_args)
     train_args_warprnnt_accum2_fullspec1["network_module"] = network_module
-    train_args_warprnnt_accum2_fullspec1["net_args"] = {"model_config_dict": asdict(model_config_v5_sub6_512lstm_start1_full_spec)}
+    train_args_warprnnt_accum2_fullspec1["net_args"] = {
+        "model_config_dict": asdict(model_config_v5_sub6_512lstm_start1_full_spec)
+    }
     train_args_warprnnt_accum2_fullspec1["include_native_ops"] = True
-    train_args_warprnnt_accum2_fullspec1["config"]["learning_rates"] = list(np.linspace(5e-5, 5e-4, 120)) + list(
-        np.linspace(5e-4, 5e-5, 120)) + list(np.linspace(5e-5, 1e-7, 10))
+    train_args_warprnnt_accum2_fullspec1["config"]["learning_rates"] = (
+        list(np.linspace(5e-5, 5e-4, 120)) + list(np.linspace(5e-4, 5e-5, 120)) + list(np.linspace(5e-5, 1e-7, 10))
+    )
     train_args_warprnnt_accum2_fullspec1["config"]["preload_from_files"] = {
         "encoder": {
             "filename": get_ctc_model(
@@ -221,12 +220,21 @@ def rnnt_bpe_ls960_1023_base():
         }
     }
 
-    training_name = prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_25eps_accum2_fullspec1_continue_from_ctc50eps"
-    train_job = training(training_name, train_data_bpe5000, train_args_warprnnt_accum2_fullspec1, num_epochs=250, **default_returnn)
+    training_name = (
+        prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_25eps_accum2_fullspec1_continue_from_ctc50eps"
+    )
+    train_job = training(
+        training_name, train_data_bpe5000, train_args_warprnnt_accum2_fullspec1, num_epochs=250, **default_returnn
+    )
     train_job.rqmt["gpu_mem"] = 24
     train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     asr_model = prepare_asr_model(
-        training_name, train_job, train_args_warprnnt_accum2_fullspec1, with_prior=False, datasets=train_data_bpe5000, get_specific_checkpoint=250
+        training_name,
+        train_job,
+        train_args_warprnnt_accum2_fullspec1,
+        with_prior=False,
+        datasets=train_data_bpe5000,
+        get_specific_checkpoint=250,
     )
     evaluate_helper(
         training_name,

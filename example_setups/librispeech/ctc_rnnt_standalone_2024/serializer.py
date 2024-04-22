@@ -15,7 +15,7 @@ def serialize_training(
     network_module: str,
     net_args: Dict[str, Any],
     unhashed_net_args: Optional[Dict[str, Any]] = None,
-    include_native_ops = False,
+    include_native_ops=False,
     debug: bool = False,
 ) -> Collection:
     """
@@ -71,7 +71,7 @@ def serialize_forward(
     forward_step_name: str = "forward",
     forward_init_args: Optional[Dict[str, Any]] = None,
     unhashed_forward_init_args: Optional[Dict[str, Any]] = None,
-    include_native_ops = False,
+    include_native_ops=False,
     debug: bool = False,
 ):
     """
@@ -106,7 +106,7 @@ def serialize_forward(
         i6_models,
         pytorch_model_import,
     ]
-    
+
     if include_native_ops:
         i6_native_ops = ExternalImport(import_path=I6_NATIVE_OPS_REPO_PATH)
         # has to be in the beginning

@@ -25,6 +25,7 @@ class VGG4LayerActFrontendV1Config_mod(VGG4LayerActFrontendV1Config):
         activation_str = d.pop("activation_str")
         if activation_str == "ReLU":
             from torch.nn import ReLU
+
             activation = ReLU()
         else:
             assert False, "Unsupported activation %s" % d["activation_str"]
@@ -39,7 +40,7 @@ class PredictorConfig(ModelConfiguration):
     num_lstm_layers: int
     lstm_hidden_dim: int
     lstm_dropout: float
-    
+
     @classmethod
     def from_dict(cls, d):
         d = d.copy()
@@ -76,7 +77,7 @@ class SpecaugConfig(ModelConfiguration):
 
 
 @dataclass
-class ModelConfig():
+class ModelConfig:
     feature_extraction_config: LogMelFeatureExtractionV1Config
     frontend_config: VGG4LayerActFrontendV1Config
     predictor_config: PredictorConfig
@@ -106,5 +107,3 @@ class ModelConfig():
         d["specaug_config"] = SpecaugConfig.from_dict(d["specaug_config"])
         d["predictor_config"] = PredictorConfig.from_dict(d["predictor_config"])
         return ModelConfig(**d)
-
-
