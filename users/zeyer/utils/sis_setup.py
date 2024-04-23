@@ -28,7 +28,7 @@ def get_base_module_from_module(module_name: str) -> Tuple[str, str]:
         e.g. ("i6_experiments.users.zeyer.experiments.exp2024_04_23", "zeyer-2024-04-23-baselines")
     """
     for pos in range(len(module_name), 0, -1):
-        if module_name[pos] != ".":
+        if pos < len(module_name) and module_name[pos] != ".":
             continue
         mod = importlib.import_module(module_name[:pos])
         setup_base_name = getattr(mod, "__setup_base_name__", None)
