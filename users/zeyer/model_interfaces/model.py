@@ -4,10 +4,10 @@ Generic interfaces to define models, training and recognition.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Any, Union, List, Protocol, TypeVar
+from typing import TYPE_CHECKING, Optional, Any, Union, List, Protocol, TypeVar, Dict
 
 if TYPE_CHECKING:
-    from returnn.tensor import Tensor, Dim
+    from returnn.tensor import Dim
     import returnn.frontend as _rf
     from returnn_common import nn as _rc_nn
     import torch
