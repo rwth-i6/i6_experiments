@@ -121,6 +121,21 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
     _sis_prefix = prefix_name
 
 
+_ls_task = None
+
+
+def _get_ls_task():
+    global _ls_task
+    if _ls_task:
+        return _ls_task
+
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_bpe10k_raw
+
+    # TODO check the sis graph, i think there are jobs we don't want ...
+    _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
+    return _ls_task
+
+
 def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
