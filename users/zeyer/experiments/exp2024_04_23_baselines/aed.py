@@ -8,7 +8,6 @@ import copy
 import functools
 from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence
 import tree
-import math
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
