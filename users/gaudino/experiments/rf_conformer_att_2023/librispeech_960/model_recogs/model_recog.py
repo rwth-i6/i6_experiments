@@ -178,7 +178,7 @@ def model_recog(
             ilm_log_prob = rf.log_softmax(ilm_out["output"], axis=model.target_dim)
 
             label_log_prob = (
-                label_log_prob + model.search_args["ilm_scale"] * ilm_log_prob
+                label_log_prob - model.search_args["ilm_scale"] * ilm_log_prob
             )
 
         if model.search_args.get("use_ctc", False):

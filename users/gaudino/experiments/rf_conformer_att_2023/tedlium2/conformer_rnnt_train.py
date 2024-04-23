@@ -35,61 +35,6 @@ if TYPE_CHECKING:
         ModelWithCheckpoint,
     )
 
-# From Mohammad, 2023-06-29
-# dev-clean  2.27
-# dev-other  5.39
-# test-clean  2.41
-# test-other  5.51
-# _returnn_tf_config_filename = (
-#   "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config")
-# E.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
-# _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
-# /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb
-# Main train (2035 subepochs): /work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.SAh74CLCNJQi
-# 15k batch size, accum grad 2 (1350 steps per epoch?)
-# (With batch size 40k (here default), I have usually 495 steps/epoch. Same accum grad 2.)
-# peak_lr = 0.9e-3 (1e-3 should also be fine), with Adam, optimizer_epsilon = 1e-08
-# phase1: peak_lr / 10 -> peak_lr (45%)
-# phase2: peak_lr -> peak_lr / 10 (45%)
-# phase3: peak_lr / 10 -> 1e-6 (10%)
-# all linear decay and step-based
-# specaugment like my orig (same here, specaugorig), speed perturb same here.
-# weight decay: L2 1e-4 in some layers (not all): FF, depthwise conv, self-att, output, LSTM, readout
-# Final from learning_rates file:
-# 2035: EpochData(learningRate=<misleading>, error={
-# 'dev_error_ctc': 0.0520755184693418,
-# 'dev_error_output/output_prob': 0.035661241551042944,
-# 'dev_score_ctc': 0.2796084385705723,
-# 'dev_score_output/output_prob': 0.1718613621694714,
-# 'devtrain_error_ctc': 0.005757552549708462,
-# 'devtrain_error_output/output_prob': 0.005408351877314902,
-# 'devtrain_score_ctc': 0.022935187616968285,
-# 'devtrain_score_output/output_prob': 0.05237826015574962,
-# 'train_error_ctc': 0.05592114304093772,
-# 'train_error_output/output_prob': 0.041970552995693494,
-# 'train_score_ctc': 0.21249712733341475,
-# 'train_score_output/output_prob': 0.20816428663741796,
-# }),
-# Retrain RETURNN training job (600 subepochs): /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.ZhtaEElHqWlr
-# Epoch-wise LR:
-# Fixed for 20 subepochs: 1e-4
-# Linear(?) decay for remaining (?): 1e-4 to 1e-6
-# Final from learning_rates file:
-# 600: EpochData(learningRate=1e-06, error={
-# 'dev_error_ctc': 0.04999311020358747,
-# 'dev_error_output/output_prob': 0.03406881170076022,
-# 'dev_score_ctc': 0.2881619431223589,
-# 'dev_score_output/output_prob': 0.16851828029171323,
-# 'devtrain_error_ctc': 0.003611245977923651,
-# 'devtrain_error_output/output_prob': 0.004028583366881808,
-# 'devtrain_score_ctc': 0.014762402644778178,
-# 'devtrain_score_output/output_prob': 0.0458638666428664,
-# 'train_error_ctc': 0.051649620746772214,
-# 'train_error_output/output_prob': 0.03977601830532325,
-# 'train_score_ctc': 0.19722012590584306,
-# 'train_score_output/output_prob': 0.19768974342596793,
-# }),
-
 
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
@@ -119,826 +64,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         gpu_mem=11,
     )
 
-    # train_exp(  # dev-other 7.6
-    #     "base-24gb-bs30k-f32",
-    #     config_24gb,
-    #     config_updates={"batch_size": 30_000 * _batch_size_factor},
-    #     config_deletes=["torch_amp"],
-    # )
-
-    # train_exp("base-24gb-v2-lr1e_3", config_24gb_v2, config_updates={"learning_rate": 1e-3})  # dev-other 7.44
-    # train_exp(  # dev-other 7.24
-    #     "base-24gb-v2-lr1e_3-nogradscaler", config_24gb_v2, config_updates={"learning_rate": 1e-3, "grad_scaler": None}
-    # )
-
-    # base-24gb-v3: diverges at later point
-    # train_exp(  # 7.01, slightly better than baseline.
-    #     "base-24gb-v3-lr1e_3-wd1e_3",
-    #     config_24gb_v3,
-    #     config_updates={"learning_rate": 1e-3, "optimizer.weight_decay": 1e-3},
-    # )
-    # train_exp("base-24gb-v3-adam", config_24gb_v3, config_updates={"optimizer.class": "adam"})  # 7.56
-    # train_exp(  # dev-other 7.01 (epoch 1964)
-    #     "base-24gb-v3-lr1e_3",
-    #     config_24gb_v3,
-    #     config_updates={"learning_rate": 1e-3},
-    #     fine_tune=[
-    #         # (ep 1280 itself is dev-other 7.34)
-    #         (1280, {"num_epochs": 50}),  # 7.22
-    #         (1280, {"num_epochs": 100}),  # 7.08
-    #         (1280, {"num_epochs": 200}),  # 7.03
-    #         # (ep 2000 is 7.03, 7.31)
-    #         (2000, {"num_epochs": 100}),  # 6.93, 7.12
-    #         (2000, {"num_epochs": 200}),  # dev-other 6.84, test-other 7.06
-    #         (2000, {"num_epochs": 200, "final_lr": 1e-6}),  # dev-other* 6.83, test-other 7.10
-    #         (2000, {"num_epochs": 200, "lr_decay_type": "linspace"}),  # 6.95, 7.11
-    #         (2000, {"num_epochs": 200, "lr_decay_type": "linspace", "final_lr": 1e-6}),  # dev-ot 6.94, test-other* 7.01
-    #         (
-    #             2000,
-    #             {
-    #                 "num_epochs": 200,
-    #                 "_lr_decay_type": "L3_5_150_L7_50",  # dev-other 6.89, test-other 7.20
-    #                 "learning_rates": list(np.linspace(1e-3, 1e-5, num=150)) + list(np.linspace(1e-5, 1e-7, num=50)),
-    #             },
-    #         ),
-    #         (
-    #             2000,
-    #             {
-    #                 "num_epochs": 200,
-    #                 "_lr_decay_type": "L3_5_180_L6_20",  # dev-other 6.87, test-other 7.12
-    #                 "learning_rates": list(np.linspace(1e-3, 1e-5, num=180)) + list(np.linspace(1e-5, 1e-6, num=20)),
-    #             },
-    #         ),
-    #     ],
-    # )
-    # train_exp(  # dev/test-other 6.89,7.39 (overfitting on dev? base: dev/test 7.01,7.23). unclear...
-    #     "base-24gb-v3-lr1e_3-lrdecnorm40k",
-    #     config_24gb_v3,
-    #     config_updates={"learning_rate": 1e-3, "learning_rate_invsqrt_norm": 40_000},
-    # )
-    # train_exp(  # 6.22 (vs base 7.01, so much better)
-    #     "base-24gb-v3-lr1e_3-specaugorig",
-    #     config_24gb_v3,
-    #     config_updates={"learning_rate": 1e-3},
-    #     config_deletes=[
-    #         "specaugment_num_spatial_mask_factor",
-    #         "specaugment_max_consecutive_feature_dims",
-    #     ],
-    # )
-    # train_exp(  # 8.21 (vs base 7.01, so lossscalesF is worse)
-    #     "base-24gb-v3-lr1e_3-lossscalesF",
-    #     config_24gb_v3,
-    #     config_updates={"learning_rate": 1e-3, "aux_loss_scales": [0.1, 0.2], "aed_loss_scale": 0.7},
-    # )
-
-    # train_exp("base-24gb-v3-lr1e_3-wdblacklist", config_24gb_v4)  # 7.07 (vs base 7.01, so worse?)
-    # train_exp(  # 7.07
-    #     "base-24gb-v4",
-    #     config_24gb_v4,
-    #     fine_tune=[
-    #         (2000, {"num_epochs": 200, "final_lr": 1e-6}),  # 6.84
-    #     ],
-    # )
-    # train_exp(  # 6.85 (vs base 7.07), so better, but maybe just because too less regularization in general
-    #     "base-24gb-v4-wdblacklist2",
-    #     config_24gb_v4,
-    #     config_updates={
-    #         "optimizer.weight_decay_modules_blacklist": [
-    #             # Difference to base-24gb-v4: weight decay also for LayerNorm and BatchNorm.
-    #             # The initial thought was that we maybe do it wrong, and it applies to the statistics as well.
-    #             # This is not the case, it only applies on the learnable parameters,
-    #             # and there it makes sense to apply weight decay.
-    #             "rf.Embedding",
-    #             "rf.LearnedRelativePositionalEncoding",
-    #         ],
-    #     },
-    # )
-    # train_exp("base-24gb-v4-lr09e_3", config_24gb_v4, config_updates={"learning_rate": 0.9e-3})  # 6.99 (vs base 7.07)
-    # train_exp(  # 7.46 (vs base 7.07, so worse)
-    #     "base-24gb-v4-lrcos",
-    #     config_24gb_v4,
-    #     config_updates={
-    #         "dynamic_learning_rate": dyn_lr_combine_eval,
-    #         "learning_rate_eval": "orig * (np.cos(global_train_step / 10_000 * 2 * np.pi) * 0.49995 + 0.50005)",
-    #         "learning_rate_eval_locals": {"orig": dyn_lr_lin_warmup_invsqrt_decay},
-    #     },
-    # )
-    # train_exp(  # 6.48 (vs base 7.07, so much better, but this is already with fine-tuning included here)
-    #     "base-24gb-v4-lrlin",
-    #     config_24gb_v4,
-    #     config_updates={
-    #         "learning_rate": 1.0,
-    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
-    #         # total steps after 2000 epochs: 982.312
-    #         "learning_rate_piecewise_steps": [20_000, 900_000, 982_000],
-    #         "learning_rate_piecewise_values": [0.0, 1e-3, 1e-5, 1e-6],
-    #     },
-    # )
-    # train_exp(  # 5.9
-    #     "base-24gb-v4-lrlin1e_5_450k", config_24gb_v4, config_updates=_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000)
-    # )
-    # gn01 ("gradient_noise": 0.1), does not converge? that was with old RETURNN, gn after grad clip
-    # gn01 before grad clip (new RETURNN) also does not converge.
-    # train_exp(
-    #     "base-24gb-v4-lrlin-gn01",
-    #     config_24gb_v4,
-    #     config_updates={
-    #         "learning_rate": 1.0,
-    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
-    #         # total steps after 2000 epochs: 982.312
-    #         "learning_rate_piecewise_steps": [20_000, 900_000, 982_000],
-    #         "learning_rate_piecewise_values": [0.0, 1e-3, 1e-5, 1e-6],
-    #         "gradient_noise": 0.1,  # TODO schedule it, only later, gradually more...?
-    #     },
-    # )
-    # train_exp(  # 7.08 (vs base 7.07, so unclear)
-    #     "base-24gb-v4-pretrainBug",
-    #     config_24gb_v4,
-    #     config_updates={"pretrain_opts": {"steps": {4 * 500: {"num_layers": 8}, 8 * 500: {"num_layers": 2}}}},
-    # )
-    # train_exp(  # 7.30 (vs base 7.07, so worse), much more overfitting
-    #     "base-24gb-v4-pretrain",
-    #     config_24gb_v4,
-    #     config_updates={
-    #         "pretrain_opts": {
-    #             "steps": [(8 * 500, {"num_layers": 2}), (4 * 500, {"num_layers": 4}), (4 * 500, {"num_layers": 8})]
-    #         }
-    #     },
-    # )
-    # train_exp(  # 7.02 (vs base 7.07) but dev-clean, test-other worse, unclear
-    #     "base-24gb-v4-posdrop01", config_24gb_v4, config_updates={"pos_emb_dropout": 0.1}
-    # )
-    # train_exp(  # 6.52 (vs base 7.07, so much better)
-    #     "base-24gb-v4-pretrain-posdrop01-specaugorig",
-    #     config_24gb_v4,
-    #     config_updates={
-    #         "pretrain_opts": {
-    #             "steps": [(8 * 500, {"num_layers": 2}), (4 * 500, {"num_layers": 4}), (4 * 500, {"num_layers": 8})]
-    #         },
-    #         "pos_emb_dropout": 0.1,
-    #     },
-    #     config_deletes=[
-    #         "specaugment_num_spatial_mask_factor",
-    #         "specaugment_max_consecutive_feature_dims",
-    #     ],
-    # )
-    # train_exp(  # 7.02 (vs base 7.07)
-    #     "base-24gb-v4-attdropfixbc", config_24gb_v4, config_updates={"rf_att_dropout_broadcast": False}
-    # )
-    # train_exp("base-24gb-v4-bs30k", config_24gb_v4, config_updates={"batch_size": 30_000 * _batch_size_factor})
-    # train_exp(  # 7.19
-    #     "base-24gb-v4-bs30k-accgrad3",  # accgrad3 instead of (base) accgrad2
-    #     config_24gb_v4,
-    #     config_updates={"batch_size": 30_000 * _batch_size_factor, "accum_grad_multiple_step": 3},
-    # )
-    # train_exp(  # 7.21, so nodropbc makes it worse
-    #     "base-24gb-v4-bs30k-accgrad3-nodropbc",
-    #     config_24gb_v4,
-    #     config_updates={
-    #         "batch_size": 30_000 * _batch_size_factor,
-    #         "accum_grad_multiple_step": 3,  # because of reduced batch size
-    #         "rf_dropout_broadcast": False,  # needs more memory, thus reduced batch size
-    #     },
-    # )
-    #
-    # train_exp("base-24gb-v5", config_24gb_v5)  # 6.35
-    # train_exp("base-24gb-v5-embInit1", config_24gb_v5, config_updates={"embed_init_stddev": 1.0})  # 6.51
-    # train_exp(  # 6.36, no effect at all?
-    #     "base-24gb-v5-mixup",
-    #     config_24gb_v5,
-    #     config_updates={"mixup": {}},
-    #     # got GPU OOM in subepoch 1823... so play around here to fix this
-    #     post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # might be even faster?
-    # )
-    #
-    # train_exp("base-24gb-v6", config_24gb_v6)  # 6.30
-    # train_exp(  # 5.84 (!)
-    #     "base-24gb-v6-warmup100k",
-    #     config_24gb_v6,
-    #     config_updates={"learning_rate_warmup_steps": 100_000},
-    #     # OOM in ep 523
-    #     post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
-    # )
-    # train_exp(  # 5.67
-    #     "base-24gb-v6-warmup450k",
-    #     config_24gb_v6,
-    #     config_updates={"learning_rate_warmup_steps": 450_000},
-    #     post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
-    # )
-    # train_exp(  # 5.60
-    #     "base-24gb-v6-lrlin1e_5_800k",
-    #     config_24gb_v6,
-    #     config_updates={
-    #         "learning_rate": 1.0,
-    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
-    #         # total steps after 2000 epochs: 982.312
-    #         "learning_rate_piecewise_steps": [800_000, 900_000, 982_000],
-    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-    #     },
-    #     # OOM in ep 889
-    #     post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
-    # )
-    # model = train_exp(  # 5.41
-    #     "base-24gb-v6-lrlin1e_5_600k",
-    #     config_24gb_v6,
-    #     config_updates={
-    #         "learning_rate": 1.0,
-    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
-    #         # total steps after 2000 epochs: 982.312
-    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-    #     },
-    # )
-    # All beam search experiments using model_recog_pure_torch, beam_search_sep_ended_keep_v6.
-    # for name, recog_config in {
-    #     "beam12-batch200-lenReward01": {
-    #         "beam_search_opts": {
-    #             "beam_size": 12,
-    #             "length_normalization_exponent": 0.0,
-    #             "length_reward": 0.1,
-    #         },
-    #     },
-    #     "beam12-batch200-lenReward02": {
-    #         "beam_search_opts": {
-    #             "beam_size": 12,
-    #             "length_normalization_exponent": 0.0,
-    #             "length_reward": 0.2,
-    #         },
-    #     },
-    #     "beam12-batch200-lenReward03": {
-    #         "beam_search_opts": {
-    #             "beam_size": 12,
-    #             "length_normalization_exponent": 0.0,
-    #             "length_reward": 0.3,
-    #         },
-    #     },
-    #     "beam12-batch200-lenReward04": {
-    #         "beam_search_opts": {
-    #             "beam_size": 12,
-    #             "length_normalization_exponent": 0.0,
-    #             "length_reward": 0.4,
-    #         },
-    #     },
-    #     "beam12-batch200-lenReward05": {
-    #         "beam_search_opts": {
-    #             "beam_size": 12,
-    #             "length_normalization_exponent": 0.0,
-    #             "length_reward": 0.5,
-    #         },
-    #     },
-    #     "beam12-batch200-lenReward04-thresh2": {
-    #         "beam_search_opts": {
-    #             "beam_size": 12,
-    #             "length_normalization_exponent": 0.0,
-    #             "length_reward": 0.4,
-    #             "pruning_threshold": 2.0,
-    #         },
-    #     },
-    #     "beam12-batch200-lenReward04-thresh2-maxSeqLen03": {
-    #         "beam_search_opts": {
-    #             "beam_size": 12,
-    #             "length_normalization_exponent": 0.0,
-    #             "length_reward": 0.4,
-    #             "pruning_threshold": 2.0,
-    #             "max_seq_len_factor": 0.3,
-    #         },
-    #     },
-    #     "beam12-batch200-lenReward04-thresh2-maxSeqLen05": {
-    #         "beam_search_opts": {
-    #             "beam_size": 12,
-    #             "length_normalization_exponent": 0.0,
-    #             "length_reward": 0.4,
-    #             "pruning_threshold": 2.0,
-    #             "max_seq_len_factor": 0.5,
-    #         },
-    #         "load_model_post_hooks": [model_warmup],  # test
-    #     },
-    #     "beam12-batch200-lenReward04-thresh2-adaptThresh": {
-    #         "beam_search_opts": {
-    #             "beam_size": 12,
-    #             "length_normalization_exponent": 0.0,
-    #             "length_reward": 0.4,
-    #             "pruning_threshold": 2.0,
-    #             "adaptive_pruning": True,
-    #         },
-    #     },
-    #     "beam12-batch200-lenReward04-thresh2-adaptThresh-maxSeqLen03": {
-    #         "beam_search_opts": {
-    #             "beam_size": 12,
-    #             "length_normalization_exponent": 0.0,
-    #             "length_reward": 0.4,
-    #             "pruning_threshold": 2.0,
-    #             "adaptive_pruning": True,
-    #             "max_seq_len_factor": 0.3,
-    #         },
-    #     },
-    #     "beam12-batch200-lenReward04-thresh2-adaptThresh-maxSeqLen05": {
-    #         "beam_search_opts": {
-    #             "beam_size": 12,
-    #             "length_normalization_exponent": 0.0,
-    #             "length_reward": 0.4,
-    #             "pruning_threshold": 2.0,
-    #             "adaptive_pruning": True,
-    #             "max_seq_len_factor": 0.5,
-    #         },
-    #         "load_model_post_hooks": [model_warmup],  # test
-    #     },
-    #     # "beam12-batch200-lenReward01-thresh10": {
-    #     #     "beam_search_opts": {
-    #     #         "beam_size": 12,
-    #     #         "length_normalization_exponent": 0.0,
-    #     #         "length_reward": 0.1,
-    #     #         "pruning_threshold": 10.0,
-    #     #     },
-    #     # },
-    #     # "beam12-batch1-lenReward01-thresh10": {
-    #     #     "beam_search_opts": {
-    #     #         "beam_size": 12,
-    #     #         "length_normalization_exponent": 0.0,
-    #     #         "length_reward": 0.1,
-    #     #         "pruning_threshold": 10.0,
-    #     #     },
-    #     #     "max_seqs": 1,
-    #     # },
-    #     # "beam12-batch200-lenReward01-thresh5": {
-    #     #     "beam_search_opts": {
-    #     #         "beam_size": 12,
-    #     #         "length_normalization_exponent": 0.0,
-    #     #         "length_reward": 0.1,
-    #     #         "pruning_threshold": 5.0,
-    #     #     },
-    #     # },
-    #     # "beam12-batch200-lenReward01-thresh2": {
-    #     #     "beam_search_opts": {
-    #     #         "beam_size": 12,
-    #     #         "length_normalization_exponent": 0.0,
-    #     #         "length_reward": 0.1,
-    #     #         "pruning_threshold": 2.0,
-    #     #     },
-    #     # },
-    #     # "beam12-batch200-lenReward01-thresh0": {
-    #     #     "beam_search_opts": {
-    #     #         "beam_size": 12,
-    #     #         "length_normalization_exponent": 0.0,
-    #     #         "length_reward": 0.1,
-    #     #         "pruning_threshold": 0.0,
-    #     #     },
-    #     # },
-    #     # "beam12-batch200-lenReward01-thresh5-threshW0": {
-    #     #     "beam_search_opts": {
-    #     #         "beam_size": 12,
-    #     #         "length_normalization_exponent": 0.0,
-    #     #         "length_reward": 0.1,
-    #     #         "pruning_threshold": 5.0,
-    #     #         "pruning_threshold_worst": 0.0,
-    #     #     },
-    #     # },
-    #     # "beam12-batch200-lenReward02-thresh2": {
-    #     #     "beam_search_opts": {
-    #     #         "beam_size": 12,
-    #     #         "length_normalization_exponent": 0.0,
-    #     #         "length_reward": 0.2,
-    #     #         "pruning_threshold": 2.0,
-    #     #     },
-    #     # },
-    #     "beam12-batch200-lenNorm1": {
-    #         "beam_search_opts": {
-    #             "beam_size": 12,
-    #             "length_normalization_exponent": 1.0,
-    #         },
-    #     },
-    #     "beam12-batch200-lenNorm1-thresh2": {
-    #         "beam_search_opts": {
-    #             "beam_size": 12,
-    #             "length_normalization_exponent": 1.0,
-    #             "pruning_threshold": 2.0,
-    #         },
-    #     },
-    #     "beam12-batch200-lenNorm1-thresh2-adaptThresh": {
-    #         "beam_search_opts": {
-    #             "beam_size": 12,
-    #             "length_normalization_exponent": 1.0,
-    #             "pruning_threshold": 2.0,
-    #             "adaptive_pruning": True,
-    #         },
-    #     },
-    #     "beam12-batch200-lenNorm1-thresh2-adaptThresh-maxSeqLen03": {
-    #         "beam_search_opts": {
-    #             "beam_size": 12,
-    #             "length_normalization_exponent": 1.0,
-    #             "pruning_threshold": 2.0,
-    #             "adaptive_pruning": True,
-    #             "max_seq_len_factor": 0.3,
-    #         },
-    #     },
-    #     "beam12-batch200-lenNorm1-lenNormOff5-thresh20-adaptThresh-maxSeqLen05": {
-    #         "beam_search_opts": {
-    #             "beam_size": 12,
-    #             "length_normalization_exponent": 1.0,
-    #             "length_normalization_offset": 5,
-    #             "pruning_threshold": 20.0,
-    #             "adaptive_pruning": True,
-    #             "max_seq_len_factor": 0.5,
-    #         },
-    #     },
-    #     "beam20-batch50-lenNorm05-maxSeqLen05-lm03": {
-    #         "beam_search_opts": {
-    #             "beam_size": 20,
-    #             "length_normalization_exponent": 0.5,
-    #             "lm_scale": 0.3,
-    #             "max_seq_len_factor": 0.5,
-    #         },
-    #         "max_seqs": 50,
-    #         "batch_size": 5000 * _batch_size_factor,
-    #         "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
-    #         "preload_from_files": {
-    #             "01_trafo_lm": {
-    #                 "prefix": "language_model.",
-    #                 "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
-    #             }
-    #         },
-    #         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM...
-    #     },
-    #     "beam20-batch50-lenNorm1-maxSeqLen05-lm03": {
-    #         "beam_search_opts": {
-    #             "beam_size": 20,
-    #             "length_normalization_exponent": 1.0,
-    #             "lm_scale": 0.3,
-    #             "max_seq_len_factor": 0.5,
-    #         },
-    #         "max_seqs": 50,
-    #         "batch_size": 5000 * _batch_size_factor,
-    #         "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
-    #         "preload_from_files": {
-    #             "01_trafo_lm": {
-    #                 "prefix": "language_model.",
-    #                 "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
-    #             }
-    #         },
-    #         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM...
-    #     },
-    #     "beam20-batch50-lenNorm1-maxSeqLen05-lm05": {
-    #         "beam_search_opts": {
-    #             "beam_size": 20,
-    #             "length_normalization_exponent": 1.0,
-    #             "lm_scale": 0.5,
-    #             "max_seq_len_factor": 0.5,
-    #         },
-    #         "max_seqs": 50,
-    #         "batch_size": 5000 * _batch_size_factor,
-    #         "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
-    #         "preload_from_files": {
-    #             "01_trafo_lm": {
-    #                 "prefix": "language_model.",
-    #                 "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
-    #             }
-    #         },
-    #     },
-    #     # "beam60-batch50-lenReward01": {
-    #     #     "beam_search_opts": {
-    #     #         "beam_size": 60,
-    #     #         "length_normalization_exponent": 0.0,
-    #     #         "length_reward": 0.1,
-    #     #     },
-    #     #     "max_seqs": 50,
-    #     #     "batch_size": 5000 * _batch_size_factor,
-    #     # },
-    #     # "beam60-batch50-lenReward02": {
-    #     #     "beam_search_opts": {
-    #     #         "beam_size": 60,
-    #     #         "length_normalization_exponent": 0.0,
-    #     #         "length_reward": 0.2,
-    #     #     },
-    #     #     "max_seqs": 50,
-    #     #     "batch_size": 5000 * _batch_size_factor,
-    #     # },
-    #     "beam60-batch50-lenNorm1": {
-    #         "beam_search_opts": {
-    #             "beam_size": 60,
-    #             "length_normalization_exponent": 1.0,
-    #         },
-    #         "max_seqs": 50,
-    #         "batch_size": 5000 * _batch_size_factor,
-    #     },
-    #     # "beam60-batch50-lenNorm0-lenReward0": {
-    #     #     "beam_search_opts": {
-    #     #         "beam_size": 60,
-    #     #         "length_normalization_exponent": 0.0,
-    #     #     },
-    #     #     "max_seqs": 50,
-    #     #     "batch_size": 5000 * _batch_size_factor,
-    #     # },
-    #     "beam60-batch50bs2k-lenNorm1-maxSeqLen05-lm03": {
-    #         "beam_search_opts": {
-    #             "beam_size": 60,
-    #             "length_normalization_exponent": 1.0,
-    #             "lm_scale": 0.3,
-    #             "max_seq_len_factor": 0.5,
-    #         },
-    #         "max_seqs": 50,
-    #         "batch_size": 2000 * _batch_size_factor,
-    #         "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
-    #         "preload_from_files": {
-    #             "01_trafo_lm": {
-    #                 "prefix": "language_model.",
-    #                 "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
-    #             }
-    #         },
-    #         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM...
-    #     },
-    #     "beam60-batch50bs2k-lenNorm1-maxSeqLen05-lm05": {
-    #         "beam_search_opts": {
-    #             "beam_size": 60,
-    #             "length_normalization_exponent": 1.0,
-    #             "lm_scale": 0.5,
-    #             "max_seq_len_factor": 0.5,
-    #         },
-    #         "max_seqs": 50,
-    #         "batch_size": 2000 * _batch_size_factor,
-    #         "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
-    #         "preload_from_files": {
-    #             "01_trafo_lm": {
-    #                 "prefix": "language_model.",
-    #                 "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
-    #             }
-    #         },
-    #         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM...
-    #     },
-    # }.items():
-    #     for k, v in {
-    #         "beam_search_version": "sep_ended_keep_v6",
-    #         "__batch_size_dependent": True,
-    #         "__recog_def_ext": True,
-    #         "beam_search_collect_individual_seq_scores": True,
-    #     }.items():
-    #         recog_config.setdefault(k, v)
-    #     recog_config["beam_search_opts"].setdefault("beam_ended_size", recog_config["beam_search_opts"]["beam_size"])
-    #     _recog(
-    #         "base-24gb-v6-lrlin1e_5_600k/recog_last_keep_" + name,
-    #         model.get_last_fixed_epoch(),
-    #         model_recog_pure_torch,
-    #         recog_config,
-    #     )
-    # recog_last_std_*: using beam_search_v5
-    # for name, recog_config in {
-    #     "beam20-batch50-lenNorm1": {
-    #         "beam_search_opts": {
-    #             "beam_size": 20,
-    #             "length_normalization_exponent": 1.0,
-    #             "max_seq_len_factor": 0.5,
-    #         },
-    #         "max_seqs": 50,
-    #         "batch_size": 5000 * _batch_size_factor,
-    #     },
-    #     "beam20-batch50-lenNorm1-maxSeqLen05-lm02": {
-    #         "beam_search_opts": {
-    #             "beam_size": 20,
-    #             "length_normalization_exponent": 1.0,
-    #             "lm_scale": 0.2,
-    #             "max_seq_len_factor": 0.5,
-    #         },
-    #         "max_seqs": 50,
-    #         "batch_size": 5000 * _batch_size_factor,
-    #         "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
-    #         "preload_from_files": {
-    #             "01_trafo_lm": {
-    #                 "prefix": "language_model.",
-    #                 "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
-    #             }
-    #         },
-    #     },
-    #     "beam20-batch50-lenNorm1-maxSeqLen05-lm03": {
-    #         "beam_search_opts": {
-    #             "beam_size": 20,
-    #             "length_normalization_exponent": 1.0,
-    #             "lm_scale": 0.3,
-    #             "max_seq_len_factor": 0.5,
-    #         },
-    #         "max_seqs": 50,
-    #         "batch_size": 5000 * _batch_size_factor,
-    #         "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
-    #         "preload_from_files": {
-    #             "01_trafo_lm": {
-    #                 "prefix": "language_model.",
-    #                 "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
-    #             }
-    #         },
-    #     },
-    #     "beam20-batch50-lenNorm1-maxSeqLen05-lm04": {
-    #         "beam_search_opts": {
-    #             "beam_size": 20,
-    #             "length_normalization_exponent": 1.0,
-    #             "lm_scale": 0.4,
-    #             "max_seq_len_factor": 0.5,
-    #         },
-    #         "max_seqs": 50,
-    #         "batch_size": 5000 * _batch_size_factor,
-    #         "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
-    #         "preload_from_files": {
-    #             "01_trafo_lm": {
-    #                 "prefix": "language_model.",
-    #                 "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
-    #             }
-    #         },
-    #     },
-    #     "beam20-batch50-lenNorm1-maxSeqLen05-lm05": {
-    #         "beam_search_opts": {
-    #             "beam_size": 20,
-    #             "length_normalization_exponent": 1.0,
-    #             "lm_scale": 0.5,
-    #             "max_seq_len_factor": 0.5,
-    #         },
-    #         "max_seqs": 50,
-    #         "batch_size": 5000 * _batch_size_factor,
-    #         "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
-    #         "preload_from_files": {
-    #             "01_trafo_lm": {
-    #                 "prefix": "language_model.",
-    #                 "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
-    #             }
-    #         },
-    #     },
-    #     "beam60-batch50bs2k-lenNorm1-maxSeqLen05-lm05": {
-    #         "beam_search_opts": {
-    #             "beam_size": 60,
-    #             "length_normalization_exponent": 1.0,
-    #             "lm_scale": 0.5,
-    #             "max_seq_len_factor": 0.5,
-    #         },
-    #         "max_seqs": 50,
-    #         "batch_size": 2000 * _batch_size_factor,
-    #         "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
-    #         "preload_from_files": {
-    #             "01_trafo_lm": {
-    #                 "prefix": "language_model.",
-    #                 "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
-    #             }
-    #         },
-    #         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},  # OOM...
-    #     },
-    # }.items():
-    #     for k, v in {
-    #         "beam_search_version": 5,
-    #         "__batch_size_dependent": True,
-    #         "__recog_def_ext": True,
-    #         "beam_search_collect_individual_seq_scores": True,
-    #     }.items():
-    #         recog_config.setdefault(k, v)
-    #     _recog(
-    #         "base-24gb-v6-lrlin1e_5_600k/recog_last_std_" + name,
-    #         model.get_last_fixed_epoch(),
-    #         model_recog_pure_torch,
-    #         recog_config,
-    #     )
-
-    # "best_scores": {"dev-clean": 2.31, "dev-other": 5.44, "test-clean": 2.64, "test-other": 5.74}, "best_epoch": 1941
-    # train_exp(  # 5.44
-    #     "base-24gb-v6-lrlin1e_5_450k", config_24gb_v6, config_updates=_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000)
-    # )
-    # train_exp(  # 5.55
-    #     "base-24gb-v6-lrlin1e_5_100k",
-    #     config_24gb_v6,
-    #     config_updates={
-    #         "learning_rate": 1.0,
-    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
-    #         # total steps after 2000 epochs: 982.312
-    #         "learning_rate_piecewise_steps": [100_000, 900_000, 982_000],
-    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-    #     },
-    #     # OOM in ep 582
-    #     post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
-    # )
-    # train_exp(  # 5.82
-    #     "base-24gb-v6-lrlin1e_5_50k",
-    #     config_24gb_v6,
-    #     config_updates={
-    #         "learning_rate": 1.0,
-    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
-    #         # total steps after 2000 epochs: 982.312
-    #         "learning_rate_piecewise_steps": [50_000, 900_000, 982_000],
-    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-    #     },
-    #     # OOM in ep 758
-    #     post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
-    # )
-    # train_exp(  # 5.87
-    #     "base-24gb-v6-lrlin1e_5_20k",
-    #     config_24gb_v6,
-    #     config_updates={
-    #         "learning_rate": 1.0,
-    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
-    #         # total steps after 2000 epochs: 982.312
-    #         "learning_rate_piecewise_steps": [20_000, 900_000, 982_000],
-    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-    #     },
-    # )
-    #
-    # train_exp(  # 6.11
-    #     "v6-11gb-f32-bs15k-accgrad4-mgpu2",
-    #     config_11gb_v6_f32_bs15k_accgrad4_mgpu,
-    #     num_processes=2,  # multi-GPU
-    #     model_avg=True,
-    # )
-    # train_exp(  # 5.44
-    #     "v6-11gb-f32-bs15k-accgrad4-mgpu4-lrlin1e_5_295k",
-    #     config_11gb_v6_f32_bs15k_accgrad4_mgpu,
-    #     config_updates={
-    #         **_cfg_lrlin1e_5_295k,  # total steps after 500 epochs: ~652k
-    #     },
-    #     num_processes=4,  # multi-GPU
-    #     num_epochs=500,  # because of multi-GPU, 1 subepoch here is like 4 subepochs in single-GPU
-    # )
-    # train_exp(  # 5.60
-    #     "v6-11gb-f32-bs15k-accgrad4-mgpu4-wd1e_4-lrlin1e_5_295k",
-    #     config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
-    #     config_updates={"accum_grad_multiple_step": 4},
-    # )
-    # train_exp(  # 5.54
-    #     "v6-11gb-f32-bs15k-accgrad1-mgpu4-wd1e_4-lrlin1e_5_295k",
-    #     config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
-    # )
-    # train_exp(  # 5.48
-    #     "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg4-wd1e_4-lrlin1e_5_295k",
-    #     # "500": {"dev-clean": 2.29, "dev-other": 5.57, "test-clean": 2.54, "test-other": 5.59}
-    #     config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
-    #     config_updates={
-    #         "torch_distributed": {"reduce_type": "param", "param_sync_step": 4},  # multi-GPU
-    #     },
-    # )
-    # train_exp(  # 5.63
-    #     "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg10-wd1e_4-lrlin1e_5_295k",
-    #     # "500": {"dev-clean": 2.28, "dev-other": 5.65, "test-clean": 2.56, "test-other": 5.74}
-    #     config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
-    #     config_updates={
-    #         "torch_distributed": {"reduce_type": "param", "param_sync_step": 10},  # multi-GPU
-    #     },
-    # )
-    # train_exp(  # 5.53, so better than p10? noisy, see below...
-    #     "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k",
-    #     # "460": {"dev-clean": 2.37, "dev-other": 5.53, "test-clean": 2.6, "test-other": 5.72},
-    #     # "500": {"dev-clean": 2.36, "dev-other": 5.58, "test-clean": 2.58, "test-other": 5.74}
-    #     config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
-    #     config_updates={
-    #         "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},  # multi-GPU
-    #     },
-    #     model_avg=True,  # {"dev-clean": 2.38, "dev-other": 5.54, "test-clean": 2.58, "test-other": 5.73}
-    # )
-    # train_exp(  # 5.67
-    #     "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-run2",
-    #     config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
-    #     config_updates={
-    #         "torch_distributed": {"reduce_type": "param", "param_sync_step": 100, "run": 2},  # multi-GPU
-    #     },
-    # )
-    # train_exp(  # 5.59
-    #     "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-run3",
-    #     config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
-    #     config_updates={
-    #         "torch_distributed": {"reduce_type": "param", "param_sync_step": 100, "run": 3},  # multi-GPU
-    #     },
-    # )
-    # train_exp(  # 5.63
-    #     "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-lrlin1e_5_295k",
-    #     config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
-    #     config_updates={
-    #         "optimizer.weight_decay": 1e-6,
-    #         "torch_distributed": {"reduce_type": "param", "param_sync_step": 100, "run": 2},  # multi-GPU
-    #     },
-    # )
-    # train_exp(  # wd1e-5: 5.61, vs wd1e-4: 5.59, vs wd1e-6: 5.63
-    #     "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_5-lrlin1e_5_295k",
-    #     config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
-    #     config_updates={
-    #         "optimizer.weight_decay": 1e-5,
-    #         "torch_distributed": {"reduce_type": "param", "param_sync_step": 100, "run": 2},  # multi-GPU
-    #     },
-    # )
-    # train_exp(  # 5.70
-    #     "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg500-wd1e_4-lrlin1e_5_295k",
-    #     config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
-    #     config_updates={
-    #         "torch_distributed": {"reduce_type": "param", "param_sync_step": 500},  # multi-GPU
-    #     },
-    # )
-    # train_exp(  # 5.66
-    #     "v6-11gb-f32-bs15k-accgrad1-mgpu4-pavg1000-wd1e_4-lrlin1e_5_295k",
-    #     config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
-    #     config_updates={
-    #         "torch_distributed": {"reduce_type": "param", "param_sync_step": 1000},  # multi-GPU
-    #     },
-    # )
-    #
-    # train_exp(  # 5.83
-    #     "v6-11gb-f32-bs15k-accgrad4-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k",
-    #     config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
-    #     config_updates={
-    #         "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},  # multi-GPU
-    #         "accum_grad_multiple_step": 4,
-    #     },
-    # )
-
-    # TODO pretrain with specaugment_steps=(0, 15k, 25k)?
-
 
 _sis_prefix: Optional[str] = None
 
@@ -950,42 +75,6 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
         prefix_name = get_prefix_for_config(__file__)
     global _sis_prefix
     _sis_prefix = prefix_name
-
-
-def _recog_imported():
-    from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
-    from i6_experiments.users.zeyer.experiments.exp2023_04_25_rf._moh_att_2023_06_30_import import (
-        map_param_func_v2,
-    )
-    from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
-    from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
-    from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import (
-        ConvertTfCheckpointToRfPtJob,
-    )
-
-    task = _get_ls_task()
-    extern_data_dict = task.train_dataset.get_extern_data()
-    default_target_key = task.train_dataset.get_default_target()
-    targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
-    target_dim = targets.feature_dim_or_sparse_dim
-
-    new_chkpt_path = ConvertTfCheckpointToRfPtJob(
-        checkpoint=TfCheckpoint(
-            index_path=generic_job_output(_returnn_tf_ckpt_filename)
-        ),
-        make_model_func=MakeModel(
-            in_dim=_log_mel_feature_dim,
-            target_dim=target_dim.dimension,
-            eos_label=_get_eos_idx(target_dim),
-        ),
-        map_func=map_param_func_v2,
-    ).out_checkpoint
-    new_chkpt = PtCheckpoint(new_chkpt_path)
-    model_with_checkpoint = ModelWithCheckpoint(
-        definition=from_scratch_model_def, checkpoint=new_chkpt
-    )
-
-    _recog("recog_results", model_with_checkpoint)
 
 
 def _recog(
@@ -1263,8 +352,8 @@ class Model(rf.Module):
         enc_att_num_heads: int = 4,
         enc_conformer_layer_opts: Optional[Dict[str, Any]] = None,
         enc_key_total_dim: Dim = Dim(name="enc_key_total_dim", dimension=1024),
-        att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
-        att_dropout: float = 0.1,
+        # att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
+        # att_dropout: float = 0.1,
         enc_dropout: float = 0.1,
         enc_att_dropout: float = 0.1,
         l2: float = 0.0001,
@@ -1309,54 +398,62 @@ class Model(rf.Module):
 
         self.enc_key_total_dim = enc_key_total_dim
         self.enc_key_per_head_dim = enc_key_total_dim.div_left(att_num_heads)
-        self.att_num_heads = att_num_heads
-        self.att_dropout = att_dropout
+        # self.att_num_heads = att_num_heads
+        # self.att_dropout = att_dropout
         self.dropout_broadcast = rf.dropout_broadcast_default()
 
         # https://github.com/rwth-i6/returnn-experiments/blob/master/2020-rnn-transducer/configs/base2.conv2l.specaug4a.ctc.devtrain.config
 
-        self.enc_ctx = rf.Linear(self.encoder.out_dim, enc_key_total_dim)
-        self.enc_ctx_dropout = 0.2
-        self.enc_win_dim = Dim(name="enc_win_dim", dimension=5)
+        # TODO: implement rnnt
 
-        self.inv_fertility = rf.Linear(
-            self.encoder.out_dim, att_num_heads, with_bias=False
-        )
+        self.joiner = rf.Linear(self.encoder.out_dim, self.target_dim)
 
-        self.target_embed = rf.Embedding(
-            target_dim, Dim(name="target_embed", dimension=256)
-        )
-        if config.float("embed_init_stddev", None):
-            self.target_embed.weight.initial = rf.init.Normal(
-                stddev=config.float("embed_init_stddev", 0.0)
-            )
-
-        self.s = rf.ZoneoutLSTM(
-            self.target_embed.out_dim + att_num_heads * self.encoder.out_dim,
-            Dim(name="lstm", dimension=1024),
-            zoneout_factor_cell=0.15,
-            zoneout_factor_output=0.05,
-            use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
-            # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
-            # parts_order="ifco",
-            parts_order="jifo",  # NativeLSTM (the code above converts it...)
-            forget_bias=0.0,  # the code above already adds it during conversion
+        self.pred_lstm = rf.LSTM(
+            self.target_dim, Dim(name="pred_lstm", dimension=1024), with_bias=True
         )
 
-        self.weight_feedback = rf.Linear(
-            att_num_heads, enc_key_total_dim, with_bias=False
-        )
-        self.s_transformed = rf.Linear(
-            self.s.out_dim, enc_key_total_dim, with_bias=False
-        )
-        self.energy = rf.Linear(enc_key_total_dim, att_num_heads, with_bias=False)
-        self.readout_in = rf.Linear(
-            self.s.out_dim
-            + self.target_embed.out_dim
-            + att_num_heads * self.encoder.out_dim,
-            Dim(name="readout", dimension=1024),
-        )
-        self.output_prob = rf.Linear(self.readout_in.out_dim // 2, target_dim)
+        # self.enc_ctx = rf.Linear(self.encoder.out_dim, enc_key_total_dim)
+        # self.enc_ctx_dropout = 0.2
+        # self.enc_win_dim = Dim(name="enc_win_dim", dimension=5)
+        #
+        # self.inv_fertility = rf.Linear(
+        #     self.encoder.out_dim, att_num_heads, with_bias=False
+        # )
+        #
+        # self.target_embed = rf.Embedding(
+        #     target_dim, Dim(name="target_embed", dimension=256)
+        # )
+        # if config.float("embed_init_stddev", None):
+        #     self.target_embed.weight.initial = rf.init.Normal(
+        #         stddev=config.float("embed_init_stddev", 0.0)
+        #     )
+        #
+        # self.s = rf.ZoneoutLSTM(
+        #     self.target_embed.out_dim + att_num_heads * self.encoder.out_dim,
+        #     Dim(name="lstm", dimension=1024),
+        #     zoneout_factor_cell=0.15,
+        #     zoneout_factor_output=0.05,
+        #     use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
+        #     # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
+        #     # parts_order="ifco",
+        #     parts_order="jifo",  # NativeLSTM (the code above converts it...)
+        #     forget_bias=0.0,  # the code above already adds it during conversion
+        # )
+        #
+        # self.weight_feedback = rf.Linear(
+        #     att_num_heads, enc_key_total_dim, with_bias=False
+        # )
+        # self.s_transformed = rf.Linear(
+        #     self.s.out_dim, enc_key_total_dim, with_bias=False
+        # )
+        # self.energy = rf.Linear(enc_key_total_dim, att_num_heads, with_bias=False)
+        # self.readout_in = rf.Linear(
+        #     self.s.out_dim
+        #     + self.target_embed.out_dim
+        #     + att_num_heads * self.encoder.out_dim,
+        #     Dim(name="readout", dimension=1024),
+        # )
+        # self.output_prob = rf.Linear(self.readout_in.out_dim // 2, target_dim)
 
         for p in self.parameters():
             p.weight_decay = l2
@@ -1484,33 +581,40 @@ class Model(rf.Module):
     ) -> rf.State:
         """Default initial state"""
         state = rf.State(
-            s=self.s.default_initial_state(batch_dims=batch_dims),
-            att=rf.zeros(
-                list(batch_dims) + [self.att_num_heads * self.encoder.out_dim]
-            ),
-            accum_att_weights=rf.zeros(
-                list(batch_dims) + [enc_spatial_dim, self.att_num_heads],
-                feature_dim=self.att_num_heads,
-            ),
+            pred_lstm=self.pred_lstm.default_initial_state(batch_dims=batch_dims),
+            # s=self.s.default_initial_state(batch_dims=batch_dims),
+            # att=rf.zeros(
+            #     list(batch_dims) + [self.att_num_heads * self.encoder.out_dim]
+            # ),
+            # accum_att_weights=rf.zeros(
+            #     list(batch_dims) + [enc_spatial_dim, self.att_num_heads],
+            #     feature_dim=self.att_num_heads,
+            # ),
         )
-        state.att.feature_dim_axis = len(state.att.dims) - 1
+        # state.att.feature_dim_axis = len(state.att.dims) - 1
         return state
 
     def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
         """loop step out"""
         return {
-            "s": Tensor(
-                "s",
-                dims=batch_dims + [self.s.out_dim],
+            "pred_lstm": Tensor(
+                "pred_lstm",
+                dims=batch_dims + [self.pred_lstm.out_dim],
                 dtype=rf.get_default_float_dtype(),
                 feature_dim_axis=-1,
             ),
-            "att": Tensor(
-                "att",
-                dims=batch_dims + [self.att_num_heads * self.encoder.out_dim],
-                dtype=rf.get_default_float_dtype(),
-                feature_dim_axis=-1,
-            ),
+            # "s": Tensor(
+            #     "s",
+            #     dims=batch_dims + [self.s.out_dim],
+            #     dtype=rf.get_default_float_dtype(),
+            #     feature_dim_axis=-1,
+            # ),
+            # "att": Tensor(
+            #     "att",
+            #     dims=batch_dims + [self.att_num_heads * self.encoder.out_dim],
+            #     dtype=rf.get_default_float_dtype(),
+            #     feature_dim_axis=-1,
+            # ),
         }
 
     def loop_step(
@@ -1535,40 +639,44 @@ class Model(rf.Module):
             )
         state_ = rf.State()
 
-        prev_att = state.att
+        pred_lstm, state_.pred_lstm = self.pred_lstm(input_embed, state.pred_lstm, spatial_dim=single_step_dim)
 
-        s, state_.s = self.s(
-            rf.concat_features(input_embed, prev_att),
-            state=state.s,
-            spatial_dim=single_step_dim,
-        )
+        joiner = self.joiner(rf.concat_features(enc, pred_lstm))
 
-        weight_feedback = self.weight_feedback(state.accum_att_weights)
-        s_transformed = self.s_transformed(s)
-        energy_in = enc_ctx + weight_feedback + s_transformed
-        energy = self.energy(rf.tanh(energy_in))
-        att_weights = rf.softmax(energy, axis=enc_spatial_dim)
-        state_.accum_att_weights = (
-            state.accum_att_weights + att_weights * inv_fertility * 0.5
-        )
-        att0 = rf.dot(att_weights, enc, reduce=enc_spatial_dim, use_mask=False)
-        att0.feature_dim = self.encoder.out_dim
-        att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.encoder.out_dim))
-        state_.att = att
+        # prev_att = state.att
+        #
+        # s, state_.s = self.s(
+        #     rf.concat_features(input_embed, prev_att),
+        #     state=state.s,
+        #     spatial_dim=single_step_dim,
+        # )
+        #
+        # weight_feedback = self.weight_feedback(state.accum_att_weights)
+        # s_transformed = self.s_transformed(s)
+        # energy_in = enc_ctx + weight_feedback + s_transformed
+        # energy = self.energy(rf.tanh(energy_in))
+        # att_weights = rf.softmax(energy, axis=enc_spatial_dim)
+        # state_.accum_att_weights = (
+        #     state.accum_att_weights + att_weights * inv_fertility * 0.5
+        # )
+        # att0 = rf.dot(att_weights, enc, reduce=enc_spatial_dim, use_mask=False)
+        # att0.feature_dim = self.encoder.out_dim
+        # att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.encoder.out_dim))
+        # state_.att = att
 
-        return {"s": s, "att": att}, state_
+        return {"output": joiner}, state_
 
-    def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
-        """logits for the decoder"""
-        readout_in = self.readout_in(rf.concat_features(s, input_embed, att))
-        readout = rf.reduce_out(
-            readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim
-        )
-        readout = rf.dropout(
-            readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim
-        )
-        logits = self.output_prob(readout)
-        return logits
+    # def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
+    #     """logits for the decoder"""
+    #     readout_in = self.readout_in(rf.concat_features(s, input_embed, att))
+    #     readout = rf.reduce_out(
+    #         readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim
+    #     )
+    #     readout = rf.dropout(
+    #         readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim
+    #     )
+    #     logits = self.output_prob(readout)
+    #     return logits
 
 
 def _get_bos_idx(target_dim: Dim) -> int:

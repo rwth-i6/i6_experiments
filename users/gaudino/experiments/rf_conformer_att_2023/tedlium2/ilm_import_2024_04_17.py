@@ -43,28 +43,49 @@ class MiniAtt_ILM_Model(rf.Module):
         self.mini_att_out_dim = Dim(mini_att_out_dim, name="mini-att-out-dim")
         self.prior_dim = Dim(prior_dim, name="prior-dim")
 
-
         self.mini_att_lstm = rf.LSTM(in_dim, self.mini_att_lstm_dim, with_bias=True)
 
-        self.mini_att = rf.Linear(self.mini_att_lstm_dim, self.mini_att_out_dim, with_bias=True)
+        self.mini_att = rf.Linear(
+            self.mini_att_lstm_dim, self.mini_att_out_dim, with_bias=True
+        )
 
-        self.prior_s = rf.ZoneoutLSTM(in_dim + self.mini_att_out_dim, self.prior_dim, zoneout_factor_cell=0.15, zoneout_factor_output=0.05, use_zoneout_output=True)
-        self.prior_readout_in = rf.Linear(self.prior_dim + in_dim + self.mini_att_out_dim, self.prior_dim, with_bias=True)
-        self.prior_output_prob = rf.Linear(self.prior_dim/2, target_dim, with_bias=True)
+        self.prior_s = rf.ZoneoutLSTM(
+            in_dim + self.mini_att_out_dim,
+            self.prior_dim,
+            zoneout_factor_cell=0.15,
+            zoneout_factor_output=0.05,
+            use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
+            # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
+            # parts_order="ifco",
+            parts_order="jifo",  # NativeLSTM (the code above converts it...)
+        )
+        self.prior_readout_in = rf.Linear(
+            self.prior_dim + in_dim + self.mini_att_out_dim,
+            self.prior_dim,
+            with_bias=True,
+        )
+        self.prior_output_prob = rf.Linear(
+            self.prior_dim / 2, target_dim, with_bias=True
+        )
 
-    def default_initial_state(self, *, batch_dims: Sequence[Dim], use_batch_dims_for_pos:bool=False) -> rf.State:
+    def default_initial_state(
+        self, *, batch_dims: Sequence[Dim], use_batch_dims_for_pos: bool = False
+    ) -> rf.State:
         """default initial state"""
         state = rf.State(
-            mini_att_lstm=self.mini_att_lstm.default_initial_state(batch_dims=batch_dims),
+            mini_att_lstm=self.mini_att_lstm.default_initial_state(
+                batch_dims=batch_dims
+            ),
             prior_s=self.prior_s.default_initial_state(batch_dims=batch_dims),
-            mini_att_out= rf.zeros(list(batch_dims) + [self.mini_att_out_dim], feature_dim=self.mini_att_out_dim),
+            mini_att_out=rf.zeros(
+                list(batch_dims) + [self.mini_att_out_dim],
+                feature_dim=self.mini_att_out_dim,
+            ),
         )
         return state
 
     def select_state(self, state: rf.State, backrefs) -> rf.State:
-        state = tree.map_structure(
-            lambda s: rf.gather(s, indices=backrefs), state
-        )
+        state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), state)
         return state
 
     def __call__(
@@ -131,23 +152,31 @@ class MiniAtt_ILM_Model(rf.Module):
 
         new_state = rf.State()
 
-        mini_att_lstm, mini_att_lstm_state = self.mini_att_lstm(prev_target_emb, state=state.mini_att_lstm, spatial_dim=single_step_dim)
+        mini_att_lstm, mini_att_lstm_state = self.mini_att_lstm(
+            prev_target_emb, state=state.mini_att_lstm, spatial_dim=single_step_dim
+        )
         new_state.mini_att_lstm = mini_att_lstm_state
 
         mini_att = self.mini_att(mini_att_lstm)
-
         new_state.mini_att_out = mini_att
 
-        prior_s, prior_s_state = self.prior_s(rf.concat_features(prev_target_emb, state.mini_att_out), state=state.prior_s, spatial_dim=single_step_dim)
+        prior_s, prior_s_state = self.prior_s(
+            rf.concat_features(prev_target_emb, state.mini_att_out),
+            state=state.prior_s,
+            spatial_dim=single_step_dim,
+        )
+        new_state.prior_s = prior_s_state
 
-        readout_in = self.prior_readout_in(rf.concat_features(prior_s, prev_target_emb, mini_att))
+        readout_in = self.prior_readout_in(
+            rf.concat_features(prior_s, prev_target_emb, mini_att)
+        )
         readout = rf.reduce_out(
             readout_in, mode="max", num_pieces=2, out_dim=self.prior_output_prob.in_dim
         )
         readout_lin = self.prior_output_prob(readout)
-        prior_output_prob = rf.softmax(readout_lin, axis=self.target_dim)
+        # prior_output_prob = rf.softmax(readout_lin, axis=self.target_dim)
 
-        return {"output": prior_output_prob, "state": new_state}
+        return {"output": readout_lin, "state": new_state}
 
 
 class MakeModel:
@@ -165,7 +194,6 @@ class MakeModel:
         self.target_dim = target_dim
 
         self.eos_label = eos_label
-
 
     def __call__(self) -> MiniAtt_ILM_Model:
         from returnn.datasets.util.vocabulary import Vocabulary

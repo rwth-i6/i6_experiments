@@ -693,7 +693,10 @@ class MakeModel:
         **extra,
     ) -> Model:
         """make"""
+
+        target_embed_dim = Dim(name="target_embed", dimension=model_args.get("target_embed_dim", 640))
         lm = None
+        ilm = None
         if lm_opts:
             assert isinstance(lm_opts, dict)
             lm_opts = lm_opts.copy()
@@ -710,8 +713,9 @@ class MakeModel:
         if ilm_opts:
             assert isinstance(ilm_opts, dict)
             ilm_opts = ilm_opts.copy()
+            cls_name = ilm_opts.pop("class")
 
-            ilm = MiniAtt_ILM_Model(Dim(name="target_embed", dimension=model_args.get("target_embed_dim", 640)), target_dim, **ilm_opts)
+            ilm = MiniAtt_ILM_Model(target_embed_dim, target_dim, **ilm_opts)
 
         # lm = (lm, functools.partial(trafo_lm.make_label_scorer_torch, model=lm))
 
@@ -733,6 +737,7 @@ class MakeModel:
                 ),
                 ff_activation=lambda x: rf.relu(x) ** 2.0,
             ),
+            target_embed_dim=target_embed_dim,
             target_dim=target_dim,
             blank_idx=target_dim.dimension,
             bos_idx=_get_bos_idx(target_dim),
@@ -753,6 +758,7 @@ class Model(rf.Module):
         in_dim: Dim,
         *,
         num_enc_layers: int = 12,
+        target_embed_dim: Dim,
         target_dim: Dim,
         blank_idx: int,
         eos_idx: int,
@@ -775,6 +781,7 @@ class Model(rf.Module):
         super(Model, self).__init__()
         self.in_dim = in_dim
         self.target_dim = target_dim
+        self.target_embed_dim = target_embed_dim
         self.blank_idx = blank_idx
         self.eos_idx = eos_idx
         self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
@@ -873,7 +880,7 @@ class Model(rf.Module):
 
         self.target_embed = rf.Embedding(
             target_dim,
-            Dim(name="target_embed", dimension=model_args.get("target_embed_dim", 640)),
+            target_embed_dim,
         )
 
         self.s = rf.ZoneoutLSTM(

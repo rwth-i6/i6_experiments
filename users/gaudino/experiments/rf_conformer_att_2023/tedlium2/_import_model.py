@@ -574,23 +574,26 @@ def map_param_func_mini_att_ilm(
 
     if name == "prior_s.ff_weight":
         value = reader.get_tensor("output/rec/s/rec/lstm_cell/kernel")
-        value = convert_params_np.convert_tf_lstm_to_native_lstm_ff(value)
+        # value1 = convert_params_np.convert_tf_lstm_to_native_lstm_ff(value) # ijfo -> jifo
+        value = convert_params.convert_ff(value, "ijfo", "jifo")
         assert value.shape == var.batch_shape, name
         assert value.dtype.name == var.dtype, name
         return value
 
     if name == "prior_s.rec_weight":
         value = reader.get_tensor("output/rec/s/rec/lstm_cell/kernel")
-        value = convert_params_np.convert_tf_lstm_to_native_lstm_rec(value)
+        # value = convert_params_np.convert_tf_lstm_to_native_lstm_rec(value)
+        value = convert_params.convert_rec(value, "ijfo", "jifo")
         assert value.shape == var.batch_shape, name
         assert value.dtype.name == var.dtype, name
         return value
 
     if name == "prior_s.bias":
         value = reader.get_tensor("output/rec/s/rec/lstm_cell/bias")
-        value = convert_params_np.convert_tf_lstm_to_native_lstm_bias(
-            value, forget_gate_bias=1.0
-        )
+        # value = convert_params_np.convert_tf_lstm_to_native_lstm_bias(
+        #     value, forget_gate_bias=1.0
+        # )
+        value = convert_params.convert_bias(value, "ijfo", "jifo", 1.0)
         assert value.shape == var.batch_shape, name
         assert value.dtype.name == var.dtype, name
         return value
@@ -661,5 +664,5 @@ if __name__ == "__main__":
         ckpt_path_mini_att="/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/GetBestTFCheckpointJob.70hGEsLQ6ynw/output/model/checkpoint",
         model_in_dim=256,
         model_target_dim=1057,
-        out_dir="/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/mini_att_ilm_24_04_18",
+        out_dir="/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/mini_att_ilm_24_04_21",
     )
