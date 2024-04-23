@@ -501,7 +501,6 @@ class Model(rf.Module):
             in_spatial_dim=in_spatial_dim,
             out_dim=self.in_dim,
             sampling_rate=16_000,
-            log_base=math.exp(2.3026),  # almost 10.0 but not exactly...
         )
         if self._mixup:
             source = self._mixup(source, spatial_dim=in_spatial_dim)
