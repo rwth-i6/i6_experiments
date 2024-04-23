@@ -69,7 +69,7 @@ def train_exp(
     """
     Train experiment
     """
-    from .train import train
+    from i6_experiments.users.zeyer.train_v2 import train
     from i6_experiments.users.zeyer.recog import recog_training_exp
 
     if _sis_prefix is None:

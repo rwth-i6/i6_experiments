@@ -49,7 +49,12 @@ class ModelDefWithCfg:
         return self.model_def(**kwargs)
 
 
-def serialize_model_def(model_def: ModelDef, *, import_as: str = "_model_def") -> List[serialization.SerializerObject]:
+def serialize_model_def(
+    model_def: ModelDef,
+    *,
+    import_as: str = "_model_def",
+    unhashed_package_root: Optional[str] = None,
+) -> List[serialization.SerializerObject]:
     """
     serialize
     """
@@ -57,4 +62,8 @@ def serialize_model_def(model_def: ModelDef, *, import_as: str = "_model_def") -
 
     if isinstance(model_def, ModelDefWithCfg):
         model_def = model_def.model_def
-    return [serialization.Import(model_def, import_as=import_as, ignore_import_as_for_hash=True)]
+    return [
+        serialization.Import(
+            model_def, import_as=import_as, ignore_import_as_for_hash=True, unhashed_package_root=unhashed_package_root
+        )
+    ]
