@@ -6,12 +6,9 @@ from __future__ import annotations
 
 import copy
 import functools
-from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, List, Collection
+from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence
 import tree
 import math
-import numpy as np
-import hashlib
-import contextlib
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
