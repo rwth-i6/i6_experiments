@@ -100,3 +100,7 @@ TODO model changes:
 - check E-Branchformer
 - flash attention
 
+
+TODO for future setup:
+
+- dataset problem, depends on Bliss corpus with wave files...
