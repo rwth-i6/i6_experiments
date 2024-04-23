@@ -1,5 +1,12 @@
 """
-Attention-based encoder-decoder (AED) experiments
+Attention-based encoder-decoder (AED) experiments.
+
+The default baseline is based on exp2023_04_25_rf/aed.py and uses a Conformer encoder and a Transformer decoder.
+
+Changes from that baseline:
+- new train_v3 function
+- new Librispeech corpus (TODO)
+- no log_base=math.exp(2.3026) in log_mel_filterbank_from_raw
 """
 
 from __future__ import annotations

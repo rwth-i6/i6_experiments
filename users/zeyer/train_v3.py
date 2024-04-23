@@ -1,5 +1,9 @@
 """
-helpers for training
+helpers for training.
+
+Note, changes from the earlier v2, as it was in experiments/exp2023_04_25_rf/train.py:
+
+- Uses ``unhashed_package_root`` now, via :func:`i6_experiments.users.zeyer.utils.sis_setup.get_base_module`.
 """
 
 from __future__ import annotations
