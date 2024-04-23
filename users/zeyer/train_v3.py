@@ -105,7 +105,7 @@ def train(
                         {
                             # Increase the version whenever some incompatible change is made in this train() function,
                             # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 2,
+                            "version": 3,
                             # Whatever the caller provides. This could also include another version,
                             # but this is up to the caller.
                             "extra": extra_hash,
