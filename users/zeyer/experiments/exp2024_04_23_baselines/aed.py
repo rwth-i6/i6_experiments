@@ -159,7 +159,7 @@ def _get_ls_task(*, vocab: str = "bpe10k") -> Task:
     # - CorpusToTxtJob
     # That's why we use v2.
     vocab_ = {"bpe10k": bpe10k, "spm10k": spm_10k}[vocab]
-    _ls_task[vocab] = get_librispeech_task_raw_v2(vocab=vocab_, with_eos_postfix=True)
+    _ls_task[vocab] = get_librispeech_task_raw_v2(vocab=vocab_, with_eos_postfix=True)  # TODO: with_eos_postfix=False
     return _ls_task[vocab]
 
 
