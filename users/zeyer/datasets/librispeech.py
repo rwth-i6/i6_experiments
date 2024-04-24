@@ -50,7 +50,8 @@ _train_corpus_text = TextDictToTextLinesJob(_train_corpus_text_dict, gzip=True).
 # https://github.com/google/sentencepiece/blob/master/doc/options.md
 _spm10k_train_job = TrainSentencePieceJob(
     training_text=_train_corpus_text,
-    vocab_size=10_000,
+    # Not sure if power-of-two or just multiple-of-64, but 10240 has more 2s in it (2048*5) than 10048.
+    vocab_size=10_240,
     model_type=SentencePieceType.UNIGRAM,
     additional_options={
         "split_digits": True,
@@ -60,7 +61,7 @@ _spm10k_train_job = TrainSentencePieceJob(
     },
 )
 spm_10k = SentencePieceModel(
-    dim=10_000,
+    dim=10_240,
     model_file=_spm10k_train_job.out_model,
     unknown_label="<unk>",
     bos_idx=1,
