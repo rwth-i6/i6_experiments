@@ -40,7 +40,7 @@ class SearchOutputRawReplaceJob(Job):
 
         with util.uopen(self.out_search_results, "wt") as out:
             out.write("{\n")
-            for seq_tag, entry in sorted(d.items()):
+            for seq_tag, entry in d.items():
                 if isinstance(entry, list):
                     # n-best list as [(score, text), ...]
                     out.write("%r: [\n" % (seq_tag,))
@@ -78,6 +78,6 @@ class TextDictToTextLinesJob(Job):
         assert isinstance(d, dict)  # seq_tag -> text
 
         with util.uopen(self.out_text_lines, "wt") as out:
-            for seq_tag, entry in sorted(d.items()):
+            for seq_tag, entry in d.items():
                 assert isinstance(entry, str), f"expected str, got {entry!r} (type {type(entry).__name__})"
                 out.write(entry + "\n")
