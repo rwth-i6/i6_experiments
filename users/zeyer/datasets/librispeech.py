@@ -485,7 +485,7 @@ def get_librispeech_task_raw(
         eval_datasets=eval_datasets,
         main_measure_type=MeasureType(short_name="WER%"),
         main_measure_name="dev-other",
-        score_recog_output_func=score,
+        score_recog_output_func=_score_recog_out,
         recog_post_proc_funcs=[vocab_to_words],
     )
 
@@ -510,13 +510,16 @@ def _spm_to_words(bpe: RecogOutput) -> RecogOutput:
     return RecogOutput(output=words)
 
 
-def _score(*, hyp_words: tk.Path, corpus_name: str) -> ScoreResult:
+def _score_recog_out(dataset: DatasetConfig, recog_output: RecogOutput) -> ScoreResult:
+    """score"""
     # We use sclite now.
     # Could also use ReturnnComputeWERJob.
-
     from i6_core.returnn.search import SearchWordsToCTMJob
     from i6_core.corpus.convert import CorpusToStmJob
     from i6_core.recognition.scoring import ScliteJob
+
+    hyp_words = recog_output.output
+    corpus_name = dataset.get_main_name()
 
     recognition_bliss_corpus = _bliss_corpus_dict[corpus_name]
 
@@ -532,8 +535,3 @@ def _score(*, hyp_words: tk.Path, corpus_name: str) -> ScoreResult:
     )
 
     return ScoreResult(dataset_name=corpus_name, main_measure_value=score_job.out_wer, report=score_job.out_report_dir)
-
-
-def score(dataset: DatasetConfig, recog_output: RecogOutput) -> ScoreResult:
-    """score"""
-    return _score(hyp_words=recog_output.output, corpus_name=dataset.get_main_name())
