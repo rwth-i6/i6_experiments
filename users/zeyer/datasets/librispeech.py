@@ -496,15 +496,15 @@ def get_librispeech_task_bpe10k_raw(**dataset_train_opts) -> Task:
 
 def _bpe_to_words(bpe: RecogOutput) -> RecogOutput:
     """BPE to words"""
-    from i6_core.returnn.search import SearchBPEtoWordsJob
+    from i6_core.returnn.search import SearchOutputRawReplaceJob
 
-    words = SearchBPEtoWordsJob(bpe.output, output_gzip=True).out_word_search_results
+    words = SearchOutputRawReplaceJob(bpe.output, [("@@ ", "")], output_gzip=True).out_search_results
     return RecogOutput(output=words)
 
 
 def _spm_to_words(bpe: RecogOutput) -> RecogOutput:
     """BPE to words"""
-    from i6_experiments.users.zeyer.returnn.search import SearchOutputRawReplaceJob  # TODO move to i6_core
+    from i6_core.returnn.search import SearchOutputRawReplaceJob
 
     words = SearchOutputRawReplaceJob(bpe.output, [(" ", ""), ("▁", " ")], output_gzip=True).out_search_results
     return RecogOutput(output=words)
