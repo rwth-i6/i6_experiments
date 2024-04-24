@@ -7,7 +7,8 @@ from typing import Optional, Any, Union, Tuple, Dict
 from copy import deepcopy
 
 from sisyphus import tk
-from i6_core.corpus.convert import CorpusToTxtJob
+from i6_core.corpus.convert import CorpusToTextDictJob
+from i6_experiments.users.zeyer.returnn.search import TextDictToTextLinesJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
 from returnn.util.basic import NotSpecified
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
@@ -41,11 +42,12 @@ librispeech_tars_zip_base_path = tk.Path(
 # WARNING: Do not use these directly... It will keep another ogg copy of the audio...
 # Note: These are used later in the scoring, so when changing them, make sure it's optional,
 # to not break hashes of old setups.
-_bliss_corpus_dict = librispeech.get_bliss_corpus_dict(audio_format="ogg")  # TODO bad deps...
-_bliss_train_corpus = _bliss_corpus_dict["train-other-960"]  # TODO bad deps...
-
-# TODO change this here... we can change it as no code is currently using it
-_train_corpus_text = CorpusToTxtJob(_bliss_train_corpus, gzip=False).out_txt  # TODO...
+_corpus_text_dicts = {
+    k: CorpusToTextDictJob(v, gzip=True).out_dictionary
+    for k, v in librispeech.get_bliss_corpus_dict(audio_format="ogg").items()
+}
+_train_corpus_text_dict = _corpus_text_dicts["train-other-960"]
+_train_corpus_text = TextDictToTextLinesJob(_train_corpus_text_dict, gzip=True).out_text_lines
 
 # https://github.com/google/sentencepiece/blob/master/doc/options.md
 _spm_train_job = TrainSentencePieceJob(
@@ -514,22 +516,14 @@ def _score_recog_out(dataset: DatasetConfig, recog_output: RecogOutput) -> Score
     """score"""
     # We use sclite now.
     # Could also use ReturnnComputeWERJob.
-    from i6_core.returnn.search import SearchWordsToCTMJob
-    from i6_core.corpus.convert import CorpusToStmJob
+    from i6_experiments.users.zeyer.returnn.search import SearchWordsDummyTimesToCTMJob, TextDictToStmJob
     from i6_core.recognition.scoring import ScliteJob
 
     hyp_words = recog_output.output
     corpus_name = dataset.get_main_name()
 
-    recognition_bliss_corpus = _bliss_corpus_dict[corpus_name]
-
-    search_ctm = SearchWordsToCTMJob(
-        recog_words_file=hyp_words,
-        bliss_corpus=recognition_bliss_corpus,
-    ).out_ctm_file
-
-    stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
-
+    search_ctm = SearchWordsDummyTimesToCTMJob(recog_words_file=hyp_words).out_ctm_file
+    stm_file = TextDictToStmJob(text_dict=_corpus_text_dicts[corpus_name]).out_stm_path
     score_job = ScliteJob(
         ref=stm_file, hyp=search_ctm, sctk_binary_path=tools_paths.get_sctk_binary_path(), precision_ndigit=2
     )
