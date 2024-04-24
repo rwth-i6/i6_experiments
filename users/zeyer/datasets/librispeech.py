@@ -40,12 +40,10 @@ librispeech_tars_zip_base_path = tk.Path(
 
 # Get Bliss corpus. Same audio format as in ogg_zip, so already there anyway due to how we created the ogg_zip.
 # WARNING: Do not use these directly... It will keep another ogg copy of the audio...
-# Note: These are used later in the scoring, so when changing them, make sure it's optional,
+# However, these are used later in the scoring, so when changing them, make sure it's optional,
 # to not break hashes of old setups.
-_corpus_text_dicts = {
-    k: CorpusToTextDictJob(v, gzip=True).out_dictionary
-    for k, v in librispeech.get_bliss_corpus_dict(audio_format="ogg").items()
-}
+_bliss_corpus_dict = librispeech.get_bliss_corpus_dict(audio_format="ogg")
+_corpus_text_dicts = {k: CorpusToTextDictJob(v, gzip=True).out_dictionary for k, v in _bliss_corpus_dict.items()}
 _train_corpus_text_dict = _corpus_text_dicts["train-other-960"]
 _train_corpus_text = TextDictToTextLinesJob(_train_corpus_text_dict, gzip=True).out_text_lines
 
@@ -61,7 +59,7 @@ _spm_train_job = TrainSentencePieceJob(
         "eos_id": 0,  # default is 2
     },
 )
-_spm_2k = _spm_train_job.out_model  # TODO bad deps...
+spm_2k = _spm_train_job.out_model
 
 # common
 bpe10k = Bpe(
@@ -459,7 +457,7 @@ def get_librispeech_task_raw(
     Librispeech
     """
     if isinstance(vocab, Bpe):
-        vocab_to_words = _bpe_to_words
+        vocab_to_words = _bpe_to_words_v1
     elif isinstance(vocab, SentencePieceModel):
         vocab_to_words = _spm_to_words
     else:
@@ -480,14 +478,14 @@ def get_librispeech_task_raw(
     }
 
     return Task(
-        name="swb_bpe1k",
+        name="librispeech",
         train_dataset=train_dataset,
         train_epoch_split=train_dataset.train_epoch_split,
         dev_dataset=dev_dataset,
         eval_datasets=eval_datasets,
         main_measure_type=MeasureType(short_name="WER%"),
         main_measure_name="dev-other",
-        score_recog_output_func=_score_recog_out,
+        score_recog_output_func=_score_recog_out_v1,
         recog_post_proc_funcs=[vocab_to_words],
     )
 
@@ -496,7 +494,70 @@ def get_librispeech_task_bpe10k_raw(**dataset_train_opts) -> Task:
     return get_librispeech_task_raw(vocab=bpe10k, **dataset_train_opts)
 
 
-def _bpe_to_words(bpe: RecogOutput) -> RecogOutput:
+def get_librispeech_task_raw_v2(
+    *,
+    dataset_cls: Union[
+        type[LibrispeechOggZip], type[LibrispeechOldFlacTarZip], type[DatasetConfig]
+    ] = LibrispeechOggZip,
+    vocab: VocabConfig,
+    audio_opts: Optional[Dict[str, Any]] = None,
+    audio_dim: int = 1,
+    **dataset_train_opts,
+) -> Task:
+    """
+    Librispeech.
+
+    Version 2:
+    Use _bpe_to_words_v2 and _score_recog_out_v2 which does not use the Bliss corpus anymore directly,
+    so it is easier to copy this setup to a new environment.
+    """
+    if isinstance(vocab, Bpe):
+        vocab_to_words = _bpe_to_words_v2
+    elif isinstance(vocab, SentencePieceModel):
+        vocab_to_words = _spm_to_words
+    else:
+        raise TypeError(f"unhandled vocab type {type(vocab)}")
+
+    audio_opts_ = _raw_audio_opts.copy()
+    if audio_opts:
+        audio_opts_.update(audio_opts)
+    dataset_common_opts = dict(audio=audio_opts_, audio_dim=audio_dim, vocab=vocab)
+    # We expect that all kwargs are only relevant for the training, thus we only pass them here.
+    train_dataset = dataset_cls(**dataset_common_opts, **dataset_train_opts)
+    dev_dataset = dataset_cls(**dataset_common_opts, main_key="dev-other")
+    eval_datasets = {
+        "dev-clean": dataset_cls(**dataset_common_opts, main_key="dev-clean"),
+        "dev-other": dev_dataset,
+        "test-clean": dataset_cls(**dataset_common_opts, main_key="test-clean"),
+        "test-other": dataset_cls(**dataset_common_opts, main_key="test-other"),
+    }
+
+    return Task(
+        name="librispeech",
+        train_dataset=train_dataset,
+        train_epoch_split=train_dataset.train_epoch_split,
+        dev_dataset=dev_dataset,
+        eval_datasets=eval_datasets,
+        main_measure_type=MeasureType(short_name="WER%"),
+        main_measure_name="dev-other",
+        score_recog_output_func=_score_recog_out_v2,
+        recog_post_proc_funcs=[vocab_to_words],
+    )
+
+
+def get_librispeech_task_bpe10k_raw_v2(**dataset_train_opts) -> Task:
+    return get_librispeech_task_raw_v2(vocab=bpe10k, **dataset_train_opts)
+
+
+def _bpe_to_words_v1(bpe: RecogOutput) -> RecogOutput:
+    """BPE to words"""
+    from i6_core.returnn.search import SearchBPEtoWordsJob
+
+    words = SearchBPEtoWordsJob(bpe.output, output_gzip=True).out_word_search_results
+    return RecogOutput(output=words)
+
+
+def _bpe_to_words_v2(bpe: RecogOutput) -> RecogOutput:
     """BPE to words"""
     from i6_core.returnn.search import SearchOutputRawReplaceJob
 
@@ -512,7 +573,29 @@ def _spm_to_words(bpe: RecogOutput) -> RecogOutput:
     return RecogOutput(output=words)
 
 
-def _score_recog_out(dataset: DatasetConfig, recog_output: RecogOutput) -> ScoreResult:
+def _score_recog_out_v1(dataset: DatasetConfig, recog_output: RecogOutput) -> ScoreResult:
+    """score"""
+    # We use sclite now.
+    # Could also use ReturnnComputeWERJob.
+    from i6_core.corpus.convert import CorpusToStmJob
+    from i6_core.returnn.search import SearchWordsToCTMJob
+    from i6_core.recognition.scoring import ScliteJob
+
+    hyp_words = recog_output.output
+    corpus_name = dataset.get_main_name()
+
+    bliss_corpus = _bliss_corpus_dict[corpus_name]
+    search_ctm = SearchWordsToCTMJob(recog_words_file=hyp_words, bliss_corpus=bliss_corpus).out_ctm_file
+    stm_file = CorpusToStmJob(bliss_corpus=bliss_corpus).out_stm_path
+
+    score_job = ScliteJob(
+        ref=stm_file, hyp=search_ctm, sctk_binary_path=tools_paths.get_sctk_binary_path(), precision_ndigit=2
+    )
+
+    return ScoreResult(dataset_name=corpus_name, main_measure_value=score_job.out_wer, report=score_job.out_report_dir)
+
+
+def _score_recog_out_v2(dataset: DatasetConfig, recog_output: RecogOutput) -> ScoreResult:
     """score"""
     # We use sclite now.
     # Could also use ReturnnComputeWERJob.

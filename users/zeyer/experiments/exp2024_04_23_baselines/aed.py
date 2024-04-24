@@ -5,7 +5,7 @@ The default baseline is based on exp2023_04_25_rf/aed.py and uses a Conformer en
 
 Changes from that baseline:
 - new train_v3 function
-- new Librispeech corpus (TODO)
+- new Librispeech corpus (see get_librispeech_task_bpe10k_raw_v2)
 - no log_base=math.exp(2.3026) in log_mel_filterbank_from_raw
 """
 
@@ -136,16 +136,16 @@ def _get_ls_task():
     if _ls_task:
         return _ls_task
 
-    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_bpe10k_raw
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_bpe10k_raw_v2
 
-    # TODO check the sis graph, i think there are jobs we don't want ...
     # Check via ``sis c ...`` and then ``tk.print_graph()``.
     # The problem is we don't want:
-    # CorpusToStmJob
-    # BlissChangeEncodingJob (changing flac to ogg)
-    # SearchWordsToCTMJob
-    # CorpusToTxtJob
-    _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
+    # - CorpusToStmJob
+    # - BlissChangeEncodingJob (changing flac to ogg)
+    # - SearchWordsToCTMJob
+    # - CorpusToTxtJob
+    # That's why we use v2.
+    _ls_task = get_librispeech_task_bpe10k_raw_v2(with_eos_postfix=True)
     return _ls_task
 
 
