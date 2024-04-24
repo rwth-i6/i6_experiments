@@ -38,14 +38,18 @@ librispeech_tars_zip_base_path = tk.Path(
 )
 
 # Get Bliss corpus. Same audio format as in ogg_zip, so already there anyway due to how we created the ogg_zip.
-bliss_corpus_dict = librispeech.get_bliss_corpus_dict(audio_format="ogg")
-bliss_train_corpus = bliss_corpus_dict["train-other-960"]
+# WARNING: Do not use these directly... It will keep another ogg copy of the audio...
+# Note: These are used later in the scoring, so when changing them, make sure it's optional,
+# to not break hashes of old setups.
+_bliss_corpus_dict = librispeech.get_bliss_corpus_dict(audio_format="ogg")  # TODO bad deps...
+_bliss_train_corpus = _bliss_corpus_dict["train-other-960"]  # TODO bad deps...
 
-train_corpus_text = CorpusToTxtJob(bliss_train_corpus, gzip=False).out_txt
+# TODO change this here... we can change it as no code is currently using it
+_train_corpus_text = CorpusToTxtJob(_bliss_train_corpus, gzip=False).out_txt  # TODO...
 
 # https://github.com/google/sentencepiece/blob/master/doc/options.md
-spm_train_job = TrainSentencePieceJob(
-    training_text=train_corpus_text,
+_spm_train_job = TrainSentencePieceJob(
+    training_text=_train_corpus_text,
     vocab_size=2000,
     model_type=SentencePieceType.UNIGRAM,
     additional_options={
@@ -55,7 +59,7 @@ spm_train_job = TrainSentencePieceJob(
         "eos_id": 0,  # default is 2
     },
 )
-spm_2k = spm_train_job.out_model
+_spm_2k = _spm_train_job.out_model  # TODO bad deps...
 
 # common
 bpe10k = Bpe(
@@ -161,45 +165,7 @@ def _get_dataset(key: str, *, subset=None, train_partition_epoch=None, training:
     return d
 
 
-# _default_audio_opts_no_stats = dict(features="mfcc", num_feature_filters=40, window_len=0.025, step_len=0.010)
-_default_audio_opts_log_mel_fbank_no_stats = dict(
-    features="log_mel_filterbank", num_feature_filters=80, window_len=0.025, step_len=0.010
-)
-# _returnn_train_full_no_stats_dict = _get_dataset("train", audio=_default_audio_opts_no_stats)
-# _audio_stats_job = ExtractDatasetMeanStddevJob(ReturnnConfig(config={"train": _returnn_train_full_no_stats_dict}))
-# default_audio_opts = {
-#  **_default_audio_opts_no_stats,
-#  "norm_mean": _audio_stats_job.out_mean_file, "norm_std_dev": _audio_stats_job.out_std_dev_file}
-default_audio_opts = _default_audio_opts_log_mel_fbank_no_stats
-
-# https://returnn.readthedocs.io/en/latest/api/datasets.util.vocabulary.html#returnn.datasets.util.vocabulary.SentencePieces
-default_targets_opts = {
-    "class": "SentencePieces",
-    "model_file": spm_2k,
-    # If your model (e.g. enc-dec) needs EOS, add "add_eos".
-}
-default_targets_train_opts = default_targets_opts.copy()
-default_targets_train_opts.update(
-    {
-        "enable_sampling": True,  # might be played around with, along with nbest_size, alpha.
-    }
-)
-
 default_train_epoch_split = 20
-
-default_dataset_config = {
-    "train": _get_dataset(
-        "train",
-        training=True,
-        train_partition_epoch=default_train_epoch_split,
-        audio=default_audio_opts,
-        targets=default_targets_train_opts,
-    ),
-    "dev": _get_dataset("dev", subset=3000, audio=default_audio_opts, targets=default_targets_opts),
-    "eval_datasets": {
-        "devtrain": _get_dataset("train", subset=2000, audio=default_audio_opts, targets=default_targets_opts),
-    },
-}
 
 _default_train_epoch_wise_filter = {
     (1, 5): {"max_mean_len": 1000},  # better?
@@ -552,7 +518,7 @@ def _score(*, hyp_words: tk.Path, corpus_name: str) -> ScoreResult:
     from i6_core.corpus.convert import CorpusToStmJob
     from i6_core.recognition.scoring import ScliteJob
 
-    recognition_bliss_corpus = bliss_corpus_dict[corpus_name]
+    recognition_bliss_corpus = _bliss_corpus_dict[corpus_name]
 
     search_ctm = SearchWordsToCTMJob(
         recog_words_file=hyp_words,

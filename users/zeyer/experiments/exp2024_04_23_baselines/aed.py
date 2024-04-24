@@ -139,6 +139,12 @@ def _get_ls_task():
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_bpe10k_raw
 
     # TODO check the sis graph, i think there are jobs we don't want ...
+    # Check via ``sis c ...`` and then ``tk.print_graph()``.
+    # The problem is we don't want:
+    # CorpusToStmJob
+    # BlissChangeEncodingJob (changing flac to ogg)
+    # SearchWordsToCTMJob
+    # CorpusToTxtJob
     _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
     return _ls_task
 
