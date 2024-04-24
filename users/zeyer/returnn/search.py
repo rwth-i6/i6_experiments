@@ -39,7 +39,9 @@ class SearchWordsDummyTimesToCTMJob(Job):
     Like :class:`SearchWordsToCTMJob` but does not use the Bliss XML corpus for recording names and segment times.
     Instead, this will just use dummy times.
 
-    When creating the corresponding STM files,
+    When creating the corresponding STM files, make sure it uses the same dummy times.
+
+    TODO move this to i6_core.returnn.search: https://github.com/rwth-i6/i6_core/pull/503
     """
 
     def __init__(self, recog_words_file: Path, *, filter_tags: bool = True):
