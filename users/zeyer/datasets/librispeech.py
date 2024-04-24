@@ -443,13 +443,6 @@ _raw_audio_opts = dict(
 )
 
 
-def get_librispeech_task_spm2k() -> Task:
-    """
-    Librispeech
-    """
-    # TODO ...
-
-
 def get_librispeech_task_raw(
     *,
     dataset_cls: Union[
