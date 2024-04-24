@@ -605,8 +605,10 @@ def _score_recog_out_v2(dataset: DatasetConfig, recog_output: RecogOutput) -> Sc
     hyp_words = recog_output.output
     corpus_name = dataset.get_main_name()
 
-    search_ctm = SearchWordsDummyTimesToCTMJob(recog_words_file=hyp_words).out_ctm_file
-    stm_file = TextDictToStmJob(text_dict=_corpus_text_dicts[corpus_name]).out_stm_path
+    corpus_text_dict = _corpus_text_dicts[corpus_name]
+    search_ctm = SearchWordsDummyTimesToCTMJob(recog_words_file=hyp_words, seq_order_file=corpus_text_dict).out_ctm_file
+    stm_file = TextDictToStmJob(text_dict=corpus_text_dict).out_stm_path
+
     score_job = ScliteJob(
         ref=stm_file, hyp=search_ctm, sctk_binary_path=tools_paths.get_sctk_binary_path(), precision_ndigit=2
     )
