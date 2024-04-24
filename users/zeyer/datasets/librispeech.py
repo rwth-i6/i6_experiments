@@ -48,9 +48,9 @@ _train_corpus_text_dict = _corpus_text_dicts["train-other-960"]
 _train_corpus_text = TextDictToTextLinesJob(_train_corpus_text_dict, gzip=True).out_text_lines
 
 # https://github.com/google/sentencepiece/blob/master/doc/options.md
-_spm_train_job = TrainSentencePieceJob(
+_spm10k_train_job = TrainSentencePieceJob(
     training_text=_train_corpus_text,
-    vocab_size=2000,
+    vocab_size=10_000,
     model_type=SentencePieceType.UNIGRAM,
     additional_options={
         "split_digits": True,
@@ -59,7 +59,13 @@ _spm_train_job = TrainSentencePieceJob(
         "eos_id": 0,  # default is 2
     },
 )
-spm_2k = _spm_train_job.out_model
+spm_10k = SentencePieceModel(
+    dim=10_000,
+    model_file=_spm10k_train_job.out_model,
+    unknown_label="<unk>",
+    bos_idx=1,
+    eos_idx=0,
+)
 
 # common
 bpe10k = Bpe(
