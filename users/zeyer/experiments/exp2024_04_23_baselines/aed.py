@@ -144,10 +144,10 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
 _ls_task = {}  # vocab -> task
 
 
-def _get_ls_task(*, vocab: str = "bpe10k"):
+def _get_ls_task(*, vocab: str = "bpe10k") -> Task:
     global _ls_task
     if vocab in _ls_task:
-        return _ls_task
+        return _ls_task[vocab]
 
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2, bpe10k, spm_10k
 
@@ -160,7 +160,7 @@ def _get_ls_task(*, vocab: str = "bpe10k"):
     # That's why we use v2.
     vocab_ = {"bpe10k": bpe10k, "spm10k": spm_10k}[vocab]
     _ls_task[vocab] = get_librispeech_task_raw_v2(vocab=vocab_, with_eos_postfix=True)
-    return _ls_task
+    return _ls_task[vocab]
 
 
 def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
