@@ -50,3 +50,34 @@ class SearchOutputRawReplaceJob(Job):
                 else:
                     out.write("%r: %r,\n" % (seq_tag, _transform_text(entry)))
             out.write("}\n")
+
+
+class TextDictToTextLinesJob(Job):
+    """
+    Operates on RETURNN search output (or :class:`CorpusToTextDictJob` output) and prints the values line-by-line.
+    The ordering from the dict is preserved.
+
+    TODO move this to i6_core: https://github.com/rwth-i6/i6_core/pull/501
+    """
+
+    def __init__(self, text_dict: Path, *, gzip: bool = False):
+        """
+        :param text_dict: a text file with a dict in python format, {seq_tag: text}
+        :param gzip: if True, gzip the output
+        """
+        self.text_dict = text_dict
+        self.out_text_lines = self.output_path("text_lines.txt" + (".gz" if gzip else ""))
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        # nan/inf should not be needed, but avoids errors at this point and will print an error below,
+        # that we don't expect an N-best list here.
+        d = eval(util.uopen(self.text_dict, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+        assert isinstance(d, dict)  # seq_tag -> text
+
+        with util.uopen(self.out_text_lines, "wt") as out:
+            for seq_tag, entry in sorted(d.items()):
+                assert isinstance(entry, str), f"expected str, got {entry!r} (type {type(entry).__name__})"
+                out.write(entry + "\n")
