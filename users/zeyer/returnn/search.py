@@ -7,6 +7,8 @@ import i6_core.util as util
 class SearchOutputRawReplaceJob(Job):
     """
     converts via replacement list
+
+    TODO: remove this, this should be merged into i6_core: https://github.com/rwth-i6/i6_core/pull/499
     """
 
     __sis_hash_exclude__ = {"output_gzip": False}
