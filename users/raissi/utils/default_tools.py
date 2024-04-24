@@ -30,6 +30,11 @@ u16_rasr_path_tf1 = tk.Path(
 u16_rasr_path_tf2 = tk.Path(
     get_rasr_binary_path("/u/raissi/dev/rasr_github/rasr_tf2"), hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2"
 )
+#keeping same hash as u16_rasr_path_tf2
+u16_rasr_path_tf2_barcelona = tk.Path(
+    get_rasr_binary_path("/work/tools/users/raissi/rasr/rasr_tf2"), hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2"
+)
+
 u16_rasr_path_ted_common = tk.Path(
     get_rasr_binary_path("/u/raissi/dev/rasr_github/rasr_tf2"),
     hash_overwrite="TEDLIUM2_DEFAULT_RASR_BINARY_PATH",
@@ -40,7 +45,7 @@ u16_moritz_path = tk.Path(
     hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2",
 )
 
-U16_RASR_BINARY_PATHS = {"TF1": u16_rasr_path_tf2, "TF2": u16_rasr_path_tf2, "TED_COMMON": u16_rasr_path_ted_common}
+U16_RASR_BINARY_PATHS = {"TF1": u16_rasr_path_tf2, "TF2": u16_rasr_path_tf2_barcelona, "TED_COMMON": u16_rasr_path_ted_common}
 u16_returnn_launcher_tf2 = tk.Path(
     "/u/raissi/bin/apptainer-launchers/u16/returnn_tf2.3_apptainer_u16_launcher.sh",
     hash_overwrite="GENERIC_RETURNN_LAUNCHER_TF2",

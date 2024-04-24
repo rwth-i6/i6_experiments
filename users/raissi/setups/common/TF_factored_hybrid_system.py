@@ -761,6 +761,9 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                     "activation": "log_softmax",
                 }
 
+        else:
+            assert False, "Only monophone and diphone state tying are supported for single softmax"
+
         self.reset_returnn_config_for_experiment(
             key=key,
             config_dict=final_returnn_config.config,

@@ -1,4 +1,19 @@
-__all__ = ["RasrFeaturesToHdf", "RasrAlignmentToHDF", "RasrForcedTriphoneAlignmentToHDF"]
+__all__ = ["build_hdf_from_alignment",
+           "build_rasr_feature_hdfs"
+           "RasrFeaturesToHdf",
+           "RasrAlignmentToHDF",
+           "RasrForcedTriphoneAlignmentToHDF"]
+
+from sisyphus import Job, Path, Task, tk
+
+from i6_core.corpus import SegmentCorpusJob
+import i6_core.features as features
+from i6_core.lib.rasr_cache import FileArchive
+from i6_core.meta.system import CorpusObject
+from i6_core import rasr
+from i6_core.returnn import ReturnnDumpHDFJob
+from i6_core.returnn.hdf import BlissToPcmHDFJob
+from i6_core.util import MultiPath
 
 import dataclasses
 from dataclasses import dataclass
@@ -10,18 +25,108 @@ import random
 import shutil
 import tempfile
 import time
-import typing
-
-from sisyphus import Job, Path, Task, tk
-
-from i6_core.lib.rasr_cache import FileArchive
-from i6_core.util import MultiPath
+from typing import Any, Dict, List, Optional, Union
 
 from i6_experiments.users.raissi.setups.common.util.cache_manager import cache_file
 
 
+
+#### Using ReturnnHDFDump #######
+
+#copied from simon
+def build_hdf_from_alignment(
+    alignment_cache: tk.Path,
+    allophone_file: tk.Path,
+    state_tying_file: tk.Path,
+    returnn_python_exe: tk.Path,
+    returnn_root: tk.Path,
+    silence_phone: str = "[SILENCE]",
+):
+    dataset_config = {
+        "class": "SprintCacheDataset",
+        "data": {
+            "data": {
+                "filename": alignment_cache,
+                "data_type": "align",
+                "allophone_labeling": {
+                    "silence_phone": silence_phone,
+                    "allophone_file": allophone_file,
+                    "state_tying_file": state_tying_file,
+                },
+            }
+        },
+    }
+
+    hdf_file = ReturnnDumpHDFJob(
+        dataset_config, returnn_python_exe=returnn_python_exe, returnn_root=returnn_root
+    ).out_hdf
+
+    return hdf_file
+
+#copied from simon
+def build_rasr_feature_hdfs(
+    corpus: CorpusObject,
+    split: int,
+    feature_type: str,
+    feature_extraction_args: Dict[str, Any],
+    returnn_python_exe: tk.Path,
+    returnn_root: tk.Path,
+    rasr_binary_path: tk.Path,
+    rasr_arch: str = "linux-x86_64-standard",
+    single_hdf: bool = False,
+) -> List[tk.Path]:
+    # Build CRP
+    base_crp = rasr.CommonRasrParameters()
+    rasr.crp_add_default_output(base_crp)
+    base_crp.set_executables(rasr_binary_path, rasr_arch)
+
+    rasr.crp_set_corpus(base_crp, corpus)
+    base_crp.concurrent = split
+
+    feature_job = {"mfcc": features.MfccJob, "gt": features.GammatoneJob, "energy": features.EnergyJob, "fb": features.FilterbankJob}[feature_type](
+        crp=base_crp, **feature_extraction_args
+    )
+    feature_job.set_keep_value(gs.JOB_DEFAULT_KEEP_VALUE - 20)
+
+    hdf_files = []
+
+    if single_hdf:
+        dataset_config = {
+            "class": "SprintCacheDataset",
+            "data": {
+                "data": {
+                    "filename": feature_job.out_feature_bundle[feature_type],
+                    "data_type": "feat",
+                }
+            },
+        }
+        hdf_file = ReturnnDumpHDFJob(
+            dataset_config, returnn_python_exe=returnn_python_exe, returnn_root=returnn_root
+        ).out_hdf
+        hdf_files.append(hdf_file)
+    else:
+        for idx in range(1, split + 1):
+            dataset_config = {
+                "class": "SprintCacheDataset",
+                "data": {
+                    "data": {
+                        "filename": feature_job.out_single_feature_caches[feature_type][idx],
+                        "data_type": "feat",
+                    }
+                },
+            }
+
+            hdf_file = ReturnnDumpHDFJob(
+                dataset_config, returnn_python_exe=returnn_python_exe, returnn_root=returnn_root
+            ).out_hdf
+            hdf_files.append(hdf_file)
+
+    return hdf_files
+
+#### NextGenDataset#####
+#From old recipes
 class RasrFeaturesToHdf(Job):
-    def __init__(self, feature_caches: typing.Union[MultiPath, typing.List[Path]]):
+    def __init__(self, feature_caches: Union[MultiPath, List[Path]]):
         self.feature_caches = (
             list(feature_caches.hidden_paths.values()) if isinstance(feature_caches, MultiPath) else feature_caches
         )
@@ -162,8 +267,8 @@ class RasrAlignmentToHDF(Job):
             file.writelines((f"{seq_name.strip()}\n" for seq_name in seq_names))
 
     def compute_targets(
-        self, alignment_states: typing.List[str], state_tying: typing.Dict[str, int]
-    ) -> typing.List[int]:
+        self, alignment_states: List[str], state_tying: Dict[str, int]
+    ) -> List[int]:
         targets = [state_tying[allophone] for allophone in alignment_states]
         return targets
 
@@ -183,7 +288,7 @@ class AllophoneState:
         return f"{self.ph}{{{self.ctx_l}+{self.ctx_r}}}{self.rest}"
 
     def in_context(
-        self, left: typing.Optional["AllophoneState"], right: typing.Optional["AllophoneState"]
+        self, left: Optional["AllophoneState"], right: Optional["AllophoneState"]
     ) -> "AllophoneState":
         if self.ph == "[SILENCE]":
             # Silence does not have context.
@@ -207,8 +312,8 @@ class AllophoneState:
 
 class RasrForcedTriphoneAlignmentToHDF(RasrAlignmentToHDF):
     def compute_targets(
-        self, alignment_states: typing.List[str], state_tying: typing.Dict[str, int]
-    ) -> typing.List[int]:
+        self, alignment_states: List[str], state_tying: Dict[str, int]
+    ) -> List[int]:
         decomposed_alignment = [AllophoneState.from_alignment_state(s) for s in alignment_states]
         in_context = zip((None, *decomposed_alignment[:-1]), decomposed_alignment, (*decomposed_alignment[1:], None))
         forced_triphone_alignment = [str(cur.in_context(prv, nxt)) for prv, cur, nxt in in_context]

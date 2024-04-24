@@ -81,7 +81,7 @@ from i6_experiments.users.raissi.setups.common.decoder.config import (
 )
 
 from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
-from i6_experiments.users.raissi.setups.common.util.hdf import RasrFeaturesToHdf
+from i6_experiments.users.raissi.setups.common.util.hdf.hdf import RasrFeaturesToHdf
 from i6_experiments.users.raissi.costum.returnn.rasr_returnn_bw import ReturnnRasrTrainingBWJob
 from i6_experiments.users.raissi.costum.returnn.rasr_returnn_vit import ReturnnRasrTrainingVITJob
 
@@ -954,6 +954,7 @@ class BASEFactoredHybridSystem(NnSystem):
             hash_full_python_code=True,
             python_prolog=python_prolog,
             python_epilog=python_epilog,
+            sort_config=self.sort_returnn_config,
         )
         self.experiments[key]["returnn_config"] = returnn_config
         self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog

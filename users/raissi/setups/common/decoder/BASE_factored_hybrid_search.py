@@ -344,7 +344,7 @@ class BASEFactoredHybridDecoder:
             if "eval" in self.name:
                 rtf *= 2
         else:
-            mem = 3
+            mem = 6
 
         return {"rtf": rtf, "mem": mem}
 
