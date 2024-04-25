@@ -67,7 +67,7 @@ def build_hdf_from_alignment(
 def build_rasr_feature_hdfs(
     corpus: CorpusObject,
     split: int,
-    feature_type: str,
+    feature_name: str,
     feature_extraction_args: Dict[str, Any],
     returnn_python_exe: tk.Path,
     returnn_root: tk.Path,
@@ -83,7 +83,7 @@ def build_rasr_feature_hdfs(
     rasr.crp_set_corpus(base_crp, corpus)
     base_crp.concurrent = split
 
-    feature_job = {"mfcc": features.MfccJob, "gt": features.GammatoneJob, "energy": features.EnergyJob, "fb": features.FilterbankJob}[feature_type](
+    feature_job = {"mfcc": features.MfccJob, "gt": features.GammatoneJob, "energy": features.EnergyJob, "fb": features.FilterbankJob}[feature_name](
         crp=base_crp, **feature_extraction_args
     )
     feature_job.set_keep_value(gs.JOB_DEFAULT_KEEP_VALUE - 20)
@@ -95,7 +95,7 @@ def build_rasr_feature_hdfs(
             "class": "SprintCacheDataset",
             "data": {
                 "data": {
-                    "filename": feature_job.out_feature_bundle[feature_type],
+                    "filename": feature_job.out_feature_bundle[feature_name],
                     "data_type": "feat",
                 }
             },
@@ -110,7 +110,7 @@ def build_rasr_feature_hdfs(
                 "class": "SprintCacheDataset",
                 "data": {
                     "data": {
-                        "filename": feature_job.out_single_feature_caches[feature_type][idx],
+                        "filename": feature_job.out_single_feature_caches[feature_name][idx],
                         "data_type": "feat",
                     }
                 },

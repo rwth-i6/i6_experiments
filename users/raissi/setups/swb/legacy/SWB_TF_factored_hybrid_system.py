@@ -205,15 +205,16 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
     # -------------------- External helpers --------------------
 
     def set_gammatone_features(self):
+        feature_name = self.feature_info.feature_type.get()
         for corpus_key in ["train", "hub500", "hub501"]:
-            self.feature_bundles[corpus_key] = {self.nn_feature_type: feature_bundles[corpus_key]}
+            self.feature_bundles[corpus_key] = {feature_name: feature_bundles[corpus_key]}
             self.feature_flows[corpus_key] = {
-                self.nn_feature_type: features.basic_cache_flow(feature_bundles[corpus_key])
+                feature_name: features.basic_cache_flow(feature_bundles[corpus_key])
             }
             mapping = {"train": "train", "hub500": "dev", "hub501": "eval"}
             cache_pattern = feature_bundles[corpus_key].get_path().split(".bundle")[0]
             caches = [tk.Path(f"{cache_pattern}.{i}") for i in range(1, concurrent[mapping[corpus_key]] + 1)]
-            self.feature_caches[corpus_key] = {self.nn_feature_type: caches}
+            self.feature_caches[corpus_key] = {feature_name: caches}
 
     def set_stm_and_glm(self):
         for corpus in ["hub500", "hub501"]:

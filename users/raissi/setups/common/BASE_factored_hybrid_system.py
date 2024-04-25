@@ -80,8 +80,10 @@ from i6_experiments.users.raissi.setups.common.decoder.config import (
     AlignmentParameters,
 )
 
+from i6_experiments.users.raissi.setups.common.features.taxonomy import FeatureInfo
+
 from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
-from i6_experiments.users.raissi.setups.common.util.hdf.hdf import RasrFeaturesToHdf
+from i6_experiments.users.raissi.setups.common.util.hdf.dump import RasrFeaturesToHdf
 from i6_experiments.users.raissi.costum.returnn.rasr_returnn_bw import ReturnnRasrTrainingBWJob
 from i6_experiments.users.raissi.costum.returnn.rasr_returnn_vit import ReturnnRasrTrainingVITJob
 
@@ -189,9 +191,10 @@ class BASEFactoredHybridSystem(NnSystem):
         self.inputs = {}
         self.experiments: Dict[str, Experiment] = {}
 
-        # train information
-        self.nn_feature_type = "gt"  # Gammatones
+        self.feature_info = FeatureInfo.default()
 
+
+        # train information
         self.initial_train_args = {
             "cpu_rqmt": 4,
             "time_rqmt": 168,
@@ -309,22 +312,24 @@ class BASEFactoredHybridSystem(NnSystem):
         ), f"you need to set the alignment for {existing_crp_key} first"
         # assuming feature flows, caches and buundles are all set similarly
         assert (
-            self.feature_flows[existing_crp_key][self.nn_feature_type] is not None
+            self.feature_flows[existing_crp_key][self.feature_info.feature_type.get()] is not None
         ), f"you need to set the features for {existing_crp_key} first"
         self.alignments[new_crp_key] = self.alignments[existing_crp_key]
+        
+        feature_name = self.feature_info.feature_type.get()
 
-        if self.nn_feature_type not in self.feature_caches[existing_crp_key]:
-            self.feature_caches[existing_crp_key][self.nn_feature_type] = {}
+        if feature_name not in self.feature_caches[existing_crp_key]:
+            self.feature_caches[existing_crp_key][feature_name] = {}
 
         self.feature_caches[new_crp_key] = {
-            self.nn_feature_type: self.feature_caches[existing_crp_key][self.nn_feature_type]
+            feature_name: self.feature_caches[existing_crp_key][feature_name]
         }
 
         self.feature_bundles[new_crp_key] = {
-            self.nn_feature_type: self.feature_bundles[existing_crp_key][self.nn_feature_type]
+            feature_name: self.feature_bundles[existing_crp_key][feature_name]
         }
         self.feature_flows[new_crp_key] = {
-            self.nn_feature_type: self.feature_flows[existing_crp_key][self.nn_feature_type]
+            feature_name: self.feature_flows[existing_crp_key][feature_name]
         }
 
     def _get_system_input(
@@ -577,12 +582,21 @@ class BASEFactoredHybridSystem(NnSystem):
         self.partition_epochs = initial_nn_args.pop("partition_epochs")
         self.initial_nn_args = initial_nn_args
 
-    def init_system(self, label_info_additional_args=None, frr_additional_args=None, native_lstm_compilation_args=None):
+    def init_system(
+        self,
+        frr_additional_args=None,
+        feature_info_additional_args=None,
+        label_info_additional_args=None,
+        native_lstm_compilation_args=None,
+    ):
 
         if self.native_lstm2_path is None:
             if native_lstm_compilation_args is None:
                 native_lstm_compilation_args = {}
             self._set_native_lstm_path(**native_lstm_compilation_args)
+
+        if feature_info_additional_args is not None:
+            self.feature_info = dataclasses.replace(self.feature_info, **feature_info_additional_args)
 
         if label_info_additional_args is not None:
             self.label_info = dataclasses.replace(self.label_info, **label_info_additional_args)
@@ -639,13 +653,15 @@ class BASEFactoredHybridSystem(NnSystem):
             assert self.inputs[k] is not None
             assert self.inputs[k][input_key] is not None
         assert cv_corpus_key is not None or not is_cv_separate_from_train, "define a corpus key for separate cv data"
+        
+        feature_name = self.feature_info.feature_type.get()
 
         configure_automata = False
         if self.training_criterion == TrainingCriterion.FULLSUM:
             configure_automata = True
         # get the train data for alignment before you changed any setting
         nn_train_align_data = copy.deepcopy(
-            self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(feature_flow_key=self.nn_feature_type)
+            self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(feature_flow_key=feature_name)
         )
 
         if is_cv_separate_from_train:
@@ -667,12 +683,12 @@ class BASEFactoredHybridSystem(NnSystem):
 
         nn_dev_data_inputs = {
             self.crp_names["dev"]: self.inputs[self.crp_names["dev"]][input_key].as_returnn_rasr_data_input(
-                feature_flow_key=self.nn_feature_type
+                feature_flow_key=feature_name
             ),
         }
         nn_test_data_inputs = {
             self.crp_names["test"]: self.inputs[self.crp_names["test"]][input_key].as_returnn_rasr_data_input(
-                feature_flow_key=self.nn_feature_type
+                feature_flow_key=feature_name
             ),
         }
         self._init_datasets(
@@ -708,20 +724,22 @@ class BASEFactoredHybridSystem(NnSystem):
         devtrain_segments = text.TailJob(train_segments, num_lines=100, zip_output=False).out
 
         # ******************** NN Init ********************
+        feature_name = self.feature_info.feature_type.get()
+        
         nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
-            feature_flow_key=self.nn_feature_type, shuffling_parameters=self.shuffling_params
+            feature_flow_key=feature_name, shuffling_parameters=self.shuffling_params
         )
         nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
         nn_train_data_inputs = {self.crp_names["train"]: nn_train_data}
 
         nn_cv_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
-            feature_flow_key=self.nn_feature_type
+            feature_flow_key=feature_name
         )
         nn_cv_data.update_crp_with(segment_path=cv_segments, concurrent=1)
         nn_cv_data_inputs = {self.crp_names["cvtrain"]: nn_cv_data}
 
         nn_devtrain_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
-            feature_flow_key=self.nn_feature_type
+            feature_flow_key=feature_name
         )
         nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
         nn_devtrain_data_inputs = {self.crp_names["devtrain"]: nn_devtrain_data}
@@ -757,9 +775,11 @@ class BASEFactoredHybridSystem(NnSystem):
                 prefix_name=merged_name,
             )
             self.crp[self.crp_names["bw"]] = crp_bw
+            
+        feature_name = self.feature_info.feature_type.get()
 
         nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
-            feature_flow_key=self.nn_feature_type,
+            feature_flow_key=feature_name,
             shuffling_parameters=self.shuffling_params,
             returnn_rasr_training_args=ReturnnRasrTrainingArgs(partition_epochs=self.partition_epochs["train"]),
         )
@@ -767,14 +787,14 @@ class BASEFactoredHybridSystem(NnSystem):
         nn_train_data_inputs = {self.crp_names["train"]: nn_train_data}
 
         nn_cv_data = self.inputs[cv_corpus_key][input_key].as_returnn_rasr_data_input(
-            feature_flow_key=self.nn_feature_type,
+            feature_flow_key=feature_name,
             returnn_rasr_training_args=ReturnnRasrTrainingArgs(partition_epochs=self.partition_epochs["dev"]),
         )
         nn_cv_data.update_crp_with(corpus_file=cv_corpus, segment_path=cv_segments, concurrent=1)
         nn_cv_data_inputs = {self.crp_names["cvtrain"]: nn_cv_data}
 
         nn_devtrain_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
-            feature_flow_key=self.nn_feature_type
+            feature_flow_key=feature_name
         )
         nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
         nn_devtrain_data_inputs = {self.crp_names["devtrain"]: nn_devtrain_data}
@@ -830,13 +850,11 @@ class BASEFactoredHybridSystem(NnSystem):
                 train_helpers.specaugment.transform,
             ]
             if self.backend_info.train == Backend.TF:
-
                 for l in config["network"].keys():
                     if (
                         config["network"][l]["class"] == "eval"
                         and "self.network.get_config().typed_value('transform')" in config["network"][l]["eval"]
                     ):
-
                         config["network"][l][
                             "eval"
                         ] = "self.network.get_config().typed_value('transform')(source(0), network=self.network)"
@@ -1201,7 +1219,7 @@ class BASEFactoredHybridSystem(NnSystem):
         return self.hdfs[self.train_key]
 
     def create_hdf(self):
-        gammatone_features_paths: MultiPath = self.feature_caches[self.train_key][self.nn_feature_type]
+        gammatone_features_paths: MultiPath = self.feature_caches[self.train_key][self.feature_info.feature_type.get()]
         hdf_job = RasrFeaturesToHdf(
             feature_caches=gammatone_features_paths,
         )
@@ -1243,12 +1261,15 @@ class BASEFactoredHybridSystem(NnSystem):
 
         if "init" in steps.get_step_names_as_list():
             init_args = steps.get_args_via_idx(0)
+            feature_info_args = init_args["feature_info"] if "feature_info" in init_args else None
             frame_rate_args = init_args["frr_info"] if "frr_info" in init_args else None
             label_info_args = init_args["label_info"] if "label_info" in init_args else None
             native_lstm_compilation_args = init_args["native_lstm"] if "native_lstm" in init_args else None
+
             self.init_system(
-                label_info_additional_args=label_info_args,
+                feature_info_additional_args=feature_info_args,
                 frr_additional_args=frame_rate_args,
+                label_info_additional_args=label_info_args,
                 native_lstm_compilation_args=native_lstm_compilation_args,
             )
             if len(self.cv_corpora) > 1:
@@ -1273,8 +1294,8 @@ class BASEFactoredHybridSystem(NnSystem):
                         self.feature_caches[all_c] = {}
                         self.feature_bundles[all_c] = {}
                         self.feature_flows[all_c] = {}
-                if step_args[self.nn_feature_type] is not None:
-                    step_args[self.nn_feature_type]["prefix"] = "features/"
+                if step_args[self.feature_info.feature_type.get()] is not None:
+                    step_args[self.feature_info.feature_type.get()]["prefix"] = "features/"
                     self.extract_features(step_args, corpus_list=all_corpora)
             # -----------Set alignments if needed-------
             # here you might one to align cv with a given aligner

@@ -39,10 +39,9 @@ from i6_experiments.common.setups.rasr.util import (
     ReturnnRasrDataInput,
 )
 
-import i6_experiments.users.raissi.setups.common.encoder.blstm as blstm_setup
-import i6_experiments.users.raissi.setups.common.encoder.conformer as conformer_setup
-import i6_experiments.users.raissi.setups.common.helpers.network.augment as fh_augmenter
+
 import i6_experiments.users.raissi.setups.common.helpers.train as train_helpers
+import i6_experiments.users.raissi.setups.common.util.hdf.helpers as hdf_helpers
 
 from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import BASEFactoredHybridSystem
 
@@ -54,13 +53,16 @@ from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
     get_tdp_values,
 )
 
+from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import (
+    TrainingCriterion,
+)
+
 from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo
 
 from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import BASEFactoredHybridSystem
 
 from i6_experiments.users.raissi.setups.common.decoder.config import PriorInfo, PosteriorScales, SearchParameters
 
-from i6_experiments.users.raissi.setups.common.util.hdf.hdf import RasrFeaturesToHdf
 
 # -------------------- Init --------------------
 Path = tk.setup_path(__package__)
@@ -93,19 +95,18 @@ class TORCHFactoredHybridSystem(BASEFactoredHybridSystem):
 
         self.backend_info = BackendInfo(train=Backend.TORCH, decode=Backend.ONNX)
 
-
-
         def get_hdf_data_for_returnn_training(self):
+
+            if self.training_criterion == TrainingCriterion.Viterbi:
+                hdf_helpers.build_feature_alignment_meta_dataset_config()
 
             return
 
         def returnn_training(
-                self,
-                experiment_key,
-                nn_train_args,
+            self,
+            experiment_key,
+            nn_train_args,
         ):
-
-
 
             """
             train_data = self.train_input_data[train_corpus_key]
@@ -164,13 +165,9 @@ class TORCHFactoredHybridSystem(BASEFactoredHybridSystem):
                 **nn_train_args,
             )"""
 
-
             self._add_output_alias_for_train_job(
                 train_job=train_job,
                 name=self.experiments[experiment_key]["name"],
             )
             self.experiments[experiment_key]["train_job"] = train_job
             self.set_graph_for_experiment(experiment_key)
-
-
-

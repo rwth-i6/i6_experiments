@@ -57,6 +57,8 @@ from i6_experiments.users.raissi.setups.common.decoder.config import (
     PosteriorScales,
 )
 
+from i6_experiments.users.raissi.setups.common.features.taxonomy import FeatureType
+
 
 
 class TEDTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
@@ -88,7 +90,7 @@ class TEDTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             initial_nn_args=initial_nn_args,
         )
         self.recognizers = {"base": ted_decoder.TEDFactoredHybridDecoder}
-        self.nn_feature_type = "fb"
+        self.feature_info = dataclasses.replace(self.feature_info, feature_type=FeatureType.filterbanks)
 
     def _get_merged_corpus_for_corpora(
         self, corpora, name="TED-LIUM-realease2", strategy=corpus_recipe.MergeStrategy.FLAT
