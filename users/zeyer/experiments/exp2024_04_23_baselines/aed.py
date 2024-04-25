@@ -159,7 +159,7 @@ def _get_ls_task(*, vocab: str = "bpe10k") -> Task:
     # - CorpusToTxtJob
     # That's why we use v2.
     vocab_ = {"bpe10k": bpe10k, "spm10k": spm_10k}[vocab]
-    _ls_task[vocab] = get_librispeech_task_raw_v2(vocab=vocab_, with_eos_postfix=True)  # TODO: with_eos_postfix=False
+    _ls_task[vocab] = get_librispeech_task_raw_v2(vocab=vocab_)
     return _ls_task[vocab]
 
 
@@ -203,7 +203,7 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
 
 
 aed_model_def: ModelDef[Model]
-aed_model_def.behavior_version = 20
+aed_model_def.behavior_version = 21
 aed_model_def.backend = "torch"
 aed_model_def.batch_size_factor = _batch_size_factor
 
@@ -274,18 +274,25 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
             # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor())
 
     batch_dims = data.remaining_dims(data_spatial_dim)
-    input_labels = rf.shift_right(targets, axis=targets_spatial_dim, pad_value=model.bos_idx)
+    input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
+        targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=model.bos_idx
+    )
+    targets_w_eos, _ = rf.pad(
+        targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx, out_dims=[targets_w_eos_spatial_dim]
+    )
 
     logits, _ = model.decoder(
         input_labels,
-        spatial_dim=targets_spatial_dim,
+        spatial_dim=targets_w_eos_spatial_dim,
         encoder=enc,
         state=model.decoder.default_initial_state(batch_dims=batch_dims),
     )
 
-    logits_packed, pack_dim = rf.pack_padded(logits, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False)
+    logits_packed, pack_dim = rf.pack_padded(
+        logits, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False
+    )
     targets_packed, _ = rf.pack_padded(
-        targets, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim
+        targets_w_eos, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False, out_dim=pack_dim
     )
 
     log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
