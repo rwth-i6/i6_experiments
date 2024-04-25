@@ -126,21 +126,13 @@ class GlobalConfigBuilder(ConfigBuilder, ABC):
         "from": "data:targets",
         "is_output_layer": True,
       },
-      # ctc alignment
-      "ctc_forced_align": {
-        "align_target": "data:targets",
-        "class": "forced_align",
-        "from": "ctc",
-        "input_type": "prob",
-        "topology": "rna",
-      },
-      "ctc_forced_align_dump": {
-        "class": "hdf_dump",
-        "filename": hdf_filenames["ctc_alignment"],
-        "from": "ctc_forced_align",
-        "is_output_layer": True,
-      },
     })
+    # ctc alignment
+    if "ctc_alignment" in hdf_filenames:
+      returnn_config.config["network"].update(network_builder.get_ctc_forced_align_hdf_dump(
+        align_target="data:targets",
+        filename=hdf_filenames["ctc_alignment"]
+      ))
 
     returnn_config.config["forward_batch_size"] = CodeWrapper("batch_size")
 
@@ -156,12 +148,7 @@ class GlobalConfigBuilder(ConfigBuilder, ABC):
       "forward_use_search": True,
       "forward_batch_size": CodeWrapper("batch_size")
     })
-    # forward_recog_config.config["network"]["dump_decision"] = {
-    #   "class": "hdf_dump",
-    #   "from": "decision",
-    #   "is_output_layer": True,
-    #   "filename": "search_out.hdf"
-    # }
+
     del forward_recog_config.config["task"]
     forward_recog_config.config["eval"] = self.get_search_dataset_dict(
       corpus_key=opts["search_corpus_key"],
@@ -218,6 +205,9 @@ class GlobalConfigBuilder(ConfigBuilder, ABC):
 
   def edit_network_only_train_length_model(self, net_dict: Dict):
     raise NotImplementedError
+
+  def edit_network_modify_decoder(self, version: int, net_dict: Dict, train: bool, target_num_labels: int):
+    network_builder.modify_decoder(version, net_dict, "output", target_num_labels, False, train)
 
 
 class SWBBlstmGlobalAttentionConfigBuilder(GlobalConfigBuilder, SWBBlstmConfigBuilder, ConfigBuilder):

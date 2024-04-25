@@ -27,7 +27,7 @@ class TedLium2Bpe1058CtcAlignment(TedLium2BPE1058, TedLium2LabelDefinition, Segm
   @property
   def model_hyperparameters(self) -> SegmentalModelHyperparameters:
     return SegmentalModelHyperparameters(
-      sos_idx=0, target_num_labels=1058, sil_idx=None, blank_idx=1057)
+      sos_idx=0, target_num_labels=1058, sil_idx=None, blank_idx=1057, target_num_labels_wo_blank=1057)
 
   @property
   def rasr_format_paths(self) -> RasrFormats:

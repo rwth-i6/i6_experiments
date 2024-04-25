@@ -582,33 +582,162 @@ def get_explicit_lstm(layer_name: str, n_out: int, from_: List[str]):
   return lstm_dict
 
 
-def add_att_weights_center_of_gravity(network: Dict, rec_layer_name: str, att_t_dim_tag_code_wrapper: CodeWrapper):
+def add_att_weights_center_of_gravity(
+        network: Dict,
+        rec_layer_name: str,
+        att_t_dim_tag_code_wrapper: Optional[CodeWrapper] = None,
+        global_att: bool = False
+):
   """
-  For segmental models, add a layer which computes the center of gravity of the attention weights.
+  Add a layer which computes the center of gravity of the attention weights.
   I.e. sum_t [alpha_t * t], where the t are absolute encoder positions (i.e. t \in [0, T))
-
   :param network:
+  :param rec_layer_name:
+  :param att_t_dim_tag_code_wrapper:
+  :param global_att:
   :return:
   """
-
   # make sure the network looks like we expect
   assert "att_weights" in network[rec_layer_name]["unit"]
-
-  add_abs_segment_positions(network, rec_layer_name, att_t_dim_tag_code_wrapper)
+  if global_att:
+    network.update({
+      "encoder_range": {
+        "class": "range_in_axis",
+        "from": "encoder",
+        "axis": "t"
+      }
+    })
+    att_weight_position_layer = "base:encoder_range"
+    att_weight_reduce_axis = "t"
+  else:
+    add_abs_segment_positions(network, rec_layer_name, att_t_dim_tag_code_wrapper)
+    att_weight_position_layer = "segment_abs_positions"
+    att_weight_reduce_axis = att_t_dim_tag_code_wrapper
 
   network[rec_layer_name]["unit"].update({
     "weighted_segment_abs_positions": {
       "class": "eval",
-      "from": ["segment_abs_positions", "att_weights"],
+      "from": [att_weight_position_layer, "att_weights"],
       "eval": "tf.cast(source(0), tf.float32) * source(1)"
     },
     "att_weights_center_of_gravity": {
       "class": "reduce",
       "mode": "sum",
       "from": "weighted_segment_abs_positions",
-      "axis": att_t_dim_tag_code_wrapper
+      "axis": att_weight_reduce_axis
     },
   })
+
+
+def modify_decoder(
+        version: int,
+        net_dict: Dict,
+        rec_layer_name: str,
+        target_num_labels: int,
+        masked_computation: bool,
+        train: bool,
+):
+  """
+  Modify the decoder part of the network.
+  V1: Replace Zoneout LSTM with a normal LSTM.
+  V2: Simply remove the att vector from the LSTM input.
+  V3: Like https://arxiv.org/abs/2404.01716 but without CE loss on non-blank predictor.
+  V4: Like V3 but with CE loss on non-blank predictor.
+  :param version:
+  :param net_dict:
+  :param rec_layer_name:
+  :param target_num_labels:
+  :param masked_computation:
+  :param train:
+  :return:
+  """
+  # otherwise we need to add extra checks for masked layers in recog and layer names (e.g. output prob vs label log prob)
+  assert "s_length_model" in net_dict["output"][
+    "unit"], "This function is only supported for our segmental model for now"
+
+  if masked_computation:
+    s_layer = net_dict[rec_layer_name]["unit"]["s_masked"]["unit"]["subnetwork"]["s"]
+  else:
+    s_layer = net_dict[rec_layer_name]["unit"]["s"]
+
+  if version in (1, 2, 3, 4):
+    # before: Zoneout LSTM
+    s_layer.update({
+      "class": "rec",
+      "dropout": 0.3,
+      "unit": "nativelstm2",
+      "unit_opts": {"rec_weight_dropout": 0.3},
+    })
+  if version in (2, 3, 4):
+    if masked_computation:
+      # before: ["data", "prev:att"]
+      s_layer["from"] = ["data"]
+    else:
+      # before: ["prev:target_embed", "prev:att"]
+      s_layer["from"] = ["prev:target_embed"]
+    # before: "except_batch" -> does not work since att layer is optimized out of the loop now
+    net_dict[rec_layer_name]["unit"]["att"]["axes"] = "except_time"
+  if version in (3, 4):
+    ####### Label Model #######
+    # project directly to the target labels
+    s_layer["n_out"] = target_num_labels
+    # project att to the target labels and apply log_softmax to att and LSTM
+    net_dict[rec_layer_name]["unit"].update({
+      "s_log_softmax": {
+        "class": "activation",
+        "activation": "log_softmax",
+        "from": "s"
+      },
+      "att_log_softmax": {
+        "class": "linear",
+        "from": "att",
+        "n_out": target_num_labels,
+        "activation": "log_softmax"
+      }
+    })
+    # add the output (log) prob layer
+    if rec_layer_name == "label_model":
+      net_dict[rec_layer_name]["unit"]["output_prob"] = {
+        "class": "eval",
+        "from": ["s_log_softmax", "att_log_softmax"],
+        "eval": "source(0) + source(1)",
+        "activation": "softmax",
+        "loss": "ce",
+        "loss_opts": {"label_smoothing": 0.1},
+        "target": net_dict[rec_layer_name]["unit"]["output_prob"]["target"]
+      }
+    else:
+      assert rec_layer_name == "output"
+      net_dict[rec_layer_name]["unit"]["label_log_prob"] = {
+        "class": "eval",
+        "from": ["s_log_softmax", "att_log_softmax"],
+        "eval": "source(0) + source(1)",
+        "activation": "log_softmax",
+      }
+    # readout layer not needed anymore
+    del net_dict[rec_layer_name]["unit"]["readout_in"]
+    del net_dict[rec_layer_name]["unit"]["readout"]
+    ####### Length Model #######
+    net_dict["output"]["unit"]["s_length_model"]["from"] = ["prev:target_embed_length_model"]
+    net_dict["output"]["unit"]["s_length_model"]["n_out"] = 512
+    net_dict["output"]["unit"].update({
+      "s_length_model_plus_encoder": {
+        "class": "eval",
+        "from": ["s_length_model", "am"],
+        "eval": "source(0) + source(1)"
+      }
+    })
+    net_dict["output"]["unit"]["emit_prob0"]["from"] = "s_length_model_plus_encoder"
+  if version == 4 and train:
+    net_dict[rec_layer_name]["unit"]["s_softmax"] = {
+      "class": "activation",
+      "from": "s_log_softmax",
+      "activation": "exp",
+      "loss": "ce",
+      "target": net_dict[rec_layer_name]["unit"]["output_prob"]["target"]
+    }
+  if version not in (1, 2, 3, 4):
+    raise ValueError("Invalid version %d" % version)
 
 
 def add_length_model_pos_probs(
@@ -1349,6 +1478,24 @@ def get_ctc_loss(global_att: bool):
       "class": "eval",
       "eval": "safe_log(source(0))",
       "from": ["ctc_out"],
+    },
+  }
+
+
+def get_ctc_forced_align_hdf_dump(align_target: str, filename: str):
+  return {
+    "ctc_forced_align": {
+      "align_target": align_target,
+      "class": "forced_align",
+      "from": "ctc",
+      "input_type": "prob",
+      "topology": "rna",
+    },
+    "ctc_forced_align_dump": {
+      "class": "hdf_dump",
+      "filename": filename,
+      "from": "ctc_forced_align",
+      "is_output_layer": True,
     },
   }
 

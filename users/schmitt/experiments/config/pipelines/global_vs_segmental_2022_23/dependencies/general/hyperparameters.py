@@ -7,11 +7,13 @@ class ModelHyperparameters(ABC):
           self,
           sos_idx: int,
           target_num_labels: int,
+          target_num_labels_wo_blank: int,
           sil_idx: Optional[int]
   ):
     self.sil_idx = sil_idx
     self.sos_idx = sos_idx
     self.target_num_labels = target_num_labels
+    self.target_num_labels_wo_blank = target_num_labels_wo_blank
 
 
 class GlobalModelHyperparameters(ModelHyperparameters):

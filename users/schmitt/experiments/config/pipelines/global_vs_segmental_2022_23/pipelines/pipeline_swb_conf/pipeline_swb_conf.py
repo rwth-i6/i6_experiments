@@ -1,6 +1,7 @@
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LibrispeechBPE10025_LABELS, LibrispeechBPE10025_CTC_ALIGNMENT
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_CURRENT_ROOT, RETURNN_EXE
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder
 from i6_core.returnn.forward import ReturnnForwardJob
 from i6_core.returnn.training import Checkpoint
 from sisyphus import tk, Path
@@ -43,21 +44,9 @@ def run_pipeline():
           opts={"dataset_opts": {"seq_postfix": None}}
         )
 
-        eval_config.config["network"].update({
-          "ctc_forced_align": {
-            "align_target": "data:targets",
-            "class": "forced_align",
-            "from": "ctc",
-            "input_type": "prob",
-            "topology": "rna",
-          },
-          "ctc_forced_align_dump": {
-            "class": "hdf_dump",
-            "filename": "alignments.hdf",
-            "from": "ctc_forced_align",
-            "is_output_layer": True,
-          },
-        })
+        eval_config.config["network"].update(
+          network_builder.get_ctc_forced_align_hdf_dump(align_target="data:targets", filename="alignments.hdf")
+        )
 
         forward_job = ReturnnForwardJob(
           model_checkpoint=Checkpoint(Path(

@@ -54,7 +54,7 @@ class SWBBPE1030Labels(SWBBPE1030, SWBLabelDefinition, GlobalLabelDefinition):
   @property
   def model_hyperparameters(self) -> GlobalModelHyperparameters:
     return GlobalModelHyperparameters(
-      sos_idx=0, target_num_labels=1030, sil_idx=None)
+      sos_idx=0, target_num_labels=1030, sil_idx=None, target_num_labels_wo_blank=1030)
 
   @property
   def segment_paths(self) -> Dict:

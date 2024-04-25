@@ -133,6 +133,12 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
       if type(net_dict[item]) == dict and item != "output":
         self.edit_network_only_train_length_model(net_dict[item])
 
+  def edit_network_modify_decoder(self, version: int, net_dict: Dict, train: bool, target_num_labels: int):
+    if train:
+      network_builder.modify_decoder(version, net_dict, "label_model", target_num_labels, False, train)
+    else:
+      network_builder.modify_decoder(version, net_dict, "output", target_num_labels, True, train)
+
   def get_dump_scores_config(self, corpus_key: str, opts: Dict):
     returnn_config = self.get_eval_config(eval_corpus_key=corpus_key, opts=opts)
 

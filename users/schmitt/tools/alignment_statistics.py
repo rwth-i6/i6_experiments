@@ -403,6 +403,8 @@ class SequenceStatistics:
     self.num_all_blank_seqs = 0
     self.total_len = 0
     self.max_len = 0
+    self.seq_len_counter = Counter()
+    self.num_labels_counter = Counter()
 
   def update(self, alignment, labels):
     if len(labels) == 0:
@@ -412,6 +414,8 @@ class SequenceStatistics:
     self.total_len += alignment_len
     if alignment_len > self.max_len:
       self.max_len = alignment_len
+    self.seq_len_counter[alignment_len] += 1
+    self.num_labels_counter[len(labels)] += 1
 
   def __str__(self):
     string = "Sequence statistics: \n"
@@ -420,6 +424,19 @@ class SequenceStatistics:
     string += f"\tMean length: {self.total_len / self.num_seqs} \n"
     string += f"\tMax length: {self.max_len} \n\n"
     return string
+
+  def plot_histograms(self):
+    x, y = SegmentLenCountStatistics.counter_to_hist_data(self.seq_len_counter)
+    plt.bar(x, y)
+    plt.title("Sequence length histogram.")
+    plt.savefig("histograms/sequence_length_histogram.png")
+    plt.close()
+
+    x, y = SegmentLenCountStatistics.counter_to_hist_data(self.num_labels_counter)
+    plt.bar(x, y)
+    plt.title("Number of labels per sequence histogram.")
+    plt.savefig("histograms/num_labels_per_sequence_histogram.png")
+    plt.close()
 
 
 class WordStatistics:
@@ -486,6 +503,7 @@ class AlignmentStatistics:
     self.label_segment_statistics.plot_histograms()
     self.label_segment_statistics.write_label_dependent_means_to_file()
     self.label_segment_statistics.write_seqs_w_long_segments_to_file()
+    self.sequence_statistics.plot_histograms()
 
 
 def init(hdf_file, seq_list_filter_file):

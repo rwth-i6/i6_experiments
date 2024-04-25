@@ -44,7 +44,7 @@ class SwbBpe1030RnaAlignment(SWBBPE1030, SWBLabelDefinition, SegmentalLabelDefin
   @property
   def model_hyperparameters(self) -> SegmentalModelHyperparameters:
     return SegmentalModelHyperparameters(
-      sos_idx=0, target_num_labels=1031, sil_idx=None, blank_idx=1030)
+      sos_idx=0, target_num_labels=1031, sil_idx=None, blank_idx=1030, target_num_labels_wo_blank=1030)
 
   @property
   def rasr_format_paths(self) -> RasrFormats:
@@ -110,7 +110,7 @@ class SwbBpe534CtcAlignment(SWBBPE534, SWBLabelDefinition, SegmentalLabelDefinit
   @property
   def model_hyperparameters(self) -> SegmentalModelHyperparameters:
     return SegmentalModelHyperparameters(
-      sos_idx=0, target_num_labels=535, sil_idx=None, blank_idx=534)
+      sos_idx=0, target_num_labels=535, sil_idx=None, blank_idx=534, target_num_labels_wo_blank=534)
 
   @property
   def rasr_format_paths(self) -> RasrFormats:

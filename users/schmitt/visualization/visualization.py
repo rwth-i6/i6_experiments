@@ -207,6 +207,7 @@ class PlotAttentionWeightsJobV2(Job):
 
     self.out_plot_dir = self.output_path("plots", True)
     self.out_plot_w_ctc_dir = self.output_path("plots_w_ctc", True)
+    self.out_plot_w_cog_dir = self.output_path("plots_w_cog", True)
     self.out_plot_path = MultiOutputPath(self, "plots/plots.$(TASK)", self.out_plot_dir)
 
   def tasks(self):
@@ -332,6 +333,11 @@ class PlotAttentionWeightsJobV2(Job):
         break
     ax.plot(ctc_alignment_plot_data, "o", color="black", alpha=.4)
 
+  @staticmethod
+  def _plot_center_of_gravity(ax: plt.Axes, att_weights: np.ndarray):
+    cog = np.sum(att_weights * np.arange(att_weights.shape[1])[None, :], axis=1)[:, None]  # [S,1]
+    ax.plot(cog, range(cog.shape[0]), "o", color="red", alpha=.4)
+
   def run(self):
     # load data from hdfs
     att_weights_dict, targets_dict, seg_starts_dict, seg_lens_dict, center_positions_dict, ctc_alignment_dict, ref_alignment_dict = self.load_data()
@@ -344,13 +350,13 @@ class PlotAttentionWeightsJobV2(Job):
 
     # for each seq tag, plot the corresponding att weights
     for seq_tag in att_weights_dict.keys():
-      seg_starts = seg_starts_dict[seq_tag] if self.target_blank_idx is not None else None
-      seg_lens = seg_lens_dict[seq_tag] if self.target_blank_idx is not None else None
-      center_positions = center_positions_dict[seq_tag] if self.center_positions_hdf is not None else None
-      ctc_alignment = ctc_alignment_dict[seq_tag] if self.ctc_alignment_hdf is not None else None
-      ref_alignment = ref_alignment_dict[seq_tag]
-      targets = targets_dict[seq_tag]
-      att_weights = att_weights_dict[seq_tag]
+      seg_starts = seg_starts_dict[seq_tag] if self.target_blank_idx is not None else None  # [S]
+      seg_lens = seg_lens_dict[seq_tag] if self.target_blank_idx is not None else None  # [S]
+      center_positions = center_positions_dict[seq_tag] if self.center_positions_hdf is not None else None  # [S]
+      ctc_alignment = ctc_alignment_dict[seq_tag] if self.ctc_alignment_hdf is not None else None  # [T]
+      ref_alignment = ref_alignment_dict[seq_tag]  # [T]
+      targets = targets_dict[seq_tag]  # [S]
+      att_weights = att_weights_dict[seq_tag]  # [S,T]
 
       fig, ax = self._get_fig_ax(att_weights)
       ax.matshow(att_weights, cmap=plt.cm.get_cmap("Blues"), aspect="auto")
@@ -370,8 +376,14 @@ class PlotAttentionWeightsJobV2(Job):
       # plot ctc alignment if available
       if ctc_alignment is not None:
         self._plot_ctc_alignment(ax, ctc_alignment, num_labels=att_weights.shape[0])
+        filename = os.path.join(self.out_plot_w_ctc_dir.get_path(), "plot.%s" % seq_tag.replace("/", "_"))
+        plt.savefig(filename + ".png")
+        plt.savefig(filename + ".pdf")
 
-      filename = os.path.join(self.out_plot_w_ctc_dir.get_path(), "plot.%s" % seq_tag.replace("/", "_"))
+      # plot center of gravity
+      ax.lines[-1].remove()  # remove ctc alignment plot
+      self._plot_center_of_gravity(ax, att_weights)
+      filename = os.path.join(self.out_plot_w_cog_dir.get_path(), "plot.%s" % seq_tag.replace("/", "_"))
       plt.savefig(filename + ".png")
       plt.savefig(filename + ".pdf")
 

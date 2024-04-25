@@ -16,21 +16,6 @@ from sisyphus import tk, Path
 
 def run_exps():
   for model_alias, config_builder in baseline.ctc_baseline():
-    for train_alias, checkpoint in train.train_ctc_import_global(
-      alias=model_alias,
-      config_builder=config_builder,
-      n_epochs_list=(40,),
-    ):
-      checkpoint_dict = config_builder.get_recog_checkpoints(**checkpoint)
-
-      # ctc alignments look much worse than in other experiment
-      # get_ctc_alignments(
-      #   checkpoint=checkpoint_dict["last"],
-      #   config_builder=config_builder,
-      #   train_alias=train_alias
-      # )
-
-  for model_alias, config_builder in baseline.ctc_baseline():
     for train_alias, checkpoint in train.train_ctc_import_global_only_train_ctc(
       alias=model_alias,
       config_builder=config_builder,

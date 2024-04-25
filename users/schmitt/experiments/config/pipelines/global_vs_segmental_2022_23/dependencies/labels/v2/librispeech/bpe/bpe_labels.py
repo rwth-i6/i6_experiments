@@ -28,7 +28,7 @@ class LibrispeechBPE10025Labels(LibrispeechBPE10025, LibrispeechLabelDefinition,
   @property
   def model_hyperparameters(self) -> GlobalModelHyperparameters:
     return GlobalModelHyperparameters(
-      sos_idx=0, target_num_labels=10025, sil_idx=None)
+      sos_idx=0, target_num_labels=10025, sil_idx=None, target_num_labels_wo_blank=10025)
 
 
 class LibrispeechBPE10025LabelsWithSilence(LibrispeechBPE10025, LibrispeechLabelDefinition, GlobalLabelDefinition):
@@ -87,7 +87,7 @@ class LibrispeechBPE10025LabelsWithSilence(LibrispeechBPE10025, LibrispeechLabel
   @property
   def model_hyperparameters(self) -> GlobalModelHyperparameters:
     return GlobalModelHyperparameters(
-      sos_idx=0, target_num_labels=10026, sil_idx=10025)
+      sos_idx=0, target_num_labels=10026, sil_idx=10025, target_num_labels_wo_blank=10026)
 
   @property
   def label_paths(self) -> Dict[str, Path]:

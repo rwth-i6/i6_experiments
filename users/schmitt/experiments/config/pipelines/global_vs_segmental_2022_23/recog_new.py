@@ -3,10 +3,10 @@ import copy
 from typing import Dict, List, Optional, Tuple, Union
 from abc import ABC, abstractmethod
 
-from i6_core.returnn.forward import ReturnnForwardJob
+from i6_core.returnn.forward import ReturnnForwardJob, ReturnnForwardJobV2
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchWordsToCTMJob, SearchBPEtoWordsJob, SearchTakeBestJob
 from i6_core.recognition.scoring import Hub5ScoreJob, ScliteJob
-from i6_core.returnn.training import Checkpoint
+from i6_core.returnn.training import Checkpoint, PtCheckpoint
 from i6_core.returnn.compile import CompileTFGraphJob
 from i6_core.rasr.crp import CommonRasrParameters
 from i6_core.rasr.config import RasrConfig
@@ -18,6 +18,7 @@ from i6_core.corpus.convert import CorpusToStmJob
 
 from i6_experiments.users.schmitt.flow import get_raw_wav_feature_flow
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.config import RasrConfigBuilder
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import ConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.base import ConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.global_ import GlobalConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.segmental import SegmentalConfigBuilder
@@ -32,7 +33,6 @@ from i6_experiments.users.schmitt.rasr.convert import RASRLatticeToCTMJob, Conve
 from i6_experiments.users.schmitt.alignment.alignment import AlignmentRemoveAllBlankSeqsJob, AlignmentStatisticsJob
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train_new import GlobalTrainExperiment, SegmentalTrainExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.realignment_new import RasrRealignmentExperiment
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf import ctc_aligns
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import (
   LibrispeechBPE10025_CTC_ALIGNMENT,
   LibrispeechBPE10025_CTC_ALIGNMENT_EOS,
@@ -43,14 +43,14 @@ class DecodingExperiment(ABC):
   def __init__(
           self,
           alias: str,
-          config_builder: ConfigBuilder,
-          checkpoint: Union[Checkpoint, Dict],
+          config_builder: Union[ConfigBuilder, ConfigBuilderRF],
+          checkpoint: Union[Checkpoint, PtCheckpoint, Dict],
           checkpoint_alias: str,
           recog_opts: Optional[Dict] = None,
   ):
     self.config_builder = config_builder
     self.checkpoint_alias = checkpoint_alias
-    if isinstance(checkpoint, Checkpoint):
+    if isinstance(checkpoint, Checkpoint) or isinstance(checkpoint, PtCheckpoint):
       self.checkpoint = checkpoint
     else:
       assert isinstance(checkpoint, dict)
@@ -252,24 +252,35 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
     if self.search_rqmt.get("gpu", 1) == 0:# and self.search_rqmt["gpu"] == 0:
       device = "cpu"
 
-    search_job = ReturnnSearchJobV2(
-      search_data={},
-      model_checkpoint=self.checkpoint,
-      returnn_config=recog_config,
-      returnn_python_exe=self.returnn_python_exe,
-      returnn_root=self.returnn_root,
-      device=device,
-      mem_rqmt=self.search_rqmt.get("mem", 4),
-      time_rqmt=self.search_rqmt.get("time", 1),
-    )
+    if isinstance(self.config_builder, ConfigBuilder):
+      search_job = ReturnnSearchJobV2(
+        search_data={},
+        model_checkpoint=self.checkpoint,
+        returnn_config=recog_config,
+        returnn_python_exe=self.returnn_python_exe,
+        returnn_root=self.returnn_root,
+        device=device,
+        mem_rqmt=self.search_rqmt.get("mem", 4),
+        time_rqmt=self.search_rqmt.get("time", 1),
+      )
+      search_job.add_alias("%s/search_%s" % (self.alias, self.stm_corpus_key))
 
-    search_job.add_alias("%s/search_%s" % (self.alias, self.stm_corpus_key))
-
-    if recog_config.config["network"]["decision"]["class"] == "decide":
-      out_search_file = search_job.out_search_file
+      if recog_config.config["network"]["decision"]["class"] == "decide":
+        out_search_file = search_job.out_search_file
+      else:
+        assert recog_config.config["network"]["decision"]["class"] == "copy"
+        search_take_best_job = SearchTakeBestJob(search_py_output=search_job.out_search_file)
+        out_search_file = search_take_best_job.out_best_search_results
     else:
-      assert recog_config.config["network"]["decision"]["class"] == "copy"
-      search_take_best_job = SearchTakeBestJob(search_py_output=search_job.out_search_file)
+      search_job = ReturnnForwardJobV2(
+        model_checkpoint=self.checkpoint,
+        returnn_config=recog_config,
+        returnn_root=self.returnn_root,
+        returnn_python_exe=self.returnn_python_exe,
+        output_files=["output.py.gz"],
+      )
+      search_job.add_alias("%s/search_%s" % (self.alias, self.stm_corpus_key))
+      search_take_best_job = SearchTakeBestJob(search_py_output=search_job.out_files["output.py.gz"])
       out_search_file = search_take_best_job.out_best_search_results
 
     bpe_to_words_job = SearchBPEtoWordsJob(out_search_file)
@@ -382,7 +393,6 @@ class ReturnnGlobalAttDecodingExperiment(GlobalAttDecodingExperiment, ReturnnDec
   @property
   def default_recog_opts(self) -> Dict:
     return {
-      "batch_size": None,
       "concat_num": None,
       "lm_opts": None,
       "ilm_correction_opts": None,
@@ -404,7 +414,6 @@ class ReturnnSegmentalAttDecodingExperiment(SegmentalAttDecodingExperiment, Retu
   @property
   def default_recog_opts(self) -> Dict:
     return {
-      "batch_size": None,
       "concat_num": None,
       "lm_opts": None,
       "ilm_correction_opts": None,
@@ -535,7 +544,7 @@ class RasrDecodingExperiment(DecodingExperiment, ABC):
       rec_step_by_step="output",
     )
     compile_job.add_alias("%s/compile" % self.alias)
-    tk.register_output(compile_job.get_one_alias(), compile_job.out_graph)
+    # tk.register_output(compile_job.get_one_alias(), compile_job.out_graph)
 
     return compile_job.out_graph
 
@@ -765,22 +774,24 @@ class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
     super().__init__(config_builder=config_builder, **kwargs)
     self.config_builder = config_builder
 
-    self.realignment = RasrRealignmentExperiment(
-      alias=self.alias,
-      reduction_factor=960,
-      reduction_subtrahend=399,
-      job_rqmt={
-        "mem": 4,
-        "time": 1,
-        "gpu": 0
-      },
-      concurrent=100,
-      checkpoint=self.checkpoint,
-      checkpoint_alias=self.checkpoint_aliases[0],
-      config_builder=config_builder,
-    ).get_realignment()
-    if "ground_truth_hdf" not in self.analysis_opts:
-      self.analysis_opts["ground_truth_hdf"] = self.realignment
+    self.realignment = None
+    if self.run_analysis:
+      self.realignment = RasrRealignmentExperiment(
+        alias=self.alias,
+        reduction_factor=960,
+        reduction_subtrahend=399,
+        job_rqmt={
+          "mem": 4,
+          "time": 1,
+          "gpu": 0
+        },
+        concurrent=100,
+        checkpoint=self.checkpoint,
+        checkpoint_alias=self.checkpoint_aliases[0],
+        config_builder=config_builder,
+      ).get_realignment()
+      if "ground_truth_hdf" not in self.analysis_opts:
+        self.analysis_opts["ground_truth_hdf"] = self.realignment
 
   def run_experiment(self, beam_size: int, lm_scale: float, ilm_scale: float, checkpoint_alias: str):
     self.recog_opts.update({

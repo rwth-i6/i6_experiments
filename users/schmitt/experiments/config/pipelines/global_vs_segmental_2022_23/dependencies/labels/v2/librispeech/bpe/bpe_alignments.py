@@ -83,7 +83,7 @@ class LibrispeechBpe10025CtcAlignment(LibrispeechBPE10025, LibrispeechLabelDefin
   @property
   def model_hyperparameters(self) -> SegmentalModelHyperparameters:
     return SegmentalModelHyperparameters(
-      sos_idx=0, target_num_labels=10026, sil_idx=None, blank_idx=10025)
+      sos_idx=0, target_num_labels=10026, sil_idx=None, blank_idx=10025, target_num_labels_wo_blank=10025)
 
   @property
   def rasr_format_paths(self) -> RasrFormats:

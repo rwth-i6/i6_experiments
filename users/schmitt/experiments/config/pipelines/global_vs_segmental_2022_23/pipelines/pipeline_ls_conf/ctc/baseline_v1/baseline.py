@@ -9,6 +9,7 @@ def _get_ctc_config_builder():
   model_type = "librispeech_conformer_ctc"
   variant_name = "ctc.conformer.mohammad.5.6"
   variant_params = copy.deepcopy(models[model_type][variant_name])
+  variant_params["network"]["decoder_version"] = None  # no decoder in CTC model
 
   config_builder = LibrispeechConformerCtcConfigBuilder(
     dependencies=variant_params["dependencies"],

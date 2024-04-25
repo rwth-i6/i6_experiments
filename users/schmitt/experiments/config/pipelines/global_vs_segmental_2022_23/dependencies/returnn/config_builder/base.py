@@ -6,6 +6,7 @@ from i6_experiments.users.schmitt.specaugment import *
 from i6_experiments.users.schmitt.specaugment import _mask
 from i6_experiments.users.schmitt.dynamic_lr import dynamic_lr_str
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 from i6_core.returnn.training import AverageTFCheckpointsJob, GetBestEpochJob, Checkpoint, GetBestTFCheckpointJob
@@ -119,6 +120,14 @@ class ConfigBuilder(ABC):
     if net_dict is not None:
       if opts.get("freeze_encoder"):
         self.edit_network_freeze_encoder(net_dict)
+      decoder_version = self.variant_params["network"]["decoder_version"]
+      if decoder_version is not None:
+        self.edit_network_modify_decoder(
+          version=decoder_version,
+          net_dict=net_dict,
+          train=True,
+          target_num_labels=self.dependencies.model_hyperparameters.target_num_labels_wo_blank
+        )
       config_dict["network"] = net_dict
 
     if opts.get("cleanup_old_models"):
@@ -183,6 +192,15 @@ class ConfigBuilder(ABC):
       if opts.get("use_same_static_padding"):
         self.edit_network_use_same_static_padding(net_dict)
 
+      decoder_version = self.variant_params["network"]["decoder_version"]
+      if decoder_version is not None:
+        self.edit_network_modify_decoder(
+          version=decoder_version,
+          net_dict=net_dict,
+          train=False,
+          target_num_labels=self.dependencies.model_hyperparameters.target_num_labels_wo_blank
+        )
+
       config_dict["network"] = net_dict
     else:
       raise ValueError("net_dict is None!")
@@ -214,10 +232,37 @@ class ConfigBuilder(ABC):
         dataset_opts=opts.get("dataset_opts", {})
       ))
 
-    if opts.get("use_train_net", False):
+    if opts.get("network_epoch"):
+      # select network corresponding to given epoch
+      networks_dict = copy.deepcopy(
+        self.get_networks_dict(
+          "train",
+          config_dict=config_dict,
+          python_prolog=python_prolog,
+          use_get_global_config=True
+        )
+      )
+      network_epoch = None
+      for epoch in networks_dict:
+        if epoch <= opts["network_epoch"]:
+          network_epoch = epoch
+        else:
+          break
+      net_dict = networks_dict[network_epoch]
+    elif opts.get("use_train_net", False):
+      # select network from training (final net dict normally)
       net_dict = self.get_final_net_dict(config_dict=config_dict, python_prolog=python_prolog)
     else:
       net_dict = self.get_net_dict("search", config_dict=config_dict, python_prolog=python_prolog)
+
+    decoder_version = self.variant_params["network"]["decoder_version"]
+    if decoder_version is not None:
+      self.edit_network_modify_decoder(
+        version=decoder_version,
+        net_dict=net_dict,
+        train=False,
+        target_num_labels=self.dependencies.model_hyperparameters.target_num_labels_wo_blank
+      )
 
     assert net_dict is not None
     config_dict["network"] = net_dict
@@ -238,21 +283,9 @@ class ConfigBuilder(ABC):
     returnn_config = self.get_eval_config(eval_corpus_key=corpus_key, opts=opts)
 
     assert "ctc" in returnn_config.config["network"]
-    returnn_config.config["network"].update({
-      "ctc_forced_align": {
-        "align_target": opts["align_target"],
-        "class": "forced_align",
-        "from": "ctc",
-        "input_type": "prob",
-        "topology": "rna",
-      },
-      "ctc_forced_align_dump": {
-        "class": "hdf_dump",
-        "filename": opts["hdf_filename"],
-        "from": "ctc_forced_align",
-        "is_output_layer": True,
-      },
-    })
+    returnn_config.config["network"].update(
+      network_builder.get_ctc_forced_align_hdf_dump(align_target=opts["align_target"], filename=opts["hdf_filename"])
+    )
 
     return returnn_config
 
@@ -285,6 +318,9 @@ class ConfigBuilder(ABC):
   @abstractmethod
   def edit_network_freeze_encoder(self, net_dict: Dict):
     pass
+
+  def edit_network_modify_decoder(self, version: int, net_dict: Dict, train: bool, target_num_labels: int):
+    raise NotImplementedError
 
   def edit_network_use_same_static_padding(self, net_dict: Dict):
     raise NotImplementedError
