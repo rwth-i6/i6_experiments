@@ -8,7 +8,7 @@ from copy import deepcopy
 
 from sisyphus import tk
 from i6_core.corpus.convert import CorpusToTextDictJob
-from i6_experiments.users.zeyer.returnn.search import TextDictToTextLinesJob
+from i6_core.text.convert import TextDictToTextLinesJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
 from returnn.util.basic import NotSpecified
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
