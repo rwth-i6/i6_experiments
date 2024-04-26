@@ -56,7 +56,7 @@ from i6_experiments.users.raissi.setups.common.helpers.train.cache_epilog import
 # user based modules
 from i6_experiments.users.raissi.setups.common.data.backend import Backend, BackendInfo
 
-from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
+from i6_experiments.users.raissi.args.system.am import (
     get_lexicon_args,
     get_tdp_values,
 )
@@ -65,6 +65,13 @@ from i6_experiments.users.raissi.setups.common.data.factored_label import (
     LabelInfo,
     PhoneticContext,
     RasrStateTying,
+)
+
+from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
+    TrainingCriterion,
+    SingleSoftmaxType,
+    Experiment,
+    InputKey,
 )
 
 from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import (
@@ -92,42 +99,6 @@ from i6_experiments.users.raissi.costum.corpus.segments import SegmentCorpusNoPr
 # -------------------- Init --------------------
 
 Path = tk.setup_path(__package__)
-
-
-class TrainingCriterion(Enum):
-    """The training criterion."""
-
-    VITERBI = "viterbi"
-    FULLSUM = "fullsum"
-    sMBR = "smbr"
-
-    def __str__(self):
-        return self.value
-
-
-class SingleSoftmaxType(Enum):
-    """The training criterion."""
-
-    TRAIN = "train"
-    PRIOR = "prior"
-    DECODE = "decode"
-
-    def __str__(self):
-        return self.value
-
-
-class Experiment(TypedDict, total=False):
-    """
-    The class is used in the config files as a single experiment
-    """
-
-    name: str
-    priors: Optional[PriorInfo]
-    prior_job: Optional[returnn.ReturnnRasrComputePriorJobV2]
-    returnn_config: Optional[returnn.ReturnnConfig]
-    train_job: Optional[returnn.ReturnnRasrTrainingJob]
-    align_job: Optional[mm.AlignmentJob]
-
 
 # -------------------- Systems --------------------
 class BASEFactoredHybridSystem(NnSystem):
@@ -188,11 +159,10 @@ class BASEFactoredHybridSystem(NnSystem):
         self.backend_info = BackendInfo.default()
 
         # data and pipeline related
-        self.inputs = {}
+        self.inputs = {} #nested dictionary first keys corpora, second level InputKeys
         self.experiments: Dict[str, Experiment] = {}
 
         self.feature_info = FeatureInfo.default()
-
 
         # train information
         self.initial_train_args = {
@@ -315,22 +285,16 @@ class BASEFactoredHybridSystem(NnSystem):
             self.feature_flows[existing_crp_key][self.feature_info.feature_type.get()] is not None
         ), f"you need to set the features for {existing_crp_key} first"
         self.alignments[new_crp_key] = self.alignments[existing_crp_key]
-        
+
         feature_name = self.feature_info.feature_type.get()
 
         if feature_name not in self.feature_caches[existing_crp_key]:
             self.feature_caches[existing_crp_key][feature_name] = {}
 
-        self.feature_caches[new_crp_key] = {
-            feature_name: self.feature_caches[existing_crp_key][feature_name]
-        }
+        self.feature_caches[new_crp_key] = {feature_name: self.feature_caches[existing_crp_key][feature_name]}
 
-        self.feature_bundles[new_crp_key] = {
-            feature_name: self.feature_bundles[existing_crp_key][feature_name]
-        }
-        self.feature_flows[new_crp_key] = {
-            feature_name: self.feature_flows[existing_crp_key][feature_name]
-        }
+        self.feature_bundles[new_crp_key] = {feature_name: self.feature_bundles[existing_crp_key][feature_name]}
+        self.feature_flows[new_crp_key] = {feature_name: self.feature_flows[existing_crp_key][feature_name]}
 
     def _get_system_input(
         self,
@@ -648,12 +612,14 @@ class BASEFactoredHybridSystem(NnSystem):
                     crp_key=self.crp_names[crp_k], tdp_type=types["eval"], add_base_allophones=add_base_allophones
                 )
 
-    def set_rasr_returnn_input_datas(self, input_key: str, cv_corpus_key: str = None, is_cv_separate_from_train=False):
+    def set_rasr_returnn_input_datas(
+        self, input_key: InputKey = InputKey.BASE, cv_corpus_key: str = None, is_cv_separate_from_train=False
+    ):
         for k in self.corpora.keys():
             assert self.inputs[k] is not None
             assert self.inputs[k][input_key] is not None
         assert cv_corpus_key is not None or not is_cv_separate_from_train, "define a corpus key for separate cv data"
-        
+
         feature_name = self.feature_info.feature_type.get()
 
         configure_automata = False
@@ -706,7 +672,7 @@ class BASEFactoredHybridSystem(NnSystem):
         self.initial_nn_args.update(label_info_args)
 
     # ----- data preparation for train-----------------------------------------------------
-    def prepare_rasr_train_data_with_cv_from_train(self, input_key: str, cv_num_segments: int = 100):
+    def prepare_rasr_train_data_with_cv_from_train(self, input_key: InputKey = InputKey.BASE, cv_num_segments: int = 100):
 
         assert self.train_key is not None, "You did not specify the train_key"
         train_corpus_path = self.corpora[self.train_key].corpus_file
@@ -725,16 +691,14 @@ class BASEFactoredHybridSystem(NnSystem):
 
         # ******************** NN Init ********************
         feature_name = self.feature_info.feature_type.get()
-        
+
         nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
             feature_flow_key=feature_name, shuffling_parameters=self.shuffling_params
         )
         nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
         nn_train_data_inputs = {self.crp_names["train"]: nn_train_data}
 
-        nn_cv_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
-            feature_flow_key=feature_name
-        )
+        nn_cv_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(feature_flow_key=feature_name)
         nn_cv_data.update_crp_with(segment_path=cv_segments, concurrent=1)
         nn_cv_data_inputs = {self.crp_names["cvtrain"]: nn_cv_data}
 
@@ -747,10 +711,9 @@ class BASEFactoredHybridSystem(NnSystem):
         return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
 
     def prepare_rasr_train_data_with_separate_cv(
-        self, input_key, cv_corpus_key="dev-other", configure_rasr_automaton=False
+        self, input_key: InputKey = InputKey.BASE, cv_corpus_key="dev-other", configure_rasr_automaton=False
     ):
         train_corpus_key = self.train_key
-        self.input_key = input_key
 
         train_corpus = self.corpora[train_corpus_key].corpus_file
         cv_corpus = self.corpora[cv_corpus_key].corpus_file
@@ -775,7 +738,7 @@ class BASEFactoredHybridSystem(NnSystem):
                 prefix_name=merged_name,
             )
             self.crp[self.crp_names["bw"]] = crp_bw
-            
+
         feature_name = self.feature_info.feature_type.get()
 
         nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(

@@ -82,7 +82,7 @@ def get_system(key, lr=4e-4, num_epochs=None, am_scale=1.0, tdp_scale=0.1):
         "label_info": label_info_init_args,
         "frr_info": {"factor": 4},
     }
-    data_preparation_args = lbs_960_setups.get_final_output(name="data_preparation")
+    data_preparation_args = lbs_960_setups.get_final_output()
 
     # NN training related
     initial_nn_args = get_initial_nn_args_fullsum()

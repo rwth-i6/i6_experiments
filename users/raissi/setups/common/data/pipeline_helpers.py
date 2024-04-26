@@ -1,46 +1,58 @@
-__all__ = ["get_lexicon_args", "get_tdp_values"]
+__all__ = [
+    "TrainingCriterion",
+    "SingleSoftmaxType",
+    "Experiment"
+]
 
 
-def get_lexicon_args(add_all_allophones=False, norm_pronunciation=True):
-    return {
-        "add_all_allophones": add_all_allophones,
-        "norm_pronunciation": norm_pronunciation,
-    }
+from dataclasses import dataclass
+from enum import Enum
+from typing import Optional, TypedDict
+
+import i6_core.mm as mm
+import i6_core.returnn as returnn
 
 
-def get_tdp_values():
-    from math import log
+from i6_experiments.users.raissi.setups.common.decoder.config import (
+    PriorInfo
+)
 
-    speech_fwd_three = 0.350  # 3/9 for 3partite
-    speech_fwd_mono = 0.125  # 1/8 for phoneme
-    silence_fwd = 0.04  # 1/25 following the start/end segment silence
 
-    return {
-        "pattern": ["loop", "forward", "skip", "exit"],
-        "default": {
-            "*": (3.0, 0.0, "infinity", 0.0),
-            "silence": (0.0, 3.0, "infinity", 20.0),
-        },
-        "heuristic": {
-            "monostate": {
-                "*": (-log(1 - speech_fwd_mono), -log(speech_fwd_mono), "infinity", 0.0),
-                "silence": (-log(1 - silence_fwd), -log(silence_fwd), "infinity", 0.0),
-            },
-            "threepartite": {
-                "*": (-log(1 - speech_fwd_three), -log(speech_fwd_three), "infinity", 0.0),
-                "silence": (-log(1 - silence_fwd), -log(silence_fwd), "infinity", 0.0),
-            },
-        },
-        "heuristic-30ms": {
-            "monostate": {
-                "*": (-log(1 - 3 * speech_fwd_mono), -log(3 * speech_fwd_mono), "infinity", 0.0),
-                "silence": (-log(1 - 3 * silence_fwd), -log(3 * silence_fwd), "infinity", 0.0),
-            },
-        },
-        "heuristic-40ms": {
-            "monostate": {
-                "*": (-log(1 - 4 * speech_fwd_mono), -log(4 * speech_fwd_mono), "infinity", 0.0),
-                "silence": (-log(1 - 4 * silence_fwd), -log(4 * silence_fwd), "infinity", 0.0),
-            },
-        },
-    }
+class TrainingCriterion(Enum):
+    """The training criterion."""
+
+    VITERBI = "viterbi"
+    FULLSUM = "fullsum"
+    sMBR = "smbr"
+
+    def __str__(self):
+        return self.value
+
+
+class SingleSoftmaxType(Enum):
+    """The training criterion."""
+    TRAIN = "train"
+    PRIOR = "prior"
+    DECODE = "decode"
+
+    def __str__(self):
+        return self.value
+
+class Experiment(TypedDict):
+    """
+    The class is used in the config files as a single experiment
+    """
+    name: str
+    priors: Optional[PriorInfo]
+    prior_job: Optional[returnn.ReturnnRasrComputePriorJobV2]
+    returnn_config: Optional[returnn.ReturnnConfig]
+    train_job: Optional[returnn.ReturnnRasrTrainingJob]
+    align_job: Optional[mm.AlignmentJob]
+
+
+class InputKey(Enum):
+    """This is the dictionary key for factored hybrid system inputs."""
+
+    BASE= "standard-system-input"
+    HDF = "hdf-input"
+

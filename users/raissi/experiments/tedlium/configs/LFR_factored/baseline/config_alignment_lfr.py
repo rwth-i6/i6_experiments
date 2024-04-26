@@ -84,7 +84,7 @@ def run(key, lr=4e-4, am_scale=0.7, tdp_scale=0.1, align=False, tune=False,
         "label_info": label_info_init_args,
         "frr_info": {"factor": 4},
     }
-    data_preparation_args = ted_setups.get_final_output(name="data_preparation")
+    data_preparation_args = ted_setups.get_final_output()
 
     # NN training related
     initial_nn_args = get_initial_nn_args_fullsum()

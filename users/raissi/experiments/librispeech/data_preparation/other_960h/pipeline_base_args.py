@@ -20,8 +20,10 @@ import i6_experiments.common.setups.rasr.util as rasr_util
 
 # -------------------- helpers --------------------
 
-
-def get_final_output(name="final"):
+from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
+    InputKey
+)
+def get_final_output(name=InputKey.BASE):
     output_args = rasr_util.OutputArgs(name)
 
     output_args.define_corpus_type("train-other-960", "train")

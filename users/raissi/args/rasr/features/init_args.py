@@ -145,6 +145,23 @@ def get_feature_extraction_args_16kHz(
                 "normalization_options": {},
             }
         },
+        "fb": {
+            "filterbank_options": {
+                "warping_function": "mel",
+                "filter_width": features.filter_width_from_channels(channels=80, warping_function="mel", f_max=8000),
+                "normalize": True,
+                "normalization_options": None,
+                "without_samples": False,
+                "samples_options": {
+                    "audio_format": "wav",
+                    "dc_detection": False,
+                },
+                "fft_options": None,
+                "add_features_output": True,
+                "apply_log": True,
+                "add_epsilon": True,
+            }
+        },
         "energy": {
             "energy_options": {
                 "without_samples": False,

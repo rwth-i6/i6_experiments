@@ -57,10 +57,6 @@ import i6_experiments.users.raissi.setups.common.helpers.decode as decode_helper
 
 
 # user based modules
-from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
-    get_lexicon_args,
-    get_tdp_values,
-)
 
 from i6_experiments.users.raissi.setups.common.data.factored_label import (
     LabelInfo,

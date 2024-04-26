@@ -27,6 +27,10 @@ from i6_experiments.common.datasets.tedlium2.lexicon import (
 )
 from i6_experiments.common.baselines.tedlium2.lm.ngram_config import run_tedlium2_ngram_lm
 
+from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
+    InputKey
+)
+
 def get_init_args():
     am_args = {
         "state_tying": "monophone",
@@ -128,7 +132,7 @@ def get_corpus_data_inputs(add_unknown_phoneme_and_mapping: bool = True) -> Dict
 
 
 # -------------------- helpers --------------------
-def get_final_output(name="final"):
+def get_final_output(name=InputKey.BASE):
     output_args = rasr_util.OutputArgs(name)
 
     output_args.define_corpus_type("train", "train")

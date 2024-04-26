@@ -51,11 +51,6 @@ from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_sear
     RasrFeatureScorer,
 )
 
-from i6_experiments.users.raissi.setups.common.decoder.config import (
-    PriorInfo,
-    PriorConfig,
-    PosteriorScales,
-)
 
 from i6_experiments.users.raissi.setups.common.features.taxonomy import FeatureType
 

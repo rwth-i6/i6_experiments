@@ -35,33 +35,28 @@ from i6_experiments.common.setups.rasr.util import (
     OggZipHdfDataInput,
     RasrInitArgs,
     RasrDataInput,
-    RasrSteps,
     ReturnnRasrDataInput,
 )
-
 
 import i6_experiments.users.raissi.setups.common.helpers.train as train_helpers
 import i6_experiments.users.raissi.setups.common.util.hdf.helpers as hdf_helpers
 
+from i6_experiments.users.raissi.args.system.data import HDFBuilderArgs
+
 from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import BASEFactoredHybridSystem
 
 from i6_experiments.users.raissi.setups.common.data.backend import Backend, BackendInfo
-
-# user based modules
 from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
-    get_lexicon_args,
-    get_tdp_values,
-)
-
-from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import (
     TrainingCriterion,
+    InputKey
 )
-
 from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo
-
-from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import BASEFactoredHybridSystem
-
-from i6_experiments.users.raissi.setups.common.decoder.config import PriorInfo, PosteriorScales, SearchParameters
+from i6_experiments.users.raissi.setups.common.decoder.config import (
+    PriorInfo,
+    PosteriorScales,
+    SearchParameters
+)
+from i6_experiments.users.raissi.setups.common.util.hdf.helpers import HDFAlignmentData
 
 
 # -------------------- Init --------------------
@@ -94,80 +89,43 @@ class TORCHFactoredHybridSystem(BASEFactoredHybridSystem):
         )
 
         self.backend_info = BackendInfo(train=Backend.TORCH, decode=Backend.ONNX)
+        self.hdf_builder_args = asdict(
+            HDFBuilderArgs(returnn_root=self.returnn_root, returnn_python_exe=self.returnn_python_exe)
+        )
 
-        def get_hdf_data_for_returnn_training(self):
+    def set_hdf_data_for_returnn_training(self, input_data_mapping: Dict = None):
+        """
+        input_data_mapping is a mapping that has the key that should be used from the {train,cv}_input_data
+        as key
+        """
+        if input_data_mapping is None:
+            input_data_mapping = {
+                self.crp_names['train']: self.train_input_data,
+                self.crp_names['cvtrain']: self.cv_input_data
+            }
 
-            if self.training_criterion == TrainingCriterion.Viterbi:
-                hdf_helpers.build_feature_alignment_meta_dataset_config()
-
-            return
-
-        def returnn_training(
-            self,
-            experiment_key,
-            nn_train_args,
-        ):
-
-            """
-            train_data = self.train_input_data[train_corpus_key]
-            dev_data = self.cv_input_data[dev_corpus_key]
-
-            train_crp = train_data.get_crp()
-            dev_crp = dev_data.get_crp()
-
-            # if user is setting partition_epochs in the train args and whether it is inconsistent with the system info
-            assert self.partition_epochs is not None, "Set the partition_epochs dictionary"
-            if "partition_epochs" in nn_train_args:
-                for k in ["train", "dev"]:
-                    assert nn_train_args["partition_epochs"][k] == self.partition_epochs[k], "wrong partition_epochs"
-            else:
-                nn_train_args["partition_epochs"] = self.partition_epochs
-
-            if "returnn_config" not in nn_train_args:
-                returnn_config = self.experiments[experiment_key]["returnn_config"]
-            else:
-                returnn_config = nn_train_args.pop("returnn_config")
-            assert isinstance(returnn_config, returnn.ReturnnConfig)
-
-            if (
-                    train_data.feature_flow == dev_data.feature_flow
-                    and train_data.features == dev_data.features
-                    and train_data.alignments == dev_data.alignments
-            ):
-                trainer = self.trainers["rasr-returnn"]
-                feature_flow, alignments = self.get_feature_and_alignment_flows_for_training(data=train_data)
-            else:
-                trainer = self.trainers["rasr-returnn-costum-vit"]
-                feature_flow = {"train": None, "dev": None}
-                alignments = {"train": None, "dev": None}
-                feature_flow["train"], alignments["train"] = self.get_feature_and_alignment_flows_for_training(
-                    data=train_data
+        if self.training_criterion == TrainingCriterion.VITERBI:
+            builder = hdf_helpers.build_feature_alignment_meta_dataset_config
+            for k, input_data in input_data_mapping.items():
+                alignments = HDFAlignmentData(
+                    alignment_cache_bundle=input_data[k].alignments,
+                    allophone_file=StoreAllophonesJob(input_data[k].crp).out_allophone_file,
+                    state_tying_file=DumpStateTyingJob(input_data[k].crp).out_state_tying,
                 )
-                feature_flow["dev"], alignments["dev"] = self.get_feature_and_alignment_flows_for_training(
-                    data=dev_data)
 
-            if self.segments_to_exclude is not None:
-                extra_config = (
-                    rasr.RasrConfig() if "extra_rasr_config" not in nn_train_args else nn_train_args[
-                        "extra_rasr_config"]
+                input_data['hdf'] = builder(
+                    data_inputs=[input_data[k]],
+                    feature_info=self.feature_info,
+                    alignments=alignments,
+                    **self.hdf_builder_args,
                 )
-                extra_config["*"].segments_to_skip = self.segments_to_exclude
-                nn_train_args["extra_rasr_config"] = extra_config
 
-            train_job = trainer(
-                train_crp=train_crp,
-                dev_crp=dev_crp,
-                feature_flow=feature_flow,
-                alignment=alignments,
-                returnn_config=returnn_config,
-                returnn_root=self.returnn_root,
-                returnn_python_exe=self.returnn_python_exe,
-                **nn_train_args,
-            )"""
+        elif self.training_criterion == TrainingCriterion.FULLSUM:
+            builder = hdf_helpers.build_feature_label_meta_dataset_config
 
-            self._add_output_alias_for_train_job(
-                train_job=train_job,
-                name=self.experiments[experiment_key]["name"],
-            )
-            self.experiments[experiment_key]["train_job"] = train_job
-            self.set_graph_for_experiment(experiment_key)
+        else:
+            raise NotImplementedError("Only Viterbi and Fullsum training criteria for data preparation")
+
+        embed()
+
+        return

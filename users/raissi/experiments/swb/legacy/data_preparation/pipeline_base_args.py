@@ -103,8 +103,10 @@ def get_data_inputs_with_paths(
         test_data=test_data_inputs,
     )
 
-
-def get_final_output(name="final", extract_features=False):
+from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
+    InputKey
+)
+def get_final_output(name=InputKey.BASE):
     output_args = rasr_util.OutputArgs(name)
 
     output_args.define_corpus_type("train", "train")

@@ -2,20 +2,23 @@ __all__ = ["hdf_config_dict_for_files", "MetaDatasetBuilder"]
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
-from sisyhus import Path, tk
+from sisyphus import Path, tk
 
 from i6_experiments.users.raissi.args.rasr.features.init_args import (
     get_feature_extraction_args_16kHz,
     get_feature_extraction_args_8kHz,
 )
 
-from i6_experiments.common.setups.rasr.util import RasrDataInput
+from i6_experiments.common.setups.rasr.util import (
+    RasrDataInput,
+    ReturnnRasrDataInput
+)
 
 from i6_experiments.users.raissi.setups.common.features.taxonomy import FeatureInfo, FeatureType
-from i6_experiments.users.raissi.utils.dump import build_rasr_feature_hdfs
+from i6_experiments.users.raissi.setups.common.util.hdf.dump import build_rasr_feature_hdfs
 
 @dataclass
 class HDFAlignmentData:
@@ -74,12 +77,10 @@ class MetaDatasetBuilder:
         }
 
 def build_feature_hdf_dataset_config(
-    data_inputs: List[RasrDataInput],
+    data_inputs: List[ReturnnRasrDataInput],
     feature_info: FeatureInfo,
     returnn_root: tk.Path,
     returnn_python_exe: tk.Path,
-    rasr_binary_path: tk.Path,
-    rasr_arch: str = "linux-x86_64-standard",
     dc_detection: bool = False,
     single_hdf: bool = False,
     extra_config: Optional[dict] = None,
@@ -98,14 +99,11 @@ def build_feature_hdf_dataset_config(
 
         for data_input in data_inputs:
             feature_hdfs += build_rasr_feature_hdfs(
-                data_input.corpus_object,
-                split=data_input.concurrent,
-                feature_type=feature_name,
+                data_input=data_input,
+                feature_name=feature_name,
                 feature_extraction_args=feat_args,
                 returnn_python_exe=returnn_python_exe,
                 returnn_root=returnn_root,
-                rasr_binary_path=rasr_binary_path,
-                rasr_arch=rasr_arch,
                 single_hdf=single_hdf,
             )
 
@@ -137,13 +135,11 @@ def build_feature_hdf_dataset_config(
 
 
 def build_feature_alignment_meta_dataset_config(
-    data_inputs: List[RasrDataInput],
+    data_inputs: List[ReturnnRasrDataInput],
     feature_info: FeatureInfo,
     alignments: List[HDFAlignmentData],
     returnn_root: tk.Path,
     returnn_python_exe: tk.Path,
-    rasr_binary_path: tk.Path,
-    rasr_arch: str = "linux-x86_64-standard",
     dc_detection: bool = False,
     single_hdf: bool = False,
     extra_config: Optional[dict] = None,
@@ -153,8 +149,6 @@ def build_feature_alignment_meta_dataset_config(
         feature_info=feature_info,
         returnn_root=returnn_root,
         returnn_python_exe=returnn_python_exe,
-        rasr_binary_path=rasr_binary_path,
-        rasr_arch=rasr_arch,
         dc_detection=dc_detection,
         single_hdf=single_hdf,
     )
@@ -163,6 +157,8 @@ def build_feature_alignment_meta_dataset_config(
     dataset_builder.add_dataset(
         name="data", dataset_config=feature_hdf_config, key_mapping={"data": "data"}, control=False
     )
+
+
 
     alignment_hdf_files = [
         alignment.get_hdf(returnn_python_exe=returnn_python_exe, returnn_root=returnn_root) for alignment in alignments
@@ -181,8 +177,6 @@ def build_feature_label_meta_dataset_config(
     label_dim: int,
     returnn_root: tk.Path,
     returnn_python_exe: tk.Path,
-    rasr_binary_path: tk.Path,
-    rasr_arch: str = "linux-x86_64-standard",
     dc_detection: bool = False,
     single_hdf: bool = False,
     extra_config: Optional[dict] = None,
@@ -192,8 +186,6 @@ def build_feature_label_meta_dataset_config(
         feature_info=feature_info,
         returnn_root=returnn_root,
         returnn_python_exe=returnn_python_exe,
-        rasr_binary_path=rasr_binary_path,
-        rasr_arch=rasr_arch,
         dc_detection=dc_detection,
         single_hdf=single_hdf,
         extra_config=extra_config,

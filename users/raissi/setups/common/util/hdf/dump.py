@@ -4,7 +4,7 @@ __all__ = ["build_hdf_from_alignment",
            "RasrAlignmentToHDF",
            "RasrForcedTriphoneAlignmentToHDF"]
 
-from sisyphus import Job, Path, Task, tk
+from sisyphus import gs, Job, Path, Task, tk
 
 from i6_core.corpus import SegmentCorpusJob
 import i6_core.features as features
@@ -18,6 +18,7 @@ from i6_core.util import MultiPath
 import dataclasses
 from dataclasses import dataclass
 import h5py
+from IPython import embed
 import logging
 import numpy as np
 import os
@@ -28,6 +29,9 @@ import time
 from typing import Any, Dict, List, Optional, Union
 
 from i6_experiments.users.raissi.setups.common.util.cache_manager import cache_file
+from i6_experiments.common.setups.rasr.util import (
+    ReturnnRasrDataInput
+)
 
 
 
@@ -65,32 +69,23 @@ def build_hdf_from_alignment(
 
 #copied from simon
 def build_rasr_feature_hdfs(
-    corpus: CorpusObject,
-    split: int,
+    data_input: ReturnnRasrDataInput,
     feature_name: str,
     feature_extraction_args: Dict[str, Any],
+
     returnn_python_exe: tk.Path,
     returnn_root: tk.Path,
-    rasr_binary_path: tk.Path,
-    rasr_arch: str = "linux-x86_64-standard",
     single_hdf: bool = False,
 ) -> List[tk.Path]:
-    # Build CRP
-    base_crp = rasr.CommonRasrParameters()
-    rasr.crp_add_default_output(base_crp)
-    base_crp.set_executables(rasr_binary_path, rasr_arch)
-
-    rasr.crp_set_corpus(base_crp, corpus)
-    base_crp.concurrent = split
-
-    feature_job = {"mfcc": features.MfccJob, "gt": features.GammatoneJob, "energy": features.EnergyJob, "fb": features.FilterbankJob}[feature_name](
-        crp=base_crp, **feature_extraction_args
-    )
-    feature_job.set_keep_value(gs.JOB_DEFAULT_KEEP_VALUE - 20)
 
     hdf_files = []
 
-    if single_hdf:
+    if single_hdf or data_input.features is None:
+        feature_job = {"mfcc": features.MfccJob, "gt": features.GammatoneJob, "energy": features.EnergyJob,
+                       "fb": features.FilterbankJob}[feature_name](
+            crp=data_input.crp, **feature_extraction_args
+        )
+        feature_job.set_keep_value(gs.JOB_DEFAULT_KEEP_VALUE - 20)
         dataset_config = {
             "class": "SprintCacheDataset",
             "data": {
@@ -105,12 +100,12 @@ def build_rasr_feature_hdfs(
         ).out_hdf
         hdf_files.append(hdf_file)
     else:
-        for idx in range(1, split + 1):
+        for idx, feature_cache in data_input.features.hidden_paths.items():
             dataset_config = {
                 "class": "SprintCacheDataset",
                 "data": {
                     "data": {
-                        "filename": feature_job.out_single_feature_caches[feature_name][idx],
+                        "filename": feature_cache,
                         "data_type": "feat",
                     }
                 },

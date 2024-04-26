@@ -51,17 +51,15 @@ import i6_experiments.users.raissi.setups.common.helpers.decode as decode_helper
 # user based modules
 from i6_experiments.users.raissi.setups.common.data.backend import BackendInfo
 
-from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
-    get_lexicon_args,
-    get_tdp_values,
-)
-
 from i6_experiments.users.raissi.setups.common.data.factored_label import (
     LabelInfo,
     PhoneticContext,
     RasrStateTying,
 )
 
+from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
+    InputKey
+)
 
 from i6_experiments.users.raissi.setups.common.helpers.priors import (
     get_returnn_config_for_center_state_prior_estimation,
@@ -84,6 +82,8 @@ from i6_experiments.users.raissi.setups.common.decoder.config import (
     SearchParameters,
     AlignmentParameters,
 )
+
+
 
 
 # -------------------- Init --------------------
@@ -711,7 +711,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             self.label_info = dataclasses.replace(self.label_info, state_tying=state_tying)
             self.lexicon_args["norm_pronunciation"] = False
             self.set_rasr_returnn_input_datas(
-                input_key="data_preparation",
+                input_key=InputKey.BASE,
                 is_cv_separate_from_train=True,
                 cv_corpus_key="dev-other",
             )
