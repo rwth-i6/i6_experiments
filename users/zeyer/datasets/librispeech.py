@@ -599,15 +599,22 @@ def _score_recog_out_v2(dataset: DatasetConfig, recog_output: RecogOutput) -> Sc
     """score"""
     # We use sclite now.
     # Could also use ReturnnComputeWERJob.
-    from i6_experiments.users.zeyer.returnn.search import SearchWordsDummyTimesToCTMJob, TextDictToStmJob
+    from i6_core.returnn.search import SearchWordsDummyTimesToCTMJob
+    from i6_core.text.convert import TextDictToStmJob
     from i6_core.recognition.scoring import ScliteJob
 
     hyp_words = recog_output.output
     corpus_name = dataset.get_main_name()
 
     corpus_text_dict = _corpus_text_dicts[corpus_name]
-    search_ctm = SearchWordsDummyTimesToCTMJob(recog_words_file=hyp_words, seq_order_file=corpus_text_dict).out_ctm_file
-    stm_file = TextDictToStmJob(text_dict=corpus_text_dict).out_stm_path
+    # Arbitrary seg length time. The jobs SearchWordsDummyTimesToCTMJob and TextDictToStmJob
+    # serialize two points after decimal, so long seqs (>1h or so) might be problematic,
+    # and no reason not to just use a high value here to avoid this problem whenever we get to it.
+    seg_length_time = 1000.0
+    search_ctm = SearchWordsDummyTimesToCTMJob(
+        recog_words_file=hyp_words, seq_order_file=corpus_text_dict, seg_length_time=seg_length_time
+    ).out_ctm_file
+    stm_file = TextDictToStmJob(text_dict=corpus_text_dict, seg_length_time=seg_length_time).out_stm_path
 
     score_job = ScliteJob(
         ref=stm_file, hyp=search_ctm, sctk_binary_path=tools_paths.get_sctk_binary_path(), precision_ndigit=2
