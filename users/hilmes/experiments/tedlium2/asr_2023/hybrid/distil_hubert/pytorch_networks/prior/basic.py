@@ -8,8 +8,6 @@ def forward_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     audio_features_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
 
     log_probs, logits_ce_order = model(
-        raw_audio=None,
-        raw_audio_len=None,
         audio_features=audio_features,
         audio_features_len=audio_features_len.to(audio_features.device)
     )  # [B, T, F]

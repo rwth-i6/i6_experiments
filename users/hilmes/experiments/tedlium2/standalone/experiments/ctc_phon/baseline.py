@@ -1,21 +1,37 @@
 import copy
-from dataclasses import asdict
+from dataclasses import asdict,  dataclass
 import numpy as np
-from typing import cast, List
+from typing import cast, List, Dict, Any, Optional
 
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
+from i6_core.tools.git import CloneGitRepositoryJob
 
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 
-from ...data.common import DatasetSettings, build_test_dataset
+from ...data.common import DatasetSettings, build_test_dataset, TrainingDatasets
 from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
-from ...pipeline import training, prepare_asr_model, search, ASRModel
+from ...pipeline import training, prepare_asr_model, search, ASRModel, quantize_static
+from ...report import generate_report
+from ...config import get_static_quant_config
+
+@dataclass
+class QuantArgs:
+    sample_ls: List[int]
+    quant_config_dict: Dict[str, Any]
+    decoder: str
+    num_iterations: int
+    datasets: TrainingDatasets
+    network_module: str
+
+QUANT_RETURNN = CloneGitRepositoryJob(
+    "https://github.com/JackTemaki/MiniReturnn", commit="f31614f2a071aa75588eff6f2231b54751fb962c"
+).out_repository.copy()
 
 
 def eow_phon_ted_1023_base():
-    prefix_name = "experiments/tedlium/ctc_rnnt_standalone_2024/ls960_ctc_eow_phon"
+    prefix_name = "experiments/tedlium2/ctc_rnnt_standalone_2024/ctc_eow_phon"
 
     train_settings = DatasetSettings(
         preemphasis=0.97,  # TODO: Check if this is really useful
@@ -62,6 +78,9 @@ def eow_phon_ted_1023_base():
         base_decoder_config: DecoderConfig,
         lm_scales: List[float],
         prior_scales: List[float],
+        quant_str: Optional[str] = None,
+        eval_test: bool = False,
+        quant_args: Optional[QuantArgs] =  None,
     ):
         """
         Example helper to execute tuning over lm_scales and prior scales.
@@ -76,8 +95,8 @@ def eow_phon_ted_1023_base():
         :param prior_scales: prior scales for tuning, same length as lm scales
         """
         tune_parameters = []
-        tune_values_clean = []
-        tune_values_other = []
+        tune_values = []
+        results = {}
         for lm_weight in lm_scales:
             for prior_scale in prior_scales:
                 decoder_config = copy.deepcopy(base_decoder_config)
@@ -94,26 +113,73 @@ def eow_phon_ted_1023_base():
                     **default_returnn,
                 )
                 tune_parameters.append((lm_weight, prior_scale))
-                tune_values_clean.append((wers[search_name + "/dev-clean"]))
-                tune_values_other.append((wers[search_name + "/dev-other"]))
-
-        for key, tune_values in [("test-clean", tune_values_clean), ("test-other", tune_values_other)]:
-            pick_optimal_params_job = GetOptimalParametersAsVariableJob(
-                parameters=tune_parameters, values=tune_values, mode="minimize"
-            )
-            pick_optimal_params_job.add_alias(training_name + f"/pick_best_{key}")
-            decoder_config = copy.deepcopy(base_decoder_config)
-            decoder_config.lm_weight = pick_optimal_params_job.out_optimal_parameters[0]
-            decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
-            search_jobs, wers = search(
-                training_name,
-                forward_config={},
-                asr_model=asr_model,
-                decoder_module="ctc.decoder.flashlight_ctc_v1",
-                decoder_args={"config": asdict(decoder_config)},
-                test_dataset_tuples={key: test_dataset_tuples[key]},
-                **default_returnn,
-            )
+                tune_values.append((wers[search_name + "/dev"]))
+                results.update(wers)
+        if quant_args is not None:
+            assert quant_str is not None, "You want your quant to have a name"
+            for num_samples in quant_args.sample_ls:
+                for seed in range(quant_args.num_iterations):
+                    it_name = training_name + quant_str + f"/quantize_static/samples_{num_samples}/seed_{seed}"
+                    quant_config = get_static_quant_config(
+                        training_datasets=quant_args.datasets,
+                        network_module=quant_args.network_module,
+                        net_args=asr_model.net_args,
+                        quant_args=quant_args.quant_config_dict,
+                        config={},
+                        num_samples=num_samples,
+                        dataset_seed=seed,
+                        debug=False,
+                    )
+                    quant_chkpt = quantize_static(
+                        prefix_name=it_name,
+                        returnn_config=quant_config,
+                        checkpoint=asr_model.checkpoint,
+                        returnn_exe=RETURNN_EXE,
+                        returnn_root=QUANT_RETURNN,
+                    )
+                    quant_model = ASRModel(
+                        checkpoint=quant_chkpt,
+                        net_args=asr_model.net_args | quant_args.quant_config_dict,
+                        network_module=quant_args.network_module,
+                        prior_file=asr_model.prior_file,
+                        prefix_name=it_name
+                    )
+                    for lm_weight in lm_scales:
+                        for prior_scale in prior_scales:
+                            decoder_config = copy.deepcopy(base_decoder_config)
+                            decoder_config.lm_weight = lm_weight
+                            decoder_config.prior_scale = prior_scale
+                            search_name = it_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale)
+                            search_jobs, wers = search(
+                                search_name,
+                                forward_config={},
+                                asr_model=quant_model,
+                                decoder_module=quant_args.decoder,
+                                decoder_args={"config": asdict(decoder_config)},
+                                test_dataset_tuples=dev_dataset_tuples,
+                                **default_returnn,
+                            )
+                            results.update(wers)
+        pick_optimal_params_job = GetOptimalParametersAsVariableJob(
+            parameters=tune_parameters, values=tune_values, mode="minimize"
+        )
+        pick_optimal_params_job.add_alias(training_name + f"/pick_best_dev")
+        if eval_test:
+            for key, tune_values in [("test", tune_values)]:
+                decoder_config = copy.deepcopy(base_decoder_config)
+                decoder_config.lm_weight = pick_optimal_params_job.out_optimal_parameters[0]
+                decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
+                search_jobs, wers = search(
+                    training_name,
+                    forward_config={},
+                    asr_model=asr_model,
+                    decoder_module="ctc.decoder.flashlight_ctc_v1",
+                    decoder_args={"config": asdict(decoder_config)},
+                    test_dataset_tuples={key: test_dataset_tuples[key]},
+                    **default_returnn,
+                )
+                results.update(wers)
+        return results, pick_optimal_params_job
 
     default_decoder_config = DecoderConfig(
         lexicon=get_text_lexicon(),
@@ -203,19 +269,228 @@ def eow_phon_ted_1023_base():
         "net_args": {"model_config_dict": asdict(model_config)},
         "debug": False,
     }
-
-    training_name = prefix_name + "/" + network_module + ".512dim_sub4_24gbgpu_50eps"
+    results = {}
+    training_name = prefix_name + "/" + network_module + "_384dim_sub4_24gbgpu_50eps_amp"
     train_job = training(training_name, train_data, train_args, num_epochs=250, **default_returnn)
     train_job.rqmt["gpu_mem"] = 24
     asr_model = prepare_asr_model(
         training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=250
     )
-    tune_and_evaluate_helper(
-        training_name, asr_model, default_decoder_config, lm_scales=[1.6, 1.8, 2.0, 2.2], prior_scales=[0.3, 0.5, 0.7]
+    res, _ = tune_and_evaluate_helper(
+        training_name, asr_model, default_decoder_config, lm_scales=[1.4, 1.6, 1.8, 2.0, 2.2, 2.4], prior_scales=[0.0, 0.3, 0.5, 0.7, 1.0]
+    )
+    results.update(res)
+    generate_report(results=results, exp_name=training_name)
+    del results
+
+    train_config = {
+        "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-3},
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                          + list(np.linspace(5e-4, 5e-5, 110))
+                          + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 180 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+    }
+    results = {}
+    training_name = prefix_name + "/" + network_module + "_384dim_sub4_50eps"
+    train_job = training(training_name, train_data, train_args, num_epochs=250, **default_returnn)
+    asr_model = prepare_asr_model(
+        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=250
+    )
+    lm_scales = [2.0, 2.2, 2.4, 2.6, 2.8]
+    prior_scales = [0.7, 0.9]
+    res, _ = tune_and_evaluate_helper(
+        training_name, asr_model, default_decoder_config, lm_scales=lm_scales,
+        prior_scales=prior_scales
+    )
+    results.update(res)
+    asr_model_best4 = prepare_asr_model(
+        training_name + "/best4", train_job, train_args, with_prior=True, datasets=train_data,
+        get_best_averaged_checkpoint=(4, "dev_loss_ctc")
+    )
+    res, _ = tune_and_evaluate_helper(training_name + "/best4", asr_model_best4, default_decoder_config,
+                                   lm_scales=lm_scales, prior_scales=prior_scales)
+    results.update(res)
+    asr_model_best = prepare_asr_model(
+        training_name + "/best", train_job, train_args, with_prior=True, datasets=train_data,
+        get_best_averaged_checkpoint=(1, "dev_loss_ctc")
+    )
+    res, _ = tune_and_evaluate_helper(training_name + "/best", asr_model_best, default_decoder_config,
+                                   lm_scales=lm_scales, prior_scales=prior_scales)
+    results.update(res)
+    generate_report(results=results, exp_name=training_name)  # TODO current best with 7.083
+    del results
+    from ...pytorch_networks.ctc.conformer_1023.quant.baseline_quant_v1_cfg import QuantModelConfigV1
+    num_iterations = 100
+    # what if we give more information to the activation instead?
+    for activation_bit in [8, 7, 6, 5, 4, 3, 2, 1]:
+        for weight_bit in [8, 7, 6, 5, 4, 3, 2, 1]:
+            results = {}
+            model_config_quant_v1 = QuantModelConfigV1(
+                weight_quant_dtype="qint8",
+                weight_quant_method="per_tensor",
+                activation_quant_dtype="qint8",
+                activation_quant_method="per_tensor",
+                dot_quant_dtype="qint8",
+                dot_quant_method="per_tensor",
+                Av_quant_dtype="qint8",
+                Av_quant_method="per_tensor",
+                moving_average=0.01,
+                weight_bit_prec=weight_bit,
+                activation_bit_prec=activation_bit,
+                linear_quant_output=False,
+            )
+            quant_args = QuantArgs(
+                sample_ls=[10] if weight_bit < 8 or activation_bit < 8 else [10, 100, 1000, 10000],
+                quant_config_dict={"quant_config_dict": asdict(model_config_quant_v1)},
+                decoder="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
+                num_iterations=num_iterations,
+                datasets=train_data,
+                network_module="ctc.conformer_1023.quant.baseline_quant_v1",
+            )
+            quant_str = f"_weight_{weight_bit}_act_{activation_bit}"
+            asr_model = prepare_asr_model(
+                training_name+quant_str,
+                train_job,
+                train_args,
+                with_prior=True,
+                datasets=train_data,
+                get_specific_checkpoint=250,
+            )
+            res, _ = tune_and_evaluate_helper(  # only take best for now, since otherwise too many searches
+                training_name, asr_model, default_decoder_config, lm_scales=[2.8],
+                prior_scales=[0.7], quant_args=quant_args, quant_str=quant_str,
+            )
+            results.update(res)
+            generate_report(results=results, exp_name=training_name + quant_str)
+            del results
+
+    num_iterations = 100
+    for activation_bit in [8]:
+        for weight_bit in [8, 7, 6, 5, 4, 3, 2, 1]:
+            results = {}
+            model_config_quant_v1 = QuantModelConfigV1(
+                weight_quant_dtype="qint8",
+                weight_quant_method="per_tensor",
+                activation_quant_dtype="qint8",
+                activation_quant_method="per_tensor",
+                dot_quant_dtype="qint8",
+                dot_quant_method="per_tensor",
+                Av_quant_dtype="qint8",
+                Av_quant_method="per_tensor",
+                moving_average=0.01,
+                weight_bit_prec=weight_bit,
+                activation_bit_prec=activation_bit,
+                linear_quant_output=True,
+            )
+            quant_args = QuantArgs(
+                sample_ls=[10] if weight_bit < 8 or activation_bit < 8 else [10, 100, 1000, 10000],
+                quant_config_dict={"quant_config_dict": asdict(model_config_quant_v1)},
+                decoder="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
+                num_iterations=num_iterations,
+                datasets=train_data,
+                network_module="ctc.conformer_1023.quant.baseline_quant_v1",
+            )
+            quant_str = f"_weight_{weight_bit}_act_{activation_bit}_qlin"
+            asr_model = prepare_asr_model(
+                training_name+quant_str, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=250
+            )
+            res, _ = tune_and_evaluate_helper(  # only take best for now, since otherwise too many searches
+                training_name, asr_model, default_decoder_config, lm_scales=[2.8],
+                prior_scales=[0.7], quant_args=quant_args, quant_str=quant_str
+            )
+            results.update(res)
+            generate_report(results=results, exp_name=training_name+quant_str)
+            del results
+
+    model_config_drop_03 = ModelConfig(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.3,
+        conv_dropout=0.3,
+        ff_dropout=0.3,
+        mhsa_dropout=0.3,
+        conv_kernel_size=31,
+        final_dropout=0.3,
+        specauc_start_epoch=1,
     )
 
-    # No improvement, just as example
-    # asr_model_best4 = prepare_asr_model(
-    #     training_name+ "/best4", train_job, train_args, with_prior=True, datasets=train_data, get_best_averaged_checkpoint=(4, "dev_loss_ctc")
-    # )
-    # tune_and_evaluate_helper(training_name + "/best4", asr_model_best4, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4])
+    train_config_24gbgpu_amp = {
+        "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-3},
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 210))
+        + list(np.linspace(5e-4, 5e-5, 210))
+        + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 360 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "torch_amp_options": {"dtype": "bfloat16"},
+    }
+    train_args = {
+        "config": train_config_24gbgpu_amp,
+        "network_module": network_module,
+        "net_args": {"model_config_dict": asdict(model_config_drop_03)},
+        "debug": False,
+        "use_speed_perturbation": True
+    }
+    results = {}
+    training_name = prefix_name + "/" + network_module + "_384dim_sub4_24gbgpu_50eps_amp_longer"
+    train_job = training(training_name, train_data, train_args, num_epochs=450, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 24
+    asr_model = prepare_asr_model(
+        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=450
+    )
+    res, _ = tune_and_evaluate_helper(
+        training_name, asr_model, default_decoder_config, lm_scales=[2.0, 2.2, 2.4, 2.6, 2.8], prior_scales=[0.5, 0.7]
+    )
+    results.update(res)
+    asr_model_best4 = prepare_asr_model(
+        training_name + "/best4", train_job, train_args, with_prior=True, datasets=train_data, get_best_averaged_checkpoint=(4, "dev_loss_ctc")
+    )
+    res, _ = tune_and_evaluate_helper(training_name + "/best4", asr_model_best4, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.5, 0.7])
+    results.update(res)
+    asr_model_best = prepare_asr_model(
+        training_name + "/best", train_job, train_args, with_prior=True, datasets=train_data,
+        get_best_averaged_checkpoint=(1, "dev_loss_ctc")
+    )
+    res, _ = tune_and_evaluate_helper(training_name + "/best", asr_model_best, default_decoder_config,
+                             lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.5, 0.7])
+    results.update(res)
+    generate_report(results=results, exp_name=training_name)
+    del results
+
+    network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_conv_first"
+    train_args = {
+        "config": train_config_24gbgpu_amp,
+        "network_module": network_module,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+    }
+    results = {}
+    training_name = prefix_name + "/" + network_module + "_384dim_sub4_24gbgpu_50eps_conv_first_amp"
+    train_job = training(training_name, train_data, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 24
+    asr_model = prepare_asr_model(
+        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=250
+    )
+    res, _ = tune_and_evaluate_helper(
+        training_name, asr_model, default_decoder_config, lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+        prior_scales=[0.5, 0.7]
+    )
+    results.update(res)
+    generate_report(results=results, exp_name=training_name)
+    del results

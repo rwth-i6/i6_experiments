@@ -41,7 +41,7 @@ def get_eow_bliss(corpus_key: str, remove_unk_seqs=False) -> tk.Path:
         in case of using them for cross validation
     :return:
     """
-    bliss = get_bliss_corpus_dict(audio_format="ogg")[corpus_key]
+    bliss = get_bliss_corpus_dict(audio_format="wav")[corpus_key]
     if remove_unk_seqs:
         from i6_core.corpus.filter import FilterCorpusRemoveUnknownWordSegmentsJob
 

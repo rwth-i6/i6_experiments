@@ -83,7 +83,7 @@ def get_zip(alias_name: str, bliss_dataset: tk.Path) -> tk.Path:
     """
     zip_dataset_job = BlissToOggZipJob(
         bliss_corpus=bliss_dataset,
-        no_conversion=True,  # for Tedlium we are already having ogg
+        no_conversion=False,  # for Tedlium we need conversion to cut the audio
         returnn_python_exe=RETURNN_EXE,
         returnn_root=MINI_RETURNN_ROOT,
     )

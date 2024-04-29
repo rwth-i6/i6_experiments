@@ -79,7 +79,7 @@ def search_single(
 
     stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
 
-    sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH)
+    sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=3)
     tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
     tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
 
@@ -137,6 +137,7 @@ def search(
             test_dataset_reference,
             returnn_exe,
             returnn_root,
+            mem_rqmt=16 if "8192" in "search_name" else 10,
             use_gpu=use_gpu,
         )
         search_jobs.append(search_job)
@@ -177,6 +178,41 @@ def compute_prior(
     )
     search_job.add_alias(prefix_name + "/prior_job")
     return search_job.out_files["prior.txt"]
+
+@tk.block()
+def quantize_static(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    checkpoint: tk.Path,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    mem_rqmt: int = 16,
+):
+    """
+    Run search for a specific test dataset
+
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: override the default memory requirement
+    """
+    quantize_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=2,
+        device="gpu",
+        cpu_rqmt=8,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=['model.pt', "seq_tags.txt"],
+    )
+    quantize_job.set_keep_value(5)
+    quantize_job.add_alias(prefix_name + "/calibration")
+    return quantize_job.out_files['model.pt']
 
 
 def training(training_name, datasets, train_args, num_epochs, returnn_exe, returnn_root):

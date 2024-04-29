@@ -66,7 +66,7 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **n
             },
             "optimize_am_lm_scale": True,
             "rtf": 50,
-            "mem": 7,
+            "mem": 6,
             "lmgc_mem": 16,
             "cpu": 2,
             "parallelize_conversion": True,
@@ -304,5 +304,5 @@ def get_pytorch_returnn_configs(
             models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
             max_seqs=2,
             grad_acc=50,
-        ) for x in [[y for y in range(23)]]},
+        ) for x in [[y for y in range(23)]]},  # 4.9!
     }

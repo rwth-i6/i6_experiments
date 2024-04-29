@@ -22,11 +22,14 @@ def run_gmm_system():
 
 
 def run_tedlium2_torch_conformer():
+    import time
+    start = time.time()
     prefix = "experiments/tedlium2/hybrid/conformer_baseline"
     gs.ALIAS_AND_OUTPUT_SUBDIR = prefix
 
     gmm_system = run_gmm_system()
-
+    print(f"GMM Time {time.time() - start}")
+    start = time.time()
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
     rasr_init_args.feature_extraction_args = get_log_mel_feature_extraction_args()
     (
@@ -61,7 +64,8 @@ def run_tedlium2_torch_conformer():
         "https://github.com/rwth-i6/returnn",
         commit="0963d5b0ad55145a092c1de9bba100c94ee8600c",
     ).out_repository
-
+    print(f"Pre Hybrid Time {time.time() - start}")
+    start = time.time()
     tedlium_nn_system = PyTorchOnnxHybridSystem(
         returnn_root=returnn_root,
         returnn_python_exe=returnn_exe,
@@ -69,6 +73,8 @@ def run_tedlium2_torch_conformer():
         rasr_arch="linux-x86_64-standard",
         rasr_binary_path=rasr_binary,
     )
+    print(f"Constructor Time {time.time() - start}")
+    start = time.time()
     tedlium_nn_system.init_system(
         rasr_init_args=rasr_init_args,
         train_data=nn_train_data_inputs,
@@ -78,7 +84,8 @@ def run_tedlium2_torch_conformer():
         test_data=nn_test_data_inputs,
         train_cv_pairing=[tuple(["train.train", "dev.cv"])],
     )
+    print(f"Init Time {time.time() - start}")
     tedlium_nn_system.run(nn_steps)
-
+    print(f"Post Hybrid Time {time.time() - start}")
     gs.ALIAS_AND_OUTPUT_SUBDIR = ""
 

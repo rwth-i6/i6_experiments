@@ -16,7 +16,7 @@ def get_4gram_binary_lm(prefix_name) -> tk.Path:
 
     :return: path to a binary LM file
     """
-    lm = run_tedlium2_ngram_lm(add_unknown_phoneme_and_mapping=False).interpolated_lms["dev-pruned"]["4gram"]  # TODO
+    lm = run_tedlium2_ngram_lm(add_unknown_phoneme_and_mapping=False).interpolated_lms["dev-pruned"]["4gram"].ngram_lm  # TODO
     arpa_4gram_binary_lm_job = CreateBinaryLMJob(
         arpa_lm=lm, kenlm_binary_folder=KENLM_BINARY_PATH
     )

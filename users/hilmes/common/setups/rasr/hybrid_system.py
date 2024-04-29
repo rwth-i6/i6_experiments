@@ -54,7 +54,9 @@ def calc_stat(ls):
     ex_str = f"Avrg: {avrg}, Min {min}, Max {max}, Median {median}, Std {std}"
     return ex_str
 
+
 def hybrid_report_format(report: _Report_Type) -> str:
+    quants = report.pop("quant")
     extra_ls = ["iter", "filter", "skip", "quant_min_max", "quant_entropy", "quant_percentile", "rtf-intel"]
     out = [(recog, str(report[recog])) for recog in report if not any(extra in recog for extra in extra_ls)]
     out = sorted(out, key=lambda x: float(x[1]))
@@ -62,12 +64,23 @@ def hybrid_report_format(report: _Report_Type) -> str:
     for extra in extra_ls:
         if extra == "iter":
             for quant, count in itertools.product(["min_max", "entropy", "percentile"], ["10", "500", "1000"]):
-                out2 = [(recog, str(report[recog])) for recog in report if "iter" in recog and quant in recog and (recog.endswith(count) or recog.endswith(count + "-optlm") and not "seed" in recog)]
+                out2 = [(recog, str(report[recog])) for recog in report if "iter" in recog and quant in recog and (recog.endswith(count) or recog.endswith(count + "-optlm") and not "seed" in recog and "avrg" not in recog)]
                 out2 = sorted(out2, key=lambda x: float(x[1]))
                 if len(out2) > 0:
                     ex_str = calc_stat(out2)
                     out.append((extra + "_" + quant + "_" + count, ex_str))
-                    out.extend(out2)
+                    out.extend(out2[:3])
+                    out.extend(out2[-3:])
+                    best_ls.append(out2[0])
+                out2 = [(recog, str(report[recog])) for recog in report if "iter" in recog and quant in recog and (
+                            recog.endswith(count) or recog.endswith(
+                        count + "-optlm") and not "seed" in recog and "avrg" in recog)]
+                out2 = sorted(out2, key=lambda x: float(x[1]))
+                if len(out2) > 0:
+                    ex_str = calc_stat(out2)
+                    out.append((extra + "_avrg" + "_" + quant + "_" + count, ex_str))
+                    out.extend(out2[:3])
+                    out.extend(out2[-3:])
                     best_ls.append(out2[0])
                 for seed in ["24, 2005, 5"]:
                         out2 = [(recog, str(report[recog])) for recog in report if
@@ -77,17 +90,58 @@ def hybrid_report_format(report: _Report_Type) -> str:
                         if len(out2) > 0:
                             ex_str = calc_stat(out2)
                             out.append((quant + "_seed_" + seed + "_" + extra + "-" + count, ex_str))
-                            out.extend(out2)
+                            out.extend(out2[:3])
+                            out.extend(out2[-3:])
                             best_ls.append(out2[0])
         elif extra == "filter":
-            for quant, count, mode, thresh in itertools.product(["min_max", "entropy", "percentile"], ["10", "500", "1000"], ["max_calib_len_", "min_calib_len_", "partition_"], ["500", "1000" "1500", "11650000"]):
+            for quant, count, mode, thresh in itertools.product(["min_max", "entropy", "percentile"], ["10", "500", "1000"], ["max_calib_len_", "min_calib_len_"], ["500", "1000" "1500"]):
                 out2 = [(recog, str(report[recog])) for recog in report if "filter" in recog and quant in recog and (
                             recog.endswith(count) or recog.endswith(count + "-optlm")) and mode+thresh in recog]
                 out2 = sorted(out2, key=lambda x: float(x[1]))
                 if len(out2) > 0:
                     ex_str = calc_stat(out2)
                     out.append((extra + "_" + mode + thresh + "_" + quant + "_" + count, ex_str))
-                    out.extend(out2)
+                    out.extend(out2[:3])
+                    out.extend(out2[-3:])
+                    best_ls.append(out2[0])
+            partitions = set()
+            for recog in report:
+                if "partition" in recog:
+                    spl = recog.split("_")
+                    for i, x in enumerate(spl):
+                        if x == "partition":
+                            partitions.add(spl[i+1].split("-")[0])  # add the number after the partition which gives identification
+            for quant, count, thresh in itertools.product(["min_max", "entropy", "percentile"], ["10", "500", "1000"], partitions):
+                mode = "partition_"
+                out2 = [(recog, str(report[recog])) for recog in report if "filter" in recog and quant in recog and (
+                            recog.endswith(count) or recog.endswith(count + "-optlm")) and mode+thresh in recog]
+                out2 = sorted(out2, key=lambda x: float(x[1]))
+                if len(out2) > 0:
+                    ex_str = calc_stat(out2)
+                    out.append((extra + "_" + mode + thresh + "_" + quant + "_" + count, ex_str))
+                    out.extend(out2[:3])
+                    out.extend(out2[-3:])
+                    best_ls.append(out2[0])
+            budgets = set()
+            for recog in report:
+                if "budget" in recog:
+                    spl = recog.split("_")
+                    for i, x in enumerate(spl):
+                        if x == "budget":
+                            budgets.add(spl[i+1].split("-")[0])  # add the number after the partition which gives identification
+            for quant, thresh in itertools.product(["min_max", "entropy", "percentile"], budgets):
+                mode = "budget_"
+                from logging import info
+                info(report)
+                assert False, quants
+                out2 = [(recog, str(report[recog])) for recog in report if "filter" in recog and quant in recog and (
+                            recog.endswith(count) or recog.endswith(count + "-optlm")) and mode+thresh in recog]
+                out2 = sorted(out2, key=lambda x: float(x[1]))
+                if len(out2) > 0:
+                    ex_str = calc_stat(out2)
+                    out.append((extra + "_" + mode + thresh + "_" + quant + "_" + count, ex_str))
+                    out.extend(out2[:3])
+                    out.extend(out2[-3:])
                     best_ls.append(out2[0])
         else:
             out2 = [(recog, str(report[recog])) for recog in report if extra in recog and not ("iter" in recog or "filter" in recog)]
@@ -95,11 +149,12 @@ def hybrid_report_format(report: _Report_Type) -> str:
             if len(out2) > 0:
                 ex_str = calc_stat(out2)
                 out.append((extra, ex_str))
-                out.extend(out2)
+                out.extend(out2[:3])
+                out.extend(out2[-3:])
                 best_ls.append(out2[0])
 
     best_ls = sorted(best_ls, key=lambda x: float(x[1]))
-    best_ls += [("Base Results:", "")]
+    best_ls += [("Base Results", "")]
     out = best_ls + out
     out.insert(0, ("Best Results", ""))
     return "\n".join([f"{pair[0]}:  {str(pair[1])}" for pair in out])
@@ -602,8 +657,9 @@ class HybridSystem(NnSystem):
             name_list = [pairing[2]] if len(pairing) >= 3 else list(step_args.returnn_training_configs.keys())
             dvtr_c_list = [pairing[3]] if len(pairing) >= 4 else self.devtrain_corpora
             dvtr_c_list = [None] if len(dvtr_c_list) == 0 else dvtr_c_list
-
+            import time
             for name, dvtr_c in itertools.product(name_list, dvtr_c_list):
+                start = time.time()
                 if isinstance(self.train_input_data[trn_c], ReturnnRasrDataInput):
                     returnn_train_job = self.returnn_rasr_training(
                         name=name,
@@ -627,7 +683,8 @@ class HybridSystem(NnSystem):
                 returnn_recog_config = step_args.returnn_recognition_configs.get(
                     name, step_args.returnn_training_configs[name]
                 )
-
+                print(f"NN Train Iteration {time.time() - start}")
+                start = time.time()
                 self.nn_recog(
                     train_name=name,
                     train_corpus_key=trn_c,
@@ -636,6 +693,8 @@ class HybridSystem(NnSystem):
                     step_args=step_args,
                     train_job=returnn_train_job,
                 )
+                print(f"NN Recog Iteration {time.time() - start}")
+                start = time.time()
                 from i6_core.report import GenerateReportStringJob, MailJob
 
                 results = {}
@@ -649,11 +708,18 @@ class HybridSystem(NnSystem):
                         if scorer.out_wer:
                             results[job_name] = scorer.out_wer
                 tk.register_report(f"reports/{name.replace('/', '_')}", values=results)
+                quants = {}
+                for c in self.dev_corpora + self.test_corpora:
+                    for job_name in self.jobs[c]:
+                        if "quantize_static" in job_name and "budget" in job_name:
+                            quants[job_name] = self.jobs[c][job_name]
+                results["quant"] = quants
                 report = GenerateReportStringJob(report_values=results, report_template=hybrid_report_format)
                 report.add_alias(f"report/report_{name}")
                 mail = MailJob(report.out_report, send_contents=True, subject=name)
                 mail.add_alias(f"report/mail_{name}")
                 tk.register_output("mail/" + name, mail.out_status)
+                print(f"NN Report Iteration {time.time() - start}")
 
     def run_nn_recog_step(self, step_args: NnRecogArgs):
         for eval_c in self.dev_corpora + self.test_corpora:
@@ -730,7 +796,10 @@ class HybridSystem(NnSystem):
 
             # ---------- NN Training ----------
             if step_name.startswith("nn"):
+                import time
+                start = time.time()
                 self.run_nn_step(step_name, step_args)
+                print(f"NN Time {time.time() - start}")
 
             if step_name.startswith("recog"):
                 self.run_nn_recog_step(step_args)

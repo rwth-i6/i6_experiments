@@ -15,7 +15,7 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **n
 #    evaluation_epochs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] + list(range(10, num_epochs + 1, 10))
     evaluation_epochs = list(range(10, num_epochs + 1, 10))
 
-    batch_size = {"classes": 12000, "data": 12000 * 160}
+    batch_size = {"classes": 14000, "data": 120 * 16000}
     returnn_configs = get_pytorch_returnn_configs(
         num_inputs=1,
         num_outputs=num_outputs,
@@ -64,7 +64,7 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **n
             },
             "optimize_am_lm_scale": True,
             "rtf": 50,
-            "mem": 7,
+            "mem": 6,
             "lmgc_mem": 16,
             "cpu": 2,
             "parallelize_conversion": True,
@@ -237,10 +237,7 @@ def get_pytorch_returnn_configs(
             if "min_seq_length" in base_config:
                 del base_config["min_seq_length"]
 
-            if "hubert" in model_type:
-                prior_computation = Import(package + ".pytorch_networks.prior.basic.forward_step")
-            else:
-                prior_computation = Import(package + ".pytorch_networks.prior.whisper_prior.forward_step")
+            prior_computation = Import(package + ".pytorch_networks.prior.basic.forward_step")
             serializer_objects.append(prior_computation)
             prior_computation = Import(
                 package + ".pytorch_networks.prior.prior_callback.ComputePriorCallback", import_as="forward_callback"
@@ -307,9 +304,69 @@ def get_pytorch_returnn_configs(
                 },
             },
             models_commit="3c9173691521778b1e8b4070c172cbe929e4826b",
-            max_seqs=2,
-            grad_acc=14,
-        ) for x in [0.00]},
+            #max_seqs=2,
+            #grad_acc=14,
+        ) for x in [0.00]},  # 6.4
+        **{f"torch_old_spec_baseline": construct_from_net_kwargs(
+            hubert_config,
+            {
+                "model_type": "conformer_baseline",
+                "conformer_size": 384,
+                "conv_kernel_size": 7,
+                "att_heads": 6,
+                "ff_dim": 1536,
+                "spec_num_time": 20,
+                "spec_max_time": 20,
+                "spec_num_feat": 5,
+                "spec_max_feat": 16,
+                "pool_1_stride": (3, 1),
+                "pool_1_kernel_size": (1, 2),
+                "pool_1_padding": None,
+                "pool_2_stride": None,
+                "pool_2_kernel_size": (1, 2),
+                "pool_2_padding": None,
+                "num_layers": 12,
+                "upsample_kernel": 3,
+                "upsample_stride": 3,
+                "upsample_padding": 0,
+                "upsample_out_padding": 0,
+                "dropout": 0.2,
+                "old_spec": True
+            },
+            models_commit="3c9173691521778b1e8b4070c172cbe929e4826b",
+            # max_seqs=2,
+            # grad_acc=14,
+        ) for x in [0.00]}, # 6.2
+        **{f"torch_new_spec_baseline": construct_from_net_kwargs(
+            hubert_config,
+            {
+                "model_type": "conformer_baseline",
+                "conformer_size": 384,
+                "conv_kernel_size": 7,
+                "att_heads": 6,
+                "ff_dim": 1536,
+                "spec_num_time": 20,
+                "spec_max_time": 20,
+                "spec_num_feat": 5,
+                "spec_max_feat": 16,
+                "pool_1_stride": (3, 1),
+                "pool_1_kernel_size": (1, 2),
+                "pool_1_padding": None,
+                "pool_2_stride": None,
+                "pool_2_kernel_size": (1, 2),
+                "pool_2_padding": None,
+                "num_layers": 12,
+                "upsample_kernel": 3,
+                "upsample_stride": 3,
+                "upsample_padding": 0,
+                "upsample_out_padding": 0,
+                "dropout": 0.2,
+                "old_spec": False,
+            },
+            models_commit="3c9173691521778b1e8b4070c172cbe929e4826b",
+            # max_seqs=2,
+            # grad_acc=14,
+        ) for x in [0.00]},  # 6.2
         # **{f"torch_distill_hubert_large_test_chunk_{x}": construct_from_net_kwargs(
         #     chunk_400_200_config,
         #     {

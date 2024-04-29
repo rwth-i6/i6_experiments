@@ -148,7 +148,10 @@ class Model(nn.Module):
         )
         # self.initial_linear = nn.Linear(80, conformer_size)
 
-    def forward(self, raw_audio: torch.Tensor, raw_audio_len: torch.Tensor, audio_features: torch.Tensor, audio_features_len: torch.Tensor):
+    def forward(self,
+                audio_features: torch.Tensor, audio_features_len: torch.Tensor,
+                raw_audio: torch.Tensor = None,
+                raw_audio_len: torch.Tensor = None):
 
         run_ctx = rf.get_run_ctx()
         # Hubert teacher:
@@ -176,7 +179,7 @@ class Model(nn.Module):
             audio_features_masked = audio_features
 
         mask = _lengths_to_padding_mask(audio_features_len, audio_features_masked)
-        conformer_out, _ = self.conformer(audio_features, mask)
+        conformer_out, _ = self.conformer(audio_features_masked, mask)
 
         upsampled = self.upsample_conv(conformer_out.transpose(1, 2)).transpose(1, 2)  # final upsampled [B, T, F]
         upsampled = upsampled[:, 0: audio_features.size()[1], :]

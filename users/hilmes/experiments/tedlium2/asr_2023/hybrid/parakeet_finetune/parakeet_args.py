@@ -64,7 +64,7 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **n
             },
             "optimize_am_lm_scale": True,
             "rtf": 50,
-            "mem": 7,
+            "mem": 6,
             "lmgc_mem": 16,
             "cpu": 2,
             "parallelize_conversion": True,
@@ -283,7 +283,7 @@ def get_pytorch_returnn_configs(
             grad_acc=50,
             learning_rate=0.00001,
          ),
-        "torch_parakeet_1.1": construct_from_net_kwargs(
+        "torch_parakeet_1.1": construct_from_net_kwargs(  # 6.5
             whisper_config,
             {
                 "model_type": "parakeet_finetune",
@@ -296,7 +296,7 @@ def get_pytorch_returnn_configs(
             max_seqs=1,
             grad_acc=100,
         ),
-        "torch_parakeet_fix": construct_from_net_kwargs(  # 5.4 with 100 batch, now running 150
+        "torch_parakeet_fix": construct_from_net_kwargs(  # 5.3
             whisper_config,
             {
                 "model_type": "parakeet_finetune",
@@ -322,7 +322,7 @@ def get_pytorch_returnn_configs(
             max_seqs=20,
             grad_acc=5,
         ),
-        "torch_parakeet_1.1_amp": construct_from_net_kwargs(
+        "torch_parakeet_1.1_amp": construct_from_net_kwargs(  # 7.8
             amp_config,
             {
                 "model_type": "parakeet_finetune",

@@ -82,6 +82,12 @@ def get_quant_str(
             mode_str_tmp += f"_min_calib_len_{filter_opts['min_seq_len']}"
         if "partition" in filter_opts:
             mode_str_tmp += f"_partition_{sum([x * y for x,y in filter_opts['partition']])}"
+        if "budget" in filter_opts:
+            mode_str_tmp += f"_budget_{filter_opts['budget'][0]}_{filter_opts['budget'][1]}"
+        if "single_tag" in filter_opts:
+            mode_str_tmp += f"_single_tag"
+        if "unique_tags" in filter_opts:
+            mode_str_tmp += f"_unique_tags"
 
     return mode_str_tmp
 
@@ -294,8 +300,6 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                     smooth_ls = tmp_kwargs.pop("smooth_ls", [])
                     quant_filter_opts = tmp_kwargs.pop("quant_filter_opts", [None])
                     for data_num in data_num_ls:
-                        if data_num > 250 and "blstm" in name:
-                            continue
                         for quant_mode, average, sym, activation_type, weight_type, quant_format, quant_ops, percentile, num_bins, filter_opts in itertools.product(quant_modes, avg_modes, sym_modes, activation_type_ls, weight_type_ls, quant_format_ls, quant_ops_ls, percentile_ls, num_bin_ls, quant_filter_opts):
                             if average and (not quant_mode == CalibrationMethod.MinMax or "speed" in name):
                                 continue
@@ -345,6 +349,8 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                                 quant_job.add_alias("quantize_static/" + name + "/" + mode_str + "/epoch" + epoch_str + "_" + str(data_num))
                                 quant_job.set_keep_value(5)
                                 quant_model = quant_job.out_model
+                                if data_num is None:
+                                    self.jobs[recognition_corpus_key][f"quantize_static/" + name + "/" + mode_str + "/epoch" + epoch_str + "_" + str(data_num)] = quant_job
                                 scorer = OnnxFeatureScorer(
                                     mixtures=acoustic_mixture_path,
                                     model=quant_model,

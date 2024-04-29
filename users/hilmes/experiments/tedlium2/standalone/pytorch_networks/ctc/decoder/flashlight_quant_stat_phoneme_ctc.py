@@ -1,7 +1,5 @@
 """
-Flashlight/Torchaudio CTC decoder
-
-includes handling of prior computation
+Flashlight/Torchaudio CTC decoder and prior computation functions
 """
 
 from dataclasses import dataclass
@@ -9,7 +7,6 @@ from sisyphus import tk
 import time
 import numpy as np
 from typing import Any, Dict, Optional, Union
-
 
 @dataclass
 class DecoderConfig:
@@ -37,7 +34,6 @@ class DecoderConfig:
     use_torch_compile: bool = False
     torch_compile_options: Optional[Dict[str, Any]] = None
 
-
 @dataclass
 class ExtraConfig:
     # used for RTF logging
@@ -49,15 +45,10 @@ class ExtraConfig:
 
 
 def forward_init_hook(run_ctx, **kwargs):
-    """
-
-    :param run_ctx:
-    :param kwargs:
-    :return:
-    """
+    # we are storing durations, but call it output.hdf to match
+    # the default output of the ReturnnForwardJob
     import torch
     from torchaudio.models.decoder import ctc_decoder
-
     from returnn.datasets.util.vocabulary import Vocabulary
     from returnn.util.basic import cf
 
@@ -75,7 +66,6 @@ def forward_init_hook(run_ctx, **kwargs):
 
     vocab = Vocabulary.create_vocab(vocab_file=config.returnn_vocab, unknown_label=None)
     labels = vocab.labels
-
     run_ctx.ctc_decoder = ctc_decoder(
         lexicon=config.lexicon,
         lm=lm,
@@ -111,13 +101,15 @@ def forward_init_hook(run_ctx, **kwargs):
         run_ctx.total_search_time = 0
 
     run_ctx.print_hypothesis = extra_config.print_hypothesis
+    run_ctx.iterative_quant = False
+    run_ctx.apply_quant = True
 
 
 def forward_finish_hook(run_ctx, **kwargs):
     run_ctx.recognition_file.write("}\n")
     run_ctx.recognition_file.close()
 
-    if run_ctx.print_rtf:
+    if run_ctx.print_rtf is True:
         print(
             "Total-AM-Time: %.2fs, AM-RTF: %.3f"
             % (run_ctx.total_am_time, run_ctx.total_am_time / run_ctx.running_audio_len_s)
@@ -171,6 +163,5 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     for hyp, tag in zip(hypothesis, tags):
         words = hyp[0].words
         sequence = " ".join([word for word in words if not word.startswith("[")])
-        if run_ctx.print_hypothesis:
-            print(sequence)
+        print(sequence)
         run_ctx.recognition_file.write("%s: %s,\n" % (repr(tag), repr(sequence)))

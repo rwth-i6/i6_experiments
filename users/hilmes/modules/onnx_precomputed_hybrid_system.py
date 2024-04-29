@@ -56,7 +56,7 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
             model_checkpoint=checkpoint,
             returnn_config=prior_config,
             log_verbosity=5,
-            mem_rqmt=16 if any(x in name for x in ["whisper", "hubert", "parakeet"]) else 4,
+            mem_rqmt=16,
             time_rqmt=2 if not "whisper" in name else 4,
             device="gpu",
             cpu_rqmt=2,
