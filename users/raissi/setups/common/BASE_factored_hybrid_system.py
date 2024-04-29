@@ -1211,7 +1211,7 @@ class BASEFactoredHybridSystem(NnSystem):
     ) -> Union[SearchParameters, AlignmentParameters]:
         parameters = AlignmentParameters.default_for_ctx(context_type, priors=prior_info)
         if self.frame_rate_reduction_ratio_info.factor > 2:
-            sp_tdp = (10.0, 0.0, "infinity", 0.0)
+            sp_tdp = (0.0, 3.0, "infinity", 0.0)
             sil_tdp = (10.0, 0.0, "infinity", 0.0)
             parameters = parameters.with_tdp_speech(sp_tdp).with_tdp_silence(sil_tdp)
 

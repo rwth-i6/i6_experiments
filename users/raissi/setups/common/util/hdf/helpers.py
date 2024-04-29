@@ -18,7 +18,10 @@ from i6_experiments.common.setups.rasr.util import (
 )
 
 from i6_experiments.users.raissi.setups.common.features.taxonomy import FeatureInfo, FeatureType
-from i6_experiments.users.raissi.setups.common.util.hdf.dump import build_rasr_feature_hdfs
+from i6_experiments.users.raissi.setups.common.util.hdf.dump import (
+    build_rasr_feature_hdfs,
+    build_hdf_from_alignment
+)
 
 @dataclass
 class HDFAlignmentData:
@@ -157,8 +160,6 @@ def build_feature_alignment_meta_dataset_config(
     dataset_builder.add_dataset(
         name="data", dataset_config=feature_hdf_config, key_mapping={"data": "data"}, control=False
     )
-
-
 
     alignment_hdf_files = [
         alignment.get_hdf(returnn_python_exe=returnn_python_exe, returnn_root=returnn_root) for alignment in alignments

@@ -674,11 +674,6 @@ class BASEFactoredHybridDecoder:
                 name += f"-tdpScale-{search_parameters.tdp_scale}"
                 name += f"-spTdp-{format_tdp(search_parameters.tdp_speech)}"
                 name += f"-silTdp-{format_tdp(search_parameters.tdp_silence)}"
-                if (
-                    not search_parameters.tdp_speech[2] == "infinity"
-                    and not search_parameters.tdp_silence[2] == "infinity"
-                ):
-                    name += "-withSkip"
 
             if self.feature_scorer_type.is_factored():
                 if search_parameters.transition_scales is not None:
@@ -1225,45 +1220,40 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
             assert not alignment_parameters.silence_penalties or len(alignment_parameters.silence_penalties) == 2
             assert not alignment_parameters.transition_scales or len(alignment_parameters.transition_scales) == 2
 
-        name = self.name
-
         align_crp = copy.deepcopy(self.crp)
 
         if alignment_parameters.prior_info.left_context_prior is not None:
-            name += f"-prL{alignment_parameters.prior_info.left_context_prior.scale}"
+            self.name += f"-prL{alignment_parameters.prior_info.left_context_prior.scale}"
         if alignment_parameters.prior_info.center_state_prior is not None:
-            name += f"-prC{alignment_parameters.prior_info.center_state_prior.scale}"
+            self.name += f"-prC{alignment_parameters.prior_info.center_state_prior.scale}"
         if alignment_parameters.prior_info.right_context_prior is not None:
-            name += f"-prR{alignment_parameters.prior_info.right_context_prior.scale}"
+            self.name += f"-prR{alignment_parameters.prior_info.right_context_prior.scale}"
         if alignment_parameters.prior_info.diphone_prior is not None:
-            name += f"-prJ-C{alignment_parameters.prior_info.diphone_prior.scale}"
+            self.name += f"-prJ-C{alignment_parameters.prior_info.diphone_prior.scale}"
         if alignment_parameters.add_all_allophones:
-            name += "-allAllos"
+            self.name += "-allAllos"
         if alignment_parameters.tdp_scale is not None:
-            name += f"-tdpScale-{alignment_parameters.tdp_scale}"
-            name += f"-spTdp-{format_tdp(alignment_parameters.tdp_speech[:3])}"
-            name += f"-silTdp-{format_tdp(alignment_parameters.tdp_silence[:3])}"
-            if (
-                not alignment_parameters.tdp_speech[2] == "infinity"
-                and not alignment_parameters.tdp_silence[2] == "infinity"
-            ):
-                name += "-withSkip"
+            self.name += f"-tdpScale-{alignment_parameters.tdp_scale}"
+            self.name += f"-spTdp-{format_tdp(alignment_parameters.tdp_speech[:3])}"
+            self.name += f"-silTdp-{format_tdp(alignment_parameters.tdp_silence[:3])}"
             if self.feature_scorer_type.is_factored():
                 if alignment_parameters.transition_scales is not None:
                     loop_scale, forward_scale = alignment_parameters.transition_scales
-                    name += f"-loopScale-{loop_scale}"
-                    name += f"-fwdScale-{forward_scale}"
+                    self.name += f"-loopScale-{loop_scale}"
+                    self.name += f"-fwdScale-{forward_scale}"
                 else:
                     loop_scale = forward_scale = 1.0
 
                 if alignment_parameters.silence_penalties is not None:
                     sil_loop_penalty, sil_fwd_penalty = alignment_parameters.silence_penalties
-                    name += f"-silLoopP-{sil_loop_penalty}"
-                    name += f"-silFwdP-{sil_fwd_penalty}"
+                    self.name += f"-silLoopP-{sil_loop_penalty}"
+                    self.name += f"-silFwdP-{sil_fwd_penalty}"
                 else:
                     sil_fwd_penalty = sil_loop_penalty = 0.0
         else:
-            name += "-noTdp"
+            self.name += "-noTdp"
+
+
 
         state_tying = align_crp.acoustic_model_config.state_tying.type
 
@@ -1340,7 +1330,7 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
                     scale = alignment_parameters.posterior_scales["joint-diphone-scale"]
                 elif context_type.is_monophone():
                     scale = alignment_parameters.posterior_scales["center-state-scale"]
-                name += f"-Am{scale}"
+                self.name += f"-Am{scale}"
             feature_scorer = get_nn_precomputed_feature_scorer(
                 posterior_scale=scale,
                 context_type=self.context_type,
@@ -1373,7 +1363,8 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
         )
         alignment.rqmt["cpu"] = cpu
         alignment.rqmt["mem"] = mem_rqmt
-        alignment.add_alias(f"alignments/align_{name}")
+
+        alignment.add_alias(f"alignments/align_{self.name}")
         tk.register_output(f"{pre_path}/realignment-{self.name}", alignment.out_alignment_bundle)
 
         return alignment

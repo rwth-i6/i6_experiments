@@ -116,7 +116,7 @@ class TORCHFactoredHybridSystem(BASEFactoredHybridSystem):
                 input_data['hdf'] = builder(
                     data_inputs=[input_data[k]],
                     feature_info=self.feature_info,
-                    alignments=alignments,
+                    alignments=[alignments],
                     **self.hdf_builder_args,
                 )
 
@@ -126,6 +126,3 @@ class TORCHFactoredHybridSystem(BASEFactoredHybridSystem):
         else:
             raise NotImplementedError("Only Viterbi and Fullsum training criteria for data preparation")
 
-        embed()
-
-        return
