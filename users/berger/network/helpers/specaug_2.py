@@ -95,7 +95,7 @@ def random_mask(x, axis, min_num, max_num, max_dims):
 
 
 def transform(
-    x,
+    data,
     network,
     min_reps_time=0,
     max_reps_time=None,
@@ -104,28 +104,30 @@ def transform(
     max_reps_feature=1,
     max_len_feature=None,
 ):
+    x = data.placeholder
+
     import tensorflow as tf
 
     # number of repetitions for time masking
     if max_reps_time is None:
-        max_reps_time = tf.maximum(tf.shape(x)[1] // max_len_time, 1)
+        max_reps_time = tf.maximum(tf.shape(x)[data.time_dim_axis] // max_len_time, 1)
 
     # length of feature masking
     if max_len_feature is None:
-        max_len_feature = tf.shape(x)[-1] // 5
+        max_len_feature = tf.shape(x)[data.feature_dim_axis] // 5
 
     def get_masked():
         x_masked = x
         x_masked = random_mask(
             x_masked,
-            axis=1,
+            axis=data.time_dim_axis,
             min_num=min_reps_time,
             max_num=max_reps_time,
             max_dims=max_len_time,
         )
         x_masked = random_mask(
             x_masked,
-            axis=2,
+            axis=data.feature_dim_axis,
             min_num=min_reps_feature,
             max_num=max_reps_feature,
             max_dims=max_len_feature,
