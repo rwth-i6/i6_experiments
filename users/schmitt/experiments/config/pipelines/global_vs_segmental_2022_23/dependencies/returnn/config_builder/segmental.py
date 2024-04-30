@@ -545,7 +545,7 @@ class SWBConformerSegmentalAttentionConfigBuilder(SwbConformerConfigBuilder, Seg
     if task == "train":
       return None
     else:
-      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.mohammad_conformer.networks_11_4 import networks_dict
+      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_dicts.zeineldeen_swb_global_att_11_4 import networks_dict
       return MohammadGlobalAttToSegmentalAttentionMaker2.make_global_attention_segmental(
         copy.deepcopy(networks_dict[22]),
         task=task,
@@ -560,7 +560,7 @@ class SWBConformerSegmentalAttentionConfigBuilder(SwbConformerConfigBuilder, Seg
 
   def get_networks_dict(self, task: str, config_dict, python_prolog, use_get_global_config: bool = False):
     if task == "train":
-      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.mohammad_conformer.networks_11_4 import networks_dict
+      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_dicts.zeineldeen_swb_global_att_11_4 import networks_dict
 
       new_networks_dict = {}
       for i, net_dict in networks_dict.items():
@@ -590,7 +590,7 @@ class LibrispeechConformerSegmentalAttentionConfigBuilder(SegmentalConfigBuilder
     if task == "train":
       return None
     else:
-      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.librispeech.returnn.network_builder.networks import networks_dict
+      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_dicts.zeineldeen_ls_global_att_5_6 import networks_dict
       return MohammadGlobalAttToSegmentalAttentionMaker2.make_global_attention_segmental(
         copy.deepcopy(networks_dict[36]),
         task=task,
@@ -605,7 +605,7 @@ class LibrispeechConformerSegmentalAttentionConfigBuilder(SegmentalConfigBuilder
 
   def get_networks_dict(self, task: str, config_dict, python_prolog, use_get_global_config: bool = False):
     if task == "train":
-      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.librispeech.returnn.network_builder.networks import networks_dict
+      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_dicts.zeineldeen_ls_global_att_5_6 import networks_dict
 
       new_networks_dict = {}
       for i, net_dict in networks_dict.items():

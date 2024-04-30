@@ -254,14 +254,14 @@ class SWBConformerGlobalAttentionConfigBuilder(SwbConformerConfigBuilder, Global
     if task == "train":
       return None
     else:
-      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.mohammad_conformer.networks_11_4 import networks_dict
+      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_dicts.zeineldeen_swb_global_att_11_4 import networks_dict
 
       network_dict = copy.deepcopy(networks_dict[22])
       return network_dict
 
   def get_networks_dict(self, task: str, config_dict, python_prolog, use_get_global_config: bool = False):
     if task == "train":
-      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.mohammad_conformer.networks_11_4 import networks_dict
+      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_dicts.zeineldeen_swb_global_att_11_4 import networks_dict
       return copy.deepcopy(networks_dict)
     else:
       return None
@@ -272,7 +272,7 @@ class LibrispeechConformerGlobalAttentionConfigBuilder(GlobalConfigBuilder, Libr
     if task == "train":
       return None
     else:
-      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.librispeech.returnn.network_builder.networks import networks_dict
+      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_dicts.zeineldeen_ls_global_att_5_6 import networks_dict
 
       network_dict = copy.deepcopy(networks_dict[36])
       if not self.variant_params["network"].get("use_weight_feedback", True):
@@ -288,7 +288,7 @@ class LibrispeechConformerGlobalAttentionConfigBuilder(GlobalConfigBuilder, Libr
 
   def get_networks_dict(self, task: str, config_dict, python_prolog, use_get_global_config: bool = False):
     if task == "train":
-      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.librispeech.returnn.network_builder.networks import networks_dict
+      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_dicts.zeineldeen_ls_global_att_5_6 import networks_dict
       return copy.deepcopy(networks_dict)
     else:
       return None

@@ -59,7 +59,7 @@ class LibrispeechConformerCtcConfigBuilder(CtcConfigBuilder, LibrispeechConforme
     if task == "train":
       return None
     else:
-      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.librispeech.returnn.network_builder.networks import networks_dict
+      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_dicts.zeineldeen_ls_global_att_5_6 import networks_dict
 
       network_dict = self._network_remove_not_needed_layers(networks_dict[36])
 
@@ -67,7 +67,7 @@ class LibrispeechConformerCtcConfigBuilder(CtcConfigBuilder, LibrispeechConforme
 
   def get_networks_dict(self, task: str, config_dict, python_prolog, use_get_global_config: bool = False):
     if task == "train":
-      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.librispeech.returnn.network_builder.networks import networks_dict
+      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_dicts.zeineldeen_ls_global_att_5_6 import networks_dict
       nets_dict = {}
       for k, v in networks_dict.items():
         nets_dict[k] = self._network_remove_not_needed_layers(v)
