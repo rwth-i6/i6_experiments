@@ -4,7 +4,6 @@ from typing import Dict, Tuple
 
 import i6_core.rasr as rasr
 from i6_core.recognition import Hub5ScoreJob
-from i6_core.returnn import Checkpoint
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.users.berger.args.experiments import ctc as exp_args
 from i6_experiments.users.berger.args.returnn.config import get_returnn_config
@@ -164,25 +163,25 @@ def run_exp() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)
     align_args = exp_args.get_ctc_align_step_args(num_classes)
-    # recog_args["epochs"] = [160, 226, 236, 266, 273, 284, 287, 292, 293, 299, 300]
-    # recog_args["epochs"] = [266, 284, 299]
-    recog_args["epochs"] = [300]
-    recog_args["feature_type"] = FeatureType.GAMMATONE_8K
-    recog_args["prior_scales"] = [0.3]
-    recog_args["lm_scales"] = [0.8]
-    recog_args["flow_args"] = {"dc_detection": True}
-    recog_args["search_parameters"] = get_seq2seq_search_parameters(
-        lp=14.4,
-        lpl=100000,
-        wp=0.5,
-        wpl=10000,
-        allow_blank=True,
-        allow_loop=True,
+    recog_args.update(
+        {
+            "epochs": [300],
+            "feature_type": FeatureType.GAMMATONE_8K,
+            "prior_scales": [0.3],
+            "lm_scales": [0.8],
+            "flow_args": {"dc_detection": True},
+            "search_parameters": get_seq2seq_search_parameters(lp=14.4),
+        }
     )
-    align_args["epoch"] = 300
-    align_args["feature_type"] = FeatureType.GAMMATONE_8K
-    align_args["flow_args"] = {"dc_detection": True}
-    align_args["silence_phone"] = "[SILENCE]"
+
+    align_args.update(
+        {
+            "epoch": 300,
+            "feature_type": FeatureType.GAMMATONE_8K,
+            "flow_args": {"dc_detection": True},
+            "silence_phone": "[SILENCE]",
+        }
+    )
 
     recog_am_args = copy.deepcopy(exp_args.ctc_recog_am_args)
     recog_am_args.update(
@@ -217,12 +216,6 @@ def run_exp() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
         am_args=recog_am_args,
     )
     system.setup_scoring(scorer_type=Hub5ScoreJob)
-    # for key in data.dev_keys + data.test_keys:
-    #     system._corpus_info[key].data.lexicon.filename =
-    #     system._corpus_info[key].crp.acoustic_model_config.state_tying = "lookup"
-    #     system._corpus_info[key].crp.acoustic_model_config.state_tying_file = tk.Path(
-    #         "/work/asr4/berger/dependencies/switchboard/state_tying/wei_mono-eow"
-    #     )
 
     # ********** Returnn Configs **********
 
@@ -249,7 +242,7 @@ def run_exp() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
             recog_configs={"recog": recog_config},
         )
 
-        system.add_experiment_configs(f"BLSTM_CTC_am-{am_scale}", returnn_configs)
+        system.add_experiment_configs(f"BLSTM_CTC_wei-data_am-{am_scale}", returnn_configs)
 
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)
@@ -260,18 +253,9 @@ def run_exp() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
     align_args = copy.deepcopy(align_args)
     align_args["align_node_options"]["allophone-state-graph-builder.topology"] = "ctc"
     align_args["register_output"] = True
-    alignments.update(system.run_align_step(align_descriptor="label-loop", **align_args))
+    alignments_loop = system.run_align_step(align_descriptor="label-loop", **align_args)
 
-    assert system.summary_report
-    return system.summary_report, alignments
-
-
-def py() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
-    filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]
-    gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
-
-    summary_report, alignments = run_exp()
-    for am, align in alignments.items():
+    for am, align in {**alignments, **alignments_loop}.items():
         train_alignment = align["train_align"]
         compute_tse_job = ComputeTSEJob(
             alignment_cache=train_alignment.alignment_cache_bundle,
@@ -288,29 +272,16 @@ def py() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
         )
         tk.register_output(f"tse/train_{am}", compute_tse_job.out_tse_frames)
 
-    compute_tse_job = ComputeTSEJob(
-        alignment_cache=tk.Path(
-            "/u/luescher/setups/librispeech/2024-01-24--is-paper/work/i6_core/mm/alignment/AlignmentJob.q36gcJyIijLZ/output/alignment.cache.bundle"
-        ),
-        allophone_file=tk.Path(
-            "/u/luescher/setups/librispeech/2024-01-24--is-paper/work/i6_core/lexicon/allophones/StoreAllophonesJob.1kNrzYYG2BFu/output/allophones"
-        ),
-        silence_phone="[SILENCE]",
-        upsample_factor=4,
-        ref_alignment_cache=tk.Path(
-            "/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/mm/alignment/AlignmentJob.oyZ7O0XJcO20/output/alignment.cache.bundle"
-        ),
-        ref_allophone_file=tk.Path(
-            "/work/common/asr/librispeech/data/sisyphus_export_setup/work/i6_core/lexicon/allophones/StoreAllophonesJob.bY339UmRbGhr/output/allophones"
-        ),
-        ref_silence_phone="[SILENCE]",
-        ref_upsample_factor=1,
-        # remove_outlier_limit=100,
-    )
-    tk.register_output("tse/chris", compute_tse_job.out_tse_frames)
+    assert system.summary_report
+    return system.summary_report, alignments
+
+
+def py() -> Tuple[SummaryReport, Dict[str, Dict[str, AlignmentData]]]:
+    filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]
+    gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
+
+    summary_report, alignments = run_exp()
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
-
-    alignments = {key: val for key, val in alignments.items() if "label-loop" not in key}
 
     return summary_report, alignments

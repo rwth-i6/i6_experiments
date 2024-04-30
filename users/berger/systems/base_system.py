@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 import copy
-from typing import Dict, Generic, List, Optional
+from typing import Dict, Generic, List, Optional, Union
 
 from i6_core import corpus, rasr, recognition
 from i6_experiments.users.berger.recipe import summary as custom_summary
@@ -185,7 +185,7 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
     def run_recog_step_for_corpora(
         self,
         exp_names: Optional[List[str]] = None,
-        recog_exp_names: Optional[Dict[str, List[str]]] = None,
+        recog_exp_names: Optional[Union[List[str], Dict[str, List[str]]]] = None,
         corpora: Optional[List[str]] = None,
         recog_descriptor: Optional[str] = None,
         **kwargs,
@@ -194,6 +194,8 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
             exp_names = list(self._returnn_configs.keys())
         if recog_exp_names is None:
             recog_exp_names = {}
+        if isinstance(recog_exp_names, list):
+            recog_exp_names = {exp_name: recog_exp_names for exp_name in exp_names}
         if corpora is None:
             corpora = self._dev_corpora + self._test_corpora
         else:

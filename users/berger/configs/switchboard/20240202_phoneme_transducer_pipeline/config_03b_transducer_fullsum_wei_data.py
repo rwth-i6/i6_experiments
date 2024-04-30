@@ -3,6 +3,7 @@ import os
 from typing import Dict
 
 import i6_core.rasr as rasr
+from i6_core.recognition import Hub5ScoreJob
 from i6_core.returnn import Checkpoint
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.users.berger.args.experiments import transducer as exp_args
@@ -10,20 +11,18 @@ from i6_experiments.users.berger.args.returnn.config import get_returnn_config
 from i6_experiments.users.berger.args.returnn.learning_rates import (
     LearningRateSchedules,
 )
-from i6_experiments.users.berger.corpus.librispeech.viterbi_transducer_data import (
-    get_librispeech_data,
-)
+from i6_experiments.users.berger.corpus.switchboard.viterbi_transducer_data import get_switchboard_data
 import i6_experiments.users.berger.network.models.context_1_transducer as transducer_model
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
-from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, FeatureType
+from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, FeatureType, SummaryKey
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
-from .config_01d_ctc_conformer_rasr_features import py as py_ctc
-from .config_02b_transducer_rasr_features import py as py_transducer
+from .config_01c_ctc_blstm_wei_data import py as py_ctc_blstm
+from .config_02b_transducer_wei_data import py as py_transducer
 from sisyphus import gs, tk
 
 # ********** Settings **********
@@ -33,7 +32,7 @@ tools = copy.deepcopy(default_tools)
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 
-num_classes = 79
+num_classes = 88
 
 
 # ********** Return Config **********
@@ -48,13 +47,16 @@ def generate_returnn_config(
     **kwargs,
 ) -> ReturnnConfig:
     if train:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_fullsum(
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer_fullsum(
             num_outputs=num_classes,
             specaug_args={
                 "max_time_num": 1,
                 "max_time": 15,
                 "max_feature_num": 5,
-                "max_feature": 5,
+                "max_feature": 4,
             },
             conformer_args={
                 "num_blocks": 12,
@@ -82,7 +84,10 @@ def generate_returnn_config(
             },
         )
     else:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
             conformer_args={
                 "num_blocks": 12,
@@ -113,7 +118,7 @@ def generate_returnn_config(
             "import sys",
             "sys.setrecursionlimit(10 ** 6)",
         ],
-        num_inputs=50,
+        num_inputs=40,
         num_outputs=num_classes,
         extern_data_config=True,
         extern_target_kwargs={"dtype": "int8" if train else "int32"},
@@ -149,66 +154,67 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
     assert tools.returnn_python_exe is not None
     assert tools.rasr_binary_path is not None
 
-    data = get_librispeech_data(
+    data = get_switchboard_data(
         tools.returnn_root,
         tools.returnn_python_exe,
-        alignments=alignments,
         rasr_binary_path=tools.rasr_binary_path,
-        add_unknown_phoneme_and_mapping=False,
-        # use_augmented_lexicon=True,
-        # use_wei_lexicon=False,
-        use_augmented_lexicon=False,
-        use_wei_lexicon=True,
-        lm_names=["4gram", "kazuki_transformer"],
-        feature_type=FeatureType.GAMMATONE_16K,
-        # lm_name="kazuki_transformer",
+        alignments=alignments,
+        use_wei_data=True,
+        feature_type=FeatureType.GAMMATONE_8K,
+        dc_detection=True,
     )
 
     # ********** Step args **********
 
-    train_args = exp_args.get_transducer_train_step_args(
-        num_epochs=300,
-        # gpu_mem_rqmt=24,
-        # mem_rqmt=24,
-    )
+    train_args = exp_args.get_transducer_train_step_args(num_epochs=300)
 
     recog_args = exp_args.get_transducer_recog_step_args(
         num_classes,
-        # lm_scales=[0.8, 0.85, 0.9],
-        lm_scales=[0.8, 0.9, 1.0],
-        # epochs=[160, 240, 300, "best"],
+        lm_scales=[0.5, 0.6, 0.7],
         epochs=[300],
-        search_parameters={
-            "label-pruning": 19.8,
-            "label-pruning-limit": 20000,
-            "word-end-pruning": 0.8,
-            "word-end-pruning-limit": 2000,
-        },
-        feature_type=FeatureType.GAMMATONE_16K,
+        search_parameters={"label-pruning": 14.4},
+        feature_type=FeatureType.GAMMATONE_8K,
         reduction_factor=4,
         reduction_subtrahend=0,
+        flow_args={"dc_detection": True},
     )
-
-    trafo_recog_args = exp_args.get_transducer_recog_step_args(
-        num_classes,
-        lm_scales=[0.9, 1.1],
-        epochs=[300],
-        search_parameters={
-            "label-pruning": 19.8,
-            "label-pruning-limit": 20000,
-            "word-end-pruning": 0.8,
-            "word-end-pruning-limit": 2000,
-            "separate-lookahead-lm": True,
-            "separate-recombination-lm": True,
-        },
-        feature_type=FeatureType.GAMMATONE_16K,
-        reduction_factor=4,
-        reduction_subtrahend=0,
+    recog_am_args = copy.deepcopy(exp_args.transducer_recog_am_args)
+    recog_am_args.update(
+        {
+            # "state_tying": "lookup",
+            # "state_tying_file": tk.Path("/work/asr4/berger/dependencies/switchboard/state_tying/wei_mono-eow"),
+            "tying_type": "global-and-nonword",
+            "nonword_phones": ["[NOISE]", "[VOCALIZEDNOISE]", "[LAUGHTER]"],
+        }
     )
 
     # ********** System **********
 
-    system = ReturnnSeq2SeqSystem(tools)
+    system = ReturnnSeq2SeqSystem(
+        tools,
+        summary_keys=[
+            SummaryKey.TRAIN_NAME,
+            SummaryKey.CORPUS,
+            SummaryKey.RECOG_NAME,
+            SummaryKey.EPOCH,
+            SummaryKey.LM,
+            SummaryKey.WER,
+            SummaryKey.SUB,
+            SummaryKey.INS,
+            SummaryKey.DEL,
+            SummaryKey.ERR,
+        ],
+        summary_sort_keys=[SummaryKey.ERR, SummaryKey.CORPUS],
+    )
+
+    system.init_corpora(
+        dev_keys=data.dev_keys,
+        test_keys=data.test_keys,
+        align_keys=data.align_keys,
+        corpus_data=data.data_inputs,
+        am_args=recog_am_args,
+    )
+    system.setup_scoring(scorer_type=Hub5ScoreJob)
 
     # ********** Returnn Configs **********
 
@@ -218,12 +224,7 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
         "model_preload": viterbi_model_checkpoint,
     }
 
-    for lr, batch_size, accum_grad in [
-        (8e-05, 3000, 3),
-        (4e-05, 3000, 3),
-        (1e-04, 3000, 3),
-        (8e-05, 3000, 10),
-    ]:
+    for lr, batch_size, accum_grad in [(8e-05, 3000, 3)]:
         train_config = generate_returnn_config(
             train=True, lr=lr, batch_size=batch_size, accum_grad=accum_grad, **config_generator_kwargs
         )
@@ -231,7 +232,7 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
             f"recog_ilm-{ilm_scale}": generate_returnn_config(
                 train=False, ilm_scale=ilm_scale, **config_generator_kwargs
             )
-            for ilm_scale in [0.0, 0.1, 0.25, 0.4]
+            for ilm_scale in [0.0, 0.25]
         }
 
         returnn_configs = ReturnnConfigs(
@@ -242,32 +243,16 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
             f"Conformer_Transducer_Fullsum_lr-{lr}_bs-{batch_size*accum_grad}", returnn_configs
         )
 
-    system.init_corpora(
-        dev_keys=data.dev_keys,
-        test_keys=data.test_keys,
-        align_keys=data.align_keys,
-        corpus_data=data.data_inputs,
-        am_args=exp_args.transducer_recog_am_args,
-    )
-    system.setup_scoring()
-
     system.run_train_step(**train_args)
-
-    system.run_recog_step_for_corpora(corpora=["dev-clean_4gram", "dev-other_4gram"], **recog_args)
-    system.run_recog_step_for_corpora(
-        corpora=["dev-clean_kazuki_transformer", "dev-other_kazuki_transformer"], **trafo_recog_args
-    )
-    system.run_recog_step_for_corpora(corpora=["test-clean_4gram", "test-other_4gram"], **recog_args)
-    system.run_recog_step_for_corpora(
-        corpora=["test-clean_kazuki_transformer", "test-other_kazuki_transformer"], **trafo_recog_args
-    )
+    system.run_dev_recog_step(**recog_args)
 
     assert system.summary_report
     return system.summary_report
 
 
 def py() -> SummaryReport:
-    _, _, alignments = py_ctc()
+    _, alignments = py_ctc_blstm()
+    alignments = alignments["BLSTM_CTC_wei-data_am-1.0"]
     _, model = py_transducer()
 
     filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]

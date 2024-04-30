@@ -68,7 +68,7 @@ def get_transducer_recog_step_args(
             "mem_rqmt": 16,
         },
         "rtf": 50,
-        "mem": 16,
+        "mem": 4,
     }
 
     return recursive_update(default_args, kwargs)

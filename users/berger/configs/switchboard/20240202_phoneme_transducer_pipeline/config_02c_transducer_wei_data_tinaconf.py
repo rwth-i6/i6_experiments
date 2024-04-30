@@ -11,13 +11,13 @@ from i6_experiments.users.berger.args.returnn.config import get_returnn_config
 from i6_experiments.users.berger.args.returnn.learning_rates import (
     LearningRateSchedules,
 )
-import i6_experiments.users.berger.network.models.context_1_transducer as transducer_model
+import i6_experiments.users.berger.network.models.context_1_transducer_tinaconf as transducer_model
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
 from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, FeatureType, SummaryKey
-from i6_experiments.users.berger.util import default_tools
+from i6_experiments.users.berger.util import default_tools, recursive_update
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
 from i6_experiments.users.berger.corpus.switchboard.viterbi_transducer_data import get_switchboard_data
@@ -49,18 +49,13 @@ def generate_returnn_config(
             network_dict,
             extra_python,
         ) = transducer_model.make_context_1_conformer_transducer(
+            num_inputs=40,
             num_outputs=num_classes,
             specaug_args={
                 "max_time_num": 1,
                 "max_time": 15,
                 "max_feature_num": 5,
                 "max_feature": 4,
-            },
-            conformer_args={
-                "num_blocks": 12,
-                "size": 512,
-                "dropout": 0.1,
-                "l2": 5e-06,
             },
             decoder_args={
                 "dec_mlp_args": {
@@ -90,13 +85,8 @@ def generate_returnn_config(
             network_dict,
             extra_python,
         ) = transducer_model.make_context_1_conformer_transducer_recog(
+            num_inputs=40,
             num_outputs=num_classes,
-            conformer_args={
-                "num_blocks": 12,
-                "size": 512,
-                "dropout": 0.1,
-                "l2": 5e-06,
-            },
             decoder_args={
                 "dec_mlp_args": {
                     "num_layers": 2,
@@ -118,12 +108,12 @@ def generate_returnn_config(
         "dev": dev_data_config,
         "chunking": (
             {
-                "data": 256,
-                "classes": 64,
+                "data": 400,
+                "classes": 100,
             },
             {
-                "data": 128,
-                "classes": 32,
+                "data": 200,
+                "classes": 50,
             },
         ),
     }
@@ -153,11 +143,13 @@ def generate_returnn_config(
         grad_noise=0.0,
         grad_clip=0.0,
         schedule=LearningRateSchedules.OCLR,
+        # initial_lr=1e-03 / 30,
+        # peak_lr=1e-03,
         initial_lr=1e-05,
-        peak_lr=kwargs.get("peak_lr", 8e-04),
+        peak_lr=kwargs.get("peak_lr", 4e-04),
         final_lr=1e-06,
         n_steps_per_epoch=3210,
-        batch_size=15000,
+        batch_size=12500,
         extra_config=extra_config,
     )
     returnn_config = serialize_dim_tags(returnn_config)
@@ -185,11 +177,12 @@ def run_exp(alignments: Dict[str, AlignmentData], name_suffix: str = "") -> Tupl
 
     train_args = exp_args.get_transducer_train_step_args(
         num_epochs=300,
+        gpu_mem_rqmt=24,
     )
 
     recog_args = exp_args.get_transducer_recog_step_args(
         num_classes,
-        lm_scales=[0.4, 0.5, 0.6, 0.7, 0.8],
+        lm_scales=[0.5],
         epochs=[300],
         search_parameters={"label-pruning": 14.4},
         feature_type=FeatureType.GAMMATONE_8K,
@@ -237,16 +230,19 @@ def run_exp(alignments: Dict[str, AlignmentData], name_suffix: str = "") -> Tupl
 
     # ********** Returnn Configs **********
 
+    # for lr in [4e-04, 6e-04, 8e-04]:
+    #     for label_smoothing in [None, 0.2]:
+    #         for loss_boost_scale in [0.0, 5.0]:
     for lr in [8e-04]:
-        for label_smoothing in [None, 0.2]:
-            for loss_boost_scale in [0.0, 5.0]:
+        for label_smoothing in [None]:
+            for loss_boost_scale in [0.0]:
                 train_config = generate_returnn_config(
                     train=True,
                     train_data_config=data.train_data_config,
                     dev_data_config=data.cv_data_config,
                     peak_lr=lr,
                     label_smoothing=label_smoothing,
-                    loss_boost_v2=True,
+                    loss_boost_v2=False,
                     loss_boost_scale=loss_boost_scale,
                     model_preload=None,
                 )
@@ -263,71 +259,84 @@ def run_exp(alignments: Dict[str, AlignmentData], name_suffix: str = "") -> Tupl
                         for ilm_scale in [0.0, 0.1, 0.2, 0.3]
                     },
                 )
-                name = f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-{lr}"
+                name = f"Conformer_Transducer_Viterbi_wei-data_tinaconf_{name_suffix}_lr-{lr}"
                 if label_smoothing:
                     name += f"_ls-{label_smoothing}"
                 if loss_boost_scale:
-                    name += "_loss-boost"
+                    name += f"_loss-boost"
 
                 system.add_experiment_configs(name, returnn_configs)
 
     system.run_train_step(**train_args)
+
     system.run_dev_recog_step(**recog_args)
 
-    recog_args.update(
-        {"lm_scales": [0.6, 0.7], "epochs": [213, 249, 261, 279, 283, 283, 284, 285, 286, 289, 291, 297, 298, 299, 300]}
-    )
-    system.run_dev_recog_step(
-        exp_names=[f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008"],
-        recog_exp_names=["recog_ilm-0.1", "recog_ilm-0.2"],
-        **recog_args,
-    )
+    if "am-1.0" in name_suffix:
+        for bp in [0.0, 0.5, 1.0]:
+            recursive_update(
+                recog_args,
+                {
+                    "epochs": [300],
+                    "lm_scales": [0.4, 0.5, 0.6, 0.7, 0.8],
+                    "search_parameters": {"blank-label-penalty": bp} if bp else {},
+                },
+            )
 
-    recog_args.update(
-        {"epochs": [213, 249, 261, 267, 273, 276, 279, 280, 281, 282, 283, 284, 285, 286, 289, 291, 298, 298, 299, 300]}
-    )
-    system.run_dev_recog_step(
-        exp_names=[f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008_loss-boost"],
-        recog_exp_names=["recog_ilm-0.1", "recog_ilm-0.2"],
-        **recog_args,
-    )
+            system.run_dev_recog_step(
+                exp_names=["Conformer_Transducer_Viterbi_wei-data_tinaconf_align-blstm-am-1.0_lr-0.0008"],
+                recog_descriptor=f"bp-{bp}",
+                **recog_args,
+            )
 
-    recog_args.update({"epochs": [213, 249, 261, 267, 273, 279, 284, 285, 289, 291, 297, 298, 299, 300]})
-    system.run_dev_recog_step(
-        exp_names=[f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008_ls-0.2"],
-        recog_exp_names=["recog_ilm-0.1", "recog_ilm-0.2"],
-        **recog_args,
-    )
+        for lp in [12.0, 14.0, 16.0, 18.0, 20.0]:
+            recursive_update(
+                recog_args,
+                {
+                    "epochs": [300],
+                    "lm_scales": [0.8],
+                    "search_parameters": {"blank-label-penalty": 1.0, "label-pruning": lp},
+                },
+            )
 
-    recog_args.update(
-        {"epochs": [213, 249, 261, 267, 273, 274, 279, 280, 281, 282, 283, 284, 285, 286, 289, 291, 297, 298, 299, 300]}
-    )
-    system.run_dev_recog_step(
-        exp_names=[f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008_ls-0.2_loss-boost"],
-        recog_exp_names=["recog_ilm-0.1", "recog_ilm-0.2"],
-        **recog_args,
-    )
+            system.run_dev_recog_step(
+                exp_names=["Conformer_Transducer_Viterbi_wei-data_tinaconf_align-blstm-am-1.0_lr-0.0008"],
+                recog_exp_names={
+                    "Conformer_Transducer_Viterbi_wei-data_tinaconf_align-blstm-am-1.0_lr-0.0008": ["recog_ilm-0.1"]
+                },
+                recog_descriptor=f"lp-{lp}",
+                **recog_args,
+            )
 
-    train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008")
-    model = train_job.out_checkpoints[298]
+    recursive_update(
+        recog_args, {"epochs": [300], "lm_scales": [0.8], "search_parameters": {"blank-label-penalty": 1.0}}
+    )
+    system.run_dev_recog_step(recog_exp_names={key: ["recog_ilm-0.1"] for key in system.get_exp_names()}, **recog_args)
+    system.run_test_recog_step(recog_exp_names={key: ["recog_ilm-0.1"] for key in system.get_exp_names()}, **recog_args)
+
+    train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_wei-data_tinaconf_{name_suffix}_lr-0.0008")
+    model = train_job.out_checkpoints[300]
     assert isinstance(model, Checkpoint)
 
     assert system.summary_report
     return system.summary_report, model
 
 
-def py() -> Tuple[SummaryReport, Checkpoint]:
+def py() -> Tuple[SummaryReport, Dict[str, Checkpoint]]:
     _, alignments_blstm = py_ctc_blstm()
-    alignments_blstm = alignments_blstm["BLSTM_CTC_wei-data_am-1.0"]
 
     filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
     summary_report = SummaryReport()
+    models = {}
 
-    sub_report, model = run_exp(alignments_blstm, name_suffix="align-blstm")
-    summary_report.merge_report(sub_report, update_structure=True)
+    for align_model_name, alignments in alignments_blstm.items():
+        am_scale_pos = align_model_name.find("am-")
+        align_model_name = "blstm-" + align_model_name[am_scale_pos : am_scale_pos + len("am-1.0")]
+        sub_report, model = run_exp(alignments, name_suffix=f"align-{align_model_name}")
+        models[align_model_name] = model
+        summary_report.merge_report(sub_report, update_structure=True)
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 
-    return summary_report, model
+    return summary_report, models

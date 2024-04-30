@@ -165,15 +165,7 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
         corpus_data=data.data_inputs,
         am_args=recog_am_args,
     )
-    system.setup_scoring(
-        scorer_type=Hub5ScoreJob,
-        # stm_kwargs={"non_speech_tokens": ["[NOISE]", "[LAUGHTER]", "[VOCALIZED-NOISE]"]},
-        stm_paths={key: tk.Path("/u/corpora/speech/hub5e_00/xml/hub5e_00.stm") for key in data.dev_keys},
-        score_kwargs={
-            "glm": tk.Path("/u/corpora/speech/hub5e_00/xml/glm"),
-            # "glm": tk.Path("/u/corpora/speech/hub-5-00/raw/transcriptions/reference/en20000405_hub5.glm"),
-        },
-    )
+    system.setup_scoring(scorer_type=Hub5ScoreJob)
 
     # ********** Returnn Configs **********
 

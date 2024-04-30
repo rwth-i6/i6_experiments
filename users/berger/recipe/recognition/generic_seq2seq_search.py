@@ -238,7 +238,7 @@ class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
 
         self.rqmt = {
             "time": max(crp.corpus_duration * rtf / crp.concurrent, 4.5),
-            "cpu": 3,
+            "cpu": 2,
             "gpu": 1 if self.use_gpu else 0,
             "mem": mem,
         }

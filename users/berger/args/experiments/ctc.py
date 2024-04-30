@@ -67,7 +67,7 @@ def get_ctc_recog_step_args(num_classes: int, reduction_factor: int = 4, **kwarg
             "mem_rqmt": 16,
         },
         "rtf": 20,
-        "mem": 16,
+        "mem": 4,
     }
 
     return recursive_update(default_args, kwargs)
