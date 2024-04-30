@@ -256,7 +256,7 @@ def run_exp(
 
     # ********** Returnn Configs **********
 
-    for lr in [4e-04, 8e-04]:
+    for lr in [4e-04, 8e-04, 1e-03]:
         train_config = generate_returnn_config(
             train=True,
             train_data_config=data.train_data_config,

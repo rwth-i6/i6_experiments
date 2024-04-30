@@ -116,21 +116,15 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
         tools.returnn_python_exe,
         rasr_binary_path=tools.rasr_binary_path,
         add_unknown_phoneme_and_mapping=False,
-        use_augmented_lexicon=False,
-        use_wei_lexicon=True,
+        use_augmented_lexicon=True,
+        use_wei_lexicon=False,
         feature_type=FeatureType.GAMMATONE_16K,
-        test_keys=[
-            "test-clean",
-            "test-other",
-        ],
     )
 
     # ********** Step args **********
 
     train_args = exp_args.get_ctc_train_step_args(
         num_epochs=500,
-        gpu_mem_rqmt=24,
-        mem_rqmt=24,
     )
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)

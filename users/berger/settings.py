@@ -52,6 +52,7 @@ def worker_wrapper(job, task_name, call):
         "ReturnnTrainingJob",
         "ReturnnRasrTrainingJob",
         "OptunaReturnnTrainingJob",
+        "ReturnnDumpHDFJob",
         "CompileTFGraphJob",
         "OptunaCompileTFGraphJob",
         "ReturnnRasrComputePriorJob",

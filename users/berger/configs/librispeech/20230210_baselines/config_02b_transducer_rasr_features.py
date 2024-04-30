@@ -21,11 +21,7 @@ from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
 from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, FeatureType, SummaryKey
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
-from i6_experiments.users.berger.recipe.returnn.training import (
-    GetBestCheckpointJob,
-)
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
-from i6_experiments.users.berger.recipe.returnn.hdf import MatchLengthsJob
 from .config_01b_ctc_blstm_rasr_features import py as py_ctc_blstm
 from .config_01d_ctc_conformer_rasr_features import py as py_ctc_conf
 from sisyphus import gs, tk
@@ -50,18 +46,31 @@ def generate_returnn_config(
     dev_data_config: dict,
     **kwargs,
 ) -> ReturnnConfig:
+    specaug_v2 = kwargs.get("specaug_v2", False)
+    if specaug_v2:
+        specaug_args = {
+            "min_reps_time": 0,
+            "max_reps_time": 20,
+            "max_len_time": 20,
+            "min_reps_feature": 0,
+            "max_reps_feature": 1,
+            "max_len_feature": 15,
+        }
+    else:
+        specaug_args = {
+            "max_time_num": 1,
+            "max_time": 15,
+            "max_feature_num": 5,
+            "max_feature": 5,
+        }
+
     if train:
         (
             network_dict,
             extra_python,
         ) = transducer_model.make_context_1_conformer_transducer(
             num_outputs=num_classes,
-            specaug_args={
-                "max_time_num": 1,
-                "max_time": 15,
-                "max_feature_num": 5,
-                "max_feature": 5,
-            },
+            specaug_args=specaug_args,
             conformer_args={
                 "num_blocks": 12,
                 "size": 512,
@@ -90,6 +99,7 @@ def generate_returnn_config(
             },
             loss_boost_scale=kwargs.get("loss_boost_scale", 5.0),
             loss_boost_v2=kwargs.get("loss_boost_v2", False),
+            specaug_v2=specaug_v2,
         )
     else:
         (
@@ -177,9 +187,6 @@ def run_exp(
     alignments: Dict[str, AlignmentData],
     ctc_model_checkpoint: Optional[Checkpoint] = None,
     name_suffix: str = "",
-    data_control_train: bool = False,
-    data_control_cv: bool = False,
-    match_lengths: bool = False,
 ) -> Tuple[SummaryReport, Checkpoint]:
     assert tools.returnn_root is not None
     assert tools.returnn_python_exe is not None
@@ -196,46 +203,6 @@ def run_exp(
         use_augmented_lexicon=True,
         use_wei_lexicon=False,
         feature_type=FeatureType.GAMMATONE_16K,
-    )
-
-    changed_data_configs = []
-    if data_control_train:
-        changed_data_configs.append(data.train_data_config)
-    if data_control_cv:
-        changed_data_configs.append(data.cv_data_config)
-    for data_config in changed_data_configs:
-        data_config["datasets"]["data"].update(
-            {
-                "seq_ordering": data_config["datasets"]["classes"]["seq_ordering"],
-                "partition_epoch": data_config["datasets"]["classes"]["partition_epoch"],
-            }
-        )
-        del data_config["datasets"]["classes"]["seq_ordering"]
-        del data_config["datasets"]["classes"]["partition_epoch"]
-        data_config["seq_order_control_dataset"] = "data"
-    if match_lengths:
-        for data_config in [data.train_data_config, data.cv_data_config]:
-            data_config["datasets"]["classes"]["files"] = [
-                MatchLengthsJob(file, data_config["datasets"]["data"]["files"], subsample_by_4).out_hdf
-                for file in data_config["datasets"]["classes"]["files"]
-            ]
-
-    # ********** Step args **********
-
-    train_args = exp_args.get_transducer_train_step_args(
-        num_epochs=400,
-        gpu_mem_rqmt=24,
-    )
-
-    recog_args = exp_args.get_transducer_recog_step_args(
-        num_classes,
-        lm_scales=[0.5, 0.6, 0.7, 0.8, 0.9],
-        epochs=[320, 400],
-        # lookahead_options={"scale": 0.5},
-        search_parameters={"label-pruning": 14.0},
-        feature_type=FeatureType.GAMMATONE_16K,
-        reduction_factor=4,
-        reduction_subtrahend=0,
     )
 
     # ********** System **********
@@ -255,6 +222,33 @@ def run_exp(
             SummaryKey.ERR,
         ],
         summary_sort_keys=[SummaryKey.ERR, SummaryKey.CORPUS],
+    )
+
+    system.init_corpora(
+        dev_keys=data.dev_keys,
+        test_keys=data.test_keys,
+        align_keys=data.align_keys,
+        corpus_data=data.data_inputs,
+        am_args=exp_args.transducer_recog_am_args,
+    )
+    system.setup_scoring()
+
+    # ********** Step args **********
+
+    train_args = exp_args.get_transducer_train_step_args(
+        num_epochs=400,
+        gpu_mem_rqmt=24,
+    )
+
+    recog_args = exp_args.get_transducer_recog_step_args(
+        num_classes,
+        lm_scales=[0.5, 0.6, 0.7, 0.8, 0.9],
+        epochs=[320, 400],
+        # lookahead_options={"scale": 0.5},
+        search_parameters={"label-pruning": 14.0},
+        feature_type=FeatureType.GAMMATONE_16K,
+        reduction_factor=4,
+        reduction_subtrahend=0,
     )
 
     # ********** Returnn Configs **********
@@ -315,14 +309,30 @@ def run_exp(
 
         system.add_experiment_configs(f"Conformer_Transducer_Viterbi_{suffix}_{name_suffix}", returnn_configs)
 
-    system.init_corpora(
-        dev_keys=data.dev_keys,
-        test_keys=data.test_keys,
-        align_keys=data.align_keys,
-        corpus_data=data.data_inputs,
-        am_args=exp_args.transducer_recog_am_args,
-    )
-    system.setup_scoring()
+    if "blstm" in name_suffix:
+        system.add_experiment_configs(
+            f"Conformer_Transducer_Viterbi_specaug-v2_{name_suffix}",
+            ReturnnConfigs(
+                train_config=generate_returnn_config(
+                    train=True,
+                    train_data_config=data.train_data_config,
+                    dev_data_config=data.cv_data_config,
+                    label_smoothing=None,
+                    loss_boost_v2=False,
+                    loss_boost_scale=5.0,
+                    peak_lr=8e-04,
+                    model_preload=None,
+                ),
+                recog_configs={
+                    "recog_ilm": generate_returnn_config(
+                        train=False,
+                        train_data_config=data.train_data_config,
+                        dev_data_config=data.cv_data_config,
+                        ilm_scale=0.2,
+                    )
+                },
+            ),
+        )
 
     system.run_train_step(**train_args)
 
@@ -330,9 +340,6 @@ def run_exp(
     system.run_test_recog_step(**recog_args)
 
     train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_lr-0.0008_{name_suffix}")
-    # model = GetBestCheckpointJob(
-    #     model_dir=train_job.out_model_dir, learning_rates=train_job.out_learning_rates
-    # ).out_checkpoint
     model = train_job.out_checkpoints[400]
     assert isinstance(model, Checkpoint)
 
@@ -348,7 +355,7 @@ def py() -> Tuple[SummaryReport, Checkpoint]:
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
     summary_report, model = run_exp(alignments_blstm, ctc_model, name_suffix="blstm-align")
-    # summary_report.merge_report(run_exp(alignments_conf, name_suffix="conf-align")[0])
+    summary_report.merge_report(run_exp(alignments_conf, name_suffix="conf-align")[0])
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 

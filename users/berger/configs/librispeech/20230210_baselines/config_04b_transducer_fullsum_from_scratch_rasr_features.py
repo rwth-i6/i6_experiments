@@ -21,7 +21,7 @@ from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, Feat
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
-from .config_01d_ctc_conformer_rasr_features import py as py_ctc
+from .config_01b_ctc_blstm_rasr_features import py as py_ctc
 from sisyphus import gs, tk
 
 # ********** Settings **********
@@ -126,7 +126,7 @@ def generate_returnn_config(
         grad_clip=0.0,
         schedule=LearningRateSchedules.OCLR,
         initial_lr=4e-06,
-        const_lr=kwargs.get("lr", 8e-05),
+        peak_lr=kwargs.get("lr", 8e-05),
         final_lr=1e-07,
         batch_size=kwargs.get("batch_size", 4500),
         accum_grad=kwargs.get("accum_grad", 2),
@@ -153,38 +153,11 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> SummaryReport:
         alignments=alignments,
         rasr_binary_path=tools.rasr_binary_path,
         add_unknown_phoneme_and_mapping=False,
-        # use_augmented_lexicon=True,
-        # use_wei_lexicon=False,
-        use_augmented_lexicon=False,
-        use_wei_lexicon=True,
+        use_augmented_lexicon=True,
+        use_wei_lexicon=False,
         lm_names=["4gram"],
         feature_type=FeatureType.GAMMATONE_16K,
         # lm_name="kazuki_transformer",
-    )
-
-    # ********** Step args **********
-
-    train_args = exp_args.get_transducer_train_step_args(
-        num_epochs=300,
-        # gpu_mem_rqmt=24,
-        # mem_rqmt=24,
-    )
-
-    recog_args = exp_args.get_transducer_recog_step_args(
-        num_classes,
-        # lm_scales=[0.8, 0.85, 0.9],
-        lm_scales=[0.8, 0.9, 1.0],
-        # epochs=[160, 240, 300, "best"],
-        epochs=[300],
-        search_parameters={
-            "label-pruning": 19.8,
-            "label-pruning-limit": 20000,
-            "word-end-pruning": 0.8,
-            "word-end-pruning-limit": 2000,
-        },
-        feature_type=FeatureType.GAMMATONE_16K,
-        reduction_factor=4,
-        reduction_subtrahend=0,
     )
 
     # ********** System **********
@@ -221,7 +194,7 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> SummaryReport:
         "dev_data_config": data.cv_data_config,
     }
 
-    for epochs in [400, 800, 1200, 1600]:
+    for epochs in [400, 800, 1200, 1600, 2000]:
         train_config = generate_returnn_config(train=True, num_epochs=epochs, **config_generator_kwargs)
         recog_configs = {
             f"recog_ilm-{ilm_scale}": generate_returnn_config(
@@ -239,15 +212,13 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> SummaryReport:
 
         train_args = exp_args.get_transducer_train_step_args(
             num_epochs=epochs,
-            gpu_mem_rqmt=24,
-            mem_rqmt=24,
         )
         system.run_train_step([exp_name], **train_args)
 
         recog_args = exp_args.get_transducer_recog_step_args(
             num_classes,
-            lm_scales=[0.9],
-            epochs=[epochs],
+            lm_scales=[0.8],
+            epochs=[epoch for epoch in [160, 320, 640, 1280, epochs] if epoch <= epochs],
             search_parameters={
                 "label-pruning": 14.0,
                 "label-pruning-limit": 20000,
@@ -258,7 +229,7 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> SummaryReport:
             reduction_factor=4,
             reduction_subtrahend=0,
         )
-        system.run_dev_recog_step([exp_name], **recog_args)
+        system.run_dev_recog_step(exp_names=[exp_name], **recog_args)
 
     assert system.summary_report
     return system.summary_report

@@ -22,7 +22,7 @@ from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, Feat
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
-from .config_01d_ctc_conformer_rasr_features import py as py_ctc
+from .config_01b_ctc_blstm_rasr_features import py as py_ctc
 from .config_02b_transducer_rasr_features import py as py_transducer
 from sisyphus import gs, tk
 
@@ -161,51 +161,26 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
         alignments=alignments,
         rasr_binary_path=tools.rasr_binary_path,
         add_unknown_phoneme_and_mapping=False,
-        # use_augmented_lexicon=True,
-        # use_wei_lexicon=False,
-        use_augmented_lexicon=False,
-        use_wei_lexicon=True,
-        lm_names=["4gram"],
+        use_augmented_lexicon=True,
+        use_wei_lexicon=False,
         feature_type=FeatureType.GAMMATONE_16K,
-        # lm_name="kazuki_transformer",
     )
 
     # ********** Step args **********
 
     train_args = exp_args.get_transducer_train_step_args(
         num_epochs=300,
-        # gpu_mem_rqmt=24,
-        # mem_rqmt=24,
     )
 
     recog_args = exp_args.get_transducer_recog_step_args(
         num_classes,
-        # lm_scales=[0.8, 0.85, 0.9],
-        lm_scales=[0.8, 0.9, 1.0],
-        # epochs=[160, 240, 300, "best"],
+        lm_scales=[0.7, 0.8, 0.9, 1.0, 1.1],
         epochs=[300],
         search_parameters={
             "label-pruning": 19.8,
             "label-pruning-limit": 20000,
             "word-end-pruning": 0.8,
             "word-end-pruning-limit": 2000,
-        },
-        feature_type=FeatureType.GAMMATONE_16K,
-        reduction_factor=4,
-        reduction_subtrahend=0,
-    )
-
-    trafo_recog_args = exp_args.get_transducer_recog_step_args(
-        num_classes,
-        lm_scales=[0.9, 1.1],
-        epochs=[300],
-        search_parameters={
-            "label-pruning": 19.8,
-            "label-pruning-limit": 20000,
-            "word-end-pruning": 0.8,
-            "word-end-pruning-limit": 2000,
-            "separate-lookahead-lm": True,
-            "separate-recombination-lm": True,
         },
         feature_type=FeatureType.GAMMATONE_16K,
         reduction_factor=4,
@@ -240,10 +215,10 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
     }
 
     for lr, batch_size, accum_grad in [
-        (8e-05, 3000, 3),
-        (4e-05, 3000, 3),
+        # (8e-05, 3000, 3),
+        # (4e-05, 3000, 3),
         (1e-04, 3000, 3),
-        (8e-05, 3000, 10),
+        # (8e-05, 3000, 10),
     ]:
         train_config = generate_returnn_config(
             train=True, lr=lr, batch_size=batch_size, accum_grad=accum_grad, **config_generator_kwargs
@@ -252,7 +227,7 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
             f"recog_ilm-{ilm_scale}": generate_returnn_config(
                 train=False, ilm_scale=ilm_scale, **config_generator_kwargs
             )
-            for ilm_scale in [0.0, 0.1, 0.25, 0.4]
+            for ilm_scale in [0.0, 0.1, 0.2, 0.25, 0.3, 0.4]
         }
 
         returnn_configs = ReturnnConfigs(
@@ -275,13 +250,23 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
     system.run_train_step(**train_args)
 
     system.run_recog_step_for_corpora(corpora=["dev-clean_4gram", "dev-other_4gram"], **recog_args)
-    # system.run_recog_step_for_corpora(
-    #     corpora=["dev-clean_kazuki_transformer", "dev-other_kazuki_transformer"], **trafo_recog_args
-    # )
     system.run_recog_step_for_corpora(corpora=["test-clean_4gram", "test-other_4gram"], **recog_args)
-    # system.run_recog_step_for_corpora(
-    #     corpora=["test-clean_kazuki_transformer", "test-other_kazuki_transformer"], **trafo_recog_args
-    # )
+
+    recog_args["lm_scales"] = [0.8]
+    recog_args["search_parameters"].update({"full-sum-decoding": True, "label-full-sum": True})
+
+    system.run_recog_step_for_corpora(
+        recog_descriptor="fs",
+        recog_exp_names={"Conformer_Transducer_Fullsum_lr-0.0001_bs-9000": ["recog_ilm-0.2"]},
+        corpora=["dev-clean_4gram", "dev-other_4gram"],
+        **recog_args,
+    )
+    system.run_recog_step_for_corpora(
+        recog_descriptor="fs",
+        recog_exp_names={"Conformer_Transducer_Fullsum_lr-0.0001_bs-9000": ["recog_ilm-0.2"]},
+        corpora=["test-clean_4gram", "test-other_4gram"],
+        **recog_args,
+    )
 
     assert system.summary_report
     return system.summary_report

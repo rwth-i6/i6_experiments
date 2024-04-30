@@ -22,7 +22,7 @@ from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, Summ
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
-from .config_01c_ctc_conformer_raw_samples import py as py_ctc
+from .config_01a_ctc_blstm_raw_samples import py as py_ctc
 from .config_02a_transducer_raw_samples import py as py_transducer
 from sisyphus import gs, tk
 
@@ -47,7 +47,10 @@ def generate_returnn_config(
     model_preload: tk.Path,
 ) -> ReturnnConfig:
     if train:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_fullsum(
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer_fullsum(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
@@ -85,7 +88,10 @@ def generate_returnn_config(
             },
         )
     else:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,

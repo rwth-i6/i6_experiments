@@ -19,6 +19,7 @@ from i6_experiments.users.berger.network.helpers.loss_boost import (
 )
 import i6_experiments.users.berger.network.helpers.label_context as label_context
 from i6_experiments.users.berger.network.helpers.specaug import get_specaug_funcs, add_specaug_layer
+from i6_experiments.users.berger.network.helpers.specaug_2 import get_specaug_funcs_v2, add_specaug_layer_v2
 
 
 def make_context_1_conformer_transducer(
@@ -32,14 +33,19 @@ def make_context_1_conformer_transducer(
     decoder_args: Dict = {},
     output_args: Dict = {},
     loss_boost_v2: bool = True,
+    specaug_v2: bool = False,
 ) -> Tuple[Dict, List]:
     network = {}
     python_code = []
 
     from_list = ["data"]
 
-    from_list = add_specaug_layer(network, from_list=from_list, **specaug_args)
-    python_code += get_specaug_funcs()
+    if specaug_v2:
+        from_list = add_specaug_layer_v2(network, from_list=from_list, **specaug_args)
+        python_code += get_specaug_funcs_v2()
+    else:
+        from_list = add_specaug_layer(network, from_list=from_list, **specaug_args)
+        python_code += get_specaug_funcs()
 
     from_list = add_initial_conv(network, from_list, **vgg_args)
     from_list, blocks = add_conformer_stack(network, from_list, **conformer_args)
@@ -112,14 +118,19 @@ def make_context_1_conformer_transducer_fullsum(
     vgg_args: Dict = {},
     conformer_args: Dict = {},
     decoder_args: Dict = {},
+    specaug_v2: bool = False,
 ) -> Tuple[Dict, List]:
     network = {}
     python_code = []
 
     from_list = ["data"]
 
-    from_list = add_specaug_layer(network, from_list=from_list, **specaug_args)
-    python_code += get_specaug_funcs()
+    if specaug_v2:
+        from_list = add_specaug_layer_v2(network, from_list=from_list, **specaug_args)
+        python_code += get_specaug_funcs_v2()
+    else:
+        from_list = add_specaug_layer(network, from_list=from_list, **specaug_args)
+        python_code += get_specaug_funcs()
 
     from_list = add_initial_conv(network, from_list, **vgg_args)
     from_list, _ = add_conformer_stack(network, from_list, **conformer_args)
@@ -144,7 +155,11 @@ def make_context_1_conformer_transducer_fullsum(
     }
     context_labels = "pred_labels_int32"
 
-    (joint_output, decoder_unit, decoder_python,) = label_context.add_context_1_decoder_fullsum(
+    (
+        joint_output,
+        decoder_unit,
+        decoder_python,
+    ) = label_context.add_context_1_decoder_fullsum(
         network,
         context_labels=context_labels,
         encoder="encoder",
@@ -220,14 +235,19 @@ def make_context_1_blstm_transducer(
     decoder_args: Dict = {},
     output_args: Dict = {},
     loss_boost_v2: bool = True,
+    specaug_v2: bool = False,
 ) -> Tuple[Dict, List]:
     network = {}
     python_code = []
 
     from_list = ["data"]
 
-    from_list = add_specaug_layer(network, from_list=from_list, **specaug_args)
-    python_code += get_specaug_funcs()
+    if specaug_v2:
+        from_list = add_specaug_layer_v2(network, from_list=from_list, **specaug_args)
+        python_code += get_specaug_funcs_v2()
+    else:
+        from_list = add_specaug_layer(network, from_list=from_list, **specaug_args)
+        python_code += get_specaug_funcs()
 
     from_list, _ = add_blstm_stack(network, from_list, **blstm_args)
 
@@ -286,14 +306,19 @@ def make_context_1_blstm_transducer_fullsum(
     specaug_args: Dict = {},
     blstm_args: Dict = {},
     decoder_args: Dict = {},
+    specaug_v2: bool = False,
 ) -> Tuple[Dict, List]:
     network = {}
     python_code = []
 
     from_list = ["data"]
 
-    from_list = add_specaug_layer(network, from_list=from_list, **specaug_args)
-    python_code += get_specaug_funcs()
+    if specaug_v2:
+        from_list = add_specaug_layer_v2(network, from_list=from_list, **specaug_args)
+        python_code += get_specaug_funcs_v2()
+    else:
+        from_list = add_specaug_layer(network, from_list=from_list, **specaug_args)
+        python_code += get_specaug_funcs()
 
     from_list, _ = add_blstm_stack(network, from_list, **blstm_args)
 
@@ -317,7 +342,11 @@ def make_context_1_blstm_transducer_fullsum(
     }
     context_labels = "pred_labels_int32"
 
-    (joint_output, decoder_unit, decoder_python,) = label_context.add_context_1_decoder_fullsum(
+    (
+        joint_output,
+        decoder_unit,
+        decoder_python,
+    ) = label_context.add_context_1_decoder_fullsum(
         network,
         context_labels=context_labels,
         encoder="encoder",

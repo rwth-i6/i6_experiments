@@ -21,9 +21,6 @@ from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
 from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, SummaryKey
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
-from i6_experiments.users.berger.recipe.returnn.training import (
-    GetBestCheckpointJob,
-)
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
 from .config_01a_ctc_blstm_raw_samples import py as py_ctc_blstm
 from .config_01c_ctc_conformer_raw_samples import py as py_ctc_conf
@@ -50,7 +47,10 @@ def generate_returnn_config(
     **kwargs,
 ) -> ReturnnConfig:
     if train:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer(
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
@@ -87,7 +87,10 @@ def generate_returnn_config(
             },
         )
     else:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
@@ -189,7 +192,6 @@ def run_exp(
 
     train_args = exp_args.get_transducer_train_step_args(
         num_epochs=400,
-        gpu_mem_rqmt=24,
     )
 
     recog_args = exp_args.get_transducer_recog_step_args(
@@ -274,9 +276,9 @@ def py() -> Tuple[SummaryReport, Checkpoint]:
     filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
-    summary_report, model = run_exp(alignments_blstm, name_suffix="blstm-align")
+    summary_report, model = run_exp(alignments_blstm, ctc_model, name_suffix="blstm-align")
+    summary_report, model = run_exp(alignments_blstm, name_suffix="ctc-init_blstm-align")
     summary_report.merge_report(run_exp(alignments_conf, name_suffix="conf-align")[0])
-    summary_report.merge_report(run_exp(alignments_conf, ctc_model, name_suffix="ctc-init_conf-align")[0])
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 
