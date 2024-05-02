@@ -1015,7 +1015,7 @@ def conformer_baseline():
                                 base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
                                 args = copy.deepcopy(base_v1_args)
                                 args["encoder_args"].num_blocks = num_blocks
-                                args["encoder_args"].mhsa_weight_dropout = weight_drop
+                                args["encoder_args"].mhsa_weight_dropout = 0.0
                                 args["encoder_args"].ff_weight_dropout = weight_drop
                                 args["encoder_args"].conv_weight_dropout = weight_drop
 
@@ -1185,40 +1185,134 @@ def conformer_baseline():
                                 #                     recog_bliss=recog_datasets_tuples[test_set][2],
                                 #                 )
 
-                                # TODO: only CTC
-                                only_ctc_args = copy.deepcopy(args)
-                                only_ctc_args["decoder_args"].ce_loss_scale = 0.0
-                                _, train_data = run_exp(
-                                    name + "_onlyCTC",
-                                    only_ctc_args,
-                                    num_epochs=ep,
-                                    epoch_wise_filter=None,
-                                    bpe_size=BPE_1K,
-                                    partition_epoch=4,
-                                    search_args={"ctc_decode": True, "ctc_blank_idx": 1057, **only_ctc_args},
-                                    avg_key="dev_score_ctc",
-                                )
+                                # # TODO: only CTC
+                                # only_ctc_args = copy.deepcopy(args)
+                                # only_ctc_args["decoder_args"].ce_loss_scale = 0.0
+                                # _, train_data = run_exp(
+                                #     name + "_onlyCTC",
+                                #     only_ctc_args,
+                                #     num_epochs=ep,
+                                #     epoch_wise_filter=None,
+                                #     bpe_size=BPE_1K,
+                                #     partition_epoch=4,
+                                #     search_args={"ctc_decode": True, "ctc_blank_idx": 1057, **only_ctc_args},
+                                #     avg_key="dev_score_ctc",
+                                # )
+                                #
+                                # # TODO: scale CTC
+                                # scale_ctc_args = copy.deepcopy(args)
+                                # scale_ctc_args["encoder_args"].ctc_loss_scale = 0.3 / 0.7  # AED scale is 1.0
+                                # _, train_data = run_exp(
+                                #     name + "_ctcScale0.3",
+                                #     scale_ctc_args,
+                                #     num_epochs=ep,
+                                #     epoch_wise_filter=None,
+                                #     bpe_size=BPE_1K,
+                                #     partition_epoch=4,
+                                # )
+                                #
+                                # # TODO: grad clip 5
+                                # grad_clip_args = copy.deepcopy(args)
+                                # grad_clip_args["gradient_clip_global_norm"] = 5
+                                # _, train_data = run_exp(
+                                #     name + "_gradClipNorm5",
+                                #     grad_clip_args,
+                                #     num_epochs=ep,
+                                #     epoch_wise_filter=None,
+                                #     bpe_size=BPE_1K,
+                                #     partition_epoch=4,
+                                # )
 
-                                # TODO: scale CTC
-                                scale_ctc_args = copy.deepcopy(args)
-                                scale_ctc_args["encoder_args"].ctc_loss_scale = 0.3 / 0.7  # AED scale is 1.0
-                                _, train_data = run_exp(
-                                    name + "_ctcScale0.3",
-                                    scale_ctc_args,
-                                    num_epochs=ep,
-                                    epoch_wise_filter=None,
-                                    bpe_size=BPE_1K,
-                                    partition_epoch=4,
-                                )
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12
+    # 7.4     6.85  avg
+    # base_bpe1000_peakLR0.0008_ep200_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.1_woDepthConvPre
+    # 8.19    7.64  avg
+    # base_bpe1000_peakLR0.0008_ep200_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_ctcScale0.3
+    # 8.11    7.52  best
+    for num_blocks in [12]:
+        for ep in [50 * 4]:
+            for lr in [8e-4]:
+                for target_embed_dim in [256]:
+                    for att_drop in [0.0]:
+                        for weight_drop in [0.1]:
+                            for enc_drop in [0.15]:
+                                for ctc_scale in [1.0, 0.3]:
+                                    base_v1_args, exp_name = get_base_v1_args(
+                                        lr, ep, enc_drop=enc_drop, use_legacy_stats=False
+                                    )
 
-                                # TODO: grad clip 5
-                                grad_clip_args = copy.deepcopy(args)
-                                grad_clip_args["gradient_clip_global_norm"] = 5
-                                _, train_data = run_exp(
-                                    name + "_gradClipNorm5",
-                                    grad_clip_args,
-                                    num_epochs=ep,
-                                    epoch_wise_filter=None,
-                                    bpe_size=BPE_1K,
-                                    partition_epoch=4,
-                                )
+                                    args = copy.deepcopy(base_v1_args)
+                                    args["encoder_args"].num_blocks = num_blocks
+                                    args["encoder_args"].mhsa_weight_dropout = weight_drop
+                                    args["encoder_args"].ff_weight_dropout = weight_drop
+                                    args["encoder_args"].conv_weight_dropout = weight_drop
+
+                                    args["decoder_args"].embed_dim = target_embed_dim
+                                    args["decoder_args"].att_dropout = att_drop
+
+                                    exp_name += f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
+
+                                    if ctc_scale != 1.0:
+                                        args["encoder_args"].ctc_loss_scale = ctc_scale
+                                        args["decoder_args"].ce_loss_scale = 1.0 - ctc_scale
+                                        exp_name += f"_ctcScale{ctc_scale}"
+
+                                    run_exp(
+                                        exp_name,
+                                        args,
+                                        num_epochs=ep,
+                                        epoch_wise_filter=None,
+                                        bpe_size=BPE_1K,
+                                        partition_epoch=4,
+                                    )
+
+    # TODO: mixup
+    for num_blocks in [12]:
+        for ep in [50 * 4]:
+            for lr in [8e-4]:
+                for target_embed_dim in [256]:
+                    for att_drop in [0.0]:
+                        for weight_drop in [0.1]:
+                            for enc_drop in [0.15]:
+                                for ctc_scale in [0.3]:
+                                    for mixup_apply_prob in [0.2, 0.3, 0.4]:
+                                        base_v1_args, exp_name = get_base_v1_args(
+                                            lr, ep, enc_drop=enc_drop, use_legacy_stats=False
+                                        )
+
+                                        args = copy.deepcopy(base_v1_args)
+                                        args["encoder_args"].num_blocks = num_blocks
+                                        args["encoder_args"].mhsa_weight_dropout = weight_drop
+                                        args["encoder_args"].ff_weight_dropout = weight_drop
+                                        args["encoder_args"].conv_weight_dropout = weight_drop
+
+                                        args["decoder_args"].embed_dim = target_embed_dim
+                                        args["decoder_args"].att_dropout = att_drop
+
+                                        exp_name += f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
+
+                                        args["mixup_aug_opts"] = {
+                                            "use_log10_features": True,
+                                            "buffer_size": 1_000_000,
+                                            "apply_prob": mixup_apply_prob,
+                                            "max_num_mix": 4,
+                                            "lambda_min": 0.15,
+                                            "lambda_max": 0.3,
+                                        }
+                                        exp_name += f"_mixup_{mixup_apply_prob}_4_0.15_0.3"
+
+                                        if ctc_scale != 1.0:
+                                            args["encoder_args"].ctc_loss_scale = ctc_scale
+                                            args["decoder_args"].ce_loss_scale = 1.0 - ctc_scale
+                                            exp_name += f"_ctcScale{ctc_scale}"
+
+                                        run_exp(
+                                            exp_name,
+                                            args,
+                                            num_epochs=ep,
+                                            epoch_wise_filter=None,
+                                            bpe_size=BPE_1K,
+                                            partition_epoch=4,
+                                        )
+
+    # TODO: smaller models

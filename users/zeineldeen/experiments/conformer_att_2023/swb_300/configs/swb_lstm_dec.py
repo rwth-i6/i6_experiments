@@ -1203,5 +1203,3 @@ def conformer_baseline():
                             bpe_size=BPE_500,
                             horovod_num_processes=4,
                         )
-
-                        # TODO: use weight noise after 50% of the epochs
