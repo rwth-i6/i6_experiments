@@ -906,30 +906,33 @@ def create_config(
                         add_global_stats_norm(global_stats, net)
                     else:
                         add_per_seq_norm(net)
-                if mixup_aug_opts and enable_mixup_in_pretrain:
-                    add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog)
-                    net_as_str = "from returnn.config import get_global_config\n"
+
+                if (mixup_aug_opts and enable_mixup_in_pretrain) or (
+                    global_stats and not global_stats.get("use_legacy_version", False)
+                ):
+                    net_as_str = ""
+                    if mixup_aug_opts and enable_mixup_in_pretrain:
+                        add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog)
+                        net_as_str += "from returnn.config import get_global_config\n"
+                    if global_stats and not global_stats.get("use_legacy_version", False):
+                        net_as_str += "import numpy\n"
+
                     net_as_str += "network = %s" % str(net)
                     staged_network_dict[(idx * pretrain_reps) + 1] = net_as_str
                 else:
-                    if global_stats and not global_stats.get("use_legacy_version", False):
-                        net_as_str = "import numpy\n"
-                        net_as_str += "network = %s" % str(net)
-                        staged_network_dict[(idx * pretrain_reps) + 1] = net_as_str
-                    else:
-                        staged_network_dict[(idx * pretrain_reps) + 1] = net
+                    staged_network_dict[(idx * pretrain_reps) + 1] = net
                 idx += 1
-            if mixup_aug_opts:
-                net_as_str = "from returnn.config import get_global_config\n"
+            if mixup_aug_opts or (global_stats and not global_stats.get("use_legacy_version", False)):
+                net_as_str = ""
+                if mixup_aug_opts:
+                    net_as_str += "from returnn.config import get_global_config\n"
+                if global_stats and not global_stats.get("use_legacy_version", False):
+                    net_as_str += "import numpy\n"
+
                 net_as_str += "network = %s" % str(exp_config["network"])  # mixup already added
                 staged_network_dict[(idx * pretrain_reps) + 1] = net_as_str
             else:
-                if global_stats and not global_stats.get("use_legacy_version", False):
-                    net_as_str = "import numpy\n"
-                    net_as_str += "network = %s" % str(exp_config["network"])
-                    staged_network_dict[(idx * pretrain_reps) + 1] = net_as_str
-                else:
-                    staged_network_dict[(idx * pretrain_reps) + 1] = exp_config["network"]
+                staged_network_dict[(idx * pretrain_reps) + 1] = exp_config["network"]
             exp_config.pop("network")
         else:
             if pretrain_opts is None:
