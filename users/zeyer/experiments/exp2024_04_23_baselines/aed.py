@@ -40,7 +40,7 @@ _log_mel_feature_dim = 80
 
 
 def py():
-    train_exp(  # TODO (should give 5.11)
+    train_exp(  # 5.32, but should give 5.11?
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         config_updates={
@@ -50,6 +50,24 @@ def py():
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         },
     )
+
+    for max_seq_len in [
+        60,
+        74,  # now EOS is not counted, so this is same as before
+        75,  # 5.32?
+        None,
+    ]:
+        train_exp(
+            f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-maxSeqLen{max_seq_len}-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                "max_seq_length_default_target": max_seq_len,
+            },
+        )
 
     train_exp(
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k",
