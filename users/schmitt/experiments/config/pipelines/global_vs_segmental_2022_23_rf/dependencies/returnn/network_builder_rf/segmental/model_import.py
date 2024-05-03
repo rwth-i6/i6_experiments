@@ -1,20 +1,8 @@
-from typing import Optional, Dict, Any, Sequence, Tuple, List
-import functools
-import math
-import tree
+from typing import Dict
 import numpy
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import BaseModel
-
-from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
-from returnn.frontend.tensor_array import TensorArray
 
-from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.model import ModelDef
-from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.training import TrainDef
-from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.recog import RecogDef
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor, _log_mel_feature_dim
-from i6_experiments.users.zeyer.experiments.exp2023_04_25_rf._moh_att_2023_06_30_import import map_param_func_v2 as map_param_func_v2_albert
 
 _ParamMapping = {}  # type: Dict[str,str]
 

@@ -55,8 +55,6 @@ class ConfigBuilderRF(ABC):
       accum_grad_multiple_step=4,
       default_input="data",
       target="targets",
-      aux_loss_layers=[4, 8],
-      batching="laplace:.1000",
     )
 
     self.python_prolog = []
@@ -79,6 +77,13 @@ class ConfigBuilderRF(ABC):
         "import_model_train_epoch1": opts["import_model_train_epoch1"],
         "load_ignore_missing_vars": True,
       })
+
+    config_dict.update(dict(
+      batching=opts.get("batching", "laplace:.1000"),
+      aux_loss_layers=opts.get("aux_loss_layers", [4, 8]),
+      accum_grad_multiple_step=opts.get("accum_grad_multiple_step", config_dict["accum_grad_multiple_step"]),
+      optimizer=opts.get("optimizer", config_dict["optimizer"]),
+    ))
 
     if opts.get("dataset_opts", {}).get("use_speed_pert"):
       python_prolog += [
@@ -130,7 +135,8 @@ class ConfigBuilderRF(ABC):
     dataset_opts = opts.get("dataset_opts", {})
     config_dict.update(dict(
       task="forward",
-      search_output_layer="decision"
+      search_output_layer="decision",
+      batching=opts.get("batching", "random")
     ))
 
     config_dict.update(
@@ -458,6 +464,21 @@ class GlobalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
 
 
 class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
+  def __init__(
+          self,
+          center_window_size: int,
+          length_model_opts: Optional[Dict] = None,
+          **kwargs
+  ):
+    super(SegmentalAttConfigBuilderRF, self).__init__(**kwargs)
+
+    self.config_dict.update(dict(
+      center_window_size=center_window_size,
+    ))
+
+    if length_model_opts is not None:
+      self.config_dict["length_model_opts"] = length_model_opts
+
   def get_recog_config(self, opts: Dict):
     recog_config = super(SegmentalAttConfigBuilderRF, self).get_recog_config(opts)
 

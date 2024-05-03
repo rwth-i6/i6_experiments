@@ -1,20 +1,12 @@
 from typing import Optional, Dict, Any, Sequence, Tuple, List
 import functools
-import math
-import tree
-import numpy
-
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import BaseModel
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
-from returnn.frontend.tensor_array import TensorArray
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.model import ModelDef
-from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.training import TrainDef
-from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.recog import RecogDef
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor, _log_mel_feature_dim
-from i6_experiments.users.zeyer.experiments.exp2023_04_25_rf._moh_att_2023_06_30_import import map_param_func_v2 as map_param_func_v2_albert
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import BaseModel
 
 
 class SegmentalAttentionModel(BaseModel):
@@ -295,10 +287,11 @@ class SegmentalAttentionModel(BaseModel):
 class MakeModel:
   """for import"""
 
-  def __init__(self, in_dim: int, align_target_dim: int, target_dim: int, *, eos_label: int = 0, num_enc_layers: int = 12):
+  def __init__(self, in_dim: int, align_target_dim: int, target_dim: int, *, center_window_size: int, eos_label: int = 0, num_enc_layers: int = 12):
     self.in_dim = in_dim
     self.align_target_dim = align_target_dim
     self.target_dim = target_dim
+    self.center_window_size = center_window_size
     self.eos_label = eos_label
     self.num_enc_layers = num_enc_layers
 
@@ -312,7 +305,7 @@ class MakeModel:
       [str(i) for i in range(target_dim.dimension)], eos_label=self.eos_label
     )
 
-    return self.make_model(in_dim, align_target_dim, target_dim)
+    return self.make_model(in_dim, align_target_dim, target_dim, center_window_size=self.center_window_size)
 
   @classmethod
   def make_model(
@@ -321,6 +314,7 @@ class MakeModel:
           align_target_dim: Dim,
           target_dim: Dim,
           *,
+          center_window_size: int,
           num_enc_layers: int = 12,
           pos_emb_dropout: float = 0.0,
           language_model: Optional[Dict[str, Any]] = None,
@@ -335,10 +329,10 @@ class MakeModel:
       assert cls_name == "TransformerDecoder"
       language_model.pop("vocab_dim", None)  # will just overwrite
 
-      from . import trafo_lm
+      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.lm.trafo import model as trafo_lm
 
       lm = trafo_lm.MakeModel(vocab_dim=target_dim, **language_model)()
-      lm = (lm, functools.partial(trafo_lm.make_label_scorer_torch, model=lm))
+      lm = (lm, functools.partial(trafo_lm.make_time_sync_label_scorer_torch, model=lm, align_target_dim=align_target_dim))
 
     return SegmentalAttentionModel(
       in_dim=in_dim,
@@ -365,7 +359,7 @@ class MakeModel:
       language_model=lm,
       length_model_state_dim=Dim(name="length_model_state", dimension=128, kind=Dim.Types.Feature),
       length_model_embed_dim=Dim(name="length_model_embed", dimension=128, kind=Dim.Types.Feature),
-      center_window_size=5,
+      center_window_size=center_window_size,
       **extra,
     )
 
@@ -381,11 +375,15 @@ def from_scratch_model_def(
   pos_emb_dropout = config.float("pos_emb_dropout", 0.0)
   # real input is raw audio, internally it does logmel
   in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
-  lm_opts = config.typed_value("external_language_model")
+  lm_opts = config.typed_value("external_lm")
+  center_window_size = config.typed_value("center_window_size")
+  if center_window_size is None:
+    raise ValueError("center_window_size is not set!")
   return MakeModel.make_model(
     in_dim,
     align_target_dim,
     target_dim,
+    center_window_size=center_window_size,
     enc_aux_logits=enc_aux_logits or (),
     pos_emb_dropout=pos_emb_dropout,
     language_model=lm_opts
@@ -398,408 +396,24 @@ from_scratch_model_def.backend = "torch"
 from_scratch_model_def.batch_size_factor = _batch_size_factor
 
 
-def _get_non_blank_mask(x: Tensor, blank_idx: int):
-  non_blank_mask = x != rf.convert_to_tensor(blank_idx)
-  return rf.where(non_blank_mask, rf.sequence_mask(x.dims), rf.convert_to_tensor(False))
-
-
-def _get_masked(
-        input: Tensor, mask: Tensor, mask_dim: Dim, batch_dims: Sequence[Dim], result_spatial_dim: Optional[Dim] = None
-) -> Tuple[Tensor, Dim]:
-
-  import torch
-
-  if not result_spatial_dim:
-    new_lens = rf.reduce_sum(rf.cast(mask, "int32"), axis=mask_dim)
-    result_spatial_dim = Dim(name=f"{mask_dim.name}_masked", dimension=rf.copy_to_device(new_lens, "cpu"))
-  else:
-    new_lens = rf.copy_to_device(result_spatial_dim.get_size_tensor(), input.device)
-  # max number of non-blank targets in the batch
-  result_spatial_size = rf.cast(rf.reduce_max(new_lens, axis=batch_dims), "int32")
-  mask_axis = mask.get_axis_from_description(mask_dim)
-  # scatter indices
-  idxs = rf.cast(mask, "int32").copy_template()
-  idxs.raw_tensor = torch.cumsum(mask.raw_tensor.to(
-    torch.int32), dim=mask_axis, dtype=torch.int32) - 1
-  idxs = rf.where(mask, idxs, result_spatial_size)
-  # scatter non-blank targets
-  # blanks are scattered to the last position of each batch
-  result_spatial_dim_temp = result_spatial_dim + 1
-  result = rf.scatter(
-    input, indices=idxs, indices_dim=mask_dim, out_dim=result_spatial_dim_temp)
-  # remove accumulated blanks at the last position
-  result = result.copy_transpose([result_spatial_dim_temp] + batch_dims)
-  result_raw_tensor = result.raw_tensor
-  result = result.copy_template_replace_dim_tag(0, result_spatial_dim)
-  result.raw_tensor = result_raw_tensor[:-1]
-  result = result.copy_transpose(batch_dims + [result_spatial_dim])
-
-  return result, result_spatial_dim
-
-
-def from_scratch_training(
-        *,
-        model: SegmentalAttentionModel,
-        data: rf.Tensor,
-        data_spatial_dim: Dim,
-        align_targets: rf.Tensor,
-        align_targets_spatial_dim: Dim
-):
-  """Function is run within RETURNN."""
+def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
+  from returnn.tensor import Tensor, Dim
   from returnn.config import get_global_config
-  import torch
 
-  config = get_global_config()  # noqa
-  aux_loss_layers = config.typed_value("aux_loss_layers")
-  aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
-  aed_loss_scale = config.float("aed_loss_scale", 1.0)
-  use_normalized_loss = config.bool("use_normalized_loss", True)
-
-  if data.feature_dim and data.feature_dim.dimension == 1:
-    data = rf.squeeze(data, axis=data.feature_dim)
-  assert not data.feature_dim  # raw audio
-
-  batch_dims = data.remaining_dims(data_spatial_dim)
-
-  def _get_segment_starts_and_lens(out_spatial_dim: Dim):
-    non_blank_mask = _get_non_blank_mask(align_targets, model.blank_idx)
-    targets_range = rf.range_over_dim(align_targets_spatial_dim, dtype="int32")
-    targets_range = rf.expand_dim(targets_range, batch_dims[0])
-    non_blank_positions, _ = _get_masked(
-      targets_range, non_blank_mask, align_targets_spatial_dim, batch_dims, out_spatial_dim
-    )
-    starts = rf.maximum(
-      rf.convert_to_tensor(0, dtype="int32"), non_blank_positions - model.center_window_size // 2)
-    ends = rf.minimum(
-      rf.copy_to_device(align_targets_spatial_dim.get_size_tensor() - 1, non_blank_positions.device),
-      non_blank_positions + model.center_window_size // 2
-    )
-    lens = ends - starts + 1
-
-    return starts, lens
-
-  def _get_emit_ground_truth():
-    non_blank_mask = _get_non_blank_mask(align_targets, model.blank_idx)
-    result = rf.where(non_blank_mask, rf.convert_to_tensor(1), rf.convert_to_tensor(0))
-    sparse_dim = Dim(name="emit_ground_truth", dimension=2)
-    # result = rf.expand_dim(result, sparse_dim)
-    result.sparse_dim = sparse_dim
-    torch.set_printoptions(threshold=10000)
-
-    return result, sparse_dim
-
-  non_blank_targets, non_blank_targets_spatial_dim = _get_masked(
-    align_targets, _get_non_blank_mask(align_targets, model.blank_idx), align_targets_spatial_dim, batch_dims
-  )
-  non_blank_targets.sparse_dim = model.target_dim
-  segment_starts, segment_lens = _get_segment_starts_and_lens(non_blank_targets_spatial_dim)
-
-  # ------------------- encoder aux loss -------------------
-
-  collected_outputs = {}
-  enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
-  if aux_loss_layers:
-    for i, layer_idx in enumerate(aux_loss_layers):
-      if layer_idx > len(model.encoder.layers):
-        continue
-      linear = getattr(model, f"enc_aux_logits_{layer_idx}")
-      aux_logits = linear(collected_outputs[str(layer_idx - 1)])
-      aux_loss = rf.ctc_loss(
-        logits=aux_logits,
-        targets=non_blank_targets,
-        input_spatial_dim=enc_spatial_dim,
-        targets_spatial_dim=non_blank_targets_spatial_dim,
-        blank_index=model.blank_idx,
-      )
-      aux_loss.mark_as_loss(
-        f"ctc_{layer_idx}",
-        scale=aux_loss_scales[i],
-        custom_inv_norm_factor=align_targets_spatial_dim.get_size_tensor(),
-        use_normalized_loss=use_normalized_loss,
-      )
-
-  non_blank_input_embeddings = model.target_embed(non_blank_targets)
-  non_blank_input_embeddings = rf.shift_right(
-    non_blank_input_embeddings, axis=non_blank_targets_spatial_dim, pad_value=0.0)
-
-  align_input_embeddings = model.target_embed_length_model(align_targets)
-  align_input_embeddings = rf.shift_right(
-    align_input_embeddings, axis=align_targets_spatial_dim, pad_value=0.0)
-
-  # ------------------- label loop -------------------
-
-  def _label_loop_body(xs, state: rf.State):
-    new_state = rf.State()
-    loop_out_, new_state.decoder = model.label_sync_loop_step(
-      **enc_args,
-      enc_spatial_dim=enc_spatial_dim,
-      input_embed=xs["input_embed"],
-      segment_starts=xs["segment_starts"],
-      segment_lens=xs["segment_lens"],
-      state=state.decoder,
-    )
-    return loop_out_, new_state
-
-  label_loop_out, _, _ = rf.scan(
-    spatial_dim=non_blank_targets_spatial_dim,
-    xs={
-      "input_embed": non_blank_input_embeddings,
-      "segment_starts": segment_starts,
-      "segment_lens": segment_lens,
-    },
-    ys=model.label_loop_step_output_templates(batch_dims=batch_dims),
-    initial=rf.State(
-      decoder=model.label_decoder_default_initial_state(
-        batch_dims=batch_dims,
-        # TODO: do we need these sparse dims? they are automatically added by rf.range_over_dim
-        segment_starts_sparse_dim=segment_starts.sparse_dim,
-        segment_lens_sparse_dim=segment_lens.sparse_dim,
-      ),
-    ),
-    body=_label_loop_body,
+  config = get_global_config()
+  default_input_key = config.typed_value("default_input")
+  default_target_key = config.typed_value("target")
+  extern_data_dict = config.typed_value("extern_data")
+  non_blank_vocab = config.typed_value("non_blank_vocab")
+  data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
+  targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+  non_blank_targets = Tensor(
+    name="non_blank_targets",
+    sparse_dim=Dim(description="non_blank_vocab", dimension=targets.sparse_dim.dimension - 1, kind=Dim.Types.Spatial),
+    vocab=non_blank_vocab,
   )
 
-  logits = model.decode_label_logits(input_embed=non_blank_input_embeddings, **label_loop_out)
-  logits_packed, pack_dim = rf.pack_padded(logits, dims=batch_dims + [non_blank_targets_spatial_dim], enforce_sorted=False)
-  non_blank_targets_packed, _ = rf.pack_padded(
-    non_blank_targets, dims=batch_dims + [non_blank_targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim
-  )
-
-  log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
-  log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
-  loss = rf.cross_entropy(
-    target=non_blank_targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
-  )
-  loss.mark_as_loss("non_blank_ce", scale=aed_loss_scale, use_normalized_loss=use_normalized_loss)
-
-  best = rf.reduce_argmax(logits_packed, axis=model.target_dim)
-  frame_error = best != non_blank_targets_packed
-  frame_error.mark_as_loss(name="non_blank_fer", as_error=True)
-
-  # ------------------- blank loop -------------------
-
-  def _blank_loop_body(xs, state: rf.State):
-    new_state = rf.State()
-    loop_out_, new_state.decoder = model.time_sync_loop_step(
-      enc=enc_args["enc"],
-      enc_spatial_dim=enc_spatial_dim,
-      input_embed=xs["input_embed"],
-      state=state.decoder,
-    )
-    return loop_out_, new_state
-
-  label_loop_out, _, _ = rf.scan(
-    spatial_dim=align_targets_spatial_dim,
-    xs={
-      "input_embed": align_input_embeddings,
-    },
-    ys=model.blank_loop_step_output_templates(batch_dims=batch_dims),
-    initial=rf.State(
-      decoder=model.blank_decoder_default_initial_state(
-        batch_dims=batch_dims,
-      ),
-    ),
-    body=_blank_loop_body,
-  )
-
-  blank_logits = model.decode_blank_logits(**label_loop_out)
-  blank_logits_packed, pack_dim = rf.pack_padded(blank_logits, dims=batch_dims + [align_targets_spatial_dim], enforce_sorted=False)
-  emit_ground_truth, emit_blank_target_dim = _get_emit_ground_truth()
-  emit_ground_truth_packed, _ = rf.pack_padded(
-    emit_ground_truth, dims=batch_dims + [align_targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim
-  )
-
-  # rf.log_sigmoid not implemented for torch backend
-  emit_log_prob = rf.log(rf.sigmoid(blank_logits_packed))
-  blank_log_prob = rf.log(rf.sigmoid(-blank_logits_packed))
-  blank_logit_dim = blank_logits_packed.remaining_dims((pack_dim,))[0]
-  emit_blank_log_prob, _ = rf.concat(
-    (blank_log_prob, blank_logit_dim), (emit_log_prob, blank_logit_dim), out_dim=emit_blank_target_dim)
-  blank_loss = rf.cross_entropy(
-    target=emit_ground_truth_packed,
-    estimated=emit_blank_log_prob,
-    estimated_type="log-probs",
-    axis=emit_blank_target_dim
-  )
-  blank_loss.mark_as_loss("emit_blank_ce", scale=aed_loss_scale, use_normalized_loss=use_normalized_loss)
-
-  best = rf.reduce_argmax(emit_blank_log_prob, axis=emit_blank_target_dim)
-  frame_error = best != emit_ground_truth_packed
-  frame_error.mark_as_loss(name="emit_blank_fer", as_error=True)
-
-
-from_scratch_training: TrainDef[SegmentalAttentionModel]
-from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
-
-
-def model_recog(
-        *,
-        model: SegmentalAttentionModel,
-        data: Tensor,
-        data_spatial_dim: Dim,
-        max_seq_len: Optional[int] = None,
-) -> Tuple[Tensor, Tensor, Dim, Dim]:
-  """
-  Function is run within RETURNN.
-
-  Earlier we used the generic beam_search function,
-  but now we just directly perform the search here,
-  as this is overall simpler and shorter.
-
-  :return:
-      recog results including beam {batch, beam, out_spatial},
-      log probs {batch, beam},
-      out_spatial_dim,
-      final beam_dim
-  """
-  assert not model.language_model  # not implemented here. use the pure PyTorch search instead
-
-  batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-  enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-  beam_size = 12
-  if max_seq_len is None:
-    max_seq_len = enc_spatial_dim.get_size_tensor()
-  else:
-    max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
-  print("** max seq len:", max_seq_len.raw_tensor)
-  max_seq_len = rf.reduce_max(max_seq_len, axis=max_seq_len.dims)
-
-  # Eager-mode implementation of beam search.
-  # Initial state.
-  beam_dim = Dim(1, name="initial-beam")
-  batch_dims_ = [beam_dim] + batch_dims
-  label_decoder_state = model.label_decoder_default_initial_state(batch_dims=batch_dims_,)
-
-  blank_decoder_state = model.blank_decoder_default_initial_state(batch_dims=batch_dims_)
-  bos_idx = 0
-  target = rf.constant(bos_idx, dims=batch_dims_, sparse_dim=model.align_target_dim)
-  target_non_blank = rf.constant(bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
-  # ended = rf.constant(False, dims=batch_dims_)
-  seq_log_prob = rf.constant(0.0, dims=batch_dims_)
-
-  i = 0
-  seq_targets = []
-  seq_backrefs = []
-  while i < max_seq_len.raw_tensor:
-    if i == 0:
-      input_embed = rf.zeros(batch_dims_ + [model.target_embed.out_dim], feature_dim=model.target_embed.out_dim, dtype="float32")
-      input_embed_length_model = rf.zeros(
-        batch_dims_ + [model.target_embed_length_model.out_dim], feature_dim=model.target_embed_length_model.out_dim)
-    else:
-      input_embed_length_model = model.target_embed_length_model(target)
-
-    # ------------------- label step -------------------
-    center_position = rf.minimum(
-      rf.full(dims=[beam_dim] + batch_dims, fill_value=i, dtype="int32"),
-      rf.copy_to_device(data_spatial_dim.get_size_tensor() - 1, data.device)
-    )
-    segment_starts = rf.maximum(
-      rf.convert_to_tensor(0, dtype="int32"), center_position - model.center_window_size // 2)
-    segment_ends = rf.minimum(
-      rf.copy_to_device(data_spatial_dim.get_size_tensor() - 1, data.device),
-      center_position + model.center_window_size // 2
-    )
-    segment_lens = segment_ends - segment_starts + 1
-    label_step_out, label_decoder_state_updated = model.label_sync_loop_step(
-      **enc_args,
-      enc_spatial_dim=enc_spatial_dim,
-      input_embed=input_embed,
-      segment_lens=segment_lens,
-      segment_starts=segment_starts,
-      state=label_decoder_state,
-    )
-    label_logits = model.decode_label_logits(input_embed=input_embed, **label_step_out)
-    label_log_prob = rf.log_softmax(label_logits, axis=model.target_dim)
-
-    # ------------------- blank step -------------------
-
-    blank_step_out, blank_decoder_state = model.time_sync_loop_step(
-      enc=enc_args["enc"],
-      enc_spatial_dim=enc_spatial_dim,
-      input_embed=input_embed_length_model,
-      state=blank_decoder_state,
-    )
-    blank_logits = model.decode_blank_logits(**blank_step_out)
-    emit_log_prob = rf.log(rf.sigmoid(blank_logits))
-    emit_log_prob = rf.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
-    blank_log_prob = rf.log(rf.sigmoid(-blank_logits))
-
-    # combine blank and label probs
-    label_log_prob += emit_log_prob
-    output_log_prob, _ = rf.concat(
-      (label_log_prob, model.target_dim), (blank_log_prob, blank_log_prob.feature_dim),
-      out_dim=model.align_target_dim
-    )
-
-    # top-k
-    seq_log_prob = seq_log_prob + output_log_prob  # Batch, InBeam, Vocab
-    old_beam_dim = beam_dim.copy()
-    seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
-      seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{i}-beam"), axis=[beam_dim, model.align_target_dim]
-    )  # seq_log_prob, backrefs, target: Batch, Beam
-    seq_targets.append(target)
-    seq_backrefs.append(backrefs)
-
-    update_state_mask = rf.convert_to_tensor(target != model.blank_idx)
-
-    def _get_masked_state(old, new, mask):
-      old = rf.gather(old, indices=backrefs, axis=old_beam_dim)
-      new = rf.gather(new, indices=backrefs, axis=old_beam_dim)
-      return rf.where(mask, new, old)
-
-    for key, old_state in label_decoder_state.items():
-      if key == "s":
-        for s_key, s_val in old_state.items():
-          label_decoder_state[key][s_key] = _get_masked_state(
-            s_val, label_decoder_state_updated[key][s_key], update_state_mask)
-      else:
-        label_decoder_state[key] = _get_masked_state(old_state, label_decoder_state_updated[key], update_state_mask)
-        # old_state = rf.gather(old_state, indices=backrefs, axis=old_beam_dim)
-        # new_state = rf.gather(label_decoder_state_updated[key], indices=backrefs, axis=old_beam_dim)
-        # label_decoder_state[key] = rf.where(update_state_mask, new_state, old_state)
-    target_non_blank = rf.where(update_state_mask, target, rf.convert_to_tensor(0, dtype="int32"))
-    target_non_blank.sparse_dim = model.target_embed.in_dim
-    input_embed = rf.where(
-      update_state_mask,
-      model.target_embed(target_non_blank),
-      rf.gather(input_embed, indices=backrefs, axis=old_beam_dim)
-    )
-
-    blank_decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), blank_decoder_state)
-
-    i += 1
-
-  # Backtrack via backrefs, resolve beams.
-  seq_targets_ = []
-  indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
-  for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
-    # indices: FinalBeam -> Beam
-    # backrefs: Beam -> PrevBeam
-    seq_targets_.insert(0, rf.gather(target, indices=indices))
-    indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
-
-  seq_targets__ = TensorArray(seq_targets_[0])
-  for target in seq_targets_:
-    seq_targets__ = seq_targets__.push_back(target)
-  seq_targets = seq_targets__.stack(axis=enc_spatial_dim)
-
-  non_blank_targets, non_blank_targets_spatial_dim = _get_masked(
-    seq_targets,
-    _get_non_blank_mask(seq_targets, model.blank_idx),
-    enc_spatial_dim,
-    [beam_dim] + batch_dims,
-  )
-  non_blank_targets.sparse_dim = model.target_dim
-
-  return non_blank_targets, seq_log_prob, non_blank_targets_spatial_dim, beam_dim
-
-
-# RecogDef API
-model_recog: RecogDef[SegmentalAttentionModel]
-model_recog.output_with_beam = True
-# output_blank_label=blank is actually wrong for AED, but now we don't change it anymore
-# because it would change all recog hashes.
-# Also, it does not matter too much -- it will just cause an extra SearchRemoveLabelJob,
-# which will not have any effect here.
-model_recog.output_blank_label = "<blank>"
-model_recog.batch_size_dependent = False
+  model_def = config.typed_value("_model_def")
+  model = model_def(
+    epoch=epoch, in_dim=data.feature_dim, align_target_dim=targets.sparse_dim, target_dim=non_blank_targets.sparse_dim)
+  return model

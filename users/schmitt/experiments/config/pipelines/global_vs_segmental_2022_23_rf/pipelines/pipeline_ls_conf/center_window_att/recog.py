@@ -7,7 +7,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.recog_new import ReturnnSegmentalAttDecodingPipeline, RasrSegmentalAttDecodingExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.realignment_new import RasrRealignmentExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.recog import _returnn_v2_forward_step, _returnn_v2_get_forward_callback
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import model_recog
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.recog import model_recog, model_recog_pure_torch
 
 
 def center_window_returnn_frame_wise_beam_search(
@@ -21,7 +21,8 @@ def center_window_returnn_frame_wise_beam_search(
         beam_size_list: Tuple[int, ...] = (12,),
         checkpoint_aliases: Tuple[str, ...] = ("last", "best", "best-4-avg"),
         run_analysis: bool = False,
-        att_weight_seq_tags: Optional[List] = None
+        att_weight_seq_tags: Optional[List] = None,
+        pure_torch: bool = False
 ):
   ilm_opts = {"type": ilm_type}
   if ilm_type == "mini_att":
@@ -42,8 +43,9 @@ def center_window_returnn_frame_wise_beam_search(
     run_analysis=run_analysis,
     analysis_opts={"att_weight_seq_tags": att_weight_seq_tags},
     recog_opts={
-      "recog_def": model_recog,
+      "recog_def": model_recog_pure_torch if pure_torch else model_recog,
       "forward_step_func": _returnn_v2_forward_step,
       "forward_callback": _returnn_v2_get_forward_callback,
-    }
+    },
+    search_alias=f'returnn_decoding{"_pure_torch" if pure_torch else ""}'
   ).run()
