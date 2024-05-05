@@ -1,8 +1,11 @@
+"""
+Do whatever you want here
+"""
 from returnn.tensor import batch_dim
 from returnn.tensor.tensor_dict import TensorDict
 import returnn.frontend as rf
 import torch
-from i6_experiments.users.phan.ctc.ctc_pref_scores_loss import kldiv_ctc_lm_loss
+from i6_experiments.users.phan.ctc.ctc_pref_scores_loss import kldiv_ctc_lm_loss, log_ctc_pref_beam_scores
 from i6_experiments.users.phan.utils import get_seq_mask
 
 def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
@@ -23,7 +26,7 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     assert targets_len_rf is not None
     targets_len = targets_len_rf.raw_tensor
     assert targets_len is not None
-
+    
     model.train()
     model.module_dict["teacher_ctc"].eval()
 

@@ -20,17 +20,15 @@ from i6_experiments.users.jxu.experiments.ctc.lbs_960.ctc_data import get_libris
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
-from i6_experiments.users.phan.models import multi_model_wrapper, trainable_unigram
+from i6_experiments.users.phan.models import multi_model_wrapper, lstm_lm
 from i6_experiments.common.setups.serialization import ExplicitHash
-from i6_experiments.users.phan.ctc.compute_prior.labelwise_unigram_prior import get_serializer_labelwise_unigram
 
 # ********** Settings **********
 
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 num_outputs = 79
-num_subepochs = 40
-prior_action_name = "get_prior_unigram"
+num_subepochs = 100
 
 tools = copy.deepcopy(default_tools_v2)
 # tools.returnn_root = tk.Path("/u/minh-nghia.phan/tools/simon_returnn") # Sis will ask to run HDF jobs again
@@ -50,32 +48,30 @@ def returnn_config_generator(
     lr: dict,
     batch_size: int,
     conformer_ctc_args: dict,
-    unigram_args: dict,
+    lstm_lm_args: dict,
     module_preloads: dict,
     optimizer: Optimizers,
     schedule: LearningRateSchedules,
+    ground_truth_weight,
     kwargs: dict,
 ) -> ReturnnConfig:
     conformer_ctc_args["num_inputs"] = 80
     conformer_ctc_args["num_outputs"] = num_outputs
     conformer_ctc_config = conformer_ctc.get_default_config_v1(**conformer_ctc_args)
     
-    unigram_config = trainable_unigram.UnigramConfig(**unigram_args)
+    lstm_lm_config = lstm_lm.LSTMLMConfig(**lstm_lm_args)
 
-    wrapper_config_kwargs = {
-        'module_class': {
+    wrapper_config = multi_model_wrapper.MultiModelWrapperConfig(
+        module_class={
             'teacher_ctc': conformer_ctc.ConformerCTCModel,
-            'student_lm': trainable_unigram.Unigram,
+            'student_lm': lstm_lm.LSTMLM,
         },
-        'module_config': {
+        module_config={
             'teacher_ctc': conformer_ctc_config,
-            'student_lm': unigram_config,
+            'student_lm': lstm_lm_config,
         },
-        'module_preload': None,
-    }
-    if variant == ConfigVariant.TRAIN:
-        wrapper_config_kwargs['module_preload'] = module_preloads
-    wrapper_config = multi_model_wrapper.MultiModelWrapperConfig(**wrapper_config_kwargs)
+        module_preload=module_preloads,
+    )
 
     extra_config = {
         "train": train_data_config,
@@ -85,47 +81,57 @@ def returnn_config_generator(
         extra_config["model_outputs"] = {"classes": {"dim": num_outputs}}
     module_class_import = {
         'teacher_ctc': "i6_experiments.users.jxu.experiments.ctc.lbs_960.pytorch_networks.baseline.conformer_ctc_d_model_512_num_layers_12_new_frontend_raw_wave",
-        'student_lm': "i6_experiments.users.phan.models.trainable_unigram"
+        'student_lm': "i6_experiments.users.phan.models.lstm_lm"
     }
     kwargs.update(lr) # diff LR scheduler will have diff parameters
-    if variant == ConfigVariant.PRIOR:
-        extra_python = [
-            multi_model_wrapper.get_base_serializer(wrapper_config, module_class_import, [], []),
-            get_serializer_labelwise_unigram(prior_action_name, wrapper_config),
-        ]
-    elif variant == ConfigVariant.TRAIN:
-        extra_python = [multi_model_wrapper.get_serializer(
-            model_config=wrapper_config,
-            module_class_import=module_class_import,
-            variant=variant,
-            prologue_serializers_kwargs={
-                "train_step_package": "i6_experiments.users.phan.ctc.train_steps.kldiv_ctc_lm",
-            },
-        )]
-    elif variant == ConfigVariant.RECOG:
-        extra_python = [multi_model_wrapper.get_serializer(
-            model_config=wrapper_config,
-            module_class_import=module_class_import,
-            variant=variant,
-            prologue_serializers_kwargs={
-                "export_package": "i6_experiments.users.phan.ctc.exports.conformer_ctc",
-                "partial_export": True,
-                "partial_kwargs": {
-                    "hashed_arguments": {
-                        "conformer_ctc_name": "teacher_ctc",
-                    },
-                    "unhashed_arguments": {},
-                }
+    # kwargs for serializer
+    if variant == ConfigVariant.TRAIN:
+        prologue_serializers_kwargs = {
+            "train_step_package": "i6_experiments.users.phan.ctc.train_steps.kldiv_ctc_lm_sample_batch",
+            "partial_train_step": True,
+            "partial_kwargs": {
+                "hashed_arguments": {
+                    "ground_truth_weight": ground_truth_weight,
+                },
+                "unhashed_arguments": {},
             }
-        )]
-
-
+        }
+    elif variant == ConfigVariant.PRIOR:
+        prologue_serializers_kwargs = {
+            "forward_step_package": "i6_experiments.users.phan.ctc.forward.multi_model_conformer_ctc",
+            "prior_package": "i6_experiments.users.phan.ctc.forward.prior_callback",
+            "partial_forward_step": True,
+            "partial_kwargs": {
+                "hashed_arguments": {
+                    "conformer_ctc_name": "conformer_ctc",
+                },
+                "unhashed_arguments": {},
+            }
+        }
+    elif variant == ConfigVariant.RECOG:
+        prologue_serializers_kwargs = {
+            "export_package": "i6_experiments.users.phan.ctc.exports.conformer_ctc",
+            "partial_export": True,
+            "partial_kwargs": {
+                "hashed_arguments": {
+                    "conformer_ctc_name": "conformer_ctc",
+                },
+                "unhashed_arguments": {},
+            }
+        }
     return get_returnn_config(
         num_epochs=num_subepochs,
         num_inputs=1,
         num_outputs=num_outputs,
         target="targets",
-        extra_python=extra_python,
+        extra_python=[
+            multi_model_wrapper.get_serializer(
+                model_config=wrapper_config,
+                module_class_import=module_class_import,
+                variant=variant,
+                prologue_serializers_kwargs=prologue_serializers_kwargs,
+            )
+        ],
         extern_data_config=True,
         backend=Backend.PYTORCH,
         grad_noise=0.0,
@@ -145,11 +151,12 @@ def get_returnn_config_collection(
         dev_data_config: dict,
         lr: dict,
         conformer_ctc_args: dict,
-        unigram_args: dict,
+        lstm_lm_args: dict,
         module_preloads: dict,
         batch_size: int,
         optimizer: Optimizers,
         schedule: LearningRateSchedules,
+        ground_truth_weight,
         kwargs: dict
 ) -> ReturnnConfigs[ReturnnConfig]:
     generator_kwargs = {
@@ -158,10 +165,11 @@ def get_returnn_config_collection(
         "lr": lr,
         "batch_size": batch_size,
         "conformer_ctc_args": conformer_ctc_args,
-        "unigram_args": unigram_args,
+        "lstm_lm_args": lstm_lm_args,
         "module_preloads": module_preloads,
         "optimizer": optimizer,
         "schedule": schedule,
+        "ground_truth_weight": ground_truth_weight,
         "kwargs":kwargs
     }
     return ReturnnConfigs(
@@ -171,8 +179,8 @@ def get_returnn_config_collection(
     )
 
 
-def lbs_960_run_kldiv_ctc_unigram() -> SummaryReport:
-    prefix = "experiments/ctc/kldiv_ctc_unigram"
+def lbs_960_run_kldiv_ctc_lm_sample_batch() -> SummaryReport:
+    prefix = "experiments/ctc/kldiv_ctc_lm_sample_batch"
     gs.ALIAS_AND_OUTPUT_SUBDIR = (
         prefix
     )
@@ -192,23 +200,28 @@ def lbs_960_run_kldiv_ctc_unigram() -> SummaryReport:
         num_epochs=num_subepochs,
         gpu_mem_rqmt=11,
     )
+    # recog_args = exp_args.get_ctc_recog_step_args(
+    #     num_classes=num_outputs,
+    #     epochs=[num_subepochs],
+    #     prior_scales=[0.45, 0.5, 0.55],
+    #     lm_scales=[0.9,1.0,1.1],
+    #     feature_type=FeatureType.SAMPLES,
+    #     flow_args={"scale_input": 1}
+    # )
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
-        epochs=[20, num_subepochs],
-        prior_scales=[0.40, 0.45, 0.50, 0.55],
-        lm_scales=[0.9, 1.0, 1.1, 1.2],
+        epochs=[num_subepochs],
+        prior_scales=[0.45],
+        lm_scales=[0.9],
         feature_type=FeatureType.SAMPLES,
-        flow_args={"scale_input": 1},
-        prior_args={
-            "returnn_task_name": f"config:{prior_action_name}"
-        },
+        flow_args={"scale_input": 1}
     )
 
     # ********** System **********
 
     # tools.returnn_root = tk.Path("/u/berger/repositories/MiniReturnn")
     tools.rasr_binary_path = tk.Path(
-        "/u/minh-nghia.phan/rasr_versions/nour_gen_seq2seq_dev/arch/linux-x86_64-standard"
+        "/u/berger/repositories/rasr_versions/nour_seq2seq_onnx_apptainer/arch/linux-x86_64-standard"
     )
     tools.returnn_root = tk.Path("/u/minh-nghia.phan/tools/simon_returnn")
     system = ReturnnSeq2SeqSystem(tools)
@@ -222,42 +235,66 @@ def lbs_960_run_kldiv_ctc_unigram() -> SummaryReport:
     system.setup_scoring(score_kwargs={"sctk_binary_path": SCTK_BINARY_PATH})
 
     # ********** Returnn Configs **********
-    conformer_ctc_args = {
-        "time_max_mask_per_n_frames": 25,
-        "freq_max_num_masks": 5,
-        "vgg_act": "relu",
-        "dropout": 0.1,
-        "num_layers": 12
-    }
-    unigram_args = {
-        "vocab_dim": 79,
-    }
-    module_preloads = {
-        "teacher_ctc": "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.nuHCdB8qL7NJ/output/models/epoch.600.pt"
-    }
-    for learning_rate in [1e-6, 1e-8]:
-        lr_dict = {
-            "learning_rate": learning_rate,
-        }
-        system.add_experiment_configs(
-            f"kldiv_ctc_unigram_adamw_const_lr{learning_rate}_eps{num_subepochs}",
-            get_returnn_config_collection(
-                data.train_data_config,
-                data.cv_data_config,
-                lr=lr_dict,
-                batch_size=15000 * 160,
-                conformer_ctc_args=conformer_ctc_args,
-                unigram_args=unigram_args,
-                module_preloads=module_preloads,
-                optimizer=Optimizers.AdamW,
-                schedule=LearningRateSchedules.CONST_LR,
-                kwargs={"weight_decay": 0.001},
-            )
-        )
+    for n_lstm_layers in [1]:
+        for ground_truth_weight in [0.5, "average"]:
+            conformer_ctc_args = {
+                "time_max_mask_per_n_frames": 25,
+                "freq_max_num_masks": 5,
+                "vgg_act": "relu",
+                "dropout": 0.1,
+                "num_layers": 12,
+            }
+            lstm_lm_args = {
+                "vocab_dim": num_outputs, # 79
+                "embed_dim": 128,
+                "hidden_dim": 640,
+                "n_lstm_layers": n_lstm_layers,
+                "dropout": 0.1,
+            }
+            module_preloads = {
+                "teacher_ctc": "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.nuHCdB8qL7NJ/output/models/epoch.600.pt"
+            }
+            for init_learning_rate in [1e-2, 1e-3, 1e-4]:
+                newbob_lr = {
+                    "learning_rate": init_learning_rate,
+                    "decay": 0.9 ,
+                    "multi_num_epochs": 20,
+                    "relative_error_threshold": -0.005,
+                }
+                system.add_experiment_configs(
+                    f"kldiv_ctc_lm_sample_batch_ctc{12}_lstm{n_lstm_layers}_adamw_newbobrel_lr{init_learning_rate}_weight{ground_truth_weight}_eps{num_subepochs}",
+                    get_returnn_config_collection(
+                        data.train_data_config,
+                        data.cv_data_config,
+                        lr=newbob_lr,
+                        batch_size=15000 * 160,
+                        conformer_ctc_args=conformer_ctc_args,
+                        lstm_lm_args=lstm_lm_args,
+                        module_preloads=module_preloads,
+                        optimizer=Optimizers.AdamW,
+                        schedule=LearningRateSchedules.NewbobRel,
+                        ground_truth_weight=ground_truth_weight,
+                        kwargs={"weight_decay": 0.001},
+                    )
+                )
+                system.add_experiment_configs(
+                    f"kldiv_ctc_lm_sample_batch_ctc{12}_lstm{n_lstm_layers}_adamw_const_lr{init_learning_rate}_weight{ground_truth_weight}_eps{num_subepochs}",
+                    get_returnn_config_collection(
+                        data.train_data_config,
+                        data.cv_data_config,
+                        lr=newbob_lr,
+                        batch_size=15000 * 160,
+                        conformer_ctc_args=conformer_ctc_args,
+                        lstm_lm_args=lstm_lm_args,
+                        module_preloads=module_preloads,
+                        optimizer=Optimizers.AdamW,
+                        schedule=LearningRateSchedules.CONST_LR,
+                        ground_truth_weight=ground_truth_weight,
+                        kwargs={"weight_decay": 0.001},
+                    )
+                )
 
     system.run_train_step(**train_args)
-    system.run_dev_recog_step(**recog_args)
-    system.run_test_recog_step(**recog_args)
 
     assert system.summary_report
     return system.summary_report

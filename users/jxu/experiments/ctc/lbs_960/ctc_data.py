@@ -1,5 +1,5 @@
 import copy
-from typing import List
+from typing import List, Optional
 
 from sisyphus import tk
 
@@ -16,7 +16,8 @@ from i6_experiments.users.berger.helpers.hdf import build_rasr_feature_hdfs
 from i6_experiments.users.berger.args.returnn.dataset import MetaDatasetBuilder
 from i6_experiments.users.berger.corpus.general.experiment_data import PytorchCTCSetupData
 from i6_experiments.users.berger.corpus.librispeech import data
-from i6_experiments.users.berger.systems.dataclasses import FeatureType
+from i6_experiments.users.berger.systems.dataclasses import FeatureType, AlignmentData
+from i6_experiments.users.phan.corpora.lbs_960 import get_train_gmm_alignments_hdf
 
 
 def get_librispeech_data_hdf(
@@ -31,6 +32,7 @@ def get_librispeech_data_hdf(
     augmented_lexicon: bool = False,
     feature_type: FeatureType = FeatureType.GAMMATONE,
     blank_index_last: bool = False,
+    use_alignments_in_train: Optional[str] = None,
 ) -> PytorchCTCSetupData:
 
     if blank_index_last:
@@ -87,15 +89,16 @@ def get_librispeech_data_hdf(
         train_feature_hdf = bliss_to_pcm_hdf_job.out_hdf
     else:
         raise NotImplementedError
-
+    
+    dataset_config = {
+        "partition_epoch": 20,
+        "seq_ordering": "laplace:.1000",
+    }
     train_dataset_builder.add_hdf_dataset(
         train_feature_hdf,
         name="features",
         key_mapping={"data": "data"},
-        dataset_config={
-            "partition_epoch": 20,
-            "seq_ordering": "laplace:.1000",
-        },
+        dataset_config=dataset_config,
         control=True,
     )
     if blank_index_last:
@@ -117,6 +120,16 @@ def get_librispeech_data_hdf(
         key_mapping={"data": "targets"},
         control=False,
     )
+    if use_alignments_in_train == "gmm":
+        train_gmm_alignments_hdf = get_train_gmm_alignments_hdf(returnn_python_exe, returnn_root, train_key=train_key)
+        train_dataset_builder.add_hdf_dataset(
+            train_gmm_alignments_hdf,
+            name="align",
+            key_mapping={"data": "align"},
+            dataset_config={},
+            control=False,
+        )
+
     train_data_config = train_dataset_builder.get_dict()
 
     # ********** CV data **********
@@ -190,6 +203,8 @@ def get_librispeech_data_hdf(
         key_mapping={"data": "targets"},
         control=False,
     )
+    if use_alignments_in_train == "gmm":
+        pass # wait for dev gmm alignments here
     cv_data_config = cv_dataset_builder.get_dict()
 
     # ********** Recog lexicon **********

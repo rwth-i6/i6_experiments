@@ -71,11 +71,45 @@ class MultiModelWrapper(nn.Module):
             x = self.module_dict[module](*args, **kwargs)
         return x
 
+
+def serialize_config(
+    model_config: MultiModelWrapperConfig,
+    config_variable_name: str = "cfg",
+) -> Collection:
+    """
+    Serialize the MultiModelWrapperConfig and assign it
+    to config_variable_name
+    """
+    module_class_str = "{"
+    for module, imported_class in model_config.module_class.items():
+        module_class_str += f"\"{module}\": {imported_class.__name__},"
+    module_class_str += "}"
+
+    module_config_str = "{"
+    for module in model_config.module_class:
+        module_config_str += f"\"{module}\": {module}_config,"
+    module_config_str += "}"
+    config_call = Call(
+        callable_name=MultiModelWrapperConfig.__name__,
+        kwargs=[
+            ("module_class", CodeWrapper(module_class_str)), # let's hope this work
+            ("module_config", CodeWrapper(module_config_str)), # sisyphus will try to call .get on a dict
+            ("module_preload", CodeWrapper(model_config.module_preload.__repr__() + "\n")), # str to str dict, repr should be fine
+        ],
+        return_assign_variables=config_variable_name,
+    )
+    return config_call
+
+wrapper_config_import_obj = Import(f"{__name__}.{MultiModelWrapperConfig.__name__}")
+wrapper_model_import_obj = Import(f"{__name__}.{MultiModelWrapper.__name__}")
+
+
 def get_base_serializer(
     model_config: MultiModelWrapperConfig,
     module_class_import: Dict[str, str],
     prologue_serializers: List[SerializerObject],
     epilogue_serializers: List[SerializerObject],
+    config_variable_name: str = "cfg",
 ) -> Collection:
     """
     Base Serializer object for MultiModelWrapper
@@ -91,8 +125,8 @@ def get_base_serializer(
 
     # import model configuration and wrapper class, and train step package
     serializers = [
-        Import(f"{__name__}.{MultiModelWrapperConfig.__name__}"),
-        Import(f"{__name__}.{MultiModelWrapper.__name__}"),
+        wrapper_config_import_obj,
+        wrapper_model_import_obj,
     ]
     # This exists because hashes...
     serializers.extend(prologue_serializers)
@@ -130,7 +164,7 @@ def get_base_serializer(
             ("module_config", CodeWrapper(module_config_str)), # sisyphus will try to call .get on a dict
             ("module_preload", CodeWrapper(model_config.module_preload.__repr__() + "\n")), # str to str dict, repr should be fine
         ],
-        return_assign_variables="cfg",
+        return_assign_variables=config_variable_name,
     )
     serializers.append(config_call)
 

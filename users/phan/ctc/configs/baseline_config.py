@@ -114,8 +114,8 @@ def run_lbs_960_torch_conformer_raw_wave_wei_hyper() -> SummaryReport:
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
         epochs=[num_subepochs, 700],
-        prior_scales=[0.0, 0.4, 0.45],
-        lm_scales=[1.0,1.1,1.2],
+        prior_scales=[0.4, 0.45, 0.5, 0.7, 0.8, 0.9],
+        lm_scales=[0.9, 1.0, 1.1, 1.2],
         feature_type=FeatureType.SAMPLES,
         flow_args={"scale_input": 1}
     )
@@ -127,7 +127,7 @@ def run_lbs_960_torch_conformer_raw_wave_wei_hyper() -> SummaryReport:
     #     "/u/berger/repositories/rasr_versions/gen_seq2seq_onnx_apptainer/arch/linux-x86_64-standard"
     # )
     tools.rasr_binary_path = tk.Path(
-        "/u/minh-nghia.phan/rasr_versions/simon_gen_seq2seq_dev/arch/linux-x86_64-standard"
+        "/u/minh-nghia.phan/rasr_versions/nour_gen_seq2seq_dev/arch/linux-x86_64-standard"
     )
     system = ReturnnSeq2SeqSystem(tools)
 
@@ -167,27 +167,6 @@ def run_lbs_960_torch_conformer_raw_wave_wei_hyper() -> SummaryReport:
                                 get_returnn_config_collection(data.train_data_config, data.cv_data_config, lr=peak_lr_dict,
                                                               batch_size=15000 * 160, network_args=network_args, kwargs={})
                                 )
-
-        # for time_max_mask_per_n_frames in [25]:
-        #     for freq_max_num_masks in [5]:
-        #         for vgg_act in ["relu"]:
-        #             for dropout in [0.1]:
-        #                 network_args = {"time_max_mask_per_n_frames": time_max_mask_per_n_frames,
-        #                                 "freq_max_num_masks": freq_max_num_masks,
-        #                                 "vgg_act": vgg_act,
-        #                                 "dropout": dropout}
-        #                 peak_lr_dict = {
-        #                     "initial_lr": 1e-5,
-        #                     "peak_lr": peak_lr,
-        #                     "final_lr": 1e-5
-        #                 }
-        #                 str_peak_lr = str(peak_lr).replace("-", "_").replace(".", "_")
-        #                 str_dropout = str(dropout).replace(".", "_")
-        #                 system.add_experiment_configs(
-        #                     f"wei_lr_scheduler_subepochs_600_peak_lr_{str_peak_lr}_dropout_{str_dropout}_batch_15000_wei_hyper_new_frontend",
-        #                     get_returnn_config_collection(data.train_data_config, data.cv_data_config, lr=peak_lr_dict,
-        #                                                   batch_size=15000 * 160, network_args=network_args,kwargs={"cycle_epoch":250})
-        #                 )
 
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)

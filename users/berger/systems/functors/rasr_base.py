@@ -159,6 +159,13 @@ class RasrFunctor(ABC):
                 learning_rates=train_job.out_learning_rates,
                 backend=custom_returnn.get_backend(train_job.returnn_config),
             ).out_checkpoint
+        # hacky way to do recog for more training after finish training
+        if epoch not in train_job.out_checkpoints:
+            ep1_ckpt = train_job.out_checkpoints[1]
+            # look smthg like /u/minh-nghia.phan/setups/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.nuHCdB8qL7NJ/output/models/epoch.001.pt
+            from i6_core.returnn.training import PtCheckpoint
+            path = ep1_ckpt.path.get()[:-len(".001.pt")]+f".{epoch:03d}.pt"
+            return PtCheckpoint(tk.Path(path))
         return train_job.out_checkpoints[epoch]
 
     def _get_prior_file(
@@ -181,11 +188,13 @@ class RasrFunctor(ABC):
 
             return prior_job.out_prior_xml_file
         elif backend == backend.PYTORCH:
+            returnn_task_name = kwargs.get("returnn_task_name", "forward")
             forward_job = custom_returnn.ReturnnForwardComputePriorJob(
                 model_checkpoint=checkpoint,
                 returnn_config=prior_config,
                 returnn_root=self.returnn_root,
                 returnn_python_exe=self.returnn_python_exe,
+                returnn_task_name=returnn_task_name,
             )
             return forward_job.out_prior_xml_file
         else:

@@ -15,7 +15,8 @@ from i6_experiments.common.tools.sctk import compile_sctk
 
 # RASR_BINARY_PATH = None
 # RASR_BINARY_PATH = compile_rasr_binaries_i6mode(commit="907eec4f4e36c11153f6ab6b5dd7675116f909f6")  # use tested RASR
-RASR_BINARY_PATH = compile_rasr_binaries_i6mode()  #  use most recent RASR
+RASR_BINARY_PATH = tk.Path("/u/raissi/dev/rasr_github/rasr_tf2/arch/linux-x86_64-standard")
+# RASR_BINARY_PATH = compile_rasr_binaries_i6mode()  #  use most recent RASR
 assert RASR_BINARY_PATH, "Please set a specific RASR_BINARY_PATH before running the pipeline"
 RASR_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_RASR_BINARY_PATH"
 

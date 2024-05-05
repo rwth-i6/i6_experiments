@@ -2,10 +2,10 @@ from returnn.tensor import batch_dim
 from returnn.tensor.tensor_dict import TensorDict
 import returnn.frontend as rf
 import torch
-from i6_experiments.users.phan.ctc.ctc_pref_scores_loss import kldiv_ctc_lm_loss
+from i6_experiments.users.phan.ctc.ctc_pref_scores_loss import kldiv_ctc_lm_sample_batch_loss
 from i6_experiments.users.phan.utils import get_seq_mask
 
-def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
+def train_step(*, model: torch.nn.Module, extern_data: TensorDict, ground_truth_weight, **kwargs):
     """
     Note: The student LM should have an attribute self.cfg.vocab_dim
     to tell the one-hot encoding the vocab size
@@ -57,7 +57,7 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     )
 
     log_probs = torch.transpose(log_probs, 0, 1)  # [T, B, F]
-    loss = kldiv_ctc_lm_loss(
+    loss = kldiv_ctc_lm_sample_batch_loss(
         log_probs=log_probs.detach(),
         targets=targets,
         input_lengths=sequence_lengths,
@@ -66,10 +66,10 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
         blank_idx=0,
         log_zero=-1e25,
         eos_idx=None,
+        ground_truth_weight=ground_truth_weight,
     )
-    targets_len_rf.raw_tensor += 1
     rf.get_run_ctx().mark_as_loss(
-        name="kldiv_ctc_lm", loss=loss, custom_inv_norm_factor=rf.reduce_sum(targets_len_rf, axis=batch_dim)
+        name="kldiv_ctc_lm", loss=loss,
     )
     # Also report PPL of the LM
     targets_eos = torch.cat(

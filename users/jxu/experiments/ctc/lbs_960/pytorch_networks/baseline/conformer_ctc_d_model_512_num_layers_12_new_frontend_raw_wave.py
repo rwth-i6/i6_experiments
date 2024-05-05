@@ -113,16 +113,25 @@ class ConformerCTCModel(torch.nn.Module):
         self,
         audio_features: torch.Tensor,
         audio_features_len: Optional[torch.Tensor] = None,
+        audio_features_mask: Optional[torch.Tensor] = None, # (B, T) if given 
     ):
         with torch.no_grad():
             squeezed_features = torch.squeeze(audio_features)
             if self.export_mode:
-                queezed_features = squeezed_features.type(torch.FloatTensor)
+                squeezed_features = squeezed_features.type(torch.FloatTensor)
             else:
                 squeezed_features = squeezed_features.type(torch.cuda.FloatTensor)
 
             audio_features, audio_features_len = self.logmel_feat_extraction(squeezed_features, audio_features_len)
             x = self.specaugment(audio_features)  # [B, T, F]
+            if audio_features_mask is not None: # mask audio features
+                # resample the mask to match audio input size
+                _, time_size, feature_size = x.shape
+                mask_with_channel = audio_features_mask.unsqueeze(1) # (B, 1, T_align)
+                mask_resampled = nn.functional.interpolate(mask_with_channel, (time_size,)) # (B, 1, T)
+                mask_resampled_shaped = mask_resampled.squeeze(1).unsqueeze(-1).expand(-1, -1, feature_size) # (B, T, F)
+                x = x*mask_resampled_shaped
+
 
         sequence_mask = lengths_to_padding_mask(audio_features_len)
         # sequence_mask = None if self.export_mode else lengths_to_padding_mask(audio_features_len)
@@ -152,15 +161,15 @@ def get_train_serializer(
 
 def get_prior_serializer(
     model_config: ConformerCTCConfig,
+    forward_step_package="i6_experiments.users.berger.pytorch.forward.basic.forward_step",
+    forward_callback_package="i6_experiments.users.berger.pytorch.forward.prior_callback.ComputePriorCallback"
 ) -> Collection:
-    pytorch_package = __package__.rpartition(".")[0]
-    pytorch_package = "i6_experiments.users.berger.pytorch"
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{ConformerCTCModel.__name__}",
         model_config=model_config,
         additional_serializer_objects=[
-            Import(f"{pytorch_package}.forward.basic.forward_step"),
-            Import(f"{pytorch_package}.forward.prior_callback.ComputePriorCallback", import_as="forward_callback"),
+            Import(f"{forward_step_package}"),
+            Import(f"{forward_callback_package}", import_as="forward_callback"),
         ],
     )
 

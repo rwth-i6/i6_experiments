@@ -208,8 +208,6 @@ def lbs_960_double_softmax() -> SummaryReport:
         augmented_lexicon=True,
         feature_type=FeatureType.SAMPLES,
         blank_index_last=False,
-        test_keys=[],
-        # dev_keys=["dev-other"],
     )
 
     # ********** Step args **********
@@ -220,9 +218,9 @@ def lbs_960_double_softmax() -> SummaryReport:
     )
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
-        epochs=[num_subepochs],
-        prior_scales=[0.45, 0.5, 0.55],
-        lm_scales=[0.9,1.0,1.1],
+        epochs=[20, 40, 80, num_subepochs],
+        prior_scales=[0.0],
+        lm_scales=[0.9, 1.0, 1.1, 1.2],
         # prior_scales=[0.45],
         # lm_scales=[0.9],
         feature_type=FeatureType.SAMPLES,
@@ -283,14 +281,14 @@ def lbs_960_double_softmax() -> SummaryReport:
     for am_scale in [1.0, 1.3]:
     # for am_scale in [1.0]:
         for lm_scale in [0.3]:
-            for learning_rate in [1e-3, 1e-4, 1e-5, 1e-6]:
+            for learning_rate in [1e-4, 1e-5, 1e-6]:
             # for learning_rate in [1e-4]:
                 lr_dict = {
                     "learning_rate": learning_rate,
                 }
                 schedule = LearningRateSchedules.CONST_LR
                 schedule_str = "const"
-                if learning_rate == 1e-3:
+                if learning_rate == 1e-4:
                     lr_dict = {
                         "learning_rate": learning_rate,
                         "decay": 0.9 ,

@@ -50,13 +50,20 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
     }
     if variant == ConfigVariant.RECOG:
         extra_config["model_outputs"] = {"classes": {"dim": num_outputs}}
+    if variant != ConfigVariant.PRIOR:
+        extra_python = [conformer_ctc.get_serializer(model_config, variant=variant)]
+    else:
+        extra_python = [conformer_ctc.get_prior_serializer(
+            model_config=model_config,
+            forward_callback_package="i6_experiments.users.phan.ctc.forward.prior_renorm_callback.ComputePriorRenormCallback",
+        )]
 
     return get_returnn_config(
         num_epochs=num_subepochs,
         num_inputs=1,
         num_outputs=num_outputs,
         target="targets",
-        extra_python=[conformer_ctc.get_serializer(model_config, variant=variant)],
+        extra_python=extra_python,
         extern_data_config=True,
         backend=Backend.PYTORCH,
         grad_noise=0.0,
@@ -93,8 +100,8 @@ def get_returnn_config_collection(
     )
 
 
-def run_lbs_960_torch_conformer_raw_wave_wei_hyper() -> SummaryReport:
-    prefix = "experiments/ctc/conformer_baseline"
+def run_conformer_baseline_renorm_prior() -> SummaryReport:
+    prefix = "experiments/ctc/baseline_renorm_prior"
     gs.ALIAS_AND_OUTPUT_SUBDIR = (
         prefix
     )
@@ -113,9 +120,9 @@ def run_lbs_960_torch_conformer_raw_wave_wei_hyper() -> SummaryReport:
     train_args = exp_args.get_ctc_train_step_args(num_epochs=num_subepochs, gpu_mem_rqmt=11)
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
-        epochs=[num_subepochs, 700],
-        prior_scales=[0.0, 0.4, 0.45],
-        lm_scales=[1.0,1.1,1.2],
+        epochs=[num_subepochs],
+        prior_scales=[0.4, 0.45, 0.5, 0.7, 0.8, 0.9],
+        lm_scales=[0.9, 1.0, 1.1, 1.2],
         feature_type=FeatureType.SAMPLES,
         flow_args={"scale_input": 1}
     )
@@ -127,7 +134,7 @@ def run_lbs_960_torch_conformer_raw_wave_wei_hyper() -> SummaryReport:
     #     "/u/berger/repositories/rasr_versions/gen_seq2seq_onnx_apptainer/arch/linux-x86_64-standard"
     # )
     tools.rasr_binary_path = tk.Path(
-        "/u/minh-nghia.phan/rasr_versions/simon_gen_seq2seq_dev/arch/linux-x86_64-standard"
+        "/u/minh-nghia.phan/rasr_versions/nour_gen_seq2seq_dev/arch/linux-x86_64-standard"
     )
     system = ReturnnSeq2SeqSystem(tools)
 

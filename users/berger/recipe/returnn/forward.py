@@ -22,6 +22,7 @@ class ReturnnForwardComputePriorJob(Job):
         time_rqmt: float = 4,
         mem_rqmt: float = 4,
         cpu_rqmt: int = 2,
+        returnn_task_name: str = "forward", # abuse this to pass custom prior computation
     ):
         self.returnn_config = returnn_config
         self.model_checkpoint = model_checkpoint
@@ -29,6 +30,10 @@ class ReturnnForwardComputePriorJob(Job):
         self.returnn_root = returnn_root
         self.log_verbosity = log_verbosity
         self.device = device
+        self.returnn_task_name = returnn_task_name
+        if self.returnn_task_name != "forward":
+            self.returnn_config.config.pop("train")
+            self.returnn_config.config.pop("dev")
 
         self.out_returnn_config_file = self.output_path("returnn.config")
 
@@ -53,6 +58,7 @@ class ReturnnForwardComputePriorJob(Job):
             returnn_config=self.returnn_config,
             log_verbosity=self.log_verbosity,
             device=self.device,
+            returnn_task_name=self.returnn_task_name,
         )
         config.write(self.out_returnn_config_file.get_path())
 
@@ -83,6 +89,7 @@ class ReturnnForwardComputePriorJob(Job):
         returnn_config: ReturnnConfig,
         log_verbosity: int,
         device: str,
+        returnn_task_name: str,
         **kwargs,
     ):
         assert device in ["gpu", "cpu"]
@@ -92,7 +99,7 @@ class ReturnnForwardComputePriorJob(Job):
 
         res = copy.deepcopy(returnn_config)
 
-        config = {"load": model_checkpoint, "task": "forward", "forward_data": "train"}
+        config = {"load": model_checkpoint, "task": returnn_task_name, "forward_data": "train"}
 
         post_config = {
             "device": device,
