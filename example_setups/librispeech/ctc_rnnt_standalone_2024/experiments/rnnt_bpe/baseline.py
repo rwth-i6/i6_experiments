@@ -90,10 +90,7 @@ def rnnt_bpe_ls960_1023_base():
             **default_returnn,
         )
 
-    greedy_decoder_config_bpe5000 = DecoderConfig(
-        beam_size=1, returnn_vocab=label_datastream_bpe5000.vocab  # greedy as default
-    )
-    bs10_decoder_config_bpe5000 = DecoderConfig(
+    default_decoder_config_bpe5000 = DecoderConfig(
         beam_size=1, returnn_vocab=label_datastream_bpe5000.vocab  # greedy as default
     )
 
@@ -239,5 +236,5 @@ def rnnt_bpe_ls960_1023_base():
     evaluate_helper(
         training_name,
         asr_model,
-        greedy_decoder_config_bpe5000,
+        default_decoder_config_bpe5000,
     )
