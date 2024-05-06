@@ -1,22 +1,15 @@
-import collections
-import gzip
-import os.path
-import xml.etree.ElementTree as ET
-import xml.dom.minidom as minidom
 from i6_core.lib.lexicon import Lexicon
 
-from sisyphus import *
-
-Path = setup_path(__package__)
-
-import i6_core.lib.lexicon as lexicon
-from i6_core.util import uopen, write_xml
+from sisyphus import Job, Task, tk
 
 
 class BlissLexiconToWordLexicon(Job):
-    def __init__(self, bliss_lexicon: Path, apply_filter: bool = True):
-        self.set_vis_name("Lexicon to Word List")
+    """
+    Extract all orth and phone pairs and write them in a line-based file with space separation.
+    Will crash deliberately when an orth entry contains spaces.
+    """
 
+    def __init__(self, bliss_lexicon: tk.Path, apply_filter: bool = True):
         self.bliss_lexicon = bliss_lexicon
         self.apply_filter = apply_filter
 
@@ -32,6 +25,7 @@ class BlissLexiconToWordLexicon(Job):
         with open(self.out_lexicon.get_path(), "w") as word_file:
             for lemma in lex.lemmata:
                 for orth in lemma.orth:
+                    assert not " " in orth, "orth may not contain spaces"
                     for phon in lemma.phon:
                         if len(phon) > 0 and len(orth) > 0:  # we can have empty phonemes or orth
                             word_file.write(f"{orth} {phon}\n")
