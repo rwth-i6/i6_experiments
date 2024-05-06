@@ -51,20 +51,21 @@ def calc_stat(ls):
     max = np.max([float(x[1]) for x in ls])
     median = np.median([float(x[1]) for x in ls])
     std = np.std([float(x[1]) for x in ls])
-    ex_str = f"Avrg: {avrg}, Min {min}, Max {max}, Median {median}, Std {std}"
+    ex_str = f"Avrg: {avrg}, Min {min}, Max {max}, Median {median}, Std {std}, Values {len(ls)}     {avrg},{min},{max},{median},{std}"
     return ex_str
 
 
 def hybrid_report_format(report: _Report_Type) -> str:
     quants = report.pop("quant")
-    extra_ls = ["iter", "filter", "skip", "quant_min_max", "quant_entropy", "quant_percentile", "rtf-intel"]
+    extra_ls = ["iter", "filter", "quant_min_max", "quant_entropy", "quant_percentile", "rtf-intel"]
     out = [(recog, str(report[recog])) for recog in report if not any(extra in recog for extra in extra_ls)]
     out = sorted(out, key=lambda x: float(x[1]))
     best_ls = [out[0]]
     for extra in extra_ls:
         if extra == "iter":
             for quant, count in itertools.product(["min_max", "entropy", "percentile"], ["10", "500", "1000"]):
-                out2 = [(recog, str(report[recog])) for recog in report if "iter" in recog and quant in recog and (recog.endswith(count) or recog.endswith(count + "-optlm") and not "seed" in recog and "avrg" not in recog)]
+                others = ["seed", "avrg", "filter", "rtf"]
+                out2 = [(recog, str(report[recog])) for recog in report if "iter" in recog and quant in recog and (recog.endswith(count) or recog.endswith(count + "-optlm")) and not any(x in report for x in others)]
                 out2 = sorted(out2, key=lambda x: float(x[1]))
                 if len(out2) > 0:
                     ex_str = calc_stat(out2)
@@ -72,9 +73,10 @@ def hybrid_report_format(report: _Report_Type) -> str:
                     out.extend(out2[:3])
                     out.extend(out2[-3:])
                     best_ls.append(out2[0])
+                # avg list
                 out2 = [(recog, str(report[recog])) for recog in report if "iter" in recog and quant in recog and (
                             recog.endswith(count) or recog.endswith(
-                        count + "-optlm") and not "seed" in recog and "avrg" in recog)]
+                        count + "-optlm")) and not "seed" in recog and "avg" in recog]
                 out2 = sorted(out2, key=lambda x: float(x[1]))
                 if len(out2) > 0:
                     ex_str = calc_stat(out2)
@@ -82,6 +84,7 @@ def hybrid_report_format(report: _Report_Type) -> str:
                     out.extend(out2[:3])
                     out.extend(out2[-3:])
                     best_ls.append(out2[0])
+                # different seeds
                 for seed in ["24, 2005, 5"]:
                         out2 = [(recog, str(report[recog])) for recog in report if
                                 "iter" in recog and quant in recog and (
@@ -94,6 +97,7 @@ def hybrid_report_format(report: _Report_Type) -> str:
                             out.extend(out2[-3:])
                             best_ls.append(out2[0])
         elif extra == "filter":
+            # max and min len filter methods
             for quant, count, mode, thresh in itertools.product(["min_max", "entropy", "percentile"], ["10", "500", "1000"], ["max_calib_len_", "min_calib_len_"], ["500", "1000" "1500"]):
                 out2 = [(recog, str(report[recog])) for recog in report if "filter" in recog and quant in recog and (
                             recog.endswith(count) or recog.endswith(count + "-optlm")) and mode+thresh in recog]
@@ -104,6 +108,7 @@ def hybrid_report_format(report: _Report_Type) -> str:
                     out.extend(out2[:3])
                     out.extend(out2[-3:])
                     best_ls.append(out2[0])
+            # partition filter methods
             partitions = set()
             for recog in report:
                 if "partition" in recog:
@@ -122,6 +127,7 @@ def hybrid_report_format(report: _Report_Type) -> str:
                     out.extend(out2[:3])
                     out.extend(out2[-3:])
                     best_ls.append(out2[0])
+            # budget filter methods
             budgets = set()
             for recog in report:
                 if "budget" in recog:
@@ -131,20 +137,34 @@ def hybrid_report_format(report: _Report_Type) -> str:
                             budgets.add(spl[i+1].split("-")[0])  # add the number after the partition which gives identification
             for quant, thresh in itertools.product(["min_max", "entropy", "percentile"], budgets):
                 mode = "budget_"
-                from logging import info
-                info(report)
-                assert False, quants
+                out2 = [(recog, str(report[recog])) for recog in report if "filter" in recog and quant in recog and mode+thresh in recog]
+                out2 = sorted(out2, key=lambda x: float(x[1]))
+                tmp = []
+                for name, value in out2:
+                    job_ls = [quants[x] for x in quants if name.split("/")[1].split("-")[0] == x.split("/")[-2] and quant in x and mode+thresh in x]
+                    assert len(job_ls) == 1, (job_ls, out2, quants)
+                    tmp.append((name, value, str(job_ls[0].out_num_seqs)))
+                out2 = tmp
+                if len(out2) > 0:
+                    ex_str = calc_stat(out2)
+                    out.append((extra + "_" + mode + thresh + "_" + quant, ex_str))
+                    out.extend(out2[:3])
+                    out.extend(out2[-3:])
+                    best_ls.append(out2[0])
+            # single and unique tag filter methods
+            for quant, count, mode in itertools.product(["min_max", "entropy", "percentile"], ["10", "20", "30", "50"], ["single_tag", "unique_tags"]):
                 out2 = [(recog, str(report[recog])) for recog in report if "filter" in recog and quant in recog and (
-                            recog.endswith(count) or recog.endswith(count + "-optlm")) and mode+thresh in recog]
+                            recog.endswith(count) or recog.endswith(count + "-optlm")) and mode in recog]
                 out2 = sorted(out2, key=lambda x: float(x[1]))
                 if len(out2) > 0:
                     ex_str = calc_stat(out2)
-                    out.append((extra + "_" + mode + thresh + "_" + quant + "_" + count, ex_str))
+                    out.append((extra + "_" + mode + "_" + quant + "_" + count, ex_str))
                     out.extend(out2[:3])
                     out.extend(out2[-3:])
                     best_ls.append(out2[0])
         else:
-            out2 = [(recog, str(report[recog])) for recog in report if extra in recog and not ("iter" in recog or "filter" in recog)]
+            # mixed
+            out2 = [(recog, str(report[recog])) for recog in report if extra in recog]
             out2 = sorted(out2, key=lambda x: float(x[1]))
             if len(out2) > 0:
                 ex_str = calc_stat(out2)
@@ -157,7 +177,7 @@ def hybrid_report_format(report: _Report_Type) -> str:
     best_ls += [("Base Results", "")]
     out = best_ls + out
     out.insert(0, ("Best Results", ""))
-    return "\n".join([f"{pair[0]}:  {str(pair[1])}" for pair in out])
+    return "\n".join([f"{pair[0]}:  {str(' '.join(pair[1:]))}" for pair in out])
 
 
 

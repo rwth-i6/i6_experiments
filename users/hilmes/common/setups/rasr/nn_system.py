@@ -112,7 +112,7 @@ def returnn_training(
     )
     #if any(sub in name for sub in ["larger", "whisper_medium", "whisper_large"]):
     #print(name, any(f"keepuntil_{x}_" in name for x in range(9)))
-    if any(sub in name for sub in ["larger", "medium", "large", "parakeet"]) and not any(f"keepuntil_{x}_" in name for x in range(9)):
+    if any(sub in name for sub in ["larger", "medium", "large", "parakeet", "old_spec_baseline", "new_spec_baseline"]) and not any(f"keepuntil_{x}_" in name for x in range(9)):
         returnn_training_job.rqmt["gpu_mem"] = 24
     if any(sub in name for sub in ["whisper_large", "whisper_v2_large", "parakeet_1.1"]):
         returnn_training_job.rqmt["mem"] = 12

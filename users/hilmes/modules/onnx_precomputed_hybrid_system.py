@@ -29,7 +29,9 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                                                                                Dict) else copy.deepcopy(
             train_data.get_data_dict())
         # prior_config.config["train"]["datasets"]["align"]["partition_epoch"] = 3
-        if "align" not in prior_config.config["train"]["datasets"]:
+        if "hdf_align" in prior_config.config["train"]["datasets"]:
+            prior_config.config["train"]["datasets"]["hdf_align"]["seq_ordering"] = "random"
+        elif "align" not in prior_config.config["train"]["datasets"]:
             prior_config.config["train"]["datasets"]["ogg"]["seq_ordering"] = "random"
         else:
             prior_config.config["train"]["datasets"]["align"]["seq_ordering"] = "random"

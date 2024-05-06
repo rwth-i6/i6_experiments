@@ -618,6 +618,7 @@ def train_step(*, model: Model, extern_data, **_kwargs):
 
 def export(*, model: Model, model_filename: str):
     model.export_mode = True
+    torch.onnx.is_in_onnx_export()
     dummy_data = torch.randn(1, 30, 80, device="cpu")
     # dummy_data_len, _ = torch.sort(torch.randint(low=10, high=30, size=(1,), device="cpu", dtype=torch.int32), descending=True)
     dummy_data_len = torch.ones((1,), dtype=torch.int32) * 30

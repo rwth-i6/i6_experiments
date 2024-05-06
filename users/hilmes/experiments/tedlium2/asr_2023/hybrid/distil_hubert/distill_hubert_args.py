@@ -13,9 +13,9 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import PyTorchMo
 
 def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **net_kwargs):
 #    evaluation_epochs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] + list(range(10, num_epochs + 1, 10))
-    evaluation_epochs = list(range(10, num_epochs + 1, 10))
+    evaluation_epochs = list(range(num_epochs, num_epochs + 1, 10))
 
-    batch_size = {"classes": 14000, "data": 120 * 16000}
+    batch_size = {"classes": 14000}
     returnn_configs = get_pytorch_returnn_configs(
         num_inputs=1,
         num_outputs=num_outputs,
@@ -149,9 +149,11 @@ def get_pytorch_returnn_configs(
             "output": {"dim": num_outputs}
         },
         "log_batch_size": True,
-        "save_ignore_params_prefixes": ["hubert"]
+        "save_ignore_params_prefixes": ["hubert"],
+        "behavior_version": 16,
+        "torch_log_memory_usage": True,
     }
-    if not recognition:
+    if not recognition and False:
         # add teacher features
         base_config["extern_data"]["data_raw"] = {
             "dim": 1,
@@ -182,12 +184,12 @@ def get_pytorch_returnn_configs(
     hubert_config["gradient_clip"] = 1.0
     hubert_config["optimizer"] = {"class": "adam", "epsilon": 1e-8}
     hubert_config["batch_size"] = batch_size
-    hubert_config["max_seqs"] = 50
+    #hubert_config["max_seqs"] = 50
 
     chunk_400_200_config = copy.deepcopy(hubert_config)
     chunk_400_200_config["chunking"] = "400:200"
-    if not recognition:
-        del chunk_400_200_config['extern_data']['data_raw']
+    #if not recognition:
+    #    del chunk_400_200_config['extern_data']['data_raw']
 
     # those are hashed
     PACKAGE = __package__
@@ -308,7 +310,7 @@ def get_pytorch_returnn_configs(
             #grad_acc=14,
         ) for x in [0.00]},  # 6.4
         **{f"torch_old_spec_baseline": construct_from_net_kwargs(
-            hubert_config,
+            chunk_400_200_config,
             {
                 "model_type": "conformer_baseline",
                 "conformer_size": 384,
@@ -338,7 +340,7 @@ def get_pytorch_returnn_configs(
             # grad_acc=14,
         ) for x in [0.00]}, # 6.2
         **{f"torch_new_spec_baseline": construct_from_net_kwargs(
-            hubert_config,
+            chunk_400_200_config,
             {
                 "model_type": "conformer_baseline",
                 "conformer_size": 384,
@@ -350,17 +352,17 @@ def get_pytorch_returnn_configs(
                 "spec_num_feat": 5,
                 "spec_max_feat": 16,
                 "pool_1_stride": (3, 1),
-                "pool_1_kernel_size": (1, 2),
-                "pool_1_padding": None,
-                "pool_2_stride": None,
-                "pool_2_kernel_size": (1, 2),
-                "pool_2_padding": None,
+                #"pool_1_kernel_size": (1, 2),
+                #"pool_1_padding": None,
+                #"pool_2_stride": None,
+                #"pool_2_kernel_size": (1, 2),
+                #"pool_2_padding": None,
                 "num_layers": 12,
                 "upsample_kernel": 3,
                 "upsample_stride": 3,
                 "upsample_padding": 0,
-                "upsample_out_padding": 0,
-                "dropout": 0.2,
+                #"upsample_out_padding": 0,
+                #"dropout": 0.2,
                 "old_spec": False,
             },
             models_commit="3c9173691521778b1e8b4070c172cbe929e4826b",

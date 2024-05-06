@@ -152,6 +152,8 @@ class ModelQuantizeStaticJob(Job):
             time = 1
         if not calibrate_method == CalibrationMethod.MinMax:
             time *= 2
+        if self.filter_opts is not None and "single_tag" in self.filter_opts:
+            time += 1
 
         self.rqmt = {"cpu": 8 if num_seqs is not None and num_seqs > 100 else 4, "mem": 16.0 if calibrate_method == CalibrationMethod.MinMax else 64, "time": time}
         self.calibration_method = calibrate_method
@@ -257,6 +259,9 @@ class ModelQuantizeStaticJob(Job):
                             seq_number = random.randint(0, self.data.num_seqs - 1)
                             self.visited_seqs.add(seq_number)
                             assert len(self.visited_seqs) <= self.data.num_seqs, "Visited all sequences"
+                            if len(self.visited_seqs) == self.data.num_seqs and any(x in self.filter_opts for x in ["single_tag", "unique_tags"]):
+                                logging.warning("All seqs seen, still not all num seqs reached")
+                                return None
                 self.seen_seqs.append(seq_number)
                 self.data.load_seqs(seq_number, seq_number+1)
                 data: np.ndarray = self.data.get_data(seq_number, key)
@@ -322,7 +327,7 @@ class ModelQuantizeStaticJob(Job):
                         elif name == "single_tag":
                             seq_tag = self.data.get_tag(seq_number)
                             if self.seq_infos is not None and not all(seq_tag.split("/")[1] == info[0].split("/")[1] for info in self.seq_infos):
-                                logging.info(f"FILTER: {seq_tag} prefix not found in {self.seq_infos}")
+                                #logging.info(f"FILTER: {seq_tag} prefix not found in {self.seq_infos[0]}")
                                 return False
                             else:
                                 return True
@@ -389,4 +394,4 @@ class ModelQuantizeStaticJob(Job):
             self.out_num_seqs.set(len(y.seq_infos))
         else:
             self.out_left_bud.set(0)
-            self.out_num_seqs.set(self.num_seqs)
+            self.out_num_seqs.set(len(y.seen_seqs))

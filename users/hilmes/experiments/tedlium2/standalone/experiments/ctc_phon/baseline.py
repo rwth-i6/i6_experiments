@@ -411,6 +411,48 @@ def eow_phon_ted_1023_base():
             generate_report(results=results, exp_name=training_name+quant_str)
             del results
 
+    for activation_bit in [8]:
+        for weight_bit in [8]:
+            results = {}
+            model_config_quant_v1 = QuantModelConfigV1(
+                weight_quant_dtype="qint8",
+                weight_quant_method="per_tensor",
+                activation_quant_dtype="qint8",
+                activation_quant_method="per_tensor",
+                dot_quant_dtype="qint8",
+                dot_quant_method="per_tensor",
+                Av_quant_dtype="qint8",
+                Av_quant_method="per_tensor",
+                moving_average=None,
+                weight_bit_prec=weight_bit,
+                activation_bit_prec=activation_bit,
+                linear_quant_output=False,
+            )
+            quant_args = QuantArgs(
+                sample_ls=[10] if weight_bit < 8 or activation_bit < 8 else [10, 100, 1000, 10000],
+                quant_config_dict={"quant_config_dict": asdict(model_config_quant_v1)},
+                decoder="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
+                num_iterations=num_iterations,
+                datasets=train_data,
+                network_module="ctc.conformer_1023.quant.baseline_quant_v1",
+            )
+            quant_str = f"_weight_{weight_bit}_act_{activation_bit}_no_avg"
+            asr_model = prepare_asr_model(
+                training_name+quant_str,
+                train_job,
+                train_args,
+                with_prior=True,
+                datasets=train_data,
+                get_specific_checkpoint=250,
+            )
+            res, _ = tune_and_evaluate_helper(  # only take best for now, since otherwise too many searches
+                training_name, asr_model, default_decoder_config, lm_scales=[2.8],
+                prior_scales=[0.7], quant_args=quant_args, quant_str=quant_str,
+            )
+            results.update(res)
+            generate_report(results=results, exp_name=training_name + quant_str)
+            del results
+
     model_config_drop_03 = ModelConfig(
         feature_extraction_config=fe_config,
         frontend_config=frontend_config,
@@ -473,15 +515,15 @@ def eow_phon_ted_1023_base():
     generate_report(results=results, exp_name=training_name)
     del results
 
-    network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_conv_first"
+    network_module_conv_first = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_conv_first"
     train_args = {
         "config": train_config_24gbgpu_amp,
-        "network_module": network_module,
+        "network_module": network_module_conv_first,
         "net_args": {"model_config_dict": asdict(model_config)},
         "debug": False,
     }
     results = {}
-    training_name = prefix_name + "/" + network_module + "_384dim_sub4_24gbgpu_50eps_conv_first_amp"
+    training_name = prefix_name + "/" + network_module_conv_first + "_384dim_sub4_24gbgpu_50eps_conv_first_amp"
     train_job = training(training_name, train_data, train_args, num_epochs=250, **default_returnn)
     train_job.rqmt["gpu_mem"] = 24
     asr_model = prepare_asr_model(
@@ -493,4 +535,52 @@ def eow_phon_ted_1023_base():
     )
     results.update(res)
     generate_report(results=results, exp_name=training_name)
+    del results
+
+     # E-Branchformer
+    branchformer_module = "ctc.conformer_1023.i6models_ebranchformer_v1"
+    train_config = {
+        "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-3},
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                          + list(np.linspace(5e-4, 5e-5, 110))
+                          + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 180 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": branchformer_module,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+    }
+    results = {}
+    training_name = prefix_name + "/" + branchformer_module + "_384dim_sub4_50eps"
+    train_job = training(training_name, train_data, train_args, num_epochs=250, **default_returnn)
+    asr_model = prepare_asr_model(
+        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=250
+    )
+    lm_scales = [2.0, 2.2, 2.4, 2.6, 2.8]
+    prior_scales = [0.7, 0.9]
+    res, _ = tune_and_evaluate_helper(
+        training_name, asr_model, default_decoder_config, lm_scales=lm_scales,
+        prior_scales=prior_scales
+    )
+    results.update(res)
+    asr_model_best4 = prepare_asr_model(
+        training_name + "/best4", train_job, train_args, with_prior=True, datasets=train_data,
+        get_best_averaged_checkpoint=(4, "dev_loss_ctc")
+    )
+    res, _ = tune_and_evaluate_helper(training_name + "/best4", asr_model_best4, default_decoder_config,
+                                      lm_scales=lm_scales, prior_scales=prior_scales)
+    results.update(res)
+    asr_model_best = prepare_asr_model(
+        training_name + "/best", train_job, train_args, with_prior=True, datasets=train_data,
+        get_best_averaged_checkpoint=(1, "dev_loss_ctc")
+    )
+    res, _ = tune_and_evaluate_helper(training_name + "/best", asr_model_best, default_decoder_config,
+                                      lm_scales=lm_scales, prior_scales=prior_scales)
+    results.update(res)
+    generate_report(results=results, exp_name=training_name)  # TODO current best with 7.083
     del results

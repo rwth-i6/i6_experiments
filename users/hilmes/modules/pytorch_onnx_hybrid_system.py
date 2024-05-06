@@ -301,8 +301,6 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                     quant_filter_opts = tmp_kwargs.pop("quant_filter_opts", [None])
                     for data_num in data_num_ls:
                         for quant_mode, average, sym, activation_type, weight_type, quant_format, quant_ops, percentile, num_bins, filter_opts in itertools.product(quant_modes, avg_modes, sym_modes, activation_type_ls, weight_type_ls, quant_format_ls, quant_ops_ls, percentile_ls, num_bin_ls, quant_filter_opts):
-                            if average and (not quant_mode == CalibrationMethod.MinMax or "speed" in name):
-                                continue
                             if not quant_mode == CalibrationMethod.MinMax and "speed" in name:
                                 continue
                             if activation_type == QuantType.QInt8 and weight_type == QuantType.QUInt8:
@@ -346,11 +344,15 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                                 if "whisper" in name:
                                     quant_job.rqmt['mem'] += 48
                                     quant_job.rqmt['time'] += 1
-                                quant_job.add_alias("quantize_static/" + name + "/" + mode_str + "/epoch" + epoch_str + "_" + str(data_num))
+                                if data_num is None:
+                                    data_str = ""
+                                else:
+                                    data_str = "-" + str(data_num)
+                                quant_job.add_alias("quantize_static/" + name + "/" + mode_str + "/epoch" + epoch_str + data_str)
                                 quant_job.set_keep_value(5)
                                 quant_model = quant_job.out_model
                                 if data_num is None:
-                                    self.jobs[recognition_corpus_key][f"quantize_static/" + name + "/" + mode_str + "/epoch" + epoch_str + "_" + str(data_num)] = quant_job
+                                    self.jobs[recognition_corpus_key][f"quantize_static/" + name + "/" + mode_str + "/epoch" + epoch_str] = quant_job
                                 scorer = OnnxFeatureScorer(
                                     mixtures=acoustic_mixture_path,
                                     model=quant_model,
@@ -361,10 +363,10 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                                     prior_file=prior_file
                                 )
 
-                                self.feature_scorers[recognition_corpus_key][f"pre-nn-{name}-{prior:02.2f}-{mode_str}-{data_num}"] = scorer
-                                self.feature_flows[recognition_corpus_key][f"{feature_flow_key}-onnx-{epoch_str}-{mode_str}-{data_num}"] = feature_flow
+                                self.feature_scorers[recognition_corpus_key][f"pre-nn-{name}-{prior:02.2f}-{mode_str}{data_str}"] = scorer
+                                self.feature_flows[recognition_corpus_key][f"{feature_flow_key}-onnx-{epoch_str}-{mode_str}{data_str}"] = feature_flow
 
-                                recog_name = f"e{epoch_str}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}-{mode_str}-{data_num}"
+                                recog_name = f"e{epoch_str}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}-{mode_str}{data_str}"
                                 recog_func(
                                     name=f"{name}-{recognition_corpus_key}-{recog_name}",
                                     prefix=f"nn_recog/{name}/",
