@@ -159,7 +159,7 @@ class BASEFactoredHybridSystem(NnSystem):
         self.backend_info = BackendInfo.default()
 
         # data and pipeline related
-        self.inputs = {} #nested dictionary first keys corpora, second level InputKeys
+        self.inputs = {}  # nested dictionary first keys corpora, second level InputKeys
         self.experiments: Dict[str, Experiment] = {}
 
         self.feature_info = FeatureInfo.default()
@@ -529,7 +529,7 @@ class BASEFactoredHybridSystem(NnSystem):
         )
         self.native_lstm2_path = compile_native_op_job.out_op
 
-    def set_local_flf_tool_for_decoding(self, path=None):
+    def set_local_flf_tool_for_decoding(self, path):
         self.csp["base"].flf_tool_exe = path
 
     # --------------------- Init procedure -----------------
@@ -672,7 +672,9 @@ class BASEFactoredHybridSystem(NnSystem):
         self.initial_nn_args.update(label_info_args)
 
     # ----- data preparation for train-----------------------------------------------------
-    def prepare_rasr_train_data_with_cv_from_train(self, input_key: InputKey = InputKey.BASE, cv_num_segments: int = 100):
+    def prepare_rasr_train_data_with_cv_from_train(
+        self, input_key: InputKey = InputKey.BASE, cv_num_segments: int = 100
+    ):
 
         assert self.train_key is not None, "You did not specify the train_key"
         train_corpus_path = self.corpora[self.train_key].corpus_file
@@ -763,183 +765,6 @@ class BASEFactoredHybridSystem(NnSystem):
         nn_devtrain_data_inputs = {self.crp_names["devtrain"]: nn_devtrain_data}
 
         return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
-
-    # -------------------------------------------- Training --------------------------------------------------------
-    def add_code_to_extra_returnn_code(self, key: str, extra_key: str, extra_dict_key: str, code: str):
-        # extra_key can be either prolog or epilog
-        assert extra_dict_key is not None, "set the extra dict key for your additional code"
-        old_to_update = copy.deepcopy(self.experiments[key]["extra_returnn_code"][extra_key])
-        old_to_update[extra_dict_key] = code
-        return old_to_update
-
-    def get_config_with_standard_prolog_and_epilog(
-        self,
-        config: Dict,
-        prolog_additional_str: str = None,
-        epilog_additional_str: str = None,
-        functions=None,
-        label_time_tag: str = None,
-        add_extern_data_for_fullsum: bool = False,
-    ):
-        # this is not a returnn config, but the dict params
-        assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
-        config["extern_data"] = {
-            "data": {
-                "dim": self.initial_nn_args["num_input"],
-                "same_dim_tags_as": {"T": returnn.CodeWrapper(self.frame_rate_reduction_ratio_info.time_tag_name)},
-            }
-        }
-        config["python_prolog"] = {
-            "numpy": "import numpy as np",
-            "time": self.frame_rate_reduction_ratio_info.get_time_tag_prolog_for_returnn_config(),
-        }
-
-        if self.training_criterion != TrainingCriterion.FULLSUM or add_extern_data_for_fullsum:
-            if self.frame_rate_reduction_ratio_info.factor == 1:
-                label_time_tag = self.frame_rate_reduction_ratio_info.time_tag_name
-            config["extern_data"].update(
-                **net_helpers.extern_data.get_extern_data_config(
-                    label_info=self.label_info,
-                    time_tag_name=label_time_tag,
-                    add_single_state_label=self.frame_rate_reduction_ratio_info.single_state_alignment,
-                )
-            )
-
-        if functions is None:
-            functions = [
-                train_helpers.specaugment.mask,
-                train_helpers.specaugment.random_mask,
-                train_helpers.specaugment.summary,
-                train_helpers.specaugment.transform,
-            ]
-            if self.backend_info.train == Backend.TF:
-                for l in config["network"].keys():
-                    if (
-                        config["network"][l]["class"] == "eval"
-                        and "self.network.get_config().typed_value('transform')" in config["network"][l]["eval"]
-                    ):
-                        config["network"][l][
-                            "eval"
-                        ] = "self.network.get_config().typed_value('transform')(source(0), network=self.network)"
-
-        config["python_epilog"] = {
-            "functions": functions,
-        }
-
-        if prolog_additional_str is not None:
-            config["python_prolog"]["str"] = prolog_additional_str
-
-        if epilog_additional_str is not None:
-            config["python_epilog"]["str"] = epilog_additional_str
-
-        return config
-
-    def get_config_with_legacy_prolog_and_epilog(
-        self,
-        config: Dict,
-        prolog_additional_str: str = None,
-        epilog_additional_str: str = None,
-        add_extern_data_for_fullsum=False,
-    ):
-        # this is not a returnn config, but the dict params
-        assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
-
-        if self.training_criterion != TrainingCriterion.FULLSUM or add_extern_data_for_fullsum:
-            config["extern_data"] = {
-                "data": {
-                    "dim": self.initial_nn_args["num_input"],
-                    "same_dim_tags_as": {"T": returnn.CodeWrapper(self.frame_rate_reduction_ratio_info.time_tag_name)},
-                }
-            }
-            config["python_prolog"] = {
-                "numpy": "import numpy as np",
-                "time": self.frame_rate_reduction_ratio_info.get_time_tag_prolog_for_returnn_config(),
-            }
-            label_time_tag = None
-            if self.frame_rate_reduction_ratio_info.factor == 1:
-                label_time_tag = self.frame_rate_reduction_ratio_info.time_tag_name
-            config["extern_data"].update(
-                **net_helpers.extern_data.get_extern_data_config(
-                    label_info=self.label_info,
-                    time_tag_name=label_time_tag,
-                    add_single_state_label=self.frame_rate_reduction_ratio_info.single_state_alignment,
-                )
-            )
-
-        if prolog_additional_str is not None:
-            config["python_prolog"]["str"] = prolog_additional_str
-
-        if epilog_additional_str is not None:
-            config["python_epilog"] = {"str": epilog_additional_str}
-
-        return config
-
-    def set_returnn_config_for_experiment(self, key: str, config_dict: Dict):
-        assert key in self.experiments.keys()
-
-        keep_best_n = (
-            config_dict.pop("keep_best_n") if "keep_best_n" in config_dict else self.initial_nn_args["keep_best_n"]
-        )
-        keep_epochs = (
-            config_dict.pop("keep_epochs") if "keep_epochs" in config_dict else self.initial_nn_args["keep_epochs"]
-        )
-        if None in (keep_best_n, keep_epochs):
-            assert False, "either keep_epochs or keep_best_n is None, set this in the initial_nn_args"
-
-        python_prolog = config_dict.pop("python_prolog") if "python_prolog" in config_dict else None
-        python_epilog = config_dict.pop("python_epilog") if "python_epilog" in config_dict else None
-
-        base_post_config = {
-            "cleanup_old_models": {
-                "keep_best_n": keep_best_n,
-                "keep": keep_epochs,
-            },
-        }
-
-        returnn_config = returnn.ReturnnConfig(
-            config=config_dict,
-            post_config=base_post_config,
-            hash_full_python_code=True,
-            python_prolog=python_prolog,
-            python_epilog=python_epilog,
-            sort_config=self.sort_returnn_config,
-        )
-        self.experiments[key]["returnn_config"] = returnn_config
-        self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
-        self.experiments[key]["extra_returnn_code"]["epilog"] = returnn_config.python_epilog
-
-    def reset_returnn_config_for_experiment(
-        self,
-        key: str,
-        config_dict: Dict,
-        extra_dict_key: str = None,
-        additional_python_prolog: str = None,
-        additional_python_epilog: str = None,
-    ):
-        if additional_python_prolog is not None:
-            python_prolog = self.add_code_to_extra_returnn_code(
-                key=key, extra_key="prolog", extra_dict_key=extra_dict_key, code=additional_python_prolog
-            )
-        else:
-            python_prolog = self.experiments[key]["extra_returnn_code"]["prolog"]
-
-        if additional_python_epilog is not None:
-            python_epilog = self.add_code_to_extra_returnn_code(
-                key=key, extra_key="epilog", extra_dict_key=extra_dict_key, code=additional_python_epilog
-            )
-        else:
-            python_epilog = self.experiments[key]["extra_returnn_code"]["epilog"]
-
-        returnn_config = returnn.ReturnnConfig(
-            config=config_dict,
-            hash_full_python_code=True,
-            python_prolog=python_prolog,
-            python_epilog=python_epilog,
-            sort_config=self.sort_returnn_config,
-        )
-        self.experiments[key]["returnn_config"] = returnn_config
-        self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
-        self.experiments[key]["extra_returnn_code"]["epilog"] = returnn_config.python_epilog
 
     # -------------------------------------------------------------------------
 

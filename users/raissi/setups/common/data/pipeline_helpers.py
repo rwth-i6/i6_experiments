@@ -30,7 +30,7 @@ class TrainingCriterion(Enum):
 
 
 class SingleSoftmaxType(Enum):
-    """The training criterion."""
+    """The type of single softmax for joint FH."""
     TRAIN = "train"
     PRIOR = "prior"
     DECODE = "decode"

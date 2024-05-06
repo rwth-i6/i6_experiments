@@ -637,6 +637,7 @@ def augment_with_triphone_embeds(
     return network
 
 
+
 def augment_net_with_triphone_outputs(
     shared_network: Network,
     variant: PhoneticContext,

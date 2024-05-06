@@ -815,9 +815,9 @@ class BASEFactoredHybridDecoder:
         elif self.feature_scorer_type.is_nnprecomputed():
             scale = 1.0
             if search_parameters.posterior_scales is not None:
-                if context_type.is_joint_diphone():
+                if self.context_type.is_joint_diphone():
                     scale = search_parameters.posterior_scales["joint-diphone-scale"]
-                elif context_type.is_monophone():
+                elif self.context_type.is_monophone():
                     scale = search_parameters.posterior_scales["center-state-scale"]
 
                 name += f"-Am{scale}"
