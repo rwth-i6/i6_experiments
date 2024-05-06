@@ -320,6 +320,7 @@ def eow_phon_ls100_1023_synthetic():
         "glow_tts.glow_tts_v1_bs600_v2_base256_newgl_extdur_noise0.7_syn_train-clean-360-sub100",
         "glow_tts.glow_tts_v1_bs600_v2_longer_base256_newgl_extdur_noise0.7_syn_train-clean-100",
         "glow_tts.glow_tts_v1_bs600_v2_longer_noam_base256_newgl_extdur_noise0.7_syn_train-clean-100",
+        "glow_tts.glow_tts_v1_bs600_v2_800eps_base256_newgl_extdur_noise0.7_syn_train-clean-100",
         "glow_tts.glow_tts_v1_glow256align_400eps_oclr_gl16_noise0.7_syn_train-clean-100",
         "glow_tts.glow_tts_v1_glow256align_400eps_oclr_gl32_noise0.7_syn_train-clean-100",
         "glow_tts.glow_tts_v1_glow256align_400eps_oclr_gl64_noise0.7_syn_train-clean-100",

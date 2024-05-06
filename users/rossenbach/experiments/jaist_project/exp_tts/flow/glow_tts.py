@@ -344,7 +344,7 @@ def run_flow_tts():
 
     net_module_extdur = "glow_tts.glow_tts_v1_ext_dur"
     train = run_exp(net_module + "_bs600_v2_base256_newgl_extdur_noise0.7", params_base256, net_module_extdur, local_config, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
-                    target_durations=durations, debug=True, num_epochs=200)
+                    target_durations=durations, debug=True, num_epochs=200, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
 
     # perform NISQA also for synthesis condition
     cross_validation_nisqa(prefix, net_module + "_bs600_v2_base256_newgl_extdur_noise0.7_noglnisqa", params_base256, net_module_extdur, checkpoint=train.out_checkpoints[200],
@@ -576,3 +576,17 @@ def run_flow_tts():
     train = run_exp(net_module + "_base320_glow256align_400eps_oclr_nodrop_gl32_noise0.7", params_base320, net_module_extdur, local_config_longer, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
                     target_durations=durations, debug=True, num_epochs=400, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
     # train.hold()
+    
+    
+    # even longer
+    local_config_longer = copy.deepcopy(config)
+    local_config_longer["batch_size"] = 600 * 16000
+    local_config_longer["learning_rates"] = list(np.linspace(5e-5, 5e-4, 200)) + list(np.linspace(5e-4, 5e-7, 600))
+    train = run_exp(net_module + "_bs600_v2_800eps_base256_newgl_extdur_noise0.7", params_base256, net_module_extdur, local_config_longer, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
+                    target_durations=durations, debug=True, num_epochs=800, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
+    
+    synthetic_corpus = generate_synthetic(prefix, net_module + "_bs600_v2_800eps_base256_newgl_extdur_noise0.7_syn",
+                                          "train-clean-100",
+                                          train.out_checkpoints[800], params_base256, net_module,
+                                          extra_decoder="glow_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_gl32, debug=True)

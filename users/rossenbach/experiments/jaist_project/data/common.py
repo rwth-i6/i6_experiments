@@ -23,7 +23,7 @@ from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset
 
 from ..default_tools import MINI_RETURNN_ROOT, RETURNN_EXE
 
-DATA_PREFIX = ("experiments/jaist_project/data/")
+DATA_PREFIX = "experiments/jaist_project/data/"
 
 # -------------- Dataclasses for configuration and data passing -------------------
 

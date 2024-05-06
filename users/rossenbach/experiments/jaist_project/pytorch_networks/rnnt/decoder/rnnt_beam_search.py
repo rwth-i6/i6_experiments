@@ -5,7 +5,7 @@ from torchaudio.models.rnnt_decoder import RNNTBeamSearch, RNNT, Hypothesis, _ge
 class ModifiedRNNTBeamSearch(RNNTBeamSearch):
     r"""Beam search decoder for RNN-T model.
 
-    Modified with blank penalty
+    Modified with blank penalty and semi-batched search where encoder is run in batch mode
 
     See Also:
         * :class:`torchaudio.pipelines.RNNTBundle`: ASR pipeline with pretrained model.
@@ -55,7 +55,6 @@ class ModifiedRNNTBeamSearch(RNNTBeamSearch):
 
         if self.blank_penalty is not None:
             # assumes blank is last
-            # joined_out[:, :, :, self.blank] -= self.blank_penalty.to(deviEF919706510JPce=joined_out.device)
             joined_out[:, :, :, self.blank] -= self.blank_penalty
 
         return joined_out[:, 0, 0]
