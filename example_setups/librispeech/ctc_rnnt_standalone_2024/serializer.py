@@ -8,13 +8,14 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import Collectio
 from i6_experiments.common.setups.serialization import ExternalImport, Import, PartialImport
 
 from . import PACKAGE
-from .default_tools import I6_MODELS_REPO_PATH
+from .default_tools import I6_MODELS_REPO_PATH, I6_NATIVE_OPS_REPO_PATH
 
 
 def serialize_training(
     network_module: str,
     net_args: Dict[str, Any],
     unhashed_net_args: Optional[Dict[str, Any]] = None,
+    include_native_ops=False,
     debug: bool = False,
 ) -> Collection:
     """
@@ -23,6 +24,7 @@ def serialize_training(
     :param network_module: path to the pytorch config file containing Model
     :param net_args: arguments for the model
     :param unhashed_net_args: as above but not hashed
+    :param include_native_ops: include the i6_native_ops for e.g. Fast-Baum-Welch or Warp-RNNT
     :param debug: run training in debug mode: linking from recipe instead of copy
     :return: Collection object to be added to the ReturnnConfig epilog
     """
@@ -45,6 +47,12 @@ def serialize_training(
         pytorch_model_import,
         pytorch_train_step,
     ]
+
+    if include_native_ops:
+        i6_native_ops = ExternalImport(import_path=I6_NATIVE_OPS_REPO_PATH)
+        # has to be in the beginning
+        serializer_objects.insert(0, i6_native_ops)
+
     serializer = Collection(
         serializer_objects=serializer_objects,
         make_local_package_copy=not debug,
@@ -63,6 +71,7 @@ def serialize_forward(
     forward_step_name: str = "forward",
     forward_init_args: Optional[Dict[str, Any]] = None,
     unhashed_forward_init_args: Optional[Dict[str, Any]] = None,
+    include_native_ops=False,
     debug: bool = False,
 ):
     """
@@ -76,6 +85,7 @@ def serialize_forward(
     :param forward_step_name: path to the search decoder file containing forward_step and hooks
     :param forward_init_args: additional arguments to pass to forward_init
     :param unhashed_forward_init_args: additional non-hashed arguments to pass to forward_init
+    :param include_native_ops: include the i6_native_ops for e.g. Fast-Baum-Welch or Warp-RNNT
     :param debug: run training in debug mode: linking from recipe instead of copy
     :return:
     """
@@ -96,6 +106,11 @@ def serialize_forward(
         i6_models,
         pytorch_model_import,
     ]
+
+    if include_native_ops:
+        i6_native_ops = ExternalImport(import_path=I6_NATIVE_OPS_REPO_PATH)
+        # has to be in the beginning
+        serializer_objects.insert(0, i6_native_ops)
 
     forward_module = forward_module or network_module
 
