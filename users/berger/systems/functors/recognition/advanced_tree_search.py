@@ -60,7 +60,7 @@ class AdvancedTreeSearchFunctor(
                 )
                 assert isinstance(checkpoint, returnn.Checkpoint)
 
-                feature_flow = self._make_tf_feature_flow(
+                feature_flow = self._make_precomputed_tf_feature_flow(
                     base_flow=base_feature_flow,
                     tf_graph=tf_graph,
                     tf_checkpoint=checkpoint,
@@ -72,7 +72,7 @@ class AdvancedTreeSearchFunctor(
                     returnn_config=recog_config.config,
                     checkpoint=checkpoint,
                 )
-                feature_flow = self._make_onnx_feature_flow(
+                feature_flow = self._make_precomputed_onnx_feature_flow(
                     base_flow=base_feature_flow,
                     onnx_model=onnx_model,
                     **model_flow_args,

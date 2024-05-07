@@ -63,9 +63,13 @@ class BlissCorpusToTargetHdfJob(Job):
         lookup_dict: Dict[str, List[int]] = {}
         for lemma in lex.lemmata:
             for orth in lemma.orth:
-                if not orth or not len(lemma.phon):
+                if not orth:
                     continue
-                lookup_dict[orth] = [phoneme_indices[p] for p in lemma.phon[0].split()]
+                if len(lemma.phon) > 0:
+                    phon = lemma.phon[0]
+                else:
+                    phon = ""
+                lookup_dict[orth] = [phoneme_indices[p] for p in phon.split()]
 
         return lookup_dict
 

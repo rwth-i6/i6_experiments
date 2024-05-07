@@ -217,6 +217,13 @@ class RasrFunctor(ABC):
 
         return features.basic_cache_flow(cache_files=cache_files)
 
+    def _make_base_logmel_feature_flow_16k(self, corpus_info: dataclasses.CorpusInfo, dc_detection: bool = False, **_):
+        gt_options = copy.deepcopy(get_feature_extraction_args_16kHz(dc_detection=dc_detection)["gt"]["gt_options"])
+        audio_format = corpus_info.crp.audio_format
+        gt_options["samples_options"]["audio_format"] = audio_format
+        gt_options["add_features_output"] = True
+        return features.gammatone_flow(**gt_options)
+
     @lru_cache_with_signature
     def _get_checkpoint(
         self,
@@ -270,12 +277,13 @@ class RasrFunctor(ABC):
         )
         return helpers.get_native_lstm_op(tools)
 
-    def _make_tf_feature_flow(
+    def _make_precomputed_tf_feature_flow(
         self,
         base_flow: rasr.FlowNetwork,
         tf_graph: tk.Path,
         tf_checkpoint: returnn.Checkpoint,
         output_layer_name: str = "output",
+        **_,
     ) -> rasr.FlowNetwork:
         # tf flow (model scoring done in tf flow node) #
         input_name = "tf-fwd_input"
@@ -292,9 +300,7 @@ class RasrFunctor(ABC):
         tf_flow.config = rasr.RasrConfig()  # type: ignore
         tf_flow.config[tf_fwd].input_map.info_0.param_name = "input"  # type: ignore
         tf_flow.config[tf_fwd].input_map.info_0.tensor_name = "extern_data/placeholders/data/data"  # type: ignore
-        tf_flow.config[
-            tf_fwd
-        ].input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/data/data_dim0_size"  # type: ignore
+        tf_flow.config[tf_fwd].input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/data/data_dim0_size"  # type: ignore
 
         tf_flow.config[tf_fwd].output_map.info_0.param_name = "log-posteriors"  # type: ignore
         tf_flow.config[tf_fwd].output_map.info_0.tensor_name = f"{output_layer_name}/output_batch_major"  # type: ignore
@@ -323,7 +329,7 @@ class RasrFunctor(ABC):
         ext_flow.add_flags(base_flow.flags)
         return ext_flow
 
-    def _make_onnx_feature_flow(
+    def _make_precomputed_onnx_feature_flow(
         self,
         base_flow: rasr.FlowNetwork,
         onnx_model: tk.Path,

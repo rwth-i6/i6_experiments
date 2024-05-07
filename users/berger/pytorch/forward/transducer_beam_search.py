@@ -1,86 +1,114 @@
-from functools import lru_cache
-from typing import List
+from typing import List, Optional, Tuple
 from dataclasses import dataclass
 
 import torch
 from torchaudio.models.rnnt import RNNT
 
-from i6_experiments.users.berger.pytorch.models.conformer_transducer import FFNNTransducer
-
 
 @dataclass
 class Hypothesis:
     tokens: List[int]
+    pred_state: torch.Tensor
+    pred_history_state: Optional[List[List[torch.Tensor]]]
     score: float
     timestep: int
 
-    @property
-    def avg_score(self) -> float:
-        return self.score / len(self.tokens)
 
-
-def extended_hypothesis(base_hyp: Hypothesis, token: int, is_blank: bool, score: float) -> Hypothesis:
+def extended_hypothesis(
+    base_hyp: Hypothesis,
+    new_pred_state: torch.Tensor,
+    new_pred_history_state: List[List[torch.Tensor]],
+    token: int,
+    score: float,
+) -> Hypothesis:
     return Hypothesis(
-        base_hyp.tokens + [token],
-        base_hyp.score + score,
-        base_hyp.timestep + int(is_blank),
+        tokens=base_hyp.tokens + [token],
+        pred_state=new_pred_state,
+        pred_history_state=new_pred_history_state,
+        score=base_hyp.score + score,
+        timestep=base_hyp.timestep + 1,
     )
 
 
-def beam_search(*, model: RNNT, features: torch.Tensor, features_len: torch.Tensor, beam_size: int = 100) -> List[int]:
+def monotonic_timesync_beam_search(
+    *, model: RNNT, features: torch.Tensor, feature_lengths: torch.Tensor, blank_id: int, beam_size: int = 10
+) -> Tuple[List[int], float]:
     # Some dimension checks
-    assert features.dim() == 2 or (features.dim() == 3 and features.size(0) == 1)  # [T, F] or [1, T, F]
-    if features.dim() == 2:
+    if features.dim() == 2:  # [T, F]
         features = features.unsqueeze(0)  # [1, T, F]
-
-    assert features_len.dim() == 0 or (features_len.dim() == 1 and features_len.size(0) == 1)  # [] or [1]
-    if features_len.dim() == 0:
-        features_len = features_len.unsqueeze(0)  # [1]
+    assert features.dim() == 3 and features.size(0) == 1  # [1, T, F]
+    assert feature_lengths.dim() == 1 and feature_lengths.size(0) == 1  # [1]
 
     # Compute encoder once
-    enc, enc_lens = model.forward_encoder(features, features_len)  # [1, T, C], [1]
-    T = enc_lens[0].cpu().item()
+    enc, enc_lengths = model.transcribe(features, feature_lengths)  # [1, T, E], [1]
+    T = int(enc_lengths[0].cpu().item())
 
-    # Function to get scores for time and history to avoid duplicate computation
-    @lru_cache
-    def cached_forward(timestep: int, context_tensor: torch.Tensor) -> torch.Tensor:
-        enc_state = enc[:, timestep]  # [1, C]
-        log_probs = model.forward_single(enc_state, context_tensor.unsqueeze(0))[0]  # [C]
-        scores = -log_probs  # [C]
-        return scores.cpu()
+    def predict_next(
+        token: int, history_state: Optional[List[List[torch.Tensor]]]
+    ) -> Tuple[torch.Tensor, List[List[torch.Tensor]]]:
+        new_pred_state, _, new_pred_history_state = model.predict(  # [1, P]
+            targets=torch.tensor([[token]], device=enc.device),
+            target_lengths=torch.tensor([1], device=enc.device),
+            state=history_state,
+        )
+
+        return new_pred_state, new_pred_history_state
 
     # Initial hypothesis contains all-blank history with 0 score
-    hypotheses = [Hypothesis([model.blank_idx] * model.context_history_size, 0, 0)]
+    initial_pred_state, initial_pred_history_state = predict_next(blank_id, None)  # [1, P]
+    hypotheses = [
+        Hypothesis(
+            tokens=[],
+            pred_state=initial_pred_state,
+            pred_history_state=initial_pred_history_state,
+            score=0.0,
+            timestep=0,
+        )
+    ]
 
     # all_finished indicated if all hypotheses have reached the end of the time axis
-    all_finished = False
-    while not all_finished:
+    for t in range(T):
+        enc_state = enc[:, t : t + 1, :]  # [1, 1, E]
+
         next_hypotheses = []  # accumulate extended hypotheses in here
-        all_finished = True
 
         # iterate over all existing hypotheses and extend them
         for hypothesis in hypotheses:
-            if hypothesis.timestep == T:
-                # hypothesis has already reached end of time axis and is not extended
-                next_hypotheses.append(hypothesis)
-                continue
+            recent_token = hypothesis.tokens[-1] if len(hypothesis.tokens) > 0 else blank_id
+            if recent_token != blank_id:
+                new_pred_state, new_pred_history_state = predict_next(
+                    recent_token, hypothesis.pred_history_state
+                )  # [1, P]
+            else:
+                new_pred_state = hypothesis.pred_state  # [1, P]
+                new_pred_history_state = hypothesis.pred_history_state
 
-            # hypothesis gets extended, so not all are finished
-            all_finished = False
+            assert new_pred_history_state is not None
 
-            # form limited context of hypothesis into a tensor and compute log probs with it
-            context_tensor = torch.tensor(hypothesis.tokens[-model.context_history_size :], device=enc.device)  # [H]
-            scores = cached_forward(hypothesis.timestep, context_tensor)  # [C]
+            log_probs, _, _ = model.join(  # [1, C] (packed) or [1, 1, 1, C] (not packed))
+                source_encodings=enc_state,
+                source_lengths=torch.tensor([1], device=enc.device),
+                target_encodings=new_pred_state,
+                target_lengths=torch.tensor([1], device=enc.device),
+            )
+            log_probs = log_probs.squeeze()  # [C]
 
             # extend hypothesis with all possible next classes
-            for c in range(scores.size(0)):
-                next_hypotheses.append(extended_hypothesis(hypothesis, c, c == model.blank_idx, scores[c].item()))
+            for c in range(log_probs.size(0)):
+                next_hypotheses.append(
+                    extended_hypothesis(
+                        base_hyp=hypothesis,
+                        new_pred_state=new_pred_state,
+                        new_pred_history_state=new_pred_history_state,
+                        token=c,
+                        score=log_probs[c].item(),
+                    )
+                )
 
         # Pruning
-        hypotheses = sorted(next_hypotheses, key=lambda hyp: hyp.avg_score)[:beam_size]
+        hypotheses = sorted(next_hypotheses, key=lambda hyp: hyp.score, reverse=True)[:beam_size]
 
     best_hypothesis = hypotheses[0]  # list has been sorted at the end of the loop so the best is first in the list
-    assert best_hypothesis.timestep == T
-    non_blanks = list(filter(lambda c: c != model.blank_idx, best_hypothesis.tokens))
+    non_blanks = list(filter(lambda c: c != blank_id, best_hypothesis.tokens))
 
-    return non_blanks
+    return non_blanks, best_hypothesis.score

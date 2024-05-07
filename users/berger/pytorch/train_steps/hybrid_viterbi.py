@@ -11,8 +11,6 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     targets_len = extern_data["targets"].dims[1].dyn_size_ext.raw_tensor
     assert targets_len is not None
 
-    model.train()
-
     log_probs, sequence_mask = model(
         audio_features=audio_features,
         audio_features_len=audio_features_len.to("cuda"),

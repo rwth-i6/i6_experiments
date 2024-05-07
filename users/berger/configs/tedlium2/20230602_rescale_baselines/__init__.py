@@ -3,9 +3,11 @@ from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.dataclasses import SummaryKey
 from sisyphus import tk, gs
 
-# from .config_01b_conformer_ctc_pt_logmel import py as py_01b
-from .config_01_conformer_ctc_pt import py as py_01
-from .config_04_conformer_transducer_pt import py as py_04
+from .config_01b_conformer_ctc_logmel import py as py_01b
+from .config_01_conformer_ctc import py as py_01
+
+from .config_04a_conformer_transducer_bpe import py as py_04a
+from .config_04b_conformer_transducer_phon import py as py_04b
 
 
 def main() -> SummaryReport:
@@ -40,6 +42,7 @@ def main() -> SummaryReport:
             "ReturnnForwardJobV2",
             "ReturnnForwardComputePriorJob",
             "OptunaReturnnForwardComputePriorJob",
+            "CompileKenLMJob",
         }
         onnx_jobs = {
             "ExportPyTorchModelToOnnxJob",
@@ -57,7 +60,7 @@ def main() -> SummaryReport:
         else:
             return call
 
-        binds = ["/work/asr4", "/work/common", "/work/tools/"]
+        binds = ["/work/asr4", "/work/common", "/work/tools/", "/work/asr4/rossenbach"]
         ts = {t.name(): t for t in job.tasks()}
         t = ts[task_name]
 
@@ -81,7 +84,12 @@ def main() -> SummaryReport:
 
     summary_report = SummaryReport()
 
-    for subreport in [copy.deepcopy(py_01()), copy.deepcopy(py_04())]:
+    for subreport in [
+        copy.deepcopy(py_01()),
+        copy.deepcopy(py_01b()),
+        copy.deepcopy(py_04a()),
+        copy.deepcopy(py_04b()),
+    ]:
         subreport.collapse([SummaryKey.CORPUS.value], best_selector_key=SummaryKey.ERR.value)
         summary_report.merge_report(subreport, update_structure=True)
 

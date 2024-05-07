@@ -1,4 +1,5 @@
 import copy
+from sisyphus import tk
 from typing import Dict, List, Optional, Tuple
 
 from i6_core.bpe.train import ReturnnTrainBpeJob
@@ -127,8 +128,9 @@ def get_final_gmm_output():
     return output_args
 
 
-def get_bpe(size: int) -> ReturnnTrainBpeJob:
+def get_bpe(size: int, subword_nmt_repo: Optional[tk.Path] = None) -> ReturnnTrainBpeJob:
     txt_file = get_text_data_dict()["background-data"]
-    subword_nmt_repo = CloneGitRepositoryJob("https://github.com/albertz/subword-nmt.git").out_repository
+    if subword_nmt_repo is None:
+        subword_nmt_repo = CloneGitRepositoryJob("https://github.com/albertz/subword-nmt.git").out_repository
 
     return ReturnnTrainBpeJob(txt_file, size, subword_nmt_repo=subword_nmt_repo)

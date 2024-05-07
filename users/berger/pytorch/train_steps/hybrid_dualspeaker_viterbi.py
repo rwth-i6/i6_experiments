@@ -37,8 +37,6 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     classes = classes[indices, :]
     classes = torch.squeeze(classes, 2)
 
-    model.train()
-
     log_probs, sequence_lengths = model(
         primary_audio_features=audio_features_prim,
         audio_features_len=audio_features_len.to("cuda"),

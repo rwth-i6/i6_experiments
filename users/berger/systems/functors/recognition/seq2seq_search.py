@@ -1,6 +1,6 @@
 import copy
 import itertools
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from i6_core import returnn
 from i6_experiments.users.berger.recipe import rasr as custom_rasr
@@ -22,7 +22,9 @@ class Seq2SeqSearchFunctor(
         self,
         train_job: dataclasses.NamedTrainJob[returnn.ReturnnTrainingJob],
         prior_config: returnn.ReturnnConfig,
-        recog_config: dataclasses.NamedConfig[returnn.ReturnnConfig],
+        recog_config: dataclasses.NamedConfig[
+            Union[returnn.ReturnnConfig, dataclasses.EncDecConfig[returnn.ReturnnConfig]]
+        ],
         recog_corpus: dataclasses.NamedCorpusInfo,
         lookahead_options: Dict,
         epochs: List[types.EpochType],
@@ -62,7 +64,10 @@ class Seq2SeqSearchFunctor(
 
         recog_results = []
 
-        backend = get_backend(recog_config.config)
+        if isinstance(recog_config.config, returnn.ReturnnConfig):
+            backend = get_backend(recog_config.config)
+        else:
+            backend = get_backend(recog_config.config.encoder_config)
 
         for lm_scale, prior_scale, epoch in itertools.product(lm_scales, prior_scales, epochs):
             checkpoint = self._get_checkpoint(train_job.job, epoch)
@@ -79,6 +84,7 @@ class Seq2SeqSearchFunctor(
             label_scorer = custom_rasr.LabelScorer(label_scorer_type, **mod_label_scorer_args)
 
             if backend == Backend.TENSORFLOW:
+                assert isinstance(recog_config.config, returnn.ReturnnConfig)
                 tf_graph = self._make_tf_graph(
                     train_job=train_job.job,
                     returnn_config=recog_config.config,
@@ -97,16 +103,33 @@ class Seq2SeqSearchFunctor(
                 )
             elif backend == Backend.PYTORCH:
                 assert isinstance(checkpoint, returnn.PtCheckpoint)
-                onnx_model = self._make_onnx_model(
-                    returnn_config=recog_config.config,
-                    checkpoint=checkpoint,
-                )
-                feature_flow = self._get_onnx_feature_flow_for_label_scorer(
-                    label_scorer=label_scorer,
-                    base_feature_flow=base_feature_flow,
-                    onnx_model=onnx_model,
-                    **model_flow_args,
-                )
+                if isinstance(recog_config.config, returnn.ReturnnConfig):
+                    onnx_model = self._make_onnx_model(
+                        returnn_config=recog_config.config,
+                        checkpoint=checkpoint,
+                    )
+                    feature_flow = self._get_onnx_feature_flow_for_label_scorer(
+                        label_scorer=label_scorer,
+                        base_feature_flow=base_feature_flow,
+                        onnx_model=onnx_model,
+                        **model_flow_args,
+                    )
+                else:
+                    enc_model = self._make_onnx_model(
+                        returnn_config=recog_config.config.encoder_config,
+                        checkpoint=checkpoint,
+                    )
+                    dec_model = self._make_onnx_model(
+                        returnn_config=recog_config.config.decoder_config,
+                        checkpoint=checkpoint,
+                    )
+                    feature_flow = self._get_onnx_feature_flow_for_label_scorer(
+                        label_scorer=label_scorer,
+                        base_feature_flow=base_feature_flow,
+                        enc_onnx_model=enc_model,
+                        dec_onnx_model=dec_model,
+                        **model_flow_args,
+                    )
             else:
                 raise NotImplementedError
 

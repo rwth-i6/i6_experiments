@@ -61,7 +61,7 @@ class LegacyAlignmentFunctor(
             prior_file=prior_file,
         )
 
-        feature_flow = self._make_tf_feature_flow(
+        feature_flow = self._make_precomputed_tf_feature_flow(
             base_feature_flow,
             tf_graph,
             checkpoint,

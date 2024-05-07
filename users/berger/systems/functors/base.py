@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from dataclasses import dataclass
-from typing import Dict, Generic, List
+from typing import Dict, Generic, List, Union
 
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
 
@@ -19,7 +19,7 @@ class RecognitionFunctor(Generic[types.TrainJobType, types.ConfigType]):
         self,
         train_job: dataclasses.NamedTrainJob[types.TrainJobType],
         prior_config: types.ConfigType,
-        recog_config: dataclasses.NamedConfig[types.ConfigType],
+        recog_config: dataclasses.NamedConfig[Union[types.ConfigType, dataclasses.EncDecConfig[types.ConfigType]]],
         recog_corpus: dataclasses.NamedCorpusInfo,
         **kwargs,
     ) -> List[Dict]:
@@ -32,7 +32,7 @@ class AlignmentFunctor(Generic[types.TrainJobType, types.ConfigType]):
         self,
         train_job: dataclasses.NamedTrainJob[types.TrainJobType],
         prior_config: types.ConfigType,
-        align_config: types.ConfigType,
+        align_config: Union[types.ConfigType, dataclasses.EncDecConfig[types.ConfigType]],
         align_corpus: dataclasses.NamedCorpusInfo,
         **kwargs,
     ) -> AlignmentData:

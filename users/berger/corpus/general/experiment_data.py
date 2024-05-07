@@ -39,6 +39,5 @@ class SMSHybridSetupData(BasicSetupData):
 
 
 @dataclass
-class BpeSetupData(BasicSetupData):
-    bpe_lexicon: tk.Path
+class ReturnnSearchSetupData(BasicSetupData):
     forward_data_config: Dict[str, Dict]

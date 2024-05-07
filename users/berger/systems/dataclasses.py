@@ -1,7 +1,7 @@
 import copy
 from enum import Enum, auto
 from dataclasses import dataclass, field
-from typing import Dict, Generic, Optional
+from typing import Dict, Generic, Optional, Union
 from i6_core import rasr, recognition, returnn
 from i6_experiments.users.berger.helpers import RasrDataInput
 from i6_experiments.users.berger.helpers.hdf import build_hdf_from_alignment
@@ -101,11 +101,17 @@ class FeatureType(Enum):
 
 
 @dataclass
+class EncDecConfig(Generic[types.ConfigType]):
+    encoder_config: types.ConfigType
+    decoder_config: types.ConfigType
+
+
+@dataclass
 class ReturnnConfigs(Generic[types.ConfigType]):
     train_config: types.ConfigType
     prior_config: types.ConfigType = None  # type: ignore
-    align_config: types.ConfigType = None  # type: ignore
-    recog_configs: Dict[str, types.ConfigType] = None  # type: ignore
+    align_config: Union[types.ConfigType, EncDecConfig[types.ConfigType]] = None  # type: ignore
+    recog_configs: Dict[str, Union[types.ConfigType, EncDecConfig[types.ConfigType]]] = None  # type: ignore
 
     def __post_init__(self):
         if self.prior_config is None:

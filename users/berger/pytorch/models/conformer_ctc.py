@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import Optional
+from enum import Enum, auto
+from i6_core.returnn.config import CodeWrapper
 from i6_experiments.users.berger.systems.dataclasses import ConfigVariant
 
 import torch
@@ -31,7 +32,7 @@ from ..custom_parts.specaugment import (
 
 @dataclass
 class ConformerCTCConfig(ModelConfiguration):
-    feature_extraction: Optional[ModuleFactoryV1]
+    feature_extraction: ModuleFactoryV1
     specaugment: ModuleFactoryV1
     conformer: ModuleFactoryV1
     dim: int
@@ -40,31 +41,19 @@ class ConformerCTCConfig(ModelConfiguration):
 
 
 class ConformerCTCModel(torch.nn.Module):
-    def __init__(self, step: int, cfg: ConformerCTCConfig, **kwargs):
+    def __init__(self, cfg: ConformerCTCConfig, **_):
         super().__init__()
-        if cfg.feature_extraction is None:
-            self.feature_extraction = None
-        else:
-            self.feature_extraction = cfg.feature_extraction()
+        self.feature_extraction = cfg.feature_extraction()
         self.specaugment = cfg.specaugment()
         self.conformer = cfg.conformer()
         self.dropout = torch.nn.Dropout(cfg.dropout)
         self.final_linear = torch.nn.Linear(cfg.dim, cfg.target_size)
 
-    def forward(
-        self,
-        audio_features: torch.Tensor,
-        audio_features_len: torch.Tensor,
-    ):
+    def forward(self, audio_features: torch.Tensor, audio_features_len: torch.Tensor):
         with torch.no_grad():
-            if self.feature_extraction is None:
-                x = audio_features
-                input_len = audio_features_len
-            else:
-                x, input_len = self.feature_extraction(audio_features, audio_features_len)
-
+            audio_features = audio_features.squeeze(-1)
+            x, input_len = self.feature_extraction(audio_features, audio_features_len)
             sequence_mask = lengths_to_padding_mask(input_len)
-
             x = self.specaugment(x)  # [B, T, F]
 
         x, sequence_mask = self.conformer(x, sequence_mask)  # [B, T, F]
@@ -77,6 +66,7 @@ class ConformerCTCModel(torch.nn.Module):
 
 def get_train_serializer(
     model_config: ConformerCTCConfig,
+    **_,
 ) -> Collection:
     pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
@@ -90,6 +80,7 @@ def get_train_serializer(
 
 def get_prior_serializer(
     model_config: ConformerCTCConfig,
+    **_,
 ) -> Collection:
     pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
@@ -102,8 +93,14 @@ def get_prior_serializer(
     )
 
 
-def get_recog_serializer(
+class RecogType(Enum):
+    RASR = auto()
+    FLASHLIGHT = auto()
+
+
+def get_rasr_recog_serializer(
     model_config: ConformerCTCConfig,
+    **_,
 ) -> Collection:
     pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
@@ -113,19 +110,62 @@ def get_recog_serializer(
     )
 
 
-def get_serializer(model_config: ConformerCTCConfig, variant: ConfigVariant) -> Collection:
+def get_flashlight_recog_serializer(
+    model_config: ConformerCTCConfig,
+    **kwargs,
+) -> Collection:
+    pytorch_package = __package__.rpartition(".")[0]
+
+    # Try to get some values from the returnn config at runtime since they will be set in the systems recognition step
+    kwargs.setdefault("lexicon_file", CodeWrapper("lexicon_file"))
+    kwargs.setdefault("vocab_file", CodeWrapper("vocab_file"))
+    kwargs.setdefault("lm_file", CodeWrapper("lm_file"))
+    kwargs.setdefault("prior_file", CodeWrapper("prior_file"))
+    kwargs.setdefault("prior_scale", CodeWrapper("prior_scale"))
+    kwargs.setdefault("lm_scale", CodeWrapper("lm_scale"))
+
+    return get_basic_pt_network_serializer(
+        module_import_path=f"{__name__}.{ConformerCTCModel.__name__}",
+        model_config=model_config,
+        additional_serializer_objects=[
+            PartialImport(
+                code_object_path=f"{pytorch_package}.forward.ctc.flashlight_ctc_decoder_forward_step",
+                import_as="forward_step",
+                hashed_arguments=kwargs,
+                unhashed_arguments={},
+                unhashed_package_root="",
+            ),
+            Import(f"{pytorch_package}.forward.search_callback.SearchCallback", import_as="forward_callback"),
+        ],
+    )
+
+
+def get_recog_serializer(
+    model_config: ConformerCTCConfig,
+    recog_type: RecogType = RecogType.RASR,
+    **kwargs,
+) -> Collection:
+    if recog_type == RecogType.RASR:
+        return get_rasr_recog_serializer(model_config, **kwargs)
+    if recog_type == RecogType.FLASHLIGHT:
+        return get_flashlight_recog_serializer(model_config, **kwargs)
+    raise NotImplementedError
+
+
+def get_serializer(model_config: ConformerCTCConfig, variant: ConfigVariant, **kwargs) -> Collection:
     if variant == ConfigVariant.TRAIN:
-        return get_train_serializer(model_config)
+        return get_train_serializer(model_config, **kwargs)
     if variant == ConfigVariant.PRIOR:
-        return get_prior_serializer(model_config)
+        return get_prior_serializer(model_config, **kwargs)
     if variant == ConfigVariant.ALIGN:
-        return get_recog_serializer(model_config)
+        return get_recog_serializer(model_config, **kwargs)
     if variant == ConfigVariant.RECOG:
-        return get_recog_serializer(model_config)
+        return get_recog_serializer(model_config, **kwargs)
     raise NotImplementedError
 
 
 def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerCTCConfig:
+    feature_extraction = ModuleFactoryV1(custom_parts.IdentityModule, cfg=custom_parts.IdentityConfig())
     specaugment = ModuleFactoryV1(
         module_class=SpecaugmentModuleV1,
         cfg=SpecaugmentConfigV1(
@@ -193,7 +233,7 @@ def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerCTCConf
     )
 
     return ConformerCTCConfig(
-        feature_extraction=None,
+        feature_extraction=feature_extraction,
         specaugment=specaugment,
         conformer=ModuleFactoryV1(module_class=conformer_i6.ConformerEncoderV1, cfg=conformer_cfg),
         dim=512,
@@ -203,6 +243,7 @@ def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerCTCConf
 
 
 def get_default_config_v2(num_inputs: int, num_outputs: int) -> ConformerCTCConfig:
+    feature_extraction = ModuleFactoryV1(custom_parts.IdentityModule, cfg=custom_parts.IdentityConfig())
     specaugment = ModuleFactoryV1(
         module_class=SpecaugmentByLengthModuleV1,
         cfg=SpecaugmentByLengthConfigV1(
@@ -262,7 +303,7 @@ def get_default_config_v2(num_inputs: int, num_outputs: int) -> ConformerCTCConf
     )
 
     return ConformerCTCConfig(
-        feature_extraction=None,
+        feature_extraction=feature_extraction,
         specaugment=specaugment,
         conformer=ModuleFactoryV1(conformer_i6.ConformerEncoderV1, cfg=conformer_cfg),
         dim=384,
@@ -283,6 +324,7 @@ def get_default_config_v3(num_outputs: int) -> ConformerCTCConfig:
             min_amp=1e-10,
             num_filters=80,
             center=False,
+            n_fft=400,
         ),
     )
     specaugment = ModuleFactoryV1(

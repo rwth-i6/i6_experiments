@@ -16,7 +16,7 @@ class ReturnnNativeSystem(BaseSystem[returnn.ReturnnTrainingJob, returnn.Returnn
         assert self._tool_paths.returnn_python_exe is not None
         train_functor = functors.ReturnnTrainFunctor(self._tool_paths.returnn_root, self._tool_paths.returnn_python_exe)
 
-        recog_functor = functors.ReturnnBpeSearchFunctor(
+        recog_functor = functors.ReturnnSearchFunctor(
             self._tool_paths.returnn_root,
             self._tool_paths.returnn_python_exe,
         )

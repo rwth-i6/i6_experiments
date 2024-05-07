@@ -4,11 +4,13 @@ from typing import List, Optional, Tuple
 import torch
 from torchaudio.models.rnnt import RNNT
 
+from i6_core.returnn.config import CodeWrapper
 from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
 from i6_experiments.common.setups.serialization import Import, PartialImport
 from i6_experiments.users.berger.pytorch.serializers.basic import (
     get_basic_pt_network_serializer,
 )
+from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
 from i6_models.config import ModelConfiguration, ModuleFactoryV1
 
 from ..custom_parts.specaugment import (
@@ -19,6 +21,7 @@ from ..custom_parts.specaugment import (
 
 @dataclass
 class TorchaudioConformerTransducerConfigV1(ModelConfiguration):
+    feature_extraction: ModuleFactoryV1
     specaugment: ModuleFactoryV1
     input_dim: int
     encoding_dim: int
@@ -40,7 +43,7 @@ class TorchaudioConformerTransducerConfigV1(ModelConfiguration):
 
 
 class TorchaudioConformerTransducerV1(RNNT):
-    def __init__(self, step: int, cfg: TorchaudioConformerTransducerConfigV1, **_) -> None:
+    def __init__(self, cfg: TorchaudioConformerTransducerConfigV1, **_) -> None:
         from torchaudio.prototype.models.rnnt import _ConformerEncoder, _Predictor, _Joiner
 
         class Joiner(_Joiner):
@@ -86,10 +89,36 @@ class TorchaudioConformerTransducerV1(RNNT):
         super().__init__(encoder, predictor, joiner)
 
         self.specaug = cfg.specaugment()
+        self.feature_extraction = cfg.feature_extraction()
 
-    def forward(self, sources: torch.Tensor, *args, **kwargs):
-        sources = self.specaug(sources)
-        return super().forward(sources, *args, **kwargs)
+    def transcribe(self, sources: torch.Tensor, source_lengths: torch.Tensor, *args, **kwargs):
+        with torch.no_grad():
+            sources = sources.squeeze(-1)
+            features, feature_lengths = self.feature_extraction(sources, source_lengths)
+            features = self.specaug(features)
+        return super().transcribe(sources=features, source_lengths=feature_lengths, *args, **kwargs)
+
+    def forward(
+        self,
+        sources: torch.Tensor,
+        source_lengths: torch.Tensor,
+        targets: torch.Tensor,
+        target_lengths: torch.Tensor,
+        *args,
+        **kwargs,
+    ):
+        with torch.no_grad():
+            sources = sources.squeeze(-1)
+            features, feature_lengths = self.feature_extraction(sources, source_lengths)
+            features = self.specaug(features)
+        return super().forward(
+            sources=features,
+            source_lengths=feature_lengths,
+            targets=targets,
+            target_lengths=target_lengths,
+            *args,
+            **kwargs,
+        )
 
 
 def get_train_serializer(model_config: TorchaudioConformerTransducerConfigV1, **kwargs) -> Collection:
@@ -144,6 +173,7 @@ def get_pruned_k2_train_serializer(model_config: TorchaudioConformerTransducerCo
 
 def get_beam_search_serializer(model_config: TorchaudioConformerTransducerConfigV1, **kwargs) -> Collection:
     pytorch_package = __package__.rpartition(".")[0]
+    kwargs.setdefault("lexicon_file", CodeWrapper("lexicon_file"))
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{TorchaudioConformerTransducerV1.__name__}",
         model_config=model_config,
@@ -163,6 +193,21 @@ def get_beam_search_serializer(model_config: TorchaudioConformerTransducerConfig
 def get_torchaudio_default_config_v1(num_inputs: int, num_outputs: int) -> TorchaudioConformerTransducerConfigV1:
     # source: https://pytorch.org/audio/main/_modules/torchaudio/prototype/models/rnnt.html#conformer_rnnt_base
 
+    feature_extraction = ModuleFactoryV1(
+        module_class=LogMelFeatureExtractionV1,
+        cfg=LogMelFeatureExtractionV1Config(
+            sample_rate=16000,
+            win_size=0.025,
+            hop_size=0.01,
+            f_min=60,
+            f_max=7600,
+            min_amp=1e-10,
+            num_filters=80,
+            center=False,
+            n_fft=400,
+        ),
+    )
+
     specaugment = ModuleFactoryV1(
         module_class=SpecaugmentModuleV1,
         cfg=SpecaugmentConfigV1(
@@ -176,6 +221,7 @@ def get_torchaudio_default_config_v1(num_inputs: int, num_outputs: int) -> Torch
     )
 
     return TorchaudioConformerTransducerConfigV1(
+        feature_extraction=feature_extraction,
         specaugment=specaugment,
         input_dim=num_inputs,
         encoding_dim=num_outputs,
@@ -200,6 +246,21 @@ def get_torchaudio_default_config_v1(num_inputs: int, num_outputs: int) -> Torch
 def get_i6_default_config_v1(num_inputs: int, num_outputs: int) -> TorchaudioConformerTransducerConfigV1:
     # source: https://pytorch.org/audio/main/_modules/torchaudio/prototype/models/rnnt.html#conformer_rnnt_base
 
+    feature_extraction = ModuleFactoryV1(
+        module_class=LogMelFeatureExtractionV1,
+        cfg=LogMelFeatureExtractionV1Config(
+            sample_rate=16000,
+            win_size=0.025,
+            hop_size=0.01,
+            f_min=60,
+            f_max=7600,
+            min_amp=1e-10,
+            num_filters=80,
+            center=False,
+            n_fft=400,
+        ),
+    )
+
     specaugment = ModuleFactoryV1(
         module_class=SpecaugmentModuleV1,
         cfg=SpecaugmentConfigV1(
@@ -213,6 +274,7 @@ def get_i6_default_config_v1(num_inputs: int, num_outputs: int) -> TorchaudioCon
     )
 
     return TorchaudioConformerTransducerConfigV1(
+        feature_extraction=feature_extraction,
         specaugment=specaugment,
         input_dim=num_inputs,
         encoding_dim=num_outputs,

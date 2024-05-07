@@ -1,6 +1,5 @@
 import copy
 import os
-from i6_core.returnn import CodeWrapper
 from i6_core.returnn.config import ReturnnConfig
 
 from sisyphus import gs, tk
@@ -13,8 +12,8 @@ from i6_experiments.users.berger.corpus.tedlium2.ctc_data import get_tedlium2_da
 from i6_experiments.users.berger.pytorch.models import conformer_ctc
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.dataclasses import ConfigVariant, FeatureType, ReturnnConfigs
-from i6_experiments.users.berger.systems.returnn_native_system import (
-    ReturnnNativeSystem,
+from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
+    ReturnnSeq2SeqSystem,
 )
 from i6_experiments.users.berger.util import default_tools_v2
 
@@ -23,15 +22,18 @@ from i6_experiments.users.berger.util import default_tools_v2
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 num_outputs = 79
-num_subepochs = 250
+# num_subepochs = 250
+num_subepochs = 1
 
 tools = copy.deepcopy(default_tools_v2)
+tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard")
+
 
 # ********** Return Config generators **********
 
 
 def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, dev_data_config: dict) -> ReturnnConfig:
-    model_config = conformer_ctc.get_default_config_v3(num_outputs=num_outputs)
+    model_config = conformer_ctc.get_default_config_v2(num_inputs=50, num_outputs=num_outputs)
 
     extra_config = {
         "train": train_data_config,
@@ -44,9 +46,18 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
             }
         }
 
+    extra_config["preload_from_files"] = {
+        "base": {
+            "init_for_train": True,
+            "filename": tk.Path(
+                "/work/asr4/berger/sisyphus_work_dirs/tedlium2/20230602_rescale_baselines/i6_core/returnn/training/ReturnnTrainingJob.yEnOhxiP8CgO/output/models/epoch.250.pt"
+            ),
+        }
+    }
+
     return get_returnn_config(
         num_epochs=num_subepochs,
-        num_inputs=1,
+        num_inputs=50,
         num_outputs=num_outputs,
         target="classes",
         extra_python=[conformer_ctc.get_serializer(model_config, variant=variant)],
@@ -57,11 +68,12 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
         optimizer=Optimizers.AdamW,
         schedule=LearningRateSchedules.OCLR,
         max_seqs=60,
-        initial_lr=7e-06,
-        peak_lr=7e-04,
-        decayed_lr=7e-05,
-        final_lr=1e-08,
-        batch_size=360 * 16000,
+        # initial_lr=2.2e-05,
+        # peak_lr=2.2e-04,
+        peak_lr=0.0,
+        # final_lr=1e-08,
+        batch_size=12000,
+        accum_grad=3,
         use_chunking=False,
         extra_config=extra_config,
     )
@@ -89,23 +101,28 @@ def run_exp() -> SummaryReport:
         returnn_python_exe=tools.returnn_python_exe,
         rasr_binary_path=tools.rasr_binary_path,
         augmented_lexicon=True,
-        feature_type=FeatureType.SAMPLES,
+        feature_type=FeatureType.GAMMATONE_16K,
     )
 
     # ********** Step args **********
 
-    train_args = exp_args.get_ctc_train_step_args(num_epochs=num_subepochs, gpu_mem_rqmt=24)
+    train_args = exp_args.get_ctc_train_step_args(num_epochs=num_subepochs)
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
-        epochs=[num_subepochs],
+        # epochs=[160, num_subepochs],
+        epochs=[1],
         prior_scales=[0.5],
         lm_scales=[1.1],
-        feature_type=FeatureType.SAMPLES,
+        feature_type=FeatureType.GAMMATONE_16K,
     )
 
     # ********** System **********
 
-    system = ReturnnNativeSystem(tools)
+    # tools.returnn_root = tk.Path("/u/berger/repositories/MiniReturnn")
+    # tools.rasr_binary_path = tk.Path(
+    #     "/u/berger/repositories/rasr_versions/gen_seq2seq_onnx_apptainer/arch/linux-x86_64-standard"
+    # )
+    system = ReturnnSeq2SeqSystem(tools)
 
     system.init_corpora(
         dev_keys=data.dev_keys,

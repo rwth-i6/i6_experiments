@@ -1,20 +1,9 @@
 import torch
 from returnn.tensor.tensor_dict import TensorDict
+from ..helper_functions import map_tensor_to_minus1_plus1_interval
 
 
-def map_tensor_to_minus1_plus1_interval(tensor: torch.Tensor) -> torch.Tensor:
-    if torch.is_floating_point(tensor):
-        return tensor
-
-    dtype = tensor.dtype
-    info = torch.iinfo(dtype)
-    min_val = info.min
-    max_val = info.max
-
-    return 2.0 * (tensor.float() - min_val) / (max_val - min_val) - 1.0
-
-
-def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
+def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **_):
     audio_features = extern_data["data"].raw_tensor
     audio_features = audio_features.squeeze(-1)
     audio_features = map_tensor_to_minus1_plus1_interval(audio_features)
@@ -30,8 +19,6 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     assert targets_len_rf is not None
     targets_len = targets_len_rf.raw_tensor
     assert targets_len is not None
-
-    model.train()
 
     log_probs, sequence_lengths = model(
         audio_features=audio_features,

@@ -28,11 +28,11 @@ class ComputePriorCallback(ForwardCallbackIface):
         log_prob_strings = ["%.20e" % s for s in log_prob_array]
 
         # Write txt file
-        with open("../output/prior.txt", "wt") as f:
+        with open("prior.txt", "wt") as f:
             f.write(" ".join(log_prob_strings))
 
         # Write xml file
-        with open("../output/prior.xml", "wt") as f:
+        with open("prior.xml", "wt") as f:
             f.write(f'<?xml version="1.0" encoding="UTF-8"?>\n<vector-f32 size="{len(log_prob_array)}">\n')
             f.write(" ".join(log_prob_strings))
             f.write("\n</vector-f32>")
@@ -48,4 +48,4 @@ class ComputePriorCallback(ForwardCallbackIface):
         plt.xlabel("emission idx")
         plt.ylabel("prior")
         plt.grid(True)
-        plt.savefig("../output/prior.png")
+        plt.savefig("prior.png")

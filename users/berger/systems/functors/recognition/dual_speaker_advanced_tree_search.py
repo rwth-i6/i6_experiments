@@ -107,7 +107,7 @@ class DualSpeakerAdvancedTreeSearchFunctor(
                 model_combination_config = rasr.RasrConfig()
                 model_combination_config.pronunciation_scale = pronunciation_scale
 
-                feature_flow = self._make_tf_feature_flow(
+                feature_flow = self._make_precomputed_tf_feature_flow(
                     base_feature_flow,
                     tf_graph,
                     checkpoint,

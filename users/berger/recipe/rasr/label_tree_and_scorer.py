@@ -116,10 +116,6 @@ class LabelScorer:
         if post_config is not None:
             post_config[path]._update(self.post_config)
 
-    @classmethod
-    def need_tf_flow(cls, scorer_type: str):
-        return scorer_type == "precomputed-log-posterior"
-
     def set_loader_config(self, loader_config: rasr.RasrConfig):
         self.config.loader = loader_config
 

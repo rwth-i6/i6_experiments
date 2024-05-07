@@ -34,7 +34,6 @@ class AddBoundaryMarkerToLexiconJob(Job):
         return phon
 
     def run(self):
-
         in_lexicon = Lexicon()
         in_lexicon.load(self.bliss_lexicon.get_path())
 
@@ -187,7 +186,7 @@ class EnsureUnknownPronunciationOrthJob(Job):
 class MakeBlankLexiconJob(Job):
     """
     Modified a bliss lexicon to make it compatible for RASR CTC graph building.
-    Adds a <blank> phoneme and lemma. If <separate_silence> is false, additionally
+    Adds a <blank> phoneme and lemma. If `separate_silence` is false, additionally
     remove empty orth from silence lemma, remove silence phone and replace all instances of
     the silence phone in lemmata with blank.
     """
@@ -226,13 +225,7 @@ class MakeBlankLexiconJob(Job):
                     assert len(lemma.phon) == 1, "Silence lemma does not have only one phoneme"
 
                     # Remove empty orth from silence lemma
-                    orths = []
-                    for orth in lemma.orth:
-                        if orth == "":
-                            continue
-                        orths.append(orth)
-                    lemma.orth = orths
-
+                    lemma.orth = [orth for orth in lemma.orth if orth != ""]
                     lemma.phon = [phon.replace(silence_phon, blank_phon) for phon in lemma.phon]
 
                     break

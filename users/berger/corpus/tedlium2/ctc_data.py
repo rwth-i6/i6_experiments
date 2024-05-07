@@ -8,14 +8,15 @@ from i6_experiments.users.berger.args.jobs.rasr_init_args import (
 )
 from i6_experiments.users.berger.corpus.general.experiment_data import (
     CTCSetupData,
-    PytorchCTCSetupData,
+    ReturnnSearchSetupData,
 )
 from i6_experiments.users.berger.helpers.hdf import build_rasr_feature_hdfs
 from i6_experiments.users.berger.systems.dataclasses import FeatureType
 from sisyphus import tk
+from i6_experiments.users.berger.corpus.general.hdf import build_feature_hdf_dataset_config
 
 from . import data
-from ..general import CTCSetupData, build_feature_label_meta_dataset_config
+from ..general import build_feature_label_meta_dataset_config
 
 
 def get_tedlium2_data_dumped_labels(
@@ -31,7 +32,7 @@ def get_tedlium2_data_dumped_labels(
     add_unknown: bool = False,
     augmented_lexicon: bool = True,
     feature_type: FeatureType = FeatureType.GAMMATONE_16K,
-) -> PytorchCTCSetupData:
+) -> ReturnnSearchSetupData:
     if cv_keys is None:
         cv_keys = ["dev"]
     if dev_keys is None:
@@ -88,6 +89,25 @@ def get_tedlium2_data_dumped_labels(
         },
     )
 
+    # ********** forward data **********
+
+    forward_data_config = {
+        key: build_feature_hdf_dataset_config(
+            data_inputs=[data_input],
+            feature_type=feature_type,
+            returnn_root=returnn_root,
+            returnn_python_exe=returnn_python_exe,
+            rasr_binary_path=rasr_binary_path,
+            rasr_arch=rasr_arch,
+            single_hdf=True,
+            extra_config={
+                "partition_epoch": 1,
+                "seq_ordering": "sorted",
+            },
+        )
+        for key, data_input in {**dev_data_inputs, **test_data_inputs}.items()
+    }
+
     # ********** Recog lexicon **********
 
     for rasr_input in {**dev_data_inputs, **test_data_inputs}.values():
@@ -101,13 +121,14 @@ def get_tedlium2_data_dumped_labels(
     for data_input in align_data_inputs.values():
         data_input.lexicon.filename = eow_lexicon
 
-    return PytorchCTCSetupData(
+    return ReturnnSearchSetupData(
         train_key=train_key,
         dev_keys=list(dev_data_inputs.keys()),
         test_keys=list(test_data_inputs.keys()),
         align_keys=[f"{train_key}_align", *[f"{key}_align" for key in cv_keys]],
         train_data_config=train_data_config,
         cv_data_config=cv_data_config,
+        forward_data_config=forward_data_config,
         data_inputs={
             **train_data_inputs,
             **dev_data_inputs,
