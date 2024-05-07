@@ -98,11 +98,10 @@ def get_sctk_binary_path() -> tk.Path:
     return tk.Path(sctk_path, hash_overwrite=hash_overwrite)
 
 
-def get_returnn_python_exe() -> tk.Path:
+def get_returnn_python_exe(*, hash_overwrite: str = "DEFAULT_RETURNN_PYTHON_EXE") -> tk.Path:
     """
     RETURNN Python executable
     """
-    hash_overwrite = "DEFAULT_RETURNN_PYTHON_EXE"
     path = getattr(gs, "RETURNN_PYTHON_EXE", None)
     if path is None:
         path = sys.executable
