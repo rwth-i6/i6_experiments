@@ -1,16 +1,20 @@
 from dataclasses import dataclass
 from typing import Optional
-
-
 import torch
-from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
-from i6_experiments.common.setups.serialization import Import
 
+
+from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
+
+
+from i6_experiments.users.raissi.torch.costum_parts.specaugment import SpecaugmentByLengthModuleV1
 from i6_experiments.users.raissi.torch.serializers import (
     SerialConfigVariant,
     get_basic_pt_network_serializer,
 )
-from i6_experiments.users.raissi.torch.costum_parts.specaugment import SpecaugmentByLengthModuleV1
+from i6_experiments.users.raissi.torch.dataclasses.train import (
+    ConformerFactoredHybridConfig,
+    MultiTaskConfig
+)
 
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
 from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config
@@ -25,17 +29,27 @@ from i6_models.config import ModelConfiguration, ModuleFactoryV1
 from .util import lengths_to_padding_mask
 
 
-
-
-
-
-class ConformerMonophoneModel(torch.nn.Module):
-    def __init__(self, step: int, cfg: ConformerHybridConfig, **kwargs):
+class ConformerBaseFactoredHybridModel(torch.nn.Module):
+    def __init__(self, step: int, cfg: ConformerFactoredHybridConfig, **kwargs):
         super().__init__()
         self.specaugment = SpecaugmentModuleV1(step=step, cfg=cfg.specaugment_cfg)
         self.conformer = ConformerEncoderV1(cfg.conformer_cfg)
-        self.final_linear = torch.nn.Linear(cfg.conformer_cfg.block_cfg.ff_cfg.input_dim, cfg.target_size)
-        self.multi_task_config = kwargs.pop("multi_task_config", None)
+        self.multi_task_config: MultiTaskConfig = kwargs.pop("multi_task_config", None)
+
+
+
+class ConformerMonophoneModel(ConformerBaseFactoredHybridModel):
+
+    def __init__(self, step: int, cfg: ConformerFactoredHybridConfig, **kwargs):
+        super().__init__(step=step, cfg=cfg)
+        self.final_linear_center = torch.nn.Linear(cfg.conformer_cfg.block_cfg.ff_cfg.input_dim, cfg.label_info.get_n_state_classes())
+        if self.multi_task_config is not None:
+            raise NotImplementedError("multi-tasking still not supported")
+            self.final_linear_left = torch.nn.Linear(cfg.conformer_cfg.block_cfg.ff_cfg.input_dim,
+                                                       cfg.label_info.n_contexts)
+            self.final_linear_right = torch.nn.Linear(cfg.conformer_cfg.block_cfg.ff_cfg.input_dim,
+                                                       cfg.label_info.n_contexts)
+
 
     def forward(
         self,
@@ -45,15 +59,23 @@ class ConformerMonophoneModel(torch.nn.Module):
         x = self.specaugment(audio_features)  # [B, T, F]
         sequence_mask = lengths_to_padding_mask(audio_features_len)
         x, sequence_mask = self.conformer(x, sequence_mask)  # [B, T, F]
-        logits = self.final_linear(x)  # [B, T, F]
 
-        log_probs = torch.log_softmax(logits, dim=2)  # [B, T, F]
+        logits_center = self.final_linear_center(x)  # [B, T, F]
+        if self.multi_task_config is None:
+            log_probs = torch.log_softmax(logits_center, dim=2)  # [B, T, F]
+            return log_probs, torch.sum(sequence_mask, dim=1).type(torch.int32)
 
-        return log_probs, torch.sum(sequence_mask, dim=1).type(torch.int32)
+        else:
+            #toDo
+            logits_left = self.final_linear_left(x)
+            logits_right = self.final_linear_right(x)
+
+
+
 
 
 def get_train_serializer(
-    model_config: ConformerHybridConfig,
+    model_config: ConformerFactoredHybridConfig,
 ) -> Collection:
     pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
@@ -66,7 +88,7 @@ def get_train_serializer(
 
 
 def get_prior_serializer(
-    model_config: ConformerHybridConfig,
+    model_config: ConformerFactoredHybridConfig,
 ) -> Collection:
     pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
@@ -80,7 +102,7 @@ def get_prior_serializer(
 
 
 def get_recog_serializer(
-    model_config: ConformerHybridConfig,
+    model_config: ConformerFactoredHybridConfig,
 ) -> Collection:
     pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
@@ -92,7 +114,7 @@ def get_recog_serializer(
     )
 
 
-def get_serializer(model_config: ConformerHybridConfig, variant: SerialConfigVariant) -> Collection:
+def get_serializer(model_config: ConformerFactoredHybridConfig, variant: SerialConfigVariant) -> Collection:
     if variant == SerialConfigVariant.TRAIN:
         return get_train_serializer(model_config)
     if variant == SerialConfigVariant.PRIOR:
@@ -104,7 +126,7 @@ def get_serializer(model_config: ConformerHybridConfig, variant: SerialConfigVar
     raise NotImplementedError
 
 
-def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerHybridConfig:
+def get_default_config_v1(num_inputs: int, label_info: LabelInfo) -> ConformerMonophoneModel:
     specaugment_cfg = specaugment.SpecaugmentConfigV1(
         time_min_num_masks=1,
         time_max_num_masks=20,
@@ -168,8 +190,8 @@ def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerHybridC
         block_cfg=block_cfg,
     )
 
-    return ConformerHybridConfig(
+    return ConformerFactoredHybridConfig(
         specaugment_cfg=specaugment_cfg,
         conformer_cfg=conformer_cfg,
-        target_size=num_outputs,
+        label_info=label_info,
     )
