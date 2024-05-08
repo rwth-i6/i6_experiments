@@ -1154,9 +1154,9 @@ def conformer_baseline():
     # gpu4_paramSync_step100_accum1_gradClipNorm20                      13.8       12.3     14.5  avg
     # gpu4_paramSync_step100_accum1_gradClipNorm5                       14.0       12.1     14.6  avg
     for ep in [100 * 6]:
-        for num_blocks, reduce_factor in [(12, 1.0)]:
+        for num_blocks, reduce_factor in [(8, 1.0)]:
             for sync_step in [50]:
-                for gradient_clip_global_norm in [1, 5]:
+                for gradient_clip_global_norm in [1]:
                     for lr_opts in [{"lr": 2e-3}]:
                         # regularizations
                         hyper_params_v1 = {
@@ -1188,7 +1188,7 @@ def conformer_baseline():
                         }
 
                         args["accum_grad"] = 1
-                        args["batch_size"] = 12_000 * 80
+                        args["batch_size"] = 15_000 * 80
 
                         exp_name = name + f"_embed256_specaug1_gpu4_paramSync_step{sync_step}_accum1"
                         if gradient_clip_global_norm:
@@ -1203,3 +1203,12 @@ def conformer_baseline():
                             bpe_size=BPE_500,
                             horovod_num_processes=4,
                         )
+
+    # conf_8l_dimF1.0_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_epocOCLR-0.0001-0.001_embed256_specaug1
+    # 12.4       11.1     13    avg
+
+    # conf_8l_dimF1.0_bpe500_drop0.2_selfAttDrop0.2_decDrop0.2_embedDrop0.1_wd0.1_ep900_epocOCLR-0.0001-0.001_embedDim256_mixup-3-0.3-nopre_specaug3
+    # 11.6       10.4     12.1  best
+
+    # conf_12l_dimF0.75_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.1_ep600_epocOCLR-0.0001-0.001_embedDim256
+    # 11.6       10.5     12.4  avg

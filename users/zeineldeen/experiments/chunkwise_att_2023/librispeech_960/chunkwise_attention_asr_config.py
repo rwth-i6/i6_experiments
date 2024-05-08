@@ -1084,6 +1084,7 @@ def create_config(
         # change inputs
         exp_config["network"]["output"]["unit"]["s_wo_att"]["from"] = "prev:target_embed"  # remove prev:att
         exp_config["network"]["output"]["unit"]["s_transformed"]["from"] = "s_wo_att"
+        assert exp_config["network"]["output"]["unit"]["readout_in"]["from"][0] == "s"
         exp_config["network"]["output"]["unit"]["readout_in"]["from"][0] = "s_wo_att"
     elif use_curr_enc_for_dec_state:
         assert chunk_size == 1
