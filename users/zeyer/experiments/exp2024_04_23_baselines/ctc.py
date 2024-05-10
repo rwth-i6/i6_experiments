@@ -434,6 +434,16 @@ class Model(rf.Module):
         self.enc_logits = rf.Linear(self.encoder.out_dim, wb_target_dim)
         self.wb_target_dim = wb_target_dim
 
+        if target_dim.vocab and not wb_target_dim.vocab:
+            from returnn.datasets.util.vocabulary import Vocabulary
+
+            # Just assumption for code now, might extend this later.
+            assert wb_target_dim.dimension == target_dim.dimension + 1 and blank_idx == target_dim.dimension
+            vocab_labels = list(target_dim.vocab.labels) + [model_recog.output_blank_label]
+            wb_target_dim.vocab = Vocabulary.create_vocab_from_labels(
+                vocab_labels, user_defined_symbols={model_recog.output_blank_label: blank_idx}
+            )
+
         self._specaugment_opts = {
             "steps": config.typed_value("specaugment_steps") or (0, 1000, 2000),
             "max_consecutive_spatial_dims": config.typed_value("specaugment_max_consecutive_spatial_dims") or 20,
