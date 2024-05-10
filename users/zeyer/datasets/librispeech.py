@@ -194,6 +194,7 @@ class LibrispeechOggZip(DatasetConfig):
         audio: Optional[Dict[str, Any]] = None,
         audio_dim: Optional[int] = None,
         vocab: Optional[VocabConfig] = None,
+        train_vocab: Optional[VocabConfig] = None,
         with_eos_postfix: bool = False,
         main_key: Optional[str] = None,
         train_epoch_split: int = default_train_epoch_split,
@@ -211,6 +212,7 @@ class LibrispeechOggZip(DatasetConfig):
         self.audio = audio
         self.audio_dim = audio_dim
         self.vocab = vocab
+        self.train_vocab = train_vocab
         self.with_eos_postfix = with_eos_postfix
         self.main_key = main_key
         self.train_epoch_split = train_epoch_split
@@ -229,6 +231,23 @@ class LibrispeechOggZip(DatasetConfig):
         self.train_audio_random_permute = train_audio_random_permute
         self.train_epoch_wise_filter = train_epoch_wise_filter
         self.eval_subset = eval_subset
+
+    def _sis_hash(self) -> bytes:
+        import hashlib
+        from sisyphus.hash import sis_hash_helper
+
+        # Keep consistent to the hash of the old LibrispeechOggZip via sis_hash_helper.
+        state = self.__dict__.copy()
+        if not self.train_vocab:
+            state.pop("train_vocab")  # backward compat
+        byte_list = [b"LibrispeechOggZip", sis_hash_helper(state)]
+
+        # Same as sis_hash_helper.
+        byte_str = b"(" + b", ".join(byte_list) + b")"
+        if len(byte_str) > 4096:
+            return hashlib.sha256(byte_str).digest()
+        else:
+            return byte_str
 
     def get_extern_data(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -284,11 +303,12 @@ class LibrispeechOggZip(DatasetConfig):
         if self.audio is not None:
             d["audio"] = self.audio.copy()
         if self.vocab is not None:
-            d["targets"] = self.vocab.get_opts().copy()
+            vocab = self.train_vocab if training and self.train_vocab else self.vocab
+            d["targets"] = vocab.get_opts().copy()
             assert "seq_postfix" not in d["targets"], d  # we are handling this here
             if self.with_eos_postfix:
-                eos_id = self.vocab.get_eos_idx()
-                assert eos_id is not None, f"{self}: vocab {self.vocab} does not define EOS"
+                eos_id = vocab.get_eos_idx()
+                assert eos_id is not None, f"{self}: vocab {vocab} does not define EOS"
                 d["targets"]["seq_postfix"] = [eos_id]
         if training:
             d["partition_epoch"] = self.train_epoch_split
@@ -503,7 +523,8 @@ def get_librispeech_task_raw_v2(
     dataset_cls: Union[
         type[LibrispeechOggZip], type[LibrispeechOldFlacTarZip], type[DatasetConfig]
     ] = LibrispeechOggZip,
-    vocab: VocabConfig,
+    vocab: Union[VocabConfig, str],
+    train_vocab_opts: Optional[Dict[str, Any]] = None,
     audio_opts: Optional[Dict[str, Any]] = None,
     audio_dim: int = 1,
     **dataset_train_opts,
@@ -533,6 +554,8 @@ def get_librispeech_task_raw_v2(
     if audio_opts:
         audio_opts_.update(audio_opts)
     dataset_common_opts = dict(audio=audio_opts_, audio_dim=audio_dim, vocab=vocab)
+    if train_vocab_opts:
+        dataset_common_opts["train_vocab"] = vocab.copy(**train_vocab_opts)
     # We expect that all kwargs are only relevant for the training, thus we only pass them here.
     train_dataset = dataset_cls(**dataset_common_opts, **dataset_train_opts)
     eval_datasets = {
