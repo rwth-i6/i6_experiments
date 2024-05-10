@@ -76,12 +76,13 @@ def train_exp(
     """
     from i6_experiments.users.zeyer.train_v3 import train
     from i6_experiments.users.zeyer.recog import recog_training_exp
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
 
     if _sis_prefix is None:
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
-    task = _get_ls_task(vocab=vocab)
+    task = get_librispeech_task_raw_v2(vocab=vocab)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     if "__num_epochs" in config:
@@ -129,28 +130,6 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
         prefix_name = get_setup_prefix_for_module(__name__)
     global _sis_prefix
     _sis_prefix = prefix_name
-
-
-_ls_task = {}  # vocab -> task
-
-
-def _get_ls_task(*, vocab: str = "bpe10k") -> Task:
-    global _ls_task
-    if vocab in _ls_task:
-        return _ls_task[vocab]
-
-    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2, bpe10k, spm_10k
-
-    # Check via ``sis c ...`` and then ``tk.print_graph()``.
-    # The problem is we don't want:
-    # - CorpusToStmJob
-    # - BlissChangeEncodingJob (changing flac to ogg)
-    # - SearchWordsToCTMJob
-    # - CorpusToTxtJob
-    # That's why we use v2.
-    vocab_ = {"bpe10k": bpe10k, "spm10k": spm_10k}[vocab]
-    _ls_task[vocab] = get_librispeech_task_raw_v2(vocab=vocab_)
-    return _ls_task[vocab]
 
 
 def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
