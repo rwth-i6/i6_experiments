@@ -15,6 +15,7 @@ from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabCo
 from i6_experiments.common.datasets import librispeech
 from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 from i6_experiments.users.zeyer import tools_paths
+from i6_experiments.users.zeyer.utils.basic import make_hashable
 from i6_experiments.users.zeyer.speed_pert.librosa_09_10_11_kaiser_fast import (
     speed_pert_librosa_09_10_11_kaiser_fast as _default_train_audio_preprocess,
 )
@@ -60,7 +61,7 @@ _spm10k_train_job = TrainSentencePieceJob(
         "eos_id": 0,  # default is 2
     },
 )
-spm_10k = SentencePieceModel(
+spm10k = SentencePieceModel(
     dim=10_240,
     model_file=_spm10k_train_job.out_model,
     unknown_label="<unk>",
@@ -494,6 +495,9 @@ def get_librispeech_task_bpe10k_raw(**dataset_train_opts) -> Task:
     return get_librispeech_task_raw(vocab=bpe10k, **dataset_train_opts)
 
 
+_librispeech_task_raw_v2_cache = {}
+
+
 def get_librispeech_task_raw_v2(
     *,
     dataset_cls: Union[
@@ -511,6 +515,13 @@ def get_librispeech_task_raw_v2(
     Use _bpe_to_words_v2 and _score_recog_out_v2 which does not use the Bliss corpus anymore directly,
     so it is easier to copy this setup to a new environment.
     """
+    if isinstance(vocab, str):
+        vocab = {"bpe10k": bpe10k, "spm10k": spm10k}[vocab]
+
+    cache_key = make_hashable((dataset_cls, vocab, train_vocab_opts, audio_opts, audio_dim, dataset_train_opts))
+    if cache_key in _librispeech_task_raw_v2_cache:
+        return _librispeech_task_raw_v2_cache[cache_key]
+
     if isinstance(vocab, Bpe):
         vocab_to_words = _bpe_to_words_v2
     elif isinstance(vocab, SentencePieceModel):
@@ -532,7 +543,7 @@ def get_librispeech_task_raw_v2(
     }
     dev_dataset = eval_datasets["dev-other"]
 
-    return Task(
+    task = Task(
         name="librispeech",
         train_dataset=train_dataset,
         train_epoch_split=train_dataset.train_epoch_split,
@@ -543,6 +554,8 @@ def get_librispeech_task_raw_v2(
         score_recog_output_func=_score_recog_out_v2,
         recog_post_proc_funcs=[vocab_to_words],
     )
+    _librispeech_task_raw_v2_cache[cache_key] = task
+    return task
 
 
 def get_librispeech_task_bpe10k_raw_v2(**dataset_train_opts) -> Task:
@@ -621,3 +634,47 @@ def _score_recog_out_v2(dataset: DatasetConfig, recog_output: RecogOutput) -> Sc
     )
 
     return ScoreResult(dataset_name=corpus_name, main_measure_value=score_job.out_wer, report=score_job.out_report_dir)
+
+
+def tests():
+    from sisyphus.hash import sis_hash_helper
+
+    task = get_librispeech_task_raw_v2(vocab="bpe10k")
+    model = ...  # dummies, not relevant here
+    recog_def = ...
+
+    from i6_experiments.users.zeyer.recog import _RecogAndScoreFunc
+
+    # This is used in GetBestRecogTrainExp. Make sure the hash is stable.
+    recog_and_score_func = _RecogAndScoreFunc(
+        prefix_name="test_recog_and_score_func",  # should not matter
+        task=task,
+        model=model,
+        recog_def=recog_def,
+    )
+    h1 = sis_hash_helper(recog_and_score_func)
+    assert (
+        h1 == b"(dict, (tuple, (str, 'class'), (str, '_RecogAndScoreFunc')), (tuple, (str, 'model'),"
+        b" (ellipsis, (NoneType))), (tuple, (str, 'recog_def'), (ellipsis, (NoneType))),"
+        b" (tuple, (str, 'task.train_dataset'),"
+        b" (LibrispeechOggZip, (dict, (tuple, (str, 'audio'),"
+        b" (dict, (tuple, (str, 'features'), (str, 'raw')), (tuple, (str, 'peak_normalization'), (bool, True)),"
+        b" (tuple, (str, 'preemphasis'), (NoneType)), (tuple, (str, 'sample_rate'), (int, 16000)))),"
+        b" (tuple, (str, 'audio_dim'), (int, 1)), (tuple, (str, 'eval_subset'),"
+        b" (int, 3000)), (tuple, (str, 'main_key'), (NoneType)),"
+        b" (tuple, (str, 'train_audio_preprocess'),"
+        b" (function, (tuple, (str, 'i6_experiments.users.zeyer.speed_pert.librosa_09_10_11_kaiser_fast'),"
+        b" (str, 'speed_pert_librosa_09_10_11_kaiser_fast')))),"
+        b" (tuple, (str, 'train_audio_random_permute'), (bool, False)),"
+        b" (tuple, (str, 'train_epoch_split'), (int, 20)), (tuple, (str, 'train_epoch_wise_filter'),"
+        b" (dict, (tuple, (tuple, (int, 1), (int, 5)), (dict, (tuple, (str, 'max_mean_len'), (int, 1000)))))),"
+        b" (tuple, (str, 'train_sort_laplace_num_seqs'), (int, 1000)), (tuple, (str, 'vocab'),"
+        b" (Bpe, (dict, (tuple, (str, 'bos_idx'), (int, 0)), (tuple, (str, 'codes'),"
+        b" (Path, (tuple, (str, 'i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output'),"
+        b" (str, 'bpe.codes')))), (tuple, (str, 'dim'), (int, 10025)), (tuple, (str, 'eos_idx'),"
+        b" (int, 0)), (tuple, (str, 'other_opts'), (NoneType)), (tuple, (str, 'unknown_label'),"
+        b" (NoneType)), (tuple, (str, 'vocab'),"
+        b" (Path, (tuple, (str, 'i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output'),"
+        b" (str, 'bpe.vocab'))))))), (tuple, (str, 'with_eos_postfix'), (bool, False))))),"
+        b" (tuple, (str, 'task.train_epoch_split'), (int, 20)))"
+    )
