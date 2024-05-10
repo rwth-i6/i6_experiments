@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Dict, Optional
 
 import os
-import sys
 import torch
 import numpy
 
@@ -19,7 +18,7 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
     MakeModel,
 )
 
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.lm_import_2023_11_09 import (
+from i6_experiments.users.gaudino.models.asr.rf.trafo_lm.lm_import_2023_11_09 import (
     MakeModel as MakeModelLM,
 )
 
@@ -28,8 +27,6 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.ilm
 )
 
 import returnn.frontend as rf
-
-from i6_core.returnn.training import Checkpoint
 
 from itertools import product
 
@@ -531,9 +528,6 @@ def map_param_func_mini_att_ilm(
 ) -> numpy.ndarray:
     """map params, TF to RF"""
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
-    from i6_experiments.users.zeyer.returnn.convert.params import (
-        numpy as convert_params_np,
-    )
     from i6_experiments.users.gaudino.convert import (
         convert_params,
     )

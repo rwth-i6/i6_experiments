@@ -3,22 +3,18 @@
 
 from __future__ import annotations
 
-from typing import Optional, Any, Tuple, Dict, Sequence, List
 import tree
-from itertools import product
 
 from sisyphus import tk
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
-from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.lm_import_2023_09_03 import (
+from i6_experiments.users.gaudino.models.asr.rf.nn_lm.lm_import_2023_09_03 import (
     LSTM_LM_Model,
     MakeModel,
 )
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_forward_ctc_sum import (
     model_forward_ctc_sum,
@@ -29,10 +25,9 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.conformer_import_moh_att_2023_06_30 import (
     from_scratch_model_def,
-    _get_eos_idx,
 )
 
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.search_errors import (
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.support.search_errors import (
     ComputeSearchErrorsJob,
 )
 
@@ -68,9 +63,8 @@ def sis_run_with_prefix(prefix_name: str = None):
         map_param_func_v3,
     )
     from .sis_setup import get_prefix_for_config
-    from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
+    from i6_core.returnn.training import PtCheckpoint
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
-    from i6_experiments.users.gaudino.recog import recog_model
     from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import (
         ConvertTfCheckpointToRfPtJob,
     )

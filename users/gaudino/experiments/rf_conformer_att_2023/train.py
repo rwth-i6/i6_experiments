@@ -27,6 +27,7 @@ def train(
     extra_hash: Any = None,
     gpu_mem: Optional[int] = None,
     num_processes: Optional[int] = None,
+    include_native_ops: bool = False,
     **kwargs,
 ) -> ModelWithCheckpoints:
     """
@@ -44,7 +45,7 @@ def train(
     from i6_core.returnn.config import ReturnnConfig
     from i6_experiments.common.setups import serialization
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
-    from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
+    from i6_experiments.users.gaudino.utils.serialization import get_import_py_code, get_import_native_ops_code
     from i6_experiments.users.gaudino.datasets.utils import multi_proc as mp_ds_utils
     from i6_experiments.users.gaudino.model_with_checkpoints import ModelWithCheckpoints
     from i6_experiments.users.gaudino.recog_2 import SharedPostConfig
@@ -86,6 +87,7 @@ def train(
             serialization.Collection(
                 [
                     serialization.NonhashedCode(get_import_py_code()),
+                    serialization.NonhashedCode(get_import_native_ops_code() if include_native_ops else ""),
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),

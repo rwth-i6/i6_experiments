@@ -14,7 +14,7 @@ import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.lm_import_2023_09_03 import (
+from i6_experiments.users.gaudino.models.asr.rf.nn_lm.lm_import_2023_09_03 import (
     LSTM_LM_Model,
     MakeModel,
 )

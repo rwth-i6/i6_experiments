@@ -106,7 +106,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # train_exp("base-11gb", config_11gb, gpu_mem=11)
     # train_exp("base-11gb-v1", my_config_11gb, num_epochs=400, gpu_mem=11)
     train_exp(
-        "base-11gb-v2-lrlin1e_5_600k",
+        "base-11gb-v3-lrlin1e_5_600k_aux4_8",
         my_config_11gb,
         config_updates={
             "learning_rate": 1.0,
@@ -114,6 +114,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             # total steps after 2000 epochs: 982.312
             "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "aux_loss_layers": [4,8],
         },
         num_epochs=400,
         gpu_mem=11,

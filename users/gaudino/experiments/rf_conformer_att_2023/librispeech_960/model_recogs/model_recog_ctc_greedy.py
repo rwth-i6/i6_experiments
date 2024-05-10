@@ -40,8 +40,6 @@ def model_recog_ctc(
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
 
-    breakpoint()
-
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
     else:

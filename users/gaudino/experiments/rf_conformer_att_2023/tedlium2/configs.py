@@ -124,6 +124,14 @@ my_config_11gb.update(
     )
 )
 
+my_config_11gb_v3 = my_config_11gb.copy()
+my_config_11gb_v3.update(
+    dict(
+        aux_loss_layers=[4, 8],
+    )
+)
+
+
 # By batch size (in k) and num (sub)epochs.
 # 500 subepochs is usually for multi-GPU with 4 GPUs,
 # i.e. the same as single-GPU 2000 subepochs.

@@ -2,28 +2,19 @@ from __future__ import annotations
 
 from typing import Dict
 
-import os
-import sys
 import numpy
-
-from sisyphus import tk
-
-from i6_core.returnn.training import Checkpoint
-from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import (
-    ConvertTfCheckpointToRfPtJob,
-)
 
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, batch_dim, TensorDict
 
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.lm_import_2023_11_09 import (
+from i6_experiments.users.gaudino.models.asr.rf.trafo_lm.lm_import_2023_11_09 import (
     MakeModel,
 )
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.model_forward_lm import (
+from i6_experiments.users.gaudino.models.asr.rf.trafo_lm.model_forward_lm import (
     model_forward_lm,
 )
 
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.search_data_opts import (
+from i6_experiments.users.gaudino.datasets.search_data_opts import (
     search_data_opts_ted2,
     search_data_opts_librispeech960,
 )

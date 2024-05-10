@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Dict
 
-import os
-import sys
 import numpy
 
 from sisyphus import tk
@@ -17,21 +15,16 @@ import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, batch_dim, TensorDict
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.conformer_import_moh_att_2023_06_30 import (
-    Model,
     MakeModel,
-    from_scratch_training,
     model_recog,
 )
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_ctc_greedy import (
     model_recog_ctc,
 )
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_time_sync import (
-    model_recog_time_sync,
-)
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_ts_espnet import model_recog_ts_espnet
 from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.search_data_opts import (
+from i6_experiments.users.gaudino.datasets.search_data_opts import (
     search_data_opts_ted2,
     search_data_opts_librispeech960,
 )

@@ -5,9 +5,8 @@ from __future__ import annotations
 
 from typing import Optional, Any, Tuple, Dict, Sequence, List
 from itertools import product
-import functools
 
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.lm_import_2023_11_09 import (
+from i6_experiments.users.gaudino.models.asr.rf.trafo_lm.lm_import_2023_11_09 import (
     Trafo_LM_Model,
 )
 from sisyphus import tk
@@ -16,7 +15,7 @@ from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.lm_import_2023_09_03 import (
+from i6_experiments.users.gaudino.models.asr.rf.nn_lm.lm_import_2023_09_03 import (
     LSTM_LM_Model,
     # MakeModel,
 )
@@ -76,7 +75,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     from i6_experiments.users.gaudino.datasets.librispeech import (
         get_librispeech_task_bpe10k_raw,
     )
-    from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.search_errors import (
+    from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.support.search_errors import (
         ComputeSearchErrorsJob,
     )
 
