@@ -52,10 +52,10 @@ def py():
     )
 
     for max_seq_len in [
-        60,
+        60,  # 5.39
         74,  # now EOS is not counted, so this is same as before
         75,  # 5.32?
-        None,
+        None,  # 5.17
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-maxSeqLen{max_seq_len}-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2",
