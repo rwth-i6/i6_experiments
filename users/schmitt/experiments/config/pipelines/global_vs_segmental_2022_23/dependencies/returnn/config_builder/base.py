@@ -301,10 +301,6 @@ class ConfigBuilder(ABC):
     pass
 
   @abstractmethod
-  def get_dump_length_model_probs_config(self, corpus_key: str, opts: Dict):
-    pass
-
-  @abstractmethod
   def get_dump_scores_config(self, corpus_key: str, opts: Dict):
     pass
 

@@ -1,3 +1,5 @@
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.tedlium2.bpe.bpe_alignments import TedLium2Bpe1058CtcAlignment
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.tedlium2.bpe.bpe_alignments import TedLium2Bpe1057CtcAlignment
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.tedlium2.bpe.bpe_labels import TedLium2BPE1057Labels
 
-TEDLIUM2BPE1058_CTC_ALIGNMENT = TedLium2Bpe1058CtcAlignment()
+TEDLIUM2BPE1057_CTC_ALIGNMENT = TedLium2Bpe1057CtcAlignment()
+TEDLIUM2BPE1057_LABELS = TedLium2BPE1057Labels()

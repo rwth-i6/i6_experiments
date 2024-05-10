@@ -39,9 +39,6 @@ class CtcConfigBuilder(ConfigBuilder, ABC):
   def get_dump_att_weight_config(self, corpus_key: str, opts: Dict):
     raise NotImplementedError
 
-  def get_dump_length_model_probs_config(self, corpus_key: str, opts: Dict):
-    raise NotImplementedError
-
   def get_dump_scores_config(self, corpus_key: str, opts: Dict):
     raise NotImplementedError
 

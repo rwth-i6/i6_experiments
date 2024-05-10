@@ -20,7 +20,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.base import ConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora.swb import SWBCorpus
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.search_errors import calc_search_errors
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.att_weights import dump_att_weights, dump_length_model_probs
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.att_weights import dump_att_weights
 from i6_experiments.users.schmitt.corpus.concat.convert import WordsToCTMJobV2
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_EXE, RETURNN_CURRENT_ROOT, RETURNN_ROOT
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables, RasrExecutablesNew
@@ -256,21 +256,6 @@ class ReturnnDecodingExperimentV2(DecodingExperiment):
         ref_alignment_blank_idx=att_weight_ref_alignment_blank_idx,
         seq_tags_to_analyse=att_weight_seq_tags,
       )
-
-      if "couple_length_and_label_model" in self.alias:
-        # also dump the length model scores
-        dump_length_model_probs(
-          self.config_builder,
-          variant_params=self.config_builder.variant_params,
-          checkpoint=self.checkpoint,
-          hdf_targets=hdf_targets,
-          ref_alignment=att_weight_ref_alignment_hdf,
-          corpus_key=self.corpus_key,
-          hdf_alias=hdf_alias,
-          alias=self.alias,
-          ref_alignment_blank_idx=att_weight_ref_alignment_blank_idx,
-          seq_tags_to_analyse=att_weight_seq_tags,
-        )
 
     calc_search_errors(
       self.config_builder,

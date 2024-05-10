@@ -3,7 +3,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import \
   SegmentalLabelDefinition
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.tedlium2.bpe.bpe import \
-  TedLium2BPE1058
+  TedLium2BPE1057
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.tedlium2.general import \
   TedLium2LabelDefinition
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.hyperparameters import \
@@ -16,13 +16,17 @@ import copy
 from sisyphus import *
 
 
-class TedLium2Bpe1058CtcAlignment(TedLium2BPE1058, TedLium2LabelDefinition, SegmentalLabelDefinition):
+class TedLium2Bpe1057CtcAlignment(TedLium2BPE1057, TedLium2LabelDefinition, SegmentalLabelDefinition):
   """
   """
+  def __init__(self):
+    super().__init__()
+
+    self._alignment_paths = None
 
   @property
   def alias(self) -> str:
-    return "bpe"
+    return "global-att-aux-ctc-alignments"
 
   @property
   def model_hyperparameters(self) -> SegmentalModelHyperparameters:
@@ -33,8 +37,20 @@ class TedLium2Bpe1058CtcAlignment(TedLium2BPE1058, TedLium2LabelDefinition, Segm
   def rasr_format_paths(self) -> RasrFormats:
     raise NotImplementedError
 
+  # @property
+  # def alignment_paths(self):
+  #   return {
+  #     "train": Path("/u/zeineldeen/setups/ubuntu_22_setups/2023-06-14--streaming-conf/work/i6_core/returnn/forward/ReturnnForwardJob.MkqI27U1sxyH/output/alignments-train.hdf", cached=True)
+  #   }
+
   @property
-  def alignment_paths(self):
-    return {
-      "train": Path("/u/zeineldeen/setups/ubuntu_22_setups/2023-06-14--streaming-conf/work/i6_core/returnn/forward/ReturnnForwardJob.MkqI27U1sxyH/output/alignments-train.hdf", cached=True)
-    }
+  def alignment_paths(self) -> Dict[str, Path]:
+    if self._alignment_paths is None:
+      raise ValueError("Alignments first need to be set externally!")
+    return self._alignment_paths
+
+  @alignment_paths.setter
+  def alignment_paths(self, value):
+    assert isinstance(value, dict)
+    assert self._alignment_paths is None, "Alignment paths are already set!"
+    self._alignment_paths = value

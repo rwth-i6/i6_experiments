@@ -32,31 +32,50 @@ def run_exps():
         checkpoint=checkpoint,
         checkpoint_aliases=("best-4-avg",),
         run_analysis=True,
-        att_weight_seq_tags=[
-          "dev-other/3660-6517-0005/3660-6517-0005",
-          "dev-other/6467-62797-0001/6467-62797-0001",
-          "dev-other/6467-62797-0002/6467-62797-0002",
-          "dev-other/7697-105815-0015/7697-105815-0015",
-          "dev-other/7697-105815-0051/7697-105815-0051",
-          # high ctc-cog error
-          "dev-other/6123-59150-0027/6123-59150-0027",
-          # non-monotonic att weights
-          "dev-other/1255-138279-0000/1255-138279-0000",
-          "dev-other/7601-291468-0006/7601-291468-0006",
-          "dev-other/7601-101619-0003/7601-101619-0003"
-          # 10 non-monotonic att weights
-          "dev-other/1630-141772-0015/1630-141772-0015",
-          "dev-other/8173-294714-0041/8173-294714-0041"
-          # 20 non-monotonic att weights
-          "dev-other/7601-101619-0004/7601-101619-0004",
-          "dev-other/4572-112375-0009/4572-112375-0009"
-          # non-monotonic argmax
-          "dev-other/7601-175351-0014/7601-175351-0014",
-          "dev-other/6123-59150-0027/6123-59150-0027",
-          "dev-other/1255-138279-0000/1255-138279-0000",
-          "dev-other/3663-172528-0038/3663-172528-0038"
-        ]
+        analysis_opts={
+          "att_weight_seq_tags": [
+            "dev-other/3660-6517-0005/3660-6517-0005",
+            "dev-other/6467-62797-0001/6467-62797-0001",
+            "dev-other/6467-62797-0002/6467-62797-0002",
+            "dev-other/7697-105815-0015/7697-105815-0015",
+            "dev-other/7697-105815-0051/7697-105815-0051",
+            # high ctc-cog error
+            "dev-other/6123-59150-0027/6123-59150-0027",
+            # non-monotonic att weights
+            "dev-other/1255-138279-0000/1255-138279-0000",
+            "dev-other/7601-291468-0006/7601-291468-0006",
+            "dev-other/7601-101619-0003/7601-101619-0003"
+            # 10 non-monotonic att weights
+            "dev-other/1630-141772-0015/1630-141772-0015",
+            "dev-other/8173-294714-0041/8173-294714-0041"
+            # 20 non-monotonic att weights
+            "dev-other/7601-101619-0004/7601-101619-0004",
+            "dev-other/4572-112375-0009/4572-112375-0009"
+            # non-monotonic argmax
+            "dev-other/7601-175351-0014/7601-175351-0014",
+            "dev-other/6123-59150-0027/6123-59150-0027",
+            "dev-other/1255-138279-0000/1255-138279-0000",
+            "dev-other/3663-172528-0038/3663-172528-0038"
+          ],
+          "plot_energies": True,
+          "dump_ctc_probs": True,
+        }
       )
+
+    # continue training for 1 epoch
+    for train_alias, checkpoint in train.train_global_att_import_global(
+      alias=model_alias,
+      config_builder=config_builder,
+      n_epochs_list=(20,),
+      use_ctc_loss=False,
+    ):
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+      )
+
     # continue training for 5 epochs
     for train_alias, checkpoint in train.train_global_att_import_global(
       alias=model_alias,
@@ -97,16 +116,18 @@ def run_exps():
         checkpoint=checkpoint,
         checkpoint_aliases=("best",),
         run_analysis=True,
-        att_weight_seq_tags=[
-          "dev-other/3660-6517-0005/3660-6517-0005",
-          "dev-other/6467-62797-0001/6467-62797-0001",
-          "dev-other/6467-62797-0002/6467-62797-0002",
-          "dev-other/7697-105815-0015/7697-105815-0015",
-          "dev-other/7697-105815-0051/7697-105815-0051",
-          "dev-other/1650-167613-0018/1650-167613-0018",  # small window good
-          "dev-other/8254-115543-0026/8254-115543-0026",
-          "dev-other/6455-66379-0014/6455-66379-0014",  # small window bad
-        ]
+        analysis_opts={
+          "att_weight_seq_tags": [
+            "dev-other/3660-6517-0005/3660-6517-0005",
+            "dev-other/6467-62797-0001/6467-62797-0001",
+            "dev-other/6467-62797-0002/6467-62797-0002",
+            "dev-other/7697-105815-0015/7697-105815-0015",
+            "dev-other/7697-105815-0051/7697-105815-0051",
+            "dev-other/1650-167613-0018/1650-167613-0018",  # small window good
+            "dev-other/8254-115543-0026/8254-115543-0026",
+            "dev-other/6455-66379-0014/6455-66379-0014",  # small window bad
+          ]
+        }
       )
       recog.global_att_returnn_label_sync_beam_search_concat_recog(
         alias=train_alias,
@@ -195,7 +216,7 @@ def register_ctc_alignments():
 
 
 def compare_center_of_gravity_and_ctc(config_builder, train_alias, checkpoint):
-  for corpus_key in ("dev-other",):
+  for corpus_key in ("dev-other", "dev-clean", "test-other", "test-clean"):
     eval_config = config_builder.get_dump_att_weight_config(
       corpus_key=corpus_key,
       opts={
@@ -212,7 +233,7 @@ def compare_center_of_gravity_and_ctc(config_builder, train_alias, checkpoint):
       model_checkpoint=checkpoint,
       returnn_config=eval_config,
       returnn_root=RETURNN_CURRENT_ROOT,
-      returnn_python_exe=RETURNN_EXE_NEW if corpus_key == "dev-other" else RETURNN_EXE,
+      returnn_python_exe=RETURNN_EXE_NEW,
       hdf_outputs=["att_weights.hdf", "ctc_alignment.hdf", "targets.hdf"],
       eval_mode=True
     )
@@ -223,8 +244,6 @@ def compare_center_of_gravity_and_ctc(config_builder, train_alias, checkpoint):
       ctc_alignment_hdf=forward_job.out_hdf_files["ctc_alignment.hdf"],
       segment_file=None,
       ctc_blank_idx=10025,
-      returnn_python_exe=RETURNN_EXE_NEW if corpus_key == "dev-other" else RETURNN_EXE,
-      returnn_root=RETURNN_CURRENT_ROOT
     )
     compare_cog_to_ctc_job.add_alias("%s/compare_cog_and_ctc/%s" % (train_alias, corpus_key))
     tk.register_output(compare_cog_to_ctc_job.get_one_alias(), compare_cog_to_ctc_job.out_statistics)
@@ -251,38 +270,35 @@ def plot_att_weights_during_training(
     if epoch % 3 != 0:
       continue
 
-    att_weight_opts = {
-      "hdf_filenames": {
-        "att_weights": "att_weights.hdf",
-        "targets": "targets.hdf",
-      },
-      "dataset_opts": {
-        "seq_postfix": None,
-        "segment_paths": {"dev-other": write_cv_segments_to_file_job.out_file}
-      },
-      "network_epoch": epoch
+    hdf_filenames = {
+      "att_weights": "att_weights.hdf",
+      "targets": "targets.hdf"
     }
-    hdf_outputs = ["att_weights.hdf", "targets.hdf"]
     if use_ctc_loss:
-      att_weight_opts["hdf_filenames"]["ctc_alignment"] = "ctc_alignment.hdf"
-      hdf_outputs.append("ctc_alignment.hdf")
-
+      hdf_filenames["ctc_alignment"] = "ctc_alignment.hdf"
 
     eval_config = config_builder.get_dump_att_weight_config(
       corpus_key="dev-other",
-      opts=att_weight_opts
+      opts={
+        "hdf_filenames": hdf_filenames,
+        "dataset_opts": {
+          "seq_postfix": None,
+          "segment_paths": {"dev-other": write_cv_segments_to_file_job.out_file}
+        },
+        "network_epoch": epoch
+      }
     )
 
-    if not use_ctc_loss:
-      # layer cannot be loaded since not used in training
-      del eval_config.config["network"]["ctc"]
+    # if not use_ctc_loss:
+    #   # layer cannot be loaded since not used in training
+    #   del eval_config.config["network"]["ctc"]
 
     forward_job = ReturnnForwardJob(
       model_checkpoint=checkpoints[epoch],
       returnn_config=eval_config,
       returnn_root=RETURNN_CURRENT_ROOT,
       returnn_python_exe=RETURNN_EXE_NEW,
-      hdf_outputs=hdf_outputs,
+      hdf_outputs=list(hdf_filenames.values()),
       eval_mode=True
     )
     forward_job.add_alias("%s/att_weights_during_training/%s/epoch-%s/dump" % (train_alias, "dev-other", epoch))

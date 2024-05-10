@@ -128,7 +128,11 @@ def run_exps():
             n_epochs_list=(2035,),
             use_ctc_loss=True
     ):
-      pass  # no recog for now
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+      )
 
     for train_alias, checkpoint in train.train_center_window_att_from_scratch(
             alias=model_alias,
@@ -136,7 +140,11 @@ def run_exps():
             n_epochs_list=(2035,),
             use_ctc_loss=False
     ):
-      pass  # no recog for now
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+      )
 
   for model_alias, config_builder in att_weight_interpolation.center_window_att_gaussian_att_weight_interpolation(
     win_size_list=(129,),

@@ -133,13 +133,58 @@ class GlobalConfigBuilder(ConfigBuilder, ABC):
         align_target="data:targets",
         filename=hdf_filenames["ctc_alignment"]
       ))
+    else:
+      # remove ctc layer to avoid problems when importing checkpoint
+      if "ctc" in returnn_config.config["network"]:
+        del returnn_config.config["network"]["ctc"]
+
+    if "att_energies" in hdf_filenames:
+      returnn_config.config["network"]["output"]["unit"]["energy"]["is_output_layer"] = True
+      returnn_config.config["network"].update({
+        # att energies
+        "att_energies_dump": {
+          "class": "hdf_dump",
+          "filename": hdf_filenames["att_energies"],
+          "from": "output/energy",
+          "is_output_layer": True,
+        },
+      })
 
     returnn_config.config["forward_batch_size"] = CodeWrapper("batch_size")
 
     return returnn_config
 
-  def get_dump_length_model_probs_config(self, corpus_key: str, opts: Dict):
-    raise NotImplementedError
+  def get_dump_ctc_probs_config(self, corpus_key: str, opts: Dict):
+    returnn_config = self.get_eval_config(eval_corpus_key=corpus_key, opts=opts)
+
+    assert "ctc" in returnn_config.config["network"], "CTC layer must be present in the network for dumping CTC probs"
+
+    hdf_filenames = opts["hdf_filenames"]
+    returnn_config.config["network"].update({
+      # ctc probs
+      "ctc_probs_dump": {
+        "class": "hdf_dump",
+        "filename": hdf_filenames["ctc_probs"],
+        "from": "ctc",
+        "is_output_layer": True,
+      },
+      # output labels
+      "targets_dump": {
+        "class": "hdf_dump",
+        "filename": hdf_filenames["targets"],
+        "from": "data:targets",
+        "is_output_layer": True,
+      },
+    })
+    # ctc alignment
+    returnn_config.config["network"].update(network_builder.get_ctc_forced_align_hdf_dump(
+      align_target="data:targets",
+      filename=hdf_filenames["ctc_alignment"]
+    ))
+
+    returnn_config.config["forward_batch_size"] = CodeWrapper("batch_size")
+
+    return returnn_config
 
   def get_recog_config_for_forward_job(self, opts: Dict):
     forward_recog_config = self.get_recog_config(opts)
@@ -198,6 +243,10 @@ class GlobalConfigBuilder(ConfigBuilder, ABC):
         "is_output_layer": True,
       },
     })
+
+    # remove ctc layer to avoid problems when importing checkpoint
+    if "ctc" in returnn_config.config["network"]:
+      del returnn_config.config["network"]["ctc"]
 
     returnn_config.config["forward_batch_size"] = CodeWrapper("batch_size")
 
@@ -290,5 +339,22 @@ class LibrispeechConformerGlobalAttentionConfigBuilder(GlobalConfigBuilder, Libr
     if task == "train":
       from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_dicts.zeineldeen_ls_global_att_5_6 import networks_dict
       return copy.deepcopy(networks_dict)
+    else:
+      return None
+
+
+class Tedlium2ConformerGlobalAttentionConfigBuilder(GlobalConfigBuilder, LibrispeechConformerConfigBuilder, ConformerConfigBuilder, ConfigBuilder):
+  def get_net_dict(self, task: str, config_dict, python_prolog):
+    if task == "train":
+      return None
+    else:
+      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_dicts.zeineldeen_ted2_global_att_w_ctc import network
+
+      network_dict = copy.deepcopy(network)
+      return network_dict
+
+  def get_networks_dict(self, task: str, config_dict, python_prolog, use_get_global_config: bool = False):
+    if task == "train":
+      raise NotImplementedError
     else:
       return None

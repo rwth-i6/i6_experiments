@@ -1027,7 +1027,6 @@ network = {
         'from': 'base:data:segment_starts_masked',
         'position': ':i'
         },
-om returnn
       'segments0': {
         'class': 'slice_nd',
         'from': 'base:encoder',

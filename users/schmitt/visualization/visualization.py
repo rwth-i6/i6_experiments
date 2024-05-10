@@ -192,6 +192,7 @@ class PlotAttentionWeightsJobV2(Job):
           ref_alignment_hdf: Path,
           json_vocab_path: Path,
           ctc_alignment_hdf: Optional[Path] = None,
+          segment_whitelist: Optional[List[str]] = None,
   ):
     assert target_blank_idx is None or (seg_lens_hdf is not None and seg_starts_hdf is not None)
     self.seg_lens_hdf = seg_lens_hdf
@@ -204,6 +205,7 @@ class PlotAttentionWeightsJobV2(Job):
     self.ref_alignment_hdf = ref_alignment_hdf
     self.json_vocab_path = json_vocab_path
     self.ctc_alignment_hdf = ctc_alignment_hdf
+    self.segment_whitelist = segment_whitelist if segment_whitelist is not None else []
 
     self.out_plot_dir = self.output_path("plots", True)
     self.out_plot_w_ctc_dir = self.output_path("plots_w_ctc", True)
@@ -218,23 +220,23 @@ class PlotAttentionWeightsJobV2(Job):
     """
       Load data from the hdf files
     """
-    att_weights_dict = hdf.load_hdf_data(self.att_weight_hdf, num_dims=2)
-    targets_dict = hdf.load_hdf_data(self.targets_hdf)
+    att_weights_dict = hdf.load_hdf_data(self.att_weight_hdf, num_dims=2, segment_list=self.segment_whitelist)
+    targets_dict = hdf.load_hdf_data(self.targets_hdf, segment_list=self.segment_whitelist)
     if self.target_blank_idx is not None:
-      seg_starts_dict = hdf.load_hdf_data(self.seg_starts_hdf)
-      seg_lens_dict = hdf.load_hdf_data(self.seg_lens_hdf)
+      seg_starts_dict = hdf.load_hdf_data(self.seg_starts_hdf, segment_list=self.segment_whitelist)
+      seg_lens_dict = hdf.load_hdf_data(self.seg_lens_hdf, segment_list=self.segment_whitelist)
     else:
       seg_starts_dict = None
       seg_lens_dict = None
     if self.center_positions_hdf is not None:
-      center_positions_dict = hdf.load_hdf_data(self.center_positions_hdf)
+      center_positions_dict = hdf.load_hdf_data(self.center_positions_hdf, segment_list=self.segment_whitelist)
     else:
       center_positions_dict = None
     if self.ctc_alignment_hdf is not None:
-      ctc_alignment_dict = hdf.load_hdf_data(self.ctc_alignment_hdf)
+      ctc_alignment_dict = hdf.load_hdf_data(self.ctc_alignment_hdf, segment_list=self.segment_whitelist)
     else:
       ctc_alignment_dict = None
-    ref_alignment_dict = hdf.load_hdf_data(self.ref_alignment_hdf)
+    ref_alignment_dict = hdf.load_hdf_data(self.ref_alignment_hdf, segment_list=self.segment_whitelist)
     ref_alignment_dict = {k: v for k, v in ref_alignment_dict.items() if k in att_weights_dict}
 
     return (
@@ -259,7 +261,15 @@ class PlotAttentionWeightsJobV2(Job):
     figsize = (fig_width, fig_height)
     return plt.subplots(figsize=figsize, constrained_layout=True)
 
-  def _set_ticks(self, ax: plt.Axes, ref_alignment: np.ndarray, targets: np.ndarray, vocab: Dict[int, str]):
+  @staticmethod
+  def set_ticks(
+          ax: plt.Axes,
+          ref_alignment: np.ndarray,
+          targets: np.ndarray,
+          vocab: Dict[int, str],
+          ref_alignment_blank_idx: int,
+          target_blank_idx: Optional[int] = None,
+  ):
     """
       Set the ticks and labels for the x and y axis.
       x-axis: reference alignment
@@ -267,8 +277,8 @@ class PlotAttentionWeightsJobV2(Job):
     """
     # positions of reference labels in the reference alignment
     # +1 bc plt starts at 1, not at 0
-    ref_label_positions = np.where(ref_alignment != self.ref_alignment_blank_idx)[-1] + 1
-    ref_labels = ref_alignment[ref_alignment != self.ref_alignment_blank_idx]
+    ref_label_positions = np.where(ref_alignment != ref_alignment_blank_idx)[-1] + 1
+    ref_labels = ref_alignment[ref_alignment != ref_alignment_blank_idx]
     ref_labels = [vocab[idx] for idx in ref_labels]
     # x axis
     ax.set_xticks([tick - 1.0 for tick in ref_label_positions])
@@ -276,7 +286,7 @@ class PlotAttentionWeightsJobV2(Job):
 
     # output labels of the model
     # in case of alignment: filter for non-blank targets. otherwise, just leave the targets array as is
-    labels = targets[targets != self.target_blank_idx] if self.target_blank_idx is not None else targets
+    labels = targets[targets != target_blank_idx] if target_blank_idx is not None else targets
     labels = [vocab[idx] for idx in labels]
     # y axis
     yticks = [tick for tick in range(len(labels))]
@@ -320,13 +330,13 @@ class PlotAttentionWeightsJobV2(Job):
       ax.axvline(x=center_position + .5, ymin=ymin, ymax=ymax, color="lime")
 
   @staticmethod
-  def _plot_ctc_alignment(ax: plt.Axes, ctc_alignment: np.ndarray, num_labels: int):
+  def plot_ctc_alignment(ax: plt.Axes, ctc_alignment: np.ndarray, num_labels: int, ctc_blank_idx: int):
     label_idx = 0
     # store alignment like: 000011112222223333, where the number is the label index (~ height in the plot)
     ctc_alignment_plot_data = []
     for x, ctc_label in enumerate(ctc_alignment):
       ctc_alignment_plot_data.append(label_idx)
-      if ctc_label != 10025:
+      if ctc_label != ctc_blank_idx:
         label_idx += 1
       # stop if we reached the last label, the rest of the ctc alignment are blanks
       if label_idx == num_labels:
@@ -334,7 +344,7 @@ class PlotAttentionWeightsJobV2(Job):
     ax.plot(ctc_alignment_plot_data, "o", color="black", alpha=.4)
 
   @staticmethod
-  def _plot_center_of_gravity(ax: plt.Axes, att_weights: np.ndarray):
+  def plot_center_of_gravity(ax: plt.Axes, att_weights: np.ndarray):
     cog = np.sum(att_weights * np.arange(att_weights.shape[1])[None, :], axis=1)[:, None]  # [S,1]
     ax.plot(cog, range(cog.shape[0]), "o", color="red", alpha=.4)
 
@@ -359,10 +369,14 @@ class PlotAttentionWeightsJobV2(Job):
       att_weights = att_weights_dict[seq_tag]  # [S,T]
 
       fig, ax = self._get_fig_ax(att_weights)
-      ax.matshow(att_weights, cmap=plt.cm.get_cmap("Blues"), aspect="auto")
+      ax.matshow(
+        att_weights,
+        cmap=plt.cm.get_cmap("Blues"),
+        aspect="auto"
+      )
 
       # set y ticks and labels
-      self._set_ticks(ax, ref_alignment, targets, vocab)
+      self.set_ticks(ax, ref_alignment, targets, vocab, self.ref_alignment_blank_idx, self.target_blank_idx)
       if self.target_blank_idx is not None:
         self._draw_segment_boundaries(ax, seg_starts, seg_lens, att_weights)
       if center_positions is not None:
@@ -375,14 +389,19 @@ class PlotAttentionWeightsJobV2(Job):
 
       # plot ctc alignment if available
       if ctc_alignment is not None:
-        self._plot_ctc_alignment(ax, ctc_alignment, num_labels=att_weights.shape[0])
+        self.plot_ctc_alignment(
+          ax,
+          ctc_alignment,
+          num_labels=att_weights.shape[0],
+          ctc_blank_idx=self.ref_alignment_blank_idx  # works for us but better to add separate attribute for ctc
+        )
         filename = os.path.join(self.out_plot_w_ctc_dir.get_path(), "plot.%s" % seq_tag.replace("/", "_"))
         plt.savefig(filename + ".png")
         plt.savefig(filename + ".pdf")
 
       # plot center of gravity
       ax.lines[-1].remove()  # remove ctc alignment plot
-      self._plot_center_of_gravity(ax, att_weights)
+      self.plot_center_of_gravity(ax, att_weights)
       filename = os.path.join(self.out_plot_w_cog_dir.get_path(), "plot.%s" % seq_tag.replace("/", "_"))
       plt.savefig(filename + ".png")
       plt.savefig(filename + ".pdf")
@@ -398,6 +417,110 @@ class PlotAttentionWeightsJobV2(Job):
       d.pop("ctc_alignment_hdf")
 
     return super().hash(d)
+
+
+class PlotCtcProbsJob(Job):
+  def __init__(
+          self,
+          ctc_probs_hdf: Path,
+          targets_hdf: Path,
+          ctc_blank_idx: int,
+          ctc_alignment_hdf: Path,
+          json_vocab_path: Path,
+          segment_whitelist: Optional[List[str]] = None,
+  ):
+    self.targets_hdf = targets_hdf
+    self.ctc_probs_hdf = ctc_probs_hdf
+    self.ctc_blank_idx = ctc_blank_idx
+    self.ctc_alignment_hdf = ctc_alignment_hdf
+    self.json_vocab_path = json_vocab_path
+    self.segment_whitelist = segment_whitelist if segment_whitelist is not None else []
+
+    self.out_plot_dir = self.output_path("plots", True)
+    self.out_plot_w_ctc_dir = self.output_path("plots_w_ctc", True)
+    self.out_plot_w_cog_dir = self.output_path("plots_w_cog", True)
+
+  def tasks(self):
+    yield Task("run", mini_task=True)
+
+  @staticmethod
+  def _get_fig_ax(ctc_probs: np.ndarray, targets: np.ndarray):
+    """
+      Initialize the figure and axis for the plot.
+    """
+    num_labels = targets.shape[0]
+    num_frames = ctc_probs.shape[1]
+    fig_width = num_frames / 8
+    fig_height = num_labels / 4
+    figsize = (fig_width, fig_height)
+    return plt.subplots(figsize=figsize, constrained_layout=True)
+
+  def load_data(self) -> Tuple[Dict[str, np.ndarray], ...]:
+    """
+      Load data from the hdf files
+    """
+    ctc_probs_dict = hdf.load_hdf_data(self.ctc_probs_hdf, segment_list=self.segment_whitelist)
+    targets_dict = hdf.load_hdf_data(self.targets_hdf, segment_list=self.segment_whitelist)
+    ctc_alignment_dict = hdf.load_hdf_data(self.ctc_alignment_hdf, segment_list=self.segment_whitelist)
+
+    return (
+      ctc_probs_dict,
+      targets_dict,
+      ctc_alignment_dict,
+    )
+
+  def run(self):
+    # load data from hdfs
+    ctc_probs_dict, targets_dict, ctc_alignment_dict = self.load_data()
+
+    # load vocabulary as dictionary
+    with open(self.json_vocab_path.get_path(), "r") as f:
+      json_data = f.read()
+      vocab = ast.literal_eval(json_data)  # label -> idx
+      vocab = {v: k for k, v in vocab.items()}  # idx -> label
+
+    # for each seq tag, plot the corresponding att weights
+    for seq_tag in ctc_probs_dict.keys():
+      ctc_alignment = ctc_alignment_dict[seq_tag] if self.ctc_alignment_hdf is not None else None  # [T]
+      targets = targets_dict[seq_tag]  # [S]
+      ctc_probs = ctc_probs_dict[seq_tag]  # [T, V]
+      ctc_probs = ctc_probs[:, targets]  # [T, S]
+      ctc_probs = np.transpose(ctc_probs)  # [S, T]
+      # normalize ctc probs using softmax
+      ctc_probs = np.exp(ctc_probs) / np.sum(np.exp(ctc_probs), axis=1)[:, None]
+
+      fig, ax = self._get_fig_ax(ctc_probs, targets)
+      ax.matshow(
+        ctc_probs,
+        cmap=plt.cm.get_cmap("Blues"),
+        aspect="auto"
+      )
+
+      # set y ticks and labels
+      PlotAttentionWeightsJobV2.set_ticks(ax, ctc_alignment, targets, vocab, self.ctc_blank_idx, None)
+
+      dirname = self.out_plot_dir.get_path()
+      filename = os.path.join(dirname, "plot.%s" % seq_tag.replace("/", "_"))
+      plt.savefig(filename + ".png")
+      plt.savefig(filename + ".pdf")
+
+      # plot ctc alignment
+      PlotAttentionWeightsJobV2.plot_ctc_alignment(
+        ax,
+        ctc_alignment,
+        num_labels=targets.shape[0],
+        ctc_blank_idx=self.ctc_blank_idx
+      )
+      filename = os.path.join(self.out_plot_w_ctc_dir.get_path(), "plot.%s" % seq_tag.replace("/", "_"))
+      plt.savefig(filename + ".png")
+      plt.savefig(filename + ".pdf")
+
+      # plot center of gravity
+      ax.lines[-1].remove()  # remove ctc alignment plot
+      PlotAttentionWeightsJobV2.plot_center_of_gravity(ax, ctc_probs)
+      filename = os.path.join(self.out_plot_w_cog_dir.get_path(), "plot.%s" % seq_tag.replace("/", "_"))
+      plt.savefig(filename + ".png")
+      plt.savefig(filename + ".pdf")
 
 
 class PlotAlignmentJob(Job):

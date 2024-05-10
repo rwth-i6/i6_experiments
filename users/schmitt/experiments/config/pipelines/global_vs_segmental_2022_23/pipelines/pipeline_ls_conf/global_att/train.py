@@ -8,16 +8,18 @@ def train_global_att_import_global(
         alias: str,
         config_builder: LibrispeechConformerGlobalAttentionConfigBuilder,
         n_epochs_list: Tuple[int, ...] = (10,),
+        use_ctc_loss: bool = True,
 ):
   for n_epochs in n_epochs_list:
-    alias += "/train_from_global_att_checkpoint/standard-training/%d-epochs" % (
-      n_epochs
-    )
+    alias += f"/train_from_global_att_checkpoint/standard-training/{n_epochs}-epochs-{'w-ctc' if use_ctc_loss else 'wo-ctc'}"
 
     train_exp = GlobalTrainExperiment(
       config_builder=config_builder,
       alias=alias,
       num_epochs=n_epochs,
+      train_opts={
+        "no_ctc_loss": not use_ctc_loss,
+      }
     )
     checkpoints, model_dir, learning_rates = train_exp.run_train()
 

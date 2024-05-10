@@ -24,7 +24,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.segmental import SegmentalConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora.swb import SWBCorpus
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.search_errors import calc_search_errors
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.att_weights import dump_att_weights, dump_length_model_probs
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.att_weights import dump_att_weights, dump_ctc_probs
 from i6_experiments.users.schmitt.corpus.concat.convert import WordsToCTMJobV2
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_EXE, RETURNN_CURRENT_ROOT, RETURNN_ROOT
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables, RasrExecutablesNew
@@ -37,6 +37,10 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   LibrispeechBPE10025_CTC_ALIGNMENT,
   LibrispeechBPE10025_CTC_ALIGNMENT_EOS,
 )
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.tedlium2.label_singletons import (
+  TEDLIUM2BPE1057_CTC_ALIGNMENT,
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora import tedlium2, librispeech
 
 
 class DecodingExperiment(ABC):
@@ -68,6 +72,12 @@ class DecodingExperiment(ABC):
     self.returnn_python_exe = self.config_builder.variant_params["returnn_python_exe"]
     self.returnn_root = self.config_builder.variant_params["returnn_root"]
 
+    if isinstance(config_builder.variant_params["dataset"]["corpus"], librispeech.LibrispeechCorpora):
+      self.ref_alignment = LibrispeechBPE10025_CTC_ALIGNMENT
+    else:
+      assert isinstance(config_builder.variant_params["dataset"]["corpus"], tedlium2.TedLium2Corpora)
+      self.ref_alignment = TEDLIUM2BPE1057_CTC_ALIGNMENT
+
     self.ilm_correction_opts = self.recog_opts.get("ilm_correction_opts")
     if self.ilm_correction_opts is not None and self.ilm_correction_opts["type"] == "mini_att":
       if "mini_att_checkpoint" not in self.ilm_correction_opts:
@@ -81,6 +91,8 @@ class DecodingExperiment(ABC):
         self.ilm_correction_opts["mini_att_checkpoint"] = self.get_mini_att_checkpoint(
           train_mini_lstm_opts=train_mini_lstm_opts
         )
+
+    self.score_job = None
 
   def get_ilm_correction_alias(self, alias: str):
     if self.ilm_correction_opts is not None:
@@ -132,19 +144,19 @@ class DecodingExperiment(ABC):
 
   def run_eval(self):
     if type(self.config_builder.variant_params["dataset"]["corpus"]) == SWBCorpus:
-      score_job = Hub5ScoreJob(
+      self.score_job = Hub5ScoreJob(
         ref=self.config_builder.variant_params["dataset"]["corpus"].stm_paths[self.stm_corpus_key],
         glm=Path("/work/asr2/oberdorfer/kaldi-stable/egs/swbd/s5/data/eval2000/glm"),
         hyp=self.get_ctm_path()
       )
     else:
-        score_job = ScliteJob(
+        self.score_job = ScliteJob(
           ref=self._get_stm_path(),
           hyp=self.get_ctm_path()
         )
 
-    score_job.add_alias("%s/scores_%s" % (self.alias, self.stm_corpus_key))
-    tk.register_output(score_job.get_one_alias(), score_job.out_report_dir)
+    self.score_job.add_alias("%s/scores_%s" % (self.alias, self.stm_corpus_key))
+    tk.register_output(self.score_job.get_one_alias(), self.score_job.out_report_dir)
 
 
 class GlobalAttDecodingExperiment(DecodingExperiment, ABC):
@@ -300,10 +312,9 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
     _analysis_opts = copy.deepcopy(self.default_analysis_opts)
     if analysis_opts is not None:
       _analysis_opts.update(analysis_opts)
-    ground_truth_hdf = _analysis_opts["ground_truth_hdf"]
-    att_weight_ref_alignment_hdf = _analysis_opts["att_weight_ref_alignment_hdf"]
-    att_weight_ref_alignment_blank_idx = _analysis_opts["att_weight_ref_alignment_blank_idx"]
-    att_weight_seq_tags = _analysis_opts["att_weight_seq_tags"]
+
+    if _analysis_opts["ground_truth_hdf"] is not None:
+      assert _analysis_opts["ground_truth_hdf"] == _analysis_opts["att_weight_ref_alignment_hdf"]
 
     forward_recog_config = self.config_builder.get_recog_config_for_forward_job(opts=self.recog_opts)
     forward_search_job = ReturnnForwardJob(
@@ -347,41 +358,44 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
 
     for hdf_alias, hdf_targets in zip(
             ["ground_truth", "search"],
-            [ground_truth_hdf, search_hdf]
+            [_analysis_opts["ground_truth_hdf"], search_hdf]
     ):
       dump_att_weights(
         self.config_builder,
         variant_params=self.config_builder.variant_params,
         checkpoint=self.checkpoint,
         hdf_targets=hdf_targets,
-        ref_alignment=att_weight_ref_alignment_hdf,
+        ref_alignment=_analysis_opts["att_weight_ref_alignment_hdf"],
         corpus_key=self.corpus_key,
         hdf_alias=hdf_alias,
         alias=self.alias,
-        ref_alignment_blank_idx=att_weight_ref_alignment_blank_idx,
-        seq_tags_to_analyse=att_weight_seq_tags,
+        ref_alignment_blank_idx=_analysis_opts["att_weight_ref_alignment_blank_idx"],
+        seq_tags_to_analyse=_analysis_opts["att_weight_seq_tags"],
+        plot_energies=_analysis_opts["plot_energies"],
+        dump_ctc=_analysis_opts["dump_ctc"],
+        calc_att_weight_stats=_analysis_opts["calc_att_weight_stats"],
+        sclite_report_dir=self.score_job.out_report_dir,
       )
 
-      if "couple_length_and_label_model" in self.alias:
-        # also dump the length model scores
-        dump_length_model_probs(
+      if _analysis_opts.get("dump_ctc_probs"):
+        assert isinstance(self.config_builder, GlobalConfigBuilder)
+        assert _analysis_opts["att_weight_seq_tags"] is not None, "att_weight_seq_tags must be set for dump_ctc_probs"
+        dump_ctc_probs(
           self.config_builder,
           variant_params=self.config_builder.variant_params,
           checkpoint=self.checkpoint,
           hdf_targets=hdf_targets,
-          ref_alignment=att_weight_ref_alignment_hdf,
           corpus_key=self.corpus_key,
           hdf_alias=hdf_alias,
           alias=self.alias,
-          ref_alignment_blank_idx=att_weight_ref_alignment_blank_idx,
-          seq_tags_to_analyse=att_weight_seq_tags,
+          seq_tags_to_analyse=_analysis_opts["att_weight_seq_tags"],
         )
 
     calc_search_errors(
       self.config_builder,
       variant_params=self.config_builder.variant_params,
       checkpoint=self.checkpoint,
-      ground_truth_hdf_targets=ground_truth_hdf,
+      ground_truth_hdf_targets=_analysis_opts["ground_truth_hdf"],
       search_hdf_targets=search_hdf,
       corpus_key=self.corpus_key,
       alias=self.alias,
@@ -404,9 +418,12 @@ class ReturnnGlobalAttDecodingExperiment(GlobalAttDecodingExperiment, ReturnnDec
   def default_analysis_opts(self) -> Dict:
     return {
       "ground_truth_hdf": None,
-      "att_weight_ref_alignment_hdf": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[self.corpus_key],
-      "att_weight_ref_alignment_blank_idx": 10025,
+      "att_weight_ref_alignment_hdf": self.ref_alignment.alignment_paths[self.corpus_key],
+      "att_weight_ref_alignment_blank_idx": self.ref_alignment.model_hyperparameters.blank_idx,
       "att_weight_seq_tags": None,
+      "plot_energies": False,
+      "dump_ctc": True,
+      "calc_att_weight_stats": False,
     }
 
 
@@ -425,10 +442,13 @@ class ReturnnSegmentalAttDecodingExperiment(SegmentalAttDecodingExperiment, Retu
   @property
   def default_analysis_opts(self) -> Dict:
     return {
-      "ground_truth_hdf": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[self.corpus_key],
-      "att_weight_ref_alignment_hdf": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[self.corpus_key],
-      "att_weight_ref_alignment_blank_idx": 10025,
+      "ground_truth_hdf": self.ref_alignment.alignment_paths[self.corpus_key],
+      "att_weight_ref_alignment_hdf": self.ref_alignment.alignment_paths[self.corpus_key],
+      "att_weight_ref_alignment_blank_idx": self.ref_alignment.model_hyperparameters.blank_idx,
       "att_weight_seq_tags": None,
+      "plot_energies": False,
+      "dump_ctc": True,
+      "calc_att_weight_stats": False,
     }
 
 
@@ -724,7 +744,8 @@ class DecodingPipeline(ABC):
     self.search_alias = search_alias
 
   @abstractmethod
-  def run_experiment(self, beam_size: int, lm_scale: float, ilm_scale: float, checkpoint_alias: str):
+  def run_experiment(
+          self, beam_size: int, lm_scale: float, ilm_scale: float, checkpoint_alias: str):
     pass
 
   def run(self):

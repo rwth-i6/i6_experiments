@@ -16,6 +16,7 @@ from i6_experiments.users.schmitt.corpus.statistics import GetSeqLenFileJob
 from i6_experiments.users.schmitt.rasr.convert import ArpaLMToWordListJob, LabelFileToWordListJob
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_CURRENT_ROOT, RETURNN_EXE_NEW
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.lm.trafo import model_import as trafo_lm_import
 
 
 class LibrispeechCorpora:
@@ -104,8 +105,11 @@ class LibrispeechCorpora:
       "kazuki-lstm": Path("/u/atanas.gruev/setups/librispeech/2023-08-08-zhou-conformer-transducer/work/crnn/compile/CompileTFGraphJob.0dxq1DSvOxuN/output/graph.meta")
     }
     self.nn_lm_checkpoint_paths = {
-      "kazuki-lstm": "/u/zhou/asr-exps/librispeech/dependencies/kazuki_lstmlm_27062019/network.040"
+      "kazuki-lstm": "/u/zhou/asr-exps/librispeech/dependencies/kazuki_lstmlm_27062019/network.040",
+      "kazuki-trafo": Path("/work/asr3/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/transfo_24_d00.4096_1024.sgd.lr1.8_heads/bk-net-model/network.023")
     }
+    self.nn_lm_torch_checkpoints = self.get_nn_lm_torch_checkpoints()
+
     self.nn_lm_vocab_paths = {
       "kazuki-lstm": Path("/work/asr3/zeyer/schmitt/dependencies/librispeech/lm/kazuki_lstmlm_27062019/vocabulary")
     }
@@ -120,6 +124,13 @@ class LibrispeechCorpora:
         labels_to_exclude=["<s>", "</s>", "<sb>", "<UNK>"],
       ).out_word_list_file
     }
+
+  def get_nn_lm_torch_checkpoints(self):
+    nn_lm_torch_checkpoints = {
+      "kazuki-trafo": trafo_lm_import.get_pt_checkpoint_path()
+    }
+    tk.register_output("kazuki-trafo-pt-checkpoint", nn_lm_torch_checkpoints["kazuki-trafo"])
+    return nn_lm_torch_checkpoints
 
   def get_seq_lens_file(self, dataset_name: str, concat_num: Optional[int]):
     dataset_dict = oggzip.get_dataset_dict(

@@ -1,4 +1,4 @@
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Dict
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.segmental import LibrispeechConformerSegmentalAttentionConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train_new import SegmentalTrainExperiment
@@ -9,16 +9,18 @@ def train_center_window_att_import_global_global_ctc_align(
         alias: str,
         config_builder: LibrispeechConformerSegmentalAttentionConfigBuilder,
         n_epochs_list: Tuple[int, ...] = (10,),
+        use_ctc_loss: bool = True,
 ):
   for n_epochs in n_epochs_list:
-    alias += "/train_from_global_att_checkpoint/standard-training/%d-epochs" % (
-      n_epochs
-    )
+    alias += f"/train_from_global_att_checkpoint/standard-training/{n_epochs}-epochs_{'w-ctc' if use_ctc_loss else 'wo-ctc'}"
 
     train_exp = SegmentalTrainExperiment(
       config_builder=config_builder,
       alias=alias,
       num_epochs=n_epochs,
+      train_opts={
+        "no_ctc_loss": not use_ctc_loss,
+      }
     )
     checkpoints, model_dir, learning_rates = train_exp.run_train()
 

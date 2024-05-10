@@ -18,7 +18,7 @@ def global_att_returnn_label_sync_beam_search(
         beam_size_list: Tuple[int, ...] = (12,),
         checkpoint_aliases: Tuple[str, ...] = ("last", "best", "best-4-avg"),
         run_analysis: bool = False,
-        att_weight_seq_tags: Optional[List] = None
+        analysis_opts: Optional[Dict] = None,
 ):
   ilm_opts = {"type": ilm_type}
   if ilm_type == "mini_att":
@@ -37,7 +37,7 @@ def global_att_returnn_label_sync_beam_search(
     ilm_scales=ilm_scale_list,
     ilm_opts=ilm_opts,
     run_analysis=run_analysis,
-    analysis_opts={"att_weight_seq_tags": att_weight_seq_tags}
+    analysis_opts=analysis_opts
   ).run()
 
 
