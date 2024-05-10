@@ -64,6 +64,9 @@ class SentencePieceModel(VocabConfig):
 
     def copy(self, **kwargs) -> SentencePieceModel:
         """Copy"""
-        opts = {k: getattr(self, k) for k in ["model_file", "eos_idx", "bos_idx", "unknown_label", "other_opts"]}
+        opts = {k: getattr(self, k) for k in ["dim", "model_file", "eos_idx", "bos_idx", "unknown_label", "other_opts"]}
         opts.update(kwargs)
+        if self.other_opts and kwargs.get("other_opts", None) is not None:
+            opts["other_opts"] = self.other_opts.copy()
+            opts["other_opts"].update(kwargs["other_opts"])
         return SentencePieceModel(**opts)
