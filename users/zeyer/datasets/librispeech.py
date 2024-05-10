@@ -524,13 +524,13 @@ def get_librispeech_task_raw_v2(
     dataset_common_opts = dict(audio=audio_opts_, audio_dim=audio_dim, vocab=vocab)
     # We expect that all kwargs are only relevant for the training, thus we only pass them here.
     train_dataset = dataset_cls(**dataset_common_opts, **dataset_train_opts)
-    dev_dataset = dataset_cls(**dataset_common_opts, main_key="dev-other")
     eval_datasets = {
         "dev-clean": dataset_cls(**dataset_common_opts, main_key="dev-clean"),
-        "dev-other": dev_dataset,
+        "dev-other": dataset_cls(**dataset_common_opts, main_key="dev-other"),
         "test-clean": dataset_cls(**dataset_common_opts, main_key="test-clean"),
         "test-other": dataset_cls(**dataset_common_opts, main_key="test-other"),
     }
+    dev_dataset = eval_datasets["dev-other"]
 
     return Task(
         name="librispeech",
