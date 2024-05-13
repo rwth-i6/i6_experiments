@@ -84,33 +84,36 @@ lstm_lm_opts_map = {
     BPE_10K: lstm_10k_lm_opts,
 }
 
-trafo_lm_net = TransformerLM(source="prev:output", num_layers=24, vocab_size=10025, use_as_ext_lm=True)
+# Trafo LM trained by willi
+# - setup dir: /u/michel/setups/language_modelling/tedlium/neurallm/trafo_kazuki19
+# - config: /u/michel/setups/language_modelling/tedlium/neurallm/trafo_kazuki19/tdl1.config
+trafo_lm_net = TransformerLM(
+    source="prev:output",
+    num_layers=30,
+    vocab_size=1057,
+    use_as_ext_lm=True,
+    ff_dim=4096,
+    att_num_heads=12,
+    embed_dim=128,
+    qk_dim=768,
+    v_dim=768,
+    out_dim=768,
+    emb_cpu_lookup=False,
+    embed_pos=False,  # wo abs pos encoding
+    conv_act="gelu",
+)
 trafo_lm_net.create_network()
-trafo_10k_lm_opts = {
+trafo_1k_lm_opts = {
     "lm_subnet": trafo_lm_net.network.get_net(),
     "load_on_init_opts": {
-        "filename": "/work/asr3/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/transfo_24_d00.4096_1024.sgd.lr1.8_heads/bk-net-model/network.023",
+        "filename": "/work/asr4/michel/setups-data/language_modelling/tedlium/neurallm/trafo_kazuki19/net-model/network.020",
         "params_prefix": "",
         "load_if_prefix": "lm_output/",
     },
     "name": "trafo",
 }
 
-bpe5k_lm = get_lm("ls960_trafo24_bs3000_5ep_5kbpe")  # type: ZeineldeenLM
-trafo_5k_lm_opts = {
-    "lm_subnet": bpe5k_lm.combination_network,
-    "load_on_init_opts": {
-        "filename": get_best_checkpoint(bpe5k_lm.train_job, key="dev_score_output/output"),
-        "params_prefix": "",
-        "load_if_prefix": "lm_output/",
-    },
-    "name": "trafo",
-}
-
-trafo_lm_opts_map = {
-    BPE_10K: trafo_10k_lm_opts,
-    BPE_5K: trafo_5k_lm_opts,
-}
+trafo_lm_opts_map = {BPE_1K: trafo_1k_lm_opts}
 
 # train:
 # Seq-length 'audio_features' Stats:
@@ -1317,6 +1320,7 @@ def run_chunkwise_train(
     accum_grad: int = 2,
     time_rqmt: float = 72,
     start_lrs: Union[float, List[Optional[float]]] = 1e-4,
+    final_lrs: Union[float, List[Optional[float]]] = 1e-6,
     decay_pt_factors: Union[float, List[Optional[float]]] = 1 / 3,
     window_left_padding: Optional[int] = None,
     end_slice_size: Optional[int] = None,
@@ -1339,6 +1343,8 @@ def run_chunkwise_train(
 ):
     if isinstance(start_lrs, float):
         start_lrs = [start_lrs]
+    if isinstance(final_lrs, float):
+        final_lrs = [final_lrs]
     if isinstance(decay_pt_factors, float):
         decay_pt_factors = [decay_pt_factors]
 
@@ -1354,242 +1360,255 @@ def run_chunkwise_train(
         for chunk_size in chunk_sizes:
             for chunk_step_factor in chunk_step_factors:
                 for start_lr in start_lrs:
-                    for decay_pt_factor in decay_pt_factors:
-                        train_args = copy.deepcopy(default_args)
-                        train_args["speed_pert"] = speed_pert
-                        train_args["search_type"] = None
+                    for final_lr in final_lrs:
+                        for decay_pt_factor in decay_pt_factors:
+                            train_args = copy.deepcopy(default_args)
+                            train_args["speed_pert"] = speed_pert
+                            train_args["search_type"] = None
 
-                        train_args["max_seq_length"] = None  # no filtering!
+                            train_args["max_seq_length"] = None  # no filtering!
 
-                        train_args["encoder_args"].with_ctc = with_ctc
-                        if ctc_self_align_delay:
-                            assert with_ctc, "need CTC for self-align"
-                            train_args["encoder_args"].ctc_self_align_delay = ctc_self_align_delay
-                            train_args["encoder_args"].ctc_self_align_scale = ctc_self_align_delay_scale
+                            train_args["encoder_args"].with_ctc = with_ctc
+                            if ctc_self_align_delay:
+                                assert with_ctc, "need CTC for self-align"
+                                train_args["encoder_args"].ctc_self_align_delay = ctc_self_align_delay
+                                train_args["encoder_args"].ctc_self_align_scale = ctc_self_align_delay_scale
 
-                        if enc_stream_type == "causal" or enc_stream_type.startswith("causal-"):
-                            if enc_stream_type == "causal":
-                                train_args["encoder_args"].use_causal_layers = True  # causal MHSA and conv
-                            elif enc_stream_type == "causal-mhsa":
-                                train_args["encoder_args"].use_causal_layers = True
-                                train_args["encoder_args"].use_causal_conv = False  # causal MHSA only
-                            elif enc_stream_type == "causal-reset-conv":
-                                train_args["encoder_args"].use_causal_layers = True
-                                train_args["encoder_args"].conv_alternative_name = "depthwise_conv2_causal"
-                                train_args.setdefault("retrain_checkpoint_opts", {}).setdefault(
-                                    "ignore_params_prefixes", []
-                                ).extend(
-                                    [
-                                        "conformer_block_%02i_conv_mod_depthwise_conv2_causal/" % (i + 1)
-                                        for i in range(train_args["encoder_args"].num_blocks)
-                                    ]
-                                )
+                            if enc_stream_type == "causal" or enc_stream_type.startswith("causal-"):
+                                if enc_stream_type == "causal":
+                                    train_args["encoder_args"].use_causal_layers = True  # causal MHSA and conv
+                                elif enc_stream_type == "causal-mhsa":
+                                    train_args["encoder_args"].use_causal_layers = True
+                                    train_args["encoder_args"].use_causal_conv = False  # causal MHSA only
+                                elif enc_stream_type == "causal-reset-conv":
+                                    train_args["encoder_args"].use_causal_layers = True
+                                    train_args["encoder_args"].conv_alternative_name = "depthwise_conv2_causal"
+                                    train_args.setdefault("retrain_checkpoint_opts", {}).setdefault(
+                                        "ignore_params_prefixes", []
+                                    ).extend(
+                                        [
+                                            "conformer_block_%02i_conv_mod_depthwise_conv2_causal/" % (i + 1)
+                                            for i in range(train_args["encoder_args"].num_blocks)
+                                        ]
+                                    )
 
-                        train_args["batch_size"] = batch_size * 160
-                        train_args["accum_grad"] = accum_grad
+                            train_args["batch_size"] = batch_size * 160
+                            train_args["accum_grad"] = accum_grad
 
-                        train_args["enable_check_align"] = enable_check_align  # to not break hashes
+                            train_args["enable_check_align"] = enable_check_align  # to not break hashes
 
-                        train_args["chunk_size"] = chunk_size
-                        if chunk_size is None:
-                            train_args["chunk_step"] = None
-                            chunk_step = None
-                        else:
-                            chunk_step = max(1, int(chunk_size * chunk_step_factor))
-                            train_args["chunk_step"] = chunk_step
-
-                        if lrs_list is not None:
-                            train_args["learning_rates_list"] = lrs_list
-                        elif epoch_oclr_lr:
-                            assert start_lr is None
-                            cyc_ep = int(0.45 * total_epoch)
-                            train_args["learning_rates_list"] = (
-                                list(numpy.linspace(epoch_oclr_lr / 10, epoch_oclr_lr, cyc_ep))
-                                + list(numpy.linspace(epoch_oclr_lr, epoch_oclr_lr / 10, cyc_ep))
-                                + list(numpy.linspace(epoch_oclr_lr / 10, 1e-6, total_epoch - 2 * cyc_ep))
-                            )
-                        else:
-                            decay_pt = int(total_epoch * decay_pt_factor)
-                            train_args["learning_rates_list"] = [start_lr] * decay_pt + list(
-                                numpy.linspace(start_lr, 1e-6, total_epoch - decay_pt)
-                            )
-
-                        chunk_level = "input" if enc_stream_type == "chunked" else "encoder"
-                        train_args["chunk_level"] = chunk_level
-                        train_args["eoc_idx"] = 0
-
-                        exp_name = f"{enc_stream_type}_att_chunk"
-                        if chunk_size is not None:
-                            assert chunk_step is not None
-                            exp_name += f"-{chunk_size}_step-{chunk_step}"
-                        else:
-                            exp_name += "-globalAtt"  # no chunking
-
-                        if start_lr:
-                            exp_name += f"_linDecay{total_epoch}_{start_lr}_decayPt{decay_pt_factor}"
-                        elif epoch_oclr_lr:
-                            exp_name += f"_epochOCLR-{epoch_oclr_lr}_ep{total_epoch}"
-                        elif lrs_list:
-                            assert lr_list_desc
-                            exp_name += f"_{lr_list_desc}"
-
-                        exp_name += f"_bs{batch_size}_accum{accum_grad}"
-
-                        if window_left_padding is not None:
-                            train_args["window_left_padding"] = window_left_padding
-                            exp_name += f"_winLeft{window_left_padding}"
-
-                        if end_slice_size is not None:
-                            train_args["end_slice_size"] = end_slice_size
-                            assert end_slice_start is not None, "need end_slice_start"
-                            train_args["end_slice_start"] = end_slice_start
-                            exp_name += f"_endSliceStart{end_slice_start}_endSlice{end_slice_size}"
-
-                        if pos_enc is None:
-                            train_args["encoder_args"].pos_enc = pos_enc
-                            exp_name += f"_woPosEnc"
-                        else:
-                            assert pos_enc == "rel"
-
-                        if conf_mem_opts is not None:
-                            train_args["conf_mem_opts"] = conf_mem_opts
-                            exp_name += f"_memVariant{conf_mem_opts['self_att_version']}"
-                            mem_size = conf_mem_opts.get("mem_size", 1)
-                            if mem_size > 1:
-                                exp_name += f"_memSize{mem_size}"
-                            if conf_mem_opts.get("mask_paddings", False):
-                                exp_name += f"_memMaskPad"
-                            if conf_mem_opts.get("conv_cache_size", None):
-                                exp_name += f"_convCache{conf_mem_opts['conv_cache_size']}"
-                            if conf_mem_opts.get("use_cached_prev_kv", False):
-                                exp_name += f"_useCachedKV"
-                            if conf_mem_opts.get("mem_slice_start", None) is not None:
-                                assert conf_mem_opts.get("mem_slice_size", None) is not None
-                                exp_name += (
-                                    f"_memSlice{conf_mem_opts['mem_slice_start']}-{conf_mem_opts['mem_slice_size']}"
-                                )
-                            if conf_mem_opts.get("use_emformer_mem", False):
-                                exp_name += f"_emfMem"
-                            train_args["recursion_limit"] = 4000
-
-                        if with_ctc:
-                            exp_name += "_withCtc"
-
-                        if full_sum_approx:
-                            # NOTE: no need to mask EOC for the decoder since the targets do not contain EOC (just bpe labels)
-                            train_args["decoder_args"].prev_target_embed_direct = True
-                            train_args["decoder_args"].full_sum_simple_approx = True
-                            exp_name += "_fullSumApprox"
-
-                        if decoder_mask_eoc:
-                            train_args["decoder_args"].masked_computation_blank_idx = train_args["eoc_idx"]
-                            exp_name += "_maskEOC"
-
-                        if retrain_ckpt:
-                            assert suffix, "set suffix for retrain to avoid overwriting"
-                            train_args["retrain_checkpoint"] = retrain_ckpt
-
-                        train_args["chunked_decoder"] = chunked_decoder
-                        if not chunked_decoder:
-                            exp_name += "_noChunkedDec"
-
-                        if from_scratch_train:
-                            train_args.update(get_base_v1_args(train_args, lr=epoch_oclr_lr, ep=total_epoch))
-                            train_args["with_pretrain"] = True
-                            train_args["retrain_checkpoint"] = None
-                            exp_name += "_fromScratch"
-
-                        if kwargs.get("rel_pos_clipping", None):
-                            train_args["encoder_args"].rel_pos_clipping = kwargs["rel_pos_clipping"]
-                            exp_name += f"_relPosClip{kwargs['rel_pos_clipping']}"
-
-                        if kwargs.get("remove_att_ctx_from_dec_state", False):
-                            train_args["remove_att_ctx_from_dec_state"] = True
-                            exp_name += "_woDecAtt"
-
-                        if kwargs.get("asr_ce_scale", None) is not None:
-                            train_args["decoder_args"].ce_loss_scale = kwargs["asr_ce_scale"]
-                            exp_name += f"_ceScale{kwargs['asr_ce_scale']}"
-
-                        if suffix:
-                            exp_name += suffix
-
-                        # override
-                        if with_ctc:
-                            search_score_key = "dev_score_output/output_prob"
-                        else:
-                            search_score_key = "dev_score"
-
-                        if chunk_size is None or chunked_decoder is False or from_scratch_train:
-                            run_exp(
-                                prefix_name=prefix_name,
-                                exp_name=exp_name,
-                                train_args=train_args,
-                                num_epochs=total_epoch,
-                                epoch_wise_filter=None,
-                                time_rqmt=time_rqmt,
-                                key=search_score_key,
-                                use_sclite=True,
-                                speed_pert=speed_pert,
-                                **kwargs,
-                            )
-                        elif on_the_fly_align:
-                            train_args["search_type"] = "end-of-chunk"  # on-the-fly alignment
-                            exp_name += "_onTheFlyAlign"
-                            _, train_data = run_exp(
-                                prefix_name=prefix_name,
-                                exp_name=exp_name,
-                                train_args=train_args,
-                                num_epochs=total_epoch,
-                                epoch_wise_filter=None,
-                                time_rqmt=time_rqmt,
-                                key=search_score_key,
-                                use_sclite=True,
-                                do_not_train=do_not_train,
-                                **kwargs,
-                            )
-                            if return_hdf_align:
-                                return (
-                                    train_args,
-                                    exp_name,
-                                    train_data,
-                                    ctc_chunksync_align["train"][f"{chunk_size}_{chunk_step}"],
-                                    ctc_chunksync_align["dev"][f"{chunk_size}_{chunk_step}"],
-                                )
-                        else:
-                            if full_sum_approx:
-                                # just use original targets without EOC
-                                train_fixed_alignment = None
-                                cv_fixed_alignment = None
+                            train_args["chunk_size"] = chunk_size
+                            if chunk_size is None:
+                                train_args["chunk_step"] = None
+                                chunk_step = None
                             else:
-                                assert ctc_chunksync_align, "Need CTC chunk-sync alignments"
-                                train_fixed_alignment = ctc_chunksync_align["train"][f"{chunk_size}_{chunk_step}"]
-                                cv_fixed_alignment = ctc_chunksync_align["dev"][f"{chunk_size}_{chunk_step}"]
-                            _, train_data = run_exp(
-                                prefix_name=prefix_name,
-                                exp_name=exp_name,
-                                train_args=train_args,
-                                num_epochs=total_epoch,
-                                train_fixed_alignment=train_fixed_alignment,
-                                cv_fixed_alignment=cv_fixed_alignment,
-                                epoch_wise_filter=None,
-                                time_rqmt=time_rqmt,
-                                key=search_score_key,
-                                use_sclite=True,
-                                seq_postfix=None if full_sum_approx else 0,
-                                **kwargs,
-                            )
+                                chunk_step = max(1, int(chunk_size * chunk_step_factor))
+                                train_args["chunk_step"] = chunk_step
 
-                            if return_args:
-                                assert len(total_epochs) == 1
-                                assert len(chunk_sizes) == 1
-                                assert len(chunk_step_factors) == 1
-                                assert len(start_lrs) == 1
-                                assert len(decay_pt_factors) == 1
+                            if lrs_list is not None:
+                                train_args["learning_rates_list"] = lrs_list
+                            elif epoch_oclr_lr:
+                                assert start_lr is None
+                                cyc_ep = int(0.45 * total_epoch)
+                                train_args["learning_rates_list"] = (
+                                    list(numpy.linspace(epoch_oclr_lr / 10, epoch_oclr_lr, cyc_ep))
+                                    + list(numpy.linspace(epoch_oclr_lr, epoch_oclr_lr / 10, cyc_ep))
+                                    + list(numpy.linspace(epoch_oclr_lr / 10, final_lr, total_epoch - 2 * cyc_ep))
+                                )
+                            else:
+                                decay_pt = int(total_epoch * decay_pt_factor)
+                                train_args["learning_rates_list"] = [start_lr] * decay_pt + list(
+                                    numpy.linspace(start_lr, final_lr, total_epoch - decay_pt)
+                                )
 
+                            chunk_level = "input" if enc_stream_type == "chunked" else "encoder"
+                            train_args["chunk_level"] = chunk_level
+                            train_args["eoc_idx"] = 0
+
+                            exp_name = f"{enc_stream_type}_att_chunk"
+                            if chunk_size is not None:
+                                assert chunk_step is not None
+                                exp_name += f"-{chunk_size}_step-{chunk_step}"
+                            else:
+                                exp_name += "-globalAtt"  # no chunking
+
+                            if start_lr is not None:
+                                exp_name += f"_linDecay{total_epoch}_{start_lr}_decayPt{decay_pt_factor}"
+                            if final_lr is not None:
+                                exp_name += f"_finalLR{final_lr}"
+                            elif epoch_oclr_lr is not None:
+                                exp_name += f"_epochOCLR-{epoch_oclr_lr}_ep{total_epoch}"
+                            elif lrs_list:
+                                assert lr_list_desc
+                                exp_name += f"_{lr_list_desc}"
+
+                            exp_name += f"_bs{batch_size}_accum{accum_grad}"
+
+                            if window_left_padding is not None:
+                                train_args["window_left_padding"] = window_left_padding
+                                exp_name += f"_winLeft{window_left_padding}"
+
+                            if end_slice_size is not None:
+                                train_args["end_slice_size"] = end_slice_size
+                                assert end_slice_start is not None, "need end_slice_start"
+                                train_args["end_slice_start"] = end_slice_start
+                                exp_name += f"_endSliceStart{end_slice_start}_endSlice{end_slice_size}"
+
+                            if pos_enc is None:
+                                train_args["encoder_args"].pos_enc = pos_enc
+                                exp_name += f"_woPosEnc"
+                            else:
+                                assert pos_enc == "rel"
+
+                            if conf_mem_opts is not None:
+                                train_args["conf_mem_opts"] = conf_mem_opts
+                                exp_name += f"_memVariant{conf_mem_opts['self_att_version']}"
+                                mem_size = conf_mem_opts.get("mem_size", 1)
+                                if mem_size > 1:
+                                    exp_name += f"_memSize{mem_size}"
+                                if conf_mem_opts.get("mask_paddings", False):
+                                    exp_name += f"_memMaskPad"
+                                if conf_mem_opts.get("conv_cache_size", None):
+                                    exp_name += f"_convCache{conf_mem_opts['conv_cache_size']}"
+                                if conf_mem_opts.get("use_cached_prev_kv", False):
+                                    exp_name += f"_useCachedKV"
+                                if conf_mem_opts.get("mem_slice_start", None) is not None:
+                                    assert conf_mem_opts.get("mem_slice_size", None) is not None
+                                    exp_name += (
+                                        f"_memSlice{conf_mem_opts['mem_slice_start']}-{conf_mem_opts['mem_slice_size']}"
+                                    )
+                                if conf_mem_opts.get("use_emformer_mem", False):
+                                    exp_name += f"_emfMem"
+                                train_args["recursion_limit"] = 4000
+
+                            if with_ctc:
+                                exp_name += "_withCtc"
+
+                            if full_sum_approx:
+                                # NOTE: no need to mask EOC for the decoder since the targets do not contain EOC (just bpe labels)
+                                train_args["decoder_args"].prev_target_embed_direct = True
+                                train_args["decoder_args"].full_sum_simple_approx = True
+                                exp_name += "_fullSumApprox"
+
+                            if decoder_mask_eoc:
+                                train_args["decoder_args"].masked_computation_blank_idx = train_args["eoc_idx"]
+                                exp_name += "_maskEOC"
+
+                            if retrain_ckpt:
+                                assert suffix, "set suffix for retrain to avoid overwriting"
+                                train_args["retrain_checkpoint"] = retrain_ckpt
+
+                            train_args["chunked_decoder"] = chunked_decoder
+                            if not chunked_decoder:
+                                exp_name += "_noChunkedDec"
+
+                            if from_scratch_train:
+                                train_args.update(get_base_v1_args(train_args, lr=epoch_oclr_lr, ep=total_epoch))
+                                train_args["with_pretrain"] = True
+                                train_args["retrain_checkpoint"] = None
+                                exp_name += "_fromScratch"
+
+                            if kwargs.get("rel_pos_clipping", None):
+                                train_args["encoder_args"].rel_pos_clipping = kwargs["rel_pos_clipping"]
+                                exp_name += f"_relPosClip{kwargs['rel_pos_clipping']}"
+
+                            if kwargs.get("remove_att_ctx_from_dec_state", False):
+                                train_args["remove_att_ctx_from_dec_state"] = True
+                                exp_name += "_woDecAtt"
+
+                            if kwargs.get("use_curr_enc_for_dec_state", False):
+                                train_args["use_curr_enc_for_dec_state"] = True
+                                exp_name += "_useCurrFrame"
+
+                            if kwargs.get("asr_ce_scale", None) is not None:
+                                train_args["decoder_args"].ce_loss_scale = kwargs["asr_ce_scale"]
+                                exp_name += f"_ceScale{kwargs['asr_ce_scale']}"
+
+                            if suffix:
+                                exp_name += suffix
+
+                            # override
+                            if with_ctc:
+                                search_score_key = "dev_score_output/output_prob"
+                            else:
+                                search_score_key = "dev_score"
+
+                            if chunk_size is None or chunked_decoder is False or from_scratch_train:
+                                run_exp(
+                                    prefix_name=prefix_name,
+                                    exp_name=exp_name,
+                                    train_args=train_args,
+                                    num_epochs=total_epoch,
+                                    epoch_wise_filter=None,
+                                    time_rqmt=time_rqmt,
+                                    key=search_score_key,
+                                    use_sclite=True,
+                                    speed_pert=speed_pert,
+                                    **kwargs,
+                                )
+                            elif on_the_fly_align:
+                                train_args["search_type"] = "end-of-chunk"  # on-the-fly alignment
+                                exp_name += "_onTheFlyAlign"
+                                _, train_data = run_exp(
+                                    prefix_name=prefix_name,
+                                    exp_name=exp_name,
+                                    train_args=train_args,
+                                    num_epochs=total_epoch,
+                                    epoch_wise_filter=None,
+                                    time_rqmt=time_rqmt,
+                                    key=search_score_key,
+                                    use_sclite=True,
+                                    do_not_train=do_not_train,
+                                    **kwargs,
+                                )
                                 if return_hdf_align:
-                                    return train_args, exp_name, train_data, train_fixed_alignment, cv_fixed_alignment
-                                return train_args, exp_name, train_data
+                                    return (
+                                        train_args,
+                                        exp_name,
+                                        train_data,
+                                        ctc_chunksync_align["train"][f"{chunk_size}_{chunk_step}"],
+                                        ctc_chunksync_align["dev"][f"{chunk_size}_{chunk_step}"],
+                                    )
+                            else:
+                                if full_sum_approx:
+                                    # just use original targets without EOC
+                                    train_fixed_alignment = None
+                                    cv_fixed_alignment = None
+                                else:
+                                    assert ctc_chunksync_align, "Need CTC chunk-sync alignments"
+                                    train_fixed_alignment = ctc_chunksync_align["train"][f"{chunk_size}_{chunk_step}"]
+                                    cv_fixed_alignment = ctc_chunksync_align["dev"][f"{chunk_size}_{chunk_step}"]
+                                _, train_data = run_exp(
+                                    prefix_name=prefix_name,
+                                    exp_name=exp_name,
+                                    train_args=train_args,
+                                    num_epochs=total_epoch,
+                                    train_fixed_alignment=train_fixed_alignment,
+                                    cv_fixed_alignment=cv_fixed_alignment,
+                                    epoch_wise_filter=None,
+                                    time_rqmt=time_rqmt,
+                                    key=search_score_key,
+                                    use_sclite=True,
+                                    seq_postfix=None if full_sum_approx else 0,
+                                    **kwargs,
+                                )
+
+                                if return_args:
+                                    assert len(total_epochs) == 1
+                                    assert len(chunk_sizes) == 1
+                                    assert len(chunk_step_factors) == 1
+                                    assert len(start_lrs) == 1
+                                    assert len(decay_pt_factors) == 1
+
+                                    if return_hdf_align:
+                                        return (
+                                            train_args,
+                                            exp_name,
+                                            train_data,
+                                            train_fixed_alignment,
+                                            cv_fixed_alignment,
+                                        )
+                                    return train_args, exp_name, train_data
 
 
 def _run_exp_full_sum_simple_approx(
@@ -1673,39 +1692,71 @@ def _run_exp_full_sum_simple_approx(
 
 
 def py():
-    # Chunked decoder variants
-
-    # TODO: mask out EOC symbol
-    run_chunkwise_train(
-        enc_stream_type="global",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[1, 5, 10, 25],
-        chunk_step_factors=[1],
-        start_lrs=[1e-4, 2e-4],
-        decay_pt_factors=[1 / 3, 0.25],
-        gpu_mem=11,
-        total_epochs=[80],
-        batch_size=15_000,
-        accum_grad=2,
-        time_rqmt=120,
-        decoder_mask_eoc=True,
-    )
+    for decoder_mask_eoc in [True, False]:
+        run_chunkwise_train(
+            enc_stream_type="global",
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            chunk_sizes=[5, 10, 25],
+            chunk_step_factors=[1],
+            start_lrs=[2e-4],
+            decay_pt_factors=[0.0, 0.1, 0.2, 0.25],
+            final_lrs=[1e-6, 1e-5],
+            gpu_mem=11,
+            total_epochs=[20 * 4],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=120,
+            decoder_mask_eoc=decoder_mask_eoc,
+        )
 
     # TODO: mask out EOC symbol + ctx from decoder state
+
     run_chunkwise_train(
         enc_stream_type="global",
         run_all_for_best_last_avg=True,
         enable_check_align=False,
-        chunk_sizes=[25],
+        chunk_sizes=[5, 25],
         chunk_step_factors=[1],
-        start_lrs=[1e-4, 2e-4],
-        decay_pt_factors=[1 / 3, 0.25],
+        start_lrs=[2e-4],
+        decay_pt_factors=[0.25],
+        final_lrs=[1e-6],
         gpu_mem=11,
-        total_epochs=[80],
+        total_epochs=[20 * 4, 40 * 4],
         batch_size=15_000,
         accum_grad=2,
         time_rqmt=120,
         decoder_mask_eoc=True,
         remove_att_ctx_from_dec_state=True,
     )
+
+    # TODO: large chunks + overlap
+    # for left_context, center_context, right_context, conv_size, mem_size in [
+    #     (0, 80, 0, 0, 0),
+    # ]:
+    #     run_chunkwise_train(
+    #         enc_stream_type="chunked",
+    #         run_all_for_best_last_avg=True,
+    #         enable_check_align=False,
+    #         chunk_sizes=[25],
+    #         chunk_step_factors=[20 / 25],
+    #         start_lrs=[2e-4],
+    #         decay_pt_factors=[1 / 3],
+    #         gpu_mem=24,
+    #         total_epochs=[120],
+    #         batch_size=15_000,
+    #         accum_grad=2,
+    #         time_rqmt=120,
+    #         end_slice_start=left_context,
+    #         end_slice_size=center_context,
+    #         window_left_padding=left_context * 6,
+    #         # conf_mem_opts={
+    #         #     "self_att_version": 1,
+    #         #     "mem_size": mem_size,
+    #         #     "use_cached_prev_kv": True,
+    #         #     "conv_cache_size": conv_size,
+    #         #     "mem_slice_start": left_context,
+    #         #     "mem_slice_size": 20,
+    #         # },
+    #         suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+    #     )
