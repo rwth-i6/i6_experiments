@@ -15,6 +15,10 @@ from i6_experiments.users.raissi.setups.common.data.factored_label import (
     RasrStateTying,
 )
 
+from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
+    PriorType
+)
+
 from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
 from i6_experiments.users.raissi.setups.common.helpers.align.FSA import correct_rasr_FSA_bug
 
@@ -723,39 +727,65 @@ def add_fast_bw_layer_to_network(
     network: Network,
     log_linear_scales: LogLinearScales,
     reference_layer: str = "center-output",
+    label_prior_type: Optional[PriorType] = None,
     label_prior: Optional[returnn.CodeWrapper] = None,
+    label_prior_estimation_axes: str = None,
     extra_rasr_config: Optional[rasr.RasrConfig] = None,
     extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
 ) -> Network:
 
     crp = correct_rasr_FSA_bug(crp)
 
-    if log_linear_scales.label_prior_scale is not None:
-        assert prior is not None, "Hybrid HMM needs a transcription based prior for fullsum training"
+    if label_prior_type is not None:
+        assert log_linear_scales.label_prior_scale is not None, "If you plan to use the prior, please set the scale for it"
+        if label_prior_type == PriorType.TRANSCRIPT:
+            assert label_prior is not None, "You forgot to set the label prior file"
 
     for attribute in ["loss", "loss_opts", "target"]:
-        network[reference_layer].pop(attribute, None)
+        if reference_layer in network:
+            network[reference_layer].pop(attribute, None)
 
     inputs = []
     out_denot = reference_layer.split("-")[0]
     # prior calculation
 
-    if label_prior is not None:
-        # Here we are creating a standard hybrid HMM, without prior we have a posterior HMM
-        prior_name = ("_").join(["label_prior", reference_layer_denot])
-        network[prior_name] = {"class": "constant", "dtype": "float32", "value": label_prior}
+    if label_prior_type is not None:
+        prior_name = ("_").join(["label_prior", out_denot])
         comb_name = ("_").join(["comb-prior", out_denot])
+        prior_eval_string = "(safe_log(source(1)) * prior_scale)"
         inputs.append(comb_name)
+        if label_prior_type == PriorType.TRANSCRIPT:
+            network[prior_name] = {"class": "constant", "dtype": "float32", "value": label_prior}
+        elif label_prior_type == PriorType.AVERAGE:
+            network[prior_name] = {
+                "class": "accumulate_mean",
+                "exp_average": 0.001,
+                "from": reference_layer,
+                "is_prob_distribution": True,
+            }
+        elif label_prior_type == PriorType.ONTHEFLY:
+            assert label_prior_estimation_axes is not None, "You forgot to set one which axis you want to average the prior, eg. bt"
+            network[prior_name] = {
+                    "class": "reduce",
+                    "mode": "mean",
+                    "from": reference_layer,
+                    "axis": label_prior_estimation_axes,
+                }
+            prior_eval_string = "tf.stop_gradient((safe_log(source(1)) * prior_scale))"
+        else:
+            raise NotImplementedError("Unknown PriorType")
+
         network[comb_name] = {
             "class": "combine",
             "kind": "eval",
-            "eval": "am_scale*( safe_log(source(0)) - (safe_log(source(1)) * prior_scale) )",
+            "eval": f"am_scale*(safe_log(source(0)) - {prior_eval_string})",
             "eval_locals": {
                 "am_scale": log_linear_scales.label_posterior_scale,
                 "prior_scale": log_linear_scales.label_prior_scale,
             },
             "from": [reference_layer, prior_name],
         }
+
     else:
         comb_name = ("_").join(["multiply-scale", out_denot])
         inputs.append(comb_name)
@@ -832,7 +862,9 @@ def add_fast_bw_layer_to_returnn_config(
     log_linear_scales: LogLinearScales,
     import_model: [tk.Path, str] = None,
     reference_layer: str = "center-output",
+    label_prior_type: Optional[PriorType] = None,
     label_prior: Optional[returnn.CodeWrapper] = None,
+    label_prior_estimation_axes: str = None,
     extra_rasr_config: Optional[rasr.RasrConfig] = None,
     extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
 ) -> returnn.ReturnnConfig:
@@ -842,7 +874,9 @@ def add_fast_bw_layer_to_returnn_config(
         network=returnn_config.config["network"],
         log_linear_scales=log_linear_scales,
         reference_layer=reference_layer,
+        label_prior_type=label_prior_type,
         label_prior=label_prior,
+        label_prior_estimation_axes=label_prior_estimation_axes,
         extra_rasr_config=extra_rasr_config,
         extra_rasr_post_config=extra_rasr_post_config,
     )

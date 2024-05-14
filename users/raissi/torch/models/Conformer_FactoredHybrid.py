@@ -45,10 +45,11 @@ class ConformerMonophoneModel(ConformerBaseFactoredHybridModel):
         self.final_linear_center = torch.nn.Linear(cfg.conformer_cfg.block_cfg.ff_cfg.input_dim, cfg.label_info.get_n_state_classes())
         if self.multi_task_config is not None:
             raise NotImplementedError("multi-tasking still not supported")
+            """
             self.final_linear_left = torch.nn.Linear(cfg.conformer_cfg.block_cfg.ff_cfg.input_dim,
                                                        cfg.label_info.n_contexts)
             self.final_linear_right = torch.nn.Linear(cfg.conformer_cfg.block_cfg.ff_cfg.input_dim,
-                                                       cfg.label_info.n_contexts)
+                                                       cfg.label_info.n_contexts)"""
 
 
     def forward(
@@ -76,13 +77,14 @@ class ConformerMonophoneModel(ConformerBaseFactoredHybridModel):
 
 def get_train_serializer(
     model_config: ConformerFactoredHybridConfig,
+    train_step_path: str
 ) -> Collection:
     pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{ConformerHybridModel.__name__}",
         model_config=model_config,
         additional_serializer_objects=[
-            Import(f"{pytorch_package}.train_steps.hybrid_viterbi.train_step"),
+            Import(f"{pytorch_package}.train_steps.{train_step_path}.train_step"),
         ],
     )
 

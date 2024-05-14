@@ -148,7 +148,7 @@ class SearchParameters:
     tdp_scale: Optional[Float]
     tdp_silence: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     tdp_speech: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
-    tdp_non_word: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
+    tdp_nonword: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     we_pruning: Float
     we_pruning_limit: Int
 
@@ -212,8 +212,8 @@ class SearchParameters:
     def with_tdp_silence(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
         return dataclasses.replace(self, tdp_silence=tdp)
 
-    def with_tdp_non_word(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
-        return dataclasses.replace(self, tdp_non_word=tdp)
+    def with_tdp_nonword(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
+        return dataclasses.replace(self, tdp_nonword=tdp)
 
     def with_posterior_scales(self, posterior_scales: PosteriorScales):
         return dataclasses.replace(self, posterior_scales=posterior_scales)
@@ -229,7 +229,7 @@ class SearchParameters:
             prior_info=priors.with_scale(0.2),
             tdp_speech=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (3.0, 0.0, "infinity", 0.0),
             tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 20.0),
-            tdp_non_word=(0.0, 3.0, "infinity", 20.0),
+            tdp_nonword=(0.0, 3.0, "infinity", 20.0),
             non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
             we_pruning_limit=10000,
@@ -246,7 +246,7 @@ class SearchParameters:
             prior_info=priors.with_scale(center=0.2, left=0.1),
             tdp_speech=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (3.0, 0.0, "infinity", 0.0),
             tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 20.0),
-            tdp_non_word=(0.0, 3.0, "infinity", 20.0),
+            tdp_nonword=(0.0, 3.0, "infinity", 20.0),
             non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
             we_pruning_limit=10000,
@@ -263,7 +263,7 @@ class SearchParameters:
             prior_info=priors.with_scale(center=0.2, left=0.1, right=0.1),
             tdp_speech=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (3.0, 0.0, "infinity", 0.0),
             tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 20.0),
-            tdp_non_word=(0.0, 3.0, "infinity", 20.0),
+            tdp_nonword=(0.0, 3.0, "infinity", 20.0),
             non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
             we_pruning_limit=10000,
@@ -280,7 +280,7 @@ class SearchParameters:
             prior_info=priors.with_scale(diphone=0.4),
             tdp_speech=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (3.0, 0.0, "infinity", 0.0),
             tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 20.0),
-            tdp_non_word=(0.0, 3.0, "infinity", 20.0),
+            tdp_nonword=(0.0, 3.0, "infinity", 20.0),
             non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
             we_pruning_limit=10000,
@@ -308,7 +308,7 @@ class AlignmentParameters:
     tdp_scale: Optional[Float]
     tdp_silence: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     tdp_speech: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
-    tdp_non_word: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
+    tdp_nonword: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     non_word_phonemes: str
 
     add_all_allophones: bool = False
@@ -343,8 +343,8 @@ class AlignmentParameters:
     def with_tdp_silence(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "AlignmentParameters":
         return dataclasses.replace(self, tdp_silence=tdp)
 
-    def with_tdp_non_word(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "AlignmentParameters":
-        return dataclasses.replace(self, tdp_non_word=tdp)
+    def with_tdp_nonword(self, tdp: Tuple[TDP, TDP, TDP, TDP]) -> "AlignmentParameters":
+        return dataclasses.replace(self, tdp_nonword=tdp)
 
     def with_posterior_scales(self, posterior_scales: PosteriorScales):
         return dataclasses.replace(self, posterior_scales=posterior_scales)
@@ -357,7 +357,7 @@ class AlignmentParameters:
             prior_info=priors.with_scale(0.2),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
             tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 0.0),
-            tdp_non_word=(0.0, 3.0, "infinity", 0.0),
+            tdp_nonword=(0.0, 3.0, "infinity", 0.0),
             non_word_phonemes="[UNKNOWN]",
         )
 
@@ -369,7 +369,7 @@ class AlignmentParameters:
             prior_info=priors.with_scale(center=0.2, left=0.1),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
             tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 0.0),
-            tdp_non_word=(0.0, 3.0, "infinity", 0.0),
+            tdp_nonword=(0.0, 3.0, "infinity", 0.0),
             non_word_phonemes="[UNKNOWN]",
         )
 
@@ -381,7 +381,7 @@ class AlignmentParameters:
             prior_info=priors.with_scale(center=0.2, left=0.1, right=0.1),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
             tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 0.0),
-            tdp_non_word=(0.0, 3.0, "infinity", 0.0),
+            tdp_nonword=(0.0, 3.0, "infinity", 0.0),
             non_word_phonemes="[UNKNOWN]",
         )
 
@@ -393,7 +393,7 @@ class AlignmentParameters:
             prior_info=priors.with_scale(diphone=0.4),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
             tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 0.0),
-            tdp_non_word=(0.0, 3.0, "infinity", 0.0),
+            tdp_nonword=(0.0, 3.0, "infinity", 0.0),
             non_word_phonemes="[UNKNOWN]",
         )
 

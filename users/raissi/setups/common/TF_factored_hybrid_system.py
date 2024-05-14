@@ -278,6 +278,9 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 }
                 network["classes_"]["from"] = "slice_classes"
 
+        else:
+            network=encoder_net
+
         return network
 
     # -------------------------------------------- Training --------------------------------------------------------
@@ -733,6 +736,10 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         self.experiments[key]["priors"] = p_info
 
+
+    def set_triphone_priors_factored(self):
+        self.create_hdf()
+
     def set_triphone_priors_returnn_rasr(
         self,
         key: str,
@@ -830,6 +837,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
     def set_graph_for_experiment(
         self, key, override_cfg: Optional[returnn.ReturnnConfig] = None, graph_type_name: Optional[str] = None
     ):
+
         config = copy.deepcopy(override_cfg if override_cfg is not None else self.experiments[key]["returnn_config"])
 
         name = self.experiments[key]["name"]

@@ -1,3 +1,4 @@
+__all__ = ["get_prior_from_pickle"]
 import numpy as np
 import pickle
 import xml.etree.ElementTree as ET
@@ -33,4 +34,11 @@ def get_prior_from_xml(path):
     values_log = [float(v) for v in root.text.split(" ")]
     priors = {"prior_probability": values, "prior_log_probability": values_log}
 
+    return priors
+
+
+def get_prior_from_pickle(path):
+    import pickle
+    with open(path, "rb") as f:
+        priors = pickle.load(f)
     return priors

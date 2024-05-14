@@ -262,7 +262,7 @@ class SWBFactoredHybridDecoder(BASEFactoredHybridDecoder):
             num_encoder_output=num_encoder_output,
             only_lm_opt=only_lm_opt,
             opt_lm_am=opt_lm_am,
-            pre_path="decoding-eugen-trafo-lm",
+            pre_path="decoding-NNLM",
             rerun_after_opt_lm=rerun_after_opt_lm,
             search_parameters=search_parameters,
             use_estimated_tdps=use_estimated_tdps,

@@ -1015,6 +1015,7 @@ class BASEFactoredHybridSystem(NnSystem):
         self.hdfs[self.train_key] = hdf_job.out_hdf_files
 
         hdf_job.add_alias(f"hdf/{self.train_key}")
+        tk.register_output("hdf/hdf.train.1", hdf_job.out_hdf_files[0])
 
         return hdf_job
 

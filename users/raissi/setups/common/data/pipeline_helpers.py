@@ -1,12 +1,15 @@
 __all__ = [
-    "TrainingCriterion",
-    "SingleSoftmaxType",
     "Experiment"
+    "PriorType",
+    "SingleSoftmaxType",
+    "TrainingCriterion",
+
+
 ]
 
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, auto
 from typing import Optional, TypedDict
 
 import i6_core.mm as mm
@@ -38,6 +41,8 @@ class SingleSoftmaxType(Enum):
     def __str__(self):
         return self.value
 
+
+
 class Experiment(TypedDict):
     """
     The class is used in the config files as a single experiment
@@ -55,4 +60,14 @@ class InputKey(Enum):
 
     BASE= "standard-system-input"
     HDF = "hdf-input"
+
+
+class PriorType(Enum):
+    """The type of single softmax for joint FH."""
+    TRANSCRIPT = auto()
+    AVERAGE = auto()
+    ONTHEFLY = auto()
+
+    def __str__(self):
+        return self.value
 

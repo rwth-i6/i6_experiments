@@ -121,6 +121,7 @@ def build_rasr_feature_hdfs(
 #### NextGenDataset#####
 #From old recipes
 class RasrFeaturesToHdf(Job):
+
     def __init__(self, feature_caches: Union[MultiPath, List[Path]]):
         self.feature_caches = (
             list(feature_caches.hidden_paths.values()) if isinstance(feature_caches, MultiPath) else feature_caches
@@ -128,7 +129,6 @@ class RasrFeaturesToHdf(Job):
 
         self.out_hdf_files = [self.output_path(f"data.hdf.{i}", cached=False) for i in range(len(self.feature_caches))]
         self.out_single_segment_files = [self.output_path(f"segments.{i}") for i in range(len(self.feature_caches))]
-
         self.rqmt = {"cpu": 1, "mem": 4, "time": 1.0}
 
     def tasks(self):

@@ -2,7 +2,7 @@ __all__ = ["read_prior_xml", "write_prior_xml"]
 
 from dataclasses import dataclass
 import numpy as np
-import typing
+from  typing import List, Tuple, Union
 import xml.etree.ElementTree as ET
 
 from sisyphus import Path
@@ -10,11 +10,11 @@ from sisyphus import Path
 
 @dataclass(frozen=True, eq=True)
 class ParsedPriors:
-    priors_log: typing.List[float]
-    shape: typing.Union[typing.Tuple[int], typing.Tuple[int, int]]
+    priors_log: List[float]
+    shape: Union[Tuple[int], Tuple[int, int]]
 
 
-def read_prior_xml(path: typing.Union[Path, str]) -> ParsedPriors:
+def read_prior_xml(path: Union[Path, str]) -> ParsedPriors:
     tree = ET.parse(path.get_path())
 
     root = tree.getroot()
@@ -34,7 +34,7 @@ def read_prior_xml(path: typing.Union[Path, str]) -> ParsedPriors:
     return ParsedPriors(priors_log=priors, shape=shape)
 
 
-def write_prior_xml(log_priors: np.ndarray, path: typing.Union[Path, str]):
+def write_prior_xml(log_priors: np.ndarray, path: Union[Path, str]):
     if log_priors.ndim == 1:
         attrs = {"size": str(len(log_priors))}
         element = "vector-f32"
@@ -50,3 +50,35 @@ def write_prior_xml(log_priors: np.ndarray, path: typing.Union[Path, str]):
     node.text = f"\n{table}\n"
 
     ET.ElementTree(node).write(path, encoding="utf-8")
+
+
+def initialize_dicts_with_zeros(n_contexts: int, n_states: int, isForward=True):
+    triDict = {}
+    for i in range(n_contexts):
+        triDict[i] = dict(zip(range(n_states), [np.zeros(n_contexts) for _ in range(n_states)]))
+    if isForward:
+        diDict = dict(zip(range(n_contexts), [np.zeros(n_states) for _ in range(n_contexts)]))
+    else:
+        diDict = dict(zip(range(n_states), [np.zeros(n_contexts) for _ in range(n_states)]))
+    return triDict, diDict
+
+
+def initialize_dicts(n_contexts: int, n_state_classes: int, isForward=True):
+    triDict = {}
+    for i in range(n_contexts):
+        triDict[i] = dict(zip(range(n_state_classes), [[] for _ in range(n_state_classes)]))
+    if isForward:
+        diDict = dict(zip(range(n_contexts), [[] for _ in range(n_contexts)]))
+    else:
+        diDict = dict(zip(range(n_state_classes), [[] for _ in range(n_state_classes)]))
+    return triDict, diDict
+
+
+def get_batch_from_segments(segments: List, batchSize=10000):
+    index = 0
+    while True:
+        try:
+            yield segments[index * batchSize : (index + 1) * batchSize]
+            index += 1
+        except IndexError:
+            index = 0
