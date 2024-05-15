@@ -1,5 +1,6 @@
 """
 Conformer encoder
+Same as conformer_encoder.py but with more regularizations
 
 Other implementations:
 
@@ -14,8 +15,6 @@ from returnn.tensor import Dim
 from returnn.tf.util.data import SpatialDim, FeatureDim
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 
-from i6_core.returnn.config import CodeWrapper
-
 
 class ConformerEncoderV2:
     """
@@ -28,7 +27,7 @@ class ConformerEncoderV2:
     def __init__(
         self,
         input="data",
-        input_layer="lstm-6",
+        input_layer="conv-6",
         input_layer_conv_act="relu",
         add_abs_pos_enc_to_input=False,
         frontend_conv_l2=0.0,
@@ -79,12 +78,15 @@ class ConformerEncoderV2:
         use_causal_conv=None,
         conv_alternative_name: Optional[str] = None,
         fix_merge_dims=False,
-        weight_noise=None,
-        weight_noise_layers=None,
+        ff_weight_noise=None,
+        mhsa_weight_noise=None,
+        conv_weight_noise=None,
+        frontend_conv_weight_noise=None,
         convolution_first=False,
         ff_weight_dropout=None,
         mhsa_weight_dropout=None,
         conv_weight_dropout=None,
+        frontend_conv_weight_dropout=None,
         memory_variant_opts: Optional[ConformerMemoryVariantOpts] = None,
     ):
         """
@@ -221,18 +223,17 @@ class ConformerEncoderV2:
         self.conv_alternative_name = conv_alternative_name
         self.fix_merge_dims = fix_merge_dims
 
-        self.weight_noise = weight_noise
-        self.weight_noise_layers = weight_noise_layers
-        if self.weight_noise_layers is None:
-            self.weight_noise_layers = []
-        for layer in self.weight_noise_layers:
-            assert layer in ["mhsa", "conv", "frontend_conv"]
+        self.ff_weight_noise = ff_weight_noise
+        self.conv_weight_noise = conv_weight_noise
+        self.mhsa_weight_noise = mhsa_weight_noise
+        self.frontend_conv_weight_noise = frontend_conv_weight_noise
 
         self.convolution_first = convolution_first
 
         self.ff_weight_drop = ff_weight_dropout
         self.conv_weight_drop = conv_weight_dropout
         self.mhsa_weight_drop = mhsa_weight_dropout
+        self.frontend_conv_weight_drop = frontend_conv_weight_dropout
 
         self.memory_variant_opts = memory_variant_opts
         if self.memory_variant_opts:
@@ -271,6 +272,7 @@ class ConformerEncoderV2:
             with_bias=self.ff_bias,
             param_dropout=self.ff_weight_drop,
             param_dropout_min_ndim=2,
+            param_variational_noise=self.ff_weight_noise,
         )
 
         if self.use_sqrd_relu:
@@ -294,6 +296,7 @@ class ConformerEncoderV2:
             with_bias=self.ff_bias,
             param_dropout=self.ff_weight_drop,
             param_dropout_min_ndim=2,
+            param_variational_noise=self.ff_weight_noise,
         )
 
         drop2 = self.network.add_dropout_layer("{}_drop2".format(prefix_name), ff2, dropout=self.dropout)
@@ -387,6 +390,7 @@ class ConformerEncoderV2:
             L2=self.self_att_l2,
             param_dropout=self.mhsa_weight_drop,
             param_dropout_min_ndim=2,
+            param_variational_noise=self.mhsa_weight_noise,
         )  # [B*C, W*N, D] or [B*C, W, D] (use_cached_prev_kv)
 
         V = self.network.add_generic_layer(
@@ -399,6 +403,7 @@ class ConformerEncoderV2:
             L2=self.self_att_l2,
             param_dropout=self.mhsa_weight_drop,
             param_dropout_min_ndim=2,
+            param_variational_noise=self.mhsa_weight_noise,
         )  # [B*C, W*N, D] or [B*C, W, D] (use_cached_prev_kv)
 
         if self.memory_variant_opts.use_emformer_mem and layer_index > 1:
@@ -555,6 +560,7 @@ class ConformerEncoderV2:
             L2=self.self_att_l2,
             param_dropout=self.mhsa_weight_drop,
             param_dropout_min_ndim=2,
+            param_variational_noise=self.mhsa_weight_noise,
         )  # second half of shape [B*C, W, D]
         query_dim = self.memory_variant_opts.chunk_size_dim  # W
 
@@ -839,7 +845,7 @@ class ConformerEncoderV2:
                     key_shift=ln_rel_pos_enc if ln_rel_pos_enc is not None else None,
                     l2=self.self_att_l2,
                     attention_left_only=self.use_causal_layers,
-                    param_variational_noise=self.weight_noise if "mhsa" in self.weight_noise_layers else None,
+                    param_variational_noise=self.mhsa_weight_noise,
                     param_dropout=self.mhsa_weight_drop,
                     param_dropout_min_ndim=2,
                 )  # [B*C, W*N, D]
@@ -880,7 +886,7 @@ class ConformerEncoderV2:
                 key_shift=ln_rel_pos_enc if ln_rel_pos_enc is not None else None,
                 l2=self.self_att_l2,
                 attention_left_only=self.use_causal_layers,
-                param_variational_noise=self.weight_noise if "mhsa" in self.weight_noise_layers else None,
+                param_variational_noise=self.mhsa_weight_noise,
                 param_dropout=self.mhsa_weight_drop,
                 param_dropout_min_ndim=2,
             )
@@ -894,6 +900,7 @@ class ConformerEncoderV2:
             with_bias=False,
             param_dropout=self.mhsa_weight_drop,
             param_dropout_min_ndim=2,
+            param_variational_noise=self.mhsa_weight_noise,
         )
 
         drop = self.network.add_dropout_layer("{}_dropout".format(prefix_name), mhsa_linear, dropout=self.dropout)
@@ -930,6 +937,7 @@ class ConformerEncoderV2:
             forward_weights_init=self.conv_module_init,
             param_dropout=self.conv_weight_drop,
             param_dropout_min_ndim=2,
+            param_variational_noise=self.conv_weight_noise,
         )
 
         glu_act = self.network.add_gating_layer("{}_glu".format(prefix_name), pointwise_conv1)
@@ -969,6 +977,7 @@ class ConformerEncoderV2:
                 padding="valid",
                 param_dropout=self.conv_weight_drop,
                 param_dropout_min_ndim=2,
+                param_variational_noise=self.conv_weight_noise,
             )
 
             # Fix time dim, match with the original input
@@ -988,6 +997,7 @@ class ConformerEncoderV2:
                 forward_weights_init=self.conv_module_init,
                 param_dropout=self.conv_weight_drop,
                 param_dropout_min_ndim=2,
+                param_variational_noise=self.conv_weight_noise,
             )
 
         if self.memory_variant_opts is not None and self.memory_variant_opts.conv_cache_size:
@@ -1021,6 +1031,7 @@ class ConformerEncoderV2:
             forward_weights_init=self.conv_module_init,
             param_dropout=self.conv_weight_drop,
             param_dropout_min_ndim=2,
+            param_variational_noise=self.conv_weight_noise,
         )
 
         drop = self.network.add_dropout_layer("{}_drop".format(prefix_name), pointwise_conv2, dropout=self.dropout)
@@ -1151,7 +1162,9 @@ class ConformerEncoderV2:
                 activation=self.input_layer_conv_act,
                 init=self.start_conv_init,
                 merge_out=False,
-                param_variational_noise=self.weight_noise if "frontend_conv" in self.weight_noise_layers else None,
+                param_dropout=self.frontend_conv_weight_drop,
+                param_dropout_min_ndim=2,
+                param_variational_noise=self.frontend_conv_weight_noise,
             )
 
             subsampled_input = self.network.add_conv_block(
@@ -1165,7 +1178,9 @@ class ConformerEncoderV2:
                 split_input=False,
                 prefix_name="subsample_",
                 merge_out_fixed=self.fix_merge_dims,
-                param_variational_noise=self.weight_noise if "frontend_conv" in self.weight_noise_layers else None,
+                param_dropout=self.frontend_conv_weight_drop,
+                param_dropout_min_ndim=2,
+                param_variational_noise=self.frontend_conv_weight_noise,
             )
         elif self.input_layer == "conv-6":
             conv_input = self.network.add_conv_block(
@@ -1176,7 +1191,9 @@ class ConformerEncoderV2:
                 activation=self.input_layer_conv_act,
                 init=self.start_conv_init,
                 merge_out=False,
-                param_variational_noise=self.weight_noise if "frontend_conv" in self.weight_noise_layers else None,
+                param_dropout=self.frontend_conv_weight_drop,
+                param_dropout_min_ndim=2,
+                param_variational_noise=self.frontend_conv_weight_noise,
             )
 
             subsampled_input = self.network.add_conv_block(
@@ -1190,7 +1207,9 @@ class ConformerEncoderV2:
                 split_input=False,
                 prefix_name="subsample_",
                 merge_out_fixed=self.fix_merge_dims,
-                param_variational_noise=self.weight_noise if "frontend_conv" in self.weight_noise_layers else None,
+                param_dropout=self.frontend_conv_weight_drop,
+                param_dropout_min_ndim=2,
+                param_variational_noise=self.frontend_conv_weight_noise,
             )
 
         assert subsampled_input is not None
@@ -1204,6 +1223,7 @@ class ConformerEncoderV2:
             with_bias=False,
             param_dropout=self.ff_weight_drop,
             param_dropout_min_ndim=2,
+            param_variational_noise=self.ff_weight_noise,
         )
 
         if self.add_abs_pos_enc_to_input:

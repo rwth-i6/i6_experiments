@@ -85,6 +85,7 @@ class ReturnnNetwork:
         forward_weights_init=None,
         param_dropout=None,
         param_dropout_min_ndim=None,
+        param_variational_noise=None,
         **kwargs,
     ):
         d = {"class": "linear", "activation": activation, "with_bias": with_bias, "from": source}
@@ -102,6 +103,8 @@ class ReturnnNetwork:
             d["param_dropout"] = param_dropout
             if param_dropout_min_ndim is not None:
                 d["param_dropout_min_ndim"] = param_dropout_min_ndim
+        if param_variational_noise:
+            d["param_variational_noise"] = param_variational_noise
         d.update(kwargs)
         self._net[name] = d
         return name
