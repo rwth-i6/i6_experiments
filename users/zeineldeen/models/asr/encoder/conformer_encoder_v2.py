@@ -17,7 +17,7 @@ from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 from i6_core.returnn.config import CodeWrapper
 
 
-class ConformerEncoder:
+class ConformerEncoderV2:
     """
     Represents Conformer Encoder Architecture
 
