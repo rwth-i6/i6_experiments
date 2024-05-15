@@ -48,6 +48,8 @@ class RNNDecoder:
         use_monotonic_att_weights_loss_in_recog=False,
         att_weights_variance_loss_scale=None,
         include_eos_in_search_output=False,
+        ff_weight_dropout=None,
+        ff_weight_noise=None,
     ):
         """
         :param base_model: base/encoder model instance
@@ -137,6 +139,9 @@ class RNNDecoder:
 
         self.use_zoneout_output = use_zoneout_output
 
+        self.ff_weight_drop = ff_weight_dropout
+        self.ff_weight_noise = ff_weight_noise
+
         self.monotonic_att_weights_loss_opts = monotonic_att_weights_loss_opts
         self.use_monotonic_att_weights_loss_in_recog = use_monotonic_att_weights_loss_in_recog
 
@@ -161,6 +166,9 @@ class RNNDecoder:
             with_bias=False,
             l2=self.l2,
             forward_weights_init=self.embed_weight_init,
+            param_dropout=self.ff_weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.ff_weight_noise,
         )
 
         subnet_unit.add_dropout_layer(
@@ -194,7 +202,14 @@ class RNNDecoder:
             )
             if self.lstm_lm_dim != self.enc_value_dim:
                 lstm_lm_component_proj = subnet_unit.add_linear_layer(
-                    "lm_like_s_proj", lstm_lm_component, n_out=self.enc_value_dim, l2=self.l2, dropout=self.dropout
+                    "lm_like_s_proj",
+                    lstm_lm_component,
+                    n_out=self.enc_value_dim,
+                    l2=self.l2,
+                    dropout=self.dropout,
+                    param_dropout=self.ff_weight_drop,
+                    param_dropout_min_ndim=2,
+                    param_variational_noise=self.ff_weight_noise,
                 )
             else:
                 lstm_lm_component_proj = lstm_lm_component
@@ -235,7 +250,14 @@ class RNNDecoder:
         if self.add_lstm_lm:
             # s_transformed (query) has 1024 dim
             s_proj = subnet_unit.add_linear_layer(
-                "s_proj", "s_transformed", n_out=self.enc_value_dim, l2=self.l2, dropout=self.dropout
+                "s_proj",
+                "s_transformed",
+                n_out=self.enc_value_dim,
+                l2=self.l2,
+                dropout=self.dropout,
+                param_dropout=self.ff_weight_drop,
+                param_dropout_min_ndim=2,
+                param_variational_noise=self.ff_weight_noise,
             )
             # back-lstm (query) + context
             readout_in_src = subnet_unit.add_combine_layer(
@@ -244,7 +266,15 @@ class RNNDecoder:
         else:
             readout_in_src = ["s", "prev:target_embed", "att"]
 
-        subnet_unit.add_linear_layer("readout_in", readout_in_src, n_out=self.dec_output_num_units, l2=self.l2)
+        subnet_unit.add_linear_layer(
+            "readout_in",
+            readout_in_src,
+            n_out=self.dec_output_num_units,
+            l2=self.l2,
+            param_dropout=self.ff_weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.ff_weight_noise,
+        )
 
         if self.reduceout:
             subnet_unit.add_reduceout_layer("readout", "readout_in")
@@ -263,6 +293,9 @@ class RNNDecoder:
             loss_opts=ce_loss_opts,
             target=self.target,
             dropout=self.softmax_dropout,
+            param_dropout=self.ff_weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.ff_weight_noise,
         )
 
         self.output_prob_with_coverage = None
