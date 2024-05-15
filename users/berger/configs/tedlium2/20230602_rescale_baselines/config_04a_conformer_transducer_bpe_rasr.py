@@ -12,12 +12,11 @@ from i6_experiments.users.berger.args.returnn.learning_rates import LearningRate
 from i6_experiments.users.berger.corpus.tedlium2.bpe_transducer_data import get_tedlium2_data_dumped_bpe_labels
 from i6_experiments.users.berger.pytorch.models import conformer_transducer_v2 as model
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
-from i6_experiments.users.berger.systems.dataclasses import ConfigVariant, FeatureType, ReturnnConfigs
-from i6_experiments.users.berger.systems.returnn_native_system import (
-    ReturnnNativeSystem,
-)
+from i6_experiments.users.berger.systems.dataclasses import ConfigVariant, EncDecConfig, FeatureType, ReturnnConfigs
+from i6_experiments.users.berger.systems.returnn_seq2seq_system import ReturnnSeq2SeqSystem
 from i6_experiments.users.berger.util import default_tools_v2
 from i6_experiments.users.berger.systems.functors.recognition.returnn_search import LexiconType
+from i6_experiments.users.berger.systems.functors.rasr_base import RecognitionScoringType
 
 # ********** Settings **********
 
@@ -34,40 +33,25 @@ tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/gen_seq2s
 
 
 def returnn_config_generator(
-    variant: ConfigVariant,
     train_data_config: dict,
     dev_data_config: dict,
-    forward_data_config: Optional[dict] = None,
     **kwargs,
 ) -> ReturnnConfig:
     model_config = model.get_default_config_v1(num_outputs=num_outputs)
 
-    if variant == ConfigVariant.RECOG:
-        assert forward_data_config is not None
-        extra_config = {
-            "forward_data": forward_data_config,
-            "model_outputs": {
-                "tokens": {
-                    "dtype": "string",
-                    "feature_dim_axis": None,
-                }
-            },
-        }
-        serializer = model.get_beam_search_serializer(model_config, **kwargs)
-    else:
-        extra_config = {
-            "train": train_data_config,
-            "dev": dev_data_config,
-            "max_seq_length": {"audio_features": 560000},
-            "torch_amp": {"dtype": "bfloat16"},
-        }
-        serializer = model.get_train_serializer(model_config, **kwargs)
+    extra_config = {
+        "train": train_data_config,
+        "dev": dev_data_config,
+        "max_seq_length": {"audio_features": 560000},
+        "torch_amp": {"dtype": "bfloat16"},
+    }
+    serializer = model.get_train_serializer(model_config, **kwargs)
 
     return get_returnn_config(
         num_epochs=num_subepochs,
         num_inputs=1,
         num_outputs=num_outputs,
-        target="classes" if variant != ConfigVariant.RECOG else None,
+        target="classes",
         extra_python=[serializer],
         extern_data_config=True,
         backend=Backend.PYTORCH,
@@ -85,33 +69,89 @@ def returnn_config_generator(
     )
 
 
+def recog_returnn_configs_generator(
+    **kwargs,
+) -> EncDecConfig[ReturnnConfig]:
+    model_config = model.get_default_config_v1(num_outputs=num_outputs)
+
+    enc_extra_config = {
+        "extern_data": {
+            "sources": {"dim": 80, "dtype": "float32"},
+        },
+        "model_outputs": {
+            "source_encodings": {
+                "dim": 384,
+                "dtype": "float32",
+            },
+        },
+    }
+    dec_extra_config = {
+        "extern_data": {
+            "source_encodings": {
+                "dim": 384,
+                "time_dim_axis": None,
+                "dtype": "float32",
+            },
+            "targets": {
+                "dim": num_outputs,
+                "time_dim_axis": None,
+                "sparse": True,
+                "shape": (1,),
+                "dtype": "int32",
+            },
+        },
+        "model_outputs": {
+            "log_probs": {
+                "dim": num_outputs,
+                "time_dim_axis": None,
+                "dtype": "float32",
+            }
+        },
+    }
+    enc_serializer = model.get_encoder_recog_serializer(model_config, **kwargs)
+    dec_serializer = model.get_decoder_recog_serializer(model_config, **kwargs)
+
+    return EncDecConfig(
+        encoder_config=get_returnn_config(
+            num_inputs=80,
+            num_outputs=num_outputs,
+            target=None,
+            extra_python=[enc_serializer],
+            extern_data_config=False,
+            backend=Backend.PYTORCH,
+            extra_config=enc_extra_config,
+        ),
+        decoder_config=get_returnn_config(
+            num_inputs=1,
+            num_outputs=num_outputs,
+            target=None,
+            # python_prolog=["from returnn.tensor.dim import Dim, batch_dim"],
+            extra_python=[dec_serializer],
+            extern_data_config=False,
+            backend=Backend.PYTORCH,
+            extra_config=dec_extra_config,
+        ),
+    )
+
+
 def get_returnn_config_collection(
     train_data_config: dict,
     dev_data_config: dict,
-    forward_data_configs: dict,
-    beam_sizes: List[int],
     **kwargs,
 ) -> ReturnnConfigs[ReturnnConfig]:
     return ReturnnConfigs(
         train_config=returnn_config_generator(
-            variant=ConfigVariant.TRAIN,
             train_data_config=train_data_config,
             dev_data_config=dev_data_config,
             blank_id=0,
             **kwargs,
         ),
         recog_configs={
-            f"recog_{key}_beam-{beam_size}": returnn_config_generator(
-                variant=ConfigVariant.RECOG,
+            "recog": recog_returnn_configs_generator(
                 train_data_config=train_data_config,
                 dev_data_config=dev_data_config,
-                forward_data_config=forward_data_config,
-                beam_size=beam_size,
-                blank_id=0,
                 **kwargs,
             )
-            for beam_size in beam_sizes
-            for key, forward_data_config in forward_data_configs.items()
         },
     )
 
@@ -132,17 +172,20 @@ def run_exp() -> SummaryReport:
     # ********** Step args **********
 
     train_args = exp_args.get_transducer_train_step_args(num_epochs=num_subepochs, gpu_mem_rqmt=24)
-    recog_args = {
-        "epochs": [20, 40, 80, 160, 320, 500],
-        "prior_scales": [0.0],
-        "lm_scales": [0.0],
-        "lexicon_type": LexiconType.BLISS,
-        "convert_bpe_results": True,
-    }
+    recog_args = exp_args.get_transducer_recog_step_args(
+        num_classes=num_outputs,
+        epochs=[500],
+        lm_scales=[0.5],
+        label_scorer_type="onnx-ffnn-transducer",
+        label_scorer_args={"extra_args": {"start_label_index": 0}},
+        reduction_subtrahend=3,
+        reduction_factor=4,
+        feature_type=FeatureType.LOGMEL_16K,
+    )
 
     # ********** System **********
 
-    system = ReturnnNativeSystem(tools)
+    system = ReturnnSeq2SeqSystem(tools)
 
     system.init_corpora(
         dev_keys=data.dev_keys,
@@ -159,23 +202,11 @@ def run_exp() -> SummaryReport:
         get_returnn_config_collection(
             data.train_data_config,
             data.cv_data_config,
-            data.forward_data_config,
-            beam_sizes=[1, 2, 3],
         ),
     )
 
     system.run_train_step(**train_args)
-
-    system.run_dev_recog_step(
-        recog_exp_names={
-            exp_name: [
-                recog_exp_name for recog_exp_name in system.get_recog_exp_names()[exp_name] if dev_key in recog_exp_name
-            ]
-            for dev_key in data.dev_keys
-            for exp_name in system.get_exp_names()
-        },
-        **recog_args,
-    )
+    system.run_dev_recog_step(**recog_args)
 
     assert system.summary_report
     return system.summary_report

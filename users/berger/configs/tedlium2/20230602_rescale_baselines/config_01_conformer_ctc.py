@@ -114,6 +114,7 @@ def run_exp() -> SummaryReport:
         prior_scales=[0.5],
         lm_scales=[1.1],
         feature_type=FeatureType.GAMMATONE_16K,
+        search_stats=True,
     )
 
     # ********** System **********

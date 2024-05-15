@@ -1,11 +1,13 @@
 __all__ = ["LabelTree", "LabelScorer"]
 
 from typing import Any, Dict, Optional
-from i6_experiments.users.berger import helpers
-from sisyphus import *
 
-Path = setup_path(__package__)
 from i6_core import rasr
+from i6_experiments.users.berger import helpers
+from sisyphus import tk, setup_path
+
+assert __package__ is not None
+Path = setup_path(__package__)
 
 
 class LabelTree:
@@ -62,6 +64,7 @@ valid_scorer_types = [
     "tf-attention",
     "tf-rnn-transducer",
     "tf-ffnn-transducer",
+    "onnx-ffnn-transducer",
 ]
 
 

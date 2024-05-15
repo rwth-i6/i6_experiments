@@ -41,6 +41,8 @@ def monotonic_timesync_beam_search(
 
     # Compute encoder once
     enc, enc_lengths = model.transcribe(features, feature_lengths)  # [1, T, E], [1]
+    print("encoder outputs:")
+    print(enc[0, :3, :5])
     T = int(enc_lengths[0].cpu().item())
 
     def predict_next(
@@ -85,6 +87,7 @@ def monotonic_timesync_beam_search(
 
             assert new_pred_history_state is not None
 
+            print("Predict with encoder state ", enc_state[0, 0, :5], "token", recent_token)
             log_probs, _, _ = model.join(  # [1, C] (packed) or [1, 1, 1, C] (not packed))
                 source_encodings=enc_state,
                 source_lengths=torch.tensor([1], device=enc.device),
@@ -92,6 +95,7 @@ def monotonic_timesync_beam_search(
                 target_lengths=torch.tensor([1], device=enc.device),
             )
             log_probs = log_probs.squeeze()  # [C]
+            print("Probs: ", torch.exp(log_probs[:5]))
 
             # extend hypothesis with all possible next classes
             for c in range(log_probs.size(0)):

@@ -7,6 +7,7 @@ from .config_01b_conformer_ctc_logmel import py as py_01b
 from .config_01_conformer_ctc import py as py_01
 
 from .config_04a_conformer_transducer_bpe import py as py_04a
+from .config_04a_conformer_transducer_bpe_rasr import py as py_04a_rasr
 from .config_04b_conformer_transducer_phon import py as py_04b
 
 
@@ -88,6 +89,7 @@ def main() -> SummaryReport:
         copy.deepcopy(py_01()),
         copy.deepcopy(py_01b()),
         copy.deepcopy(py_04a()),
+        copy.deepcopy(py_04a_rasr()),
         copy.deepcopy(py_04b()),
     ]:
         subreport.collapse([SummaryKey.CORPUS.value], best_selector_key=SummaryKey.ERR.value)

@@ -8,7 +8,8 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, blank_idx: in
 
     audio_features = extern_data["data"].raw_tensor
     assert audio_features is not None
-    audio_features = map_tensor_to_minus1_plus1_interval(audio_features)
+    audio_features = audio_features.float()
+    # audio_features = map_tensor_to_minus1_plus1_interval(audio_features)
 
     assert extern_data["data"].dims[1].dyn_size_ext is not None
     audio_feature_lengths = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
@@ -34,7 +35,7 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, blank_idx: in
     )
 
     loss = monotonic_rnnt_loss(
-        acts=model_logits,
+        acts=model_logits.to(dtype=torch.float32),
         labels=targets,
         input_lengths=input_lengths,
         label_lengths=target_lengths,

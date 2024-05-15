@@ -34,20 +34,17 @@ class Seq2SeqFunctor(RasrFunctor, ABC):
         label_scorer: custom_rasr.LabelScorer,
         enc_onnx_model: tk.Path,
         dec_onnx_model: tk.Path,
-        enc_features_name: str = "features",
-        enc_features_size: str = "features:size1",
-        enc_output_name: str = "encoder",
-        enc_output_size: str = "encoder:size1",
-        dec_features_name: str = "encoder",
-        dec_features_size: str = "encoder:size1",
-        dec_history_name: str = "history",
+        enc_features_name: str = "sources",
+        enc_features_size: str = "sources:size1",
+        enc_output_name: str = "source_encodings",
+        dec_features_name: str = "source_encodings",
+        dec_history_name: str = "targets",
         dec_output_name: str = "log_probs",
     ) -> None:
         encoder_io_map = rasr.RasrConfig()
         encoder_io_map.features = enc_features_name
         encoder_io_map.features_size = enc_features_size
         encoder_io_map.encoder_output = enc_output_name
-        encoder_io_map.encoder_output_size = enc_output_size
 
         encoder_session = rasr.RasrConfig()
         encoder_session.file = enc_onnx_model
@@ -56,7 +53,6 @@ class Seq2SeqFunctor(RasrFunctor, ABC):
 
         decoder_io_map = rasr.RasrConfig()
         decoder_io_map.encoder_output = dec_features_name
-        decoder_io_map.encoder_output_size = dec_features_size
         decoder_io_map.feedback = dec_history_name
         decoder_io_map.output = dec_output_name
 
@@ -65,10 +61,10 @@ class Seq2SeqFunctor(RasrFunctor, ABC):
         decoder_session.inter_op_num_threads = 2
         decoder_session.intra_op_num_threads = 2
 
-        label_scorer.apply_config("encoder-io-map", encoder_io_map)
-        label_scorer.apply_config("encoder-session", encoder_session)
-        label_scorer.apply_config("decoder-io-map", decoder_io_map)
-        label_scorer.apply_config("decoder-session", decoder_session)
+        label_scorer.config.encoder_io_map = encoder_io_map
+        label_scorer.config.encoder_session = encoder_session
+        label_scorer.config.decoder_io_map = decoder_io_map
+        label_scorer.config.decoder_session = decoder_session
 
     def _get_tf_feature_flow_for_label_scorer(
         self,

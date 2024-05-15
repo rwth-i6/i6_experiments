@@ -14,48 +14,45 @@ from i6_experiments.users.berger.pytorch.models.conformer_transducer_v2 import (
 
 
 def encoder_forward_step(*, model: FFNNTransducerEncoderOnly, extern_data: TensorDict, **_):
-    audio_features = extern_data["data"].raw_tensor
-    assert audio_features is not None
-    audio_features = map_tensor_to_minus1_plus1_interval(audio_features)
+    sources = extern_data["sources"].raw_tensor
+    assert sources is not None
 
-    audio_feature_lengths = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
-    assert audio_feature_lengths is not None
+    source_lengths = extern_data["sources"].dims[1].dyn_size_ext.raw_tensor
+    assert source_lengths is not None
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    encoder_outputs, encoder_output_lengths = model(
-        features=audio_features.to(device),
-        features_size=audio_feature_lengths.to(device),
+    source_encodings, source_lengths = model(
+        sources=sources.to(device),
+        source_lengths=source_lengths.to(device),
     )  # [B, T, E], [B]
 
     import returnn.frontend as rf
 
     run_ctx = rf.get_run_ctx()
     if run_ctx.expected_outputs is not None:
-        run_ctx.expected_outputs["encoder_outputs"].dims[1].dyn_size_ext.raw_tensor = encoder_output_lengths
-    run_ctx.mark_as_output(encoder_outputs, name="encoder_outputs")
+        run_ctx.expected_outputs["source_encodings"].dims[1].dyn_size_ext.raw_tensor = source_lengths
+    run_ctx.mark_as_output(source_encodings, name="source_encodings")
 
 
 def decoder_forward_step(*, model: FFNNTransducerDecoderOnly, extern_data: TensorDict, **_):
-    encoder = extern_data["encoder"].raw_tensor
-    assert encoder is not None
+    source_encodings = extern_data["source_encodings"].raw_tensor
+    assert source_encodings is not None
 
-    history = extern_data["history"].raw_tensor
-    assert history is not None
+    targets = extern_data["targets"].raw_tensor
+    assert targets is not None
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    encoder_outputs, encoder_output_lengths = model(
-        features=encoder.to(device),
-        features_size=audio_feature_lengths.to(device),
-    )  # [B, T, E], [B]
+    log_probs = model(
+        source_encodings=source_encodings.to(device),
+        targets=targets.to(device),
+    )  # [B, C]
 
     import returnn.frontend as rf
 
     run_ctx = rf.get_run_ctx()
-    if run_ctx.expected_outputs is not None:
-        run_ctx.expected_outputs["encoder_outputs"].dims[1].dyn_size_ext.raw_tensor = encoder_output_lengths
-    run_ctx.mark_as_output(encoder_outputs, name="encoder_outputs")
+    run_ctx.mark_as_output(log_probs, name="log_probs")
 
 
 def monotonic_timesync_beam_search_forward_step(
@@ -63,7 +60,8 @@ def monotonic_timesync_beam_search_forward_step(
 ):
     audio_features = extern_data["data"].raw_tensor
     assert audio_features is not None
-    audio_features = map_tensor_to_minus1_plus1_interval(audio_features)
+    # audio_features = map_tensor_to_minus1_plus1_interval(audio_features)
+    audio_features = audio_features.float()
 
     assert extern_data["data"].dims[1].dyn_size_ext is not None
     audio_feature_lengths = extern_data["data"].dims[1].dyn_size_ext.raw_tensor

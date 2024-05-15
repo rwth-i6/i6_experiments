@@ -98,6 +98,7 @@ class FeatureType(Enum):
     CONCAT_SEC_GAMMATONE_16K = auto()
     CONCAT_MIX_GAMMATONE_16K = auto()
     CONCAT_SEC_MIX_GAMMATONE_16K = auto()
+    LOGMEL_16K = auto()
 
 
 @dataclass

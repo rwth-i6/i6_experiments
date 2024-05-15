@@ -1,27 +1,28 @@
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import List, Optional, Union, Callable, Tuple
+from typing import Callable, List, Optional, Tuple, Union
 
+import i6_models.assemblies.conformer as conformer_i6
+import i6_models.parts.conformer as conformer_parts_i6
 import torch
-from torchaudio.models import rnnt
-
 from i6_core.returnn.config import CodeWrapper
 from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
 from i6_experiments.common.setups.serialization import Import, PartialImport
 from i6_experiments.users.berger.pytorch.serializers.basic import (
     get_basic_pt_network_serializer,
 )
-from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
-import i6_models.parts.conformer as conformer_parts_i6
-import i6_models.assemblies.conformer as conformer_i6
 from i6_models.config import ModelConfiguration, ModuleFactoryV1
-from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
-from .util import lengths_to_padding_mask
+from i6_models.parts.frontend.generic_frontend import FrontendLayerType, GenericFrontendV1, GenericFrontendV1Config
+from i6_models.primitives.feature_extraction import (
+    RasrCompatibleLogMelFeatureExtractionV1,
+    RasrCompatibleLogMelFeatureExtractionV1Config,
+)
 
 from ..custom_parts.specaugment import (
-    SpecaugmentConfigV1,
-    SpecaugmentModuleV1,
+    SpecaugmentByLengthConfigV1,
+    SpecaugmentByLengthModuleV1,
 )
+from .util import lengths_to_padding_mask
 
 
 @dataclass
@@ -29,42 +30,52 @@ class TransducerTranscriberConfig(ModelConfiguration):
     feature_extraction: ModuleFactoryV1
     specaugment: ModuleFactoryV1
     encoder: ModuleFactoryV1
-    dim: int
-    target_size: int
 
 
-class TransducerTranscriber(rnnt._Transcriber, torch.nn.Module):
+class TransducerTranscriber(torch.nn.Module):
     def __init__(self, cfg: TransducerTranscriberConfig, **_) -> None:
         super().__init__()
         self.feature_extraction = cfg.feature_extraction()
         self.specaugment = cfg.specaugment()
         self.encoder = cfg.encoder()
-        self.final_linear = torch.nn.Linear(cfg.dim, cfg.target_size)
 
     def forward(
         self,
-        input: torch.Tensor,  # [B, T, F]
-        lengths: torch.Tensor,  # [B]
+        sources: torch.Tensor,  # [B, T, F]
+        source_lengths: torch.Tensor,  # [B]
     ) -> Tuple[torch.Tensor, torch.Tensor]:  # [B, T, C], [B]
         with torch.no_grad():
-            input = input.squeeze(-1)
-            x, lengths = self.feature_extraction(input, lengths)
-            sequence_mask = lengths_to_padding_mask(lengths)
+            sources = sources.squeeze(-1)
+            x, source_lengths = self.feature_extraction(sources, source_lengths)
+            print("Features: ", x[0, :3, :5])
+            sequence_mask = lengths_to_padding_mask(source_lengths)
 
             x = self.specaugment(x)  # [B, T, F]
 
         x, sequence_mask = self.encoder(x, sequence_mask)  # [B, T, E], [B, T]
-        x = self.final_linear(x)  # [B, T, C]
 
         return x, torch.sum(sequence_mask, dim=1).to(torch.int32)  # [B, T, C], [B]
 
-    def infer(
+
+class TransducerTranscriberNoFeatExtr(torch.nn.Module):
+    def __init__(self, cfg: TransducerTranscriberConfig, **_) -> None:
+        super().__init__()
+        self.specaugment = cfg.specaugment()
+        self.encoder = cfg.encoder()
+
+    def forward(
         self,
-        input: torch.Tensor,  # [B, T, F],
-        lengths: torch.Tensor,  # [B]
-        states: Optional[List[List[torch.Tensor]]],
-    ) -> Tuple[torch.Tensor, torch.Tensor, List[List[torch.Tensor]]]:
-        raise NotImplementedError
+        sources: torch.Tensor,  # [B, T, F]
+        source_lengths: torch.Tensor,  # [B]
+    ) -> Tuple[torch.Tensor, torch.Tensor]:  # [B, T, C], [B]
+        with torch.no_grad():
+            sequence_mask = lengths_to_padding_mask(source_lengths)
+
+            x = self.specaugment(sources)  # [B, T, F]
+
+        x, sequence_mask = self.encoder(x, sequence_mask)  # [B, T, E], [B, T]
+
+        return x, torch.sum(sequence_mask, dim=1).to(torch.int32)  # [B, T, C], [B]
 
 
 @dataclass
@@ -82,10 +93,10 @@ class FFNNTransducerPredictorConfig(ModelConfiguration):
 class FFNNTransducerPredictor(torch.nn.Module):
     def __init__(self, cfg: FFNNTransducerPredictorConfig, **_) -> None:
         super().__init__()
-        self.embedding = torch.nn.Embedding(num_embeddings=cfg.target_size, embedding_dim=cfg.context_embedding_size)
-
         self.blank_id = cfg.blank_id
-
+        self.embedding = torch.nn.Embedding(
+            num_embeddings=cfg.target_size, embedding_dim=cfg.context_embedding_size, padding_idx=self.blank_id
+        )
         self.context_history_size = cfg.context_history_size
         prediction_layers = []
         prev_size = self.context_history_size * cfg.context_embedding_size
@@ -95,14 +106,12 @@ class FFNNTransducerPredictor(torch.nn.Module):
             prediction_layers.append(cfg.activation)
             prev_size = cfg.layer_size
 
-        self.network = torch.nn.Sequential(
-            *prediction_layers, torch.nn.Dropout(cfg.dropout), torch.nn.Linear(prev_size, cfg.target_size)
-        )
+        self.network = torch.nn.Sequential(*prediction_layers)
 
     def forward(
         self,
-        input: torch.Tensor,  # [B, S],
-        lengths: torch.Tensor,  # [B],
+        targets: torch.Tensor,  # [B, S],
+        target_lengths: torch.Tensor,  # [B],
         state: Optional[
             List[List[torch.Tensor]]
         ] = None,  # Most recently fed inputs, used for higher order context, shape [[[B, H-1]]]; list of lists for compatibility with torchaudio
@@ -114,23 +123,23 @@ class FFNNTransducerPredictor(torch.nn.Module):
         # extend input by prepending either the state if it's given or some history consisting of blanks
         if state is None:
             prepend = torch.full(
-                (input.size(0), self.context_history_size - 1),
+                (targets.size(0), self.context_history_size - 1),
                 fill_value=self.blank_id,
-                dtype=input.dtype,
-                device=input.device,
+                dtype=targets.dtype,
+                device=targets.device,
             )  # [B, H-1]
             # print("Predictor received no state. Use", prepend.deeper())
         else:
             prepend = state[0][0]  # [B, H-1]
             # print("Predictor received state", prepend.deeper())
-        extended_input = torch.concat([prepend, input], dim=1)  # [B, S+H-1]
+        extended_input = torch.concat([prepend, targets], dim=1)  # [B, S+H-1]
         # print("extended input", extended_input.deeper())
 
         if self.context_history_size > 1:
             return_state = extended_input[:, -(self.context_history_size - 1) :]  # [B, H-1]
         else:
             return_state = torch.empty(
-                size=(input.size(0), 0), dtype=input.dtype, device=input.device
+                size=(targets.size(0), 0), dtype=targets.dtype, device=targets.device
             )  # [B, 0] = [B, H-1]
         # print("New state is ", return_state.deeper())
 
@@ -158,7 +167,7 @@ class FFNNTransducerPredictor(torch.nn.Module):
         #     "Repeat probabilities:",
         #     torch.gather(torch.nn.functional.softmax(a, dim=-1), dim=-1, index=context[:, :, -2:-1]).deeper(),
         # )
-        return a, lengths, [[return_state]]
+        return a, target_lengths, [[return_state]]
 
 
 class CombinationMode(Enum):
@@ -170,6 +179,7 @@ class CombinationMode(Enum):
 class TransducerJoinerConfig(ModelConfiguration):
     layer_size: int
     act: torch.nn.Module
+    input_size: int
     target_size: int
     combination_mode: CombinationMode
 
@@ -178,7 +188,7 @@ class TransducerJoiner(torch.nn.Module):
     def __init__(self, cfg: TransducerJoinerConfig, **_) -> None:
         super().__init__()
         self.network = torch.nn.Sequential(
-            torch.nn.Linear(cfg.target_size, cfg.layer_size),
+            torch.nn.Linear(cfg.input_size, cfg.layer_size),
             cfg.act,
             torch.nn.Linear(cfg.layer_size, cfg.target_size),
         )
@@ -213,7 +223,7 @@ class PackedTransducerJoiner(torch.nn.Module):
     def __init__(self, cfg: TransducerJoinerConfig, **_) -> None:
         super().__init__()
         self.network = torch.nn.Sequential(
-            torch.nn.Linear(cfg.target_size, cfg.layer_size),
+            torch.nn.Linear(cfg.input_size, cfg.layer_size),
             cfg.act,
             torch.nn.Linear(cfg.layer_size, cfg.target_size),
         )
@@ -260,62 +270,104 @@ class FFNNTransducerConfig(ModelConfiguration):
     joiner_cfg: TransducerJoinerConfig
 
 
-class FFNNTransducer(rnnt.RNNT):
+class FFNNTransducer(torch.nn.Module):
     def __init__(self, step: int, cfg: FFNNTransducerConfig, **_):
-        super().__init__(
-            transcriber=TransducerTranscriber(cfg.transcriber_cfg),
-            predictor=FFNNTransducerPredictor(cfg.predictor_cfg),
-            joiner=PackedTransducerJoiner(cfg.joiner_cfg),
-        )
+        super().__init__()
+        self.transcriber = TransducerTranscriber(cfg.transcriber_cfg)
+        self.predictor = FFNNTransducerPredictor(cfg.predictor_cfg)
+        self.joiner = PackedTransducerJoiner(cfg.joiner_cfg)
 
+    def transcribe(self, sources: torch.Tensor, source_lengths: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.transcriber(sources=sources, source_lengths=source_lengths)
 
-class FFNNTransducerEncoderOnly(rnnt.RNNT):
-    def __init__(self, step: int, cfg: FFNNTransducerConfig, **_):
-        super().__init__(
-            transcriber=TransducerTranscriber(cfg.transcriber_cfg),
-            predictor=None,
-            joiner=None,
+    def predict(
+        self, targets: torch.Tensor, target_lengths: torch.Tensor, state: Optional[List[List[torch.Tensor]]]
+    ) -> Tuple[torch.Tensor, torch.Tensor, List[List[torch.Tensor]]]:
+        return self.predictor(targets=targets, target_lengths=target_lengths, state=state)
+
+    def join(
+        self,
+        source_encodings: torch.Tensor,
+        source_lengths: torch.Tensor,
+        target_encodings: torch.Tensor,
+        target_lengths: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return self.joiner(
+            source_encodings=source_encodings,
+            source_lengths=source_lengths,
+            target_encodings=target_encodings,
+            target_lengths=target_lengths,
         )
 
     def forward(
         self,
-        features: torch.Tensor,  # [B, T, F]
-        features_size: torch.Tensor,  # [B]
+        sources: torch.Tensor,
+        source_lengths: torch.Tensor,
+        targets: torch.Tensor,
+        target_lengths: torch.Tensor,
+        predictor_state: Optional[List[List[torch.Tensor]]] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[List[torch.Tensor]]]:
+        source_encodings, source_lengths = self.transcribe(sources=sources, source_lengths=source_lengths)
+        target_encodings, target_lengths, state = self.predict(
+            targets=targets, target_lengths=target_lengths, state=predictor_state
+        )
+
+        output, source_lengths, target_lengths = self.join(
+            source_encodings=source_encodings,
+            source_lengths=source_lengths,
+            target_encodings=target_encodings,
+            target_lengths=target_lengths,
+        )
+
+        return output, source_lengths, target_lengths, state
+
+
+class FFNNTransducerEncoderOnly(torch.nn.Module):
+    def __init__(self, step: int, cfg: FFNNTransducerConfig, **_):
+        super().__init__()
+        self.transcriber = TransducerTranscriberNoFeatExtr(cfg.transcriber_cfg)
+
+    def forward(
+        self,
+        sources: torch.Tensor,  # [B, T, F]
+        source_lengths: torch.Tensor,  # [B]
     ) -> Tuple[torch.Tensor, torch.Tensor]:  # [B, T', E]
-        return self.transcribe(sources=features, source_lengths=features_size)
+        return self.transcriber(sources=sources, source_lengths=source_lengths)
 
 
-class FFNNTransducerDecoderOnly(rnnt.RNNT):
+class FFNNTransducerDecoderOnly(torch.nn.Module):
     def __init__(self, step: int, cfg: FFNNTransducerConfig, **_):
-        super().__init__(
-            transcriber=None,
-            predictor=FFNNTransducerPredictor(cfg.predictor_cfg),
-            joiner=TransducerJoiner(cfg.joiner_cfg),
-        )
+        super().__init__()
+        self.predictor = FFNNTransducerPredictor(cfg.predictor_cfg)
+        self.joiner = TransducerJoiner(cfg.joiner_cfg)
 
     def forward(
         self,
-        encoder: torch.Tensor,  # [B, E]
-        history: torch.Tensor,  # [B, H]
+        source_encodings: torch.Tensor,  # [B, E]
+        targets: torch.Tensor,  # [B, H]
     ) -> torch.Tensor:  # [B, C]
-        dec_history_state = [[history[:, :-1]]]  # [[[B, H-1]]]
-        dec_current_label = history[:, -1:]  # [B, 1]
-        dec_length = torch.tensor([1] * history.size(0), device=history.device)  # [B]
+        dec_state = [[targets[:, :-1]]]  # [[[B, H-1]]]
+        dec_current_label = targets[:, -1:]  # [B, 1]
+        dec_length = torch.tensor([1] * targets.size(0), device=targets.device)  # [B]
 
-        decoder, _, _ = self.predict(
-            targets=dec_current_label, target_lengths=dec_length, state=dec_history_state
+        decoder, _, _ = self.predictor(
+            targets=dec_current_label, target_lengths=dec_length, state=dec_state
         )  # [B, 1, P]
 
-        encoder = encoder.unsqueeze(1)  # [B, 1, E]
+        source_encodings = source_encodings.unsqueeze(1)  # [B, 1, E]
 
-        joint_output, _, _ = self.join(
-            source_encodings=encoder, source_lengths=dec_length, target_encodings=decoder, target_lengths=dec_length
+        joint_output, _, _ = self.joiner(
+            source_encodings=source_encodings,
+            source_lengths=dec_length,
+            target_encodings=decoder,
+            target_lengths=dec_length,
         )  # [B, 1, 1, C]
 
-        return joint_output.squeeze((1, 2))  # [B, C]
+        return joint_output.squeeze(2).squeeze(1)  # [B, C]
 
 
 def get_train_serializer(model_config: FFNNTransducerConfig, **kwargs) -> Collection:
+    assert __package__ is not None
     pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{FFNNTransducer.__name__}",
@@ -332,6 +384,7 @@ def get_train_serializer(model_config: FFNNTransducerConfig, **kwargs) -> Collec
 
 
 def get_torchaudio_train_serializer(model_config: FFNNTransducerConfig, **kwargs) -> Collection:
+    assert __package__ is not None
     pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{FFNNTransducer.__name__}",
@@ -348,6 +401,7 @@ def get_torchaudio_train_serializer(model_config: FFNNTransducerConfig, **kwargs
 
 
 def get_k2_train_serializer(model_config: FFNNTransducerConfig, **kwargs) -> Collection:
+    assert __package__ is not None
     pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{FFNNTransducer.__name__}",
@@ -365,6 +419,7 @@ def get_k2_train_serializer(model_config: FFNNTransducerConfig, **kwargs) -> Col
 
 
 def get_pruned_k2_train_serializer(model_config: FFNNTransducerConfig, **kwargs) -> Collection:
+    assert __package__ is not None
     pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{FFNNTransducer.__name__}",
@@ -382,24 +437,31 @@ def get_pruned_k2_train_serializer(model_config: FFNNTransducerConfig, **kwargs)
 
 
 def get_encoder_recog_serializer(model_config: FFNNTransducerConfig, **_) -> Collection:
+    assert __package__ is not None
     pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{FFNNTransducerEncoderOnly.__name__}",
         model_config=model_config,
-        additional_serializer_objects=[Import(f"{pytorch_package}.forward.transducer.encoder_forward_step")],
+        additional_serializer_objects=[
+            Import(f"{pytorch_package}.forward.transducer.encoder_forward_step", import_as="forward_step")
+        ],
     )
 
 
 def get_decoder_recog_serializer(model_config: FFNNTransducerConfig, **_) -> Collection:
+    assert __package__ is not None
     pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{FFNNTransducerDecoderOnly.__name__}",
         model_config=model_config,
-        additional_serializer_objects=[Import(f"{pytorch_package}.forward.transducer.decoder_forward_step")],
+        additional_serializer_objects=[
+            Import(f"{pytorch_package}.forward.transducer.decoder_forward_step", import_as="forward_step")
+        ],
     )
 
 
 def get_beam_search_serializer(model_config: FFNNTransducerConfig, **kwargs) -> Collection:
+    assert __package__ is not None
     pytorch_package = __package__.rpartition(".")[0]
     kwargs.setdefault("lexicon_file", CodeWrapper("lexicon_file"))
     return get_basic_pt_network_serializer(
@@ -420,72 +482,74 @@ def get_beam_search_serializer(model_config: FFNNTransducerConfig, **kwargs) -> 
 
 def get_default_config_v1(num_outputs: int) -> FFNNTransducerConfig:
     feature_extraction = ModuleFactoryV1(
-        module_class=LogMelFeatureExtractionV1,
-        cfg=LogMelFeatureExtractionV1Config(
+        module_class=RasrCompatibleLogMelFeatureExtractionV1,
+        cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
             hop_size=0.01,
-            f_min=60,
-            f_max=7600,
-            min_amp=1e-10,
+            min_amp=1.175494e-38,
             num_filters=80,
-            center=False,
-            n_fft=400,
+            alpha=0.97,
         ),
     )
 
     specaugment = ModuleFactoryV1(
-        module_class=SpecaugmentModuleV1,
-        cfg=SpecaugmentConfigV1(
-            time_min_num_masks=1,
-            time_max_num_masks=1,
-            time_mask_max_size=15,
-            freq_min_num_masks=1,
-            freq_max_num_masks=8,
+        module_class=SpecaugmentByLengthModuleV1,
+        cfg=SpecaugmentByLengthConfigV1(
+            time_min_num_masks=2,
+            time_max_mask_per_n_frames=25,
+            time_mask_max_size=20,
+            freq_min_num_masks=2,
+            freq_max_num_masks=16,
             freq_mask_max_size=5,
         ),
     )
 
-    frontend_cfg = VGG4LayerActFrontendV1Config(
-        in_features=80,
-        conv1_channels=32,
-        conv2_channels=32,
-        conv3_channels=64,
-        conv4_channels=64,
-        conv_kernel_size=(3, 3),
-        conv_padding=None,
-        pool1_kernel_size=(2, 2),
-        pool1_stride=None,
-        pool1_padding=None,
-        pool2_kernel_size=(2, 1),
-        pool2_stride=None,
-        pool2_padding=None,
-        activation=torch.nn.SiLU(),
-        out_features=512,
+    frontend = ModuleFactoryV1(
+        GenericFrontendV1,
+        GenericFrontendV1Config(
+            in_features=80,
+            layer_ordering=[
+                FrontendLayerType.Conv2d,
+                FrontendLayerType.Conv2d,
+                FrontendLayerType.Pool2d,
+                FrontendLayerType.Conv2d,
+                FrontendLayerType.Conv2d,
+                FrontendLayerType.Pool2d,
+                FrontendLayerType.Activation,
+            ],
+            conv_kernel_sizes=[(3, 3), (3, 3), (3, 3), (3, 3)],
+            conv_paddings=None,
+            conv_out_dims=[32, 64, 64, 32],
+            conv_strides=[(1, 1), (1, 1), (1, 1), (1, 1)],
+            pool_kernel_sizes=[(2, 1), (2, 1)],
+            pool_strides=None,
+            pool_paddings=None,
+            activations=[torch.nn.ReLU()],
+            out_features=384,
+        ),
     )
 
-    frontend = ModuleFactoryV1(VGG4LayerActFrontendV1, frontend_cfg)
-
     ff_cfg = conformer_parts_i6.ConformerPositionwiseFeedForwardV1Config(
-        input_dim=512,
-        hidden_dim=2048,
-        dropout=0.1,
+        input_dim=384,
+        hidden_dim=1536,
+        dropout=0.2,
         activation=torch.nn.SiLU(),
     )
 
     mhsa_cfg = conformer_parts_i6.ConformerMHSAV1Config(
-        input_dim=512,
-        num_att_heads=8,
-        att_weights_dropout=0.1,
-        dropout=0.1,
+        input_dim=384,
+        num_att_heads=6,
+        att_weights_dropout=0.2,
+        dropout=0.2,
     )
 
     conv_cfg = conformer_parts_i6.ConformerConvolutionV1Config(
-        channels=512,
+        channels=384,
         kernel_size=31,
-        dropout=0.1,
+        dropout=0.2,
         activation=torch.nn.SiLU(),
-        norm=torch.nn.BatchNorm1d(num_features=512, affine=False),
+        norm=torch.nn.BatchNorm1d(num_features=384, affine=False),
     )
 
     block_cfg = conformer_i6.ConformerBlockV1Config(
@@ -504,26 +568,25 @@ def get_default_config_v1(num_outputs: int) -> FFNNTransducerConfig:
         feature_extraction=feature_extraction,
         specaugment=specaugment,
         encoder=ModuleFactoryV1(module_class=conformer_i6.ConformerEncoderV1, cfg=conformer_cfg),
-        dim=512,
-        target_size=num_outputs,
     )
 
     predictor_cfg = FFNNTransducerPredictorConfig(
         layers=2,
         layer_size=640,
         activation=torch.nn.Tanh(),
-        dropout=0.1,
+        dropout=0.2,
         context_history_size=1,
         context_embedding_size=256,
-        target_size=num_outputs,
         blank_id=0,
+        target_size=num_outputs,
     )
 
     joiner_cfg = TransducerJoinerConfig(
+        input_size=1024,
         layer_size=1024,
         act=torch.nn.Tanh(),
         target_size=num_outputs,
-        combination_mode=CombinationMode.SUM,
+        combination_mode=CombinationMode.CONCAT,
     )
 
     return FFNNTransducerConfig(

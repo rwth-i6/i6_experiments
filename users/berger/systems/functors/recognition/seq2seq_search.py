@@ -112,6 +112,7 @@ class Seq2SeqSearchFunctor(
                         label_scorer=label_scorer,
                         base_feature_flow=base_feature_flow,
                         onnx_model=onnx_model,
+                        feature_type=feature_type,
                         **model_flow_args,
                     )
                 else:
@@ -128,6 +129,7 @@ class Seq2SeqSearchFunctor(
                         base_feature_flow=base_feature_flow,
                         enc_onnx_model=enc_model,
                         dec_onnx_model=dec_model,
+                        feature_type=feature_type,
                         **model_flow_args,
                     )
             else:

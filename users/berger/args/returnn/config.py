@@ -21,6 +21,7 @@ def get_base_config(backend: Backend) -> Dict[str, Any]:
     elif backend == Backend.PYTORCH:
         result["backend"] = "torch"
         result["use_lovely_tensors"] = True
+        # result["torch_amp"] = {"dtype": "bfloat16"}
     else:
         raise NotImplementedError
     return result

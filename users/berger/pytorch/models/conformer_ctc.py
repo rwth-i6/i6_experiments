@@ -9,7 +9,10 @@ from i6_experiments.common.setups.serialization import Import, PartialImport
 from i6_experiments.users.berger.pytorch.serializers.basic import (
     get_basic_pt_network_serializer,
 )
-from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
+from i6_models.primitives.feature_extraction import (
+    RasrCompatibleLogMelFeatureExtractionV1,
+    RasrCompatibleLogMelFeatureExtractionV1Config,
+)
 from i6_models.parts.frontend.generic_frontend import (
     GenericFrontendV1,
     GenericFrontendV1Config,
@@ -314,17 +317,13 @@ def get_default_config_v2(num_inputs: int, num_outputs: int) -> ConformerCTCConf
 
 def get_default_config_v3(num_outputs: int) -> ConformerCTCConfig:
     feature_extraction = ModuleFactoryV1(
-        module_class=LogMelFeatureExtractionV1,
-        cfg=LogMelFeatureExtractionV1Config(
+        module_class=RasrCompatibleLogMelFeatureExtractionV1,
+        cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
             hop_size=0.01,
-            f_min=60,
-            f_max=7600,
             min_amp=1e-10,
             num_filters=80,
-            center=False,
-            n_fft=400,
         ),
     )
     specaugment = ModuleFactoryV1(

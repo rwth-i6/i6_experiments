@@ -42,6 +42,7 @@ def returnn_config_generator(
     extra_config = {
         "train": train_data_config,
         "dev": dev_data_config,
+        "torch_amp": {"dtype": "bfloat16"},
     }
 
     if variant == ConfigVariant.TRAIN:
