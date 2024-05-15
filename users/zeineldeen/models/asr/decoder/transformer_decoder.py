@@ -24,6 +24,7 @@ class TransformerDecoder:
         softmax_dropout=0.0,
         embed_dropout=0.1,
         l2=0.0,
+        self_att_l2=0.0,
         embed_pos_enc=False,
         apply_embed_weight=False,
         label_smoothing=0.1,
@@ -36,6 +37,10 @@ class TransformerDecoder:
         create_ilm_decoder=False,
         ilm_type=None,
         ilm_args=None,
+        ff_weight_noise=None,
+        mhsa_weight_noise=None,
+        ff_weight_dropout=None,
+        mhsa_weight_dropout=None,
     ):
         self.base_model = base_model
         self.enc_value_dim = base_model.enc_value_dim
@@ -66,6 +71,7 @@ class TransformerDecoder:
         self.label_smoothing = label_smoothing
 
         self.l2 = l2
+        self.self_att_l2 = self_att_l2
 
         self.embed_dropout = embed_dropout
         self.embed_pos_enc = embed_pos_enc
@@ -80,6 +86,11 @@ class TransformerDecoder:
         self.length_normalization = length_normalization
 
         self.replace_cross_att_w_masked_self_att = replace_cross_att_w_masked_self_att  # used to train ILM
+
+        self.ff_weight_drop = ff_weight_dropout
+        self.mhsa_weight_drop = mhsa_weight_dropout
+        self.ff_weight_noise = ff_weight_noise
+        self.mhsa_weight_noise = mhsa_weight_noise
 
         # used for recognition with ILM
         self.create_ilm_decoder = create_ilm_decoder
@@ -121,8 +132,11 @@ class TransformerDecoder:
             attention_left_only=True,
             att_dropout=self.att_dropout,
             forward_weights_init=self.mhsa_init,
-            l2=self.l2,
+            l2=self.self_att_l2,
             key_shift=ln_rel_pos_enc if ln_rel_pos_enc is not None else None,
+            param_dropout=self.mhsa_weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.mhsa_weight_noise,
         )
 
         linear = subnet_unit.add_linear_layer(
@@ -133,6 +147,9 @@ class TransformerDecoder:
             n_out=self.enc_value_dim,
             forward_weights_init=self.mhsa_init_out,
             l2=self.l2,
+            param_dropout=self.ff_weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.ff_weight_noise,
         )
 
         drop = subnet_unit.add_dropout_layer("{}_drop".format(prefix), linear, dropout=self.dropout)
@@ -152,7 +169,10 @@ class TransformerDecoder:
             with_bias=False,
             n_out=self.enc_value_dim,
             forward_weights_init=self.mhsa_init,
-            l2=self.l2,
+            l2=self.self_att_l2,
+            param_dropout=self.mhsa_weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.mhsa_weight_noise,
         )
 
         # (B, H, D/H)
@@ -170,7 +190,10 @@ class TransformerDecoder:
             with_bias=False,
             n_out=self.enc_key_dim,
             forward_weights_init=self.mhsa_init,
-            l2=self.l2,
+            l2=self.self_att_l2,
+            param_dropout=self.mhsa_weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.mhsa_weight_noise,
         )
 
         # (B, enc-T, H, D/H)
@@ -184,7 +207,10 @@ class TransformerDecoder:
             with_bias=False,
             n_out=self.enc_value_dim,
             forward_weights_init=self.mhsa_init,
-            l2=self.l2,
+            l2=self.self_att_l2,
+            param_dropout=self.mhsa_weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.mhsa_weight_noise,
         )
 
         # (B, enc-T, H, D'/H)
@@ -224,6 +250,9 @@ class TransformerDecoder:
             n_out=self.enc_value_dim,
             forward_weights_init=self.mhsa_init_out,
             l2=self.l2,
+            param_dropout=self.ff_weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.ff_weight_noise,
         )
 
         att_drop = subnet_unit.add_dropout_layer("{}_att_drop".format(prefix), att_linear, dropout=self.dropout)
@@ -244,6 +273,9 @@ class TransformerDecoder:
             n_out=self.ff_dim,
             with_bias=True,
             l2=self.l2,
+            param_dropout=self.ff_weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.ff_weight_noise,
         )
 
         ff2 = subnet_unit.add_linear_layer(
@@ -255,6 +287,9 @@ class TransformerDecoder:
             dropout=self.dropout,
             with_bias=True,
             l2=self.l2,
+            param_dropout=self.ff_weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.ff_weight_noise,
         )
 
         drop = subnet_unit.add_dropout_layer("{}_ff_drop".format(prefix), ff2, dropout=self.dropout)
@@ -297,6 +332,9 @@ class TransformerDecoder:
             dropout=self.softmax_dropout,
             forward_weights_init=self.ff_init,
             l2=self.l2,
+            param_dropout=self.ff_weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.ff_weight_noise,
         )
 
         if self.length_normalization:
@@ -322,9 +360,13 @@ class TransformerDecoder:
             n_out=self.enc_value_dim,
             forward_weights_init=self.ff_init,
             l2=self.l2,
+            param_dropout=self.ff_weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.ff_weight_noise,
         )
 
         if self.embed_weight:
+            # note that this probably only makes sense when using embed_pos_enc
             target_embed_raw = subnet_unit.add_eval_layer(
                 "target_embed_weighted", target_embed_raw, eval="source(0) * %f" % self.embed_weight
             )
