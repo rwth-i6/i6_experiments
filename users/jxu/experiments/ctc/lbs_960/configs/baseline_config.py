@@ -33,7 +33,7 @@ tools = copy.deepcopy(default_tools_v2)
 # tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/onnx/arch/linux-x86_64-standard")
 # tools.returnn_root = tk.Path("/u/berger/repositories/MiniReturnn")
 SCTK_BINARY_PATH = compile_sctk()  # use last published version
-SCTK_BINARY_PATH.hash_overwrite = "LBS_DEFAULT_SCTK_BINARY_PATH"
+SCTK_BINARY_PATH.hash_overwrite = "SWB_DEFAULT_SCTK_BINARY_PATH"
 
 
 # ********** Return Config generators **********
