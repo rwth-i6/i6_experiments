@@ -219,6 +219,7 @@ class ReturnnNetwork:
         loss_scale=None,
         param_dropout=None,
         param_dropout_min_ndim=None,
+        param_variational_noise=None,
         **kwargs,
     ):
         d = {"class": "softmax", "from": source}
@@ -238,6 +239,8 @@ class ReturnnNetwork:
             d["param_dropout"] = param_dropout
             if param_dropout_min_ndim is not None:
                 d["param_dropout_min_ndim"] = param_dropout_min_ndim
+        if param_variational_noise:
+            d["param_variational_noise"] = param_variational_noise
         if loss_scale:
             d["loss_scale"] = loss_scale
         d.update(kwargs)

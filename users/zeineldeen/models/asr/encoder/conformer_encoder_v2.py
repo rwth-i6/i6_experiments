@@ -1254,6 +1254,9 @@ class ConformerEncoderV2:
                 loss="ctc",
                 dropout=self.ctc_dropout,
                 loss_opts=default_ctc_loss_opts,
+                param_dropout=self.ff_weight_drop,
+                param_dropout_min_ndim=2,
+                param_variational_noise=self.ff_weight_noise,
             )
             if self.ctc_loss_scale or self.ctc_self_align_delay:
                 self.network["ctc"]["loss_scale"] = (self.ctc_loss_scale or 1.0) * (
