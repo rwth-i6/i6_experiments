@@ -18,11 +18,15 @@ from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config
 from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwardV1Config
 from i6_models.parts.conformer.mhsa import ConformerMHSAV1Config
 from i6_models.primitives.specaugment import specaugment_v1_by_length
-from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
+from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
 
 from returnn.torch.context import get_run_ctx
 
 from .i6modelsV1_VGG4LayerActFrontendV1_v6_cfg import ModelConfig
+from .feature_extraction import (
+    SupervisedConvolutionalFeatureExtractionV1,
+    SupervisedConvolutionalFeatureExtractionV1Config,
+)
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -73,7 +77,12 @@ class Model(torch.nn.Module):
             ),
         )
 
-        self.feature_extraction = LogMelFeatureExtractionV1(cfg=self.cfg.feature_extraction_config)
+        if isinstance(self.cfg.feature_extraction_config, LogMelFeatureExtractionV1Config):
+            self.feature_extraction = LogMelFeatureExtractionV1(cfg=self.cfg.feature_extraction_config)
+        elif isinstance(self.cfg.feature_extraction_config, SupervisedConvolutionalFeatureExtractionV1Config):
+            self.feature_extraction = SupervisedConvolutionalFeatureExtractionV1(cfg=self.cfg.feature_extraction_config)
+        else:
+            raise NotImplementedError
         self.conformer = ConformerEncoderV1(cfg=conformer_config)
         self.final_linear = nn.Linear(conformer_size, self.cfg.label_target_size + 1)  # + CTC blank
         self.final_dropout = nn.Dropout(p=self.cfg.final_dropout)

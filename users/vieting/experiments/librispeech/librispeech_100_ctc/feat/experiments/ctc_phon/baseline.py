@@ -130,6 +130,7 @@ def eow_phon_ls960_1023_base():
         VGG4LayerActFrontendV1Config_mod,
         ModelConfig,
         LogMelFeatureExtractionV1Config,
+        SupervisedConvolutionalFeatureExtractionV1Config,
     )
 
     lgm_config = LogMelFeatureExtractionV1Config(
@@ -216,3 +217,69 @@ def eow_phon_ls960_1023_base():
         training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]
     )
 
+    # Vanilla SCF
+    scf_config = SupervisedConvolutionalFeatureExtractionV1Config(
+        wave_norm=True,
+        num_tf=150,
+        size_tf=256,
+        stride_tf=10,
+        num_env=5,
+        size_env=40,
+        stride_env=16
+    )
+    frontend_config = VGG4LayerActFrontendV1Config_mod(
+        in_features=750,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(2, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        activation_str="ReLU",
+        out_features=512,
+        activation=None,
+    )
+    model_config = ModelConfig(
+        feature_extraction_config=scf_config,
+        frontend_config=frontend_config,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=512,
+        num_layers=12,
+        num_heads=8,
+        ff_dim=2048,
+        att_weights_dropout=0.1,
+        conv_dropout=0.1,
+        ff_dropout=0.1,
+        mhsa_dropout=0.1,
+        conv_kernel_size=31,
+        final_dropout=0.1,
+        specauc_start_epoch=1,
+    )
+    # accumulate gradient
+    train_args = {
+        "config": {
+            **train_config_24gbgpu_amp,
+            "batch_size": 180 * 16000,
+            "accum_grad_multiple_step": 2,
+        },
+        "network_module": network_module,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+    }
+
+    training_name = prefix_name + "/" + network_module + ".scfV1.512dim_sub4_24gbgpu_50eps_bs2x180"
+    train_job = training(training_name, train_data, train_args, num_epochs=500, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 24
+    asr_model = prepare_asr_model(
+        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=500
+    )
+    tune_and_evaluate_helper(
+        training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]
+    )
