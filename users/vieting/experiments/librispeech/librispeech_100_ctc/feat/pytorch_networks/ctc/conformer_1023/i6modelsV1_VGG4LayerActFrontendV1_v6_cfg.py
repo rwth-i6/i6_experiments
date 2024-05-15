@@ -12,7 +12,6 @@ from i6_models.assemblies.conformer.conformer_v1 import ConformerBlockV1Config, 
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1Config
 from i6_models.config import ModuleFactoryV1, ModelConfiguration
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
-from .feature_extraction import SupervisedConvolutionalFeatureExtractionV1Config
 
 
 @dataclass(kw_only=True)
@@ -60,7 +59,7 @@ class SpecaugConfig(ModelConfiguration):
 
 @dataclass
 class ModelConfig:
-    feature_extraction_config: Union[LogMelFeatureExtractionV1Config, SupervisedConvolutionalFeatureExtractionV1Config]
+    feature_extraction_config: LogMelFeatureExtractionV1Config
     frontend_config: VGG4LayerActFrontendV1Config
     specaug_config: SpecaugConfig
     specauc_start_epoch: int
@@ -79,13 +78,7 @@ class ModelConfig:
     @classmethod
     def from_dict(cls, d):
         d = d.copy()
-        if "num_tf" in d["feature_extraction_config"]:  # heuristic but should work as long as only those two are used
-            d["feature_extraction_config"] = SupervisedConvolutionalFeatureExtractionV1Config(
-                **d["feature_extraction_config"]
-            )
-        else:
-            assert "win_size" in d["feature_extraction_config"]
-            d["feature_extraction_config"] = LogMelFeatureExtractionV1Config(**d["feature_extraction_config"])
+        d["feature_extraction_config"] = LogMelFeatureExtractionV1Config(**d["feature_extraction_config"])
         d["frontend_config"] = VGG4LayerActFrontendV1Config_mod.from_dict(d["frontend_config"])
         d["specaug_config"] = SpecaugConfig(**d["specaug_config"])
         return ModelConfig(**d)

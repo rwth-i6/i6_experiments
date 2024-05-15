@@ -130,7 +130,6 @@ def eow_phon_ls960_1023_base():
         VGG4LayerActFrontendV1Config_mod,
         ModelConfig,
         LogMelFeatureExtractionV1Config,
-        SupervisedConvolutionalFeatureExtractionV1Config,
     )
 
     lgm_config = LogMelFeatureExtractionV1Config(
@@ -218,6 +217,10 @@ def eow_phon_ls960_1023_base():
     )
 
     # Vanilla SCF
+    from ...pytorch_networks.ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_ScfV1_v1_cfg import (
+        ModelConfig as ScfModelConfig,
+        SupervisedConvolutionalFeatureExtractionV1Config,
+    )
     scf_config = SupervisedConvolutionalFeatureExtractionV1Config(
         wave_norm=True,
         num_tf=150,
@@ -245,7 +248,7 @@ def eow_phon_ls960_1023_base():
         out_features=512,
         activation=None,
     )
-    model_config = ModelConfig(
+    model_config = ScfModelConfig(
         feature_extraction_config=scf_config,
         frontend_config=frontend_config,
         specaug_config=specaug_config,
@@ -263,6 +266,7 @@ def eow_phon_ls960_1023_base():
         specauc_start_epoch=1,
     )
     # accumulate gradient
+    network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_ScfV1_v1"
     train_args = {
         "config": {
             **train_config_24gbgpu_amp,
@@ -274,7 +278,7 @@ def eow_phon_ls960_1023_base():
         "debug": False,
     }
 
-    training_name = prefix_name + "/" + network_module + ".scfV1.512dim_sub4_24gbgpu_50eps_bs2x180"
+    training_name = prefix_name + "/" + network_module + ".512dim_sub4_24gbgpu_50eps_bs2x180"
     train_job = training(training_name, train_data, train_args, num_epochs=500, **default_returnn)
     train_job.rqmt["gpu_mem"] = 24
     asr_model = prepare_asr_model(
@@ -285,6 +289,7 @@ def eow_phon_ls960_1023_base():
     )
     # reduce batch size
     for batch_size in [180, 240]:  # OOM for >=250
+        network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_ScfV1_v1"
         train_args = {
             "config": {
                 **train_config_24gbgpu_amp,
@@ -295,7 +300,7 @@ def eow_phon_ls960_1023_base():
             "debug": False,
         }
 
-        training_name = prefix_name + "/" + network_module + f".scfV1.512dim_sub4_24gbgpu_50eps_bs{batch_size}"
+        training_name = prefix_name + "/" + network_module + f".512dim_sub4_24gbgpu_50eps_bs{batch_size}"
         train_job = training(training_name, train_data, train_args, num_epochs=500, **default_returnn)
         train_job.rqmt["gpu_mem"] = 24
         asr_model = prepare_asr_model(
@@ -305,6 +310,7 @@ def eow_phon_ls960_1023_base():
             training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]
         )
     # gradient clip
+    network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_ScfV1_v1"
     train_args = {
         "config": {
             **train_config_24gbgpu_amp,
@@ -317,7 +323,7 @@ def eow_phon_ls960_1023_base():
         "debug": False,
     }
 
-    training_name = prefix_name + "/" + network_module + ".scfV1.512dim_sub4_24gbgpu_50eps_bs2x180_gradclip1"
+    training_name = prefix_name + "/" + network_module + ".512dim_sub4_24gbgpu_50eps_bs2x180_gradclip1"
     train_job = training(training_name, train_data, train_args, num_epochs=500, **default_returnn)
     train_job.rqmt["gpu_mem"] = 24
     asr_model = prepare_asr_model(

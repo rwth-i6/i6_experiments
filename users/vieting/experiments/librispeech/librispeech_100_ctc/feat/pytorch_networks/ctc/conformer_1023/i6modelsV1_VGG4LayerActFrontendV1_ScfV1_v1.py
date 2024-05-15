@@ -18,11 +18,11 @@ from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config
 from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwardV1Config
 from i6_models.parts.conformer.mhsa import ConformerMHSAV1Config
 from i6_models.primitives.specaugment import specaugment_v1_by_length
-from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .i6modelsV1_VGG4LayerActFrontendV1_v6_cfg import ModelConfig
+from .i6modelsV1_VGG4LayerActFrontendV1_ScfV1_v1_cfg import ModelConfig
+from .feature_extraction import SupervisedConvolutionalFeatureExtractionV1
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -73,7 +73,7 @@ class Model(torch.nn.Module):
             ),
         )
 
-        self.feature_extraction = LogMelFeatureExtractionV1(cfg=self.cfg.feature_extraction_config)
+        self.feature_extraction = SupervisedConvolutionalFeatureExtractionV1(cfg=self.cfg.feature_extraction_config)
         self.conformer = ConformerEncoderV1(cfg=conformer_config)
         self.final_linear = nn.Linear(conformer_size, self.cfg.label_target_size + 1)  # + CTC blank
         self.final_dropout = nn.Dropout(p=self.cfg.final_dropout)
@@ -93,9 +93,9 @@ class Model(torch.nn.Module):
         """
 
         squeezed_features = torch.squeeze(raw_audio, dim=-1)
-        with torch.no_grad():
-            audio_features, audio_features_len = self.feature_extraction(squeezed_features, raw_audio_len)
+        audio_features, audio_features_len = self.feature_extraction(squeezed_features, raw_audio_len)
 
+        with torch.no_grad():
             run_ctx = get_run_ctx()
             if self.training and run_ctx.epoch >= self.specaug_start_epoch:
                 audio_features_masked_2 = specaugment_v1_by_length(
