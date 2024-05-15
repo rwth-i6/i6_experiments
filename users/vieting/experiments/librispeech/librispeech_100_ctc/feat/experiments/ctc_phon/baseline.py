@@ -15,7 +15,7 @@ from ...pipeline import training, prepare_asr_model, search, ASRModel
 
 
 def eow_phon_ls960_1023_base():
-    prefix_name = "example_setups/librispeech/ctc_rnnt_standalone_2024/ls960_ctc_eow_phon"
+    prefix_name = "experiments/librispeech/librispeech_960_ctc/feat"
 
     train_settings = DatasetSettings(
         preemphasis=0.97,  # TODO: Check if this is really useful
@@ -132,7 +132,7 @@ def eow_phon_ls960_1023_base():
         LogMelFeatureExtractionV1Config,
     )
 
-    fe_config = LogMelFeatureExtractionV1Config(
+    lgm_config = LogMelFeatureExtractionV1Config(
         sample_rate=16000,
         win_size=0.025,
         hop_size=0.01,
@@ -168,7 +168,7 @@ def eow_phon_ls960_1023_base():
     )
 
     model_config = ModelConfig(
-        feature_extraction_config=fe_config,
+        feature_extraction_config=lgm_config,
         frontend_config=frontend_config,
         specaug_config=specaug_config,
         label_target_size=vocab_size_without_blank,
@@ -197,6 +197,7 @@ def eow_phon_ls960_1023_base():
         "torch_amp_options": {"dtype": "bfloat16"},
     }
 
+    # Log mel baseline
     network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6"
     train_args = {
         "config": train_config_24gbgpu_amp,
@@ -205,7 +206,7 @@ def eow_phon_ls960_1023_base():
         "debug": False,
     }
 
-    training_name = prefix_name + "/" + network_module + ".512dim_sub4_24gbgpu_50eps"
+    training_name = prefix_name + "/" + network_module + ".lgmV1.512dim_sub4_24gbgpu_50eps"
     train_job = training(training_name, train_data, train_args, num_epochs=500, **default_returnn)
     train_job.rqmt["gpu_mem"] = 24
     asr_model = prepare_asr_model(
@@ -215,8 +216,3 @@ def eow_phon_ls960_1023_base():
         training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]
     )
 
-    # No improvement, just as example
-    # asr_model_best4 = prepare_asr_model(
-    #     training_name+ "/best4", train_job, train_args, with_prior=True, datasets=train_data, get_best_averaged_checkpoint=(4, "dev_loss_ctc")
-    # )
-    # tune_and_evaluate_helper(training_name + "/best4", asr_model_best4, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4])
