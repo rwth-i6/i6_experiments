@@ -183,6 +183,8 @@ class RNNDecoder:
             l2=self.l2,
             loc_filter_size=self.loc_conv_att_filter_size,
             loc_num_channels=self.enc_key_dim,
+            weight_drop=self.ff_weight_drop,
+            weight_noise=self.ff_weight_noise,
         )
         subnet_unit.update(att.create())
 

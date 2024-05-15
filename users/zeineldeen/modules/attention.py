@@ -7,12 +7,14 @@ class ConvLocAwareness(AbsModule):
     Attention convolution location awareness
     """
 
-    def __init__(self, enc_key_dim, filter_size, num_channels, l2):
+    def __init__(self, enc_key_dim, filter_size, num_channels, l2, weight_drop, weight_noise):
         super().__init__()
         self.enc_key_dim = enc_key_dim
         self.filter_size = filter_size
         self.num_channels = num_channels
         self.l2 = l2
+        self.weight_drop = weight_drop
+        self.weight_noise = weight_noise
 
     def create(self):
         out_net = ReturnnNetwork()
@@ -35,10 +37,20 @@ class ConvLocAwareness(AbsModule):
             padding="valid",
             n_out=self.num_channels,
             l2=self.l2,
+            param_dropout=self.weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.weight_noise,
         )
 
         self.name = out_net.add_linear_layer(
-            "weight_feedback", loc_att_conv, activation=None, with_bias=False, n_out=self.enc_key_dim
+            "weight_feedback",
+            loc_att_conv,
+            activation=None,
+            with_bias=False,
+            n_out=self.enc_key_dim,
+            param_dropout=self.weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.weight_noise,
         )
 
         return out_net.get_net()
@@ -49,10 +61,13 @@ class AdditiveLocAwareness(AbsModule):
     Attention additive location awareness
     """
 
-    def __init__(self, enc_key_dim, att_num_heads):
+    def __init__(self, enc_key_dim, att_num_heads, weight_drop, weight_noise):
         super().__init__()
         self.enc_key_dim = enc_key_dim
         self.att_num_heads = att_num_heads
+
+        self.weight_drop = weight_drop
+        self.weight_noise = weight_noise
 
     def create(self):
         out_net = ReturnnNetwork()
@@ -65,7 +80,13 @@ class AdditiveLocAwareness(AbsModule):
         )
 
         self.name = out_net.add_linear_layer(
-            "weight_feedback", "prev:accum_att_weights", n_out=self.enc_key_dim, with_bias=False
+            "weight_feedback",
+            "prev:accum_att_weights",
+            n_out=self.enc_key_dim,
+            with_bias=False,
+            param_dropout=self.weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.weight_noise,
         )
 
         return out_net.get_net()
@@ -76,7 +97,9 @@ class AttentionMechanism(AbsModule):
     Single-head or Multi-head attention mechanism
     """
 
-    def __init__(self, enc_key_dim, att_num_heads, att_dropout, l2, loc_filter_size, loc_num_channels):
+    def __init__(
+        self, enc_key_dim, att_num_heads, att_dropout, l2, loc_filter_size, loc_num_channels, weight_drop, weight_noise
+    ):
         super().__init__()
         self.enc_key_dim = enc_key_dim
         self.att_num_heads = att_num_heads
@@ -84,15 +107,26 @@ class AttentionMechanism(AbsModule):
         self.att_dropout = att_dropout
         self.l2 = l2
 
+        self.weight_drop = weight_drop
+        self.weight_noise = weight_noise
+
         self.loc_filter_size = loc_filter_size
         self.loc_num_channels = loc_num_channels
 
     def create(self):
         out_net = ReturnnNetwork()
 
+        # project query
         out_net.add_linear_layer(
-            "s_transformed", "s", n_out=self.enc_key_dim, with_bias=False, l2=self.l2
-        )  # project query
+            "s_transformed",
+            "s",
+            n_out=self.enc_key_dim,
+            with_bias=False,
+            l2=self.l2,
+            param_dropout=self.weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.weight_noise,
+        )
 
         if self.loc_filter_size is not None:
             assert self.loc_filter_size is not None
@@ -101,10 +135,17 @@ class AttentionMechanism(AbsModule):
                 filter_size=self.loc_filter_size,
                 num_channels=self.loc_num_channels,
                 l2=self.l2,
+                weight_drop=self.weight_drop,
+                weight_noise=self.weight_noise,
             )
         else:
             # additive
-            weight_feedback = AdditiveLocAwareness(enc_key_dim=self.enc_key_dim, att_num_heads=self.att_num_heads)
+            weight_feedback = AdditiveLocAwareness(
+                enc_key_dim=self.enc_key_dim,
+                att_num_heads=self.att_num_heads,
+                weight_drop=self.weight_drop,
+                weight_noise=self.weight_noise,
+            )
 
         out_net.update(weight_feedback.create())  # add att weight feedback
 
@@ -115,7 +156,14 @@ class AttentionMechanism(AbsModule):
         # compute energies
         out_net.add_activation_layer("energy_tanh", "energy_in", activation="tanh")
         energy = out_net.add_linear_layer(
-            "energy", "energy_tanh", n_out=self.att_num_heads, with_bias=False, l2=self.l2
+            "energy",
+            "energy_tanh",
+            n_out=self.att_num_heads,
+            with_bias=False,
+            l2=self.l2,
+            param_dropout=self.weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.weight_noise,
         )
 
         if self.att_dropout:
