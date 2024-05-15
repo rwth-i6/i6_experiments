@@ -898,9 +898,9 @@ class ConformerEncoderV2:
             l2=self.l2,
             forward_weights_init=self.mhsa_out_init,
             with_bias=False,
-            param_dropout=self.mhsa_weight_drop,
+            param_dropout=self.ff_weight_drop,
             param_dropout_min_ndim=2,
-            param_variational_noise=self.mhsa_weight_noise,
+            param_variational_noise=self.ff_weight_noise,
         )
 
         drop = self.network.add_dropout_layer("{}_dropout".format(prefix_name), mhsa_linear, dropout=self.dropout)
