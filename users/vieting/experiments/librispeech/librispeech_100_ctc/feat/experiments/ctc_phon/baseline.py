@@ -283,3 +283,46 @@ def eow_phon_ls960_1023_base():
     tune_and_evaluate_helper(
         training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]
     )
+    # reduce batch size
+    for batch_size in [180, 240]:  # OOM for >=250
+        train_args = {
+            "config": {
+                **train_config_24gbgpu_amp,
+                "batch_size": batch_size * 16000,
+            },
+            "network_module": network_module,
+            "net_args": {"model_config_dict": asdict(model_config)},
+            "debug": False,
+        }
+
+        training_name = prefix_name + "/" + network_module + f".scfV1.512dim_sub4_24gbgpu_50eps_bs{batch_size}"
+        train_job = training(training_name, train_data, train_args, num_epochs=500, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=500
+        )
+        tune_and_evaluate_helper(
+            training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]
+        )
+    # gradient clip
+    train_args = {
+        "config": {
+            **train_config_24gbgpu_amp,
+            "batch_size": 180 * 16000,
+            "accum_grad_multiple_step": 2,
+            "gradient_clip": 1,
+        },
+        "network_module": network_module,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+    }
+
+    training_name = prefix_name + "/" + network_module + ".scfV1.512dim_sub4_24gbgpu_50eps_bs2x180_gradclip1"
+    train_job = training(training_name, train_data, train_args, num_epochs=500, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 24
+    asr_model = prepare_asr_model(
+        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=500
+    )
+    tune_and_evaluate_helper(
+        training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]
+    )
