@@ -11,10 +11,10 @@ import os.path
 CONTAINER_MODE = "apptainer"
 
 # local path or e.g. docker registry image path
-CONTAINER_IMAGE = "/work/tools22/users/vieting/u22_torch_fairseq.sif"
+CONTAINER_IMAGE = "/work/asr4/rossenbach/rescale/pytorch_mixed_precision/apptainer/u22cuda12.1_pytorch2.2_onnxrt_1.17.1_flashlight_0424.sif"
 
 # file systems to bind in a "<source_path>:<target_path>" format
-CONTAINER_BINDS = ["/work/asr4", "/work/common", "/usr/local/cache-manager"]
+CONTAINER_BINDS = ["/work/asr3", "/work/asr4", "/work/common", "/usr/local/cache-manager"]
 
 # can be "sge", "slurm" or "pbs" (pbs is experimental)
 SUBMIT_ENGINE = "slurm"
@@ -71,7 +71,7 @@ def check_engine_limits(current_rqmt, task):
 
 # Example:
 # Unfortunately needed when using g2p from image:
-# G2P_PATH = "/usr/local/bin/g2p.py"
+G2P_PATH = "/usr/local/bin/g2p.py"
 
 ##########################
 # Sisyphus Global Settings
