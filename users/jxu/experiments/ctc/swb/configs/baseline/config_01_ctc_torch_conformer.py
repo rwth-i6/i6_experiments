@@ -33,7 +33,7 @@ tools.rasr_binary_path = tk.Path(
     "/u/berger/repositories/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard",
     hash_overwrite="/u/berger/repositories/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard"
 )
-tools.returnn_root = tk.Path("/u/jxu/setups/tedlium2/2023-07-11--ctc-tedlium/tools/20240509_returnn/returnn",
+tools.returnn_root = tk.Path("/u/jxu/setups/tedlium2/2023-07-11--ctc-tedlium2/tools/20240509_returnn/returnn",
                              hash_overwrite="/u/berger/repositories/returnn")
 SCTK_BINARY_PATH = compile_sctk()  # use last published version
 SCTK_BINARY_PATH.hash_overwrite = "LBS_DEFAULT_SCTK_BINARY_PATH"
