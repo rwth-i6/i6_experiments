@@ -170,6 +170,7 @@ def get_conformer_coupling_glow(x_vector_exp, gl_checkpoint):
         asr_test_datasets,
         num_epochs,
         search_args,
+        additional_training_args={},
         lm_weights=[1.5, 2.0, 2.5, 3.0, 3.5, 4.0],
     ):
         for lm in lm_weights:
@@ -179,6 +180,7 @@ def get_conformer_coupling_glow(x_vector_exp, gl_checkpoint):
                 training_datasets,
                 asr_test_datasets,
                 num_epochs,
+                training_args=additional_training_args,
                 search_args={**search_args, **{"lm_weight": lm}},
                 tts_forward=False,
             )
@@ -501,23 +503,23 @@ def get_conformer_coupling_glow(x_vector_exp, gl_checkpoint):
     experiments[alias] = exp_dict
 
     net_module = "glowTTS_ASR_conformer_two_forward_pass"
-    train_args["network_module"] = net_module
-    alias = "ddi/" + net_module
-    exp_dict = run_exp(
-        alias,
-        train_args,
-        training_datasets,
-        asr_test_datasets,
-        250,
-        forward_args=forward_args,
-        search_args=default_search_args,
-        tts_forward=True,
-        tts_eval_datasets=tts_forward_datasets,
-    )
+    # train_args["network_module"] = net_module
+    # alias = "ddi/" + net_module
+    # exp_dict = run_exp(
+    #     alias,
+    #     train_args,
+    #     training_datasets,
+    #     asr_test_datasets,
+    #     250,
+    #     forward_args=forward_args,
+    #     search_args=default_search_args,
+    #     tts_forward=True,
+    #     tts_eval_datasets=tts_forward_datasets,
+    # )
 
-    experiments[alias] = exp_dict
+    # experiments[alias] = exp_dict
 
-    tune_lm(alias, train_args, training_datasets, asr_test_datasets, 250, search_args=default_search_args)
+    # tune_lm(alias, train_args, training_datasets, asr_test_datasets, 250, search_args=default_search_args)
 
     train_args_no_ddi["network_module"] = net_module
     alias = "no_ddi/" + net_module
@@ -527,6 +529,7 @@ def get_conformer_coupling_glow(x_vector_exp, gl_checkpoint):
         training_datasets,
         asr_test_datasets,
         250,
+        training_args={"ctc_scale": 0.1},
         forward_args=forward_args,
         search_args=default_search_args,
         tts_forward=True,
@@ -535,7 +538,7 @@ def get_conformer_coupling_glow(x_vector_exp, gl_checkpoint):
 
     experiments[alias] = exp_dict
 
-    tune_lm(alias, train_args_no_ddi, training_datasets, asr_test_datasets, 250, search_args=default_search_args)
+    tune_lm(alias, train_args_no_ddi, training_datasets, asr_test_datasets, 250, search_args=default_search_args, additional_training_args={"ctc_scale": 0.1})
 
     net_module = "glow_ASR_conformer"
     train_args["network_module"] = net_module
@@ -621,34 +624,35 @@ def get_conformer_coupling_glow(x_vector_exp, gl_checkpoint):
 
     net_module = "glowTTS_ASR_conformer_x_vector"
     train_args_with_x_vector["network_module"] = net_module
-    alias = "ddi/" + net_module
-    exp_dict = run_exp(
-        alias,
-        train_args_with_x_vector,
-        training_datasets,
-        asr_test_datasets,
-        250,
-        forward_args=forward_args,
-        search_args=default_search_args,
-        tts_forward=True,
-        tts_eval_datasets=tts_forward_datasets_xvectors,
-    )
-    tune_lm(alias, train_args_with_x_vector, training_datasets, asr_test_datasets, 250, search_args=default_search_args)
+    # alias = "ddi/" + net_module
+    # exp_dict = run_exp(
+    #     alias,
+    #     train_args_with_x_vector,
+    #     training_datasets,
+    #     asr_test_datasets,
+    #     250,
+    #     forward_args=forward_args,
+    #     search_args=default_search_args,
+    #     tts_forward=True,
+    #     tts_eval_datasets=tts_forward_datasets_xvectors,
+    # )
+    # tune_lm(alias, train_args_with_x_vector, training_datasets, asr_test_datasets, 250, search_args=default_search_args)
 
     net_module = "glowTTS_ASR_conformer_x_vector_v2"
     train_args_with_x_vector_no_ddi["network_module"] = net_module
     alias = "no_ddi/" + net_module
     exp_dict = run_exp(
         alias,
-        train_args_with_x_vector,
+        train_args_with_x_vector_no_ddi,
         training_datasets,
         asr_test_datasets,
         250,
+        training_args={"ctc_scale": 0.1},
         forward_args=forward_args,
         search_args=default_search_args,
         tts_forward=True,
         tts_eval_datasets=tts_forward_datasets_xvectors,
     )
-    tune_lm(alias, train_args_with_x_vector, training_datasets, asr_test_datasets, 250, search_args=default_search_args)
+    tune_lm(alias, train_args_with_x_vector_no_ddi, training_datasets, asr_test_datasets, 250, search_args=default_search_args, additional_training_args={"ctc_scale": 0.1})
 
     return experiments

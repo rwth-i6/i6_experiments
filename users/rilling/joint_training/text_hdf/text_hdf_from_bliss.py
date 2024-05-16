@@ -12,7 +12,7 @@ from returnn.datasets.util.vocabulary import Vocabulary
 class TextHDFFromBliss(Job):
     """
     Extract text from a bliss corpus and save to HDF format
-    Used for joint training, where additional ASR corpus is necessary.
+    E.g. used for joint training, where additional ASR corpus is necessary.
     """
 
     def __init__(
@@ -43,7 +43,7 @@ class TextHDFFromBliss(Job):
                 vocab_num_labels=vocabs[-1].num_labels
             else:
                 assert vocabs[-1].num_labels == vocab_num_labels
-                
+
         hdf_writer = SimpleHDFWriter(self.out_text_hdf.get_path(), dim=vocab_num_labels, ndim=1)
 
         for b, v in zip(self.bliss_corpora, vocabs):

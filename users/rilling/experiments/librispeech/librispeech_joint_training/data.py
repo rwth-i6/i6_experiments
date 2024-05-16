@@ -72,6 +72,7 @@ class TrainingDataset:
     train: Dataset
     cv: Dataset
     devtrain: Dataset
+    prior: Dataset
     datastreams: Dict[str, Datastream]
 
 
@@ -516,7 +517,17 @@ def build_training_dataset(
     )
     devtrain_dataset = make_meta_dataset(devtrain_zip_dataset, joint_speaker_dataset, train_eow_phonemes_dataset)
 
-    return TrainingDataset(train=train_dataset, cv=cv_dataset, devtrain=devtrain_dataset, datastreams=datastreams)
+    prior_zip_dataset = OggZipDataset(
+        files=train_ogg,
+        audio_options=training_audio_opts,
+        target_options=train_phoneme_datastream_tts.as_returnn_targets_opts(),
+        partition_epoch=1,
+        seq_ordering="sorted_reverse",
+        additional_options=additional_opts,
+    )
+    prior_dataset = make_meta_dataset(prior_zip_dataset, joint_speaker_dataset, train_eow_phonemes_dataset)
+
+    return TrainingDataset(train=train_dataset, cv=cv_dataset, devtrain=devtrain_dataset, datastreams=datastreams, prior=prior_dataset)
 
 
 @lru_cache()

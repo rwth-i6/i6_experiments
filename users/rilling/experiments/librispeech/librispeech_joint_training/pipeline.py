@@ -199,6 +199,40 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
     return format_string_report, values_report
 
 
+@tk.block()
+def compute_prior(
+        prefix_name,
+        returnn_config,
+        checkpoint,
+        returnn_exe,
+        returnn_root,
+        mem_rqmt=8,
+):
+    """
+    Run search for a specific test dataset
+
+    :param str prefix_name:
+    :param ReturnnConfig returnn_config:
+    :param Checkpoint checkpoint:
+    :param Path returnn_exe:
+    :param Path returnn_root:
+    """
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=1,
+        device="gpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=["prior.txt"],
+    )
+    search_job.add_alias(prefix_name + "/prior_job")
+    return search_job.out_files["prior.txt"]
+
+
 
 # def evaluate_invertibility(name, checkpoint, forward_config, returnn_root, returnn_exe):
 #     forward_job = forward(

@@ -110,6 +110,7 @@ def get_forward_config(
     target="audio",
     train_data=False,
     joint_data=False,
+    cv_asr=False,
 ):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for forward_ctc_aligner
@@ -125,6 +126,8 @@ def get_forward_config(
         fd = forward_dataset.train.as_returnn_opts()
     elif joint_data:
         fd = forward_dataset.joint.as_returnn_opts()
+    elif cv_asr:
+        fd = forward_dataset.cv_asr.as_returnn_opts()
     else:
         fd = forward_dataset.cv.as_returnn_opts()
 
@@ -190,4 +193,50 @@ def get_search_config(
         target=target
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+    return returnn_config
+
+def get_prior_config(
+        training_datasets: TrainingDataset,
+        network_module: str,
+        net_args: Dict[str, Any],
+        config: Dict[str, Any],
+        debug: bool = False,
+        use_custom_engine=False,
+        target="prior",
+        **kwargs,
+):
+    """
+    Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_aligner
+    :param returnn_common_root: returnn_common version to be used, usually output of CloneGitRepositoryJob
+    :param training_datasets: datasets for training
+    :param kwargs: arguments to be passed to the network construction
+    :return: RETURNN training config
+    """
+
+    # changing these does not change the hash
+    post_config = {
+    }
+
+    base_config = {
+        #############
+        "batch_size": 50000 * 160,
+        "max_seqs": 60,
+        #############
+        "forward": training_datasets.prior.as_returnn_opts() if target == "prior" else training_datasets.devtrain.as_returnn_opts()
+
+    }
+    config = {**base_config, **copy.deepcopy(config)}
+    post_config["backend"] = "torch"
+
+    serializer = get_serializer(
+        network_module=network_module,
+        net_args=net_args,
+        debug=debug,
+        use_custom_engine=use_custom_engine,
+        forward=True,
+        target=target,
+    )
+    returnn_config = ReturnnConfig(
+        config=config, post_config=post_config, python_epilog=[serializer]
+    )
     return returnn_config

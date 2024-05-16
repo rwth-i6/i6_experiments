@@ -22,17 +22,10 @@ def forward_finish_hook_invertibility(run_ctx, **kwargs):
 
 
 def forward_step_invertibility(*, model, data, run_ctx, **kwargs):
-    raw_audio = data["audio_features"]  # [B, N] (sparse)
-    raw_audio_len = data["audio_features:size1"]  # [B]
-    phonemes = data["phonemes"]
-    phonemes_len = data["phonemes:size1"]
-
-    if "xvectors" in data:
-        g = data["xvectors"]
-    elif "speaker_labels" in data:
-        g = data["speaker_labels"]
-    else:
-        raise Exception("Missing speaker embedding!")
+    raw_audio = data["raw_audio"]  # [B, N] (sparse)
+    raw_audio_len = data["raw_audio:size1"]  # [B]
+    phonemes = data["phon_labels"]
+    phonemes_len = data["phon_labels:size1"]
 
     squeezed_audio = torch.squeeze(raw_audio)
     y, y_lengths = model.feature_extraction(squeezed_audio, raw_audio_len)  # [B, T, F]

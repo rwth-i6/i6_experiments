@@ -20,6 +20,8 @@ from .shared.eval_forward import *
 
 from .shared.eval_invertibility import *
 
+from .shared.feature_statistics import *
+
 class DurationPredictor(nn.Module):
     """
     Duration Predictor module, trained using calculated durations coming from monotonic alignment search

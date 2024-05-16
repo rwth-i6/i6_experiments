@@ -40,8 +40,8 @@ from .shared.model_config import (
     SpecaugConfig,
     VGG4LayerActFrontendV1Config_mod,
     ModelConfig,
-    FlowDecoderConfig,
     TextEncoderConfig,
+    ConformerCouplingFlowDecoderConfig
 )
 
 from .shared.configs import DbMelFeatureExtractionConfig
@@ -148,24 +148,22 @@ class DurationPredictor(nn.Module):
 
 
 class FlowDecoder(nn.Module):
-    def __init__(self, cfg: FlowDecoderConfig, in_channels, gin_channels):
+    def __init__(
+        self,
+        cfg: ConformerCouplingFlowDecoderConfig,
+        in_channels,
+        gin_channels=0,
+    ):
         """Flow-based decoder model
 
         Args:
+            cfg (FlowDecoderConfig): Decoder specific parameters wrapped in FlowDecoderConfig
             in_channels (int): Number of incoming channels
-            hidden_channels (int): Number of hidden channels
-            kernel_size (int): Kernel Size for convolutions in coupling blocks
-            dilation_rate (float): Dilation Rate to define dilation in convolutions of coupling block
-            n_blocks (int): Number of coupling blocks
-            n_layers (int): Number of layers in CNN of the coupling blocks
-            p_dropout (float, optional): Dropout probability for CNN in coupling blocks. Defaults to 0..
-            n_split (int, optional): Number of splits for the 1x1 convolution for flows in the decoder. Defaults to 4.
-            n_sqz (int, optional): Squeeze. Defaults to 1.
-            sigmoid_scale (bool, optional): Boolean to define if log probs in coupling layers should be rescaled using sigmoid. Defaults to False.
-            gin_channels (int, optional): Number of speaker embedding channels. Defaults to 0.
         """
         super().__init__()
+
         self.cfg = cfg
+        self.in_channels = in_channels
 
         self.flows = nn.ModuleList()
 
@@ -173,12 +171,13 @@ class FlowDecoder(nn.Module):
             self.flows.append(modules.ActNorm(channels=in_channels * self.cfg.n_sqz, ddi=self.cfg.ddi))
             self.flows.append(modules.InvConvNear(channels=in_channels * self.cfg.n_sqz, n_split=self.cfg.n_split))
             self.flows.append(
-                attentions.CouplingBlock(
+                attentions.ConformerCouplingBlock(
                     in_channels * self.cfg.n_sqz,
                     self.cfg.hidden_channels,
                     kernel_size=self.cfg.kernel_size,
                     dilation_rate=self.cfg.dilation_rate,
                     n_layers=self.cfg.n_layers,
+                    n_heads=self.cfg.n_heads,
                     gin_channels=gin_channels,
                     p_dropout=self.cfg.p_dropout,
                     sigmoid_scale=self.cfg.sigmoid_scale,
@@ -198,6 +197,7 @@ class FlowDecoder(nn.Module):
 
         if self.cfg.n_sqz > 1:
             x, x_mask = commons.channel_squeeze(x, x_mask, self.cfg.n_sqz)
+
         for f in flows:
             if not reverse:
                 x, logdet = f(x, x_mask, g=g, reverse=reverse)

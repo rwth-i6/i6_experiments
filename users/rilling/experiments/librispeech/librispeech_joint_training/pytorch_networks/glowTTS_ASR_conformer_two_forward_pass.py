@@ -54,7 +54,7 @@ from .shared import commons
 from .shared import attentions
 from .monotonic_align import maximum_path
 
-from .shared.forward import search_init_hook, search_finish_hook
+from .shared.forward import prior_init_hook, prior_step, prior_finish_hook
 
 from .shared.eval_forward import *
 from .shared.eval_invertibility import *
@@ -520,6 +520,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     )
 
     num_phonemes = torch.sum(phonemes_eow_len)
+    breakpoint()
     if "ctc_scale" in kwargs:
         ctc_scale = kwargs["ctc_scale"]
     else:

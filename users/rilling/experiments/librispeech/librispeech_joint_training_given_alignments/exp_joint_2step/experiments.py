@@ -15,8 +15,8 @@ from ..data import (
     get_text_lexicon,
     get_bliss_corpus_dict
 )
-from ..config import get_training_config, get_extract_durations_forward__config, get_forward_config, get_search_config
-from ..pipeline import training, forward, search, compute_phoneme_pred_accuracy
+from ..config import get_training_config, get_extract_durations_forward__config, get_forward_config, get_search_config, get_prior_config
+from ..pipeline import training, forward, search, compute_phoneme_pred_accuracy, compute_prior
 
 from i6_experiments.users.rilling.experiments.librispeech.common.tts_eval import tts_eval
 
@@ -74,6 +74,8 @@ def get_glow_joint_2step(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
 
         assert num_epochs == len(args["config"]["learning_rates"]), "Number of Epochs and Number of LR steps differs!"
 
+        with_prior = "prior_scale" in search_args
+
         if given_train_job_for_forward is None:
             training_config = get_training_config(
                 training_datasets=dataset,
@@ -120,6 +122,18 @@ def get_glow_joint_2step(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         else: 
             train_job = given_train_job_for_forward
         exp["train_job"] = train_job
+
+        if with_prior:
+            returnn_config = get_prior_config(training_datasets=dataset, **args)
+            prior_file = compute_prior(
+                prefix + name,
+                returnn_config,
+                checkpoint=train_job.out_checkpoints[num_epochs],
+                returnn_exe=RETURNN_PYTORCH_ASR_SEARCH_EXE,
+                returnn_root=MINI_RETURNN_ROOT,
+            )
+            tk.register_output(prefix + name + "/prior.txt", prior_file)
+            search_args["prior_file"] = prior_file
 
         if tts_forward:
             forward_job_gl = tts_eval(
@@ -587,4 +601,22 @@ def get_glow_joint_2step(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         search_args=default_search_args,
         asr_search=True,
         asr_cv_set=True,
+        phoneme_pred=False,
     )
+
+    for lm_w in [2, 2.5, 3.0, 3.5, 4.0, 4.5]:
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm_w} if ps == 0 else {"lm_weight": lm_w, "prior_scale": ps}
+            suffix = f"/tuning/lm_{lm_w}" if ps == 0 else f"/tuning/lm_{lm_w}_ps_{ps}"
+            exp_dict = run_exp(
+                "second_step_asr/" + net_module.replace(".", "/") + suffix,
+                train_args,
+                training_datasets_pe3,
+                asr_test_datasets,
+                250,
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                asr_search=True,
+                asr_cv_set=True,
+                phoneme_pred=False,
+            )
