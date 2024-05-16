@@ -4,6 +4,7 @@ and now controllable start time for when specaugment is applied (v4)
 and with the proper feature extraction from i6-models
 """
 
+import contextlib
 import numpy as np
 import torch
 from torch import nn
@@ -77,7 +78,9 @@ class Model(torch.nn.Module):
         self.conformer = ConformerEncoderV1(cfg=conformer_config)
         self.final_linear = nn.Linear(conformer_size, self.cfg.label_target_size + 1)  # + CTC blank
         self.final_dropout = nn.Dropout(p=self.cfg.final_dropout)
-        self.specaug_start_epoch = self.cfg.specauc_start_epoch
+        self.specaug_start_epoch = self.cfg.specaug_start_epoch
+        self.feature_training_start_epoch = self.cfg.feature_training_start_epoch
+        self.feature_training_end_epoch = self.cfg.feature_training_end_epoch
 
         # No particular weight init!
 
@@ -91,12 +94,18 @@ class Model(torch.nn.Module):
         :param raw_audio_len: length of T as [B]
         :return: logprobs [B, T, #labels + blank]
         """
+        run_ctx = get_run_ctx()
 
         squeezed_features = torch.squeeze(raw_audio, dim=-1)
-        audio_features, audio_features_len = self.feature_extraction(squeezed_features, raw_audio_len)
+        train_features = (
+            self.feature_training_start_epoch <= run_ctx.epoch and (
+                self.feature_training_end_epoch >= run_ctx.epoch or
+                self.feature_training_end_epoch < 0
+            )
+        )
+        with torch.no_grad() if not train_features else contextlib.ExitStack():
+            audio_features, audio_features_len = self.feature_extraction(squeezed_features, raw_audio_len)
 
-        with torch.no_grad():
-            run_ctx = get_run_ctx()
             if self.training and run_ctx.epoch >= self.specaug_start_epoch:
                 audio_features_masked_2 = specaugment_v1_by_length(
                     audio_features,

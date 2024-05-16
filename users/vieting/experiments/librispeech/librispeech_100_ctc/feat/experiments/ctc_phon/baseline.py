@@ -263,7 +263,9 @@ def eow_phon_ls960_1023_base():
         mhsa_dropout=0.1,
         conv_kernel_size=31,
         final_dropout=0.1,
-        specauc_start_epoch=1,
+        specaug_start_epoch=1,
+        feature_training_start_epoch=0,
+        feature_training_end_epoch=-1,
     )
     # accumulate gradient
     network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_ScfV1_v1"

@@ -19,7 +19,9 @@ class ModelConfig:
     feature_extraction_config: SupervisedConvolutionalFeatureExtractionV1Config
     frontend_config: VGG4LayerActFrontendV1Config
     specaug_config: SpecaugConfig
-    specauc_start_epoch: int
+    specaug_start_epoch: int
+    feature_training_start_epoch: int
+    feature_training_end_epoch: int
     label_target_size: int
     conformer_size: int
     num_layers: int
