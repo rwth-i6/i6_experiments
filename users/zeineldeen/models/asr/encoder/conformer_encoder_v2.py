@@ -151,8 +151,6 @@ class ConformerEncoderV2:
         self.enc_val_per_head_dim = enc_key_dim // att_num_heads
 
         self.ff_dim = ff_dim
-        if self.ff_dim is None:
-            self.ff_dim = 2 * self.enc_key_dim
 
         self.target = target
 
