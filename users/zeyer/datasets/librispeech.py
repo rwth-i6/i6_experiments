@@ -5,6 +5,8 @@ Librispeech dataset
 from __future__ import annotations
 from typing import Optional, Any, Union, Tuple, Dict
 from copy import deepcopy
+import re
+from functools import cache
 
 from sisyphus import tk
 from i6_core.corpus.convert import CorpusToTextDictJob
@@ -48,28 +50,37 @@ _corpus_text_dicts = {k: CorpusToTextDictJob(v, gzip=True).out_dictionary for k,
 _train_corpus_text_dict = _corpus_text_dicts["train-other-960"]
 _train_corpus_text = TextDictToTextLinesJob(_train_corpus_text_dict, gzip=True).out_text_lines
 
-# https://github.com/google/sentencepiece/blob/master/doc/options.md
-_spm10k_train_job = TrainSentencePieceJob(
-    training_text=_train_corpus_text,
-    # Not sure if power-of-two or just multiple-of-64, but 10240 has more 2s in it (2048*5) than 10048.
-    vocab_size=10_240,
-    model_type=SentencePieceType.UNIGRAM,
-    additional_options={
-        "split_digits": True,
-        "unk_id": 2,  # default is 0
-        "bos_id": 1,  # default is 1
-        "eos_id": 0,  # default is 2
-    },
-)
-spm10k = SentencePieceModel(
-    dim=10_240,
-    model_file=_spm10k_train_job.out_model,
-    unknown_label="<unk>",
-    bos_idx=1,
-    eos_idx=0,
-)
 
-# common
+@cache
+def _get_spm_vocab(*, dim: Union[int, str]) -> SentencePieceModel:
+    if isinstance(dim, str):
+        # Not sure if power-of-two or just multiple-of-64, but 10240 has more 2s in it (2048*5) than 10048.
+        dim = {"10k": 10_240, "5k": 5_120, "4k": 4_096, "1k": 1_024}[dim]
+    assert isinstance(dim, int) and dim >= 10
+
+    # https://github.com/google/sentencepiece/blob/master/doc/options.md
+    _spm_train_job = TrainSentencePieceJob(
+        training_text=_train_corpus_text,
+        vocab_size=dim,
+        model_type=SentencePieceType.UNIGRAM,
+        additional_options={
+            "split_digits": True,
+            "unk_id": 2,  # default is 0
+            "bos_id": 1,  # default is 1
+            "eos_id": 0,  # default is 2
+        },
+    )
+    spm = SentencePieceModel(
+        dim=dim,
+        model_file=_spm_train_job.out_model,
+        unknown_label="<unk>",
+        bos_idx=1,
+        eos_idx=0,
+    )
+    return spm
+
+
+# common, this is the BPE10k that many of us use
 bpe10k = Bpe(
     dim=10_025,
     eos_idx=0,
@@ -537,7 +548,10 @@ def get_librispeech_task_raw_v2(
     so it is easier to copy this setup to a new environment.
     """
     if isinstance(vocab, str):
-        vocab = {"bpe10k": bpe10k, "spm10k": spm10k}[vocab]
+        if re.match("^spm[0-9]+.*$", vocab):
+            vocab = _get_spm_vocab(dim=vocab[3:])
+        else:
+            vocab = {"bpe10k": bpe10k}[vocab]
 
     cache_key = make_hashable((dataset_cls, vocab, train_vocab_opts, audio_opts, audio_dim, dataset_train_opts))
     if cache_key in _librispeech_task_raw_v2_cache:
@@ -579,10 +593,6 @@ def get_librispeech_task_raw_v2(
     )
     _librispeech_task_raw_v2_cache[cache_key] = task
     return task
-
-
-def get_librispeech_task_bpe10k_raw_v2(**dataset_train_opts) -> Task:
-    return get_librispeech_task_raw_v2(vocab=bpe10k, **dataset_train_opts)
 
 
 def _bpe_to_words_v1(bpe: RecogOutput) -> RecogOutput:
