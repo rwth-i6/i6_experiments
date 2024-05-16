@@ -31,6 +31,7 @@ _log_mel_feature_dim = 80
 
 def py():
     for vocab in [
+        "spm20k",
         "bpe10k",  # 8.23
         "spm10k",  # 8.12
         "spm_bpe10k",
