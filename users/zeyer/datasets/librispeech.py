@@ -52,7 +52,9 @@ _train_corpus_text = TextDictToTextLinesJob(_train_corpus_text_dict, gzip=True).
 
 
 @cache
-def _get_spm_vocab(*, dim: Union[int, str]) -> SentencePieceModel:
+def _get_spm_vocab(
+    *, dim: Union[int, str], model_type: SentencePieceType = SentencePieceType.UNIGRAM
+) -> SentencePieceModel:
     if isinstance(dim, str):
         # Not sure if power-of-two or just multiple-of-64, but 10240 has more 2s in it (2048*5) than 10048.
         dim = {"10k": 10_240, "5k": 5_120, "4k": 4_096, "1k": 1_024}[dim]
@@ -62,7 +64,7 @@ def _get_spm_vocab(*, dim: Union[int, str]) -> SentencePieceModel:
     _spm_train_job = TrainSentencePieceJob(
         training_text=_train_corpus_text,
         vocab_size=dim,
-        model_type=SentencePieceType.UNIGRAM,
+        model_type=model_type,
         additional_options={
             "split_digits": True,
             "unk_id": 2,  # default is 0
@@ -90,6 +92,19 @@ bpe10k = Bpe(
     # unknown_label="<unk>",
     unknown_label=None,
 )
+
+
+@cache
+def _get_vocab_by_str(vocab: str) -> Union[SentencePieceModel, Bpe]:
+    if re.match("^spm[0-9]+.*$", vocab):
+        return _get_spm_vocab(dim=vocab[3:], model_type=SentencePieceType.UNIGRAM)
+    elif re.match("^spm_bpe[0-9]+.*$", vocab):
+        return _get_spm_vocab(dim=vocab[3:], model_type=SentencePieceType.BPE)
+    elif vocab == "bpe10k":  # predefined
+        return bpe10k
+    else:
+        raise ValueError(f"invalid vocab {vocab!r}")
+
 
 # ESPnet uses this SPM. However, it does not use the vocab directly from it.
 # It has some custom code to generate its own vocab based from this:
@@ -548,10 +563,7 @@ def get_librispeech_task_raw_v2(
     so it is easier to copy this setup to a new environment.
     """
     if isinstance(vocab, str):
-        if re.match("^spm[0-9]+.*$", vocab):
-            vocab = _get_spm_vocab(dim=vocab[3:])
-        else:
-            vocab = {"bpe10k": bpe10k}[vocab]
+        vocab = _get_vocab_by_str(vocab)
 
     cache_key = make_hashable((dataset_cls, vocab, train_vocab_opts, audio_opts, audio_dim, dataset_train_opts))
     if cache_key in _librispeech_task_raw_v2_cache:
