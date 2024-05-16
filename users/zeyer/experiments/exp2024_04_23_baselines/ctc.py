@@ -36,7 +36,7 @@ def py():
         "spm_bpe10k",
         "spm4k",
         "spm1k",
-        "bpe1k",
+        "spm_bpe1k",
     ]:
         train_exp(  # 8.23
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}",
