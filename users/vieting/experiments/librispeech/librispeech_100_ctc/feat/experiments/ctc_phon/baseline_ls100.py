@@ -285,10 +285,46 @@ def eow_phon_ls100_1023_base():
         },
         "network_module": network_module,
         "net_args": {"model_config_dict": asdict(model_config)},
-        "debug": True,
+        "debug": False,
     }
 
     training_name = prefix_name + "/" + network_module + ".384dim_sub4_24gbgpu_100eps_bs2x180"
+    train_job = training(training_name, train_data, train_args, num_epochs=300, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 24
+    asr_model = prepare_asr_model(
+        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=300
+    )
+    tune_and_evaluate_helper(
+        training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5]
+    )
+
+    # use trained features
+    from ..convert_scf_checkpoint import get_scf_checkpoint
+    network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_ScfV1_v1"
+    model_config_v1 = copy.deepcopy(model_config)
+    model_config_v1.feature_extraction_config.size_tf = 160
+    model_config_v1.feature_training_start_epoch = 1000
+    train_args = {
+        "config": {
+            **copy.deepcopy(train_config_24gbgpu_amp),
+            "batch_size": 180 * 16000,
+            "accum_grad_multiple_step": 2,
+            "preload_from_files": {
+                "scf": {
+                    "filename": get_scf_checkpoint(),
+                    "ignore_missing": True,
+                    "checkpoint_key": "model",
+                    "prefix": "feature_extraction.",
+                    "init_for_train": True,
+                },
+            },
+        },
+        "network_module": network_module,
+        "net_args": {"model_config_dict": asdict(model_config_v1)},
+        "debug": False,
+    }
+
+    training_name = prefix_name + "/" + network_module + ".384dim_sub4_24gbgpu_100eps_bs2x180_scfinitfix"
     train_job = training(training_name, train_data, train_args, num_epochs=300, **default_returnn)
     train_job.rqmt["gpu_mem"] = 24
     asr_model = prepare_asr_model(
