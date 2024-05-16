@@ -29,20 +29,7 @@ def run_exps():
     for train_alias, checkpoint in train.train_import_global_tf(
       alias=model_alias,
       config_builder=config_builder,
-      n_epochs_list=(1,),
-      time_rqmt=4,
-    ):
-      recog.global_att_returnn_label_sync_beam_search(
-        alias=train_alias,
-        config_builder=config_builder,
-        checkpoint=checkpoint,
-        checkpoint_aliases=("last",),
-      )
-
-    for train_alias, checkpoint in train.train_import_global_tf(
-      alias=model_alias,
-      config_builder=config_builder,
-      n_epochs_list=(20,),
+      n_epochs_list=(10,),
       time_rqmt=4,
     ):
       recog.global_att_returnn_label_sync_beam_search(

@@ -7,7 +7,7 @@ from returnn.frontend.tensor_array import TensorArray
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.recog import RecogDef
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.model import GlobalAttentionModel
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.model_old.model import GlobalAttentionModel
 
 
 def model_recog(
@@ -30,10 +30,10 @@ def model_recog(
       out_spatial_dim,
       final beam_dim
   """
-  assert not model.label_decoder.language_model  # not implemented here. use the pure PyTorch search instead
+  assert not model.language_model  # not implemented here. use the pure PyTorch search instead
 
   batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-  enc_args, enc_spatial_dim = model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
+  enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
   beam_size = 12
   length_normalization_exponent = 1.0
   if max_seq_len is None:
@@ -46,8 +46,8 @@ def model_recog(
   # Initial state.
   beam_dim = Dim(1, name="initial-beam")
   batch_dims_ = [beam_dim] + batch_dims
-  decoder_state = model.label_decoder.decoder_default_initial_state(batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
-  target = rf.constant(model.label_decoder.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
+  decoder_state = model.decoder_default_initial_state(batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+  target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
   ended = rf.constant(False, dims=batch_dims_)
   out_seq_len = rf.constant(0, dims=batch_dims_)
   seq_log_prob = rf.constant(0.0, dims=batch_dims_)
@@ -57,22 +57,21 @@ def model_recog(
   seq_backrefs = []
   while True:
     if i == 0:
-      input_embed = rf.zeros(
-        batch_dims_ + [model.label_decoder.target_embed.out_dim], feature_dim=model.label_decoder.target_embed.out_dim)
+      input_embed = rf.zeros(batch_dims_ + [model.target_embed.out_dim], feature_dim=model.target_embed.out_dim)
     else:
-      input_embed = model.label_decoder.target_embed(target)
-    step_out, decoder_state = model.label_decoder.loop_step(
+      input_embed = model.target_embed(target)
+    step_out, decoder_state = model.loop_step(
       **enc_args,
       enc_spatial_dim=enc_spatial_dim,
       input_embed=input_embed,
       state=decoder_state,
     )
-    logits = model.label_decoder.decode_logits(input_embed=input_embed, **step_out)
+    logits = model.decode_logits(input_embed=input_embed, **step_out)
     label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
     # Filter out finished beams
     label_log_prob = rf.where(
       ended,
-      rf.sparse_to_dense(model.label_decoder.eos_idx, axis=model.target_dim, label_value=0.0, other_value=-1.0e30),
+      rf.sparse_to_dense(model.eos_idx, axis=model.target_dim, label_value=0.0, other_value=-1.0e30),
       label_log_prob,
     )
     seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
@@ -86,7 +85,7 @@ def model_recog(
     out_seq_len = rf.gather(out_seq_len, indices=backrefs)
     i += 1
 
-    ended = rf.logical_or(ended, rf.convert_to_tensor(target == model.label_decoder.eos_idx))
+    ended = rf.logical_or(ended, target == model.eos_idx)
     ended = rf.logical_or(ended, rf.copy_to_device(i >= max_seq_len))
     if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
       break
@@ -174,7 +173,7 @@ def model_recog_pure_torch(
   batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
   assert len(batch_dims) == 1, batch_dims  # not implemented otherwise, simple to add...
   batch_dim = batch_dims[0]
-  enc, enc_spatial_dim = model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
+  enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
   if max_seq_len is None:
     max_seq_len = enc_spatial_dim.get_size_tensor()
   else:
@@ -191,9 +190,9 @@ def model_recog_pure_torch(
     get_label_scorer_pure_torch(model=model, batch_dim=batch_dim, enc=enc, enc_spatial_dim=enc_spatial_dim),
     1.0,
   )
-  if model.label_decoder.language_model:
+  if model.language_model:
     lm_scale = beam_search_opts.pop("lm_scale")  # must be defined with LM
-    label_scorer.label_scorers["lm"] = (model.label_decoder.language_model_make_label_scorer(), lm_scale)
+    label_scorer.label_scorers["lm"] = (model.language_model_make_label_scorer(), lm_scale)
 
   print("** max seq len:", max_seq_len.raw_tensor)
 
@@ -209,8 +208,8 @@ def model_recog_pure_torch(
     device=data.raw_tensor.device,
     opts=BeamSearchOpts(
       **beam_search_opts,
-      bos_label=model.label_decoder.bos_idx,
-      eos_label=model.label_decoder.eos_idx,
+      bos_label=model.bos_idx,
+      eos_label=model.eos_idx,
       num_labels=model.target_dim.dimension,
     ),
   )
@@ -254,7 +253,7 @@ def get_label_scorer_pure_torch(
       """Initial state."""
       beam_dim = Dim(1, name="initial-beam")
       batch_dims_ = [batch_dim, beam_dim]
-      decoder_state = model.label_decoder.decoder_default_initial_state(batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+      decoder_state = model.decoder_default_initial_state(batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
       return tree.map_structure(functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim), decoder_state)
 
     def score_and_update_state(
@@ -281,16 +280,16 @@ def get_label_scorer_pure_torch(
         else:
           raise TypeError(f"_map_raw_to_tensor: unexpected {v} ({type(v).__name__})")
 
-      input_embed = model.label_decoder.target_embed(
+      input_embed = model.target_embed(
         rf.convert_to_tensor(prev_label, dims=[batch_dim, beam_dim], sparse_dim=model.target_dim)
       )
-      decode_out, decoder_state = model.label_decoder.loop_step(
+      decode_out, decoder_state = model.loop_step(
         **enc,
         enc_spatial_dim=enc_spatial_dim,
         input_embed=input_embed,
         state=tree.map_structure(_map_raw_to_tensor, prev_state),
       )
-      logits = model.label_decoder.decode_logits(input_embed=input_embed, **decode_out)
+      logits = model.decode_logits(input_embed=input_embed, **decode_out)
       label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
       assert set(label_log_prob.dims) == {batch_dim, beam_dim, model.target_dim}
 

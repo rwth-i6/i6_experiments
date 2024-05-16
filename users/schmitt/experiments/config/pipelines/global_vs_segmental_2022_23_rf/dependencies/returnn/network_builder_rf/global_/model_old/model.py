@@ -5,66 +5,85 @@ from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.model import ModelDef
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.decoder import GlobalAttDecoder
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.encoder.global_ import GlobalConformerEncoder
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor, _log_mel_feature_dim
-from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.supports_label_scorer_torch import RFModelWithMakeLabelScorer
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base_old import BaseModel
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base_old import _batch_size_factor, _log_mel_feature_dim
 
 
-class GlobalAttentionModel(rf.Module):
-  def __init__(
+class GlobalAttentionModel(BaseModel):
+  def __init__(self, eos_idx: int, **kwargs):
+    super(GlobalAttentionModel, self).__init__(**kwargs)
+    self.eos_idx = eos_idx
+    self.bos_idx = eos_idx
+
+  def decoder_default_initial_state(self, *, batch_dims: Sequence[Dim], enc_spatial_dim: Dim) -> rf.State:
+    """Default initial state"""
+    state = rf.State(
+      s=self.s.default_initial_state(batch_dims=batch_dims),
+      att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.encoder.out_dim]),
+      accum_att_weights=rf.zeros(
+        list(batch_dims) + [enc_spatial_dim, self.att_num_heads], feature_dim=self.att_num_heads
+      ),
+    )
+    state.att.feature_dim_axis = len(state.att.dims) - 1
+    return state
+
+  def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
+    """loop step out"""
+    return {
+      "s": Tensor(
+        "s", dims=batch_dims + [self.s.out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
+      ),
+      "att": Tensor(
+        "att",
+        dims=batch_dims + [self.att_num_heads * self.encoder.out_dim],
+        dtype=rf.get_default_float_dtype(),
+        feature_dim_axis=-1,
+      ),
+    }
+
+  def loop_step(
           self,
           *,
-          target_dim: Dim,
-          blank_idx: int,
-          enc_key_total_dim: Dim = Dim(name="enc_key_total_dim", dimension=1024),
-          att_dropout: float = 0.1,
-          l2: float = 0.0001,
-          language_model: Optional[RFModelWithMakeLabelScorer] = None,
-          enc_in_dim: Dim,
-          enc_out_dim: Dim = Dim(name="enc", dimension=512),
-          enc_num_layers: int = 12,
-          enc_aux_logits: Sequence[int] = (),  # layers
-          enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
-          enc_num_heads: int = 4,
-          encoder_layer_opts: Optional[Dict[str, Any]] = None,
-          dec_att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
-          enc_dropout: float = 0.1,
-          eos_idx: int,
-  ):
-    super(GlobalAttentionModel, self).__init__()
+          enc: rf.Tensor,
+          enc_ctx: rf.Tensor,
+          inv_fertility: rf.Tensor,
+          enc_spatial_dim: Dim,
+          input_embed: rf.Tensor,
+          state: Optional[rf.State] = None,
+  ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
+    """step of the inner loop"""
+    if state is None:
+      batch_dims = enc.remaining_dims(
+        remove=(enc.feature_dim, enc_spatial_dim) if enc_spatial_dim != single_step_dim else (enc.feature_dim,)
+      )
+      state = self.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim)
+    state_ = rf.State()
 
-    self.encoder = GlobalConformerEncoder(
-      enc_in_dim,
-      enc_out_dim,
-      num_layers=enc_num_layers,
-      target_dim=target_dim,
-      wb_target_dim=None,
-      aux_logits=enc_aux_logits,
-      ff_dim=enc_ff_dim,
-      num_heads=enc_num_heads,
-      encoder_layer_opts=encoder_layer_opts,
-      enc_key_total_dim=enc_key_total_dim,
-      dec_att_num_heads=dec_att_num_heads,
-      dropout=enc_dropout,
-      att_dropout=att_dropout,
-      l2=l2,
-    )
+    prev_att = state.att
 
-    self.label_decoder = GlobalAttDecoder(
-      enc_out_dim=self.encoder.out_dim,
-      target_dim=target_dim,
-      att_num_heads=dec_att_num_heads,
-      att_dropout=att_dropout,
-      blank_idx=blank_idx,
-      enc_key_total_dim=enc_key_total_dim,
-      l2=l2,
-      language_model=language_model,
-      eos_idx=eos_idx,
-    )
+    s, state_.s = self.s(rf.concat_features(input_embed, prev_att), state=state.s, spatial_dim=single_step_dim)
 
-    self.blank_idx = blank_idx
-    self.target_dim = target_dim
+    weight_feedback = self.weight_feedback(state.accum_att_weights)
+    s_transformed = self.s_transformed(s)
+    energy_in = enc_ctx + weight_feedback + s_transformed
+    energy = self.energy(rf.tanh(energy_in))
+    att_weights = rf.softmax(energy, axis=enc_spatial_dim)
+
+    state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5
+    att0 = rf.dot(att_weights, enc, reduce=enc_spatial_dim, use_mask=False)
+    att0.feature_dim = self.encoder.out_dim
+    att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.encoder.out_dim))
+    state_.att = att
+
+    return {"s": s, "att": att}, state_
+
+  def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
+    """logits for the decoder"""
+    readout_in = self.readout_in(rf.concat_features(s, input_embed, att))
+    readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
+    readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
+    logits = self.output_prob(readout)
+    return logits
 
 
 class MakeModel:
@@ -113,12 +132,12 @@ class MakeModel:
       lm = (lm, functools.partial(trafo_lm.make_label_scorer_torch, model=lm))
 
     return GlobalAttentionModel(
-      enc_in_dim=in_dim,
-      enc_num_layers=num_enc_layers,
-      enc_out_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
+      in_dim=in_dim,
+      num_enc_layers=num_enc_layers,
+      enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
       enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
-      enc_num_heads=8,
-      encoder_layer_opts=dict(
+      enc_att_num_heads=8,
+      enc_conformer_layer_opts=dict(
         conv_norm_opts=dict(use_mask=True),
         self_att_opts=dict(
           # Shawn et al 2018 style, old RETURNN way.

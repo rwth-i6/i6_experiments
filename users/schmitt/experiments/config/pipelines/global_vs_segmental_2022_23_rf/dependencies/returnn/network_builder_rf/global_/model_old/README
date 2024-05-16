@@ -1,0 +1,2 @@
+This package contains everything needed for doing viterbi training and recognition for the V1 baseline of our
+global att model. It leads to the same scores, losses, speed and WER as our old RETURNN setup (net_dict style).

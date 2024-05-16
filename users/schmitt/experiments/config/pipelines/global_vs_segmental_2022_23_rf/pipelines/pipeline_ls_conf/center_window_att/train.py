@@ -1,8 +1,8 @@
-from typing import Tuple, Optional, List, Dict
+from typing import Tuple, Optional, List, Dict, Union, Callable
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import SegmentalAttConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train_new import SegmentalTrainExperiment
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.train import _returnn_v2_train_step, from_scratch_training
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.train import _returnn_v2_train_step, viterbi_training
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.checkpoints import (
   external_checkpoints,
   default_import_model_name,
@@ -33,7 +33,7 @@ def train_center_window_att_from_scratch(
         },
         "import_model_train_epoch1": None,
         "lr_opts": {"type": "dyn_lr_lin_warmup_invsqrt_decay"},
-        "train_def": from_scratch_training,
+        "train_def": viterbi_training,
         "train_step_func": _returnn_v2_train_step,
       }
     )
@@ -55,6 +55,7 @@ def train_center_window_att_import_global_tf(
         n_epochs_list: Tuple[int, ...],
         time_rqmt: int = 168,
         train_opts: Optional[Dict] = None,
+        custom_missing_load_func: Optional[Callable] = None
 ):
   _train_opts = {
     "preload_from_files": {
@@ -64,10 +65,12 @@ def train_center_window_att_import_global_tf(
         "ignore_missing": True,  # because of length model params
       }
     },
-    "train_def": from_scratch_training,
+    "train_def": viterbi_training,
     "train_step_func": _returnn_v2_train_step,
     "batching": "random",
   }
+  if custom_missing_load_func:
+    _train_opts["preload_from_files"]["pretrained_global_att_params"]["custom_missing_load_func"] = custom_missing_load_func
   if train_opts:
     _train_opts.update(train_opts)
 
@@ -119,7 +122,7 @@ def train_center_window_att_import_center_window_tf(
         #   }
         # },
         "import_model_train_epoch1": get_center_window_baseline_v1_tf_checkpoint(),
-        "train_def": from_scratch_training,
+        "train_def": viterbi_training,
         "train_step_func": _returnn_v2_train_step,
         "batching": "random",
         "aux_loss_layers": None,

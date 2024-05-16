@@ -3,7 +3,7 @@ from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.training import TrainDef
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.model import GlobalAttentionModel
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.model_old.model import GlobalAttentionModel
 
 
 def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
@@ -48,7 +48,7 @@ def from_scratch_training(
   assert not data.feature_dim  # raw audio
 
   collected_outputs = {}
-  enc_args, enc_spatial_dim = model.encoder.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+  enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
   if aux_loss_layers:
     for i, layer_idx in enumerate(aux_loss_layers):
       if layer_idx > len(model.encoder.layers):
@@ -70,12 +70,12 @@ def from_scratch_training(
       )
 
   batch_dims = data.remaining_dims(data_spatial_dim)
-  input_embeddings = model.label_decoder.target_embed(targets)
+  input_embeddings = model.target_embed(targets)
   input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
 
   def _body(input_embed: Tensor, state: rf.State):
     new_state = rf.State()
-    loop_out_, new_state.decoder = model.label_decoder.loop_step(
+    loop_out_, new_state.decoder = model.loop_step(
       **enc_args,
       enc_spatial_dim=enc_spatial_dim,
       input_embed=input_embed,
@@ -86,14 +86,14 @@ def from_scratch_training(
   loop_out, _, _ = rf.scan(
     spatial_dim=targets_spatial_dim,
     xs=input_embeddings,
-    ys=model.label_decoder.loop_step_output_templates(batch_dims=batch_dims),
+    ys=model.loop_step_output_templates(batch_dims=batch_dims),
     initial=rf.State(
-      decoder=model.label_decoder.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim),
+      decoder=model.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim),
     ),
     body=_body,
   )
 
-  logits = model.label_decoder.decode_logits(input_embed=input_embeddings, **loop_out)
+  logits = model.decode_logits(input_embed=input_embeddings, **loop_out)
   logits_packed, pack_dim = rf.pack_padded(logits, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False)
   targets_packed, _ = rf.pack_padded(
     targets, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim

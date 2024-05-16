@@ -44,6 +44,7 @@ def get_center_window_att_config_builder_rf(
   config_builder = SegmentalAttConfigBuilderRF(
     variant_params=variant_params,
     center_window_size=win_size,
+    decoder_version=decoder_version,
     model_def=from_scratch_model_def,
     get_model_func=_returnn_v2_get_model,
   )
@@ -53,13 +54,13 @@ def get_center_window_att_config_builder_rf(
 
 def center_window_att_baseline_rf(
         win_size_list: Tuple[int, ...] = (5, 129),
+        decoder_version: Optional[int] = None,
 ):
   for win_size in win_size_list:
-    alias = f"{base_alias}/baseline_rf/win-size-%d" % (
-      win_size
-    )
+    alias = f"{base_alias}/baseline_rf/win-size-{win_size}/decoder-version-{decoder_version if decoder_version else 1}"
     yield alias, get_center_window_att_config_builder_rf(
       win_size=win_size,
       use_weight_feedback=True,
-      length_model_opts={"use_label_model_state": True, "use_alignment_ctx": False},
+      length_model_opts={"use_label_model_state": False, "use_alignment_ctx": False},
+      decoder_version=decoder_version,
     )

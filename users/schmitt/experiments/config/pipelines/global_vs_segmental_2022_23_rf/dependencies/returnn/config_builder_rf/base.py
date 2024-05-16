@@ -467,6 +467,7 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
   def __init__(
           self,
           center_window_size: int,
+          decoder_version: Optional[int] = None,
           length_model_opts: Optional[Dict] = None,
           **kwargs
   ):
@@ -476,8 +477,9 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
       center_window_size=center_window_size,
     ))
 
-    if length_model_opts is not None:
-      self.config_dict["length_model_opts"] = length_model_opts
+    print(decoder_version)
+    if decoder_version:
+      self.config_dict["label_decoder_version"] = decoder_version
 
   def get_recog_config(self, opts: Dict):
     recog_config = super(SegmentalAttConfigBuilderRF, self).get_recog_config(opts)

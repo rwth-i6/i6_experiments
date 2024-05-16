@@ -1,8 +1,10 @@
 from typing import Optional, Sequence, Tuple
+import torch
 
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
 
 
 def get_non_blank_mask(x: Tensor, blank_idx: int):
@@ -13,9 +15,6 @@ def get_non_blank_mask(x: Tensor, blank_idx: int):
 def get_masked(
         input: Tensor, mask: Tensor, mask_dim: Dim, batch_dims: Sequence[Dim], result_spatial_dim: Optional[Dim] = None
 ) -> Tuple[Tensor, Dim]:
-
-  import torch
-
   if not result_spatial_dim:
     new_lens = rf.reduce_sum(rf.cast(mask, "int32"), axis=mask_dim)
     result_spatial_dim = Dim(name=f"{mask_dim.name}_masked", dimension=rf.copy_to_device(new_lens, "cpu"))
@@ -42,3 +41,41 @@ def get_masked(
   result = result.copy_transpose(batch_dims + [result_spatial_dim])
 
   return result, result_spatial_dim
+
+
+def get_segment_starts_and_lens(
+        align_targets: Tensor,
+        align_targets_spatial_dim: Dim,
+        model: SegmentalAttentionModel,
+        batch_dims: Sequence[Dim],
+        out_spatial_dim: Dim
+):
+  non_blank_mask = get_non_blank_mask(align_targets, model.blank_idx)
+  targets_range = rf.range_over_dim(align_targets_spatial_dim, dtype="int32")
+  targets_range = rf.expand_dim(targets_range, batch_dims[0])
+  non_blank_positions, _ = get_masked(
+    targets_range, non_blank_mask, align_targets_spatial_dim, batch_dims, out_spatial_dim
+  )
+  starts = rf.maximum(
+    rf.convert_to_tensor(0, dtype="int32"), non_blank_positions - model.center_window_size // 2)
+  ends = rf.minimum(
+    rf.copy_to_device(align_targets_spatial_dim.get_size_tensor() - 1, non_blank_positions.device),
+    non_blank_positions + model.center_window_size // 2
+  )
+  lens = ends - starts + 1
+
+  return starts, lens
+
+
+def get_emit_ground_truth(
+        align_targets: Tensor,
+        blank_idx: int
+):
+  non_blank_mask = get_non_blank_mask(align_targets, blank_idx)
+  result = rf.where(non_blank_mask, rf.convert_to_tensor(1), rf.convert_to_tensor(0))
+  sparse_dim = Dim(name="emit_ground_truth", dimension=2)
+  # result = rf.expand_dim(result, sparse_dim)
+  result.sparse_dim = sparse_dim
+  torch.set_printoptions(threshold=10000)
+
+  return result, sparse_dim

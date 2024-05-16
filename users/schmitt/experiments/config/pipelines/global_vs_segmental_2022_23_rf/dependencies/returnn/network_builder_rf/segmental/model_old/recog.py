@@ -7,7 +7,7 @@ from returnn.frontend.tensor_array import TensorArray
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.recog import RecogDef
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_old.model import SegmentalAttentionModel
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.utils import get_masked, get_non_blank_mask
 
 
@@ -31,10 +31,10 @@ def model_recog(
       out_spatial_dim,
       final beam_dim
   """
-  assert not model.label_decoder.language_model  # not implemented here. use the pure PyTorch search instead
+  assert not model.language_model  # not implemented here. use the pure PyTorch search instead
 
   batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-  enc_args, enc_spatial_dim = model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
+  enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
   beam_size = 12
   if max_seq_len is None:
     max_seq_len = enc_spatial_dim.get_size_tensor()
@@ -47,9 +47,9 @@ def model_recog(
   # Initial state.
   beam_dim = Dim(1, name="initial-beam")
   batch_dims_ = [beam_dim] + batch_dims
-  label_decoder_state = model.label_decoder.default_initial_state(batch_dims=batch_dims_, )
+  label_decoder_state = model.label_decoder_default_initial_state(batch_dims=batch_dims_,)
 
-  blank_decoder_state = model.blank_decoder.default_initial_state(batch_dims=batch_dims_)
+  blank_decoder_state = model.blank_decoder_default_initial_state(batch_dims=batch_dims_)
   bos_idx = 0
   target = rf.constant(bos_idx, dims=batch_dims_, sparse_dim=model.align_target_dim)
   target_non_blank = rf.constant(bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
@@ -61,15 +61,11 @@ def model_recog(
   seq_backrefs = []
   while i < max_seq_len.raw_tensor:
     if i == 0:
-      input_embed = rf.zeros(
-        batch_dims_ + [model.label_decoder.target_embed.out_dim],
-        feature_dim=model.label_decoder.target_embed.out_dim,
-        dtype="float32"
-      )
+      input_embed = rf.zeros(batch_dims_ + [model.target_embed.out_dim], feature_dim=model.target_embed.out_dim, dtype="float32")
       input_embed_length_model = rf.zeros(
-        batch_dims_ + [model.blank_decoder.target_embed.out_dim], feature_dim=model.blank_decoder.target_embed.out_dim)
+        batch_dims_ + [model.target_embed_length_model.out_dim], feature_dim=model.target_embed_length_model.out_dim)
     else:
-      input_embed_length_model = model.blank_decoder.target_embed(target)
+      input_embed_length_model = model.target_embed_length_model(target)
 
     # ------------------- label step -------------------
     center_position = rf.minimum(
@@ -84,7 +80,7 @@ def model_recog(
     )
     segment_lens = segment_ends - segment_starts + 1
 
-    label_step_out, label_decoder_state_updated = model.label_decoder.loop_step(
+    label_step_out, label_decoder_state_updated = model.label_sync_loop_step(
       **enc_args,
       enc_spatial_dim=enc_spatial_dim,
       input_embed=input_embed,
@@ -92,18 +88,18 @@ def model_recog(
       segment_starts=segment_starts,
       state=label_decoder_state,
     )
-    label_logits = model.label_decoder.decode_logits(input_embed=input_embed, **label_step_out)
+    label_logits = model.decode_label_logits(input_embed=input_embed, **label_step_out)
     label_log_prob = rf.log_softmax(label_logits, axis=model.target_dim)
 
     # ------------------- blank step -------------------
 
-    blank_step_out, blank_decoder_state = model.blank_decoder.loop_step(
+    blank_step_out, blank_decoder_state = model.time_sync_loop_step(
       enc=enc_args["enc"],
       enc_spatial_dim=enc_spatial_dim,
       input_embed=input_embed_length_model,
       state=blank_decoder_state,
     )
-    blank_logits = model.blank_decoder.decode_logits(**blank_step_out)
+    blank_logits = model.decode_blank_logits(**blank_step_out)
     emit_log_prob = rf.log(rf.sigmoid(blank_logits))
     emit_log_prob = rf.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
     blank_log_prob = rf.log(rf.sigmoid(-blank_logits))
@@ -137,10 +133,10 @@ def model_recog(
     )
 
     target_non_blank = rf.where(update_state_mask, target, rf.gather(target_non_blank, indices=backrefs))
-    target_non_blank.sparse_dim = model.label_decoder.target_embed.in_dim
+    target_non_blank.sparse_dim = model.target_embed.in_dim
     input_embed = rf.where(
       update_state_mask,
-      model.label_decoder.target_embed(target_non_blank),
+      model.target_embed(target_non_blank),
       rf.gather(input_embed, indices=backrefs, axis=old_beam_dim)
     )
 
@@ -176,6 +172,10 @@ def model_recog(
 # RecogDef API
 model_recog: RecogDef[SegmentalAttentionModel]
 model_recog.output_with_beam = True
+# output_blank_label=blank is actually wrong for AED, but now we don't change it anymore
+# because it would change all recog hashes.
+# Also, it does not matter too much -- it will just cause an extra SearchRemoveLabelJob,
+# which will not have any effect here.
 model_recog.output_blank_label = "<blank>"
 model_recog.batch_size_dependent = False
 
@@ -220,7 +220,7 @@ def model_recog_pure_torch(
   batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
   assert len(batch_dims) == 1, batch_dims  # not implemented otherwise, simple to add...
   batch_dim = batch_dims[0]
-  enc, enc_spatial_dim = model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
+  enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
   if max_seq_len is None:
     max_seq_len = enc_spatial_dim.get_size_tensor()
   else:
@@ -241,9 +241,9 @@ def model_recog_pure_torch(
     get_time_sync_scorer_pure_torch(model=model, batch_dim=batch_dim, enc=enc, enc_spatial_dim=enc_spatial_dim),
     1.0,
   )
-  if model.label_decoder.language_model:
+  if model.language_model:
     lm_scale = beam_search_opts.pop("lm_scale")  # must be defined with LM
-    label_scorer.label_scorers["lm"] = (model.label_decoder.language_model_make_label_scorer(), lm_scale)
+    label_scorer.label_scorers["lm"] = (model.language_model_make_label_scorer(), lm_scale)
 
   print("** max seq len:", max_seq_len.raw_tensor)
 
@@ -253,7 +253,7 @@ def model_recog_pure_torch(
     seq_log_prob,  # [Batch,FinalBeam]
   ) = time_sync_beam_search(
     label_scorer,
-    label_sync_keys=["label_sync_decoder", "lm"] if model.label_decoder.language_model else ["label_sync_decoder"],
+    label_sync_keys=["label_sync_decoder", "lm"] if model.language_model else ["label_sync_decoder"],
     time_sync_keys=["time_sync_decoder"],
     batch_size=int(batch_dim.get_dim_value()),
     blank_idx=model.blank_idx,
@@ -313,7 +313,7 @@ def get_label_sync_scorer_pure_torch(
       """Initial state."""
       beam_dim = Dim(1, name="initial-beam")
       batch_dims_ = [batch_dim, beam_dim]
-      decoder_state = model.label_decoder.default_initial_state(batch_dims=batch_dims_, )
+      decoder_state = model.label_decoder_default_initial_state(batch_dims=batch_dims_,)
       return tree.map_structure(functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim), decoder_state)
 
     def score_and_update_state(
@@ -354,8 +354,8 @@ def get_label_sync_scorer_pure_torch(
       segment_lens = segment_ends - segment_starts + 1
 
       zeros_embed = rf.zeros(
-        [batch_dim, beam_dim, model.label_decoder.target_embed.out_dim],
-        feature_dim=model.label_decoder.target_embed.out_dim,
+        [batch_dim, beam_dim, model.target_embed.out_dim],
+        feature_dim=model.target_embed.out_dim,
         dtype="float32"
       )
       initial_output_mask = rf.convert_to_tensor(prev_label == -1, dims=[batch_dim, beam_dim])
@@ -368,10 +368,10 @@ def get_label_sync_scorer_pure_torch(
       input_embed = rf.where(
         initial_output_mask,
         zeros_embed,
-        model.label_decoder.target_embed(prev_label)
+        model.target_embed(prev_label)
       )
 
-      decode_out, decoder_state = model.label_decoder.loop_step(
+      decode_out, decoder_state = model.label_sync_loop_step(
         **enc,
         enc_spatial_dim=enc_spatial_dim,
         input_embed=input_embed,
@@ -379,7 +379,7 @@ def get_label_sync_scorer_pure_torch(
         segment_starts=segment_starts,
         state=tree.map_structure(_map_raw_to_tensor, prev_state),
       )
-      logits = model.label_decoder.decode_logits(input_embed=input_embed, **decode_out)
+      logits = model.decode_label_logits(input_embed=input_embed, **decode_out)
       label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
 
       blank_log_prob = rf.zeros(
@@ -437,7 +437,7 @@ def get_time_sync_scorer_pure_torch(
       """Initial state."""
       beam_dim = Dim(1, name="initial-beam")
       batch_dims_ = [batch_dim, beam_dim]
-      decoder_state = model.blank_decoder.default_initial_state(batch_dims=batch_dims_, )
+      decoder_state = model.blank_decoder_default_initial_state(batch_dims=batch_dims_,)
       return tree.map_structure(functools.partial(self._map_tensor_to_raw, beam_dim=beam_dim), decoder_state)
 
     def score_and_update_state(
@@ -466,8 +466,8 @@ def get_time_sync_scorer_pure_torch(
           raise TypeError(f"_map_raw_to_tensor: unexpected {v} ({type(v).__name__})")
 
       zeros_embed = rf.zeros(
-        [batch_dim, beam_dim, model.blank_decoder.target_embed.out_dim],
-        feature_dim=model.blank_decoder.target_embed.out_dim,
+        [batch_dim, beam_dim, model.target_embed_length_model.out_dim],
+        feature_dim=model.target_embed_length_model.out_dim,
         dtype="float32"
       )
       initial_output_mask = rf.convert_to_tensor(prev_align_label == -1, dims=[batch_dim, beam_dim])
@@ -480,16 +480,16 @@ def get_time_sync_scorer_pure_torch(
       input_embed = rf.where(
         initial_output_mask,
         zeros_embed,
-        model.blank_decoder.target_embed(prev_align_label)
+        model.target_embed_length_model(prev_align_label)
       )
 
-      decode_out, decoder_state = model.blank_decoder.loop_step(
+      decode_out, decoder_state = model.time_sync_loop_step(
         enc=enc["enc"],
         enc_spatial_dim=enc_spatial_dim,
         input_embed=input_embed,
         state=tree.map_structure(_map_raw_to_tensor, prev_state),
       )
-      blank_logits = model.blank_decoder.decode_logits(**decode_out)
+      blank_logits = model.decode_blank_logits(**decode_out)
       emit_log_prob = rf.log(rf.sigmoid(blank_logits))
       emit_log_prob = rf.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
       blank_log_prob = rf.log(rf.sigmoid(-blank_logits))
