@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional, List
 from dataclasses import dataclass, asdict
 
 from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder import ConformerEncoder
+from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder_v2 import ConformerEncoderV2
 from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder import TransformerDecoder
 from i6_experiments.users.zeineldeen.models.asr.decoder.conformer_decoder import ConformerDecoder
 from i6_experiments.users.zeineldeen.models.asr.decoder.rnn_decoder import RNNDecoder
@@ -349,11 +350,6 @@ def pretrain_layers_and_dims(
 
     net_dict = encoder_model.network.get_net()
 
-    # if decoder_args["ce_loss_scale"] == 0.0:
-    #     assert encoder_args["with_ctc"], "CTC loss is not enabled."
-    #     net_dict["output"] = {"class": "copy", "from": "ctc"}
-    #     net_dict["decision"]["target"] = "bpe_labels_w_blank"
-    # else:
     net_dict.update(decoder_model.network.get_net())
 
     net_dict.update(extra_net_dict)
@@ -430,6 +426,17 @@ class ConformerEncoderArgs(EncoderArgs):
     convolution_first: bool = False
 
 
+class ConformerEncoderV2Args(ConformerEncoderArgs):
+    # weight noise
+    ff_weight_noise: Optional[float] = None
+    mhsa_weight_noise: Optional[float] = None
+    conv_weight_noise: Optional[float] = None
+    frontend_conv_weight_noise: Optional[float] = None
+
+    # weight dropout
+    frontend_conv_weight_dropout: Optional[float] = None
+
+
 class DecoderArgs:
     pass
 
@@ -454,8 +461,14 @@ class TransformerDecoderArgs(DecoderArgs):
     embed_dropout: float = 0.1
     softmax_dropout: float = 0.0
 
+    ff_weight_noise: Optional[float] = None
+    mhsa_weight_noise: Optional[float] = None
+    ff_weight_dropout: Optional[float] = None
+    mhsa_weight_dropout: Optional[float] = None
+
     # other regularization
     l2: float = 0.0
+    self_att_l2: float = 0.0
     rel_pos_clipping: int = 16
     label_smoothing: float = 0.1
     apply_embed_weight: bool = False
@@ -732,9 +745,13 @@ def create_config(
         exp_config["newbob_learning_rate_decay"] = lr_decay
 
     # -------------------------- network -------------------------- #
-    encoder_type = None
+
     if isinstance(encoder_args, ConformerEncoderArgs):
         encoder_type = ConformerEncoder
+    elif isinstance(encoder_args, ConformerEncoderV2Args):
+        encoder_type = ConformerEncoderV2
+    else:
+        raise ValueError("invalid encoder_args type")
 
     if isinstance(decoder_args, TransformerDecoderArgs):
         decoder_type = TransformerDecoder
@@ -746,7 +763,7 @@ def create_config(
         decoder_type = ConformerDecoder
         dec_type = "conformer"  # TODO: check if same as transformer
     else:
-        assert False, "invalid decoder_args type"
+        raise ValueError("invalid decoder_args type")
 
     encoder_args = asdict(encoder_args)
     if feature_extraction_net:
