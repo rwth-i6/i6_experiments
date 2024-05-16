@@ -36,14 +36,13 @@ from ..pytorch_networks.shared.configs import (
 from ..storage import tts_models, add_tts_model, TTSModel
 
 
-def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
-    """
-    Baseline for the glow TTS in returnn_common with serialization
+def get_glow_joint(x_vector_exp, tts_exps, gl_checkpoint):
+    """Experiments training TTS jointly with phoneme prediction network as an auxiliary loss
 
-    Uses updated RETURNN_COMMON
-
-    :return: durations_hdf
-    """
+    :param dict x_vector_exp: Dictionary containing x-vector experiments from ../../librispeech_x_vectors
+    :param dict tts_exps: Dictionary containing TTS-only experiments from ../../librispeech_glowtts
+    :param dict gl_checkpoint: _description_
+    """    
 
     prefix = "experiments/librispeech/joint_training/given_alignments/raw_audio/joint_models/"
     experiments = {}
@@ -59,26 +58,40 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         forward_args={},
         search_args={},
         keep_epochs=None,
-        extract_x_vector=False,
         tts_forward=True,
         asr_search=True,
         phoneme_pred=True,
         encoder_phoneme_pred=False,
-        asr_cv_set=False,
-        given_train_job_for_forward=None,
         tts_eval_datasets=None,
     ):
+        """Creates the job for an experiment
+
+        :param str name: Name of the experiment used for aliases
+        :param dict args: General arguments used for the Returnn Configs
+        :param TrainingDataset dataset: Dataset for training
+        :param dict test_dataset: Dictionary of datasets used for evaluation
+        :param int num_epochs: Number of epochs for training, defaults to 100
+        :param bool use_custom_engine: whether a custom engine is used in Returnn, defaults to False
+        :param dict training_args: Additional arguments for training, defaults to {}
+        :param dict forward_args: Additional arguments for TTS forward, defaults to {}
+        :param dict search_args: Additional arguments for phoneme prediction, defaults to {}
+        :param list[int] keep_epochs: List of numbers of checkpoints that are supposed to be kept during training, defaults to None
+        :param bool tts_forward: whether TTS evaluation should be run (autoMOS, NISQA), defaults to True
+        :param bool asr_search: whether ASR search should be run, defaults to True
+        :param bool phoneme_pred: whether phoneme prediction evaluation should be run, defaults to True
+        :param bool encoder_phoneme_pred: whether phoneme prediction evaluation should be run using encoder output instead of inverse decoder output as the input, defaults to False
+        :param dict tts_eval_datasets: Dictionary containing datasets for TTS evaluation, defaults to None
+        :return dict: Dictionary containing all the job references for the given experiment
+        """
         exp = {}
 
-        if given_train_job_for_forward is None:
-            training_config = get_training_config(
-                training_datasets=dataset,
-                **args,
-                training_args=training_args,
-                use_custom_engine=use_custom_engine,
-                keep_epochs=keep_epochs,
-                asr_cv_set=asr_cv_set,
-            )  # implicit reconstruction loss
+        training_config = get_training_config(
+            training_datasets=dataset,
+            **args,
+            training_args=training_args,
+            use_custom_engine=use_custom_engine,
+            keep_epochs=keep_epochs,
+        )
 
         if asr_search or phoneme_pred:
             search_config = get_search_config(
@@ -95,16 +108,13 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         if encoder_phoneme_pred:
             encoder_phoneme_pred_config = get_search_config(**args, search_args=search_args, target="encoder_phoneme")
 
-        if given_train_job_for_forward is None:
-            train_job = training(
-                config=training_config,
-                returnn_exe=RETURNN_PYTORCH_EXE,
-                returnn_root=MINI_RETURNN_ROOT,
-                prefix=prefix + name,
-                num_epochs=num_epochs,
-            )
-        else: 
-            train_job = given_train_job_for_forward
+        train_job = training(
+            config=training_config,
+            returnn_exe=RETURNN_PYTORCH_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+            prefix=prefix + name,
+            num_epochs=num_epochs,
+        )
         exp["train_job"] = train_job
 
         if tts_forward:
@@ -133,19 +143,6 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
                 )
                 exp["forward_job_gl"] = forward_job_gl
 
-        if extract_x_vector:
-            forward_x_vector_config = get_forward_config(
-                forward_dataset=dataset, **args, forward_args=forward_args, target="xvector", train_data=True
-            )
-            forward_xvector_job = forward(
-                checkpoint=train_job.out_checkpoints[num_epochs],
-                config=forward_x_vector_config,
-                returnn_exe=RETURNN_PYTORCH_EXE,
-                returnn_root=MINI_RETURNN_ROOT,
-                prefix=prefix + name,
-                target="xvector",
-            )
-            exp["forward_xvector_job"] = forward_xvector_job
         if asr_search:
             search(
                 prefix + name + "/search",
@@ -175,18 +172,9 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
             )
         return exp
 
-    # def get_lr_scale(dim_model, step_num, warmup_steps):
-    #     return np.power(dim_model, -0.5) * np.min(
-    #         [np.power(step_num + 1, -0.5), step_num + 1 * np.power(warmup_steps, -1.5)]
-    #     )
-
     train_settings = TrainingDatasetSettings(
         custom_processing_function=None, partition_epoch=3, epoch_wise_filters=[], seq_ordering="laplace:.1000"
     )
-
-    # training_datasets = build_training_dataset(
-    #     settings=train_settings, librispeech_key="train-clean-100", silence_preprocessing=False
-    # )
 
     glowTTS_durations_job = tts_exps["glowTTS/enc192/200ep/long_cooldown/not_silence_preprocessed"]["forward_job_joint_durations"]
     training_datasets_tts_segments = build_training_dataset(
@@ -196,9 +184,6 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         use_tts_train_segments=True,
         durations_file=glowTTS_durations_job.out_hdf_files["output.hdf"]
     )
-    # training_datasets_silence_preprocessed = build_training_dataset(
-    #     settings=train_settings, librispeech_key="train-clean-100", silence_preprocessing=True
-    # )
     train_settings_pe1 = TrainingDatasetSettings(
         custom_processing_function=None, partition_epoch=1, epoch_wise_filters=[], seq_ordering="laplace:.1000"
     )
@@ -305,24 +290,6 @@ def get_glow_joint(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         max_dim_time=20,
         max_dim_feat=8,
         num_repeat_feat=5,
-    )
-    frontend_config = VGG4LayerActFrontendV1Config_mod(
-        in_features=80,
-        conv1_channels=16,
-        conv2_channels=16,
-        conv3_channels=16,
-        conv4_channels=16,
-        conv_kernel_size=(3, 3),
-        conv_padding=None,
-        pool1_kernel_size=(2, 1),
-        pool1_stride=(2, 1),
-        pool1_padding=None,
-        pool2_kernel_size=(2, 1),
-        pool2_stride=(2, 1),
-        pool2_padding=None,
-        activation_str="ReLU",
-        out_features=96,
-        activation=None,
     )
     text_encoder_config = TextEncoderConfig(
         n_vocab=label_datastream_tts.vocab_size,

@@ -44,12 +44,11 @@ from .pytorch_networks.shared.model_config import (
 
 
 def get_conformer_coupling_glow(x_vector_exp, gl_checkpoint):
-    """
-    Baseline for the glow TTS in returnn_common with serialization
+    """Different experiments similar to the experiments in ../librispeech_glowtts and ../librispeech_joint_training but using Conformers as coupling function instead of wavenet-like CNN
 
-    Uses updated RETURNN_COMMON
-
-    :return: durations_hdf
+    :param dict x_vector_exp: Dictionary containing experiments from ../librispeech_x_vectors to import pre-trained x-vector models for on-the-fly speaker embedding generation
+    : param dict gl_checkpoint: Dictionary containing checkpoint and config of BLSTM transforming log-mel into linear spectrograms for G&L vocoding
+    :return dict: Dictionary containing experiment dictionaries
     """
 
     prefix = "experiments/librispeech/joint_training/conformer_coupling/raw_audio/"
@@ -66,28 +65,43 @@ def get_conformer_coupling_glow(x_vector_exp, gl_checkpoint):
         forward_args={},
         search_args={},
         keep_epochs=None,
-        extract_x_vector=False,
         tts_forward=True,
         asr_search=True,
         use_speaker_labels_in_dev=False,
-        given_train_job_for_forward=None,
         tts_eval_datasets=None,
     ):
+        """Creates jobs for training, TTS forward/evaluation and ASR search
+
+        :param str name: Name of the experiment for aliases
+        :param dict args: General arguments for training, forwarding and search
+        :param TrainingDataset dataset: Dataset for training and TTS forwarding without evaluation
+        :param dict test_dataset: Dictionary of datasets for ASR evaluation
+        :param int num_epochs: Number of epochs for training, defaults to 100
+        :param bool use_custom_engine: whether custom engine should be used in Returnn, defaults to False
+        :param dict training_args: Additional arguments for training passed to train_step function, defaults to {}
+        :param dict forward_args: Additional arguments for TTS forward passed to froward_step, defaults to {}
+        :param dict search_args: Additional arguments for ASR search passed to search_step_init, defaults to {}
+        :param list[int] keep_epochs: List of checkpoints that should be kept during training, defaults to None
+        :param bool tts_forward: whether TTS should be evaluated, defaults to True
+        :param bool asr_search: whether ASR search sould be performend and evaluated, defaults to True
+        :param bool use_speaker_labels_in_dev: whether validation set for training should contain speaker labels (uses devtrain split instead of dev-other/-clean for validation), defaults to False
+        :param dict tts_eval_datasets: Dictionary of datasets used for TTS evaluation, defaults to None
+        :return dict: Dictionary containing all jobs of the experiment
+        """        
 
         assert not tts_forward or (
             "x_vector" not in name or tts_eval_datasets is not None
         ), "Attempting to evaluate a model with x-vector speaker embeddings, but missing explicit forward dataset with precalculated x-vector speaker embeddings."
         exp = {}
 
-        if given_train_job_for_forward is None:
-            training_config = get_training_config(
-                training_datasets=dataset,
-                **args,
-                training_args=training_args,
-                use_custom_engine=use_custom_engine,
-                keep_epochs=keep_epochs,
-                use_speaker_labels_in_dev=use_speaker_labels_in_dev,
-            )  # implicit reconstruction loss
+        training_config = get_training_config(
+            training_datasets=dataset,
+            **args,
+            training_args=training_args,
+            use_custom_engine=use_custom_engine,
+            keep_epochs=keep_epochs,
+            use_speaker_labels_in_dev=use_speaker_labels_in_dev,
+        )
 
         if tts_forward:
             forward_config = get_forward_config(
@@ -102,16 +116,13 @@ def get_conformer_coupling_glow(x_vector_exp, gl_checkpoint):
                 search_args=search_args,
             )
 
-        if given_train_job_for_forward is None:
-            train_job = training(
-                config=training_config,
-                returnn_exe=RETURNN_PYTORCH_EXE,
-                returnn_root=MINI_RETURNN_ROOT,
-                prefix=prefix + name,
-                num_epochs=num_epochs,
-            )
-        else:
-            train_job = given_train_job_for_forward
+        train_job = training(
+            config=training_config,
+            returnn_exe=RETURNN_PYTORCH_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+            prefix=prefix + name,
+            num_epochs=num_epochs,
+        )
         exp["train_job"] = train_job
 
         if tts_forward:
@@ -139,19 +150,6 @@ def get_conformer_coupling_glow(x_vector_exp, gl_checkpoint):
                     swer_eval_corpus_key=ds_key
                 )
 
-        if extract_x_vector:
-            forward_x_vector_config = get_forward_config(
-                forward_dataset=dataset, **args, forward_args=forward_args, target="xvector", train_data=True
-            )
-            forward_xvector_job = forward(
-                checkpoint=train_job.out_checkpoints[num_epochs],
-                config=forward_x_vector_config,
-                returnn_exe=RETURNN_PYTORCH_EXE,
-                returnn_root=MINI_RETURNN_ROOT,
-                prefix=prefix + name,
-                target="xvector",
-            )
-            exp["forward_xvector_job"] = forward_xvector_job
         if asr_search:
             search(
                 prefix + name + "/search",

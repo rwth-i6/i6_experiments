@@ -33,6 +33,10 @@ from i6_experiments.users.rilling.experiments.librispeech.librispeech_joint_trai
 
 
 def glowASR(TTS_experiments: dict):
+    """Contains the ASR-only experiments using both frozen Glow-TTS decoder and unfrozen coupling blocks as a frontend for BLSTMs or Conformers trained on ASR
+
+    :param dict TTS_experiments: Dictionary containing the TTS-only experiments from ../librispeech_glowtts to import Glow-TTS decoder parameters
+    """    
     prefix_name = "experiments/librispeech/librispeech_glow_asr/pytorch/"
 
     train_settings = TrainingDatasetSettings(
@@ -137,6 +141,21 @@ def glowASR(TTS_experiments: dict):
         only_forward_no_search=False,
         eval_invertibility=False,
     ):
+        """Creates the jobs for training and search of the experiment
+
+        :param str ft_name: Name of the experiment to be used for aliases
+        :param TrainingDataset datasets: Dataset to be used for training
+        :param dict train_args: Dictionary containing arguments for training
+        :param dict search_args: Dictionary containing arguments for search used in search init step, defaults to None
+        :param bool with_prior: whether the prior on the test dataset should be evaluated for internal language model correction (if set to False will default to True if search_args["prior_scale"]!= 0), defaults to False
+        :param int num_epochs: Number of epochs in training, defaults to 100
+        :param int extra_evaluate_epoch: Number of checkpoint that should be additionally evaluated to evaluate WER during training, defaults to None
+        :param dict test_datasets: Dictionary of datasets to be used for evaluation, keys are used for aliases, defaults to dev_dataset_tuples
+        :param bool large_gpu_training: whether training should require 24GB or memory, defaults to False
+        :param bool only_forward_no_search: whether ASR search / evaluation should be skipped, defaults to False
+        :param bool eval_invertibility: whether coupling blocks should be evaluated for invertibility, defaults to False
+        :return dict: Dictionary containing all the jobs of the experiment
+        """        
         search_args = copy.deepcopy(search_args) if search_args is not None else {}
 
         with_prior = with_prior or ("prior_scale" in search_args and search_args["prior_scale"] != 0)

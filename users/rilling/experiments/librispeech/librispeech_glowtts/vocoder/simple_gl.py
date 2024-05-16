@@ -7,10 +7,10 @@ from dataclasses import asdict
 
 from i6_core.tools.git import CloneGitRepositoryJob
 
-from ..data import build_training_dataset, TrainingDatasetSettings
-from ..config import get_training_config
-from ..pipeline import glowTTS_training as training
-from ...data import get_tts_log_mel_datastream
+from .data import build_training_dataset, TrainingDatasetSettings
+from .config import get_training_config
+from .pipeline import training
+from ..data import get_tts_log_mel_datastream
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import DBMelFilterbankOptions
 
@@ -75,7 +75,7 @@ def train_gl_vocoder():
 
     norm = (log_mel_datastream.additional_options["norm_mean"], log_mel_datastream.additional_options["norm_std_dev"])
 
-    from ...pytorch_networks.vocoder.simple_gl.blstm_gl_predictor import BlstmGLPredictorConfig
+    from ..pytorch_networks.vocoder.simple_gl.blstm_gl_predictor import BlstmGLPredictorConfig
     from ..feature_config import DbMelFeatureExtractionConfig
     assert isinstance(log_mel_datastream.options.feature_options, DBMelFilterbankOptions)
     fe_config = DbMelFeatureExtractionConfig(

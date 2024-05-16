@@ -34,13 +34,12 @@ from i6_experiments.users.rilling.experiments.librispeech.librispeech_x_vectors.
 
 
 def get_glow_joint(x_vector_exp, gl_checkpoint):
-    """
-    Baseline for the glow TTS in returnn_common with serialization
+    """Experiments on joint training of Glow-TTS and a Conformer ASR using the latent space of Glow-TTS as features.
 
-    Uses updated RETURNN_COMMON
-
-    :return: durations_hdf
-    """
+    :param dict x_vector_exp: Dictionary of x-vector experiments from ../librispeech_x_vectors to import x-vector model for on-the-fly speaker embedding generation for TTS and ASR
+    :param dict gl_checkpoint: Dictionary containing checkpoint and config of a BLSTM transforming log-mel into linear spectrogram for G&L vocoding
+    :return dict: Dictionary containing the experiments with all their jobs to be used to import checkpoints or other job attributes in other experiments 
+    """    
 
     prefix = "experiments/librispeech/joint_training/default/raw_audio/"
     experiments = {}
@@ -68,6 +67,31 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
         large_gpu_training=False,
         with_prior=False,
     ):
+        """Creates the Jobs for training, TTS generation/forwarding, ASR search and evaluations
+
+        :param str name: Name of the experiment for alias creation
+        :param dict args: General arguments for training, forward and search configs
+        :param TrainingDataset dataset: Dataset used for training and TTS forwarding (without eval.)
+        :param dict test_dataset: Dictionary containing datasets to be used for ASR evaluation
+        :param int num_epochs: Number of epochs in training, defaults to 100
+        :param bool use_custom_engine: whether a custom engine is to be used in Returnn, defaults to False
+        :param dict training_args: Additional arguments for training, passed to the train step, defaults to {}
+        :param dict forward_args: Additional arguments for forwarding passed to the forward step, defaults to {}
+        :param dict search_args: Additional arguments for search passed to the search init step, defaults to {}
+        :param list[int] keep_epochs: List of checkpoints that should be kept during training, defaults to None
+        :param bool extract_x_vector: whether the x-vectors whould be extracted into an HDF (only useful if x-vector model is unfrozen), defaults to False
+        :param bool tts_forward: whether TTS forwarding should be run (not evaluation, uses training dataset), defaults to True
+        :param bool asr_search: whether ASR search should be run, defaults to True
+        :param bool use_speaker_labels_in_dev: whether the validation set should contain speaker labels, defaults to False
+        :param ReturnnTrainingJob given_train_job_for_forward: , defaults to None
+        :param bool eval_tts: whether TTS should be evaluated, defaults to False
+        :param dict tts_eval_datasets: Dictionary containing datasets for TTS evaluation, defaults to None
+        :param bool eval_invertibility: whether invertibility of coupling blocks should be evaluated, defaults to False
+        :param bool eval_asr_invertibility: whether the invertibility of the ASR usage of the coupling blocks should be evaluated (only useful if separate passes are used for TTS and ASR), defaults to False
+        :param bool large_gpu_training: whether the GPU memory requirement for trianing should be set to 24GB, defaults to False
+        :param bool with_prior: Whether the prior of the internal language model should be estimated for prior correction (defaults to True if search_args["prior_scale]!=0), defaults to False
+        :return dict: Dictionary containing all the jobs for this experiment
+        """        
         exp = {}
 
         with_prior = with_prior or ("prior_scale" in search_args and search_args["prior_scale"] != 0)
