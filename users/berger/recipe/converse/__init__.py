@@ -1,2 +1,2 @@
-from .data import *
+# from .data import *
 from .scoring import *

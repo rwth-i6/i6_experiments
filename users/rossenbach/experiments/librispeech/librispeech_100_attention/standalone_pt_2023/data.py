@@ -1,5 +1,5 @@
 """
-The new version of data.py for the 2023 Slurm and Rescale/NeuroSys setups
+The new version of ctc_data.py for the 2023 Slurm and Rescale/NeuroSys setups
 """
 from dataclasses import dataclass
 from functools import lru_cache
