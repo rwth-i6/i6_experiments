@@ -97,9 +97,9 @@ bpe10k = Bpe(
 @cache
 def _get_vocab_by_str(vocab: str) -> Union[SentencePieceModel, Bpe]:
     if re.match("^spm[0-9]+.*$", vocab):
-        return _get_spm_vocab(dim=vocab[3:], model_type=SentencePieceType.UNIGRAM)
+        return _get_spm_vocab(dim=vocab[len("spm") :], model_type=SentencePieceType.UNIGRAM)
     elif re.match("^spm_bpe[0-9]+.*$", vocab):
-        return _get_spm_vocab(dim=vocab[3:], model_type=SentencePieceType.BPE)
+        return _get_spm_vocab(dim=vocab[len("spm_bpe") :], model_type=SentencePieceType.BPE)
     elif vocab == "bpe10k":  # predefined
         return bpe10k
     else:
