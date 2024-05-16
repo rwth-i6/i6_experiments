@@ -163,7 +163,7 @@ def compute_prior(
     :param returnn_root: Path to a checked out RETURNN repository
     :param mem_rqmt: override the default memory requirement
     """
-    search_job = ReturnnForwardJobV2(
+    prior_job = ReturnnForwardJobV2(
         model_checkpoint=checkpoint,
         returnn_config=returnn_config,
         log_verbosity=5,
@@ -175,8 +175,8 @@ def compute_prior(
         returnn_root=returnn_root,
         output_files=["prior.txt"],
     )
-    search_job.add_alias(prefix_name + "/prior_job")
-    return search_job.out_files["prior.txt"]
+    prior_job.add_alias(prefix_name + "/prior_job")
+    return prior_job.out_files["prior.txt"]
 
 
 def training(training_name, datasets, train_args, num_epochs, returnn_exe, returnn_root):
