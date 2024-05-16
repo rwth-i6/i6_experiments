@@ -315,14 +315,18 @@ def pretrain_layers_and_dims(
         dim_frac_enc = 1
         dim_frac_dec = 1
 
-    # TODO: use explicit param names otherwise multiple matches can lead to multiple reductions!
-    # TODO: WARNING: this does not include weight dropout and weight noise!
     # do not enable regulizations in the first pretraining step to make it more stable
     if initial_disabled_regularization_patterns is None:
-        regs_words = ["dropout", "noise", "l2"]  # dropout, weight dropout, l2, weight noise
+        # dropout, weight dropout, l2, weight noise
+        regs_words = ["dropout", "weight_noise", "l2"]
     else:
         regs_words = initial_disabled_regularization_patterns
+
+    excluded_keys = ["param_dropout_min_ndim", "weight_noise_layers"]
+
     for k in encoder_args_copy.keys():
+        if k in excluded_keys:
+            continue
         for regs_word in regs_words:
             if regs_word in k and encoder_args_copy[k] is not None:
                 if not isinstance(encoder_args_copy[k], float):
@@ -333,6 +337,8 @@ def pretrain_layers_and_dims(
                     encoder_args_copy[k] *= dim_frac_enc
 
     for k in decoder_args_copy.keys():
+        if k in excluded_keys:
+            continue
         for regs_word in regs_words:
             if regs_word in k and decoder_args_copy[k] is not None:
                 if not isinstance(decoder_args_copy[k], float):
