@@ -61,6 +61,7 @@ def bpe_ls960_1023_base():
     }
 
     from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
+    from ...pytorch_networks.ctc.decoder.greedy_bpe_ctc_v3 import DecoderConfig as GreedyDecoderConfig
 
     def tune_and_evaluate_helper(
         training_name: str,
@@ -120,6 +121,22 @@ def bpe_ls960_1023_base():
                 test_dataset_tuples={key: test_dataset_tuples[key]},
                 **default_returnn,
             )
+
+    def greedy_search_helper(training_name: str, asr_model: ASRModel, decoder_config: GreedyDecoderConfig):
+        # remove prior if exists
+        asr_model = copy.deepcopy(asr_model)
+        asr_model.prior_file = None
+
+        search_name = training_name + "/search_greedy"
+        search_jobs, wers = search(
+            search_name,
+            forward_config={},
+            asr_model=asr_model,
+            decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+            decoder_args={"config": asdict(decoder_config)},
+            test_dataset_tuples=dev_dataset_tuples,
+            **default_returnn,
+        )
 
     default_decoder_config_bpe5000 = DecoderConfig(
         lexicon=get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=5000),
@@ -200,6 +217,7 @@ def bpe_ls960_1023_base():
         "max_seq_length": {"audio_features": 35 * 16000},
         "accum_grad_multiple_step": 1,
         "torch_amp_options": {"dtype": "bfloat16"},
+        "gradient_clip": 1.0,
     }
 
     network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6"
@@ -224,3 +242,8 @@ def bpe_ls960_1023_base():
         lm_scales=[1.6, 1.8, 2.0],
         prior_scales=[0.2, 0.3, 0.4],
     )
+
+    greedy_decoder_config = GreedyDecoderConfig(
+        returnn_vocab=label_datastream_bpe5000.vocab,
+    )
+    greedy_search_helper(training_name=training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)

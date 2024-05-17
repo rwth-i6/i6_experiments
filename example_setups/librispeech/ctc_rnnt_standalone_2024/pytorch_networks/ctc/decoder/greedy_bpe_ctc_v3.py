@@ -29,13 +29,13 @@ def forward_init_hook(run_ctx, **kwargs):
     config = DecoderConfig(**kwargs["config"])
     extra_config_dict = kwargs.get("extra_config", {})
     extra_config = ExtraConfig(**extra_config_dict)
-    
+
     run_ctx.recognition_file = open("search_out.py", "wt")
     run_ctx.recognition_file.write("{\n")
 
     from returnn.datasets.util.vocabulary import Vocabulary
-    vocab = Vocabulary.create_vocab(
-        vocab_file=config.returnn_vocab, unknown_label=None)
+
+    vocab = Vocabulary.create_vocab(vocab_file=config.returnn_vocab, unknown_label=None)
     run_ctx.labels = vocab.labels
 
     run_ctx.print_rtf = extra_config.print_rtf
@@ -44,6 +44,7 @@ def forward_init_hook(run_ctx, **kwargs):
         run_ctx.total_time = 0
 
     run_ctx.print_hypothesis = extra_config.print_hypothesis
+
 
 def forward_finish_hook(run_ctx, **kwargs):
     run_ctx.recognition_file.write("}\n")
