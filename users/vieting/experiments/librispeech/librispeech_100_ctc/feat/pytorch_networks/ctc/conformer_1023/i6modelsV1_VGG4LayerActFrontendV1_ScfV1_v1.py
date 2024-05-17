@@ -98,6 +98,7 @@ class Model(torch.nn.Module):
 
         squeezed_features = torch.squeeze(raw_audio, dim=-1)
         train_features = (
+            self.training and
             self.feature_training_start_epoch <= run_ctx.epoch and (
                 self.feature_training_end_epoch >= run_ctx.epoch or
                 self.feature_training_end_epoch < 0
