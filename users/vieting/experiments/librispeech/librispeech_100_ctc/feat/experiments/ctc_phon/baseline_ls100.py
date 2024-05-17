@@ -408,3 +408,82 @@ def eow_phon_ls100_1023_base():
     tune_and_evaluate_helper(
         training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5]
     )
+
+    # modified SCF variants
+    from ...pytorch_networks.ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_feat_v1_cfg import (
+        ModelConfig as CustomFeatureModelConfig,
+    )
+    from ...pytorch_networks.ctc.conformer_1023.feature_extraction import (
+        SupervisedConvolutionalFeatureExtractionV2Config,
+    )
+    scf_config_v2 = SupervisedConvolutionalFeatureExtractionV2Config(
+        module_class="SupervisedConvolutionalFeatureExtractionV2",
+        scf_config=scf_config,
+        convs=[(10, 320, 1), (10, 80, 1)],
+    )
+    specaug_config = SpecaugConfig(
+        repeat_per_n_frames=25,
+        max_dim_time=20,
+        max_dim_feat=16,
+        num_repeat_feat=5,
+    )
+    frontend_config = VGG4LayerActFrontendV1Config_mod(
+        in_features=80,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(2, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        activation_str="ReLU",
+        out_features=384,
+        activation=None,
+    )
+    model_config = CustomFeatureModelConfig(
+        feature_extraction_config=scf_config_v2,
+        frontend_config=frontend_config,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specaug_start_epoch=1,
+        feature_training_start_epoch=0,
+        feature_training_end_epoch=-1,
+    )
+    for exp_name, convs in [("v1", [(10, 320, 1), (10, 80, 1)]), ("v2", [(10, 150, 150), (10, 80, 1)])]:
+        network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_feat_v1"
+        model_config.feature_extraction_config.convs = convs
+        train_args = {
+            "config": {
+                **copy.deepcopy(train_config_24gbgpu_amp),
+                "batch_size": 180 * 16000,
+                "accum_grad_multiple_step": 2,
+            },
+            "network_module": network_module,
+            "net_args": {"model_config_dict": asdict(model_config)},
+            "debug": True,
+        }
+
+        training_name = prefix_name + "/" + network_module + f".384dim_sub4_24gbgpu_100eps_bs2x180.convred{exp_name}"
+        train_job = training(training_name, train_data, train_args, num_epochs=300, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=300
+        )
+        tune_and_evaluate_helper(
+            training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5]
+        )

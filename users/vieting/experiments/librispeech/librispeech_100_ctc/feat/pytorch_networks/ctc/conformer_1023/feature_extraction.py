@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Tuple
+from typing import List, Tuple
 import torch
 from torch import nn
 
@@ -80,5 +80,62 @@ class SupervisedConvolutionalFeatureExtractionV1(nn.Module):
 
         length = ((length - self.conv_tf.kernel_size[-1]) / self.conv_tf.stride[-1] + 1).int()
         length = ((length - self.conv_env.kernel_size[-1]) / self.conv_env.stride[-1] + 1).int()
+
+        return feature_data, length
+
+
+@dataclass
+class FeatureExtractionConfig(ModelConfiguration):
+    """
+    Attributes:
+        module_class:
+    """
+
+    module_class: str
+
+
+@dataclass
+class SupervisedConvolutionalFeatureExtractionV2Config(FeatureExtractionConfig):
+    """
+    Attributes:
+        scf_config: config for the default SCF module
+        convs: size, channels and groups for subsequent convolutions used to reduce feature dimension
+    """
+    scf_config: SupervisedConvolutionalFeatureExtractionV1Config
+    convs: List[Tuple[int, int, int]]  # [(size, channels, groups)]
+
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        d["scf_config"] = SupervisedConvolutionalFeatureExtractionV1Config(**d["scf_config"])
+        return SupervisedConvolutionalFeatureExtractionV2Config(**d)
+
+
+class SupervisedConvolutionalFeatureExtractionV2(SupervisedConvolutionalFeatureExtractionV1):
+    """
+    Like V1, but with additional convolutions to reduce the feature dimension after the envelope extraction.
+    """
+
+    def __init__(self, cfg: SupervisedConvolutionalFeatureExtractionV2Config):
+        super().__init__(cfg.scf_config)
+        dim_in = cfg.scf_config.num_tf * cfg.scf_config.num_env
+        self.convs_reduction = []
+        for size, channels, groups in cfg.convs:
+            self.convs_reduction.append(nn.Conv1d(dim_in, channels, size, groups=groups, bias=False))
+            dim_in = channels
+
+    def forward(self, raw_audio: torch.Tensor, length: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        :param raw_audio: [B, T]
+        :param length: in samples [B]
+        :return features as [B,T'',F']
+        """
+        feature_data, length = super().forward(raw_audio, length)    # [B,T'',F]
+
+        feature_data = feature_data.transpose(1, 2)  # [B,F,T'']
+        for conv in self.convs_reduction:
+            conv.to(feature_data.device)
+            feature_data = conv(feature_data)
+        feature_data = feature_data.transpose(1, 2)  # [B,T'',F']
 
         return feature_data, length
