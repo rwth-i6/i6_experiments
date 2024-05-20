@@ -80,8 +80,14 @@ def py():
         vocab="spm10k",
     )
 
+    # Testing sampling in SPM. Baseline without sampling: 5.24 dev-other.
+    # The lower the alpha, the more aggressive the sampling.
     # alpha=0.1 seems too aggressive for AED, bad convergence
-    for alpha in [0.3, 0.5, 0.7]:
+    for alpha in [
+        0.3,  # 5.26
+        0.5,
+        0.7,  # 4.98 (!!)
+    ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k"
             f"-spmSample{str(alpha).replace('.', '')}",
