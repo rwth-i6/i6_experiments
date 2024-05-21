@@ -1,7 +1,8 @@
 __all__ = ["Report"]
-from sisyphus import *
-
+import copy
+from collections import defaultdict
 from typing import Dict, Union, List
+from sisyphus import *
 
 _Report_Type = Dict[str, Union[tk.AbstractPath, str]]
 
@@ -95,3 +96,30 @@ class Report:
         for rprt in report_list:
             report.merge_report(rprt)
         return report
+
+    def merge_eval_sets(self, eval_set_column: str):
+        merged_dicts = defaultdict(lambda: defaultdict(dict))
+        eval_sets = set()
+        for d in self._data:
+            # Create a key based on all items except eval_set_column and wer
+            key = tuple((k, v) for k, v in d.items() if k not in [eval_set_column, "wer"])
+
+            # Extract eval_set and "wer" values
+            wer = d["wer"]
+            eval_set = d[eval_set_column]
+            eval_sets.add(eval_set)
+
+            # Merge "wer" under the key specified by "eval_set"
+            merged_dicts[key][eval_set] = wer
+
+        # Convert the result back to the original list of dicts format
+        result = []
+        for base_key, merged_values in merged_dicts.items():
+            # Recreate the base dictionary
+            base_dict = {k: v for k, v in base_key}
+            # Add the merged "wer" values
+            base_dict.update(merged_values)
+            result.append(base_dict)
+
+        self._data = result
+        self._columns_end = [col for col in self._columns_end if col != "wer"] + sorted(list(eval_sets))
