@@ -7,28 +7,31 @@ class EBranchformerEncoder(ConformerEncoderV2):
     * Ref: https://arxiv.org/pdf/2210.00077.pdf
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, cgmlp_ff_dim, **kwargs):
         super().__init__(**kwargs)
+
+        assert cgmlp_ff_dim % 2 == 0, "cgmlp_dim must be even"
+        self.cgmlp_ff_dim = cgmlp_ff_dim
 
     def _create_conv_spatial_gating_unit(self, prefix_name, source, layer_index):
         # see also here: https://github.com/espnet/espnet/blob/master/espnet2/asr/layers/cgmlp.py#L15
 
+        split_size = self.cgmlp_ff_dim // 2
+
         branch_a = self.network.add_slice_layer(
-            "{}_branch_a".format(prefix_name), source, "F", slice_start=0, slice_end=self.enc_key_dim * 3
+            "{}_branch_a".format(prefix_name), source, "F", slice_start=0, slice_end=split_size
         )
 
-        branch_b = self.network.add_slice_layer(
-            "{}_branch_b".format(prefix_name), source, "F", slice_start=self.enc_key_dim * 3
-        )
+        branch_b = self.network.add_slice_layer("{}_branch_b".format(prefix_name), source, "F", slice_start=split_size)
 
         br_part_b_ln = self.network.add_layer_norm_layer("{}_branch_b_ln".format(prefix_name), branch_b)
 
         br_part_b_depthwise_conv = self.network.add_conv_layer(
             "{}_branch_b_depthwise_conv".format(prefix_name),
             br_part_b_ln,
-            n_out=self.enc_key_dim * 3,
+            n_out=split_size,
             filter_size=(self.conv_kernel_size,),
-            groups=self.enc_key_dim * 3,
+            groups=split_size,
             l2=self.l2,
             param_dropout=self.conv_weight_drop,
             param_dropout_min_ndim=2,
@@ -51,7 +54,7 @@ class EBranchformerEncoder(ConformerEncoderV2):
         ff1 = self.network.add_linear_layer(
             "{}_ff_1".format(prefix_name),
             ln,
-            n_out=6 * self.enc_key_dim,  # TODO: make it configurable
+            n_out=self.cgmlp_ff_dim,  # TODO: make it configurable
             l2=self.l2,
             forward_weights_init=self.ff_init,
             with_bias=False,
