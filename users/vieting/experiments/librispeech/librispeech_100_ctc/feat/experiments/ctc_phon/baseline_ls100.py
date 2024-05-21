@@ -419,29 +419,35 @@ def eow_phon_ls100_1023_base():
         feature_training_start_epoch=0,
         feature_training_end_epoch=-1,
     )
-    network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_ScfV1_v1"
-    train_args = {
-        "config": {
-            **copy.deepcopy(train_config_24gbgpu_amp),
-            "batch_size": 180 * 16000,
-            "accum_grad_multiple_step": 2,
-        },
-        "network_module": network_module,
-        "net_args": {"model_config_dict": asdict(model_config)},
-        "debug": False,
-    }
+    for specaug_max_dim_feat, specaug_start_epoch in [(32, 1), (64, 1), (128, 1), (150, 1), (150, 50)]:
+        network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_ScfV1_v1"
+        model_config.specaug_config.max_dim_feat = specaug_max_dim_feat
+        model_config.specaug_start_epoch = specaug_start_epoch
+        train_args = {
+            "config": {
+                **copy.deepcopy(train_config_24gbgpu_amp),
+                "batch_size": 180 * 16000,
+                "accum_grad_multiple_step": 2,
+            },
+            "network_module": network_module,
+            "net_args": {"model_config_dict": asdict(model_config)},
+            "debug": False,
+        }
 
-    training_name = prefix_name + "/" + network_module + ".384dim_sub4_24gbgpu_100eps_bs2x180_sa2"
-    train_job = training(training_name, train_data, train_args, num_epochs=300, **default_returnn)
-    train_job.rqmt["gpu_mem"] = 24
-    asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=300,
-        prior_config={"batch_size": 50 * 16000},
-    )
-    tune_and_evaluate_helper(
-        training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5],
-        forward_config={"batch_size": 100 * 16000},
-    )
+        training_name = (
+            prefix_name + "/" + network_module + f".384dim_sub4_24gbgpu_100eps_bs2x180_sa{specaug_max_dim_feat}" +
+            (f"start{specaug_start_epoch}" if specaug_start_epoch > 1 else "")
+        )
+        train_job = training(training_name, train_data, train_args, num_epochs=300, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=300,
+            prior_config={"batch_size": 50 * 16000},
+        )
+        tune_and_evaluate_helper(
+            training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5],
+            forward_config={"batch_size": 100 * 16000},
+        )
 
     # modified SCF variants
     from ...pytorch_networks.ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_feat_v1_cfg import (
