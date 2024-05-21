@@ -58,7 +58,7 @@ class EBranchformerEncoder(ConformerEncoderV2):
         ff1 = self.network.add_linear_layer(
             "{}_ff_1".format(prefix_name),
             ln,
-            n_out=self.cgmlp_ff_dim,  # TODO: make it configurable
+            n_out=self.cgmlp_ff_dim,
             l2=self.l2,
             forward_weights_init=self.ff_init,
             with_bias=False,
