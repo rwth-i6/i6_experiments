@@ -36,7 +36,7 @@ class EBranchformerEncoder(ConformerEncoderV2):
         )
 
         br_merge = self.network.add_eval_layer(
-            "{}_branch_merge".format(prefix_name), [branch_a, br_part_b_depthwise_conv], "source(0) * source(1)"
+            "{}_merge".format(prefix_name), [branch_a, br_part_b_depthwise_conv], "source(0) * source(1)"
         )
 
         dropout = self.network.add_dropout_layer("{}_dropout".format(prefix_name), br_merge, dropout=self.dropout)
@@ -62,7 +62,7 @@ class EBranchformerEncoder(ConformerEncoderV2):
 
         gelu_act = self.network.add_activation_layer("{}_gelu".format(prefix_name), ff1, activation="gelu")
 
-        csgu = self._create_conv_spatial_gating_unit(prefix_name, gelu_act, layer_index)
+        csgu = self._create_conv_spatial_gating_unit(f"{prefix_name}_csgu", gelu_act, layer_index)
 
         br_merge_ff = self.network.add_linear_layer(
             "{}_ff_2".format(prefix_name),
