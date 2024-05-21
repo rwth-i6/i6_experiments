@@ -34,10 +34,10 @@ def py():
         "spm20k",
         "bpe10k",  # 8.23
         "spm10k",  # 8.12
-        "spm_bpe10k",
-        "spm4k",
+        "spm_bpe10k",  # 7.97
+        "spm4k",  # 9.86
         "spm1k",
-        "spm_bpe1k",
+        "spm_bpe1k",  # 11.76
     ]:
         train_exp(  # 8.23
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}",
@@ -51,18 +51,41 @@ def py():
             vocab=vocab,
         )
 
-    train_exp(
-        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-spmSample03",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.3}},
-    )
+    for alpha in [
+        0.3,  # 7.88
+        0.5,
+        0.7,
+    ]:
+        train_exp(
+            "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k"
+            f"-spmSample{str(alpha).replace('.', '')}",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            },
+            vocab="spm10k",
+            train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": alpha}},
+        )
+
+    for alpha in [
+        0.3,
+    ]:
+        train_exp(
+            "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm_bpe10k"
+            f"-spmSample{str(alpha).replace('.', '')}",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            },
+            vocab="spm_bpe10k",
+            train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": alpha}},
+        )
 
 
 # noinspection PyShadowingNames
