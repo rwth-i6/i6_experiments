@@ -23,7 +23,13 @@ from returnn.torch.context import get_run_ctx
 
 from i6_models.config import ModuleFactoryV1
 from .i6modelsV1_VGG4LayerActFrontendV1_feat_v1_cfg import ModelConfig
-from .i6modelsV1_VGG4LayerActFrontendV1_ScfV1_v1 import mask_tensor, train_step
+from .i6modelsV1_VGG4LayerActFrontendV1_ScfV1_v1 import (
+    mask_tensor,
+    train_step,
+    prior_step,
+    prior_init_hook,
+    prior_finish_hook,
+)
 from .feature_extraction import (
     SupervisedConvolutionalFeatureExtractionV1,
     SupervisedConvolutionalFeatureExtractionV2,
