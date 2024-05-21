@@ -86,7 +86,11 @@ def py():
     for alpha in [
         0.3,  # 5.26
         0.5,
+        0.6,
         0.7,  # 4.98 (!!)
+        0.8,
+        0.9,
+        1.0,  # sanity check
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k"
