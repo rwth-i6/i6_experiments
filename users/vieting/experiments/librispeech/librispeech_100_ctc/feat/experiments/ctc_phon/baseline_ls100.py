@@ -1,7 +1,7 @@
 import copy
 from dataclasses import asdict
 import numpy as np
-from typing import cast, List
+from typing import cast, List, Optional, Dict, Any
 
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 
@@ -63,6 +63,7 @@ def eow_phon_ls100_1023_base():
         base_decoder_config: DecoderConfig,
         lm_scales: List[float],
         prior_scales: List[float],
+        forward_config: Optional[Dict[str, Any]] = None,
     ):
         """
         Example helper to execute tuning over lm_scales and prior scales.
@@ -87,7 +88,7 @@ def eow_phon_ls100_1023_base():
                 search_name = training_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale)
                 search_jobs, wers = search(
                     search_name,
-                    forward_config={},
+                    forward_config=forward_config or {},
                     asr_model=asr_model,
                     decoder_module="ctc.decoder.flashlight_ctc_v1",
                     decoder_args={"config": asdict(decoder_config)},
@@ -108,7 +109,7 @@ def eow_phon_ls100_1023_base():
             decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
             search_jobs, wers = search(
                 training_name,
-                forward_config={},
+                forward_config=forward_config or {},
                 asr_model=asr_model,
                 decoder_module="ctc.decoder.flashlight_ctc_v1",
                 decoder_args={"config": asdict(decoder_config)},
@@ -292,10 +293,12 @@ def eow_phon_ls100_1023_base():
     train_job = training(training_name, train_data, train_args, num_epochs=300, **default_returnn)
     train_job.rqmt["gpu_mem"] = 24
     asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=300
+        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=300,
+        prior_config={"batch_size": 50 * 16000},
     )
     tune_and_evaluate_helper(
-        training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5]
+        training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5],
+        forward_config={"batch_size": 100 * 16000},
     )
 
     # use trained features
@@ -328,10 +331,12 @@ def eow_phon_ls100_1023_base():
     train_job = training(training_name, train_data, train_args, num_epochs=300, **default_returnn)
     train_job.rqmt["gpu_mem"] = 24
     asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=300
+        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=300,
+        prior_config={"batch_size": 50 * 16000},
     )
     tune_and_evaluate_helper(
-        training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5]
+        training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5],
+        forward_config={"batch_size": 100 * 16000},
     )
 
     # adjust SpecAugment in frequency dimension
@@ -403,10 +408,12 @@ def eow_phon_ls100_1023_base():
     train_job = training(training_name, train_data, train_args, num_epochs=300, **default_returnn)
     train_job.rqmt["gpu_mem"] = 24
     asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=300
+        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=300,
+        prior_config={"batch_size": 50 * 16000},
     )
     tune_and_evaluate_helper(
-        training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5]
+        training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5],
+        forward_config={"batch_size": 100 * 16000},
     )
 
     # modified SCF variants
@@ -482,8 +489,10 @@ def eow_phon_ls100_1023_base():
         train_job = training(training_name, train_data, train_args, num_epochs=300, **default_returnn)
         train_job.rqmt["gpu_mem"] = 24
         asr_model = prepare_asr_model(
-            training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=300
+            training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=300,
+            prior_config={"batch_size": 50 * 16000},
         )
         tune_and_evaluate_helper(
-            training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5]
+            training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5],
+            forward_config={"batch_size": 100 * 16000},
         )
