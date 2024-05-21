@@ -14,6 +14,8 @@ class EBranchformerEncoder(ConformerEncoderV2):
         self.cgmlp_ff_dim = cgmlp_ff_dim
 
     def _create_conv_spatial_gating_unit(self, prefix_name, source, layer_index):
+        # Half split input into [A,B] -> A * DwConv(LN(B)) -> dropout
+        #
         # see also here: https://github.com/espnet/espnet/blob/master/espnet2/asr/layers/cgmlp.py#L15
 
         split_size = self.cgmlp_ff_dim // 2
@@ -47,6 +49,8 @@ class EBranchformerEncoder(ConformerEncoderV2):
         return dropout
 
     def _create_conv_gating_mlp(self, prefix_name, source, layer_index):
+        # GeLU(FF(LN(x))) -> Half split input into [A,B] -> A * DwConv(LN(B)) -> dropout -> FF
+
         prefix_name = "{}_cgmlp".format(prefix_name)
 
         ln = self.network.add_layer_norm_layer("{}_ln".format(prefix_name), source)
@@ -65,6 +69,7 @@ class EBranchformerEncoder(ConformerEncoderV2):
 
         gelu_act = self.network.add_activation_layer("{}_gelu".format(prefix_name), ff1, activation="gelu")
 
+        # Half split input into [A,B] -> A * DwConv(LN(B)) -> dropout
         csgu = self._create_conv_spatial_gating_unit(f"{prefix_name}_csgu", gelu_act, layer_index)
 
         br_merge_ff = self.network.add_linear_layer(

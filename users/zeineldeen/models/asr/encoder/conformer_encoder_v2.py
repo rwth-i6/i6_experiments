@@ -903,12 +903,7 @@ class ConformerEncoderV2:
 
         drop = self.network.add_dropout_layer("{}_dropout".format(prefix_name), mhsa_linear, dropout=self.dropout)
 
-        res_inputs = [drop, source]
-
-        mhsa_res = self.network.add_combine_layer(
-            "{}_res".format(prefix_name), kind="add", source=res_inputs, n_out=self.enc_value_dim
-        )
-        return mhsa_res
+        return drop
 
     def _create_convolution_module(self, prefix_name, source, layer_index, half_step=False):
         """
@@ -1071,6 +1066,10 @@ class ConformerEncoderV2:
         if self.convolution_first:
             conv_module_ = self._create_convolution_module(prefix_name, ff_module1, i)
             mhsa_module = self._create_mhsa_module(prefix_name, conv_module_, i)
+            mhsa_module = self.network.add_combine_layer(
+                "{}_res".format(prefix_name), kind="add", source=[mhsa_module, conv_module_], n_out=self.enc_value_dim
+            )
+
             ff_module2_input = mhsa_module
         else:
             if self.no_mhsa_module:
@@ -1083,6 +1082,9 @@ class ConformerEncoderV2:
                     )
                     mhsa_input = conv_module1
                 mhsa = self._create_mhsa_module(prefix_name, mhsa_input, i)
+                mhsa = self.network.add_combine_layer(
+                    "{}_res".format(prefix_name), kind="add", source=[mhsa, mhsa_input], n_out=self.enc_value_dim
+                )
 
             conv_module = self._create_convolution_module(prefix_name, mhsa, i, half_step=self.sandwich_conv)
             ff_module2_input = conv_module
