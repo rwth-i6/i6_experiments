@@ -1,6 +1,7 @@
 import copy, os
 
 import numpy
+from typing import Any, Tuple
 
 import sisyphus.toolkit as tk
 
@@ -891,7 +892,7 @@ def conformer_baseline():
     )
     apply_fairseq_init_to_transformer_decoder(trafo_dec_args)
 
-    training_args = dict()
+    training_args: dict[str, Any] = dict()
     training_args["with_staged_network"] = True
     training_args["speed_pert"] = True
 
@@ -919,7 +920,7 @@ def conformer_baseline():
     lstm_training_args["pretrain_reps"] = 5
     lstm_training_args["batch_size"] = 15000 * 160  # frames * samples per frame
 
-    lstm_dec_exp_args = copy.deepcopy(
+    lstm_dec_exp_args: dict[str, Any] = copy.deepcopy(
         {
             **lstm_training_args,
             "encoder_args": ebranch_enc_args,
@@ -941,7 +942,7 @@ def conformer_baseline():
     _, _, global_mean, global_std = compute_features_stats(output_dirname="logmel_80", feat_dim=80)
 
     # --------------------- V1 ---------------------
-    def get_base_v1_args(lr, ep, enc_drop=0.1, pretrain_reps=3, use_legacy_stats=True):
+    def get_base_v1_args(lr, ep, enc_drop=0.1, pretrain_reps=3, use_legacy_stats=True) -> Tuple[dict[str, Any], str]:
         #  base_bpe1000_peakLR0.0008_ep200_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.1_woDepthConvPre
         # Average ckpt: 8.19/7.64 (50 epochs)
         # - Epoch-based OCLR with peak LR 8e-4
@@ -986,13 +987,24 @@ def conformer_baseline():
                     for dec_att_drop in [0.0]:
                         for weight_drop in [0.1]:
                             for enc_drop in [0.15]:
-                                for ctc_scale in [1.0, 0.3]:
+                                for ctc_scale in [0.3]:
                                     base_v1_args, exp_name = get_base_v1_args(
                                         lr, ep, enc_drop=enc_drop, use_legacy_stats=False
                                     )
                                     args = copy.deepcopy(base_v1_args)
 
                                     args["encoder_args"].num_blocks = num_blocks
+
+                                    args["with_pretrain"] = False
+                                    specaug_steps = {"step0": 6_000, "step1": 12_000, "step2": 18_000}
+                                    args["specaug_str_func_opts"] = {
+                                        "version": 2,
+                                        **specaug_steps,
+                                        "max_time_num": 100,
+                                        "max_time_dim": 20,
+                                        "min_num_add_factor": 0,
+                                        "freq_dim_factor": 5,
+                                    }
 
                                     args["encoder_args"].frontend_conv_weight_dropout = weight_drop
                                     args["encoder_args"].mhsa_weight_dropout = weight_drop
