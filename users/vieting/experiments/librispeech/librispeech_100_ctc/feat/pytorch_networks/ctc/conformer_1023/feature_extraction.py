@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import torch
 from torch import nn
 
@@ -103,6 +103,9 @@ class SupervisedConvolutionalFeatureExtractionV2Config(FeatureExtractionConfig):
     """
     scf_config: SupervisedConvolutionalFeatureExtractionV1Config
     convs: List[Tuple[int, int, int]]  # [(size, channels, groups)]
+    init_tf: Optional[str]
+    init_env: Optional[str]
+    init_convs: Optional[str]
 
     @classmethod
     def from_dict(cls, d):
@@ -123,6 +126,21 @@ class SupervisedConvolutionalFeatureExtractionV2(SupervisedConvolutionalFeatureE
         for size, channels, groups in cfg.convs:
             self.convs_reduction.append(nn.Conv1d(dim_in, channels, size, groups=groups, bias=False))
             dim_in = channels
+
+        with torch.no_grad():
+            if cfg.init_tf == "gammatone":
+                from ...features.gammatone import GammatoneFilterbank
+                gt_fbank = GammatoneFilterbank(cfg.scf_config.num_tf, cfg.scf_config.size_tf / 16000)
+                gt_fbank_tensor = torch.from_numpy(gt_fbank.get_gammatone_filterbank()).float()  # [T, C]
+                gt_fbank_tensor = gt_fbank_tensor.transpose(0, 1).unsqueeze(1)  # [C, 1, T]
+            if cfg.init_env == "hann":
+                self.conv_tf.weight = nn.Parameter(gt_fbank_tensor)
+                hann_win = torch.hann_window(cfg.scf_config.size_env, periodic=False)
+                hann_win = hann_win.repeat(cfg.scf_config.num_env, 1)[:, None, None, :]
+                self.conv_env.weight = nn.Parameter(hann_win)
+            if cfg.init_convs == "ones":
+                for conv in self.convs_reduction:
+                    conv.weight = nn.Parameter(torch.ones(conv.weight.shape))
 
     def forward(self, raw_audio: torch.Tensor, length: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """

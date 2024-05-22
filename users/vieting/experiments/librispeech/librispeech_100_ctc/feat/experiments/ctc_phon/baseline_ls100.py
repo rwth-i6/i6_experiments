@@ -460,6 +460,9 @@ def eow_phon_ls100_1023_base():
         module_class="SupervisedConvolutionalFeatureExtractionV2",
         scf_config=scf_config,
         convs=[(10, 320, 1), (10, 80, 1)],
+        init_tf="gammatone",
+        init_env="hann",
+        init_convs="ones",
     )
     specaug_config = SpecaugConfig(
         repeat_per_n_frames=25,
@@ -504,9 +507,18 @@ def eow_phon_ls100_1023_base():
         feature_training_start_epoch=0,
         feature_training_end_epoch=-1,
     )
-    for exp_name, convs in [("v1", [(10, 320, 1), (10, 80, 1)]), ("v2", [(10, 150, 150), (10, 80, 1)])]:
+    for exp_name, convs in [
+        ("none_init", []),
+        ("v3_init", [(10, 150, 150)]),
+        ("v4_init", [(3, 150, 150)]),
+        ("v5_init", [(10, 50, 50)]),
+        ("v6_init", [(10, 150, 50)]),
+        ("v7_init", [(10, 150, 50), (5, 50, 5)]),
+        ("v8_init", [(1, 80, 1)]),
+    ]:
         network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_feat_v1"
         model_config.feature_extraction_config.convs = convs
+        model_config.frontend_config.in_features = 750 if len(convs) == 0 else convs[-1][1]
         train_args = {
             "config": {
                 **copy.deepcopy(train_config_24gbgpu_amp),
