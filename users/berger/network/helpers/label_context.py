@@ -263,6 +263,7 @@ def add_context_1_decoder(
 def add_context_1_decoder_recog(
     network: Dict,
     num_outputs: int,
+    blank_idx: int = 0,
     encoder: str = "encoder",
     embedding_size: int = 128,
     dec_mlp_args: Dict = {},
@@ -351,9 +352,21 @@ def add_context_1_decoder_recog(
             "reuse_params": "output",
         }
 
+        assert blank_idx == 0, "Blank idx != 0 not implemented for ilm"
+        # Set p(blank) = 1 and re-normalize the non-blank probs
+        # so we want P'[b, 0] = 1, sum(P'[b, 1:]) = 1, given a normalized tensor P, i.e. sum(P[b, :]) = 1
+        # in log space logP'[b, 0] = 0, sum(exp(logP'[b, 1:])) = 1
+        # so set logP'[b, 1:] <- logP[b, 1:] - log(1 - exp(P[b, 0]))
+        # then sum(exp(logP'[b, 1:])) = sum(P[1:] / (1 - exp(P[b, 0]))) = sum(P[b, 1:]) / sum(b, P[1:]) = 1
+        output_unit["ilm_renorm"] = {
+            "class": "eval",
+            "from": ["ilm"],
+            "eval": "tf.concat([tf.zeros(tf.shape(source(0)[:, :1])), source(0)[:, 1:] - tf.math.log(1.0 - tf.exp(source(0)[:, :1]))], axis=-1)",
+        }
+
         output_unit["output_sub_ilm"] = {
             "class": "eval",
-            "from": ["output", "ilm"],
+            "from": ["output", "ilm_renorm"],
             "eval": f"source(0) - {ilm_scale} * source(1)",
         }
 

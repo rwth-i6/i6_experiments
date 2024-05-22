@@ -78,7 +78,7 @@ class LabelScorer:
         use_prior: bool = False,
         prior_scale: float = 0.6,
         prior_file: Optional[tk.Path] = None,
-        extra_args: Dict = {},
+        extra_args: Optional[Dict] = None,
     ):
         self.config = rasr.RasrConfig()
         self.post_config = rasr.RasrConfig()
@@ -102,12 +102,63 @@ class LabelScorer:
             self.config.priori_scale = prior_scale
 
         # sprint key values #
-        for key, value in extra_args.items():
-            self.config[key.replace("_", "-")] = value
+        if extra_args is not None:
+            for key, value in extra_args.items():
+                self.config[key.replace("_", "-")] = value
 
     @property
     def scorer_type(self):
         return self.config.label_scorer_type
+
+    @property
+    def scale(self):
+        return self.config.scale
+
+    @property
+    def label_file(self):
+        if self.config._get("label-file") is not None:
+            return self.config.label_file
+        return None
+
+    @property
+    def num_classes(self):
+        if self.config._get("number-of-classes") is not None:
+            return self.config.number_of_classes
+        return None
+
+    @property
+    def use_prior(self):
+        if self.config._get("use-prior") is not None:
+            return self.config["use-prior"]
+        return False
+
+    @property
+    def prior_scale(self):
+        if self.config._get("priori-scale") is not None:
+            return self.config["priori-scale"]
+        return 1.0
+
+    @property
+    def prior_file(self):
+        if self.config._get("prior-file") is not None:
+            return self.config["prior-file"]
+        return None
+
+    @property
+    def extra_args(self):
+        return {
+            key: val
+            for key, val in self.config._items()
+            if key not in [
+                "label-scorer-type",
+                "scale",
+                "label-file",
+                "number-of-classes",
+                "use-prior",
+                "priori-scale",
+                "prior-file",
+            ]
+        }
 
     def apply_config(
         self,
