@@ -24,6 +24,7 @@ def get_training_config(
     debug: bool = False,
     use_speed_perturbation: bool = False,
     post_config: Optional[Dict[str, Any]] = None,
+    add_cache_manager: bool = False,
 ) -> ReturnnConfig:
     """
     Get a generic config for training a model
@@ -61,20 +62,27 @@ def get_training_config(
         include_native_ops=include_native_ops,
         debug=debug,
     )
-    python_prolog = None
+    python_prolog_serializer_objects = []
 
     # TODO: maybe make nice (if capability added to RETURNN itself)
     if use_speed_perturbation:
-        prolog_serializer = TorchCollection(
-            serializer_objects=[
-                Import(
-                    code_object_path=PACKAGE + ".extra_code.speed_perturbation.legacy_speed_perturbation",
-                    unhashed_package_root=PACKAGE,
-                )
-            ]
+        python_prolog_serializer_objects.append(
+            Import(
+                code_object_path=PACKAGE + ".extra_code.speed_perturbation.legacy_speed_perturbation",
+                unhashed_package_root=PACKAGE,
+            )
         )
-        python_prolog = [prolog_serializer]
         config["train"]["datasets"]["zip_dataset"]["audio"]["pre_process"] = CodeWrapper("legacy_speed_perturbation")
+
+    if add_cache_manager:
+        from i6_experiments.common.setups.serialization import PythonCacheManagerFunctionNonhashedCode, Collection
+        python_prolog_serializer_objects.append(PythonCacheManagerFunctionNonhashedCode)
+
+    python_prolog = None
+    if len(python_prolog_serializer_objects) > 0:
+        python_prolog = [
+            TorchCollection(python_prolog_serializer_objects)
+        ]
 
     returnn_config = ReturnnConfig(
         config=config, post_config=post_config, python_prolog=python_prolog, python_epilog=[serializer]
