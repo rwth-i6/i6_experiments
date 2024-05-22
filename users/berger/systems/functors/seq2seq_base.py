@@ -81,6 +81,7 @@ class Seq2SeqFunctor(RasrFunctor, ABC):
             feature_flow = copy.deepcopy(base_feature_flow)
             feature_flow.config = feature_flow.config or rasr.RasrConfig()
             feature_flow.config.main_port_name = "samples" if feature_type == FeatureType.SAMPLES else "features"
+            label_scorer.set_input_config()
             label_scorer.set_loader_config(self._make_tf_model_loader_config(tf_graph, checkpoint))
         else:
             raise NotImplementedError

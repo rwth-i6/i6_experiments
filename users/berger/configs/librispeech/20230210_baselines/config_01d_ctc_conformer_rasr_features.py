@@ -133,6 +133,7 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
     recog_args["feature_type"] = FeatureType.GAMMATONE_16K
     recog_args["prior_scales"] = [0.3]
     recog_args["lm_scales"] = [0.9]
+    recog_args["search_stats"] = True
     align_args["feature_type"] = FeatureType.GAMMATONE_16K
 
     # ********** System **********
@@ -146,6 +147,7 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
             SummaryKey.PRIOR,
             SummaryKey.LM,
             SummaryKey.WER,
+            SummaryKey.RTF,
             SummaryKey.SUB,
             SummaryKey.INS,
             SummaryKey.DEL,

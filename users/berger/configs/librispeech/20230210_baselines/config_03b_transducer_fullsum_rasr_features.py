@@ -158,6 +158,7 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
     data = get_librispeech_data(
         tools.returnn_root,
         tools.returnn_python_exe,
+        lm_names=["4gram", "kazuki_transformer"],
         alignments=alignments,
         rasr_binary_path=tools.rasr_binary_path,
         add_unknown_phoneme_and_mapping=False,
@@ -253,18 +254,43 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
     system.run_recog_step_for_corpora(corpora=["test-clean_4gram", "test-other_4gram"], **recog_args)
 
     recog_args["lm_scales"] = [0.8]
-    recog_args["search_parameters"].update({"full-sum-decoding": True, "label-full-sum": True})
+    recog_args["search_parameters"].update(
+        {
+            "full-sum-decoding": True,
+            "label-full-sum": True,
+            "label-recombination-limit": 1,
+            "separate-recombination-lm": True,
+            "recombination-lm.type": "simple-history",
+        }
+    )
 
     system.run_recog_step_for_corpora(
         recog_descriptor="fs",
         recog_exp_names={"Conformer_Transducer_Fullsum_lr-0.0001_bs-9000": ["recog_ilm-0.2"]},
-        corpora=["dev-clean_4gram", "dev-other_4gram"],
+        corpora=["dev-clean_4gram", "dev-other_4gram", "test-clean_4gram", "test-other_4gram"],
         **recog_args,
     )
+
+    recog_args["search_parameters"].update(
+        {
+            # "separate-lookahead-lm": True,
+            "label-full-sum": False,
+            "label-pruning": 16.2,
+        }
+    )
+    recog_args["lookahead_options"].update({"lm_lookahead_scale": 0.45})
+    recog_args["use_gpu"] = True
+    recog_args["rtf"] = 50
+
     system.run_recog_step_for_corpora(
         recog_descriptor="fs",
         recog_exp_names={"Conformer_Transducer_Fullsum_lr-0.0001_bs-9000": ["recog_ilm-0.2"]},
-        corpora=["test-clean_4gram", "test-other_4gram"],
+        corpora=[
+            # "dev-clean_kazuki_transformer",
+            "dev-other_kazuki_transformer",
+            # "test-clean_kazuki_transformer",
+            # "test-other_kazuki_transformer",
+        ],
         **recog_args,
     )
 
