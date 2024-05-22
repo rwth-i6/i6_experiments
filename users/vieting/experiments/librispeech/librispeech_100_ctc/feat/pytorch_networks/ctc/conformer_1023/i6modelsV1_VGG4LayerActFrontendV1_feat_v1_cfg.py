@@ -11,6 +11,7 @@ from .feature_extraction import (
     SupervisedConvolutionalFeatureExtractionV1Config,
     SupervisedConvolutionalFeatureExtractionV2Config,
 )
+from ...features.feature_extraction_v3 import SupervisedConvolutionalFeatureExtractionV3Config
 
 @dataclass
 class ModelConfig:

@@ -542,6 +542,89 @@ def eow_phon_ls100_1023_base():
             forward_config={"batch_size": 100 * 16000},
         )
 
+    # sorted SpecAugment masks
+    from ...pytorch_networks.features.feature_extraction_v3 import SupervisedConvolutionalFeatureExtractionV3Config
+    specaug_config = SpecaugConfig(
+        repeat_per_n_frames=25,
+        max_dim_time=20,
+        max_dim_feat=16,
+        num_repeat_feat=5,
+    )
+    scf_config_v3 = SupervisedConvolutionalFeatureExtractionV3Config(
+        module_class="SupervisedConvolutionalFeatureExtractionV3",
+        wave_norm=True,
+        num_tf=150,
+        size_tf=256,
+        stride_tf=10,
+        num_env=5,
+        size_env=40,
+        stride_env=16,
+        specaug_config=specaug_config,
+    )
+    frontend_config = VGG4LayerActFrontendV1Config_mod(
+        in_features=750,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(2, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        activation_str="ReLU",
+        out_features=384,
+        activation=None,
+    )
+    model_config = CustomFeatureModelConfig(
+        feature_extraction_config=scf_config_v3,
+        frontend_config=frontend_config,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specaug_start_epoch=1,
+        feature_training_start_epoch=0,
+        feature_training_end_epoch=-1,
+    )
+    for exp_name, _ in [
+        ("v1", None),
+    ]:
+        network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_feat_v1"
+        train_args = {
+            "config": {
+                **copy.deepcopy(train_config_24gbgpu_amp),
+                "batch_size": 180 * 16000,
+                "accum_grad_multiple_step": 2,
+            },
+            "network_module": network_module,
+            "net_args": {"model_config_dict": asdict(model_config)},
+            "debug": False,
+        }
+
+        training_name = prefix_name + "/" + network_module + f".384dim_sub4_24gbgpu_100eps_bs2x180.sasort{exp_name}"
+        train_job = training(training_name, train_data, train_args, num_epochs=30, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=30,
+            prior_config={"batch_size": 50 * 16000},
+        )
+        tune_and_evaluate_helper(
+            training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5],
+            forward_config={"batch_size": 100 * 16000},
+        )
+
     # finish report
     report.delete_redundant_columns()
     report.delete_redundant_rows()
