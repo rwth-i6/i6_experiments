@@ -636,39 +636,41 @@ def modify_decoder(
         target_num_labels: int,
         masked_computation: bool,
         train: bool,
+        python_prolog: Optional[List] = None,
 ):
   """
   Modify the decoder part of the network.
-  V1: Replace Zoneout LSTM with a normal LSTM.
-  V2: Simply remove the att vector from the LSTM input.
-  V3: Like https://arxiv.org/abs/2404.01716 but without CE loss on non-blank predictor.
-  V4: Like V3 but with CE loss on non-blank predictor.
+  V1: Simply remove the att vector from the LSTM input.
+  V2: Like https://arxiv.org/abs/2404.01716 but without CE loss on non-blank predictor.
+  V3: Like V3 but with CE loss on non-blank predictor.
   :param version:
   :param net_dict:
   :param rec_layer_name:
   :param target_num_labels:
   :param masked_computation:
   :param train:
+  :param python_prolog:
   :return:
   """
-  # otherwise we need to add extra checks for masked layers in recog and layer names (e.g. output prob vs label log prob)
-  assert "s_length_model" in net_dict["output"][
-    "unit"], "This function is only supported for our segmental model for now"
 
   if masked_computation:
+    assert not train, "expected train=False for masked computation"
+    net_dict[rec_layer_name]["unit"]["s_masked"]["unit"]["subnetwork"]["s"]["name_scope"] = "/output/rec/s_wo_att/rec"
     s_layer = net_dict[rec_layer_name]["unit"]["s_masked"]["unit"]["subnetwork"]["s"]
   else:
-    s_layer = net_dict[rec_layer_name]["unit"]["s"]
+    if train:
+      net_dict[rec_layer_name]["unit"]["s_wo_att"] = copy.deepcopy(net_dict[rec_layer_name]["unit"]["s"])
+      del net_dict[rec_layer_name]["unit"]["s"]
+      s_layer = net_dict[rec_layer_name]["unit"]["s_wo_att"]
+      net_dict[rec_layer_name]["unit"]["s"] = {
+        "class": "copy",
+        "from": "s_wo_att"
+      }
+    else:
+      net_dict[rec_layer_name]["unit"]["s"]["name_scope"] = "/output/rec/s_wo_att/rec"
+      s_layer = net_dict[rec_layer_name]["unit"]["s"]
 
-  if version in (1, 2, 3, 4):
-    # before: Zoneout LSTM
-    s_layer.update({
-      "class": "rec",
-      "dropout": 0.3,
-      "unit": "nativelstm2",
-      "unit_opts": {"rec_weight_dropout": 0.3},
-    })
-  if version in (2, 3, 4):
+  if version in (1, 2, 3):
     if masked_computation:
       # before: ["data", "prev:att"]
       s_layer["from"] = ["data"]
@@ -677,7 +679,7 @@ def modify_decoder(
       s_layer["from"] = ["prev:target_embed"]
     # before: "except_batch" -> does not work since att layer is optimized out of the loop now
     net_dict[rec_layer_name]["unit"]["att"]["axes"] = "except_time"
-  if version in (3, 4):
+  if version in (2, 3):
     ####### Label Model #######
     # project directly to the target labels
     s_layer["n_out"] = target_num_labels
@@ -728,7 +730,7 @@ def modify_decoder(
       }
     })
     net_dict["output"]["unit"]["emit_prob0"]["from"] = "s_length_model_plus_encoder"
-  if version == 4 and train:
+  if version == 3 and train:
     net_dict[rec_layer_name]["unit"]["s_softmax"] = {
       "class": "activation",
       "from": "s_log_softmax",
@@ -736,7 +738,7 @@ def modify_decoder(
       "loss": "ce",
       "target": net_dict[rec_layer_name]["unit"]["output_prob"]["target"]
     }
-  if version not in (1, 2, 3, 4):
+  if version not in (1, 2, 3):
     raise ValueError("Invalid version %d" % version)
 
 
@@ -1059,6 +1061,7 @@ def add_length_model_pos_probs(
         }
       })
 
+
 def add_att_weight_interpolation(
         network: Dict, rec_layer_name: str, interpolation_layer_name: str, interpolation_scale: float):
   # just to make sure the network looks as we expect
@@ -1073,6 +1076,36 @@ def add_att_weight_interpolation(
       "eval": "{interpolation_scale} * source(1) + (1 - {interpolation_scale}) * source(0)".format(
         interpolation_scale=interpolation_scale)
     },
+  })
+
+
+def add_ctc_shallow_fusion(network: Dict, rec_layer_name: str, ctc_scale: float, target_num_labels_w_blank: int):
+
+  assert "s_length_model" in network["output"]["unit"], "This function is only supported for our segmental model for now"
+  assert network["output"]["unit"]["output_log_prob"]["from"] == [
+    "label_log_prob_plus_emit", "blank_log_prob"], "output_log_prob layer does not look as expected"
+  assert 0 <= ctc_scale <= 1, "CTC scale must be in [0, 1]"
+
+  del network["ctc"]["loss"]
+  del network["ctc"]["loss_opts"]
+  del network["ctc"]["loss_scale"]
+  del network["ctc"]["target"]
+  network["ctc"]["n_out"] = target_num_labels_w_blank
+
+  network["output"]["unit"]["output_log_prob0"] = copy.deepcopy(network["output"]["unit"]["output_log_prob"])
+
+  network[rec_layer_name]["unit"].update({
+    "gather_ctc_prob": {
+      "class": "gather",
+      "from": "base:ctc",
+      "position": ":i",
+      "axis": "t"
+    },
+    "output_log_prob": {
+      "class": "eval",
+      "from": ["output_log_prob0", "gather_ctc_prob"],
+      "eval": f"{1 - ctc_scale} * source(0) + {ctc_scale} * tf.math.log(source(1))"
+    }
   })
 
 

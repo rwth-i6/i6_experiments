@@ -1,4 +1,5 @@
 from typing import Tuple, Optional, List
+import itertools
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import GlobalAttConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train_new import GlobalTrainExperiment
@@ -42,7 +43,7 @@ def train_from_scratch(
     checkpoint = {
       "model_dir": model_dir,
       "learning_rates": learning_rates,
-      "key": "dev_score_output/output_prob",
+      "key": "dev_loss_ce",
       "checkpoints": checkpoints,
       "n_epochs": n_epochs
     }
@@ -54,14 +55,15 @@ def train_import_global_tf(
         alias: str,
         config_builder: GlobalAttConfigBuilderRF,
         n_epochs_list: Tuple[int, ...],
+        const_lr_list: Tuple[float, ...],
         time_rqmt: int = 168,
 ):
-  for n_epochs in n_epochs_list:
-    alias += "/train_from_global_att_tf_checkpoint/standard-training/%d-epochs_wo-ctc-loss" % (n_epochs,)
+  for n_epochs, const_lr in itertools.product(n_epochs_list, const_lr_list):
+    train_alias = alias + f"/train_from_global_att_tf_checkpoint/standard-training/{n_epochs}-epochs_{const_lr}-const-lr_wo-ctc-loss"
 
     train_exp = GlobalTrainExperiment(
       config_builder=config_builder,
-      alias=alias,
+      alias=train_alias,
       num_epochs=n_epochs,
       train_rqmt={
         "time": time_rqmt
@@ -77,6 +79,13 @@ def train_import_global_tf(
         "train_step_func": _returnn_v2_train_step,
         "batching": "random",
         "aux_loss_layers": None,
+        "lr_opts": {
+          "type": "const_then_linear",
+          "const_lr": const_lr,
+          "const_frac": 1 / 3,
+          "final_lr": 1e-6,
+          "num_epochs": n_epochs
+        },
       }
     )
     checkpoints, model_dir, learning_rates = train_exp.run_train()
@@ -84,8 +93,8 @@ def train_import_global_tf(
     checkpoint = {
       "model_dir": model_dir,
       "learning_rates": learning_rates,
-      "key": "dev_score_label_model/output_prob",
+      "key": "dev_loss_ce",
       "checkpoints": checkpoints,
       "n_epochs": n_epochs
     }
-    yield alias, checkpoint
+    yield train_alias, checkpoint

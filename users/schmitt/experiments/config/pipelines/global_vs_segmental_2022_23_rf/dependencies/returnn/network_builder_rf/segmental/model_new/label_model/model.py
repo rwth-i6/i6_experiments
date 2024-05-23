@@ -8,11 +8,15 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 
 class SegmentalAttLabelDecoder(BaseLabelDecoder):
-  def __init__(self, center_window_size: int, **kwargs):
+  def __init__(self, center_window_size: int, use_weight_feedback: bool, **kwargs):
     super(SegmentalAttLabelDecoder, self).__init__(**kwargs)
 
     self.center_window_size = center_window_size
     self.accum_att_weights_dim = Dim(name="accum_att_weights", dimension=center_window_size)
+
+    self.use_weight_feedback = use_weight_feedback
+    if not use_weight_feedback:
+      delattr(self, "weight_feedback")
 
   def default_initial_state(
           self,
@@ -23,22 +27,28 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
   ) -> rf.State:
     """Default initial state"""
     state = rf.State(
-      s=self._get_lstm().default_initial_state(batch_dims=batch_dims),
+      s=self.get_lstm().default_initial_state(batch_dims=batch_dims),
       att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.enc_out_dim]),
-      accum_att_weights=rf.zeros(
-        list(batch_dims) + [self.accum_att_weights_dim, self.att_num_heads], feature_dim=self.att_num_heads
-      ),
+      # accum_att_weights=rf.zeros(
+      #   list(batch_dims) + [self.accum_att_weights_dim, self.att_num_heads], feature_dim=self.att_num_heads
+      # ),
       segment_starts=rf.zeros(batch_dims, sparse_dim=segment_starts_sparse_dim, dtype="int32"),
       segment_lens=rf.zeros(batch_dims, sparse_dim=segment_lens_sparse_dim, dtype="int32"),
     )
     state.att.feature_dim_axis = len(state.att.dims) - 1
+
+    if self.use_weight_feedback:
+      state.accum_att_weights = rf.zeros(
+        list(batch_dims) + [self.accum_att_weights_dim, self.att_num_heads], feature_dim=self.att_num_heads
+      )
+
     return state
 
   def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
     """loop step out"""
     return {
       "s": Tensor(
-        "s", dims=batch_dims + [self._get_lstm().out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
+        "s", dims=batch_dims + [self.get_lstm().out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
       ),
       "att": Tensor(
         "att",
@@ -133,7 +143,7 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
   ):
     return self.s(rf.concat_features(input_embed, prev_att), state=prev_s_state, spatial_dim=single_step_dim)
 
-  def _get_lstm(self):
+  def get_lstm(self):
     return self.s
 
   def loop_step(
@@ -146,20 +156,13 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
           input_embed: rf.Tensor,
           segment_starts: rf.Tensor,
           segment_lens: rf.Tensor,
-          state: Optional[rf.State] = None,
+          state: rf.State,
   ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
-    """step of the inner loop"""
-    if state is None:
-      batch_dims = enc.remaining_dims(
-        remove=(enc.feature_dim, enc_spatial_dim) if enc_spatial_dim != single_step_dim else (enc.feature_dim,)
-      )
-      state = self.default_initial_state(batch_dims=batch_dims)
     state_ = rf.State()
 
     # during search, these need to be the values from the previous "emit" step (not necessarily the previous time step)
     prev_att = state.att
     prev_s_state = state.s
-    prev_accum_att_weights = state.accum_att_weights
     prev_segment_starts = state.segment_starts
     prev_segment_lens = state.segment_lens
 
@@ -173,16 +176,20 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
     enc_ctx_sliced = rf.gather(enc_ctx, axis=enc_spatial_dim, indices=gather_positions, clip_to_valid=True)
     enc_sliced = rf.gather(enc, axis=enc_spatial_dim, indices=gather_positions, clip_to_valid=True)
 
-    prev_accum_att_weights_scattered = self._get_prev_accum_att_weights_scattered(
-      prev_accum_att_weights=prev_accum_att_weights,
-      segment_starts=segment_starts,
-      prev_segment_starts=prev_segment_starts,
-      prev_segment_lens=prev_segment_lens,
-    )
-    weight_feedback = self._get_weight_feedback(
-      prev_accum_att_weights_scattered=prev_accum_att_weights_scattered,
-      att_t_dim=slice_dim,
-    )
+    if self.use_weight_feedback:
+      prev_accum_att_weights = state.accum_att_weights
+      prev_accum_att_weights_scattered = self._get_prev_accum_att_weights_scattered(
+        prev_accum_att_weights=prev_accum_att_weights,
+        segment_starts=segment_starts,
+        prev_segment_starts=prev_segment_starts,
+        prev_segment_lens=prev_segment_lens,
+      )
+      weight_feedback = self._get_weight_feedback(
+        prev_accum_att_weights_scattered=prev_accum_att_weights_scattered,
+        att_t_dim=slice_dim,
+      )
+    else:
+      weight_feedback = rf.zeros((self.enc_key_total_dim,))
 
     energy_in = enc_ctx_sliced + weight_feedback + s_transformed
     energy = self.energy(rf.tanh(energy_in))
@@ -193,16 +200,17 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
     att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.enc_out_dim))
     state_.att = att
 
-    accum_att_weights = self._get_accum_att_weights(
-      att_t_dim=slice_dim,
-      enc_spatial_dim=enc_spatial_dim,
-      inv_fertility=inv_fertility,
-      att_weights=att_weights,
-      prev_accum_att_weights_scattered=prev_accum_att_weights_scattered,
-      gather_positions=gather_positions,
-    )
-    accum_att_weights.feature_dim = self.att_num_heads
-    state_.accum_att_weights = accum_att_weights
+    if self.use_weight_feedback:
+      accum_att_weights = self._get_accum_att_weights(
+        att_t_dim=slice_dim,
+        enc_spatial_dim=enc_spatial_dim,
+        inv_fertility=inv_fertility,
+        att_weights=att_weights,
+        prev_accum_att_weights_scattered=prev_accum_att_weights_scattered,
+        gather_positions=gather_positions,
+      )
+      accum_att_weights.feature_dim = self.att_num_heads
+      state_.accum_att_weights = accum_att_weights
 
     state_.segment_starts = segment_starts
     state_.segment_lens = segment_lens
@@ -242,5 +250,5 @@ class SegmentalAttLabelDecoderWoCtxInState(SegmentalAttLabelDecoder):
   ):
     return self.s_wo_att(rf.concat_features(input_embed), state=prev_s_state, spatial_dim=single_step_dim)
 
-  def _get_lstm(self):
+  def get_lstm(self):
     return self.s_wo_att

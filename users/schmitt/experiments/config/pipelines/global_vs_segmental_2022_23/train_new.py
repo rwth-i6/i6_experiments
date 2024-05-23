@@ -1,6 +1,6 @@
 from sisyphus import tk, Path
 import copy
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 from abc import ABC, abstractmethod
 
 from i6_core.returnn.training import Checkpoint, ReturnnTrainingJob
@@ -8,6 +8,7 @@ from i6_core.returnn.training import Checkpoint, ReturnnTrainingJob
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.base import ConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.segmental import SegmentalConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.global_ import GlobalConfigBuilder
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import GlobalAttConfigBuilderRF, SegmentalAttConfigBuilderRF, ConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.ctc import CtcConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.checkpoints import external_checkpoints
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LibrispeechBPE10025_LABELS_WITH_SILENCE, LibrispeechBPE10025_CTC_ALIGNMENT
@@ -18,7 +19,7 @@ default_import_model_name = "glob.conformer.mohammad.5.6"
 class TrainExperiment(ABC):
   def __init__(
           self,
-          config_builder: ConfigBuilder,
+          config_builder: Union[ConfigBuilder, ConfigBuilderRF],
           alias: str,
           num_epochs: int,
           train_opts: Optional[Dict] = None,
@@ -33,6 +34,10 @@ class TrainExperiment(ABC):
       dataset_opts = _train_opts.pop("dataset_opts", {})
       self.train_opts.update(_train_opts)
       self.train_opts["dataset_opts"].update(dataset_opts)
+      if "cleanup_old_models" not in self.train_opts:
+        self.train_opts["cleanup_old_models"] = {
+          "keep_best_n": 4, "keep_last_n": 1, "keep": [num_epochs]
+        }
 
     self.train_rqmt = train_rqmt if train_rqmt is not None else {}
     self.alias = self.alias + "/train"
@@ -76,7 +81,7 @@ class TrainExperiment(ABC):
 
 
 class SegmentalTrainExperiment(TrainExperiment):
-  def __init__(self, config_builder: SegmentalConfigBuilder, **kwargs):
+  def __init__(self, config_builder: Union[SegmentalConfigBuilder, SegmentalAttConfigBuilderRF], **kwargs):
     super().__init__(config_builder=config_builder, **kwargs)
 
   @property
@@ -99,7 +104,7 @@ class SegmentalTrainExperiment(TrainExperiment):
 
 
 class GlobalTrainExperiment(TrainExperiment):
-  def __init__(self, config_builder: GlobalConfigBuilder, **kwargs):
+  def __init__(self, config_builder: Union[GlobalConfigBuilder, GlobalAttConfigBuilderRF], **kwargs):
     super().__init__(config_builder=config_builder, **kwargs)
 
   @property

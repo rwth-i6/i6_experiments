@@ -10,7 +10,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 )
 
 
-def train_center_window_att_from_scratch(
+def train_center_window_att_viterbi_from_scratch(
         alias: str,
         config_builder: SegmentalAttConfigBuilderRF,
         n_epochs_list: Tuple[int, ...],
@@ -42,99 +42,71 @@ def train_center_window_att_from_scratch(
     checkpoint = {
       "model_dir": model_dir,
       "learning_rates": learning_rates,
-      "key": "dev_score_label_model/output_prob",
+      "key": "dev_loss_non_blank_ce",
       "checkpoints": checkpoints,
       "n_epochs": n_epochs
     }
     yield alias, checkpoint
 
 
-def train_center_window_att_import_global_tf(
+def train_center_window_att_viterbi_import_global_tf(
         alias: str,
         config_builder: SegmentalAttConfigBuilderRF,
         n_epochs_list: Tuple[int, ...],
-        time_rqmt: int = 168,
-        train_opts: Optional[Dict] = None,
-        custom_missing_load_func: Optional[Callable] = None
-):
-  _train_opts = {
-    "preload_from_files": {
-      "pretrained_global_att_params": {
-        "filename": external_checkpoints[default_import_model_name],
-        "init_for_train": True,
-        "ignore_missing": True,  # because of length model params
-      }
-    },
-    "train_def": viterbi_training,
-    "train_step_func": _returnn_v2_train_step,
-    "batching": "random",
-  }
-  if custom_missing_load_func:
-    _train_opts["preload_from_files"]["pretrained_global_att_params"]["custom_missing_load_func"] = custom_missing_load_func
-  if train_opts:
-    _train_opts.update(train_opts)
-
-  for n_epochs in n_epochs_list:
-    alias += "/train_from_global_att_tf_checkpoint/standard-training/%d-epochs_wo-ctc-loss" % (n_epochs,)
-
-    train_exp = SegmentalTrainExperiment(
-      config_builder=config_builder,
-      alias=alias,
-      num_epochs=n_epochs,
-      train_rqmt={
-        "time": time_rqmt
-      },
-      train_opts=_train_opts
-    )
-    checkpoints, model_dir, learning_rates = train_exp.run_train()
-
-    checkpoint = {
-      "model_dir": model_dir,
-      "learning_rates": learning_rates,
-      "key": "dev_score_label_model/output_prob",
-      "checkpoints": checkpoints,
-      "n_epochs": n_epochs
-    }
-    yield alias, checkpoint
-
-
-def train_center_window_att_import_center_window_tf(
-        alias: str,
-        config_builder: SegmentalAttConfigBuilderRF,
-        n_epochs_list: Tuple[int, ...],
-        time_rqmt: int = 168,
+        const_lr_list: Tuple[float, ...] = (1e-4,),
+        time_rqmt: int = 30,
+        custom_missing_load_func: Optional[Callable] = None,
+        alignment_augmentation_opts: Optional[Dict] = None,
 ):
   for n_epochs in n_epochs_list:
-    alias += "/train_from_center_window_baseline_v1_tf_checkpoint/standard-training/%d-epochs_wo-ctc-loss" % (n_epochs,)
+    for const_lr in const_lr_list:
+      train_alias = alias + f"/train_from_global_att_tf_checkpoint/standard-training/{n_epochs}-epochs_{const_lr}-const-lr_wo-ctc-loss"
+      if alignment_augmentation_opts:
+        opts = alignment_augmentation_opts
+        train_alias += f"_align-aug-{opts['num_iterations']}-iters_{opts['max_shift']}-max-shift"
 
-    train_exp = SegmentalTrainExperiment(
-      config_builder=config_builder,
-      alias=alias,
-      num_epochs=n_epochs,
-      train_rqmt={
-        "time": time_rqmt
-      },
-      train_opts={
-        # "preload_from_files": {
-        #   "pretrained_global_att_params": {
-        #     "filename": external_checkpoints["center-window_baseline-v1_tf"],
-        #     "ignore_params_prefixes": ["emit_prob.", "s_length_model.", "target_embed_length_model."]
-        #   }
-        # },
-        "import_model_train_epoch1": get_center_window_baseline_v1_tf_checkpoint(),
+      train_opts = {
+        "preload_from_files": {
+          "pretrained_global_att_params": {
+            "filename": external_checkpoints[default_import_model_name],
+            "init_for_train": True,
+            "ignore_missing": True,  # because of length model params
+          }
+        },
+        "aux_loss_layers": None,
+        "accum_grad_multiple_step": 2,
+        "optimizer": {"class": "adam", "epsilon": 1e-8},
         "train_def": viterbi_training,
         "train_step_func": _returnn_v2_train_step,
         "batching": "random",
-        "aux_loss_layers": None,
+        "lr_opts": {
+          "type": "const_then_linear",
+          "const_lr": const_lr,
+          "const_frac": 1 / 3,
+          "final_lr": 1e-6,
+          "num_epochs": n_epochs
+        },
+        "alignment_augmentation_opts": alignment_augmentation_opts
       }
-    )
-    checkpoints, model_dir, learning_rates = train_exp.run_train()
+      if custom_missing_load_func:
+        train_opts["preload_from_files"]["pretrained_global_att_params"]["custom_missing_load_func"] = custom_missing_load_func
 
-    checkpoint = {
-      "model_dir": model_dir,
-      "learning_rates": learning_rates,
-      "key": "dev_score_label_model/output_prob",
-      "checkpoints": checkpoints,
-      "n_epochs": n_epochs
-    }
-    yield alias, checkpoint
+      train_exp = SegmentalTrainExperiment(
+        config_builder=config_builder,
+        alias=train_alias,
+        num_epochs=n_epochs,
+        train_rqmt={
+          "time": time_rqmt
+        },
+        train_opts=train_opts
+      )
+      checkpoints, model_dir, learning_rates = train_exp.run_train()
+
+      checkpoint = {
+        "model_dir": model_dir,
+        "learning_rates": learning_rates,
+        "key": "dev_loss_non_blank_ce",
+        "checkpoints": checkpoints,
+        "n_epochs": n_epochs
+      }
+      yield train_alias, checkpoint

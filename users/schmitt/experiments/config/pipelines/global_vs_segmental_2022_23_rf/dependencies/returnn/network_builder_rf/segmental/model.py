@@ -6,7 +6,10 @@ import returnn.frontend as rf
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.model import ModelDef
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor, _log_mel_feature_dim
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import BlankDecoder
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
+  BlankDecoderV1,
+  BlankDecoderV3,
+)
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
   SegmentalAttLabelDecoder,
   SegmentalAttLabelDecoderWoCtxInState
@@ -39,6 +42,9 @@ class SegmentalAttentionModel(rf.Module):
           dec_att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
           enc_dropout: float = 0.1,
           label_decoder_version: int = 1,
+          blank_decoder_version: int = 1,
+          use_joint_model: bool = False,
+          use_weight_feedback: bool = True,
   ):
     super(SegmentalAttentionModel, self).__init__()
 
@@ -59,11 +65,12 @@ class SegmentalAttentionModel(rf.Module):
       l2=l2,
     )
 
-    print("using label_decoder_version", label_decoder_version)
+    assert label_decoder_version in {1, 2}
+    assert blank_decoder_version in {1, 3}
+
     if label_decoder_version == 1:
       label_decoder_class = SegmentalAttLabelDecoder
     else:
-      assert label_decoder_version == 2
       label_decoder_class = SegmentalAttLabelDecoderWoCtxInState
 
     self.label_decoder = label_decoder_class(
@@ -75,19 +82,37 @@ class SegmentalAttentionModel(rf.Module):
       enc_key_total_dim=enc_key_total_dim,
       l2=l2,
       center_window_size=center_window_size,
-      language_model=language_model,
+      use_weight_feedback=use_weight_feedback,
     )
-    self.blank_decoder = BlankDecoder(
-      length_model_state_dim=length_model_state_dim,
-      length_model_embed_dim=length_model_embed_dim,
-      align_target_dim=align_target_dim,
-      encoder_out_dim=self.encoder.out_dim,
-    )
+
+    if not use_joint_model:
+      if blank_decoder_version == 1:
+        self.blank_decoder = BlankDecoderV1(
+          length_model_state_dim=length_model_state_dim,
+          length_model_embed_dim=length_model_embed_dim,
+          align_target_dim=align_target_dim,
+          encoder_out_dim=self.encoder.out_dim,
+        )
+      else:
+        self.blank_decoder = BlankDecoderV3(
+          length_model_state_dim=length_model_state_dim,
+          label_state_dim=self.label_decoder.get_lstm().out_dim,
+          encoder_out_dim=self.encoder.out_dim,
+        )
+    else:
+      self.blank_decoder = None
+
+    if language_model:
+      self.language_model, self.language_model_make_label_scorer = language_model
+    else:
+      self.language_model = None
+      self.language_model_make_label_scorer = None
 
     self.blank_idx = self.label_decoder.blank_idx
     self.center_window_size = center_window_size
     self.target_dim = self.label_decoder.target_dim
     self.align_target_dim = align_target_dim
+    self.use_joint_model = use_joint_model
 
 
 class MakeModel:
@@ -125,6 +150,9 @@ class MakeModel:
           pos_emb_dropout: float = 0.0,
           language_model: Optional[Dict[str, Any]] = None,
           label_decoder_version: int,
+          blank_decoder_version: int,
+          use_joint_model: bool,
+          use_weight_feedback: bool,
           **extra,
   ) -> SegmentalAttentionModel:
     """make"""
@@ -162,12 +190,15 @@ class MakeModel:
       ),
       target_dim=target_dim,
       align_target_dim=align_target_dim,
-      blank_idx=target_dim.dimension,
+      blank_idx=0 if use_joint_model else target_dim.dimension,
       language_model=lm,
       length_model_state_dim=Dim(name="length_model_state", dimension=128, kind=Dim.Types.Feature),
       length_model_embed_dim=Dim(name="length_model_embed", dimension=128, kind=Dim.Types.Feature),
       center_window_size=center_window_size,
       label_decoder_version=label_decoder_version,
+      blank_decoder_version=blank_decoder_version,
+      use_joint_model=use_joint_model,
+      use_weight_feedback=use_weight_feedback,
       **extra,
     )
 
@@ -189,6 +220,9 @@ def from_scratch_model_def(
     raise ValueError("center_window_size is not set!")
 
   label_decoder_version = config.int("label_decoder_version", 1)
+  blank_decoder_version = config.int("blank_decoder_version", 1)
+  use_joint_model = config.bool("use_joint_model", False)
+  use_weight_feedback = config.bool("use_weight_feedback", True)
 
   return MakeModel.make_model(
     in_dim,
@@ -199,6 +233,9 @@ def from_scratch_model_def(
     pos_emb_dropout=pos_emb_dropout,
     language_model=lm_opts,
     label_decoder_version=label_decoder_version,
+    blank_decoder_version=blank_decoder_version,
+    use_joint_model=use_joint_model,
+    use_weight_feedback=use_weight_feedback,
   )
 
 

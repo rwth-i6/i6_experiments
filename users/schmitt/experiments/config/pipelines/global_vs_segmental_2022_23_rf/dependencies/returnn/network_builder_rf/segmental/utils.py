@@ -43,14 +43,30 @@ def get_masked(
   return result, result_spatial_dim
 
 
+def get_unmasked(
+        input: Tensor, input_spatial_dim: Dim, mask: Tensor, mask_spatial_dim: Dim
+):
+  mask_shifted = rf.shift_right(mask, axis=mask_spatial_dim, pad_value=False)
+  mask_axis = mask.get_axis_from_description(mask_spatial_dim)
+  cumsum = rf.cast(mask_shifted, "int32").copy_template()
+  cumsum.raw_tensor = torch.cumsum(
+    mask_shifted.raw_tensor.to(torch.int32), dim=mask_axis, dtype=torch.int32
+  )
+  return rf.gather(
+    input,
+    indices=cumsum,
+    axis=input_spatial_dim,
+  )
+
+
 def get_segment_starts_and_lens(
+        non_blank_mask: Tensor,
         align_targets: Tensor,
         align_targets_spatial_dim: Dim,
         model: SegmentalAttentionModel,
         batch_dims: Sequence[Dim],
         out_spatial_dim: Dim
 ):
-  non_blank_mask = get_non_blank_mask(align_targets, model.blank_idx)
   targets_range = rf.range_over_dim(align_targets_spatial_dim, dtype="int32")
   targets_range = rf.expand_dim(targets_range, batch_dims[0])
   non_blank_positions, _ = get_masked(

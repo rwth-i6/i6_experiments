@@ -59,9 +59,14 @@ class GlobalAttentionModel(rf.Module):
       blank_idx=blank_idx,
       enc_key_total_dim=enc_key_total_dim,
       l2=l2,
-      language_model=language_model,
       eos_idx=eos_idx,
     )
+
+    if language_model:
+      self.language_model, self.language_model_make_label_scorer = language_model
+    else:
+      self.language_model = None
+      self.language_model_make_label_scorer = None
 
     self.blank_idx = blank_idx
     self.target_dim = target_dim

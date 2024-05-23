@@ -99,8 +99,6 @@ class ConfigBuilder(ABC):
         )
       )
       net_dict = self.get_net_dict("train", config_dict=config_dict, python_prolog=python_prolog)
-    if opts.get("align_augment", False):
-      self.add_align_augment(net_dict=net_dict, networks_dict=networks_dict, python_prolog=python_prolog)
 
     if opts.get("dataset_opts", {}).get("use_speed_pert"):
       python_prolog.append(speed_pert_str)
@@ -126,8 +124,10 @@ class ConfigBuilder(ABC):
           version=decoder_version,
           net_dict=net_dict,
           train=True,
-          target_num_labels=self.dependencies.model_hyperparameters.target_num_labels_wo_blank
+          target_num_labels=self.dependencies.model_hyperparameters.target_num_labels_wo_blank,
+          python_prolog=python_prolog,
         )
+
       config_dict["network"] = net_dict
 
     if opts.get("cleanup_old_models"):
@@ -185,7 +185,8 @@ class ConfigBuilder(ABC):
 
     net_dict = self.get_net_dict("search", config_dict=config_dict, python_prolog=python_prolog)
     if net_dict is not None:
-      net_dict.pop("ctc")  # not needed during recognition
+      if not opts.get("ctc_shallow_fusion_opts"):
+        net_dict.pop("ctc")  # not needed during recognition
       # set beam size
       net_dict["output"]["unit"]["output"]["beam_size"] = opts.get("beam_size", self.get_default_beam_size())
 
@@ -315,13 +316,17 @@ class ConfigBuilder(ABC):
   def edit_network_freeze_encoder(self, net_dict: Dict):
     pass
 
-  def edit_network_modify_decoder(self, version: int, net_dict: Dict, train: bool, target_num_labels: int):
+  def edit_network_modify_decoder(
+          self,
+          version: int,
+          net_dict: Dict,
+          train: bool,
+          target_num_labels: int,
+          python_prolog: Optional[List] = None
+  ):
     raise NotImplementedError
 
   def edit_network_use_same_static_padding(self, net_dict: Dict):
-    raise NotImplementedError
-
-  def add_align_augment(self, net_dict, networks_dict, python_prolog):
     raise NotImplementedError
 
   def edit_network_freeze_layers_excluding(

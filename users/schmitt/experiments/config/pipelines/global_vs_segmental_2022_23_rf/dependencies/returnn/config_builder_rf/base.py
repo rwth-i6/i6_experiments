@@ -467,8 +467,10 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
   def __init__(
           self,
           center_window_size: int,
-          decoder_version: Optional[int] = None,
-          length_model_opts: Optional[Dict] = None,
+          label_decoder_version: int,
+          blank_decoder_version: Optional[int] = None,
+          use_joint_model: bool = False,
+          use_weight_feedback: bool = True,
           **kwargs
   ):
     super(SegmentalAttConfigBuilderRF, self).__init__(**kwargs)
@@ -477,9 +479,25 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
       center_window_size=center_window_size,
     ))
 
-    print(decoder_version)
-    if decoder_version:
-      self.config_dict["label_decoder_version"] = decoder_version
+    if use_joint_model:
+      assert not blank_decoder_version, "Either use joint model or separate label and blank model"
+
+    if label_decoder_version != 1:
+      self.config_dict["label_decoder_version"] = label_decoder_version
+    if blank_decoder_version is not None and blank_decoder_version != 1:
+      self.config_dict["blank_decoder_version"] = blank_decoder_version
+    if use_joint_model:
+      self.config_dict["use_joint_model"] = use_joint_model
+    if not use_weight_feedback:
+      self.config_dict["use_weight_feedback"] = use_weight_feedback
+
+  def get_train_config(self, opts: Dict):
+    train_config = super(SegmentalAttConfigBuilderRF, self).get_train_config(opts)
+
+    if opts.get("alignment_augmentation_opts"):
+      train_config.config["alignment_augmentation_opts"] = opts["alignment_augmentation_opts"]
+
+    return train_config
 
   def get_recog_config(self, opts: Dict):
     recog_config = super(SegmentalAttConfigBuilderRF, self).get_recog_config(opts)

@@ -1,7 +1,7 @@
 from typing import Optional, Dict, Any, Tuple
 import tree
 
-from returnn.tensor import Tensor, Dim
+from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 
@@ -9,6 +9,74 @@ from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.recog import
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.utils import get_masked, get_non_blank_mask
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.beam_search import utils as beam_search_utils
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
+  BlankDecoderV1,
+  BlankDecoderV3,
+)
+
+
+def recombine_seqs(
+        seq_targets: list,
+        seq_log_prob: Tensor,
+        seq_backrefs: list,
+        seq_hash: Tensor,
+        beam_dim: Dim,
+        batch_dim: Dim,
+        i: int
+) -> Tensor:
+  if len(seq_targets) in (0, 1):
+    return seq_log_prob
+
+  print("seq_hash: ", seq_hash.raw_tensor)
+  print("seq_log_prob before: ", seq_log_prob.raw_tensor)
+
+  seq_hash_cpu = rf.copy_to_device(seq_hash.copy_transpose([batch_dim, beam_dim]), device="cpu")
+  seq_log_prob = rf.copy_to_device(seq_log_prob.copy_transpose([batch_dim, beam_dim]), device="cpu")
+
+  for b in range(batch_dim.get_dim_value()):
+    seq_sets = {}
+    for h in range(beam_dim.dimension):
+      seq_hash_value = seq_hash_cpu.raw_tensor[b, h]
+      if seq_hash_value not in seq_sets:
+        seq_sets[seq_hash_value] = []
+      seq_sets[seq_hash_value].append(h)
+
+    for seq_set in seq_sets.values():
+      if len(seq_set) == 1:
+        continue
+      best_score = 0
+      best_idx = -1
+      for idx in seq_set:
+        if seq_log_prob.raw_tensor[b, idx] > best_score:
+          best_score = seq_log_prob.raw_tensor[b, idx]
+          best_idx = idx
+      for idx in seq_set:
+        if idx != best_idx:
+          seq_log_prob.raw_tensor[b, idx] = -float("inf")
+        else:
+          seq_log_prob.raw_tensor[b, idx] = best_score
+
+  print("seq_log_prob after: ", seq_log_prob.raw_tensor)
+  exit()
+
+  return rf.copy_to_device(seq_log_prob, device="gpu")
+
+
+def update_seq_hash(seq_hash: Tensor, target: Tensor, backrefs: Tensor) -> Tensor:
+  print("update_seq_hash")
+  print("old seq_hash", seq_hash.raw_tensor)
+  print("target", target.raw_tensor)
+  print("backrefs", backrefs.raw_tensor)
+  print("\n\n")
+
+  old_seq_hash = rf.gather(seq_hash, indices=backrefs)
+  seq_hash = rf.where(
+    target == 10025,
+    old_seq_hash,
+    (old_seq_hash * 257 + (target + 1)) % (10 ** 9 + 7)
+  )
+  return seq_hash
 
 
 def model_recog(
@@ -16,7 +84,7 @@ def model_recog(
         model: SegmentalAttentionModel,
         data: Tensor,
         data_spatial_dim: Dim,
-        max_seq_len: Optional[int] = None,
+        use_recombination: bool = False,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
   """
   Function is run within RETURNN.
@@ -31,47 +99,79 @@ def model_recog(
       out_spatial_dim,
       final beam_dim
   """
-  assert not model.label_decoder.language_model  # not implemented here. use the pure PyTorch search instead
+  # assert not model.language_model  # not implemented here. use the pure PyTorch search instead
+  assert any(
+    isinstance(model.blank_decoder, cls) for cls in (BlankDecoderV1, BlankDecoderV3)
+  ) or model.blank_decoder is None, "blank_decoder not supported"
+  if model.blank_decoder is None:
+    assert model.use_joint_model, "blank_decoder is None, so use_joint_model must be True"
 
   batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
   enc_args, enc_spatial_dim = model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
   beam_size = 12
-  if max_seq_len is None:
-    max_seq_len = enc_spatial_dim.get_size_tensor()
-  else:
-    max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
+  max_seq_len = enc_spatial_dim.get_size_tensor()
   print("** max seq len:", max_seq_len.raw_tensor)
   max_seq_len = rf.reduce_max(max_seq_len, axis=max_seq_len.dims)
 
-  # Eager-mode implementation of beam search.
   # Initial state.
   beam_dim = Dim(1, name="initial-beam")
   batch_dims_ = [beam_dim] + batch_dims
-  label_decoder_state = model.label_decoder.default_initial_state(batch_dims=batch_dims_, )
 
-  blank_decoder_state = model.blank_decoder.default_initial_state(batch_dims=batch_dims_)
+  label_decoder_state = model.label_decoder.default_initial_state(batch_dims=batch_dims_, )
+  if model.blank_decoder is not None:
+    blank_decoder_state = model.blank_decoder.default_initial_state(batch_dims=batch_dims_)
+  if model.language_model:
+    lm_state = model.language_model.default_initial_state(batch_dims=batch_dims_)
+
   bos_idx = 0
-  target = rf.constant(bos_idx, dims=batch_dims_, sparse_dim=model.align_target_dim)
-  target_non_blank = rf.constant(bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
-  # ended = rf.constant(False, dims=batch_dims_)
+
+  if model.use_joint_model:
+    target = rf.constant(bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
+  else:
+    target = rf.constant(bos_idx, dims=batch_dims_, sparse_dim=model.align_target_dim)
+    update_state_mask = rf.convert_to_tensor(target != model.blank_idx)
+    target_non_blank = rf.constant(bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
+
   seq_log_prob = rf.constant(0.0, dims=batch_dims_)
+  if use_recombination:
+    assert len(batch_dims) == 1
+    seq_hash = rf.constant(0, dims=batch_dims_, dtype="int64")
+
+  input_embed = rf.zeros(
+    batch_dims_ + [model.label_decoder.target_embed.out_dim],
+    feature_dim=model.label_decoder.target_embed.out_dim,
+    dtype="float32"
+  )
+
+  if isinstance(model.blank_decoder, BlankDecoderV1):
+    input_embed_length_model = rf.zeros(
+      batch_dims_ + [model.blank_decoder.target_embed.out_dim], feature_dim=model.blank_decoder.target_embed.out_dim)
+  else:
+    input_embed_length_model = None
+
+  old_beam_dim = beam_dim.copy()
+  backrefs = rf.zeros(batch_dims_, dtype="int32")
 
   i = 0
   seq_targets = []
   seq_backrefs = []
   while i < max_seq_len.raw_tensor:
-    if i == 0:
-      input_embed = rf.zeros(
-        batch_dims_ + [model.label_decoder.target_embed.out_dim],
-        feature_dim=model.label_decoder.target_embed.out_dim,
-        dtype="float32"
-      )
-      input_embed_length_model = rf.zeros(
-        batch_dims_ + [model.blank_decoder.target_embed.out_dim], feature_dim=model.blank_decoder.target_embed.out_dim)
-    else:
-      input_embed_length_model = model.blank_decoder.target_embed(target)
+    if i > 0:
+      if model.use_joint_model:
+        input_embed = model.label_decoder.target_embed(target)
+      else:
+        target_non_blank = rf.where(update_state_mask, target, rf.gather(target_non_blank, indices=backrefs))
+        target_non_blank.sparse_dim = model.label_decoder.target_embed.in_dim
+        input_embed = rf.where(
+          update_state_mask,
+          model.label_decoder.target_embed(target_non_blank),
+          rf.gather(input_embed, indices=backrefs, axis=old_beam_dim)
+        )
+      if isinstance(model.blank_decoder, BlankDecoderV1):
+        input_embed_length_model = model.blank_decoder.target_embed(target)
 
     # ------------------- label step -------------------
+
     center_position = rf.minimum(
       rf.full(dims=[beam_dim] + batch_dims, fill_value=i, dtype="int32"),
       rf.copy_to_device(enc_spatial_dim.get_size_tensor() - 1, data.device)
@@ -95,56 +195,113 @@ def model_recog(
     label_logits = model.label_decoder.decode_logits(input_embed=input_embed, **label_step_out)
     label_log_prob = rf.log_softmax(label_logits, axis=model.target_dim)
 
+    # ------------------- external LM step -------------------
+
+    if model.language_model:
+      lm_logits, lm_state_updated = model.language_model(
+        target_non_blank,
+        spatial_dim=single_step_dim,
+        state=lm_state,
+      )
+      label_log_prob += rf.log_softmax(lm_logits, axis=model.target_dim)
+
     # ------------------- blank step -------------------
 
-    blank_step_out, blank_decoder_state = model.blank_decoder.loop_step(
-      enc=enc_args["enc"],
-      enc_spatial_dim=enc_spatial_dim,
-      input_embed=input_embed_length_model,
-      state=blank_decoder_state,
-    )
-    blank_logits = model.blank_decoder.decode_logits(**blank_step_out)
-    emit_log_prob = rf.log(rf.sigmoid(blank_logits))
-    emit_log_prob = rf.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
-    blank_log_prob = rf.log(rf.sigmoid(-blank_logits))
+    if not model.use_joint_model:
+      blank_loop_step_kwargs = dict(
+        enc=enc_args["enc"],
+        enc_spatial_dim=enc_spatial_dim,
+        state=blank_decoder_state,
+      )
+      if isinstance(model.blank_decoder, BlankDecoderV1):
+        blank_loop_step_kwargs["input_embed"] = input_embed_length_model
+      else:
+        blank_loop_step_kwargs["label_model_state"] = label_step_out["s"]
 
-    # combine blank and label probs
-    label_log_prob += emit_log_prob
-    output_log_prob, _ = rf.concat(
-      (label_log_prob, model.target_dim), (blank_log_prob, blank_log_prob.feature_dim),
-      out_dim=model.align_target_dim
-    )
+      blank_step_out, blank_decoder_state = model.blank_decoder.loop_step(**blank_loop_step_kwargs)
+      blank_logits = model.blank_decoder.decode_logits(**blank_step_out)
+      emit_log_prob = rf.log(rf.sigmoid(blank_logits))
+      emit_log_prob = rf.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
+      blank_log_prob = rf.log(rf.sigmoid(-blank_logits))
+      # update blank decoder state
+      blank_decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), blank_decoder_state)
 
-    # top-k
+    # ------------------- combination -------------------
+
+      label_log_prob += emit_log_prob
+      output_log_prob, _ = rf.concat(
+        (label_log_prob, model.target_dim), (blank_log_prob, blank_log_prob.feature_dim),
+        out_dim=model.align_target_dim
+      )
+    else:
+      output_log_prob = label_log_prob
+
+    # ------------------- top-k -------------------
+
+    if use_recombination:
+      seq_log_prob = recombine_seqs(seq_targets, seq_log_prob, seq_backrefs, seq_hash, beam_dim, batch_dims[0], i)
+      if i== 3:
+        exit()
+
     seq_log_prob = seq_log_prob + output_log_prob  # Batch, InBeam, Vocab
     old_beam_dim = beam_dim.copy()
     seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
-      seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{i}-beam"), axis=[beam_dim, model.align_target_dim]
+      seq_log_prob,
+      k_dim=Dim(beam_size, name=f"dec-step{i}-beam"),
+      axis=[beam_dim, model.target_dim if model.use_joint_model else model.align_target_dim]
     )  # seq_log_prob, backrefs, target: Batch, Beam
     seq_targets.append(target)
     seq_backrefs.append(backrefs)
 
+    if use_recombination:
+      seq_hash = update_seq_hash(seq_hash, target, backrefs)
+
+    # mask for updating label-sync states
     update_state_mask = rf.convert_to_tensor(target != model.blank_idx)
 
-    def _get_masked_state(old, new, mask):
-      old = rf.gather(old, indices=backrefs, axis=old_beam_dim)
-      new = rf.gather(new, indices=backrefs, axis=old_beam_dim)
-      return rf.where(mask, new, old)
+    # ------------------- update label decoder state -------------------
 
-    label_decoder_state = tree.map_structure(
-      lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
-      label_decoder_state, label_decoder_state_updated
-    )
+    if model.use_joint_model:
+      label_decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), label_decoder_state)
+    else:
+      def _get_masked_state(old, new, mask):
+        old = rf.gather(old, indices=backrefs, axis=old_beam_dim)
+        new = rf.gather(new, indices=backrefs, axis=old_beam_dim)
+        return rf.where(mask, new, old)
 
-    target_non_blank = rf.where(update_state_mask, target, rf.gather(target_non_blank, indices=backrefs))
-    target_non_blank.sparse_dim = model.label_decoder.target_embed.in_dim
-    input_embed = rf.where(
-      update_state_mask,
-      model.label_decoder.target_embed(target_non_blank),
-      rf.gather(input_embed, indices=backrefs, axis=old_beam_dim)
-    )
+      label_decoder_state = tree.map_structure(
+        lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
+        label_decoder_state, label_decoder_state_updated
+      )
 
-    blank_decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), blank_decoder_state)
+    # ------------------- update external LM state -------------------
+
+    if model.language_model:
+      def _get_masked_state_lm(old: rf.Tensor, new: rf.Tensor, mask: rf.Tensor):
+        if isinstance(old, Dim):
+          return new
+
+        def _update(tensor: rf.Tensor):
+          tensor = tensor.copy_transpose(batch_dims + [old_beam_dim] + tensor.remaining_dims(batch_dims_))
+          tensor_raw_tensor = beam_search_utils.batch_gather(
+            tensor.raw_tensor,
+            indices=backrefs.copy_transpose(batch_dims + [beam_dim]).raw_tensor
+          )
+          tensor = tensor.copy_template_replace_dim_tag(1, beam_dim)
+          tensor.raw_tensor = tensor_raw_tensor
+          return tensor
+
+        old = _update(old)
+        new = _update(new)
+
+        return rf.where(mask, new, old)
+
+      lm_state = tree.map_structure(
+        lambda old_state, new_state: _get_masked_state_lm(old_state, new_state, update_state_mask),
+        lm_state, lm_state_updated
+      )
+
+      exit()
 
     i += 1
 

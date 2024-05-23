@@ -62,6 +62,17 @@ def run_exps():
         }
       )
 
+    # this is Mohammad's 5.4 WER model
+    for train_alias, checkpoint in (
+      (f"{model_alias}/no-finetuning", external_checkpoints["glob.conformer.mohammad.5.4"]),):
+      train_alias = train_alias.replace(default_import_model_name, "glob.conformer.mohammad.5.4")
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("best-4-avg",),
+      )
+
     # continue training for 1 epoch
     for train_alias, checkpoint in train.train_global_att_import_global(
       alias=model_alias,

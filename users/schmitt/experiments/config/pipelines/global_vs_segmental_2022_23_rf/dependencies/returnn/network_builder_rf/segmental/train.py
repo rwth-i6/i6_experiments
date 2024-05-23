@@ -1,19 +1,24 @@
+import torch
+
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.training import FramewiseTrainDef
 
 from returnn.tensor import TensorDict
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.utils import (
-  get_non_blank_mask,
-  get_masked,
-  get_emit_ground_truth,
-  get_segment_starts_and_lens
-)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
+from i6_experiments.users.schmitt.augmentation.alignment import shift_alignment_boundaries_batched
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.train import (
   viterbi_training as label_model_viterbi_training
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.train import (
   viterbi_training as blank_model_viterbi_training
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.train import (
+  viterbi_training_v3 as blank_model_viterbi_training_v3
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
+  BlankDecoderV1,
+  BlankDecoderV3,
 )
 
 from returnn.tensor import Dim
@@ -63,17 +68,43 @@ def viterbi_training(
 
   batch_dims = data.remaining_dims(data_spatial_dim)
 
-  non_blank_targets, non_blank_targets_spatial_dim = get_masked(
-    align_targets, get_non_blank_mask(align_targets, model.blank_idx), align_targets_spatial_dim, batch_dims
-  )
-  non_blank_targets.sparse_dim = model.target_dim
-  segment_starts, segment_lens = get_segment_starts_and_lens(
-    align_targets,
-    align_targets_spatial_dim,
-    model,
-    batch_dims,
-    non_blank_targets_spatial_dim
-  )
+  alignment_augmentation_opts = config.typed_value("alignment_augmentation_opts", None)
+  if alignment_augmentation_opts is not None:
+    for _ in range(alignment_augmentation_opts["num_iterations"]):
+      align_targets = shift_alignment_boundaries_batched(
+        alignment=align_targets,
+        alignment_spatial_dim=align_targets_spatial_dim,
+        batch_dims=batch_dims,
+        blank_idx=model.blank_idx,
+        max_shift=alignment_augmentation_opts["max_shift"],
+      )
+
+  if model.use_joint_model:
+    non_blank_targets, non_blank_targets_spatial_dim = None, None
+    segment_starts, segment_lens = utils.get_segment_starts_and_lens(
+      utils.get_non_blank_mask(align_targets, blank_idx=-1),  # this way, every frame is interpreted as non-blank
+      align_targets,
+      align_targets_spatial_dim,
+      model,
+      batch_dims,
+      align_targets_spatial_dim
+    )
+    # set blank indices in alignment to 0 (= EOS index of imported global att model which is not used otherwise)
+    align_targets.raw_tensor[align_targets.raw_tensor == model.target_dim.dimension] = 0
+    align_targets.sparse_dim = model.target_dim
+  else:
+    non_blank_targets, non_blank_targets_spatial_dim = utils.get_masked(
+      align_targets, utils.get_non_blank_mask(align_targets, model.blank_idx), align_targets_spatial_dim, batch_dims
+    )
+    non_blank_targets.sparse_dim = model.target_dim
+    segment_starts, segment_lens = utils.get_segment_starts_and_lens(
+      utils.get_non_blank_mask(align_targets, model.blank_idx),
+      align_targets,
+      align_targets_spatial_dim,
+      model,
+      batch_dims,
+      non_blank_targets_spatial_dim
+    )
 
   # ------------------- encoder aux loss -------------------
 
@@ -101,33 +132,67 @@ def viterbi_training(
         use_normalized_loss=True,
       )
 
-  # ------------------- label loop -------------------
+  if model.use_joint_model:
+    # ------------------- joint loop -------------------
+    label_model_viterbi_training(
+      model=model.label_decoder,
+      enc_args=enc_args,
+      enc_spatial_dim=enc_spatial_dim,
+      non_blank_targets=align_targets,
+      non_blank_targets_spatial_dim=align_targets_spatial_dim,
+      segment_starts=segment_starts,
+      segment_lens=segment_lens,
+      batch_dims=batch_dims,
+    )
+  else:
+    # ------------------- label loop -------------------
 
-  label_model_viterbi_training(
-    model=model.label_decoder,
-    enc_args=enc_args,
-    enc_spatial_dim=enc_spatial_dim,
-    non_blank_targets=non_blank_targets,
-    non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
-    segment_starts=segment_starts,
-    segment_lens=segment_lens,
-    batch_dims=batch_dims,
-  )
+    label_decoder_outputs = label_model_viterbi_training(
+      model=model.label_decoder,
+      enc_args=enc_args,
+      enc_spatial_dim=enc_spatial_dim,
+      non_blank_targets=non_blank_targets,
+      non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
+      segment_starts=segment_starts,
+      segment_lens=segment_lens,
+      batch_dims=batch_dims,
+      output_tensors=model.blank_decoder.get_label_decoder_deps(),
+    )
 
-  # ------------------- blank loop -------------------
+    # ------------------- blank loop -------------------
 
-  emit_ground_truth, emit_blank_target_dim = get_emit_ground_truth(align_targets, model.blank_idx)
-  blank_model_viterbi_training(
-    model=model.blank_decoder,
-    enc_args=enc_args,
-    enc_spatial_dim=enc_spatial_dim,
-    align_targets=align_targets,
-    align_targets_spatial_dim=align_targets_spatial_dim,
-    emit_ground_truth=emit_ground_truth,
-    emit_blank_target_dim=emit_blank_target_dim,
-    batch_dims=batch_dims,
-  )
+    emit_ground_truth, emit_blank_target_dim = utils.get_emit_ground_truth(align_targets, model.blank_idx)
+    if isinstance(model.blank_decoder, BlankDecoderV1):
+      blank_model_viterbi_training(
+        model=model.blank_decoder,
+        enc_args=enc_args,
+        enc_spatial_dim=enc_spatial_dim,
+        align_targets=align_targets,
+        align_targets_spatial_dim=align_targets_spatial_dim,
+        emit_ground_truth=emit_ground_truth,
+        emit_blank_target_dim=emit_blank_target_dim,
+        batch_dims=batch_dims,
+      )
+    else:
+      assert isinstance(model.blank_decoder, BlankDecoderV3)
+      assert "s" in label_decoder_outputs
 
+      label_states_unmasked = utils.get_unmasked(
+        input=label_decoder_outputs["s"][0],
+        input_spatial_dim=label_decoder_outputs["s"][1],
+        mask=utils.get_non_blank_mask(align_targets, model.blank_idx),
+        mask_spatial_dim=align_targets_spatial_dim
+      )
+      blank_model_viterbi_training_v3(
+        model=model.blank_decoder,
+        enc_args=enc_args,
+        enc_spatial_dim=enc_spatial_dim,
+        label_states_unmasked=label_states_unmasked,
+        label_states_unmasked_spatial_dim=align_targets_spatial_dim,
+        emit_ground_truth=emit_ground_truth,
+        emit_blank_target_dim=emit_blank_target_dim,
+        batch_dims=batch_dims,
+      )
 
 viterbi_training: TrainDef[SegmentalAttentionModel]
 viterbi_training.learning_rate_control_error_measure = "dev_score_full_sum"

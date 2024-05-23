@@ -30,11 +30,11 @@ def run_exps():
       alias=model_alias,
       config_builder=config_builder,
       n_epochs_list=(10,),
+      const_lr_list=(1e-4,),
       time_rqmt=4,
     ):
       recog.global_att_returnn_label_sync_beam_search(
         alias=train_alias,
         config_builder=config_builder,
         checkpoint=checkpoint,
-        checkpoint_aliases=("last",),
       )

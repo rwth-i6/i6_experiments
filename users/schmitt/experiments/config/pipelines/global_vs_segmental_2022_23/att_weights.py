@@ -96,8 +96,6 @@ def dump_att_weights(
     hdf_filenames["att_energies"] = "att_energies.hdf"
 
   if isinstance(config_builder, SegmentalConfigBuilder):
-    if hdf_alias == "ground_truth":
-      assert hdf_targets == ref_alignment
     dump_frame_probs_opts["use_train_net"] = True
 
     hdf_filenames.update({

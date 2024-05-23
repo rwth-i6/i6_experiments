@@ -23,7 +23,6 @@ class BaseLabelDecoder(rf.Module):
           att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
           att_dropout: float = 0.1,
           l2: float = 0.0001,
-          language_model: Optional[RFModelWithMakeLabelScorer] = None,
   ):
     super(BaseLabelDecoder, self).__init__()
 
@@ -67,5 +66,3 @@ class BaseLabelDecoder(rf.Module):
     # Instead, it is intended to make a separate label scorer for it.
     self.language_model = None
     self.language_model_make_label_scorer = None
-    if language_model:
-      self.language_model, self.language_model_make_label_scorer = language_model

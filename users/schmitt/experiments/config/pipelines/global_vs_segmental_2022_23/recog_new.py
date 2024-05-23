@@ -196,6 +196,12 @@ class SegmentalAttDecodingExperiment(DecodingExperiment, ABC):
     super().__init__(config_builder=config_builder, **kwargs)
     self.config_builder = config_builder
 
+    ctc_shallow_fusion_opts = self.recog_opts.get("ctc_shallow_fusion_opts")
+    if ctc_shallow_fusion_opts:
+      self.alias += "/time-sync-recog-w-ctc_shallow_fusion-%f" % ctc_shallow_fusion_opts["ctc_scale"]
+    else:
+      self.alias += "/time-sync-recog"
+
   def get_mini_att_checkpoint(self, train_mini_lstm_opts: Dict) -> Checkpoint:
     train_opts = {}
     if train_mini_lstm_opts["use_eos"]:
@@ -290,6 +296,8 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
         returnn_root=self.returnn_root,
         returnn_python_exe=self.returnn_python_exe,
         output_files=["output.py.gz"],
+        mem_rqmt=6,
+        time_rqmt=1,
       )
       search_job.add_alias("%s/search_%s" % (self.alias, self.stm_corpus_key))
       search_take_best_job = SearchTakeBestJob(search_py_output=search_job.out_files["output.py.gz"])
@@ -312,9 +320,6 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
     _analysis_opts = copy.deepcopy(self.default_analysis_opts)
     if analysis_opts is not None:
       _analysis_opts.update(analysis_opts)
-
-    if _analysis_opts["ground_truth_hdf"] is not None:
-      assert _analysis_opts["ground_truth_hdf"] == _analysis_opts["att_weight_ref_alignment_hdf"]
 
     forward_recog_config = self.config_builder.get_recog_config_for_forward_job(opts=self.recog_opts)
     forward_search_job = ReturnnForwardJob(
