@@ -223,8 +223,6 @@ def model_recog(
       emit_log_prob = rf.log(rf.sigmoid(blank_logits))
       emit_log_prob = rf.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
       blank_log_prob = rf.log(rf.sigmoid(-blank_logits))
-      # update blank decoder state
-      blank_decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), blank_decoder_state)
 
     # ------------------- combination -------------------
 
@@ -259,10 +257,15 @@ def model_recog(
     # mask for updating label-sync states
     update_state_mask = rf.convert_to_tensor(target != model.blank_idx)
 
+    # ------------------- update blank decoder state -------------------
+
+    if not model.use_joint_model:
+      blank_decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), blank_decoder_state)
+
     # ------------------- update label decoder state -------------------
 
     if model.use_joint_model:
-      label_decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), label_decoder_state)
+      label_decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), label_decoder_state_updated)
     else:
       def _get_masked_state(old, new, mask):
         old = rf.gather(old, indices=backrefs, axis=old_beam_dim)
