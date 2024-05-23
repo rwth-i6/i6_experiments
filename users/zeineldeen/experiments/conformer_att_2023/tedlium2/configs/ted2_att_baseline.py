@@ -236,6 +236,7 @@ def conformer_baseline():
             RETURNN_ROOT,
             num_epochs=num_epochs,
             gpu_mem=kwargs.get("gpu_mem", 11),
+            horovod_num_processes=kwargs.get("horovod_num_processes", None),
         )
         return train_job
 
