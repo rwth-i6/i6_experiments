@@ -563,6 +563,7 @@ def eow_phon_ls100_1023_base():
         size_env=40,
         stride_env=16,
         specaug_config=specaug_config,
+        specaug_start_epoch=1,
     )
     frontend_config = VGG4LayerActFrontendV1Config_mod(
         in_features=750,
@@ -597,13 +598,17 @@ def eow_phon_ls100_1023_base():
         mhsa_dropout=0.2,
         conv_kernel_size=31,
         final_dropout=0.2,
-        specaug_start_epoch=1,
+        specaug_start_epoch=9999,
         feature_training_start_epoch=0,
         feature_training_end_epoch=-1,
     )
-    for exp_name, _ in [
-        ("v1", None),
+    for exp_name, f_dim in [
+        ("v1", 16),
+        ("v1", 32),
+        ("v1", 64),
+        ("v1", 128),
     ]:
+        model_config.feature_extraction_config.specaug_config.max_dim_feat = f_dim
         network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_feat_v1"
         train_args = {
             "config": {
@@ -616,11 +621,14 @@ def eow_phon_ls100_1023_base():
             "debug": False,
         }
 
-        training_name = prefix_name + "/" + network_module + f".384dim_sub4_24gbgpu_100eps_bs2x180.sasort{exp_name}"
-        train_job = training(training_name, train_data, train_args, num_epochs=30, **default_returnn)
+        training_name = (
+            prefix_name + "/" + network_module +
+            f".384dim_sub4_24gbgpu_100eps_bs2x180.sasort{exp_name}dim{f_dim}"
+        )
+        train_job = training(training_name, train_data, train_args, num_epochs=300, **default_returnn)
         train_job.rqmt["gpu_mem"] = 24
         asr_model = prepare_asr_model(
-            training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=30,
+            training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=300,
             prior_config={"batch_size": 50 * 16000},
         )
         tune_and_evaluate_helper(
