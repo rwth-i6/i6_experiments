@@ -869,10 +869,10 @@ def conformer_baseline():
     ebranch_enc_args = EBranchformerEncoderArgs(
         num_blocks=12,
         input_layer="conv-6",
-        att_num_heads=6,
-        ff_dim=1536,
-        enc_key_dim=384,
-        conv_kernel_size=31,
+        att_num_heads=8,
+        ff_dim=2048,
+        enc_key_dim=512,
+        conv_kernel_size=32,
         pos_enc="rel",
         dropout=0.1,
         att_dropout=0.1,
@@ -996,7 +996,7 @@ def conformer_baseline():
                                     args["encoder_args"].num_blocks = num_blocks
 
                                     args["with_pretrain"] = False
-                                    specaug_steps = {"step0": 6_000, "step1": 12_000, "step2": 18_000}
+                                    specaug_steps = {"step0": 12_000, "step1": 18_000, "step2": 24_000}
                                     args["specaug_str_func_opts"] = {
                                         "version": 2,
                                         **specaug_steps,
@@ -1027,7 +1027,6 @@ def conformer_baseline():
                                         num_epochs=ep,
                                         epoch_wise_filter=None,
                                         bpe_size=BPE_1K,
-                                        partition_epoch=4,
                                     )
 
 
