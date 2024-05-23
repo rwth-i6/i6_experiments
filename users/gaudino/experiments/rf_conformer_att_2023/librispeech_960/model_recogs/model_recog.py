@@ -166,7 +166,9 @@ def model_recog(
             lm_state = lm_out["state"]
             lm_log_prob = rf.log_softmax(lm_out["output"], axis=model.target_dim)
 
-            if i > 0:
+
+
+            if not model.search_args.get("use_lm_first_label", False) and i > 0:
                 label_log_prob = (
                     label_log_prob + model.search_args["lm_scale"] * lm_log_prob
                 )

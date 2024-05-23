@@ -403,7 +403,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     # ctc beam search espnet
     for model_name in ctc_beam_search_model_names:
         for scales, beam_size in product(
-            ctc_beam_search_model_names[model_name]["scales"], [32]
+            ctc_beam_search_model_names[model_name]["scales"], [32] # 32
         ):
             att_scale, ctc_scale, prior_scale = scales
 
@@ -463,7 +463,8 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # att + ilm correction
     for model_name, lm_scale, ilm_scale, beam_size in product(
-        ["model_baseline", "model_ctc0.5_att0.5"], [0.36] ,[0.28], [12]
+        # ["model_baseline", "model_ctc0.5_att0.5"], [0.36] ,[0.28], [12]
+        ["model_baseline"], [0.36] ,[0.28], [12]
     ):
         ilm_model_args = copy.deepcopy(models_with_pt_ckpt[model_name]["model_args"])
         ilm_model_args["preload_from_files"] = {
@@ -526,14 +527,16 @@ def sis_run_with_prefix(prefix_name: str = None):
         models_with_pt_ckpt[model_name]["model_args"] = model_args
 
     # att + trafo lm
-    for model_name, lm_scale, beam_size in product(
-        ["model_ctc0.5_att0.5"], [0.15], [12]
+    for model_name, lm_scale, beam_size, use_first_lm in product(
+        ["model_baseline"], [0.15], [6, 12, 18], [True, False]
     ):
+        lm_model_args = copy.deepcopy(models_with_pt_ckpt[model_name]["model_args"])
         name = (
             prefix_name
             + "/"
             + model_name
             + f"/att_trafolm{lm_scale}"
+            + (f"_first_lm" if use_first_lm else "")
             + f"_beam{beam_size}"
         )
         search_args = {
@@ -542,13 +545,17 @@ def sis_run_with_prefix(prefix_name: str = None):
             "lm_scale": lm_scale,
             "bsf": bsf,
         }
+        if use_first_lm:
+            search_args["use_first_lm"] = True
+        else:
+            search_args.pop("use_first_lm", None)
 
         recog_res, recog_out = recog_model(
             task,
             models_with_pt_ckpt[model_name]["ckpt"],
             model_recog,
             dev_sets=["dev"],
-            model_args=models_with_pt_ckpt[model_name]["model_args"],
+            model_args=lm_model_args,
             search_args=search_args,
             prefix_name=name,
         )

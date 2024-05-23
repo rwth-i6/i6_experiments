@@ -105,7 +105,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     # train_exp("base-11gb", config_11gb, gpu_mem=11)
     # train_exp("base-11gb-v1", my_config_11gb, num_epochs=400, gpu_mem=11)
-    train_exp(
+    train_exp( # dev 8.77 test 8.26
         "base-11gb-v3-lrlin1e_5_600k_aux4_8",
         my_config_11gb,
         config_updates={
@@ -119,6 +119,101 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         num_epochs=400,
         gpu_mem=11,
     )
+
+    # train_exp( # aux 12: does not converge
+    #     "base-11gb-v3-lrlin1e_5_261k",
+    #     my_config_11gb,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #     },
+    #     num_epochs=400,
+    #     gpu_mem=11,
+    # )
+
+    train_exp( # dev 7.89 test 7.3
+        "base-11gb-v3-lrlin1e_5_261k_aux4_8",
+        my_config_11gb,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "aux_loss_layers": [4, 8],
+        },
+        num_epochs=400,
+        gpu_mem=11,
+    )
+
+    train_exp( #
+        "base-11gb-v3-lrlin1e_5_261k_aux4_8_12",
+        my_config_11gb,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "aux_loss_layers": [4, 8, 12],
+        },
+        num_epochs=400,
+        gpu_mem=11,
+    )
+
+    # train_exp( # does not converge
+    #     "base-11gb-v3-lrlin8e_5_261k_aux4_8",
+    #     my_config_11gb,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+    #         "learning_rate_piecewise_values": [8e-5, 8e-4, 8e-5, 1e-6],
+    #         "aux_loss_layers": [4, 8],
+    #     },
+    #     num_epochs=400,
+    #     gpu_mem=11,
+    # )
+
+    model = train_exp( # with aux 4 8: dev 9.92 test 8.96 - wrong steps!!!
+        "base-24gb-v6-lrlin1e_5_261k",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            "learning_rate_piecewise_steps": [261_000, 522_000, 580_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+        num_epochs=400,
+    )
+
+
+    model = train_exp( #
+        "base-24gb-v6-lrlin1e_5_85k",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 400 epochs: 189.995
+            "learning_rate_piecewise_steps": [85_500, 171_000, 190_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+        num_epochs=400,
+    )
+
+
+    # train_exp( # does not converge
+    #     "base-11gb-v3-lrlin8e_5_lrmax8e_4_261k",
+    #     my_config_11gb,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+    #         "learning_rate_piecewise_values": [8e-5, 8e-4, 8e-5, 1e-6],
+    #     },
+    #     num_epochs=400,
+    #     gpu_mem=11,
+    # )
 
     # train_exp(  # dev-other 7.6
     #     "base-24gb-bs30k-f32",

@@ -74,7 +74,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     max_seq_length_default_target=None,
     gradient_clip_global_norm=5.0,
     accum_grad_multiple_step=2,
-    aux_loss_layers=[12],
+    # aux_loss_layers=[12],
 )
 
     # train_exp("base-11gb", config_11gb, gpu_mem=11)
@@ -86,11 +86,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "learning_rate": 1.0,
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
             # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+            # "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+            # "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "learning_rate_piecewise_steps": [261_000, 522_000, 580_000],  # 45% 45 % 10%
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
         },
         num_epochs=400,
-        gpu_mem=11,
+        gpu_mem=24,
     )
 
 

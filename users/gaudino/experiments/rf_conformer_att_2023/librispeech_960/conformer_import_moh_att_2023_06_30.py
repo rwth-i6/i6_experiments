@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Optional, Any, Tuple, Dict, Sequence, List
 from itertools import product
 
-from i6_experiments.users.gaudino.models.asr.rf.trafo_lm.lm_import_2023_11_09 import (
+from i6_experiments.users.gaudino.models.asr.rf.nn_lm.lm_import_2023_11_09 import (
     Trafo_LM_Model,
 )
 from sisyphus import tk
@@ -19,7 +19,7 @@ from i6_experiments.users.gaudino.models.asr.rf.nn_lm.lm_import_2023_09_03 impor
     LSTM_LM_Model,
     # MakeModel,
 )
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.ilm_import_2024_04_17 import (
+from i6_experiments.users.gaudino.models.asr.rf.ilm_import_2024_04_17 import (
     MiniAtt_ILM_Model,
 )
 from i6_experiments.users.gaudino.model_interfaces.model_interfaces import ModelDef, TrainDef

@@ -18,11 +18,11 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
     MakeModel,
 )
 
-from i6_experiments.users.gaudino.models.asr.rf.trafo_lm.lm_import_2023_11_09 import (
+from i6_experiments.users.gaudino.models.asr.rf.nn_lm.lm_import_2023_11_09 import (
     MakeModel as MakeModelLM,
 )
 
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.ilm_import_2024_04_17 import (
+from i6_experiments.users.gaudino.models.asr.rf.ilm_import_2024_04_17 import (
     MakeModel as MakeModelILM,
 )
 
@@ -598,9 +598,9 @@ def map_param_func_mini_att_ilm(
 def import_models():
     # for model_name, sep_enc in product(list(models.keys())[-1:], [True, False]):
 
-    model_list = ["model_ctc0.5_att0.5"]
+    model_list = ["model_baseline"]
     # model_list = ["model_ctc0.9_att0.1", "model_ctc0.8_att0.2", "model_ctc0.7_att0.3", "model_ctc0.6_att0.4", "model_ctc0.5_att0.5", "model_ctc0.4_att0.6"]
-    for model_name, sep_enc, add_trafo_lm in product(model_list, [False], [True]):
+    for model_name, sep_enc, add_trafo_lm in product(model_list, [False], [False]):
         model_args = {
             "target_embed_dim": 256,
             "add_trafo_lm": add_trafo_lm,
@@ -615,7 +615,7 @@ def import_models():
             + " ..."
         )
         out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/without_lm/"
-        out_dir_postfix = model_name + ("__ctc_only" if sep_enc else "") + ("__trafo_lm" if add_trafo_lm else "")
+        out_dir_postfix = model_name + ("__ctc_only" if sep_enc else "") + ("__trafo_lm" if add_trafo_lm else "") + "_24_05_22"
 
         ckpt_path = models[model_name]["ckpt"].ckpt_path
 
@@ -647,16 +647,16 @@ def import_models():
 
 
 if __name__ == "__main__":
-    # import_models()
+    import_models()
     # convert_lm(
     #     _ted2_lm_ckpt_filename,
     #     "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/trafo_lm_only_24_02_05",
     #     1057,
     # )
-    convert_mini_att_ilm(
-        ckpt_path_prior="/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.yB4JK4GDCxWG/output/model/average",
-        ckpt_path_mini_att="/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/GetBestTFCheckpointJob.70hGEsLQ6ynw/output/model/checkpoint",
-        model_in_dim=256,
-        model_target_dim=1057,
-        out_dir="/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/mini_att_ilm_24_04_21",
-    )
+    # convert_mini_att_ilm(
+    #     ckpt_path_prior="/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.yB4JK4GDCxWG/output/model/average",
+    #     ckpt_path_mini_att="/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/GetBestTFCheckpointJob.70hGEsLQ6ynw/output/model/checkpoint",
+    #     model_in_dim=256,
+    #     model_target_dim=1057,
+    #     out_dir="/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/mini_att_ilm_24_04_21",
+    # )
