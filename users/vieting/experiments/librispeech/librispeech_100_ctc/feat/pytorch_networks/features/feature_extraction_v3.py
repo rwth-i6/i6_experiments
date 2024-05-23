@@ -52,6 +52,7 @@ class SupervisedConvolutionalFeatureExtractionV3Config(FeatureExtractionConfig):
     size_env: int
     stride_env: int
     specaug_config: SpecaugConfig
+    specaug_start_epoch: int
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -78,6 +79,7 @@ class SupervisedConvolutionalFeatureExtractionV3(nn.Module):
         self.conv_env = nn.Conv2d(1, cfg.num_env, (1, cfg.size_env), stride=(1, cfg.stride_env), bias=False)
         self.normalization_env = nn.LayerNorm(cfg.num_tf * cfg.num_env)
         self.specaug_config = cfg.specaug_config
+        self.specaug_start_epoch = cfg.specaug_start_epoch
 
     def forward(self, raw_audio: torch.Tensor, length: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -101,19 +103,25 @@ class SupervisedConvolutionalFeatureExtractionV3(nn.Module):
         feature_data = feature_data.transpose(1, 2)  # [B,T'',F]
         feature_data = self.normalization_env(feature_data)
 
-        filter_idcs_tf = self.get_sorted_filter_indices()
-        num_env = self.conv_env.out_channels
-        filter_idcs_env = torch.stack([filter_idcs_tf * num_env + filter_idx for filter_idx in range(num_env)])
-        feature_data_masked = specaugment_v1_by_length(
-            feature_data,
-            time_min_num_masks=2,
-            time_max_mask_per_n_frames=self.specaug_config.repeat_per_n_frames,
-            time_mask_max_size=self.specaug_config.max_dim_time,
-            freq_min_num_masks=2,
-            freq_mask_max_size=self.specaug_config.max_dim_feat,
-            freq_max_num_masks=self.specaug_config.num_repeat_feat,
-            sorted_indices=filter_idcs_env.T.flatten(),
-        )
+        from returnn.torch.context import get_run_ctx
+        run_ctx = get_run_ctx()
+
+        if self.training and run_ctx.epoch >= self.specaug_start_epoch:
+            filter_idcs_tf = self.get_sorted_filter_indices()
+            num_env = self.conv_env.out_channels
+            filter_idcs_env = torch.stack([filter_idcs_tf * num_env + filter_idx for filter_idx in range(num_env)])
+            feature_data_masked = specaugment_v1_by_length(
+                feature_data,
+                time_min_num_masks=2,
+                time_max_mask_per_n_frames=self.specaug_config.repeat_per_n_frames,
+                time_mask_max_size=self.specaug_config.max_dim_time,
+                freq_min_num_masks=2,
+                freq_mask_max_size=self.specaug_config.max_dim_feat,
+                freq_max_num_masks=self.specaug_config.num_repeat_feat,
+                sorted_indices=filter_idcs_env.T.flatten(),
+            )
+        else:
+            feature_data_masked = feature_data
 
         length = ((length - self.conv_tf.kernel_size[-1]) / self.conv_tf.stride[-1] + 1).int()
         length = ((length - self.conv_env.kernel_size[-1]) / self.conv_env.stride[-1] + 1).int()
