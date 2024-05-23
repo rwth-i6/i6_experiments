@@ -514,7 +514,10 @@ def eow_phon_ls100_1023_base():
         ("v5_init", [(10, 50, 50)]),
         ("v6_init", [(10, 150, 50)]),
         ("v7_init", [(10, 150, 50), (5, 50, 5)]),
-        ("v8_init", [(1, 80, 1)]),
+        # ("v8_init", [(1, 80, 1)]),
+        ("v9_init", [(4, 50, 50)]),
+        ("v10_init", [(2, 50, 50)]),
+        ("v11_init", [(1, 50, 50)]),
     ]:
         network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_feat_v1"
         model_config.feature_extraction_config.convs = convs
