@@ -90,8 +90,12 @@ def eow_phon_ls100_ctc_base(model_conf_w2v: Optional[dict] = None, train_conf_w2
                     decoder_module="decoder.flashlight_ctc_v1",
                     decoder_args={"config": asdict(decoder_config)},
                     test_dataset_tuples=dev_dataset_tuples,
+                    use_gpu=False,
                     **default_returnn,
                 )
+                for job in search_jobs:
+                    job.rqmt["mem"] = 16
+
                 tune_parameters.append((lm_weight, prior_scale))
                 tune_values_clean.append((wers[search_name + "/dev-clean"]))
                 tune_values_other.append((wers[search_name + "/dev-other"]))
