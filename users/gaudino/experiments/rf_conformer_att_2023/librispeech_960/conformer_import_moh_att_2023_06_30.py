@@ -799,6 +799,7 @@ class Model(rf.Module):
         self.mel_normalization = model_args.get("mel_normalization", False)
         self.no_ctc = model_args.get("no_ctc", False)
         self.enc_layer_w_ctc = model_args.get("enc_layer_w_ctc", None)
+        self.s_use_zoneout_output = model_args.get("s_use_zoneout_output", True)
 
         self.encoder = ConformerEncoder(
             in_dim,
@@ -887,7 +888,8 @@ class Model(rf.Module):
             Dim(name="lstm", dimension=1024),
             zoneout_factor_cell=0.15,
             zoneout_factor_output=0.05,
-            use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
+            use_zoneout_output=self.s_use_zoneout_output,  # like RETURNN/TF ZoneoutLSTM old default
+            # use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default # this was a bug
             # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
             # parts_order="ifco",
             parts_order="jifo",  # NativeLSTM (the code above converts it...)

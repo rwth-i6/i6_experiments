@@ -54,7 +54,8 @@ class MiniAtt_ILM_Model(rf.Module):
             self.prior_dim,
             zoneout_factor_cell=0.15,
             zoneout_factor_output=0.05,
-            use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
+            # use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
+            use_zoneout_output=True,
             # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
             # parts_order="ifco",
             parts_order="jifo",  # NativeLSTM (the code above converts it...)
