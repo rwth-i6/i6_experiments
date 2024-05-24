@@ -32,22 +32,12 @@ class ModelConfig:
 
         FairseqConfig is needed to instantiate a FairseqModel.
         """
-        fairseq_model_config = self._build_model_config()
-        fairseq_task_config = self._build_task_config()
-        fairseq_conf = FairseqConfig()
-        setattr(fairseq_conf, 'model', fairseq_model_config)
-        setattr(fairseq_conf, 'task', fairseq_task_config)
+        fairseq_model_config = self._update_config(Wav2Vec2CtcConfig(), self.model_config_updates)
+        fairseq_task_config = self._update_config(AudioFinetuningConfig(), self.task_config_updates)
+        fairseq_conf = FairseqConfig(model=fairseq_model_config, task=fairseq_task_config)
 
         # convert to OmegaConf to resolve interpolations in the default config fields
         return OmegaConf.structured(fairseq_conf)
-
-    def _build_model_config(self) -> Wav2Vec2CtcConfig:
-        model_cfg = Wav2Vec2CtcConfig()
-        return self._update_config(model_cfg, self.model_config_updates)
-
-    def _build_task_config(self) -> AudioFinetuningConfig:
-        task_cfg = AudioFinetuningConfig()
-        return self._update_config(task_cfg, self.task_config_updates)
 
     def _update_config(self, cfg, update_dict):
         for k, v in update_dict.items():
