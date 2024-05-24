@@ -36,21 +36,29 @@ class Model(torch.nn.Module):
 
     def forward(
         self, 
-        source,
-        padding_mask,
-        corpus_key=None
+        raw_audio,
+        raw_audio_len,
+        **kwargs
     ):
         """
         Args:
-            source: [B, T'] tensor (B: batch size, T': raw audio length)
-            padding_mask: [B, T'] tensor
+            raw_audio: [B, T', 1] tensor (B: batch size, T': raw audio length)
+            raw_audio_len: [B] tensor
             corpus_key: str
         Returns:
-            logprobs: [T, B, C] tensor (C: vocab size, T: audio feature length)
+            logprobs: [B, T, C] tensor (C: vocab size, T: audio feature length)
             input_lengths: [B] tensor
         """
+        raw_audio = raw_audio.squeeze(2) # [B, T']
+        try:
+            padding_mask = (raw_audio_len.unsqueeze(1) - torch.arange(raw_audio.size(1), device=raw_audio.device)) <= 0
+        except IndexError:
+            print("raw_audio_len", raw_audio_len.size())
+            print("raw_audio", raw_audio.size())
+            raise
+
         # get model output
-        res = self.w2v_model(source=source, padding_mask=padding_mask, corpus_key=corpus_key)
+        res = self.w2v_model(source=raw_audio, padding_mask=padding_mask, **kwargs)
         model_out = res["encoder_out"] # [T, B, C]
         padding_mask = res["padding_mask"] # [T, B]
         logprobs = self.w2v_model.get_normalized_probs(res, log_probs=True).contiguous() # [T, B, C]
@@ -63,28 +71,26 @@ class Model(torch.nn.Module):
             input_lengths = model_out.new_full(
                     (logprobs.size(1),), logprobs.size(0), dtype=torch.long
                 )
+
+        # make logprobs [B, T, C]
+        logprobs = logprobs.transpose(0, 1)
+
         return logprobs, input_lengths
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):
-    raw_audio = data["raw_audio"].squeeze(2)  # [B, T']
+    raw_audio = data["raw_audio"]  # [B, T', 1]
     raw_audio_len = data["raw_audio:size1"].to("cuda")  # [B] #TODO: check if this is correct
     labels = data["labels"]  # [B, N] (sparse)
     labels_len = data["labels:size1"]  # [B]
 
-    try:
-        padding_mask = (raw_audio_len.unsqueeze(1) - torch.arange(raw_audio.size(1), device=raw_audio.device)) <= 0
-    except IndexError:
-        print("raw_audio_len", raw_audio_len.size())
-        print("raw_audio", raw_audio.size())
-        raise
-
     log_probs, input_lengths = model(
-        source=raw_audio,
-        padding_mask=padding_mask,
-    ) # [T, B, C], [B]
+        raw_audio=raw_audio,
+        raw_audio_len=raw_audio_len,
+    ) # [B, T, C], [B]
 
+    transposed_log_probs = torch.permute(log_probs, (1, 0, 2))  # [T, B, C]
     ctc_loss = nn.functional.ctc_loss(
-        log_probs,
+        transposed_log_probs,
         labels,
         input_lengths=input_lengths,
         target_lengths=labels_len,
@@ -121,7 +127,7 @@ def prior_step(*, model: Model, data, run_ctx, **kwargs):
     logprobs, audio_features_len = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
-    )
+    ) # [B, T, C], [B]
 
     probs = torch.exp(logprobs)
     run_ctx.sum_frames = run_ctx.sum_frames + torch.sum(audio_features_len)
