@@ -1267,7 +1267,40 @@ def conformer_baseline():
                                         partition_epoch=4,
                                     )
 
+                                    if ctc_scale == 0.3:
+                                        args_ = copy.deepcopy(args)
+                                        args_["with_pretrain"] = False
+                                        specaug_steps = {"step0": 10_000, "step1": 15_000, "step2": 20_000}
+                                        args_["specaug_str_func_opts"] = {
+                                            "version": 2,
+                                            **specaug_steps,
+                                            "max_time_num": 100,
+                                            "max_time_dim": 20,
+                                            "min_num_add_factor": 0,
+                                            "freq_dim_factor": 5,
+                                        }
+                                        run_exp(
+                                            exp_name + "_woPretrain",
+                                            args_,
+                                            num_epochs=ep,
+                                            epoch_wise_filter=[(1, 2, 400), (3, 4, 800)],
+                                            bpe_size=BPE_1K,
+                                            partition_epoch=4,
+                                        )
+                                        args_["encoder_args"].with_ctc = False
+                                        run_exp(
+                                            exp_name + "_woPretrain_noCTC",
+                                            args_,
+                                            num_epochs=ep,
+                                            epoch_wise_filter=[(1, 2, 400), (3, 4, 800)],
+                                            bpe_size=BPE_1K,
+                                            partition_epoch=4,
+                                        )
+
     # TODO: multi-gpu
+    # base_bpe1000_peakLR0.0016_ep200_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_gradClipNorm5.0_paramSync_step100_accum1_ctcScale0.3_gpu4
+    # 8.66    7.97  avg
+
     for num_blocks in [12]:
         for ep in [50 * 4]:
             for lr in [8e-4, 13e-4, 16e-4]:
