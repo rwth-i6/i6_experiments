@@ -24,7 +24,7 @@ from sisyphus import gs, tk
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 num_outputs = 79
-num_subepochs = 500
+num_subepochs = 1000
 
 tools = copy.deepcopy(default_tools_v2)
 tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard")
@@ -61,10 +61,11 @@ def returnn_config_generator(
         optimizer=Optimizers.AdamW,
         schedule=LearningRateSchedules.OCLR,
         initial_lr=1e-06,
-        peak_lr=8e-05,
+        peak_lr=kwargs.get("peak_lr", 8e-05),
         decayed_lr=1e-05,
         final_lr=1e-08,
-        batch_size=10000 * 160,
+        batch_size=15000 * 160,
+        accum_grad=2,
         use_chunking=False,
         extra_config=extra_config,
     )
@@ -173,6 +174,7 @@ def run_exp() -> SummaryReport:
         label_scorer_type="onnx-ffnn-transducer",
         label_scorer_args={"extra_args": {"start_label_index": 0}},
         reduction_subtrahend=3,
+        # reduction_subtrahend=0,
         reduction_factor=4,
         feature_type=FeatureType.LOGMEL_16K,
     )
@@ -206,13 +208,15 @@ def run_exp() -> SummaryReport:
 
     # ********** Returnn Configs **********
 
-    system.add_experiment_configs(
-        "Conformer_Transducer",
-        get_returnn_config_collection(
-            data.train_data_config,
-            data.cv_data_config,
-        ),
-    )
+    for peak_lr in [8e-06, 1e-05, 4e-05, 8e-05]:
+        system.add_experiment_configs(
+            f"Conformer_Transducer_lr-{peak_lr}",
+            get_returnn_config_collection(
+                data.train_data_config,
+                data.cv_data_config,
+                peak_lr=peak_lr,
+            ),
+        )
 
     system.run_train_step(**train_args)
 

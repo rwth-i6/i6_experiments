@@ -322,17 +322,18 @@ def get_default_config_v3(num_outputs: int) -> ConformerCTCConfig:
             sample_rate=16000,
             win_size=0.025,
             hop_size=0.01,
-            min_amp=1e-10,
+            min_amp=1.175494e-38,
             num_filters=80,
+            alpha=0.97,
         ),
     )
     specaugment = ModuleFactoryV1(
         module_class=SpecaugmentByLengthModuleV1,
         cfg=SpecaugmentByLengthConfigV1(
-            time_min_num_masks=2,
+            time_min_num_masks=1,
             time_max_mask_per_n_frames=25,
             time_mask_max_size=20,
-            freq_min_num_masks=2,
+            freq_min_num_masks=1,
             freq_max_num_masks=16,
             freq_mask_max_size=5,
         ),

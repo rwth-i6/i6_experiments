@@ -133,7 +133,7 @@ def run_exp() -> SummaryReport:
 
     train_args = exp_args.get_transducer_train_step_args(num_epochs=num_subepochs, gpu_mem_rqmt=24)
     recog_args = {
-        "epochs": [20, 40, 80, 160, 320, 500],
+        "epochs": [500],
         "prior_scales": [0.0],
         "lm_scales": [0.0],
         "lexicon_type": LexiconType.BLISS,

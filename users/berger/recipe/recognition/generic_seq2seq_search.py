@@ -1,17 +1,13 @@
 __all__ = ["GenericSeq2SeqLmImageAndGlobalCacheJob", "GenericSeq2SeqSearchJob"]
 
-from typing import List, Optional, Tuple
 from sisyphus import *
 
-assert __package__ is not None
 Path = setup_path(__package__)
 
 import shutil
 import copy
 
 from i6_core import rasr, util
-from i6_core.lm.lm_image import CreateLmImageJob
-from i6_experiments.users.berger.recipe.rasr.label_tree_and_scorer import LabelTree, LabelScorer
 
 
 class GenericSeq2SeqLmImageAndGlobalCacheJob(rasr.RasrCommand, Job):
@@ -88,15 +84,13 @@ class GenericSeq2SeqLmImageAndGlobalCacheJob(rasr.RasrCommand, Job):
         lookahead_lm_config = config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm
         if separate_lookahead_lm:
             if lookahead_lm_config.type == "ARPA" and lookahead_lm_config._get("image") is None:
-                pass
-                # result.append(lookahead_lm_config)
+                result.append(lookahead_lm_config)
         # recombination lm #
         separate_recombination_lm = config.flf_lattice_tool.network.recognizer.recognizer.separate_recombination_lm
         recombination_lm_config = config.flf_lattice_tool.network.recognizer.recognizer.recombination_lm
         if separate_recombination_lm:
             if recombination_lm_config.type == "ARPA" and recombination_lm_config._get("image") is None:
-                pass
-        #         result.append(recombination_lm_config)
+                result.append(recombination_lm_config)
         return result
 
     @classmethod
@@ -174,8 +168,8 @@ class GenericSeq2SeqLmImageAndGlobalCacheJob(rasr.RasrCommand, Job):
 
         # lm images #
         arpa_lms = cls.find_arpa_lms(config)
-        for i, lm_config in enumerate(arpa_lms, start=1):
-            lm_config.image = f"lm-{i}.image"
+        for i, lm_config in enumerate(arpa_lms):
+            lm_config.image = "lm-%d.image" % (i + 1)
 
         # global cache #
         config.flf_lattice_tool.global_cache.file = "global.cache"
@@ -191,171 +185,42 @@ class GenericSeq2SeqLmImageAndGlobalCacheJob(rasr.RasrCommand, Job):
         return super().hash({"config": config, "exe": sprint_exe})
 
 
-class BuildGenericSeq2SeqGlobalCacheJob(rasr.RasrCommand, Job):
-    """
-    Standalone job to create the global-cache for generic-seq2seq-tree-search
-    """
-
-    def __init__(
-        self,
-        crp: rasr.CommonRasrParameters,
-        label_tree: LabelTree,
-        label_scorer: LabelScorer,
-        extra_config: Optional[rasr.RasrConfig] = None,
-        extra_post_config: Optional[rasr.RasrConfig] = None,
-    ):
-        """
-        :param crp: common RASR params (required: lexicon, acoustic_model, language_model, recognizer)
-        :param label_tree: label tree object for structuring the search tree
-        :param label_scorer: label scorer object for score computation
-        :param extra_config: overlay config that influences the Job's hash
-        :param extra_post_config: overlay config that does not influences the Job's hash
-        """
-        self.set_vis_name("Build Global Cache")
-
-        (self.config, self.post_config,) = BuildGenericSeq2SeqGlobalCacheJob.create_config(
-            crp=crp,
-            label_tree=label_tree,
-            label_scorer=label_scorer,
-            extra_config=extra_config,
-            extra_post_config=extra_post_config,
-        )
-
-        self.exe = self.select_exe(crp.speech_recognizer_exe, "speech-recognizer")
-
-        self.out_log_file = self.log_file_output_path("build_global_cache", crp, False)
-        self.out_global_cache = self.output_path("global.cache", cached=True)
-
-        self.rqmt = {"time": 1, "cpu": 1, "mem": 2}
-
-    def tasks(self):
-        yield Task("create_files", mini_task=True)
-        yield Task("run", resume="run", rqmt=self.rqmt)
-
-    def create_files(self):
-        self.write_config(self.config, self.post_config, "build_global_cache.config")
-        self.write_run_script(self.exe, "build_global_cache.config")
-
-    def run(self):
-        self.run_script(1, self.out_log_file)
-        shutil.move("global.cache", self.out_global_cache.get_path())
-
-    @classmethod
-    def create_config(
-        cls,
-        crp: rasr.CommonRasrParameters,
-        label_tree: LabelTree,
-        label_scorer: LabelScorer,
-        extra_config: Optional[rasr.RasrConfig],
-        extra_post_config: Optional[rasr.RasrConfig],
-    ):
-        config, post_config = rasr.build_config_from_mapping(
-            crp,
-            {
-                "lexicon": "speech-recognizer.model-combination.lexicon",
-                "acoustic_model": "speech-recognizer.model-combination.acoustic-model",
-                "language_model": "speech-recognizer.model-combination.lm",
-                "recognizer": "speech-recognizer.recognizer",
-            },
-        )
-
-        # Apply config from label tree
-        label_tree.apply_config(
-            "speech-recognizer.recognizer.label-tree",
-            config,
-            post_config,
-        )
-
-        # Optional lexicon overwrite
-        if label_tree.lexicon_config is not None:
-            config["speech-recognizer.model-combination.lexicon"]._update(label_tree.lexicon_config)
-
-        # Apply config from label scorer and eliminate unnecessary arguments that don't affect the search space (scale, prior)
-        label_scorer_reduced = LabelScorer(
-            scorer_type=label_scorer.scorer_type,
-            scale=1.0,
-            label_file=label_scorer.label_file,
-            num_classes=label_scorer.num_classes,
-            use_prior=False,
-            extra_args=label_scorer.extra_args,
-        )
-
-        label_scorer_reduced.apply_config("speech-recognizer.recognizer.label-scorer", config, post_config)
-
-        # skip conventional AM or load it without GMM #
-        if crp.acoustic_model_config is None:
-            config.speech_recognizer.recognizer.use_acoustic_model = False
-        else:
-            config.speech_recognizer.recognizer.use_mixture = False
-            if config.flf_lattice_tool.network.recognizer.acoustic_model._get("length") is not None:
-                del config.flf_lattice_tool.network.recognizer.acoustic_model["length"]
-
-        # disable scaling
-        if config.flf_lattice_tool.network.recognizer.lm._get("scale") is not None:
-            del config.flf_lattice_tool.network.recognizer.lm["scale"]
-
-        config.speech_recognizer.recognition_mode = "init-only"
-        config.speech_recognizer.search_type = "generic-seq2seq-tree-search"
-        config.speech_recognizer.global_cache.file = "global.cache"
-        config.speech_recognizer.global_cache.read_only = False
-
-        config._update(extra_config)
-        post_config._update(extra_post_config)
-
-        return config, post_config
-
-    @classmethod
-    def hash(cls, kwargs):
-        config, _ = cls.create_config(**kwargs)
-        return super().hash({"config": config, "exe": kwargs["crp"].speech_recognizer_exe})
-
-
 class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
     __sis_hash_exclude__ = {"num_threads": None}
 
     def __init__(
         self,
-        crp: rasr.CommonRasrParameters,
-        feature_flow: rasr.FlowNetwork,
-        label_tree: LabelTree,
-        label_scorer: LabelScorer,
-        rasr_exe: Optional[tk.Path] = None,
-        search_parameters: Optional[dict] = None,
-        lm_lookahead: bool = True,
-        lookahead_options: Optional[dict] = None,
-        eval_single_best: bool = True,
-        eval_best_in_lattice: bool = True,
-        use_gpu: bool = False,
-        global_cache: Optional[tk.Path] = None,
-        rtf: float = 2,
-        mem: float = 8,
-        extra_config: Optional[rasr.RasrConfig] = None,
-        extra_post_config: Optional[rasr.RasrConfig] = None,
-        num_threads: int = 2,
-    ):
+        crp,
+        feature_flow,
+        label_tree,
+        label_scorer,
+        search_parameters=None,
+        lm_lookahead=True,
+        lookahead_options=None,
+        eval_single_best=True,
+        eval_best_in_lattice=True,
+        use_gpu=False,
+        rtf=2,
+        mem=8,
+        hard_rqmt=False,
+        extra_config=None,
+        extra_post_config=None,
+        sprint_exe=None,  # allow separat executable than default settings
+        lm_gc_job=None,
+        lm_gc_job_local=False,
+        lm_gc_job_mem=16,
+        lm_gc_job_default_search=False,
+        num_threads=None,
+    ):  # TODO set this to true later
         self.set_vis_name("Generic Seq2Seq Search")
+        kwargs = locals()
+        del kwargs["self"]
 
-        self.config, self.post_config = GenericSeq2SeqSearchJob.create_config(
-            crp=crp,
-            feature_flow=feature_flow,
-            label_tree=label_tree,
-            label_scorer=label_scorer,
-            search_parameters=search_parameters,
-            lm_lookahead=lm_lookahead,
-            lookahead_options=lookahead_options,
-            eval_single_best=eval_single_best,
-            eval_best_in_lattice=eval_best_in_lattice,
-            extra_config=extra_config,
-            extra_post_config=extra_post_config,
-            global_cache=global_cache,
-        )
+        self.config, self.post_config = GenericSeq2SeqSearchJob.create_config(**kwargs)
         self.feature_flow = feature_flow
-        if rasr_exe is not None:
-            self.rasr_exe = rasr_exe
-        else:
-            self.rasr_exe = crp.flf_tool_exe
-        assert self.rasr_exe is not None
-        
+        if sprint_exe is None:
+            sprint_exe = crp.flf_tool_exe
+        self.exe = self.select_exe(sprint_exe, "flf-tool")
         self.concurrent = crp.concurrent
         self.use_gpu = use_gpu
         self.num_threads = num_threads
@@ -372,15 +237,21 @@ class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
         )
 
         self.rqmt = {
-            "time": max(crp.corpus_duration * rtf / crp.concurrent, 24),
-            "cpu": num_threads,
+            "time": max(crp.corpus_duration * rtf / crp.concurrent, 4.5),
+            "cpu": 2,
             "gpu": 1 if self.use_gpu else 0,
             "mem": mem,
         }
+        # no automatic resume with doubled rqmt
+        self.hard_rqmt = hard_rqmt
 
     def tasks(self):
         yield Task("create_files", mini_task=True)
-        yield Task("run", resume="run", rqmt=self.rqmt, args=range(1, self.concurrent + 1))
+        if self.hard_rqmt:  # TODO
+            resume = None
+        else:
+            resume = "run"
+        yield Task("run", resume=resume, rqmt=self.rqmt, args=range(1, self.concurrent + 1))
 
     def create_files(self):
         self.write_config(self.config, self.post_config, "recognition.config")
@@ -390,10 +261,16 @@ class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
         # sometimes crash without this
         if not self.use_gpu:
             extra_code += "\nexport CUDA_VISIBLE_DEVICES="
+        if self.num_threads is None:
+            extra_code += "\nexport OMP_NUM_THREADS=%i" % self.rqmt["cpu"]
+        else:
+            extra_code += f"\nexport OMP_NUM_THREADS={self.num_threads}"
+            extra_code += f"\nexport MKL_NUM_THREADS={self.num_threads}"
+        self.write_run_script(self.exe, "recognition.config", extra_code=extra_code)
 
-        extra_code += f"\nexport OMP_NUM_THREADS={self.num_threads}"
-        extra_code += f"\nexport MKL_NUM_THREADS={self.num_threads}"
-        self.write_run_script(self.rasr_exe, "recognition.config", extra_code=extra_code)
+    # TODO maybe not needed
+    def stop_run(self, task_id):
+        print("run job %d exceeds specified rqmt and stoped" % task_id)
 
     def run(self, task_id):
         self.run_script(task_id, self.out_log_file[task_id])
@@ -402,50 +279,45 @@ class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
             self.out_single_lattice_caches[task_id].get_path(),
         )
 
-    @classmethod
-    def find_arpa_lms(
-        cls, lm_config: rasr.RasrConfig, lm_post_config: Optional[rasr.RasrConfig] = None
-    ) -> List[Tuple[rasr.RasrConfig, Optional[rasr.RasrConfig]]]:
-        result = []
-
-        if lm_config.type == "ARPA":
-            result.append((lm_config, lm_post_config))
-        elif lm_config.type == "combine":
-            for i in range(1, lm_config.num_lms + 1):
-                sub_lm_config = lm_config["lm-%d" % i]
-                sub_lm_post_config = lm_post_config["lm-%d" % i] if lm_post_config is not None else None
-                result += cls.find_arpa_lms(sub_lm_config, sub_lm_post_config)
-
-        return result
-
-    @classmethod
-    def find_arpa_lms_without_image(
-        cls, lm_config: rasr.RasrConfig, lm_post_config: Optional[rasr.RasrConfig] = None
-    ) -> List[Tuple[rasr.RasrConfig, Optional[rasr.RasrConfig]]]:
-        def has_image(c, pc):
-            res = c._get("image") is not None
-            res = res or (pc is not None and pc._get("image") is not None)
-            return res
-
-        return [(c, pc) for c, pc in cls.find_arpa_lms(lm_config, lm_post_config) if not has_image(c, pc)]
+    def cleanup_before_run(self, cmd, retry, task_id, *args):
+        util.backup_if_exists("recognition.log.%d" % task_id)
+        util.delete_if_exists("lattice.cache.%d" % task_id)
 
     @classmethod
     def create_config(
         cls,
-        crp: rasr.CommonRasrParameters,
-        feature_flow: rasr.FlowNetwork,
-        label_tree: LabelTree,
-        label_scorer: LabelScorer,
-        search_parameters: Optional[dict] = None,
-        lm_lookahead: bool = True,
-        lookahead_options: Optional[dict] = None,
-        eval_single_best: bool = True,
-        eval_best_in_lattice: bool = True,
-        extra_config: Optional[rasr.RasrConfig] = None,
-        extra_post_config: Optional[rasr.RasrConfig] = None,
-        global_cache: Optional[tk.Path] = None,
-        **_,
+        crp,
+        feature_flow,
+        label_tree,
+        label_scorer,
+        search_parameters=None,
+        lm_lookahead=True,
+        lookahead_options=None,
+        eval_single_best=True,
+        eval_best_in_lattice=True,
+        extra_config=None,
+        extra_post_config=None,
+        sprint_exe=None,
+        lm_gc_job=None,
+        lm_gc_job_local=True,
+        lm_gc_job_mem=6,
+        lm_gc_job_default_search=False,
+        **kwargs,
     ):
+        # optional individual lm-image and global-cache job #
+        if lm_gc_job is None:
+            lm_gc_job = GenericSeq2SeqLmImageAndGlobalCacheJob(
+                crp,
+                label_tree,
+                label_scorer,
+                extra_config,
+                extra_post_config,
+                mem=lm_gc_job_mem,
+                local_job=lm_gc_job_local,
+                sprint_exe=sprint_exe,
+                default_search=lm_gc_job_default_search,
+            )
+
         # get config from csp #
         config, post_config = rasr.build_config_from_mapping(
             crp,
@@ -459,8 +331,8 @@ class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
             parallelize=True,
         )
 
-        # acoustic model maybe used for allophones and state-tying, but no mixture is needed
-        # skip conventional AM or load it without GMM
+        # acoustic model maybe used for allophones and state-tying, but no mixture is needed #
+        # skip conventional AM or load it without GMM #
         if crp.acoustic_model_config is None:
             config.flf_lattice_tool.network.recognizer.use_acoustic_model = False
         else:
@@ -470,17 +342,14 @@ class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
         config.flf_lattice_tool.network.recognizer.feature_extraction.file = "feature.flow"
         if feature_flow.outputs != {"features"}:
             assert len(feature_flow.outputs) == 1, "not implemented otherwise"
-            config.flf_lattice_tool.network.recognizer.feature_extraction.main_port_name = next(
-                iter(feature_flow.outputs)
-            )
-
+            config.flf_lattice_tool.network.recognizer.feature_extraction.main_port_name = list(feature_flow.outputs)[0]
         feature_flow.apply_config(
             "flf-lattice-tool.network.recognizer.feature-extraction",
             config,
             post_config,
         )
 
-        # label tree and optional lexicon overwrite
+        # label tree and optional lexicon overwrite #
         label_tree.apply_config(
             "flf-lattice-tool.network.recognizer.recognizer.label-tree",
             config,
@@ -489,15 +358,14 @@ class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
         if label_tree.lexicon_config is not None:
             config["flf-lattice-tool.lexicon"]._update(label_tree.lexicon_config)
 
-        # label scorer
+        # label scorer #
         label_scorer.apply_config("flf-lattice-tool.network.recognizer.label-scorer", config, post_config)
 
         # search settings #
         search_config = rasr.RasrConfig()
         if search_parameters is not None:
-            for key, val in search_parameters.items():
-                search_config[key.replace("_", "-")] = val
-
+            for key in search_parameters.keys():
+                search_config[key] = search_parameters[key]
         config.flf_lattice_tool.network.recognizer.recognizer._update(search_config)
 
         # lookahead settings #
@@ -509,23 +377,26 @@ class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
         if lookahead_options is not None:
             la_opts.update(lookahead_options)
 
-        config.flf_lattice_tool.network.recognizer.recognizer.optimize_lattice = True
-
-        la_config = rasr.RasrConfig()
-        la_config._value = lm_lookahead
-
+        config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead = rasr.RasrConfig()
+        config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead._value = lm_lookahead
         if "laziness" in la_opts:
             config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead_laziness = la_opts["laziness"]
-
+        config.flf_lattice_tool.network.recognizer.recognizer.optimize_lattice = True
         if lm_lookahead:
             if "history_limit" in la_opts:
-                la_config.history_limit = la_opts["history_limit"]
+                config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.history_limit = la_opts[
+                    "history_limit"
+                ]
             if "tree_cutoff" in la_opts:
-                la_config.tree_cutoff = la_opts["tree_cutoff"]
+                config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.tree_cutoff = la_opts["tree_cutoff"]
             if "minimum_representation" in la_opts:
-                la_config.minimum_representation = la_opts["minimum_representation"]
+                config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.minimum_representation = la_opts[
+                    "minimum_representation"
+                ]
             if "lm_lookahead_scale" in la_opts:
-                la_config.lm_lookahead_scale = la_opts["lm_lookahead_scale"]
+                config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.lm_lookahead_scale = la_opts[
+                    "lm_lookahead_scale"
+                ]
             if "cache_low" in la_opts:
                 post_config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.cache_size_low = la_opts[
                     "cache_low"
@@ -534,8 +405,6 @@ class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
                 post_config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.cache_size_high = la_opts[
                     "cache_high"
                 ]
-
-        config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead = la_config
 
         # flf network #
         config.flf_lattice_tool.network.initial_nodes = "segment"
@@ -574,46 +443,32 @@ class GenericSeq2SeqSearchJob(rasr.RasrCommand, Job):
         post_config.flf_lattice_tool.network.sink.error_on_empty_lattice = False
         post_config["*"].output_channel.unbuffered = True
 
-        # image and cache #
-        no_image_arpa_lms = GenericSeq2SeqSearchJob.find_arpa_lms_without_image(
-            lm_config=config.flf_lattice_tool.network.recognizer.lm
-        )
-        if config.flf_lattice_tool.network.recognizer.recognizer._get("lookahead-lm") is not None:
-            no_image_arpa_lms += GenericSeq2SeqSearchJob.find_arpa_lms_without_image(
-                lm_config=config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm
-            )
-
-        for lm_config, lm_post_config in no_image_arpa_lms:
-            rp = rasr.CommonRasrParameters(base=crp)
-            rp.language_model_config = lm_config
-            rp.language_model_post_config = lm_post_config
-            lm_config.image = CreateLmImageJob(crp=rp, mem=8).out_image
-
-        if global_cache is None:
-            global_cache = BuildGenericSeq2SeqGlobalCacheJob(
-                crp=crp, label_tree=label_tree, label_scorer=label_scorer
-            ).out_global_cache
-
-        post_config.flf_lattice_tool.global_cache.read_only = True
-        post_config.flf_lattice_tool.global_cache.file = global_cache
-
         # update parameters #
         config._update(extra_config)
         post_config._update(extra_post_config)
-            
+
+        # image and cache #
+        arpa_lms = GenericSeq2SeqLmImageAndGlobalCacheJob.find_arpa_lms(config)
+        assert len(arpa_lms) == lm_gc_job.num_images, "mismatch between image-cache config and recognition config"
+        for i, lm_config in enumerate(arpa_lms):
+            lm_config.image = lm_gc_job.lm_images[i + 1]
+
+        if post_config.flf_lattice_tool.global_cache._get("file") is None:
+            post_config.flf_lattice_tool.global_cache.read_only = True
+            post_config.flf_lattice_tool.global_cache.file = lm_gc_job.global_cache
+
         return config, post_config
 
     @classmethod
     def hash(cls, kwargs):
-        config, _ = cls.create_config(**kwargs)
-        if kwargs["rasr_exe"] is not None:
-            rasr_exe = kwargs["rasr_exe"]
-        else:
-            rasr_exe = kwargs["crp"].flf_tool_exe
+        config, post_config = cls.create_config(**kwargs)
+        sprint_exe = kwargs["sprint_exe"]
+        if sprint_exe is None:
+            sprint_exe = kwargs["crp"].flf_tool_exe
         return super().hash(
             {
                 "config": config,
                 "feature_flow": kwargs["feature_flow"],
-                "exe": rasr_exe,
+                "exe": sprint_exe,
             }
         )

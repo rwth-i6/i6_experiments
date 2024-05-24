@@ -3,7 +3,6 @@ from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.dataclasses import SummaryKey
 from sisyphus import tk, gs
 
-from .config_01b_conformer_ctc_logmel import py as py_01b
 from .config_01_conformer_ctc import py as py_01
 
 from .config_04a_conformer_transducer_bpe import py as py_04a
@@ -21,6 +20,8 @@ def main() -> SummaryReport:
             "FeatureExtractionJob",
             "GenericSeq2SeqSearchJob",
             "GenericSeq2SeqLmImageAndGlobalCacheJob",
+            "CreateLmImageJob",
+            "BuildGenericSeq2SeqGlobalCacheJob",
             "LatticeToCtmJob",
             "OptimizeAMandLMScaleJob",
             "AlignmentJob",
@@ -87,7 +88,6 @@ def main() -> SummaryReport:
 
     for subreport in [
         copy.deepcopy(py_01()),
-        copy.deepcopy(py_01b()),
         copy.deepcopy(py_04a()),
         copy.deepcopy(py_04a_rasr()),
         copy.deepcopy(py_04b()),
