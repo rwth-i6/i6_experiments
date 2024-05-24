@@ -2,7 +2,7 @@ import copy
 import math
 from dataclasses import asdict
 import numpy as np
-from typing import cast, List
+from typing import cast, List, Optional
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 from ...data.common import DatasetSettings, build_test_dataset
@@ -12,7 +12,7 @@ from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search, ASRModel
 
 
-def eow_phon_ls100_ctc_base():
+def eow_phon_ls100_ctc_base(model_conf_w2v: Optional[dict] = None, train_conf_w2v: Optional[dict] = None):
     prefix_name = "example_setups/ctc_eow_phon"
 
     train_settings = DatasetSettings(
@@ -130,29 +130,34 @@ def eow_phon_ls100_ctc_base():
     init_lr_scale = 0.01
     final_lr_scale = 0.05
     lr = 3e-5
-    train_config_wav2vec_base_100h = {
-        "optimizer": {"class": "adam", "betas": [0.9, 0.98], "eps": 1e-8, "weight_decay": 0.0, },
-        "learning_rates": list(np.linspace(lr * init_lr_scale, lr, int(math.ceil(num_epochs * 0.1))))
-        + list(np.linspace(lr, lr, int(math.ceil(num_epochs * 0.4))))
-        + list(np.geomspace(lr, final_lr_scale * lr, int(math.ceil(num_epochs * 0.5)))), # tri-stage lr schedule 
-        # (see: https://github.com/facebookresearch/fairseq/blob/main/fairseq/optim/lr_scheduler/tri_stage_lr_scheduler.py)
-        "batch_size": 1920 * 16000 / 8, # batch size: 1920s, 16000 samples per second, accum_grad 8
-        "accum_grad_multiple_step": 8,
-    }
+    if train_conf_w2v is None:
+        # default train config
+        train_conf_w2v = {
+            "optimizer": {"class": "adam", "betas": [0.9, 0.98], "eps": 1e-8, "weight_decay": 0.0, },
+            "learning_rates": list(np.linspace(lr * init_lr_scale, lr, int(math.ceil(num_epochs * 0.1))))
+            + list(np.linspace(lr, lr, int(math.ceil(num_epochs * 0.4))))
+            + list(np.geomspace(lr, final_lr_scale * lr, int(math.ceil(num_epochs * 0.5)))), # tri-stage lr schedule, see:
+            # https://github.com/facebookresearch/fairseq/blob/main/fairseq/optim/lr_scheduler/tri_stage_lr_scheduler.py
+            "batch_size": 1920 * 16000 / 8, # batch size: 1920s, 16000 samples per second, accum_grad 8
+            "accum_grad_multiple_step": 8,
+            "gradient_clip": 1
+        }
 
     # see: https://github.com/facebookresearch/fairseq/blob/main/examples/wav2vec/config/finetuning/base_100h.yaml
-    model_conf_w2v = {
-        "_name": "wav2vec_ctc",
-        "w2v_path": "/u/andreas.pletschko/fairseq/models/wav2vec_small.pt",
-        "apply_mask": True,
-        "mask_prob": 0.65,
-        "mask_channel_prob": 0.5,
-        "mask_channel_length": 64,
-        "layerdrop": 0.1,
-        "activation_dropout": 0.1,
-        "feature_grad_mult": 0.0,
-        "freeze_finetune_updates": 10000 # was 0 in fairseq config 
-    }
+    if model_conf_w2v is None:
+        # default model config
+        model_conf_w2v = {
+            "_name": "wav2vec_ctc",
+            "w2v_path": "/u/andreas.pletschko/fairseq/models/wav2vec_small.pt",
+            "apply_mask": True,
+            "mask_prob": 0.65,
+            "mask_channel_prob": 0.5,
+            "mask_channel_length": 64,
+            "layerdrop": 0.1,
+            "activation_dropout": 0.1,
+            "feature_grad_mult": 0.0,
+            "freeze_finetune_updates": 10000 # was 0 in fairseq config 
+        }
     task_conf_w2v = {
         "_name": "audio_finetuning",
         "normalize": False,
@@ -167,7 +172,8 @@ def eow_phon_ls100_ctc_base():
 
     network_module_w2v = "wav2vec.w2v_ctc_wrapper"
     train_args_w2v = {
-        "config": train_config_wav2vec_base_100h,
+        # default train config
+        "config": train_conf_w2v,
         "network_module": network_module_w2v,
         "net_args": {"w2v_config_updates": asdict(net_args_w2v)},
         "debug": False,
