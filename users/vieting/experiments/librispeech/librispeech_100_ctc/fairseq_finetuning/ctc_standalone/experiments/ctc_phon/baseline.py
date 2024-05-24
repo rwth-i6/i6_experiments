@@ -154,9 +154,9 @@ def eow_phon_ls100_ctc_base(
             "gradient_clip": 1
         }
 
-    # see: https://github.com/facebookresearch/fairseq/blob/main/examples/wav2vec/config/finetuning/base_100h.yaml
     if model_conf_w2v is None:
         # default model config
+        # see: https://github.com/facebookresearch/fairseq/blob/main/examples/wav2vec/config/finetuning/base_100h.yaml
         model_conf_w2v = {
             "_name": "wav2vec_ctc",
             "w2v_path": "/u/andreas.pletschko/fairseq/models/wav2vec_small.pt",
