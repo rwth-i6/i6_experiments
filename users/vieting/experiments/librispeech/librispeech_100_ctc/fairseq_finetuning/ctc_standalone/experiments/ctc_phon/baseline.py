@@ -12,8 +12,15 @@ from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search, ASRModel
 
 
-def eow_phon_ls100_ctc_base(model_conf_w2v: Optional[dict] = None, train_conf_w2v: Optional[dict] = None):
-    prefix_name = "example_setups/ctc_eow_phon"
+def eow_phon_ls100_ctc_base(
+    model_conf_w2v: Optional[dict] = None,
+    train_conf_w2v: Optional[dict] = None,
+    train_name_suffix: Optional[str] = None,
+    ):
+    if train_name_suffix is None:
+        prefix_name = "ctc_eow_phon"
+    else:
+        prefix_name = "ctc_eow_phon" + "/" + train_name_suffix
 
     train_settings = DatasetSettings(
         preemphasis=0.97,  # TODO: Check if this is really useful
