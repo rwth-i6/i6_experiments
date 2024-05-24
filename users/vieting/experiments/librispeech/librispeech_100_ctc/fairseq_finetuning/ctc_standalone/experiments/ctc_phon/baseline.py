@@ -199,10 +199,3 @@ def eow_phon_ls100_ctc_base(
     tune_and_evaluate_helper(
         training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]
     )
-
-    # No improvement, just as example
-    # asr_model_best4 = prepare_asr_model(
-    #     training_name+ "/best4", train_job, train_args, with_prior=True, datasets=train_data, get_best_averaged_checkpoint=(4, "dev_loss_ctc")
-    # )
-    # tune_and_evaluate_helper(training_name + "/best4", asr_model_best4, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4])
-
