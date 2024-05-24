@@ -157,7 +157,7 @@ def get_forward_config(
     # changeing these does change the hash
     base_config = {
         "batch_size": 1000 * 16000,
-        "max_seqs": 240,
+        "max_seqs": 1,
     }
     config = {**base_config, **copy.deepcopy(config)}
     post_config["backend"] = "torch"
