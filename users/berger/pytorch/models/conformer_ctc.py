@@ -77,6 +77,7 @@ def get_train_serializer(
         model_config=model_config,
         additional_serializer_objects=[
             Import(f"{pytorch_package}.train_steps.ctc.train_step"),
+            Import("torch.nn.modules.activation.ReLU"),
         ],
     )
 

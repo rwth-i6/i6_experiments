@@ -226,7 +226,12 @@ def build_config_constructor_serializers(
                     unhashed_package_root=unhashed_package_root,
                 )
             )
-            call_kwargs.append((key.name, str(value)))
+
+            if str(value) == "LayerNormNC((512,), eps=1e-05, elementwise_affine=True)":
+                # TODO CHANGES NOTE!!
+                call_kwargs.append((key.name, "LayerNormNC(512)"))
+            else:
+                call_kwargs.append((key.name, str(value)))
         elif isfunction(value):
             # Example:
             # ConformerConvolutionConfig(activation=torch.nn.functional.silu)

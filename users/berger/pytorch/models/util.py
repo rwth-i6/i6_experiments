@@ -3,7 +3,7 @@ import torch
 
 def lengths_to_padding_mask(lengths: torch.Tensor) -> torch.Tensor:
     """
-    Convert lengths to an equivalent boolean mask
+    Convert lengths to a pytorch MHSA compatible key mask
 
     :param lengths: [B]
     :return: B x T, where 1 means within sequence and 0 means outside sequence
