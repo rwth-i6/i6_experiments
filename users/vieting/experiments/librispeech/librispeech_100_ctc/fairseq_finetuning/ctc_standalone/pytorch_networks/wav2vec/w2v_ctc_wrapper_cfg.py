@@ -17,7 +17,7 @@ class ModelConfig:
     Args:
         model_config_updates (dict): Updates to the Wav2Vec2CtcConfig
             (see fairseq.models.wav2vec.wav2vec2_asr.Wav2Vec2CtcConfig)
-        task_config_updates: dict: Updates to the AudioFinetuningConfig
+        task_config_updates (dict): Updates to the AudioFinetuningConfig
             (see fairseq.tasks.audio_finetuning.AudioFinetuningConfig)
         label_target_size: int: Size of the target dictionary.
     """
@@ -25,7 +25,7 @@ class ModelConfig:
     task_config_updates: dict = dataclasses.field(default_factory=dict)
     label_target_size: int = 0
 
-    def build_full_config(self) -> FairseqConfig:
+    def build_fairseq_config(self) -> FairseqConfig:
         """
         Build a full FairseqConfig object from the model and task configurations updates.
         Non-specified fields will be filled with the default values.

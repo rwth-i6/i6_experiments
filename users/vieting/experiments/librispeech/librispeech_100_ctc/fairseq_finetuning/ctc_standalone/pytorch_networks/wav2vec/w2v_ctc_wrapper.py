@@ -16,7 +16,7 @@ class Model(torch.nn.Module):
         """
         super().__init__()
         self.model_config = ModelConfig.from_dict(w2v_config_updates)
-        self.fairseq_config = self.model_config.build_full_config()
+        self.fairseq_config = self.model_config.build_fairseq_config()
         self.num_update = 0
         dummy_task = self.model_config.build_dummy_task() # dummy task to build the model
         self.w2v_model = Wav2VecCtc.build_model(self.fairseq_config.model, task=dummy_task) 
